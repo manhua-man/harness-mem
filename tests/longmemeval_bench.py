@@ -167,7 +167,8 @@ class BenchVerbatimStore:
         conn.close()
 
     def add(self, obs_id: str, session_id: str, raw_content: str, timestamp: str):
-        blob_path = os.path.join(self.blob_dir, f"{obs_id}.json")
+        # Store blob keyed by session_id so hybrid_search can find it
+        blob_path = os.path.join(self.blob_dir, f"{session_id}.json")
         with open(blob_path, "w", encoding="utf-8") as f:
             json.dump({"id": obs_id, "session_id": session_id, "raw_content": raw_content, "timestamp": timestamp}, f)
 
@@ -184,6 +185,12 @@ class BenchVerbatimStore:
             finally:
                 conn.close()
 
+    def _tokenize(self, text: str) -> list[str]:
+        """Split query into tokens, filter out FTS5 stop words."""
+        cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", text)
+        tokens = cleaned.split()
+        return [t for t in tokens if t.lower() not in STOP_WORDS]
+
     def _make_fts_query(self, query: str) -> str:
         """Convert a natural-language query to an FTS5 query string.
 
@@ -196,35 +203,44 @@ class BenchVerbatimStore:
         return " ".join(tokens)
 
     def search(self, query: str, limit: int = 20) -> list[tuple[str, str, float]]:
-        """Search and return (id, session_id, rank) triples, ranked by FTS."""
+        """Search using individual non-stop-word tokens, aggregate by session.
+
+        FTS5 stop words cause queries like 'what did I' to return nothing.
+        Instead, search each non-stop-word token separately and merge results.
+        """
+        tokens = self._tokenize(query)
+        if not tokens:
+            return []
+
         with self._lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             try:
-                fts_query = self._make_fts_query(query)
-                cursor = conn.execute(f"""
-                    SELECT o.id, o.session_id, o.raw_content,
-                           bm25(obs_fts) as score
-                    FROM obs_fts f
-                    JOIN obs_index o ON f.rowid = o.rowid
-                    WHERE obs_fts MATCH ?
-                    ORDER BY score
-                    LIMIT ?
-                """, (fts_query, limit * 3))
-                rows = cursor.fetchall()
+                # Search each token individually and collect all hits
+                session_scores: dict[str, float] = {}
+                for token in tokens:
+                    cursor = conn.execute(f"""
+                        SELECT o.id, o.session_id, o.raw_content,
+                               bm25(obs_fts) as score
+                        FROM obs_fts f
+                        JOIN obs_index o ON f.rowid = o.rowid
+                        WHERE obs_fts MATCH ?
+                        ORDER BY score
+                        LIMIT ?
+                    """, (token, limit * 3))
+                    rows = cursor.fetchall()
+                    for row in rows:
+                        obs_id, session_id, content, score = row
+                        if session_id not in session_scores:
+                            session_scores[session_id] = score
+                        # Keep best (lowest/most negative = best BM25) score
+                        if score < session_scores[session_id]:
+                            session_scores[session_id] = score
             finally:
                 conn.close()
 
-        # Deduplicate by session_id, keep order
-        seen = set()
-        results = []
-        for row in rows:
-            obs_id, session_id, content, score = row
-            if session_id not in seen:
-                seen.add(session_id)
-                results.append((session_id, score))
-            if len(results) >= limit:
-                break
-        return results
+        # Sort by score (lower BM25 = better) and dedupe
+        sorted_sessions = sorted(session_scores.items(), key=lambda x: x[1])
+        return [(sid, score) for sid, score in sorted_sessions[:limit]]
 
     def hybrid_search(self, query: str, limit: int = 20,
                       query_date: str | None = None,
@@ -233,7 +249,7 @@ class BenchVerbatimStore:
         # Step 1: get raw FTS results (more candidates)
         raw = self.search(query, limit=limit * 3)
         if not raw:
-            return [(sid, 0.0) for sid, _ in raw]
+            return []
 
         # Parse query features
         names = _person_names(query)
@@ -242,13 +258,11 @@ class BenchVerbatimStore:
         quoted = _quoted_phrases(query)
 
         scored = []
-        for i, (session_id, fts_score) in enumerate(raw):
-            # Normalize FTS score (lower BM25 = better, invert for boosting)
-            # BM25 is negative, higher = better for fusion
-            norm = 1.0 / (1.0 + abs(fts_score))
+        for session_id, fts_score in raw:
+            # BM25 is negative; better matches have more negative scores.
+            # Convert to positive: higher fused = better match.
+            bm25_pos = abs(fts_score)
 
-            # Keyword overlap boost
-            # Need raw content for boosting — fetch from blob
             blob_path = os.path.join(self.blob_dir, f"{session_id}.json")
             content = ""
             if os.path.exists(blob_path):
@@ -256,17 +270,17 @@ class BenchVerbatimStore:
                     content = json.load(f).get("raw_content", "")
 
             pred_overlap = _kw_overlap(predicate_kws, content)
-            fused = norm * (1.0 - 0.50 * pred_overlap)
-
             q_boost = _quoted_boost(quoted, content)
-            if q_boost > 0:
-                fused *= 1.0 - 0.60 * q_boost
-
             n_boost = _name_boost(names, content)
-            if n_boost > 0:
-                fused *= 1.0 - 0.20 * n_boost
 
-            # Temporal boost (date proximity)
+            # Additive boost: BM25 base + keyword/person/quote/temporal signals
+            # Multipliers in [0,1] subtracted from bm25_pos to reward better matches.
+            fused = bm25_pos
+            fused -= 0.30 * pred_overlap        # keyword overlap reward
+            fused -= 0.40 * q_boost             # quoted phrase reward
+            fused -= 0.15 * n_boost             # person name reward
+
+            # Temporal proximity reward (within 30 days)
             if corpus_dates and query_date and session_id in corpus_dates:
                 sess_date = corpus_dates.get(session_id, "")
                 if sess_date and query_date:
@@ -275,7 +289,7 @@ class BenchVerbatimStore:
                         sd = datetime.fromisoformat(sess_date.replace("Z", "+00:00"))
                         days_diff = abs((qd - sd).days)
                         if days_diff <= 30:
-                            fused *= 1.0 - 0.30 * (1.0 - days_diff / 30.0)
+                            fused -= 0.20 * (1.0 - days_diff / 30.0)
                     except (ValueError, TypeError):
                         pass
 

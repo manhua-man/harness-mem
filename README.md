@@ -92,6 +92,16 @@ Storage
 
 ---
 
+## 路线定位
+
+V1 的定位是先建立一个本地优先、可解释、可落盘的 memory baseline：JSON blobs + SQLite FTS5 + structured memory，优先跑通 ingest、wake-up、search、learning loop、task resume 这条主链路。
+
+V2 的目标不是把 harness-mem 描述成“已经在检索指标上超过 MemPalace”，而是把它扩展成一个更完整的 agent memory runtime：在保留 local-first 底座的前提下，增加 hybrid retrieval（BM25/FTS + vector + graph）、更强的 reranking、可写结构化记忆、纠正学习闭环，以及跨客户端的任务续接能力。
+
+换句话说，V2 要追求的是**产品能力面比 MemPalace 更完整**；至于检索指标是否超过 MemPalace，应以同 benchmark、同设置下的实测结果为准，而不是提前宣称。
+
+---
+
 ## CLI 命令
 
 | 命令 | 说明 |
