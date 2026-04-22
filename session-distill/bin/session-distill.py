@@ -16,6 +16,9 @@ KNOWLEDGE_FILE = DISTILL_DIR / "knowledge-base.md"
 PACKETS_DIR = DISTILL_DIR / "packets"
 DISTILLED_DIR = DISTILL_DIR / "distilled" / "sessions"
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
+# PRD sync configuration
+PRD_DISTILLED_DIR = Path.home() / ".claude" / "session-distill" / "prd-distilled"
+PRD_DECISION_LOG = Path.home() / ".claude" / "session-distill" / "prd-decision-log-candidate.md"
 DEFAULT_RUN_NEXT = 3
 DEFAULT_LIST_MIN_SIZE_KB = 100
 
@@ -421,6 +424,147 @@ def cmd_mark(session_id, status):
     return 0
 
 
+def cmd_prd_sync(project_path, dry_run=True):
+    """Generate PRD sync candidates from bundled packets"""
+    print("==> PRD Sync: Generating candidates from bundled packets")
+    print(f"    Dry-run: {dry_run}")
+    print("")
+
+    manifest = load_manifest()
+    bundled = [s for s in manifest["sessions"] if s["status"] == "bundled"]
+
+    if not bundled:
+        print("  No bundled packets found. Run 'session-distill run' first.")
+        return
+
+    # Scan bundled packets for PRD-related content
+    prd_keywords = [
+        "prd", "roadmap", "launch", "v1", "feature", "architecture",
+        "decision", "milestone", "scope", "requirement", "product"
+    ]
+
+    candidates = []
+    for session in bundled:
+        if not session.get("bundle_path"):
+            continue
+        bundle_path = Path(session["bundle_path"])
+        if not bundle_path.exists():
+            continue
+
+        content = bundle_path.read_text(encoding="utf-8").lower()
+        if any(kw in content for kw in prd_keywords):
+            candidates.append(session)
+
+    if not candidates:
+        print("  No PRD-related packets found.")
+        return
+
+    print(f"  Found {len(candidates)} PRD-related packet(s):")
+    for session in candidates:
+        print(f"    - {session['session_id']}")
+
+    print("")
+    print("  Generating candidates...")
+
+    # Generate distilled candidate
+    today = datetime.now().strftime("%Y-%m-%d")
+    distilled_path = PRD_DISTILLED_DIR / f"{today}-prd-sync-candidate.md"
+    PRD_DISTILLED_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Extract PRD-relevant turns from packets
+    lines = [
+        f"# PRD Sync Candidate — {today}",
+        "",
+        "## Source Packets",
+        "",
+    ]
+
+    for session in candidates:
+        lines.append(f"- `{session['session_id']}`")
+
+    lines.extend([
+        "",
+        "## Detected Topics",
+        "",
+        "*(Auto-detected from packet content)*",
+        "",
+    ])
+
+    # Simple keyword extraction
+    detected = set()
+    for session in candidates:
+        if session.get("bundle_path"):
+            content = Path(session["bundle_path"]).read_text(encoding="utf-8")
+            for kw in prd_keywords:
+                if kw in content.lower():
+                    detected.add(kw)
+    for kw in sorted(detected):
+        lines.append(f"- {kw}")
+
+    lines.extend([
+        "",
+        "## Suggested Decision Records",
+        "",
+        "*(Placeholder — fill in after review)*",
+        "",
+        "```markdown",
+        "## YYYY-MM-DD — <topic>",
+        "- **status**: pending",
+        "- **decision**: <summary>",
+        "- **source**: <doc>",
+        "- **rationale**: <distilled-path>",
+        "```",
+        "",
+        "## Next Steps",
+        "",
+        "1. Review this candidate",
+        "2. Fill in decision records",
+        "3. Run: session-distill prd-sync --apply",
+        "",
+    ])
+
+    distilled_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"  -> Generated: {distilled_path}")
+
+    # Generate decision log candidate
+    decision_lines = [
+        f"# Decision Log Candidate — {today}",
+        "",
+        "```markdown",
+    ]
+
+    for session in candidates:
+        session_id = session["session_id"]
+        decision_lines.extend([
+            f"## {today} — {session_id}",
+            "- **status**: pending",
+            f"- **decision**: (from `{session_id}`)",
+            f"- **source**: {session.get('bundle_path', 'unknown')}",
+            "- **rationale**: <fill in>",
+            "",
+        ])
+
+    decision_lines.extend([
+        "```",
+        "",
+        "## To Apply",
+        "",
+        "Copy the above into `docs/prd/decision-log.md` after review.",
+        "",
+    ])
+
+    decision_path = PRD_DECISION_LOG
+    decision_path.parent.mkdir(parents=True, exist_ok=True)
+    decision_path.write_text("\n".join(decision_lines), encoding="utf-8")
+    print(f"  -> Generated: {decision_path}")
+
+    print("")
+    if dry_run:
+        print("  [DRY-RUN] No files written. Use --apply to confirm.")
+    else:
+        print("  [APPLIED] Candidates written.")
+
+
 def cmd_run(project_path, force=False, next_count=DEFAULT_RUN_NEXT):
     """Run preparation phase"""
     print("==> Session Distiller: Preparation Phase")
@@ -449,11 +593,13 @@ def cmd_run(project_path, force=False, next_count=DEFAULT_RUN_NEXT):
 
 def main():
     parser = argparse.ArgumentParser(description="Claude Code Session Distiller")
-    parser.add_argument("command", nargs="?", choices=["run", "status", "list", "mark", "help"], default="help")
+    parser.add_argument("command", nargs="?", choices=["run", "status", "list", "mark", "prd-sync", "help"], default="help")
     parser.add_argument("--project", help="Project name")
     parser.add_argument("--next", type=int, default=DEFAULT_RUN_NEXT, help="Number of pending sessions to bundle for run")
     parser.add_argument("--size", type=int, default=DEFAULT_LIST_MIN_SIZE_KB, help="Minimum session size in KB for list")
     parser.add_argument("--force", action="store_true", help="Force regeneration")
+    parser.add_argument("--dry-run", action="store_true", default=True, help="Dry-run mode (default)")
+    parser.add_argument("--apply", action="store_true", help="Apply changes instead of dry-run")
     parser.add_argument("args", nargs="*", help="Additional arguments")
 
     args = parser.parse_args()
@@ -486,6 +632,9 @@ def main():
         cmd_status(project_path)
     elif args.command == "list":
         cmd_list(project_path, args.size)
+    elif args.command == "prd-sync":
+        dry_run = not args.apply
+        cmd_prd_sync(project_path, dry_run=dry_run)
 
     return 0
 
