@@ -1,0 +1,294 @@
+"""LocalStructuredStore — JSON + SQLite implementation of StructuredStore."""
+
+from __future__ import annotations
+import json
+import asyncio
+from pathlib import Path
+
+from harness_mem.core.interfaces.structured_store import StructuredStore
+from harness_mem.core.schemas.memory_entry import MemoryEntry
+from harness_mem.core.schemas.task_handoff import TaskHandoff
+from harness_mem.core.schemas.rule_candidate import RuleCandidate
+from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
+from harness_mem.storage.sqlite_index import SQLiteIndex
+
+
+class LocalStructuredStore:
+    """Structured store backed by JSON blobs + SQLite FTS index.
+
+    Each entity type stored as:
+    - JSON blob: data_dir/structured/{type}/{id}.json
+    - SQLite index: data_dir/structured_index.sqlite
+    """
+
+    def __init__(self, data_dir: Path):
+        self.data_dir = Path(data_dir)
+        self.blob_dir = self.data_dir / "structured"
+        self._subdirs = {
+            "memory_entries": self.blob_dir / "memory_entries",
+            "task_handoffs": self.blob_dir / "task_handoffs",
+            "rule_candidates": self.blob_dir / "rule_candidates",
+            "confirmed_rules": self.blob_dir / "confirmed_rules",
+        }
+        for subdir in self._subdirs.values():
+            subdir.mkdir(parents=True, exist_ok=True)
+        self._index = SQLiteIndex(self.data_dir / "structured_index.sqlite")
+        self._index.init_db()
+
+    def _blob_path(self, entity_type: str, id: str) -> Path:
+        return self._subdirs[entity_type] / f"{id}.json"
+
+    # ---- MemoryEntry ----
+
+    async def save_memory_entry(self, entry: MemoryEntry) -> str:
+        blob_path = self._blob_path("memory_entries", entry.id)
+        blob_path.write_text(json.dumps(entry.to_dict(), indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.insert,
+            "memory_entries",
+            {
+                "id": entry.id,
+                "project_name": entry.project_name,
+                "category": entry.category,
+                "content": entry.content,
+                "confidence": entry.confidence,
+                "source": entry.source,
+                "created_at": entry.created_at,
+                "updated_at": entry.updated_at,
+                "tags": entry.tags,
+            },
+        )
+        return entry.id
+
+    async def get_memory_entry(self, id: str) -> MemoryEntry | None:
+        blob_path = self._blob_path("memory_entries", id)
+        if not blob_path.exists():
+            return None
+        data = json.loads(blob_path.read_text())
+        return MemoryEntry.from_dict(data)
+
+    async def list_memory_entries(
+        self,
+        project_name: str,
+        category: str | None = None,
+        limit: int = 100,
+    ) -> list[MemoryEntry]:
+        where_parts = ["project_name = ?"]
+        params = [project_name]
+        if category:
+            where_parts.append("category = ?")
+            params.append(category)
+        where = " AND ".join(where_parts)
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "memory_entries",
+            where,
+            tuple(params),
+            order_by="created_at DESC",
+            limit=limit,
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("memory_entries", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(MemoryEntry.from_dict(data))
+        return results
+
+    async def search_memory_entries(
+        self,
+        query: str,
+        project_name: str | None = None,
+        limit: int = 20,
+    ) -> list[MemoryEntry]:
+        extra_where = "project_name = ?" if project_name else None
+        extra_params = (project_name,) if project_name else ()
+        rows = await asyncio.to_thread(
+            self._index.search,
+            "memory_entries",
+            query,
+            limit,
+            extra_where,
+            extra_params,
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("memory_entries", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(MemoryEntry.from_dict(data))
+        return results
+
+    # ---- TaskHandoff ----
+
+    async def save_task_handoff(self, handoff: TaskHandoff) -> str:
+        blob_path = self._blob_path("task_handoffs", handoff.id)
+        blob_path.write_text(json.dumps(handoff.to_dict(), indent=2, default=str))
+        row = {
+            "id": handoff.id,
+            "project_name": handoff.project_name,
+            "task_id": handoff.task_id,
+            "summary": handoff.summary,
+            "status": handoff.status,
+            "last_activity": handoff.last_activity,
+            "next_steps": handoff.next_steps,
+            "blockers": handoff.blockers,
+            "context": handoff.context,
+            "created_at": handoff.created_at,
+            "updated_at": handoff.updated_at,
+        }
+        exists = await asyncio.to_thread(self._index.get, "task_handoffs", handoff.id)
+        if exists:
+            await asyncio.to_thread(self._index.update, "task_handoffs", handoff.id, row)
+        else:
+            await asyncio.to_thread(self._index.insert, "task_handoffs", row)
+        return handoff.id
+
+    async def get_task_handoff(self, id: str) -> TaskHandoff | None:
+        blob_path = self._blob_path("task_handoffs", id)
+        if not blob_path.exists():
+            return None
+        data = json.loads(blob_path.read_text())
+        return TaskHandoff.from_dict(data)
+
+    async def get_latest_handoffs(
+        self,
+        project_name: str,
+        limit: int = 5,
+    ) -> list[TaskHandoff]:
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "task_handoffs",
+            "project_name = ?",
+            (project_name,),
+            order_by="last_activity DESC",
+            limit=limit,
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("task_handoffs", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(TaskHandoff.from_dict(data))
+        return results
+
+    # ---- RuleCandidate ----
+
+    async def save_rule_candidate(self, candidate: RuleCandidate) -> str:
+        blob_path = self._blob_path("rule_candidates", candidate.id)
+        blob_path.write_text(json.dumps(candidate.to_dict(), indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.insert,
+            "rule_candidates",
+            {
+                "id": candidate.id,
+                "project_name": candidate.project_name,
+                "session_id": candidate.session_id,
+                "pattern": candidate.pattern,
+                "trigger": candidate.trigger,
+                "examples": candidate.examples,
+                "confidence": candidate.confidence,
+                "status": candidate.status,
+                "created_at": candidate.created_at,
+            },
+        )
+        return candidate.id
+
+    async def get_rule_candidate(self, id: str) -> RuleCandidate | None:
+        blob_path = self._blob_path("rule_candidates", id)
+        if not blob_path.exists():
+            return None
+        data = json.loads(blob_path.read_text())
+        return RuleCandidate.from_dict(data)
+
+    async def list_rule_candidates(
+        self,
+        project_name: str,
+        status: str | None = None,
+    ) -> list[RuleCandidate]:
+        where_parts = ["project_name = ?"]
+        params = [project_name]
+        if status:
+            where_parts.append("status = ?")
+            params.append(status)
+        where = " AND ".join(where_parts)
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "rule_candidates",
+            where,
+            tuple(params),
+            order_by="created_at DESC",
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("rule_candidates", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(RuleCandidate.from_dict(data))
+        return results
+
+    async def update_rule_candidate_status(self, id: str, status: str) -> bool:
+        blob_path = self._blob_path("rule_candidates", id)
+        if not blob_path.exists():
+            return False
+
+        updated = await asyncio.to_thread(
+            self._index.update,
+            "rule_candidates",
+            id,
+            {"status": status},
+        )
+        if not updated:
+            return False
+
+        data = json.loads(blob_path.read_text())
+        data["status"] = status
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        return True
+
+    # ---- ConfirmedRule ----
+
+    async def save_confirmed_rule(self, rule: ConfirmedRule) -> str:
+        blob_path = self._blob_path("confirmed_rules", rule.id)
+        blob_path.write_text(json.dumps(rule.to_dict(), indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.insert,
+            "confirmed_rules",
+            {
+                "id": rule.id,
+                "project_name": rule.project_name,
+                "pattern": rule.pattern,
+                "trigger": rule.trigger,
+                "examples": rule.examples,
+                "confirmed_at": rule.confirmed_at,
+                "source_candidate_id": rule.source_candidate_id,
+                "tags": rule.tags,
+            },
+        )
+        return rule.id
+
+    async def get_confirmed_rule(self, id: str) -> ConfirmedRule | None:
+        blob_path = self._blob_path("confirmed_rules", id)
+        if not blob_path.exists():
+            return None
+        data = json.loads(blob_path.read_text())
+        return ConfirmedRule.from_dict(data)
+
+    async def list_confirmed_rules(self, project_name: str) -> list[ConfirmedRule]:
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "confirmed_rules",
+            "project_name = ?",
+            (project_name,),
+            order_by="confirmed_at DESC",
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("confirmed_rules", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(ConfirmedRule.from_dict(data))
+        return results
+
+    def close(self) -> None:
+        self._index.close()
