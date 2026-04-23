@@ -122,6 +122,8 @@ class LocalStructuredStore:
     # ---- TaskHandoff ----
 
     async def save_task_handoff(self, handoff: TaskHandoff) -> str:
+        # Always write blob first — it is the source of truth for get_task_handoff.
+        # Index can be rebuilt from blob if needed, but blob without index is still readable.
         blob_path = self._blob_path("task_handoffs", handoff.id)
         blob_path.write_text(json.dumps(handoff.to_dict(), indent=2, default=str))
         row = {
@@ -137,11 +139,16 @@ class LocalStructuredStore:
             "created_at": handoff.created_at,
             "updated_at": handoff.updated_at,
         }
-        exists = await asyncio.to_thread(self._index.get, "task_handoffs", handoff.id)
-        if exists:
-            await asyncio.to_thread(self._index.update, "task_handoffs", handoff.id, row)
-        else:
-            await asyncio.to_thread(self._index.insert, "task_handoffs", row)
+        try:
+            exists = await asyncio.to_thread(self._index.get, "task_handoffs", handoff.id)
+            if exists:
+                await asyncio.to_thread(self._index.update, "task_handoffs", handoff.id, row)
+            else:
+                await asyncio.to_thread(self._index.insert, "task_handoffs", row)
+        except Exception:
+            # Blob is already persisted; index will be re-synced on next save.
+            # Do not delete or modify the blob — it is the ground truth.
+            raise
         return handoff.id
 
     async def get_task_handoff(self, id: str) -> TaskHandoff | None:

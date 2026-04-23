@@ -178,7 +178,7 @@ class SQLiteIndex:
             ).fetchone()
         if row is None:
             return None
-        return self._row_to_dict(dict(row))
+        return self._row_to_dict(dict(row), table)
 
     def list(
         self,
@@ -199,7 +199,7 @@ class SQLiteIndex:
             rows = conn.execute(
                 sql, (*where_params, limit, offset)
             ).fetchall()
-        return [self._row_to_dict(dict(r)) for r in rows]
+        return [self._row_to_dict(dict(r), table) for r in rows]
 
     def search(
         self,
@@ -234,7 +234,7 @@ class SQLiteIndex:
 
         with self._fts_lock:
             rows = conn.execute(sql, params).fetchall()
-        return [self._row_to_dict(dict(r)) for r in rows]
+        return [self._row_to_dict(dict(r), table) for r in rows]
 
     def update(self, table: str, id: str, data: dict[str, Any]) -> bool:
         """Update a row. Returns True if updated."""
@@ -272,7 +272,7 @@ class SQLiteIndex:
             result = conn.execute(sql, where_params).fetchone()
         return result[0] if result else 0
 
-    def _row_to_dict(self, row: dict) -> dict:
+    def _row_to_dict(self, row: dict, table: str) -> dict:
         """Deserialize JSON fields back to Python objects."""
         json_fields = {
             "observations": ["tags", "metadata"],
@@ -281,16 +281,11 @@ class SQLiteIndex:
             "rule_candidates": ["examples"],
             "confirmed_rules": ["examples", "tags"],
         }
-        table = None
-        for t, cols in json_fields.items():
-            if all(c in row for c in cols):
-                table = t
-                break
-        if table:
-            for col in json_fields[table]:
-                if row.get(col) and isinstance(row[col], str):
-                    try:
-                        row[col] = json.loads(row[col])
-                    except json.JSONDecodeError:
-                        pass
+        fields = json_fields.get(table, [])
+        for col in fields:
+            if row.get(col) and isinstance(row[col], str):
+                try:
+                    row[col] = json.loads(row[col])
+                except json.JSONDecodeError:
+                    pass
         return row

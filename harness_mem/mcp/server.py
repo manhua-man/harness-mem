@@ -44,26 +44,17 @@ logger = logging.getLogger("harness_mem_mcp")
 
 DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
 
-# =============================================================================
-# Tool handlers (all use asyncio.run() since MCP is sync-based)
-# =============================================================================
+# Singleton backend — initialized once per MCP server process lifetime.
+_backend: LocalMemoryBackend | None = None
 
 
-def _run(coro):
-    """Run an async coroutine synchronously via asyncio.run()."""
-    return asyncio.run(coro)
-
-
-async def _get_backend():
-    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
-    await backend.init()
-    return backend
-
-
-def _closed_backend(backend):
-    """Close backend and return it for use in a with-style helper."""
-    # no-op placeholder — close is called explicitly in each tool
-    return backend
+def _get_backend() -> LocalMemoryBackend:
+    global _backend
+    if _backend is None:
+        _backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
+        # Synchronous init via asyncio.run since MCP handlers are sync.
+        asyncio.run(_backend.init())
+    return _backend
 
 
 # =============================================================================
@@ -73,179 +64,158 @@ def _closed_backend(backend):
 
 def tool_search_memory(project_name: str, query: str) -> dict:
     """Search structured memory entries + verbatim observations."""
-    backend = _run(_get_backend())
-    try:
-        entries = _run(
-            backend.structured_store.search_memory_entries(query, project_name, limit=20)
-        )
-        obs_list = _run(backend.verbatim_store.search(query, limit=100))
-        obs_list = [
-            o
-            for o in obs_list
-            if o.metadata.get("project_name") == project_name
-            or project_name in (getattr(o, "session_id", "") or "")
-        ][:20]
+    backend = _get_backend()
+    entries = asyncio.run(
+        backend.structured_store.search_memory_entries(query, project_name, limit=20)
+    )
+    obs_list = asyncio.run(backend.verbatim_store.search(query, limit=100))
+    obs_list = [
+        o
+        for o in obs_list
+        if o.metadata.get("project_name") == project_name
+    ][:20]
 
-        return {
-            "project_name": project_name,
-            "query": query,
-            "memory_entries": [
-                {
-                    "id": e.id,
-                    "category": e.category,
-                    "content": e.content,
-                    "confidence": e.confidence,
-                    "tags": e.tags,
-                }
-                for e in entries
-            ],
-            "observations": [
-                {
-                    "id": o.id,
-                    "session_id": o.session_id,
-                    "content_type": o.content_type,
-                    "preview": o.raw_content[:200].replace("\n", " "),
-                }
-                for o in obs_list
-            ],
-            "memory_entry_count": len(entries),
-            "observation_count": len(obs_list),
-        }
-    finally:
-        _run(backend.close())
+    return {
+        "project_name": project_name,
+        "query": query,
+        "memory_entries": [
+            {
+                "id": e.id,
+                "category": e.category,
+                "content": e.content,
+                "confidence": e.confidence,
+                "tags": e.tags,
+            }
+            for e in entries
+        ],
+        "observations": [
+            {
+                "id": o.id,
+                "session_id": o.session_id,
+                "content_type": o.content_type,
+                "preview": o.raw_content[:200].replace("\n", " "),
+            }
+            for o in obs_list
+        ],
+        "memory_entry_count": len(entries),
+        "observation_count": len(obs_list),
+    }
 
 
 def tool_timeline(project_name: str, limit: int = 50) -> dict:
     """Return chronological observation timeline for a project."""
-    backend = _run(_get_backend())
-    try:
-        obs_list = _run(backend.verbatim_store.timeline(limit=limit * 5))
-        obs_list = [
-            o
-            for o in obs_list
-            if o.metadata.get("project_name") == project_name
-            or project_name in (getattr(o, "session_id", "") or "")
-        ][:limit]
+    backend = _get_backend()
+    obs_list = asyncio.run(backend.verbatim_store.timeline(limit=limit * 5))
+    obs_list = [
+        o
+        for o in obs_list
+        if o.metadata.get("project_name") == project_name
+    ][:limit]
 
-        return {
-            "project_name": project_name,
-            "limit": limit,
-            "observations": [
-                {
-                    "id": o.id,
-                    "session_id": o.session_id,
-                    "client": o.client,
-                    "content_type": o.content_type,
-                    "timestamp": o.timestamp.isoformat() if o.timestamp else None,
-                    "preview": o.raw_content[:150].replace("\n", " "),
-                    "tags": o.tags,
-                }
-                for o in obs_list
-            ],
-            "count": len(obs_list),
-        }
-    finally:
-        _run(backend.close())
+    return {
+        "project_name": project_name,
+        "limit": limit,
+        "observations": [
+            {
+                "id": o.id,
+                "session_id": o.session_id,
+                "client": o.client,
+                "content_type": o.content_type,
+                "timestamp": o.timestamp.isoformat() if o.timestamp else None,
+                "preview": o.raw_content[:150].replace("\n", " "),
+                "tags": o.tags,
+            }
+            for o in obs_list
+        ],
+        "count": len(obs_list),
+    }
 
 
 def tool_get_observations(project_name: str, session_id: str) -> dict:
     """List all observations for a given session."""
-    backend = _run(_get_backend())
-    try:
-        all_obs = _run(backend.verbatim_store.list(limit=10000))
-        session_obs = [
-            o
-            for o in all_obs
-            if o.session_id == session_id
-            and (
-                o.metadata.get("project_name") == project_name
-                or project_name in (getattr(o, "session_id", "") or "")
-            )
-        ]
+    backend = _get_backend()
+    all_obs = asyncio.run(backend.verbatim_store.list(limit=10000))
+    session_obs = [
+        o
+        for o in all_obs
+        if o.session_id == session_id
+        and o.metadata.get("project_name") == project_name
+    ]
 
-        return {
-            "project_name": project_name,
-            "session_id": session_id,
-            "observations": [
-                {
-                    "id": o.id,
-                    "session_id": o.session_id,
-                    "client": o.client,
-                    "content_type": o.content_type,
-                    "timestamp": o.timestamp.isoformat() if o.timestamp else None,
-                    "raw_content": o.raw_content,
-                    "tags": o.tags,
-                    "metadata": o.metadata,
-                }
-                for o in session_obs
-            ],
-            "count": len(session_obs),
-        }
-    finally:
-        _run(backend.close())
+    return {
+        "project_name": project_name,
+        "session_id": session_id,
+        "observations": [
+            {
+                "id": o.id,
+                "session_id": o.session_id,
+                "client": o.client,
+                "content_type": o.content_type,
+                "timestamp": o.timestamp.isoformat() if o.timestamp else None,
+                "raw_content": o.raw_content,
+                "tags": o.tags,
+                "metadata": o.metadata,
+            }
+            for o in session_obs
+        ],
+        "count": len(session_obs),
+    }
 
 
 def tool_get_task_handoffs(project_name: str, limit: int = 5) -> dict:
     """Return recent task handoffs for a project."""
-    backend = _run(_get_backend())
-    try:
-        handoffs = _run(
-            backend.structured_store.get_latest_handoffs(project_name, limit=limit)
-        )
-        return {
-            "project_name": project_name,
-            "limit": limit,
-            "handoffs": [
-                {
-                    "id": h.id,
-                    "task_id": h.task_id,
-                    "summary": h.summary,
-                    "status": h.status,
-                    "next_steps": h.next_steps,
-                    "blockers": h.blockers,
-                    "last_activity": h.last_activity.isoformat() if h.last_activity else None,
-                    "created_at": h.created_at.isoformat() if h.created_at else None,
-                    "updated_at": h.updated_at.isoformat() if h.updated_at else None,
-                }
-                for h in handoffs
-            ],
-            "count": len(handoffs),
-        }
-    finally:
-        _run(backend.close())
+    backend = _get_backend()
+    handoffs = asyncio.run(
+        backend.structured_store.get_latest_handoffs(project_name, limit=limit)
+    )
+    return {
+        "project_name": project_name,
+        "limit": limit,
+        "handoffs": [
+            {
+                "id": h.id,
+                "task_id": h.task_id,
+                "summary": h.summary,
+                "status": h.status,
+                "next_steps": h.next_steps,
+                "blockers": h.blockers,
+                "last_activity": h.last_activity.isoformat() if h.last_activity else None,
+                "created_at": h.created_at.isoformat() if h.created_at else None,
+                "updated_at": h.updated_at.isoformat() if h.updated_at else None,
+            }
+            for h in handoffs
+        ],
+        "count": len(handoffs),
+    }
 
 
 def tool_get_confirmed_rules(project_name: str) -> dict:
     """Return all confirmed rules for a project."""
-    backend = _run(_get_backend())
-    try:
-        rules = _run(backend.structured_store.list_confirmed_rules(project_name))
-        return {
-            "project_name": project_name,
-            "rules": [
-                {
-                    "id": r.id,
-                    "pattern": r.pattern,
-                    "trigger": r.trigger,
-                    "examples": r.examples,
-                    "confirmed_at": r.confirmed_at.isoformat() if r.confirmed_at else None,
-                    "tags": r.tags,
-                }
-                for r in rules
-            ],
-            "count": len(rules),
-        }
-    finally:
-        _run(backend.close())
+    backend = _get_backend()
+    rules = asyncio.run(backend.structured_store.list_confirmed_rules(project_name))
+    return {
+        "project_name": project_name,
+        "rules": [
+            {
+                "id": r.id,
+                "pattern": r.pattern,
+                "trigger": r.trigger,
+                "examples": r.examples,
+                "confirmed_at": r.confirmed_at.isoformat() if r.confirmed_at else None,
+                "tags": r.tags,
+            }
+            for r in rules
+        ],
+        "count": len(rules),
+    }
 
 
 def tool_get_project_profile(project_name: str) -> dict:
     """Return the project profile for a project."""
-    store = _run(LocalProjectProfileStore(DEFAULT_DATA_DIR).get(project_name))
+    store = asyncio.run(LocalProjectProfileStore(DEFAULT_DATA_DIR).get(project_name))
     if store is None:
         return {"project_name": project_name, "found": False}
 
-    # Get returns a ProjectProfile object, not a store
     profile = store
     return {
         "found": True,
@@ -272,27 +242,24 @@ def tool_create_rule_candidate(
     from uuid import uuid4
     from harness_mem.core.schemas import RuleCandidate
 
-    backend = _run(_get_backend())
-    try:
-        candidate = RuleCandidate(
-            id=str(uuid4()),
-            project_name=project_name,
-            session_id=session_id,
-            pattern=pattern,
-            trigger=trigger,
-            examples=examples or [],
-            confidence=0.6,
-            status="pending",
-        )
-        saved_id = _run(backend.structured_store.save_rule_candidate(candidate))
-        return {
-            "success": True,
-            "candidate_id": saved_id,
-            "pattern": candidate.pattern,
-            "trigger": candidate.trigger,
-        }
-    finally:
-        _run(backend.close())
+    backend = _get_backend()
+    candidate = RuleCandidate(
+        id=str(uuid4()),
+        project_name=project_name,
+        session_id=session_id,
+        pattern=pattern,
+        trigger=trigger,
+        examples=examples or [],
+        confidence=0.6,
+        status="pending",
+    )
+    saved_id = asyncio.run(backend.structured_store.save_rule_candidate(candidate))
+    return {
+        "success": True,
+        "candidate_id": saved_id,
+        "pattern": candidate.pattern,
+        "trigger": candidate.trigger,
+    }
 
 
 def tool_confirm_rule(rule_id: str) -> dict:
@@ -301,34 +268,31 @@ def tool_confirm_rule(rule_id: str) -> dict:
     from datetime import datetime, timezone
     from harness_mem.core.schemas import ConfirmedRule
 
-    backend = _run(_get_backend())
-    try:
-        candidate = _run(backend.structured_store.get_rule_candidate(rule_id))
-        if not candidate:
-            return {"success": False, "error": f"Candidate not found: {rule_id}"}
-        if candidate.status == "accepted":
-            return {"success": False, "error": f"Candidate already confirmed: {rule_id}"}
+    backend = _get_backend()
+    candidate = asyncio.run(backend.structured_store.get_rule_candidate(rule_id))
+    if not candidate:
+        return {"success": False, "error": f"Candidate not found: {rule_id}"}
+    if candidate.status == "accepted":
+        return {"success": False, "error": f"Candidate already confirmed: {rule_id}"}
 
-        confirmed = ConfirmedRule(
-            id=str(uuid4()),
-            project_name=candidate.project_name,
-            pattern=candidate.pattern,
-            trigger=candidate.trigger,
-            examples=candidate.examples,
-            confirmed_at=datetime.now(timezone.utc),
-            source_candidate_id=candidate.id,
-        )
-        _run(backend.structured_store.save_confirmed_rule(confirmed))
-        _run(backend.structured_store.update_rule_candidate_status(rule_id, "accepted"))
+    confirmed = ConfirmedRule(
+        id=str(uuid4()),
+        project_name=candidate.project_name,
+        pattern=candidate.pattern,
+        trigger=candidate.trigger,
+        examples=candidate.examples,
+        confirmed_at=datetime.now(timezone.utc),
+        source_candidate_id=candidate.id,
+    )
+    asyncio.run(backend.structured_store.save_confirmed_rule(confirmed))
+    asyncio.run(backend.structured_store.update_rule_candidate_status(rule_id, "accepted"))
 
-        return {
-            "success": True,
-            "confirmed_rule_id": confirmed.id,
-            "pattern": confirmed.pattern,
-            "trigger": confirmed.trigger,
-        }
-    finally:
-        _run(backend.close())
+    return {
+        "success": True,
+        "confirmed_rule_id": confirmed.id,
+        "pattern": confirmed.pattern,
+        "trigger": confirmed.trigger,
+    }
 
 
 # =============================================================================

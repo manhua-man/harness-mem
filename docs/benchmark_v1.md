@@ -1,5 +1,7 @@
 # harness-mem V1 Benchmark Report
 
+> 这份文档是 V1 阶段的 retrieval baseline 报告。`harness-mem` 的完整 benchmark 体系定义见 `docs/benchmark_system.md`。
+
 ## 背景
 
 V1 里程碑完成之际，在 LongMemEval 数据集上对 harness-mem 的检索能力进行了标准化测量。
