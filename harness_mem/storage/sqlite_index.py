@@ -6,6 +6,7 @@ Each entity type gets its own table + FTS virtual table.
 
 from __future__ import annotations
 import json
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -68,6 +69,18 @@ _TABLE_SCHEMAS = {
         tags TEXT NOT NULL DEFAULT '[]'
     """,
 }
+
+_SEARCH_STOP_WORDS = {
+    "what", "when", "where", "who", "how", "which", "did", "do", "does",
+    "was", "were", "have", "has", "had", "is", "are", "the", "a", "an",
+    "my", "me", "i", "you", "your", "their", "it", "its", "in", "on",
+    "at", "to", "for", "of", "with", "by", "from", "ago", "last", "that",
+    "this", "there", "about", "get", "got", "give", "gave", "buy",
+    "bought", "made", "make", "said",
+}
+_RRF_K = 60.0
+_TOKEN_CANDIDATE_MULTIPLIER = 5
+_TOKEN_CANDIDATE_FLOOR = 20
 
 
 class SQLiteIndex:
@@ -209,32 +222,51 @@ class SQLiteIndex:
         extra_where: str | None = None,
         extra_params: tuple = (),
     ) -> list[dict]:
-        """Full-text search using FTS5."""
+        """Full-text search using token-level FTS + reciprocal rank fusion."""
         fts_table = f"{table}_fts"
         conn = self._conn_write()
-
-        # Determine which column to search
-        fts_col = "raw_content" if table == "observations" else (
-            "content" if table == "memory_entries" else
-            "pattern" if table in ("rule_candidates", "confirmed_rules") else
-            "summary"
-        )
+        tokens = self._tokenize_query(query)
+        if not tokens:
+            return []
 
         sql = f"""
-            SELECT {table}.* FROM {table}
+            SELECT {table}.*, bm25({fts_table}) AS _bm25
+            FROM {table}
             JOIN {fts_table} ON {table}.rowid = {fts_table}.rowid
             WHERE {fts_table} MATCH ?
         """
-        params: tuple = (f'"{query}"',)
         if extra_where:
             sql += f" AND {extra_where}"
-            params = (*params, *extra_params)
-        sql += " LIMIT ?"
-        params = (*params, limit)
+        sql += " ORDER BY _bm25 LIMIT ?"
+
+        candidate_limit = max(limit * _TOKEN_CANDIDATE_MULTIPLIER, _TOKEN_CANDIDATE_FLOOR)
+        fused_scores: dict[str, float] = {}
+        best_rank: dict[str, int] = {}
+        rows_by_id: dict[str, dict] = {}
 
         with self._fts_lock:
-            rows = conn.execute(sql, params).fetchall()
-        return [self._row_to_dict(dict(r)) for r in rows]
+            for token in tokens:
+                params: tuple = (self._fts_match_term(token),)
+                if extra_where:
+                    params = (*params, *extra_params)
+                params = (*params, candidate_limit)
+
+                rows = conn.execute(sql, params).fetchall()
+                for rank, row in enumerate(rows, start=1):
+                    row_dict = dict(row)
+                    row_dict.pop("_bm25", None)
+                    row_id = row_dict["id"]
+
+                    fused_scores[row_id] = fused_scores.get(row_id, 0.0) + (1.0 / (_RRF_K + rank))
+                    if row_id not in best_rank or rank < best_rank[row_id]:
+                        best_rank[row_id] = rank
+                        rows_by_id[row_id] = self._row_to_dict(row_dict)
+
+        ranked_ids = sorted(
+            fused_scores,
+            key=lambda row_id: (-fused_scores[row_id], best_rank[row_id], row_id),
+        )
+        return [rows_by_id[row_id] for row_id in ranked_ids[:limit]]
 
     def update(self, table: str, id: str, data: dict[str, Any]) -> bool:
         """Update a row. Returns True if updated."""
@@ -271,6 +303,42 @@ class SQLiteIndex:
         with self._lock:
             result = conn.execute(sql, where_params).fetchone()
         return result[0] if result else 0
+
+    def _tokenize_query(self, query: str) -> list[str]:
+        """Normalize a natural-language query into FTS-friendly tokens."""
+        tokens = re.findall(r"[A-Za-z0-9]+", query)
+        if not tokens:
+            return []
+
+        filtered: list[str] = []
+        seen: set[str] = set()
+        for token in tokens:
+            lowered = token.lower()
+            if lowered in _SEARCH_STOP_WORDS:
+                continue
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            filtered.append(token)
+
+        if filtered:
+            return filtered
+
+        fallback: list[str] = []
+        seen.clear()
+        for token in tokens:
+            lowered = token.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            fallback.append(token)
+        return fallback
+
+    def _fts_match_term(self, token: str) -> str:
+        """Use prefix search for longer tokens to reduce inflection misses."""
+        if len(token) >= 3:
+            return f"{token}*"
+        return token
 
     def _row_to_dict(self, row: dict) -> dict:
         """Deserialize JSON fields back to Python objects."""
