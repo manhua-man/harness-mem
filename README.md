@@ -1,8 +1,11 @@
-# harness-mem
+# harness-mem v1.1.3
 
 Local-first, pluggable AI memory runtime for Claude Code and Codex.
 
-**V1 闭环**: ingest sessions → structured memory → wake-up context → search/timeline → candidate rules → task resume.
+**V1 闭环**: ingest → distill → structured memory → wake-up context → search/timeline → candidate rules → task resume.
+
+Release notes: [v1.0.1](./docs/v1.0.1-release-notes.md)
+Changelog: [CHANGELOG.md](./CHANGELOG.md)
 
 ---
 
@@ -13,54 +16,70 @@ Local-first, pluggable AI memory runtime for Claude Code and Codex.
 ```bash
 cd harness-mem
 pip install -e .
-harness-mem init
+harness-mem quickstart
 ```
 
-### 2. 接入 session
+### 2. 自检环境
 
 ```bash
-harness-mem ingest claude-code --project <project-name> --limit 10
-harness-mem ingest codex --limit 10
+harness-mem doctor
 ```
 
-### 3. 生成唤醒上下文
+`quickstart` 和 `doctor` 会自动发现最近的 Claude Code / Codex sessions，并根据当前阶段直接建议下一步更适合跑 `ingest`、`ds` 还是 `wake`。
+
+### 3. 接入 session
 
 ```bash
-harness-mem wake-up --project <project-name>
+harness-mem use <project-name>
+harness-mem ingest claude-code -n 10
+harness-mem ingest codex -n 10
 ```
 
-### 4. 搜索记忆
+### 4. 生成唤醒上下文
 
 ```bash
-harness-mem search --project <project-name> --query "authentication"
-harness-mem timeline --project <project-name> --limit 20
-harness-mem show --project <project-name> --id <observation-id>
+harness-mem wake
 ```
 
-### 5. 规则学习循环
+### 5. 搜索记忆
 
 ```bash
-# 从纠正中生成候选规则
-harness-mem correct --session-id <id> --project <name> \
-  --pattern "Always validate JWT expiry before API calls" \
-  --trigger "Before any authenticated API call"
+harness-mem search "authentication"
+harness-mem tl 20
+harness-mem show <observation-id>
+```
+
+### 6. 规则学习循环
+
+```bash
+# 交互式输入
+harness-mem correct
+
+# 或者半交互式
+harness-mem correct <id> \
+  -r "Always validate JWT expiry before API calls" \
+  -t "Before any authenticated API call"
 
 # 确认候选规则
-harness-mem confirm-rule --rule-id <candidate-id>
+harness-mem confirm <candidate-id>
 
 # 列出规则
-harness-mem confirmed-rules --project <name>
+harness-mem rules
 ```
 
-### 6. 任务交接
+### 7. 任务交接
 
 ```bash
-harness-mem handoff --project <name> --task-id <id> --summary "Fix auth bug" \
-  --next-step "Check JWT validation logic" \
-  --blocker "Waiting for token samples"
+# 交互式输入
+harness-mem handoff
+
+# 或者短参数模式
+harness-mem handoff -t <id> -s "Fix auth bug" \
+  -n "Check JWT validation logic" \
+  -b "Waiting for token samples"
 ```
 
-### 7. MCP Server (Claude Code 中使用)
+### 8. MCP Server (Claude Code 中使用)
 
 ```bash
 # 安装 MCP server
@@ -107,6 +126,9 @@ V2 的目标不是把 harness-mem 描述成“已经在检索指标上超过 Mem
 | 命令 | 说明 |
 |------|------|
 | `harness-mem init` | 初始化数据目录 |
+| `harness-mem quickstart` | 一步完成初始化、活动项目设置、最近 session 发现与接入引导 |
+| `harness-mem doctor` | 检查本地状态、展示最近 session，并给出最佳下一步建议 |
+| `harness-mem use` | 设置当前活动项目 |
 | `harness-mem ingest [claude-code\|codex]` | 接入 Claude Code 或 Codex sessions |
 | `harness-mem wake-up` | 生成项目唤醒上下文 |
 | `harness-mem search` | 搜索记忆 |
@@ -120,6 +142,28 @@ V2 的目标不是把 harness-mem 描述成“已经在检索指标上超过 Mem
 | `harness-mem list-candidates` | 列出候选规则 |
 | `harness-mem confirmed-rules` | 列出已确认规则 |
 | `harness-mem handoff` | 创建/更新任务交接 |
+
+### 常用短别名
+
+| 简写 | 完整命令 |
+|------|----------|
+| `wake` | `wake-up` |
+| `tl` | `timeline` |
+| `ds` | `distill` |
+| `confirm` | `confirm-rule` |
+| `reject` | `reject-rule` |
+| `rules` | `confirmed-rules` |
+| `candidates` | `list-candidates` |
+| `st` | `status` |
+| `qs` | `quickstart` |
+
+---
+
+## CLI UX Notes
+
+- `quickstart` 会先看最近的 session，再决定帮你走 ingest 还是提示你下一步
+- `doctor` 会根据当前项目里有没有 observations / structured memory，直接建议 `ingest`、`ds` 或 `wake`
+- 这套设计准则收在 [docs/cli-design-expert.md](./docs/cli-design-expert.md)
 
 ---
 
