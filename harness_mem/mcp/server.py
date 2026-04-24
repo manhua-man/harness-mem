@@ -57,6 +57,12 @@ def _get_backend() -> LocalMemoryBackend:
     return _backend
 
 
+def set_backend_override(backend: LocalMemoryBackend | None) -> None:
+    """Override the singleton backend (used by tests to inject tmp_path backend)."""
+    global _backend
+    _backend = backend
+
+
 # =============================================================================
 # READ TOOLS
 # =============================================================================

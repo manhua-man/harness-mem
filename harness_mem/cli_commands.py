@@ -86,6 +86,7 @@ async def cmd_confirm_rule(rule_id: str) -> int:
             examples=candidate.examples,
             confirmed_at=datetime.now(timezone.utc),
             source_candidate_id=candidate.id,
+            source_session_id=candidate.session_id,
         )
 
         await backend.structured_store.save_confirmed_rule(confirmed)
@@ -177,6 +178,8 @@ async def cmd_confirmed_rules(project_name: str) -> int:
             print(f"  Pattern: {r.pattern}")
             print(f"  Trigger: {r.trigger}")
             print(f"  Confirmed: {r.confirmed_at}")
+            if r.source_session_id:
+                print(f"  Source session: {r.source_session_id}")
             if r.examples:
                 print(f"  Examples:")
                 for ex in r.examples[:3]:
