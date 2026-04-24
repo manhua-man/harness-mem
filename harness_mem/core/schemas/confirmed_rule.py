@@ -25,6 +25,10 @@ class ConfirmedRule(BaseModel):
     source_candidate_id: str = Field(
         description="Original rule_candidate id this was promoted from"
     )
+    source_session_id: str = Field(
+        default="",
+        description="Session ID this rule was created from"
+    )
     tags: list[str] = Field(default_factory=list)
 
     model_config = {"extra": "allow"}
@@ -38,6 +42,7 @@ class ConfirmedRule(BaseModel):
             "examples": self.examples,
             "confirmed_at": self.confirmed_at.isoformat(),
             "source_candidate_id": self.source_candidate_id,
+            "source_session_id": self.source_session_id,
             "tags": self.tags,
         }
 

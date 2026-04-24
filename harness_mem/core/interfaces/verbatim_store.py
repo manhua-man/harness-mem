@@ -34,9 +34,10 @@ class VerbatimStore(Protocol):
         self,
         query: str,
         session_id: str | None = None,
+        project_name: str | None = None,
         limit: int = 20,
     ) -> list[Observation]:
-        """Full-text search observations."""
+        """Full-text search observations, optionally filtered by session_id or project_name."""
         ...
 
     async def delete(self, id: str) -> bool:

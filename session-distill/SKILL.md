@@ -44,6 +44,9 @@ Claude Code 的会话文件存储在 `~/.claude/projects/` 目录下，每个项
 session-distill run --next 3
 ```
 
+可选配套 agent：
+- `session-distill/agents/cli-design-expert.yaml`：专门审查 CLI 的最短路径、自动引导和交互式降噪体验
+
 ## 完整工作流程
 
 ### 阶段 1：脚本准备（自动）
@@ -201,6 +204,8 @@ session-distill mark <session-id> distilled
 ---
 
 ## 增量判断标准
+
+> 详细规则见 [references/distillation-rules.md](references/distillation-rules.md) 和 [references/output-layout.md](references/output-layout.md)。
 
 ### 推广到知识库
 
