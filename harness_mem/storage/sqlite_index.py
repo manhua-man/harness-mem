@@ -6,6 +6,7 @@ Each entity type gets its own table + FTS virtual table.
 
 from __future__ import annotations
 import json
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -65,8 +66,23 @@ _TABLE_SCHEMAS = {
         examples TEXT NOT NULL DEFAULT '[]',
         confirmed_at TEXT NOT NULL,
         source_candidate_id TEXT NOT NULL,
+        source_session_id TEXT NOT NULL DEFAULT '',
         tags TEXT NOT NULL DEFAULT '[]'
     """,
+}
+
+_COLUMN_MIGRATIONS = {
+    "confirmed_rules": {
+        "source_session_id": "TEXT NOT NULL DEFAULT ''",
+    },
+}
+
+_STOP_WORDS = {
+    "what", "when", "where", "who", "how", "which", "did", "do", "was", "were",
+    "have", "has", "had", "is", "are", "the", "a", "an", "my", "me", "i", "you",
+    "your", "their", "it", "its", "in", "on", "at", "to", "for", "of", "with",
+    "by", "from", "ago", "last", "that", "this", "there", "about", "get", "got",
+    "give", "gave", "buy", "bought", "made", "make", "said",
 }
 
 
@@ -130,6 +146,7 @@ class SQLiteIndex:
                     VALUES (NEW.rowid, NEW.{fts_col});
                 END
             """)
+            self._ensure_columns(conn, table_name)
         conn.commit()
 
     def _conn_write(self) -> sqlite3.Connection:
@@ -209,32 +226,47 @@ class SQLiteIndex:
         extra_where: str | None = None,
         extra_params: tuple = (),
     ) -> list[dict]:
-        """Full-text search using FTS5."""
+        """Full-text search using tokenized FTS5 queries."""
         fts_table = f"{table}_fts"
         conn = self._conn_write()
+        tokens = self._tokenize_query(query)
+        if not tokens:
+            stripped = query.strip()
+            if not stripped:
+                return []
+            tokens = [self._escape_match_token(stripped)]
 
-        # Determine which column to search
-        fts_col = "raw_content" if table == "observations" else (
-            "content" if table == "memory_entries" else
-            "pattern" if table in ("rule_candidates", "confirmed_rules") else
-            "summary"
-        )
+        candidate_limit = max(limit * 3, 10)
+        scored_rows: dict[str, tuple[float, dict]] = {}
 
         sql = f"""
-            SELECT {table}.* FROM {table}
+            SELECT {table}.*, bm25({fts_table}) AS score FROM {table}
             JOIN {fts_table} ON {table}.rowid = {fts_table}.rowid
             WHERE {fts_table} MATCH ?
         """
-        params: tuple = (f'"{query}"',)
         if extra_where:
             sql += f" AND {extra_where}"
-            params = (*params, *extra_params)
-        sql += " LIMIT ?"
-        params = (*params, limit)
+        sql += " ORDER BY score LIMIT ?"
 
         with self._fts_lock:
-            rows = conn.execute(sql, params).fetchall()
-        return [self._row_to_dict(dict(r), table) for r in rows]
+            for token in tokens:
+                params: tuple = (token,)
+                if extra_where:
+                    params = (*params, *extra_params)
+                params = (*params, candidate_limit)
+                rows = conn.execute(sql, params).fetchall()
+                for row in rows:
+                    row_dict = dict(row)
+                    row_id = row_dict["id"]
+                    score = float(row_dict.pop("score"))
+                    best = scored_rows.get(row_id)
+                    if best is None or score < best[0]:
+                        scored_rows[row_id] = (score, row_dict)
+
+        sorted_rows = [
+            row for _, row in sorted(scored_rows.values(), key=lambda item: item[0])[:limit]
+        ]
+        return [self._row_to_dict(row, table) for row in sorted_rows]
 
     def update(self, table: str, id: str, data: dict[str, Any]) -> bool:
         """Update a row. Returns True if updated."""
@@ -289,3 +321,41 @@ class SQLiteIndex:
                 except json.JSONDecodeError:
                     pass
         return row
+
+    @staticmethod
+    def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        return {row["name"] if isinstance(row, sqlite3.Row) else row[1] for row in rows}
+
+    def _ensure_columns(self, conn: sqlite3.Connection, table: str) -> None:
+        migrations = _COLUMN_MIGRATIONS.get(table, {})
+        if not migrations:
+            return
+
+        existing = self._table_columns(conn, table)
+        for column_name, column_def in migrations.items():
+            if column_name in existing:
+                continue
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column_name} {column_def}")
+
+    @staticmethod
+    def _escape_match_token(token: str) -> str:
+        escaped = token.replace('"', ' ')
+        return " ".join(escaped.split())
+
+    @classmethod
+    def _tokenize_query(cls, query: str) -> list[str]:
+        cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", query)
+        tokens = []
+        seen = set()
+        for raw_token in cleaned.split():
+            token = raw_token.lower()
+            if token in _STOP_WORDS:
+                continue
+            token = cls._escape_match_token(token)
+            if len(token) >= 3:
+                token = f"{token}*"
+            if token not in seen:
+                seen.add(token)
+                tokens.append(token)
+        return [token for token in tokens if token]

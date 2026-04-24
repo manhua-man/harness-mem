@@ -34,9 +34,57 @@ class LocalStructuredStore:
             subdir.mkdir(parents=True, exist_ok=True)
         self._index = SQLiteIndex(self.data_dir / "structured_index.sqlite")
         self._index.init_db()
+        self._backfill_confirmed_rule_source_sessions()
 
     def _blob_path(self, entity_type: str, id: str) -> Path:
         return self._subdirs[entity_type] / f"{id}.json"
+
+    def _backfill_confirmed_rule_source_sessions(self) -> None:
+        """Backfill source_session_id for confirmed rules created before v1.1.1."""
+        confirmed_rules_dir = self._subdirs["confirmed_rules"]
+        rule_candidates_dir = self._subdirs["rule_candidates"]
+
+        for blob_path in confirmed_rules_dir.glob("*.json"):
+            try:
+                data = json.loads(blob_path.read_text())
+            except json.JSONDecodeError:
+                continue
+
+            source_session_id = (data.get("source_session_id") or "").strip()
+            if not source_session_id:
+                source_candidate_id = data.get("source_candidate_id")
+                if not source_candidate_id:
+                    continue
+
+                candidate_blob = rule_candidates_dir / f"{source_candidate_id}.json"
+                if not candidate_blob.exists():
+                    continue
+
+                try:
+                    candidate_data = json.loads(candidate_blob.read_text())
+                except json.JSONDecodeError:
+                    continue
+
+                source_session_id = (candidate_data.get("session_id") or "").strip()
+                if not source_session_id:
+                    continue
+
+                data["source_session_id"] = source_session_id
+                blob_path.write_text(json.dumps(data, indent=2, default=str))
+
+            self._sync_confirmed_rule_source_session(data.get("id", ""), source_session_id)
+
+    def _sync_confirmed_rule_source_session(self, rule_id: str, source_session_id: str) -> None:
+        if not rule_id or not source_session_id:
+            return
+        existing = self._index.get("confirmed_rules", rule_id)
+        if existing is None:
+            return
+        self._index.update(
+            "confirmed_rules",
+            rule_id,
+            {"source_session_id": source_session_id},
+        )
 
     # ---- MemoryEntry ----
 
@@ -269,6 +317,7 @@ class LocalStructuredStore:
                 "examples": rule.examples,
                 "confirmed_at": rule.confirmed_at,
                 "source_candidate_id": rule.source_candidate_id,
+                "source_session_id": rule.source_session_id,
                 "tags": rule.tags,
             },
         )

@@ -83,11 +83,23 @@ class LocalVerbatimStore:
         self,
         query: str,
         session_id: str | None = None,
+        project_name: str | None = None,
         limit: int = 20,
     ) -> list[Observation]:
-        """Full-text search observations."""
-        extra_where = "session_id = ?" if session_id else None
-        extra_params = (session_id,) if session_id else ()
+        """Full-text search observations, optionally filtered by session_id or project_name."""
+        extra_where_parts = []
+        extra_params: tuple = ()
+
+        if session_id:
+            extra_where_parts.append("session_id = ?")
+            extra_params = (*extra_params, session_id)
+
+        if project_name:
+            extra_where_parts.append("metadata LIKE ?")
+            extra_params = (*extra_params, self._project_metadata_pattern(project_name))
+
+        extra_where = " AND ".join(extra_where_parts) if extra_where_parts else None
+
         rows = await asyncio.to_thread(
             self._index.search,
             "observations",
@@ -119,11 +131,14 @@ class LocalVerbatimStore:
         project_name: str | None = None,
         limit: int = 50,
     ) -> list[Observation]:
-        """Timeline — all observations ordered by timestamp."""
-        # project_name filter not applicable at verbatim layer (no project_name field)
+        """Timeline — all observations ordered by timestamp, optionally filtered by project_name."""
+        where = 'metadata LIKE ?' if project_name else None
+        params = (self._project_metadata_pattern(project_name),) if project_name else ()
         rows = await asyncio.to_thread(
             self._index.list,
             "observations",
+            where,
+            params,
             order_by="timestamp DESC",
             limit=limit,
         )
@@ -137,3 +152,7 @@ class LocalVerbatimStore:
 
     def close(self) -> None:
         self._index.close()
+
+    @staticmethod
+    def _project_metadata_pattern(project_name: str) -> str:
+        return f'%"project_name": "{project_name}"%'
