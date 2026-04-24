@@ -38,6 +38,7 @@ class CodexAdapter:
                 sessions.append({
                     "path": session_file,
                     "name": session_file.name,
+                    "session_id": session_file.stem,
                     "size_kb": size_kb,
                     "size": f"{size_kb:.1f}KB",
                     "lines": len(session_file.read_text(encoding="utf-8-sig", errors="replace").splitlines()),
@@ -111,6 +112,7 @@ class CodexAdapter:
         self,
         session_path: Path,
         session_id: str,
+        project_name: str | None = None,
     ) -> Observation:
         """Convert a parsed session to a single Observation."""
         turns = self.parse_jsonl_session(session_path)
@@ -128,6 +130,10 @@ class CodexAdapter:
         if len(raw_content) > 50000:
             raw_content = raw_content[:50000] + "\n\n[TRUNCATED]"
 
+        metadata = {"sessions_dir": str(self.sessions_dir)}
+        if project_name:
+            metadata["project_name"] = project_name
+
         return Observation(
             id=str(uuid4()),
             session_id=session_id,
@@ -137,12 +143,13 @@ class CodexAdapter:
             timestamp=datetime.fromtimestamp(
                 session_path.stat().st_mtime, tz=timezone.utc
             ),
-            metadata={"sessions_dir": str(self.sessions_dir)},
+            metadata=metadata,
             tags=["session", "codex"],
         )
 
     async def ingest(
         self,
+        project_name: str | None = None,
         limit: int = 10,
         min_size_kb: int = 1,
     ) -> dict:
@@ -159,7 +166,7 @@ class CodexAdapter:
         for session in sessions:
             try:
                 session_id = session["name"].replace(".jsonl", "")
-                obs = self.session_to_observation(session["path"], session_id)
+                obs = self.session_to_observation(session["path"], session_id, project_name)
                 await self.backend.verbatim_store.save(obs)
                 ingested += 1
             except Exception:
