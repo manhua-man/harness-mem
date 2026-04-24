@@ -5,6 +5,7 @@ Each entity type gets its own table + FTS virtual table.
 """
 
 from __future__ import annotations
+import builtins
 import json
 import re
 import sqlite3
@@ -21,7 +22,8 @@ _TABLE_SCHEMAS = {
         raw_content TEXT NOT NULL,
         timestamp TEXT NOT NULL,
         tags TEXT NOT NULL DEFAULT '[]',
-        metadata TEXT NOT NULL DEFAULT '{}'
+        metadata TEXT NOT NULL DEFAULT '{}',
+        compacted INTEGER NOT NULL DEFAULT 0
     """,
     "memory_entries": """
         id TEXT PRIMARY KEY,
@@ -32,7 +34,8 @@ _TABLE_SCHEMAS = {
         source TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        tags TEXT NOT NULL DEFAULT '[]'
+        tags TEXT NOT NULL DEFAULT '[]',
+        compacted INTEGER NOT NULL DEFAULT 0
     """,
     "task_handoffs": """
         id TEXT PRIMARY KEY,
@@ -72,6 +75,12 @@ _TABLE_SCHEMAS = {
 }
 
 _COLUMN_MIGRATIONS = {
+    "observations": {
+        "compacted": "INTEGER NOT NULL DEFAULT 0",
+    },
+    "memory_entries": {
+        "compacted": "INTEGER NOT NULL DEFAULT 0",
+    },
     "confirmed_rules": {
         "source_session_id": "TEXT NOT NULL DEFAULT ''",
     },
@@ -179,7 +188,7 @@ class SQLiteIndex:
         cols = list(row.keys())
         placeholders = ",".join(["?"] * len(cols))
         with self._lock:
-            cursor = conn.execute(
+            conn.execute(
                 f"INSERT INTO {table} ({','.join(cols)}) VALUES ({placeholders})",
                 [row[c] for c in cols],
             )
@@ -225,7 +234,7 @@ class SQLiteIndex:
         limit: int = 20,
         extra_where: str | None = None,
         extra_params: tuple = (),
-    ) -> list[dict]:
+    ) -> builtins.list[dict[str, Any]]:
         """Full-text search using tokenized FTS5 queries."""
         fts_table = f"{table}_fts"
         conn = self._conn_write()
@@ -263,9 +272,10 @@ class SQLiteIndex:
                     if best is None or score < best[0]:
                         scored_rows[row_id] = (score, row_dict)
 
-        sorted_rows = [
-            row for _, row in sorted(scored_rows.values(), key=lambda item: item[0])[:limit]
-        ]
+        sorted_rows = []
+        for score, row in sorted(scored_rows.values(), key=lambda item: item[0])[:limit]:
+            row["_fts_score"] = score
+            sorted_rows.append(row)
         return [self._row_to_dict(row, table) for row in sorted_rows]
 
     def update(self, table: str, id: str, data: dict[str, Any]) -> bool:
@@ -320,7 +330,23 @@ class SQLiteIndex:
                     row[col] = json.loads(row[col])
                 except json.JSONDecodeError:
                     pass
+        if "compacted" in row:
+            row["compacted"] = self._coerce_bool(row["compacted"])
         return row
+
+    @staticmethod
+    def _coerce_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return value != 0
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"", "0", "false", "no"}:
+                return False
+            if lowered in {"1", "true", "yes"}:
+                return True
+        return bool(value)
 
     @staticmethod
     def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -344,7 +370,7 @@ class SQLiteIndex:
         return " ".join(escaped.split())
 
     @classmethod
-    def _tokenize_query(cls, query: str) -> list[str]:
+    def _tokenize_query(cls, query: str) -> builtins.list[str]:
         cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", query)
         tokens = []
         seen = set()

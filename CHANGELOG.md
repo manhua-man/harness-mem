@@ -4,6 +4,57 @@
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **增量 ingest 语义收紧**
+  - Claude project-scoped ingest 现在把 `last_ingest_session_id` 解释为“上次 ingest 时看到的最新 session”
+  - 默认只处理 cursor 之前的前缀新 session，不再重复吞旧 session
+  - `--full-rescan` 现在会显式忽略 cursor 并打印 full-rescan 提示
+
+- **search / MCP 显示实际检索模式**
+  - CLI `search` 和 MCP `search_memory` 都会返回 `requested_mode` / `effective_mode`
+  - embedding 不可用时会明确显示 fallback 到 FTS，而不是静默退化
+
+### Fixed
+
+- **`purge` 回归修复**
+  - 修复 `--before` 与持久化 UTC 时间戳比较时的 naive/aware datetime 崩溃
+  - 修复 `observations` / `memory_entries` 缺失 `compacted` 列导致 soft-delete 失败
+  - purge 后的数据现在默认不会再出现在 `wake`、`search`、`timeline` 和 structured memory 列表中
+
+- **HybridSearchLayer 真正接线**
+  - 修复 hybrid search 只存在于底层实现、但 CLI/MCP 仍走纯 FTS 的问题
+  - verbatim / structured store 现在都会通过统一的 `mode=auto|fts|hybrid` 路径执行查询
+
+- **MCP parity 修复**
+  - `search_memory` 现在支持 `mode`
+  - CLI / MCP 共享同一套检索语义和 fallback 行为
+
+## [1.2.0] — 2026-04-25
+
+### Added
+
+- **`wake-up` explainability**
+  - 每块 section 标题追加来源注释：`## Project Profile  (source: profile, ~N chars)`
+  - 空数据区块显示 `(source: {category}, empty)` 而非跳过，保持结构一致
+
+- **Compact Guard（提示文字）**
+  - `doctor` 和 `wake-up` 在 L3/L4+ 时打印 Compact suggestion
+  - 建议运行 `harness-mem ds --category bug` 或 `harness-mem ds --category decision`
+
+- **`profile --edit`（merge 策略）**
+  - 交互式编辑 profile 字段：`description`、`stacks`、`key_files`、`conventions`
+  - 新值覆盖对应字段，其他字段保留
+  - `!clear` 可重置字段为空；回车保持原值
+
+### Changed
+
+- `profile --edit` 时跳过未修改字段，merge 保存而非全量覆盖
+
+---
+
 ## [1.1.3] — 2026-04-24
 
 ### Added
@@ -19,6 +70,12 @@
 - **`distill` 支持按 category 过滤**
   - 新增 `--category` / `-c`
   - 支持只提取指定类型的结构化记忆：`architecture`、`convention`、`api`、`bug`、`decision`
+
+### Fixed
+
+- **`distill` 重复运行不再误报新增条目**
+  - 修复 `distill_session()` 在所有 entry 都被去重时错误返回原 entries 列表而非空列表的问题
+  - 重复 distill 现在正确返回空列表，CLI 不再打印 "Extracted N" 误导用户
 
 ---
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -13,12 +14,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from harness_mem import cli, cli_commands
-from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
-from harness_mem.adapters.codex.adapter import CodexAdapter
-from harness_mem.core.schemas import Observation
-from harness_mem.core.schemas.memory_entry import MemoryEntry
-from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem import cli, cli_commands  # noqa: E402
+from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter  # noqa: E402
+from harness_mem.adapters.codex.adapter import CodexAdapter  # noqa: E402
+from harness_mem.core.schemas import Observation  # noqa: E402
+from harness_mem.core.schemas.memory_entry import MemoryEntry  # noqa: E402
+from harness_mem.storage.local_memory_backend import LocalMemoryBackend  # noqa: E402
+from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore  # noqa: E402
+from harness_mem.core.schemas.project_profile import ProjectProfile  # noqa: E402
+from harness_mem.search.hybrid_search import HybridSearchLayer  # noqa: E402
 
 
 def run(coro):
@@ -114,7 +118,7 @@ def test_quickstart_shows_recent_sessions_and_recommends_distill(
     captured = capsys.readouterr()
     assert "Recent Claude Code sessions:" in captured.out
     assert "sess-recent-001" in captured.out
-    assert "Suggested next step:" in captured.out
+    assert "📍 Phase:" in captured.out
     assert "harness-mem ds" in captured.out
 
 
@@ -243,7 +247,7 @@ def test_doctor_shows_recent_sessions_and_recommends_wake(
     captured = capsys.readouterr()
     assert "Recent Claude Code sessions:" in captured.out
     assert "sess-recent-001" in captured.out
-    assert "Suggested next step:" in captured.out
+    assert "📍 Phase:" in captured.out
     assert "harness-mem wake" in captured.out
 
 
@@ -413,3 +417,371 @@ def test_interactive_handoff_via_main(
         assert handoffs[0].blockers == ["Waiting for token samples"]
     finally:
         run(backend.close())
+
+
+def test_profile_edit_existing_profile_merges_without_crashing(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    profile_store = LocalProjectProfileStore(data_dir)
+    run(
+        profile_store.save(
+            ProjectProfile(
+                project_name="demo",
+                description="old desc",
+                stacks=["python"],
+                key_files=["app.py"],
+                conventions=["run tests first"],
+            )
+        )
+    )
+
+    answers = iter(["", "", "", ""])
+    monkeypatch.setattr(cli, "_can_prompt", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+
+    assert run(cli.cmd_profile_edit("demo")) == 0
+
+    updated = run(profile_store.get("demo"))
+    assert updated is not None
+    assert updated.description == "old desc"
+    assert updated.stacks == ["python"]
+    assert updated.key_files == ["app.py"]
+    assert updated.conventions == ["run tests first"]
+
+
+def test_profile_edit_description_supports_clear(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    profile_store = LocalProjectProfileStore(data_dir)
+    run(
+        profile_store.save(
+            ProjectProfile(
+                project_name="demo",
+                description="old desc",
+                stacks=["python"],
+                key_files=["app.py"],
+                conventions=["run tests first"],
+            )
+        )
+    )
+
+    answers = iter(["!clear", "", "", ""])
+    monkeypatch.setattr(cli, "_can_prompt", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+
+    assert run(cli.cmd_profile_edit("demo")) == 0
+
+    updated = run(profile_store.get("demo"))
+    assert updated is not None
+    assert updated.description == ""
+
+
+def test_profile_and_wake_surface_conventions(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    profile_store = LocalProjectProfileStore(data_dir)
+    run(
+        profile_store.save(
+            ProjectProfile(
+                project_name="demo",
+                description="desc",
+                stacks=["python"],
+                key_files=["app.py"],
+                conventions=["run tests first"],
+            )
+        )
+    )
+
+    assert run(cli.cmd_profile("demo")) == 0
+    profile_output = capsys.readouterr().out
+    assert "Conventions (1):" in profile_output
+    assert "run tests first" in profile_output
+
+    assert run(cli.cmd_wake_up("demo")) == 0
+    wake_output = capsys.readouterr().out
+    assert "Conventions:" in wake_output
+    assert "run tests first" in wake_output
+
+
+def test_purge_dry_run_handles_aware_timestamps_without_deleting(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    assert cli.cmd_use("demo") == 0
+
+    old = datetime.now(timezone.utc) - timedelta(days=120)
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.verbatim_store.save(
+                Observation(
+                    session_id="purge-aware-dry-run",
+                    client="claude-code",
+                    raw_content="Old observation kept during dry run.",
+                    content_type="transcript",
+                    timestamp=old,
+                    metadata={"project_name": "demo"},
+                )
+            )
+        )
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="decision",
+                    content="Old memory kept during dry run.",
+                    source="manual",
+                    created_at=old,
+                    updated_at=old,
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
+    assert run(cli.cmd_purge(cutoff, "all", True)) == 0
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observations = run(backend.verbatim_store.search("dry run", project_name="demo", limit=10))
+        entries = run(backend.structured_store.search_memory_entries("dry run", project_name="demo", limit=10))
+        assert len(observations) == 1
+        assert len(entries) == 1
+    finally:
+        run(backend.close())
+
+    captured = capsys.readouterr()
+    assert "[DRY RUN] Would soft-delete" in captured.out
+
+
+def test_purge_hides_soft_deleted_data_from_search_timeline_and_wake(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    assert cli.cmd_use("demo") == 0
+
+    old = datetime.now(timezone.utc) - timedelta(days=120)
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.verbatim_store.save(
+                Observation(
+                    session_id="purge-hide-001",
+                    client="claude-code",
+                    raw_content="Ancient auth observation that should disappear.",
+                    content_type="transcript",
+                    timestamp=old,
+                    metadata={"project_name": "demo"},
+                )
+            )
+        )
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="decision",
+                    content="Ancient auth memory that should disappear.",
+                    source="manual",
+                    created_at=old,
+                    updated_at=old,
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
+    assert run(cli.cmd_purge(cutoff, "all", False)) == 0
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observations = run(backend.verbatim_store.search("Ancient auth", project_name="demo", limit=10))
+        timeline = run(backend.verbatim_store.timeline(project_name="demo", limit=10))
+        entries = run(backend.structured_store.search_memory_entries("Ancient auth", project_name="demo", limit=10))
+        listed_entries = run(backend.structured_store.list_memory_entries("demo", limit=10))
+        assert observations == []
+        assert timeline == []
+        assert entries == []
+        assert listed_entries == []
+    finally:
+        run(backend.close())
+
+    assert run(cli.cmd_wake_up("demo")) == 0
+    wake_output = capsys.readouterr().out
+    assert "Ancient auth" not in wake_output
+
+
+def test_incremental_ingest_does_not_reimport_old_sessions(
+    data_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    sessions_root = tmp_path / "claude-projects"
+    _write_claude_session(sessions_root, "demo", "sess-1", "u1", ["a1"])
+    _write_claude_session(sessions_root, "demo", "sess-2", "u2", ["a2"])
+    _write_claude_session(sessions_root, "demo", "sess-3", "u3", ["a3"])
+
+    now = datetime.now().timestamp()
+    for offset, session_id in enumerate(["sess-1", "sess-2", "sess-3"], start=3):
+        session_path = sessions_root / "demo" / f"{session_id}.jsonl"
+        session_path.touch()
+        session_time = now - (offset * 60)
+        session_path.touch()
+        import os
+        os.utime(session_path, (session_time, session_time))
+
+    monkeypatch.setattr(
+        cli,
+        "ClaudeCodeAdapter",
+        lambda backend: ClaudeCodeAdapter(backend, sessions_dir=sessions_root),
+    )
+
+    assert run(cli.cmd_ingest("claude-code", "demo", 2)) == 0
+    assert run(cli.cmd_ingest("claude-code", "demo", 2)) == 0
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observations = run(backend.verbatim_store.list(limit=10))
+        assert [o.session_id for o in observations] == ["sess-1", "sess-2"]
+    finally:
+        run(backend.close())
+
+
+def test_full_rescan_bypasses_cursor_without_duplicate_ingest(
+    data_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    sessions_root = tmp_path / "claude-projects"
+    _write_claude_session(sessions_root, "demo", "sess-1", "u1", ["a1"])
+    _write_claude_session(sessions_root, "demo", "sess-2", "u2", ["a2"])
+    _write_claude_session(sessions_root, "demo", "sess-3", "u3", ["a3"])
+
+    monkeypatch.setattr(
+        cli,
+        "ClaudeCodeAdapter",
+        lambda backend: ClaudeCodeAdapter(backend, sessions_dir=sessions_root),
+    )
+
+    assert run(cli.cmd_ingest("claude-code", "demo", 1)) == 0
+    assert run(cli.cmd_ingest("claude-code", "demo", 10, True)) == 0
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observations = run(backend.verbatim_store.list(limit=10))
+        assert sorted(o.session_id for o in observations) == ["sess-1", "sess-2", "sess-3"]
+    finally:
+        run(backend.close())
+
+    captured = capsys.readouterr()
+    assert "[Full Rescan]" in captured.out
+
+
+def test_incremental_ingest_warns_when_cursor_is_missing(
+    data_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    sessions_root = tmp_path / "claude-projects"
+    _write_claude_session(sessions_root, "demo", "sess-1", "u1", ["a1"])
+    _write_claude_session(sessions_root, "demo", "sess-2", "u2", ["a2"])
+    _write_claude_session(sessions_root, "demo", "sess-3", "u3", ["a3"])
+
+    profile_store = LocalProjectProfileStore(data_dir)
+    run(
+        profile_store.save(
+            ProjectProfile(
+                project_name="demo",
+                last_ingest_session_id="missing-session",
+                last_ingest_at=datetime.now(timezone.utc) - timedelta(days=1),
+            )
+        )
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "ClaudeCodeAdapter",
+        lambda backend: ClaudeCodeAdapter(backend, sessions_dir=sessions_root),
+    )
+
+    assert run(cli.cmd_ingest("claude-code", "demo", 10)) == 0
+    captured = capsys.readouterr()
+    assert "cursor missing-session not found" in captured.out
+
+
+def _fake_embed_texts(self, texts: list[str]) -> list[list[float]]:
+    return [[1.0, float(len(text))] for text in texts]
+
+
+def _no_embed_texts(self, texts: list[str]) -> None:
+    return None
+
+
+def test_cmd_search_reports_hybrid_mode(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="architecture",
+                    content="SQLite FTS5 powers local search.",
+                    source="manual",
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    monkeypatch.setattr(HybridSearchLayer, "_embed_texts", _fake_embed_texts)
+
+    assert run(cli.cmd_search("demo", "SQLite", "hybrid")) == 0
+    output = capsys.readouterr().out
+    assert "[Hybrid Search]" in output
+    assert "mode: hybrid" in output
+
+
+def test_cmd_search_reports_fts_fallback_when_embedding_missing(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="architecture",
+                    content="SQLite FTS5 powers local search.",
+                    source="manual",
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    monkeypatch.setattr(HybridSearchLayer, "_embed_texts", _no_embed_texts)
+
+    assert run(cli.cmd_search("demo", "SQLite", "auto")) == 0
+    output = capsys.readouterr().out
+    assert "[FTS Search]" in output
+    assert "embedding not available" in output

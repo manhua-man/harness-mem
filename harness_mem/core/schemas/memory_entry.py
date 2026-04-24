@@ -1,7 +1,6 @@
 """MemoryEntry schema — structured project knowledge."""
 
 from datetime import datetime, timezone
-from typing import Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -38,6 +37,11 @@ class MemoryEntry(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc)
     )
     tags: list[str] = Field(default_factory=list)
+    compacted: bool = Field(default=False, description="Soft-delete marker for purge")
+    provenance: dict | None = Field(
+        default=None,
+        description="来源线索: {session_id, observation_ids, agent_type, tool_name}"
+    )
 
     model_config = {"extra": "allow"}
 
@@ -52,6 +56,8 @@ class MemoryEntry(BaseModel):
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "tags": self.tags,
+            "compacted": self.compacted,
+            "provenance": self.provenance,
         }
 
     @classmethod
@@ -59,4 +65,8 @@ class MemoryEntry(BaseModel):
         for field in ("created_at", "updated_at"):
             if isinstance(data.get(field), str):
                 data[field] = datetime.fromisoformat(data[field])
+        if "compacted" not in data:
+            data["compacted"] = False
+        if "provenance" not in data:
+            data["provenance"] = None
         return cls(**data)

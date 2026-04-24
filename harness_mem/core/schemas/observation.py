@@ -1,7 +1,6 @@
 """Observation schema — verbatim layer raw session/event."""
 
 from datetime import datetime, timezone
-from typing import Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -26,6 +25,7 @@ class Observation(BaseModel):
     )
     metadata: dict = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
+    compacted: bool = Field(default=False, description="Soft-delete marker for purge")
 
     model_config = {"extra": "allow"}
 
@@ -39,6 +39,7 @@ class Observation(BaseModel):
             "timestamp": self.timestamp.isoformat(),
             "metadata": self.metadata,
             "tags": self.tags,
+            "compacted": self.compacted,
         }
 
     @classmethod

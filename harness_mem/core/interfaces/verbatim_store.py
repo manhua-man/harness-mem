@@ -1,6 +1,7 @@
 """VerbatimStore interface — Observation read/write abstraction."""
 
 from __future__ import annotations
+import builtins
 from typing import Protocol, runtime_checkable
 
 from harness_mem.core.schemas.observation import Observation
@@ -26,7 +27,7 @@ class VerbatimStore(Protocol):
         self,
         session_id: str | None = None,
         limit: int = 100,
-    ) -> list[Observation]:
+    ) -> builtins.list[Observation]:
         """List observations, optionally filtered by session_id."""
         ...
 
@@ -36,7 +37,8 @@ class VerbatimStore(Protocol):
         session_id: str | None = None,
         project_name: str | None = None,
         limit: int = 20,
-    ) -> list[Observation]:
+        mode: str = "auto",
+    ) -> builtins.list[Observation]:
         """Full-text search observations, optionally filtered by session_id or project_name."""
         ...
 
@@ -44,10 +46,14 @@ class VerbatimStore(Protocol):
         """Delete an observation. Returns True if deleted."""
         ...
 
+    async def soft_delete(self, id: str) -> bool:
+        """Soft-delete an observation by setting compacted=True. Returns True if updated."""
+        ...
+
     async def timeline(
         self,
         project_name: str | None = None,
         limit: int = 50,
-    ) -> list[Observation]:
+    ) -> builtins.list[Observation]:
         """Get observations in chronological order."""
         ...

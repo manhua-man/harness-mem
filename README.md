@@ -1,8 +1,14 @@
-# harness-mem v1.1.3
+# harness-mem
 
 Local-first, pluggable AI memory runtime for Claude Code and Codex.
 
-**V1 闭环**: ingest → distill → structured memory → wake-up context → search/timeline → candidate rules → task resume.
+**V1 闭环**: ingest → distill → structured memory → wake-up context → search/timeline → candidate rules → task resume。
+
+当前主线已经补上：
+- `purge` 软删除闭环
+- 默认增量 ingest + `--full-rescan`
+- `search --mode auto|fts|hybrid`
+- CLI / MCP 一致的 search mode 与 learning-loop 语义
 
 Release notes: [v1.0.1](./docs/v1.0.1-release-notes.md)
 Changelog: [CHANGELOG.md](./CHANGELOG.md)
@@ -32,6 +38,7 @@ harness-mem doctor
 ```bash
 harness-mem use <project-name>
 harness-mem ingest claude-code -n 10
+harness-mem ingest claude-code --full-rescan   # 显式忽略 ingest cursor
 harness-mem ingest codex -n 10
 ```
 
@@ -44,12 +51,32 @@ harness-mem wake
 ### 5. 搜索记忆
 
 ```bash
-harness-mem search "authentication"
+harness-mem search "authentication" --mode auto
+harness-mem search "authentication" --mode hybrid
 harness-mem tl 20
-harness-mem show <observation-id>
+harness-mem show -o <observation-id>
 ```
 
-### 6. 规则学习循环
+`auto` 会优先尝试 hybrid search；embedding 不可用时自动回退到 FTS，并把实际模式显示在结果头部。
+
+### 6. 清理旧记忆
+
+```bash
+harness-mem purge --before 2026-01-01 --category all --dry-run
+harness-mem purge --before 2026-01-01 --category observations
+```
+
+`purge` 使用 soft-delete / `compacted` 标记。被 purge 的 observations 和 memory entries 默认不会再出现在 `wake`、`search`、`timeline` 和常规列表结果里。
+
+### 7. 编辑 Profile
+
+```bash
+harness-mem profile --edit
+# 交互式编辑 description、stacks、key_files、conventions
+# 回车保持原值，!clear 重置字段
+```
+
+### 8. 规则学习循环
 
 ```bash
 # 交互式输入
@@ -63,11 +90,14 @@ harness-mem correct <id> \
 # 确认候选规则
 harness-mem confirm <candidate-id>
 
+# 拒绝候选规则
+harness-mem reject <candidate-id>
+
 # 列出规则
 harness-mem rules
 ```
 
-### 7. 任务交接
+### 9. 任务交接
 
 ```bash
 # 交互式输入
@@ -79,7 +109,7 @@ harness-mem handoff -t <id> -s "Fix auth bug" \
   -b "Waiting for token samples"
 ```
 
-### 8. MCP Server (Claude Code 中使用)
+### 10. MCP Server (Claude Code 中使用)
 
 ```bash
 # 安装 MCP server
@@ -88,7 +118,11 @@ claude mcp add harness-mem -- python -m harness_mem.mcp.server
 # Claude Code 中可用工具
 # - search_memory, timeline, get_observations
 # - get_task_handoffs, get_confirmed_rules, get_project_profile
-# - create_rule_candidate, confirm_rule
+# - create_rule_candidate, confirm_rule, reject_rule, suggest_rule
+#
+# search_memory 支持:
+# - scope=project|all
+# - mode=auto|fts|hybrid
 ```
 
 ---
@@ -106,6 +140,7 @@ Memory Core (dual-layer)
 
 Storage
   JSON blobs + SQLite FTS5 index
+  Optional local hybrid retrieval (FTS + vector fallback-safe)
   ~/.harness-mem/data/
 ```
 
@@ -113,11 +148,9 @@ Storage
 
 ## 路线定位
 
-V1 的定位是先建立一个本地优先、可解释、可落盘的 memory baseline：JSON blobs + SQLite FTS5 + structured memory，优先跑通 ingest、wake-up、search、learning loop、task resume 这条主链路。
+V1.x 的定位是把本地优先、可解释、可落盘的 memory baseline 做扎实：JSON blobs + SQLite FTS5 + structured memory + 轻量 hybrid retrieval，优先跑通 ingest、wake-up、search、learning loop、task resume、purge 这条主链路。
 
-V2 的目标不是把 harness-mem 描述成“已经在检索指标上超过 MemPalace”，而是把它扩展成一个更完整的 agent memory runtime：在保留 local-first 底座的前提下，增加 hybrid retrieval（BM25/FTS + vector + graph）、更强的 reranking、可写结构化记忆、纠正学习闭环，以及跨客户端的任务续接能力。
-
-换句话说，V2 要追求的是**产品能力面比 MemPalace 更完整**；至于检索指标是否超过 MemPalace，应以同 benchmark、同设置下的实测结果为准，而不是提前宣称。
+V2 的重点不再是“补一个基础 hybrid search”，而是继续往 invisible memory 和更完整的 agent runtime 演进：更强的 reranking、图结构记忆、跨客户端任务续接、更少显式命令、更高自动化。
 
 ---
 
@@ -129,19 +162,22 @@ V2 的目标不是把 harness-mem 描述成“已经在检索指标上超过 Mem
 | `harness-mem quickstart` | 一步完成初始化、活动项目设置、最近 session 发现与接入引导 |
 | `harness-mem doctor` | 检查本地状态、展示最近 session，并给出最佳下一步建议 |
 | `harness-mem use` | 设置当前活动项目 |
-| `harness-mem ingest [claude-code\|codex]` | 接入 Claude Code 或 Codex sessions |
+| `harness-mem ingest [claude-code\|codex]` | 默认增量接入 sessions，支持 `--full-rescan` |
+| `harness-mem distill` | 从 session 提取 structured memory |
 | `harness-mem wake-up` | 生成项目唤醒上下文 |
-| `harness-mem search` | 搜索记忆 |
+| `harness-mem search` | 搜索记忆，支持 `--mode auto\|fts\|hybrid` |
 | `harness-mem timeline` | 时间线视图 |
-| `harness-mem show` | 查看单条 observation |
+| `harness-mem show` | 查看单条 observation，支持 `-o/--observation-id` |
 | `harness-mem status` | 查看状态 |
 | `harness-mem profile` | 查看项目 profile |
+| `harness-mem purge` | 软删除旧 observations / structured memory |
 | `harness-mem correct` | 纠正 → 生成候选规则 |
 | `harness-mem confirm-rule` | 确认候选规则 |
 | `harness-mem reject-rule` | 拒绝候选规则 |
 | `harness-mem list-candidates` | 列出候选规则 |
 | `harness-mem confirmed-rules` | 列出已确认规则 |
 | `harness-mem handoff` | 创建/更新任务交接 |
+| `harness-mem api` | 启动 REST API server |
 
 ### 常用短别名
 
@@ -163,6 +199,8 @@ V2 的目标不是把 harness-mem 描述成“已经在检索指标上超过 Mem
 
 - `quickstart` 会先看最近的 session，再决定帮你走 ingest 还是提示你下一步
 - `doctor` 会根据当前项目里有没有 observations / structured memory，直接建议 `ingest`、`ds` 或 `wake`
+- `doctor` / `wake` 在 budget 达到高水位时，会直接给出 `purge --dry-run` 建议
+- `search` 会展示请求模式和实际生效模式；embedding 不可用时会明确标注 fallback 到 FTS
 - 这套设计准则收在 [docs/cli-design-expert.md](./docs/cli-design-expert.md)
 
 ---
@@ -178,6 +216,8 @@ V2 的目标不是把 harness-mem 描述成“已经在检索指标上超过 Mem
     rule_candidates/            JSON blobs
     confirmed_rules/            JSON blobs
   profiles/                     Project profiles
+  events.log                    本地事件日志
+  active_project.txt            当前活动项目
   verbatim_index.sqlite         SQLite FTS5 index
   structured_index.sqlite       SQLite FTS5 index
 ```

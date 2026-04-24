@@ -5,11 +5,11 @@ import json
 import asyncio
 from pathlib import Path
 
-from harness_mem.core.interfaces.structured_store import StructuredStore
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.task_handoff import TaskHandoff
 from harness_mem.core.schemas.rule_candidate import RuleCandidate
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
+from harness_mem.search.hybrid_search import HybridSearchLayer
 from harness_mem.storage.sqlite_index import SQLiteIndex
 
 
@@ -34,6 +34,7 @@ class LocalStructuredStore:
             subdir.mkdir(parents=True, exist_ok=True)
         self._index = SQLiteIndex(self.data_dir / "structured_index.sqlite")
         self._index.init_db()
+        self._search = HybridSearchLayer(self._index)
         self._backfill_confirmed_rule_source_sessions()
 
     def _blob_path(self, entity_type: str, id: str) -> Path:
@@ -104,6 +105,7 @@ class LocalStructuredStore:
                 "created_at": entry.created_at,
                 "updated_at": entry.updated_at,
                 "tags": entry.tags,
+                "compacted": entry.compacted,
             },
         )
         return entry.id
@@ -121,7 +123,7 @@ class LocalStructuredStore:
         category: str | None = None,
         limit: int = 100,
     ) -> list[MemoryEntry]:
-        where_parts = ["project_name = ?"]
+        where_parts = ["project_name = ?", "COALESCE(compacted, 0) = 0"]
         params = [project_name]
         if category:
             where_parts.append("category = ?")
@@ -140,6 +142,8 @@ class LocalStructuredStore:
             blob_path = self._blob_path("memory_entries", row["id"])
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
+                if data.get("compacted", False):
+                    continue
                 results.append(MemoryEntry.from_dict(data))
         return results
 
@@ -148,24 +152,58 @@ class LocalStructuredStore:
         query: str,
         project_name: str | None = None,
         limit: int = 20,
+        mode: str = "auto",
     ) -> list[MemoryEntry]:
-        extra_where = "project_name = ?" if project_name else None
-        extra_params = (project_name,) if project_name else ()
-        rows = await asyncio.to_thread(
-            self._index.search,
-            "memory_entries",
+        extra_where_parts = ["COALESCE(compacted, 0) = 0"]
+        extra_params: tuple = ()
+        if project_name:
+            extra_where_parts.append("project_name = ?")
+            extra_params = (*extra_params, project_name)
+        search_result = await asyncio.to_thread(
+            self._search.search,
             query,
+            "memory_entries",
             limit,
-            extra_where,
+            " AND ".join(extra_where_parts),
             extra_params,
+            mode,
         )
         results = []
-        for row in rows:
+        for row in search_result.rows:
             blob_path = self._blob_path("memory_entries", row["id"])
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
+                if data.get("compacted", False):
+                    continue
+                data.update({
+                    "_search_mode": search_result.effective_mode,
+                    "_search_requested_mode": search_result.requested_mode,
+                    "_search_fallback_reason": search_result.fallback_reason,
+                })
+                if "_fts_score" in row:
+                    data["_fts_score"] = row["_fts_score"]
+                if "_hybrid_score" in row:
+                    data["_hybrid_score"] = row["_hybrid_score"]
+                if "_score" in row:
+                    data["_score"] = row["_score"]
                 results.append(MemoryEntry.from_dict(data))
         return results
+
+    async def soft_delete_memory_entry(self, id: str) -> bool:
+        """Soft-delete a memory entry by setting compacted=True."""
+        blob_path = self._blob_path("memory_entries", id)
+        if not blob_path.exists():
+            return False
+        data = json.loads(blob_path.read_text())
+        data["compacted"] = True
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.update,
+            "memory_entries",
+            id,
+            {"compacted": True},
+        )
+        return True
 
     # ---- TaskHandoff ----
 

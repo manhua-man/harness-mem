@@ -41,8 +41,13 @@ class StructuredStore(Protocol):
         query: str,
         project_name: str | None = None,
         limit: int = 20,
+        mode: str = "auto",
     ) -> list[MemoryEntry]:
         """Full-text search memory entries."""
+        ...
+
+    async def soft_delete_memory_entry(self, id: str) -> bool:
+        """Soft-delete a memory entry by setting compacted=True. Returns True if updated."""
         ...
 
     # ---- TaskHandoff ----

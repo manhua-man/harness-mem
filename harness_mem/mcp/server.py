@@ -33,6 +33,7 @@ sys.stdout = sys.stderr
 import json  # noqa: E402
 import logging  # noqa: E402
 from pathlib import Path  # noqa: E402
+from typing import Any, Callable, TypedDict  # noqa: E402
 
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend  # noqa: E402
 from harness_mem.storage.local_project_profile_store import (  # noqa: E402
@@ -68,22 +69,69 @@ def set_backend_override(backend: LocalMemoryBackend | None) -> None:
 # =============================================================================
 
 
-def tool_search_memory(project_name: str, query: str) -> dict:
+def tool_search_memory(
+    project_name: str | None,
+    query: str,
+    scope: str = "project",
+    mode: str = "auto",
+) -> dict:
     """Search structured memory entries + verbatim observations."""
     backend = _get_backend()
-    entries = asyncio.run(
-        backend.structured_store.search_memory_entries(query, project_name, limit=20)
-    )
-    obs_list = asyncio.run(backend.verbatim_store.search(query, limit=100))
-    obs_list = [
-        o
-        for o in obs_list
-        if o.metadata.get("project_name") == project_name
-    ][:20]
+
+    if scope == "project" and not project_name:
+        return {
+            "success": False,
+            "error": "project_name is required when scope=project",
+        }
+
+    if scope == "all":
+        # Search across all projects
+        entries = asyncio.run(
+            backend.structured_store.search_memory_entries(
+                query,
+                project_name=None,
+                limit=20,
+                mode=mode,
+            )
+        )
+        obs_list = asyncio.run(
+            backend.verbatim_store.search(query, limit=100, mode=mode)
+        )
+    else:
+        # Search within project
+        entries = asyncio.run(
+            backend.structured_store.search_memory_entries(
+                query,
+                project_name=project_name,
+                limit=20,
+                mode=mode,
+            )
+        )
+        obs_list = asyncio.run(
+            backend.verbatim_store.search(
+                query,
+                project_name=project_name,
+                limit=100,
+                mode=mode,
+            )
+        )
+        obs_list = [
+            o
+            for o in obs_list
+            if o.metadata.get("project_name") == project_name
+        ][:20]
+
+    combined_results = entries or obs_list
+    effective_mode = getattr(combined_results[0], "_search_mode", mode) if combined_results else mode
+    fallback_reason = getattr(combined_results[0], "_search_fallback_reason", None) if combined_results else None
 
     return {
         "project_name": project_name,
         "query": query,
+        "scope": scope,
+        "requested_mode": mode,
+        "effective_mode": effective_mode,
+        "fallback_reason": fallback_reason,
         "memory_entries": [
             {
                 "id": e.id,
@@ -91,6 +139,9 @@ def tool_search_memory(project_name: str, query: str) -> dict:
                 "content": e.content,
                 "confidence": e.confidence,
                 "tags": e.tags,
+                "provenance": e.provenance,
+                "search_mode": getattr(e, "_search_mode", mode),
+                "score": getattr(e, "_score", getattr(e, "_hybrid_score", getattr(e, "_fts_score", None))),
             }
             for e in entries
         ],
@@ -100,6 +151,8 @@ def tool_search_memory(project_name: str, query: str) -> dict:
                 "session_id": o.session_id,
                 "content_type": o.content_type,
                 "preview": o.raw_content[:200].replace("\n", " "),
+                "search_mode": getattr(o, "_search_mode", mode),
+                "score": getattr(o, "_score", getattr(o, "_hybrid_score", getattr(o, "_fts_score", None))),
             }
             for o in obs_list
         ],
@@ -188,6 +241,7 @@ def tool_get_task_handoffs(project_name: str, limit: int = 5) -> dict:
                 "last_activity": h.last_activity.isoformat() if h.last_activity else None,
                 "created_at": h.created_at.isoformat() if h.created_at else None,
                 "updated_at": h.updated_at.isoformat() if h.updated_at else None,
+                "provenance": h.provenance,
             }
             for h in handoffs
         ],
@@ -209,6 +263,7 @@ def tool_get_confirmed_rules(project_name: str) -> dict:
                 "examples": r.examples,
                 "confirmed_at": r.confirmed_at.isoformat() if r.confirmed_at else None,
                 "tags": r.tags,
+                "provenance": r.provenance,
             }
             for r in rules
         ],
@@ -301,22 +356,79 @@ def tool_confirm_rule(rule_id: str) -> dict:
     }
 
 
+def tool_reject_rule(rule_id: str, reason: str | None = None) -> dict:
+    """Reject a rule candidate."""
+    backend = _get_backend()
+    candidate = asyncio.run(backend.structured_store.get_rule_candidate(rule_id))
+    if not candidate:
+        return {"success": False, "error": f"Candidate not found: {rule_id}"}
+    if candidate.status in ("accepted", "rejected"):
+        return {"success": False, "error": f"Candidate already processed: {rule_id}"}
+
+    asyncio.run(backend.structured_store.update_rule_candidate_status(rule_id, "rejected"))
+    return {
+        "success": True,
+        "rejected_rule_id": rule_id,
+        "reason": reason or "No reason provided",
+    }
+
+
+def tool_suggest_rule(
+    project_name: str,
+    pattern: str,
+    trigger: str,
+    session_id: str | None = None,
+    examples: list[str] | None = None,
+) -> dict:
+    """Suggest a rule candidate for later review (lighter than confirm_rule)."""
+    from uuid import uuid4
+    from harness_mem.core.schemas import RuleCandidate
+
+    backend = _get_backend()
+    candidate = RuleCandidate(
+        id=str(uuid4()),
+        project_name=project_name,
+        session_id=session_id or "",
+        pattern=pattern,
+        trigger=trigger,
+        examples=examples or [],
+        confidence=0.5,
+        status="pending",
+    )
+    saved_id = asyncio.run(backend.structured_store.save_rule_candidate(candidate))
+    return {
+        "success": True,
+        "candidate_id": saved_id,
+        "pattern": candidate.pattern,
+        "trigger": candidate.trigger,
+        "status": "suggested",
+    }
+
+
 # =============================================================================
 # MCP TOOL REGISTRY
 # =============================================================================
 
 import asyncio  # noqa: E402 (moved here so the stdio redirect above is clean)
 
-TOOLS = {
+class ToolSpec(TypedDict):
+    description: str
+    input_schema: dict[str, Any]
+    handler: Callable[..., dict[str, Any]]
+
+
+TOOLS: dict[str, ToolSpec] = {
     "search_memory": {
         "description": "Search structured memory entries and verbatim observations for a project.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
+                "project_name": {"type": "string", "description": "Project name (required when scope=project)"},
                 "query": {"type": "string", "description": "Search query"},
+                "scope": {"type": "string", "enum": ["project", "all"], "description": "Search scope: project or all (default: project)"},
+                "mode": {"type": "string", "enum": ["auto", "fts", "hybrid"], "description": "Search mode (default: auto)"},
             },
-            "required": ["project_name", "query"],
+            "required": ["query"],
         },
         "handler": tool_search_memory,
     },
@@ -415,6 +527,37 @@ TOOLS = {
             "required": ["rule_id"],
         },
         "handler": tool_confirm_rule,
+    },
+    "reject_rule": {
+        "description": "Reject a rule candidate.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "rule_id": {"type": "string", "description": "Rule candidate ID to reject"},
+                "reason": {"type": "string", "description": "Reason for rejection (optional)"},
+            },
+            "required": ["rule_id"],
+        },
+        "handler": tool_reject_rule,
+    },
+    "suggest_rule": {
+        "description": "Suggest a rule for later review (lighter than confirm_rule).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "pattern": {"type": "string", "description": "Rule pattern"},
+                "trigger": {"type": "string", "description": "Trigger scenario"},
+                "session_id": {"type": "string", "description": "Session ID (optional)"},
+                "examples": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Example instances (optional)",
+                },
+            },
+            "required": ["project_name", "pattern", "trigger"],
+        },
+        "handler": tool_suggest_rule,
     },
 }
 

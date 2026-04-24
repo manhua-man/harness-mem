@@ -1,12 +1,13 @@
 """LocalVerbatimStore — JSON + SQLite implementation of VerbatimStore."""
 
 from __future__ import annotations
+import builtins
 import json
 import asyncio
 from pathlib import Path
 
-from harness_mem.core.interfaces.verbatim_store import VerbatimStore
 from harness_mem.core.schemas.observation import Observation
+from harness_mem.search.hybrid_search import HybridSearchLayer
 from harness_mem.storage.sqlite_index import SQLiteIndex
 
 
@@ -23,6 +24,7 @@ class LocalVerbatimStore:
         self.blob_dir.mkdir(parents=True, exist_ok=True)
         self._index = SQLiteIndex(self.data_dir / "verbatim_index.sqlite")
         self._index.init_db()
+        self._search = HybridSearchLayer(self._index)
 
     async def save(self, observation: Observation) -> str:
         """Save an observation — blob to JSON, metadata to SQLite."""
@@ -43,6 +45,7 @@ class LocalVerbatimStore:
                 "timestamp": observation.timestamp,
                 "tags": observation.tags,
                 "metadata": observation.metadata,
+                "compacted": observation.compacted,
             },
         )
         return observation.id
@@ -59,14 +62,17 @@ class LocalVerbatimStore:
         self,
         session_id: str | None = None,
         limit: int = 100,
-    ) -> list[Observation]:
+    ) -> builtins.list[Observation]:
         """List observations, optionally filtered by session_id."""
-        where = "session_id = ?"
-        params = (session_id,) if session_id else ()
+        where_parts = ["COALESCE(compacted, 0) = 0"]
+        params: tuple = ()
+        if session_id:
+            where_parts.append("session_id = ?")
+            params = (*params, session_id)
         rows = await asyncio.to_thread(
             self._index.list,
             "observations",
-            where if session_id else None,
+            " AND ".join(where_parts),
             params,
             order_by="timestamp DESC",
             limit=limit,
@@ -76,6 +82,8 @@ class LocalVerbatimStore:
             blob_path = self.blob_dir / f"{row['id']}.json"
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
+                if data.get("compacted", False):
+                    continue
                 results.append(Observation.from_dict(data))
         return results
 
@@ -85,9 +93,10 @@ class LocalVerbatimStore:
         session_id: str | None = None,
         project_name: str | None = None,
         limit: int = 20,
-    ) -> list[Observation]:
+        mode: str = "auto",
+    ) -> builtins.list[Observation]:
         """Full-text search observations, optionally filtered by session_id or project_name."""
-        extra_where_parts = []
+        extra_where_parts = ["COALESCE(compacted, 0) = 0"]
         extra_params: tuple = ()
 
         if session_id:
@@ -100,19 +109,33 @@ class LocalVerbatimStore:
 
         extra_where = " AND ".join(extra_where_parts) if extra_where_parts else None
 
-        rows = await asyncio.to_thread(
-            self._index.search,
-            "observations",
+        search_result = await asyncio.to_thread(
+            self._search.search,
             query,
+            "observations",
             limit,
             extra_where,
             extra_params,
+            mode,
         )
         results = []
-        for row in rows:
+        for row in search_result.rows:
             blob_path = self.blob_dir / f"{row['id']}.json"
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
+                if data.get("compacted", False):
+                    continue
+                data.update({
+                    "_search_mode": search_result.effective_mode,
+                    "_search_requested_mode": search_result.requested_mode,
+                    "_search_fallback_reason": search_result.fallback_reason,
+                })
+                if "_fts_score" in row:
+                    data["_fts_score"] = row["_fts_score"]
+                if "_hybrid_score" in row:
+                    data["_hybrid_score"] = row["_hybrid_score"]
+                if "_score" in row:
+                    data["_score"] = row["_score"]
                 results.append(Observation.from_dict(data))
         return results
 
@@ -126,18 +149,37 @@ class LocalVerbatimStore:
             deleted_blob = True
         return deleted_index or deleted_blob
 
+    async def soft_delete(self, id: str) -> bool:
+        """Soft-delete an observation by setting compacted=True."""
+        blob_path = self.blob_dir / f"{id}.json"
+        if not blob_path.exists():
+            return False
+        data = json.loads(blob_path.read_text())
+        data["compacted"] = True
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.update,
+            "observations",
+            id,
+            {"compacted": True},
+        )
+        return True
+
     async def timeline(
         self,
         project_name: str | None = None,
         limit: int = 50,
-    ) -> list[Observation]:
+    ) -> builtins.list[Observation]:
         """Timeline — all observations ordered by timestamp, optionally filtered by project_name."""
-        where = 'metadata LIKE ?' if project_name else None
-        params = (self._project_metadata_pattern(project_name),) if project_name else ()
+        where_parts = ["COALESCE(compacted, 0) = 0"]
+        params: tuple = ()
+        if project_name:
+            where_parts.append("metadata LIKE ?")
+            params = (*params, self._project_metadata_pattern(project_name))
         rows = await asyncio.to_thread(
             self._index.list,
             "observations",
-            where,
+            " AND ".join(where_parts),
             params,
             order_by="timestamp DESC",
             limit=limit,
@@ -147,6 +189,8 @@ class LocalVerbatimStore:
             blob_path = self.blob_dir / f"{row['id']}.json"
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
+                if data.get("compacted", False):
+                    continue
                 results.append(Observation.from_dict(data))
         return results
 

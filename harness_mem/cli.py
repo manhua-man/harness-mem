@@ -5,13 +5,15 @@ import argparse
 import asyncio
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Sequence
 
 from harness_mem import __version__
 from harness_mem.adapters.codex.adapter import CodexAdapter
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
+from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
 from harness_mem.adapters.claude_code.project_profile_detector import build_project_profile
 from harness_mem.cli_commands import (
@@ -74,13 +76,21 @@ def _can_prompt() -> bool:
         return False
 
 
-def _prompt_text(label: str, default: str | None = None, *, allow_empty: bool = False) -> str | None:
+def _prompt_text(
+    label: str,
+    default: str | None = None,
+    *,
+    allow_empty: bool = False,
+    allow_clear: bool = False,
+) -> str | None:
     if not _can_prompt():
         return default if allow_empty else None
 
     while True:
         suffix = f" [{default}]" if default else ""
         value = input(f"{label}{suffix}: ").strip()
+        if allow_clear and value == "!clear":
+            return ""
         if value:
             return value
         if default is not None:
@@ -145,12 +155,12 @@ def _codex_session_count() -> int:
 
 
 def _recent_claude_sessions(project_name: str, limit: int | None = 3) -> list[dict]:
-    adapter = ClaudeCodeAdapter(None)
+    adapter = ClaudeCodeAdapter(None)  # type: ignore[arg-type]  # backend unused for session listing
     return adapter.list_project_sessions(project_name, min_size_kb=0, limit=limit)
 
 
 def _recent_codex_sessions(limit: int | None = 3) -> list[dict]:
-    adapter = CodexAdapter(None)
+    adapter = CodexAdapter(None)  # type: ignore[arg-type]  # backend unused for session listing
     sessions = adapter.list_sessions(min_size_kb=0)
     if limit is None:
         return sessions
@@ -198,11 +208,18 @@ def _profile_text(profile: object | None) -> str:
     description = getattr(profile, "description", "") or ""
     stacks = getattr(profile, "stacks", []) or []
     key_files = getattr(profile, "key_files", []) or []
-    return description + " " + " ".join(stacks) + " " + " ".join(key_files)
+    conventions = getattr(profile, "conventions", []) or []
+    return description + " " + " ".join(stacks) + " " + " ".join(key_files) + " " + " ".join(conventions)
 
 
 def _chars_to_tokens(chars: int) -> int:
     return round(chars / 4)
+
+
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _disclosure_level(tokens: int) -> str:
@@ -299,6 +316,22 @@ async def _project_state(project_name: str) -> dict[str, int]:
 
 
 def main():
+    # Handle --completion before full argument parsing
+    if "--completion" in sys.argv:
+        from harness_mem.shell_completion import print_completion
+        for arg in sys.argv[1:]:
+            if arg.startswith("--completion="):
+                shell = arg.split("=", 1)[1]
+                print_completion(shell)
+                return
+            elif arg == "--completion":
+                idx = sys.argv.index(arg)
+                if idx + 1 < len(sys.argv):
+                    print_completion(sys.argv[idx + 1])
+                    return
+        print("--completion requires a shell argument: bash, zsh, or fish", file=sys.stderr)
+        return 1
+
     parser = argparse.ArgumentParser(prog="harness-mem")
     parser.add_argument("--version", action="version", version=f"harness-mem {__version__}")
     sub = parser.add_subparsers(dest="command")
@@ -342,6 +375,11 @@ def main():
     )
     ingest.add_argument("-p", "--project", help="Project name (defaults to active project)")
     ingest.add_argument("-n", "--limit", type=int, default=10, help="Max sessions to ingest")
+    ingest.add_argument(
+        "--full-rescan",
+        action="store_true",
+        help="Ignore last-ingest cursor and ingest all sessions (default: incremental)"
+    )
 
     # wake-up
     wake_up = sub.add_parser("wake-up", aliases=["wake"], help="Generate wake-up context")
@@ -354,20 +392,27 @@ def main():
     search.add_argument("query_arg", nargs="?", help="Search query")
     search.add_argument("-p", "--project", help="Project name (defaults to active project)")
     search.add_argument("-q", "--query", help="Search query")
+    search.add_argument(
+        "--mode",
+        choices=["auto", "fts", "hybrid"],
+        default="auto",
+        help="Search mode (default: auto)",
+    )
 
     # timeline
     timeline = sub.add_parser("timeline", aliases=["tl"], help="Show observation timeline")
     timeline.set_defaults(command_name="timeline")
-    timeline.add_argument("limit_arg", nargs="?", type=int, help="Max results")
+    timeline.add_argument("limit_arg", nargs="?", type=int, help="Max results (default: 50)")
     timeline.add_argument("-p", "--project", help="Project name (defaults to active project)")
-    timeline.add_argument("-n", "--limit", type=int, help="Max results")
+    timeline.add_argument("-n", "--limit", type=int, default=50, help="Max results (default: 50)")
 
     # show
     show = sub.add_parser("show", help="Show a specific observation")
     show.set_defaults(command_name="show")
     show.add_argument("observation_id_arg", nargs="?", help="Observation ID")
     show.add_argument("-p", "--project", help="Project name (optional)")
-    show.add_argument("-i", "--id", dest="observation_id", help="Observation ID")
+    show.add_argument("-i", "--id", dest="observation_id", help="Observation ID (legacy, use -o instead)")
+    show.add_argument("-o", "--observation-id", dest="observation_id", help="Observation ID")
 
     # status
     status = sub.add_parser("status", aliases=["st"], help="Show memory status")
@@ -378,6 +423,7 @@ def main():
     profile_cmd = sub.add_parser("profile", help="Show project profile")
     profile_cmd.set_defaults(command_name="profile")
     profile_cmd.add_argument("-p", "--project", help="Project name (defaults to active project)")
+    profile_cmd.add_argument("--edit", action="store_true", help="Edit profile fields interactively")
 
     # distill
     distill_cmd = sub.add_parser("distill", aliases=["ds"], help="Extract structured memory from sessions")
@@ -388,7 +434,7 @@ def main():
     distill_cmd.add_argument("-c", "--category", dest="category", choices=["architecture", "convention", "api", "bug", "decision"], help="Filter entries by category")
 
     # correct
-    correct_cmd = sub.add_parser("correct", help="Create a rule candidate from a correction")
+    correct_cmd = sub.add_parser("correct", help="Create a rule candidate from a correction (interactive)")
     correct_cmd.set_defaults(command_name="correct")
     correct_cmd.add_argument("session_id_arg", nargs="?", help="Session ID")
     correct_cmd.add_argument("-s", "--session-id", dest="session_id", help="Session ID")
@@ -408,6 +454,13 @@ def main():
     reject_cmd.add_argument("rule_id_arg", nargs="?", help="Rule candidate ID")
     reject_cmd.add_argument("-r", "--rule-id", dest="rule_id", help="Rule candidate ID")
 
+    # purge
+    purge_cmd = sub.add_parser("purge", help="Soft-delete observations/structured memory")
+    purge_cmd.set_defaults(command_name="purge")
+    purge_cmd.add_argument("--before", required=True, help="Delete entries before this date (YYYY-MM-DD)")
+    purge_cmd.add_argument("--category", choices=["observations", "structured", "all"], default="all", help="Category to purge")
+    purge_cmd.add_argument("--dry-run", action="store_true", help="Show what would be deleted without deleting")
+
     # list-candidates
     list_cand_cmd = sub.add_parser("list-candidates", aliases=["candidates"], help="List rule candidates")
     list_cand_cmd.set_defaults(command_name="list-candidates")
@@ -420,7 +473,7 @@ def main():
     confirmed_cmd.add_argument("-p", "--project", help="Project name (defaults to active project)")
 
     # handoff
-    handoff_cmd = sub.add_parser("handoff", help="Create or update a task handoff")
+    handoff_cmd = sub.add_parser("handoff", help="Create or update a task handoff (interactive)")
     handoff_cmd.set_defaults(command_name="handoff")
     handoff_cmd.add_argument("-p", "--project", help="Project name (defaults to active project)")
     handoff_cmd.add_argument("-t", "--task-id", dest="task_id", help="Task ID")
@@ -428,6 +481,12 @@ def main():
     handoff_cmd.add_argument("--status", default="in_progress", help="Task status")
     handoff_cmd.add_argument("-n", "--next-step", dest="next_steps", action="append", default=[], help="Next step (can repeat)")
     handoff_cmd.add_argument("-b", "--blocker", dest="blockers", action="append", default=[], help="Blocker (can repeat)")
+
+    # api
+    api_cmd = sub.add_parser("api", help="Start the REST API server")
+    api_cmd.set_defaults(command_name="api")
+    api_cmd.add_argument("-p", "--port", type=int, default=8000, help="Port to listen on (default: 8000)")
+    api_cmd.add_argument("-H", "--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
 
     args = parser.parse_args()
     command = getattr(args, "command_name", args.command)
@@ -462,8 +521,11 @@ def main():
     if command == "search":
         query = args.query or args.query_arg
         if not query:
-            parser.error("search requires a query. Use `harness-mem search <query>` or `--query`.")
-        return asyncio.run(cmd_search(args.project, query))
+            print("No query provided. Try:")
+            print("  harness-mem search \"your search terms\"")
+            print("  harness-mem search --project <project> \"terms\"")
+            return 1
+        return asyncio.run(cmd_search(args.project, query, args.mode))
 
     if command == "timeline":
         limit = args.limit if args.limit is not None else (args.limit_arg or 50)
@@ -476,9 +538,11 @@ def main():
         return asyncio.run(cmd_show(args.project, observation_id))
 
     if command == "ingest":
-        return asyncio.run(cmd_ingest(args.client, args.project, args.limit))
+        return asyncio.run(cmd_ingest(args.client, args.project, args.limit, args.full_rescan))
 
     if command == "profile":
+        if getattr(args, 'edit', False):
+            return asyncio.run(cmd_profile_edit(args.project))
         return asyncio.run(cmd_profile(args.project))
 
     if command == "distill":
@@ -519,6 +583,9 @@ def main():
             parser.error("reject-rule requires a rule id. Use `harness-mem reject-rule <id>` or `--rule-id`.")
         return asyncio.run(cmd_reject_rule(rule_id))
 
+    if command == "purge":
+        return asyncio.run(cmd_purge(args.before, args.category, args.dry_run))
+
     if command == "list-candidates":
         project_name = _resolve_project_name(args.project, action_label="list-candidates")
         if not project_name:
@@ -557,6 +624,14 @@ def main():
             project_name, task_id, summary,
             status=status, next_steps=next_steps, blockers=blockers
         ))
+
+    if command == "api":
+        import uvicorn
+        from harness_mem.api.server import create_app
+        app = create_app()
+        print(f"Starting API server on {args.host}:{args.port}")
+        uvicorn.run(app, host=args.host, port=args.port)
+        return 0
 
     return 0
 
@@ -601,6 +676,23 @@ async def _status_project_async(backend: LocalMemoryBackend, project_name: str):
     else:
         level = "L4+"
     print(f"  Estimated wake-up: ≈ {total_tokens:,} tokens [{level}]")
+
+    # Phase / Next step / Why
+    if level in ("L3", "L4+"):
+        print()
+        print(f"📍 Phase: Budget Warning ({level})")
+        print("→ Next: harness-mem purge --before <DATE> --category all --dry-run")
+        print(f"   Why: Memory budget at {level}, archiving old data can help")
+    elif len(project_obs) == 0:
+        print()
+        print("📍 Phase: Empty")
+        print("→ Next: harness-mem ingest claude-code")
+        print("   Why: No observations yet, ingest sessions to get started")
+    else:
+        print()
+        print("📍 Phase: Healthy")
+        print("→ Next: harness-mem wake")
+        print("   Why: Memory is ready, wake-up is the shortest path to project context")
 
 
 def cmd_use(project_name: str | None = None) -> int:
@@ -693,9 +785,9 @@ async def cmd_quickstart(
     )
 
     print()
-    print("Suggested next step:")
-    print(f"  {next_command}")
-    print(f"Reason: {reason}")
+    print("📍 Phase: Quickstart Complete")
+    print(f"→ Next: {next_command}")
+    print(f"   Why: {reason}")
     print("Also useful:")
     print("  harness-mem doctor")
     return 0
@@ -749,7 +841,10 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             total_tokens, level = _wake_budget(profile, entries, rules, handoffs)
             print(f"Estimated wake-up: ≈ {total_tokens:,} tokens [{level}]")
             if level in ("L3", "L4+"):
-                print("Budget warning: wake-up context is high; consider distilling or pruning stale memory before wake-up.")
+                from datetime import datetime, timezone
+                three_months_ago = (datetime.now(timezone.utc).replace(day=1) - timedelta(days=90)).strftime("%Y-%m-%d")
+                print(f"💡 Run: harness-mem purge --before {three_months_ago} --category all --dry-run")
+                print("   to preview what can be archived.")
 
             next_command, reason = _suggested_next_step(
                 project_name=resolved_project,
@@ -759,14 +854,18 @@ async def cmd_doctor(project_name: str | None = None) -> int:
                 codex_sessions=codex_sessions,
             )
 
-            print("Suggested next step:")
-            print(f"  {next_command}")
-            print(f"Reason: {reason}")
+            print()
+            print("📍 Phase: Ready")
+            print(f"→ Next: {next_command}")
+            print(f"   Why: {reason}")
         finally:
             await backend.close()
         return 0
 
-    print("Suggested next step: run `harness-mem use <project-name>` or `harness-mem quickstart`.")
+    print()
+    print("📍 Phase: Not Initialized")
+    print("→ Next: harness-mem quickstart")
+    print("   Why: No active project set or data directory not initialized")
     return 0
 
 
@@ -784,6 +883,12 @@ async def cmd_status(project_name: str | None = None) -> int:
             active_project = _get_active_project()
             if active_project:
                 print(f"Active project: {active_project}")
+                await _status_project_async(backend, active_project)
+            else:
+                print()
+                print("📍 Phase: Not Initialized")
+                print("→ Next: harness-mem quickstart")
+                print("   Why: No active project set, run quickstart to get started")
     finally:
         await backend.close()
     return 0
@@ -801,51 +906,116 @@ async def cmd_wake_up(project_name: str | None) -> int:
         # Load project profile
         profile = await profile_store.get(project_name)
         if profile:
-            print(f"# Project Profile: {profile.project_name}")
+            profile_chars = len(profile.project_name or "") + len(_profile_text(profile))
+            print(f"# Project Profile  (source: profile, ~{profile_chars} chars)")
             print(f"Description: {profile.description}")
             print(f"Stacks: {', '.join(profile.stacks)}")
             if profile.key_files:
-                print(f"Key files:")
+                print("Key files:")
                 for f in profile.key_files[:5]:
                     print(f"  - {f}")
+            if profile.conventions:
+                print("Conventions:")
+                for convention in profile.conventions[:5]:
+                    print(f"  - {convention}")
+            print()
+        else:
+            print("# Project Profile  (source: profile, empty)")
             print()
 
         # Load latest handoffs
         handoffs = await backend.structured_store.get_latest_handoffs(project_name, limit=3)
         if handoffs:
-            print("# Recent Tasks")
+            hw_chars = sum(len(h.summary or "") + len(str(h.next_steps)) + len(str(h.blockers)) for h in handoffs)
+            print(f"# Recent Tasks  (source: task_handoffs, {len(handoffs)} items, ~{hw_chars} chars)")
             for h in handoffs:
                 print(f"## [{h.status}] {h.summary}")
                 if h.next_steps:
                     print(f"  Next: {h.next_steps[0]}")
                 if h.blockers:
                     print(f"  Blockers: {', '.join(h.blockers)}")
+                if h.provenance:
+                    prov = h.provenance
+                    src = prov.get("session_id", prov.get("agent_type", "unknown"))
+                    print(f"  📍 {src}")
+            print()
+        else:
+            print("# Recent Tasks  (source: task_handoffs, empty)")
             print()
 
         # Load confirmed rules
         rules = await backend.structured_store.list_confirmed_rules(project_name)
         if rules:
-            print(f"# Rules ({len(rules)} confirmed)")
+            rules_chars = sum(len(r.trigger or "") + len(r.pattern or "") for r in rules)
+            print(f"# Confirmed Rules  (source: confirmed_rules, {len(rules)} rules, ~{rules_chars} chars)")
             for r in rules[:5]:
-                print(f"- **{r.trigger}**: {r.pattern[:80]}")
+                trigger_preview = r.trigger[:60] + "..." if len(r.trigger) > 60 else r.trigger
+                pattern_preview = r.pattern[:60] + "..." if len(r.pattern) > 60 else r.pattern
+                print(f"- **{trigger_preview}**: {pattern_preview} [...truncated]")
+                if r.provenance:
+                    prov = r.provenance
+                    src = prov.get("session_id", prov.get("agent_type", "unknown"))
+                    print(f"  📍 {src}")
+            print()
+        else:
+            print("# Confirmed Rules  (source: confirmed_rules, empty)")
             print()
 
         # Load recent memory entries
         entries = await backend.structured_store.list_memory_entries(project_name, limit=5)
         if entries:
-            print(f"# Memory ({len(entries)} recent)")
+            entries_chars = sum(len(e.content or "") for e in entries)
+            print(f"# Memory Entries  (source: structured_memory, {len(entries)} entries, ~{entries_chars} chars)")
             for e in entries:
-                print(f"- [{e.category}] {e.content[:100]}")
+                content_preview = e.content[:100] + "..." if len(e.content) > 100 else e.content
+                print(f"- [{e.category}] {content_preview}")
+                if e.provenance:
+                    prov = e.provenance
+                    src = prov.get("session_id", prov.get("agent_type", "unknown"))
+                    print(f"  📍 {src}")
+            print()
+        else:
+            print("# Memory Entries  (source: structured_memory, empty)")
             print()
 
         total_tokens, level = _wake_budget(profile, entries, rules, handoffs)
         print(f"Approx wake-up tokens: ≈ {total_tokens:,} [{level}]")
+        if level in ("L3", "L4+"):
+            from datetime import timezone
+            three_months_ago = (datetime.now(timezone.utc).replace(day=1) - timedelta(days=90)).strftime("%Y-%m-%d")
+            print(f"⚠️  Memory budget at {level}")
+            print(f"💡 Run: harness-mem purge --before {three_months_ago} --category all --dry-run")
+            print("   to preview what can be archived.")
     finally:
         await backend.close()
     return 0
 
 
-async def cmd_search(project_name: str | None, query: str) -> int:
+def _search_header(results: Sequence[object], requested_mode: str) -> str:
+    if not results:
+        return f"[{requested_mode.upper()} Search]"
+    first = results[0]
+    effective_mode = getattr(first, "_search_mode", requested_mode)
+    fallback_reason = getattr(first, "_search_fallback_reason", None)
+    if effective_mode == "hybrid":
+        return "[Hybrid Search]"
+    if fallback_reason:
+        return f"[FTS Search] ({fallback_reason}, using full-text search)"
+    return "[FTS Search]"
+
+
+def _format_search_score(result: object) -> str:
+    score = getattr(result, "_score", None)
+    if score is None:
+        score = getattr(result, "_hybrid_score", None)
+    if score is None:
+        score = getattr(result, "_fts_score", None)
+    if isinstance(score, (int, float)):
+        return f"{score:.3f}"
+    return "n/a"
+
+
+async def cmd_search(project_name: str | None, query: str, mode: str = "auto") -> int:
     """Search memory for a project."""
     project_name = _resolve_project_name(project_name, action_label="search")
     if not project_name:
@@ -856,19 +1026,36 @@ async def cmd_search(project_name: str | None, query: str) -> int:
         print(f"# Search: {query}")
         print()
 
-        entries = await backend.structured_store.search_memory_entries(query, project_name, limit=10)
+        entries = await backend.structured_store.search_memory_entries(
+            query,
+            project_name,
+            limit=10,
+            mode=mode,
+        )
+        obs_list = await backend.verbatim_store.search(
+            query,
+            project_name=project_name,
+            limit=10,
+            mode=mode,
+        )
+        combined_results = entries or obs_list
+        print(_search_header(combined_results, mode))
+        print()
+
         if entries:
             print(f"## Memory Entries ({len(entries)} results)")
             for e in entries:
-                print(f"- [{e.category}] {e.content[:150]}  -> structured")
+                preview = e.content[:150] + "..." if len(e.content) > 150 else e.content
+                search_mode = getattr(e, "_search_mode", mode)
+                print(f"- [{e.category}] {preview}  (score: {_format_search_score(e)}, mode: {search_mode})  -> structured")
             print()
 
-        obs_list = await backend.verbatim_store.search(query, project_name=project_name, limit=10)
         if obs_list:
             print(f"## Observations ({len(obs_list)} results)")
             for o in obs_list:
-                preview = o.raw_content[:200].replace("\n", " ")
-                print(f"- [{o.session_id}] {preview}  -> verbatim")
+                preview = o.raw_content[:200].replace("\n", " ") + "..." if len(o.raw_content) > 200 else o.raw_content.replace("\n", " ")
+                search_mode = getattr(o, "_search_mode", mode)
+                print(f"- [{o.session_id}] {preview}  (score: {_format_search_score(o)}, mode: {search_mode})  -> verbatim")
             print()
     finally:
         await backend.close()
@@ -916,6 +1103,8 @@ async def cmd_show(project_name: str | None, observation_id: str) -> int:
         print(f"Type: {obs.content_type}")
         print(f"Timestamp: {obs.timestamp}")
         print(f"Tags: {', '.join(obs.tags)}")
+        if obs.metadata.get("provenance"):
+            print(f"Provenance: {obs.metadata['provenance']}")
         print()
         print(obs.raw_content)
     finally:
@@ -971,7 +1160,7 @@ async def cmd_distill(project_name: str | None, session_id: str | None = None, c
         await backend.close()
 
 
-async def cmd_ingest(client: str, project_name: str | None = None, limit: int = 10) -> int:
+async def cmd_ingest(client: str, project_name: str | None = None, limit: int = 10, full_rescan: bool = False) -> int:
     """Ingest sessions for a supported client."""
     project_name = _resolve_project_name(project_name, action_label=f"{client} ingest")
     if not project_name:
@@ -980,44 +1169,108 @@ async def cmd_ingest(client: str, project_name: str | None = None, limit: int = 
     await backend.init()
 
     try:
+        profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
+
         if client == "claude-code":
             adapter = ClaudeCodeAdapter(backend)
-            print(f"Ingesting {client} sessions for project: {project_name}")
-            result = await adapter.ingest_project(project_name, limit=limit, min_size_kb=0)
+            profile = await profile_store.get(project_name)
+            all_sessions = adapter.list_project_sessions(project_name, min_size_kb=0)
+            last_session_id = profile.last_ingest_session_id if profile and not full_rescan else None
+            last_ingest_at = profile.last_ingest_at if profile and not full_rescan else None
 
-            if result["sessions_found"] == 0:
-                print(f"No {client} sessions found for project: {project_name}")
-                return 1
+            candidate_sessions: list[dict]
+            if full_rescan:
+                print(f"Ingesting {client} sessions for project: {project_name}")
+                print("[Full Rescan] Processing all sessions without cursor shortcuts.")
+                candidate_sessions = all_sessions[:limit]
+            else:
+                print(f"Ingesting {client} sessions for project: {project_name}")
+                if last_session_id:
+                    candidate_sessions = []
+                    cursor_found = False
+                    for session in all_sessions:
+                        if session["session_id"] == last_session_id:
+                            cursor_found = True
+                            break
+                        candidate_sessions.append(session)
+                    if cursor_found:
+                        print(f"[Incremental] Processing sessions newer than cursor: {last_session_id}")
+                    else:
+                        print(
+                            f"Warning: ingest cursor {last_session_id} not found; "
+                            "falling back to sessions newer than last ingest timestamp."
+                        )
+                        if last_ingest_at is not None:
+                            candidate_sessions = [
+                                session for session in all_sessions
+                                if session.get("mtime") and session["mtime"] > last_ingest_at
+                            ]
+                        else:
+                            candidate_sessions = all_sessions[:limit]
+                    candidate_sessions = candidate_sessions[:limit]
+                else:
+                    candidate_sessions = all_sessions[:limit]
 
-            print(f"Sessions found: {result['sessions_found']}")
-            print(f"Ingested: {result['ingested']} sessions")
-            if result["errors"] > 0:
-                print(f"Errors: {result['errors']}")
+            existing_observations = await backend.verbatim_store.list(limit=100000)
+            existing_session_ids = {
+                observation.session_id
+                for observation in existing_observations
+                if observation.metadata.get("project_name") == project_name
+            }
 
-            # Auto-detect project profile if not exists
-            profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
-            existing = await profile_store.get(project_name)
-            if not existing:
+            ingested = 0
+            errors = 0
+            skipped_existing = 0
+
+            for session in candidate_sessions:
+                try:
+                    if session["session_id"] in existing_session_ids:
+                        skipped_existing += 1
+                        continue
+                    obs = adapter.turns_to_observation(session["path"], session["session_id"], project_name)
+                    await backend.verbatim_store.save(obs)
+                    ingested += 1
+                    existing_session_ids.add(session["session_id"])
+                except Exception:
+                    errors += 1
+
+            newest_seen_session_id = last_session_id
+            if all_sessions:
+                newest_seen_session_id = all_sessions[0]["session_id"]
+
+            print(f"Sessions found: {len(all_sessions)}")
+            print(f"Ingested: {ingested} sessions")
+            if skipped_existing > 0:
+                print(f"Skipped existing: {skipped_existing} sessions")
+            if errors > 0:
+                print(f"Errors: {errors}")
+
+            # Update profile with new ingest cursor
+            if profile is None:
+                profile = ProjectProfile(project_name=project_name)
+            if newest_seen_session_id is not None:
+                profile.last_ingest_session_id = newest_seen_session_id
+            if candidate_sessions or full_rescan:
+                profile.last_ingest_at = datetime.now(timezone.utc)
+            await profile_store.save(profile)
+
+            # Auto-detect project profile if stacks are empty
+            if not profile.stacks:
                 sessions_dir = Path.home() / ".claude" / "projects"
                 project_path = sessions_dir / project_name
                 if project_path.exists():
-                    profile = build_project_profile(project_path, project_name)
+                    detected = build_project_profile(project_path, project_name)
+                    profile.stacks = detected.stacks
+                    profile.key_files = detected.key_files
                     await profile_store.save(profile)
                     print(f"Auto-detected profile: {', '.join(profile.stacks)}")
-                else:
-                    # Try fixtures
-                    repo_root = Path(__file__).resolve().parent.parent.parent
-                    fixture_path = repo_root / "fixtures" / project_name
-                    if fixture_path.exists():
-                        profile = build_project_profile(fixture_path, project_name)
-                        await profile_store.save(profile)
-                        print(f"Auto-detected profile from fixture: {', '.join(profile.stacks)}")
+
             _set_active_project(project_name)
             return 0
 
-        adapter = CodexAdapter(backend)
+        codex_adapter = CodexAdapter(backend)
         print(f"Ingesting {client} sessions for project: {project_name}")
-        result = await adapter.ingest(project_name=project_name, limit=limit, min_size_kb=0)
+        result = await codex_adapter.ingest(project_name=project_name, limit=limit, min_size_kb=0)
         if result["sessions_found"] == 0:
             print(f"No {client} sessions found.")
             return 1
@@ -1049,8 +1302,6 @@ async def cmd_profile(project_name: str | None) -> int:
 
     # Collect memory stats — must match actual wake-up load (cmd_wake_up)
     # wake-up loads: profile + latest 3 handoffs + all rules + latest 5 memory entries
-    all_obs = await backend.verbatim_store.list(limit=10000)
-    project_obs = [o for o in all_obs if o.metadata.get("project_name") == project_name]
     # actual wake-up limit for entries is 5
     entries = await backend.structured_store.list_memory_entries(project_name, limit=5)
     rules = await backend.structured_store.list_confirmed_rules(project_name)
@@ -1058,12 +1309,6 @@ async def cmd_profile(project_name: str | None) -> int:
     handoffs = await backend.structured_store.get_latest_handoffs(project_name, limit=3)
     await backend.close()
 
-    # Profile text (description + stacks + key files)
-    profile_text = (
-        (profile.description or "")
-        + " " + " ".join(profile.stacks)
-        + " " + " ".join(profile.key_files)
-    )
     entry_chars = sum(len(e.content) for e in entries)
     rule_chars = sum(len(r.pattern) + len(r.trigger) for r in rules)
     handoff_chars = sum(
@@ -1071,28 +1316,12 @@ async def cmd_profile(project_name: str | None) -> int:
         for h in handoffs
     )
 
-    def chars_to_tokens(chars: int) -> int:
-        return round(chars / 4)
-
-    profile_tokens = chars_to_tokens(len(profile_text))
-    entry_tokens = chars_to_tokens(entry_chars)
-    rule_tokens = chars_to_tokens(rule_chars)
-    handoff_tokens = chars_to_tokens(handoff_chars)
+    profile_tokens = _chars_to_tokens(len(_profile_text(profile)))
+    entry_tokens = _chars_to_tokens(entry_chars)
+    rule_tokens = _chars_to_tokens(rule_chars)
+    handoff_tokens = _chars_to_tokens(handoff_chars)
     total_tokens = profile_tokens + entry_tokens + rule_tokens + handoff_tokens
-
-    def disclosure_level(tokens: int) -> str:
-        if tokens < 500:
-            return "L0"
-        elif tokens < 2000:
-            return "L1"
-        elif tokens < 8000:
-            return "L2"
-        elif tokens < 32000:
-            return "L3"
-        else:
-            return "L4+"
-
-    level = disclosure_level(total_tokens)
+    level = _disclosure_level(total_tokens)
 
     print(f"Project: {profile.project_name}")
     print(f"Description: {profile.description}")
@@ -1102,8 +1331,13 @@ async def cmd_profile(project_name: str | None) -> int:
         print(f"  - {f}")
     if len(profile.key_files) > 10:
         print(f"  ... and {len(profile.key_files) - 10} more")
+    print(f"Conventions ({len(profile.conventions)}):")
+    for convention in profile.conventions[:10]:
+        print(f"  - {convention}")
+    if len(profile.conventions) > 10:
+        print(f"  ... and {len(profile.conventions) - 10} more")
     print()
-    print(f"Memory budget estimate (actual wake-up load):")
+    print("Memory budget estimate (actual wake-up load):")
     print(f"  Profile: ≈ {profile_tokens:,} tokens")
     print(f"  Memory entries: {len(entries)} (≈ {entry_tokens:,} tokens, limited to 5 latest)")
     print(f"  Confirmed rules: {len(rules)} (≈ {rule_tokens:,} tokens)")
@@ -1113,5 +1347,172 @@ async def cmd_profile(project_name: str | None) -> int:
     return 0
 
 
-if __name__ == "__main__":
+async def cmd_profile_edit(project_name: str | None) -> int:
+    """Edit project profile fields interactively (merge strategy)."""
+    project_name = _resolve_project_name(project_name, action_label="profile --edit")
+    if not project_name:
+        return 1
+
+    profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
+    profile = await profile_store.get(project_name)
+
+    if profile:
+        print(f"Editing profile: {project_name}")
+        print("(Press Enter to keep the current value; '!clear' to reset a field)\n")
+    else:
+        if not _can_prompt():
+            print(f"No profile found for: {project_name}. Run `harness-mem profile` first.")
+            return 1
+        print(f"No profile found for: {project_name}. Creating a new one.\n")
+        profile = None
+
+    # Editable fields: description, stacks, key_files, conventions
+    if profile:
+        new_description = _prompt_text(
+            "description",
+            default=profile.description or None,
+            allow_empty=True,
+            allow_clear=True,
+        )
+        new_stacks_raw = _prompt_list_labeled(
+            "stacks",
+            "programming languages & frameworks",
+            existing=profile.stacks,
+        )
+        new_key_files_raw = _prompt_list_labeled(
+            "key_files",
+            "important files",
+            existing=profile.key_files,
+        )
+        new_conventions_raw = _prompt_list_labeled(
+            "conventions",
+            "coding conventions",
+            existing=profile.conventions,
+        )
+    else:
+        new_description = _prompt_text("description", allow_empty=True)
+        new_stacks_raw = _prompt_list("stacks (one per line, blank to finish)")
+        new_key_files_raw = _prompt_list("key files (one per line, blank to finish)")
+        new_conventions_raw = _prompt_list("conventions (one per line, blank to finish)")
+
+    from datetime import timezone
+
+    if profile:
+        # Merge: update only the fields the user edited
+        updated = ProjectProfile(
+            id=profile.id,
+            project_name=project_name,
+            description=new_description if new_description is not None else profile.description,
+            stacks=new_stacks_raw if new_stacks_raw is not None else profile.stacks,
+            key_files=new_key_files_raw if new_key_files_raw is not None else profile.key_files,
+            conventions=new_conventions_raw if new_conventions_raw is not None else profile.conventions,
+            service_hints=profile.service_hints,
+            database_hints=profile.database_hints,
+            created_at=profile.created_at,
+            last_updated=datetime.now(timezone.utc),
+        )
+    else:
+        updated = ProjectProfile(
+            project_name=project_name,
+            description=new_description or "",
+            stacks=new_stacks_raw or [],
+            key_files=new_key_files_raw or [],
+            conventions=new_conventions_raw or [],
+            service_hints=[],
+            database_hints=[],
+            last_updated=datetime.now(timezone.utc),
+        )
+
+    await profile_store.save(updated)
+    print(f"\nProfile saved for: {project_name}")
+    return 0
+
+
+async def cmd_purge(before_date: str, category: str, dry_run: bool) -> int:
+    """Soft-delete observations/structured memory before a given date."""
+    try:
+        cutoff = datetime.strptime(before_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        print(f"Invalid date format: {before_date}. Use YYYY-MM-DD.")
+        return 1
+
+    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
+    await backend.init()
+    try:
+        total_deleted = 0
+
+        if category in ("observations", "all"):
+            all_obs = await backend.verbatim_store.list(limit=100000)
+            to_delete = [o for o in all_obs if o.timestamp and _as_utc(o.timestamp) < cutoff]
+            if to_delete:
+                if dry_run:
+                    print(f"[DRY RUN] Would soft-delete {len(to_delete)} observations before {before_date}")
+                    for o in to_delete[:10]:
+                        ts = o.timestamp.strftime("%Y-%m-%d") if o.timestamp else "?"
+                        preview = o.raw_content[:80].replace("\n", " ")
+                        print(f"  - {o.id} [{ts}] {preview}...")
+                    if len(to_delete) > 10:
+                        print(f"  ... and {len(to_delete) - 10} more")
+                else:
+                    for o in to_delete:
+                        await backend.verbatim_store.soft_delete(o.id)
+                    total_deleted += len(to_delete)
+                    print(f"Soft-deleted {len(to_delete)} observations.")
+
+        if category in ("structured", "all"):
+            project_name = _get_active_project()
+            if project_name:
+                entries = await backend.structured_store.list_memory_entries(project_name, limit=100000)
+                entries_to_delete = [e for e in entries if e.created_at and _as_utc(e.created_at) < cutoff]
+                if entries_to_delete:
+                    if dry_run:
+                        print(f"[DRY RUN] Would soft-delete {len(entries_to_delete)} structured memories before {before_date}")
+                        for e in entries_to_delete[:10]:
+                            preview = e.content[:80].replace("\n", " ")
+                            print(f"  - {e.id} [{e.category}] {preview}...")
+                        if len(entries_to_delete) > 10:
+                            print(f"  ... and {len(entries_to_delete) - 10} more")
+                    else:
+                        for e in entries_to_delete:
+                            await backend.structured_store.soft_delete_memory_entry(e.id)
+                        total_deleted += len(entries_to_delete)
+                        print(f"Soft-deleted {len(entries_to_delete)} structured memories.")
+
+        if total_deleted == 0 and not (category in ("observations", "all") or category in ("structured", "all")):
+            print("Nothing to purge. Try --category observations, --category structured, or --category all.")
+        elif total_deleted == 0:
+            print(f"No entries found before {before_date} in category '{category}'.")
+
+        if not dry_run and total_deleted > 0:
+            print("Run 'harness-mem doctor' to check new memory budget.")
+        return 0
+    finally:
+        await backend.close()
+
+
+def _prompt_list_labeled(field_label: str, item_description: str, existing: list[str] | None = None) -> list[str] | None:
+    """Prompt for a list of strings, showing existing items.
+
+    - For existing profile edit: blank returns None (keep existing), '!clear' resets to [].
+    - For new profile creation: pass existing=[] so blank returns [].
+    """
+    if not _can_prompt():
+        return None
+    has_existing = existing is not None and len(existing) > 0
+    if has_existing:
+        print(f"{field_label} (current: {', '.join(existing or [])}):")
+        print(f"  (Enter new {item_description}, blank to keep existing, '!clear' to reset)")
+    else:
+        print(f"{field_label} (one per line, blank to finish):")
+    values: list[str] = []
+    while True:
+        value = input("> ").strip()
+        if not value:
+            if has_existing:
+                return None  # keep existing
+            return values  # return what was entered so far for new profile
+        if value == "!clear":
+            return []
+        values.append(value)
+
     sys.exit(main())

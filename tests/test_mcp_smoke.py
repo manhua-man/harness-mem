@@ -12,9 +12,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from harness_mem.mcp.server import handle_request, TOOLS, set_backend_override
-from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from harness_mem.core.schemas import Observation, MemoryEntry
+from harness_mem.mcp.server import handle_request, set_backend_override  # noqa: E402
+from harness_mem.storage.local_memory_backend import LocalMemoryBackend  # noqa: E402
+from harness_mem.core.schemas import Observation, MemoryEntry  # noqa: E402
+from harness_mem.search.hybrid_search import HybridSearchLayer  # noqa: E402
 
 
 def run(coro):
@@ -86,15 +87,15 @@ def test_initialize():
 
 
 def test_tools_list():
-    """Tool: tools/list — should return all 8 tools."""
+    """Tool: tools/list — should return all 10 tools."""
     resp = _rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 8, f"Expected 8 tools, got {len(tools)}"
+    assert len(tools) == 10, f"Expected 10 tools, got {len(tools)}"
     names = {t["name"] for t in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
         "get_task_handoffs", "get_confirmed_rules", "get_project_profile",
-        "create_rule_candidate", "confirm_rule",
+        "create_rule_candidate", "confirm_rule", "reject_rule", "suggest_rule",
     }
     assert expected.issubset(names), f"Missing tools: {expected - names}"
     print(f"  [PASS] tools/list — {len(tools)} tools registered")
@@ -215,4 +216,25 @@ def test_search_memory_no_project(mcp_backend):
     result = resp["result"]["content"][0]["text"]
     data = json.loads(result)
     assert "memory_entries" in data
-    print(f"  [PASS] search_memory (no-results case) — OK")
+    print("  [PASS] search_memory (no-results case) — OK")
+
+
+def _fake_embed_texts(self, texts: list[str]) -> list[list[float]]:
+    return [[1.0, float(len(text))] for text in texts]
+
+
+def test_search_memory_reports_effective_mode(mcp_backend, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(HybridSearchLayer, "_embed_texts", _fake_embed_texts)
+
+    resp = _rpc("tools/call", {
+        "name": "search_memory",
+        "arguments": {
+            "project_name": "test-project",
+            "query": "SQLite FTS5",
+            "mode": "hybrid",
+        }
+    })
+    result = resp["result"]["content"][0]["text"]
+    data = json.loads(result)
+    assert data["effective_mode"] == "hybrid"
+    assert data["memory_entries"][0]["search_mode"] == "hybrid"
