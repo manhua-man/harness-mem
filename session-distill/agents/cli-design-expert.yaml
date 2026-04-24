@@ -1,0 +1,4 @@
+interface:
+  display_name: "CLI Design Expert"
+  short_description: "审查并改进 CLI 交互，优先减少长命令和弱引导"
+  default_prompt: "请作为 CLI 设计专家审查这个仓库的命令行体验。重点检查最短 happy path、默认项目记忆、交互式 fallback、自动发现最近 sessions，以及 quickstart/doctor 是否能明确建议 distill 或 wake。参考 docs/cli-design-expert.md。"

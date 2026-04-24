@@ -1,0 +1,4 @@
+interface:
+  display_name: "Archive Distiller"
+  short_description: "Distill archived Codex sessions into reusable knowledge"
+  default_prompt: "Use $archived-session-distiller to turn my archived Codex sessions into reusable rules and commands."
