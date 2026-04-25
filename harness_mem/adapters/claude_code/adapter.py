@@ -6,6 +6,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from harness_mem.core.schemas import Observation, MemoryEntry
@@ -32,13 +33,13 @@ class ClaudeCodeAdapter:
         project_name: str,
         min_size_kb: int = 100,
         limit: int | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """List session files for a project."""
         project_dir = self.sessions_dir / project_name
         if not project_dir.exists():
             return []
 
-        sessions = []
+        sessions: list[dict[str, Any]] = []
         for session_file in project_dir.glob("*.jsonl"):
             size_kb = session_file.stat().st_size / 1024
             if size_kb >= min_size_kb:
@@ -51,15 +52,15 @@ class ClaudeCodeAdapter:
                     "lines": len(session_file.read_text(encoding="utf-8-sig", errors="replace").splitlines()),
                     "mtime": datetime.fromtimestamp(session_file.stat().st_mtime, tz=timezone.utc),
                 })
-        sessions = sorted(sessions, key=lambda s: s["mtime"], reverse=True)
+        sessions = sorted(sessions, key=self._session_sort_key, reverse=True)
         if limit is not None:
             return sessions[:limit]
         return sessions
 
-    def parse_jsonl_session(self, session_path: Path) -> list[dict]:
+    def parse_jsonl_session(self, session_path: Path) -> list[dict[str, Any]]:
         """Parse a Claude Code .jsonl session file into turns."""
-        turns = []
-        current_turn = None
+        turns: list[dict[str, Any]] = []
+        current_turn: dict[str, Any] | None = None
 
         try:
             content = session_path.read_text(encoding="utf-8-sig", errors="replace")
@@ -169,7 +170,7 @@ class ClaudeCodeAdapter:
                 obs = self.turns_to_observation(session["path"], session_id, project_name)
                 await self.backend.verbatim_store.save(obs)
                 ingested += 1
-            except Exception as e:
+            except Exception:
                 errors += 1
 
         return {
@@ -238,11 +239,11 @@ class ClaudeCodeAdapter:
             existing_keys.add(entry_key)
             saved_entries.append(entry)
 
-        return saved_entries if saved_entries else entries
+        return saved_entries
 
     def _extract_entries(
         self,
-        turns: list[dict],
+        turns: list[dict[str, Any]],
         project_name: str,
         session_id: str,
     ) -> list[MemoryEntry]:
@@ -322,3 +323,10 @@ class ClaudeCodeAdapter:
     def _entry_key(category: str, content: str, source: str) -> tuple[str, str, str]:
         normalized = " ".join(content.lower().split())
         return (category, normalized, source)
+
+    @staticmethod
+    def _session_sort_key(session: dict[str, Any]) -> datetime:
+        mtime = session.get("mtime")
+        if isinstance(mtime, datetime):
+            return mtime
+        return datetime.min.replace(tzinfo=timezone.utc)

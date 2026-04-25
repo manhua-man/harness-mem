@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 import json
-import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from harness_mem.core.schemas.observation import Observation
@@ -26,12 +26,12 @@ class CodexAdapter:
         self.backend = backend
         self.sessions_dir = sessions_dir or DEFAULT_SESSIONS_DIR
 
-    def list_sessions(self, min_size_kb: int = 1) -> list[dict]:
+    def list_sessions(self, min_size_kb: int = 1) -> list[dict[str, Any]]:
         """List session files from the sessions directory."""
         if not self.sessions_dir.exists():
             return []
 
-        sessions = []
+        sessions: list[dict[str, Any]] = []
         for session_file in self.sessions_dir.glob("**/*.jsonl"):
             size_kb = session_file.stat().st_size / 1024
             if size_kb >= min_size_kb:
@@ -44,67 +44,70 @@ class CodexAdapter:
                     "lines": len(session_file.read_text(encoding="utf-8-sig", errors="replace").splitlines()),
                     "mtime": datetime.fromtimestamp(session_file.stat().st_mtime, tz=timezone.utc),
                 })
-        return sorted(sessions, key=lambda s: s["mtime"], reverse=True)
+        return sorted(sessions, key=self._session_sort_key, reverse=True)
 
-    def parse_jsonl_session(self, session_path: Path) -> list[dict]:
+    def parse_jsonl_session(self, session_path: Path) -> list[dict[str, Any]]:
         """Parse a Codex .jsonl session file into turns."""
-        turns = []
-        current_turn = None
+        turns: list[dict[str, Any]] = []
+        current_turn: dict[str, Any] | None = None
 
         try:
             content = session_path.read_text(encoding="utf-8-sig", errors="replace")
-            for line in content.splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    record = json.loads(line.strip())
-                except json.JSONDecodeError:
-                    continue
+        except (OSError, PermissionError, UnicodeDecodeError) as e:
+            import sys
+            print(f"Error reading session file {session_path}: {e}", file=sys.stderr)
+            return turns
 
-                # Codex session record types vary; handle common patterns
-                role = record.get("role", "")
-                message_content = ""
+        for line in content.splitlines():
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line.strip())
+            except json.JSONDecodeError:
+                continue
 
-                if role == "user":
-                    message_content = record.get("content", "") or ""
-                elif role == "assistant":
-                    message_content = record.get("content", "") or ""
+            # Codex session record types vary; handle common patterns
+            role = record.get("role", "")
+            message_content = ""
 
-                # Also check for type-based format
-                rec_type = record.get("type", "")
-                if rec_type == "user":
-                    message_content = record.get("message", {}).get("content", "") or ""
+            if role == "user":
+                message_content = record.get("content", "") or ""
+            elif role == "assistant":
+                message_content = record.get("content", "") or ""
 
-                if message_content and isinstance(message_content, str) and message_content.strip():
-                    if current_turn is None:
-                        current_turn = {"user": "", "assistant": []}
-                        turns.append(current_turn)
+            # Also check for type-based format
+            rec_type = record.get("type", "")
+            if rec_type == "user":
+                message_content = record.get("message", {}).get("content", "") or ""
 
-                    if role == "user" or rec_type == "user":
-                        current_turn["user"] = message_content[:2000]
-                    else:
-                        current_turn["assistant"].append(message_content[:1000])
+            if message_content and isinstance(message_content, str) and message_content.strip():
+                if current_turn is None:
+                    current_turn = {"user": "", "assistant": []}
+                    turns.append(current_turn)
+
+                if role == "user" or rec_type == "user":
+                    current_turn["user"] = message_content[:2000]
                 else:
-                    # Tool calls / function results
-                    if current_turn is None:
-                        current_turn = {"user": "", "assistant": []}
-                        turns.append(current_turn)
+                    current_turn["assistant"].append(message_content[:1000])
+            else:
+                # Tool calls / function results
+                if current_turn is None:
+                    current_turn = {"user": "", "assistant": []}
+                    turns.append(current_turn)
 
-                    tool_calls = record.get("tool_calls", []) or record.get("function_call", {})
-                    if tool_calls:
-                        if isinstance(tool_calls, list):
-                            for tc in tool_calls[:5]:
-                                fn = tc.get("function", {})
-                                current_turn["assistant"].append(
-                                    f"[tool: {fn.get('name', '?')}] {fn.get('arguments', '')[:200]}"
-                                )
-                        elif isinstance(tool_calls, dict):
-                            fn = tool_calls.get("function", {})
+                tool_calls = record.get("tool_calls", []) or record.get("function_call", {})
+                if tool_calls:
+                    if isinstance(tool_calls, list):
+                        for tc in tool_calls[:5]:
+                            fn = tc.get("function", {})
                             current_turn["assistant"].append(
                                 f"[tool: {fn.get('name', '?')}] {fn.get('arguments', '')[:200]}"
                             )
-        except Exception:
-            pass
+                    elif isinstance(tool_calls, dict):
+                        fn = tool_calls.get("function", {})
+                        current_turn["assistant"].append(
+                            f"[tool: {fn.get('name', '?')}] {fn.get('arguments', '')[:200]}"
+                        )
 
         return turns
 
@@ -177,3 +180,10 @@ class CodexAdapter:
             "ingested": ingested,
             "errors": errors,
         }
+
+    @staticmethod
+    def _session_sort_key(session: dict[str, Any]) -> datetime:
+        mtime = session.get("mtime")
+        if isinstance(mtime, datetime):
+            return mtime
+        return datetime.min.replace(tzinfo=timezone.utc)

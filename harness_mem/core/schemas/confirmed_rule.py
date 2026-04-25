@@ -30,6 +30,10 @@ class ConfirmedRule(BaseModel):
         description="Session ID this rule was created from"
     )
     tags: list[str] = Field(default_factory=list)
+    provenance: Optional[dict] = Field(
+        default=None,
+        description="来源线索: {session_id, observation_ids, agent_type, tool_name}"
+    )
 
     model_config = {"extra": "allow"}
 
@@ -44,10 +48,13 @@ class ConfirmedRule(BaseModel):
             "source_candidate_id": self.source_candidate_id,
             "source_session_id": self.source_session_id,
             "tags": self.tags,
+            "provenance": self.provenance,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "ConfirmedRule":
         if isinstance(data.get("confirmed_at"), str):
             data["confirmed_at"] = datetime.fromisoformat(data["confirmed_at"])
+        if "provenance" not in data:
+            data["provenance"] = None
         return cls(**data)

@@ -1,11 +1,9 @@
 """LocalProjectProfileStore — JSON file implementation of ProjectProfileStore."""
 
 from __future__ import annotations
-import asyncio
 import json
 from pathlib import Path
 
-from harness_mem.core.interfaces.project_profile_store import ProjectProfileStore
 from harness_mem.core.schemas.project_profile import ProjectProfile
 
 

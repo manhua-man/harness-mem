@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 harness-mem × LongMemEval Benchmark
 ===================================
@@ -10,33 +9,25 @@ Modes:
     hybrid    — FTS5 + keyword/person/quote boosting
 
 Usage:
-    python tests/longmemeval_bench.py /tmp/longmemeval_s_cleaned.json
-    python tests/longmemeval_bench.py /tmp/longmemeval_s_cleaned.json --mode raw --limit 20
-    python tests/longmemeval_bench.py /tmp/longmemeval_s_cleaned.json --mode hybrid --limit 20
+    python -m harness_mem.tools.longmemeval /tmp/longmemeval_s_cleaned.json
+    python -m harness_mem.tools.longmemeval /tmp/longmemeval_s_cleaned.json --mode raw --limit 20
+    python -m harness_mem.tools.longmemeval /tmp/longmemeval_s_cleaned.json --mode hybrid --limit 20
 """
 
 from __future__ import annotations
-import asyncio
+import argparse
 import json
 import math
 import os
 import re
 import shutil
 import sqlite3
-import sys
 import tempfile
 import threading
-import argparse
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
-
-# Add harness_mem to path
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
-
-from harness_mem.core.schemas import Observation
 
 
 # =============================================================================
@@ -202,7 +193,7 @@ class BenchVerbatimStore:
         tokens = cleaned.split()
         return " ".join(tokens)
 
-    def search(self, query: str, limit: int = 20) -> list[tuple[str, str, float]]:
+    def search(self, query: str, limit: int = 20) -> list[tuple[str, float]]:
         """Search using individual non-stop-word tokens, aggregate by session.
 
         FTS5 stop words cause queries like 'what did I' to return nothing.
@@ -218,7 +209,7 @@ class BenchVerbatimStore:
                 # Search each token individually and collect all hits
                 session_scores: dict[str, float] = {}
                 for token in tokens:
-                    cursor = conn.execute(f"""
+                    cursor = conn.execute("""
                         SELECT o.id, o.session_id, o.raw_content,
                                bm25(obs_fts) as score
                         FROM obs_fts f
@@ -310,7 +301,7 @@ def run_benchmark(
     limit: int = 0,
     top_k: int = 5,
     out_file: str | None = None,
-):
+) -> float:
     print(f"\n{'=' * 60}")
     print("  harness-mem × LongMemEval Benchmark")
     print(f"{'=' * 60}")
@@ -321,7 +312,7 @@ def run_benchmark(
     print(f"{'─' * 60}\n")
 
     # Load JSON
-    with open(data_path) as f:
+    with open(data_path, encoding="utf-8") as f:
         data = json.load(f)
 
     if limit > 0:
@@ -367,7 +358,7 @@ def run_benchmark(
             store = BenchVerbatimStore(db_path)
 
             # Ingest all sessions as Observations
-            for i, (sess_id, text) in enumerate(zip(corpus_ids, corpus_texts)):
+            for sess_id, text in zip(corpus_ids, corpus_texts):
                 obs_id = str(uuid4())
                 timestamp = corpus_dates.get(sess_id, datetime.now().isoformat())
                 store.add(obs_id, sess_id, text, timestamp)
@@ -427,7 +418,7 @@ def run_benchmark(
     print(f"\n{'=' * 60}\n")
 
     if out_file:
-        with open(out_file, "w") as f:
+        with open(out_file, "w", encoding="utf-8") as f:
             json.dump({
                 "mode": mode,
                 "top_k": top_k,
@@ -441,12 +432,19 @@ def run_benchmark(
     return avg_recall
 
 
+def default_output_path(mode: str, top_k: int, now: datetime | None = None) -> Path:
+    """Return the default output path for benchmark results."""
+    timestamp = (now or datetime.now()).strftime("%Y%m%d_%H%M")
+    tag = f"_{mode}" if mode != "raw" else ""
+    return Path.cwd() / f"results_harness{tag}_top{top_k}_{timestamp}.json"
+
+
 # =============================================================================
 # CLI
 # =============================================================================
 
 
-if __name__ == "__main__":
+def main() -> None:
     parser = argparse.ArgumentParser(description="harness-mem × LongMemEval Benchmark")
     parser.add_argument("data_file", help="Path to longmemeval_s_cleaned.json")
     parser.add_argument("--mode", choices=["raw", "hybrid"], default="raw",
@@ -459,11 +457,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if not args.out:
-        tag = f"_{args.mode}" if args.mode != "raw" else ""
-        args.out = (
-            f"tests/results_harness{tag}_top{args.top_k}"
-            f"_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
-        )
+        args.out = str(default_output_path(args.mode, args.top_k))
 
     run_benchmark(
         args.data_file,
@@ -472,3 +466,7 @@ if __name__ == "__main__":
         args.top_k,
         args.out,
     )
+
+
+if __name__ == "__main__":
+    main()

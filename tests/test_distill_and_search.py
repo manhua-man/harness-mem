@@ -4,14 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from pathlib import Path
 
 import pytest
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 from harness_mem import cli
 from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
@@ -194,8 +189,12 @@ def test_distill_dedupes_on_rerun(data_dir: Path, tmp_path: Path):
     run(backend.init())
     try:
         adapter = ClaudeCodeAdapter(backend, sessions_dir=sessions_root)
-        assert run(adapter.distill_session("sess-dedupe", "demo")) != []
-        assert run(adapter.distill_session("sess-dedupe", "demo")) != []
+        first = run(adapter.distill_session("sess-dedupe", "demo"))
+        assert first != []
+
+        second = run(adapter.distill_session("sess-dedupe", "demo"))
+        # Second run: deduped against existing, no new entries saved
+        assert second == []
 
         entries = run(backend.structured_store.list_memory_entries("demo", limit=10))
         assert len(entries) == 1

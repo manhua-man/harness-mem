@@ -1,6 +1,6 @@
 ---
 name: session-distill
-version: 1.0.0
+version: 1.1.0
 description: |
   将 Claude Code 的 `.jsonl` 会话文件蒸馏为可复用的规则、工作流和知识。
   当用户说"整理一下对话"、"提炼会话经验"、"从会话中提取知识"时使用。
@@ -15,342 +15,274 @@ allowed-tools:
 
 # Session Distiller — 会话蒸馏器
 
-## 概述
+## 定位
 
-Claude Code 的会话文件存储在 `~/.claude/projects/` 目录下，每个项目一个文件夹，会话以 `.jsonl` 格式存储。
+`session-distill` 是 Claude 侧的**原始会话主入口**。
 
-**本技能执行两阶段流程：**
+它负责：
+1. 扫描 `~/.claude/projects/<project>/*.jsonl`
+2. 生成 packet / manifest
+3. 由 AI 基于 packet 做提炼
+4. 在需要时把 packet 交给下游流程继续处理
 
-| 阶段 | 执行者 | 说明 |
-|------|--------|------|
-| 准备阶段 | 脚本 | `index` → `bundle`，生成审查包 |
-| 提炼阶段 | AI（我） | 读取 packet → 查询增强 → 增量判断 → 写 session note → 写 knowledge-base → 判断升规则 → mark |
+它**不**依赖 claude-mem 才能工作；chuck-mem 只是查询增强项。
+它的 core 输出就是：`manifest + packet + Packet Audit`。
 
-## 核心概念
+## 链路总览
 
-| 概念 | 说明 |
+默认不要把它理解成"raw session 直接写 chuck-mem"。
+
+更准确的链路是：
+
+1. `hook / archived session -> packet`
+2. `packet -> standalone distill`
+3. standalone distill 的落点通常是 `distilled/sessions/<session-id>.md`、`knowledge-base.md`，以及在明确时继续提升到 repo 规则
+4. 如果要进入结构化记忆层，再走：`packet -> packet-memory-export -> memory-drafts -> 人工审阅 / sync-list -> chuck-mem`
+
+也就是说：
+
+- `session-distill` 负责把原始会话整理成可审阅的 packet，并完成第一层提炼
+- `packet-memory-export` 负责把 packet 变成结构化 memory draft
+- `chuck-mem` 是后续同步目标，不是 `session-distill` 的默认直写后端
+- 只有 packet 证据不足时，才回看 raw session 补证
+
+| 场景 | 使用哪个 skill |
+|------|----------------|
+| 用户给的是原始 `.jsonl`、项目会话、packet、session note | `session-distill` |
+| 用户已经有 packet，要导出结构化 memory drafts | `packet-memory-export` |
+| 用户给的是已有 chuck-mem observations，要整理记忆层 | `mem-distill` |
+
+开始提炼前，先读：
+
+- [references/distillation-rules.md](references/distillation-rules.md)
+- [references/output-layout.md](references/output-layout.md)
+- [references/claude-mem-sync.md](references/claude-mem-sync.md)
+
+## 默认循环
+
+| 步骤 | 动作 |
 |------|------|
-| `.jsonl` 会话文件 | 每行一个 JSON，包含 `type: user/assistant/system` 等 |
-| Packet (审查包) | 从会话中生成的紧凑摘要 |
-| Manifest (索引) | 会话清单，记录哪些已处理、哪些待处理 |
-| Knowledge Base | 稳定可复用的知识库 |
-| Session Note | 单个会话的提炼笔记 |
-| Memory Entry | 标准导出的知识条目，带 YAML frontmatter |
+| 1 | `run --next N`，刷新 manifest 并生成 packet |
+| 2 | 只读一个 packet，并先看 `Packet Audit` |
+| 3 | 选择模式：standalone distill 或 `packet-memory-export` |
+| 4 | standalone：更新 `distilled/sessions/<session-id>.md` |
+| 5 | standalone：将稳定知识归并进 `knowledge-base.md` |
+| 6 | enhanced：运行 `packet-memory-export export --session <session-id>` |
+| 7 | enhanced：审阅 `new / refine / confirm / conflict / ephemeral`，并用 `approve / reject / defer / note` 落盘 |
+| 8 | `mark distilled` |
 
 ## 快速开始
 
+对普通用户，默认只需要记一个入口：
+
+```text
+/session-distill next
+/session-distill review
+/session-distill approve --entry <entry-id>
+/session-distill sync-list
+```
+
+如果你在终端里直接跑脚本，默认入口是：
+
 ```bash
-# 先准备下一批待审会话，再由 AI 完成提炼
+~/.claude/skills/manhua/session-distill/bin/session-distill.sh run --next 3
+```
+
+也可以直接调用 Python：
+
+```bash
+python ~/.claude/skills/manhua/session-distill/bin/session-distill.py run --next 3
+```
+
+如果要手动把 packet 导出成结构化 memory drafts：
+
+```bash
+python ~/.claude/skills/manhua/packet-memory-export/bin/packet-memory-export.py export --session <session-id>
+python ~/.claude/skills/manhua/packet-memory-export/bin/packet-memory-export.py review --session <session-id>
+python ~/.claude/skills/manhua/packet-memory-export/bin/packet-memory-export.py approve --session <session-id> --entry <entry-id>
+python ~/.claude/skills/manhua/packet-memory-export/bin/packet-memory-export.py sync-list --session <session-id>
+```
+
+## 准备阶段
+
+### run
+
+```bash
 session-distill run --next 3
 ```
 
-可选配套 agent：
-- `session-distill/agents/cli-design-expert.yaml`：专门审查 CLI 的最短路径、自动引导和交互式降噪体验
+含义：
+- 扫描当前项目对应的 Claude 会话目录
+- 更新 `manifest.json`
+- 为接下来的 `3` 个待处理会话生成 packet
 
-## 完整工作流程
-
-### 阶段 1：脚本准备（自动）
-
-```bash
-session-distill run --next 3
-```
-
-脚本自动完成：
-1. **Index** — 扫描会话目录，更新 manifest
-2. **Bundle** — 解析 .jsonl，生成下一批审查包 (packets/*.md)
-
-### 阶段 2：AI 提炼（我执行）
-
-```
-1. 读取审查包 packets/<session-id>.md
-2. 分析会话内容
-3. 查询 claude-mem（查询增强）
-4. 增量判断：new / refine / confirm / conflict / ephemeral
-5. 提炼稳定知识
-6. 写 session note → distilled/sessions/<session-id>.md
-7. 追加到 knowledge-base.md
-8. 判断是否升到项目规则
-9. 执行 mark 标记为 distilled
-```
-
----
-
-## 与 claude-mem 的联动
-
-### 设计目标
-
-- 提炼前优先复用已有记忆，避免重复沉淀
-- 提炼后输出结构稳定、可审阅、可迁移的知识条目
-- 不依赖 claude-mem 的写接口，session-distill 不与特定记忆后端强耦合
-
-### 角色定位
-
-session-distill 充当：
-1. **提炼器**：从 session 中提炼稳定知识
-2. **查重器**：在提炼前查询已有记忆，减少重复记录
-3. **导出器**：输出适合人工审阅和后续导入的标准化记忆条目
-
-### 联动原则
-
-| 模式 | 启用 | 说明 |
-|------|------|------|
-| 查询增强 | ✅ | 提炼前先查 claude-mem，用于去重、补充上下文、统一术语 |
-| 标准导出 | ✅ | 输出固定格式的 memory entries，便于人工审阅与后续导入 |
-| 手动同步 | ✅ | 用户定期把导出结果同步到 claude-mem |
-| 自动写入 | ❌ | 暂不作为默认能力 |
-| 强耦合依赖 | ❌ | session-distill 不应依赖 claude-mem 才能工作 |
-
-### AI 提炼详细流程
-
-#### Step 1: 读取审查包
-
-```
-读取 ~/.claude/session-distill/packets/<session-id>.md
-```
-
-分析：
-- 用户请求是什么？
-- AI 给出了什么解决方案？
-- 使用了哪些工具/命令？
-- 发现了哪些文件/代码结构？
-- 如果会话很长，packet 会保留开头请求和结尾结论，省略中间冗余轮次
-
-#### Step 2: 查询增强
-
-查询 claude-mem，搜索相关主题的历史记忆：
+### status
 
 ```bash
-# 搜索相关主题
-mem-search search --query "登录 认证 游客" --limit 5
-
-# 查看时间线上下文
-mem-search timeline --limit 5
+session-distill status
 ```
 
-#### Step 3: 增量判断
+查看：
+- 总会话数
+- `new / bundled / distilled / skipped`
+- 当前待提炼 packet
 
-把本次会话内容与查到的历史记忆做对比，给每个候选结论打上标签：
+### list
 
-| 状态 | 说明 | 动作 |
-|------|------|------|
-| `new` | 新知识，历史中没有 | 导出为新条目 |
-| `refine` | 对已有知识做补充/细化 | 追加到现有条目 |
-| `confirm` | 再次验证已有知识 | 标记为 confirmed |
-| `conflict` | 与已有知识冲突 | 标记为 conflict，人工审核 |
-| `ephemeral` | 只适合本次上下文 | 跳过，不导出 |
-
-#### Step 4: 提炼输出
-
-生成面向长期复用的知识条目，优先输出：
-- 稳定事实
-- 可操作步骤
-- 约束条件
-- 决策原因
-- 与旧知识的差异说明
-
-#### Step 5: 标准导出
-
-导出为 Markdown + YAML frontmatter 格式：
-
-```markdown
----
-id: sd-2026-04-22-xxx
-source: session-distill
-topic: 登录策略配置接口
-status: new
-confidence: high
-sync_recommended: yes
-source_session: <session-id>
-dedupe_keys:
-  - uos-app/login-strategy/config-endpoint
----
-
-# 登录策略配置接口
-
-## Summary
-...
-
-## Stable Facts
-- ...
-
-## Decisions
-- ...
-
-## Constraints
-- ...
-
-## Delta vs Existing Memory
-- 新增：...
-- 确认：...
+```bash
+session-distill list --size 100
 ```
 
-#### Step 6: 判断升到项目规则
+按文件大小筛选会话，仅用于浏览，不影响 `run --next N` 的语义。
 
-自问：这个知识是否应该改变 AI 在项目中的默认行为？
-
-| 知识类型 | 目标位置 |
-|---------|---------|
-| 工程纪律、发布策略 | `.kiro/steering/generalbeliefs.md` |
-| TypeScript/NestJS 规则 | `.kiro/steering/typescript.md` |
-| 调试和问题排查 | `.kiro/steering/troubleshooting.md` |
-| 模块级接口契约 | 模块文档 |
-
-#### Step 7: 标记完成
+### mark
 
 ```bash
 session-distill mark <session-id> distilled
 ```
 
----
-
-## 增量判断标准
-
-> 详细规则见 [references/distillation-rules.md](references/distillation-rules.md) 和 [references/output-layout.md](references/output-layout.md)。
-
-### 推广到知识库
-
-- 可跨任务复用
-- 稳定的命令或工作流
-- 有文件位置或代码结构
-- 有实际验证过的解决方案
-
-### 保留在会话笔记
-
-- 一次性任务
-- 环境特定配置
-- 探索性死路
-- 临时解决方案
-
-### 升到项目规则
-
-- 影响 AI 默认行为
-- 跨会话重复出现
-- 通用工程实践
-- 安全或质量关键
-
----
-
-## 冲突处理
-
-如果本次会话与历史记忆冲突：
-
-1. 不要静默覆盖旧知识
-2. 在导出中标记 `conflict`
-3. 显式写出：
-   - 旧说法是什么
-   - 新证据是什么
-   - 当前更可信的判断是什么
-   - 是否建议人工复核
-
----
-
-## 失败与降级策略
-
-如果 claude-mem 不可用或查询失败：
-
-- session-distill 仍可正常工作
-- 跳过查询增强步骤
-- 在导出中标记：`memory_lookup: skipped`
-- 继续生成标准导出
-
-> claude-mem 联动是增强项，不是前置依赖。
-
----
-
-## 命令参考
-
-### run — 准备阶段
-
-```bash
-session-distill run [--next N] [--project PROJECT] [--force]
-```
-
-`--next N` 表示本次最多生成多少个待审 packet。
-
-### status — 查看状态
-
-```bash
-session-distill status [--project PROJECT]
-```
-
-### list — 列出可用会话
-
-```bash
-session-distill list [--project PROJECT] [--size MIN-SIZE]
-```
-
-### mark — 标记状态
-
-```bash
-session-distill mark <session-id> <status>
-```
-
 状态：`new` | `bundled` | `distilled` | `skipped`
 
----
+### 非标准项目路径
 
-## 输出结构
+默认情况下，`session-distill` 会优先根据当前项目目录推断 `~/.claude/projects/<project-name>/`。
 
-```
-~/.claude/session-distill/
-├── manifest.json              # 会话索引和状态
-├── knowledge-base.md          # 提炼的知识库
-├── packets/                   # 审查包（脚本生成）
-│   └── <session-id>.md
-└── distilled/                # 已提炼的会话（AI 生成）
-    └── sessions/
-        └── <session-id>.md
+如果你要处理的不是正常仓库目录，而是像 `chuck-mem observer-sessions` 这种特殊项目名，需要显式传：
+
+```bash
+session-distill status --project C--Users-EDY--chuck-mem-observer-sessions
+session-distill run --next 3 --project C--Users-EDY--chuck-mem-observer-sessions
 ```
 
----
+但默认建议仍然是：
 
-## 知识库模板
+- 普通业务项目 session -> `session-distill`
+- 已有 `chuck-mem observations` -> `mem-distill`
+- `observer-sessions` 这类插件内部记录，如果只是做清理，先确认相关 observations 已经入库；确认后通常归档或删除即可，不必蒸馏
 
-```markdown
-# 会话蒸馏知识库
+## 与 chuck-mem 的联动
 
-## 稳定工作流
+联动细则见：
 
-- **[工作流名称]**: 描述
-  - 来源: `<session-id>`
+- [references/claude-mem-sync.md](references/claude-mem-sync.md)
 
-## 实用命令模式
+第一阶段默认采用：
 
-- **[命令]**: 用途
-  - 来源: `<session-id>`
+- 查询增强
+- packet 导出到 sidecar
+- 手动同步
 
-## 代码库发现
+也就是说，`session-distill` core 不直接写回 chuck-mem，也不直接导出 memory draft JSON；增强路径交给 `packet-memory-export`。
 
-- **[文件/模块]**: 发现内容
-  - 来源: `<session-id>`
+### 首选中间层：packet
 
-## 反模式和失败经验
+默认链路不是 "raw session 直接写 chuck-mem"，而是：
 
-- **[问题]**: 解决方案
-  - 来源: `<session-id>`
+- raw session -> packet -> packet-memory-export -> draft memory entries -> 人审 / 同步
 
-## 调试和问题排查
+原因很简单：
 
-- **[现象]**: 排查方法
-  - 来源: `<session-id>`
-```
+- packet 会先去掉大量 transcript 噪声
+- packet 仍保留用户目标、assistant updates、final answers、commands、file refs 等关键证据面
+- 多条 memory entry 可以从一个 packet 里拆出来，不必整段压成一条模糊记忆
 
----
+只有 packet 缺失关键证据时，才回看原始 transcript 补证。
 
-## 与 Codex archived-session-distiller 的对照
+另外：
 
-| Codex | Claude Code session-distill |
-|-------|---------------------------|
-| `distill-next.ps1` | `session-distill run` |
-| `archived_session_distiller.py` | `session-distill` (Shell wrapper + Python CLI) |
-| 人工审阅 packet | AI 提炼 + claude-mem 查询增强 |
-| `distill` + `mark` | AI 提炼 + `session-distill mark` |
+- 如果 packet 的 `Packet Audit` 显示 `partial`，不要直接把其中结论升到 chuck-mem 或 repo 规则
+- 先补看相关 raw transcript，再决定是否保留该条 draft memory entry
 
----
+### 启用的能力
+
+- 查询增强：提炼前先查历史记忆，用于去重、补充上下文、统一术语
+- 去重：避免把旧知识再写一遍
+- 术语统一：和已有记忆用同一套说法
+
+### 提炼阶段的候选标记
+
+这些标签由 `packet-memory-export` 产出，或由 AI 沿用同一套结构手工审阅：
+
+- `new`
+  - 现有记忆里还没有，值得作为新增候选
+- `refine`
+  - 现有记忆大体正确，但需要补充约束、例外或更好的表述
+- `confirm`
+  - 现有记忆被新的 session 再次验证，可以增强可信度
+- `conflict`
+  - 与现有记忆冲突，需要显式指出冲突点，不能静默覆盖
+- `ephemeral`
+  - 只对当前任务有意义，不值得进入稳定记忆层
+
+### 标准导出
+
+第一阶段的默认目标不是"自动写进 chuck-mem"，而是把 packet 交给 `packet-memory-export`，导出为标准化 memory entry 草稿。
+
+也就是至少要形成：
+
+- 归一化后的候选结论
+- 候选标签：`new / refine / confirm / conflict / ephemeral`
+- 一句理由
+- 建议落点
+- 来源 session id
+
+这一步的默认产物是：
+
+- `~/.claude/session-distill/memory-drafts/<session-id>.json`
+- 当存在已人工 `approved` 且 `ready-candidate` 的 entry 时，还会派生：
+  - `~/.claude/session-distill/sync-lists/<session-id>.json`
+
+优先从 packet 抽取，而不是直接从 raw transcript 整段压缩。
+
+### 不启用的能力
+
+- 不默认自动写入 chuck-mem
+- 不把 chuck-mem 当成强依赖
+- 不因为查不到记忆就停止蒸馏
+- 不把 memory draft 导出逻辑重新塞回 core parser
+
+### 同步方式
+
+第一阶段默认采用人工审阅后再同步：
+
+- `session-distill` 负责生成 packet 和 `Packet Audit`
+- `packet-memory-export` 负责把 packet 变成结构化 memory drafts
+- 用户或后续专门流程负责决定是否同步进 chuck-mem
+
+默认不把自动写入作为第一阶段能力。
+
+失败时的降级策略：
+- 跳过查询增强
+- 继续完成 packet → session note → knowledge-base → mark
+
+默认原则：
+
+- chuck-mem 是增强项，不是前置依赖
+- session-distill 不应与特定记忆后端强耦合
+- 自动写入不作为第一阶段默认能力
+
+## 工作风格
+
+- 默认先读 packet，不直接啃原始 `.jsonl`
+- 详细 promote / filter 规则放在 [references/distillation-rules.md](references/distillation-rules.md)
+- 文件布局和状态定义放在 [references/output-layout.md](references/output-layout.md)
+- 一次只处理少量会话，做增量蒸馏
+- 源会话继续增长时，允许重新 bundle
+- memory drafts 由 sibling sidecar `packet-memory-export` 负责，而不是在这里复制第二套 parser
+- 若用户其实要整理现有 observations，而不是原始 session，切换到 `mem-distill`
+
+## 与 Codex archived-session-distiller 的关系
+
+这两个技能是同一思路在两个客户端里的实现：
+- 都是"先准备 packet，再人工/AI 提炼"
+- 都把记忆系统当增强项，不做强依赖
+- Claude 版面向 `~/.claude/projects/*.jsonl`
+- Codex 版面向 `~/.codex/archived_sessions/rollout-*.jsonl`
 
 ## 文件位置
 
-- **会话文件**：`~/.claude/projects/<project-name>/*.jsonl`
-- **项目目录**：`~/.claude/projects/`
-- **蒸馏工作区**：`~/.claude/session-distill/`
-- **脚本**：`~/.claude/skills/session-distill/bin/session-distill.sh`
+- 会话目录：`~/.claude/projects/<project-name>/`
+- 蒸馏工作区：`~/.claude/session-distill/`
+- Python 脚本：`~/.claude/skills/manhua/session-distill/bin/session-distill.py`
+- Shell wrapper：`~/.claude/skills/manhua/session-distill/bin/session-distill.sh`
+- memory draft exporter：`~/.claude/skills/manhua/packet-memory-export/bin/packet-memory-export.py`

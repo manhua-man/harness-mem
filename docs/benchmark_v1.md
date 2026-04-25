@@ -155,19 +155,19 @@ hybrid 模式（R@5 = 86.3%）反而比 raw（87.3%）低 1pp。
 
 SQLite FTS5 内置 stop word 列表（"what", "did", "I", "the" 等），导致包含 stop words 的自然语言查询返回零命中。
 
-**修复方案：** 查询时先分词，过滤 stop words，对每个非停用词独立搜索 FTS5，取 session 内 BM25 最优值。实现见 `tests/longmemeval_bench.py:_tokenize()`。
+**修复方案：** 查询时先分词，过滤 stop words，对每个非停用词独立搜索 FTS5，取 session 内 BM25 最优值。实现见 `harness_mem/tools/longmemeval.py:_tokenize()`。
 
 ### benchmark 代码位置
 
 ```
-tests/longmemeval_bench.py      # harness-mem LongMemEval 评测器
-tests/results_harness_top5_*.json   # 原始结果
+harness_mem/tools/longmemeval.py    # harness-mem LongMemEval 评测器
+results_harness_top5_*.json         # 默认输出到当前工作目录
 ```
 
 运行方式：
 ```bash
-python tests/longmemeval_bench.py <data_file> --mode raw --top-k 5
-python tests/longmemeval_bench.py <data_file> --mode hybrid --top-k 5
+python -m harness_mem.tools.longmemeval <data_file> --mode raw --top-k 5
+python -m harness_mem.tools.longmemeval <data_file> --mode hybrid --top-k 5
 ```
 
 ---
@@ -200,4 +200,4 @@ python tests/longmemeval_bench.py <data_file> --mode hybrid --top-k 5
 ---
 
 *文档生成时间：2026-04-23*
-*benchmark 代码：`tests/longmemeval_bench.py`*
+*benchmark 代码：`harness_mem/tools/longmemeval.py`*

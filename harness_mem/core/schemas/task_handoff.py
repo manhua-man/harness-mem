@@ -37,6 +37,10 @@ class TaskHandoff(BaseModel):
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+    provenance: Optional[dict] = Field(
+        default=None,
+        description="来源线索: {session_id, observation_ids, agent_type, tool_name}"
+    )
 
     model_config = {"extra": "allow"}
 
@@ -53,6 +57,7 @@ class TaskHandoff(BaseModel):
             "context": self.context,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
+            "provenance": self.provenance,
         }
 
     @classmethod
@@ -60,4 +65,6 @@ class TaskHandoff(BaseModel):
         for field in ("last_activity", "created_at", "updated_at"):
             if isinstance(data.get(field), str):
                 data[field] = datetime.fromisoformat(data[field])
+        if "provenance" not in data:
+            data["provenance"] = None
         return cls(**data)

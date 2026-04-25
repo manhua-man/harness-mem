@@ -4,15 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 from harness_mem import cli_commands
 from harness_mem.core.schemas import Observation

@@ -181,7 +181,7 @@ async def cmd_confirmed_rules(project_name: str) -> int:
             if r.source_session_id:
                 print(f"  Source session: {r.source_session_id}")
             if r.examples:
-                print(f"  Examples:")
+                print("  Examples:")
                 for ex in r.examples[:3]:
                     print(f"    - {ex[:100]}")
             print()

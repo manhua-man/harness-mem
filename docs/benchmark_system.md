@@ -20,7 +20,7 @@
 
 当前仓库里的代表是：
 
-- `tests/longmemeval_bench.py`
+- `harness_mem.tools.longmemeval`
 
 它的定位不是“正式 benchmark 系统”，而是：
 
@@ -186,7 +186,7 @@
 注意：
 
 - LongMemEval 结果只能说明长期记忆检索能力，不等于整个产品已经成立
-- 不能把 `tests/longmemeval_bench.py` 的结果直接包装成完整产品 benchmark
+- 不能把 `python -m harness_mem.tools.longmemeval` 的结果直接包装成完整产品 benchmark
 
 ### 2. LoCoMo
 

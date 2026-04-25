@@ -17,6 +17,11 @@
   - CLI `search` 和 MCP `search_memory` 都会返回 `requested_mode` / `effective_mode`
   - embedding 不可用时会明确显示 fallback 到 FTS，而不是静默退化
 
+- **内部自用前硬化**
+  - `purge` 新增 `-p/--project`，对 `structured` / `all` 不再静默依赖活动项目
+  - CLI 会把 command / next-step 事件写入本地 `events.log`
+  - 新增 `hybrid` optional extra，用于显式安装 `sentence-transformers`
+
 ### Fixed
 
 - **`purge` 回归修复**
@@ -31,6 +36,12 @@
 - **MCP parity 修复**
   - `search_memory` 现在支持 `mode`
   - CLI / MCP 共享同一套检索语义和 fallback 行为
+
+- **REST API 自用稳定性**
+  - 修复 API 请求路径里的 backend 初始化，不再在异步请求中调用 `asyncio.run()`
+  - `/search` 在 `scope=project` 下现在会显式要求 `project_name`
+  - `/search` 返回 `requested_mode` / `effective_mode` / `fallback_reason`
+  - `/rules/{id}/reject` 的 reject reason 现在是可选的
 
 ## [1.2.0] — 2026-04-25
 

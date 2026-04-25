@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE_ROOT = REPO_ROOT.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
 from harness_mem.adapters.claude_code.project_profile_detector import build_project_profile
+
+WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_build_project_profile_detects_php_ts_monorepo():

@@ -22,6 +22,8 @@ Changelog: [CHANGELOG.md](./CHANGELOG.md)
 ```bash
 cd harness-mem
 pip install -e .
+# 如果你想真正启用 hybrid vector search，而不是只使用自动 fallback：
+pip install -e ".[hybrid]"
 harness-mem quickstart
 ```
 
@@ -62,11 +64,11 @@ harness-mem show -o <observation-id>
 ### 6. 清理旧记忆
 
 ```bash
-harness-mem purge --before 2026-01-01 --category all --dry-run
-harness-mem purge --before 2026-01-01 --category observations
+harness-mem purge -p my-project --before 2026-01-01 --category all --dry-run
+harness-mem purge -p my-project --before 2026-01-01 --category observations
 ```
 
-`purge` 使用 soft-delete / `compacted` 标记。被 purge 的 observations 和 memory entries 默认不会再出现在 `wake`、`search`、`timeline` 和常规列表结果里。
+`purge` 使用 soft-delete / `compacted` 标记。被 purge 的 observations 和 memory entries 默认不会再出现在 `wake`、`search`、`timeline` 和常规列表结果里。对 `structured` 或 `all`，现在会要求明确项目上下文，不再静默跳过非活动项目的数据。
 
 ### 7. 编辑 Profile
 
@@ -124,6 +126,17 @@ claude mcp add harness-mem -- python -m harness_mem.mcp.server
 # - scope=project|all
 # - mode=auto|fts|hybrid
 ```
+
+### 11. REST API
+
+```bash
+harness-mem api
+```
+
+内部自用时，`GET /search` 现在要求：
+- `scope=project` 时必须提供 `project_name`
+- 支持 `mode=auto|fts|hybrid`
+- 返回 `requested_mode` / `effective_mode` / `fallback_reason`
 
 ---
 
@@ -199,8 +212,9 @@ V2 的重点不再是“补一个基础 hybrid search”，而是继续往 invis
 
 - `quickstart` 会先看最近的 session，再决定帮你走 ingest 还是提示你下一步
 - `doctor` 会根据当前项目里有没有 observations / structured memory，直接建议 `ingest`、`ds` 或 `wake`
-- `doctor` / `wake` 在 budget 达到高水位时，会直接给出 `purge --dry-run` 建议
+- `doctor` / `wake` 在 budget 达到高水位时，会直接给出带项目作用域的 `purge --dry-run` 建议
 - `search` 会展示请求模式和实际生效模式；embedding 不可用时会明确标注 fallback 到 FTS
+- 关键 CLI 流程现在会把 command / next-step 事件写入本地 `events.log`，方便内部 dogfooding
 - 这套设计准则收在 [docs/cli-design-expert.md](./docs/cli-design-expert.md)
 
 ---

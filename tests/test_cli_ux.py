@@ -29,6 +29,17 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def _read_events(data_dir: Path) -> list[dict]:
+    events_path = data_dir / "events.log"
+    if not events_path.exists():
+        return []
+    return [
+        json.loads(line)
+        for line in events_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
 def _write_claude_session(
     sessions_root: Path,
     project_name: str,
@@ -619,6 +630,91 @@ def test_purge_hides_soft_deleted_data_from_search_timeline_and_wake(
     assert "Ancient auth" not in wake_output
 
 
+def test_purge_all_requires_project_context_for_structured_memory(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    assert run(cli.cmd_purge("2026-01-01", "all", True, project_name=None)) == 1
+    output = capsys.readouterr().out
+    assert "Project name required for purge" in output
+
+
+def test_purge_project_scope_only_removes_target_project_data(
+    data_dir: Path,
+):
+    old = datetime.now(timezone.utc) - timedelta(days=120)
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.verbatim_store.save(
+                Observation(
+                    session_id="demo-session",
+                    client="claude-code",
+                    raw_content="Old demo observation.",
+                    content_type="transcript",
+                    timestamp=old,
+                    metadata={"project_name": "demo"},
+                )
+            )
+        )
+        run(
+            backend.verbatim_store.save(
+                Observation(
+                    session_id="other-session",
+                    client="claude-code",
+                    raw_content="Old other observation.",
+                    content_type="transcript",
+                    timestamp=old,
+                    metadata={"project_name": "other"},
+                )
+            )
+        )
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="decision",
+                    content="Old demo memory.",
+                    source="manual",
+                    created_at=old,
+                    updated_at=old,
+                )
+            )
+        )
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="other",
+                    category="decision",
+                    content="Old other memory.",
+                    source="manual",
+                    created_at=old,
+                    updated_at=old,
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
+    assert run(cli.cmd_purge(cutoff, "all", False, project_name="demo")) == 0
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        demo_observations = run(backend.verbatim_store.search("Old demo", project_name="demo", limit=10))
+        other_observations = run(backend.verbatim_store.search("Old other", project_name="other", limit=10))
+        demo_entries = run(backend.structured_store.search_memory_entries("Old demo", project_name="demo", limit=10))
+        other_entries = run(backend.structured_store.search_memory_entries("Old other", project_name="other", limit=10))
+        assert demo_observations == []
+        assert demo_entries == []
+        assert len(other_observations) == 1
+        assert len(other_entries) == 1
+    finally:
+        run(backend.close())
+
+
 def test_incremental_ingest_does_not_reimport_old_sessions(
     data_dir: Path,
     tmp_path: Path,
@@ -785,3 +881,92 @@ def test_cmd_search_reports_fts_fallback_when_embedding_missing(
     output = capsys.readouterr().out
     assert "[FTS Search]" in output
     assert "embedding not available" in output
+
+
+def test_doctor_logs_next_step_event(
+    data_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    assert cli.cmd_use("demo") == 0
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.verbatim_store.save(
+                Observation(
+                    session_id="sess-recent-001",
+                    client="claude-code",
+                    raw_content="Worked on the SQLite search migration.",
+                    content_type="transcript",
+                    metadata={"project_name": "demo"},
+                    tags=["session"],
+                )
+            )
+        )
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="decision",
+                    content="Use SQLite FTS5 for local search.",
+                    source="session:sess-recent-001",
+                    tags=["search"],
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    claude_sessions_root = tmp_path / "claude-projects"
+    _write_claude_session(
+        claude_sessions_root,
+        "demo",
+        "sess-recent-001",
+        "Help me improve search.",
+        ["We decided to use SQLite FTS5 for local search."],
+    )
+    monkeypatch.setattr(
+        cli,
+        "ClaudeCodeAdapter",
+        lambda backend: ClaudeCodeAdapter(backend, sessions_dir=claude_sessions_root),
+    )
+
+    assert run(cli.cmd_doctor("demo")) == 0
+
+    events = _read_events(data_dir)
+    assert any(
+        event["type"] == "next_step_shown"
+        and event["command"] == "doctor"
+        and event["next_step"] == "harness-mem wake"
+        for event in events
+    )
+
+
+def test_search_logs_command_event(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="architecture",
+                    content="SQLite FTS5 powers local search.",
+                    source="manual",
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    assert run(cli.cmd_search("demo", "SQLite", "fts")) == 0
+    _ = capsys.readouterr()
+
+    events = _read_events(data_dir)
+    assert any(event["type"] == "command_invoked" and event["command"] == "search" for event in events)
+    assert any(event["type"] == "next_step_adopted" and event["command"] == "search" for event in events)

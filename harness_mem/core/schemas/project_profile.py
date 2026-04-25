@@ -1,7 +1,6 @@
 """ProjectProfile schema — project metadata and hints."""
 
 from datetime import datetime, timezone
-from typing import Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -43,6 +42,14 @@ class ProjectProfile(BaseModel):
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+    last_ingest_at: datetime | None = Field(
+        default=None,
+        description="Timestamp of last successful ingest for this project"
+    )
+    last_ingest_session_id: str | None = Field(
+        default=None,
+        description="Session ID of last successfully ingested session (for incremental cursor)"
+    )
 
     model_config = {"extra": "allow"}
 
@@ -58,11 +65,13 @@ class ProjectProfile(BaseModel):
             "conventions": self.conventions,
             "last_updated": self.last_updated.isoformat(),
             "created_at": self.created_at.isoformat(),
+            "last_ingest_at": self.last_ingest_at.isoformat() if self.last_ingest_at else None,
+            "last_ingest_session_id": self.last_ingest_session_id,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "ProjectProfile":
-        for field in ("last_updated", "created_at"):
+        for field in ("last_updated", "created_at", "last_ingest_at"):
             if isinstance(data.get(field), str):
                 data[field] = datetime.fromisoformat(data[field])
         return cls(**data)

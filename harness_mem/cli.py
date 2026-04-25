@@ -16,6 +16,7 @@ from harness_mem.storage.local_project_profile_store import LocalProjectProfileS
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
 from harness_mem.adapters.claude_code.project_profile_detector import build_project_profile
+from harness_mem.event_log import EventType, get_event_logger
 from harness_mem.cli_commands import (
     cmd_correct,
     cmd_confirm_rule,
@@ -27,6 +28,73 @@ from harness_mem.cli_commands import (
 
 
 DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
+
+_ADOPTED_NEXT_STEP_COMMANDS = {
+    "ingest",
+    "distill",
+    "wake-up",
+    "search",
+    "purge",
+    "correct",
+    "handoff",
+}
+
+
+def _log_cli_event(
+    event_type: EventType,
+    *,
+    project_name: str | None = None,
+    command: str | None = None,
+    next_step: str | None = None,
+    session_id: str | None = None,
+    extra: dict | None = None,
+) -> None:
+    """Best-effort local event logging. Never fail the command path."""
+    try:
+        get_event_logger(DEFAULT_DATA_DIR).log_sync(
+            event_type,
+            project_name=project_name,
+            command=command,
+            next_step=next_step,
+            session_id=session_id,
+            extra=extra,
+        )
+    except Exception:
+        pass
+
+
+def _log_command_invoked(
+    command: str,
+    *,
+    project_name: str | None = None,
+    session_id: str | None = None,
+    extra: dict | None = None,
+) -> None:
+    _log_cli_event(
+        EventType.COMMAND_INVOKED,
+        project_name=project_name,
+        command=command,
+        session_id=session_id,
+        extra=extra,
+    )
+    if command in _ADOPTED_NEXT_STEP_COMMANDS:
+        _log_cli_event(
+            EventType.NEXT_STEP_ADOPTED,
+            project_name=project_name,
+            command=command,
+            next_step=f"harness-mem {command}",
+            session_id=session_id,
+            extra=extra,
+        )
+
+
+def _log_next_step_shown(project_name: str | None, source_command: str, next_step: str) -> None:
+    _log_cli_event(
+        EventType.NEXT_STEP_SHOWN,
+        project_name=project_name,
+        command=source_command,
+        next_step=next_step,
+    )
 
 
 def _ensure_data_dir() -> None:
@@ -220,6 +288,11 @@ def _as_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
+
+
+def _suggested_purge_command(project_name: str | None) -> str:
+    project_flag = f" -p {project_name}" if project_name else ""
+    return f"harness-mem purge{project_flag} --before <DATE> --category all --dry-run"
 
 
 def _disclosure_level(tokens: int) -> str:
@@ -457,6 +530,7 @@ def main():
     # purge
     purge_cmd = sub.add_parser("purge", help="Soft-delete observations/structured memory")
     purge_cmd.set_defaults(command_name="purge")
+    purge_cmd.add_argument("-p", "--project", help="Project name (defaults to active project for structured/all)")
     purge_cmd.add_argument("--before", required=True, help="Delete entries before this date (YYYY-MM-DD)")
     purge_cmd.add_argument("--category", choices=["observations", "structured", "all"], default="all", help="Category to purge")
     purge_cmd.add_argument("--dry-run", action="store_true", help="Show what would be deleted without deleting")
@@ -569,22 +643,48 @@ def main():
         project_name = _resolve_project_name(args.project, action_label="correct")
         if not project_name:
             return 1
-        return asyncio.run(cmd_correct(session_id, project_name, pattern, trigger))
+        result = asyncio.run(cmd_correct(session_id, project_name, pattern, trigger))
+        if result == 0:
+            _log_command_invoked("correct", project_name=project_name, session_id=session_id)
+            _log_cli_event(
+                EventType.LEARNING_LOOP_COMPLETE,
+                project_name=project_name,
+                command="correct",
+                session_id=session_id,
+                extra={"stage": "candidate_created"},
+            )
+        return result
 
     if command == "confirm-rule":
         rule_id = args.rule_id or args.rule_id_arg
         if not rule_id:
             parser.error("confirm-rule requires a rule id. Use `harness-mem confirm-rule <id>` or `--rule-id`.")
-        return asyncio.run(cmd_confirm_rule(rule_id))
+        result = asyncio.run(cmd_confirm_rule(rule_id))
+        if result == 0:
+            active_project = _get_active_project()
+            _log_command_invoked("confirm", project_name=active_project)
+            _log_cli_event(EventType.RULE_CONFIRMED, project_name=active_project, command="confirm", extra={"rule_id": rule_id})
+            _log_cli_event(
+                EventType.LEARNING_LOOP_COMPLETE,
+                project_name=active_project,
+                command="confirm",
+                extra={"stage": "rule_confirmed", "rule_id": rule_id},
+            )
+        return result
 
     if command == "reject-rule":
         rule_id = args.rule_id or args.rule_id_arg
         if not rule_id:
             parser.error("reject-rule requires a rule id. Use `harness-mem reject-rule <id>` or `--rule-id`.")
-        return asyncio.run(cmd_reject_rule(rule_id))
+        result = asyncio.run(cmd_reject_rule(rule_id))
+        if result == 0:
+            active_project = _get_active_project()
+            _log_command_invoked("reject", project_name=active_project)
+            _log_cli_event(EventType.RULE_REJECTED, project_name=active_project, command="reject", extra={"rule_id": rule_id})
+        return result
 
     if command == "purge":
-        return asyncio.run(cmd_purge(args.before, args.category, args.dry_run))
+        return asyncio.run(cmd_purge(args.before, args.category, args.dry_run, args.project))
 
     if command == "list-candidates":
         project_name = _resolve_project_name(args.project, action_label="list-candidates")
@@ -620,10 +720,13 @@ def main():
         project_name = _resolve_project_name(args.project, action_label="handoff")
         if not project_name:
             return 1
-        return asyncio.run(cmd_handoff(
+        result = asyncio.run(cmd_handoff(
             project_name, task_id, summary,
             status=status, next_steps=next_steps, blockers=blockers
         ))
+        if result == 0:
+            _log_command_invoked("handoff", project_name=project_name, extra={"task_id": task_id, "status": status})
+        return result
 
     if command == "api":
         import uvicorn
@@ -679,20 +782,24 @@ async def _status_project_async(backend: LocalMemoryBackend, project_name: str):
 
     # Phase / Next step / Why
     if level in ("L3", "L4+"):
+        purge_command = _suggested_purge_command(project_name)
         print()
         print(f"📍 Phase: Budget Warning ({level})")
-        print("→ Next: harness-mem purge --before <DATE> --category all --dry-run")
+        print(f"→ Next: {purge_command}")
         print(f"   Why: Memory budget at {level}, archiving old data can help")
+        _log_next_step_shown(project_name, "status", purge_command)
     elif len(project_obs) == 0:
         print()
         print("📍 Phase: Empty")
         print("→ Next: harness-mem ingest claude-code")
         print("   Why: No observations yet, ingest sessions to get started")
+        _log_next_step_shown(project_name, "status", "harness-mem ingest claude-code")
     else:
         print()
         print("📍 Phase: Healthy")
         print("→ Next: harness-mem wake")
         print("   Why: Memory is ready, wake-up is the shortest path to project context")
+        _log_next_step_shown(project_name, "status", "harness-mem wake")
 
 
 def cmd_use(project_name: str | None = None) -> int:
@@ -790,6 +897,7 @@ async def cmd_quickstart(
     print(f"   Why: {reason}")
     print("Also useful:")
     print("  harness-mem doctor")
+    _log_next_step_shown(project_name, "quickstart", next_command)
     return 0
 
 
@@ -843,7 +951,8 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             if level in ("L3", "L4+"):
                 from datetime import datetime, timezone
                 three_months_ago = (datetime.now(timezone.utc).replace(day=1) - timedelta(days=90)).strftime("%Y-%m-%d")
-                print(f"💡 Run: harness-mem purge --before {three_months_ago} --category all --dry-run")
+                purge_command = f"harness-mem purge -p {resolved_project} --before {three_months_ago} --category all --dry-run"
+                print(f"💡 Run: {purge_command}")
                 print("   to preview what can be archived.")
 
             next_command, reason = _suggested_next_step(
@@ -858,6 +967,7 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             print("📍 Phase: Ready")
             print(f"→ Next: {next_command}")
             print(f"   Why: {reason}")
+            _log_next_step_shown(resolved_project, "doctor", next_command)
         finally:
             await backend.close()
         return 0
@@ -866,6 +976,7 @@ async def cmd_doctor(project_name: str | None = None) -> int:
     print("📍 Phase: Not Initialized")
     print("→ Next: harness-mem quickstart")
     print("   Why: No active project set or data directory not initialized")
+    _log_next_step_shown(None, "doctor", "harness-mem quickstart")
     return 0
 
 
@@ -889,6 +1000,7 @@ async def cmd_status(project_name: str | None = None) -> int:
                 print("📍 Phase: Not Initialized")
                 print("→ Next: harness-mem quickstart")
                 print("   Why: No active project set, run quickstart to get started")
+                _log_next_step_shown(None, "status", "harness-mem quickstart")
     finally:
         await backend.close()
     return 0
@@ -983,9 +1095,16 @@ async def cmd_wake_up(project_name: str | None) -> int:
         if level in ("L3", "L4+"):
             from datetime import timezone
             three_months_ago = (datetime.now(timezone.utc).replace(day=1) - timedelta(days=90)).strftime("%Y-%m-%d")
+            purge_command = f"harness-mem purge -p {project_name} --before {three_months_ago} --category all --dry-run"
             print(f"⚠️  Memory budget at {level}")
-            print(f"💡 Run: harness-mem purge --before {three_months_ago} --category all --dry-run")
+            print(f"💡 Run: {purge_command}")
             print("   to preview what can be archived.")
+            _log_next_step_shown(project_name, "wake-up", purge_command)
+        _log_command_invoked(
+            "wake-up",
+            project_name=project_name,
+            extra={"disclosure_level": level, "memory_entries": len(entries), "rules": len(rules)},
+        )
     finally:
         await backend.close()
     return 0
@@ -1057,6 +1176,16 @@ async def cmd_search(project_name: str | None, query: str, mode: str = "auto") -
                 search_mode = getattr(o, "_search_mode", mode)
                 print(f"- [{o.session_id}] {preview}  (score: {_format_search_score(o)}, mode: {search_mode})  -> verbatim")
             print()
+        _log_command_invoked(
+            "search",
+            project_name=project_name,
+            extra={
+                "query": query,
+                "requested_mode": mode,
+                "memory_entry_count": len(entries),
+                "observation_count": len(obs_list),
+            },
+        )
     finally:
         await backend.close()
     return 0
@@ -1129,6 +1258,19 @@ async def cmd_distill(project_name: str | None, session_id: str | None = None, c
                 for e in entries:
                     source_label = _memory_entry_source_label(e)
                     print(f"  [{e.category}] {e.content[:100]}  (source: {source_label})")
+                _log_command_invoked(
+                    "distill",
+                    project_name=project_name,
+                    session_id=session_id,
+                    extra={"category": category, "memory_entries": len(entries)},
+                )
+                _log_cli_event(
+                    EventType.MEMORY_DISTILLED,
+                    project_name=project_name,
+                    command="distill",
+                    session_id=session_id,
+                    extra={"category": category, "memory_entries": len(entries)},
+                )
                 return 0
             else:
                 if category:
@@ -1155,6 +1297,17 @@ async def cmd_distill(project_name: str | None, session_id: str | None = None, c
                 print(f"No {category} entries found across {len(sessions)} sessions")
                 return 1
             print(f"Extracted {total} memory entries from {len(sessions)} sessions")
+            _log_command_invoked(
+                "distill",
+                project_name=project_name,
+                extra={"category": category, "memory_entries": total, "sessions": len(sessions)},
+            )
+            _log_cli_event(
+                EventType.MEMORY_DISTILLED,
+                project_name=project_name,
+                command="distill",
+                extra={"category": category, "memory_entries": total, "sessions": len(sessions)},
+            )
             return 0
     finally:
         await backend.close()
@@ -1266,6 +1419,27 @@ async def cmd_ingest(client: str, project_name: str | None = None, limit: int = 
                     print(f"Auto-detected profile: {', '.join(profile.stacks)}")
 
             _set_active_project(project_name)
+            _log_command_invoked(
+                "ingest",
+                project_name=project_name,
+                extra={
+                    "client": client,
+                    "ingested": ingested,
+                    "sessions_found": len(all_sessions),
+                    "full_rescan": full_rescan,
+                },
+            )
+            _log_cli_event(
+                EventType.SESSION_INGESTED,
+                project_name=project_name,
+                command="ingest",
+                extra={
+                    "client": client,
+                    "ingested": ingested,
+                    "sessions_found": len(all_sessions),
+                    "full_rescan": full_rescan,
+                },
+            )
             return 0
 
         codex_adapter = CodexAdapter(backend)
@@ -1280,6 +1454,17 @@ async def cmd_ingest(client: str, project_name: str | None = None, limit: int = 
         if result["errors"] > 0:
             print(f"Errors: {result['errors']}")
         _set_active_project(project_name)
+        _log_command_invoked(
+            "ingest",
+            project_name=project_name,
+            extra={"client": client, **result, "full_rescan": full_rescan},
+        )
+        _log_cli_event(
+            EventType.SESSION_INGESTED,
+            project_name=project_name,
+            command="ingest",
+            extra={"client": client, **result, "full_rescan": full_rescan},
+        )
     finally:
         await backend.close()
     return 0
@@ -1428,7 +1613,12 @@ async def cmd_profile_edit(project_name: str | None) -> int:
     return 0
 
 
-async def cmd_purge(before_date: str, category: str, dry_run: bool) -> int:
+async def cmd_purge(
+    before_date: str,
+    category: str,
+    dry_run: bool,
+    project_name: str | None = None,
+) -> int:
     """Soft-delete observations/structured memory before a given date."""
     try:
         cutoff = datetime.strptime(before_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -1436,17 +1626,34 @@ async def cmd_purge(before_date: str, category: str, dry_run: bool) -> int:
         print(f"Invalid date format: {before_date}. Use YYYY-MM-DD.")
         return 1
 
+    resolved_project = _resolve_project_name(
+        project_name,
+        required=category == "structured" or category == "all",
+        action_label="purge",
+    )
+    if category in ("structured", "all") and not resolved_project:
+        return 1
+
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
     try:
         total_deleted = 0
+        observations_deleted = 0
+        structured_deleted = 0
 
         if category in ("observations", "all"):
             all_obs = await backend.verbatim_store.list(limit=100000)
-            to_delete = [o for o in all_obs if o.timestamp and _as_utc(o.timestamp) < cutoff]
+            to_delete = [
+                o
+                for o in all_obs
+                if o.timestamp
+                and _as_utc(o.timestamp) < cutoff
+                and (resolved_project is None or o.metadata.get("project_name") == resolved_project)
+            ]
             if to_delete:
                 if dry_run:
-                    print(f"[DRY RUN] Would soft-delete {len(to_delete)} observations before {before_date}")
+                    target_scope = f" for project '{resolved_project}'" if resolved_project else ""
+                    print(f"[DRY RUN] Would soft-delete {len(to_delete)} observations before {before_date}{target_scope}")
                     for o in to_delete[:10]:
                         ts = o.timestamp.strftime("%Y-%m-%d") if o.timestamp else "?"
                         preview = o.raw_content[:80].replace("\n", " ")
@@ -1457,26 +1664,30 @@ async def cmd_purge(before_date: str, category: str, dry_run: bool) -> int:
                     for o in to_delete:
                         await backend.verbatim_store.soft_delete(o.id)
                     total_deleted += len(to_delete)
+                    observations_deleted = len(to_delete)
                     print(f"Soft-deleted {len(to_delete)} observations.")
 
         if category in ("structured", "all"):
-            project_name = _get_active_project()
-            if project_name:
-                entries = await backend.structured_store.list_memory_entries(project_name, limit=100000)
-                entries_to_delete = [e for e in entries if e.created_at and _as_utc(e.created_at) < cutoff]
-                if entries_to_delete:
-                    if dry_run:
-                        print(f"[DRY RUN] Would soft-delete {len(entries_to_delete)} structured memories before {before_date}")
-                        for e in entries_to_delete[:10]:
-                            preview = e.content[:80].replace("\n", " ")
-                            print(f"  - {e.id} [{e.category}] {preview}...")
-                        if len(entries_to_delete) > 10:
-                            print(f"  ... and {len(entries_to_delete) - 10} more")
-                    else:
-                        for e in entries_to_delete:
-                            await backend.structured_store.soft_delete_memory_entry(e.id)
-                        total_deleted += len(entries_to_delete)
-                        print(f"Soft-deleted {len(entries_to_delete)} structured memories.")
+            assert resolved_project is not None
+            entries = await backend.structured_store.list_memory_entries(resolved_project, limit=100000)
+            entries_to_delete = [e for e in entries if e.created_at and _as_utc(e.created_at) < cutoff]
+            if entries_to_delete:
+                if dry_run:
+                    print(
+                        f"[DRY RUN] Would soft-delete {len(entries_to_delete)} structured memories before {before_date} "
+                        f"for project '{resolved_project}'"
+                    )
+                    for e in entries_to_delete[:10]:
+                        preview = e.content[:80].replace("\n", " ")
+                        print(f"  - {e.id} [{e.category}] {preview}...")
+                    if len(entries_to_delete) > 10:
+                        print(f"  ... and {len(entries_to_delete) - 10} more")
+                else:
+                    for e in entries_to_delete:
+                        await backend.structured_store.soft_delete_memory_entry(e.id)
+                    total_deleted += len(entries_to_delete)
+                    structured_deleted = len(entries_to_delete)
+                    print(f"Soft-deleted {len(entries_to_delete)} structured memories.")
 
         if total_deleted == 0 and not (category in ("observations", "all") or category in ("structured", "all")):
             print("Nothing to purge. Try --category observations, --category structured, or --category all.")
@@ -1485,6 +1696,22 @@ async def cmd_purge(before_date: str, category: str, dry_run: bool) -> int:
 
         if not dry_run and total_deleted > 0:
             print("Run 'harness-mem doctor' to check new memory budget.")
+            _log_command_invoked(
+                "purge",
+                project_name=resolved_project,
+                extra={
+                    "category": category,
+                    "before_date": before_date,
+                    "observations_deleted": observations_deleted,
+                    "structured_deleted": structured_deleted,
+                },
+            )
+        elif dry_run:
+            _log_command_invoked(
+                "purge",
+                project_name=resolved_project,
+                extra={"category": category, "before_date": before_date, "dry_run": True},
+            )
         return 0
     finally:
         await backend.close()
