@@ -1,14 +1,17 @@
 """Unit tests for SQLiteIndex — FTS search and CRUD operations."""
 
 from __future__ import annotations
+
 import json
 import sqlite3
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
 from harness_mem.storage.sqlite_index import SQLiteIndex
+
+pytestmark = pytest.mark.storage
 
 
 @pytest.fixture
@@ -22,7 +25,6 @@ def idx(tmp_path: Path):
 
 @pytest.fixture
 def idx_with_data(idx: SQLiteIndex):
-    """SQLiteIndex with test data already written."""
     now = datetime.now(timezone.utc)
     obs_id = "obs-001"
     idx.insert("observations", {
@@ -86,7 +88,6 @@ def test_insert_memory_entry_roundtrip(idx: SQLiteIndex):
     assert row is not None
     assert row["content"] == "REST API endpoint for users"
     assert row["category"] == "api"
-    # _row_to_dict deserializes tags from JSON string to list
     assert row["tags"] == ["api", "rest"]
 
 
@@ -114,7 +115,7 @@ def test_search_with_project_filter(idx_with_data: SQLiteIndex):
         extra_where="project_name = ?",
         extra_params=("test-project",),
     )
-    assert all(r["project_name"] == "test-project" for r in results)
+    assert all(result["project_name"] == "test-project" for result in results)
 
 
 def test_update(idx_with_data: SQLiteIndex):
@@ -148,27 +149,23 @@ def test_count(idx_with_data: SQLiteIndex):
 
 
 def test_tokenize_query():
-    from harness_mem.storage.sqlite_index import SQLiteIndex
     tokens = SQLiteIndex._tokenize_query("How do I configure SQLite FTS5")
-    assert "sqlite" in tokens or any("sqlite*" in t for t in tokens)
-    assert "fts5" in tokens or any("fts5*" in t for t in tokens)
+    assert "sqlite" in tokens or any("sqlite*" in token for token in tokens)
+    assert "fts5" in tokens or any("fts5*" in token for token in tokens)
 
 
 def test_escape_match_token():
-    from harness_mem.storage.sqlite_index import SQLiteIndex
     escaped = SQLiteIndex._escape_match_token('test"query')
     assert '"' not in escaped
 
 
 def test_json_fields_deserialized(idx_with_data: SQLiteIndex):
-    """Verify that list/dict fields are deserialized from JSON strings."""
     row = idx_with_data.get("memory_entries", "entry-001")
     tags = row.get("tags")
     assert isinstance(tags, list), f"Expected list, got {type(tags)}: {tags}"
 
 
 def test_fts_sync_on_insert(idx: SQLiteIndex):
-    """FTS index should be populated on insert."""
     now = datetime.now(timezone.utc)
     obs_id = "obs-fts-sync"
     idx.insert("observations", {
@@ -187,7 +184,6 @@ def test_fts_sync_on_insert(idx: SQLiteIndex):
 
 
 def test_fts_sync_on_delete(idx: SQLiteIndex):
-    """FTS index should update on delete."""
     now = datetime.now(timezone.utc)
     obs_id = "obs-fts-del"
     idx.insert("observations", {
@@ -204,7 +200,7 @@ def test_fts_sync_on_delete(idx: SQLiteIndex):
     assert len(results) >= 1
     idx.delete("observations", obs_id)
     results_after = idx.search("observations", "keywordXYZ")
-    assert not any(r["id"] == obs_id for r in results_after)
+    assert not any(result["id"] == obs_id for result in results_after)
 
 
 def test_init_db_migrates_compacted_columns(tmp_path: Path):

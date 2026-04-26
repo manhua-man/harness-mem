@@ -1,8 +1,5 @@
-"""Tests for learning-loop and task-resume CLI flows."""
-
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,17 +10,9 @@ from harness_mem import cli_commands
 from harness_mem.core.schemas import Observation
 from harness_mem.core.schemas.rule_candidate import RuleCandidate
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from tests.helpers import run
 
-
-def run(coro):
-    return asyncio.run(coro)
-
-
-@pytest.fixture
-def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    data_dir = tmp_path / "data"
-    monkeypatch.setattr(cli_commands, "DEFAULT_DATA_DIR", data_dir)
-    return data_dir
+pytestmark = pytest.mark.cli
 
 
 def test_learning_loop_promotes_candidate_to_confirmed_rule(data_dir: Path):

@@ -1,8 +1,4 @@
-"""E2E test: verify MemoryEntry and Observation write + read from SQLite."""
-
 from __future__ import annotations
-import asyncio
-from pathlib import Path
 
 import pytest
 
@@ -14,21 +10,9 @@ from harness_mem.tools.e2e import (
     check_structured_list,
     check_timeline,
 )
+from tests.helpers import run
 
-
-def run(coro):
-    return asyncio.run(coro)
-
-
-@pytest.fixture
-def backend(tmp_path: Path):
-    data_dir = tmp_path / "data"
-    backend = LocalMemoryBackend(data_dir)
-    run(backend.init())
-    try:
-        yield backend
-    finally:
-        run(backend.close())
+pytestmark = pytest.mark.integration
 
 
 def test_observation_roundtrip(backend: LocalMemoryBackend):

@@ -1,0 +1,48 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from harness_mem import cli, cli_commands, event_log
+from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from tests.helpers import run
+
+
+@pytest.fixture(autouse=True)
+def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    data_dir = tmp_path / "data"
+    monkeypatch.setattr(cli, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(cli_commands, "DEFAULT_DATA_DIR", data_dir)
+    event_log._event_logger = None
+    try:
+        yield data_dir
+    finally:
+        event_log._event_logger = None
+
+
+@pytest.fixture
+def backend(data_dir: Path) -> LocalMemoryBackend:
+    local_backend = LocalMemoryBackend(data_dir)
+    run(local_backend.init())
+    try:
+        yield local_backend
+    finally:
+        run(local_backend.close())
+
+
+@pytest.fixture
+def claude_sessions_root(tmp_path: Path) -> Path:
+    return tmp_path / "claude-projects"
+
+
+@pytest.fixture
+def codex_sessions_root(tmp_path: Path) -> Path:
+    path = tmp_path / "codex-sessions"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
