@@ -1,5 +1,19 @@
+# Python caches
 __pycache__/
 *.py[cod]
+
+# Local tool caches / reports
+.coverage
+.coverage.*
+.gstack/
+.mypy_cache/
 .pytest_cache/
-tests/results_harness*.json
+.ruff_cache/
+
+# Benchmark outputs
+results_harness*.json
+benchmarks/results/**/*.json
+
+# Local scratch directories
 tmp-review-a/
+tmp-*/

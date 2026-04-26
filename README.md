@@ -12,6 +12,25 @@ Local-first, pluggable AI memory runtime for Claude Code and Codex.
 
 Release notes: [v1.0.1](./docs/v1.0.1-release-notes.md)
 Changelog: [CHANGELOG.md](./CHANGELOG.md)
+Repo map: [docs/repo-layout.md](./docs/repo-layout.md)
+
+---
+
+## 仓库地图
+
+如果你觉得根目录有点杂，先按这张最小地图理解：
+
+- `harness_mem/`: 主产品源码
+- `tests/`: 自动化测试
+- `docs/`: 文档和设计说明
+- `benchmarks/`: benchmark 结果与评测相关内容
+- `.claude/` / `.codex/` / `.cursor/`: 多 Agent 协作配置
+- `openspec/`: 变更提案和 spec 资产
+- `session-distill/` / `mem-distill/`: 配套 distill/workflow 技能资产
+
+更详细的目录说明见 [docs/repo-layout.md](./docs/repo-layout.md)。
+
+如果根目录里又冒出 `.pytest_cache/`、`.mypy_cache/`、`.ruff_cache/`、`.gstack/`、`.coverage` 或 `tmp-*`，可以把它们当成本地运行产物，不算项目主结构。
 
 ---
 

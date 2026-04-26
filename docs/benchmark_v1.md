@@ -161,7 +161,7 @@ SQLite FTS5 内置 stop word 列表（"what", "did", "I", "the" 等），导致�
 
 ```
 harness_mem/tools/longmemeval.py    # harness-mem LongMemEval 评测器
-results_harness_top5_*.json         # 默认输出到当前工作目录
+benchmarks/results/results_harness_top5_*.json  # 默认输出到仓库内 benchmark 结果目录
 ```
 
 运行方式：
