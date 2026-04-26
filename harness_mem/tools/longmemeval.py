@@ -150,10 +150,10 @@ class BenchVerbatimStore:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA mmap_size=268435456")
-        conn.execute("CREATE TABLE IF NOT EXISTS obs_index (id TEXT, session_id TEXT, raw_content TEXT)")
-        conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS obs_fts USING fts5(raw_content, content=obs_index, content_rowid=rowid)")
+        conn.execute("CREATE TABLE IF NOT EXISTS observations (id TEXT, session_id TEXT, raw_content TEXT)")
+        conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(raw_content, content=observations, content_rowid=rowid)")
         conn.execute("CREATE TABLE IF NOT EXISTS obs_meta (id TEXT PRIMARY KEY, session_id TEXT, timestamp TEXT)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_session ON obs_index(session_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_session ON observations(session_id)")
         conn.commit()
         conn.close()
 
@@ -166,12 +166,12 @@ class BenchVerbatimStore:
         with self._lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             try:
-                conn.execute("INSERT OR IGNORE INTO obs_index (id, session_id, raw_content) VALUES (?, ?, ?)",
+                conn.execute("INSERT OR IGNORE INTO observations (id, session_id, raw_content) VALUES (?, ?, ?)",
                              (obs_id, session_id, raw_content))
-                rowid = conn.execute("SELECT rowid FROM obs_index WHERE id=?", (obs_id,)).fetchone()[0]
+                rowid = conn.execute("SELECT rowid FROM observations WHERE id=?", (obs_id,)).fetchone()[0]
                 conn.execute("INSERT OR REPLACE INTO obs_meta (id, session_id, timestamp) VALUES (?, ?, ?)",
                              (obs_id, session_id, timestamp))
-                conn.execute("INSERT INTO obs_fts(rowid, raw_content) VALUES (?, ?)", (rowid, raw_content))
+                conn.execute("INSERT INTO observations_fts(rowid, raw_content) VALUES (?, ?)", (rowid, raw_content))
                 conn.commit()
             finally:
                 conn.close()
@@ -211,10 +211,10 @@ class BenchVerbatimStore:
                 for token in tokens:
                     cursor = conn.execute("""
                         SELECT o.id, o.session_id, o.raw_content,
-                               bm25(obs_fts) as score
-                        FROM obs_fts f
-                        JOIN obs_index o ON f.rowid = o.rowid
-                        WHERE obs_fts MATCH ?
+                               bm25(observations_fts) as score
+                        FROM observations_fts f
+                        JOIN observations o ON f.rowid = o.rowid
+                        WHERE observations_fts MATCH ?
                         ORDER BY score
                         LIMIT ?
                     """, (token, limit * 3))
@@ -290,6 +290,42 @@ class BenchVerbatimStore:
         return scored[:limit]
 
 
+class RealHybridSearch:
+    """Wraps the real HybridSearchLayer for benchmark use.
+
+    The HybridSearchLayer is created once per process (embedding model loaded once).
+    Each question gets its own SQLite file, but the layer is reused.
+    """
+
+    def __init__(self):
+        from harness_mem.search import HybridSearchLayer
+        from harness_mem.storage.sqlite_index import SQLiteIndex
+        index = SQLiteIndex(":memory:")  # placeholder; path set per-question in set_path
+        self._layer = HybridSearchLayer(index)
+        self._current_path = ":memory:"
+
+    def set_path(self, db_path: str) -> None:
+        """Switch to a different SQLite file (one per question)."""
+        if db_path == self._current_path:
+            return
+        self._current_path = db_path
+        from harness_mem.storage.sqlite_index import SQLiteIndex
+        self._layer._sqlite = SQLiteIndex(db_path)
+
+    def search(self, query: str, limit: int = 20) -> list[tuple[str, float]]:
+        """Full pipeline: FTS5 + vector via HybridSearchLayer (RRF)."""
+        result = self._layer.search(
+            query,
+            table="observations",
+            limit=limit,
+            mode="hybrid",
+        )
+        return [
+            (row["session_id"], row.get("_score", 0.0))
+            for row in result.rows
+        ]
+
+
 # =============================================================================
 # BENCHMARK RUNNER
 # =============================================================================
@@ -301,6 +337,7 @@ def run_benchmark(
     limit: int = 0,
     top_k: int = 5,
     out_file: str | None = None,
+    use_real_hybrid: bool = False,
 ) -> float:
     print(f"\n{'=' * 60}")
     print("  harness-mem × LongMemEval Benchmark")
@@ -322,6 +359,7 @@ def run_benchmark(
     per_type: dict[str, list[float]] = defaultdict(list)
     results_log = []
     start_time = datetime.now()
+    _real_hybrid = RealHybridSearch() if use_real_hybrid else None
 
     for idx, entry in enumerate(data):
         question_id = entry["question_id"]
@@ -367,7 +405,11 @@ def run_benchmark(
             if mode == "raw":
                 raw_results = store.search(question, limit=top_k)
                 retrieved_ids = [sid for sid, _ in raw_results]
-            else:  # hybrid
+            elif use_real_hybrid:
+                _real_hybrid.set_path(db_path)
+                hybrid_results = _real_hybrid.search(question, limit=top_k)
+                retrieved_ids = [sid for sid, _ in hybrid_results]
+            else:  # hybrid (synthetic)
                 hybrid_results = store.hybrid_search(
                     question, limit=top_k,
                     query_date=question_date,
@@ -457,6 +499,8 @@ def main() -> None:
     parser.add_argument("--top-k", type=int, default=5,
                         help="Top-K retrieval (default: 5)")
     parser.add_argument("--out", default=None, help="Output JSON file")
+    parser.add_argument("--use-real-hybrid", action="store_true",
+                        help="Use real HybridSearchLayer (FTS+vector via RRF) instead of synthetic hybrid")
     args = parser.parse_args()
 
     if not args.out:
@@ -468,6 +512,7 @@ def main() -> None:
         args.limit,
         args.top_k,
         args.out,
+        args.use_real_hybrid,
     )
 
 

@@ -1,8 +1,8 @@
-"""HybridSearchLayer — FTS + optional vector search.
+"""HybridSearchLayer — FTS + optional vector search via Reciprocal Rank Fusion.
 
 Supports mode=auto|fts|hybrid:
 - fts: pure SQLite FTS5 search
-- hybrid: combine FTS + vector similarity (when embedding available)
+- hybrid: combine FTS + vector similarity using RRF
 - auto: use hybrid if embedding model loaded, otherwise fall back to fts
 """
 
@@ -141,7 +141,7 @@ class HybridSearchLayer:
         extra_where: str | None,
         extra_params: tuple,
     ) -> tuple[builtins.list[dict[str, Any]], str, str | None]:
-        """Hybrid search: FTS + vector similarity."""
+        """Hybrid search: FTS + vector similarity via Reciprocal Rank Fusion."""
         embeddings = self._embed_texts([query])
         if embeddings is None:
             return (
@@ -152,29 +152,63 @@ class HybridSearchLayer:
 
         query_embedding = embeddings[0]
 
-        candidates: builtins.list[dict[str, Any]] = self._sqlite.search(
-            table, query, limit=limit * 3, extra_where=extra_where, extra_params=extra_params
+        # FTS candidate pool (3x limit for better recall)
+        candidate_limit = limit * 3
+        fts_results = self._sqlite.search(
+            table, query, limit=candidate_limit, extra_where=extra_where, extra_params=extra_params
         )
-        if not candidates:
-            return candidates, "hybrid", None
+
+        # Build FTS rank map: id -> rank (0-based)
+        fts_rank: dict[str, int] = {}
+        for rank, row in enumerate(fts_results):
+            fts_rank[row["id"]] = rank
+
+        if not fts_results:
+            return [], "hybrid", None
 
         content_field = "raw_content" if table == "observations" else "content"
-        texts: builtins.list[str] = [str(row.get(content_field, "")) for row in candidates]
+        texts: builtins.list[str] = [str(row.get(content_field, "")) for row in fts_results]
 
         doc_embeddings = self._embed_texts(texts)
         if doc_embeddings is None:
-            return candidates[:limit], "fts", "embedding not available"
+            return fts_results[:limit], "fts", "embedding not available"
 
-        scored: builtins.list[tuple[float, dict[str, Any]]] = []
-        for row, doc_emb in zip(candidates, doc_embeddings):
-            sim = self._cosine_similarity(query_embedding, doc_emb)
-            row_copy = dict(row)
-            row_copy["_hybrid_score"] = sim
-            row_copy["_score"] = sim
-            scored.append((sim, row_copy))
+        # Compute vector similarity for all candidates
+        sim_scores: dict[str, float] = {}
+        for row, doc_emb in zip(fts_results, doc_embeddings):
+            sim_scores[row["id"]] = self._cosine_similarity(query_embedding, doc_emb)
 
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return [row for _, row in scored[:limit]], "hybrid", None
+        # Build vector rank map: id -> rank (0-based, sorted by similarity desc)
+        sorted_by_sim = sorted(sim_scores.items(), key=lambda x: x[1], reverse=True)
+        vec_rank: dict[str, int] = {}
+        for rank, (row_id, _) in enumerate(sorted_by_sim):
+            vec_rank[row_id] = rank
+
+        # Reciprocal Rank Fusion: combine two rank lists
+        # RRF(k=60) is the standard default — smooth blending, no calibration needed
+        RRF_K = 60
+        rrf_scores: dict[str, float] = {}
+        for row_id in fts_rank:
+            rrf = 0.0
+            if row_id in fts_rank:
+                rrf += 1.0 / (RRF_K + fts_rank[row_id])
+            if row_id in vec_rank:
+                rrf += 1.0 / (RRF_K + vec_rank[row_id])
+            rrf_scores[row_id] = rrf
+
+        # Attach debug scores and sort by RRF
+        id_to_row: dict[str, dict[str, Any]] = {row["id"]: row for row in fts_results}
+        ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+        fused: builtins.list[dict[str, Any]] = []
+        for row_id, rrf_score in ranked[:limit]:
+            row = dict(id_to_row[row_id])
+            row["_fts_score"] = fts_rank.get(row_id, -1)
+            row["_vec_sim"] = sim_scores.get(row_id, 0.0)
+            row["_rrf_score"] = rrf_score
+            row["_score"] = rrf_score
+            fused.append(row)
+
+        return fused, "hybrid", None
 
     @staticmethod
     def _cosine_similarity(a: builtins.list[float], b: builtins.list[float]) -> float:
