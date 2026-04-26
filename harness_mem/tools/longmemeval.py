@@ -418,7 +418,9 @@ def run_benchmark(
     print(f"\n{'=' * 60}\n")
 
     if out_file:
-        with open(out_file, "w", encoding="utf-8") as f:
+        output_path = Path(out_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump({
                 "mode": mode,
                 "top_k": top_k,
@@ -427,7 +429,7 @@ def run_benchmark(
                 "per_type": {k: sum(v) / len(v) for k, v in per_type.items()},
                 "results": results_log,
             }, f, indent=2)
-        print(f"  Results saved to: {out_file}")
+        print(f"  Results saved to: {output_path}")
 
     return avg_recall
 
@@ -436,7 +438,8 @@ def default_output_path(mode: str, top_k: int, now: datetime | None = None) -> P
     """Return the default output path for benchmark results."""
     timestamp = (now or datetime.now()).strftime("%Y%m%d_%H%M")
     tag = f"_{mode}" if mode != "raw" else ""
-    return Path.cwd() / f"results_harness{tag}_top{top_k}_{timestamp}.json"
+    repo_root = Path(__file__).resolve().parents[2]
+    return repo_root / "benchmarks" / "results" / f"results_harness{tag}_top{top_k}_{timestamp}.json"
 
 
 # =============================================================================
