@@ -1,12 +1,12 @@
 """Codex adapter — ingest Codex CLI sessions into harness-mem."""
 
 from __future__ import annotations
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from harness_mem.adapters.parser import parse_codex_jsonl_session, session_sort_key
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 
@@ -89,103 +89,11 @@ class CodexAdapter:
         session_path: Path,
         issues: list[Issue] | None = None,
     ) -> list[dict[str, Any]]:
-        """Parse a Codex .jsonl session file into turns."""
-        turns: list[dict[str, Any]] = []
-        current_turn: dict[str, Any] | None = None
+        """Parse a Codex .jsonl session file into turns.
 
-        try:
-            content = session_path.read_text(encoding="utf-8-sig", errors="replace")
-        except OSError as exc:
-            raise ValueError(f"unable to read file ({type(exc).__name__}: {exc})") from exc
-
-        malformed_lines = 0
-        nonempty_lines = 0
-        valid_records = 0
-
-        for line in content.splitlines():
-            if not line.strip():
-                continue
-            nonempty_lines += 1
-            try:
-                record = json.loads(line.strip())
-            except json.JSONDecodeError:
-                malformed_lines += 1
-                continue
-            valid_records += 1
-
-            # Codex session record types vary; handle common patterns
-            role = record.get("role", "")
-            message_content = ""
-
-            if role == "user":
-                message_content = record.get("content", "") or ""
-            elif role == "assistant":
-                message_content = record.get("content", "") or ""
-
-            # Also check for type-based format
-            rec_type = record.get("type", "")
-            if rec_type == "user":
-                message_content = record.get("message", {}).get("content", "") or ""
-
-            if message_content and isinstance(message_content, str) and message_content.strip():
-                if current_turn is None:
-                    current_turn = {"user": "", "assistant": []}
-                    turns.append(current_turn)
-
-                if role == "user" or rec_type == "user":
-                    current_turn["user"] = message_content[:2000]
-                else:
-                    current_turn["assistant"].append(message_content[:1000])
-            else:
-                # Tool calls / function results
-                if current_turn is None:
-                    current_turn = {"user": "", "assistant": []}
-                    turns.append(current_turn)
-
-                tool_calls = record.get("tool_calls", []) or record.get("function_call", {})
-                if tool_calls:
-                    if isinstance(tool_calls, list):
-                        for tc in tool_calls[:5]:
-                            fn = tc.get("function", {})
-                            current_turn["assistant"].append(
-                                f"[tool: {fn.get('name', '?')}] {fn.get('arguments', '')[:200]}"
-                            )
-                    elif isinstance(tool_calls, dict):
-                        fn = tool_calls.get("function", {})
-                        current_turn["assistant"].append(
-                            f"[tool: {fn.get('name', '?')}] {fn.get('arguments', '')[:200]}"
-                        )
-
-        if valid_records == 0 and nonempty_lines > 0:
-            raise ValueError(
-                f"no valid JSON records found; skipped {malformed_lines} malformed line(s)"
-            )
-
-        if malformed_lines > 0:
-            self._append_issue(
-                issues,
-                level="warning",
-                code="session_malformed_lines_skipped",
-                message=(
-                    f"Codex session {session_path} skipped "
-                    f"{malformed_lines} malformed JSON line(s)"
-                ),
-                path=session_path,
-            )
-
-        if valid_records > 0 and not turns:
-            self._append_issue(
-                issues,
-                level="warning",
-                code="session_empty_after_parse",
-                message=(
-                    f"Codex session {session_path} contained valid JSON records, "
-                    "but no transcript content was extracted"
-                ),
-                path=session_path,
-            )
-
-        return turns
+        Delegates to :func:`harness_mem.adapters.parser.parse_codex_jsonl_session`.
+        """
+        return parse_codex_jsonl_session(session_path, issues=issues)
 
     def session_to_observation(
         self,
@@ -293,10 +201,8 @@ class CodexAdapter:
 
     @staticmethod
     def _session_sort_key(session: dict[str, Any]) -> datetime:
-        mtime = session.get("mtime")
-        if isinstance(mtime, datetime):
-            return mtime
-        return datetime.min.replace(tzinfo=timezone.utc)
+        """Sort key for session dicts. Delegates to :func:`parser.session_sort_key`."""
+        return session_sort_key(session)
 
     @staticmethod
     def _build_issue(

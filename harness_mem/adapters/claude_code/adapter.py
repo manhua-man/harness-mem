@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-import json
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from harness_mem.adapters.parser import (
+    extract_heuristic_entries,
+    list_session_files,
+    parse_claude_jsonl_session,
+    session_sort_key,
+)
 from harness_mem.core.schemas import Observation, MemoryEntry
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 
@@ -38,76 +42,14 @@ class ClaudeCodeAdapter:
         project_dir = self.sessions_dir / project_name
         if not project_dir.exists():
             return []
-
-        sessions: list[dict[str, Any]] = []
-        for session_file in project_dir.glob("*.jsonl"):
-            size_kb = session_file.stat().st_size / 1024
-            if size_kb >= min_size_kb:
-                sessions.append({
-                    "path": session_file,
-                    "name": session_file.name,
-                    "session_id": session_file.stem,
-                    "size_kb": size_kb,
-                    "size": f"{size_kb:.1f}KB",
-                    "lines": len(session_file.read_text(encoding="utf-8-sig", errors="replace").splitlines()),
-                    "mtime": datetime.fromtimestamp(session_file.stat().st_mtime, tz=timezone.utc),
-                })
-        sessions = sorted(sessions, key=self._session_sort_key, reverse=True)
+        sessions = list_session_files(project_dir, min_size_kb=min_size_kb, pattern="*.jsonl")
         if limit is not None:
             return sessions[:limit]
         return sessions
 
     def parse_jsonl_session(self, session_path: Path) -> list[dict[str, Any]]:
         """Parse a Claude Code .jsonl session file into turns."""
-        turns: list[dict[str, Any]] = []
-        current_turn: dict[str, Any] | None = None
-
-        try:
-            content = session_path.read_text(encoding="utf-8-sig", errors="replace")
-            for line in content.splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    record = json.loads(line.strip())
-                except json.JSONDecodeError:
-                    continue
-
-                record_type = record.get("type")
-
-                if record_type == "user":
-                    message_content = record.get("message", {}).get("content", "")
-                    if isinstance(message_content, str) and message_content:
-                        current_turn = {
-                            "user": message_content[:2000],
-                            "assistant": [],
-                            "tools": [],
-                        }
-                        turns.append(current_turn)
-
-                elif record_type == "assistant" and current_turn:
-                    message = record.get("message", {})
-                    content_items = message.get("content", [])
-
-                    if isinstance(content_items, list):
-                        for item in content_items:
-                            if isinstance(item, dict):
-                                if item.get("type") == "text":
-                                    text = item.get("text", "")
-                                    if text and len(text) > 20:
-                                        current_turn["assistant"].append(text[:1000])
-
-                                elif item.get("type") == "tool_use":
-                                    tool_name = item.get("name", "")
-                                    tool_input = item.get("input", {})
-                                    if tool_name:
-                                        current_turn["tools"].append({
-                                            "name": tool_name,
-                                            "input": str(tool_input)[:300],
-                                        })
-        except Exception:
-            pass
-
-        return turns
+        return parse_claude_jsonl_session(session_path, on_error="silent")
 
     def turns_to_observation(
         self,
@@ -186,16 +128,24 @@ class ClaudeCodeAdapter:
         project_name: str,
         category: str | None = None,
     ) -> list[MemoryEntry]:
-        """Extract MemoryEntries from a session using heuristic pattern matching.
+        """Run heuristic pattern matching (not AI extraction) over a session.
 
-        Scans session transcript for reusable project knowledge:
+        Scans session transcript for reusable project knowledge using
+        heuristic regex patterns (see :data:`parser.HEURISTIC_PATTERNS`):
+
         - technical decisions ("we decided to use X")
         - conventions ("I always use X", "the standard is Y")
         - bug workarounds ("the fix was X", "workaround: Y")
         - architecture notes ("I organized X into Y")
 
-        If category is specified, only entries matching that category are returned/saved.
-        Returns all newly saved entries for this session.
+        .. note::
+
+           This is **heuristic-based**, not AI-powered.  For higher-quality
+           extraction with dedup, clustering, and cross-session synthesis,
+           use the ``session-distill`` skill instead.
+
+        If *category* is specified, only entries matching that category are
+        returned/saved.  Returns all newly saved entries for this session.
         """
         project_dir = self.sessions_dir / project_name
         if not project_dir.exists():
@@ -247,77 +197,13 @@ class ClaudeCodeAdapter:
         project_name: str,
         session_id: str,
     ) -> list[MemoryEntry]:
-        """Run heuristic extraction over parsed turns."""
+        """Run heuristic extraction over parsed turns.
 
-        entries: list[MemoryEntry] = []
-        seen_content: set[str] = set()
-
-        def add(content: str, category: str, confidence: float, tags: list[str]) -> None:
-            normalized = content.lower()[:100]
-            if normalized and normalized not in seen_content:
-                seen_content.add(normalized)
-                entries.append(MemoryEntry(
-                    id=str(uuid4()),
-                    project_name=project_name,
-                    category=category,
-                    content=content,
-                    confidence=confidence,
-                    source=f"session:{session_id}",
-                    tags=tags,
-                ))
-
-        decision_patterns = [
-            (re.compile(r"\bwe decided to use\b", re.I), "decision", "we decided to use"),
-            (re.compile(r"\bwe chose\b", re.I), "decision", "we chose"),
-            (re.compile(r"\bthe approach is\b", re.I), "decision", "the approach is"),
-            (re.compile(r"\bI set up\b", re.I), "architecture", "I set up"),
-            (re.compile(r"\bI configured\b", re.I), "architecture", "I configured"),
-            (re.compile(r"\bI organized\b", re.I), "architecture", "I organized"),
-            (re.compile(r"\bstandard is\b", re.I), "convention", "standard is"),
-            (re.compile(r"\bconvention is\b", re.I), "convention", "convention is"),
-            (re.compile(r"\bI always use\b", re.I), "convention", "I always use"),
-            (re.compile(r"\balways use\b", re.I), "convention", "always use"),
-            (re.compile(r"\bthe fix was\b", re.I), "bug", "the fix was"),
-            (re.compile(r"\bworkaround[:\s]+\b", re.I), "bug", "workaround"),
-            (re.compile(r"\bthe workaround is\b", re.I), "bug", "the workaround is"),
-            (re.compile(r"\berror[:\s]+\b(?!http)", re.I), "bug", "error"),
-            (re.compile(r"\bfailed with\b", re.I), "bug", "failed with"),
-            (re.compile(r"\bexception\b", re.I), "bug", "exception"),
-            (re.compile(r"\bI extracted\b", re.I), "architecture", "I extracted"),
-            (re.compile(r"\bsplit into\b", re.I), "architecture", "split into"),
-            (re.compile(r"\bfile structure[:\s]+\b", re.I), "convention", "file structure"),
-            (re.compile(r"\bnaming[:\s]+(pattern|convention|rule)\b", re.I), "convention", "naming pattern"),
-            (re.compile(r"\bapi[:\s]+(endpoint|format|contract)\b", re.I), "api", "api contract"),
-        ]
-
-        # Only learn from assistant outputs. User prompts often contain desired
-        # end states or hypothetical instructions and should not become memory.
-        for turn in turns:
-            assistant_texts = turn.get("assistant", [])
-            if not assistant_texts:
-                continue
-
-            all_text = " ".join(assistant_texts)[:10000]
-
-            for pattern, category, label in decision_patterns:
-                m = pattern.search(all_text)
-                if not m:
-                    continue
-                match_start = m.start()
-                # Extract surrounding context: 100 chars before, 100 after
-                ctx_start = max(0, match_start - 100)
-                ctx_end = min(len(all_text), match_start + 200)
-                sentence = all_text[ctx_start:ctx_end].strip()
-                if len(sentence) > 20:
-                    confidence = 0.6 if category == "bug" else 0.7
-                    add(
-                        sentence,
-                        category,
-                        confidence,
-                        [category, "heuristic", f"pattern-source:{label}"],
-                    )
-
-        return entries
+        Delegates to :func:`harness_mem.adapters.parser.extract_heuristic_entries`.
+        This is a heuristic (regex) extraction, **not** AI-powered distillation.
+        For higher-quality extraction, use the ``session-distill`` skill.
+        """
+        return extract_heuristic_entries(turns, project_name, session_id)
 
     @staticmethod
     def _entry_key(category: str, content: str, source: str) -> tuple[str, str, str]:
@@ -326,7 +212,5 @@ class ClaudeCodeAdapter:
 
     @staticmethod
     def _session_sort_key(session: dict[str, Any]) -> datetime:
-        mtime = session.get("mtime")
-        if isinstance(mtime, datetime):
-            return mtime
-        return datetime.min.replace(tzinfo=timezone.utc)
+        """Sort key for session dicts. Delegates to :func:`parser.session_sort_key`."""
+        return session_sort_key(session)
