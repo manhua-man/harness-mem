@@ -81,6 +81,42 @@ def test_use_sets_active_project_and_search_uses_it(data_dir: Path, capsys: pyte
     assert "search-default-project" in captured
 
 
+def test_status_without_active_project_prompts_quickstart(capsys: pytest.CaptureFixture[str]):
+    assert run(cli.cmd_status()) == 0
+    captured = capsys.readouterr().out
+    assert "📍 Phase: Not Initialized" in captured
+    assert "harness-mem quickstart" in captured
+
+
+def test_status_with_active_project_reports_healthy_state(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    assert cli.cmd_use("demo") == 0
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observation = Observation(
+            id="obs-status-001",
+            session_id="status-session-001",
+            client="codex",
+            raw_content="JWT expiry handling is documented in the auth flow.",
+            content_type="transcript",
+            metadata={"project_name": "demo"},
+            tags=["status"],
+        )
+        run(backend.verbatim_store.save(observation))
+    finally:
+        run(backend.close())
+
+    assert run(cli.cmd_status()) == 0
+    captured = capsys.readouterr().out
+    assert "Project: demo" in captured
+    assert "📍 Phase: Healthy" in captured
+    assert "harness-mem wake" in captured
+
+
 def test_search_surfaces_observation_id_for_show(data_dir: Path, capsys: pytest.CaptureFixture[str]):
     backend = LocalMemoryBackend(data_dir)
     run(backend.init())

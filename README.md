@@ -9,10 +9,31 @@ Local-first, pluggable AI memory runtime for Claude Code and Codex.
 - 默认增量 ingest + `--full-rescan`
 - `search --mode auto|fts|hybrid`
 - CLI / MCP 一致的 search mode 与 learning-loop 语义
+- structured memory / rule / handoff 的 provenance 追溯
+- MCP learning loop 补齐 `reject_rule` / `suggest_rule`
+
+当前状态（2026-04-27）：
+- `v1.3`：大部分已落地，但 LongMemEval `R@5 >= 94%` 的阶段目标尚未达成（当前最佳 93.0%）
+- `v1.4`：provenance 与 Learning Loop MCP 已落地；`cli.py` 模块化拆分和记忆质量评分仍待完成
+- 当前收口重点：`cli.py` 模块化拆分、adapter 最小公共契约统一，以及 `93.0% -> 94.0%` 的 benchmark 收口
+- 详细阶段状态见 [docs/roadmap-v13-v14-proposal.md](./docs/roadmap-v13-v14-proposal.md)
 
 Release notes: [v1.0.1](./docs/v1.0.1-release-notes.md)
 Changelog: [CHANGELOG.md](./CHANGELOG.md)
 Repo map: [docs/repo-layout.md](./docs/repo-layout.md)
+
+---
+
+## 产品原则
+
+`harness-mem` 的目标不是做一个“记忆搜索工具”，而是做一个 **local-first、可审计、可控的 AI memory runtime**。
+
+- **Runtime over interface**: 核心价值是让多个 AI client 共享同一套长期记忆，不是某一个前端形态本身。
+- **Local-first and auditable**: 记忆默认留在本地；用户可以搜索、追溯、纠正和清理，而不是接受黑箱记忆。
+- **CLI as bootstrap**: CLI 是当前最小可交付入口，负责安装、试用、调试和显式控制，不是最终产品形态。
+- **MCP-first**: 长期主路径是把能力接到 agent runtime 里，让 Claude Code、Codex 等 client 默认能读写同一层记忆。
+- **Invisible by default, visible when needed**: 日常体验应尽量无感，但一旦用户想问“记住了什么、为什么被注入、怎么删掉”，系统必须可见、可解释、可退出。
+- **No extension/daemon or LSP roadmap**: 当前路线不规划 VS Code extension、后台 daemon 或 LSP server，先把 MCP 自动化和本地 runtime 主链路做透。
 
 ---
 
@@ -146,6 +167,8 @@ claude mcp add harness-mem -- python -m harness_mem.mcp.server
 # - mode=auto|fts|hybrid
 ```
 
+长期来看，MCP 是首选集成形态；CLI 继续保留为 bootstrap、调试入口和显式控制面板。目标不是让用户反复手动敲 `ingest` / `wake`，而是让记忆能力尽量自然地出现在 agent 工作流里。
+
 ### 11. REST API
 
 ```bash
@@ -180,9 +203,9 @@ Storage
 
 ## 路线定位
 
-V1.x 的定位是把本地优先、可解释、可落盘的 memory baseline 做扎实：JSON blobs + SQLite FTS5 + structured memory + 轻量 hybrid retrieval，优先跑通 ingest、wake-up、search、learning loop、task resume、purge 这条主链路。
+V1.x 的定位是把本地优先、可解释、可落盘的 memory baseline 做扎实：JSON blobs + SQLite FTS5 + structured memory + 轻量 hybrid retrieval，优先跑通 ingest、wake-up、search、learning loop、task resume、purge 这条主链路。这个阶段里，CLI 是正确的 bootstrap：它负责把 happy path、显式控制和调试能力先做完整。
 
-V2 的重点不再是“补一个基础 hybrid search”，而是继续往 invisible memory 和更完整的 agent runtime 演进：更强的 reranking、图结构记忆、跨客户端任务续接、更少显式命令、更高自动化。
+V2 的重点不再是“补一个基础 hybrid search”，而是继续往 invisible memory 和更完整的 agent runtime 演进：更强的 reranking、图结构记忆、跨客户端任务续接、更少显式命令、更高自动化。这里的“invisible”不是黑箱化，而是默认自动、必要时可见：用户平时不必频繁管理记忆，但始终可以追溯来源、审查内容、纠正错误和执行清理。
 
 ---
 

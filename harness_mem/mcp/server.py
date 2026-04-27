@@ -35,6 +35,14 @@ import logging  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any, Callable, TypedDict  # noqa: E402
 
+from harness_mem.read_api import (  # noqa: E402
+    search_memory,
+    serialize_memory_entry_search_result,
+    serialize_observation,
+    serialize_observation_search_result,
+    serialize_timeline_observation,
+    timeline_observations,
+)
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend  # noqa: E402
 from harness_mem.storage.local_project_profile_store import (  # noqa: E402
     LocalProjectProfileStore,
@@ -84,42 +92,17 @@ def tool_search_memory(
             "error": "project_name is required when scope=project",
         }
 
-    if scope == "all":
-        # Search across all projects
-        entries = asyncio.run(
-            backend.structured_store.search_memory_entries(
-                query,
-                project_name=None,
-                limit=20,
-                mode=mode,
-            )
+    entries, obs_list = asyncio.run(
+        search_memory(
+            backend,
+            project_name=project_name,
+            query=query,
+            scope=scope,
+            mode=mode,
+            memory_entry_limit=20,
+            observation_limit=20,
         )
-        obs_list = asyncio.run(
-            backend.verbatim_store.search(query, limit=100, mode=mode)
-        )
-    else:
-        # Search within project
-        entries = asyncio.run(
-            backend.structured_store.search_memory_entries(
-                query,
-                project_name=project_name,
-                limit=20,
-                mode=mode,
-            )
-        )
-        obs_list = asyncio.run(
-            backend.verbatim_store.search(
-                query,
-                project_name=project_name,
-                limit=100,
-                mode=mode,
-            )
-        )
-        obs_list = [
-            o
-            for o in obs_list
-            if o.metadata.get("project_name") == project_name
-        ][:20]
+    )
 
     combined_results = entries or obs_list
     effective_mode = getattr(combined_results[0], "_search_mode", mode) if combined_results else mode
@@ -132,30 +115,8 @@ def tool_search_memory(
         "requested_mode": mode,
         "effective_mode": effective_mode,
         "fallback_reason": fallback_reason,
-        "memory_entries": [
-            {
-                "id": e.id,
-                "category": e.category,
-                "content": e.content,
-                "confidence": e.confidence,
-                "tags": e.tags,
-                "provenance": e.provenance,
-                "search_mode": getattr(e, "_search_mode", mode),
-                "score": getattr(e, "_score", getattr(e, "_hybrid_score", getattr(e, "_fts_score", None))),
-            }
-            for e in entries
-        ],
-        "observations": [
-            {
-                "id": o.id,
-                "session_id": o.session_id,
-                "content_type": o.content_type,
-                "preview": o.raw_content[:200].replace("\n", " "),
-                "search_mode": getattr(o, "_search_mode", mode),
-                "score": getattr(o, "_score", getattr(o, "_hybrid_score", getattr(o, "_fts_score", None))),
-            }
-            for o in obs_list
-        ],
+        "memory_entries": [serialize_memory_entry_search_result(entry, mode) for entry in entries],
+        "observations": [serialize_observation_search_result(observation, mode) for observation in obs_list],
         "memory_entry_count": len(entries),
         "observation_count": len(obs_list),
     }
@@ -164,28 +125,12 @@ def tool_search_memory(
 def tool_timeline(project_name: str, limit: int = 50) -> dict:
     """Return chronological observation timeline for a project."""
     backend = _get_backend()
-    obs_list = asyncio.run(backend.verbatim_store.timeline(limit=limit * 5))
-    obs_list = [
-        o
-        for o in obs_list
-        if o.metadata.get("project_name") == project_name
-    ][:limit]
+    obs_list = asyncio.run(timeline_observations(backend, project_name=project_name, limit=limit))
 
     return {
         "project_name": project_name,
         "limit": limit,
-        "observations": [
-            {
-                "id": o.id,
-                "session_id": o.session_id,
-                "client": o.client,
-                "content_type": o.content_type,
-                "timestamp": o.timestamp.isoformat() if o.timestamp else None,
-                "preview": o.raw_content[:150].replace("\n", " "),
-                "tags": o.tags,
-            }
-            for o in obs_list
-        ],
+        "observations": [serialize_timeline_observation(observation) for observation in obs_list],
         "count": len(obs_list),
     }
 
@@ -204,19 +149,7 @@ def tool_get_observations(project_name: str, session_id: str) -> dict:
     return {
         "project_name": project_name,
         "session_id": session_id,
-        "observations": [
-            {
-                "id": o.id,
-                "session_id": o.session_id,
-                "client": o.client,
-                "content_type": o.content_type,
-                "timestamp": o.timestamp.isoformat() if o.timestamp else None,
-                "raw_content": o.raw_content,
-                "tags": o.tags,
-                "metadata": o.metadata,
-            }
-            for o in session_obs
-        ],
+        "observations": [serialize_observation(observation) for observation in session_obs],
         "count": len(session_obs),
     }
 

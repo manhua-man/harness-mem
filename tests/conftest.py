@@ -10,6 +10,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from harness_mem import cli, cli_commands, event_log
+from harness_mem.commands import doctor, search, wake
+from harness_mem.commands import ingest, onboarding
+from harness_mem.commands import status
+from harness_mem.commands import support as command_support
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from tests.helpers import run
 
@@ -19,6 +23,13 @@ def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     data_dir = tmp_path / "data"
     monkeypatch.setattr(cli, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(cli_commands, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(command_support, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(doctor, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(ingest, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(onboarding, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(status, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(wake, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(search, "DEFAULT_DATA_DIR", data_dir)
     event_log._event_logger = None
     try:
         yield data_dir

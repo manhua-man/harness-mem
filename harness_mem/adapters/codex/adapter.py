@@ -7,12 +7,12 @@ from typing import Any
 from uuid import uuid4
 
 from harness_mem.adapters.parser import parse_codex_jsonl_session, session_sort_key
+from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 
 # Default Codex session directory
 DEFAULT_SESSIONS_DIR = Path.home() / ".codex" / "sessions"
-Issue = dict[str, str]
 
 
 class CodexAdapter:
@@ -29,10 +29,14 @@ class CodexAdapter:
 
     def list_sessions(
         self,
+        project_name: str | None = None,
+        *,
         min_size_kb: int = 1,
+        limit: int | None = None,
         issues: list[Issue] | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[SessionRecord]:
         """List session files from the sessions directory."""
+        del project_name
         if not self.sessions_dir.exists():
             self._append_issue(
                 issues,
@@ -82,7 +86,10 @@ class CodexAdapter:
                     "lines": line_count,
                     "mtime": datetime.fromtimestamp(stat_result.st_mtime, tz=timezone.utc),
                 })
-        return sorted(sessions, key=self._session_sort_key, reverse=True)
+        ordered = sorted(sessions, key=self._session_sort_key, reverse=True)
+        if limit is not None:
+            return ordered[:limit]
+        return ordered
 
     def parse_jsonl_session(
         self,
@@ -147,7 +154,7 @@ class CodexAdapter:
         """
         warnings: list[Issue] = []
         error_details: list[Issue] = []
-        all_sessions = self.list_sessions(0, issues=warnings)
+        all_sessions = self.list_sessions(min_size_kb=0, issues=warnings)
         sessions = [
             session for session in all_sessions
             if session.get("size_kb", 0) >= min_size_kb

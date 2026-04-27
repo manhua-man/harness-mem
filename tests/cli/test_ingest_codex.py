@@ -129,11 +129,7 @@ def test_cmd_ingest_codex_prints_missing_sessions_dir_warning(
     capsys: pytest.CaptureFixture[str],
 ):
     missing_sessions_dir = tmp_path / "missing-codex-sessions"
-    monkeypatch.setattr(
-        cli,
-        "CodexAdapter",
-        lambda backend: CodexAdapter(backend, sessions_dir=missing_sessions_dir),
-    )
+    patch_cli_adapters(monkeypatch, codex_sessions_root=missing_sessions_dir)
 
     assert run(cli.cmd_ingest("codex", "demo", 5)) == 1
 
@@ -153,11 +149,7 @@ def test_cmd_ingest_codex_prints_session_error_details(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(
-        cli,
-        "CodexAdapter",
-        lambda backend: CodexAdapter(backend, sessions_dir=codex_sessions_root),
-    )
+    patch_cli_adapters(monkeypatch, codex_sessions_root=codex_sessions_root)
 
     assert run(cli.cmd_ingest("codex", "demo", 5)) == 1
 

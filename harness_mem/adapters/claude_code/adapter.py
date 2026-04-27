@@ -13,6 +13,7 @@ from harness_mem.adapters.parser import (
     parse_claude_jsonl_session,
     session_sort_key,
 )
+from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.core.schemas import Observation, MemoryEntry
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 
@@ -37,7 +38,7 @@ class ClaudeCodeAdapter:
         project_name: str,
         min_size_kb: int = 100,
         limit: int | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[SessionRecord]:
         """List session files for a project."""
         project_dir = self.sessions_dir / project_name
         if not project_dir.exists():
@@ -46,6 +47,20 @@ class ClaudeCodeAdapter:
         if limit is not None:
             return sessions[:limit]
         return sessions
+
+    def list_sessions(
+        self,
+        project_name: str | None = None,
+        *,
+        min_size_kb: int = 100,
+        limit: int | None = None,
+        issues: list[Issue] | None = None,
+    ) -> list[SessionRecord]:
+        """Return normalized session metadata through the shared adapter contract."""
+        del issues
+        if not project_name:
+            return []
+        return self.list_project_sessions(project_name, min_size_kb=min_size_kb, limit=limit)
 
     def parse_jsonl_session(self, session_path: Path) -> list[dict[str, Any]]:
         """Parse a Claude Code .jsonl session file into turns."""
@@ -90,6 +105,20 @@ class ClaudeCodeAdapter:
             tags=["session", "claude-code"],
         )
 
+    def session_to_observation(
+        self,
+        session_path: Path,
+        session_id: str,
+        project_name: str | None = None,
+        *,
+        issues: list[Issue] | None = None,
+    ) -> Observation:
+        """Bridge the shared adapter contract to the Claude-specific implementation."""
+        del issues
+        if not project_name:
+            raise ValueError("project_name is required for Claude Code observations")
+        return self.turns_to_observation(session_path, session_id, project_name)
+
     async def ingest_project(
         self,
         project_name: str,
@@ -121,6 +150,17 @@ class ClaudeCodeAdapter:
             "ingested": ingested,
             "errors": errors,
         }
+
+    async def ingest(
+        self,
+        project_name: str | None = None,
+        limit: int = 10,
+        min_size_kb: int = 100,
+    ) -> dict[str, Any]:
+        """Shared adapter contract wrapper for project-scoped Claude ingestion."""
+        if not project_name:
+            raise ValueError("project_name is required for Claude Code ingest")
+        return await self.ingest_project(project_name, limit=limit, min_size_kb=min_size_kb)
 
     async def distill_session(
         self,

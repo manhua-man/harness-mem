@@ -2,6 +2,26 @@
 
 > 这份文档是 V1 阶段的 retrieval baseline 报告。`harness-mem` 的完整 benchmark 体系定义见 `docs/benchmark_system.md`。
 
+## 状态更新（2026-04-27）
+
+这份文档下面保留的是 **2026-04-23 的原始 V1 baseline 快照**，用于说明最初的 FTS 起点；它**不是当前最新状态**。
+
+最新阶段结论如下：
+
+| 项目 | 数值 | 说明 |
+|------|------|------|
+| 原始 FTS baseline | `R@5 = 87.3%` | 本文档主体记录的起点 |
+| 当前最佳配置 | `RRF k=10, vec_weight=5.0, candidate=10x` | 当前主线 hybrid 最优配置 |
+| 当前最佳结果 | `R@5 = 93.0%` | 相比原始 baseline 提升 `+5.7pp` |
+| 与阶段目标差距 | `-1.0pp` | 仍未达到路线图中的 `R@5 >= 94%` |
+| 与 MemPalace raw 差距 | `-3.6pp` | MemPalace raw baseline 为 `96.6%` |
+
+额外说明：
+
+- `score fusion` 当前约 `92.8%`，略低于 RRF 最优配置。
+- 当前瓶颈主要不在 `knowledge-update`，而在 `multi-session` 与 `temporal-reasoning`。
+- 因此，这份文档应被理解为：**baseline 已经过时，但它仍然保留了“我们从哪里出发”的原始参照。**
+
 ## 背景
 
 V1 里程碑完成之际，在 LongMemEval 数据集上对 harness-mem 的检索能力进行了标准化测量。
