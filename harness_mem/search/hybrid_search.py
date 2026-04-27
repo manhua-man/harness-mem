@@ -1,10 +1,4 @@
-"""HybridSearchLayer — FTS + optional vector search via Reciprocal Rank Fusion.
-
-Supports mode=auto|fts|hybrid:
-- fts: pure SQLite FTS5 search
-- hybrid: combine FTS + vector similarity using RRF
-- auto: use hybrid if embedding model loaded, otherwise fall back to fts
-"""
+"""HybridSearchLayer — FTS + optional vector search via Reciprocal Rank Fusion."""
 
 from __future__ import annotations
 import builtins
@@ -50,13 +44,11 @@ class HybridSearchLayer:
         """Lazy-load embedding model. Returns True if loaded."""
         if self._embedding_loaded:
             return self._embedding_model is not None
-
         self._embedding_loaded = True
         try:
             import importlib.util
             if importlib.util.find_spec("sentence_transformers") is None:
                 return False
-
             from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
             self._embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
             return True
@@ -91,29 +83,8 @@ class HybridSearchLayer:
                 requested_mode=requested_mode,
                 effective_mode="fts",
             )
-
-        if requested_mode == "hybrid":
-            rows, effective_mode, fallback_reason = self._search_hybrid(
-                query,
-                table,
-                limit,
-                extra_where,
-                extra_params,
-            )
-            return SearchResult(
-                rows=rows,
-                requested_mode=requested_mode,
-                effective_mode=effective_mode,
-                fallback_reason=fallback_reason,
-            )
-
-        # auto mode: try hybrid, fall back to fts
         rows, effective_mode, fallback_reason = self._search_hybrid(
-            query,
-            table,
-            limit,
-            extra_where,
-            extra_params,
+            query, table, limit, extra_where, extra_params,
         )
         return SearchResult(
             rows=rows,
@@ -131,7 +102,10 @@ class HybridSearchLayer:
         extra_params: tuple,
     ) -> builtins.list[dict[str, Any]]:
         """Pure FTS5 search."""
-        return self._sqlite.search(table, query, limit=limit, extra_where=extra_where, extra_params=extra_params)
+        return self._sqlite.search(
+            table, query, limit=limit,
+            extra_where=extra_where, extra_params=extra_params,
+        )
 
     def _search_hybrid(
         self,
@@ -141,7 +115,12 @@ class HybridSearchLayer:
         extra_where: str | None,
         extra_params: tuple,
     ) -> tuple[builtins.list[dict[str, Any]], str, str | None]:
-        """Hybrid search: FTS + vector similarity via Reciprocal Rank Fusion."""
+        """Hybrid search: FTS + vector via score-level fusion.
+
+        Fuses normalized BM25 and cosine-similarity scores directly. RRF discards
+        magnitude information; score fusion preserves it, making rank-5 vs rank-50
+        vector similarity distinguishable.
+        """
         embeddings = self._embed_texts([query])
         if embeddings is None:
             return (
@@ -152,17 +131,12 @@ class HybridSearchLayer:
 
         query_embedding = embeddings[0]
 
-        # FTS candidate pool (3x limit for better recall)
-        candidate_limit = limit * 3
+        # FTS candidate pool: 10x limit
+        candidate_limit = limit * 10
         fts_results = self._sqlite.search(
-            table, query, limit=candidate_limit, extra_where=extra_where, extra_params=extra_params
+            table, query, limit=candidate_limit,
+            extra_where=extra_where, extra_params=extra_params,
         )
-
-        # Build FTS rank map: id -> rank (0-based)
-        fts_rank: dict[str, int] = {}
-        for rank, row in enumerate(fts_results):
-            fts_rank[row["id"]] = rank
-
         if not fts_results:
             return [], "hybrid", None
 
@@ -173,39 +147,44 @@ class HybridSearchLayer:
         if doc_embeddings is None:
             return fts_results[:limit], "fts", "embedding not available"
 
-        # Compute vector similarity for all candidates
+        # Collect raw BM25 scores
+        bm_raws: list[float] = []
+        for row in fts_results:
+            raw_score = row.get("score", 0.0)
+            bm_raws.append(float(raw_score))
+
+        fts_min = min(bm_raws) if bm_raws else 0.0
+        fts_max = max(bm_raws) if bm_raws else 0.0
+        fts_range = fts_max - fts_min
+
+        # Compute cosine similarity for each candidate
         sim_scores: dict[str, float] = {}
         for row, doc_emb in zip(fts_results, doc_embeddings):
             sim_scores[row["id"]] = self._cosine_similarity(query_embedding, doc_emb)
 
-        # Build vector rank map: id -> rank (0-based, sorted by similarity desc)
-        sorted_by_sim = sorted(sim_scores.items(), key=lambda x: x[1], reverse=True)
-        vec_rank: dict[str, int] = {}
-        for rank, (row_id, _) in enumerate(sorted_by_sim):
-            vec_rank[row_id] = rank
+        # Score-level fusion: W_FTS * norm_BM25 + W_VEC * cos_sim
+        W_FTS = 0.4
+        W_VEC = 0.6
+        fused_scores: dict[str, float] = {}
+        for row in fts_results:
+            row_id = row["id"]
+            bm_raw = float(row.get("score", 0.0))
+            # Normalize BM25: most negative (best) -> 1.0, least negative (worst) -> 0.0
+            bm_norm = 1.0 - (bm_raw - fts_min) / fts_range if fts_range != 0 else 0.5
+            vec_sim = sim_scores.get(row_id, 0.0)
+            fused_scores[row_id] = W_FTS * bm_norm + W_VEC * vec_sim
 
-        # Reciprocal Rank Fusion: combine two rank lists
-        # RRF(k=60) is the standard default — smooth blending, no calibration needed
-        RRF_K = 60
-        rrf_scores: dict[str, float] = {}
-        for row_id in fts_rank:
-            rrf = 0.0
-            if row_id in fts_rank:
-                rrf += 1.0 / (RRF_K + fts_rank[row_id])
-            if row_id in vec_rank:
-                rrf += 1.0 / (RRF_K + vec_rank[row_id])
-            rrf_scores[row_id] = rrf
-
-        # Attach debug scores and sort by RRF
         id_to_row: dict[str, dict[str, Any]] = {row["id"]: row for row in fts_results}
-        ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+        ranked = sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
         fused: builtins.list[dict[str, Any]] = []
-        for row_id, rrf_score in ranked[:limit]:
+        for row_id, fused_score in ranked[:limit]:
             row = dict(id_to_row[row_id])
-            row["_fts_score"] = fts_rank.get(row_id, -1)
+            bm_r = float(row.get("score", 0.0))
+            bm_n = 1.0 - (bm_r - fts_min) / fts_range if fts_range != 0 else 0.5
+            row["_fts_norm"] = bm_n
             row["_vec_sim"] = sim_scores.get(row_id, 0.0)
-            row["_rrf_score"] = rrf_score
-            row["_score"] = rrf_score
+            row["_fused_score"] = fused_score
+            row["_score"] = fused_score
             fused.append(row)
 
         return fused, "hybrid", None

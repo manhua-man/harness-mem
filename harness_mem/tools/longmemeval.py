@@ -29,6 +29,10 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
+import Stemmer
+
+ps = Stemmer.Stemmer("porter")
+
 
 # =============================================================================
 # METRICS
@@ -177,28 +181,36 @@ class BenchVerbatimStore:
                 conn.close()
 
     def _tokenize(self, text: str) -> list[str]:
-        """Split query into tokens, filter out FTS5 stop words."""
+        """Split query into tokens, filter out stop words."""
         cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", text)
         tokens = cleaned.split()
         return [t for t in tokens if t.lower() not in STOP_WORDS]
 
-    def _make_fts_query(self, query: str) -> str:
-        """Convert a natural-language query to an FTS5 query string.
+    def _expand_query(self, text: str) -> tuple[list[str], list[str]]:
+        """Return (primary, fallback) fragments with stemming expansion.
 
-        FTS5 query syntax: space-separated tokens are OR'd.
-        Strip punctuation and special chars that confuse the parser (? ! . , etc.)
+        Primary: original token exact (same as _tokenize).
+        Fallback: stemmed exact + fuzzy + prefix wildcard.
         """
-        # Remove FTS5 special chars; keep alphanumerics and spaces
-        cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", query)
+        cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", text)
         tokens = cleaned.split()
-        return " ".join(tokens)
+        primary: list[str] = []
+        fallback: list[str] = []
+        for t in tokens:
+            t_lower = t.lower()
+            if t_lower in STOP_WORDS:
+                continue
+            primary.append(t_lower)
+            stemmed = ps.stemWord(t_lower)
+            if stemmed != t_lower:
+                fallback.append(stemmed)
+            if len(t_lower) > 4:
+                fallback.append(f"{t_lower}~1")
+                fallback.append(f"{stemmed}*")
+        return primary, fallback
 
     def search(self, query: str, limit: int = 20) -> list[tuple[str, float]]:
-        """Search using individual non-stop-word tokens, aggregate by session.
-
-        FTS5 stop words cause queries like 'what did I' to return nothing.
-        Instead, search each non-stop-word token separately and merge results.
-        """
+        """Pure FTS5 search on original (non-stemmed) tokens."""
         tokens = self._tokenize(query)
         if not tokens:
             return []
@@ -206,30 +218,74 @@ class BenchVerbatimStore:
         with self._lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             try:
-                # Search each token individually and collect all hits
                 session_scores: dict[str, float] = {}
                 for token in tokens:
-                    cursor = conn.execute("""
-                        SELECT o.id, o.session_id, o.raw_content,
-                               bm25(observations_fts) as score
-                        FROM observations_fts f
-                        JOIN observations o ON f.rowid = o.rowid
-                        WHERE observations_fts MATCH ?
-                        ORDER BY score
-                        LIMIT ?
-                    """, (token, limit * 3))
-                    rows = cursor.fetchall()
-                    for row in rows:
+                    try:
+                        cursor = conn.execute("""
+                            SELECT o.id, o.session_id, o.raw_content,
+                                   bm25(observations_fts) as score
+                            FROM observations_fts f
+                            JOIN observations o ON f.rowid = o.rowid
+                            WHERE observations_fts MATCH ?
+                            ORDER BY score
+                            LIMIT ?
+                        """, (token, limit * 3))
+                    except sqlite3.OperationalError:
+                        continue
+                    for row in cursor.fetchall():
                         obs_id, session_id, content, score = row
                         if session_id not in session_scores:
                             session_scores[session_id] = score
-                        # Keep best (lowest/most negative = best BM25) score
-                        if score < session_scores[session_id]:
+                        elif score < session_scores[session_id]:
                             session_scores[session_id] = score
             finally:
                 conn.close()
 
-        # Sort by score (lower BM25 = better) and dedupe
+        sorted_sessions = sorted(session_scores.items(), key=lambda x: x[1])
+        return [(sid, score) for sid, score in sorted_sessions[:limit]]
+
+    def expand_search(self, query: str, limit: int = 20) -> list[tuple[str, float]]:
+        """FTS5 with primary exact + stemming/fuzzy/prefix fallback.
+
+        Used by hybrid_search when the primary token search returns fewer than
+        `limit` sessions.
+        """
+        primary, fallback = self._expand_query(query)
+        if not primary:
+            return []
+
+        with self._lock:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            try:
+                session_scores: dict[str, float] = {}
+
+                def run_frags(frags: list[str]) -> None:
+                    for fragment in frags:
+                        try:
+                            cursor = conn.execute("""
+                                SELECT o.id, o.session_id, o.raw_content,
+                                       bm25(observations_fts) as score
+                                FROM observations_fts f
+                                JOIN observations o ON f.rowid = o.rowid
+                                WHERE observations_fts MATCH ?
+                                ORDER BY score
+                                LIMIT ?
+                            """, (fragment, limit * 3))
+                        except sqlite3.OperationalError:
+                            continue
+                        for row in cursor.fetchall():
+                            obs_id, session_id, content, score = row
+                            if session_id not in session_scores:
+                                session_scores[session_id] = score
+                            elif score < session_scores[session_id]:
+                                session_scores[session_id] = score
+
+                run_frags(primary)
+                if len(session_scores) < limit:
+                    run_frags(fallback)
+            finally:
+                conn.close()
+
         sorted_sessions = sorted(session_scores.items(), key=lambda x: x[1])
         return [(sid, score) for sid, score in sorted_sessions[:limit]]
 

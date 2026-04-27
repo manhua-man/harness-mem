@@ -13,6 +13,7 @@ from harness_mem import __version__
 from harness_mem.adapters.codex.adapter import CodexAdapter
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
+from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
 from harness_mem.adapters.claude_code.project_profile_detector import build_project_profile
@@ -482,10 +483,10 @@ def main():
     # show
     show = sub.add_parser("show", help="Show a specific observation")
     show.set_defaults(command_name="show")
-    show.add_argument("observation_id_arg", nargs="?", help="Observation ID")
+    show.add_argument("observation_id_arg", nargs="?", help="Observation ID or session ID")
     show.add_argument("-p", "--project", help="Project name (optional)")
-    show.add_argument("-i", "--id", dest="observation_id", help="Observation ID (legacy, use -o instead)")
-    show.add_argument("-o", "--observation-id", dest="observation_id", help="Observation ID")
+    show.add_argument("-i", "--id", dest="observation_id", help="Observation ID or session ID (legacy, use -o instead)")
+    show.add_argument("-o", "--observation-id", dest="observation_id", help="Observation ID or session ID")
 
     # status
     status = sub.add_parser("status", aliases=["st"], help="Show memory status")
@@ -608,7 +609,7 @@ def main():
     if command == "show":
         observation_id = args.observation_id or args.observation_id_arg
         if not observation_id:
-            parser.error("show requires an observation id. Use `harness-mem show <id>` or `--id`.")
+            parser.error("show requires an observation or session id. Use `harness-mem show <id>` or `--observation-id`.")
         return asyncio.run(cmd_show(args.project, observation_id))
 
     if command == "ingest":
@@ -1134,6 +1135,40 @@ def _format_search_score(result: object) -> str:
     return "n/a"
 
 
+def _format_observation_reference(observation: Observation) -> str:
+    return f"[{observation.id}] session: {observation.session_id}"
+
+
+async def _resolve_observation_identifier(
+    backend: LocalMemoryBackend,
+    identifier: str,
+    *,
+    project_name: str | None = None,
+) -> tuple[Observation | None, str | None]:
+    observation = await backend.verbatim_store.get(identifier)
+    if observation is not None:
+        return observation, None
+
+    session_matches = await backend.verbatim_store.list(session_id=identifier, limit=100)
+    if project_name:
+        session_matches = [
+            match for match in session_matches if match.metadata.get("project_name") == project_name
+        ]
+
+    if len(session_matches) == 1:
+        return session_matches[0], None
+
+    if len(session_matches) > 1:
+        choices = ", ".join(match.id for match in session_matches[:5])
+        more = "" if len(session_matches) <= 5 else f", ... (+{len(session_matches) - 5} more)"
+        return (
+            None,
+            f"Multiple observations found for session: {identifier}. Use one of these observation ids: {choices}{more}",
+        )
+
+    return None, None
+
+
 async def cmd_search(project_name: str | None, query: str, mode: str = "auto") -> int:
     """Search memory for a project."""
     project_name = _resolve_project_name(project_name, action_label="search")
@@ -1174,7 +1209,10 @@ async def cmd_search(project_name: str | None, query: str, mode: str = "auto") -
             for o in obs_list:
                 preview = o.raw_content[:200].replace("\n", " ") + "..." if len(o.raw_content) > 200 else o.raw_content.replace("\n", " ")
                 search_mode = getattr(o, "_search_mode", mode)
-                print(f"- [{o.session_id}] {preview}  (score: {_format_search_score(o)}, mode: {search_mode})  -> verbatim")
+                print(
+                    f"- {_format_observation_reference(o)} {preview}  "
+                    f"(score: {_format_search_score(o)}, mode: {search_mode})  -> verbatim"
+                )
             print()
         _log_command_invoked(
             "search",
@@ -1204,7 +1242,7 @@ async def cmd_timeline(project_name: str | None, limit: int = 50) -> int:
         for o in obs_list:
             ts = o.timestamp.strftime("%Y-%m-%d %H:%M") if o.timestamp else "?"
             preview = o.raw_content[:100].replace("\n", " ")
-            print(f"- {ts} [{o.session_id}] {preview}")
+            print(f"- {ts} {_format_observation_reference(o)} {preview}")
         print()
     finally:
         await backend.close()
@@ -1213,18 +1251,24 @@ async def cmd_timeline(project_name: str | None, limit: int = 50) -> int:
 
 async def cmd_show(project_name: str | None, observation_id: str) -> int:
     """Show a specific observation."""
+    resolved_project = _resolve_project_name(project_name, required=False, action_label="show") if project_name else None
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
     try:
-        obs = await backend.verbatim_store.get(observation_id)
+        obs, resolution_error = await _resolve_observation_identifier(
+            backend,
+            observation_id,
+            project_name=resolved_project,
+        )
+        if resolution_error:
+            print(resolution_error)
+            return 1
         if not obs:
             print(f"Observation not found: {observation_id}")
             return 1
-        if project_name:
-            resolved_project = _resolve_project_name(project_name, required=False, action_label="show")
-            if resolved_project and obs.metadata.get("project_name") != resolved_project:
-                print(f"Observation {observation_id} does not belong to project: {resolved_project}")
-                return 1
+        if resolved_project and obs.metadata.get("project_name") != resolved_project:
+            print(f"Observation {obs.id} does not belong to project: {resolved_project}")
+            return 1
 
         print(f"# Observation: {obs.id}")
         print(f"Session: {obs.session_id}")
@@ -1759,4 +1803,5 @@ def _prompt_list_labeled(field_label: str, item_description: str, existing: list
             return []
         values.append(value)
 
+if __name__ == "__main__":
     sys.exit(main())
