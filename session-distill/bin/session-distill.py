@@ -6,8 +6,22 @@ Claude Code Session Distiller - Python implementation
 import argparse
 import json
 import sys
-from pathlib import Path
 from datetime import UTC, datetime
+from pathlib import Path
+
+# Allow importing vendored parser from lib/parser.py
+# This works both in development (running from repo) and in production
+# (skill installed at ~/.claude/skills/session-distill/).
+_SKILL_ROOT = Path(__file__).resolve().parent.parent
+_LIB_DIR = _SKILL_ROOT / "lib"
+if _LIB_DIR.exists():
+    sys.path.insert(0, str(_SKILL_ROOT))
+
+from lib.parser import (  # noqa: E402  # isort:skip
+    list_session_files,
+    parse_claude_jsonl_session,
+    select_turns_for_packet,
+)
 
 # Configuration
 DISTILL_DIR = Path.home() / ".claude" / "session-distill"
@@ -60,26 +74,6 @@ def find_project_path(project_name=None):
     return None
 
 
-def list_project_sessions(project_path, min_size_kb=100):
-    """List session files in project directory"""
-    if not project_path or not project_path.exists():
-        return []
-
-    sessions = []
-    for session_file in project_path.glob("*.jsonl"):
-        size_kb = session_file.stat().st_size / 1024
-        if size_kb >= min_size_kb:
-            sessions.append({
-                "path": session_file,
-                "size": f"{size_kb:.1f}KB",
-                "lines": len(session_file.read_text().splitlines()),
-                "mtime": datetime.fromtimestamp(session_file.stat().st_mtime).strftime("%Y-%m-%d"),
-                "name": session_file.name
-            })
-
-    return sorted(sessions, key=lambda x: x["mtime"], reverse=True)
-
-
 def source_signature(session):
     """Return a comparable signature for a session file."""
     path = Path(session["path"])
@@ -101,7 +95,7 @@ def cmd_index(project_path):
     new_count = 0
     refreshed_count = 0
 
-    sessions = list_project_sessions(project_path, min_size_kb=0)
+    sessions = list_session_files(project_path, min_size_kb=0) if project_path else []
     existing_by_id = {s["session_id"]: s for s in manifest["sessions"]}
 
     for session in sessions:
@@ -187,78 +181,10 @@ def cmd_bundle(project_path, force=False, next_count=DEFAULT_RUN_NEXT):
     print(f"==> Bundle done: {count} packets")
 
 
-def select_turns_for_packet(turns, max_turns=12):
-    """Keep the opening request and the ending resolution for long sessions."""
-    total = len(turns)
-    if total <= max_turns:
-        return turns, 0
-
-    head_count = max_turns // 2
-    tail_count = max_turns - head_count
-    selected = turns[:head_count] + turns[-tail_count:]
-    omitted = total - len(selected)
-    return selected, omitted
-
-
-def parse_jsonl_session(session_path):
-    """Parse Claude Code .jsonl session file"""
-    turns = []
-    current_turn = None
-
-    try:
-        with open(session_path, 'r', encoding='utf-8-sig', errors='replace') as f:
-            for line in f:
-                try:
-                    record = json.loads(line.strip())
-                except json.JSONDecodeError:
-                    continue
-
-                record_type = record.get('type')
-
-                # User message
-                if record_type == 'user':
-                    message_content = record.get('message', {}).get('content', '')
-                    if isinstance(message_content, str) and message_content and not message_content.startswith('<'):
-                        current_turn = {
-                            'user': message_content[:1000],
-                            'assistant': [],
-                            'tools': []
-                        }
-                        turns.append(current_turn)
-
-                # Assistant message
-                elif record_type == 'assistant' and current_turn:
-                    message = record.get('message', {})
-                    content = message.get('content', [])
-
-                    if isinstance(content, list):
-                        for item in content:
-                            if isinstance(item, dict):
-                                # Text response
-                                if item.get('type') == 'text':
-                                    text = item.get('text', '')
-                                    if text and len(text) > 20:
-                                        current_turn['assistant'].append(text[:800])
-
-                                # Tool use
-                                elif item.get('type') == 'tool_use':
-                                    tool_name = item.get('name', '')
-                                    tool_input = item.get('input', {})
-                                    if tool_name:
-                                        current_turn['tools'].append({
-                                            'name': tool_name,
-                                            'input': str(tool_input)[:200]
-                                        })
-    except Exception as e:
-        print(f"Warning: Error parsing session: {e}")
-
-    return turns
-
-
 def generate_packet(session, packet_path):
     """Generate a packet file with actual session content"""
     session_path = Path(session['file_path'])
-    all_turns = parse_jsonl_session(session_path)
+    all_turns = parse_claude_jsonl_session(session_path, filter_xml_directives=True, on_error="warn")
     turns, omitted_turns = select_turns_for_packet(all_turns)
 
     lines = [
@@ -387,7 +313,7 @@ def cmd_list(project_path, min_size=100):
     print("==> Available Sessions")
     print("")
 
-    sessions = list_project_sessions(project_path, min_size)
+    sessions = list_session_files(project_path, min_size_kb=min_size) if project_path else []
     if not sessions:
         print(f"No sessions found larger than {min_size}KB")
         return
@@ -395,7 +321,8 @@ def cmd_list(project_path, min_size=100):
     print(f"{'Size':<8} {'Lines':<6} {'Modified':<12} Filename")
     print("-" * 60)
     for session in sessions:
-        print(f"{session['size']:<8} {session['lines']:<6} {session['mtime']:<12} {session['name']}")
+        mtime_str = session['mtime'].strftime("%Y-%m-%d") if hasattr(session['mtime'], 'strftime') else str(session['mtime'])
+        print(f"{session['size']:<8} {session['lines']:<6} {mtime_str:<12} {session['name']}")
 
 
 def cmd_mark(session_id, status):
