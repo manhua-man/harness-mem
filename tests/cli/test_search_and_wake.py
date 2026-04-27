@@ -81,6 +81,78 @@ def test_use_sets_active_project_and_search_uses_it(data_dir: Path, capsys: pyte
     assert "search-default-project" in captured
 
 
+def test_search_surfaces_observation_id_for_show(data_dir: Path, capsys: pytest.CaptureFixture[str]):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observation = Observation(
+            id="obs-search-001",
+            session_id="search-session-001",
+            client="codex",
+            raw_content="JWT expiry handling is documented in the auth flow.",
+            content_type="transcript",
+            metadata={"project_name": "demo"},
+            tags=["search"],
+        )
+        run(backend.verbatim_store.save(observation))
+    finally:
+        run(backend.close())
+
+    assert run(cli.cmd_search("demo", "JWT", "fts")) == 0
+    captured = capsys.readouterr().out
+    assert "[obs-search-001]" in captured
+    assert "session: search-session-001" in captured
+
+
+def test_timeline_surfaces_observation_id_for_show(data_dir: Path, capsys: pytest.CaptureFixture[str]):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observation = Observation(
+            id="obs-timeline-001",
+            session_id="timeline-session-001",
+            client="codex",
+            raw_content="JWT expiry handling is documented in the auth flow.",
+            content_type="transcript",
+            metadata={"project_name": "demo"},
+            tags=["timeline"],
+        )
+        run(backend.verbatim_store.save(observation))
+    finally:
+        run(backend.close())
+
+    assert run(cli.cmd_timeline("demo", 5)) == 0
+    captured = capsys.readouterr().out
+    assert "[obs-timeline-001]" in captured
+    assert "session: timeline-session-001" in captured
+
+
+def test_show_accepts_session_id_when_it_resolves_uniquely(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observation = Observation(
+            id="obs-show-001",
+            session_id="show-session-001",
+            client="codex",
+            raw_content="JWT expiry handling is documented in the auth flow.",
+            content_type="transcript",
+            metadata={"project_name": "demo"},
+            tags=["show"],
+        )
+        run(backend.verbatim_store.save(observation))
+    finally:
+        run(backend.close())
+
+    assert run(cli.cmd_show("demo", "show-session-001")) == 0
+    captured = capsys.readouterr().out
+    assert "# Observation: obs-show-001" in captured
+    assert "Session: show-session-001" in captured
+
+
 def test_natural_language_search_matches_relevant_observation(data_dir: Path):
     backend = LocalMemoryBackend(data_dir)
     run(backend.init())
