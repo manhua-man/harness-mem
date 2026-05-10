@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -172,6 +173,46 @@ def test_doctor_shows_recent_sessions_and_recommends_wake(
     assert "sess-recent-001" in captured
     assert "📍 Phase:" in captured
     assert "harness-mem wake" in captured
+
+
+def test_doctor_reports_memory_quality_counts(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    old_time = datetime.now(timezone.utc) - timedelta(days=120)
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="decision",
+                    content="Old memory that has not been reused.",
+                    source="manual",
+                    created_at=old_time,
+                    updated_at=old_time,
+                )
+            )
+        )
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="architecture",
+                    content="Recently reused memory.",
+                    source="manual",
+                    usage_count=2,
+                    last_accessed_at=datetime.now(timezone.utc),
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    assert run(cli.cmd_doctor("demo")) == 0
+    captured = capsys.readouterr().out
+    assert "Memory quality: 1 stale, 1 never accessed" in captured
 
 
 def test_doctor_warns_that_codex_sessions_are_global_before_recommending_ingest(

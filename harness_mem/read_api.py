@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
+from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
+from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -17,7 +19,8 @@ async def search_memory(
     mode: str = "auto",
     memory_entry_limit: int = 20,
     observation_limit: int = 20,
-) -> tuple[list[object], list[Observation]]:
+    temporal_bias: bool = False,
+) -> tuple[list[MemoryEntry], list[Observation]]:
     """Return structured and verbatim search results with shared filtering."""
     if scope == "all":
         entries = await backend.structured_store.search_memory_entries(
@@ -25,11 +28,13 @@ async def search_memory(
             project_name=None,
             limit=memory_entry_limit,
             mode=mode,
+            temporal_bias=temporal_bias,
         )
         observations = await backend.verbatim_store.search(
             query,
             limit=observation_limit,
             mode=mode,
+            temporal_bias=temporal_bias,
         )
         return entries, observations
 
@@ -38,14 +43,39 @@ async def search_memory(
         project_name,
         limit=memory_entry_limit,
         mode=mode,
+        temporal_bias=temporal_bias,
     )
     observations = await backend.verbatim_store.search(
         query,
         project_name=project_name,
         limit=observation_limit,
         mode=mode,
+        temporal_bias=temporal_bias,
     )
     return entries, observations
+
+
+async def search_relation_facts(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str | None,
+    query: str,
+    scope: str = "project",
+    limit: int = 10,
+) -> list[RelationFact]:
+    """Return relation facts matching the query with shared project scoping."""
+    if scope == "all":
+        return await backend.structured_store.search_relation_facts(
+            query,
+            project_name=None,
+            limit=limit,
+        )
+
+    return await backend.structured_store.search_relation_facts(
+        query,
+        project_name=project_name,
+        limit=limit,
+    )
 
 
 async def timeline_observations(
@@ -143,6 +173,23 @@ def serialize_observation_search_result(observation: Observation, requested_mode
         "preview": observation.raw_content[:200].replace("\n", " "),
         "search_mode": getattr(observation, "_search_mode", requested_mode),
         "score": _raw_search_score(observation),
+    }
+
+
+def serialize_relation_fact_search_result(fact: RelationFact) -> dict[str, Any]:
+    """Serialize a relation fact search result for MCP responses."""
+    return {
+        "id": fact.id,
+        "source_entity": fact.source_entity,
+        "target_entity": fact.target_entity,
+        "relation_type": fact.relation_type,
+        "confidence": fact.confidence,
+        "evidence": fact.evidence,
+        "source": fact.source,
+        "tags": fact.tags,
+        "provenance": fact.provenance,
+        "search_mode": "fts",
+        "score": _raw_search_score(fact),
     }
 
 

@@ -135,7 +135,7 @@ def test_handoff_update_reuses_existing_record(data_dir: Path):
         cli_commands.cmd_handoff(
             "demo",
             "task-001",
-            "Fix auth bug",
+            "Fix auth bug follow-up",
             status="blocked",
             next_steps=["Collect fresh token samples"],
             blockers=["Need production token sample"],
@@ -149,8 +149,67 @@ def test_handoff_update_reuses_existing_record(data_dir: Path):
         assert len(handoffs) == 1
         handoff = handoffs[0]
         assert handoff.task_id == "task-001"
+        assert handoff.summary == "Fix auth bug follow-up"
         assert handoff.status == "blocked"
         assert handoff.next_steps == ["Collect fresh token samples"]
         assert handoff.blockers == ["Need production token sample"]
+    finally:
+        run(backend.close())
+
+
+def test_correct_requires_session_in_project(data_dir: Path, capsys: pytest.CaptureFixture[str]):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observation = Observation(
+            session_id="session-other-project",
+            client="claude-code",
+            raw_content="User corrected the agent to validate JWT expiry before authenticated calls.",
+            content_type="transcript",
+            metadata={"project_name": "other"},
+            tags=["session", "correction"],
+        )
+        run(backend.verbatim_store.save(observation))
+    finally:
+        run(backend.close())
+
+    assert run(
+        cli_commands.cmd_correct(
+            "session-other-project",
+            "demo",
+            "Always validate JWT expiry before API calls",
+            "Before any authenticated API call",
+        )
+    ) == 1
+
+    output = capsys.readouterr().out
+    assert "No observations found for session: session-other-project in project: demo" in output
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        candidates = run(backend.structured_store.list_rule_candidates("demo"))
+        assert candidates == []
+    finally:
+        run(backend.close())
+
+
+def test_handoff_rejects_invalid_status(data_dir: Path, capsys: pytest.CaptureFixture[str]):
+    assert run(
+        cli_commands.cmd_handoff(
+            "demo",
+            "task-001",
+            "Fix auth bug",
+            status="paused",
+        )
+    ) == 1
+
+    assert "Invalid handoff status: paused" in capsys.readouterr().out
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        handoffs = run(backend.structured_store.get_latest_handoffs("demo", limit=10))
+        assert handoffs == []
     finally:
         run(backend.close())

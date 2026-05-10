@@ -1,12 +1,14 @@
 """StructuredStore interface — structured memory read/write abstraction."""
 
 from __future__ import annotations
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.task_handoff import TaskHandoff
 from harness_mem.core.schemas.rule_candidate import RuleCandidate
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
+from harness_mem.core.schemas.relation_fact import RelationFact
 
 
 @runtime_checkable
@@ -42,12 +44,17 @@ class StructuredStore(Protocol):
         project_name: str | None = None,
         limit: int = 20,
         mode: str = "auto",
+        temporal_bias: bool = False,
     ) -> list[MemoryEntry]:
         """Full-text search memory entries."""
         ...
 
     async def soft_delete_memory_entry(self, id: str) -> bool:
         """Soft-delete a memory entry by setting compacted=True. Returns True if updated."""
+        ...
+
+    async def touch_memory_entry(self, id: str, accessed_at: datetime | None = None) -> bool:
+        """Record that a memory entry was surfaced to a user or MCP client."""
         ...
 
     # ---- TaskHandoff ----
@@ -112,4 +119,34 @@ class StructuredStore(Protocol):
         project_name: str,
     ) -> list[ConfirmedRule]:
         """List all confirmed rules for a project."""
+        ...
+
+    # ---- RelationFact ----
+
+    async def save_relation_fact(self, fact: RelationFact) -> str:
+        """Save a relation fact. Returns the fact id."""
+        ...
+
+    async def get_relation_fact(self, id: str) -> RelationFact | None:
+        """Get a single relation fact by id."""
+        ...
+
+    async def list_relation_facts(
+        self,
+        project_name: str,
+        source_entity: str | None = None,
+        target_entity: str | None = None,
+        relation_type: str | None = None,
+        limit: int = 100,
+    ) -> list[RelationFact]:
+        """List relation facts for a project with optional entity/type filters."""
+        ...
+
+    async def search_relation_facts(
+        self,
+        query: str,
+        project_name: str | None = None,
+        limit: int = 20,
+    ) -> list[RelationFact]:
+        """Search relation facts by indexed evidence text."""
         ...

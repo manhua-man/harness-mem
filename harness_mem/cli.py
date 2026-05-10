@@ -5,37 +5,43 @@ import argparse
 import asyncio
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
-from typing import Sequence
 
 from harness_mem import __version__
 from harness_mem.adapters import AdapterRegistry
-from harness_mem.adapters.codex.adapter import CodexAdapter
+from harness_mem.adapters.protocol import SessionRecord
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
-from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.commands import (
+    cmd_distill,
     cmd_doctor,
     cmd_ingest,
+    cmd_profile,
+    cmd_purge,
     cmd_quickstart,
     cmd_search,
     cmd_show,
     cmd_status,
     cmd_timeline,
+    cmd_use,
     cmd_wake_up,
 )
-from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
+from harness_mem.adapters.codex.adapter import CodexAdapter  # noqa: F401
 from harness_mem.adapters.claude_code.project_profile_detector import build_project_profile
 from harness_mem.event_log import EventType, get_event_logger
 from harness_mem.cli_commands import (
+    HANDOFF_STATUSES,
+    clean_cli_list,
+    clean_cli_text,
     cmd_correct,
     cmd_confirm_rule,
     cmd_reject_rule,
     cmd_list_candidates,
     cmd_confirmed_rules,
     cmd_handoff,
+    normalize_handoff_status,
 )
 
 
@@ -234,12 +240,12 @@ def _codex_session_count() -> int:
     return len(_recent_codex_sessions(limit=None))
 
 
-def _recent_claude_sessions(project_name: str, limit: int | None = 3) -> list[dict]:
+def _recent_claude_sessions(project_name: str, limit: int | None = 3) -> list[SessionRecord]:
     adapter = AdapterRegistry.build("claude-code", None)
     return adapter.list_sessions(project_name, min_size_kb=0, limit=limit)
 
 
-def _recent_codex_sessions(limit: int | None = 3) -> list[dict]:
+def _recent_codex_sessions(limit: int | None = 3) -> list[SessionRecord]:
     adapter = AdapterRegistry.build("codex", None)
     sessions = adapter.list_sessions(min_size_kb=0)
     if limit is None:
@@ -247,7 +253,7 @@ def _recent_codex_sessions(limit: int | None = 3) -> list[dict]:
     return sessions[:limit]
 
 
-def _session_identifier(session: dict) -> str:
+def _session_identifier(session: SessionRecord) -> str:
     session_id = session.get("session_id")
     if session_id:
         return str(session_id)
@@ -257,7 +263,7 @@ def _session_identifier(session: dict) -> str:
     return "unknown-session"
 
 
-def _format_session_summary(session: dict) -> str:
+def _format_session_summary(session: SessionRecord) -> str:
     session_id = _session_identifier(session)
     modified = session.get("mtime")
     if isinstance(modified, datetime):
@@ -270,7 +276,7 @@ def _format_session_summary(session: dict) -> str:
     return f"- {session_id} ({modified_text})"
 
 
-def _print_recent_sessions(title: str, sessions: list[dict]) -> None:
+def _print_recent_sessions(title: str, sessions: list[SessionRecord]) -> None:
     if not sessions:
         return
     print(title)
@@ -282,59 +288,9 @@ def _codex_scope_note() -> str:
     return "Codex sessions are global across projects, not project-scoped, and need manual review before ingest."
 
 
-def _profile_text(profile: object | None) -> str:
-    if not profile:
-        return ""
-    description = getattr(profile, "description", "") or ""
-    stacks = getattr(profile, "stacks", []) or []
-    key_files = getattr(profile, "key_files", []) or []
-    conventions = getattr(profile, "conventions", []) or []
-    return description + " " + " ".join(stacks) + " " + " ".join(key_files) + " " + " ".join(conventions)
-
-
-def _chars_to_tokens(chars: int) -> int:
-    return round(chars / 4)
-
-
-def _as_utc(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-
 def _suggested_purge_command(project_name: str | None) -> str:
     project_flag = f" -p {project_name}" if project_name else ""
     return f"harness-mem purge{project_flag} --before <DATE> --category all --dry-run"
-
-
-def _disclosure_level(tokens: int) -> str:
-    if tokens < 500:
-        return "L0"
-    if tokens < 2000:
-        return "L1"
-    if tokens < 8000:
-        return "L2"
-    if tokens < 32000:
-        return "L3"
-    return "L4+"
-
-
-def _wake_budget(profile: object | None, entries: list, rules: list, handoffs: list) -> tuple[int, str]:
-    profile_tokens = _chars_to_tokens(len(_profile_text(profile)))
-    entry_tokens = _chars_to_tokens(sum(len(e.content) for e in entries))
-    rule_tokens = _chars_to_tokens(sum(len(r.pattern) + len(r.trigger) for r in rules))
-    handoff_tokens = _chars_to_tokens(
-        sum(len(h.summary) + sum(len(n) for n in h.next_steps) for h in handoffs)
-    )
-    total_tokens = profile_tokens + entry_tokens + rule_tokens + handoff_tokens
-    return total_tokens, _disclosure_level(total_tokens)
-
-
-def _memory_entry_source_label(entry) -> str:
-    for tag in getattr(entry, "tags", []) or []:
-        if tag.startswith("pattern-source:"):
-            return tag.split(":", 1)[1]
-    return getattr(entry, "category", "unknown")
 
 
 def _suggested_next_step(
@@ -342,8 +298,8 @@ def _suggested_next_step(
     project_name: str,
     observation_count: int,
     memory_entry_count: int,
-    claude_sessions: list[dict],
-    codex_sessions: list[dict],
+    claude_sessions: list[SessionRecord],
+    codex_sessions: list[SessionRecord],
 ) -> tuple[str, str]:
     if observation_count == 0:
         if claude_sessions:
@@ -483,6 +439,11 @@ def main():
         default="auto",
         help="Search mode (default: auto)",
     )
+    search.add_argument(
+        "--temporal-bias",
+        action="store_true",
+        help="Tie-break hybrid results by recency without changing the default ranking",
+    )
 
     # timeline
     timeline = sub.add_parser("timeline", aliases=["tl"], help="Show observation timeline")
@@ -519,13 +480,16 @@ def main():
     distill_cmd.add_argument("-c", "--category", dest="category", choices=["architecture", "convention", "api", "bug", "decision"], help="Filter entries by category")
 
     # correct
-    correct_cmd = sub.add_parser("correct", help="Create a rule candidate from a correction (interactive)")
+    correct_cmd = sub.add_parser(
+        "correct",
+        help="Create a rule candidate from a correction (interactive; omitted fields prompt in a terminal)",
+    )
     correct_cmd.set_defaults(command_name="correct")
-    correct_cmd.add_argument("session_id_arg", nargs="?", help="Session ID")
-    correct_cmd.add_argument("-s", "--session-id", dest="session_id", help="Session ID")
+    correct_cmd.add_argument("session_id_arg", nargs="?", help="Session ID (prompted if omitted in terminal)")
+    correct_cmd.add_argument("-s", "--session-id", dest="session_id", help="Session ID (prompted if omitted in terminal)")
     correct_cmd.add_argument("-p", "--project", help="Project name (defaults to active project)")
-    correct_cmd.add_argument("-r", "--pattern", help="Rule pattern")
-    correct_cmd.add_argument("-t", "--trigger", help="Trigger scenario")
+    correct_cmd.add_argument("-r", "--pattern", help="Rule pattern (prompted if omitted in terminal)")
+    correct_cmd.add_argument("-t", "--trigger", help="Trigger scenario (prompted if omitted in terminal)")
 
     # confirm-rule
     confirm_cmd = sub.add_parser("confirm-rule", aliases=["confirm"], help="Confirm a rule candidate")
@@ -559,14 +523,17 @@ def main():
     confirmed_cmd.add_argument("-p", "--project", help="Project name (defaults to active project)")
 
     # handoff
-    handoff_cmd = sub.add_parser("handoff", help="Create or update a task handoff (interactive)")
+    handoff_cmd = sub.add_parser(
+        "handoff",
+        help="Create or update a task handoff (interactive; omitted fields prompt in a terminal)",
+    )
     handoff_cmd.set_defaults(command_name="handoff")
     handoff_cmd.add_argument("-p", "--project", help="Project name (defaults to active project)")
-    handoff_cmd.add_argument("-t", "--task-id", dest="task_id", help="Task ID")
-    handoff_cmd.add_argument("-s", "--summary", help="Task summary")
-    handoff_cmd.add_argument("--status", default="in_progress", help="Task status")
-    handoff_cmd.add_argument("-n", "--next-step", dest="next_steps", action="append", default=[], help="Next step (can repeat)")
-    handoff_cmd.add_argument("-b", "--blocker", dest="blockers", action="append", default=[], help="Blocker (can repeat)")
+    handoff_cmd.add_argument("-t", "--task-id", dest="task_id", help="Task ID (prompted if omitted in terminal)")
+    handoff_cmd.add_argument("-s", "--summary", help="Task summary (prompted if omitted in terminal)")
+    handoff_cmd.add_argument("--status", default="in_progress", help="Task status: in_progress, pending, blocked, done")
+    handoff_cmd.add_argument("-n", "--next-step", dest="next_steps", action="append", default=[], help="Next step (can repeat; blank values ignored)")
+    handoff_cmd.add_argument("-b", "--blocker", dest="blockers", action="append", default=[], help="Blocker (can repeat; blank values ignored)")
 
     # api
     api_cmd = sub.add_parser("api", help="Start the REST API server")
@@ -611,7 +578,7 @@ def main():
             print("  harness-mem search \"your search terms\"")
             print("  harness-mem search --project <project> \"terms\"")
             return 1
-        return asyncio.run(cmd_search(args.project, query, args.mode))
+        return asyncio.run(cmd_search(args.project, query, args.mode, args.temporal_bias))
 
     if command == "timeline":
         limit = args.limit if args.limit is not None else (args.limit_arg or 50)
@@ -636,14 +603,20 @@ def main():
         return asyncio.run(cmd_distill(args.project, session_id, category=getattr(args, 'category', None)))
 
     if command == "correct":
-        session_id = args.session_id or args.session_id_arg
+        if (
+            args.session_id
+            and args.session_id_arg
+            and clean_cli_text(args.session_id) != clean_cli_text(args.session_id_arg)
+        ):
+            parser.error("correct received conflicting session ids from positional argument and --session-id.")
+        session_id = clean_cli_text(args.session_id or args.session_id_arg)
         if not session_id and _can_prompt():
             print("Interactive correct mode")
             session_id = _prompt_text("Session ID")
-        pattern = args.pattern
+        pattern = clean_cli_text(args.pattern)
         if not pattern and _can_prompt():
             pattern = _prompt_text("Rule pattern")
-        trigger = args.trigger
+        trigger = clean_cli_text(args.trigger)
         if not trigger and _can_prompt():
             trigger = _prompt_text("Trigger")
         if not session_id:
@@ -711,24 +684,29 @@ def main():
         return asyncio.run(cmd_confirmed_rules(project_name))
 
     if command == "handoff":
-        task_id = args.task_id
-        summary = args.summary
-        status = args.status
-        next_steps = list(args.next_steps)
-        blockers = list(args.blockers)
+        task_id = clean_cli_text(args.task_id)
+        summary = clean_cli_text(args.summary)
+        status = normalize_handoff_status(args.status)
+        next_steps = clean_cli_list(args.next_steps)
+        blockers = clean_cli_list(args.blockers)
         if _can_prompt() and (not task_id or not summary):
             print("Interactive handoff mode")
             task_id = task_id or _prompt_text("Task ID")
             summary = summary or _prompt_text("Summary")
-            status = _prompt_text("Status", default=status) or status
+            status = normalize_handoff_status(_prompt_text("Status", default=status) or status)
             if not next_steps:
                 next_steps = _prompt_list("Next steps")
             if not blockers:
                 blockers = _prompt_list("Blockers (optional)")
+        next_steps = clean_cli_list(next_steps)
+        blockers = clean_cli_list(blockers)
         if not task_id:
             parser.error("handoff requires a task id. Use `-t/--task-id` or run in an interactive terminal.")
         if not summary:
             parser.error("handoff requires a summary. Use `-s/--summary` or run in an interactive terminal.")
+        if status not in HANDOFF_STATUSES:
+            allowed = ", ".join(HANDOFF_STATUSES)
+            parser.error(f"handoff status must be one of: {allowed}.")
         project_name = _resolve_project_name(args.project, action_label="handoff")
         if not project_name:
             return 1
@@ -747,155 +725,6 @@ def main():
         print(f"Starting API server on {args.host}:{args.port}")
         uvicorn.run(app, host=args.host, port=args.port)
         return 0
-
-    return 0
-
-
-def cmd_use(project_name: str | None = None) -> int:
-    """Set or show the active project."""
-    if not project_name:
-        current = _get_active_project()
-        if current:
-            print(f"Active project: {current}")
-            return 0
-        print("No active project set. Run: harness-mem use <project-name>")
-        return 1
-
-    _set_active_project(project_name)
-    print(f"Active project set to: {project_name}")
-    return 0
-
-
-async def cmd_distill(project_name: str | None, session_id: str | None = None, category: str | None = None) -> int:
-    """Extract structured MemoryEntries from sessions using heuristic patterns."""
-    project_name = _resolve_project_name(project_name, action_label="distill")
-    if not project_name:
-        return 1
-    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
-    await backend.init()
-    try:
-        adapter = ClaudeCodeAdapter(backend)
-
-        if session_id:
-            entries = await adapter.distill_session(session_id, project_name, category=category)
-            if entries:
-                print(f"Extracted {len(entries)} from {session_id}:")
-                for e in entries:
-                    source_label = _memory_entry_source_label(e)
-                    print(f"  [{e.category}] {e.content[:100]}  (source: {source_label})")
-                _log_command_invoked(
-                    "distill",
-                    project_name=project_name,
-                    session_id=session_id,
-                    extra={"category": category, "memory_entries": len(entries)},
-                )
-                _log_cli_event(
-                    EventType.MEMORY_DISTILLED,
-                    project_name=project_name,
-                    command="distill",
-                    session_id=session_id,
-                    extra={"category": category, "memory_entries": len(entries)},
-                )
-                return 0
-            else:
-                if category:
-                    print(f"No {category} entries found in session {session_id}")
-                else:
-                    print(f"No patterns found in session {session_id}")
-                return 1
-        else:
-            sessions = adapter.list_project_sessions(project_name, min_size_kb=0, limit=100)
-            if not sessions:
-                print(f"No sessions found for project: {project_name}")
-                return 1
-
-            cat_suffix = f" ({category})" if category else ""
-            print(f"Distilling {len(sessions)} sessions for {project_name}{cat_suffix}...")
-            total = 0
-            for sess in sessions:
-                entries = await adapter.distill_session(sess["session_id"], project_name, category=category)
-                for e in entries:
-                    source_label = _memory_entry_source_label(e)
-                    print(f"  [{e.category}] {e.content[:100]}  (source: {source_label})")
-                    total += 1
-            if total == 0 and category:
-                print(f"No {category} entries found across {len(sessions)} sessions")
-                return 1
-            print(f"Extracted {total} memory entries from {len(sessions)} sessions")
-            _log_command_invoked(
-                "distill",
-                project_name=project_name,
-                extra={"category": category, "memory_entries": total, "sessions": len(sessions)},
-            )
-            _log_cli_event(
-                EventType.MEMORY_DISTILLED,
-                project_name=project_name,
-                command="distill",
-                extra={"category": category, "memory_entries": total, "sessions": len(sessions)},
-            )
-            return 0
-    finally:
-        await backend.close()
-
-
-async def cmd_profile(project_name: str | None) -> int:
-    """Show project profile."""
-    project_name = _resolve_project_name(project_name, action_label="profile")
-    if not project_name:
-        return 1
-    profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
-    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
-    await backend.init()
-
-    profile = await profile_store.get(project_name)
-    if not profile:
-        await backend.close()
-        print(f"No profile found for: {project_name}")
-        return 1
-
-    # Collect memory stats — must match actual wake-up load (cmd_wake_up)
-    # wake-up loads: profile + latest 3 handoffs + all rules + latest 5 memory entries
-    # actual wake-up limit for entries is 5
-    entries = await backend.structured_store.list_memory_entries(project_name, limit=5)
-    rules = await backend.structured_store.list_confirmed_rules(project_name)
-    # actual wake-up limit for handoffs is 3
-    handoffs = await backend.structured_store.get_latest_handoffs(project_name, limit=3)
-    await backend.close()
-
-    entry_chars = sum(len(e.content) for e in entries)
-    rule_chars = sum(len(r.pattern) + len(r.trigger) for r in rules)
-    handoff_chars = sum(
-        len(h.summary) + sum(len(n) for n in h.next_steps)
-        for h in handoffs
-    )
-
-    profile_tokens = _chars_to_tokens(len(_profile_text(profile)))
-    entry_tokens = _chars_to_tokens(entry_chars)
-    rule_tokens = _chars_to_tokens(rule_chars)
-    handoff_tokens = _chars_to_tokens(handoff_chars)
-    total_tokens = profile_tokens + entry_tokens + rule_tokens + handoff_tokens
-    level = _disclosure_level(total_tokens)
-
-    print(f"Project: {profile.project_name}")
-    print(f"Description: {profile.description}")
-    print(f"Stacks: {', '.join(profile.stacks) if profile.stacks else '(none detected)'}")
-    print(f"Key files ({len(profile.key_files)}):")
-    for f in profile.key_files[:10]:
-        print(f"  - {f}")
-    if len(profile.key_files) > 10:
-        print(f"  ... and {len(profile.key_files) - 10} more")
-    print(f"Conventions ({len(profile.conventions)}):")
-    for convention in profile.conventions[:10]:
-        print(f"  - {convention}")
-    if len(profile.conventions) > 10:
-        print(f"  ... and {len(profile.conventions) - 10} more")
-    print()
-    print("Memory budget estimate (actual wake-up load):")
-    print(f"  Profile: ≈ {profile_tokens:,} tokens")
-    print(f"  Memory entries: {len(entries)} (≈ {entry_tokens:,} tokens, limited to 5 latest)")
-    print(f"  Confirmed rules: {len(rules)} (≈ {rule_tokens:,} tokens)")
-    print(f"  Task handoffs: {len(handoffs)} (≈ {handoff_tokens:,} tokens, limited to 3 latest)")
-    print(f"  Total wake-up: ≈ {total_tokens:,} tokens [{level}]")
 
     return 0
 
@@ -979,110 +808,6 @@ async def cmd_profile_edit(project_name: str | None) -> int:
     await profile_store.save(updated)
     print(f"\nProfile saved for: {project_name}")
     return 0
-
-
-async def cmd_purge(
-    before_date: str,
-    category: str,
-    dry_run: bool,
-    project_name: str | None = None,
-) -> int:
-    """Soft-delete observations/structured memory before a given date."""
-    try:
-        cutoff = datetime.strptime(before_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    except ValueError:
-        print(f"Invalid date format: {before_date}. Use YYYY-MM-DD.")
-        return 1
-
-    resolved_project = _resolve_project_name(
-        project_name,
-        required=category == "structured" or category == "all",
-        action_label="purge",
-    )
-    if category in ("structured", "all") and not resolved_project:
-        return 1
-
-    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
-    await backend.init()
-    try:
-        total_deleted = 0
-        observations_deleted = 0
-        structured_deleted = 0
-
-        if category in ("observations", "all"):
-            all_obs = await backend.verbatim_store.list(limit=100000)
-            to_delete = [
-                o
-                for o in all_obs
-                if o.timestamp
-                and _as_utc(o.timestamp) < cutoff
-                and (resolved_project is None or o.metadata.get("project_name") == resolved_project)
-            ]
-            if to_delete:
-                if dry_run:
-                    target_scope = f" for project '{resolved_project}'" if resolved_project else ""
-                    print(f"[DRY RUN] Would soft-delete {len(to_delete)} observations before {before_date}{target_scope}")
-                    for o in to_delete[:10]:
-                        ts = o.timestamp.strftime("%Y-%m-%d") if o.timestamp else "?"
-                        preview = o.raw_content[:80].replace("\n", " ")
-                        print(f"  - {o.id} [{ts}] {preview}...")
-                    if len(to_delete) > 10:
-                        print(f"  ... and {len(to_delete) - 10} more")
-                else:
-                    for o in to_delete:
-                        await backend.verbatim_store.soft_delete(o.id)
-                    total_deleted += len(to_delete)
-                    observations_deleted = len(to_delete)
-                    print(f"Soft-deleted {len(to_delete)} observations.")
-
-        if category in ("structured", "all"):
-            assert resolved_project is not None
-            entries = await backend.structured_store.list_memory_entries(resolved_project, limit=100000)
-            entries_to_delete = [e for e in entries if e.created_at and _as_utc(e.created_at) < cutoff]
-            if entries_to_delete:
-                if dry_run:
-                    print(
-                        f"[DRY RUN] Would soft-delete {len(entries_to_delete)} structured memories before {before_date} "
-                        f"for project '{resolved_project}'"
-                    )
-                    for e in entries_to_delete[:10]:
-                        preview = e.content[:80].replace("\n", " ")
-                        print(f"  - {e.id} [{e.category}] {preview}...")
-                    if len(entries_to_delete) > 10:
-                        print(f"  ... and {len(entries_to_delete) - 10} more")
-                else:
-                    for e in entries_to_delete:
-                        await backend.structured_store.soft_delete_memory_entry(e.id)
-                    total_deleted += len(entries_to_delete)
-                    structured_deleted = len(entries_to_delete)
-                    print(f"Soft-deleted {len(entries_to_delete)} structured memories.")
-
-        if total_deleted == 0 and not (category in ("observations", "all") or category in ("structured", "all")):
-            print("Nothing to purge. Try --category observations, --category structured, or --category all.")
-        elif total_deleted == 0:
-            print(f"No entries found before {before_date} in category '{category}'.")
-
-        if not dry_run and total_deleted > 0:
-            print("Run 'harness-mem doctor' to check new memory budget.")
-            _log_command_invoked(
-                "purge",
-                project_name=resolved_project,
-                extra={
-                    "category": category,
-                    "before_date": before_date,
-                    "observations_deleted": observations_deleted,
-                    "structured_deleted": structured_deleted,
-                },
-            )
-        elif dry_run:
-            _log_command_invoked(
-                "purge",
-                project_name=resolved_project,
-                extra={"category": category, "before_date": before_date, "dry_run": True},
-            )
-        return 0
-    finally:
-        await backend.close()
 
 
 def _prompt_list_labeled(field_label: str, item_description: str, existing: list[str] | None = None) -> list[str] | None:

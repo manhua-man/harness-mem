@@ -1,7 +1,8 @@
 """
 Analyze WHY FTS returns zero recall for each zero-recall case.
 """
-import json, re
+import json
+import re
 
 STOP_WORDS = {
     "what", "when", "where", "who", "how", "which", "did", "do", "was", "were",

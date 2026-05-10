@@ -84,6 +84,28 @@ async def cmd_wake_up(project_name: str | None) -> int:
             print("# Confirmed Rules  (source: confirmed_rules, empty)")
             print()
 
+        relation_facts = await backend.structured_store.list_relation_facts(project_name, limit=5)
+        if relation_facts:
+            relation_chars = sum(
+                len(fact.source_entity)
+                + len(fact.relation_type)
+                + len(fact.target_entity)
+                + len(fact.evidence)
+                for fact in relation_facts
+            )
+            print(
+                f"# Relation Facts  (source: relation_facts, "
+                f"{len(relation_facts)} facts, ~{relation_chars} chars)"
+            )
+            for fact in relation_facts:
+                evidence_preview = fact.evidence[:100] + "..." if len(fact.evidence) > 100 else fact.evidence
+                print(f"- {fact.source_entity} --{fact.relation_type}-> {fact.target_entity}: {evidence_preview}")
+                if fact.provenance:
+                    provenance = fact.provenance
+                    source = provenance.get("session_id", provenance.get("agent_type", "unknown"))
+                    print(f"  📍 {source}")
+            print()
+
         entries = await backend.structured_store.list_memory_entries(project_name, limit=5)
         if entries:
             entry_chars = sum(len(entry.content or "") for entry in entries)
@@ -95,12 +117,13 @@ async def cmd_wake_up(project_name: str | None) -> int:
                     provenance = entry.provenance
                     source = provenance.get("session_id", provenance.get("agent_type", "unknown"))
                     print(f"  📍 {source}")
+                await backend.structured_store.touch_memory_entry(entry.id)
             print()
         else:
             print("# Memory Entries  (source: structured_memory, empty)")
             print()
 
-        total_tokens, level = wake_budget(profile, entries, rules, handoffs)
+        total_tokens, level = wake_budget(profile, entries, rules, handoffs, relation_facts)
         print(f"Approx wake-up tokens: ≈ {total_tokens:,} [{level}]")
         if level in ("L3", "L4+"):
             three_months_ago = (
@@ -117,7 +140,12 @@ async def cmd_wake_up(project_name: str | None) -> int:
         log_command_invoked(
             "wake-up",
             project_name=project_name,
-            extra={"disclosure_level": level, "memory_entries": len(entries), "rules": len(rules)},
+            extra={
+                "disclosure_level": level,
+                "memory_entries": len(entries),
+                "relation_facts": len(relation_facts),
+                "rules": len(rules),
+            },
         )
     finally:
         await backend.close()

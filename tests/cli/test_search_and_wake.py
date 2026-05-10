@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from harness_mem import cli
-from harness_mem.core.schemas import Observation
+from harness_mem.core.schemas import Observation, RelationFact
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.search.hybrid_search import HybridSearchLayer
@@ -56,6 +56,35 @@ def test_profile_and_wake_surface_conventions(
     wake_output = capsys.readouterr().out
     assert "Conventions:" in wake_output
     assert "run tests first" in wake_output
+
+
+def test_wake_surfaces_relation_facts(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.structured_store.save_relation_fact(
+                RelationFact(
+                    project_name="demo",
+                    source_entity="HybridSearchLayer",
+                    target_entity="SQLiteIndex",
+                    relation_type="delegates_to",
+                    evidence="HybridSearchLayer delegates relation search reads to SQLiteIndex.",
+                    source="manual",
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    assert run(cli.cmd_wake_up("demo")) == 0
+    wake_output = capsys.readouterr().out
+    assert "# Relation Facts" in wake_output
+    assert "HybridSearchLayer --delegates_to-> SQLiteIndex" in wake_output
+    assert "Approx wake-up tokens:" in wake_output
 
 
 def test_use_sets_active_project_and_search_uses_it(data_dir: Path, capsys: pytest.CaptureFixture[str]):
@@ -293,12 +322,56 @@ def test_search_logs_command_event(
     finally:
         run(backend.close())
 
-    assert run(cli.cmd_search("demo", "SQLite", "fts")) == 0
+    assert run(cli.cmd_search("demo", "SQLite", "fts", temporal_bias=True)) == 0
     _ = capsys.readouterr()
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        entries = run(backend.structured_store.list_memory_entries("demo", limit=10))
+        assert entries[0].usage_count == 1
+        assert entries[0].last_accessed_at is not None
+    finally:
+        run(backend.close())
 
     events = read_events(data_dir)
     assert any(event["type"] == "command_invoked" and event["command"] == "search" for event in events)
+    assert any(
+        event["type"] == "command_invoked"
+        and event["command"] == "search"
+        and event["extra"]["temporal_bias"] is True
+        for event in events
+    )
     assert any(event["type"] == "next_step_adopted" and event["command"] == "search" for event in events)
+
+
+def test_cmd_search_surfaces_relation_facts(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.structured_store.save_relation_fact(
+                RelationFact(
+                    project_name="demo",
+                    source_entity="HybridSearchLayer",
+                    target_entity="SQLiteIndex",
+                    relation_type="delegates_to",
+                    evidence="HybridSearchLayer delegates relation search reads to SQLiteIndex.",
+                    source="manual",
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    assert run(cli.cmd_search("demo", "delegates relation", "fts")) == 0
+    output = capsys.readouterr().out
+    assert "## Relation Facts (1 results)" in output
+    assert "HybridSearchLayer --delegates_to-> SQLiteIndex" in output
+    assert "-> relation" in output
 
 
 @pytest.mark.integration

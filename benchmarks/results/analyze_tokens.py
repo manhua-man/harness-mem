@@ -1,4 +1,5 @@
-import json, re
+import json
+import re
 
 with open("benchmarks/results/results_harness_raw_r5.json") as f:
     r = json.load(f)

@@ -23,7 +23,7 @@ class CodexAdapter:
     flows go through the Claude Code adapter.
     """
 
-    def __init__(self, backend: MemoryBackend, sessions_dir: Path | None = None):
+    def __init__(self, backend: MemoryBackend | None, sessions_dir: Path | None = None):
         self.backend = backend
         self.sessions_dir = sessions_dir or DEFAULT_SESSIONS_DIR
 
@@ -56,7 +56,7 @@ class CodexAdapter:
             )
             return []
 
-        sessions: list[dict[str, Any]] = []
+        sessions: list[SessionRecord] = []
         for session_file in self.sessions_dir.glob("**/*.jsonl"):
             try:
                 stat_result = session_file.stat()
@@ -162,6 +162,8 @@ class CodexAdapter:
 
         ingested = 0
         errors = 0
+        if self.backend is None:
+            raise RuntimeError("CodexAdapter.ingest requires an initialized backend")
 
         for session in sessions:
             session_id = session["name"].replace(".jsonl", "")
@@ -207,7 +209,7 @@ class CodexAdapter:
         }
 
     @staticmethod
-    def _session_sort_key(session: dict[str, Any]) -> datetime:
+    def _session_sort_key(session: SessionRecord) -> datetime:
         """Sort key for session dicts. Delegates to :func:`parser.session_sort_key`."""
         return session_sort_key(session)
 

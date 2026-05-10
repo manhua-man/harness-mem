@@ -3,6 +3,7 @@
 from __future__ import annotations
 import builtins
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -24,11 +25,12 @@ class HybridSearchLayer:
     no embedding is available or on any embedding error.
     """
 
-    def __init__(self, sqlite_index: "SQLiteIndex"):
+    def __init__(self, sqlite_index: "SQLiteIndex", *, temporal_bias: bool = False):
         self._sqlite = sqlite_index
         self._embedding_model: Any | None = None
         self._embedding_loaded = False
         self._mode = "auto"
+        self._temporal_bias = temporal_bias
 
     def set_mode(self, mode: str) -> None:
         """Set search mode: fts, hybrid, or auto."""
@@ -74,6 +76,7 @@ class HybridSearchLayer:
         extra_where: str | None = None,
         extra_params: tuple = (),
         mode: str | None = None,
+        temporal_bias: bool | None = None,
     ) -> SearchResult:
         """Search using current mode (fts/hybrid/auto)."""
         requested_mode = mode or self._mode
@@ -83,8 +86,9 @@ class HybridSearchLayer:
                 requested_mode=requested_mode,
                 effective_mode="fts",
             )
+        use_temporal_bias = self._temporal_bias if temporal_bias is None else temporal_bias
         rows, effective_mode, fallback_reason = self._search_hybrid(
-            query, table, limit, extra_where, extra_params,
+            query, table, limit, extra_where, extra_params, use_temporal_bias,
         )
         return SearchResult(
             rows=rows,
@@ -114,6 +118,7 @@ class HybridSearchLayer:
         limit: int,
         extra_where: str | None,
         extra_params: tuple,
+        temporal_bias: bool,
     ) -> tuple[builtins.list[dict[str, Any]], str, str | None]:
         """Hybrid search: FTS + vector via weighted Reciprocal Rank Fusion."""
         embeddings = self._embed_texts([query])
@@ -185,7 +190,11 @@ class HybridSearchLayer:
                 score += vector_weight / (rrf_k + vec_rank[row_id])
             fused_scores[row_id] = score
 
-        ranked = sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
+        ranked = sorted(
+            fused_scores.items(),
+            key=lambda item: self._ranking_key(item, candidate_by_id, table, temporal_bias),
+            reverse=True,
+        )
         fused: builtins.list[dict[str, Any]] = []
         for row_id, fused_score in ranked[:limit]:
             row = dict(candidate_by_id[row_id])
@@ -206,13 +215,8 @@ class HybridSearchLayer:
         extra_where: str | None,
         extra_params: tuple,
     ) -> builtins.list[dict[str, Any]]:
-        order_by = {
-            "observations": "timestamp DESC",
-            "memory_entries": "updated_at DESC",
-            "task_handoffs": "last_activity DESC",
-            "rule_candidates": "created_at DESC",
-            "confirmed_rules": "confirmed_at DESC",
-        }.get(table, "rowid DESC")
+        timestamp_field = self._timestamp_field(table)
+        order_by = f"{timestamp_field} DESC" if timestamp_field else "rowid DESC"
         try:
             return self._sqlite.list(
                 table,
@@ -233,6 +237,18 @@ class HybridSearchLayer:
             except Exception:
                 return []
 
+    def _ranking_key(
+        self,
+        item: tuple[str, float],
+        candidate_by_id: dict[str, dict[str, Any]],
+        table: str,
+        temporal_bias: bool,
+    ) -> tuple[float, float]:
+        row_id, score = item
+        if not temporal_bias:
+            return score, 0.0
+        return score, self._temporal_sort_value(candidate_by_id[row_id], table)
+
     @staticmethod
     def _content_field(table: str) -> str:
         return {
@@ -242,6 +258,41 @@ class HybridSearchLayer:
             "rule_candidates": "pattern",
             "confirmed_rules": "pattern",
         }.get(table, "content")
+
+    @staticmethod
+    def _timestamp_field(table: str) -> str | None:
+        return {
+            "observations": "timestamp",
+            "memory_entries": "updated_at",
+            "task_handoffs": "last_activity",
+            "rule_candidates": "created_at",
+            "confirmed_rules": "confirmed_at",
+        }.get(table)
+
+    @classmethod
+    def _temporal_sort_value(cls, row: dict[str, Any], table: str) -> float:
+        field = cls._timestamp_field(table)
+        if field is None:
+            return 0.0
+        value = row.get(field)
+        if isinstance(value, datetime):
+            return cls._datetime_to_timestamp(value)
+        if isinstance(value, str):
+            try:
+                return cls._datetime_to_timestamp(
+                    datetime.fromisoformat(value.replace("Z", "+00:00"))
+                )
+            except ValueError:
+                return 0.0
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return float(value)
+        return 0.0
+
+    @staticmethod
+    def _datetime_to_timestamp(value: datetime) -> float:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.timestamp()
 
     @staticmethod
     def _cosine_similarity(a: builtins.list[float], b: builtins.list[float]) -> float:

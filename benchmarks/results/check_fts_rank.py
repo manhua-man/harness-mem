@@ -3,7 +3,12 @@ For zero-recall Hybrid cases: where does the correct session rank in raw FTS?
 If correct session is NOT in top-500 of FTS, candidate pool size won't help.
 If it IS in top-500, the fusion is the problem.
 """
-import json, re, os, sqlite3, tempfile, shutil
+import json
+import re
+import os
+import sqlite3
+import tempfile
+import shutil
 
 STOP_WORDS = {
     "what", "when", "where", "who", "how", "which", "did", "do", "was", "were",
@@ -38,7 +43,7 @@ for x in zero:
     query_str = " ".join(tokens) if tokens else ""
     if not query_str:
         print(f"\n[{x['question_type'][:15]}] {x['question'][:60]}")
-        print(f"  NO TOKENS")
+        print("  NO TOKENS")
         continue
 
     # Get the same tmpdir used in the benchmark for this question

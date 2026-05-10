@@ -29,7 +29,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-import Stemmer
+import Stemmer  # type: ignore[import-not-found]
 
 ps = Stemmer.Stemmer("porter")
 
@@ -385,7 +385,7 @@ class RealHybridSearch:
     def __init__(self):
         from harness_mem.search import HybridSearchLayer
         from harness_mem.storage.sqlite_index import SQLiteIndex
-        index = SQLiteIndex(":memory:")  # placeholder; path set per-question in set_path
+        index = SQLiteIndex(Path(":memory:"))  # placeholder; path set per-question in set_path
         self._layer = HybridSearchLayer(index)
         self._current_path = ":memory:"
 
@@ -395,7 +395,7 @@ class RealHybridSearch:
             return
         self._current_path = db_path
         from harness_mem.storage.sqlite_index import SQLiteIndex
-        self._layer._sqlite = SQLiteIndex(db_path)
+        self._layer._sqlite = SQLiteIndex(Path(db_path))
 
     def search(self, query: str, limit: int = 20) -> list[tuple[str, float]]:
         """Full pipeline: FTS5 + vector via HybridSearchLayer (RRF)."""
@@ -490,6 +490,7 @@ def run_benchmark(
                 raw_results = store.search(question, limit=top_k)
                 retrieved_ids = [sid for sid, _ in raw_results]
             elif use_real_hybrid:
+                assert _real_hybrid is not None
                 _real_hybrid.set_path(db_path)
                 hybrid_results = _real_hybrid.search(question, limit=top_k)
                 retrieved_ids = [sid for sid, _ in hybrid_results]

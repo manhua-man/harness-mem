@@ -38,6 +38,8 @@ class MemoryEntry(BaseModel):
     )
     tags: list[str] = Field(default_factory=list)
     compacted: bool = Field(default=False, description="Soft-delete marker for purge")
+    usage_count: int = Field(default=0, ge=0, description="Number of times this entry was surfaced")
+    last_accessed_at: datetime | None = Field(default=None, description="Last time this entry was surfaced")
     provenance: dict | None = Field(
         default=None,
         description="来源线索: {session_id, observation_ids, agent_type, tool_name}"
@@ -57,16 +59,22 @@ class MemoryEntry(BaseModel):
             "updated_at": self.updated_at.isoformat(),
             "tags": self.tags,
             "compacted": self.compacted,
+            "usage_count": self.usage_count,
+            "last_accessed_at": self.last_accessed_at.isoformat() if self.last_accessed_at else None,
             "provenance": self.provenance,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "MemoryEntry":
-        for field in ("created_at", "updated_at"):
+        for field in ("created_at", "updated_at", "last_accessed_at"):
             if isinstance(data.get(field), str):
                 data[field] = datetime.fromisoformat(data[field])
         if "compacted" not in data:
             data["compacted"] = False
+        if "usage_count" not in data:
+            data["usage_count"] = 0
+        if "last_accessed_at" not in data:
+            data["last_accessed_at"] = None
         if "provenance" not in data:
             data["provenance"] = None
         return cls(**data)

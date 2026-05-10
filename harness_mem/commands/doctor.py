@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Sequence
 
 from harness_mem import __version__
 from harness_mem.commands.support import (
@@ -22,6 +23,8 @@ from harness_mem.commands.support import (
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
+
+STALE_MEMORY_DAYS = 90
 
 
 async def cmd_doctor(project_name: str | None = None) -> int:
@@ -66,8 +69,18 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             print(f"Confirmed rules: {state['confirmed_rules']}")
 
             entries = await backend.structured_store.list_memory_entries(resolved_project, limit=5)
+            all_entries = await backend.structured_store.list_memory_entries(
+                resolved_project,
+                limit=100000,
+            )
             handoffs = await backend.structured_store.get_latest_handoffs(resolved_project, limit=3)
             rules = await backend.structured_store.list_confirmed_rules(resolved_project)
+            stale_count, never_accessed_count = _memory_quality_counts(all_entries)
+            if all_entries:
+                print(
+                    "Memory quality: "
+                    f"{stale_count} stale, {never_accessed_count} never accessed"
+                )
             total_tokens, level = wake_budget(profile, entries, rules, handoffs)
             print(f"Estimated wake-up: ≈ {total_tokens:,} tokens [{level}]")
             if level in ("L3", "L4+"):
@@ -104,3 +117,23 @@ async def cmd_doctor(project_name: str | None = None) -> int:
     print("   Why: No active project set or data directory not initialized")
     log_next_step_shown(None, "doctor", "harness-mem quickstart")
     return 0
+
+
+def _memory_quality_counts(entries: Sequence[object]) -> tuple[int, int]:
+    now = datetime.now(timezone.utc)
+    stale_cutoff = now - timedelta(days=STALE_MEMORY_DAYS)
+    stale_count = 0
+    never_accessed_count = 0
+    for entry in entries:
+        usage_count = getattr(entry, "usage_count", 0)
+        last_accessed_at = getattr(entry, "last_accessed_at", None)
+        if usage_count == 0:
+            never_accessed_count += 1
+        reference_time = last_accessed_at or getattr(entry, "created_at", None)
+        if reference_time is None:
+            continue
+        if reference_time.tzinfo is None:
+            reference_time = reference_time.replace(tzinfo=timezone.utc)
+        if reference_time < stale_cutoff:
+            stale_count += 1
+    return stale_count, never_accessed_count

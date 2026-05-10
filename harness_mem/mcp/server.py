@@ -37,9 +37,11 @@ from typing import Any, Callable, TypedDict  # noqa: E402
 
 from harness_mem.read_api import (  # noqa: E402
     search_memory,
+    search_relation_facts,
     serialize_memory_entry_search_result,
     serialize_observation,
     serialize_observation_search_result,
+    serialize_relation_fact_search_result,
     serialize_timeline_observation,
     timeline_observations,
 )
@@ -82,6 +84,7 @@ def tool_search_memory(
     query: str,
     scope: str = "project",
     mode: str = "auto",
+    temporal_bias: bool = False,
 ) -> dict:
     """Search structured memory entries + verbatim observations."""
     backend = _get_backend()
@@ -101,10 +104,22 @@ def tool_search_memory(
             mode=mode,
             memory_entry_limit=20,
             observation_limit=20,
+            temporal_bias=temporal_bias,
         )
     )
+    relation_facts = asyncio.run(
+        search_relation_facts(
+            backend,
+            project_name=project_name,
+            query=query,
+            scope=scope,
+            limit=20,
+        )
+    )
+    for entry in entries:
+        asyncio.run(backend.structured_store.touch_memory_entry(entry.id))
 
-    combined_results = entries or obs_list
+    combined_results = entries or relation_facts or obs_list
     effective_mode = getattr(combined_results[0], "_search_mode", mode) if combined_results else mode
     fallback_reason = getattr(combined_results[0], "_search_fallback_reason", None) if combined_results else None
 
@@ -113,11 +128,16 @@ def tool_search_memory(
         "query": query,
         "scope": scope,
         "requested_mode": mode,
+        "temporal_bias": temporal_bias,
         "effective_mode": effective_mode,
         "fallback_reason": fallback_reason,
         "memory_entries": [serialize_memory_entry_search_result(entry, mode) for entry in entries],
+        "relation_facts": [
+            serialize_relation_fact_search_result(fact) for fact in relation_facts
+        ],
         "observations": [serialize_observation_search_result(observation, mode) for observation in obs_list],
         "memory_entry_count": len(entries),
+        "relation_fact_count": len(relation_facts),
         "observation_count": len(obs_list),
     }
 
@@ -360,6 +380,7 @@ TOOLS: dict[str, ToolSpec] = {
                 "query": {"type": "string", "description": "Search query"},
                 "scope": {"type": "string", "enum": ["project", "all"], "description": "Search scope: project or all (default: project)"},
                 "mode": {"type": "string", "enum": ["auto", "fts", "hybrid"], "description": "Search mode (default: auto)"},
+                "temporal_bias": {"type": "boolean", "description": "Tie-break hybrid results by recency (default: false)"},
             },
             "required": ["query"],
         },

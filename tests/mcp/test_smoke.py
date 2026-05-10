@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from harness_mem.core.schemas import RelationFact
 from harness_mem.mcp.server import handle_request, set_backend_override
 from harness_mem.search.hybrid_search import HybridSearchLayer
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -64,6 +65,34 @@ def test_search_memory(mcp_backend: LocalMemoryBackend):
     data = json.loads(result)
     assert data["memory_entry_count"] >= 1
     assert data["observation_count"] >= 1
+    entries = run(mcp_backend.structured_store.list_memory_entries("test-project", limit=10))
+    assert entries[0].usage_count == 1
+    assert entries[0].last_accessed_at is not None
+
+
+def test_search_memory_returns_relation_facts(mcp_backend: LocalMemoryBackend):
+    run(
+        mcp_backend.structured_store.save_relation_fact(
+            RelationFact(
+                project_name="test-project",
+                source_entity="HybridSearchLayer",
+                target_entity="SQLiteIndex",
+                relation_type="delegates_to",
+                evidence="HybridSearchLayer delegates relation search reads to SQLiteIndex.",
+                source="manual",
+            )
+        )
+    )
+
+    resp = rpc("tools/call", {
+        "name": "search_memory",
+        "arguments": {"project_name": "test-project", "query": "delegates relation"},
+    })
+    result = resp["result"]["content"][0]["text"]
+    data = json.loads(result)
+    assert data["relation_fact_count"] == 1
+    assert data["relation_facts"][0]["relation_type"] == "delegates_to"
+    assert data["relation_facts"][0]["search_mode"] == "fts"
 
 
 def test_timeline(mcp_backend: LocalMemoryBackend):
@@ -167,9 +196,11 @@ def test_search_memory_reports_effective_mode(
             "project_name": "test-project",
             "query": "SQLite FTS5",
             "mode": "hybrid",
+            "temporal_bias": True,
         },
     })
     result = resp["result"]["content"][0]["text"]
     data = json.loads(result)
     assert data["effective_mode"] == "hybrid"
+    assert data["temporal_bias"] is True
     assert data["memory_entries"][0]["search_mode"] == "hybrid"

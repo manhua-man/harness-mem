@@ -23,7 +23,9 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from harness_mem.adapters.protocol import SessionRecord
 from harness_mem.core.schemas.memory_entry import MemoryEntry
+from harness_mem.core.schemas.relation_fact import RelationFact
 
 # ---------------------------------------------------------------------------
 # Types
@@ -281,7 +283,7 @@ def list_session_files(
     *,
     min_size_kb: int = 100,
     pattern: str = "*.jsonl",
-) -> list[dict[str, Any]]:
+) -> list[SessionRecord]:
     """List session files in *directory*, sorted by modification time (newest first).
 
     Returns
@@ -294,7 +296,7 @@ def list_session_files(
     if not directory.is_dir():
         return []
 
-    sessions: list[dict[str, Any]] = []
+    sessions: list[SessionRecord] = []
     for session_file in sorted(directory.glob(pattern)):
         size_kb = session_file.stat().st_size / 1024
         if size_kb >= min_size_kb:
@@ -316,7 +318,7 @@ def list_session_files(
     return sorted(sessions, key=session_sort_key, reverse=True)
 
 
-def session_sort_key(session: dict[str, Any]) -> datetime:
+def session_sort_key(session: SessionRecord) -> datetime:
     """Extract the ``mtime`` key for sorting (fallback to epoch)."""
     mtime = session.get("mtime")
     if isinstance(mtime, datetime):
@@ -371,6 +373,24 @@ HEURISTIC_PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r"\bfile structure[:\s]+\b", re.I), "convention", "file structure"),
     (re.compile(r"\bnaming[:\s]+(pattern|convention|rule)\b", re.I), "convention", "naming pattern"),
     (re.compile(r"\bapi[:\s]+(endpoint|format|contract)\b", re.I), "api", "api contract"),
+]
+
+RELATION_FACT_PATTERNS: list[tuple[re.Pattern, str, str]] = [
+    (
+        re.compile(r"\b([A-Z][A-Za-z0-9_.-]{2,})\s+(depends on|relies on)\s+([A-Z][A-Za-z0-9_.-]{2,})\b"),
+        "depends_on",
+        "depends on",
+    ),
+    (
+        re.compile(r"\b([A-Z][A-Za-z0-9_.-]{2,})\s+(delegates to|calls into)\s+([A-Z][A-Za-z0-9_.-]{2,})\b"),
+        "delegates_to",
+        "delegates to",
+    ),
+    (
+        re.compile(r"\b([A-Z][A-Za-z0-9_.-]{2,})\s+(uses|backs onto)\s+([A-Z][A-Za-z0-9_.-]{2,})\b"),
+        "uses",
+        "uses",
+    ),
 ]
 
 
@@ -466,6 +486,66 @@ def extract_heuristic_entries(
                 )
 
     return entries
+
+
+def extract_relation_facts(
+    turns: list[Turn],
+    project_name: str,
+    session_id: str,
+    patterns: list[tuple[re.Pattern, str, str]] | None = None,
+    *,
+    max_text_length: int = 10000,
+) -> list[RelationFact]:
+    """Extract explicit entity-to-entity facts from assistant turn text.
+
+    This is intentionally conservative. It only matches capitalized entity
+    tokens around explicit relation verbs, which keeps ordinary prose from
+    becoming graph facts.
+    """
+    if patterns is None:
+        patterns = RELATION_FACT_PATTERNS
+
+    facts: list[RelationFact] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def _sentence_around(text: str, start: int, end: int) -> str:
+        left = max(text.rfind(".", 0, start), text.rfind("\n", 0, start))
+        right_candidates = [
+            idx for idx in (text.find(".", end), text.find("\n", end)) if idx != -1
+        ]
+        right = min(right_candidates) if right_candidates else min(len(text), end + 160)
+        sentence_start = 0 if left == -1 else left + 1
+        return " ".join(text[sentence_start:right].split())
+
+    for turn in turns:
+        assistant_texts = turn.get("assistant", [])
+        if not assistant_texts:
+            continue
+
+        all_text = " ".join(assistant_texts)[:max_text_length]
+        for pattern, relation_type, label in patterns:
+            for match in pattern.finditer(all_text):
+                source_entity = match.group(1)
+                target_entity = match.group(3)
+                key = (source_entity.lower(), relation_type, target_entity.lower())
+                if key in seen:
+                    continue
+                seen.add(key)
+                facts.append(
+                    RelationFact(
+                        id=str(uuid4()),
+                        project_name=project_name,
+                        source_entity=source_entity,
+                        target_entity=target_entity,
+                        relation_type=relation_type,
+                        confidence=0.65,
+                        evidence=_sentence_around(all_text, match.start(), match.end()),
+                        source=f"session:{session_id}",
+                        tags=["relation", "heuristic", f"pattern-source:{label}"],
+                    )
+                )
+
+    return facts
 
 
 # ---------------------------------------------------------------------------

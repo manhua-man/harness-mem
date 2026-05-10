@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from harness_mem.adapters import AdapterRegistry
+from harness_mem.adapters.protocol import SessionRecord
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     log_cli_event,
@@ -151,13 +152,13 @@ async def _ingest_claude_code(
 
 
 def _select_claude_candidate_sessions(
-    all_sessions: list[dict],
+    all_sessions: list[SessionRecord],
     *,
     limit: int,
     full_rescan: bool,
     last_session_id: str | None,
-    last_ingest_at,
-) -> list[dict]:
+    last_ingest_at: datetime | None,
+) -> list[SessionRecord]:
     if full_rescan:
         print("[Full Rescan] Processing all sessions without cursor shortcuts.")
         return all_sessions[:limit]
@@ -165,7 +166,7 @@ def _select_claude_candidate_sessions(
     if not last_session_id:
         return all_sessions[:limit]
 
-    candidate_sessions: list[dict] = []
+    candidate_sessions: list[SessionRecord] = []
     cursor_found = False
     for session in all_sessions:
         if session["session_id"] == last_session_id:

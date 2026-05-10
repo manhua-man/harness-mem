@@ -1431,7 +1431,6 @@ def cmd_auto_standalone(project_path, next_count=1, sync_claude_mem=False, force
 
     ensure_dirs()
     total_processed = 0
-    total_knowledge = 0
     results = []
 
     for i in range(next_count):
@@ -1481,7 +1480,7 @@ def cmd_auto_standalone(project_path, next_count=1, sync_claude_mem=False, force
         # 4. AI will handle knowledge extraction
         # Script just prepares the packet, AI reads and extracts
         print(f"  Packet ready: {packet_path}")
-        print(f"  AI should read packet and extract knowledge")
+        print("  AI should read packet and extract knowledge")
 
         # 5. Mark as ready for AI processing
         # AI will call mark distilled after processing
@@ -1493,7 +1492,7 @@ def cmd_auto_standalone(project_path, next_count=1, sync_claude_mem=False, force
         })
 
         total_processed += 1
-        print(f"  Status: ready for AI processing")
+        print("  Status: ready for AI processing")
         print("")
 
     # Summary

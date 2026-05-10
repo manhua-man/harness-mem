@@ -203,6 +203,32 @@ def test_fts_sync_on_delete(idx: SQLiteIndex):
     assert not any(result["id"] == obs_id for result in results_after)
 
 
+def test_fts_sync_on_update(idx: SQLiteIndex):
+    now = datetime.now(timezone.utc)
+    obs_id = "obs-fts-update"
+    idx.insert("observations", {
+        "id": obs_id,
+        "session_id": "sess-001",
+        "client": "test",
+        "content_type": "transcript",
+        "raw_content": "Before update oldkeyword",
+        "timestamp": now.isoformat(),
+        "tags": "[]",
+        "metadata": "{}",
+    })
+
+    assert any(result["id"] == obs_id for result in idx.search("observations", "oldkeyword"))
+
+    idx.update("observations", obs_id, {"raw_content": "After update newkeyword"})
+
+    assert not any(result["id"] == obs_id for result in idx.search("observations", "oldkeyword"))
+    assert any(result["id"] == obs_id for result in idx.search("observations", "newkeyword"))
+
+
+def test_blank_search_returns_empty(idx_with_data: SQLiteIndex):
+    assert idx_with_data.search("memory_entries", "   ") == []
+
+
 def test_init_db_migrates_compacted_columns(tmp_path: Path):
     db_path = tmp_path / "legacy.db"
     conn = sqlite3.connect(db_path)

@@ -1,4 +1,5 @@
 """Diagnose Hybrid partial recall cases: rank 6-10 vs 91-100 gap."""
+from collections import Counter
 import json
 
 with open("benchmarks/results/results_real_hybrid_rrf_r5.json") as f:
@@ -8,7 +9,6 @@ with open("benchmarks/results/results_real_hybrid_rrf_r5.json") as f:
 partial = [x for x in r["results"] if 0 < x["recall"] < 1]
 print(f"Partial recall cases: {len(partial)}")
 
-from collections import Counter
 by_type = Counter(x["question_type"] for x in partial)
 for t, c in by_type.most_common():
     print(f"  {t}: {c}")

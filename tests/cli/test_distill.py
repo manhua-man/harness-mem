@@ -142,6 +142,42 @@ def test_distill_dedupes_on_rerun(data_dir: Path, claude_sessions_root: Path):
         run(backend.close())
 
 
+def test_distill_extracts_relation_facts(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    claude_sessions_root: Path,
+):
+    write_claude_session(
+        claude_sessions_root,
+        "demo",
+        "sess-relation",
+        "Please summarize dependencies.",
+        ["HybridSearchLayer delegates to SQLiteIndex for local relation search reads."],
+    )
+
+    patch_cli_adapters(monkeypatch, claude_sessions_root=claude_sessions_root)
+
+    assert run(cli.cmd_distill("demo", "sess-relation")) == 0
+    captured = capsys.readouterr().out
+    assert "Extracted 1 relation facts from sess-relation" in captured
+    assert "HybridSearchLayer --delegates_to-> SQLiteIndex" in captured
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        entries = run(backend.structured_store.list_memory_entries("demo", limit=10))
+        facts = run(backend.structured_store.list_relation_facts("demo", limit=10))
+        assert entries == []
+        assert len(facts) == 1
+        assert facts[0].relation_type == "delegates_to"
+
+        adapter = ClaudeCodeAdapter(backend, sessions_dir=claude_sessions_root)
+        assert run(adapter.distill_relation_facts("sess-relation", "demo")) == []
+    finally:
+        run(backend.close())
+
+
 def test_project_distill_category_no_match_returns_failure(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

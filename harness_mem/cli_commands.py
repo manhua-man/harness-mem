@@ -14,34 +14,90 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
 DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
+HANDOFF_STATUSES = ("in_progress", "pending", "blocked", "done")
+
+
+def clean_cli_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def clean_cli_list(values: list[str] | None) -> list[str]:
+    return [
+        cleaned
+        for value in values or []
+        if (cleaned := clean_cli_text(value)) is not None
+    ]
+
+
+def normalize_handoff_status(value: str | None) -> str:
+    cleaned = clean_cli_text(value)
+    if cleaned is None:
+        return "in_progress"
+    return cleaned.lower().replace("-", "_")
+
+
+def _required_text(label: str, value: str | None) -> str | None:
+    cleaned = clean_cli_text(value)
+    if cleaned is None:
+        print(f"{label} is required.")
+    return cleaned
+
+
+def _observations_for_project(all_observations, session_id: str, project_name: str):
+    matching_session = [
+        observation for observation in all_observations
+        if observation.session_id == session_id
+    ]
+    matching_project = [
+        observation for observation in matching_session
+        if observation.metadata.get("project_name") == project_name
+    ]
+    if matching_project:
+        return matching_project
+    if matching_session and all(
+        "project_name" not in observation.metadata for observation in matching_session
+    ):
+        return matching_session
+    return []
 
 async def cmd_correct(session_id: str, project_name: str, pattern: str, trigger: str, examples: list[str] | None = None) -> int:
     """Create a RuleCandidate from a correction.
 
     Usage: harness-mem correct --session-id <id> --project <name> --pattern "..." --trigger "..."
     """
+    clean_session_id = _required_text("Session ID", session_id)
+    clean_project_name = _required_text("Project name", project_name)
+    clean_pattern = _required_text("Rule pattern", pattern)
+    clean_trigger = _required_text("Trigger", trigger)
+    if not clean_session_id or not clean_project_name or not clean_pattern or not clean_trigger:
+        return 1
+
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
 
     try:
         # Find observations from this session
         all_obs = await backend.verbatim_store.list(limit=1000)
-        session_obs = [o for o in all_obs if o.session_id == session_id]
+        session_obs = _observations_for_project(all_obs, clean_session_id, clean_project_name)
 
         if not session_obs:
-            print(f"No observations found for session: {session_id}")
+            print(f"No observations found for session: {clean_session_id} in project: {clean_project_name}")
+            print("Run `harness-mem ingest claude-code` first, or pass the project that owns this session.")
             return 1
 
-        print(f"Found {len(session_obs)} observations for session {session_id}")
+        print(f"Found {len(session_obs)} observations for session {clean_session_id}")
 
         # Build candidate
         candidate = RuleCandidate(
             id=str(uuid4()),
-            project_name=project_name,
-            session_id=session_id,
-            pattern=pattern,
-            trigger=trigger,
-            examples=examples or [],
+            project_name=clean_project_name,
+            session_id=clean_session_id,
+            pattern=clean_pattern,
+            trigger=clean_trigger,
+            examples=clean_cli_list(examples),
             confidence=0.6,
             status="pending",
         )
@@ -50,7 +106,7 @@ async def cmd_correct(session_id: str, project_name: str, pattern: str, trigger:
         print(f"Created rule candidate: {saved_id}")
         print(f"  Pattern: {candidate.pattern}")
         print(f"  Trigger: {candidate.trigger}")
-        print(f"  Session: {session_id}")
+        print(f"  Session: {clean_session_id}")
         print()
         print("To confirm: harness-mem confirm-rule --rule-id " + saved_id)
         return 0
@@ -196,37 +252,53 @@ async def cmd_handoff(project_name: str, task_id: str, summary: str, status: str
 
     Usage: harness-mem handoff --project <name> --task-id <id> --summary "..."
     """
+    clean_project_name = _required_text("Project name", project_name)
+    clean_task_id = _required_text("Task ID", task_id)
+    clean_summary = _required_text("Summary", summary)
+    clean_status = normalize_handoff_status(status)
+    clean_next_steps = clean_cli_list(next_steps)
+    clean_blockers = clean_cli_list(blockers)
+    if not clean_project_name or not clean_task_id or not clean_summary:
+        return 1
+    if clean_status not in HANDOFF_STATUSES:
+        allowed = ", ".join(HANDOFF_STATUSES)
+        print(f"Invalid handoff status: {status}. Expected one of: {allowed}")
+        return 1
+
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
 
     try:
         # Check if task already exists
         existing = None
-        handoffs = await backend.structured_store.get_latest_handoffs(project_name, limit=100)
+        handoffs = await backend.structured_store.get_latest_handoffs(clean_project_name, limit=100)
         for h in handoffs:
-            if h.task_id == task_id:
+            if h.task_id == clean_task_id:
                 existing = h
                 break
 
         if existing:
             # Update
-            existing.status = status
-            if next_steps:
-                existing.next_steps = next_steps
-            if blockers:
-                existing.blockers = blockers
-            existing.updated_at = datetime.now(timezone.utc)
+            now = datetime.now(timezone.utc)
+            existing.summary = clean_summary
+            existing.status = clean_status
+            if clean_next_steps:
+                existing.next_steps = clean_next_steps
+            if clean_blockers:
+                existing.blockers = clean_blockers
+            existing.last_activity = now
+            existing.updated_at = now
             await backend.structured_store.save_task_handoff(existing)
             print(f"Updated handoff: {existing.id}")
         else:
             handoff = TaskHandoff(
                 id=str(uuid4()),
-                project_name=project_name,
-                task_id=task_id,
-                summary=summary,
-                status=status,
-                next_steps=next_steps or [],
-                blockers=blockers or [],
+                project_name=clean_project_name,
+                task_id=clean_task_id,
+                summary=clean_summary,
+                status=clean_status,
+                next_steps=clean_next_steps,
+                blockers=clean_blockers,
             )
             await backend.structured_store.save_task_handoff(handoff)
             print(f"Created handoff: {handoff.id}")

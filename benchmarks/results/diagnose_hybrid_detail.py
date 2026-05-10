@@ -1,5 +1,6 @@
 """Diagnose Hybrid: for partial cases, how far is the missed session?"""
-import json, re
+import json
+import re
 
 STOP_WORDS = {
     "what", "when", "where", "who", "how", "which", "did", "do", "was", "were",

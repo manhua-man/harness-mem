@@ -8,6 +8,7 @@ from harness_mem import cli
 from harness_mem.adapters import AdapterRegistry
 from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
 from harness_mem.adapters.codex.adapter import CodexAdapter
+from harness_mem.commands import distill
 from harness_mem.core.schemas import MemoryEntry, Observation
 
 
@@ -69,7 +70,7 @@ def patch_cli_adapters(
             lambda backend: ClaudeCodeAdapter(backend, sessions_dir=claude_sessions_root),
         )
         monkeypatch.setattr(
-            cli,
+            distill,
             "ClaudeCodeAdapter",
             lambda backend: ClaudeCodeAdapter(backend, sessions_dir=claude_sessions_root),
         )

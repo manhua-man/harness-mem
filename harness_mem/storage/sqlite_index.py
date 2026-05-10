@@ -35,7 +35,9 @@ _TABLE_SCHEMAS = {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         tags TEXT NOT NULL DEFAULT '[]',
-        compacted INTEGER NOT NULL DEFAULT 0
+        compacted INTEGER NOT NULL DEFAULT 0,
+        usage_count INTEGER NOT NULL DEFAULT 0,
+        last_accessed_at TEXT
     """,
     "task_handoffs": """
         id TEXT PRIMARY KEY,
@@ -72,6 +74,19 @@ _TABLE_SCHEMAS = {
         source_session_id TEXT NOT NULL DEFAULT '',
         tags TEXT NOT NULL DEFAULT '[]'
     """,
+    "relation_facts": """
+        id TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        source_entity TEXT NOT NULL,
+        target_entity TEXT NOT NULL,
+        relation_type TEXT NOT NULL,
+        confidence REAL NOT NULL DEFAULT 0.7,
+        evidence TEXT NOT NULL,
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        tags TEXT NOT NULL DEFAULT '[]'
+    """,
 }
 
 _COLUMN_MIGRATIONS = {
@@ -80,6 +95,8 @@ _COLUMN_MIGRATIONS = {
     },
     "memory_entries": {
         "compacted": "INTEGER NOT NULL DEFAULT 0",
+        "usage_count": "INTEGER NOT NULL DEFAULT 0",
+        "last_accessed_at": "TEXT",
     },
     "confirmed_rules": {
         "source_session_id": "TEXT NOT NULL DEFAULT ''",
@@ -126,6 +143,7 @@ class SQLiteIndex:
             fts_col = "raw_content" if table_name == "observations" else (
                 "content" if table_name == "memory_entries" else
                 "pattern" if table_name in ("rule_candidates", "confirmed_rules") else
+                "evidence" if table_name == "relation_facts" else
                 "summary"
             )
             fts_table = f"{table_name}_fts"
@@ -322,6 +340,7 @@ class SQLiteIndex:
             "task_handoffs": ["next_steps", "blockers", "context"],
             "rule_candidates": ["examples"],
             "confirmed_rules": ["examples", "tags"],
+            "relation_facts": ["tags"],
         }
         fields = json_fields.get(table, [])
         for col in fields:

@@ -8,13 +8,14 @@ from typing import Any
 from uuid import uuid4
 
 from harness_mem.adapters.parser import (
+    extract_relation_facts,
     extract_heuristic_entries,
     list_session_files,
     parse_claude_jsonl_session,
     session_sort_key,
 )
 from harness_mem.adapters.protocol import Issue, SessionRecord
-from harness_mem.core.schemas import Observation, MemoryEntry
+from harness_mem.core.schemas import MemoryEntry, Observation, RelationFact
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 
 
@@ -29,7 +30,7 @@ class ClaudeCodeAdapter:
     and converts them to Observations + MemoryEntries.
     """
 
-    def __init__(self, backend: MemoryBackend, sessions_dir: Path | None = None):
+    def __init__(self, backend: MemoryBackend | None, sessions_dir: Path | None = None):
         self.backend = backend
         self.sessions_dir = sessions_dir or DEFAULT_SESSIONS_DIR
 
@@ -134,6 +135,8 @@ class ClaudeCodeAdapter:
 
         ingested = 0
         errors = 0
+        if self.backend is None:
+            raise RuntimeError("ClaudeCodeAdapter.ingest requires an initialized backend")
 
         for session in sessions:
             try:
@@ -211,6 +214,9 @@ class ClaudeCodeAdapter:
         if not entries:
             return []
 
+        if self.backend is None:
+            raise RuntimeError("ClaudeCodeAdapter.distill_session requires an initialized backend")
+
         existing_entries = await self.backend.structured_store.list_memory_entries(
             project_name,
             limit=10000,
@@ -230,6 +236,58 @@ class ClaudeCodeAdapter:
             saved_entries.append(entry)
 
         return saved_entries
+
+    async def distill_relation_facts(
+        self,
+        session_id: str,
+        project_name: str,
+    ) -> list[RelationFact]:
+        """Extract and save explicit RelationFact records from a session."""
+        project_dir = self.sessions_dir / project_name
+        if not project_dir.exists():
+            return []
+
+        session_file = None
+        for sf in project_dir.glob("*.jsonl"):
+            if session_id in sf.name:
+                session_file = sf
+                break
+
+        if not session_file:
+            return []
+
+        turns = self.parse_jsonl_session(session_file)
+        facts = extract_relation_facts(turns, project_name, session_id)
+        if not facts:
+            return []
+
+        if self.backend is None:
+            raise RuntimeError("ClaudeCodeAdapter.distill_relation_facts requires an initialized backend")
+
+        existing_facts = await self.backend.structured_store.list_relation_facts(
+            project_name,
+            limit=10000,
+        )
+        existing_keys = {
+            self._relation_fact_key(fact.source_entity, fact.relation_type, fact.target_entity, fact.source)
+            for fact in existing_facts
+        }
+
+        saved_facts: list[RelationFact] = []
+        for fact in facts:
+            fact_key = self._relation_fact_key(
+                fact.source_entity,
+                fact.relation_type,
+                fact.target_entity,
+                fact.source,
+            )
+            if fact_key in existing_keys:
+                continue
+            await self.backend.structured_store.save_relation_fact(fact)
+            existing_keys.add(fact_key)
+            saved_facts.append(fact)
+
+        return saved_facts
 
     def _extract_entries(
         self,
@@ -251,6 +309,20 @@ class ClaudeCodeAdapter:
         return (category, normalized, source)
 
     @staticmethod
-    def _session_sort_key(session: dict[str, Any]) -> datetime:
+    def _relation_fact_key(
+        source_entity: str,
+        relation_type: str,
+        target_entity: str,
+        source: str,
+    ) -> tuple[str, str, str, str]:
+        return (
+            source_entity.strip().lower(),
+            relation_type.strip().lower(),
+            target_entity.strip().lower(),
+            source,
+        )
+
+    @staticmethod
+    def _session_sort_key(session: SessionRecord) -> datetime:
         """Sort key for session dicts. Delegates to :func:`parser.session_sort_key`."""
         return session_sort_key(session)

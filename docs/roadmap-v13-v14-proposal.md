@@ -2,7 +2,7 @@
 
 > 基于 八 方评审综合形成（CEO/战略、Eng/工程、Design/UX、DevEx、CLI 专家、Office Hours、Health 仪表盘、Linus 代码审查）。
 > 评审日期：2026-04-25 | 基线版本：v1.2.0
-> 状态更新：2026-05-10（基于当前仓库实现、OpenSpec 归档状态与测试结果回填）
+> 状态更新：2026-05-11（基于当前仓库实现、OpenSpec 归档状态与测试结果回填）
 
 ---
 
@@ -37,7 +37,7 @@
 
 ---
 
-## 当前状态快照（2026-05-10）
+## 当前状态快照（2026-05-11）
 
 ### v1.3
 
@@ -45,8 +45,8 @@
 |------|----------|------|
 | Purge 命令 | 已完成 | CLI、OpenSpec 主规格和主流程文档都已纳入，`purge --before / --dry-run / --category` 已落地 |
 | 向量 hybrid 检索 | 已完成 | hybrid 已实现并成为主线能力，LongMemEval 当前最佳 `R@5 = 94.18%`，已达到路线图中的 `94%+` 目标 |
-| CLI 体验微调 | 大部分完成 | score、阶段提示、purge 建议、`show` 命名统一等已落地；仍保留大体量 `cli.py` 带来的维护成本 |
-| DevEx 基建与代码卫生 | 大部分完成 | OpenSpec active changes 已清空并归档，`python -m pytest -q` 当前为 `148 passed`；剩余是质量评分、真实使用验证与 hybrid 性能缓存 |
+| CLI 体验微调 | 大部分完成 | score、阶段提示、purge 建议、`show` 命名统一、`correct`/`handoff` 输入校验已落地；`cmd_purge`、`cmd_distill`、`cmd_use` 与只读 `cmd_profile` 已迁入 `commands/`，但 `cli.py` 仍有过多 dispatch、兼容入口和交互式逻辑 |
+| DevEx 基建与代码卫生 | 大部分完成 | OpenSpec active changes 已清空并归档，`ruff`、`mypy harness_mem`、`python -m pytest -q` 当前通过；最新测试读数为 `168 passed`；剩余是真实使用验证与 hybrid 性能缓存 |
 
 ### v1.4
 
@@ -54,8 +54,10 @@
 |------|----------|------|
 | Provenance 追溯 | 已完成 | `MemoryEntry`、`TaskHandoff`、`ConfirmedRule` 已有 provenance 字段，CLI/MCP 已开始展示来源线索 |
 | Learning Loop MCP 升级 | 已完成 | `reject_rule` 与 `suggest_rule` 已存在，Learning Loop 的 MCP 闭环基本补齐 |
-| `cli.py` 拆分 + Adapter Protocol 统一 | 部分完成 | `commands/`、`AdapterRegistry` 与 `SessionAdapter` 已落地；`cli.py` 仍有约 959 行，仍需继续瘦身和补契约测试 |
-| 记忆质量评分 | 未完成 | 尚未看到 `last-accessed` / `usage count` 等质量评分字段与相应 CLI 展示 |
+| `cli.py` 拆分 + Adapter Protocol 统一 | 部分完成 | `commands/`、`AdapterRegistry` 与 `SessionAdapter` 已落地；`cmd_purge`、`cmd_distill`、`cmd_use` 与只读 `cmd_profile` 已迁出，`cli.py` 已降到约 839 行，仍需继续瘦身和补契约测试 |
+| Relation Facts | V1 闭环已落地 | `RelationFact` schema、structured store 接口、SQLite/本地 JSON 存储、CLI/MCP search、distill 写入与 wake 注入已存在；剩余是 benchmark 证明和更高质量抽取 |
+| Temporal Bias | 显式 search 开关已落地 | CLI `search --temporal-bias`、MCP `search_memory.temporal_bias` 与 REST `/search?temporal_bias=true` 可启用同分时间排序；默认仍关闭，等待 benchmark 证明后再考虑默认启用 |
+| 记忆质量评分 | 最小闭环已落地 | `MemoryEntry` 已记录 `usage_count` / `last_accessed_at`，search/wake/MCP 返回 entry 时会更新访问计数，`doctor` 会展示 stale / never-accessed 摘要；自动清理策略仍未完成 |
 
 ### 阶段判断
 
@@ -120,7 +122,7 @@
 
 ### P1: CLI 体验微调（渐进披露收口）
 
-**当前状态（2026-04-27）：大部分完成。**
+**当前状态（2026-05-11）：大部分完成。**
 
 | 来源 | 优先级 |
 |------|--------|
@@ -134,7 +136,7 @@
 |------|------|------|
 | `timeline --help` 不显示默认 50 | 把 `default=50` 加到 argparse 参数中 | `cli.py` |
 | `search` 无 query 时抛 argparse error | 捕获 `SystemExit` 后输出友好提示 + 列出最近 observation 标题 | `cli.py` |
-| `correct`/`handoff` 的 `--help` 不提示交互式 | help 文本标注"（交互式：参数可省略，终端中逐个提示）" | `cli.py` |
+| `correct`/`handoff` 的 `--help` 不提示交互式 | help 文本标注交互式行为，空白参数不再当作有效值，`handoff --status` 限定到声明状态 | `cli.py`, `cli_commands.py` |
 
 **P1-P2（CLI 专家 + Design 评审）：**
 
@@ -153,26 +155,31 @@
 
 ### P2: DevEx 基建 + 代码卫生
 
-**当前状态（2026-04-27）：部分完成。**
+**当前状态（2026-05-11）：大部分完成。**
 
 | 来源 | 优先级 |
 |------|--------|
-| DevEx: P0-P2 | Health: 22 lint/26 type errors | Linus: 多处静默异常 |
+| DevEx: P0-P2 | Health: lint/type debt + storage test gap | Linus: 多处静默异常 |
 
-**Health 仪表盘当前基线（详见 `review-health-v13-v14.md`）：**
-- 43/43 测试通过，3.73s 跑完
-- 22 个 lint 错误（20 个可用 `ruff --fix` 自动修）
-- 26 个 type 错误（主流模式：`list?[T]` 返回类型未做 None guard）
-- 覆盖率 77%（最低：`cli_commands.py` 52%、`mcp/server.py` 66%）
-- 0 个 TODO/FIXME（干净）
+**Health review 原始发现（详见 `review-health-v13-v14.md`）：**
+- 旧报告记录过 22 个 lint 错误、26 个 type 错误，以及 `local_structured_store.py` / `sqlite_index.py` 缺少直接单元测试。
+- 该报告是 review 证据，不再代表当前 checkout 的 live 状态。
+
+**当前 live baseline：**
+- `python -m ruff check .` 通过
+- `python -m mypy harness_mem` 通过
+- `python -m pytest -q` 通过，最新读数 `168 passed`
+- `openspec validate --all --strict` 通过，9 specs passed
 
 **改动清单：**
-- 跑 `ruff --fix` 清理 20 个自动可修复 lint 错误
-- 修复 `list?[T]` → `Optional[list[T]]`（修复 12/26 个 mypy 错误）
-- 清理 6 个冗余 `Optional` import（Pydantic v2 不再需要）
+- 跑 `ruff --fix` 并手动收尾剩余 lint
+- 修复当前 `mypy harness_mem` 的 adapter/read-api/benchmark 类型错误
+- 保留仍被 schema 字段使用的 `Optional` import，不按旧清单误删
+- 加固 `correct`/`handoff` 输入校验与项目作用域
+- 补齐 `local_structured_store.py` 直接单元测试，扩展 `sqlite_index.py` FTS update / blank query 测试
 - Adapter 静默吞异常改为 logging（Linus: "去你的"——`except Exception: pass`）
 - `list_project_sessions` 用 `read_text()` 加载整个文件计数行 → 改为 `readline()` 流式（50MB 文件会爆内存）
-- Storage layer 单元测试（`sqlite_index.py` 独立测试）
+- Storage layer 单元测试（`local_structured_store.py` + `sqlite_index.py`）
 - Adapter 文件不存在时 warning 而非静默空返回
 - MCP server smoke test 提升覆盖率
 - SQLite 错误包装为用户友好消息（全局异常钩子）
@@ -221,13 +228,13 @@
 
 ### P1: cli.py 拆分 + Adapter Protocol 统一
 
-**当前状态（2026-05-10）：部分完成。**
+**当前状态（2026-05-11）：部分完成。**
 
 | 来源 | 优先级 |
 |------|--------|
 | DevEx: P1 | Eng: 隐含 | Design: 提到交互式模式提取 |
 
-**当前问题：** `commands/`、`AdapterRegistry` 与 `SessionAdapter` 已落地，但 `cli.py` 仍有约 959 行，仍承担过多 dispatch、兼容入口和交互式逻辑。
+**当前问题：** `commands/`、`AdapterRegistry` 与 `SessionAdapter` 已落地，`cmd_purge`、`cmd_distill`、`cmd_use` 与只读 `cmd_profile` 已迁入 `commands/` 并保留兼容入口，但 `cli.py` 仍约 839 行，仍承担过多 dispatch、兼容入口和交互式逻辑。
 
 **剩余实现：**
 - 继续把 `cli.py` 中保留的命令实现、兼容 wrapper 和交互式逻辑迁入 `commands/` 或专用 support 模块
@@ -236,17 +243,64 @@
 
 ---
 
+### P2: Relation Facts
+
+**当前状态（2026-05-11）：V1 闭环已完成，质量证明未完成。**
+
+| 来源 | 优先级 |
+|------|--------|
+| Eng: P2 | CEO/Design: 未直接要求 |
+
+**已完成：**
+- 新增 `RelationFact` schema，表达 subject / predicate / object / evidence / confidence / tags。
+- `StructuredStore`、SQLite index 与本地 JSON store 已支持 save/get/list/search。
+- `harness-mem search` 会展示匹配的 RelationFact 结果。
+- MCP `search_memory` 返回 `relation_facts` 与 `relation_fact_count`。
+- `distill` 会从明确的实体关系句中保守抽取 RelationFact。
+- `wake` 会以独立 section 注入最近 5 条 RelationFact，并计入 wake budget。
+- 新增直接存储、CLI search、MCP search、distill 与 wake 测试，覆盖基本闭环。
+
+**剩余实现：**
+- 用 recall / wake-up usefulness benchmark 证明它比普通 structured memory 有增益。
+- 后续如果要提高召回，必须引入更强抽取器或人工确认，不应扩大当前正则启发式。
+
+---
+
+### P2: Temporal Bias
+
+**当前状态（2026-05-11）：显式 search 开关已完成，默认策略未完成。**
+
+| 来源 | 优先级 |
+|------|--------|
+| Eng: P2 | Health: 质量门槛相关 |
+
+**已完成：**
+- `HybridSearchLayer` 支持构造级和 per-call temporal bias，在同分结果中用 observation timestamp、memory updated_at、handoff last_activity、rule created/confirmed 时间做排序。
+- CLI `search --temporal-bias`、MCP `search_memory.temporal_bias` 与 REST `/search?temporal_bias=true` 已接入。
+- 默认关闭，避免无 benchmark 证明时把新近内容误当作更相关内容。
+
+**剩余实现：**
+- 用 benchmark 证明 temporal bias 对 temporal-reasoning 和 daily wake-up 有稳定收益。
+- 决定何时允许默认启用。
+
+---
+
 ### P2: 记忆质量评分
 
-**当前状态（2026-04-27）：未完成。**
+**当前状态（2026-05-11）：最小闭环已完成，自动清理策略未完成。**
 
 | 来源 | 优先级 |
 |------|--------|
 | CEO: P2 | 其余: 未提及 |
 
-- structured entries 增加 last-accessed + usage count
-- `doctor` 展示低质量 / 陈旧 entries 数量
-- 自动清理建议
+**已完成：**
+- `MemoryEntry` 增加 `usage_count` 与 `last_accessed_at` 字段。
+- CLI search、wake-up 和 MCP `search_memory` 在真正返回 memory entry 时记录访问。
+- `doctor` 展示 stale / never-accessed 摘要，形成质量基线。
+
+**剩余实现：**
+- 定义低质量 entry 的产品标准，避免只按时间误删仍有价值的旧决策。
+- 把自动清理建议接到 `purge --dry-run` 或后续 compaction 评分，而不是直接物理删除。
 
 ---
 

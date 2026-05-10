@@ -1,5 +1,6 @@
 """Check: for zero-recall cases in current Hybrid, how many are pool-misses vs FTS-misses?"""
-import json, re, os, sqlite3, tempfile
+import json
+import re
 
 STOP_WORDS = {
     "what", "when", "where", "who", "how", "which", "did", "do", "was", "were",

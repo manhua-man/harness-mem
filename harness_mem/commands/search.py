@@ -9,12 +9,18 @@ from harness_mem.read_api import (
     resolve_observation_identifier,
     search_header,
     search_memory,
+    search_relation_facts,
     timeline_observations,
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
-async def cmd_search(project_name: str | None, query: str, mode: str = "auto") -> int:
+async def cmd_search(
+    project_name: str | None,
+    query: str,
+    mode: str = "auto",
+    temporal_bias: bool = False,
+) -> int:
     """Search memory for a project."""
     project_name = resolve_project_name(project_name, action_label="search")
     if not project_name:
@@ -34,8 +40,16 @@ async def cmd_search(project_name: str | None, query: str, mode: str = "auto") -
             mode=mode,
             memory_entry_limit=10,
             observation_limit=10,
+            temporal_bias=temporal_bias,
         )
-        combined_results = entries or observations
+        relation_facts = await search_relation_facts(
+            backend,
+            project_name=project_name,
+            query=query,
+            scope="project",
+            limit=10,
+        )
+        combined_results = entries or relation_facts or observations
         print(search_header(combined_results, mode))
         print()
 
@@ -47,6 +61,19 @@ async def cmd_search(project_name: str | None, query: str, mode: str = "auto") -
                 print(
                     f"- [{entry.category}] {preview}  "
                     f"(score: {format_search_score(entry)}, mode: {search_mode})  -> structured"
+                )
+                await backend.structured_store.touch_memory_entry(entry.id)
+            print()
+
+        if relation_facts:
+            print(f"## Relation Facts ({len(relation_facts)} results)")
+            for fact in relation_facts:
+                evidence = fact.evidence[:150] + "..." if len(fact.evidence) > 150 else fact.evidence
+                print(
+                    f"- {fact.source_entity} --{fact.relation_type}-> {fact.target_entity}: "
+                    f"{evidence}  "
+                    f"(confidence: {fact.confidence:.2f}, score: {format_search_score(fact)}, mode: fts)  "
+                    "-> relation"
                 )
             print()
 
@@ -69,7 +96,9 @@ async def cmd_search(project_name: str | None, query: str, mode: str = "auto") -
             extra={
                 "query": query,
                 "requested_mode": mode,
+                "temporal_bias": temporal_bias,
                 "memory_entry_count": len(entries),
+                "relation_fact_count": len(relation_facts),
                 "observation_count": len(observations),
             },
         )

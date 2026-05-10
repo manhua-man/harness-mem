@@ -96,6 +96,98 @@ def test_interactive_handoff_via_main(
         run(backend.close())
 
 
+def test_handoff_cli_normalizes_status_and_strips_blank_list_items(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    assert cli.cmd_use("demo") == 0
+    monkeypatch.setattr(cli, "_can_prompt", lambda: False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "harness-mem",
+            "handoff",
+            "-t",
+            " task-42 ",
+            "-s",
+            " Fix auth bug ",
+            "--status",
+            "Blocked",
+            "-n",
+            " Check JWT validation ",
+            "-n",
+            "   ",
+            "-b",
+            " Waiting for token samples ",
+        ],
+    )
+
+    assert cli.main() == 0
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        handoffs = run(backend.structured_store.get_latest_handoffs("demo", limit=10))
+        assert len(handoffs) == 1
+        assert handoffs[0].task_id == "task-42"
+        assert handoffs[0].summary == "Fix auth bug"
+        assert handoffs[0].status == "blocked"
+        assert handoffs[0].next_steps == ["Check JWT validation"]
+        assert handoffs[0].blockers == ["Waiting for token samples"]
+    finally:
+        run(backend.close())
+
+
+def test_correct_cli_rejects_conflicting_session_ids(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(cli, "_can_prompt", lambda: False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "harness-mem",
+            "correct",
+            "session-a",
+            "--session-id",
+            "session-b",
+            "-p",
+            "demo",
+            "-r",
+            "Always validate JWT expiry before API calls",
+            "-t",
+            "Before any authenticated API call",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+
+
+def test_handoff_cli_rejects_invalid_status(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(cli, "_can_prompt", lambda: False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "harness-mem",
+            "handoff",
+            "-p",
+            "demo",
+            "-t",
+            "task-42",
+            "-s",
+            "Fix auth bug",
+            "--status",
+            "paused",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+
+
 def test_profile_edit_existing_profile_merges_without_crashing(
     data_dir: Path,
     monkeypatch: pytest.MonkeyPatch,

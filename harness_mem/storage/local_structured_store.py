@@ -3,12 +3,14 @@
 from __future__ import annotations
 import json
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.task_handoff import TaskHandoff
 from harness_mem.core.schemas.rule_candidate import RuleCandidate
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
+from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.search.hybrid_search import HybridSearchLayer
 from harness_mem.storage.sqlite_index import SQLiteIndex
 
@@ -29,6 +31,7 @@ class LocalStructuredStore:
             "task_handoffs": self.blob_dir / "task_handoffs",
             "rule_candidates": self.blob_dir / "rule_candidates",
             "confirmed_rules": self.blob_dir / "confirmed_rules",
+            "relation_facts": self.blob_dir / "relation_facts",
         }
         for subdir in self._subdirs.values():
             subdir.mkdir(parents=True, exist_ok=True)
@@ -106,6 +109,8 @@ class LocalStructuredStore:
                 "updated_at": entry.updated_at,
                 "tags": entry.tags,
                 "compacted": entry.compacted,
+                "usage_count": entry.usage_count,
+                "last_accessed_at": entry.last_accessed_at,
             },
         )
         return entry.id
@@ -153,6 +158,7 @@ class LocalStructuredStore:
         project_name: str | None = None,
         limit: int = 20,
         mode: str = "auto",
+        temporal_bias: bool = False,
     ) -> list[MemoryEntry]:
         extra_where_parts = ["COALESCE(compacted, 0) = 0"]
         extra_params: tuple = ()
@@ -167,6 +173,7 @@ class LocalStructuredStore:
             " AND ".join(extra_where_parts),
             extra_params,
             mode,
+            temporal_bias=temporal_bias,
         )
         results = []
         for row in search_result.rows:
@@ -202,6 +209,29 @@ class LocalStructuredStore:
             "memory_entries",
             id,
             {"compacted": True},
+        )
+        return True
+
+    async def touch_memory_entry(self, id: str, accessed_at: datetime | None = None) -> bool:
+        """Record that a memory entry was surfaced."""
+        blob_path = self._blob_path("memory_entries", id)
+        if not blob_path.exists():
+            return False
+
+        touched_at = accessed_at or datetime.now(timezone.utc)
+        data = json.loads(blob_path.read_text())
+        usage_count = int(data.get("usage_count") or 0) + 1
+        data["usage_count"] = usage_count
+        data["last_accessed_at"] = touched_at.isoformat()
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.update,
+            "memory_entries",
+            id,
+            {
+                "usage_count": usage_count,
+                "last_accessed_at": touched_at,
+            },
         )
         return True
 
@@ -382,6 +412,103 @@ class LocalStructuredStore:
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
                 results.append(ConfirmedRule.from_dict(data))
+        return results
+
+    # ---- RelationFact ----
+
+    async def save_relation_fact(self, fact: RelationFact) -> str:
+        blob_path = self._blob_path("relation_facts", fact.id)
+        blob_path.write_text(json.dumps(fact.to_dict(), indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.insert,
+            "relation_facts",
+            {
+                "id": fact.id,
+                "project_name": fact.project_name,
+                "source_entity": fact.source_entity,
+                "target_entity": fact.target_entity,
+                "relation_type": fact.relation_type,
+                "confidence": fact.confidence,
+                "evidence": fact.evidence,
+                "source": fact.source,
+                "created_at": fact.created_at,
+                "updated_at": fact.updated_at,
+                "tags": fact.tags,
+            },
+        )
+        return fact.id
+
+    async def get_relation_fact(self, id: str) -> RelationFact | None:
+        blob_path = self._blob_path("relation_facts", id)
+        if not blob_path.exists():
+            return None
+        data = json.loads(blob_path.read_text())
+        return RelationFact.from_dict(data)
+
+    async def list_relation_facts(
+        self,
+        project_name: str,
+        source_entity: str | None = None,
+        target_entity: str | None = None,
+        relation_type: str | None = None,
+        limit: int = 100,
+    ) -> list[RelationFact]:
+        where_parts = ["project_name = ?"]
+        params = [project_name]
+        if source_entity:
+            where_parts.append("source_entity = ?")
+            params.append(source_entity)
+        if target_entity:
+            where_parts.append("target_entity = ?")
+            params.append(target_entity)
+        if relation_type:
+            where_parts.append("relation_type = ?")
+            params.append(relation_type)
+
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "relation_facts",
+            " AND ".join(where_parts),
+            tuple(params),
+            order_by="created_at DESC",
+            limit=limit,
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("relation_facts", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(RelationFact.from_dict(data))
+        return results
+
+    async def search_relation_facts(
+        self,
+        query: str,
+        project_name: str | None = None,
+        limit: int = 20,
+    ) -> list[RelationFact]:
+        extra_where = None
+        extra_params: tuple = ()
+        if project_name:
+            extra_where = "project_name = ?"
+            extra_params = (project_name,)
+
+        rows = await asyncio.to_thread(
+            self._index.search,
+            "relation_facts",
+            query,
+            limit,
+            extra_where,
+            extra_params,
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("relation_facts", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                if "_fts_score" in row:
+                    data["_fts_score"] = row["_fts_score"]
+                results.append(RelationFact.from_dict(data))
         return results
 
     def close(self) -> None:

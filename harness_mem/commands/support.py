@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from harness_mem.adapters import AdapterRegistry
+from harness_mem.adapters.protocol import SessionRecord
 from harness_mem.adapters.claude_code.project_profile_detector import build_project_profile
 from harness_mem.event_log import EventType, get_event_logger
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -179,12 +180,12 @@ async def ensure_project_profile(project_name: str) -> tuple[object | None, Path
     return profile, root
 
 
-def recent_claude_sessions(project_name: str, limit: int | None = 3) -> list[dict]:
+def recent_claude_sessions(project_name: str, limit: int | None = 3) -> list[SessionRecord]:
     adapter = AdapterRegistry.build("claude-code", None)
     return adapter.list_sessions(project_name, min_size_kb=0, limit=limit)
 
 
-def recent_codex_sessions(limit: int | None = 3) -> list[dict]:
+def recent_codex_sessions(limit: int | None = 3) -> list[SessionRecord]:
     adapter = AdapterRegistry.build("codex", None)
     return adapter.list_sessions(min_size_kb=0, limit=limit)
 
@@ -197,7 +198,7 @@ def codex_session_count() -> int:
     return len(recent_codex_sessions(limit=None))
 
 
-def session_identifier(session: dict) -> str:
+def session_identifier(session: SessionRecord) -> str:
     session_id = session.get("session_id")
     if session_id:
         return str(session_id)
@@ -207,7 +208,7 @@ def session_identifier(session: dict) -> str:
     return "unknown-session"
 
 
-def format_session_summary(session: dict) -> str:
+def format_session_summary(session: SessionRecord) -> str:
     session_id = session_identifier(session)
     modified = session.get("mtime")
     if isinstance(modified, datetime):
@@ -220,7 +221,7 @@ def format_session_summary(session: dict) -> str:
     return f"- {session_id} ({modified_text})"
 
 
-def print_recent_sessions(title: str, sessions: list[dict]) -> None:
+def print_recent_sessions(title: str, sessions: list[SessionRecord]) -> None:
     if not sessions:
         return
     print(title)
@@ -258,14 +259,29 @@ def disclosure_level(tokens: int) -> str:
     return "L4+"
 
 
-def wake_budget(profile: object | None, entries: list, rules: list, handoffs: list) -> tuple[int, str]:
+def wake_budget(
+    profile: object | None,
+    entries: list,
+    rules: list,
+    handoffs: list,
+    relation_facts: list | None = None,
+) -> tuple[int, str]:
     profile_tokens = chars_to_tokens(len(profile_text(profile)))
     entry_tokens = chars_to_tokens(sum(len(entry.content) for entry in entries))
     rule_tokens = chars_to_tokens(sum(len(rule.pattern) + len(rule.trigger) for rule in rules))
     handoff_tokens = chars_to_tokens(
         sum(len(handoff.summary) + sum(len(step) for step in handoff.next_steps) for handoff in handoffs)
     )
-    total_tokens = profile_tokens + entry_tokens + rule_tokens + handoff_tokens
+    relation_tokens = chars_to_tokens(
+        sum(
+            len(fact.source_entity)
+            + len(fact.relation_type)
+            + len(fact.target_entity)
+            + len(fact.evidence)
+            for fact in (relation_facts or [])
+        )
+    )
+    total_tokens = profile_tokens + entry_tokens + rule_tokens + handoff_tokens + relation_tokens
     return total_tokens, disclosure_level(total_tokens)
 
 
@@ -274,8 +290,8 @@ def suggested_next_step(
     project_name: str,
     observation_count: int,
     memory_entry_count: int,
-    claude_sessions: list[dict],
-    codex_sessions: list[dict],
+    claude_sessions: list[SessionRecord],
+    codex_sessions: list[SessionRecord],
 ) -> tuple[str, str]:
     if observation_count == 0:
         if claude_sessions:
