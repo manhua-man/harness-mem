@@ -115,12 +115,7 @@ class HybridSearchLayer:
         extra_where: str | None,
         extra_params: tuple,
     ) -> tuple[builtins.list[dict[str, Any]], str, str | None]:
-        """Hybrid search: FTS + vector via score-level fusion.
-
-        Fuses normalized BM25 and cosine-similarity scores directly. RRF discards
-        magnitude information; score fusion preserves it, making rank-5 vs rank-50
-        vector similarity distinguishable.
-        """
+        """Hybrid search: FTS + vector via weighted Reciprocal Rank Fusion."""
         embeddings = self._embed_texts([query])
         if embeddings is None:
             return (
@@ -131,63 +126,122 @@ class HybridSearchLayer:
 
         query_embedding = embeddings[0]
 
-        # FTS candidate pool: 10x limit
+        # FTS candidate pool: 10x limit.
         candidate_limit = limit * 10
         fts_results = self._sqlite.search(
             table, query, limit=candidate_limit,
             extra_where=extra_where, extra_params=extra_params,
         )
-        if not fts_results:
+
+        # Semantic retrieval must not be gated only by lexical hits. Pull a
+        # bounded recent/all-row pool for vector ranking, then union it with
+        # FTS candidates so exact matches are never dropped.
+        vector_results = self._list_vector_candidates(
+            table,
+            limit=max(candidate_limit, 500),
+            extra_where=extra_where,
+            extra_params=extra_params,
+        )
+        candidate_by_id: dict[str, dict[str, Any]] = {}
+        for row in vector_results:
+            candidate_by_id[row["id"]] = row
+        for row in fts_results:
+            candidate_by_id[row["id"]] = row
+
+        candidates = list(candidate_by_id.values())
+        if not candidates:
             return [], "hybrid", None
 
-        content_field = "raw_content" if table == "observations" else "content"
-        texts: builtins.list[str] = [str(row.get(content_field, "")) for row in fts_results]
+        content_field = self._content_field(table)
+        texts: builtins.list[str] = [str(row.get(content_field, "")) for row in candidates]
 
         doc_embeddings = self._embed_texts(texts)
         if doc_embeddings is None:
             return fts_results[:limit], "fts", "embedding not available"
 
-        # Collect raw BM25 scores
-        bm_raws: list[float] = []
-        for row in fts_results:
-            raw_score = row.get("score", 0.0)
-            bm_raws.append(float(raw_score))
-
-        fts_min = min(bm_raws) if bm_raws else 0.0
-        fts_max = max(bm_raws) if bm_raws else 0.0
-        fts_range = fts_max - fts_min
-
         # Compute cosine similarity for each candidate
         sim_scores: dict[str, float] = {}
-        for row, doc_emb in zip(fts_results, doc_embeddings):
+        for row, doc_emb in zip(candidates, doc_embeddings):
             sim_scores[row["id"]] = self._cosine_similarity(query_embedding, doc_emb)
 
-        # Score-level fusion: W_FTS * norm_BM25 + W_VEC * cos_sim
-        W_FTS = 0.4
-        W_VEC = 0.6
-        fused_scores: dict[str, float] = {}
-        for row in fts_results:
-            row_id = row["id"]
-            bm_raw = float(row.get("score", 0.0))
-            # Normalize BM25: most negative (best) -> 1.0, least negative (worst) -> 0.0
-            bm_norm = 1.0 - (bm_raw - fts_min) / fts_range if fts_range != 0 else 0.5
-            vec_sim = sim_scores.get(row_id, 0.0)
-            fused_scores[row_id] = W_FTS * bm_norm + W_VEC * vec_sim
+        fts_rank: dict[str, int] = {
+            row["id"]: rank for rank, row in enumerate(fts_results)
+        }
+        vec_rank: dict[str, int] = {
+            row_id: rank
+            for rank, (row_id, _) in enumerate(
+                sorted(sim_scores.items(), key=lambda item: item[1], reverse=True)
+            )
+        }
 
-        id_to_row: dict[str, dict[str, Any]] = {row["id"]: row for row in fts_results}
+        rrf_k = 40
+        vector_weight = 5.0
+        fused_scores: dict[str, float] = {}
+        for row_id in candidate_by_id:
+            score = 0.0
+            if row_id in fts_rank:
+                score += 1.0 / (rrf_k + fts_rank[row_id])
+            if row_id in vec_rank:
+                score += vector_weight / (rrf_k + vec_rank[row_id])
+            fused_scores[row_id] = score
+
         ranked = sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
         fused: builtins.list[dict[str, Any]] = []
         for row_id, fused_score in ranked[:limit]:
-            row = dict(id_to_row[row_id])
-            bm_r = float(row.get("score", 0.0))
-            bm_n = 1.0 - (bm_r - fts_min) / fts_range if fts_range != 0 else 0.5
-            row["_fts_norm"] = bm_n
+            row = dict(candidate_by_id[row_id])
+            row["_fts_rank"] = fts_rank.get(row_id, -1)
+            row["_vec_rank"] = vec_rank.get(row_id, -1)
             row["_vec_sim"] = sim_scores.get(row_id, 0.0)
-            row["_fused_score"] = fused_score
+            row["_rrf_score"] = fused_score
+            row["_hybrid_score"] = fused_score
             row["_score"] = fused_score
             fused.append(row)
 
         return fused, "hybrid", None
+
+    def _list_vector_candidates(
+        self,
+        table: str,
+        limit: int,
+        extra_where: str | None,
+        extra_params: tuple,
+    ) -> builtins.list[dict[str, Any]]:
+        order_by = {
+            "observations": "timestamp DESC",
+            "memory_entries": "updated_at DESC",
+            "task_handoffs": "last_activity DESC",
+            "rule_candidates": "created_at DESC",
+            "confirmed_rules": "confirmed_at DESC",
+        }.get(table, "rowid DESC")
+        try:
+            return self._sqlite.list(
+                table,
+                where=extra_where,
+                where_params=extra_params,
+                order_by=order_by,
+                limit=limit,
+            )
+        except Exception:
+            try:
+                return self._sqlite.list(
+                    table,
+                    where=extra_where,
+                    where_params=extra_params,
+                    order_by="rowid DESC",
+                    limit=limit,
+                )
+            except Exception:
+                return []
+
+    @staticmethod
+    def _content_field(table: str) -> str:
+        return {
+            "observations": "raw_content",
+            "memory_entries": "content",
+            "task_handoffs": "summary",
+            "rule_candidates": "pattern",
+            "confirmed_rules": "pattern",
+        }.get(table, "content")
 
     @staticmethod
     def _cosine_similarity(a: builtins.list[float], b: builtins.list[float]) -> float:

@@ -88,6 +88,13 @@ NOT_NAMES = {
     "Year", "Day",
 }
 
+ASSISTANT_RECALL_RE = re.compile(
+    r"previous (?:chat|conversation)|our previous|"
+    r"you (?:told|suggested|provided|recommended)|"
+    r"remind me|we discussed|follow up|looking back|going back|revisit",
+    re.IGNORECASE,
+)
+
 
 def _kw(text: str) -> list[str]:
     words = re.findall(r"\b[a-z]{3,}\b", text.lower())
@@ -128,6 +135,28 @@ def _name_boost(names: list[str], doc_text: str) -> float:
     doc_lower = doc_text.lower()
     hits = sum(1 for n in names if n.lower() in doc_lower)
     return min(hits / len(names), 1.0)
+
+
+def _session_doc_for_query(session: list[dict], question: str) -> str:
+    """Build the indexed session text for a benchmark query.
+
+    Most LongMemEval personal-memory questions target user-authored facts, so
+    user turns stay as the default. Questions that explicitly ask what the
+    assistant previously said need assistant turns as retrievable evidence.
+    """
+    if ASSISTANT_RECALL_RE.search(question):
+        turns = [
+            f"{turn.get('role', '')}: {turn.get('content', '')}"
+            for turn in session
+            if turn.get("content")
+        ]
+    else:
+        turns = [
+            turn["content"]
+            for turn in session
+            if turn.get("role") == "user" and turn.get("content")
+        ]
+    return "\n".join(turns)
 
 
 # =============================================================================
@@ -435,9 +464,8 @@ def run_benchmark(
         corpus_dates = {}
 
         for sess_id, session, date in zip(haystack_session_ids, haystack_sessions, haystack_dates):
-            user_turns = [t["content"] for t in session if t.get("role") == "user"]
-            if user_turns:
-                doc = "\n".join(user_turns)
+            doc = _session_doc_for_query(session, question)
+            if doc:
                 corpus_ids.append(sess_id)
                 corpus_texts.append(doc)
                 corpus_dates[sess_id] = date

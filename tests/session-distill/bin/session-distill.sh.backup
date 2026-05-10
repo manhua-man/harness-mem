@@ -1,0 +1,341 @@
+#!/bin/bash
+# Claude Code Session Distiller - Pure bash implementation
+
+set -e
+
+DISTILL_DIR="${HOME}/.claude/session-distill"
+MANIFEST_FILE="${DISTILL_DIR}/manifest.json"
+KNOWLEDGE_FILE="${DISTILL_DIR}/knowledge-base.md"
+PACKETS_DIR="${DISTILL_DIR}/packets"
+DISTILLED_DIR="${DISTILL_DIR}/distilled/sessions"
+PROJECTS_DIR="${HOME}/.claude/projects"
+
+PROJECT=""
+NEXT=1
+FORCE=false
+
+usage() {
+    echo "Claude Code Session Distiller"
+    echo ""
+    printf 'Usage: session-distill COMMAND [options]\n'
+    echo ""
+    echo "Commands:"
+    echo "  run [--next N] [--project PROJECT] [--force]"
+    echo "  status [--project PROJECT]"
+    echo "  list [--project PROJECT] [--size MIN-SIZE]"
+    printf '  mark SESSION-ID STATUS\n'
+}
+
+ensure_dirs() {
+    mkdir -p "${DISTILL_DIR}" "${PACKETS_DIR}" "${DISTILLED_DIR}" "${PROJECTS_DIR}"
+    if [ ! -f "${KNOWLEDGE_FILE}" ]; then
+        printf '# Session Distill Knowledge Base\n' > "${KNOWLEDGE_FILE}"
+    fi
+    if [ ! -f "${MANIFEST_FILE}" ]; then
+        printf '{"version":1,"updated_at":"","sessions":[]}\n' > "${MANIFEST_FILE}"
+    fi
+}
+
+find_project_path() {
+    local project="${1:-$(basename "$(pwd)")}"
+    local candidates=("${PROJECTS_DIR}/${project}")
+    for candidate in "${candidates[@]}"; do
+        if [ -d "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+list_project_sessions() {
+    local project_path="$1"
+    local min_size="${2:-100}"
+    [ ! -d "$project_path" ] && return 1
+    find "$project_path" -maxdepth 1 -name "*.jsonl" -size +${min_size}k -type f 2>/dev/null | \
+        while read -r f; do
+            local size lines mtime basename
+            size=$(du -h "$f" 2>/dev/null | cut -f1)
+            lines=$(wc -l < "$f" 2>/dev/null || echo "?")
+            mtime=$(stat -c %y "$f" 2>/dev/null | cut -d' ' -f1 || stat -f %Sm -t %Y-%m-%d "$f" 2>/dev/null || echo "?")
+            basename=$(basename "$f")
+            printf '%s|%s|%s|%s|%s\n' "$size" "$lines" "$mtime" "$basename" "$f"
+        done | sort -t'|' -k3 -r
+}
+
+load_manifest() {
+    [ -f "${MANIFEST_FILE}" ] && cat "${MANIFEST_FILE}" || printf '{"version":1,"updated_at":"","sessions":[]}\n'
+}
+
+save_manifest() {
+    printf '%s\n' "$1" > "${MANIFEST_FILE}"
+}
+
+session_exists() {
+    local manifest="$1"
+    local session_id="$2"
+    echo "$manifest" | grep -q "\"session_id\":\"${session_id}\""
+}
+
+cmd_index() {
+    local project_path="$1"
+    echo "==> Index: Scanning sessions"
+    local manifest=$(load_manifest)
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local count=0
+    while IFS='|' read -r size lines mtime basename filepath; do
+        [ -z "$basename" ] && continue
+        local session_id="${basename%.jsonl}"
+        if ! session_exists "$manifest" "$session_id"; then
+            echo "  + $basename ($size)"
+            local new_entry="{\"session_id\":\"${session_id}\",\"file_name\":\"${basename}\",\"file_path\":\"${filepath}\",\"size\":\"${size}\",\"status\":\"new\",\"bundle_path\":null,\"distilled_path\":null,\"notes\":\"\"}"
+            manifest=$(echo "$manifest" | sed 's/"sessions":\[/"sessions":[\n    '"$new_entry"',/)
+            count=$((count + 1))
+        fi
+    done <<< "$(list_project_sessions "$project_path" 0)"
+    manifest=$(echo "$manifest" | sed "s/\"updated_at\":\"[^\"]*\"/\"updated_at\":\"${timestamp}\"/")
+    save_manifest "$manifest"
+    echo "==> Index done: $count new sessions"
+}
+
+parse_session_to_packet() {
+    local file="$1"
+    local session_id="$2"
+    local packet_path="${PACKETS_DIR}/${session_id}.md"
+    local timestamp size lines basename
+    timestamp=$(stat -c %y "$file" 2>/dev/null | sed 's/ .*/Z/' || stat -f %Sm -z "$file" 2>/dev/null || echo "unknown")
+    size=$(du -h "$file" | cut -f1)
+    lines=$(wc -l < "$file" 2>/dev/null || echo "?")
+    basename=$(basename "$file")
+    printf '# Session Packet: %s\n\n' "$session_id" > "$packet_path"
+    printf '## Metadata\n\n' >> "$packet_path"
+    printf '- Source: `%s`\n' "$basename" >> "$packet_path"
+    printf '- Size: %s\n' "$size" >> "$packet_path"
+    printf '- Lines: %s\n' "$lines" >> "$packet_path"
+    printf '- Timestamp: %s\n\n' "$timestamp" >> "$packet_path"
+    printf '## Distillation Reminder\n\n' >> "$packet_path"
+    printf '- Promote stable workflows, commands, file maps\n' >> "$packet_path"
+    printf '- Reject noise: token accounting, duplicate context\n' >> "$packet_path"
+    printf '- One-off context stays in session note\n\n' >> "$packet_path"
+    printf '---\n\n## User Messages\n\n' >> "$packet_path"
+    extract_user_messages "$file" >> "$packet_path"
+    printf '\n## AI Response Summary\n\n' >> "$packet_path"
+    extract_assistant_summaries "$file" >> "$packet_path"
+    printf '\n## Tool Calls\n\n' >> "$packet_path"
+    extract_tool_uses "$file" >> "$packet_path"
+    printf '\n## Referenced Files\n\n' >> "$packet_path"
+    extract_file_refs "$file" >> "$packet_path"
+    printf '\n---\n\n## Suggested Next Step\n\n' >> "$packet_path"
+    printf '1. Read this packet\n' >> "$packet_path"
+    printf '2. Query claude-mem for dedup\n' >> "$packet_path"
+    printf '3. Write session note -> distilled/sessions/%s.md\n' "$session_id" >> "$packet_path"
+    printf '4. Append to knowledge-base.md\n' >> "$packet_path"
+    printf '5. Decide whether to promote to project rules\n' >> "$packet_path"
+    printf '6. Run: session-distill mark %s distilled\n' "$session_id" >> "$packet_path"
+}
+
+extract_user_messages() {
+    local file="$1"
+    local count=0
+    grep '"type":"user"' "$file" 2>/dev/null | \
+        sed 's/.*"content":"\(.*\)".*/\1/' | \
+        sed 's/\\n/\n/g; s/\\"/"/g' | \
+        while read -r msg; do
+            [ -z "$msg" ] && continue
+            count=$((count + 1))
+            [ $count -le 20 ] || continue
+            printf '### [%d] %s\n\n' "$count" "${msg:0:300}"
+        done
+    [ $count -gt 20 ] && printf '... and %d more messages\n' "$((count - 20))"
+}
+
+extract_assistant_summaries() {
+    local file="$1"
+    local count=0
+    grep '"type":"assistant"' "$file" 2>/dev/null | head -10 | \
+        while read -r line; do
+            count=$((count + 1))
+            local content=$(echo "$line" | grep -o '"text":"[^"]*"' | head -1 | \
+                sed 's/"text":"//;s/"//' | sed 's/\\n/\n/g; s/\\"/"/g' | cut -c1-200)
+            [ -z "$content" ] && continue
+            printf '- %s...\n' "$content"
+        done
+}
+
+extract_tool_uses() {
+    local file="$1"
+    grep '"type":"tool_use"' "$file" 2>/dev/null | \
+        sed 's/.*"name":"\([^"]*\)".*/\1/' | \
+        sort | uniq -c | sort -rn | head -15 | \
+        while read -r count name; do
+            printf '- `%s`: %s times\n' "$name" "$count"
+        done
+}
+
+extract_file_refs() {
+    local file="$1"
+    grep -oE '[A-Za-z]:[^"]+\.(ts|tsx|js|jsx|json|md|sql|cs)' "$file" 2>/dev/null | \
+        sort | uniq | head -30 | \
+        while read -r path; do
+            printf '- `%s`\n' "$path"
+        done
+}
+
+cmd_bundle() {
+    local project_path="$1"
+    local force="$2"
+    echo "==> Bundle: Generating packets"
+    local manifest=$(load_manifest)
+    local count=0
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        local session_id=$(echo "$line" | grep -o '"session_id":"[^"]*"' | head -1 | sed 's/"session_id":"//;s/"//')
+        local file_path=$(echo "$line" | grep -o '"file_path":"[^"]*"' | head -1 | sed 's/"file_path":"//;s/"//')
+        local status=$(echo "$line" | grep -o '"status":"[^"]*"' | head -1 | sed 's/"status":"//;s/"//')
+        if [ "$status" != "new" ] && [ "$status" != "bundled" ]; then continue; fi
+        if [ ! -f "$file_path" ]; then continue; fi
+        local packet_path="${PACKETS_DIR}/${session_id}.md"
+        if [ -f "$packet_path" ] && [ "$force" != "true" ]; then
+            echo "  -> Skipped: $session_id"
+            continue
+        fi
+        echo "  -> Generating: $session_id"
+        parse_session_to_packet "$file_path" "$session_id"
+        manifest=$(echo "$manifest" | sed "s/\"session_id\":\"${session_id}\",\"status\":\"${status}\"/\"session_id\":\"${session_id}\",\"status\":\"bundled\"/")
+        count=$((count + 1))
+    done <<< "$(echo "$manifest" | grep -o '{[^}]*"session_id":"[^"]*"[^}]*}')"
+    save_manifest "$manifest"
+    echo "==> Bundle done: $count packets"
+}
+
+cmd_status() {
+    local project_path="$1"
+    echo "==> Session Distiller Status"
+    echo ""
+    if [ ! -f "${MANIFEST_FILE}" ]; then
+        echo "No sessions recorded yet"
+        return
+    fi
+    local manifest=$(load_manifest)
+    local total new bundled distilled skipped
+    total=$(echo "$manifest" | grep -o '"session_id"' | wc -l)
+    new=$(echo "$manifest" | grep -o '"status":"new"' | wc -l)
+    bundled=$(echo "$manifest" | grep -o '"status":"bundled"' | wc -l)
+    distilled=$(echo "$manifest" | grep -o '"status":"distilled"' | wc -l)
+    skipped=$(echo "$manifest" | grep -o '"status":"skipped"' | wc -l)
+    echo "Sessions: $total total | new=$new | bundled=$bundled | distilled=$distilled | skipped=$skipped"
+    echo ""
+    if [ "$bundled" -gt 0 ]; then
+        echo "Pending packets:"
+        echo "$manifest" | grep -o '{[^}]*"session_id":"[^"]*"[^}]*}' | \
+            grep '"status":"bundled"' | \
+            sed 's/.*"session_id":"\([^"]*\)".*/\1/' | \
+            while read -r sid; do
+                echo "  - $sid"
+            done
+        echo ""
+    fi
+    local kb_lines=$(wc -l < "${KNOWLEDGE_FILE}" 2>/dev/null || echo 0)
+    printf 'Knowledge base: %s (%s lines)\n' "${KNOWLEDGE_FILE}" "$kb_lines"
+}
+
+cmd_list() {
+    local project_path="$1"
+    local min_size="${2:-100}"
+    echo "==> Available Sessions"
+    echo ""
+    local sessions
+    sessions=$(list_project_sessions "$project_path" "$min_size")
+    if [ -z "$sessions" ]; then
+        echo "No sessions found larger than ${min_size}KB"
+        return
+    fi
+    printf '%-8s %-6s %-12s %s\n' "Size" "Lines" "Modified" "Filename"
+    echo "------------------------------------------------------------"
+    while IFS='|' read -r size lines mtime basename filepath; do
+        [ -z "$basename" ] && continue
+        printf '%-8s %-6s %-12s %s\n' "$size" "$lines" "$mtime" "$basename"
+    done <<< "$sessions"
+}
+
+cmd_mark() {
+    local session_id="$1"
+    local status="$2"
+    if [ -z "$session_id" ] || [ -z "$status" ]; then
+        printf 'Usage: session-distill mark SESSION-ID STATUS\n'
+        return 1
+    fi
+    echo "==> Mark: Updating status"
+    local manifest=$(load_manifest)
+    local old_manifest="$manifest"
+    manifest=$(echo "$manifest" | sed "s/\"session_id\":\"${session_id}\",\"status\":\"[^\"]*\"/\"session_id\":\"${session_id}\",\"status\":\"${status}\"/")
+    if [ "$manifest" = "$old_manifest" ]; then
+        echo "  ! Session not found: $session_id"
+        return 1
+    fi
+    save_manifest "$manifest"
+    echo "  -> $session_id -> $status"
+    echo "==> Mark done"
+}
+
+cmd_run() {
+    local project_path="$1"
+    local force="$2"
+    echo "==> Session Distiller: Preparation Phase"
+    echo ""
+    echo "This command runs: index + bundle"
+    echo "AI will handle distillation after"
+    echo ""
+    ensure_dirs
+    cmd_index "$project_path"
+    cmd_bundle "$project_path" "$force"
+    echo ""
+    echo "==> Preparation done"
+    echo ""
+    echo "Next steps:"
+    echo "  1. AI reads packets/"
+    echo "  2. AI writes session notes -> distilled/sessions/"
+    echo "  3. AI appends to knowledge-base.md"
+    echo "  4. AI decides on project rules promotion"
+    printf '  5. Run: session-distill mark SESSION-ID distilled\n'
+    echo ""
+    cmd_status "$project_path"
+}
+
+main() {
+    local command="${1:-}"
+    shift || true
+    while [[ "$1" == --* ]]; do
+        case "$1" in
+            --project) PROJECT="$2"; shift 2 ;;
+            --next) NEXT="$2"; shift 2 ;;
+            --force) FORCE="true"; shift ;;
+            *) break ;;
+        esac
+    done
+    local project_path=""
+    if [ -n "$PROJECT" ]; then
+        project_path=$(find_project_path "$PROJECT" 2>/dev/null || echo "")
+    fi
+    if [ -z "$project_path" ]; then
+        project_path=$(find_project_path "$(basename "$(pwd)")" 2>/dev/null || echo "")
+    fi
+    if [ "$command" = "mark" ]; then
+        cmd_mark "$@"
+        exit $?
+    fi
+    if [ -z "$project_path" ]; then
+        echo "Error: Cannot find project directory"
+        echo "Use --project to specify, or run from project directory"
+        exit 1
+    fi
+    case "$command" in
+        run) cmd_run "$project_path" "$FORCE" ;;
+        status) cmd_status "$project_path" ;;
+        list) cmd_list "$project_path" "${NEXT:-100}" ;;
+        help|--help|-h|"") usage ;;
+        *) echo "Unknown command: $command"; usage; exit 1 ;;
+    esac
+}
+
+main "$@"

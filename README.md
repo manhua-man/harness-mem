@@ -12,10 +12,11 @@ Local-first, pluggable AI memory runtime for Claude Code and Codex.
 - structured memory / rule / handoff 的 provenance 追溯
 - MCP learning loop 补齐 `reject_rule` / `suggest_rule`
 
-当前状态（2026-04-27）：
-- `v1.3`：大部分已落地，但 LongMemEval `R@5 >= 94%` 的阶段目标尚未达成（当前最佳 93.0%）
-- `v1.4`：provenance 与 Learning Loop MCP 已落地；`cli.py` 模块化拆分和记忆质量评分仍待完成
-- 当前收口重点：`cli.py` 模块化拆分、adapter 最小公共契约统一，以及 `93.0% -> 94.0%` 的 benchmark 收口
+当前状态（2026-05-10）：
+- `v1.3 / v1.4`：OpenSpec 变更已归档到主规格，`openspec validate --all --strict` 通过
+- 验证链：`python -m pytest -q` 当前为 `148 passed`
+- LongMemEval `R@5 >= 94%` 的阶段目标已达成：当前最佳 `R@5 = 94.18%`
+- `cli.py` 模块化拆分与 adapter 最小公共契约已部分落地；剩余收口重点是记忆质量评分、真实 dogfooding / 外部用户验证，以及 hybrid 检索的性能缓存
 - 详细阶段状态见 [docs/roadmap-v13-v14-proposal.md](./docs/roadmap-v13-v14-proposal.md)
 
 Release notes: [v1.0.1](./docs/v1.0.1-release-notes.md)

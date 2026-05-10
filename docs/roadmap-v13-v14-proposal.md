@@ -2,7 +2,7 @@
 
 > 基于 八 方评审综合形成（CEO/战略、Eng/工程、Design/UX、DevEx、CLI 专家、Office Hours、Health 仪表盘、Linus 代码审查）。
 > 评审日期：2026-04-25 | 基线版本：v1.2.0
-> 状态更新：2026-04-27（基于当前仓库实现与最新 benchmark 结论回填）
+> 状态更新：2026-05-10（基于当前仓库实现、OpenSpec 归档状态与测试结果回填）
 
 ---
 
@@ -37,16 +37,16 @@
 
 ---
 
-## 当前状态快照（2026-04-27）
+## 当前状态快照（2026-05-10）
 
 ### v1.3
 
 | 条目 | 当前状态 | 说明 |
 |------|----------|------|
-| Purge 命令 | 已完成 | CLI、OpenSpec 和主流程文档都已纳入，`purge --before / --dry-run / --category` 已落地 |
-| 向量 hybrid 检索 | 部分完成 | hybrid 已实现并成为主线能力，但 LongMemEval 当前最佳 `R@5 = 93.0%`，尚未达到路线图中的 `94%+` 目标 |
+| Purge 命令 | 已完成 | CLI、OpenSpec 主规格和主流程文档都已纳入，`purge --before / --dry-run / --category` 已落地 |
+| 向量 hybrid 检索 | 已完成 | hybrid 已实现并成为主线能力，LongMemEval 当前最佳 `R@5 = 94.18%`，已达到路线图中的 `94%+` 目标 |
 | CLI 体验微调 | 大部分完成 | score、阶段提示、purge 建议、`show` 命名统一等已落地；仍保留大体量 `cli.py` 带来的维护成本 |
-| DevEx 基建与代码卫生 | 部分完成 | MCP smoke test、若干 CLI/adapter 加固已存在，但路线图里的完整“封口”仍未全部收尾 |
+| DevEx 基建与代码卫生 | 大部分完成 | OpenSpec active changes 已清空并归档，`python -m pytest -q` 当前为 `148 passed`；剩余是质量评分、真实使用验证与 hybrid 性能缓存 |
 
 ### v1.4
 
@@ -54,13 +54,13 @@
 |------|----------|------|
 | Provenance 追溯 | 已完成 | `MemoryEntry`、`TaskHandoff`、`ConfirmedRule` 已有 provenance 字段，CLI/MCP 已开始展示来源线索 |
 | Learning Loop MCP 升级 | 已完成 | `reject_rule` 与 `suggest_rule` 已存在，Learning Loop 的 MCP 闭环基本补齐 |
-| `cli.py` 拆分 + Adapter Protocol 统一 | 未完成 | `cli.py` 仍是单个大文件，`commands/` 尚未真正承接，adapter 统一契约也未成形 |
+| `cli.py` 拆分 + Adapter Protocol 统一 | 部分完成 | `commands/`、`AdapterRegistry` 与 `SessionAdapter` 已落地；`cli.py` 仍有约 959 行，仍需继续瘦身和补契约测试 |
 | 记忆质量评分 | 未完成 | 尚未看到 `last-accessed` / `usage count` 等质量评分字段与相应 CLI 展示 |
 
 ### 阶段判断
 
-- **不是“v1.3 / v1.4 全部完成”**，而是：`v1.3` 基本落地但指标未完全达标，`v1.4` 前半段已落地、后半段仍待完成。
-- 因此这份路线图当前应被理解为：**大部分产品能力已经进仓，但 V1.x 的收口工作还没有完全结束。**
+- **不是“V1.x 已结束”**，而是：`v1.3 / v1.4` 的 OpenSpec 变更已归档，主规格、测试门与 LongMemEval 检索指标已收口，但记忆质量维护和真实使用证明仍未达标。
+- 因此这份路线图当前应被理解为：**能力面和验证链已经进入收口状态，下一步应优先证明记忆质量维护、真实使用留存和 hybrid 检索性能。**
 
 ---
 
@@ -88,7 +88,7 @@
 
 ### P1: 向量嵌入 + FTS5 Hybrid 检索
 
-**当前状态（2026-04-27）：部分完成。能力已落地，但 benchmark 目标未达成。**
+**当前状态（2026-05-10）：已完成。能力已落地，benchmark 目标已达成。**
 
 | 来源 | 优先级 |
 |------|--------|
@@ -96,16 +96,17 @@
 
 **用户痛点：** 同义词、语义变换场景搜不到。multi-session R@5 仅 79.2%，temporal-reasoning 仅 82.8%。
 
-**实现方案（Eng 评审细化）：**
-1. `storage/vector_index.py` — `HarnessVectorIndex` 类
+**当前实现：**
+1. `search/hybrid_search.py` — `HybridSearchLayer`
    - 模型：`sentence-transformers/all-MiniLM-L6-v2`（384 维，~100MB）
    - lazy load：仅在 hybrid search 时加载，不在 ingest 时阻塞
-   - 向量存储：numpy 文件 + JSON 索引，不引入外部向量 DB
-2. `storage/hybrid_search.py` — 编排层
-   - 不修改现有 `SQLiteIndex.search()`
-   - 默认权重：FTS 0.4、向量 0.6（benchmark 调优后固化）
-   - fallback：无 sentence-transformers 时自动退化为纯 FTS
-3. 接口：`VerbatimStore.search()` 增加 `mode="auto"` 参数
+   - 候选池：FTS 10x 候选 + bounded recent/all-row vector 候选，避免 semantic-only 结果被 FTS 闸门挡住
+   - 排序：weighted RRF，`k=40`、`vec_weight=5.0`
+   - fallback：无 sentence-transformers 或 embedding 失败时自动退化为纯 FTS
+2. `tools/longmemeval.py` — benchmark adapter
+   - 默认索引 user turns
+   - 对明确追问 assistant 先前回复的 query 纳入 assistant turns，避免 assistant-memory 题被错误排除证据
+3. 接口：`search --mode auto|fts|hybrid` 已落地
 
 **不做的：**
 - ❌ ReRanker（cross-encoder）— V2 再做，推理成本高
@@ -113,7 +114,7 @@
 - ❌ semantic chunk — V2 再做
 
 **验证目标：** LongMemEval R@5 ≥ 94%  
-**当前读数：** 最新最佳配置为 `RRF k=10, vec_weight=5.0, candidate=10x`，`R@5 = 93.0%`，比原始 FTS baseline `87.3%` 提升 `+5.7pp`，但仍未达到 `94%+`。
+**当前读数：** 最新最佳配置为 `RRF k=40, vec_weight=5.0, FTS 10x + bounded vector pool`，`R@5 = 94.18%`（`benchmarks/results/results_harness_hybrid_real_allvec_adaptive_top5_20260510_r2.json`），比原始 FTS baseline `87.3%` 提升约 `+6.9pp`。
 
 ---
 
@@ -220,18 +221,18 @@
 
 ### P1: cli.py 拆分 + Adapter Protocol 统一
 
-**当前状态（2026-04-27）：未完成。**
+**当前状态（2026-05-10）：部分完成。**
 
 | 来源 | 优先级 |
 |------|--------|
 | DevEx: P1 | Eng: 隐含 | Design: 提到交互式模式提取 |
 
-**当前问题：** `cli.py` 1242 行，新增 adapter 需改 3+ 文件。
+**当前问题：** `commands/`、`AdapterRegistry` 与 `SessionAdapter` 已落地，但 `cli.py` 仍有约 959 行，仍承担过多 dispatch、兼容入口和交互式逻辑。
 
-**实现：**
-- `cli.py` 按子命令拆分为 `commands/` 包（`commands/ingest.py`、`commands/doctor.py`...）
-- 交互式模式提取为 `_interactive_*()` 独立函数
-- 新增 `BaseAdapter` 基类或 Protocol，统一 adapter 契约
+**剩余实现：**
+- 继续把 `cli.py` 中保留的命令实现、兼容 wrapper 和交互式逻辑迁入 `commands/` 或专用 support 模块
+- 为 `SessionAdapter` / `AdapterRegistry` 增加直接契约测试，确保新增 adapter 不再需要散落修改入口文件
+- 更新开发文档，明确新增 adapter 的最小文件清单和验证命令
 
 ---
 
@@ -293,13 +294,13 @@ v1.3（~3 周）                    v1.4（~3 周）                    v1.5（�
 
 | 条件 | 当前判断 | 说明 |
 |------|----------|------|
-| 1. 检索能力证明 | 未满足 | 当前最佳 `R@5 = 93.0%`，仍低于 `94%+` |
-| 2. 体验完整性证明 | 基本成立 | 主链路功能已存在，但仍需继续用真实 dogfooding / 外部使用来确认“无断裂” |
+| 1. 检索能力证明 | 已满足 | 当前最佳 `R@5 = 94.18%`，已达到 `94%+` |
+| 2. 体验完整性证明 | 基本成立 | 主链路功能已存在，OpenSpec 已归档且 `pytest -q` 通过；仍需继续用真实 dogfooding / 外部使用确认“无断裂” |
 | 3. 差异化能力采用率证明 | 未知 | 仓库内暂无足够数据支撑 `≥ 30%` 的采用率结论 |
 | 4. 外部验证证明 | 未知 | 当前文档没有明确记录“至少 3 个外部用户全流程跑通” |
 
 因此，**V1.x 还不能按这份路线图定义被视为“正式结束”**。  
-更准确的状态是：**核心能力已大幅前进，但还处在阶段性收口和验证期。**
+更准确的状态是：**检索能力已经达标，但质量维护、采用率和外部验证仍处在阶段性收口期。**
 
 ---
 
