@@ -14,9 +14,10 @@ Local-first, pluggable AI memory runtime for Claude Code and Codex.
 
 当前状态（2026-05-11）：
 - `v1.3 / v1.4`：OpenSpec 变更已归档到主规格，`openspec validate --all --strict` 通过
-- 验证链：`ruff`、`mypy harness_mem`、`python -m pytest -q` 当前通过；最新测试读数为 `168 passed`
+- 验证链：`ruff`、`mypy harness_mem`、`python -m pytest -q` 当前通过；最新测试读数为 `174 passed`
 - LongMemEval `R@5 >= 94%` 的阶段目标已达成：当前最佳 `R@5 = 94.18%`
-- `correct` / `handoff` 输入校验、storage 直接单元测试、`cmd_purge` / `cmd_distill` / `cmd_use` / `cmd_profile` 拆分、RelationFact 存储/search/MCP/distill/wake 闭环、MemoryEntry 访问计数 / stale 摘要、Temporal Bias 显式 search 开关已补强；剩余收口重点是 Temporal Bias 默认策略的 benchmark 证明、真实 dogfooding / 外部用户验证，以及 hybrid 检索的性能缓存
+- `correct` / `handoff` 输入校验、storage 直接单元测试、`cmd_purge` / `cmd_distill` / `cmd_use` / `cmd_profile` 拆分、RelationFact 存储/search/MCP/distill/wake 闭环、MemoryEntry 访问计数 / stale 摘要、Temporal Bias 显式 search 开关、LongMemEval 对照 gate、`daily-wake-temporal-safety` gate 与 wake 重要性保护已补强；剩余收口重点是 Temporal Bias 完整数据集证明、真实 dogfooding / 外部用户验证，以及 hybrid 检索的性能缓存
+- `session-distill` 主链边界已更新，`grill-me` / `answer-me` / `ask-me` / `mem-distill` 作为项目内可选 workflow 协作者登记，不默认联动、不阻塞主链
 - 详细阶段状态见 [docs/roadmap-v13-v14-proposal.md](./docs/roadmap-v13-v14-proposal.md)
 
 Release notes: [v1.0.1](./docs/v1.0.1-release-notes.md)
@@ -48,9 +49,21 @@ Docs index: [docs/README.md](./docs/README.md)
 - `benchmarks/`: benchmark 结果与评测相关内容
 - `.claude/` / `.codex/` / `.cursor/`: 多 Agent 协作配置
 - `openspec/`: 变更提案和 spec 资产
-- `session-distill/` / `mem-distill/`: 配套 distill/workflow 技能资产
+- `session-distill/`: raw session -> packet 主入口
+- `mem-distill/`: 既有 memory / observations 整理入口
+- `grill-me/` / `answer-me/` / `ask-me/`: review 阶段可选协作者，不是默认主链依赖
 
 文档入口和实际文件列表见 [docs/README.md](./docs/README.md)。
+
+### Workflow Skill Boundary
+
+默认主链是：
+
+```text
+session-distill -> packet-memory-export -> memory-drafts review -> knowledge-base / sync-list / local-only
+```
+
+`grill-me`、`answer-me`、`ask-me` 和 `mem-distill` 只在已安装且场景匹配时接入 review 或整理阶段。任何一个外置协作者不可用时，主链仍应继续运行。
 
 如果根目录里又冒出 `.pytest_cache/`、`.mypy_cache/`、`.ruff_cache/`、`.gstack/`、`.coverage` 或 `tmp-*`，可以把它们当成本地运行产物，不算项目主结构。
 
@@ -65,8 +78,19 @@ cd harness-mem
 pip install -e .
 # 如果你想真正启用 hybrid vector search，而不是只使用自动 fallback：
 pip install -e ".[hybrid]"
+# 如果你要跑 LongMemEval benchmark：
+pip install -e ".[benchmark,hybrid]"
 harness-mem quickstart
 ```
+
+开发环境里也可以不依赖 console script，直接从源码树运行：
+
+```bash
+python -m harness_mem.cli --help
+python -m harness_mem.tools.longmemeval --help
+```
+
+`harness-mem` 这个裸命令来自 editable install 生成的 console script。Windows 上如果 `Scripts` 目录不在 `PATH`，就用 `python -m harness_mem.cli ...`，或把对应 Python 的 `Scripts` 目录加入 `PATH`。
 
 ### 2. 自检环境
 

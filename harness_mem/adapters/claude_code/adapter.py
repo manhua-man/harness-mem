@@ -78,7 +78,8 @@ class ClaudeCodeAdapter:
 
         # Summarize turns into a readable transcript
         lines = [f"# Session: {session_id}"]
-        for i, turn in enumerate(turns[:20], 1):  # Cap at 20 turns
+        display_turns = self._select_observation_turns(turns, max_turns=20)
+        for i, turn in display_turns:
             lines.append(f"\n## Turn {i}")
             if turn.get("user"):
                 lines.append(f"\nUser: {turn['user'][:500]}")
@@ -88,6 +89,9 @@ class ClaudeCodeAdapter:
             if turn.get("tools"):
                 tool_names = [t["name"] for t in turn["tools"][:5]]
                 lines.append(f"\nTools: {', '.join(tool_names)}")
+            if i == 10 and len(turns) > 20:
+                omitted = len(turns) - 20
+                lines.append(f"\n[... {omitted} middle turns omitted ...]")
 
         raw_content = "\n".join(lines)
         if len(raw_content) > 50000:
@@ -302,6 +306,22 @@ class ClaudeCodeAdapter:
         For higher-quality extraction, use the ``session-distill`` skill.
         """
         return extract_heuristic_entries(turns, project_name, session_id)
+
+    @staticmethod
+    def _select_observation_turns(
+        turns: list[dict[str, Any]],
+        *,
+        max_turns: int,
+    ) -> list[tuple[int, dict[str, Any]]]:
+        if len(turns) <= max_turns:
+            return list(enumerate(turns, 1))
+
+        head_count = max_turns // 2
+        tail_count = max_turns - head_count
+        head = list(enumerate(turns[:head_count], 1))
+        tail_start = len(turns) - tail_count + 1
+        tail = list(enumerate(turns[-tail_count:], tail_start))
+        return head + tail
 
     @staticmethod
     def _entry_key(category: str, content: str, source: str) -> tuple[str, str, str]:

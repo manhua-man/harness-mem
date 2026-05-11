@@ -46,7 +46,7 @@
 | Purge 命令 | 已完成 | CLI、OpenSpec 主规格和主流程文档都已纳入，`purge --before / --dry-run / --category` 已落地 |
 | 向量 hybrid 检索 | 已完成 | hybrid 已实现并成为主线能力，LongMemEval 当前最佳 `R@5 = 94.18%`，已达到路线图中的 `94%+` 目标 |
 | CLI 体验微调 | 大部分完成 | score、阶段提示、purge 建议、`show` 命名统一、`correct`/`handoff` 输入校验已落地；`cmd_purge`、`cmd_distill`、`cmd_use` 与只读 `cmd_profile` 已迁入 `commands/`，但 `cli.py` 仍有过多 dispatch、兼容入口和交互式逻辑 |
-| DevEx 基建与代码卫生 | 大部分完成 | OpenSpec active changes 已清空并归档，`ruff`、`mypy harness_mem`、`python -m pytest -q` 当前通过；最新测试读数为 `168 passed`；剩余是真实使用验证与 hybrid 性能缓存 |
+| DevEx 基建与代码卫生 | 大部分完成 | OpenSpec active changes 已清空并归档，`ruff`、`mypy harness_mem`、`python -m pytest -q` 当前通过；最新测试读数为 `174 passed`；剩余是真实使用验证与 hybrid 性能缓存 |
 
 ### v1.4
 
@@ -63,6 +63,7 @@
 
 - **不是“V1.x 已结束”**，而是：`v1.3 / v1.4` 的 OpenSpec 变更已归档，主规格、测试门与 LongMemEval 检索指标已收口，但记忆质量维护和真实使用证明仍未达标。
 - 因此这份路线图当前应被理解为：**能力面和验证链已经进入收口状态，下一步应优先证明记忆质量维护、真实使用留存和 hybrid 检索性能。**
+- **下一步优先级：先做 Temporal Bias benchmark，再继续拆 `cli.py`。** Temporal Bias 会影响用户可见 search / wake 结果排序和默认策略，必须先用 benchmark 证明“不隐藏旧但更相关的记忆”；继续拆 `cli.py` 主要降低内部维护成本，可以在 benchmark 结论后按命令模块继续推进。
 
 ---
 
@@ -168,7 +169,7 @@
 **当前 live baseline：**
 - `python -m ruff check .` 通过
 - `python -m mypy harness_mem` 通过
-- `python -m pytest -q` 通过，最新读数 `168 passed`
+- `python -m pytest -q` 通过，最新读数 `174 passed`
 - `openspec validate --all --strict` 通过，9 specs passed
 
 **改动清单：**
@@ -277,10 +278,13 @@
 **已完成：**
 - `HybridSearchLayer` 支持构造级和 per-call temporal bias，在同分结果中用 observation timestamp、memory updated_at、handoff last_activity、rule created/confirmed 时间做排序。
 - CLI `search --temporal-bias`、MCP `search_memory.temporal_bias` 与 REST `/search?temporal_bias=true` 已接入。
+- LongMemEval 工具已补 `--temporal-bias` 和 `--compare-temporal-bias`，可以跑真实 hybrid 的 baseline vs temporal-bias 对照，并输出 avg / per-type delta 与 gate 判断。
+- `harness_mem.benchmarks` 已补 `daily-wake-temporal-safety` 报告型 gate，wake memory selection 已加入重要性保护，避免旧但关键的 memory 被最近普通条目挤出。
 - 默认关闭，避免无 benchmark 证明时把新近内容误当作更相关内容。
 
 **剩余实现：**
-- 用 benchmark 证明 temporal bias 对 temporal-reasoning 和 daily wake-up 有稳定收益。
+- 跑完整 LongMemEval 对照：`python -m harness_mem.tools.longmemeval <data.json> --mode hybrid --use-real-hybrid --compare-temporal-bias --out benchmarks/results/results_harness_hybrid_temporal_compare_top5_<date>.json`。
+- 用真实 dogfooding 数据跑 wake gate，确认重要性保护不会让过期高 usage memory 长期占位。
 - 决定何时允许默认启用。
 
 ---

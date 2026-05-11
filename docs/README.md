@@ -23,6 +23,18 @@ This index lists the docs that exist in this checkout. Keep it synchronized when
 | `roadmap-blindspots-v13-v14.md` | Roadmap blind spots and follow-up ideas |
 | `v1.0.1-release-notes.md` | v1.0.1 release notes |
 
+## Workflow Skill Assets
+
+| Path | Purpose |
+|------|---------|
+| `../session-distill/` | Raw session to packet / session note workflow asset |
+| `../mem-distill/` | Existing memory / observations cleanup and consolidation asset |
+| `../grill-me/` | Optional pressure-test collaborator for high-risk review conclusions |
+| `../answer-me/` | Optional evidence-gathering collaborator for under-evidenced drafts |
+| `../ask-me/` | Optional architecture and planning consultation collaborator |
+
+Default promotion chain: `session-distill -> packet-memory-export -> memory-drafts review -> knowledge-base / sync-list / local-only`. Optional collaborators must not be treated as hard dependencies.
+
 ## Review Inputs
 
 | File | Purpose |

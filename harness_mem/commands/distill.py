@@ -54,9 +54,16 @@ async def cmd_distill(
 
             if category:
                 print(f"No {category} entries found in session {session_id}")
-            else:
-                print(f"No patterns found in session {session_id}")
-            return 1
+                return 1
+            print(f"No patterns found in session {session_id}")
+            _log_distill_events(
+                project_name=project_name,
+                session_id=session_id,
+                category=category,
+                memory_entries=0,
+                relation_facts=0,
+            )
+            return 0
 
         sessions = adapter.list_project_sessions(project_name, min_size_kb=0, limit=100)
         if not sessions:
@@ -88,7 +95,15 @@ async def cmd_distill(
             return 1
         if total == 0 and relation_total == 0:
             print(f"No patterns found across {len(sessions)} sessions")
-            return 1
+            _log_distill_events(
+                project_name=project_name,
+                session_id=None,
+                category=category,
+                memory_entries=0,
+                relation_facts=0,
+                sessions=len(sessions),
+            )
+            return 0
 
         print(f"Extracted {total} memory entries from {len(sessions)} sessions")
         if relation_total:

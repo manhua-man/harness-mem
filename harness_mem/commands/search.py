@@ -6,6 +6,7 @@ from harness_mem.commands.support import DEFAULT_DATA_DIR, log_command_invoked, 
 from harness_mem.read_api import (
     format_observation_reference,
     format_search_score,
+    preview_search_text,
     resolve_observation_identifier,
     search_header,
     search_memory,
@@ -80,9 +81,7 @@ async def cmd_search(
         if observations:
             print(f"## Observations ({len(observations)} results)")
             for observation in observations:
-                preview = observation.raw_content[:200].replace("\n", " ")
-                if len(observation.raw_content) > 200:
-                    preview += "..."
+                preview = preview_search_text(observation.raw_content, query)
                 search_mode = getattr(observation, "_search_mode", mode)
                 print(
                     f"- {format_observation_reference(observation)} {preview}  "

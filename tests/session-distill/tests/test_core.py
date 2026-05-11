@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 
-SCRIPT_PATH = Path(r"C:\Users\EDY\.claude\skills\manhua\session-distill\bin\session-distill.py")
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / "bin" / "session-distill.py"
 
 
 def load_module():
@@ -148,7 +148,7 @@ class SessionDistillCoreTests(unittest.TestCase):
         self.assertIn("Appended final answer", second_packet)
 
     def test_nonstandard_project_name_can_be_resolved(self):
-        alias = "C--Users-EDY--claude-mem-observer-sessions"
+        alias = "C--Users-TestUser--observer-sessions"
         alias_path = self.module.PROJECTS_DIR / alias
         alias_path.mkdir(parents=True, exist_ok=True)
 

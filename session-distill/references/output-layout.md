@@ -2,7 +2,7 @@
 
 The script writes its working files to the distillation workspace, which defaults to:
 
-`C:\Users\EDY\.codex\session-distill`
+`%USERPROFILE%\.codex\session-distill`
 
 ## Files
 

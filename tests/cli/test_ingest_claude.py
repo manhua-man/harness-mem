@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -112,3 +113,64 @@ def test_incremental_ingest_warns_when_cursor_is_missing(
     assert run(cli.cmd_ingest("claude-code", "demo", 10)) == 0
     captured = capsys.readouterr().out
     assert "cursor missing-session not found" in captured
+
+
+def test_ingest_detects_unity_profile_from_claude_session_cwd(
+    data_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    claude_sessions_root: Path,
+    codex_sessions_root: Path,
+):
+    unity_root = tmp_path / "My project"
+    (unity_root / "Assets").mkdir(parents=True)
+    (unity_root / "Packages").mkdir()
+    (unity_root / "ProjectSettings").mkdir()
+    (unity_root / "Packages" / "manifest.json").write_text(
+        json.dumps({"dependencies": {"com.unity.inputsystem": "1.7.0"}}),
+        encoding="utf-8",
+    )
+    (unity_root / "ProjectSettings" / "ProjectVersion.txt").write_text(
+        "m_EditorVersion: 6000.0.0f1",
+        encoding="utf-8",
+    )
+    (unity_root / "Assembly-CSharp.csproj").write_text("<Project />", encoding="utf-8")
+
+    project_name = "f--pvz-pvzseason-My-project-Assets"
+    session_dir = claude_sessions_root / project_name
+    session_dir.mkdir(parents=True)
+    records = [
+        {
+            "type": "user",
+            "cwd": str(unity_root / "Assets"),
+            "message": {"content": "Please inspect this Unity project."},
+        },
+        {
+            "type": "assistant",
+            "cwd": str(unity_root / "Assets"),
+            "message": {"content": [{"type": "text", "text": "I checked the Unity project layout."}]},
+        },
+    ]
+    (session_dir / "sess-unity.jsonl").write_text(
+        "\n".join(json.dumps(record) for record in records),
+        encoding="utf-8",
+    )
+
+    patch_cli_adapters(
+        monkeypatch,
+        claude_sessions_root=claude_sessions_root,
+        codex_sessions_root=codex_sessions_root,
+    )
+
+    assert run(cli.cmd_ingest("claude-code", project_name, 1)) == 0
+
+    profile_store = LocalProjectProfileStore(data_dir)
+    profile = run(profile_store.get(project_name))
+    assert profile is not None
+    assert "unity" in profile.stacks
+    assert "csharp" in profile.stacks
+    assert "ProjectSettings/ProjectVersion.txt" in profile.key_files
+
+    captured = capsys.readouterr().out
+    assert "Auto-detected profile: unity, csharp" in captured

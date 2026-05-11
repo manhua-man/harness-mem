@@ -1,8 +1,8 @@
 ---
 name: session-distill
-version: 1.1.0
+version: 1.2.0
 description: |
-  将 Claude Code 的 `.jsonl` 会话文件蒸馏为可复用的规则、工作流和知识。
+  将 Claude Code 的 `.jsonl` 会话文件蒸馏为可审阅 packet、session note、knowledge-base 候选和 memory draft 输入。
   当用户说"整理一下对话"、"提炼会话经验"、"从会话中提取知识"时使用。
 allowed-tools:
   - Bash
@@ -17,46 +17,67 @@ allowed-tools:
 
 ## 定位
 
-`session-distill` 是 Claude 侧的**原始会话主入口**。
+`session-distill` 是原始会话处理主入口。
 
 它负责：
+
 1. 扫描 `~/.claude/projects/<project>/*.jsonl`
-2. 生成 packet / manifest
-3. 由 AI 基于 packet 做提炼
-4. 在需要时把 packet 交给下游流程继续处理
+2. 生成 `manifest + packet + Packet Audit`
+3. 基于 packet 做第一层提炼
+4. 在需要结构化记忆时，把 packet 交给 `packet-memory-export`
 
-它**不**依赖 claude-mem 才能工作；chuck-mem 只是查询增强项。
-它的 core 输出就是：`manifest + packet + Packet Audit`。
+它不直接写入 memory backend，也不依赖任何外置协作者才能运行。
 
-## 链路总览
+## 主链边界
 
-默认不要把它理解成"raw session 直接写 chuck-mem"。
+默认主链是：
 
-更准确的链路是：
-
-1. `hook / archived session -> packet`
-2. `packet -> standalone distill`
-3. standalone distill 的落点通常是 `distilled/sessions/<session-id>.md`、`knowledge-base.md`，以及在明确时继续提升到 repo 规则
-4. 如果要进入结构化记忆层，再走：`packet -> packet-memory-export -> memory-drafts -> 人工审阅 / sync-list -> chuck-mem`
+```text
+session-distill -> packet-memory-export -> memory-drafts review -> knowledge-base / sync-list / local-only
+```
 
 也就是说：
 
-- `session-distill` 负责把原始会话整理成可审阅的 packet，并完成第一层提炼
-- `packet-memory-export` 负责把 packet 变成结构化 memory draft
-- `chuck-mem` 是后续同步目标，不是 `session-distill` 的默认直写后端
-- 只有 packet 证据不足时，才回看 raw session 补证
+- `session-distill` 负责把 raw session 整理成可审阅 packet，并完成第一层 session note / knowledge-base 提炼
+- `packet-memory-export` 是默认 draft gate，负责把 packet 变成结构化 memory draft
+- `memory-drafts review` 决定每条 entry 是 `new / refine / confirm / conflict / ephemeral`
+- review 后的落点只能是 `knowledge-base`、`sync-list` 或 `local-only`
+- `Packet Audit: partial` 只降低 readiness，要求补证；它不改走另一条链
+- session note 是可选归档，不是默认 promotion 通道
 
-| 场景 | 使用哪个 skill |
-|------|----------------|
+默认不要把它理解成 "raw session 直接写 memory backend"。
+
+## 外置协作者
+
+以下能力可以在已安装且场景匹配时参与 review，但都不是主链硬依赖：
+
+| 协作者 | 使用时机 | 边界 |
+|--------|----------|------|
+| `grill-me` | 高风险候选结论需要压力测试 | 只给 review 意见，不 promote、不 sync |
+| `answer-me` | draft 缺代码、文档、配置或测试证据 | 只补证据，不做最终决策 |
+| `ask-me` | 架构、路线或方案需要咨询 | 只做方案咨询，不进入 memory promotion 主链 |
+| `mem-distill` | 已有 memory / observations 需要聚类、去重、稳定化 | 处理既有记忆，不处理 raw session |
+
+任何外置协作者不可用时，主链继续运行，不报错、不阻塞。
+
+`grill-style` 是 review 方法论，不是独立 skill。
+
+## 场景路由
+
+| 场景 | 使用哪个入口 |
+|------|--------------|
 | 用户给的是原始 `.jsonl`、项目会话、packet、session note | `session-distill` |
 | 用户已经有 packet，要导出结构化 memory drafts | `packet-memory-export` |
-| 用户给的是已有 chuck-mem observations，要整理记忆层 | `mem-distill` |
+| 用户给的是已有 memory / observations，要整理记忆层 | `mem-distill` |
+| 用户要压力测试候选结论 | 可选调用 `grill-me` |
+| 用户要补证据 | 可选调用 `answer-me` |
+| 用户要架构或方案咨询 | 可选调用 `ask-me` |
 
 开始提炼前，先读：
 
 - [references/distillation-rules.md](references/distillation-rules.md)
 - [references/output-layout.md](references/output-layout.md)
-- [references/claude-mem-sync.md](references/claude-mem-sync.md)
+- [references/memory-sync.md](references/memory-sync.md)
 
 ## 默认循环
 
@@ -65,11 +86,12 @@ allowed-tools:
 | 1 | `run --next N`，刷新 manifest 并生成 packet |
 | 2 | 只读一个 packet，并先看 `Packet Audit` |
 | 3 | 选择模式：standalone distill 或 `packet-memory-export` |
-| 4 | standalone：更新 `distilled/sessions/<session-id>.md` |
+| 4 | standalone：按需更新 `distilled/sessions/<session-id>.md` |
 | 5 | standalone：将稳定知识归并进 `knowledge-base.md` |
 | 6 | enhanced：运行 `packet-memory-export export --session <session-id>` |
 | 7 | enhanced：审阅 `new / refine / confirm / conflict / ephemeral`，并用 `approve / reject / defer / note` 落盘 |
-| 8 | `mark distilled` |
+| 8 | 如候选结论高风险，可选调用 `grill-me`；如缺证据，可选调用 `answer-me`；如涉及架构取舍，可选调用 `ask-me` |
+| 9 | `mark distilled` |
 
 ## 快速开始
 
@@ -112,6 +134,7 @@ session-distill run --next 3
 ```
 
 含义：
+
 - 扫描当前项目对应的 Claude 会话目录
 - 更新 `manifest.json`
 - 为接下来的 `3` 个待处理会话生成 packet
@@ -123,6 +146,7 @@ session-distill status
 ```
 
 查看：
+
 - 总会话数
 - `new / bundled / distilled / skipped`
 - 当前待提炼 packet
@@ -147,40 +171,42 @@ session-distill mark <session-id> distilled
 
 默认情况下，`session-distill` 会优先根据当前项目目录推断 `~/.claude/projects/<project-name>/`。
 
-如果你要处理的不是正常仓库目录，而是像 `chuck-mem observer-sessions` 这种特殊项目名，需要显式传：
+如果你要处理的不是正常仓库目录，可以显式传项目名：
 
 ```bash
-session-distill status --project C--Users-EDY--chuck-mem-observer-sessions
-session-distill run --next 3 --project C--Users-EDY--chuck-mem-observer-sessions
+session-distill status --project <project-name>
+session-distill run --next 3 --project <project-name>
 ```
 
-但默认建议仍然是：
+默认建议仍然是：
 
 - 普通业务项目 session -> `session-distill`
-- 已有 `chuck-mem observations` -> `mem-distill`
-- `observer-sessions` 这类插件内部记录，如果只是做清理，先确认相关 observations 已经入库；确认后通常归档或删除即可，不必蒸馏
+- 已有 memory / observations -> `mem-distill`
+- 插件内部 observer session 如果只是做清理，先确认相关 observations 已经入库；确认后通常归档或删除即可，不必蒸馏
 
-## 与 chuck-mem 的联动
+## 与 memory runtime 的联动
 
 联动细则见：
 
-- [references/claude-mem-sync.md](references/claude-mem-sync.md)
+- [references/memory-sync.md](references/memory-sync.md)
 
 第一阶段默认采用：
 
 - 查询增强
 - packet 导出到 sidecar
-- 手动同步
+- 人工审阅后同步候选
 
-也就是说，`session-distill` core 不直接写回 chuck-mem，也不直接导出 memory draft JSON；增强路径交给 `packet-memory-export`。
+`session-distill` core 不直接写回 memory backend，也不直接导出 memory draft JSON；增强路径交给 `packet-memory-export`。
 
 ### 首选中间层：packet
 
-默认链路不是 "raw session 直接写 chuck-mem"，而是：
+默认链路不是 "raw session 直接写 memory backend"，而是：
 
-- raw session -> packet -> packet-memory-export -> draft memory entries -> 人审 / 同步
+```text
+raw session -> packet -> packet-memory-export -> draft memory entries -> review -> knowledge-base / sync-list / local-only
+```
 
-原因很简单：
+原因：
 
 - packet 会先去掉大量 transcript 噪声
 - packet 仍保留用户目标、assistant updates、final answers、commands、file refs 等关键证据面
@@ -188,16 +214,14 @@ session-distill run --next 3 --project C--Users-EDY--chuck-mem-observer-sessions
 
 只有 packet 缺失关键证据时，才回看原始 transcript 补证。
 
-另外：
+### Packet Audit
 
-- 如果 packet 的 `Packet Audit` 显示 `partial`，不要直接把其中结论升到 chuck-mem 或 repo 规则
-- 先补看相关 raw transcript，再决定是否保留该条 draft memory entry
-
-### 启用的能力
-
-- 查询增强：提炼前先查历史记忆，用于去重、补充上下文、统一术语
-- 去重：避免把旧知识再写一遍
-- 术语统一：和已有记忆用同一套说法
+- `Coverage: high`
+  - packet 可以作为 draft memory entry 的主输入
+- `Coverage: partial`
+  - 不代表改走外置协作者
+  - 只代表 readiness 降低，需要先补看相关 raw transcript 或调用 `answer-me` 补证
+  - 证据补齐前，不要把结论升到 knowledge-base、sync-list 或 repo 规则
 
 ### 提炼阶段的候选标记
 
@@ -216,7 +240,7 @@ session-distill run --next 3 --project C--Users-EDY--chuck-mem-observer-sessions
 
 ### 标准导出
 
-第一阶段的默认目标不是"自动写进 chuck-mem"，而是把 packet 交给 `packet-memory-export`，导出为标准化 memory entry 草稿。
+第一阶段的默认目标不是"自动写进 memory backend"，而是把 packet 交给 `packet-memory-export`，导出为标准化 memory entry 草稿。
 
 也就是至少要形成：
 
@@ -236,30 +260,11 @@ session-distill run --next 3 --project C--Users-EDY--chuck-mem-observer-sessions
 
 ### 不启用的能力
 
-- 不默认自动写入 chuck-mem
-- 不把 chuck-mem 当成强依赖
-- 不因为查不到记忆就停止蒸馏
+- 不默认自动写入 memory backend
+- 不把特定 memory backend 当成强依赖
+- 不因为查不到已有记忆就停止蒸馏
 - 不把 memory draft 导出逻辑重新塞回 core parser
-
-### 同步方式
-
-第一阶段默认采用人工审阅后再同步：
-
-- `session-distill` 负责生成 packet 和 `Packet Audit`
-- `packet-memory-export` 负责把 packet 变成结构化 memory drafts
-- 用户或后续专门流程负责决定是否同步进 chuck-mem
-
-默认不把自动写入作为第一阶段能力。
-
-失败时的降级策略：
-- 跳过查询增强
-- 继续完成 packet → session note → knowledge-base → mark
-
-默认原则：
-
-- chuck-mem 是增强项，不是前置依赖
-- session-distill 不应与特定记忆后端强耦合
-- 自动写入不作为第一阶段默认能力
+- 不把 `grill-me` / `answer-me` / `ask-me` / `mem-distill` 内置成默认链路
 
 ## 工作风格
 
@@ -269,11 +274,12 @@ session-distill run --next 3 --project C--Users-EDY--chuck-mem-observer-sessions
 - 一次只处理少量会话，做增量蒸馏
 - 源会话继续增长时，允许重新 bundle
 - memory drafts 由 sibling sidecar `packet-memory-export` 负责，而不是在这里复制第二套 parser
-- 若用户其实要整理现有 observations，而不是原始 session，切换到 `mem-distill`
+- 若用户其实要整理现有 memory / observations，而不是原始 session，切换到 `mem-distill`
 
 ## 与 Codex archived-session-distiller 的关系
 
 这两个技能是同一思路在两个客户端里的实现：
+
 - 都是"先准备 packet，再人工/AI 提炼"
 - 都把记忆系统当增强项，不做强依赖
 - Claude 版面向 `~/.claude/projects/*.jsonl`

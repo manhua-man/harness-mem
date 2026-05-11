@@ -1,10 +1,10 @@
-# Claude-Mem Sync Strategy
+# Memory Draft Sync Strategy
 
-这份文件描述 `session-distill` 与 `claude-mem` 的第一阶段联动方式。
+这份文件描述 `session-distill` 与 memory runtime 的第一阶段联动方式。
 
 核心原则不是：
 
-- raw session 直接写 claude-mem
+- raw session 直接写 memory backend
 
 而是：
 
@@ -57,7 +57,7 @@
    - `ephemeral` 不写入稳定记忆层
    - `conflict` 先人工审阅
    - `new / refine / confirm` 进入待同步候选
-5. 用户或后续专门流程决定是否真正同步到 claude-mem
+5. 用户或后续专门流程决定是否真正同步到 memory backend
 
 ## Draft Memory Entry 最小结构
 
@@ -103,7 +103,7 @@
 - `packet-memory-export`
   - 负责把 packet 导出成 draft memory entries
 - `mem-distill`
-  - 负责整理已经进入 claude-mem 的 observations
+  - 负责整理已经存在的 memory / observations
 
 因此 draft entry 仍属于 `session-distill + packet-memory-export` 这一阶段，不属于 `mem-distill` 的主输入。
 
@@ -111,7 +111,7 @@
 
 第一阶段默认不做：
 
-- 自动写入 claude-mem
+- 自动写入 memory backend
 - 与特定 memory backend 强耦合
 - 未审阅直接覆盖现有 observations
 

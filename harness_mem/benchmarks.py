@@ -9,12 +9,13 @@ Measures latency and throughput for:
 from __future__ import annotations
 import asyncio
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.core.schemas import Observation, MemoryEntry
+from harness_mem.wake_selection import select_wake_memory_entries
 from uuid import uuid4
 
 
@@ -116,7 +117,8 @@ async def benchmark_wake_up(
         start = time.perf_counter()
 
         # Simulate wake-up data loading
-        entries = await backend.structured_store.list_memory_entries(project_name, limit=5)
+        entry_candidates = await backend.structured_store.list_memory_entries(project_name, limit=50)
+        entries = select_wake_memory_entries(entry_candidates, limit=5)
         rules = await backend.structured_store.list_confirmed_rules(project_name)
         handoffs = await backend.structured_store.get_latest_handoffs(project_name, limit=3)
 
@@ -138,6 +140,78 @@ async def benchmark_wake_up(
         "avg_latency_ms": avg_latency_ms,
         "p95_latency_ms": p95_latency_ms,
         "total_ops_per_second": round(runs / sum(latencies), 1) if sum(latencies) > 0 else 0,
+    }
+
+
+async def benchmark_daily_wake_temporal_safety(
+    backend: LocalMemoryBackend,
+    project_name: str = "benchmark-project",
+    limit: int = 5,
+) -> dict[str, Any]:
+    """Benchmark whether daily wake-up keeps old but critical memories.
+
+    This is a gate for any future recency-biased default. A recency-only wake
+    selection can look fresh while dropping older high-value decisions, so this
+    benchmark reports that risk instead of changing wake behavior.
+    """
+    run_id = str(uuid4())[:8]
+    old_date = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    recent_start = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    critical_entry = MemoryEntry(
+        id=f"wake-critical-{run_id}",
+        project_name=project_name,
+        category="decision",
+        content=(
+            "Critical stable decision: keep local-first storage and do not "
+            "replace SQLite with an external service without explicit review."
+        ),
+        confidence=0.99,
+        source="benchmark",
+        created_at=old_date,
+        updated_at=old_date,
+        tags=["benchmark", "critical", "expected-wake"],
+        usage_count=12,
+        last_accessed_at=old_date,
+    )
+    await backend.structured_store.save_memory_entry(critical_entry)
+
+    for index in range(limit + 2):
+        created_at = recent_start + timedelta(days=index)
+        routine_entry = MemoryEntry(
+            id=f"wake-routine-{run_id}-{index}",
+            project_name=project_name,
+            category="note",
+            content=f"Routine recent note {index}: transient daily implementation detail.",
+            confidence=0.6,
+            source="benchmark",
+            created_at=created_at,
+            updated_at=created_at,
+            tags=["benchmark", "routine"],
+        )
+        await backend.structured_store.save_memory_entry(routine_entry)
+
+    candidates = await backend.structured_store.list_memory_entries(project_name, limit=50)
+    selected = select_wake_memory_entries(candidates, limit=limit)
+    selected_ids = [entry.id for entry in selected]
+    critical_retained = critical_entry.id in selected_ids
+    displaced = [] if critical_retained else [critical_entry.id]
+
+    return {
+        "operation": "daily-wake-temporal-safety",
+        "limit": limit,
+        "expected_critical_count": 1,
+        "critical_retained_count": 1 if critical_retained else 0,
+        "critical_recall": 1.0 if critical_retained else 0.0,
+        "critical_retained": critical_retained,
+        "displaced_critical_ids": displaced,
+        "selected_ids": selected_ids,
+        "gate": "pass" if critical_retained else "fail",
+        "default_temporal_bias_candidate": critical_retained,
+        "reason": (
+            "daily wake retained old critical memory"
+            if critical_retained
+            else "daily wake recency selection displaced old critical memory"
+        ),
     }
 
 
@@ -173,6 +247,7 @@ async def run_benchmarks(tmp_path: Path | None = None) -> dict[str, Any]:
         results["ingest"] = await benchmark_ingest(backend)
         results["search"] = await benchmark_search(backend)
         results["wake-up"] = await benchmark_wake_up(backend)
+        results["daily-wake-temporal-safety"] = await benchmark_daily_wake_temporal_safety(backend)
 
         return results
 

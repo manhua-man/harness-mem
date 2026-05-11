@@ -117,6 +117,27 @@ def test_distill_ignores_user_only_prompts(data_dir: Path, claude_sessions_root:
         run(backend.close())
 
 
+def test_cmd_distill_no_patterns_is_successful_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    claude_sessions_root: Path,
+):
+    write_claude_session(
+        claude_sessions_root,
+        "demo",
+        "sess-no-patterns",
+        "Please inspect the project.",
+        ["I checked the project and did not find a stable reusable conclusion."],
+    )
+
+    patch_cli_adapters(monkeypatch, claude_sessions_root=claude_sessions_root)
+
+    assert run(cli.cmd_distill("demo")) == 0
+
+    captured = capsys.readouterr().out
+    assert "No patterns found across 1 sessions" in captured
+
+
 def test_distill_dedupes_on_rerun(data_dir: Path, claude_sessions_root: Path):
     write_claude_session(
         claude_sessions_root,

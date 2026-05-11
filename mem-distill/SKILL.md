@@ -1,8 +1,8 @@
 ---
 name: mem-distill
-version: 1.1.0
+version: 1.2.0
 description: |
-  整理已有 chuck-mem observations，把分散记忆收敛为稳定规则、工作流和项目级经验。
+  整理已有 memory / observations，把分散记忆收敛为稳定规则、工作流和项目级经验。
   当用户说"整理一下现有记忆"、"清理重复 observations"、"把记忆归纳成知识"时使用。
 allowed-tools:
   - Bash
@@ -16,36 +16,45 @@ allowed-tools:
 
 # Memory Distiller — 记忆层蒸馏器
 
-## 目录结构
-
-这套 skill 故意分成两层：
-
-- `~/.claude/skills/manhua/mem-distill`
-  - canonical implementation，真正维护行为的地方
-- `~/.claude/skills/mem-distill`
-  - compatibility alias，让 `Skill(mem-distill)` 和 `/mem-distill` 能直接命中
-
-如果你在维护这套 skill，默认应该改这里，而不是改顶层 alias。
-
 ## 定位
 
-`mem-distill` 只处理**已经进入 chuck-mem 的 observations**，不负责原始 `.jsonl` 会话解析。
+`mem-distill` 是既有记忆整理入口。
 
-| 场景 | 使用哪个 skill |
-|------|----------------|
+它只处理已经存在的 memory / observations，不负责原始 `.jsonl` 会话解析，也不替代 `session-distill` 或 `packet-memory-export`。
+
+它可以作为 `session-distill` review 阶段的外置协作者被调用，但不是默认链路硬依赖。
+
+## 主链边界
+
+`session-distill` 的 durable memory promotion 主链仍然是：
+
+```text
+session-distill -> packet-memory-export -> memory-drafts review -> knowledge-base / sync-list / local-only
+```
+
+`mem-distill` 不进入这条 raw session 处理链。它只在用户已经要整理既有 memory / observations 时切换过去。
+
+任何情况下，缺少 `mem-distill` 都不应阻塞 `session-distill` 主链。
+
+## 场景路由
+
+| 场景 | 使用哪个入口 |
+|------|--------------|
 | 用户要整理原始会话、生成 packet、写 session note | `session-distill` |
-| 用户要整理现有 chuck-mem 记忆、去重、归并、补充知识库 | `mem-distill` |
+| 用户已有 packet，要导出结构化 memory drafts | `packet-memory-export` |
+| 用户要整理现有 memory / observations、去重、归并、补充知识库 | `mem-distill` |
 
 一句话分工：
 
-- `session-distill` 是**原始会话入口**
-- `mem-distill` 是**现有记忆整理入口**
+- `session-distill` 是原始会话入口
+- `packet-memory-export` 是默认 draft gate
+- `mem-distill` 是现有记忆整理入口
 
 和 `session-distill` 的衔接方式：
 
 - `session-distill` 第一阶段先生成 packet 和 `Packet Audit`
 - `packet-memory-export` 再把 packet 变成结构化 draft memory entries
-- `mem-distill` 再处理已经存在于 chuck-mem 的 observations，负责去重、归并、提炼和稳定化
+- `mem-distill` 再处理已经存在的 observations，负责去重、归并、提炼和稳定化
 - 如果手里还是 packet 或 draft memory entries，说明你还在 `session-distill / packet-memory-export` 阶段，不应直接切到 `mem-distill`
 
 ## 目标
@@ -118,21 +127,22 @@ memory/knowledge-base.md
 - 不生成 packet / manifest
 - 不把 packet 直接变成 memory drafts
 - 不把自己当作 `session-distill` 的替代品
-- 不把 chuck-mem 当成必须写回的强依赖出口
+- 不把特定 memory backend 当成必须写回的强依赖出口
+- 不作为 `session-distill` 主链的默认联动
 
 ## observer-sessions 例外说明
 
-`chuck-mem` 相关的 `observer-sessions` 目录下虽然也是 `.jsonl`，但它们本质上更接近插件内部观察记录，不是这份 skill 要整理的 memory 层输入。
+observer session 目录下虽然也是 `.jsonl`，但它们本质上更接近工具内部观察记录，不是这份 skill 要整理的 memory 层输入。
 
 默认建议：
 
-- 如果目标是整理现有 `chuck-mem observations`，继续使用 `mem-distill`
-- 如果目标只是清理 `observer-sessions` 这类内部记录，先确认相关 observations 已经入库；确认后，归档或删除通常比蒸馏更合理
+- 如果目标是整理现有 observations，继续使用 `mem-distill`
+- 如果目标只是清理 observer session 这类内部记录，先确认相关 observations 已经入库；确认后，归档或删除通常比蒸馏更合理
 - 只有在你明确想审计这些原始 observer session 本身时，才切到 `session-distill`
 
 注意：
 
-- 删除 `observer-sessions` 不等于删除已经写进 chuck-mem 数据库的 observations
+- 删除 observer session 不等于删除已经写进 memory backend 的 observations
 - 但会失去这批原始 observer transcript 的追溯、重放和重新提取能力
 - 因此更稳的默认动作不是"看见就删"，而是"确认已入库且不再需要审计后，再归档或删除"
 

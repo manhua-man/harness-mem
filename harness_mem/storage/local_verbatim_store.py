@@ -4,11 +4,15 @@ from __future__ import annotations
 import builtins
 import json
 import asyncio
+import re
 from pathlib import Path
 
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.search.hybrid_search import HybridSearchLayer
 from harness_mem.storage.sqlite_index import SQLiteIndex
+
+_CJK_ASCII_LEFT_BOUNDARY = re.compile(r"([\u3400-\u9fff])([A-Za-z0-9_])")
+_CJK_ASCII_RIGHT_BOUNDARY = re.compile(r"([A-Za-z0-9_])([\u3400-\u9fff])")
 
 
 class LocalVerbatimStore:
@@ -41,7 +45,7 @@ class LocalVerbatimStore:
                 "session_id": observation.session_id,
                 "client": observation.client,
                 "content_type": observation.content_type,
-                "raw_content": observation.raw_content,
+                "raw_content": _normalize_observation_search_text(observation.raw_content),
                 "timestamp": observation.timestamp,
                 "tags": observation.tags,
                 "metadata": observation.metadata,
@@ -202,3 +206,9 @@ class LocalVerbatimStore:
     @staticmethod
     def _project_metadata_pattern(project_name: str) -> str:
         return f'%"project_name": "{project_name}"%'
+
+
+def _normalize_observation_search_text(text: str) -> str:
+    """Add token boundaries for mixed CJK/ASCII text before FTS indexing."""
+    text = _CJK_ASCII_LEFT_BOUNDARY.sub(r"\1 \2", text)
+    return _CJK_ASCII_RIGHT_BOUNDARY.sub(r"\1 \2", text)

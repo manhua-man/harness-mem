@@ -150,6 +150,37 @@ def format_observation_reference(observation: Observation) -> str:
     return f"[{observation.id}] session: {observation.session_id}"
 
 
+def preview_search_text(text: str, query: str, *, max_chars: int = 200) -> str:
+    """Return a compact preview centered near the first query match."""
+    cleaned_query = query.strip()
+    candidates = [cleaned_query, *cleaned_query.split()]
+    lowered = text.lower()
+    match_index = -1
+    for candidate in sorted({c for c in candidates if c}, key=len, reverse=True):
+        match_index = lowered.find(candidate.lower())
+        if match_index >= 0:
+            break
+
+    if match_index < 0:
+        preview = text[:max_chars]
+        if len(text) > max_chars:
+            preview += "..."
+        return preview.replace("\n", " ")
+
+    context_before = max_chars // 3
+    start = max(0, match_index - context_before)
+    end = min(len(text), start + max_chars)
+    if end - start < max_chars:
+        start = max(0, end - max_chars)
+
+    preview = text[start:end].replace("\n", " ")
+    if start > 0:
+        preview = "..." + preview
+    if end < len(text):
+        preview += "..."
+    return preview
+
+
 def serialize_memory_entry_search_result(entry: object, requested_mode: str) -> dict[str, Any]:
     """Serialize a structured memory result for MCP responses."""
     return {
@@ -164,13 +195,17 @@ def serialize_memory_entry_search_result(entry: object, requested_mode: str) -> 
     }
 
 
-def serialize_observation_search_result(observation: Observation, requested_mode: str) -> dict[str, Any]:
+def serialize_observation_search_result(
+    observation: Observation,
+    requested_mode: str,
+    query: str = "",
+) -> dict[str, Any]:
     """Serialize an observation search result for MCP responses."""
     return {
         "id": observation.id,
         "session_id": observation.session_id,
         "content_type": observation.content_type,
-        "preview": observation.raw_content[:200].replace("\n", " "),
+        "preview": preview_search_text(observation.raw_content, query, max_chars=200),
         "search_mode": getattr(observation, "_search_mode", requested_mode),
         "score": _raw_search_score(observation),
     }

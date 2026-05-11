@@ -135,7 +135,9 @@ def tool_search_memory(
         "relation_facts": [
             serialize_relation_fact_search_result(fact) for fact in relation_facts
         ],
-        "observations": [serialize_observation_search_result(observation, mode) for observation in obs_list],
+        "observations": [
+            serialize_observation_search_result(observation, mode, query) for observation in obs_list
+        ],
         "memory_entry_count": len(entries),
         "relation_fact_count": len(relation_facts),
         "observation_count": len(obs_list),

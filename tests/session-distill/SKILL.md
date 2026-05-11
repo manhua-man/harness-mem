@@ -185,8 +185,8 @@ session-distill mark <session-id> distilled
 如果你要处理的不是正常仓库目录，而是像 `claude-mem observer-sessions` 这种特殊项目名，需要显式传：
 
 ```bash
-session-distill status --project C--Users-EDY--claude-mem-observer-sessions
-session-distill run --next 3 --project C--Users-EDY--claude-mem-observer-sessions
+session-distill status --project <project-name>
+session-distill run --next 3 --project <project-name>
 ```
 
 但默认建议仍然是：

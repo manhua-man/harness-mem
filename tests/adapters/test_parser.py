@@ -10,6 +10,7 @@ import pytest
 
 from harness_mem.adapters.parser import (
     HEURISTIC_PATTERNS,
+    extract_claude_session_cwd,
     extract_heuristic_entries,
     list_session_files,
     parse_claude_jsonl_session,
@@ -58,6 +59,15 @@ def _claude_tool_use(name: str, input_: dict | None = None) -> dict:
 # ===================================================================
 
 class TestParseClaudeJsonl:
+    def test_extract_claude_session_cwd_reads_record_metadata(self, tmp_path: Path):
+        project_cwd = tmp_path / "Unity Project" / "Assets"
+        p = _write_jsonl(tmp_path / "session.jsonl", [
+            {"cwd": str(project_cwd), **_claude_user_record("Hello")},
+            _claude_assistant_text("Hi there, how can I help?"),
+        ])
+
+        assert extract_claude_session_cwd(p) == project_cwd
+
     def test_basic_user_assistant_turns(self, tmp_path: Path):
         p = _write_jsonl(tmp_path / "session.jsonl", [
             _claude_user_record("Hello"),
@@ -324,6 +334,14 @@ class TestExtractHeuristicEntries:
         turns = [_claude_turn("", ["the fix was to increase the timeout to 30s"])]
         entries = extract_heuristic_entries(turns, "demo", "sess-1")
         assert any(e.category == "bug" for e in entries)
+
+    def test_tool_api_errors_are_not_distilled_as_bugs(self):
+        turns = [_claude_turn("", [
+            "API Error: 400 Kiro API error: CONTENT_LENGTH_EXCEEDS. "
+            "An exception occurred while sending a tool request."
+        ])]
+        entries = extract_heuristic_entries(turns, "demo", "sess-1")
+        assert entries == []
 
     def test_convention_pattern(self):
         turns = [_claude_turn("", ["the standard is to use snake_case"])]

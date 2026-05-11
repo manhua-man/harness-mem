@@ -14,6 +14,7 @@ from harness_mem.commands.support import (
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
+from harness_mem.wake_selection import select_wake_memory_entries
 
 
 async def cmd_wake_up(project_name: str | None) -> int:
@@ -30,8 +31,10 @@ async def cmd_wake_up(project_name: str | None) -> int:
         if profile:
             profile_chars = len(profile.project_name or "") + len(profile_text(profile))
             print(f"# Project Profile  (source: profile, ~{profile_chars} chars)")
-            print(f"Description: {profile.description}")
-            print(f"Stacks: {', '.join(profile.stacks)}")
+            if profile.description:
+                print(f"Description: {profile.description}")
+            if profile.stacks:
+                print(f"Stacks: {', '.join(profile.stacks)}")
             if profile.key_files:
                 print("Key files:")
                 for key_file in profile.key_files[:5]:
@@ -40,6 +43,8 @@ async def cmd_wake_up(project_name: str | None) -> int:
                 print("Conventions:")
                 for convention in profile.conventions[:5]:
                     print(f"  - {convention}")
+            if not any([profile.description, profile.stacks, profile.key_files, profile.conventions]):
+                print("(empty profile)")
             print()
         else:
             print("# Project Profile  (source: profile, empty)")
@@ -106,7 +111,8 @@ async def cmd_wake_up(project_name: str | None) -> int:
                     print(f"  📍 {source}")
             print()
 
-        entries = await backend.structured_store.list_memory_entries(project_name, limit=5)
+        entry_candidates = await backend.structured_store.list_memory_entries(project_name, limit=50)
+        entries = select_wake_memory_entries(entry_candidates, limit=5)
         if entries:
             entry_chars = sum(len(entry.content or "") for entry in entries)
             print(f"# Memory Entries  (source: structured_memory, {len(entries)} entries, ~{entry_chars} chars)")

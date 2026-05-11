@@ -41,6 +41,35 @@ Issue = dict[str, str]
 # Claude Code .jsonl parser
 # ---------------------------------------------------------------------------
 
+def extract_claude_session_cwd(session_path: Path, *, max_lines: int = 50) -> Path | None:
+    """Return the first usable ``cwd`` recorded in a Claude Code session.
+
+    Claude stores project identity under ``~/.claude/projects`` using a
+    normalized name, but individual session records usually preserve the real
+    working directory.  Runtime commands use that cwd to build a project profile
+    from source files instead of scanning the Claude session cache.
+    """
+    try:
+        content = session_path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return None
+
+    for index, line in enumerate(content.splitlines()):
+        if index >= max_lines:
+            break
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line.strip())
+        except json.JSONDecodeError:
+            continue
+        cwd = record.get("cwd")
+        if isinstance(cwd, str) and cwd.strip():
+            return Path(cwd).expanduser()
+
+    return None
+
+
 def parse_claude_jsonl_session(
     session_path: Path,
     *,
@@ -365,9 +394,9 @@ HEURISTIC_PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r"\bthe fix was\b", re.I), "bug", "the fix was"),
     (re.compile(r"\bworkaround[:\s]+\b", re.I), "bug", "workaround"),
     (re.compile(r"\bthe workaround is\b", re.I), "bug", "the workaround is"),
-    (re.compile(r"\berror[:\s]+\b(?!http)", re.I), "bug", "error"),
-    (re.compile(r"\bfailed with\b", re.I), "bug", "failed with"),
-    (re.compile(r"\bexception\b", re.I), "bug", "exception"),
+    (re.compile(r"\bthe root cause was\b", re.I), "bug", "the root cause was"),
+    (re.compile(r"\bthe issue was fixed by\b", re.I), "bug", "the issue was fixed by"),
+    (re.compile(r"\bfixed by\b", re.I), "bug", "fixed by"),
     (re.compile(r"\bI extracted\b", re.I), "architecture", "I extracted"),
     (re.compile(r"\bsplit into\b", re.I), "architecture", "split into"),
     (re.compile(r"\bfile structure[:\s]+\b", re.I), "convention", "file structure"),
@@ -588,6 +617,7 @@ def _append_issue(
 __all__ = [
     "Turn",
     "Issue",
+    "extract_claude_session_cwd",
     "parse_claude_jsonl_session",
     "parse_codex_jsonl_session",
     "list_session_files",

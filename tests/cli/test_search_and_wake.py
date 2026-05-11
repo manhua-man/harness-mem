@@ -169,6 +169,37 @@ def test_search_surfaces_observation_id_for_show(data_dir: Path, capsys: pytest.
     assert "session: search-session-001" in captured
 
 
+def test_search_preview_is_centered_on_observation_match(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observation = Observation(
+            id="obs-search-preview",
+            session_id="search-preview-session",
+            client="claude-code",
+            raw_content=(
+                "EARLY START. "
+                + "filler text that should not dominate the result preview. " * 8
+                + "修复后创建ScriptableObject配置。"
+            ),
+            content_type="transcript",
+            metadata={"project_name": "demo"},
+            tags=["search"],
+        )
+        run(backend.verbatim_store.save(observation))
+    finally:
+        run(backend.close())
+
+    assert run(cli.cmd_search("demo", "ScriptableObject", "fts")) == 0
+    captured = capsys.readouterr().out
+    assert "[obs-search-preview]" in captured
+    assert "ScriptableObject" in captured
+    assert "EARLY START" not in captured
+
+
 def test_timeline_surfaces_observation_id_for_show(data_dir: Path, capsys: pytest.CaptureFixture[str]):
     backend = LocalMemoryBackend(data_dir)
     run(backend.init())

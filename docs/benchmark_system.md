@@ -182,11 +182,20 @@
 - 继续作为 retrieval 主 benchmark
 - 重点盯 `multi-session`、`temporal-reasoning`、`preference-like` 类型
 - 作为 V1 到 V1.x 的主要对外参照
+- 对 Temporal Bias，使用真实 hybrid 对照命令：
+  `python -m harness_mem.tools.longmemeval <data.json> --mode hybrid --use-real-hybrid --compare-temporal-bias --out benchmarks/results/results_harness_hybrid_temporal_compare_top5_<date>.json`
+
+依赖：
+
+- 从源码树直接运行 benchmark 时不需要安装独立工具包，使用 `python -m harness_mem.tools.longmemeval ...` 即可。
+- clean env 需要安装 benchmark extra：`pip install -e ".[benchmark]"`。
+- 若使用真实 hybrid / vector 路径，再同时安装 hybrid extra：`pip install -e ".[benchmark,hybrid]"`。
 
 注意：
 
 - LongMemEval 结果只能说明长期记忆检索能力，不等于整个产品已经成立
 - 不能把 `python -m harness_mem.tools.longmemeval` 的结果直接包装成完整产品 benchmark
+- `--compare-temporal-bias` 只回答 retrieval 排序问题；默认启用还需要 daily wake-up benchmark 证明不会挤掉旧但关键的 memory
 
 ### 2. LoCoMo
 
@@ -266,6 +275,8 @@
 应完成：
 
 - wake-up benchmark
+  - 已有 `daily-wake-temporal-safety` 报告型 gate，用固定夹具检查旧但关键的 memory 是否会被最近普通 memory 挤出
+  - wake memory selection 采用“最近条目 + 重要性保护”，避免纯 recency 选择
 - task resume benchmark
 - learning loop benchmark
 - local mode benchmark

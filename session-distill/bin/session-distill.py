@@ -267,7 +267,7 @@ def generate_packet(session, packet_path):
         "## Suggested Next Step",
         "",
         "1. Read this packet",
-        "2. Query claude-mem for dedup",
+        "2. Query existing memory for dedup",
         f"3. Write session note -> distilled/sessions/{session['session_id']}.md",
         "4. Append to knowledge-base.md",
         "5. Decide whether to promote to project rules",

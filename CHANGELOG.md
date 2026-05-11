@@ -21,8 +21,31 @@
   - `purge` 新增 `-p/--project`，对 `structured` / `all` 不再静默依赖活动项目
   - CLI 会把 command / next-step 事件写入本地 `events.log`
   - 新增 `hybrid` optional extra，用于显式安装 `sentence-transformers`
+  - `ingest` / `wake` 对空 profile 的输出更明确，不再打印空的 profile 字段
+
+- **Workflow skill 边界**
+  - 新增项目级 `grill-me` / `answer-me` / `ask-me` 可选协作者资产
+  - `session-distill` 主链保持 `packet-memory-export -> memory-drafts review` 作为默认 draft gate
+  - `mem-distill` 保持既有 memory / observations 整理入口，不进入 raw session promotion 主链
+
+- **Temporal Bias benchmark gate**
+  - LongMemEval 工具新增 `--temporal-bias` 与 `--compare-temporal-bias`
+  - 新增 `benchmark` optional extra，声明 LongMemEval 工具所需的 `PyStemmer`
+  - benchmark 临时 observations 表现在保留 timestamp，真实 `HybridSearchLayer` 路径可以评测 recency tie-break
+  - 对照输出会记录 baseline、temporal-bias、per-type delta 和是否可进入 dogfood 的 gate 判断
+  - 性能 benchmark 新增 `daily-wake-temporal-safety` 报告型 gate，用固定夹具检查旧但关键的 memory 是否会被最近普通 memory 挤出
+  - wake-up memory 选择新增重要性保护，保留最近条目的同时为高置信、已使用或标记 critical / expected-wake 的旧 memory 预留保护名额
 
 ### Fixed
+
+- **真实 Claude 项目体验修复**
+  - `ingest claude-code` 现在会读取 session 里的真实 `cwd` 来识别项目 profile，支持从 Unity `Assets/` 目录归一到工程根
+  - Unity profile 新增 `unity` / `csharp` 识别与 `ProjectSettings/ProjectVersion.txt`、`Packages/manifest.json` 等 key files
+  - Claude observation 摘要保留 session 开头和结尾，避免大 session 的最近结论完全搜不到
+  - observation FTS 索引会为中英混排文本补 token 边界，`创建ScriptableObject配置` 可被 `ScriptableObject` 命中
+  - search 结果 preview 现在优先展示命中上下文，而不是固定显示 transcript 开头
+  - `distill` 无稳定模式可提升时返回成功扫描结果，不再把“0 条可提升记忆”当作命令失败
+  - distill 的 bug heuristic 不再把普通 `API Error` / `exception` / `failed with` 工具噪声提升为长期 memory
 
 - **`purge` 回归修复**
   - 修复 `--before` 与持久化 UTC 时间戳比较时的 naive/aware datetime 崩溃

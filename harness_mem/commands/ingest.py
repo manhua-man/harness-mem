@@ -6,7 +6,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from harness_mem.adapters import AdapterRegistry
+from harness_mem.adapters.parser import extract_claude_session_cwd
 from harness_mem.adapters.protocol import SessionRecord
+from harness_mem.adapters.claude_code.project_profile_detector import (
+    build_project_profile,
+    normalize_project_root,
+)
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     log_cli_event,
@@ -14,7 +19,6 @@ from harness_mem.commands.support import (
     resolve_project_name,
     set_active_project,
 )
-from harness_mem.adapters.claude_code.project_profile_detector import build_project_profile
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.event_log import EventType
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -125,14 +129,22 @@ async def _ingest_claude_code(
     await profile_store.save(profile)
 
     if not profile.stacks:
-        sessions_dir = Path.home() / ".claude" / "projects"
-        project_path = sessions_dir / project_name
+        sessions_dir_value = getattr(adapter, "sessions_dir", Path.home() / ".claude" / "projects")
+        sessions_dir = sessions_dir_value if isinstance(sessions_dir_value, Path) else Path(str(sessions_dir_value))
+        project_path = _infer_claude_project_root(
+            all_sessions,
+            fallback_project_path=sessions_dir / project_name,
+        )
         if project_path.exists():
             detected = build_project_profile(project_path, project_name)
             profile.stacks = detected.stacks
             profile.key_files = detected.key_files
             await profile_store.save(profile)
-            print(f"Auto-detected profile: {', '.join(profile.stacks)}")
+            detected_parts = [*profile.stacks, *profile.key_files[:3]]
+            if detected_parts:
+                print(f"Auto-detected profile: {', '.join(detected_parts)}")
+            else:
+                print("Auto-detected profile: no stack or key files found")
 
     set_active_project(project_name)
     extra = {
@@ -189,6 +201,25 @@ def _select_claude_candidate_sessions(
         return candidate_sessions[:limit]
 
     return all_sessions[:limit]
+
+
+def _infer_claude_project_root(
+    sessions: list[SessionRecord],
+    *,
+    fallback_project_path: Path,
+) -> Path:
+    for session in sessions[:5]:
+        session_path = session.get("path")
+        if session_path is None:
+            continue
+        cwd = extract_claude_session_cwd(Path(session_path))
+        if cwd is None:
+            continue
+        project_root = normalize_project_root(cwd)
+        if project_root.exists():
+            return project_root
+
+    return fallback_project_path
 
 
 def _report_non_claude_ingest_result(
