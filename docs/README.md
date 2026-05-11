@@ -4,11 +4,11 @@ This index lists the docs that exist in this checkout. Keep it synchronized when
 
 ## PRD Docs
 
+PRD 系列文档已在 2026-05-11 归档清理。当前活文档是：
+
 | File | Purpose |
 |------|---------|
-| `prd-02-roadmap.md` | Current roadmap and phase priorities |
-| `prd-07-metrics-risks-decisions.md` | Product positioning risks, metrics, and release gates |
-| `prd-09-v1-core-loop.md` | V1 core loop and quality baseline |
+| `roadmap-v13-v14-proposal.md` | 路线图、版本规划和当前收口状态 |
 
 ## Operating Docs
 
@@ -27,11 +27,11 @@ This index lists the docs that exist in this checkout. Keep it synchronized when
 
 | Path | Purpose |
 |------|---------|
-| `../session-distill/` | Raw session to packet / session note workflow asset |
-| `../mem-distill/` | Existing memory / observations cleanup and consolidation asset |
-| `../grill-me/` | Optional pressure-test collaborator for high-risk review conclusions |
-| `../answer-me/` | Optional evidence-gathering collaborator for under-evidenced drafts |
-| `../ask-me/` | Optional architecture and planning consultation collaborator |
+| `../tools/session-distill/` | Raw session to packet / session note workflow asset |
+| `../tools/mem-distill/` | Existing memory / observations cleanup and consolidation asset |
+| `../tools/grill-me/` | Optional pressure-test collaborator for high-risk review conclusions |
+| `../tools/answer-me/` | Optional evidence-gathering collaborator for under-evidenced drafts |
+| `../tools/ask-me/` | Optional architecture and planning consultation collaborator |
 
 Default promotion chain: `session-distill -> packet-memory-export -> memory-drafts review -> knowledge-base / sync-list / local-only`. Optional collaborators must not be treated as hard dependencies.
 

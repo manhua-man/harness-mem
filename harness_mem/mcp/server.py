@@ -548,7 +548,7 @@ def handle_request(request: dict) -> dict | None:
             "result": {
                 "protocolVersion": negotiated,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "harness-mem", "version": "0.1.0"},
+                "serverInfo": {"name": "harness-mem", "version": "1.4.0"},
             },
         }
 

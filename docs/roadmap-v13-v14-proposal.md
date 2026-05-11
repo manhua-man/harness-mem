@@ -362,6 +362,50 @@ v1.3（~3 周）                    v1.4（~3 周）                    v1.5（�
 
 ---
 
+---
+
+## v1.4 收口规划（2026-05-11 追加）
+
+v1.3/v1.4 的能力面已进入收口状态。剩余工作不是新功能，而是**证明已有功能的质量、完成未竟的内部工程收口、并积累真实使用数据**。
+
+拆为两个小版本，每个 1-2 周，目标明确、可独立验证：
+
+### v1.4.1 — 检索质量证明 + cli.py 瘦身
+
+| 条目 | 目标 | 验证标准 | 优先级 |
+|------|------|----------|--------|
+| Temporal Bias benchmark 对照 | 跑完整 LongMemEval `--compare-temporal-bias` 对照，量化 temporal bias 对各题型的正/负影响 | 产出 benchmark JSON + 结论文档（是否应默认启用） | P0 |
+| Relation Facts 增益证明 | 用 recall benchmark 证明 Relation Facts 对 search/wake 结果有可测量增益 | 至少一个题型 R@5 有 ≥1pp 提升，或明确结论"当前抽取质量不足" | P1 |
+| cli.py 继续拆分 | 把剩余交互式逻辑和 dispatch 迁入 `commands/`，cli.py 降至 <500 行 | `wc -l cli.py` < 500，所有命令测试仍通过 | P1 |
+| Adapter 契约测试 | 为 `SessionAdapter` / `AdapterRegistry` 增加直接契约测试 | 新增 adapter 只需创建文件 + 注册，不需改入口文件 | P2 |
+
+**退出条件：** Temporal Bias 有 benchmark 结论 + cli.py < 500 行 + pytest 全通过
+
+### v1.4.2 — 记忆质量闭环 + 版本封口
+
+| 条目 | 目标 | 验证标准 | 优先级 |
+|------|------|----------|--------|
+| 记忆质量自动清理建议 | `purge --dry-run` 接入 usage_count / last_accessed_at 评分，展示低质量候选 | doctor/purge 输出包含质量评分列，dry-run 可预览 | P0 |
+| Temporal Bias 默认策略决定 | 基于 v1.4.1 benchmark 结论，决定是否默认启用 | 文档记录决定 + 理由 | P0 |
+| Dogfooding 数据收集 | 用 harness-mem 管理自身开发记忆 ≥2 周，积累真实使用数据 | doctor 输出 ≥50 sessions、≥100 observations，无断裂 | P1 |
+| 版本号封口 | bump 到 v1.5.0 或标记 V1.x 结束 | CHANGELOG 更新、版本号一致 | P2 |
+
+**退出条件：** 质量清理可用 + Temporal Bias 策略确定 + 自身 dogfooding ≥2 周无阻断
+
+### 更新后的路线图全景
+
+```
+v1.3（完成）  v1.4（完成）  v1.4.1（进行中）  v1.4.2（计划）    v1.5（计划）
+┌─────────┐  ┌─────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────┐
+│ purge   │  │ proven. │  │ TB benchmark │  │ 质量闭环     │  │ Cursor   │
+│ hybrid  │─→│ LL MCP  │─→│ RF 增益证明  │─→│ 默认策略封口 │─→│ Gemini   │──→ V2
+│ CLI 微调│  │ cli 拆分│  │ cli <500行   │  │ dogfooding   │  │ adapter  │
+│ DevEx   │  │ RF / TB │  │ 契约测试     │  │ 版本封口     │  │          │
+└─────────┘  └─────────┘  └──────────────┘  └──────────────┘  └──────────┘
+```
+
+---
+
 ## 八方评审原始文件
 
 | 视角 | 来源 | 文件 |

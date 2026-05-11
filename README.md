@@ -17,7 +17,7 @@ Local-first, pluggable AI memory runtime for Claude Code and Codex.
 - 验证链：`ruff`、`mypy harness_mem`、`python -m pytest -q` 当前通过；最新测试读数为 `174 passed`
 - LongMemEval `R@5 >= 94%` 的阶段目标已达成：当前最佳 `R@5 = 94.18%`
 - `correct` / `handoff` 输入校验、storage 直接单元测试、`cmd_purge` / `cmd_distill` / `cmd_use` / `cmd_profile` 拆分、RelationFact 存储/search/MCP/distill/wake 闭环、MemoryEntry 访问计数 / stale 摘要、Temporal Bias 显式 search 开关、LongMemEval 对照 gate、`daily-wake-temporal-safety` gate 与 wake 重要性保护已补强；剩余收口重点是 Temporal Bias 完整数据集证明、真实 dogfooding / 外部用户验证，以及 hybrid 检索的性能缓存
-- `session-distill` 主链边界已更新，`grill-me` / `answer-me` / `ask-me` / `mem-distill` 作为项目内可选 workflow 协作者登记，不默认联动、不阻塞主链
+- `tools/session-distill` 主链边界已更新，`tools/grill-me` / `tools/answer-me` / `tools/ask-me` / `tools/mem-distill` 作为项目内可选 workflow 协作者登记，不默认联动、不阻塞主链
 - 详细阶段状态见 [docs/roadmap-v13-v14-proposal.md](./docs/roadmap-v13-v14-proposal.md)
 
 Release notes: [v1.0.1](./docs/v1.0.1-release-notes.md)
@@ -49,9 +49,9 @@ Docs index: [docs/README.md](./docs/README.md)
 - `benchmarks/`: benchmark 结果与评测相关内容
 - `.claude/` / `.codex/` / `.cursor/`: 多 Agent 协作配置
 - `openspec/`: 变更提案和 spec 资产
-- `session-distill/`: raw session -> packet 主入口
-- `mem-distill/`: 既有 memory / observations 整理入口
-- `grill-me/` / `answer-me/` / `ask-me/`: review 阶段可选协作者，不是默认主链依赖
+- `tools/session-distill/`: raw session -> packet 主入口
+- `tools/mem-distill/`: 既有 memory / observations 整理入口
+- `tools/grill-me/` / `tools/answer-me/` / `tools/ask-me/`: review 阶段可选协作者，不是默认主链依赖
 
 文档入口和实际文件列表见 [docs/README.md](./docs/README.md)。
 

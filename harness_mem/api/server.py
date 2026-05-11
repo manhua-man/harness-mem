@@ -38,7 +38,7 @@ from harness_mem.core.schemas import ConfirmedRule, RuleCandidate
 
 
 DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
-VERSION = "1.2.0"
+VERSION = "1.4.0"
 
 # Singleton backend
 _backend: LocalMemoryBackend | None = None
