@@ -196,11 +196,9 @@ def test_search_memory_reports_effective_mode(
             "project_name": "test-project",
             "query": "SQLite FTS5",
             "mode": "hybrid",
-            "temporal_bias": True,
         },
     })
     result = resp["result"]["content"][0]["text"]
     data = json.loads(result)
     assert data["effective_mode"] == "hybrid"
-    assert data["temporal_bias"] is True
     assert data["memory_entries"][0]["search_mode"] == "hybrid"

@@ -29,5 +29,4 @@ def test_daily_wake_temporal_safety_retains_old_critical_memory(tmp_path):
     assert result["critical_retained"] is True
     assert result["critical_recall"] == 1.0
     assert result["gate"] == "pass"
-    assert result["default_temporal_bias_candidate"] is True
     assert len(result["selected_ids"]) == 5

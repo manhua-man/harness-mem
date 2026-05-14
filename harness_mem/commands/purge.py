@@ -18,11 +18,24 @@ def _as_utc(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+def _quality_label(entry: object) -> str:
+    """Classify a memory entry by usage recency."""
+    usage = getattr(entry, "usage_count", 0) or 0
+    last_acc = getattr(entry, "last_accessed_at", None)
+    if usage == 0:
+        return "never-accessed"
+    if last_acc is None:
+        return "stale"
+    return "active"
+
+
 async def cmd_purge(
     before_date: str,
     category: str,
     dry_run: bool,
     project_name: str | None = None,
+    *,
+    stale_only: bool = False,
 ) -> int:
     """Soft-delete observations/structured memory before a given date."""
     try:
@@ -43,6 +56,7 @@ async def cmd_purge(
     await backend.init()
     try:
         total_deleted = 0
+        total_matched = 0
         observations_deleted = 0
         structured_deleted = 0
 
@@ -59,6 +73,7 @@ async def cmd_purge(
                 )
             ]
             if to_delete:
+                total_matched += len(to_delete)
                 if dry_run:
                     target_scope = f" for project '{resolved_project}'" if resolved_project else ""
                     print(
@@ -85,15 +100,28 @@ async def cmd_purge(
                 entry for entry in entries
                 if entry.created_at and _as_utc(entry.created_at) < cutoff
             ]
+
+            if stale_only:
+                entries_to_delete = [
+                    e for e in entries_to_delete
+                    if _quality_label(e) in ("never-accessed", "stale")
+                ]
+
             if entries_to_delete:
+                total_matched += len(entries_to_delete)
                 if dry_run:
+                    stale_note = " (stale only)" if stale_only else ""
                     print(
                         f"[DRY RUN] Would soft-delete {len(entries_to_delete)} structured memories "
-                        f"before {before_date} for project '{resolved_project}'"
+                        f"before {before_date} for project '{resolved_project}'{stale_note}"
                     )
                     for entry in entries_to_delete[:10]:
-                        preview = entry.content[:80].replace("\n", " ")
-                        print(f"  - {entry.id} [{entry.category}] {preview}...")
+                        preview = entry.content[:60].replace("\n", " ")
+                        quality = _quality_label(entry)
+                        usage = getattr(entry, "usage_count", 0) or 0
+                        last_acc = getattr(entry, "last_accessed_at", None)
+                        acc_str = last_acc.strftime("%Y-%m-%d") if last_acc else "never"
+                        print(f"  - {entry.id} [{entry.category}] uses={usage} last={acc_str} ({quality}) {preview}...")
                     if len(entries_to_delete) > 10:
                         print(f"  ... and {len(entries_to_delete) - 10} more")
                 else:
@@ -103,10 +131,11 @@ async def cmd_purge(
                     structured_deleted = len(entries_to_delete)
                     print(f"Soft-deleted {len(entries_to_delete)} structured memories.")
 
-        if total_deleted == 0 and not (category in ("observations", "all") or category in ("structured", "all")):
+        if total_matched == 0 and not (category in ("observations", "all") or category in ("structured", "all")):
             print("Nothing to purge. Try --category observations, --category structured, or --category all.")
-        elif total_deleted == 0:
-            print(f"No entries found before {before_date} in category '{category}'.")
+        elif total_matched == 0:
+            scope = "stale " if stale_only else ""
+            print(f"No {scope}entries found before {before_date} in category '{category}'.")
 
         if not dry_run and total_deleted > 0:
             print("Run 'harness-mem doctor' to check new memory budget.")
@@ -118,13 +147,14 @@ async def cmd_purge(
                     "before_date": before_date,
                     "observations_deleted": observations_deleted,
                     "structured_deleted": structured_deleted,
+                    "stale_only": stale_only,
                 },
             )
         elif dry_run:
             log_command_invoked(
                 "purge",
                 project_name=resolved_project,
-                extra={"category": category, "before_date": before_date, "dry_run": True},
+                extra={"category": category, "before_date": before_date, "dry_run": True, "stale_only": stale_only},
             )
         return 0
     finally:

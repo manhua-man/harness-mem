@@ -56,14 +56,14 @@
 | Learning Loop MCP 升级 | 已完成 | `reject_rule` 与 `suggest_rule` 已存在，Learning Loop 的 MCP 闭环基本补齐 |
 | `cli.py` 拆分 + Adapter Protocol 统一 | 部分完成 | `commands/`、`AdapterRegistry` 与 `SessionAdapter` 已落地；`cmd_purge`、`cmd_distill`、`cmd_use` 与只读 `cmd_profile` 已迁出，`cli.py` 已降到约 839 行，仍需继续瘦身和补契约测试 |
 | Relation Facts | V1 闭环已落地 | `RelationFact` schema、structured store 接口、SQLite/本地 JSON 存储、CLI/MCP search、distill 写入与 wake 注入已存在；剩余是 benchmark 证明和更高质量抽取 |
-| Temporal Bias | 显式 search 开关已落地 | CLI `search --temporal-bias`、MCP `search_memory.temporal_bias` 与 REST `/search?temporal_bias=true` 可启用同分时间排序；默认仍关闭，等待 benchmark 证明后再考虑默认启用 |
+| Temporal Bias | 已验证无价值并移除 | 经 benchmark 验证：初始实现 500/500 问题完全无效，修复后在同分场景降低召回率。功能已于 2026-05-12 完全移除，分析证据见 `docs/temporal-bias-analysis.md` |
 | 记忆质量评分 | 最小闭环已落地 | `MemoryEntry` 已记录 `usage_count` / `last_accessed_at`，search/wake/MCP 返回 entry 时会更新访问计数，`doctor` 会展示 stale / never-accessed 摘要；自动清理策略仍未完成 |
 
 ### 阶段判断
 
 - **不是“V1.x 已结束”**，而是：`v1.3 / v1.4` 的 OpenSpec 变更已归档，主规格、测试门与 LongMemEval 检索指标已收口，但记忆质量维护和真实使用证明仍未达标。
 - 因此这份路线图当前应被理解为：**能力面和验证链已经进入收口状态，下一步应优先证明记忆质量维护、真实使用留存和 hybrid 检索性能。**
-- **下一步优先级：先做 Temporal Bias benchmark，再继续拆 `cli.py`。** Temporal Bias 会影响用户可见 search / wake 结果排序和默认策略，必须先用 benchmark 证明“不隐藏旧但更相关的记忆”；继续拆 `cli.py` 主要降低内部维护成本，可以在 benchmark 结论后按命令模块继续推进。
+- **下一步优先级：继续拆 `cli.py`，然后做 Relation Facts 增益证明。** Temporal Bias 经 benchmark 验证无价值已移除。
 
 ---
 
@@ -267,25 +267,20 @@
 
 ---
 
-### P2: Temporal Bias
+### ~~P2: Temporal Bias~~ (已验证无价值，已移除)
 
-**当前状态（2026-05-11）：显式 search 开关已完成，默认策略未完成。**
+**当前状态（2026-05-12）：经 benchmark 验证无价值，功能已完全移除。**
 
 | 来源 | 优先级 |
 |------|--------|
 | Eng: P2 | Health: 质量门槛相关 |
 
-**已完成：**
-- `HybridSearchLayer` 支持构造级和 per-call temporal bias，在同分结果中用 observation timestamp、memory updated_at、handoff last_activity、rule created/confirmed 时间做排序。
-- CLI `search --temporal-bias`、MCP `search_memory.temporal_bias` 与 REST `/search?temporal_bias=true` 已接入。
-- LongMemEval 工具已补 `--temporal-bias` 和 `--compare-temporal-bias`，可以跑真实 hybrid 的 baseline vs temporal-bias 对照，并输出 avg / per-type delta 与 gate 判断。
-- `harness_mem.benchmarks` 已补 `daily-wake-temporal-safety` 报告型 gate，wake memory selection 已加入重要性保护，避免旧但关键的 memory 被最近普通条目挤出。
-- 默认关闭，避免无 benchmark 证明时把新近内容误当作更相关内容。
-
-**剩余实现：**
-- 跑完整 LongMemEval 对照：`python -m harness_mem.tools.longmemeval <data.json> --mode hybrid --use-real-hybrid --compare-temporal-bias --out benchmarks/results/results_harness_hybrid_temporal_compare_top5_<date>.json`。
-- 用真实 dogfooding 数据跑 wake gate，确认重要性保护不会让过期高 usage memory 长期占位。
-- 决定何时允许默认启用。
+**验证结论：**
+- 初始实现中，temporal bias 作为同分 tie-breaker，但 500/500 个 LongMemEval 问题的检索结果完全相同（RRF 分数量级差异不足以产生同分）。
+- 修复量化精度后，temporal bias 在同分场景下反而降低了召回率（将更新但相关性更低的结果排在前面）。
+- 功能已于 2026-05-12 完全移除：CLI `--temporal-bias`、MCP `temporal_bias` 参数、REST API 参数、`HybridSearchLayer` 中的量化排序逻辑及相关 benchmark 工具。
+- 完整分析证据见 `docs/temporal-bias-analysis.md` 和 `docs/temporal-bias-fix-summary.md`。
+- `daily-wake-temporal-safety` gate 和 wake 重要性保护机制保留（它们不依赖 temporal bias）。
 
 ---
 
@@ -374,33 +369,32 @@ v1.3/v1.4 的能力面已进入收口状态。剩余工作不是新功能，而�
 
 | 条目 | 目标 | 验证标准 | 优先级 |
 |------|------|----------|--------|
-| Temporal Bias benchmark 对照 | 跑完整 LongMemEval `--compare-temporal-bias` 对照，量化 temporal bias 对各题型的正/负影响 | 产出 benchmark JSON + 结论文档（是否应默认启用） | P0 |
-| Relation Facts 增益证明 | 用 recall benchmark 证明 Relation Facts 对 search/wake 结果有可测量增益 | 至少一个题型 R@5 有 ≥1pp 提升，或明确结论"当前抽取质量不足" | P1 |
+| ~~Temporal Bias benchmark 对照~~ | ~~已验证无价值并移除~~ | benchmark 结论：无效→有害，已移除 | ~~P0~~ 已完成 |
+| Relation Facts 增益证明 | 用 recall benchmark 证明 Relation Facts 对 search/wake 结果有可测量增益 | 至少一个题型 R@5 有 >=1pp 提升，或明确结论"当前抽取质量不足" | P1 |
 | cli.py 继续拆分 | 把剩余交互式逻辑和 dispatch 迁入 `commands/`，cli.py 降至 <500 行 | `wc -l cli.py` < 500，所有命令测试仍通过 | P1 |
 | Adapter 契约测试 | 为 `SessionAdapter` / `AdapterRegistry` 增加直接契约测试 | 新增 adapter 只需创建文件 + 注册，不需改入口文件 | P2 |
 
-**退出条件：** Temporal Bias 有 benchmark 结论 + cli.py < 500 行 + pytest 全通过
+**退出条件：** cli.py < 500 行 + pytest 全通过
 
 ### v1.4.2 — 记忆质量闭环 + 版本封口
 
 | 条目 | 目标 | 验证标准 | 优先级 |
 |------|------|----------|--------|
 | 记忆质量自动清理建议 | `purge --dry-run` 接入 usage_count / last_accessed_at 评分，展示低质量候选 | doctor/purge 输出包含质量评分列，dry-run 可预览 | P0 |
-| Temporal Bias 默认策略决定 | 基于 v1.4.1 benchmark 结论，决定是否默认启用 | 文档记录决定 + 理由 | P0 |
-| Dogfooding 数据收集 | 用 harness-mem 管理自身开发记忆 ≥2 周，积累真实使用数据 | doctor 输出 ≥50 sessions、≥100 observations，无断裂 | P1 |
+| Dogfooding 数据收集 | 用 harness-mem 管理自身开发记忆 >=2 周，积累真实使用数据 | doctor 输出 >=50 sessions、>=100 observations，无断裂 | P1 |
 | 版本号封口 | bump 到 v1.5.0 或标记 V1.x 结束 | CHANGELOG 更新、版本号一致 | P2 |
 
-**退出条件：** 质量清理可用 + Temporal Bias 策略确定 + 自身 dogfooding ≥2 周无阻断
+**退出条件：** 质量清理可用 + 自身 dogfooding >=2 周无阻断
 
 ### 更新后的路线图全景
 
 ```
 v1.3（完成）  v1.4（完成）  v1.4.1（进行中）  v1.4.2（计划）    v1.5（计划）
 ┌─────────┐  ┌─────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────┐
-│ purge   │  │ proven. │  │ TB benchmark │  │ 质量闭环     │  │ Cursor   │
-│ hybrid  │─→│ LL MCP  │─→│ RF 增益证明  │─→│ 默认策略封口 │─→│ Gemini   │──→ V2
-│ CLI 微调│  │ cli 拆分│  │ cli <500行   │  │ dogfooding   │  │ adapter  │
-│ DevEx   │  │ RF / TB │  │ 契约测试     │  │ 版本封口     │  │          │
+│ purge   │  │ proven. │  │ RF 增益证明  │  │ 质量闭环     │  │ Cursor   │
+│ hybrid  │─→│ LL MCP  │─→│ cli <500行   │─→│ dogfooding   │─→│ Gemini   │──→ V2
+│ CLI 微调│  │ cli 拆分│  │ 契约测试     │  │ 版本封口     │  │ adapter  │
+│ DevEx   │  │ RF      │  │              │  │              │  │          │
 └─────────┘  └─────────┘  └──────────────┘  └──────────────┘  └──────────┘
 ```
 

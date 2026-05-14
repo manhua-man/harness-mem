@@ -84,7 +84,6 @@ def tool_search_memory(
     query: str,
     scope: str = "project",
     mode: str = "auto",
-    temporal_bias: bool = False,
 ) -> dict:
     """Search structured memory entries + verbatim observations."""
     backend = _get_backend()
@@ -104,7 +103,6 @@ def tool_search_memory(
             mode=mode,
             memory_entry_limit=20,
             observation_limit=20,
-            temporal_bias=temporal_bias,
         )
     )
     relation_facts = asyncio.run(
@@ -128,7 +126,6 @@ def tool_search_memory(
         "query": query,
         "scope": scope,
         "requested_mode": mode,
-        "temporal_bias": temporal_bias,
         "effective_mode": effective_mode,
         "fallback_reason": fallback_reason,
         "memory_entries": [serialize_memory_entry_search_result(entry, mode) for entry in entries],
@@ -382,7 +379,6 @@ TOOLS: dict[str, ToolSpec] = {
                 "query": {"type": "string", "description": "Search query"},
                 "scope": {"type": "string", "enum": ["project", "all"], "description": "Search scope: project or all (default: project)"},
                 "mode": {"type": "string", "enum": ["auto", "fts", "hybrid"], "description": "Search mode (default: auto)"},
-                "temporal_bias": {"type": "boolean", "description": "Tie-break hybrid results by recency (default: false)"},
             },
             "required": ["query"],
         },

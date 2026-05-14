@@ -20,7 +20,6 @@ async def cmd_search(
     project_name: str | None,
     query: str,
     mode: str = "auto",
-    temporal_bias: bool = False,
 ) -> int:
     """Search memory for a project."""
     project_name = resolve_project_name(project_name, action_label="search")
@@ -41,7 +40,6 @@ async def cmd_search(
             mode=mode,
             memory_entry_limit=10,
             observation_limit=10,
-            temporal_bias=temporal_bias,
         )
         relation_facts = await search_relation_facts(
             backend,
@@ -95,7 +93,6 @@ async def cmd_search(
             extra={
                 "query": query,
                 "requested_mode": mode,
-                "temporal_bias": temporal_bias,
                 "memory_entry_count": len(entries),
                 "relation_fact_count": len(relation_facts),
                 "observation_count": len(observations),

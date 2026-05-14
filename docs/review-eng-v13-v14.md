@@ -37,7 +37,7 @@
 | 版本 | 范围 | 工作量 | 理由 |
 |------|------|--------|------|
 | **v1.3** | 向量嵌入 + Hybrid Search + 索引可扩展性改造 | Medium | benchmark 报告明确核心瓶颈是语义鸿沟（-9.3pp at R@5），向量嵌入对 multi-session 和 temporal-reasoning 提升最大 |
-| **v1.4** | compaction/purging + relation facts + temporal bias | Medium | 这些功能依赖度低、风险小，但工程改动分散，放在向量落地后做更稳 |
+| **v1.4** | compaction/purging + relation facts + ~~temporal bias~~ (已移除) | Medium | temporal bias 经 benchmark 验证无价值已移除；其余功能依赖度低、风险小 |
 
 ### v1.3 详细步骤
 
@@ -71,9 +71,9 @@
    - 存储：JSON blob + SQLite 索引（simple key-value）
    - 不引入 graph DB，不做图遍历，只做 entity 级别的关联检索增强
 
-3. **temporal bias**
-   - 在 hybrid search 分数上叠加 `exp(-lambda * days_since)` 衰减
-   - 需在 `Observation` 上引入 `importance_score` 字段（distill 时估算）
+3. **~~temporal bias~~** (已移除)
+   - 经 benchmark 验证无价值：初始实现 500/500 问题完全无效，修复后降低召回率
+   - 功能已于 2026-05-12 完全移除，分析证据见 `docs/temporal-bias-analysis.md`
 
 ---
 
@@ -135,13 +135,13 @@ benchmark = ["pandas", "scikit-learn"]
 | ReRanker（cross-encoder） | **Medium**（2-3d） | 1-2 | `storage/reranker.py` + 模型懒加载 |
 | compaction/purging | **Small**（1d） | 3-4 改动 | `cli.py` 新命令 + `storage/` 新增方法 |
 | relation facts | **Small**（1-2d） | 3-4 | `core/schemas/relation_fact.py` + store 扩展 |
-| temporal bias | **Small**（1d） | 2-3 | hybrid search 分数加权 + schema 扩展 |
+| ~~temporal bias~~ | ~~Small（1d）~~ 已移除 | ~~2-3~~ | ~~hybrid search 分数加权 + schema 扩展~~ 经 benchmark 验证无价值，已移除 |
 
 ---
 
 ## 总结
 
 - **v1.3** 应聚焦 `HarnessVectorIndex` + `HybridSearchLayer`，不做大重构。SQLite FTS5 与向量索引没有冲突——FTS 继续走现有 SQLite 路径，向量走 numpy 路径，在搜索编排层合并。
-- **v1.4** 做 compaction、relation facts、temporal bias，这些是增量改善而非颠覆性的。
+- **v1.4** 做 compaction、relation facts，~~temporal bias~~（已移除），这些是增量改善而非颠覆性的。
 - **最大技术风险**是向量模型加载延迟和混合检索权重调优。两个都有明确的缓解方案（懒加载 + benchmark 验证）。
 - 不要让 v1.3 膨胀到包含 ReRanker 或 semantic chunk——那是 V2 的事情，不是 V1.x。

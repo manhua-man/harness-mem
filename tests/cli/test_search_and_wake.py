@@ -353,7 +353,7 @@ def test_search_logs_command_event(
     finally:
         run(backend.close())
 
-    assert run(cli.cmd_search("demo", "SQLite", "fts", temporal_bias=True)) == 0
+    assert run(cli.cmd_search("demo", "SQLite", "fts")) == 0
     _ = capsys.readouterr()
 
     backend = LocalMemoryBackend(data_dir)
@@ -367,12 +367,6 @@ def test_search_logs_command_event(
 
     events = read_events(data_dir)
     assert any(event["type"] == "command_invoked" and event["command"] == "search" for event in events)
-    assert any(
-        event["type"] == "command_invoked"
-        and event["command"] == "search"
-        and event["extra"]["temporal_bias"] is True
-        for event in events
-    )
     assert any(event["type"] == "next_step_adopted" and event["command"] == "search" for event in events)
 
 

@@ -6,6 +6,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Repo-local Codex plugin wrapper**
+  - Added `plugins/harness-mem/` with a Codex plugin manifest, harness-mem skill, MCP server config, and PowerShell install/doctor helpers.
+  - Added `.agents/plugins/marketplace.json` entry for local plugin discovery.
+  - The plugin packages existing runtime behavior only; it does not delete raw Claude/Codex session files.
+
+### Removed
+- **Temporal Bias feature** — removed `--temporal-bias` CLI flag, `temporal_bias` MCP/REST API parameter, and all related code. Benchmark evidence showed it was ineffective (500/500 questions identical) then harmful (reduced recall after fix). Analysis preserved in `docs/temporal-bias-analysis.md`.
+
 ### Changed
 
 - **增量 ingest 语义收紧**
@@ -28,10 +38,9 @@
   - `session-distill` 主链保持 `packet-memory-export -> memory-drafts review` 作为默认 draft gate
   - `mem-distill` 保持既有 memory / observations 整理入口，不进入 raw session promotion 主链
 
-- **Temporal Bias benchmark gate**
-  - LongMemEval 工具新增 `--temporal-bias` 与 `--compare-temporal-bias`
-  - 新增 `benchmark` optional extra，声明 LongMemEval 工具所需的 `PyStemmer`
-  - benchmark 临时 observations 表现在保留 timestamp，真实 `HybridSearchLayer` 路径可以评测 recency tie-break
+- **~~Temporal Bias benchmark gate~~** (已移除)
+  - ~~LongMemEval 工具新增 `--temporal-bias` 与 `--compare-temporal-bias`~~
+  - 经 benchmark 验证无价值，功能已于 2026-05-12 完全移除
   - 对照输出会记录 baseline、temporal-bias、per-type delta 和是否可进入 dogfood 的 gate 判断
   - 性能 benchmark 新增 `daily-wake-temporal-safety` 报告型 gate，用固定夹具检查旧但关键的 memory 是否会被最近普通 memory 挤出
   - wake-up memory 选择新增重要性保护，保留最近条目的同时为高置信、已使用或标记 critical / expected-wake 的旧 memory 预留保护名额

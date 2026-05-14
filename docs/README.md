@@ -27,6 +27,7 @@ PRD 系列文档已在 2026-05-11 归档清理。当前活文档是：
 
 | Path | Purpose |
 |------|---------|
+| `../plugins/harness-mem/` | Repo-local Codex plugin wrapper for the harness-mem skill, MCP config, and install/doctor scripts |
 | `../tools/session-distill/` | Raw session to packet / session note workflow asset |
 | `../tools/mem-distill/` | Existing memory / observations cleanup and consolidation asset |
 | `../tools/grill-me/` | Optional pressure-test collaborator for high-risk review conclusions |

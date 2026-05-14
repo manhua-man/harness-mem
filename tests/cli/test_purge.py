@@ -66,6 +66,7 @@ def test_purge_dry_run_handles_aware_timestamps_without_deleting(
 
     captured = capsys.readouterr().out
     assert "[DRY RUN] Would soft-delete" in captured
+    assert "No entries found" not in captured
 
 
 def test_purge_hides_soft_deleted_data_from_search_timeline_and_wake(
@@ -209,3 +210,93 @@ def test_purge_project_scope_only_removes_target_project_data(
         assert len(other_entries) == 1
     finally:
         run(backend.close())
+
+
+def test_purge_stale_only_skips_accessed_entries(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    """--stale-only should exclude entries that have been accessed."""
+    assert cli.cmd_use("demo") == 0
+
+    old = datetime.now(timezone.utc) - timedelta(days=120)
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        # Never-accessed entry → should appear in stale-only dry run
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="decision",
+                    content="Stale memory never accessed.",
+                    source="manual",
+                    created_at=old,
+                    updated_at=old,
+                )
+            )
+        )
+        # Accessed entry → should be excluded by --stale-only
+        accessed_id = run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="convention",
+                    content="Active memory that was accessed.",
+                    source="manual",
+                    created_at=old,
+                    updated_at=old,
+                )
+            )
+        )
+        # Simulate an access via touch
+        run(backend.structured_store.touch_memory_entry(accessed_id))
+    finally:
+        run(backend.close())
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
+
+    # Without --stale-only: both entries matched
+    assert run(cli.cmd_purge(cutoff, "structured", True, project_name="demo")) == 0
+    output_all = capsys.readouterr().out
+    assert "Would soft-delete 2 structured" in output_all
+
+    # With --stale-only: only the never-accessed entry
+    assert run(cli.cmd_purge(cutoff, "structured", True, project_name="demo", stale_only=True)) == 0
+    output_stale = capsys.readouterr().out
+    assert "Would soft-delete 1 structured" in output_stale
+    assert "stale only" in output_stale
+
+
+def test_purge_stale_only_dry_run_shows_quality_columns(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    """--stale-only dry-run output should include usage/last-accessed quality info."""
+    assert cli.cmd_use("demo") == 0
+
+    old = datetime.now(timezone.utc) - timedelta(days=120)
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="decision",
+                    content="Never accessed stale entry.",
+                    source="manual",
+                    created_at=old,
+                    updated_at=old,
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
+    assert run(cli.cmd_purge(cutoff, "structured", True, project_name="demo", stale_only=True)) == 0
+
+    output = capsys.readouterr().out
+    assert "uses=0" in output
+    assert "never-accessed" in output

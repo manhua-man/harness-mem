@@ -201,7 +201,7 @@ python -m harness_mem.tools.longmemeval <data_file> --mode hybrid --top-k 5
 
 ### 中期（V2）
 1. **semantic chunk**：session 内按语义段落分块，而非整段 FTS
-2. **temporal bias**：时间衰减权重，对近期 session 给予更高基础分
+2. ~~**temporal bias**：时间衰减权重，对近期 session 给予更高基础分~~ — 已 benchmark 验证无价值并移除（见 `docs/temporal-bias-analysis.md`）
 3. **person entity boost**：用户提到的姓名优先于关键词命中
 
 ---

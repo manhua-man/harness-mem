@@ -125,7 +125,6 @@ def create_app() -> FastAPI:
         type: str | None = Query(None, description="Memory type filter"),
         scope: str = Query("project", description="project or all"),
         mode: str = Query("auto", description="auto, fts, or hybrid"),
-        temporal_bias: bool = Query(False, description="Tie-break hybrid results by recency"),
         limit: int = Query(20, ge=1, le=100),
     ):
         if scope not in {"project", "all"}:
@@ -143,13 +142,11 @@ def create_app() -> FastAPI:
                 project_name=None,
                 limit=limit,
                 mode=mode,
-                temporal_bias=temporal_bias,
             )
             obs_list = await backend.verbatim_store.search(
                 query,
                 limit=limit,
                 mode=mode,
-                temporal_bias=temporal_bias,
             )
         else:
             entries = await backend.structured_store.search_memory_entries(
@@ -157,14 +154,12 @@ def create_app() -> FastAPI:
                 project_name=project_name,
                 limit=limit,
                 mode=mode,
-                temporal_bias=temporal_bias,
             )
             obs_list = await backend.verbatim_store.search(
                 query,
                 project_name=project_name,
                 limit=limit,
                 mode=mode,
-                temporal_bias=temporal_bias,
             )
 
         if type:

@@ -16,7 +16,7 @@ Local-first, pluggable AI memory runtime for Claude Code and Codex.
 - `v1.3 / v1.4`：OpenSpec 变更已归档到主规格，`openspec validate --all --strict` 通过
 - 验证链：`ruff`、`mypy harness_mem`、`python -m pytest -q` 当前通过；最新测试读数为 `174 passed`
 - LongMemEval `R@5 >= 94%` 的阶段目标已达成：当前最佳 `R@5 = 94.18%`
-- `correct` / `handoff` 输入校验、storage 直接单元测试、`cmd_purge` / `cmd_distill` / `cmd_use` / `cmd_profile` 拆分、RelationFact 存储/search/MCP/distill/wake 闭环、MemoryEntry 访问计数 / stale 摘要、Temporal Bias 显式 search 开关、LongMemEval 对照 gate、`daily-wake-temporal-safety` gate 与 wake 重要性保护已补强；剩余收口重点是 Temporal Bias 完整数据集证明、真实 dogfooding / 外部用户验证，以及 hybrid 检索的性能缓存
+- `correct` / `handoff` 输入校验、storage 直接单元测试、`cmd_purge` / `cmd_distill` / `cmd_use` / `cmd_profile` 拆分、RelationFact 存储/search/MCP/distill/wake 闭环、MemoryEntry 访问计数 / stale 摘要、Temporal Bias 经 benchmark 验证无价值已移除（分析证据见 `docs/temporal-bias-analysis.md`）、`daily-wake-temporal-safety` gate 与 wake 重要性保护已补强；剩余收口重点是 Relation Facts 增益证明、`cli.py` 继续瘦身至 <500 行、真实 dogfooding / 外部用户验证，以及 hybrid 检索的性能缓存
 - `tools/session-distill` 主链边界已更新，`tools/grill-me` / `tools/answer-me` / `tools/ask-me` / `tools/mem-distill` 作为项目内可选 workflow 协作者登记，不默认联动、不阻塞主链
 - 详细阶段状态见 [docs/roadmap-v13-v14-proposal.md](./docs/roadmap-v13-v14-proposal.md)
 

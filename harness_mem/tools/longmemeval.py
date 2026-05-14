@@ -407,8 +407,6 @@ class RealHybridSearch:
         self,
         query: str,
         limit: int = 20,
-        *,
-        temporal_bias: bool = False,
     ) -> list[tuple[str, float]]:
         """Full pipeline: FTS5 + vector via HybridSearchLayer (RRF)."""
         result = self._layer.search(
@@ -416,7 +414,6 @@ class RealHybridSearch:
             table="observations",
             limit=limit,
             mode="hybrid",
-            temporal_bias=temporal_bias,
         )
         return [
             (row["session_id"], row.get("_score", 0.0))
@@ -436,18 +433,13 @@ def run_benchmark(
     top_k: int = 5,
     out_file: str | None = None,
     use_real_hybrid: bool = False,
-    temporal_bias: bool = False,
 ) -> float:
-    if temporal_bias and not use_real_hybrid:
-        raise ValueError("temporal_bias requires use_real_hybrid=True")
-
     print(f"\n{'=' * 60}")
     print("  harness-mem × LongMemEval Benchmark")
     print(f"{'=' * 60}")
     print(f"  Data:        {Path(data_path).name}")
     print(f"  Mode:        {mode}")
     print(f"  Real hybrid: {use_real_hybrid}")
-    print(f"  Temporal:    {temporal_bias}")
     print(f"  Top-K:       {top_k}")
     print(f"  Limit:       {limit or 'all'}")
     print(f"{'─' * 60}\n")
@@ -514,7 +506,6 @@ def run_benchmark(
                 hybrid_results = _real_hybrid.search(
                     question,
                     limit=top_k,
-                    temporal_bias=temporal_bias,
                 )
                 retrieved_ids = [sid for sid, _ in hybrid_results]
             else:  # hybrid (synthetic)
@@ -574,7 +565,6 @@ def run_benchmark(
             json.dump({
                 "mode": mode,
                 "use_real_hybrid": use_real_hybrid,
-                "temporal_bias": temporal_bias,
                 "top_k": top_k,
                 "total_questions": len(data),
                 "avg_recall": avg_recall,
@@ -590,17 +580,10 @@ def default_output_path(
     mode: str,
     top_k: int,
     now: datetime | None = None,
-    *,
-    temporal_bias: bool = False,
-    comparison: bool = False,
 ) -> Path:
     """Return the default output path for benchmark results."""
     timestamp = (now or datetime.now()).strftime("%Y%m%d_%H%M")
     tag = f"_{mode}" if mode != "raw" else ""
-    if temporal_bias:
-        tag += "_temporal"
-    if comparison:
-        tag += "_temporal_compare"
     repo_root = Path(__file__).resolve().parents[2]
     return repo_root / "benchmarks" / "results" / f"results_harness{tag}_top{top_k}_{timestamp}.json"
 
@@ -626,113 +609,6 @@ def _as_float(value: object, default: float = 0.0) -> float:
     return default
 
 
-def _temporal_bias_gate(delta: dict[str, object]) -> dict[str, object]:
-    avg_delta = _as_float(delta.get("avg_recall", 0.0))
-    per_type = delta.get("per_type", {})
-    temporal_delta = None
-    if isinstance(per_type, dict) and "temporal-reasoning" in per_type:
-        temporal_delta = _as_float(per_type["temporal-reasoning"])
-
-    if temporal_delta is None:
-        return {
-            "search_default_candidate": False,
-            "decision": "needs-full-temporal-run",
-            "reason": "comparison output lacks temporal-reasoning questions",
-            "requires_wake_benchmark": True,
-        }
-    if avg_delta < 0:
-        return {
-            "search_default_candidate": False,
-            "decision": "keep-disabled",
-            "reason": "overall recall regressed",
-            "requires_wake_benchmark": True,
-        }
-    if temporal_delta <= 0:
-        return {
-            "search_default_candidate": False,
-            "decision": "keep-disabled",
-            "reason": "temporal-reasoning did not improve",
-            "requires_wake_benchmark": True,
-        }
-    return {
-        "search_default_candidate": True,
-        "decision": "candidate-for-dogfood",
-        "reason": "overall recall did not regress and temporal-reasoning improved",
-        "requires_wake_benchmark": True,
-    }
-
-
-def write_temporal_bias_comparison(
-    baseline_path: Path,
-    temporal_path: Path,
-    out_file: str,
-) -> dict[str, object]:
-    """Write a baseline-vs-temporal comparison summary."""
-    baseline = _load_result_summary(baseline_path)
-    temporal = _load_result_summary(temporal_path)
-    baseline_per = baseline["per_type"]
-    temporal_per = temporal["per_type"]
-    all_types = sorted(set(baseline_per) | set(temporal_per))
-    per_type_delta = {
-        qtype: float(temporal_per.get(qtype, 0.0)) - float(baseline_per.get(qtype, 0.0))
-        for qtype in all_types
-    }
-    delta: dict[str, object] = {
-        "avg_recall": float(temporal["avg_recall"]) - float(baseline["avg_recall"]),
-        "per_type": per_type_delta,
-    }
-    comparison = {
-        "mode": "hybrid",
-        "use_real_hybrid": True,
-        "top_k": json.loads(temporal_path.read_text(encoding="utf-8")).get("top_k"),
-        "baseline": baseline,
-        "temporal_bias": temporal,
-        "delta": delta,
-        "gate": _temporal_bias_gate(delta),
-    }
-
-    output_path = Path(out_file)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(comparison, indent=2), encoding="utf-8")
-    print(f"  Temporal comparison saved to: {output_path}")
-    return comparison
-
-
-def run_temporal_bias_comparison(
-    data_path: str,
-    limit: int = 0,
-    top_k: int = 5,
-    out_file: str | None = None,
-) -> dict[str, object]:
-    """Run real hybrid twice and compare temporal-bias deltas."""
-    comparison_path = Path(out_file) if out_file else default_output_path(
-        "hybrid",
-        top_k,
-        comparison=True,
-    )
-    baseline_path = comparison_path.with_name(f"{comparison_path.stem}_baseline.json")
-    temporal_path = comparison_path.with_name(f"{comparison_path.stem}_temporal.json")
-
-    run_benchmark(
-        data_path,
-        mode="hybrid",
-        limit=limit,
-        top_k=top_k,
-        out_file=str(baseline_path),
-        use_real_hybrid=True,
-        temporal_bias=False,
-    )
-    run_benchmark(
-        data_path,
-        mode="hybrid",
-        limit=limit,
-        top_k=top_k,
-        out_file=str(temporal_path),
-        use_real_hybrid=True,
-        temporal_bias=True,
-    )
-    return write_temporal_bias_comparison(baseline_path, temporal_path, str(comparison_path))
-
 
 # =============================================================================
 # CLI
@@ -751,33 +627,12 @@ def main() -> None:
     parser.add_argument("--out", default=None, help="Output JSON file")
     parser.add_argument("--use-real-hybrid", action="store_true",
                         help="Use real HybridSearchLayer (FTS+vector via RRF) instead of synthetic hybrid")
-    parser.add_argument("--temporal-bias", action="store_true",
-                        help="Tie-break real hybrid results by recency")
-    parser.add_argument("--compare-temporal-bias", action="store_true",
-                        help="Run real hybrid twice and write baseline-vs-temporal delta JSON")
     args = parser.parse_args()
-
-    if args.compare_temporal_bias:
-        if args.mode != "hybrid" or not args.use_real_hybrid:
-            parser.error("--compare-temporal-bias requires --mode hybrid --use-real-hybrid")
-        if not args.out:
-            args.out = str(default_output_path(args.mode, args.top_k, comparison=True))
-        run_temporal_bias_comparison(
-            args.data_file,
-            args.limit,
-            args.top_k,
-            args.out,
-        )
-        return
-
-    if args.temporal_bias and (args.mode != "hybrid" or not args.use_real_hybrid):
-        parser.error("--temporal-bias requires --mode hybrid --use-real-hybrid")
 
     if not args.out:
         args.out = str(default_output_path(
             args.mode,
             args.top_k,
-            temporal_bias=args.temporal_bias,
         ))
 
     run_benchmark(
@@ -787,7 +642,6 @@ def main() -> None:
         args.top_k,
         args.out,
         args.use_real_hybrid,
-        args.temporal_bias,
     )
 
 

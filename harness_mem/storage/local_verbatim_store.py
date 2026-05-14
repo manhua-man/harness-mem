@@ -98,7 +98,6 @@ class LocalVerbatimStore:
         project_name: str | None = None,
         limit: int = 20,
         mode: str = "auto",
-        temporal_bias: bool = False,
     ) -> builtins.list[Observation]:
         """Full-text search observations, optionally filtered by session_id or project_name."""
         extra_where_parts = ["COALESCE(compacted, 0) = 0"]
@@ -122,7 +121,6 @@ class LocalVerbatimStore:
             extra_where,
             extra_params,
             mode,
-            temporal_bias=temporal_bias,
         )
         results = []
         for row in search_result.rows:

@@ -38,7 +38,6 @@ class VerbatimStore(Protocol):
         project_name: str | None = None,
         limit: int = 20,
         mode: str = "auto",
-        temporal_bias: bool = False,
     ) -> builtins.list[Observation]:
         """Full-text search observations, optionally filtered by session_id or project_name."""
         ...

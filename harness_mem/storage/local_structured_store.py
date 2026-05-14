@@ -158,7 +158,6 @@ class LocalStructuredStore:
         project_name: str | None = None,
         limit: int = 20,
         mode: str = "auto",
-        temporal_bias: bool = False,
     ) -> list[MemoryEntry]:
         extra_where_parts = ["COALESCE(compacted, 0) = 0"]
         extra_params: tuple = ()
@@ -173,7 +172,6 @@ class LocalStructuredStore:
             " AND ".join(extra_where_parts),
             extra_params,
             mode,
-            temporal_bias=temporal_bias,
         )
         results = []
         for row in search_result.rows:

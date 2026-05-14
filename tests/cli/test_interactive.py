@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 
 from harness_mem import cli
+from harness_mem.commands import profile as profile_mod
+from harness_mem.commands import support as support_mod
 from harness_mem.core.schemas import Observation
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -46,6 +48,7 @@ def test_interactive_correct_via_main(
         ]
     )
     monkeypatch.setattr(cli, "_can_prompt", lambda: True)
+    monkeypatch.setattr(support_mod, "can_prompt", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     monkeypatch.setattr(sys, "argv", ["harness-mem", "correct"])
 
@@ -78,6 +81,7 @@ def test_interactive_handoff_via_main(
         ]
     )
     monkeypatch.setattr(cli, "_can_prompt", lambda: True)
+    monkeypatch.setattr(support_mod, "can_prompt", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     monkeypatch.setattr(sys, "argv", ["harness-mem", "handoff"])
 
@@ -207,6 +211,8 @@ def test_profile_edit_existing_profile_merges_without_crashing(
 
     answers = iter(["", "", "", ""])
     monkeypatch.setattr(cli, "_can_prompt", lambda: True)
+    monkeypatch.setattr(profile_mod, "can_prompt", lambda: True)
+    monkeypatch.setattr(support_mod, "can_prompt", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
 
     assert run(cli.cmd_profile_edit("demo")) == 0
@@ -238,6 +244,8 @@ def test_profile_edit_description_supports_clear(
 
     answers = iter(["!clear", "", "", ""])
     monkeypatch.setattr(cli, "_can_prompt", lambda: True)
+    monkeypatch.setattr(profile_mod, "can_prompt", lambda: True)
+    monkeypatch.setattr(support_mod, "can_prompt", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
 
     assert run(cli.cmd_profile_edit("demo")) == 0

@@ -206,7 +206,6 @@ async def benchmark_daily_wake_temporal_safety(
         "displaced_critical_ids": displaced,
         "selected_ids": selected_ids,
         "gate": "pass" if critical_retained else "fail",
-        "default_temporal_bias_candidate": critical_retained,
         "reason": (
             "daily wake retained old critical memory"
             if critical_retained

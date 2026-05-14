@@ -44,7 +44,6 @@ class StructuredStore(Protocol):
         project_name: str | None = None,
         limit: int = 20,
         mode: str = "auto",
-        temporal_bias: bool = False,
     ) -> list[MemoryEntry]:
         """Full-text search memory entries."""
         ...

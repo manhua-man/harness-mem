@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
+    can_prompt,
     chars_to_tokens,
     disclosure_level,
     get_active_project,
     profile_text,
+    prompt_list,
+    prompt_list_labeled,
+    prompt_text,
     resolve_project_name,
     set_active_project,
 )
+from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
@@ -85,4 +92,75 @@ async def cmd_profile(project_name: str | None) -> int:
     print(f"  Confirmed rules: {len(rules)} (≈ {rule_tokens:,} tokens)")
     print(f"  Task handoffs: {len(handoffs)} (≈ {handoff_tokens:,} tokens, limited to 3 latest)")
     print(f"  Total wake-up: ≈ {total_tokens:,} tokens [{level}]")
+    return 0
+
+
+async def cmd_profile_edit(project_name: str | None) -> int:
+    """Edit project profile fields interactively (merge strategy)."""
+    project_name = resolve_project_name(project_name, action_label="profile --edit")
+    if not project_name:
+        return 1
+
+    profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
+    profile = await profile_store.get(project_name)
+
+    if profile:
+        print(f"Editing profile: {project_name}")
+        print("(Press Enter to keep the current value; '!clear' to reset a field)\n")
+    else:
+        if not can_prompt():
+            print(f"No profile found for: {project_name}. Run `harness-mem profile` first.")
+            return 1
+        print(f"No profile found for: {project_name}. Creating a new one.\n")
+        profile = None
+
+    if profile:
+        new_description = prompt_text(
+            "description",
+            default=profile.description or None,
+            allow_empty=True,
+            allow_clear=True,
+        )
+        new_stacks_raw = prompt_list_labeled(
+            "stacks", "programming languages & frameworks", existing=profile.stacks,
+        )
+        new_key_files_raw = prompt_list_labeled(
+            "key_files", "important files", existing=profile.key_files,
+        )
+        new_conventions_raw = prompt_list_labeled(
+            "conventions", "coding conventions", existing=profile.conventions,
+        )
+    else:
+        new_description = prompt_text("description", allow_empty=True)
+        new_stacks_raw = prompt_list("stacks (one per line, blank to finish)")
+        new_key_files_raw = prompt_list("key files (one per line, blank to finish)")
+        new_conventions_raw = prompt_list("conventions (one per line, blank to finish)")
+
+    if profile:
+        updated = ProjectProfile(
+            id=profile.id,
+            project_name=project_name,
+            description=new_description if new_description is not None else profile.description,
+            stacks=new_stacks_raw if new_stacks_raw is not None else profile.stacks,
+            key_files=new_key_files_raw if new_key_files_raw is not None else profile.key_files,
+            conventions=new_conventions_raw if new_conventions_raw is not None else profile.conventions,
+            service_hints=profile.service_hints,
+            database_hints=profile.database_hints,
+            created_at=profile.created_at,
+            last_updated=datetime.now(timezone.utc),
+        )
+    else:
+        updated = ProjectProfile(
+            project_name=project_name,
+            description=new_description or "",
+            stacks=new_stacks_raw or [],
+            key_files=new_key_files_raw or [],
+            conventions=new_conventions_raw or [],
+            service_hints=[],
+            database_hints=[],
+            last_updated=datetime.now(timezone.utc),
+        )
+
+    await profile_store.save(updated)
+    print(f"\nProfile saved for: {project_name}")
     return 0

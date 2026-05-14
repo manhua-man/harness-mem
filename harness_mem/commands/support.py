@@ -112,13 +112,15 @@ def can_prompt() -> bool:
         return False
 
 
-def prompt_text(label: str, default: str | None = None, *, allow_empty: bool = False) -> str | None:
+def prompt_text(label: str, default: str | None = None, *, allow_empty: bool = False, allow_clear: bool = False) -> str | None:
     if not can_prompt():
         return default if allow_empty else None
 
     while True:
         suffix = f" [{default}]" if default else ""
         value = input(f"{label}{suffix}: ").strip()
+        if allow_clear and value == "!clear":
+            return ""
         if value:
             return value
         if default is not None:
@@ -126,6 +128,52 @@ def prompt_text(label: str, default: str | None = None, *, allow_empty: bool = F
         if allow_empty:
             return ""
         print(f"{label} is required.")
+
+
+def prompt_list(label: str) -> list[str]:
+    if not can_prompt():
+        return []
+
+    print(f"{label} (one per line, blank to finish):")
+    values: list[str] = []
+    while True:
+        value = input("> ").strip()
+        if not value:
+            return values
+        values.append(value)
+
+
+def prompt_list_labeled(
+    field_label: str, item_description: str, existing: list[str] | None = None,
+) -> list[str] | None:
+    """Prompt for a list of strings, showing existing items.
+
+    - existing profile edit: blank returns None (keep existing), '!clear' resets to [].
+    - new profile creation: pass existing=[] so blank returns [].
+    """
+    if not can_prompt():
+        return None
+    has_existing = existing is not None and len(existing) > 0
+    if has_existing:
+        print(f"{field_label} (current: {', '.join(existing or [])}):")
+        print(f"  (Enter new {item_description}, blank to keep existing, '!clear' to reset)")
+    else:
+        print(f"{field_label} (one per line, blank to finish):")
+    values: list[str] = []
+    while True:
+        value = input("> ").strip()
+        if not value:
+            if has_existing:
+                return None
+            return values
+        if value == "!clear":
+            return []
+        values.append(value)
+
+
+def suggested_purge_command(project_name: str | None) -> str:
+    project_flag = f" -p {project_name}" if project_name else ""
+    return f"harness-mem purge{project_flag} --before <DATE> --category all --dry-run"
 
 
 def resolve_project_name(

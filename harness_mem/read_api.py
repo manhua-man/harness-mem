@@ -19,7 +19,6 @@ async def search_memory(
     mode: str = "auto",
     memory_entry_limit: int = 20,
     observation_limit: int = 20,
-    temporal_bias: bool = False,
 ) -> tuple[list[MemoryEntry], list[Observation]]:
     """Return structured and verbatim search results with shared filtering."""
     if scope == "all":
@@ -28,13 +27,11 @@ async def search_memory(
             project_name=None,
             limit=memory_entry_limit,
             mode=mode,
-            temporal_bias=temporal_bias,
         )
         observations = await backend.verbatim_store.search(
             query,
             limit=observation_limit,
             mode=mode,
-            temporal_bias=temporal_bias,
         )
         return entries, observations
 
@@ -43,14 +40,12 @@ async def search_memory(
         project_name,
         limit=memory_entry_limit,
         mode=mode,
-        temporal_bias=temporal_bias,
     )
     observations = await backend.verbatim_store.search(
         query,
         project_name=project_name,
         limit=observation_limit,
         mode=mode,
-        temporal_bias=temporal_bias,
     )
     return entries, observations
 
