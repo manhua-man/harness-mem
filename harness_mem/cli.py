@@ -11,6 +11,7 @@ from harness_mem.commands import (
     cmd_distill,
     cmd_doctor,
     cmd_ingest,
+    cmd_import,
     cmd_profile,
     cmd_profile_edit,
     cmd_purge,
@@ -148,6 +149,12 @@ def main():
     ds.add_argument("-c", "--category", choices=["architecture", "convention", "api", "bug", "decision"])
     ds.set_defaults(command_name="distill")
 
+    # import
+    imp = sub.add_parser("import", help="Import memory drafts from AI skills into candidate layer")
+    imp.add_argument("file", help="Path to JSON draft or sync-list")
+    imp.add_argument("-p", "--project")
+    imp.set_defaults(command_name="import")
+
     # correct
     corr = sub.add_parser("correct", help="Create a rule candidate from a correction (interactive)")
     corr.add_argument("session_id_arg", nargs="?")
@@ -258,6 +265,9 @@ def main():
     if command == "distill":
         sid = args.session_id or args.session_id_arg
         return asyncio.run(cmd_distill(args.project, sid, category=getattr(args, "category", None)))
+
+    if command == "import":
+        return asyncio.run(cmd_import(args.file, args.project))
 
     if command == "purge":
         return asyncio.run(cmd_purge(args.before, args.category, args.dry_run, args.project, stale_only=args.stale_only))

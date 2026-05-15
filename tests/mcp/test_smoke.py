@@ -36,6 +36,12 @@ def rpc(method: str, params: dict | None = None) -> dict:
     return resp
 
 
+def call_tool(name: str, arguments: dict) -> dict:
+    resp = rpc("tools/call", {"name": name, "arguments": arguments})
+    result = resp["result"]["content"][0]["text"]
+    return json.loads(result)
+
+
 def test_initialize():
     resp = rpc("initialize", {"protocolVersion": "2024-11-05"})
     result = resp["result"]
@@ -46,12 +52,15 @@ def test_initialize():
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 10
+    assert len(tools) == 17
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
         "get_task_handoffs", "get_confirmed_rules", "get_project_profile",
         "create_rule_candidate", "confirm_rule", "reject_rule", "suggest_rule",
+        "suggest_memory_entry", "confirm_memory_entry", "reject_memory_entry",
+        "suggest_relation_fact", "confirm_relation_fact", "reject_relation_fact",
+        "create_task_handoff",
     }
     assert expected.issubset(names)
 
@@ -129,6 +138,85 @@ def test_create_rule_candidate(mcp_backend: LocalMemoryBackend):
     data = json.loads(result)
     assert data["success"] is True
     assert "candidate_id" in data
+
+
+def test_suggest_memory_entry_pending_hidden_until_confirmed(mcp_backend: LocalMemoryBackend):
+    suggested = call_tool(
+        "suggest_memory_entry",
+        {
+            "project_name": "test-project",
+            "category": "decision",
+            "content": "AI candidate lifecycle sentinel alphaomega-memory",
+            "source": "test-session-001",
+        },
+    )
+    assert suggested["success"] is True
+    assert suggested["status"] == "pending"
+
+    pending_search = call_tool(
+        "search_memory",
+        {
+            "project_name": "test-project",
+            "query": "alphaomega-memory",
+            "mode": "fts",
+        },
+    )
+    assert pending_search["memory_entry_count"] == 0
+
+    confirmed = call_tool("confirm_memory_entry", {"entry_id": suggested["entry_id"]})
+    assert confirmed["success"] is True
+    assert confirmed["status"] == "accepted"
+
+    accepted_search = call_tool(
+        "search_memory",
+        {
+            "project_name": "test-project",
+            "query": "alphaomega-memory",
+            "mode": "fts",
+        },
+    )
+    assert accepted_search["memory_entry_count"] == 1
+    assert accepted_search["memory_entries"][0]["id"] == suggested["entry_id"]
+
+
+def test_suggest_relation_fact_rejected_remains_hidden(mcp_backend: LocalMemoryBackend):
+    suggested = call_tool(
+        "suggest_relation_fact",
+        {
+            "project_name": "test-project",
+            "source_entity": "SessionDistill",
+            "target_entity": "CandidateLayer",
+            "relation_type": "feeds",
+            "evidence": "AI relation candidate lifecycle sentinel alphaomega-relation",
+            "source": "test-session-001",
+        },
+    )
+    assert suggested["success"] is True
+    assert suggested["status"] == "pending"
+
+    pending_search = call_tool(
+        "search_memory",
+        {
+            "project_name": "test-project",
+            "query": "alphaomega-relation",
+            "mode": "fts",
+        },
+    )
+    assert pending_search["relation_fact_count"] == 0
+
+    rejected = call_tool("reject_relation_fact", {"fact_id": suggested["fact_id"]})
+    assert rejected["success"] is True
+    assert rejected["status"] == "rejected"
+
+    rejected_search = call_tool(
+        "search_memory",
+        {
+            "project_name": "test-project",
+            "query": "alphaomega-relation",
+            "mode": "fts",
+        },
+    )
+    assert rejected_search["relation_fact_count"] == 0
 
 
 def test_confirm_rule(mcp_backend: LocalMemoryBackend):

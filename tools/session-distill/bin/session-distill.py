@@ -182,13 +182,16 @@ def cmd_bundle(project_path, force=False, next_count=DEFAULT_RUN_NEXT):
 
 
 def generate_packet(session, packet_path):
-    """Generate a packet file with actual session content"""
+    """Generate a packet file with actual session content (FULL VERSION)"""
     session_path = Path(session['file_path'])
     all_turns = parse_claude_jsonl_session(session_path, filter_xml_directives=True, on_error="warn")
-    turns, omitted_turns = select_turns_for_packet(all_turns)
+
+    # We no longer omit any turns. Every detail matters.
+    turns = all_turns
+    omitted_turns = 0
 
     lines = [
-        f"# Session Packet: {session['session_id']}",
+        f"# Session Packet: {session['session_id']} (FULL)",
         "",
         "## Metadata",
         "",

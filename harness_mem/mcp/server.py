@@ -334,7 +334,7 @@ def tool_suggest_rule(
 ) -> dict:
     """Suggest a rule candidate for later review (lighter than confirm_rule)."""
     from uuid import uuid4
-    from harness_mem.core.schemas import RuleCandidate
+    from harness_mem.core.schemas.rule_candidate import RuleCandidate
 
     backend = _get_backend()
     candidate = RuleCandidate(
@@ -354,6 +354,121 @@ def tool_suggest_rule(
         "pattern": candidate.pattern,
         "trigger": candidate.trigger,
         "status": "suggested",
+    }
+
+
+def tool_suggest_memory_entry(
+    project_name: str,
+    category: str,
+    content: str,
+    source: str,
+    confidence: float = 0.7,
+    tags: list[str] | None = None,
+) -> dict:
+    """Suggest a memory entry for later review."""
+    from harness_mem.core.schemas.memory_entry import MemoryEntry
+    backend = _get_backend()
+    entry = MemoryEntry(
+        project_name=project_name,
+        category=category,
+        content=content,
+        source=source,
+        confidence=confidence,
+        status="pending",
+        tags=tags or [],
+    )
+    saved_id = asyncio.run(backend.structured_store.save_memory_entry(entry))
+    return {
+        "success": True,
+        "entry_id": saved_id,
+        "category": entry.category,
+        "status": "pending",
+    }
+
+
+def tool_confirm_memory_entry(entry_id: str) -> dict:
+    """Confirm a pending memory entry."""
+    backend = _get_backend()
+    success = asyncio.run(backend.structured_store.update_memory_entry_status(entry_id, "accepted"))
+    return {"success": success, "entry_id": entry_id, "status": "accepted" if success else "not_found"}
+
+
+def tool_reject_memory_entry(entry_id: str) -> dict:
+    """Reject a pending memory entry."""
+    backend = _get_backend()
+    success = asyncio.run(backend.structured_store.update_memory_entry_status(entry_id, "rejected"))
+    return {"success": success, "entry_id": entry_id, "status": "rejected" if success else "not_found"}
+
+
+def tool_suggest_relation_fact(
+    project_name: str,
+    source_entity: str,
+    target_entity: str,
+    relation_type: str,
+    evidence: str,
+    source: str,
+    confidence: float = 0.7,
+) -> dict:
+    """Suggest a relation fact for later review."""
+    from harness_mem.core.schemas.relation_fact import RelationFact
+    backend = _get_backend()
+    fact = RelationFact(
+        project_name=project_name,
+        source_entity=source_entity,
+        target_entity=target_entity,
+        relation_type=relation_type,
+        evidence=evidence,
+        source=source,
+        confidence=confidence,
+        status="pending",
+    )
+    saved_id = asyncio.run(backend.structured_store.save_relation_fact(fact))
+    return {
+        "success": True,
+        "fact_id": saved_id,
+        "relation": f"{source_entity} --{relation_type}--> {target_entity}",
+        "status": "pending",
+    }
+
+
+def tool_confirm_relation_fact(fact_id: str) -> dict:
+    """Confirm a pending relation fact."""
+    backend = _get_backend()
+    success = asyncio.run(backend.structured_store.update_relation_fact_status(fact_id, "accepted"))
+    return {"success": success, "fact_id": fact_id, "status": "accepted" if success else "not_found"}
+
+
+def tool_reject_relation_fact(fact_id: str) -> dict:
+    """Reject a pending relation fact."""
+    backend = _get_backend()
+    success = asyncio.run(backend.structured_store.update_relation_fact_status(fact_id, "rejected"))
+    return {"success": success, "fact_id": fact_id, "status": "rejected" if success else "not_found"}
+
+
+def tool_create_task_handoff(
+    project_name: str,
+    task_id: str,
+    summary: str,
+    status: str,
+    next_steps: list[str] | None = None,
+    blockers: list[str] | None = None,
+) -> dict:
+    """Create a task handoff to record progress."""
+    from harness_mem.core.schemas.task_handoff import TaskHandoff
+    backend = _get_backend()
+    handoff = TaskHandoff(
+        project_name=project_name,
+        task_id=task_id,
+        summary=summary,
+        status=status,
+        next_steps=next_steps or [],
+        blockers=blockers or [],
+    )
+    saved_id = asyncio.run(backend.structured_store.save_task_handoff(handoff))
+    return {
+        "success": True,
+        "handoff_id": saved_id,
+        "task_id": handoff.task_id,
     }
 
 
@@ -510,6 +625,99 @@ TOOLS: dict[str, ToolSpec] = {
             "required": ["project_name", "pattern", "trigger"],
         },
         "handler": tool_suggest_rule,
+    },
+    "suggest_memory_entry": {
+        "description": "Suggest a memory entry (fact, decision, etc.) for later review.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "category": {"type": "string", "enum": ["architecture", "convention", "api", "bug", "decision"]},
+                "content": {"type": "string", "description": "Knowledge content"},
+                "source": {"type": "string", "description": "Source observation id or session id"},
+                "confidence": {"type": "number", "description": "Confidence score 0.0-1.0"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["project_name", "category", "content", "source"],
+        },
+        "handler": tool_suggest_memory_entry,
+    },
+    "confirm_memory_entry": {
+        "description": "Confirm a pending memory entry.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "entry_id": {"type": "string", "description": "Memory entry ID to confirm"},
+            },
+            "required": ["entry_id"],
+        },
+        "handler": tool_confirm_memory_entry,
+    },
+    "reject_memory_entry": {
+        "description": "Reject a pending memory entry.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "entry_id": {"type": "string", "description": "Memory entry ID to reject"},
+            },
+            "required": ["entry_id"],
+        },
+        "handler": tool_reject_memory_entry,
+    },
+    "suggest_relation_fact": {
+        "description": "Suggest a typed relation between entities for later review.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "source_entity": {"type": "string", "description": "Origin entity"},
+                "target_entity": {"type": "string", "description": "Target entity"},
+                "relation_type": {"type": "string", "description": "Relation type (e.g. depends_on)"},
+                "evidence": {"type": "string", "description": "Evidence for this relation"},
+                "source": {"type": "string", "description": "Source id"},
+                "confidence": {"type": "number", "description": "Confidence score 0.0-1.0"},
+            },
+            "required": ["project_name", "source_entity", "target_entity", "relation_type", "evidence", "source"],
+        },
+        "handler": tool_suggest_relation_fact,
+    },
+    "confirm_relation_fact": {
+        "description": "Confirm a pending relation fact.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fact_id": {"type": "string", "description": "Relation fact ID to confirm"},
+            },
+            "required": ["fact_id"],
+        },
+        "handler": tool_confirm_relation_fact,
+    },
+    "reject_relation_fact": {
+        "description": "Reject a pending relation fact.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "fact_id": {"type": "string", "description": "Relation fact ID to reject"},
+            },
+            "required": ["fact_id"],
+        },
+        "handler": tool_reject_relation_fact,
+    },
+    "create_task_handoff": {
+        "description": "Create a task handoff to record progress.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "task_id": {"type": "string", "description": "Task identifier"},
+                "summary": {"type": "string", "description": "Progress summary"},
+                "status": {"type": "string", "description": "Current status"},
+                "next_steps": {"type": "array", "items": {"type": "string"}},
+                "blockers": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["project_name", "task_id", "summary", "status"],
+        },
+        "handler": tool_create_task_handoff,
     },
 }
 

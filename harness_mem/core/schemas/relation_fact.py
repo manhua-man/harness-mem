@@ -19,6 +19,10 @@ class RelationFact(BaseModel):
     target_entity: str = Field(description="Target entity for the relation")
     relation_type: str = Field(description="Typed relation, e.g. depends_on")
     confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    status: str = Field(
+        default="accepted",
+        description="pending | accepted | rejected"
+    )
     evidence: str = Field(description="Human-readable evidence for the relation")
     source: str = Field(description="Source observation id, entry id, or 'manual'")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -39,6 +43,7 @@ class RelationFact(BaseModel):
             "target_entity": self.target_entity,
             "relation_type": self.relation_type,
             "confidence": self.confidence,
+            "status": self.status,
             "evidence": self.evidence,
             "source": self.source,
             "created_at": self.created_at.isoformat(),
@@ -52,6 +57,8 @@ class RelationFact(BaseModel):
         for field in ("created_at", "updated_at"):
             if isinstance(data.get(field), str):
                 data[field] = datetime.fromisoformat(data[field])
+        if "status" not in data:
+            data["status"] = "accepted"
         if "tags" not in data:
             data["tags"] = []
         if "provenance" not in data:

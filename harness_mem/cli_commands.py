@@ -115,98 +115,151 @@ async def cmd_correct(session_id: str, project_name: str, pattern: str, trigger:
 
 
 async def cmd_confirm_rule(rule_id: str) -> int:
-    """Promote a RuleCandidate to ConfirmedRule.
+    """Promote a candidate to confirmed status (polymorphic).
 
-    Usage: harness-mem confirm-rule --rule-id <id>
+    Usage: harness-mem confirm --rule-id <id>
     """
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
 
     try:
-        # Get the candidate
+        # 1. Try MemoryEntry
+        entry = await backend.structured_store.get_memory_entry(rule_id)
+        if entry:
+            if entry.status == "accepted":
+                print(f"MemoryEntry already confirmed: {rule_id}")
+                return 0
+            await backend.structured_store.update_memory_entry_status(rule_id, "accepted")
+            print(f"Confirmed MemoryEntry: {rule_id}")
+            print(f"  Content: {entry.content[:100]}...")
+            return 0
+
+        # 2. Try RelationFact
+        fact = await backend.structured_store.get_relation_fact(rule_id)
+        if fact:
+            if fact.status == "accepted":
+                print(f"RelationFact already confirmed: {rule_id}")
+                return 0
+            await backend.structured_store.update_relation_fact_status(rule_id, "accepted")
+            print(f"Confirmed RelationFact: {rule_id}")
+            print(f"  Relation: {fact.source_entity} --{fact.relation_type}--> {fact.target_entity}")
+            return 0
+
+        # 3. Try RuleCandidate (legacy flow)
         candidate = await backend.structured_store.get_rule_candidate(rule_id)
-        if not candidate:
-            print(f"Candidate not found: {rule_id}")
-            return 1
+        if candidate:
+            if candidate.status == "accepted":
+                print(f"Rule already confirmed: {rule_id}")
+                return 0
 
-        if candidate.status == "accepted":
-            print(f"Candidate already confirmed: {rule_id}")
-            return 1
+            confirmed = ConfirmedRule(
+                id=str(uuid4()),
+                project_name=candidate.project_name,
+                pattern=candidate.pattern,
+                trigger=candidate.trigger,
+                examples=candidate.examples,
+                confirmed_at=datetime.now(timezone.utc),
+                source_candidate_id=candidate.id,
+                source_session_id=candidate.session_id,
+            )
+            await backend.structured_store.save_confirmed_rule(confirmed)
+            await backend.structured_store.update_rule_candidate_status(rule_id, "accepted")
+            print(f"Confirmed Rule: {confirmed.id}")
+            print(f"  Pattern: {confirmed.pattern}")
+            return 0
 
-        # Create confirmed rule
-        confirmed = ConfirmedRule(
-            id=str(uuid4()),
-            project_name=candidate.project_name,
-            pattern=candidate.pattern,
-            trigger=candidate.trigger,
-            examples=candidate.examples,
-            confirmed_at=datetime.now(timezone.utc),
-            source_candidate_id=candidate.id,
-            source_session_id=candidate.session_id,
-        )
-
-        await backend.structured_store.save_confirmed_rule(confirmed)
-        await backend.structured_store.update_rule_candidate_status(rule_id, "accepted")
-
-        print(f"Confirmed rule: {confirmed.id}")
-        print(f"  Pattern: {confirmed.pattern}")
-        print(f"  Trigger: {confirmed.trigger}")
-        print(f"  From candidate: {candidate.id}")
-        return 0
+        print(f"Candidate not found: {rule_id}")
+        return 1
     finally:
         await backend.close()
 
 
 async def cmd_reject_rule(rule_id: str) -> int:
-    """Reject a RuleCandidate.
+    """Reject a candidate (polymorphic).
 
-    Usage: harness-mem reject-rule --rule-id <id>
+    Usage: harness-mem reject --rule-id <id>
     """
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
 
     try:
-        candidate = await backend.structured_store.get_rule_candidate(rule_id)
-        if not candidate:
-            print(f"Candidate not found: {rule_id}")
-            return 1
+        # Try MemoryEntry
+        if await backend.structured_store.update_memory_entry_status(rule_id, "rejected"):
+            print(f"Rejected MemoryEntry: {rule_id}")
+            return 0
 
-        await backend.structured_store.update_rule_candidate_status(rule_id, "rejected")
-        print(f"Rejected candidate: {rule_id}")
-        return 0
+        # Try RelationFact
+        if await backend.structured_store.update_relation_fact_status(rule_id, "rejected"):
+            print(f"Rejected RelationFact: {rule_id}")
+            return 0
+
+        # Try RuleCandidate
+        candidate = await backend.structured_store.get_rule_candidate(rule_id)
+        if candidate:
+            await backend.structured_store.update_rule_candidate_status(rule_id, "rejected")
+            print(f"Rejected RuleCandidate: {rule_id}")
+            return 0
+
+        print(f"Candidate not found: {rule_id}")
+        return 1
     finally:
         await backend.close()
 
 
 async def cmd_list_candidates(project_name: str, status: str | None = None) -> int:
-    """List rule candidates for a project.
+    """List candidates for review (Rules, MemoryEntries, RelationFacts).
 
     Usage: harness-mem list-candidates --project <name> [--status pending]
     """
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
 
+    effective_status = status or "pending"
+
     try:
-        candidates = await backend.structured_store.list_rule_candidates(project_name, status=status)
-        if not candidates:
-            print(f"No candidates found for {project_name}")
+        # 1. Rules
+        rules = await backend.structured_store.list_rule_candidates(project_name, status=effective_status)
+
+        # 2. Memory Entries (pending)
+        entries = await backend.structured_store.list_memory_entries(project_name, status=effective_status)
+
+        # 3. Relation Facts (pending)
+        facts = await backend.structured_store.list_relation_facts(project_name, status=effective_status)
+
+        total = len(rules) + len(entries) + len(facts)
+        if total == 0:
+            print(f"No {effective_status} candidates found for {project_name}")
             return 0
 
-        print(f"# Rule Candidates for {project_name}")
-        if status:
-            print(f"(filtered by status: {status})")
+        print(f"# Candidates for Review ({project_name})")
+        print(f"Total: {total} ({effective_status})")
         print()
 
-        for c in candidates:
-            print(f"## {c.id}")
-            print(f"  Status: {c.status}")
-            print(f"  Pattern: {c.pattern[:80]}")
-            print(f"  Trigger: {c.trigger[:80]}")
-            print(f"  Confidence: {c.confidence}")
-            if c.examples:
-                print(f"  Examples: {len(c.examples)}")
+        if rules:
+            print("## Rule Candidates")
+            for c in rules:
+                print(f"  [{c.id}]")
+                print(f"    Pattern: {c.pattern[:100]}")
+                print(f"    Trigger: {c.trigger[:100]}")
             print()
 
+        if entries:
+            print("## Knowledge Candidates (MemoryEntries)")
+            for e in entries:
+                print(f"  [{e.id}]")
+                print(f"    Category: {e.category}")
+                print(f"    Content: {e.content[:100]}")
+            print()
+
+        if facts:
+            print("## Relation Candidates (RelationFacts)")
+            for f in facts:
+                print(f"  [{f.id}]")
+                print(f"    Relation: {f.source_entity} --{f.relation_type}--> {f.target_entity}")
+                print(f"    Evidence: {f.evidence[:100]}")
+            print()
+
+        print("Action: Use 'harness-mem confirm <id>' or 'harness-mem reject <id>'")
         return 0
     finally:
         await backend.close()

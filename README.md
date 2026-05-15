@@ -1,32 +1,48 @@
 # harness-mem
 
-Local-first, pluggable AI memory runtime for Claude Code and Codex.
+Local-first, pluggable **AI memory runtime** for Claude Code, Codex, and Gemini CLI.
 
-**V1 闭环**: ingest → distill → structured memory → wake-up context → search/timeline → candidate rules → task resume。
+**核心理念**：让 AI 拥有跨 Session、可审计的长期记忆。AI 是记忆的“操作员”，人是记忆的“审核员”。
 
-当前主线已经补上：
-- `purge` 软删除闭环
-- 默认增量 ingest + `--full-rescan`
-- `search --mode auto|fts|hybrid`
-- CLI / MCP 一致的 search mode 与 learning-loop 语义
-- structured memory / rule / handoff 的 provenance 追溯
-- MCP learning loop 补齐 `reject_rule` / `suggest_rule`
-
-当前状态（2026-05-11）：
-- `v1.3 / v1.4`：OpenSpec 变更已归档到主规格，`openspec validate --all --strict` 通过
-- 验证链：`ruff`、`mypy harness_mem`、`python -m pytest -q` 当前通过；最新测试读数为 `174 passed`
-- LongMemEval `R@5 >= 94%` 的阶段目标已达成：当前最佳 `R@5 = 94.18%`
-- `correct` / `handoff` 输入校验、storage 直接单元测试、`cmd_purge` / `cmd_distill` / `cmd_use` / `cmd_profile` 拆分、RelationFact 存储/search/MCP/distill/wake 闭环、MemoryEntry 访问计数 / stale 摘要、Temporal Bias 经 benchmark 验证无价值已移除（分析证据见 `docs/temporal-bias-analysis.md`）、`daily-wake-temporal-safety` gate 与 wake 重要性保护已补强；剩余收口重点是 Relation Facts 增益证明、`cli.py` 继续瘦身至 <500 行、真实 dogfooding / 外部用户验证，以及 hybrid 检索的性能缓存
-- `tools/session-distill` 主链边界已更新，`tools/grill-me` / `tools/answer-me` / `tools/ask-me` / `tools/mem-distill` 作为项目内可选 workflow 协作者登记，不默认联动、不阻塞主链
-- 详细阶段状态见 [docs/roadmap-v13-v14-proposal.md](./docs/roadmap-v13-v14-proposal.md)
-
-Release notes: [v1.0.1](./docs/v1.0.1-release-notes.md)
-Changelog: [CHANGELOG.md](./CHANGELOG.md)
-Docs index: [docs/README.md](./docs/README.md)
+Agent collaboration truth: [AGENTS.md](./AGENTS.md).
 
 ---
 
-## 产品原则
+## 核心工作流 (The Cycle)
+
+| 阶段 | 动作 | 驱动者 | 实现方式 |
+| :--- | :--- | :--- | :--- |
+| **1. 摄取 (Ingest)** | 抓取原始会话日志 | AI / 人 | `harness-mem ingest` |
+| **2. 提炼 (Distill)** | **AI 读 Session 提炼精华知识** | **AI** | **Skill: `session-distill`** |
+| **3. 审核 (Review)** | 确认或拒绝 AI 提炼的记忆 | **人** | `harness-mem confirm/reject` |
+| **4. 消费 (Use)** | AI 在新任务中自动加载记忆 | AI | **MCP: `search_memory` / `wake`** |
+
+---
+
+## 快速开始
+
+### 1. 安装与接入
+```bash
+pip install -e .
+harness-mem quickstart
+```
+
+### 2. 作为 AI：如何主动管理记忆
+如果你是正在操作此仓库的 AI Agent：
+- **学习历史**：调用 `get_observations` 读一个旧 Session。
+- **提炼知识**：如果你发现了重要规则，调用 `suggest_rule`。
+- **批量提炼**：如果需要处理大量历史，建议触发专门的 `session-distill` Skill。
+
+### 3. 作为人类：如何审核记忆
+```bash
+harness-mem candidates    # 查看 AI 提炼的候选条目
+harness-mem confirm <id>  # 确认记忆：从此该条目会进入 AI 的唤醒上下文
+harness-mem reject <id>   # 拒绝记忆：过滤掉 AI 提取的废话
+```
+
+---
+
+## 产品原则 (Principles)
 
 `harness-mem` 的目标不是做一个“记忆搜索工具”，而是做一个 **local-first、可审计、可控的 AI memory runtime**。
 

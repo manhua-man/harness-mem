@@ -31,6 +31,7 @@ _TABLE_SCHEMAS = {
         category TEXT NOT NULL,
         content TEXT NOT NULL,
         confidence REAL NOT NULL DEFAULT 0.8,
+        status TEXT NOT NULL DEFAULT 'accepted',
         source TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -81,6 +82,7 @@ _TABLE_SCHEMAS = {
         target_entity TEXT NOT NULL,
         relation_type TEXT NOT NULL,
         confidence REAL NOT NULL DEFAULT 0.7,
+        status TEXT NOT NULL DEFAULT 'accepted',
         evidence TEXT NOT NULL,
         source TEXT NOT NULL,
         created_at TEXT NOT NULL,
@@ -94,9 +96,13 @@ _COLUMN_MIGRATIONS = {
         "compacted": "INTEGER NOT NULL DEFAULT 0",
     },
     "memory_entries": {
+        "status": "TEXT NOT NULL DEFAULT 'accepted'",
         "compacted": "INTEGER NOT NULL DEFAULT 0",
         "usage_count": "INTEGER NOT NULL DEFAULT 0",
         "last_accessed_at": "TEXT",
+    },
+    "relation_facts": {
+        "status": "TEXT NOT NULL DEFAULT 'accepted'",
     },
     "confirmed_rules": {
         "source_session_id": "TEXT NOT NULL DEFAULT ''",

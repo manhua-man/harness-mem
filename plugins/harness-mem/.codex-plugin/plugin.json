@@ -1,0 +1,38 @@
+{
+  "name": "harness-mem",
+  "version": "0.1.0",
+  "description": "Local-first AI memory runtime wrapper for Codex and Claude-style agent workflows.",
+  "author": {
+    "name": "harness-mem maintainers"
+  },
+  "homepage": "../../README.md",
+  "repository": "../../",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "mcp",
+    "codex",
+    "claude",
+    "local-first"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "harness-mem",
+    "shortDescription": "Local AI memory for project context, search, wake-up, and task resume.",
+    "longDescription": "Wraps harness-mem as a plugin with a skill, MCP server config, and helper scripts. Use it to ingest local agent sessions, generate wake-up context, search prior work, and promote durable rules without moving data out of the local machine.",
+    "developerName": "harness-mem",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Wake this project and summarize what matters now.",
+      "Search harness-mem for the last decision on this issue.",
+      "Ingest recent sessions and show me the memory status."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

@@ -9,11 +9,13 @@ from harness_mem.commands.purge import cmd_purge
 from harness_mem.commands.search import cmd_search, cmd_show, cmd_timeline
 from harness_mem.commands.status import cmd_status
 from harness_mem.commands.wake import cmd_wake_up
+from harness_mem.commands.import_bridge import cmd_import
 
 __all__ = [
     "cmd_doctor",
     "cmd_distill",
     "cmd_ingest",
+    "cmd_import",
     "cmd_profile",
     "cmd_profile_edit",
     "cmd_quickstart",

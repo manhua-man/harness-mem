@@ -104,6 +104,7 @@ class LocalStructuredStore:
                 "category": entry.category,
                 "content": entry.content,
                 "confidence": entry.confidence,
+                "status": entry.status,
                 "source": entry.source,
                 "created_at": entry.created_at,
                 "updated_at": entry.updated_at,
@@ -127,9 +128,14 @@ class LocalStructuredStore:
         project_name: str,
         category: str | None = None,
         limit: int = 100,
+        status: str = "accepted",
     ) -> list[MemoryEntry]:
-        where_parts = ["project_name = ?", "COALESCE(compacted, 0) = 0"]
-        params = [project_name]
+        where_parts = [
+            "project_name = ?",
+            "COALESCE(compacted, 0) = 0",
+            "COALESCE(status, 'accepted') = ?",
+        ]
+        params = [project_name, status]
         if category:
             where_parts.append("category = ?")
             params.append(category)
@@ -149,6 +155,9 @@ class LocalStructuredStore:
                 data = json.loads(blob_path.read_text())
                 if data.get("compacted", False):
                     continue
+                # If specifically listing accepted, but blob says otherwise, skip
+                if status == "accepted" and data.get("status", "accepted") != "accepted":
+                    continue
                 results.append(MemoryEntry.from_dict(data))
         return results
 
@@ -158,9 +167,13 @@ class LocalStructuredStore:
         project_name: str | None = None,
         limit: int = 20,
         mode: str = "auto",
+        status: str = "accepted",
     ) -> list[MemoryEntry]:
-        extra_where_parts = ["COALESCE(compacted, 0) = 0"]
-        extra_params: tuple = ()
+        extra_where_parts = [
+            "COALESCE(compacted, 0) = 0",
+            "COALESCE(status, 'accepted') = ?",
+        ]
+        extra_params: tuple = (status,)
         if project_name:
             extra_where_parts.append("project_name = ?")
             extra_params = (*extra_params, project_name)
@@ -180,6 +193,8 @@ class LocalStructuredStore:
                 data = json.loads(blob_path.read_text())
                 if data.get("compacted", False):
                     continue
+                if data.get("status", "accepted") != status:
+                    continue
                 data.update({
                     "_search_mode": search_result.effective_mode,
                     "_search_requested_mode": search_result.requested_mode,
@@ -193,6 +208,22 @@ class LocalStructuredStore:
                     data["_score"] = row["_score"]
                 results.append(MemoryEntry.from_dict(data))
         return results
+
+    async def update_memory_entry_status(self, id: str, status: str) -> bool:
+        """Update the status of a memory entry (e.g. pending -> accepted)."""
+        blob_path = self._blob_path("memory_entries", id)
+        if not blob_path.exists():
+            return False
+        data = json.loads(blob_path.read_text())
+        data["status"] = status
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.update,
+            "memory_entries",
+            id,
+            {"status": status},
+        )
+        return True
 
     async def soft_delete_memory_entry(self, id: str) -> bool:
         """Soft-delete a memory entry by setting compacted=True."""
@@ -427,6 +458,7 @@ class LocalStructuredStore:
                 "target_entity": fact.target_entity,
                 "relation_type": fact.relation_type,
                 "confidence": fact.confidence,
+                "status": fact.status,
                 "evidence": fact.evidence,
                 "source": fact.source,
                 "created_at": fact.created_at,
@@ -450,9 +482,13 @@ class LocalStructuredStore:
         target_entity: str | None = None,
         relation_type: str | None = None,
         limit: int = 100,
+        status: str = "accepted",
     ) -> list[RelationFact]:
-        where_parts = ["project_name = ?"]
-        params = [project_name]
+        where_parts = [
+            "project_name = ?",
+            "COALESCE(status, 'accepted') = ?",
+        ]
+        params = [project_name, status]
         if source_entity:
             where_parts.append("source_entity = ?")
             params.append(source_entity)
@@ -476,6 +512,8 @@ class LocalStructuredStore:
             blob_path = self._blob_path("relation_facts", row["id"])
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
+                if data.get("status", "accepted") != status:
+                    continue
                 results.append(RelationFact.from_dict(data))
         return results
 
@@ -484,19 +522,20 @@ class LocalStructuredStore:
         query: str,
         project_name: str | None = None,
         limit: int = 20,
+        status: str = "accepted",
     ) -> list[RelationFact]:
-        extra_where = None
-        extra_params: tuple = ()
+        extra_where_parts = ["COALESCE(status, 'accepted') = ?"]
+        extra_params: tuple = (status,)
         if project_name:
-            extra_where = "project_name = ?"
-            extra_params = (project_name,)
+            extra_where_parts.append("project_name = ?")
+            extra_params = (*extra_params, project_name)
 
         rows = await asyncio.to_thread(
             self._index.search,
             "relation_facts",
             query,
             limit,
-            extra_where,
+            " AND ".join(extra_where_parts) if extra_where_parts else None,
             extra_params,
         )
         results = []
@@ -504,10 +543,28 @@ class LocalStructuredStore:
             blob_path = self._blob_path("relation_facts", row["id"])
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
+                if data.get("status", "accepted") != status:
+                    continue
                 if "_fts_score" in row:
                     data["_fts_score"] = row["_fts_score"]
                 results.append(RelationFact.from_dict(data))
         return results
+
+    async def update_relation_fact_status(self, id: str, status: str) -> bool:
+        """Update the status of a relation fact."""
+        blob_path = self._blob_path("relation_facts", id)
+        if not blob_path.exists():
+            return False
+        data = json.loads(blob_path.read_text())
+        data["status"] = status
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.update,
+            "relation_facts",
+            id,
+            {"status": status},
+        )
+        return True
 
     def close(self) -> None:
         self._index.close()

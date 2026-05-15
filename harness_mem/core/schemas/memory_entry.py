@@ -27,6 +27,10 @@ class MemoryEntry(BaseModel):
         default=0.8, ge=0.0, le=1.0,
         description="Confidence score 0.0-1.0"
     )
+    status: str = Field(
+        default="accepted",
+        description="pending | accepted | rejected"
+    )
     source: str = Field(
         description="Source observation id or 'manual'"
     )
@@ -54,6 +58,7 @@ class MemoryEntry(BaseModel):
             "category": self.category,
             "content": self.content,
             "confidence": self.confidence,
+            "status": self.status,
             "source": self.source,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -69,6 +74,8 @@ class MemoryEntry(BaseModel):
         for field in ("created_at", "updated_at", "last_accessed_at"):
             if isinstance(data.get(field), str):
                 data[field] = datetime.fromisoformat(data[field])
+        if "status" not in data:
+            data["status"] = "accepted"
         if "compacted" not in data:
             data["compacted"] = False
         if "usage_count" not in data:

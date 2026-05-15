@@ -34,8 +34,9 @@ class StructuredStore(Protocol):
         project_name: str,
         category: str | None = None,
         limit: int = 100,
+        status: str = "accepted",
     ) -> list[MemoryEntry]:
-        """List memory entries for a project, optionally filtered by category."""
+        """List memory entries for a project, optionally filtered by category and status."""
         ...
 
     async def search_memory_entries(
@@ -44,8 +45,13 @@ class StructuredStore(Protocol):
         project_name: str | None = None,
         limit: int = 20,
         mode: str = "auto",
+        status: str = "accepted",
     ) -> list[MemoryEntry]:
-        """Full-text search memory entries."""
+        """Full-text search memory entries with status filtering."""
+        ...
+
+    async def update_memory_entry_status(self, id: str, status: str) -> bool:
+        """Update the status of a memory entry (e.g. pending -> accepted)."""
         ...
 
     async def soft_delete_memory_entry(self, id: str) -> bool:
@@ -137,8 +143,9 @@ class StructuredStore(Protocol):
         target_entity: str | None = None,
         relation_type: str | None = None,
         limit: int = 100,
+        status: str = "accepted",
     ) -> list[RelationFact]:
-        """List relation facts for a project with optional entity/type filters."""
+        """List relation facts for a project with optional entity/type/status filters."""
         ...
 
     async def search_relation_facts(
@@ -146,6 +153,11 @@ class StructuredStore(Protocol):
         query: str,
         project_name: str | None = None,
         limit: int = 20,
+        status: str = "accepted",
     ) -> list[RelationFact]:
-        """Search relation facts by indexed evidence text."""
+        """Search relation facts by indexed evidence text with status filtering."""
+        ...
+
+    async def update_relation_fact_status(self, id: str, status: str) -> bool:
+        """Update the status of a relation fact."""
         ...
