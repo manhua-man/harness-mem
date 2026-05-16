@@ -6,9 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from harness_mem import cli_commands
-from harness_mem.core.schemas import Observation
-from harness_mem.core.schemas.rule_candidate import RuleCandidate
+from harness_mem.commands import (
+    cmd_correct,
+    cmd_confirm_rule,
+    cmd_handoff,
+)
+from harness_mem.core.schemas import Observation, RuleCandidate
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from tests.helpers import run
 
@@ -32,7 +35,7 @@ def test_learning_loop_promotes_candidate_to_confirmed_rule(data_dir: Path):
         run(backend.close())
 
     assert run(
-        cli_commands.cmd_correct(
+        cmd_correct(
             "session-learning-001",
             "demo",
             "Always validate JWT expiry before API calls",
@@ -50,7 +53,7 @@ def test_learning_loop_promotes_candidate_to_confirmed_rule(data_dir: Path):
     finally:
         run(backend.close())
 
-    assert run(cli_commands.cmd_confirm_rule(candidate.id)) == 0
+    assert run(cmd_confirm_rule(candidate.id)) == 0
 
     backend = LocalMemoryBackend(data_dir)
     run(backend.init())
@@ -122,7 +125,7 @@ def test_confirmed_rule_backfills_source_session_from_candidate(data_dir: Path):
 
 def test_handoff_update_reuses_existing_record(data_dir: Path):
     assert run(
-        cli_commands.cmd_handoff(
+        cmd_handoff(
             "demo",
             "task-001",
             "Fix auth bug",
@@ -132,7 +135,7 @@ def test_handoff_update_reuses_existing_record(data_dir: Path):
     ) == 0
 
     assert run(
-        cli_commands.cmd_handoff(
+        cmd_handoff(
             "demo",
             "task-001",
             "Fix auth bug follow-up",
@@ -174,7 +177,7 @@ def test_correct_requires_session_in_project(data_dir: Path, capsys: pytest.Capt
         run(backend.close())
 
     assert run(
-        cli_commands.cmd_correct(
+        cmd_correct(
             "session-other-project",
             "demo",
             "Always validate JWT expiry before API calls",
@@ -196,7 +199,7 @@ def test_correct_requires_session_in_project(data_dir: Path, capsys: pytest.Capt
 
 def test_handoff_rejects_invalid_status(data_dir: Path, capsys: pytest.CaptureFixture[str]):
     assert run(
-        cli_commands.cmd_handoff(
+        cmd_handoff(
             "demo",
             "task-001",
             "Fix auth bug",

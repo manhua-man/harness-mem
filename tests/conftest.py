@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from harness_mem import cli, cli_commands, event_log  # noqa: E402
+from harness_mem import cli, event_log  # noqa: E402
 from harness_mem.commands import distill, doctor, profile, purge, search, wake  # noqa: E402
 from harness_mem.commands import ingest, onboarding  # noqa: E402
 from harness_mem.commands import status  # noqa: E402
@@ -18,11 +18,15 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend  # noqa:
 from tests.helpers import run  # noqa: E402
 
 
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     data_dir = tmp_path / "data"
     monkeypatch.setattr(cli, "DEFAULT_DATA_DIR", data_dir)
-    monkeypatch.setattr(cli_commands, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(command_support, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(distill, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(doctor, "DEFAULT_DATA_DIR", data_dir)

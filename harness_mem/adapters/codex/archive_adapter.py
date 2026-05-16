@@ -76,6 +76,64 @@ class CodexArchiveAdapter:
             return ordered[:limit]
         return ordered
 
+    def parse_jsonl_session(
+        self,
+        session_path: Path,
+        issues: list[Issue] | None = None,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Parse an archived Codex rollout into metadata plus normalized turns."""
+        return parse_codex_archive_jsonl_session(session_path, issues=issues)
+
+    def session_to_observation(
+        self,
+        session_path: Path,
+        session_id: str,
+        project_name: str | None = None,
+        *,
+        issues: list[Issue] | None = None,
+    ) -> Observation:
+        """Convert an archived rollout session to a normalized observation."""
+        meta, turns = self.parse_jsonl_session(session_path, issues=issues)
+        if not turns:
+            raise ValueError(f"Codex archive session {session_id} contained no transcript turns")
+
+        lines = [f"# Codex Archived Session: {session_id}"]
+        if meta.get("cwd"):
+            lines.append(f"CWD: {meta['cwd']}")
+        if meta.get("start_timestamp"):
+            lines.append(f"Started: {meta['start_timestamp']}")
+
+        for i, turn in enumerate(turns, 1):
+            lines.append(f"\n## Turn {i} ({turn.get('turn_id', 'unknown')})")
+            if turn.get("user"):
+                lines.append(f"\nUser: {turn['user']}")
+            for assistant_msg in turn.get("assistant", []):
+                lines.append(f"\nAssistant: {assistant_msg}")
+            for tool in turn.get("tools", []):
+                lines.append(f"\nTool: {tool.get('name')} -> {tool.get('input')}")
+
+        raw_content = "\n".join(lines)
+
+        metadata = {
+            "source_archive": str(self.archive_dir),
+            "original_id": meta.get("session_id"),
+        }
+        if project_name:
+            metadata["project_name"] = project_name
+        if meta.get("cwd"):
+            metadata["cwd"] = meta["cwd"]
+
+        return Observation(
+            id=str(uuid4()),
+            session_id=session_id,
+            client="codex-archive",
+            raw_content=raw_content,
+            content_type="transcript",
+            timestamp=datetime.fromtimestamp(session_path.stat().st_mtime, tz=timezone.utc),
+            metadata=metadata,
+            tags=["session", "codex", "archive"],
+        )
+
     async def ingest(
         self,
         project_name: str | None = None,
@@ -96,51 +154,12 @@ class CodexArchiveAdapter:
         for session in sessions:
             session_id = session["session_id"]
             try:
-                meta, turns = parse_codex_archive_jsonl_session(
+                obs = self.session_to_observation(
                     session["path"],
+                    session_id,
+                    project_name,
                     issues=warnings,
                 )
-                if not turns:
-                    continue
-
-                # Build rich observation content
-                lines = [f"# Codex Archived Session: {session_id}"]
-                if meta.get("cwd"):
-                    lines.append(f"CWD: {meta['cwd']}")
-                if meta.get("start_timestamp"):
-                    lines.append(f"Started: {meta['start_timestamp']}")
-                
-                for i, turn in enumerate(turns, 1):
-                    lines.append(f"\n## Turn {i} ({turn.get('turn_id', 'unknown')})")
-                    if turn.get("user"):
-                        lines.append(f"\nUser: {turn['user']}")
-                    for assistant_msg in turn.get("assistant", []):
-                        lines.append(f"\nAssistant: {assistant_msg}")
-                    for tool in turn.get("tools", []):
-                        lines.append(f"\nTool: {tool.get('name')} -> {tool.get('input')}")
-
-                raw_content = "\n".join(lines)
-                
-                metadata = {
-                    "source_archive": str(self.archive_dir),
-                    "original_id": meta.get("session_id"),
-                }
-                if project_name:
-                    metadata["project_name"] = project_name
-                if meta.get("cwd"):
-                    metadata["cwd"] = meta["cwd"]
-
-                obs = Observation(
-                    id=str(uuid4()),
-                    session_id=session_id,
-                    client="codex-archive",
-                    raw_content=raw_content,
-                    content_type="transcript",
-                    timestamp=session["mtime"], # Fallback to file mtime
-                    metadata=metadata,
-                    tags=["session", "codex", "archive"],
-                )
-                
                 await self.backend.verbatim_store.save(obs)
                 ingested += 1
 

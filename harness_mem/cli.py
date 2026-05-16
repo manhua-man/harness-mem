@@ -22,6 +22,12 @@ from harness_mem.commands import (
     cmd_timeline,
     cmd_use,
     cmd_wake_up,
+    cmd_correct,
+    cmd_confirm_rule,
+    cmd_confirmed_rules,
+    cmd_handoff,
+    cmd_list_candidates,
+    cmd_reject_rule,
 )
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
@@ -32,20 +38,12 @@ from harness_mem.commands.support import (
     prompt_list,
     prompt_text,
     resolve_project_name,
-)
-from harness_mem.event_log import EventType
-from harness_mem.cli_commands import (
-    HANDOFF_STATUSES,
     clean_cli_list,
     clean_cli_text,
-    cmd_correct,
-    cmd_confirm_rule,
-    cmd_confirmed_rules,
-    cmd_handoff,
-    cmd_list_candidates,
-    cmd_reject_rule,
     normalize_handoff_status,
 )
+from harness_mem.event_log import EventType
+from harness_mem.commands.handoff import HANDOFF_STATUSES
 
 # Test compatibility: tests monkeypatch these via cli module
 from harness_mem.adapters.codex.adapter import CodexAdapter  # noqa: F401
@@ -105,6 +103,7 @@ def main():
     # wake-up
     wake = sub.add_parser("wake-up", aliases=["wake"], help="Generate wake-up context")
     wake.add_argument("-p", "--project")
+    wake.add_argument("--no-auto-ingest", action="store_true", help="Skip automatic session ingestion")
     wake.set_defaults(command_name="wake-up")
 
     # search
@@ -235,7 +234,7 @@ def main():
         return asyncio.run(cmd_status(args.project))
 
     if command == "wake-up":
-        return asyncio.run(cmd_wake_up(args.project))
+        return asyncio.run(cmd_wake_up(args.project, no_auto_ingest=getattr(args, "no_auto_ingest", False)))
 
     if command == "search":
         query = args.query or args.query_arg

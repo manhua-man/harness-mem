@@ -2,29 +2,333 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import os
+import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
+from harness_mem.adapters import AdapterRegistry
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
+    get_config,
     log_command_invoked,
     log_next_step_shown,
+    project_ingest_lock_path,
+    project_ingest_scan_stamp_path,
     profile_text,
     resolve_project_name,
     wake_budget,
 )
+from harness_mem.commands.ingest import _select_claude_candidate_sessions
+from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from harness_mem.wake_selection import select_wake_memory_entries
 
+AUTO_SYNC_TIMEOUT_SECONDS = 0.3
+DEFAULT_AUTO_INGEST_MIN_INTERVAL_SECONDS = 300
+DEFAULT_AUTO_INGEST_MIN_NEW_SESSIONS = 1
+DEFAULT_AUTO_INGEST_SCAN_THROTTLE_SECONDS = 60
+DEFAULT_AUTO_INGEST_LOCK_TTL_SECONDS = 3600
 
-async def cmd_wake_up(project_name: str | None) -> int:
+
+def _elapsed_ms(start_time: float) -> int:
+    return int((time.perf_counter() - start_time) * 1000)
+
+
+def _print_auto_sync_skipped(reason: str, start_time: float) -> None:
+    print(f"🔄 Auto-sync skipped: {reason} ({_elapsed_ms(start_time)}ms)")
+
+
+def _wake_int_setting(config: dict, key: str, default: int) -> int:
+    value = config.get("wake", {}).get(key, default)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _read_lock_record(lock_path: Path) -> dict:
+    if not lock_path.exists():
+        return {}
+    try:
+        data = json.loads(lock_path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        raw = lock_path.read_text(encoding="utf-8").strip()
+        if raw.isdigit():
+            return {"pid": int(raw), "state": "idle"}
+        return {}
+
+
+def _record_updated_at(record: dict) -> datetime | None:
+    value = record.get("updated_at")
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _write_lock_record(
+    lock_path: Path,
+    *,
+    pid: int,
+    state: str,
+    last_session_id: str | None,
+    cursor_time: datetime | None,
+) -> None:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text(
+        json.dumps(
+            {
+                "pid": pid,
+                "state": state,
+                "last_session_id": last_session_id,
+                "cursor_time": cursor_time.isoformat() if cursor_time else None,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    if cursor_time is not None:
+        ts = cursor_time.timestamp()
+        os.utime(lock_path, (ts, ts))
+
+
+def _file_mtime(path: Path) -> datetime | None:
+    if not path.exists():
+        return None
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+
+
+def _is_pid_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _scan_stamp_is_fresh(
+    scan_stamp_path: Path,
+    cursor_time: datetime | None,
+    throttle_seconds: int,
+) -> bool:
+    if throttle_seconds <= 0 or not scan_stamp_path.exists():
+        return False
+    stamp_time = _file_mtime(scan_stamp_path)
+    if stamp_time is None:
+        return False
+    if cursor_time is not None and stamp_time <= cursor_time:
+        return False
+    age = (datetime.now(timezone.utc) - stamp_time).total_seconds()
+    return age < throttle_seconds
+
+
+def _mark_scan_stamp(scan_stamp_path: Path) -> None:
+    scan_stamp_path.parent.mkdir(parents=True, exist_ok=True)
+    scan_stamp_path.write_text(str(os.getpid()), encoding="utf-8")
+
+
+def _clear_scan_stamp(scan_stamp_path: Path) -> None:
+    if scan_stamp_path.exists():
+        scan_stamp_path.unlink()
+
+
+def _acquire_ingest_lock(
+    lock_path: Path,
+    *,
+    last_session_id: str | None,
+    prior_cursor_time: datetime | None,
+    lock_ttl_seconds: int,
+) -> tuple[bool, str | None]:
+    existing = _read_lock_record(lock_path)
+    existing_pid = int(existing.get("pid", 0) or 0)
+    existing_state = str(existing.get("state", "idle") or "idle")
+    existing_updated_at = _record_updated_at(existing)
+    if (
+        existing_state == "running"
+        and existing_pid not in (0, os.getpid())
+        and _is_pid_running(existing_pid)
+        and (
+            existing_updated_at is None
+            or (datetime.now(timezone.utc) - existing_updated_at).total_seconds() < lock_ttl_seconds
+        )
+    ):
+        return False, f"lock held by pid {existing_pid}"
+
+    _write_lock_record(
+        lock_path,
+        pid=os.getpid(),
+        state="running",
+        last_session_id=last_session_id,
+        cursor_time=prior_cursor_time,
+    )
+    return True, None
+
+
+async def _auto_sync_sessions(backend: LocalMemoryBackend, project_name: str) -> None:
+    """Perform a light, timed ingestion of new sessions."""
+    start_time = time.perf_counter()
+    try:
+        # P95 budget 300ms
+        await asyncio.wait_for(
+            _perform_sync(backend, project_name, start_time),
+            timeout=AUTO_SYNC_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        print("🔄 Auto-sync: timeout (>300ms), skipping")
+    except Exception:
+        # Silent fail for auto-sync to avoid blocking wake-up
+        pass
+
+
+async def _perform_sync(backend: LocalMemoryBackend, project_name: str, start_time: float) -> None:
+    config = get_config()
+    min_interval_seconds = _wake_int_setting(
+        config,
+        "auto_ingest_min_interval_seconds",
+        DEFAULT_AUTO_INGEST_MIN_INTERVAL_SECONDS,
+    )
+    min_new_sessions = _wake_int_setting(
+        config,
+        "auto_ingest_min_new_sessions",
+        DEFAULT_AUTO_INGEST_MIN_NEW_SESSIONS,
+    )
+    scan_throttle_seconds = _wake_int_setting(
+        config,
+        "auto_ingest_scan_throttle_seconds",
+        DEFAULT_AUTO_INGEST_SCAN_THROTTLE_SECONDS,
+    )
+    lock_ttl_seconds = _wake_int_setting(
+        config,
+        "auto_ingest_lock_ttl_seconds",
+        DEFAULT_AUTO_INGEST_LOCK_TTL_SECONDS,
+    )
+
+    lock_path = project_ingest_lock_path(project_name)
+    scan_stamp_path = project_ingest_scan_stamp_path(project_name)
+    prior_lock_record = _read_lock_record(lock_path)
+    prior_cursor_time = _file_mtime(lock_path)
+    prior_last_session_id = prior_lock_record.get("last_session_id")
+
+    if prior_cursor_time is not None:
+        age = (datetime.now(timezone.utc) - prior_cursor_time).total_seconds()
+        if age < min_interval_seconds:
+            _print_auto_sync_skipped("time gate", start_time)
+            return
+
+    if _scan_stamp_is_fresh(scan_stamp_path, prior_cursor_time, scan_throttle_seconds):
+        _print_auto_sync_skipped("scan throttle", start_time)
+        return
+
+    adapter = AdapterRegistry.build("claude-code", backend)
+    profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
+    profile = await profile_store.get(project_name)
+    all_sessions = adapter.list_sessions(project_name, min_size_kb=0)
+
+    candidate_sessions = _select_claude_candidate_sessions(
+        all_sessions,
+        limit=len(all_sessions),
+        full_rescan=False,
+        last_session_id=(prior_last_session_id or (profile.last_ingest_session_id if profile else None)),
+        last_ingest_at=profile.last_ingest_at if profile else None,
+    )
+
+    if len(candidate_sessions) < min_new_sessions:
+        _mark_scan_stamp(scan_stamp_path)
+        print(f"🔄 Auto-sync: up to date ({_elapsed_ms(start_time)}ms)")
+        return
+
+    lock_acquired, lock_reason = _acquire_ingest_lock(
+        lock_path,
+        last_session_id=prior_last_session_id or (profile.last_ingest_session_id if profile else None),
+        prior_cursor_time=prior_cursor_time,
+        lock_ttl_seconds=lock_ttl_seconds,
+    )
+    if not lock_acquired:
+        _print_auto_sync_skipped(lock_reason or "lock held", start_time)
+        return
+
+    ingested = 0
+    newest_seen_session_id = prior_last_session_id or (profile.last_ingest_session_id if profile else None)
+    cursor_time_to_write = prior_cursor_time
+
+    try:
+        for session in candidate_sessions:
+            if await _session_exists_for_project(backend, session["session_id"], project_name):
+                continue
+            try:
+                obs = adapter.session_to_observation(session["path"], session["session_id"], project_name)
+                await backend.verbatim_store.save(obs)
+                ingested += 1
+            except Exception:
+                continue
+
+        if all_sessions:
+            newest_seen_session_id = all_sessions[0]["session_id"]
+        cursor_time_to_write = datetime.now(timezone.utc)
+
+        if profile is None:
+            profile = ProjectProfile(project_name=project_name)
+        profile.last_ingest_session_id = newest_seen_session_id
+        profile.last_ingest_at = cursor_time_to_write
+        await profile_store.save(profile)
+        _clear_scan_stamp(scan_stamp_path)
+    finally:
+        _write_lock_record(
+            lock_path,
+            pid=os.getpid(),
+            state="idle",
+            last_session_id=newest_seen_session_id,
+            cursor_time=cursor_time_to_write,
+        )
+
+    if ingested > 0:
+        print(f"🔄 Auto-synced: {ingested} new sessions ingested ({_elapsed_ms(start_time)}ms)")
+    else:
+        print(f"🔄 Auto-sync: up to date ({_elapsed_ms(start_time)}ms)")
+
+
+async def _session_exists_for_project(
+    backend: LocalMemoryBackend,
+    session_id: str,
+    project_name: str,
+) -> bool:
+    observations = await backend.verbatim_store.list(session_id=session_id, limit=20)
+    return any(
+        observation.metadata.get("project_name") == project_name
+        for observation in observations
+    )
+
+
+async def cmd_wake_up(project_name: str | None, no_auto_ingest: bool = False) -> int:
     """Generate wake-up context for a project."""
     project_name = resolve_project_name(project_name, action_label="wake-up")
     if not project_name:
         return 1
 
+    # Configuration check
+    config = get_config()
+    should_auto_ingest = not no_auto_ingest and config.get("wake", {}).get("auto_ingest", True)
+
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
+    
+    if should_auto_ingest:
+        await _auto_sync_sessions(backend, project_name)
+
     profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
     try:
         profile = await profile_store.get(project_name)
@@ -77,9 +381,16 @@ async def cmd_wake_up(project_name: str | None) -> int:
             rules_chars = sum(len(rule.trigger or "") + len(rule.pattern or "") for rule in rules)
             print(f"# Confirmed Rules  (source: confirmed_rules, {len(rules)} rules, ~{rules_chars} chars)")
             for rule in rules[:5]:
-                trigger_preview = rule.trigger[:60] + "..." if len(rule.trigger) > 60 else rule.trigger
-                pattern_preview = rule.pattern[:60] + "..." if len(rule.pattern) > 60 else rule.pattern
-                print(f"- **{trigger_preview}**: {pattern_preview} [...truncated]")
+                trigger_limit = 60
+                pattern_limit = 100
+                is_trigger_trunc = len(rule.trigger) > trigger_limit
+                is_pattern_trunc = len(rule.pattern) > pattern_limit
+                
+                t_preview = rule.trigger[:trigger_limit] + "..." if is_trigger_trunc else rule.trigger
+                p_preview = rule.pattern[:pattern_limit] + "..." if is_pattern_trunc else rule.pattern
+                
+                trunc_marker = " [...truncated]" if (is_trigger_trunc or is_pattern_trunc) else ""
+                print(f"- **{t_preview}**: {p_preview}{trunc_marker}")
                 if rule.provenance:
                     provenance = rule.provenance
                     source = provenance.get("session_id", provenance.get("agent_type", "unknown"))
@@ -103,8 +414,11 @@ async def cmd_wake_up(project_name: str | None) -> int:
                 f"{len(relation_facts)} facts, ~{relation_chars} chars)"
             )
             for fact in relation_facts:
-                evidence_preview = fact.evidence[:100] + "..." if len(fact.evidence) > 100 else fact.evidence
-                print(f"- {fact.source_entity} --{fact.relation_type}-> {fact.target_entity}: {evidence_preview}")
+                evidence_limit = 100
+                is_trunc = len(fact.evidence) > evidence_limit
+                evidence_preview = fact.evidence[:evidence_limit] + "..." if is_trunc else fact.evidence
+                trunc_marker = " [...truncated]" if is_trunc else ""
+                print(f"- {fact.source_entity} --{fact.relation_type}-> {fact.target_entity}: {evidence_preview}{trunc_marker}")
                 if fact.provenance:
                     provenance = fact.provenance
                     source = provenance.get("session_id", provenance.get("agent_type", "unknown"))
@@ -117,8 +431,11 @@ async def cmd_wake_up(project_name: str | None) -> int:
             entry_chars = sum(len(entry.content or "") for entry in entries)
             print(f"# Memory Entries  (source: structured_memory, {len(entries)} entries, ~{entry_chars} chars)")
             for entry in entries:
-                content_preview = entry.content[:100] + "..." if len(entry.content) > 100 else entry.content
-                print(f"- [{entry.category}] {content_preview}")
+                content_limit = 100
+                is_trunc = len(entry.content) > content_limit
+                content_preview = entry.content[:content_limit] + "..." if is_trunc else entry.content
+                trunc_marker = " [...truncated]" if is_trunc else ""
+                print(f"- [{entry.category}] {content_preview}{trunc_marker}")
                 if entry.provenance:
                     provenance = entry.provenance
                     source = provenance.get("session_id", provenance.get("agent_type", "unknown"))

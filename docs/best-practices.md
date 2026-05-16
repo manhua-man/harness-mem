@@ -103,3 +103,46 @@ harness-mem handoff
 1. **先搜索，再行动**：利用 `search_memory` 避免重复犯错。
 2. **事毕必有交接**：`create_task_handoff` 是防止上下文丢失的唯一防线。
 3. **拥抱候选层**：不要害怕生成太多的 `pending` 条目，Gardener 会处理它们。
+
+
+---
+
+## 4. 接口纯净度（Interface Purity）
+
+> 这是 harness-mem 作为"未来可被独立 UI 产品复用的底座"留下的隐性纪律。当前所有用例都是开发者编程记忆，不需要立即抽离；但每次写新代码时都应遵守，避免日后抽离成本积累。
+
+### 原则
+
+`harness_mem/core/interfaces/` 下的 Protocol（`MemoryBackend` / `VerbatimStore` / `StructuredStore` / `ProjectProfileStore`）是**底座对所有上层调用方的契约**。修改时问自己一个问题：
+
+> **这个方法是"任何上层应用都需要的最小集"，还是"当前 CLI / MCP 应用的便利封装"？**
+
+如果是后者，放到 `commands/`、`mcp/`、`api/` 或 `tools/`，**不要污染 interface**。
+
+### 判断准则
+
+| 应放进 interface | 应放在 commands/ 或 mcp/ 或 api/ |
+|-----------------|-------------------------------|
+| `save_memory_entry(entry)` | `cmd_correct(...)`（先建 candidate 再调 save） |
+| `search_memory_entries(query, scope)` | `cmd_search(...)`（含 UI 输出格式化） |
+| `list_rule_candidates(project, status)` | `cmd_list_candidates(...)`（含 phase 行打印） |
+| `update_rule_status(rule_id, status)` | `cmd_confirm_rule(...)`（含交互提示） |
+
+### 反例：不该出现在 interface 的方法
+
+- `format_memory_for_wake_output(...)` — 这是 wake 命令的 UI 逻辑，不是底座能力
+- `print_status_summary(...)` — 任何含 `print` 的方法
+- `get_default_project_name_from_cwd()` — 这是 CLI 便利封装，应放在 `commands/support.py`
+- `wake_with_phase_label(...)` — phase 标签是 CLI 渐进披露 UX，不是底座契约
+
+### 何时可以扩 interface
+
+加 Protocol 方法的标准是"**任意一个未来 UI 产品都会需要这个能力**"。比如：
+
+- ✅ 给 `MemoryEntry` 加时间字段（v1.7 bi-temporal）→ 任何 UI 都需要查 valid_from/valid_to
+- ✅ 给 `StructuredStore` 加 `count_entries(project)` → UI 仪表盘必需
+- ❌ 给 `MemoryBackend` 加 `quickstart_walkthrough()` → 这是 CLI onboarding 体验，UI 自有自己的引导流程
+
+### 与"扩展性"的关系
+
+**接口纯净度 ≠ 接口最小化**。该加的能力要加，避免每次都让上层自己拼装基础动作。但每加一个方法都要过"任意未来 UI 都用得上"这一关。如果只有当前 CLI 用得上，就放在调用方。

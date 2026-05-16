@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+import tomllib
 from datetime import datetime
 from pathlib import Path
 
@@ -15,6 +17,49 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
 DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
+CONFIG_TOML_PATH = Path.home() / ".harness-mem" / "config.toml"
+LEGACY_CONFIG_JSON_PATH = Path.home() / ".harness-mem" / "config.json"
+
+
+def clean_cli_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def clean_cli_list(values: list[str] | None) -> list[str]:
+    return [
+        cleaned
+        for value in values or []
+        if (cleaned := clean_cli_text(value)) is not None
+    ]
+
+
+def normalize_handoff_status(value: str | None) -> str:
+    cleaned = clean_cli_text(value)
+    if cleaned is None:
+        return "in_progress"
+    return cleaned.lower().replace("-", "_")
+
+
+def get_config() -> dict:
+    """Read user configuration, preferring config.toml over legacy JSON."""
+    if CONFIG_TOML_PATH.exists():
+        try:
+            with CONFIG_TOML_PATH.open("rb") as fh:
+                data = tomllib.load(fh)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    if not LEGACY_CONFIG_JSON_PATH.exists():
+        return {}
+
+    try:
+        return json.loads(LEGACY_CONFIG_JSON_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
 _ADOPTED_NEXT_STEP_COMMANDS = {
     "ingest",
@@ -103,6 +148,24 @@ def get_active_project() -> str | None:
 def set_active_project(project_name: str) -> None:
     ensure_data_dir()
     active_project_path().write_text(project_name.strip(), encoding="utf-8")
+
+
+def safe_project_slug(project_name: str) -> str:
+    return project_name.replace("/", "_").replace("\\", "_").replace(":", "_").replace(" ", "_")
+
+
+def project_runtime_dir(project_name: str) -> Path:
+    path = DEFAULT_DATA_DIR / "projects" / safe_project_slug(project_name) / "runtime"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def project_ingest_lock_path(project_name: str) -> Path:
+    return project_runtime_dir(project_name) / ".ingest-lock"
+
+
+def project_ingest_scan_stamp_path(project_name: str) -> Path:
+    return project_runtime_dir(project_name) / ".ingest-scan-stamp"
 
 
 def can_prompt() -> bool:

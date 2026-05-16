@@ -48,6 +48,7 @@ alwaysApply: true
 | 路径 | 说明 | 优先级 |
 |------|------|--------|
 | `harness_mem/` | Python runtime：schemas、storage、search、MCP server、CLI commands。 | 核心实现 |
+| `harness_mem/core/interfaces/` | **底座接口契约**（MemoryBackend / VerbatimStore / StructuredStore / ProjectProfileStore）。修改时遵守"接口纯净度"原则——见下文。 | 底座契约 |
 | `tools/session-distill/` | 长程提炼 Skill：raw session -> packet -> memory drafts。 | 核心流程 |
 | `tools/mem-distill/` | 既有 memory / observations 的清理、去重、归并。 | 整理 |
 | `tools/grill-me/` / `tools/answer-me/` / `tools/ask-me/` | review 阶段可选协作者，不是主链硬依赖。 | 可选 |
