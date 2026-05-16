@@ -4,7 +4,7 @@ Local-first, pluggable **AI memory runtime** for Claude Code, Codex, and Gemini 
 
 **核心理念**：让 AI 拥有跨 Session、可审计的长期记忆。AI 是记忆的“操作员”，人是记忆的“审核员”。
 
-Agent collaboration truth: [AGENTS.md](./AGENTS.md).
+Agent 协作真值见 [AGENTS.md](./AGENTS.md)。
 
 ---
 

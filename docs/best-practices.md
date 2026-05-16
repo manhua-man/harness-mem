@@ -1,222 +1,105 @@
-# harness-mem 最佳实践
+# harness-mem 最佳实践 (v1.4+)
 
-## 核心理念
+## 1. 核心架构：4 角色协作
 
-**Local-first memory**: 你的 AI 记忆完全存储在本地，不依赖云服务。数据路径 `~/.harness-mem/data/`。
+harness-mem 不仅仅是一个工具，它定义了一套 AI 参与的记忆生命周期。
 
-**增量优于全量**: 默认增量 ingest，避免重复导入已有 session。
-
-**规则学习闭环**: correct → candidate → confirm → recall，持续积累项目知识。
+| 角色 | 职责 | 主要交互方式 |
+|------|------|-------------|
+| **User (用户)** | 提出目标，进行最终决策。 | 自然语言 / CLI |
+| **Executor (执行者)** | 完成具体的编码或研究任务。 | MCP 工具调用 |
+| **Gardener (园丁)** | 维护记忆健康：distill、purge、关联条目。 | CLI (`distill`/`purge`) |
+| **Memory Expert (专家)** | 决定哪些知识应固化为长期规则。 | MCP / CLI (`rules`) |
 
 ---
 
-## 日常使用流程
+## 2. 候选层 (Candidate Layer) 机制
 
-### 第一步：启动自检
+**核心原则：AI 建议，人类（或 Gardener）确认。**
 
-```bash
-harness-mem doctor
-```
+为了保证记忆库的信噪比，所有由 AI 产生的结构化知识（MemoryEntry, Rule, Relation）都应先进入“候选层”（状态为 `pending`）。
 
-`doctor` 会根据当前项目状态，直接告诉你下一步应该做什么（ingest / distill / wake）。
+- **Executor 行为**：在任务结束或发现关键决策时，使用 `suggest_memory_entry` 或 `create_task_handoff`。
+- **Gardener/User 行为**：定期运行 `harness-mem candidates` 或在对话中使用 `confirm_rule` 将知识固化。
 
-### 第二步：接入新 Session
+---
 
-```bash
-# Claude Code sessions（增量）
-harness-mem ingest claude-code -n 5
+## 3. MCP 工具全集 (AI 视角)
 
-# Codex sessions
-harness-mem ingest codex -n 5
+Executor 应根据场景自主选择工具：
 
-# 完全重新扫描（忽略 cursor）
-harness-mem ingest claude-code --full-rescan
-```
+| 类别 | 工具名 | 最佳使用场景 |
+|------|--------|------------|
+| **读取** | `search_memory` | 寻找特定知识、代码约定或过往 bug 记录。 |
+| | `timeline` | 回溯当前项目的开发脉络。 |
+| | `get_task_handoffs` | 在开始新任务前，恢复上一个 Session 的断点。 |
+| | `get_confirmed_rules` | 检查本项目必须遵守的硬性约束。 |
+| **写入** | `suggest_memory_entry` | 记录新发现的事实、架构决策或 API 变动。 |
+| | `create_task_handoff` | Session 结束前，记录进度、下一步计划和阻塞点。 |
+| | `suggest_rule` | 发现需要长期遵守的模式（如：禁止使用某库）。 |
+| | `suggest_relation_fact` | 建立实体间的关联（如：A 模块依赖 B 配置）。 |
+| **管理** | `confirm_rule` / `reject_rule` | 在 User 明确要求后，操作候选规则的状态。 |
 
-### 第三步：提取结构化记忆
+---
 
-```bash
-harness-mem distill
-```
+## 4. 日常流 (Workflow)
 
-从 session 中提取 MemoryEntry、TaskHandoff、RuleCandidate。
-
-### 第四步：生成唤醒上下文
-
+### 4.1 开启新 Session (Wake-up)
+AI 应在启动时自动调用 `wake-up` 逻辑（通常由客户端集成完成），或由 User 运行：
 ```bash
 harness-mem wake
 ```
+**目标**：将 Profile、Rules 和最近的 Task Handoffs 注入 Context。
 
-启动新 session 时带上项目上下文，快速恢复工作状态。
-
-### 第五步：搜索记忆
-
+### 4.2 任务切换与交接
+在 Executor 完成阶段性工作后，应主动调用：
 ```bash
-# 自动模式（优先 hybrid，回退 FTS）
-harness-mem search "authentication" --mode auto
-
-# 纯全文搜索
-harness-mem search "bug fix" --mode fts
-
-# 混合搜索（需要 pip install -e ".[hybrid]"）
-harness-mem search "architecture" --mode hybrid
-```
-
----
-
-## 项目隔离
-
-### 设置活动项目
-
-```bash
-harness-mem use my-project
-```
-
-### 查看项目状态
-
-```bash
-harness-mem status
-```
-
-### 清理旧数据
-
-```bash
-# 干跑检查
-harness-mem purge -p my-project --before 2026-01-01 --category all --dry-run
-
-# 实际执行
-harness-mem purge -p my-project --before 2026-01-01 --category observations
-```
-
----
-
-## 规则学习循环
-
-### 创建候选规则
-
-```bash
-# 完全交互式
-harness-mem correct
-
-# 半交互式
-harness-mem correct <observation-id> \
-  -r "Always validate JWT expiry before API calls" \
-  -t "Before any authenticated API call"
-```
-
-### 管理规则
-
-```bash
-# 列出候选
-harness-mem candidates
-
-# 确认规则
-harness-mem confirm <candidate-id>
-
-# 拒绝规则
-harness-mem reject <candidate-id>
-
-# 列出已确认规则
-harness-mem rules
-```
-
----
-
-## 任务交接
-
-```bash
-# 交互式
+# AI 通过 MCP 调用 create_task_handoff
+# 或用户手动：
 harness-mem handoff
-
-# 参数式
-harness-mem handoff -t <task-id> -s "Fix auth bug" \
-  -n "Check JWT validation logic" \
-  -b "Waiting for token samples"
 ```
+
+### 4.3 记忆维护 (Gardener 职责)
+建议每周进行一次“园艺工作”：
+1. **蒸馏**：`harness-mem distill` — 将 verbatim observations 转化为结构化条目。
+2. **清理**：`harness-mem purge --dry-run` — 发现并压缩陈旧、低频的记忆。
+3. **诊断**：`harness-mem doctor` — 检查项目健康度。
 
 ---
 
-## Claude Code 集成（MCP）
+## 5. 搜索与检索优化
 
-### 安装 MCP Server
-
-```bash
-claude mcp add harness-mem -- python -m harness_mem.mcp.server
-```
-
-### 可用工具
-
-| 工具 | 说明 |
-|------|------|
-| `search_memory` | 搜索记忆，支持 scope/mode |
-| `timeline` | 时间线视图 |
-| `get_observations` | 获取观察记录 |
-| `get_task_handoffs` | 获取任务交接 |
-| `get_confirmed_rules` | 获取已确认规则 |
-| `get_project_profile` | 获取项目 Profile |
-| `create_rule_candidate` | 创建候选规则 |
-| `confirm_rule` | 确认规则 |
-| `reject_rule` | 拒绝规则 |
+- **自动模式 (`--mode auto`)**：优先尝试 Hybrid Search（向量+全文），若环境不支持则无缝回退至 FTS。
+- **代码符号搜索**：对于类名、函数名，建议强制使用 `fts` 模式。
+- **意图/概念搜索**：对于“如何处理认证”等模糊查询，建议使用 `hybrid` 模式。
 
 ---
 
-## 项目 Profile 管理
+## 6. 高级技巧
 
-```bash
-# 编辑项目 Profile
-harness-mem profile --edit
-
-# 查看当前 Profile
-harness-mem profile
-```
-
-Profile 包含：description、stacks（技术栈）、key_files、conventions。
+- **跨项目搜索**：使用 `scope="all"` 可以在所有已知项目中检索通用知识。
+- **溯源 (Provenance)**：每条记忆条目都带有 `source` 标记，可以通过 `harness-mem show <obs-id>` 查看其产生的原始语境。
+- **自定义 Profile**：通过 `harness-mem profile --edit` 维护 `key_files` 和 `conventions`，这是 `wake-up` 时最重要的静态权重。
 
 ---
 
-## REST API
+## 7. 历史记忆激活 (Legacy Activation)
 
-```bash
-# 启动 API Server
-harness-mem api -p 8000
+如果你拥有大量的 Codex 历史归档（`rollout-*.jsonl`），可以将它们作为“冷启动”知识库注入新项目。
 
-# 搜索 API
-curl "http://localhost:8000/search?q=authentication&scope=project&mode=auto"
-```
-
----
-
-## 常见问题
-
-### Q: hybrid search 是什么？
-
-hybrid = FTS（全文）+ 向量嵌入。embedding 不可用时自动回退到纯 FTS，CLI 会显示 `mode: fts (fallback)`。
-
-### Q: purge 会删除数据吗？
-
-purge 使用 soft-delete，数据标记为 `compacted` 不再显示，但文件仍保留。可用 `--category all` 或 `--category structured` 选择删除范围。
-
-### Q: 如何查看完整时间线？
-
-```bash
-harness-mem tl 50   # 最近 50 条
-harness-mem tl      # 默认最近 3 条
-```
-
-### Q: Codex sessions 和 Claude Code sessions 区别？
-
-- Claude Code: 项目 scoped，存储在 `~/.claude/projects/{project}/`
-- Codex: 全局 across projects，需要手动 review 后再 ingest
+- **批量导入**：
+  ```bash
+  harness-mem ingest codex-archive -n 20
+  ```
+- **工作流建议**：
+  1. 导入后，运行 `harness-mem status` 确认观察记录已入库。
+  2. 运行 `harness-mem distill`，AI 会自动从历史 Transcript 中提取 `MemoryEntry`。
+  3. 历史记忆会带有 `archive` 标签，方便在搜索时识别溯源。
 
 ---
 
-## 最佳实践总结
+## 总结：AI 原生记忆法则
 
-| 场景 | 推荐命令 |
-|------|----------|
-| 每日开始 | `harness-mem doctor` → `harness-mem wake` |
-| 编码时学到规则 | `harness-mem correct` |
-| 任务切换 | `harness-mem handoff` |
-| 搜索记忆 | `harness-mem search -q "关键词" --mode auto` |
-| 清理旧数据 | `harness-mem purge --dry-run` 先检查 |
-| 启动 API | `harness-mem api -p 8080` |
+1. **先搜索，再行动**：利用 `search_memory` 避免重复犯错。
+2. **事毕必有交接**：`create_task_handoff` 是防止上下文丢失的唯一防线。
+3. **拥抱候选层**：不要害怕生成太多的 `pending` 条目，Gardener 会处理它们。

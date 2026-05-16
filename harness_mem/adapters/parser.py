@@ -304,6 +304,160 @@ def parse_codex_jsonl_session(
 
 
 # ---------------------------------------------------------------------------
+# Codex Archive .jsonl parser (from session-distill)
+# ---------------------------------------------------------------------------
+
+BOILERPLATE_USER_PREFIXES = (
+    "# Context from my IDE setup:",
+    "## My request for Codex:",
+)
+IDE_CONTEXT_PREFIX = "# Context from my IDE setup:"
+IDE_REQUEST_MARKER = "## My request for Codex:"
+TURN_ABORTED_REGEX = re.compile(r"<turn_aborted>.*?</turn_aborted>", re.DOTALL)
+
+
+def extract_archived_text(content: Any) -> str:
+    """Extract and normalize text from various Codex content formats."""
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+    parts = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        text = item.get("text")
+        if isinstance(text, str):
+            parts.append(text)
+    return "\n\n".join(parts).strip()
+
+
+def sanitize_archived_user_text(text: str) -> str:
+    """Remove IDE boilerplate and aborted turn markers from Codex user messages."""
+    cleaned = text.strip()
+    if not cleaned:
+        return ""
+    if any(cleaned.startswith(prefix) for prefix in BOILERPLATE_USER_PREFIXES):
+        # If it only contains boilerplate, it's effectively empty for memory
+        if cleaned.startswith(IDE_CONTEXT_PREFIX) and IDE_REQUEST_MARKER in cleaned:
+            cleaned = cleaned.split(IDE_REQUEST_MARKER, 1)[1].strip()
+        else:
+            return ""
+    cleaned = TURN_ABORTED_REGEX.sub("", cleaned).strip()
+    return cleaned
+
+
+def parse_codex_archive_jsonl_session(
+    session_path: Path,
+    *,
+    max_user_chars: int = 2000,
+    max_assistant_chars: int = 1000,
+    issues: list[Issue] | None = None,
+) -> tuple[dict[str, Any], list[Turn]]:
+    """Parse a Codex 'rollout-*.jsonl' archive file.
+
+    Derived from the high-fidelity parser in session-distill.py.
+    Returns (session_meta, turns).
+    """
+    session_meta: dict[str, Any] = {
+        "session_id": session_path.stem,
+        "cwd": "",
+        "start_timestamp": "",
+        "last_timestamp": "",
+        "invalid_json_lines": 0,
+    }
+    turns: list[Turn] = []
+    # Intermediary turn lookup to handle multi-line tool/message events
+    turn_lookup: dict[str, Turn] = {}
+
+    def _ensure_turn(turn_id: str | None) -> Turn:
+        actual_id = turn_id or f"turn-{len(turns) + 1}"
+        if actual_id not in turn_lookup:
+            new_turn: Turn = {
+                "turn_id": actual_id,
+                "user": "",
+                "assistant": [],
+                "tools": [],
+                "timestamp": "",
+            }
+            turn_lookup[actual_id] = new_turn
+            turns.append(new_turn)
+        return turn_lookup[actual_id]
+
+    try:
+        content = session_path.read_text(encoding="utf-8", errors="replace")
+        for line in content.splitlines():
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line.strip())
+            except json.JSONDecodeError:
+                session_meta["invalid_json_lines"] += 1
+                continue
+
+            top_level_type = record.get("type")
+            payload = record.get("payload")
+            if not isinstance(payload, dict):
+                continue
+
+            if top_level_type == "session_meta":
+                session_meta["session_id"] = payload.get("id") or session_meta["session_id"]
+                session_meta["cwd"] = payload.get("cwd") or session_meta["cwd"]
+                session_meta["start_timestamp"] = payload.get("timestamp") or session_meta["start_timestamp"]
+                continue
+
+            # Every event-carrying record should have a turn_id
+            turn_id = payload.get("turn_id")
+            turn = _ensure_turn(turn_id)
+
+            if top_level_type == "turn_context":
+                turn["timestamp"] = payload.get("current_date") or turn["timestamp"]
+                continue
+
+            if top_level_type == "event_msg":
+                event_type = payload.get("type")
+                if event_type == "user_message":
+                    msg = sanitize_archived_user_text(str(payload.get("message") or ""))
+                    if msg:
+                        turn["user"] = (turn["user"] + "\n" + msg).strip()[:max_user_chars]
+                elif event_type == "agent_message":
+                    msg = str(payload.get("message") or "")
+                    phase = str(payload.get("phase") or "")
+                    if msg and phase in ("commentary", "final_answer"):
+                        turn["assistant"].append(msg[:max_assistant_chars])
+                continue
+
+            if top_level_type == "response_item":
+                item_type = payload.get("type")
+                if item_type == "message":
+                    role = payload.get("role")
+                    text = extract_archived_text(payload.get("content"))
+                    if role == "user":
+                        sanitized = sanitize_archived_user_text(text)
+                        if sanitized:
+                            turn["user"] = (turn["user"] + "\n" + sanitized).strip()[:max_user_chars]
+                    elif role == "assistant" and text:
+                        turn["assistant"].append(text[:max_assistant_chars])
+                elif item_type == "function_call":
+                    tool_name = str(payload.get("name") or "")
+                    args = str(payload.get("arguments") or "")
+                    turn["tools"].append({
+                        "name": tool_name,
+                        "input": args[:300],
+                    })
+
+    except Exception as exc:
+        _append_issue(issues, level="error", code="parse_failed", message=str(exc), path=session_path)
+
+    # Clean up empty turns
+    valid_turns = [
+        t for t in turns
+        if t["user"] or t["assistant"] or t["tools"]
+    ]
+    return session_meta, valid_turns
+
+
+# ---------------------------------------------------------------------------
 # Session file listing
 # ---------------------------------------------------------------------------
 

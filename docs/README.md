@@ -1,54 +1,20 @@
-# harness-mem Docs Index
+# docs/
 
-This index lists the docs that exist in this checkout. Keep it synchronized when adding, renaming, or removing docs.
+Product documentation for harness-mem.
 
-## PRD Docs
+| Directory | Contents |
+|-----------|----------|
+| `benchmark/` | Benchmark system design |
+| `reviews/` | Archived design review artifacts (v13→v14) |
+| `roadmap/` | Version planning and roadmap proposals |
 
-PRD 系列文档已在 2026-05-11 归档清理。当前活文档是：
-
-| File | Purpose |
-|------|---------|
-| `roadmap-v13-v14-proposal.md` | 路线图、版本规划和当前收口状态 |
-
-## Operating Docs
+Standing docs in this root:
 
 | File | Purpose |
 |------|---------|
 | `best-practices.md` | Daily usage guidance |
-| `benchmark_system.md` | Benchmark system design |
-| `benchmark_v1.md` | V1 benchmark findings |
 | `cli-design-expert.md` | CLI design notes |
-| `README.md` | This synchronized docs index |
-| `roadmap-v13-v14-proposal.md` | Detailed v1.3/v1.4 proposal and current closure notes |
-| `roadmap-blindspots-v13-v14.md` | Roadmap blind spots and follow-up ideas |
-| `v1.0.1-release-notes.md` | v1.0.1 release notes |
 
-## Workflow Skill Assets
-
-| Path | Purpose |
-|------|---------|
-| `../plugins/harness-mem/` | Repo-local Codex plugin wrapper for the harness-mem skill, MCP config, and install/doctor scripts |
-| `../tools/session-distill/` | Raw session to packet / session note workflow asset |
-| `../tools/mem-distill/` | Existing memory / observations cleanup and consolidation asset |
-| `../tools/grill-me/` | Optional pressure-test collaborator for high-risk review conclusions |
-| `../tools/answer-me/` | Optional evidence-gathering collaborator for under-evidenced drafts |
-| `../tools/ask-me/` | Optional architecture and planning consultation collaborator |
-
-Default promotion chain: `session-distill -> packet-memory-export -> memory-drafts review -> knowledge-base / sync-list / local-only`. Optional collaborators must not be treated as hard dependencies.
-
-## Review Inputs
-
-| File | Purpose |
-|------|---------|
-| `review-ceo-v13-v14.md` | Product strategy review |
-| `review-cli-v13-v14.md` | CLI review |
-| `review-design-v13-v14.md` | UX/design review |
-| `review-devex-v13-v14.md` | Developer experience review |
-| `review-eng-v13-v14.md` | Engineering architecture review |
-| `review-health-v13-v14.md` | Health, lint, type, and coverage review |
-| `review-linus-v13-v14.md` | Code-quality critique |
-| `review-office-hours-v13-v14.md` | Office Hours product critique |
-
-## Maintenance Rule
-
-Review docs are evidence, not live release status. Before publishing a roadmap or release claim, refresh it with the current outputs of `ruff`, `mypy`, `pytest`, and OpenSpec validation.
+Design specs live in `openspec/specs/` and `openspec/changes/`.  
+Workflow skill assets live in `tools/`.  
+Plugin/integration docs live in `plugins/harness-mem/`.

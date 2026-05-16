@@ -9,6 +9,7 @@ from typing import Callable, cast
 
 from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
 from harness_mem.adapters.codex.adapter import CodexAdapter
+from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
 from harness_mem.adapters.protocol import SessionAdapter
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 
@@ -21,6 +22,7 @@ class AdapterRegistry:
     _adapters: dict[str, AdapterFactory] = {
         "claude-code": ClaudeCodeAdapter,
         "codex": CodexAdapter,
+        "codex-archive": CodexArchiveAdapter,
     }
 
     @classmethod

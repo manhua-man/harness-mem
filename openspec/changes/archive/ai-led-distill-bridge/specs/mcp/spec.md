@@ -4,7 +4,7 @@
 
 ### Requirement: AI-suggested memory candidates
 
-The MCP server MUST allow AI agents to suggest `MemoryEntry` and `RelationFact` candidates without making them immediately active runtime memory.
+MCP server MUST 允许 AI agent 建议 `MemoryEntry` 和 `RelationFact` 候选，但不得让它们立即成为已生效运行时记忆。
 
 #### Scenario: Suggest memory entry remains pending
 ```json
@@ -19,7 +19,7 @@ The MCP server MUST allow AI agents to suggest `MemoryEntry` and `RelationFact` 
 }
 ```
 
-The response contains a created entry id and `status: "pending"`.
+响应包含新建的 entry id 和 `status: "pending"`。
 
 #### Scenario: Suggest relation fact remains pending
 ```json
@@ -36,11 +36,11 @@ The response contains a created entry id and `status: "pending"`.
 }
 ```
 
-The response contains a created relation fact id and `status: "pending"`.
+响应包含新建的 relation fact id 和 `status: "pending"`。
 
 ### Requirement: Candidate memory is not consumed before confirmation
 
-`search_memory` and `wake` MUST consume accepted structured memory by default and MUST NOT surface pending or rejected `MemoryEntry` or `RelationFact` candidates.
+`search_memory` 和 `wake` MUST 默认只消费 accepted structured memory，并且 MUST NOT 展示 pending 或 rejected 的 `MemoryEntry` / `RelationFact` 候选。
 
 #### Scenario: Pending candidate is hidden from search
 ```json
@@ -53,7 +53,7 @@ The response contains a created relation fact id and `status: "pending"`.
 }
 ```
 
-The response omits pending memory entries and pending relation facts that match the query.
+响应不包含匹配该查询的 pending memory entries 或 pending relation facts。
 
 #### Scenario: Confirmed memory entry becomes searchable
 ```json
@@ -65,7 +65,7 @@ The response omits pending memory entries and pending relation facts that match 
 }
 ```
 
-After confirmation, `search_memory` may return the matching memory entry.
+确认后，`search_memory` 可以返回匹配的 memory entry。
 
 #### Scenario: Rejected relation fact remains hidden
 ```json
@@ -77,4 +77,4 @@ After confirmation, `search_memory` may return the matching memory entry.
 }
 ```
 
-After rejection, `search_memory` does not return the matching relation fact.
+拒绝后，`search_memory` 不返回匹配的 relation fact。

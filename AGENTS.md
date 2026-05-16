@@ -1,81 +1,81 @@
 ---
-description: AI Agent guide - memory system architecture, responsibilities, and collaboration truth
+description: AI Agent 指南 - 记忆系统架构、职责与协作真值
 alwaysApply: true
 ---
 
-# AGENTS.md (Facts)
+# AGENTS.md（事 · Facts）
 
-> This file defines the core operating logic for **harness-mem**.
-> Unlike a traditional search tool, this project is an **AI-led memory runtime**.
+> 本文件定义 **harness-mem** 记忆系统的核心运行逻辑。
+> 不同于传统搜索工具，本项目是一个 **AI 主导的记忆运行时**。
 
-## Core Architecture: AI-Centered Workflow
+## 核心架构：AI 为中心的工作流
 
-| Role | Best Practice |
+| 角色 | 最佳做法 |
 | :--- | :--- |
-| **AI (operator / backend)** | Use **Skill** workflows such as `tools/session-distill` to batch-read old sessions and perform high-quality distillation. |
-| **AI (operator / inline)** | Use **MCP** `suggest_rule` / `suggest_memory_entry` to record immediate rules and knowledge candidates. |
-| **Human (reviewer)** | Use **CLI** `candidates` / `confirm` / `reject` to review candidate memories. |
-| **AI (consumer)** | Use **MCP** `search_memory` / `wake` to read confirmed memories. |
+| **AI（操作者 / 后端）** | 用 `tools/session-distill` 这类 **Skill** 批量读取旧 Session，做高质量提炼。 |
+| **AI（操作者 / 随手）** | 用 **MCP** `suggest_rule` / `suggest_memory_entry` 记录即时规则和知识候选。 |
+| **人（审查者）** | 用 **CLI** `candidates` / `confirm` / `reject` 审核候选记忆。 |
+| **AI（消费者）** | 用 **MCP** `search_memory` / `wake` 读取已确认记忆。 |
 
-Principle: **Skills handle heavy cognitive batch work, MCP provides the runtime read/write interface, and CLI is the human review dashboard.** AI-distilled or inline-recorded content should enter the candidate layer first, then become stable memory consumable by `search_memory` / `wake` only after human confirmation.
-
----
-
-## AI Collaboration Protocol
-
-### 1. Distillation
-- **Trigger**: when a development phase ends or many raw sessions / observations accumulate, start a dedicated Skill such as `tools/session-distill` instead of asking the everyday coding agent to perform long-context distillation inline.
-- **AI task**: as the dedicated operator, read raw logs and identify reusable technical decisions, collaboration rules, task state, and rationale instead of matching keywords mechanically.
-- **Boundary**: the long-form path is `session-distill -> packet-memory-export -> memory-drafts review -> candidate layer`. Skills understand and filter; `harness-mem` persists structured candidates and serves confirmed memory later.
-- **Persistence**: distilled output enters the candidate layer first, such as `RuleCandidate`, pending `MemoryEntry`, or pending `RelationFact`. Only confirmed candidates should become stable structured memory.
-
-### 2. Runtime Access
-- **Search first**: before working, agents should use MCP `search_memory` when historical context may matter.
-- **Inline capture**: when a new convention, fact, or correction appears during normal work, agents should use MCP `suggest_rule` / `suggest_memory_entry` rather than waiting for batch distillation.
-- **Consumption boundary**: `search_memory` / `wake` should consume confirmed memory by default; pending candidates are for review and should not pollute wake context.
-
-### 3. Human Confirmation
-- Unconfirmed memory stays in candidate status. Agents should tell the user when candidates were created and point them to `harness-mem candidates`, `harness-mem confirm <id>`, and `harness-mem reject <id>`.
-
-### 4. Regex Distill Positioning
-- `harness-mem distill` / `harness-mem ds` is a heuristic fallback for quick smoke checks, low-cost offline scanning, or environments where AI Skills are unavailable.
-- Do not treat regex extraction as the long-term primary distillation engine. High-quality memory should be produced by AI Skills and enter structured storage through the candidate review path.
+关键原则：**Skill 负责重脑力批处理，MCP 负责运行时读写接口，CLI 负责人类审核仪表盘。** AI 提炼或随手记录的内容应先进入候选区，经人确认后再成为 `search_memory` / `wake` 可消费的稳定记忆。
 
 ---
 
-## Repository Map
+## AI 协作协议
 
-| Path | Purpose | Priority |
-|------|---------|----------|
-| `harness_mem/` | Python runtime: schemas, storage, search, MCP server, CLI commands. | Core implementation |
-| `tools/session-distill/` | Long-form distillation Skill: raw session -> packet -> memory drafts. | Core workflow |
-| `tools/mem-distill/` | Cleanup, dedupe, and consolidation for existing memory / observations. | Organizer |
-| `tools/grill-me/` / `tools/answer-me/` / `tools/ask-me/` | Optional review collaborators, not hard dependencies. | Optional |
-| `plugins/harness-mem/` | Repo-local plugin wrapper: install, MCP config, skill entry. | Integration |
-| `docs/` | Docs index, design notes, reviews, best practices. | Reference |
-| `openspec/` | Specs and change records; capability or behavior changes should be recorded here. | Design truth |
-| `tests/` | Product tests: CLI, MCP, storage, search, integration. | Validation |
-| `benchmarks/` | Product benchmark scripts and results. | Performance validation |
+### 1. 记忆提炼（Distillation）
+- **触发逻辑**：当一个开发阶段结束，或有大量原始 Session / Observations 累积时，应启动 `tools/session-distill` 这类专职 Skill，而不是让日常编码 Agent 临时兼职长程提炼。
+- **AI 任务**：专职操作者应完整阅读原始日志，判断哪些是真正影响后续开发的技术决策、协作规则、任务状态和 rationale，而不是死板匹配关键词。
+- **提炼边界**：长程提炼主路径是 `session-distill -> packet-memory-export -> memory-drafts review -> candidate layer`。Skill 负责理解和筛选，`harness-mem` 负责结构化落盘与后续消费。
+- **落盘方式**：提炼结果应先进入候选区，例如 `RuleCandidate`、pending `MemoryEntry` 或 pending `RelationFact`。只有经过 `confirm` 后，才能成为稳定结构化记忆。
+
+### 2. 运行时读写（Runtime Access）
+- **主动搜索**：执行任务前，如果历史上下文可能影响当前判断，Agent 应使用 MCP `search_memory`。
+- **随手记录**：当日常工作中出现新的约定、事实或纠正，Agent 应使用 MCP `suggest_rule` / `suggest_memory_entry`，而不是等待后续批量提炼。
+- **消费边界**：`search_memory` / `wake` 默认只消费已确认记忆；pending 候选用于审核，不应污染唤醒上下文。
+
+### 3. 人类确认（Human Confirmation）
+- 未确认记忆保持候选状态。Agent 创建候选后，应提醒用户使用 `harness-mem candidates` 查看，并通过 `harness-mem confirm <id>` 或 `harness-mem reject <id>` 处理。
+
+### 4. 正则 Distill 的定位
+- `harness-mem distill` / `harness-mem ds` 是启发式 fallback，适合快速 smoke、离线低成本扫描，或没有 AI Skill 可用的环境。
+- 不要把正则提取当成长期主提炼引擎。高质量记忆应由 AI Skill 产生，并通过候选审核链路进入结构化存储。
 
 ---
 
-## Common Commands
+## 仓库地图
+
+| 路径 | 说明 | 优先级 |
+|------|------|--------|
+| `harness_mem/` | Python runtime：schemas、storage、search、MCP server、CLI commands。 | 核心实现 |
+| `tools/session-distill/` | 长程提炼 Skill：raw session -> packet -> memory drafts。 | 核心流程 |
+| `tools/mem-distill/` | 既有 memory / observations 的清理、去重、归并。 | 整理 |
+| `tools/grill-me/` / `tools/answer-me/` / `tools/ask-me/` | review 阶段可选协作者，不是主链硬依赖。 | 可选 |
+| `plugins/harness-mem/` | repo-local 插件封装：安装、MCP 配置、技能入口。 | 集成 |
+| `docs/` | 文档索引、设计说明、评审记录、最佳实践。 | 参考 |
+| `openspec/` | 规格与变更记录；能力边界或行为变化应记录在这里。 | 设计真值 |
+| `tests/` | 产品测试：CLI、MCP、storage、search、integration。 | 验证 |
+| `benchmarks/` | 产品 benchmark 脚本与结果。 | 性能验证 |
+
+---
+
+## 常用命令
 
 ```bash
-# diagnostics and status
+# 诊断与状态
 harness-mem doctor
 harness-mem status
 harness-mem quickstart
 
-# human memory review
+# 人类审核记忆
 harness-mem candidates
 harness-mem confirm <id>
 harness-mem reject <id>
 
-# heuristic fallback, not the high-quality distillation path
+# 启发式 fallback，不是高质量提炼主路径
 harness-mem ds
 
-# runtime consumption checks
+# 运行时消费检查
 harness-mem wake
 harness-mem search "auth logic"
 ```

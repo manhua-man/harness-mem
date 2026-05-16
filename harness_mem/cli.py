@@ -96,7 +96,7 @@ def main():
 
     # ingest
     ingest = sub.add_parser("ingest", help="Ingest Claude Code or Codex sessions")
-    ingest.add_argument("client", nargs="?", default="claude-code", choices=["claude-code", "codex"])
+    ingest.add_argument("client", nargs="?", default="claude-code", choices=["claude-code", "codex", "codex-archive"])
     ingest.add_argument("-p", "--project")
     ingest.add_argument("-n", "--limit", type=int, default=10)
     ingest.add_argument("--full-rescan", action="store_true", help="Ingest all sessions (default: incremental)")

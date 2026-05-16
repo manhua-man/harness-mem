@@ -17,3 +17,6 @@ benchmarks/results/**/*.json
 # Local scratch directories
 tmp-review-a/
 tmp-*/
+
+# Local Cursor/Claude config overrides
+**/CLAUDE.local.md
