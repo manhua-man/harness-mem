@@ -19,6 +19,8 @@ class SearchRequest(BaseModel):
 
 class MemoryEntryResponse(BaseModel):
     id: str
+    project_name: Optional[str] = None
+    tech_stack: list[str] = Field(default_factory=list)
     category: str
     content: str
     confidence: float
@@ -29,6 +31,8 @@ class MemoryEntryResponse(BaseModel):
 
 class ObservationResponse(BaseModel):
     id: str
+    project_name: Optional[str] = None
+    tech_stack: list[str] = Field(default_factory=list)
     session_id: str
     content_type: str
     preview: str

@@ -36,6 +36,7 @@ from pathlib import Path  # noqa: E402
 from typing import Any, Callable, TypedDict  # noqa: E402
 
 from harness_mem.read_api import (  # noqa: E402
+    build_search_project_context_map,
     search_memory,
     search_relation_facts,
     serialize_memory_entry_search_result,
@@ -80,8 +81,8 @@ def set_backend_override(backend: LocalMemoryBackend | None) -> None:
 
 
 def tool_search_memory(
-    project_name: str | None,
     query: str,
+    project_name: str | None = None,
     scope: str = "project",
     mode: str = "auto",
 ) -> dict:
@@ -120,6 +121,14 @@ def tool_search_memory(
     combined_results = entries or relation_facts or obs_list
     effective_mode = getattr(combined_results[0], "_search_mode", mode) if combined_results else mode
     fallback_reason = getattr(combined_results[0], "_search_fallback_reason", None) if combined_results else None
+    tech_stack_by_project = asyncio.run(
+        build_search_project_context_map(
+            backend,
+            entries=entries,
+            observations=obs_list,
+            relation_facts=relation_facts,
+        )
+    )
 
     return {
         "project_name": project_name,
@@ -128,12 +137,21 @@ def tool_search_memory(
         "requested_mode": mode,
         "effective_mode": effective_mode,
         "fallback_reason": fallback_reason,
-        "memory_entries": [serialize_memory_entry_search_result(entry, mode) for entry in entries],
+        "memory_entries": [
+            serialize_memory_entry_search_result(entry, mode, tech_stack_by_project)
+            for entry in entries
+        ],
         "relation_facts": [
-            serialize_relation_fact_search_result(fact) for fact in relation_facts
+            serialize_relation_fact_search_result(fact, tech_stack_by_project) for fact in relation_facts
         ],
         "observations": [
-            serialize_observation_search_result(observation, mode, query) for observation in obs_list
+            serialize_observation_search_result(
+                observation,
+                mode,
+                query,
+                tech_stack_by_project,
+            )
+            for observation in obs_list
         ],
         "memory_entry_count": len(entries),
         "relation_fact_count": len(relation_facts),

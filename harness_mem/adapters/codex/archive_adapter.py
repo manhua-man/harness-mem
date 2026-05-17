@@ -1,6 +1,7 @@
 """Codex Archive adapter — ingest legacy Codex rollout sessions into harness-mem."""
 
 from __future__ import annotations
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from harness_mem.core.interfaces.memory_backend import MemoryBackend
 
 # Default Codex archived sessions directory
 DEFAULT_ARCHIVE_DIR = Path.home() / ".codex" / "archived_sessions"
+ArchiveCursor = dict[str, Any]
 
 
 class CodexArchiveAdapter:
@@ -33,6 +35,7 @@ class CodexArchiveAdapter:
         min_size_kb: int = 0,
         limit: int | None = None,
         issues: list[Issue] | None = None,
+        cursor: ArchiveCursor | None = None,
     ) -> list[SessionRecord]:
         """List rollout session files from the archive directory."""
         del project_name
@@ -45,6 +48,15 @@ class CodexArchiveAdapter:
                 path=self.archive_dir,
             )
             return []
+        if not self.archive_dir.is_dir():
+            self._append_issue(
+                issues,
+                level="warning",
+                code="archive_dir_invalid",
+                message=f"Codex archive path is not a directory: {self.archive_dir}",
+                path=self.archive_dir,
+            )
+            return []
 
         sessions: list[SessionRecord] = []
         for session_file in self.archive_dir.glob("rollout-*.jsonl"):
@@ -52,14 +64,18 @@ class CodexArchiveAdapter:
                 stat_result = session_file.stat()
                 size_kb = stat_result.st_size / 1024
                 # For large archives, we don't count lines eagerly to save time
+                if cursor is not None and not self._is_newer_than_cursor(session_file, stat_result, cursor):
+                    continue
                 sessions.append({
                     "path": session_file,
                     "name": session_file.name,
-                    "session_id": session_file.stem,
+                    "session_id": session_file.stem.removeprefix("rollout-"),
                     "size_kb": size_kb,
+                    "size_bytes": stat_result.st_size,
                     "size": f"{size_kb:.1f}KB",
                     "lines": 0,
                     "mtime": datetime.fromtimestamp(stat_result.st_mtime, tz=timezone.utc),
+                    "mtime_ns": stat_result.st_mtime_ns,
                 })
             except OSError as exc:
                 self._append_issue(
@@ -139,20 +155,38 @@ class CodexArchiveAdapter:
         project_name: str | None = None,
         limit: int = 10,
         min_size_kb: int = 0,
+        *,
+        full_rescan: bool = False,
+        cursor_path: Path | None = None,
     ) -> dict:
         """Ingest legacy Codex rollout sessions."""
         warnings: list[Issue] = []
         error_details: list[Issue] = []
         all_sessions = self.list_sessions(min_size_kb=min_size_kb, issues=warnings)
-        sessions = all_sessions[:limit]
+        cursor = None if full_rescan else self._load_cursor(cursor_path, issues=warnings)
+        candidate_sessions = all_sessions
+        if cursor is not None and all_sessions:
+            candidate_sessions = self.list_sessions(
+                min_size_kb=min_size_kb,
+                issues=warnings,
+                cursor=cursor,
+            )
+        sessions = candidate_sessions[:limit]
 
         ingested = 0
         errors = 0
+        skipped_existing = 0
         if self.backend is None:
             raise RuntimeError("CodexArchiveAdapter.ingest requires an initialized backend")
 
+        existing_session_ids = await self._existing_session_ids(project_name)
+        committed_sessions: list[SessionRecord] = []
         for session in sessions:
             session_id = session["session_id"]
+            if session_id in existing_session_ids:
+                skipped_existing += 1
+                committed_sessions.append(session)
+                continue
             try:
                 obs = self.session_to_observation(
                     session["path"],
@@ -162,6 +196,8 @@ class CodexArchiveAdapter:
                 )
                 await self.backend.verbatim_store.save(obs)
                 ingested += 1
+                existing_session_ids.add(session_id)
+                committed_sessions.append(session)
 
             except Exception as exc:
                 errors += 1
@@ -173,12 +209,21 @@ class CodexArchiveAdapter:
                     "session_id": session_id,
                 })
 
+        if cursor_path is not None and committed_sessions:
+            self._write_cursor(
+                cursor_path,
+                self._cursor_from_session(max(committed_sessions, key=self._session_cursor_key)),
+            )
+
         return {
             "sessions_found": len(all_sessions),
+            "candidate_sessions": len(candidate_sessions),
             "ingested": ingested,
+            "skipped_existing": skipped_existing,
             "errors": errors,
             "warnings": warnings,
             "error_details": error_details,
+            "scan_mode": "full_rescan" if full_rescan else "incremental",
         }
 
     @staticmethod
@@ -203,3 +248,78 @@ class CodexArchiveAdapter:
         if session_id:
             issue["session_id"] = session_id
         issues.append(issue)
+
+    async def _existing_session_ids(self, project_name: str | None) -> set[str]:
+        if self.backend is None:
+            return set()
+        observations = await self.backend.verbatim_store.list(limit=100000)
+        return {
+            observation.session_id
+            for observation in observations
+            if observation.client == "codex-archive"
+            and (project_name is None or observation.metadata.get("project_name") == project_name)
+        }
+
+    @staticmethod
+    def _session_cursor_key(session: SessionRecord) -> tuple[int, int, str]:
+        return (
+            int(session.get("mtime_ns", 0)),
+            int(session.get("size_bytes", 0)),
+            str(session.get("path", "")),
+        )
+
+    @classmethod
+    def _cursor_from_session(cls, session: SessionRecord) -> ArchiveCursor:
+        return {
+            "mtime_ns": int(session.get("mtime_ns", 0)),
+            "size_bytes": int(session.get("size_bytes", 0)),
+            "path": str(session.get("path", "")),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    @staticmethod
+    def _is_newer_than_cursor(
+        session_path: Path,
+        stat_result: Any,
+        cursor: ArchiveCursor,
+    ) -> bool:
+        current = (
+            int(getattr(stat_result, "st_mtime_ns", 0)),
+            int(getattr(stat_result, "st_size", 0)),
+            str(session_path),
+        )
+        saved = (
+            int(cursor.get("mtime_ns", 0)),
+            int(cursor.get("size_bytes", 0)),
+            str(cursor.get("path", "")),
+        )
+        # Use path only as a stable tiebreaker when mtime+size collide.
+        return current > saved
+
+    def _load_cursor(
+        self,
+        cursor_path: Path | None,
+        *,
+        issues: list[Issue] | None = None,
+    ) -> ArchiveCursor | None:
+        if cursor_path is None or not cursor_path.exists():
+            return None
+        try:
+            data = json.loads(cursor_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            self._append_issue(
+                issues,
+                level="warning",
+                code="archive_cursor_invalid",
+                message=f"Failed to read archive ingest cursor {cursor_path}: {exc}",
+                path=cursor_path,
+            )
+            return None
+        if not isinstance(data, dict):
+            return None
+        return data
+
+    @staticmethod
+    def _write_cursor(cursor_path: Path, cursor: ArchiveCursor) -> None:
+        cursor_path.parent.mkdir(parents=True, exist_ok=True)
+        cursor_path.write_text(json.dumps(cursor, indent=2), encoding="utf-8")

@@ -407,18 +407,36 @@ class RealHybridSearch:
         self,
         query: str,
         limit: int = 20,
+        variant: str = "hybrid",
     ) -> list[tuple[str, float]]:
-        """Full pipeline: FTS5 + vector via HybridSearchLayer (RRF)."""
-        result = self._layer.search(
+        """Run one benchmark retrieval variant against the real search layer."""
+        result = self.search_result(query, limit=limit, variant=variant)
+        score_key = "_vec_sim" if variant == "vector" else "_score"
+        return [
+            (row["session_id"], row.get(score_key, row.get("_score", 0.0)))
+            for row in result.rows
+        ]
+
+    def search_result(
+        self,
+        query: str,
+        limit: int = 20,
+        variant: str = "hybrid",
+    ):
+        """Return the underlying SearchResult for diagnostic tooling."""
+        if variant == "vector":
+            return self._layer.search_vector(
+                query,
+                table="observations",
+                limit=limit,
+            )
+        mode = "fts" if variant == "fts" else "hybrid"
+        return self._layer.search(
             query,
             table="observations",
             limit=limit,
-            mode="hybrid",
+            mode=mode,
         )
-        return [
-            (row["session_id"], row.get("_score", 0.0))
-            for row in result.rows
-        ]
 
 
 # =============================================================================

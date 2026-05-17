@@ -23,6 +23,7 @@ from harness_mem.commands.support import (
 )
 from harness_mem.commands.ingest import _select_claude_candidate_sessions
 from harness_mem.core.schemas.project_profile import ProjectProfile
+from harness_mem.event_log import EventType, get_event_logger
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from harness_mem.wake_selection import select_wake_memory_entries
@@ -56,10 +57,11 @@ def _read_lock_record(lock_path: Path) -> dict:
     try:
         data = json.loads(lock_path.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
-    except Exception:
-        raw = lock_path.read_text(encoding="utf-8").strip()
-        if raw.isdigit():
-            return {"pid": int(raw), "state": "idle"}
+    except json.JSONDecodeError:
+        # Corrupt or empty lock file — treat as no prior state. Caller will
+        # overwrite on successful acquire. Don't try to salvage partial data.
+        return {}
+    except OSError:
         return {}
 
 
@@ -189,9 +191,21 @@ async def _auto_sync_sessions(backend: LocalMemoryBackend, project_name: str) ->
         )
     except asyncio.TimeoutError:
         print("🔄 Auto-sync: timeout (>300ms), skipping")
-    except Exception:
-        # Silent fail for auto-sync to avoid blocking wake-up
-        pass
+    except Exception as exc:
+        # Non-blocking: never let auto-sync errors break wake-up. But surface
+        # a one-line hint so a user with chronic ingest failures isn't blind,
+        # and persist details to events.log for postmortem.
+        print("🔄 Auto-sync: error (skipped, see events.log)")
+        try:
+            await get_event_logger(DEFAULT_DATA_DIR).log(
+                EventType.COMMAND_INVOKED,
+                project_name=project_name,
+                command="wake-up.auto-sync",
+                extra={"error": str(exc), "error_kind": type(exc).__name__},
+            )
+        except Exception:
+            # Logging itself must never break wake-up.
+            pass
 
 
 async def _perform_sync(backend: LocalMemoryBackend, project_name: str, start_time: float) -> None:
@@ -306,7 +320,11 @@ async def _session_exists_for_project(
     session_id: str,
     project_name: str,
 ) -> bool:
-    observations = await backend.verbatim_store.list(session_id=session_id, limit=20)
+    # Cap is a defensive ceiling, not a paging limit: we short-circuit on the
+    # first matching observation, so realistic transcripts (≤ a few thousand
+    # entries per session) finish well before reaching it. The previous 20
+    # would silently miss long sessions and re-ingest duplicates.
+    observations = await backend.verbatim_store.list(session_id=session_id, limit=10_000)
     return any(
         observation.metadata.get("project_name") == project_name
         for observation in observations

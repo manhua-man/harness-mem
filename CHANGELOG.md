@@ -4,6 +4,28 @@
 
 ---
 
+## [1.5.3] — 2026-05-17
+
+**主题：发布闭环与归档增量化**
+
+### Added
+
+- **Codex archive 增量 cursor**
+  - `CodexArchiveAdapter` 现在按 `mtime_ns + size_bytes` 持久化 cursor。
+  - `harness-mem ingest codex-archive` 支持默认增量扫描与 `--full-rescan` 显式回扫。
+  - 已补 `tests/cli/test_ingest_codex_archive.py` 覆盖缺目录、增量追加、full-rescan 去重三条路径。
+- **PyPI 发布链路**
+  - 新增 tag 触发的 `.github/workflows/publish.yml`，构建 wheel + sdist，执行 `twine check`，并在发布前 smoke install 两种发行物。
+- **Doctor 错误码目录**
+  - `harness-mem doctor` 现在输出 `code: HM-xxx` 与对应修复命令。
+  - 新增 `docs/error-codes.md` 作为稳定对照表。
+
+### Changed
+
+- `README.md` 现在把 `pip install harness-mem` 作为默认安装入口，保留 editable install 作为仓库开发路径。
+- `pyproject.toml` 增加 `dev` optional dependency，并把 `README.md` / `docs/error-codes.md` 纳入发行物元数据。
+- `test-matrix.yml` 改为使用仓库标准验证栈：`pytest` + `mypy` + `ruff`。
+
 ## [1.5.0] — 2026-05-16
 
 **主题：The 4-Role Memory Loop (4 角色记忆闭环)**

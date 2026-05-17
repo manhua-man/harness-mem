@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v1.5.x
 
-> 状态：v1.5.1 已完成并通过本地回归；本文件当前保留 v1.5.1 交付记录，并继续作为 v1.5.2 - v1.5.3 的待办路线图。
+> 状态：v1.5.1 - v1.5.3 已完成并通过本地回归；本文件保留三个切片的交付记录，作为 v1.6 之前的实现基线。
 >
 > 本版本经过 CEO / DX / Eng 三层评审重写，每条任务的验收都以源码或基线数字为锚，不写无 baseline 的承诺。
 >
@@ -88,6 +88,23 @@
 
 **关键前提**：v1.5.1 必须先把 benchmark 扩展为 per-query latency 采集——否则 P0 第二条的"latency 不劣化"无从验证。这是上一版 roadmap 的隐性漏洞，本版强制前置。
 
+### 本次实际落地（2026-05-17）
+
+- 跨项目搜索结果现已稳定携带 `project_name` + `tech_stack`，MCP / REST / shared read path 已走同一套返回结构。
+- `v1.5.2` 失败诊断链路已补齐：可对 `recall < 1.0` 的 case 跑 `FTS / Vector / Hybrid` 三路 ablation，并输出 `fts_miss / vector_miss / fusion_sort_error / mixed_or_both_miss` 分桶报告。
+- 为避免每次调融合参数都重跑全量 500 题，新增了 `benchmarks/scripts/v152_hybrid_probe_cache.py`：先预计算 candidate components，再在缓存上秒级回放权重或 FTS reservation 规则。
+- 经缓存回放确认，`fusion_sort_error` 方向在当前架构下继续硬调 RRF 权重没有带来全量净收益；当前 baseline `fts_weight=2, vector_weight=6` 仍是全量最优。
+- 真正把 `R@5` 推过门槛的修复来自 runtime FTS fallback：`SQLiteIndex.search()` 现在会在主 token 不足时追加 Porter stem fallback，仅补召回，不改变主路径行为。
+- 最新实测 `LongMemEval R@5 = 0.953`，超过本版本目标 `>= 0.95`；per-type 为 `multi-session 0.923`、`temporal-reasoning 0.915`、`single-session-user 1.000`、`single-session-preference 0.967`、`single-session-assistant 0.982`、`knowledge-update 1.000`。
+
+### 本次重新执行的验收
+
+- `python -m harness_mem.tools.longmemeval C:\Users\ManHua\AppData\Local\Temp\longmemeval_s_cleaned.json --mode hybrid --top-k 5 --use-real-hybrid --out benchmarks\results\results_harness_hybrid_real_stemfallback_top5_20260517.json` -> `Avg Recall: 0.953`
+- `python benchmarks\scripts\v152_recall_failure_analysis.py --dataset C:\Users\ManHua\AppData\Local\Temp\longmemeval_s_cleaned.json --baseline benchmarks\results\results_harness_hybrid_real_stemfallback_top5_20260517.json --out-json benchmarks\results\v152_recall_failure_analysis_stemfallback.json --out-md docs\benchmark\v152-recall-failure-analysis-stemfallback.md` -> 失败 case `54 -> 49`，`hybrid` P95 latency `625.17ms`
+- `python -m pytest -q` -> `210 passed`
+- `python -m ruff check .` -> pass
+- `python -m mypy harness_mem` -> pass
+
 ---
 
 ## v1.5.3：发布与归档增量化
@@ -99,6 +116,24 @@
 | P1 | `CodexArchiveAdapter` 增量扫描：按 mtime + 文件大小做 cursor，避免每次全量扫 | 二次运行 < 1s（≤ 1000 文件），结果与全量一致 |
 | P1 | PyPI 发布 CI：tag 触发 build + publish，含 wheel + sdist | `pip install harness-mem` 可装，README 安装段端到端可跑 |
 | P2 | `harness-mem doctor` 增加错误码索引（每条 error 对应一条修复命令） | doctor 输出含 `code: HM-xxx`；`docs/error-codes.md` 列出对照表 |
+
+### 本次实际落地（2026-05-17）
+
+- `CodexArchiveAdapter` 现在默认走 `mtime_ns + size_bytes` cursor：首次 ingest 写入 `projects/<slug>/runtime/.ingest-cursor-codex-archive.json`，后续只扫描更新过的 `rollout-*.jsonl`。
+- `harness-mem ingest codex-archive --full-rescan` 已显式保留整库回扫入口，但重复 session 会在写入前去重，不会把旧 observation 再灌一遍。
+- 本地 timing 验收已补跑：构造 `1000` 个 archive 文件后，第二次增量 ingest 实测 `0.171s`，满足 `< 1s` 门槛；二次运行 `candidate_sessions = 0`，结果与全量一致。
+- `harness-mem doctor` 现在输出稳定错误码与修复命令，首批文档化为 `HM-001`（未初始化）、`HM-002`（无项目上下文）、`HM-003`（wake budget 过大），对照表见 `docs/error-codes.md`。
+- 发布链已闭合：`pyproject.toml` 补齐 `readme` 与 `dev` extra，README 默认安装路径改为 `pip install harness-mem`，新增 tag 触发的 `.github/workflows/publish.yml`，构建 wheel + sdist、执行 `twine check`，并在发布前 smoke install 两种发行物。
+
+### 本次重新执行的验收
+
+- `python -m pytest tests/cli/test_onboarding.py tests/cli/test_ingest_codex_archive.py -q` -> `13 passed`
+- `python -m pytest -q` -> `214 passed`
+- `python -m ruff check .` -> pass
+- `python -m mypy harness_mem` -> pass
+- `python -m build` -> 产出 `dist/harness_mem-1.5.3.tar.gz` 与 `dist/harness_mem-1.5.3-py3-none-any.whl`
+- `python -m twine check dist/*` -> wheel / sdist 均 `PASSED`
+- 本地 smoke install：从 wheel 与 sdist 安装后均返回 `harness-mem 1.5.3`
 
 ---
 

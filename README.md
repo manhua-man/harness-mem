@@ -23,8 +23,14 @@ Agent 协作真值见 [AGENTS.md](./AGENTS.md)。
 
 ### 1. 安装与接入
 ```bash
-pip install -e .
+pip install harness-mem
 harness-mem quickstart
+```
+
+如果你是在这个仓库里开发而不是只使用成品包，再改用：
+
+```bash
+pip install -e ".[dev]"
 ```
 
 ### 2. 作为 AI：如何主动管理记忆
@@ -90,13 +96,19 @@ session-distill -> packet-memory-export -> memory-drafts review -> knowledge-bas
 ### 1. 安装
 
 ```bash
-cd harness-mem
-pip install -e .
+pip install harness-mem
 # 如果你想真正启用 hybrid vector search，而不是只使用自动 fallback：
-pip install -e ".[hybrid]"
+pip install "harness-mem[hybrid]"
 # 如果你要跑 LongMemEval benchmark：
-pip install -e ".[benchmark,hybrid]"
+pip install "harness-mem[benchmark,hybrid]"
 harness-mem quickstart
+```
+
+如果你是在仓库里开发，改用 editable install：
+
+```bash
+pip install -e ".[dev]"
+pip install -e ".[benchmark,hybrid]"
 ```
 
 开发环境里也可以不依赖 console script，直接从源码树运行：

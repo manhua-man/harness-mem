@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from harness_mem.adapters import AdapterRegistry
+from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
 from harness_mem.adapters.parser import extract_claude_session_cwd
 from harness_mem.adapters.protocol import SessionRecord
 from harness_mem.adapters.claude_code.project_profile_detector import (
@@ -16,6 +17,7 @@ from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     log_cli_event,
     log_command_invoked,
+    project_adapter_cursor_path,
     resolve_project_name,
     set_active_project,
 )
@@ -45,6 +47,13 @@ async def cmd_ingest(
             return await _ingest_claude_code(
                 backend,
                 profile_store,
+                project_name=project_name,
+                limit=limit,
+                full_rescan=full_rescan,
+            )
+        if client == "codex-archive":
+            return await _ingest_codex_archive(
+                backend,
                 project_name=project_name,
                 limit=limit,
                 full_rescan=full_rescan,
@@ -163,6 +172,32 @@ async def _ingest_claude_code(
     return 0
 
 
+async def _ingest_codex_archive(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    limit: int,
+    full_rescan: bool,
+) -> int:
+    print(f"Ingesting codex-archive sessions for project: {project_name}")
+    adapter = AdapterRegistry.build("codex-archive", backend)
+    if not isinstance(adapter, CodexArchiveAdapter):
+        raise TypeError("codex-archive adapter registry returned an unexpected adapter type")
+    result = await adapter.ingest(
+        project_name=project_name,
+        limit=limit,
+        min_size_kb=0,
+        full_rescan=full_rescan,
+        cursor_path=project_adapter_cursor_path(project_name, "codex-archive"),
+    )
+    return _report_non_claude_ingest_result(
+        client="codex-archive",
+        project_name=project_name,
+        result=result,
+        full_rescan=full_rescan,
+    )
+
+
 def _select_claude_candidate_sessions(
     all_sessions: list[SessionRecord],
     *,
@@ -247,7 +282,13 @@ def _report_non_claude_ingest_result(
         return 1
 
     print(f"Sessions found: {result['sessions_found']}")
+    candidate_sessions = result.get("candidate_sessions")
+    if isinstance(candidate_sessions, int):
+        print(f"Candidates after cursor: {candidate_sessions}")
     print(f"Ingested: {result['ingested']} sessions")
+    skipped_existing = result.get("skipped_existing", 0)
+    if isinstance(skipped_existing, int) and skipped_existing > 0:
+        print(f"Skipped existing: {skipped_existing} sessions")
     for error in result.get("error_details", []):
         print(f"Error: {error['message']}")
     if result["errors"] > 0:

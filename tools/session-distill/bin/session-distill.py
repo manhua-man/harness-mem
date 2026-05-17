@@ -20,7 +20,6 @@ if _LIB_DIR.exists():
 from lib.parser import (  # noqa: E402  # isort:skip
     list_session_files,
     parse_claude_jsonl_session,
-    select_turns_for_packet,
 )
 
 # Configuration

@@ -7,6 +7,7 @@ from pathlib import Path
 from harness_mem import cli
 from harness_mem.adapters import AdapterRegistry
 from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
+from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
 from harness_mem.adapters.codex.adapter import CodexAdapter
 from harness_mem.commands import distill
 from harness_mem.core.schemas import MemoryEntry, Observation
@@ -57,11 +58,55 @@ def write_codex_session(sessions_root: Path, session_id: str, text: str) -> Path
     return session_path
 
 
+def write_codex_archive_session(
+    archive_root: Path,
+    session_id: str,
+    *,
+    user_text: str,
+    assistant_text: str,
+) -> Path:
+    session_path = archive_root / f"rollout-{session_id}.jsonl"
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    records = [
+        {
+            "timestamp": "2026-05-17T00:00:00.000Z",
+            "type": "session_meta",
+            "payload": {
+                "id": session_id,
+                "timestamp": "2026-05-17T00:00:00.000Z",
+                "cwd": "F:\\demo",
+            },
+        },
+        {
+            "timestamp": "2026-05-17T00:00:01.000Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "user_message",
+                "turn_id": "turn-1",
+                "message": user_text,
+            },
+        },
+        {
+            "timestamp": "2026-05-17T00:00:02.000Z",
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": assistant_text}],
+                "turn_id": "turn-1",
+            },
+        },
+    ]
+    session_path.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
+    return session_path
+
+
 def patch_cli_adapters(
     monkeypatch,
     *,
     claude_sessions_root: Path | None = None,
     codex_sessions_root: Path | None = None,
+    codex_archive_root: Path | None = None,
 ) -> None:
     if claude_sessions_root is not None:
         monkeypatch.setitem(
@@ -84,6 +129,12 @@ def patch_cli_adapters(
             cli,
             "CodexAdapter",
             lambda backend: CodexAdapter(backend, sessions_dir=codex_sessions_root),
+        )
+    if codex_archive_root is not None:
+        monkeypatch.setitem(
+            AdapterRegistry._adapters,
+            "codex-archive",
+            lambda backend: CodexArchiveAdapter(backend, archive_dir=codex_archive_root),
         )
 
 

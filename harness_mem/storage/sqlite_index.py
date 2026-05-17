@@ -117,6 +117,9 @@ _STOP_WORDS = {
     "give", "gave", "buy", "bought", "made", "make", "said",
 }
 
+_PORTER_STEMMER: Any | None = None
+_PORTER_STEMMER_LOADED = False
+
 
 class SQLiteIndex:
     """Thread-safe SQLite wrapper with FTS5 full-text search.
@@ -262,15 +265,15 @@ class SQLiteIndex:
         """Full-text search using tokenized FTS5 queries."""
         fts_table = f"{table}_fts"
         conn = self._conn_write()
-        tokens = self._tokenize_query(query)
-        if not tokens:
+        primary_tokens, fallback_tokens = self._expand_query_tokens(query)
+        if not primary_tokens:
             stripped = query.strip()
             if not stripped:
                 return []
-            tokens = [self._escape_match_token(stripped)]
+            primary_tokens = [self._escape_match_token(stripped)]
 
         candidate_limit = max(limit * 3, 10)
-        scored_rows: dict[str, tuple[float, dict]] = {}
+        scored_rows: dict[str, dict[str, Any]] = {}
 
         sql = f"""
             SELECT {table}.*, bm25({fts_table}) AS score FROM {table}
@@ -282,25 +285,81 @@ class SQLiteIndex:
         sql += " ORDER BY score LIMIT ?"
 
         with self._fts_lock:
-            for token in tokens:
-                params: tuple = (token,)
-                if extra_where:
-                    params = (*params, *extra_params)
-                params = (*params, candidate_limit)
-                rows = conn.execute(sql, params).fetchall()
-                for row in rows:
-                    row_dict = dict(row)
-                    row_id = row_dict["id"]
-                    score = float(row_dict.pop("score"))
-                    best = scored_rows.get(row_id)
-                    if best is None or score < best[0]:
-                        scored_rows[row_id] = (score, row_dict)
+            self._accumulate_token_matches(
+                conn,
+                sql,
+                primary_tokens,
+                scored_rows,
+                candidate_limit,
+                extra_where=extra_where,
+                extra_params=extra_params,
+            )
+            if len(scored_rows) < limit and fallback_tokens:
+                self._accumulate_token_matches(
+                    conn,
+                    sql,
+                    fallback_tokens,
+                    scored_rows,
+                    candidate_limit,
+                    extra_where=extra_where,
+                    extra_params=extra_params,
+                )
 
         sorted_rows = []
-        for score, row in sorted(scored_rows.values(), key=lambda item: item[0])[:limit]:
-            row["_fts_score"] = score
+        ranked_rows = sorted(
+            scored_rows.values(),
+            key=lambda item: (
+                -len(set(item["matched_tokens"])),
+                -float(item["score_total"]),
+                float(item["best_score"]),
+            ),
+        )[:limit]
+        for item in ranked_rows:
+            row = dict(item["row"])
+            row["_fts_score"] = float(item["best_score"])
+            row["_fts_score_total"] = float(item["score_total"])
+            row["_fts_match_count"] = len(set(item["matched_tokens"]))
             sorted_rows.append(row)
         return [self._row_to_dict(row, table) for row in sorted_rows]
+
+    def _accumulate_token_matches(
+        self,
+        conn: sqlite3.Connection,
+        sql: str,
+        tokens: builtins.list[str],
+        scored_rows: dict[str, dict[str, Any]],
+        candidate_limit: int,
+        *,
+        extra_where: str | None,
+        extra_params: tuple,
+    ) -> None:
+        for token in tokens:
+            params: tuple = (token,)
+            if extra_where:
+                params = (*params, *extra_params)
+            params = (*params, candidate_limit)
+            rows = conn.execute(sql, params).fetchall()
+            for row in rows:
+                row_dict = dict(row)
+                row_id = row_dict["id"]
+                score = float(row_dict.pop("score"))
+                best = scored_rows.get(row_id)
+                if best is None:
+                    scored_rows[row_id] = {
+                        "best_score": score,
+                        "score_total": abs(score),
+                        "matched_tokens": {token},
+                        "row": row_dict,
+                    }
+                    continue
+
+                if score < float(best["best_score"]):
+                    best["best_score"] = score
+                    best["row"] = row_dict
+                best["score_total"] = float(best["score_total"]) + abs(score)
+                matched_tokens = set(best["matched_tokens"])
+                matched_tokens.add(token)
+                best["matched_tokens"] = matched_tokens
 
     def update(self, table: str, id: str, data: dict[str, Any]) -> bool:
         """Update a row. Returns True if updated."""
@@ -410,3 +469,65 @@ class SQLiteIndex:
                 seen.add(token)
                 tokens.append(token)
         return [token for token in tokens if token]
+
+    @classmethod
+    def _expand_query_tokens(
+        cls,
+        query: str,
+    ) -> tuple[builtins.list[str], builtins.list[str]]:
+        cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", query)
+        primary: builtins.list[str] = []
+        fallback: builtins.list[str] = []
+        seen_primary: set[str] = set()
+        seen_fallback: set[str] = set()
+
+        for raw_token in cleaned.split():
+            token = raw_token.lower()
+            if token in _STOP_WORDS:
+                continue
+
+            primary_token = cls._format_match_token(token)
+            if primary_token and primary_token not in seen_primary:
+                seen_primary.add(primary_token)
+                primary.append(primary_token)
+
+            stemmed = cls._porter_stem(token)
+            if not stemmed or stemmed == token:
+                continue
+            fallback_token = cls._format_match_token(stemmed)
+            if (
+                fallback_token
+                and fallback_token not in seen_primary
+                and fallback_token not in seen_fallback
+            ):
+                seen_fallback.add(fallback_token)
+                fallback.append(fallback_token)
+
+        return primary, fallback
+
+    @classmethod
+    def _format_match_token(cls, token: str) -> str:
+        token = cls._escape_match_token(token)
+        if not token:
+            return ""
+        if len(token) >= 3:
+            return f"{token}*"
+        return token
+
+    @classmethod
+    def _porter_stem(cls, token: str) -> str:
+        global _PORTER_STEMMER, _PORTER_STEMMER_LOADED
+        if not _PORTER_STEMMER_LOADED:
+            _PORTER_STEMMER_LOADED = True
+            try:
+                import Stemmer  # type: ignore[import-not-found]
+
+                _PORTER_STEMMER = Stemmer.Stemmer("porter")
+            except Exception:
+                _PORTER_STEMMER = None
+        if _PORTER_STEMMER is None:
+            return token
+        try:
+            return str(_PORTER_STEMMER.stemWord(token))
+        except Exception:
+            return token

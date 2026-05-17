@@ -3,7 +3,7 @@
 from __future__ import annotations
 import builtins
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Sequence
 
 if TYPE_CHECKING:
     from harness_mem.storage.sqlite_index import SQLiteIndex
@@ -29,6 +29,11 @@ class HybridSearchLayer:
         self._embedding_model: Any | None = None
         self._embedding_loaded = False
         self._mode = "auto"
+        self._rrf_k = 40
+        self._fts_weight = 2.0
+        self._vector_weight = 6.0
+        self._fts_confidence_exponent = 1.0
+        self._vector_confidence_exponent = 2.0
 
     def set_mode(self, mode: str) -> None:
         """Set search mode: fts, hybrid, or auto."""
@@ -93,6 +98,29 @@ class HybridSearchLayer:
             fallback_reason=fallback_reason,
         )
 
+    def search_vector(
+        self,
+        query: str,
+        table: str = "memory_entries",
+        limit: int = 20,
+        extra_where: str | None = None,
+        extra_params: tuple = (),
+    ) -> SearchResult:
+        """Semantic-only search used by diagnostics and benchmarks."""
+        rows, effective_mode, fallback_reason = self._search_vector_only(
+            query,
+            table,
+            limit,
+            extra_where,
+            extra_params,
+        )
+        return SearchResult(
+            rows=rows,
+            requested_mode="vector",
+            effective_mode=effective_mode,
+            fallback_reason=fallback_reason,
+        )
+
     def _search_fts(
         self,
         query: str,
@@ -116,73 +144,56 @@ class HybridSearchLayer:
         extra_params: tuple,
     ) -> tuple[builtins.list[dict[str, Any]], str, str | None]:
         """Hybrid search: FTS + vector via weighted Reciprocal Rank Fusion."""
-        embeddings = self._embed_texts([query])
-        if embeddings is None:
-            return (
-                self._search_fts(query, table, limit, extra_where, extra_params),
-                "fts",
-                "embedding not available",
-            )
-
-        query_embedding = embeddings[0]
-
-        # FTS candidate pool: 10x limit.
         candidate_limit = limit * 10
         fts_results = self._sqlite.search(
             table, query, limit=candidate_limit,
             extra_where=extra_where, extra_params=extra_params,
         )
-
-        # Semantic retrieval must not be gated only by lexical hits. Pull a
-        # bounded recent/all-row pool for vector ranking, then union it with
-        # FTS candidates so exact matches are never dropped.
-        vector_results = self._list_vector_candidates(
+        vector_state = self._score_vector_candidates(
+            query,
             table,
-            limit=max(candidate_limit, 500),
+            limit=limit,
             extra_where=extra_where,
             extra_params=extra_params,
+            seed_rows=fts_results,
         )
-        candidate_by_id: dict[str, dict[str, Any]] = {}
-        for row in vector_results:
-            candidate_by_id[row["id"]] = row
-        for row in fts_results:
-            candidate_by_id[row["id"]] = row
-
-        candidates = list(candidate_by_id.values())
-        if not candidates:
-            return [], "hybrid", None
-
-        content_field = self._content_field(table)
-        texts: builtins.list[str] = [str(row.get(content_field, "")) for row in candidates]
-
-        doc_embeddings = self._embed_texts(texts)
-        if doc_embeddings is None:
+        if vector_state is None:
             return fts_results[:limit], "fts", "embedding not available"
-
-        # Compute cosine similarity for each candidate
-        sim_scores: dict[str, float] = {}
-        for row, doc_emb in zip(candidates, doc_embeddings):
-            sim_scores[row["id"]] = self._cosine_similarity(query_embedding, doc_emb)
+        candidate_by_id, sim_scores, vec_rank = vector_state
 
         fts_rank: dict[str, int] = {
             row["id"]: rank for rank, row in enumerate(fts_results)
         }
-        vec_rank: dict[str, int] = {
-            row_id: rank
-            for rank, (row_id, _) in enumerate(
-                sorted(sim_scores.items(), key=lambda item: item[1], reverse=True)
-            )
-        }
+        fts_confidence = self._confidence_factors_from_scores(
+            {
+                row["id"]: (
+                    abs(float(row.get("_fts_score_total", row.get("_fts_score", 0.0))))
+                    * max(1, int(row.get("_fts_match_count", 1)))
+                )
+                for row in fts_results
+            },
+            exponent=self._fts_confidence_exponent,
+        )
+        vector_confidence = self._confidence_factors_from_scores(
+            sim_scores,
+            exponent=self._vector_confidence_exponent,
+        )
 
-        rrf_k = 40
-        vector_weight = 5.0
         fused_scores: dict[str, float] = {}
         for row_id in candidate_by_id:
             score = 0.0
             if row_id in fts_rank:
-                score += 1.0 / (rrf_k + fts_rank[row_id])
+                score += (
+                    self._fts_weight
+                    * fts_confidence.get(row_id, 1.0)
+                    / (self._rrf_k + fts_rank[row_id])
+                )
             if row_id in vec_rank:
-                score += vector_weight / (rrf_k + vec_rank[row_id])
+                score += (
+                    self._vector_weight
+                    * vector_confidence.get(row_id, 1.0)
+                    / (self._rrf_k + vec_rank[row_id])
+                )
             fused_scores[row_id] = score
 
         ranked = sorted(
@@ -195,12 +206,123 @@ class HybridSearchLayer:
             row["_fts_rank"] = fts_rank.get(row_id, -1)
             row["_vec_rank"] = vec_rank.get(row_id, -1)
             row["_vec_sim"] = sim_scores.get(row_id, 0.0)
+            row["_fts_factor"] = fts_confidence.get(row_id, 0.0)
+            row["_vec_factor"] = vector_confidence.get(row_id, 0.0)
             row["_rrf_score"] = fused_score
             row["_hybrid_score"] = fused_score
             row["_score"] = fused_score
             fused.append(row)
 
         return fused, "hybrid", None
+
+    def _search_vector_only(
+        self,
+        query: str,
+        table: str,
+        limit: int,
+        extra_where: str | None,
+        extra_params: tuple,
+    ) -> tuple[builtins.list[dict[str, Any]], str, str | None]:
+        vector_state = self._score_vector_candidates(
+            query,
+            table,
+            limit=limit,
+            extra_where=extra_where,
+            extra_params=extra_params,
+        )
+        if vector_state is None:
+            return (
+                self._search_fts(query, table, limit, extra_where, extra_params),
+                "fts",
+                "embedding not available",
+            )
+
+        candidate_by_id, sim_scores, vec_rank = vector_state
+        ranked = sorted(
+            sim_scores.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        rows: builtins.list[dict[str, Any]] = []
+        for row_id, score in ranked[:limit]:
+            row = dict(candidate_by_id[row_id])
+            row["_vec_rank"] = vec_rank[row_id]
+            row["_vec_sim"] = score
+            row["_score"] = score
+            rows.append(row)
+        return rows, "vector", None
+
+    def _score_vector_candidates(
+        self,
+        query: str,
+        table: str,
+        limit: int,
+        extra_where: str | None,
+        extra_params: tuple,
+        seed_rows: Sequence[dict[str, Any]] | None = None,
+    ) -> tuple[
+        dict[str, dict[str, Any]],
+        dict[str, float],
+        dict[str, int],
+    ] | None:
+        embeddings = self._embed_texts([query])
+        if embeddings is None:
+            return None
+
+        query_embedding = embeddings[0]
+        candidate_limit = max(limit * 10, 500)
+        vector_results = self._list_vector_candidates(
+            table,
+            limit=candidate_limit,
+            extra_where=extra_where,
+            extra_params=extra_params,
+        )
+        candidate_by_id = {row["id"]: row for row in vector_results}
+        if seed_rows:
+            for row in seed_rows:
+                candidate_by_id[row["id"]] = row
+        if not candidate_by_id:
+            return {}, {}, {}
+
+        candidates = list(candidate_by_id.values())
+        content_field = self._content_field(table)
+        texts: builtins.list[str] = [str(row.get(content_field, "")) for row in candidates]
+        doc_embeddings = self._embed_texts(texts)
+        if doc_embeddings is None:
+            return None
+
+        sim_scores: dict[str, float] = {}
+        for row, doc_emb in zip(candidates, doc_embeddings):
+            sim_scores[row["id"]] = self._cosine_similarity(query_embedding, doc_emb)
+
+        vec_rank: dict[str, int] = {
+            row_id: rank
+            for rank, (row_id, _) in enumerate(
+                sorted(sim_scores.items(), key=lambda item: item[1], reverse=True)
+            )
+        }
+        return candidate_by_id, sim_scores, vec_rank
+
+    @staticmethod
+    def _confidence_factors_from_scores(
+        scores: dict[str, float],
+        *,
+        exponent: float,
+    ) -> dict[str, float]:
+        if not scores:
+            return {}
+        values = list(scores.values())
+        lo = min(values)
+        hi = max(values)
+        if hi <= lo:
+            return {row_id: 1.0 for row_id in scores}
+
+        factors: dict[str, float] = {}
+        for row_id, value in scores.items():
+            normalized = (value - lo) / (hi - lo)
+            normalized = max(0.0, min(1.0, normalized))
+            factors[row_id] = normalized**exponent if exponent > 0 else 1.0
+        return factors
 
     def _list_vector_candidates(
         self,

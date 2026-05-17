@@ -156,6 +156,50 @@ async def test_wake_up_auto_ingest_timeout(tmp_path, monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_wake_up_auto_ingest_error_is_logged(tmp_path, monkeypatch):
+    """Auto-sync errors must surface a hint and be persisted to events.log."""
+    data_dir = tmp_path / "data_error"
+    data_dir.mkdir()
+    monkeypatch.setattr("harness_mem.commands.wake.DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr("harness_mem.commands.support.DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr("harness_mem.event_log._event_logger", None)
+
+    from harness_mem.core.schemas import ProjectProfile
+    from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
+
+    profile_store = LocalProjectProfileStore(data_dir)
+    await profile_store.save(ProjectProfile(project_name="test-project"))
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("synthetic-ingest-failure")
+
+    with patch("harness_mem.commands.wake._perform_sync", side_effect=boom):
+        import io
+        from contextlib import redirect_stdout
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            result = await cmd_wake_up("test-project")
+
+        output = f.getvalue()
+        assert result == 0
+        assert "🔄 Auto-sync: error (skipped, see events.log)" in output
+
+    events_log = data_dir / "events.log"
+    assert events_log.exists()
+    lines = [
+        json.loads(line)
+        for line in events_log.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    auto_sync_events = [e for e in lines if e.get("command") == "wake-up.auto-sync"]
+    assert auto_sync_events, "expected an events.log entry for the auto-sync failure"
+    last = auto_sync_events[-1]
+    assert last["extra"]["error_kind"] == "RuntimeError"
+    assert "synthetic-ingest-failure" in last["extra"]["error"]
+
+
+@pytest.mark.anyio
 async def test_wake_up_auto_ingest_disabled_by_toml_config(tmp_path, monkeypatch):
     """Test that config.toml can disable auto-ingest."""
     data_dir = tmp_path / "data_config"

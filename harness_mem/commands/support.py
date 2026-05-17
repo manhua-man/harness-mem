@@ -168,6 +168,11 @@ def project_ingest_scan_stamp_path(project_name: str) -> Path:
     return project_runtime_dir(project_name) / ".ingest-scan-stamp"
 
 
+def project_adapter_cursor_path(project_name: str, client: str) -> Path:
+    safe_client = safe_project_slug(client)
+    return project_runtime_dir(project_name) / f".ingest-cursor-{safe_client}.json"
+
+
 def can_prompt() -> bool:
     try:
         return bool(sys.stdin and sys.stdin.isatty())

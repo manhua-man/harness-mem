@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Sequence
 
 from harness_mem import __version__
+from harness_mem.commands.error_codes import doctor_error, format_error_summary
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     claude_session_count,
@@ -39,7 +40,9 @@ async def cmd_doctor(project_name: str | None = None) -> int:
     print(f"Active project: {active_project or '(none)'}")
 
     if not initialized:
-        print("Suggested fix: run `harness-mem quickstart`.")
+        issue = doctor_error("doctor_not_initialized")
+        print(format_error_summary(issue))
+        print(f"Fix: {issue.fix_command}")
         return 1
 
     if resolved_project:
@@ -84,6 +87,7 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             total_tokens, level = wake_budget(profile, entries, rules, handoffs)
             print(f"Estimated wake-up: ≈ {total_tokens:,} tokens [{level}]")
             if level in ("L3", "L4+"):
+                issue = doctor_error("doctor_wake_budget_large")
                 three_months_ago = (
                     datetime.now(timezone.utc).replace(day=1) - timedelta(days=90)
                 ).strftime("%Y-%m-%d")
@@ -91,8 +95,8 @@ async def cmd_doctor(project_name: str | None = None) -> int:
                     f"harness-mem purge -p {resolved_project} --before {three_months_ago} "
                     "--category all --dry-run"
                 )
-                print(f"💡 Run: {purge_command}")
-                print("   to preview what can be archived.")
+                print(format_error_summary(issue))
+                print(f"Fix: {purge_command}")
 
             next_command, reason = suggested_next_step(
                 project_name=resolved_project,
@@ -111,11 +115,12 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             await backend.close()
         return 0
 
+    issue = doctor_error("doctor_no_active_project")
     print()
-    print("📍 Phase: Not Initialized")
-    print("→ Next: harness-mem quickstart")
-    print("   Why: No active project set or data directory not initialized")
-    log_next_step_shown(None, "doctor", "harness-mem quickstart")
+    print("📍 Phase: No Project Selected")
+    print(format_error_summary(issue))
+    print(f"Fix: {issue.fix_command}")
+    log_next_step_shown(None, "doctor", issue.fix_command)
     return 0
 
 

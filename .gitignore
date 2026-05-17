@@ -20,3 +20,8 @@ tmp-*/
 
 # Local Cursor/Claude config overrides
 **/CLAUDE.local.md
+
+# Build artifacts
+dist/
+build/
+*.egg-info/

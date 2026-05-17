@@ -14,6 +14,7 @@ Standing docs in this root:
 |------|---------|
 | `best-practices.md` | Daily usage guidance |
 | `cli-design-expert.md` | CLI design notes |
+| `error-codes.md` | `doctor` emits `HM-xxx` codes and fix-command mappings |
 
 Design specs live in `openspec/specs/` and `openspec/changes/`.  
 Workflow skill assets live in `tools/`.  

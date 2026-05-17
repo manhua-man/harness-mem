@@ -33,6 +33,12 @@ from harness_mem.api.models import (
     HealthResponse,
     SessionInfo,
 )
+from harness_mem.read_api import (
+    build_search_project_context_map,
+    search_memory as read_search_memory,
+    serialize_memory_entry_search_result,
+    serialize_observation_search_result,
+)
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.core.schemas import ConfirmedRule, RuleCandidate
 
@@ -135,32 +141,15 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="project_name required when scope=project")
 
         backend = await _get_backend_async()
-
-        if scope == "all":
-            entries = await backend.structured_store.search_memory_entries(
-                query,
-                project_name=None,
-                limit=limit,
-                mode=mode,
-            )
-            obs_list = await backend.verbatim_store.search(
-                query,
-                limit=limit,
-                mode=mode,
-            )
-        else:
-            entries = await backend.structured_store.search_memory_entries(
-                query,
-                project_name=project_name,
-                limit=limit,
-                mode=mode,
-            )
-            obs_list = await backend.verbatim_store.search(
-                query,
-                project_name=project_name,
-                limit=limit,
-                mode=mode,
-            )
+        entries, obs_list = await read_search_memory(
+            backend,
+            project_name=project_name,
+            query=query,
+            scope=scope,
+            mode=mode,
+            memory_entry_limit=limit,
+            observation_limit=limit,
+        )
 
         if type:
             entries = [e for e in entries if e.category == type]
@@ -168,6 +157,11 @@ def create_app() -> FastAPI:
         combined_results = entries or obs_list
         effective_mode = getattr(combined_results[0], "_search_mode", mode) if combined_results else mode
         fallback_reason = getattr(combined_results[0], "_search_fallback_reason", None) if combined_results else None
+        tech_stack_by_project = await build_search_project_context_map(
+            backend,
+            entries=entries,
+            observations=obs_list,
+        )
 
         return SearchResponse(
             project_name=project_name,
@@ -178,24 +172,22 @@ def create_app() -> FastAPI:
             fallback_reason=fallback_reason,
             memory_entries=[
                 MemoryEntryResponse(
-                    id=e.id,
-                    category=e.category,
-                    content=e.content,
-                    confidence=e.confidence,
-                    tags=e.tags,
-                    search_mode=getattr(e, "_search_mode", mode),
-                    score=getattr(e, "_score", getattr(e, "_hybrid_score", getattr(e, "_fts_score", None))),
+                    **serialize_memory_entry_search_result(
+                        e,
+                        mode,
+                        tech_stack_by_project,
+                    )
                 )
                 for e in entries
             ],
             observations=[
                 ObservationResponse(
-                    id=o.id,
-                    session_id=o.session_id,
-                    content_type=o.content_type,
-                    preview=o.raw_content[:200].replace("\n", " "),
-                    search_mode=getattr(o, "_search_mode", mode),
-                    score=getattr(o, "_score", getattr(o, "_hybrid_score", getattr(o, "_fts_score", None))),
+                    **serialize_observation_search_result(
+                        o,
+                        mode,
+                        query,
+                        tech_stack_by_project,
+                    )
                 )
                 for o in obs_list
             ],

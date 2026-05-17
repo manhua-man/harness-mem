@@ -108,6 +108,53 @@ def test_search_observations(idx_with_data: SQLiteIndex):
     assert "raw_content" in results[0]
 
 
+def test_search_prefers_rows_matching_more_query_tokens(idx: SQLiteIndex):
+    now = datetime.now(timezone.utc)
+    idx.insert("observations", {
+        "id": "obs-many-tokens",
+        "session_id": "sess-many",
+        "client": "claude-code",
+        "content_type": "transcript",
+        "raw_content": "road trip hours summary with all three concepts",
+        "timestamp": now.isoformat(),
+        "tags": "[]",
+        "metadata": "{}",
+    })
+    idx.insert("observations", {
+        "id": "obs-one-token",
+        "session_id": "sess-one",
+        "client": "claude-code",
+        "content_type": "transcript",
+        "raw_content": "road maintenance note only mentions one concept",
+        "timestamp": now.isoformat(),
+        "tags": "[]",
+        "metadata": "{}",
+    })
+
+    results = idx.search("observations", "road trip hours", limit=5)
+
+    assert results[0]["id"] == "obs-many-tokens"
+    assert results[0]["_fts_match_count"] > results[1]["_fts_match_count"]
+
+
+def test_search_uses_stem_fallback_when_primary_tokens_miss(idx: SQLiteIndex):
+    now = datetime.now(timezone.utc)
+    idx.insert("observations", {
+        "id": "obs-stem-fallback",
+        "session_id": "sess-stem",
+        "client": "claude-code",
+        "content_type": "transcript",
+        "raw_content": "I participate in a charity event every spring",
+        "timestamp": now.isoformat(),
+        "tags": "[]",
+        "metadata": "{}",
+    })
+
+    results = idx.search("observations", "participated events", limit=5)
+
+    assert any(result["id"] == "obs-stem-fallback" for result in results)
+
+
 def test_search_with_project_filter(idx_with_data: SQLiteIndex):
     results = idx_with_data.search(
         "memory_entries",
@@ -152,6 +199,13 @@ def test_tokenize_query():
     tokens = SQLiteIndex._tokenize_query("How do I configure SQLite FTS5")
     assert "sqlite" in tokens or any("sqlite*" in token for token in tokens)
     assert "fts5" in tokens or any("fts5*" in token for token in tokens)
+
+
+def test_expand_query_tokens_adds_stemmed_fallback():
+    primary, fallback = SQLiteIndex._expand_query_tokens("participated events")
+
+    assert "participated*" in primary
+    assert "event*" in fallback or "particip*" in fallback
 
 
 def test_escape_match_token():

@@ -5,9 +5,11 @@ import json
 import pytest
 
 from harness_mem.core.schemas import RelationFact
+from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.mcp.server import handle_request, set_backend_override
 from harness_mem.search.hybrid_search import HybridSearchLayer
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from tests.helpers import fake_embed_texts, run, seed_search_backend
 
 pytestmark = pytest.mark.mcp
@@ -270,6 +272,31 @@ def test_search_memory_no_project(mcp_backend: LocalMemoryBackend):
     result = resp["result"]["content"][0]["text"]
     data = json.loads(result)
     assert "memory_entries" in data
+
+
+def test_search_memory_scope_all_includes_project_context(mcp_backend: LocalMemoryBackend):
+    run(
+        LocalProjectProfileStore(mcp_backend.data_dir).save(
+            ProjectProfile(
+                project_name="test-project",
+                stacks=["python", "sqlite"],
+            )
+        )
+    )
+
+    data = call_tool(
+        "search_memory",
+        {
+            "query": "SQLite",
+            "scope": "all",
+            "mode": "fts",
+        },
+    )
+
+    assert data["memory_entries"][0]["project_name"] == "test-project"
+    assert data["memory_entries"][0]["tech_stack"] == ["python", "sqlite"]
+    assert data["observations"][0]["project_name"] == "test-project"
+    assert data["observations"][0]["tech_stack"] == ["python", "sqlite"]
 
 
 def test_search_memory_reports_effective_mode(

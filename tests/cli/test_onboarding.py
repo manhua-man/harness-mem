@@ -112,7 +112,21 @@ def test_doctor_reports_uninitialized_state(capsys: pytest.CaptureFixture[str]):
     assert run(cli.cmd_doctor("demo")) == 1
     captured = capsys.readouterr().out
     assert "Initialized: no" in captured
+    assert "code: HM-001" in captured
     assert "quickstart" in captured
+
+
+def test_doctor_reports_missing_project_context(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    assert run(cli.cmd_doctor()) == 0
+    captured = capsys.readouterr().out
+    assert "📍 Phase: No Project Selected" in captured
+    assert "code: HM-002" in captured
+    assert "harness-mem use <project-name>" in captured
 
 
 def test_doctor_shows_recent_sessions_and_recommends_wake(

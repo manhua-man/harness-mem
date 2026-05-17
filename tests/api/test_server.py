@@ -4,8 +4,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from harness_mem.api.server import create_app, set_backend_override
+from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.search.hybrid_search import HybridSearchLayer
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from tests.helpers import fake_embed_texts, run, seed_search_backend
 
 pytestmark = pytest.mark.api
@@ -66,6 +68,32 @@ def test_search_with_type_filter(client: TestClient):
     data = resp.json()
     for entry in data["memory_entries"]:
         assert entry["category"] == "architecture"
+
+
+def test_search_scope_all_includes_project_context(
+    client: TestClient,
+    seeded_backend: LocalMemoryBackend,
+):
+    run(
+        LocalProjectProfileStore(seeded_backend.data_dir).save(
+            ProjectProfile(
+                project_name="test-project",
+                stacks=["python", "sqlite"],
+            )
+        )
+    )
+
+    resp = client.get("/search", params={
+        "query": "SQLite",
+        "scope": "all",
+        "mode": "fts",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["memory_entries"][0]["project_name"] == "test-project"
+    assert data["memory_entries"][0]["tech_stack"] == ["python", "sqlite"]
+    assert data["observations"][0]["project_name"] == "test-project"
+    assert data["observations"][0]["tech_stack"] == ["python", "sqlite"]
 
 
 def test_search_reports_effective_mode(client: TestClient, monkeypatch: pytest.MonkeyPatch):

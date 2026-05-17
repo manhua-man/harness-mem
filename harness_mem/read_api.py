@@ -8,6 +8,7 @@ from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
 
 async def search_memory(
@@ -114,6 +115,43 @@ async def resolve_observation_identifier(
     return None, None
 
 
+async def build_search_project_context_map(
+    backend: LocalMemoryBackend,
+    *,
+    entries: Sequence[MemoryEntry] = (),
+    observations: Sequence[Observation] = (),
+    relation_facts: Sequence[RelationFact] = (),
+) -> dict[str, list[str]]:
+    """Resolve project profile stacks for search results."""
+    project_names = {
+        entry.project_name
+        for entry in entries
+        if entry.project_name
+    }
+    project_names.update(
+        str(observation.metadata["project_name"])
+        for observation in observations
+        if isinstance(observation.metadata.get("project_name"), str)
+    )
+    project_names.update(
+        fact.project_name
+        for fact in relation_facts
+        if fact.project_name
+    )
+    project_names.discard(None)
+    if not project_names:
+        return {}
+
+    store = LocalProjectProfileStore(backend.data_dir)
+    tech_stack_by_project: dict[str, list[str]] = {}
+    for project_name in sorted(project_names):
+        if not project_name:
+            continue
+        profile = await store.get(project_name)
+        tech_stack_by_project[project_name] = list(profile.stacks) if profile else []
+    return tech_stack_by_project
+
+
 def search_header(results: Sequence[object], requested_mode: str) -> str:
     """Format a stable search header based on the effective search mode."""
     if not results:
@@ -176,10 +214,17 @@ def preview_search_text(text: str, query: str, *, max_chars: int = 200) -> str:
     return preview
 
 
-def serialize_memory_entry_search_result(entry: object, requested_mode: str) -> dict[str, Any]:
+def serialize_memory_entry_search_result(
+    entry: object,
+    requested_mode: str,
+    tech_stack_by_project: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
     """Serialize a structured memory result for MCP responses."""
+    project_name = getattr(entry, "project_name", None)
     return {
         "id": getattr(entry, "id"),
+        "project_name": project_name,
+        "tech_stack": _tech_stack_for_project(project_name, tech_stack_by_project),
         "category": getattr(entry, "category"),
         "content": getattr(entry, "content"),
         "confidence": getattr(entry, "confidence"),
@@ -194,10 +239,14 @@ def serialize_observation_search_result(
     observation: Observation,
     requested_mode: str,
     query: str = "",
+    tech_stack_by_project: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """Serialize an observation search result for MCP responses."""
+    project_name = observation.metadata.get("project_name")
     return {
         "id": observation.id,
+        "project_name": project_name,
+        "tech_stack": _tech_stack_for_project(project_name, tech_stack_by_project),
         "session_id": observation.session_id,
         "content_type": observation.content_type,
         "preview": preview_search_text(observation.raw_content, query, max_chars=200),
@@ -206,10 +255,15 @@ def serialize_observation_search_result(
     }
 
 
-def serialize_relation_fact_search_result(fact: RelationFact) -> dict[str, Any]:
+def serialize_relation_fact_search_result(
+    fact: RelationFact,
+    tech_stack_by_project: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
     """Serialize a relation fact search result for MCP responses."""
     return {
         "id": fact.id,
+        "project_name": fact.project_name,
+        "tech_stack": _tech_stack_for_project(fact.project_name, tech_stack_by_project),
         "source_entity": fact.source_entity,
         "target_entity": fact.target_entity,
         "relation_type": fact.relation_type,
@@ -257,3 +311,12 @@ def _raw_search_score(result: object) -> float | None:
     if score is None:
         score = getattr(result, "_fts_score", None)
     return score if isinstance(score, (int, float)) else None
+
+
+def _tech_stack_for_project(
+    project_name: object,
+    tech_stack_by_project: dict[str, list[str]] | None,
+) -> list[str]:
+    if not isinstance(project_name, str) or not tech_stack_by_project:
+        return []
+    return list(tech_stack_by_project.get(project_name, []))

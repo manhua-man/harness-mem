@@ -19,9 +19,11 @@ class SessionRecord(TypedDict, total=False):
     name: str
     session_id: str
     size_kb: float
+    size_bytes: int
     size: str
     lines: int
     mtime: datetime
+    mtime_ns: int
 
 
 class SessionAdapter(Protocol):
