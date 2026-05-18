@@ -1,142 +1,281 @@
-# 参考项目地图：记忆运行时、知识库与自进化
+# 参考项目深读：记忆运行时、知识库与自进化
 
 > 状态：持续维护的参考地图。
 >
-> 初次收录：2026-05-18。中文化修订：2026-05-19。
+> 初次收录：2026-05-18。中文化与本地深读修订：2026-05-19。
 >
 > 本文记录对 `harness-mem` 设计有参考价值的外部项目。它不是路线图本身；路线图承诺仍以 `roadmap-v15x.md`、`roadmap-v16x.md` 和 `roadmap-vision-v16-v18.md` 为准。
 
-## 已有相近文档
+## 文档定位
 
-我们之前已经在 [`roadmap-vision-v16-v18.md`](./roadmap-vision-v16-v18.md) 里写过“当前生态坐标（参考与对标）”，但那一节偏 v1.6 到 v1.8 的远景定位，不适合承载完整参考项目清单。
+我们之前已经在 [`roadmap-vision-v16-v18.md`](./roadmap-vision-v16-v18.md) 里写过“当前生态坐标（参考与对标）”，但那一节偏 v1.6 到 v1.8 的远景定位。
 
-本文作为更稳定的参考台账，专门回答四个问题：
+本文的职责不同：它是参考项目的一手读书笔记，优先记录已经下载到 `F:\memory-lab\upstreams` 的项目。远程项目如果还没镜像，只作为待研究线索，不和本地深读项目混在同一个可信度层级。
 
-- 哪些项目已经镜像到 `F:\memory-lab\upstreams`
-- 哪些项目后续值得镜像
-- 每个项目值得借鉴的机制是什么
-- 哪些产品形态不应该照搬
-
-## 本地 upstream 镜像
+## 本地 upstream 总览
 
 `F:\memory-lab\upstreams` 是外部参考项目的本地书架。这些目录只用于对照、阅读和 benchmark，不是当前主产品源码。
 
-| 本地路径 | 上游仓库 | 当前用途 |
+| 本地路径 | 上游仓库 | 本文定位 |
 |---|---|---|
-| `F:\memory-lab\upstreams\ai-harness` | `https://github.com/killop/ai-harness.git` | 本地 MemPalace workspace 封装。可参考 `source docs -> knowledge cache -> palace refresh` 的工作流形态。 |
-| `F:\memory-lab\upstreams\claude-mem` | `https://github.com/thedotmack/claude-mem.git` | 面向 Claude Code 的持久记忆与压缩系统。可参考插件包装和 Claude 集成方式，但不照搬其存储模型。 |
-| `F:\memory-lab\upstreams\mempalace` | `https://github.com/MemPalace/mempalace.git` | 最接近的 local-first memory runtime 参考：verbatim storage、scoped retrieval、wake-up、benchmark 与 palace 结构。 |
+| `F:\memory-lab\upstreams\ai-harness` | `https://github.com/killop/ai-harness.git` | 本地 MemPalace workspace。重点看“源文档同步到 knowledge cache，再 mine 成 palace”的知识库工作流。 |
+| `F:\memory-lab\upstreams\claude-mem` | `https://github.com/thedotmack/claude-mem.git` | Claude Code 插件式记忆系统。重点看 hook 生命周期、progressive disclosure、File Read Gate、worker 队列与降级策略。 |
+| `F:\memory-lab\upstreams\mempalace` | `https://github.com/MemPalace/mempalace.git` | 最接近的 local-first memory runtime。重点看 raw/verbatim 优先、palace/closet/drawer 结构、memory stack、SQLite temporal KG、AAAK 边界。 |
 
-## 产品分层判断
+## 已下载项目深读
 
-这些项目不应该混成一个“大而全系统”。更合理的分层是：
+### 1. `ai-harness`
 
-```text
-llm-wiki / meta-kb 风格层
-  -> 项目知识库、文档维护、source traceability、wiki links、domain-topic-sub 导航
+已读本地文件：
 
-harness-mem / MemPalace 风格层
-  -> 本地 memory runtime、wake context、search、confirmed rules、task handoffs
+- `F:\memory-lab\upstreams\ai-harness\README.md`
+- `F:\memory-lab\upstreams\ai-harness\harness-workspace\README.md`
+- `F:\memory-lab\upstreams\ai-harness\harness-workspace\knowledges-cache\README.md`
+- `F:\memory-lab\upstreams\ai-harness\harness-workspace\tools\sync-map.json`
+- `F:\memory-lab\upstreams\ai-harness\harness-workspace\tools\Sync-MemoryCache.ps1`
+- `F:\memory-lab\upstreams\ai-harness\harness-workspace\tools\Refresh-MemPalace.ps1`
+- `F:\memory-lab\upstreams\ai-harness\harness-workspace\tools\Rebuild-MemPalace.ps1`
+- `F:\memory-lab\upstreams\ai-harness\.codex\config.toml`
 
-OpenSpace / Memento 风格层
-  -> 技能自进化、执行模式学习、procedural memory
-```
-
-`harness-mem` 应继续保持为 local-first memory runtime。wiki 可以作为伴生输出层，而不是替代 runtime store。
-
-## 2026-05-18 讨论新增参考
-
-| 项目 | 类型 | 值得借鉴 | 对 `harness-mem` 的边界 |
-|---|---|---|---|
-| [HKUDS/OpenSpace](https://github.com/HKUDS/OpenSpace) | Agent skill self-evolution | evolved skill 的候选生命周期、skill quality monitoring、“成功工作流变成可复用 skill”、local skill search、可选 MCP 集成。 | 不把 cloud skill community 作为默认路径；继续坚持 local-first 和 review-gated memory truth。 |
-| [Memento-Skills](https://github.com/Memento-Teams/Memento-Skills) | Deployment-time skill learning | Read-write-reflective learning：先检索或生成 skill，执行后再根据成功或失败反写 skill library。 | Agent 不能直接改写已生效 skill 或 memory truth；必须先进入候选层和审核层。 |
-| [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) | 自动维护 wiki | Two-step ingest、source traceability、incremental cache、knowledge graph signals、community detection、persistent ingest queue、人类 review action。 | 不把 desktop UI 作为核心路线；先借 document compiler 和 traceability 模型。 |
-| [chappyasel/meta-kb](https://github.com/chappyasel/meta-kb) | 自改进知识编译器 | repo-as-demo 模式：raw sources 编译成 wiki；atomic claims 对照 citation 校验；按 content hash 增量编译。 | 可以作为 `docs/wiki` 伴生架构参考；不能用 Markdown 替代 SQLite structured memory 的 truth。 |
-| [MarchLiu/hypatia](https://github.com/MarchLiu/hypatia) | 本地图记忆 | Knowledge entries、statement triples、temporal ranges、JSON search expressions、FTS + vector、k-hop graph query。 | 查询语言应保留为内部或专家能力；普通 agent 使用仍走 MCP/search/wake 抽象。 |
-| [EverMind-AI/EverOS](https://github.com/EverMind-AI/EverOS) | 长期记忆 OS 与 benchmark 套件 | use cases / methods / benchmarks 三段式组织，memory types，LoCoMo/LongMemEval/PersonaMem 评估口径，自进化 benchmark 视角。 | 不把 `harness-mem` 做成 server-first 平台；借 benchmark 框架，不借完整部署形态。 |
-| [vectorize-io/hindsight](https://github.com/vectorize-io/hindsight) | Agent memory that learns | “learn, not just recall” 的定位，LongMemEval 中心化的评估叙事，API/CLI/client 分层。 | 公共性能数字只能作为复现实验线索，不能直接变成本仓产品宣称；先本地复现。 |
-| [Chandler-Sun/MemChinesePalace](https://github.com/Chandler-Sun/MemChinesePalace) | 压缩实验 | “简/牍”双层形态：压缩快读摘要 + 原始完整来源；palace hierarchy 作为导航结构。 | 文言文压缩有启发，但不应成为 canonical storage；必须保留现代语言事实和 provenance。 |
-| [Jason Zuo X thread](https://x.com/xxxjzuo/status/2038086450013495554) | 想法线索 | “execution -> memory” 的 agent harness 叙事，可用于理解 gstack + compound engineering 的产品表达。 | X 线程不是稳定技术证据；只有可访问、可引用后才适合镜像或正式总结。 |
-
-## 架构启发
-
-### 1. 知识库和记忆运行时不是同一个产品
-
-wiki 层负责维护可导航的知识：
+它不是一个普通竞品仓库，更像一个“MemPalace 知识库工作区样板”。核心数据流是：
 
 ```text
-domain -> topic -> sub
+source docs
+-> tools/Sync-MemoryCache.ps1
+-> knowledges-cache/
+-> tools/Refresh-MemPalace.ps1
+-> .mempalace_local/palace
 ```
 
-多数领域三层就够了。更深的结构应该放在 links、graph edges 或 search metadata 里，而不是暴露成用户要手动维护的层级。
+关键机制：
 
-memory runtime 负责维护可操作的记忆：
+- `knowledges-cache/` 是共享知识源，按 wing 分成 `game_design`、`game_server`、`game_client`、`game_shared`。
+- 每个 wing 用 `mempalace.yaml` 定义可挖掘输入。
+- `manual/` 放人工长期维护知识，`generated/` 放同步脚本生成内容。
+- `sync-map.json` 把上游源目录映射到 knowledge cache，例如 `DesignDoc -> game_design/generated/DesignDoc`、`docs/architecture -> game_shared/generated/docs-architecture`。
+- `Refresh-MemPalace.ps1` 先同步 cache，再对每个带 `mempalace.yaml` 的 wing 执行 `python -m mempalace.cli --palace ... mine ...`。
+- `.mempalace_local/palace` 是运行产物，不是共享源。
 
-- accepted rules
-- task handoffs
-- relation facts
-- searchable observations
-- wake-up context
+对 `harness-mem` 的启发：
 
-两层可以互相喂数据，但不要互相吞掉。
-
-### 2. sleep 机制应该产出审核项，而不是自治改 truth
-
-更适合 `harness-mem` 的 sleep 机制是：
+- 如果做 `wiki bridge`，第一版不应该直接写入 runtime truth；更合理的是先有一个显式的 source cache / generated cache 分层。
+- “人工维护内容”和“脚本生成内容”必须分目录，避免 AI 把生成物当成权威源。
+- 后续如果引入文档知识库，可以参考这个工作流：
 
 ```text
-raw sessions/docs
--> sleep scan
--> dedupe / merge / conflict / decay / promote suggestions
--> pending candidates
--> review or auto-low-risk handling
--> accepted memory + optional wiki refresh
+repo docs / accepted memory
+-> generated knowledge cache
+-> wiki compiler 或 memory mine
+-> 可检索知识输出
 ```
 
-关键边界：sleep 可以整理、归并、发现冲突、提出建议，但不能绕过审核直接删除或改写 accepted truth。
+不能照搬：
 
-### 3. 先借 traceability，再考虑 UI
+- 不能把 `.mempalace_local/` 这类运行产物当成协作源。
+- 不能把游戏项目的 wing 命名直接套到通用 memory runtime。
+- 不能让 `sync-map.json` 成为隐藏真相；映射规则需要在 `doctor` 或文档索引里可见。
 
-`llm_wiki` 和 `meta-kb` 最值得学的是：把生成知识当作带 source links、status 和 review 的 compiled output。
+### 2. `claude-mem`
 
-对 `harness-mem` 来说，第一版有价值的不是新桌面应用，而是：
+已读本地文件：
 
-- 生成 `docs/wiki/` 或另一个知识输出目录
-- 每个页面能追溯到 accepted memory ID 或 source observation
-- 根据变更的 sessions/docs 增量刷新
-- 对冲突和过期 claim 产出 pending review items
+- `F:\memory-lab\upstreams\claude-mem\docs\architecture-overview.md`
+- `F:\memory-lab\upstreams\claude-mem\docs\public\architecture\overview.mdx`
+- `F:\memory-lab\upstreams\claude-mem\docs\public\architecture\search-architecture.mdx`
+- `F:\memory-lab\upstreams\claude-mem\docs\public\context-engineering.mdx`
+- `F:\memory-lab\upstreams\claude-mem\docs\public\progressive-disclosure.mdx`
+- `F:\memory-lab\upstreams\claude-mem\docs\public\file-read-gate.mdx`
+- `F:\memory-lab\upstreams\claude-mem\docs\public\hooks-architecture.mdx`
+- `F:\memory-lab\upstreams\claude-mem\docs\production-guide.md`
 
-### 4. skill evolution 必须躲在候选层之后
+它的核心不是单纯“有 SQLite + ChromaDB”，而是一个 hook 驱动的 Claude Code 外挂记忆系统：
 
-OpenSpace 和 Memento 都指向 procedural memory：agent 应该复用成功工作流，也应该修复失败 skill。
+```text
+Claude Code hooks
+-> CLI / hook command layer
+-> Worker service
+-> SQLite + FTS5 + ChromaDB
+-> MCP/search skill/progressive disclosure
+```
 
-在 `harness-mem` 里，它更适合落成未来的 `procedural` memory 和 `SkillCandidate`，而不是直接改已安装 skill。
+关键机制：
+
+- **Hook lifecycle**：SessionStart 注入上下文，UserPromptSubmit 初始化 session，PostToolUse 捕捉工具使用，Stop 生成 summary，SessionEnd 做收尾。
+- **Worker sidecar**：后台 Express worker 负责 observation 处理、search API、SSE/UI、SDK agent 调用。
+- **CLAIM-CONFIRM queue**：pending -> processing -> confirm/delete；processing 超时后重置 pending，失败项可 retry，避免 hook 进程和 worker 崩溃造成丢消息。
+- **Graceful degradation**：worker 不可用时不阻塞 Claude Code 主会话；传输错误 exit 0，客户端 bug 才 exit 2。
+- **Progressive disclosure**：先给 observation index，再通过 timeline 和 get_observations 拉细节，避免一上来塞完整历史。
+- **3-layer retrieval**：`search(query)` 先拿 ID 索引，`timeline(anchor=ID)` 看上下文，`get_observations([IDs])` 只取筛过的全文。
+- **File Read Gate**：拦截大文件 `Read`，如果数据库里已有该文件相关 observations，先展示 timeline 和成本提示，让 agent 决定是否读详情、读 outline，或最后再读全文。
+- **Production health**：文档里明确监控 pending_messages、failed queue、active sessions、WAL size、Chroma size、errors/day。
+
+对 `harness-mem` 的启发：
+
+- 我们已经有 `search -> timeline -> get_observations` 的类似工作流，应该继续把它写成强约束，而不是让 agent 直接拉全文。
+- `wake` 不应该只追求“多给记忆”，而应该像 progressive disclosure 一样暴露“有什么、成本多少、怎么取详情”。
+- 如果将来做文件级记忆辅助，可以参考 File Read Gate 的思想，但在 Codex 侧应更保守：先作为显式建议或工具，不直接拦截用户文件读取。
+- `wake-up` 的 auto-ingest / distill 任务如果变重，可以借鉴 CLAIM-CONFIRM queue 和 health 指标，避免 silent stuck。
+- “主会话不被记忆系统拖死”是硬边界：memory runtime 失败应可见、可诊断，但不能破坏用户当前开发流。
+
+不能照搬：
+
+- `claude-mem` 是 Claude Code 深绑定 hook 插件；`harness-mem` 的主线是 MCP-first, multi-client runtime，不能变成只服务 Claude Code 的 hook daemon。
+- 不应默认引入常驻 worker/daemon。当前 `harness-mem` 路线已经明确先做本地 runtime 和 MCP 自动化，不把 daemon 当主路线。
+- File Read Gate 不应直接变成默认阻断行为；这类能力要先有用户可理解的 escape hatch 和 stale 判断。
+
+### 3. `mempalace`
+
+已读本地文件：
+
+- `F:\memory-lab\upstreams\mempalace\README.md`
+- `F:\memory-lab\upstreams\mempalace\benchmarks\BENCHMARKS.md`
+- `F:\memory-lab\upstreams\mempalace\benchmarks\README.md`
+- `F:\memory-lab\upstreams\mempalace\docs\CLOSETS.md`
+- `F:\memory-lab\upstreams\mempalace\docs\schema.sql`
+- `F:\memory-lab\upstreams\mempalace\website\concepts\memory-stack.md`
+- `F:\memory-lab\upstreams\mempalace\website\concepts\the-palace.md`
+- `F:\memory-lab\upstreams\mempalace\website\concepts\knowledge-graph.md`
+- `F:\memory-lab\upstreams\mempalace\website\concepts\contradiction-detection.md`
+- `F:\memory-lab\upstreams\mempalace\website\concepts\agents.md`
+- `F:\memory-lab\upstreams\mempalace\website\concepts\aaak-dialect.md`
+- `F:\memory-lab\upstreams\mempalace\mempalace\dialect.py`
+
+它最重要的产品判断是：默认存 raw/verbatim，不先让 LLM 提取后丢原文。MemPalace 自己的 benchmark 文档也把“raw verbatim + semantic search”视为核心发现，而 AAAK 只是实验压缩层。
+
+关键机制：
+
+- **Drawers**：原始内容 chunk，verbatim，是当前搜索和 benchmark 的主路径。
+- **Closets**：可搜索索引层，包含 topic/entities/quote，并指回 drawer ID。搜索先命中 closet，再打开 drawer；没有 closet 时 fallback 到 drawer search。
+- **Palace hierarchy**：wing 是人/项目，room 是主题，hall 是概念类别，tunnel 是跨 wing 的共享 room 连接。
+- **Memory Stack**：L0 identity 常驻，L1 essential story 常驻，L2 room recall 按 topic 加载，L3 deep search 显式查询。
+- **Temporal knowledge graph**：SQLite 中的 `entities`、`triples`、`attributes`，triple 带 `valid_from / valid_to / confidence / source_closet / source_file`。
+- **Contradiction detection**：文档明确标为 experimental/planned，当前只有 temporal KG primitives，不是完整 MCP/CLI 闭环。
+- **Agent diary**：通过稳定 agent name 写入各自 wing 的 diary room，用 AAAK 压缩 diary entry，但当前不宣称完整 agent registry。
+- **AAAK**：有损结构化摘要方言，提取 entities/topics/key quotes/emotions/flags，不可还原原文，也不是默认存储。文档中 AAAK mode 的 LongMemEval R@5 低于 raw mode。
+
+对 `harness-mem` 的启发：
+
+- 默认 truth 仍应保留原始 observation 和 provenance，不应让压缩摘要替代原文。
+- `wake` 可以借鉴 Memory Stack：常驻层只放 profile / essential rules / recent handoff，topic-specific recall 通过 search 或 wiki bridge 按需加载。
+- `closet -> drawer` 很适合映射到我们未来的 `wiki bridge` 或 compact search：先返回短索引和 provenance，再按需打开 source observation。
+- temporal KG 的 `valid_from / valid_to` 与本仓 v1.7 方向一致；它证明 SQLite 足够表达最小 bi-temporal 子集，不必一上来引入图数据库。
+- contradiction detection 只能作为候选生成器参考，不应直接变成 AI 自动改 truth。
+- AAAK 可以作为 wake context renderer 研究，不适合作为 canonical storage。
+
+不能照搬：
+
+- ChromaDB 默认后端不符合 `harness-mem` 当前 SQLite FTS5 + sqlite-vec 路线。
+- Palace 的建筑隐喻很强，但本仓面向多 agent client 的 runtime，不应该强迫所有用户接受 wing/room/hall 术语。
+- AAAK 对 token budget 有启发，但有损压缩会损害审计性；只能输出短摘要并保留 source ID。
+- MemPalace 的 benchmark headline 只能作为复现实验线索，不能直接写进 `harness-mem` README 当比较结论。
+
+## 对 `harness-mem` 的直接设计结论
+
+### 1. 已下载项目共同指向“索引先行，全文按需”
+
+三者都在不同层面支持同一个方向：
+
+- `ai-harness`：先整理 source docs 到 knowledge cache，再 mine。
+- `claude-mem`：先展示 observation index，再按 ID 拉详情。
+- `mempalace`：先搜 closet，再打开 drawer。
+
+所以 `harness-mem` 后续的正确形态不是“wake 时塞更多全文”，而是：
+
+```text
+wake-up
+-> 显示项目 profile / confirmed rules / handoff / compact memory index
+-> search/timeline/get_observations 按需取详情
+-> source observation 永远可追溯
+```
+
+### 2. wiki bridge 应该从 `ai-harness` 和 `mempalace closets` 借形
+
+最小可行形态：
+
+```text
+accepted memory + curated docs
+-> generated knowledge cache
+-> docs/wiki 或其他可读输出
+-> 每条 claim 保留 source observation / memory ID
+```
+
+这里借的是 source cache、generated/manual 分层、短索引指向原文，不是借一个桌面 UI。
+
+### 3. sleep cycle 应该从 `claude-mem` 的队列和 `mempalace` 的 contradiction 边界借形
 
 安全形态：
 
 ```text
-execution trace
--> skill pattern candidate
--> review
--> accepted procedural memory / skill asset
--> tracked success or failure
+sleep scan
+-> merge / dedupe / conflict / stale detection
+-> pending candidates
+-> human review 或 auto-low-risk review
+-> accepted truth
 ```
 
-### 5. benchmark 必须本地可复现
+不做：
 
-EverOS 和 Hindsight 可以提供 benchmark 目录和评估语言，但它们的 headline 数字不能直接变成本仓产品宣称。
+- AI 直接删 accepted memory
+- AI 直接 update confirmed rule
+- 失败的后台任务静默丢消息
 
-本仓仍按已有原则执行：按维度测量，保留结果文件，先本地复现，再写入路线图或 README。
+### 4. compact renderer 可以借 AAAK，但不能变成 truth
 
-## 建议的下一步
+可接受：
+
+```text
+harness-mem wake --format compact
+```
+
+输出短摘要、实体、标签、source ID。
+
+不可接受：
+
+```text
+把 accepted memory 或 observation 改写成 AAAK 后丢掉原文
+```
+
+### 5. 文件级记忆辅助可以学 File Read Gate，但默认不应阻断
+
+File Read Gate 的真正价值是“先给历史索引和成本提示”。在 `harness-mem` 中更适合先做成：
+
+```text
+harness-mem file-context <path>
+```
+
+或 MCP tool：
+
+```text
+get_file_memory(path)
+```
+
+先返回过去对这个文件的 observations、改动、决策和 token 成本。是否读取当前文件，仍由 agent 或用户决定。
+
+## 远程参考项目：待镜像后再深读
+
+下面这些项目来自 2026-05-18 的讨论，目前尚未下载到 `F:\memory-lab\upstreams`。它们只作为“待镜像研究线索”，不能和上面的本地深读结论同等权重。
+
+| 项目 | 暂定类型 | 当前可借鉴方向 | 后续动作 |
+|---|---|---|---|
+| [HKUDS/OpenSpace](https://github.com/HKUDS/OpenSpace) | Agent skill self-evolution | skill 候选生命周期、质量监控、成功工作流变成 reusable skill。 | 若进入 procedural memory 设计，先镜像后读 `openspace` 的 skill/evolution 数据模型。 |
+| [Memento-Skills](https://github.com/Memento-Teams/Memento-Skills) | Deployment-time skill learning | Read-write-reflective learning，执行后反思并更新 skill library。 | 等 v1.8 procedural memory 启动前再镜像。 |
+| [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) | 自动维护 wiki | Two-step ingest、source traceability、incremental cache、knowledge graph signals。 | `wiki bridge` 设计前优先镜像。 |
+| [chappyasel/meta-kb](https://github.com/chappyasel/meta-kb) | 自改进知识编译器 | raw sources 编译 wiki，atomic claims 对 citation 校验，content hash 增量编译。 | `wiki bridge` 设计前优先镜像。 |
+| [MarchLiu/hypatia](https://github.com/MarchLiu/hypatia) | 本地图记忆 | Knowledge entries、statement triples、temporal ranges、JSE 查询、FTS + vector。 | v1.7 temporal graph 设计前优先镜像。 |
+| [EverMind-AI/EverOS](https://github.com/EverMind-AI/EverOS) | 长期记忆 OS 与 benchmark 套件 | use cases / methods / benchmarks 分层，LoCoMo/LongMemEval/PersonaMem 评估。 | 只在 benchmark 口径扩展时镜像。 |
+| [vectorize-io/hindsight](https://github.com/vectorize-io/hindsight) | Agent memory that learns | “learn, not just recall” 的定位，API/CLI/client 分层。 | 若要复现其公开 benchmark，再镜像。 |
+| [Chandler-Sun/MemChinesePalace](https://github.com/Chandler-Sun/MemChinesePalace) | 压缩实验 | “简/牍”双层表达、压缩快读摘要、原文可追溯。 | compact renderer 研究时镜像。 |
+| [Jason Zuo X thread](https://x.com/xxxjzuo/status/2038086450013495554) | 想法线索 | “execution -> memory” 的 agent harness 叙事。 | 只有可访问、可引用后才正式摘录。 |
+
+## 后续优先级
 
 | 优先级 | 动作 | 原因 |
 |---|---|---|
-| P0 | 真要研究实现细节时，先把 `llm_wiki`、`meta-kb`、`hypatia` 镜像到 `F:\memory-lab\upstreams`。 | 它们最贴近 wiki/compiler/graph 这几条可能会被我们吸收的机制。 |
-| P0 | `roadmap-v16x.md` 继续只写当前已承诺切片；本文保留为更宽的参考池。 | 防止 roadmap 变成研究剪贴簿。 |
-| P1 | 等 v1.6 measurement 和 memory typing 稳定后，再设计最小 `wiki bridge`。 | 让 accepted semantic memory 能生成可读文档，同时不扰动 runtime。 |
-| P1 | sleep cycle 只按“产出候选项的 maintenance job”设计。 | 吸收类脑整理思路，同时保留审计与审核边界。 |
-| P2 | 压缩实验只作为 wake context renderer 研究。 | 对 token budget 有价值，但不适合作为 canonical truth。 |
+| P0 | 把 `reference-projects.md` 作为外部参考唯一入口，后续读项目就补这里。 | 避免 roadmap 变成研究剪贴簿。 |
+| P0 | 真要做 `wiki bridge` 前，先镜像 `llm_wiki` 和 `meta-kb`。 | 它们最接近知识库编译机制。 |
+| P1 | 真要做 temporal graph 前，先镜像 `hypatia`。 | 它更接近 SQLite/FTS/vector/graph 的本地实现形态。 |
+| P1 | 把 `ai-harness` 的 generated/manual cache 边界转化成 `harness-mem` 的 wiki bridge 设计约束。 | 防止 AI 生成文档污染人工真相。 |
+| P2 | 把 AAAK / MemChinesePalace 类压缩只放入 wake renderer 实验，不进入 storage truth。 | 保护可审计性和原文追溯。 |
 
 ## 明确不做
 
@@ -145,3 +284,4 @@ EverOS 和 Hindsight 可以提供 benchmark 目录和评估语言，但它们的
 - 不在 runtime 和 docs compiler 有价值前先做 desktop UI。
 - 不用 Markdown directory 替代 memory source of truth。
 - 不允许 skill auto-rewrite 绕过 candidate review。
+- 不把还没本地镜像、还没读源码的远程项目写成已验证结论。
