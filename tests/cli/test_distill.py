@@ -40,6 +40,39 @@ def test_cmd_distill_all_sessions_processes_project(
         run(backend.close())
 
 
+def test_cmd_distill_uses_matching_claude_project_directory_when_mcp_cwd_differs(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    claude_sessions_root: Path,
+):
+    write_claude_session(
+        claude_sessions_root,
+        "f--SourceCode-v0191-recover",
+        "sess-v0191-distill",
+        "Please summarize the export decision.",
+        ["We decided to use SQLite FTS5 for project search indexing."],
+    )
+    mcp_server_cwd = tmp_path / "memory-lab" / "harness-mem"
+    mcp_server_cwd.mkdir(parents=True)
+    patch_cli_adapters(monkeypatch, claude_sessions_root=claude_sessions_root)
+    monkeypatch.chdir(mcp_server_cwd)
+
+    assert run(cli.cmd_distill("v0191_recover")) == 0
+
+    captured = capsys.readouterr().out
+    assert "Claude session project: f--SourceCode-v0191-recover" in captured
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        entries = run(backend.structured_store.list_memory_entries("v0191_recover", limit=10))
+        assert len(entries) == 1
+        assert "SQLite FTS5" in entries[0].content
+    finally:
+        run(backend.close())
+
+
 def test_cmd_distill_prints_heuristic_pattern_source(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

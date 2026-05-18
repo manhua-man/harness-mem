@@ -105,6 +105,124 @@ def test_codex_archive_ingest_uses_incremental_cursor(
     assert cursor_path.exists()
 
 
+def test_codex_archive_ingest_filters_by_current_project_root(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    archive_root = tmp_path / "archives"
+    project_root = tmp_path / "demo-project"
+    other_root = tmp_path / "other-project"
+    project_root.mkdir()
+    other_root.mkdir()
+    write_codex_archive_session(
+        archive_root,
+        "2026-05-17-project",
+        user_text="Project archive session",
+        assistant_text="Archived answer for the current project",
+        cwd=str(project_root / "src"),
+    )
+    write_codex_archive_session(
+        archive_root,
+        "2026-05-17-other",
+        user_text="Other archive session",
+        assistant_text="Archived answer for another project",
+        cwd=str(other_root),
+    )
+    patch_cli_adapters(monkeypatch, codex_archive_root=archive_root)
+    monkeypatch.chdir(project_root)
+
+    assert run(cli.cmd_ingest("codex-archive", "demo", 10)) == 0
+
+    output = capsys.readouterr().out
+    assert "Project-scope sessions: 1" in output
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observations = run(backend.verbatim_store.list(limit=10))
+        assert [observation.session_id for observation in observations] == [
+            "2026-05-17-project",
+        ]
+        assert observations[0].metadata["cwd"] == str(project_root / "src")
+    finally:
+        run(backend.close())
+
+
+def test_codex_archive_scope_all_is_explicit_global_ingest(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    archive_root = tmp_path / "archives"
+    project_root = tmp_path / "demo-project"
+    other_root = tmp_path / "other-project"
+    project_root.mkdir()
+    other_root.mkdir()
+    write_codex_archive_session(
+        archive_root,
+        "2026-05-17-project",
+        user_text="Project archive session",
+        assistant_text="Archived answer for the current project",
+        cwd=str(project_root),
+    )
+    write_codex_archive_session(
+        archive_root,
+        "2026-05-17-other",
+        user_text="Other archive session",
+        assistant_text="Archived answer for another project",
+        cwd=str(other_root),
+    )
+    patch_cli_adapters(monkeypatch, codex_archive_root=archive_root)
+    monkeypatch.chdir(project_root)
+
+    assert run(cli.cmd_ingest("codex-archive", "demo", 10, scope="all")) == 0
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observations = run(backend.verbatim_store.list(limit=10))
+        assert sorted(observation.session_id for observation in observations) == [
+            "2026-05-17-other",
+            "2026-05-17-project",
+        ]
+    finally:
+        run(backend.close())
+
+
+def test_auto_ingest_uses_codex_archive_in_codex_environment(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    archive_root = tmp_path / "archives"
+    project_root = tmp_path / "demo-project"
+    project_root.mkdir()
+    write_codex_archive_session(
+        archive_root,
+        "2026-05-17-project",
+        user_text="Project archive session",
+        assistant_text="Archived answer for the current project",
+        cwd=str(project_root),
+    )
+    patch_cli_adapters(monkeypatch, codex_archive_root=archive_root)
+    monkeypatch.chdir(project_root)
+    monkeypatch.setenv("CODEX_THREAD_ID", "test-thread")
+
+    assert run(cli.cmd_ingest("auto", "demo", 10)) == 0
+
+    output = capsys.readouterr().out
+    assert "Auto-detected ingest client: codex-archive" in output
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observations = run(backend.verbatim_store.list(limit=10))
+        assert [observation.client for observation in observations] == ["codex-archive"]
+    finally:
+        run(backend.close())
+
+
 def test_codex_archive_full_rescan_bypasses_cursor_without_duplicate_ingest(
     data_dir: Path,
     monkeypatch: pytest.MonkeyPatch,

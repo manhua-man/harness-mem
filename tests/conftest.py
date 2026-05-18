@@ -10,7 +10,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from harness_mem import cli, event_log  # noqa: E402
-from harness_mem.commands import distill, doctor, profile, purge, search, wake  # noqa: E402
+from harness_mem.commands import distill, doctor, maintenance, profile, purge, search, wake  # noqa: E402
 from harness_mem.commands import ingest, onboarding  # noqa: E402
 from harness_mem.commands import status  # noqa: E402
 from harness_mem.commands import support as command_support  # noqa: E402
@@ -31,6 +31,7 @@ def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(distill, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(doctor, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(ingest, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(maintenance, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(onboarding, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(profile, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(purge, "DEFAULT_DATA_DIR", data_dir)

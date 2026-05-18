@@ -119,8 +119,8 @@
 
 ### 本次实际落地（2026-05-17）
 
-- `CodexArchiveAdapter` 现在默认走 `mtime_ns + size_bytes` cursor：首次 ingest 写入 `projects/<slug>/runtime/.ingest-cursor-codex-archive.json`，后续只扫描更新过的 `rollout-*.jsonl`。
-- `harness-mem ingest codex-archive --full-rescan` 已显式保留整库回扫入口，但重复 session 会在写入前去重，不会把旧 observation 再灌一遍。
+- `CodexArchiveAdapter` 现在默认走 `mtime_ns + size_bytes` cursor：首次 ingest 写入 `projects/<slug>/runtime/.ingest-cursor-codex-archive.json`，后续只扫描更新过的、且 `cwd` 落在当前 project root 下的 `rollout-*.jsonl`。
+- `harness-mem ingest codex-archive --full-rescan` 已显式保留 project-scope 回扫入口；跨项目整库回扫必须再加 `--scope all`。重复 session 会在写入前去重，不会把旧 observation 再灌一遍。
 - 本地 timing 验收已补跑：构造 `1000` 个 archive 文件后，第二次增量 ingest 实测 `0.171s`，满足 `< 1s` 门槛；二次运行 `candidate_sessions = 0`，结果与全量一致。
 - `harness-mem doctor` 现在输出稳定错误码与修复命令，首批文档化为 `HM-001`（未初始化）、`HM-002`（无项目上下文）、`HM-003`（wake budget 过大），对照表见 `docs/error-codes.md`。
 - 发布链已闭合：`pyproject.toml` 补齐 `readme` 与 `dev` extra，README 默认安装路径改为 `pip install harness-mem`，新增 tag 触发的 `.github/workflows/publish.yml`，构建 wheel + sdist、执行 `twine check`，并在发布前 smoke install 两种发行物。

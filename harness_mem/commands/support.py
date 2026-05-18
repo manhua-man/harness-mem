@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import tomllib
 from datetime import datetime
@@ -152,6 +153,88 @@ def set_active_project(project_name: str) -> None:
 
 def safe_project_slug(project_name: str) -> str:
     return project_name.replace("/", "_").replace("\\", "_").replace(":", "_").replace(" ", "_")
+
+
+def current_agent_client() -> str:
+    """Infer the current assistant runtime for default session ingestion.
+
+    Explicit ``HARNESS_MEM_CLIENT`` wins. Otherwise Codex-specific markers win
+    over generic Claude Code environment flags, because Claude-related env vars
+    can be present in nested or bridged shells while ``CODEX_THREAD_ID`` is a
+    stronger signal that the active conversation is a Codex rollout.
+    """
+    configured = os.environ.get("HARNESS_MEM_CLIENT")
+    if configured in {"claude-code", "codex", "codex-archive"}:
+        return configured
+    if os.environ.get("CODEX_THREAD_ID"):
+        return "codex-archive"
+    if any(key.startswith("CLAUDE_CODE") for key in os.environ):
+        return "claude-code"
+    return "claude-code"
+
+
+def claude_project_name_from_path(path: Path) -> str:
+    """Return Claude Code's filesystem-safe project directory name for a path."""
+    candidates = claude_project_name_candidates_from_path(path)
+    return candidates[0] if candidates else path.name
+
+
+def claude_project_name_candidates_from_path(path: Path) -> list[str]:
+    """Return likely Claude Code project directory names for a path.
+
+    Claude Code has used slightly different casing/escaping across versions and
+    platforms. Keep the lookup tolerant so MCP servers do not miss real sessions
+    just because their own process cwd differs from the client workspace.
+    """
+    resolved = path.expanduser().resolve()
+    drive = resolved.drive.rstrip(":")
+    parts = list(resolved.parts)
+    if drive and parts:
+        parts = parts[1:]
+    raw_parts = [
+        part
+        for part in parts
+        if part not in {"\\", "/"} and part.strip("\\/")
+    ]
+
+    def encode(allow_underscore: bool) -> str:
+        pattern = r"[^A-Za-z0-9_-]" if allow_underscore else r"[^A-Za-z0-9]"
+        safe_parts = [
+            re.sub(pattern, "-", part).strip("-")
+            for part in raw_parts
+        ]
+        return "-".join(part for part in safe_parts if part)
+
+    suffixes = [encode(False), encode(True)]
+    drive_variants = [drive]
+    if drive:
+        drive_variants.extend([drive.lower(), drive.upper()])
+
+    candidates: list[str] = []
+    for suffix in suffixes:
+        if drive:
+            for drive_variant in drive_variants:
+                candidate = f"{drive_variant}--{suffix}" if suffix else drive_variant
+                if candidate not in candidates:
+                    candidates.append(candidate)
+        elif suffix:
+            if suffix not in candidates:
+                candidates.append(suffix)
+
+    if not candidates:
+        candidates.append(resolved.name)
+    return candidates
+
+
+def is_path_within(child: Path, parent: Path) -> bool:
+    """Case-insensitive containment check that is stable on Windows paths."""
+    try:
+        child_text = os.path.normcase(str(child.expanduser().resolve()))
+        parent_text = os.path.normcase(str(parent.expanduser().resolve()))
+    except OSError:
+        child_text = os.path.normcase(str(child.expanduser()))
+        parent_text = os.path.normcase(str(parent.expanduser()))
+    return child_text == parent_text or child_text.startswith(parent_text.rstrip("\\/") + os.sep)
 
 
 def project_runtime_dir(project_name: str) -> Path:
@@ -418,8 +501,8 @@ def suggested_next_step(
             )
         if codex_sessions:
             return (
-                "Review recent Codex sessions before any codex ingest",
-                f"{codex_scope_note()} Only run `harness-mem ingest codex -p {project_name}` if the sessions shown above belong to this project.",
+                f"harness-mem ingest auto -p {project_name} -n {min(5, len(codex_sessions))}",
+                f"{codex_scope_note()} The default auto ingest path is project-scoped; use `--scope all` only for an explicit cross-project import.",
             )
         return (
             f"harness-mem ingest claude-code -p {project_name} -n 5",

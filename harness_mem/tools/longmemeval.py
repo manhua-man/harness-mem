@@ -24,6 +24,7 @@ import shutil
 import sqlite3
 import tempfile
 import threading
+import warnings
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +33,56 @@ from uuid import uuid4
 import Stemmer  # type: ignore[import-not-found]
 
 ps = Stemmer.Stemmer("porter")
+
+
+# =============================================================================
+# QUESTION TYPE REGISTRY (v1.6.0)
+# =============================================================================
+
+LONGMEMEVAL_QUESTION_TYPES: frozenset[str] = frozenset({
+    "single-session-user",
+    "single-session-preference",
+    "single-session-assistant",
+    "multi-session",
+    "temporal-reasoning",
+    "knowledge-update",
+})
+"""Registered LongMemEval question types as of v1.6.0.
+
+This set is the canonical reference for the five-dimensions baseline (see
+``docs/benchmark/v160-baseline.md`` and
+``docs/benchmark/longmemeval-five-dimensions.md``). Any dataset entry whose
+``question_type`` falls outside this set triggers a ``UserWarning`` via
+:func:`_validate_question_types` but does NOT block the eval — unknown
+dimensions are still scored and reported under their own bucket so a
+new dataset version remains diagnosable, while drift from the registered set
+remains visible to operators.
+"""
+
+
+def _validate_question_types(data: list[dict]) -> None:
+    """Warn once per unknown question_type encountered in the dataset.
+
+    Called once after JSON load — keeps the per-question hot loop free of
+    extra string lookups while still providing operators a single audible
+    signal when a dataset adds new dimensions.
+    """
+    seen: set[str] = set()
+    for entry in data:
+        qtype = entry.get("question_type")
+        if qtype is None or qtype in seen:
+            continue
+        seen.add(qtype)
+        if qtype not in LONGMEMEVAL_QUESTION_TYPES:
+            warnings.warn(
+                f"Unknown question_type {qtype!r} encountered; this "
+                "dimension will be reported but is not part of the "
+                "registered LONGMEMEVAL_QUESTION_TYPES set. Consider "
+                "updating harness_mem/tools/longmemeval.py if this "
+                "dimension is now stable.",
+                UserWarning,
+                stacklevel=2,
+            )
 
 
 # =============================================================================
@@ -468,6 +519,8 @@ def run_benchmark(
 
     if limit > 0:
         data = data[:limit]
+
+    _validate_question_types(data)
 
     all_recall = []
     per_type: dict[str, list[float]] = defaultdict(list)

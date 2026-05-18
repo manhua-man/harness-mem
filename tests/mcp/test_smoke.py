@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -10,7 +13,13 @@ from harness_mem.mcp.server import handle_request, set_backend_override
 from harness_mem.search.hybrid_search import HybridSearchLayer
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
-from tests.helpers import fake_embed_texts, run, seed_search_backend
+from tests.helpers import (
+    fake_embed_texts,
+    patch_cli_adapters,
+    run,
+    seed_search_backend,
+    write_codex_archive_session,
+)
 
 pytestmark = pytest.mark.mcp
 
@@ -51,14 +60,44 @@ def test_initialize():
     assert result["serverInfo"]["name"] == "harness-mem"
 
 
+def test_stdio_initialize_writes_json_rpc_to_stdout():
+    request = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "pytest", "version": "0"},
+        },
+    }
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "harness_mem.mcp.server"],
+        input=json.dumps(request) + "\n",
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert proc.returncode == 0
+    assert '"jsonrpc"' not in proc.stderr
+    response = json.loads(proc.stdout.strip())
+    assert response["id"] == 1
+    assert response["result"]["serverInfo"]["name"] == "harness-mem"
+
+
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 17
+    assert len(tools) == 22
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
         "get_task_handoffs", "get_confirmed_rules", "get_project_profile",
+        "get_project_status", "ingest_sessions", "prepare_session_distill", "distill_sessions",
+        "list_candidates",
         "create_rule_candidate", "confirm_rule", "reject_rule", "suggest_rule",
         "suggest_memory_entry", "confirm_memory_entry", "reject_memory_entry",
         "suggest_relation_fact", "confirm_relation_fact", "reject_relation_fact",
@@ -181,6 +220,68 @@ def test_suggest_memory_entry_pending_hidden_until_confirmed(mcp_backend: LocalM
     assert accepted_search["memory_entries"][0]["id"] == suggested["entry_id"]
 
 
+def test_list_candidates_returns_pending_review_items(mcp_backend: LocalMemoryBackend):
+    rule = call_tool(
+        "create_rule_candidate",
+        {
+            "project_name": "test-project",
+            "session_id": "test-session-001",
+            "pattern": "Review candidates through the MCP review surface",
+            "trigger": "When humans need to approve memory",
+        },
+    )
+    entry = call_tool(
+        "suggest_memory_entry",
+        {
+            "project_name": "test-project",
+            "category": "decision",
+            "content": "Candidate review should not require the CLI to list pending memory.",
+            "source": "test-session-001",
+        },
+    )
+    fact = call_tool(
+        "suggest_relation_fact",
+        {
+            "project_name": "test-project",
+            "source_entity": "SlashReview",
+            "target_entity": "MCPListCandidates",
+            "relation_type": "uses",
+            "evidence": "The slash review flow lists candidates through MCP.",
+            "source": "test-session-001",
+        },
+    )
+
+    data = call_tool("list_candidates", {"project_name": "test-project"})
+
+    assert data["success"] is True
+    assert data["status"] == "pending"
+    assert data["count"] == 3
+    assert data["total_count"] == 3
+    assert data["rule_count"] == 1
+    assert data["memory_entry_count"] == 1
+    assert data["relation_fact_count"] == 1
+    ids_by_type = {candidate["type"]: candidate["id"] for candidate in data["candidates"]}
+    assert ids_by_type == {
+        "rule": rule["candidate_id"],
+        "memory_entry": entry["entry_id"],
+        "relation_fact": fact["fact_id"],
+    }
+    tools_by_type = {candidate["type"]: candidate["confirm_tool"] for candidate in data["candidates"]}
+    assert tools_by_type == {
+        "rule": "confirm_rule",
+        "memory_entry": "confirm_memory_entry",
+        "relation_fact": "confirm_relation_fact",
+    }
+
+    confirmed = call_tool("confirm_memory_entry", {"entry_id": entry["entry_id"]})
+    assert confirmed["success"] is True
+
+    after_confirm = call_tool("list_candidates", {"project_name": "test-project"})
+    pending_ids = {candidate["id"] for candidate in after_confirm["candidates"]}
+    assert entry["entry_id"] not in pending_ids
+    assert after_confirm["count"] == 2
+
+
 def test_suggest_relation_fact_rejected_remains_hidden(mcp_backend: LocalMemoryBackend):
     suggested = call_tool(
         "suggest_relation_fact",
@@ -262,6 +363,85 @@ def test_get_project_profile(mcp_backend: LocalMemoryBackend):
     result = resp["result"]["content"][0]["text"]
     data = json.loads(result)
     assert data["found"] is False
+
+
+def test_get_project_status_returns_counts_without_cli(mcp_backend: LocalMemoryBackend):
+    data = call_tool("get_project_status", {"project_name": "test-project"})
+
+    assert data["success"] is True
+    assert data["project_name"] == "test-project"
+    assert data["observation_count"] >= 1
+    assert data["memory_entry_count"] >= 1
+
+
+def test_ingest_sessions_mcp_uses_project_scoped_codex_archive(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    archive_root = tmp_path / "archives"
+    project_root = tmp_path / "demo-project"
+    other_root = tmp_path / "other-project"
+    project_root.mkdir()
+    other_root.mkdir()
+    write_codex_archive_session(
+        archive_root,
+        "2026-05-17-project",
+        user_text="Project archive session",
+        assistant_text="Archived answer for the current project",
+        cwd=str(project_root),
+    )
+    write_codex_archive_session(
+        archive_root,
+        "2026-05-17-other",
+        user_text="Other archive session",
+        assistant_text="Archived answer for another project",
+        cwd=str(other_root),
+    )
+    patch_cli_adapters(monkeypatch, codex_archive_root=archive_root)
+    monkeypatch.chdir(project_root)
+
+    data = call_tool(
+        "ingest_sessions",
+        {
+            "project_name": "demo",
+            "client": "codex-archive",
+            "limit": 10,
+        },
+    )
+
+    assert data["success"] is True
+    assert "Project-scope sessions: 1" in data["output"]
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observations = run(backend.verbatim_store.list(limit=10))
+        assert [observation.session_id for observation in observations] == [
+            "2026-05-17-project",
+        ]
+    finally:
+        run(backend.close())
+
+
+def test_prepare_session_distill_returns_one_call_evidence_packet(
+    mcp_backend: LocalMemoryBackend,
+):
+    data = call_tool(
+        "prepare_session_distill",
+        {
+            "project_name": "test-project",
+            "run_ingest": False,
+            "observation_limit": 1,
+            "max_chars_per_observation": 80,
+        },
+    )
+
+    assert data["success"] is True
+    assert data["ingest"]["skipped"] is True
+    assert data["observation_count"] == 1
+    assert data["observations"][0]["source"].startswith("observation:")
+    assert "SQLite FTS5" in data["observations"][0]["raw_content"]
+    assert any("Do not call Bash" in item for item in data["distill_instructions"])
 
 
 def test_search_memory_no_project(mcp_backend: LocalMemoryBackend):

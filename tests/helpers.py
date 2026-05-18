@@ -64,6 +64,7 @@ def write_codex_archive_session(
     *,
     user_text: str,
     assistant_text: str,
+    cwd: str | None = None,
 ) -> Path:
     session_path = archive_root / f"rollout-{session_id}.jsonl"
     session_path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,7 +75,7 @@ def write_codex_archive_session(
             "payload": {
                 "id": session_id,
                 "timestamp": "2026-05-17T00:00:00.000Z",
-                "cwd": "F:\\demo",
+                "cwd": cwd or str(Path.cwd()),
             },
         },
         {

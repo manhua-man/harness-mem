@@ -6,21 +6,22 @@ harness-mem 不仅仅是一个工具，它定义了一套 AI 参与的记忆生�
 
 | 角色 | 职责 | 主要交互方式 |
 |------|------|-------------|
-| **User (用户)** | 提出目标，进行最终决策。 | 自然语言 / CLI |
+| **User (用户)** | 提出目标，复核最终摘要并纠错。 | 自然语言 / Slash |
 | **Executor (执行者)** | 完成具体的编码或研究任务。 | MCP 工具调用 |
-| **Gardener (园丁)** | 维护记忆健康：distill、purge、关联条目。 | CLI (`distill`/`purge`) |
-| **Memory Expert (专家)** | 决定哪些知识应固化为长期规则。 | MCP / CLI (`rules`) |
+| **Gardener (园丁)** | 维护记忆健康：ingest、distill、auto-review、purge、关联条目。 | MCP/Skill，CLI 仅排障 |
+| **Memory Expert (专家)** | 判断候选价值，自动确认低风险事实、拒绝噪声，把高风险项留给用户。 | MCP (`list_candidates` / `confirm_*` / `reject_*`) |
 
 ---
 
 ## 2. 候选层 (Candidate Layer) 机制
 
-**核心原则：AI 建议，人类（或 Gardener）确认。**
+**核心原则：AI 先建议，AI 再处理大部分，人类只做最终复核与纠错。**
 
 为了保证记忆库的信噪比，所有由 AI 产生的结构化知识（MemoryEntry, Rule, Relation）都应先进入“候选层”（状态为 `pending`）。
 
 - **Executor 行为**：在任务结束或发现关键决策时，使用 `suggest_memory_entry` 或 `create_task_handoff`。
-- **Gardener/User 行为**：定期运行 `harness-mem candidates` 或在对话中使用 `confirm_rule` 将知识固化。
+- **Gardener 行为**：`/hm:distill` 应在同一轮通过 MCP `list_candidates` 读取候选，自动确认低风险长期事实，拒绝工具噪声、跨项目 workflow、泛泛原则、重复项或证据不足项。
+- **User 行为**：查看 `/hm:distill` 的最终摘要，指出处理不对的编号。`/hm:review` 只用于复查旧 pending、纠错或 MCP 异常后的手动补救，不是日常必经步骤。
 
 ---
 
@@ -38,7 +39,8 @@ Executor 应根据场景自主选择工具：
 | | `create_task_handoff` | Session 结束前，记录进度、下一步计划和阻塞点。 |
 | | `suggest_rule` | 发现需要长期遵守的模式（如：禁止使用某库）。 |
 | | `suggest_relation_fact` | 建立实体间的关联（如：A 模块依赖 B 配置）。 |
-| **管理** | `confirm_rule` / `reject_rule` | 在 User 明确要求后，操作候选规则的状态。 |
+| **管理** | `list_candidates` | `/hm:distill` 自动审核候选前读取 pending 列表。 |
+| | `confirm_rule` / `reject_rule` | AI 自动处理低风险规则；高风险项才留给 User 最终确认。 |
 
 ---
 
@@ -60,8 +62,8 @@ harness-mem handoff
 ```
 
 ### 4.3 记忆维护 (Gardener 职责)
-建议每周进行一次“园艺工作”：
-1. **蒸馏**：`harness-mem distill` — 将 verbatim observations 转化为结构化条目。
+建议定期进行一次“园艺工作”：
+1. **提炼与自动审核**：优先运行 `/hm:distill`。它应使用 `session-distill` Skill 做 AI 长程理解，并在同一轮自动确认低风险候选、拒绝噪声，最后给用户复核摘要。MCP `distill_sessions` 是低成本启发式 fallback，只会把明显 pattern 转为候选。
 2. **清理**：`harness-mem purge --dry-run` — 发现并压缩陈旧、低频的记忆。
 3. **诊断**：`harness-mem doctor` — 检查项目健康度。
 
@@ -85,16 +87,23 @@ harness-mem handoff
 
 ## 7. 历史记忆激活 (Legacy Activation)
 
-如果你拥有大量的 Codex 历史归档（`rollout-*.jsonl`），可以将它们作为“冷启动”知识库注入新项目。
+如果你拥有大量的 Codex 历史归档（`rollout-*.jsonl`），默认也只能把“当前项目路径相关”的会话注入新项目。Codex archive 是用户级全局数据源，不能在项目目录里无脑全扫。
 
 - **批量导入**：
   ```bash
-  harness-mem ingest codex-archive -n 20
+  /hm:distill <project> 20
+  ```
+- **显式全局导入**：
+  ```bash
+  # 仅开发者排障或用户明确要求跨项目历史时使用
+  harness-mem ingest codex-archive -n 20 --scope all
   ```
 - **工作流建议**：
-  1. 导入后，运行 `harness-mem status` 确认观察记录已入库。
-  2. 运行 `harness-mem distill`，AI 会自动从历史 Transcript 中提取 `MemoryEntry`。
-  3. 历史记忆会带有 `archive` 标签，方便在搜索时识别溯源。
+  1. 用户日常运行 `/hm:distill`；Agent 通过 MCP `prepare_session_distill` 一次性完成项目范围 ingest 并拿到 evidence packet。
+  2. 需要高质量结构化记忆时，使用 `session-distill` Skill 读取 packet，再通过 `suggest_*` / `create_task_handoff` 写入候选层。
+  3. 写入候选后，`/hm:distill` 同一轮读取 `list_candidates`，自动确认低风险事实、拒绝噪声，只把真正高风险或证据不足项放进最终摘要。
+  4. MCP `distill_sessions` 只作为启发式兜底：没有明显可提取 pattern 时产出 0 是正常信号，不代表 observation 不可搜索。
+  5. 历史记忆会带有 `archive` 标签，方便在搜索时识别溯源。
 
 ---
 
@@ -102,7 +111,7 @@ harness-mem handoff
 
 1. **先搜索，再行动**：利用 `search_memory` 避免重复犯错。
 2. **事毕必有交接**：`create_task_handoff` 是防止上下文丢失的唯一防线。
-3. **拥抱候选层**：不要害怕生成太多的 `pending` 条目，Gardener 会处理它们。
+3. **拥抱候选层**：不要害怕生成 `pending` 条目；`/hm:distill` 会自动处理大部分，用户只看最终摘要。
 
 
 ---

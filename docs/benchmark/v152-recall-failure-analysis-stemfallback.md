@@ -5,6 +5,18 @@
 - Baseline: `benchmarks\results\results_harness_hybrid_real_stemfallback_top5_20260517.json`
 - Failed hybrid cases analyzed: 49
 
+## Known trade-off: prefix-matched stem fallback
+
+`SQLiteIndex.search()` 现在会在主 token 召回不足时追加 Porter-stem fallback。出于召回优先的考虑，所有 stem token 都会通过 `_format_match_token` 加上 `*` 转成前缀匹配（例如 `test` -> `test*`，`auth` -> `auth*`）。
+
+LongMemEval 用 session_id 命中评分，所以这条策略只会显示 R@5 上升、不会显示 precision 下降。但实际使用中以下场景会观察到副作用：
+
+- 代码符号或函数名搜索：`auth_handler` 会同时命中 `auth_handler_v2 / auth_handler_legacy`。
+- 严格短词搜索：长度 ≥ 3 的 token 都会被前缀化，`api` 会命中 `api_key / api_v2 / apiclient`。
+- 任何"完全匹配"语义需求：当前路径不区分"我要的是这个词本身"和"我要的是以这个词开头的任意 token"。
+
+如果你需要 precision-first 的检索（典型如代码搜索、严格 ID 查找），请显式调用 `mode="fts"` 并配合精确 query 字符串，或者关闭 stem fallback（v1.6 起规划提供开关）。当前默认行为优先保护 LongMemEval 类型的语义召回。
+
 ## Bucket Summary
 
 | Bucket | Cases |

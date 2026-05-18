@@ -9,6 +9,31 @@ if TYPE_CHECKING:
     from harness_mem.storage.sqlite_index import SQLiteIndex
 
 
+# RRF + confidence-factor defaults.
+#
+# The exponents below shape per-source confidence factors after we min-max
+# normalize each source's scores into [0, 1]. With exponent = 1 the factor is
+# linear; with exponent = 2 we square the normalized score, biasing the fusion
+# toward documents the source is highly confident about and damping mid-rank
+# noise. We use 2.0 for vector because cosine similarities cluster tightly
+# (most candidates fall in 0.4 - 0.7) and a linear factor lets borderline
+# matches outvote a sharp top-1; FTS scores are already long-tailed via bm25
+# rank, so 1.0 keeps that signal as-is.
+#
+# These values were chosen by inspection during the v1.5.2 recall analysis
+# (see docs/benchmark/v152-recall-failure-analysis*.md). They are NOT the
+# result of a grid search — full-set probe replays showed adjusting RRF
+# weights or these exponents alone did not produce a net R@5 improvement;
+# the v1.5.2 recall lift came from a Porter-stem FTS fallback in
+# SQLiteIndex.search(). Treat these as conservative starting points and
+# re-evaluate alongside any embedding-model upgrade (v1.6).
+DEFAULT_RRF_K = 40
+DEFAULT_FTS_WEIGHT = 2.0
+DEFAULT_VECTOR_WEIGHT = 6.0
+DEFAULT_FTS_CONFIDENCE_EXPONENT = 1.0
+DEFAULT_VECTOR_CONFIDENCE_EXPONENT = 2.0
+
+
 @dataclass
 class SearchResult:
     rows: list[dict[str, Any]]
@@ -29,11 +54,11 @@ class HybridSearchLayer:
         self._embedding_model: Any | None = None
         self._embedding_loaded = False
         self._mode = "auto"
-        self._rrf_k = 40
-        self._fts_weight = 2.0
-        self._vector_weight = 6.0
-        self._fts_confidence_exponent = 1.0
-        self._vector_confidence_exponent = 2.0
+        self._rrf_k = DEFAULT_RRF_K
+        self._fts_weight = DEFAULT_FTS_WEIGHT
+        self._vector_weight = DEFAULT_VECTOR_WEIGHT
+        self._fts_confidence_exponent = DEFAULT_FTS_CONFIDENCE_EXPONENT
+        self._vector_confidence_exponent = DEFAULT_VECTOR_CONFIDENCE_EXPONENT
 
     def set_mode(self, mode: str) -> None:
         """Set search mode: fts, hybrid, or auto."""

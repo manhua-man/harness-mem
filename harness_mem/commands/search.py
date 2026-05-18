@@ -57,8 +57,9 @@ async def cmd_search(
             for entry in entries:
                 preview = entry.content[:150] + "..." if len(entry.content) > 150 else entry.content
                 search_mode = getattr(entry, "_search_mode", mode)
+                memory_type = getattr(entry, "memory_type", "semantic")
                 print(
-                    f"- [{entry.category}] {preview}  "
+                    f"- [{entry.category}/{memory_type}] {preview}  "
                     f"(score: {format_search_score(entry)}, mode: {search_mode})  -> structured"
                 )
                 await backend.structured_store.touch_memory_entry(entry.id)

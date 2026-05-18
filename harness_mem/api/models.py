@@ -22,6 +22,7 @@ class MemoryEntryResponse(BaseModel):
     project_name: Optional[str] = None
     tech_stack: list[str] = Field(default_factory=list)
     category: str
+    memory_type: str = "semantic"
     content: str
     confidence: float
     tags: list[str]

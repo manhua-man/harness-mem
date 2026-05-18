@@ -11,66 +11,59 @@ Use this skill to operate the local `harness-mem` runtime from a project workspa
 
 Treat the project as real production context:
 
-- Prefer `doctor`, `status`, `wake`, `search`, and `timeline` before guessing from memory.
-- Ingest recent sessions when the project state may be stale.
+- Prefer MCP tools (`get_project_status`, `wake`-style reads, `search_memory`, `timeline`) before guessing from memory.
+- Ingest recent sessions through MCP `ingest_sessions` when the project state may be stale.
+- Use repo-local `tools/session-distill` for user-triggered distillation; `distill_sessions` is only a smoke/fallback extractor.
 - Distilled memory is a draft signal. Review it before treating it as durable truth.
-- Use `correct` and `confirm` for stable rules the user explicitly wants remembered.
+- Use `suggest_*`, `list_candidates`, and `confirm_*` / `reject_*` for stable rules the user explicitly wants remembered.
 - Do not delete raw Claude/Codex session files unless the user explicitly asks for raw-file cleanup.
+
+In Claude Code, prefer the no-hyphen MCP alias names such as
+`mcp__harness_mem__get_project_status` and
+`mcp__harness_mem__prepare_session_distill`. Do not select the old
+`mcp__harness-mem__...` aliases.
 
 ## Mental Model
 
-- `doctor`: checks whether memory is initialized and recommends the next action.
-- `ingest`: indexes raw local agent session files into harness-mem observations.
-- `distill`: extracts draft structured memories from ingested observations.
-- `wake`: prints a compact project context block for a new agent session.
-- `search`: finds prior decisions, errors, and discussions.
-- `correct` / `confirm`: promote a user-approved rule into durable memory.
-- `purge`: soft-deletes harness-mem indexed data, not the original raw session files.
+- `get_project_status`: checks active project and current memory counts.
+- `ingest_sessions`: indexes raw local agent session files into harness-mem observations.
+- `prepare_session_distill`: one-shot ingest plus recent observation packet for `/hm:distill`.
+- `tools/session-distill`: default user-facing distillation playbook that reads evidence and writes pending candidates.
+- `distill_sessions`: low-cost heuristic fallback that extracts obvious draft structured memories.
+- `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
+- `suggest_*` / `list_candidates` / `confirm_*`: create and review durable memory candidates.
+- `purge` remains a CLI/debug operation for explicit cleanup, and only soft-deletes harness-mem indexed data.
 
 ## Daily Workflow
 
-From the repository root:
+From the repository root, the user-facing path is slash/MCP, not manual CLI.
 
-```powershell
-python -m harness_mem.cli doctor
-python -m harness_mem.cli wake
-```
+For status and wake-up:
+
+1. Call `get_project_status` to resolve the active project and counts.
+2. Call `get_project_profile`, `get_task_handoffs`, `get_confirmed_rules`, and `timeline`.
+3. Summarize the usable context and suggest `/hm:distill`, `/hm:review`, or `/hm:wake`.
 
 If the project has new sessions:
 
-```powershell
-python -m harness_mem.cli ingest claude-code -n 5
-python -m harness_mem.cli distill
-python -m harness_mem.cli status
-```
+1. Call `prepare_session_distill(project_name=<project>, client="auto", scope="project", project_root=<current project root>)`.
+2. Activate repo-local `tools/session-distill`: read the returned evidence packet, apply `references/distillation-rules.md`, and write pending candidates with `suggest_memory_entry`, `suggest_rule`, `suggest_relation_fact`, or `create_task_handoff`.
+3. Call `list_candidates(project_name=<project>, status="pending")` and ask the user what to confirm or reject.
+
+Call `distill_sessions(project_name=<project>, project_root=<current project root>)` only when the user explicitly asks for a quick fallback, when testing MCP availability, or when debugging the runtime.
 
 When looking for prior work:
 
-```powershell
-python -m harness_mem.cli search "query words" --mode auto
-python -m harness_mem.cli timeline 10
-python -m harness_mem.cli show -o <observation-id>
-```
+Call MCP `search_memory(project_name=<project>, query=<query>, mode="auto")`, then use `timeline` or `get_observations` for provenance.
 
 When the user states a durable project rule:
 
-```powershell
-python -m harness_mem.cli correct
-python -m harness_mem.cli candidates
-python -m harness_mem.cli confirm <candidate-id>
-```
+Call MCP `suggest_rule` or `suggest_memory_entry`, then show `list_candidates`; only call `confirm_*` or `reject_*` after the user explicitly decides.
 
-Before cleanup:
+## CLI Fallback
 
-```powershell
-python -m harness_mem.cli purge -p <project-name> --before <YYYY-MM-DD> --category all --dry-run
-```
-
-Only run purge without `--dry-run` after the user approves the exact scope.
+CLI remains the bootstrap/debug interface for install checks, local diagnostics, and explicit cleanup previews. Do not present CLI commands as the normal user workflow when MCP tools are available. Only run purge without `--dry-run` after the user approves the exact scope.
 
 ## MCP Use
 
-The plugin also exposes the MCP server config. MCP is the runtime tool interface used by an agent to call search/timeline/rules without asking the user to run every command manually.
-
-CLI remains the bootstrap and debug interface. The skill tells the agent when to use the memory runtime. MCP lets the agent use it as a structured tool.
-
+The plugin exposes the MCP server config. MCP is the runtime tool interface used by an agent to call status, ingest, distill, search, timeline, and review tools without asking the user to run every command manually.

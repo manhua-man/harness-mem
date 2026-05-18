@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
+from harness_mem.adapters.claude_code.project_profile_detector import normalize_project_root
+from harness_mem.commands.ingest import _list_claude_sessions_for_current_project
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     log_cli_event,
@@ -17,6 +21,7 @@ async def cmd_distill(
     project_name: str | None,
     session_id: str | None = None,
     category: str | None = None,
+    project_root: str | None = None,
 ) -> int:
     """Extract structured memory and explicit relation facts from sessions."""
     project_name = resolve_project_name(project_name, action_label="distill")
@@ -27,10 +32,25 @@ async def cmd_distill(
     await backend.init()
     try:
         adapter = ClaudeCodeAdapter(backend)
+        resolved_project_root = _resolve_distill_project_root(project_root)
+        session_project_name, sessions = _list_claude_sessions_for_current_project(
+            adapter,
+            project_name=project_name,
+            project_root=resolved_project_root,
+        )
 
         if session_id:
-            entries = await adapter.distill_session(session_id, project_name, category=category)
-            relation_facts = [] if category else await adapter.distill_relation_facts(session_id, project_name)
+            entries = await adapter.distill_session(
+                session_id,
+                project_name,
+                category=category,
+                session_project_name=session_project_name,
+            )
+            relation_facts = [] if category else await adapter.distill_relation_facts(
+                session_id,
+                project_name,
+                session_project_name=session_project_name,
+            )
             if entries or relation_facts:
                 print(f"Extracted {len(entries)} memory entries from {session_id}:")
                 for entry in entries:
@@ -65,24 +85,34 @@ async def cmd_distill(
             )
             return 0
 
-        sessions = adapter.list_project_sessions(project_name, min_size_kb=0, limit=100)
         if not sessions:
             print(f"No sessions found for project: {project_name}")
             return 1
 
         cat_suffix = f" ({category})" if category else ""
         print(f"Distilling {len(sessions)} sessions for {project_name}{cat_suffix}...")
+        if session_project_name != project_name:
+            print(f"Claude session project: {session_project_name}")
         total = 0
         relation_total = 0
         for session in sessions:
             current_session_id = str(session["session_id"])
-            entries = await adapter.distill_session(current_session_id, project_name, category=category)
+            entries = await adapter.distill_session(
+                current_session_id,
+                project_name,
+                category=category,
+                session_project_name=session_project_name,
+            )
             for entry in entries:
                 source_label = _memory_entry_source_label(entry)
                 print(f"  [{entry.category}] {entry.content[:100]}  (source: {source_label})")
                 total += 1
             if not category:
-                relation_facts = await adapter.distill_relation_facts(current_session_id, project_name)
+                relation_facts = await adapter.distill_relation_facts(
+                    current_session_id,
+                    project_name,
+                    session_project_name=session_project_name,
+                )
                 for fact in relation_facts:
                     print(
                         f"  [relation] {fact.source_entity} --{fact.relation_type}-> "
@@ -119,6 +149,12 @@ async def cmd_distill(
         return 0
     finally:
         await backend.close()
+
+
+def _resolve_distill_project_root(project_root: str | None) -> Path:
+    if project_root:
+        return normalize_project_root(Path(project_root).expanduser())
+    return normalize_project_root(Path.cwd())
 
 
 def _memory_entry_source_label(entry: object) -> str:

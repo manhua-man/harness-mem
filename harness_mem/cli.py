@@ -8,6 +8,7 @@ import sys
 
 from harness_mem import __version__
 from harness_mem.commands import (
+    cmd_assign_memory_types,
     cmd_distill,
     cmd_doctor,
     cmd_ingest,
@@ -93,11 +94,13 @@ def main():
     doc.set_defaults(command_name="doctor")
 
     # ingest
-    ingest = sub.add_parser("ingest", help="Ingest Claude Code or Codex sessions")
-    ingest.add_argument("client", nargs="?", default="claude-code", choices=["claude-code", "codex", "codex-archive"])
+    ingest = sub.add_parser("ingest", help="Ingest sessions for the current agent environment")
+    ingest.add_argument("client", nargs="?", default="auto", choices=["auto", "claude-code", "codex", "codex-archive"])
     ingest.add_argument("-p", "--project")
     ingest.add_argument("-n", "--limit", type=int, default=10)
     ingest.add_argument("--full-rescan", action="store_true", help="Ingest all sessions (default: incremental)")
+    ingest.add_argument("--project-root", help="Project root for cwd-scoped session matching (default: current directory)")
+    ingest.add_argument("--scope", choices=["project", "all"], default="project", help="Session scope for global stores (default: project)")
     ingest.set_defaults(command_name="ingest")
 
     # wake-up
@@ -146,6 +149,7 @@ def main():
     ds.add_argument("-p", "--project")
     ds.add_argument("-s", "--session-id", dest="session_id")
     ds.add_argument("-c", "--category", choices=["architecture", "convention", "api", "bug", "decision"])
+    ds.add_argument("--project-root", help="Project root for Claude project session matching")
     ds.set_defaults(command_name="distill")
 
     # import
@@ -205,6 +209,30 @@ def main():
     api.add_argument("-H", "--host", default="0.0.0.0")
     api.set_defaults(command_name="api")
 
+    # maintenance
+    maint = sub.add_parser("maintenance", help="One-shot maintenance utilities")
+    maint.add_argument(
+        "action",
+        choices=["assign-memory-types"],
+        help="Maintenance action to run",
+    )
+    maint.add_argument("-p", "--project", help="Project name (defaults to active project)")
+    apply_group = maint.add_mutually_exclusive_group()
+    apply_group.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        default=True,
+        help="Preview changes without writing (default)",
+    )
+    apply_group.add_argument(
+        "--apply",
+        dest="dry_run",
+        action="store_false",
+        help="Commit changes to disk",
+    )
+    maint.set_defaults(command_name="maintenance")
+
     args = parser.parse_args()
     command = getattr(args, "command_name", args.command)
 
@@ -254,7 +282,16 @@ def main():
         return asyncio.run(cmd_show(args.project, obs_id))
 
     if command == "ingest":
-        return asyncio.run(cmd_ingest(args.client, args.project, args.limit, args.full_rescan))
+        return asyncio.run(
+            cmd_ingest(
+                args.client,
+                args.project,
+                args.limit,
+                args.full_rescan,
+                scope=args.scope,
+                project_root=args.project_root,
+            )
+        )
 
     if command == "profile":
         if getattr(args, "edit", False):
@@ -263,7 +300,14 @@ def main():
 
     if command == "distill":
         sid = args.session_id or args.session_id_arg
-        return asyncio.run(cmd_distill(args.project, sid, category=getattr(args, "category", None)))
+        return asyncio.run(
+            cmd_distill(
+                args.project,
+                sid,
+                category=getattr(args, "category", None),
+                project_root=getattr(args, "project_root", None),
+            )
+        )
 
     if command == "import":
         return asyncio.run(cmd_import(args.file, args.project))
@@ -277,6 +321,13 @@ def main():
         print(f"Starting API server on {args.host}:{args.port}")
         uvicorn.run(create_app(), host=args.host, port=args.port)
         return 0
+
+    if command == "maintenance":
+        if args.action == "assign-memory-types":
+            return asyncio.run(
+                cmd_assign_memory_types(args.project, apply=not args.dry_run)
+            )
+        parser.error(f"Unknown maintenance action: {args.action}")
 
     # --- Commands needing interactive arg massaging or logging ---
     if command == "correct":

@@ -14,10 +14,10 @@ alwaysApply: true
 | :--- | :--- |
 | **AI（操作者 / 后端）** | 用 `tools/session-distill` 这类 **Skill** 批量读取旧 Session，做高质量提炼。 |
 | **AI（操作者 / 随手）** | 用 **MCP** `suggest_rule` / `suggest_memory_entry` 记录即时规则和知识候选。 |
-| **人（审查者）** | 用 **CLI** `candidates` / `confirm` / `reject` 审核候选记忆。 |
+| **人（复核者）** | 日常只看 `/hm:distill` 的最终处理摘要并纠错；不负责逐条判断候选。CLI `candidates` / `confirm` / `reject` 只作为本地排障兜底。 |
 | **AI（消费者）** | 用 **MCP** `search_memory` / `wake` 读取已确认记忆。 |
 
-关键原则：**Skill 负责重脑力批处理，MCP 负责运行时读写接口，CLI 负责人类审核仪表盘。** AI 提炼或随手记录的内容应先进入候选区，经人确认后再成为 `search_memory` / `wake` 可消费的稳定记忆。
+关键原则：**Skill 负责重脑力批处理，MCP 负责运行时读写和审核闭环，CLI 负责本地管理员兜底。** AI 提炼或随手记录的内容应先进入候选区；`/hm:distill` 同一轮应由 AI 自动确认低风险事实、拒绝噪声，把高风险或证据不足项留给人类最终复核。只有 confirmed 记忆会进入 `search_memory` / `wake` 可消费的稳定层。
 
 ---
 
@@ -34,8 +34,10 @@ alwaysApply: true
 - **随手记录**：当日常工作中出现新的约定、事实或纠正，Agent 应使用 MCP `suggest_rule` / `suggest_memory_entry`，而不是等待后续批量提炼。
 - **消费边界**：`search_memory` / `wake` 默认只消费已确认记忆；pending 候选用于审核，不应污染唤醒上下文。
 
-### 3. 人类确认（Human Confirmation）
-- 未确认记忆保持候选状态。Agent 创建候选后，应提醒用户使用 `harness-mem candidates` 查看，并通过 `harness-mem confirm <id>` 或 `harness-mem reject <id>` 处理。
+### 3. 自动审核与人类复核（Auto-review + Human Final Review）
+- 未确认记忆保持候选状态。Agent 创建候选后，应通过 MCP `list_candidates` 自行读取候选，并直接调用 `confirm_*` / `reject_*` 处理低风险项：明确长期事实可确认，工具噪声、跨项目 workflow、泛泛原则、证据不足项可拒绝。
+- Agent 不应把逐条分类工作交给用户，也不应把 `/hm:review` 作为日常必经下一步。用户看到的默认形态是 `/hm:distill` 的最终摘要：自动确认了什么、自动拒绝了什么、哪些保留待定、哪些确实需要用户确认。
+- 只有 MCP 不可用、需要本地排障，或用户主动要求复查旧 pending 候选时，才退回 `/hm:review` 或 `harness-mem candidates` / `harness-mem confirm <id>` / `harness-mem reject <id>`。
 
 ### 4. 正则 Distill 的定位
 - `harness-mem distill` / `harness-mem ds` 是启发式 fallback，适合快速 smoke、离线低成本扫描，或没有 AI Skill 可用的环境。
@@ -68,12 +70,15 @@ harness-mem doctor
 harness-mem status
 harness-mem quickstart
 
-# 人类审核记忆
+# 用户日常入口优先 Slash/MCP/Skill；CLI 只作为本地排障兜底
+# /hm:distill 默认读取 tools/session-distill，并完成 ingest -> suggest_* -> list_candidates -> AI auto-review
+
+# 候选查看/修正（CLI 兜底；日常由 /hm:distill 自动处理低风险项）
 harness-mem candidates
 harness-mem confirm <id>
 harness-mem reject <id>
 
-# 启发式 fallback，不是高质量提炼主路径
+# CLI 启发式 fallback，不是高质量提炼主路径
 harness-mem ds
 
 # 运行时消费检查
@@ -86,4 +91,4 @@ harness-mem search "auth logic"
 - **Runtime**: Python 3.13+
 - **Database**: SQLite FTS5 verbatim index + JSON blobs / JSONL-style structured memory
 - **Integration**: MCP (Model Context Protocol) + GStack / Codex / Claude Skills
-- **Primary workflow**: Skill-driven distillation, CLI human review, MCP runtime consumption
+- **Primary workflow**: Skill-driven distillation, Slash/MCP AI auto-review with human final review, MCP runtime consumption

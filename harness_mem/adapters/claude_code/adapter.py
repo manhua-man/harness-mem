@@ -174,6 +174,8 @@ class ClaudeCodeAdapter:
         session_id: str,
         project_name: str,
         category: str | None = None,
+        *,
+        session_project_name: str | None = None,
     ) -> list[MemoryEntry]:
         """Run heuristic pattern matching (not AI extraction) over a session.
 
@@ -194,7 +196,7 @@ class ClaudeCodeAdapter:
         If *category* is specified, only entries matching that category are
         returned/saved.  Returns all newly saved entries for this session.
         """
-        project_dir = self.sessions_dir / project_name
+        project_dir = self.sessions_dir / (session_project_name or project_name)
         if not project_dir.exists():
             return []
 
@@ -245,9 +247,11 @@ class ClaudeCodeAdapter:
         self,
         session_id: str,
         project_name: str,
+        *,
+        session_project_name: str | None = None,
     ) -> list[RelationFact]:
         """Extract and save explicit RelationFact records from a session."""
-        project_dir = self.sessions_dir / project_name
+        project_dir = self.sessions_dir / (session_project_name or project_name)
         if not project_dir.exists():
             return []
 

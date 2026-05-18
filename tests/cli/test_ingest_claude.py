@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from harness_mem import cli
+from harness_mem.commands.support import claude_project_name_from_path
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -46,6 +47,87 @@ def test_incremental_ingest_does_not_reimport_old_sessions(
     try:
         observations = run(backend.verbatim_store.list(limit=10))
         assert [observation.session_id for observation in observations] == ["sess-1", "sess-2"]
+    finally:
+        run(backend.close())
+
+
+def test_auto_ingest_uses_claude_project_from_current_path(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    claude_sessions_root: Path,
+    codex_sessions_root: Path,
+):
+    project_root = tmp_path / "huiben" / "bazi-apps"
+    project_root.mkdir(parents=True)
+    claude_project_name = claude_project_name_from_path(project_root)
+    write_claude_session(
+        claude_sessions_root,
+        claude_project_name,
+        "sess-path",
+        "Work on the current project.",
+        ["Captured current project context."],
+    )
+    patch_cli_adapters(
+        monkeypatch,
+        claude_sessions_root=claude_sessions_root,
+        codex_sessions_root=codex_sessions_root,
+    )
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_ATTRIBUTION_HEADER", "1")
+    monkeypatch.chdir(project_root)
+
+    assert run(cli.cmd_ingest("auto", "bazi-apps", 5)) == 0
+
+    output = capsys.readouterr().out
+    assert "Auto-detected ingest client: claude-code" in output
+    assert f"Claude session project: {claude_project_name}" in output
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observations = run(backend.verbatim_store.list(limit=10))
+        assert [observation.session_id for observation in observations] == ["sess-path"]
+        assert observations[0].metadata["project_name"] == "bazi-apps"
+    finally:
+        run(backend.close())
+
+
+def test_claude_ingest_falls_back_to_matching_project_directory_when_mcp_cwd_differs(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    claude_sessions_root: Path,
+    codex_sessions_root: Path,
+):
+    write_claude_session(
+        claude_sessions_root,
+        "f--SourceCode-v0191-recover",
+        "sess-v0191",
+        "Work on the Godot Android export.",
+        ["Captured v0191_recover project context."],
+    )
+    mcp_server_cwd = tmp_path / "memory-lab" / "harness-mem"
+    mcp_server_cwd.mkdir(parents=True)
+    patch_cli_adapters(
+        monkeypatch,
+        claude_sessions_root=claude_sessions_root,
+        codex_sessions_root=codex_sessions_root,
+    )
+    monkeypatch.chdir(mcp_server_cwd)
+
+    assert run(cli.cmd_ingest("claude-code", "v0191_recover", 5)) == 0
+
+    output = capsys.readouterr().out
+    assert "Claude session project: f--SourceCode-v0191-recover" in output
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        observations = run(backend.verbatim_store.list(limit=10))
+        assert [observation.session_id for observation in observations] == ["sess-v0191"]
+        assert observations[0].metadata["project_name"] == "v0191_recover"
     finally:
         run(backend.close())
 

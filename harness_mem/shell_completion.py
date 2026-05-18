@@ -50,6 +50,10 @@ _harness_mem_completion() {{
                 COMPREPLY=($(compgen -W "auto claude-code codex skip" -- "${{cur}}"))
                 return
                 ;;
+            --scope)
+                COMPREPLY=($(compgen -W "project all" -- "${{cur}}"))
+                return
+                ;;
             --category)
                 COMPREPLY=($(compgen -W "observations structured all architecture convention api bug decision" -- "${{cur}}"))
                 return
@@ -57,7 +61,7 @@ _harness_mem_completion() {{
             --before)
                 return
                 ;;
-            -n|--limit|--observation-id|-i|-o|-r|--rule-id|-s|--session-id|-t|--task-id|--status|--pattern|--trigger)
+            -n|--limit|--observation-id|-i|-o|-r|--rule-id|-s|--session-id|-t|--task-id|--status|--pattern|--trigger|--project-root)
                 return
                 ;;
             --full-rescan|--dry-run|--edit)
@@ -90,6 +94,7 @@ def completion_zsh() -> str:
         "handoff",
     ])
     clients = "(auto claude-code codex skip)"
+    ingest_clients = "(auto claude-code codex codex-archive)"
     categories = "(observations structured all architecture convention api bug decision)"
 
     script = f'''# harness-mem zsh completion
@@ -102,6 +107,8 @@ _harness_mem() {{
         '--project[project name]:project:_files -/' \\
         '-c[client]:client:{clients}' \\
         '--client[client]:client:{clients}' \\
+        '--scope[session scope]:(project all)' \\
+        '--project-root[project root]:project:_files -/' \\
         '-n[limit]:limit:' \\
         '--limit[limit]:limit:' \\
         '--category[category]:category:{categories}' \\
@@ -124,6 +131,7 @@ _harness_mem() {{
         '--status[status]:' \\
         '--pattern[pattern]:' \\
         '1: :->command' \\
+        '2:client:{ingest_clients}' \\
         '2: :->arg'
 
     case $state in
@@ -175,6 +183,8 @@ complete -c harness-mem -n '__fish_seen_subcommand_from doctor' -l project -r -d
 complete -c harness-mem -n '__fish_seen_subcommand_from ingest' -l project -r -d "Project name"
 complete -c harness-mem -n '__fish_seen_subcommand_from ingest' -l limit -x -d "Max sessions"
 complete -c harness-mem -n '__fish_seen_subcommand_from ingest' -l full-rescan -d "Ignore last cursor"
+complete -c harness-mem -n '__fish_seen_subcommand_from ingest' -l project-root -r -d "Project root for session matching"
+complete -c harness-mem -n '__fish_seen_subcommand_from ingest' -l scope -x -a "project all" -d "Session scope"
 
 # wake-up
 complete -c harness-mem -n '__fish_seen_subcommand_from wake-up; or __fish_seen_subcommand_from wake' -l project -r -d "Project name"

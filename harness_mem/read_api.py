@@ -226,6 +226,10 @@ def serialize_memory_entry_search_result(
         "project_name": project_name,
         "tech_stack": _tech_stack_for_project(project_name, tech_stack_by_project),
         "category": getattr(entry, "category"),
+        # v1.6.0: read-only exposure of the new memory_type field. Falls back
+        # to "semantic" for any object that lacks it (defensive: legacy or
+        # synthetic fixtures), keeping the contract stable.
+        "memory_type": getattr(entry, "memory_type", "semantic"),
         "content": getattr(entry, "content"),
         "confidence": getattr(entry, "confidence"),
         "tags": getattr(entry, "tags"),

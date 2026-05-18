@@ -229,7 +229,7 @@ def test_doctor_reports_memory_quality_counts(
     assert "Memory quality: 1 stale, 1 never accessed" in captured
 
 
-def test_doctor_warns_that_codex_sessions_are_global_before_recommending_ingest(
+def test_doctor_recommends_project_scoped_auto_ingest_for_codex_sessions(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     claude_sessions_root: Path,
@@ -252,7 +252,8 @@ def test_doctor_warns_that_codex_sessions_are_global_before_recommending_ingest(
     captured = capsys.readouterr().out
     assert "Codex sessions (global): 1" in captured
     assert "not project-scoped" in captured
-    assert "Review recent Codex sessions before any codex ingest" in captured
+    assert "harness-mem ingest auto -p demo -n 1" in captured
+    assert "--scope all" in captured
     assert "Start by ingesting the newest session" not in captured
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,16 @@ from harness_mem.core.interfaces.memory_backend import MemoryBackend
 # Default Codex archived sessions directory
 DEFAULT_ARCHIVE_DIR = Path.home() / ".codex" / "archived_sessions"
 ArchiveCursor = dict[str, Any]
+
+
+def _is_path_within(child: Path, parent: Path) -> bool:
+    try:
+        child_text = os.path.normcase(str(child.expanduser().resolve()))
+        parent_text = os.path.normcase(str(parent.expanduser().resolve()))
+    except OSError:
+        child_text = os.path.normcase(str(child.expanduser()))
+        parent_text = os.path.normcase(str(parent.expanduser()))
+    return child_text == parent_text or child_text.startswith(parent_text.rstrip("\\/") + os.sep)
 
 
 class CodexArchiveAdapter:
@@ -36,6 +47,8 @@ class CodexArchiveAdapter:
         limit: int | None = None,
         issues: list[Issue] | None = None,
         cursor: ArchiveCursor | None = None,
+        project_root: Path | None = None,
+        scope: str = "project",
     ) -> list[SessionRecord]:
         """List rollout session files from the archive directory."""
         del project_name
@@ -66,16 +79,22 @@ class CodexArchiveAdapter:
                 # For large archives, we don't count lines eagerly to save time
                 if cursor is not None and not self._is_newer_than_cursor(session_file, stat_result, cursor):
                     continue
+                header = self._read_session_header(session_file, issues=issues)
+                cwd = str(header.get("cwd") or "")
+                if scope == "project" and project_root is not None:
+                    if not cwd or not _is_path_within(Path(cwd), project_root):
+                        continue
                 sessions.append({
                     "path": session_file,
                     "name": session_file.name,
-                    "session_id": session_file.stem.removeprefix("rollout-"),
+                    "session_id": header.get("id") or session_file.stem.removeprefix("rollout-"),
                     "size_kb": size_kb,
                     "size_bytes": stat_result.st_size,
                     "size": f"{size_kb:.1f}KB",
                     "lines": 0,
                     "mtime": datetime.fromtimestamp(stat_result.st_mtime, tz=timezone.utc),
                     "mtime_ns": stat_result.st_mtime_ns,
+                    "cwd": cwd,
                 })
             except OSError as exc:
                 self._append_issue(
@@ -158,18 +177,31 @@ class CodexArchiveAdapter:
         *,
         full_rescan: bool = False,
         cursor_path: Path | None = None,
+        project_root: Path | None = None,
+        scope: str = "project",
     ) -> dict:
         """Ingest legacy Codex rollout sessions."""
         warnings: list[Issue] = []
         error_details: list[Issue] = []
-        all_sessions = self.list_sessions(min_size_kb=min_size_kb, issues=warnings)
+        all_sessions = self.list_sessions(min_size_kb=min_size_kb, issues=warnings, scope="all")
+        if scope == "all" or not all_sessions:
+            scoped_sessions = all_sessions
+        else:
+            scoped_sessions = self.list_sessions(
+                min_size_kb=min_size_kb,
+                issues=warnings,
+                project_root=project_root,
+                scope=scope,
+            )
         cursor = None if full_rescan else self._load_cursor(cursor_path, issues=warnings)
-        candidate_sessions = all_sessions
-        if cursor is not None and all_sessions:
+        candidate_sessions = scoped_sessions
+        if cursor is not None and scoped_sessions:
             candidate_sessions = self.list_sessions(
                 min_size_kb=min_size_kb,
                 issues=warnings,
                 cursor=cursor,
+                project_root=project_root,
+                scope=scope,
             )
         sessions = candidate_sessions[:limit]
 
@@ -217,6 +249,7 @@ class CodexArchiveAdapter:
 
         return {
             "sessions_found": len(all_sessions),
+            "scoped_sessions": len(scoped_sessions),
             "candidate_sessions": len(candidate_sessions),
             "ingested": ingested,
             "skipped_existing": skipped_existing,
@@ -224,6 +257,8 @@ class CodexArchiveAdapter:
             "warnings": warnings,
             "error_details": error_details,
             "scan_mode": "full_rescan" if full_rescan else "incremental",
+            "scope": scope,
+            "project_root": str(project_root) if project_root else None,
         }
 
     @staticmethod
@@ -248,6 +283,32 @@ class CodexArchiveAdapter:
         if session_id:
             issue["session_id"] = session_id
         issues.append(issue)
+
+    def _read_session_header(self, session_path: Path, *, issues: list[Issue] | None = None) -> dict[str, Any]:
+        try:
+            with session_path.open("r", encoding="utf-8", errors="replace") as handle:
+                for _ in range(12):
+                    line = handle.readline()
+                    if not line:
+                        break
+                    try:
+                        record = json.loads(line.strip())
+                    except json.JSONDecodeError:
+                        continue
+                    if record.get("type") != "session_meta":
+                        continue
+                    payload = record.get("payload")
+                    if isinstance(payload, dict):
+                        return payload
+        except OSError as exc:
+            self._append_issue(
+                issues,
+                level="warning",
+                code="session_header_read_failed",
+                message=f"Failed to read archive header {session_path}: {exc}",
+                path=session_path,
+            )
+        return {}
 
     async def _existing_session_ids(self, project_name: str | None) -> set[str]:
         if self.backend is None:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from harness_mem.adapters import AdapterRegistry
 from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
@@ -15,6 +17,8 @@ from harness_mem.adapters.claude_code.project_profile_detector import (
 )
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
+    claude_project_name_candidates_from_path,
+    current_agent_client,
     log_cli_event,
     log_command_invoked,
     project_adapter_cursor_path,
@@ -32,11 +36,18 @@ async def cmd_ingest(
     project_name: str | None = None,
     limit: int = 10,
     full_rescan: bool = False,
+    scope: str = "project",
+    project_root: str | None = None,
 ) -> int:
     """Ingest sessions for a supported client."""
+    if client == "auto":
+        client = current_agent_client()
+        print(f"Auto-detected ingest client: {client}")
+
     project_name = resolve_project_name(project_name, action_label=f"{client} ingest")
     if not project_name:
         return 1
+    resolved_project_root = _resolve_project_root(project_root)
 
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
@@ -50,6 +61,7 @@ async def cmd_ingest(
                 project_name=project_name,
                 limit=limit,
                 full_rescan=full_rescan,
+                project_root=resolved_project_root,
             )
         if client == "codex-archive":
             return await _ingest_codex_archive(
@@ -57,6 +69,8 @@ async def cmd_ingest(
                 project_name=project_name,
                 limit=limit,
                 full_rescan=full_rescan,
+                scope=scope,
+                project_root=resolved_project_root,
             )
 
         print(f"Ingesting {client} sessions for project: {project_name}")
@@ -79,14 +93,22 @@ async def _ingest_claude_code(
     project_name: str,
     limit: int,
     full_rescan: bool,
+    project_root: Path,
 ) -> int:
     adapter = AdapterRegistry.build("claude-code", backend)
     profile = await profile_store.get(project_name)
-    all_sessions = adapter.list_sessions(project_name, min_size_kb=0)
+    session_project_name, all_sessions = _list_claude_sessions_for_current_project(
+        adapter,
+        project_name=project_name,
+        project_root=project_root,
+    )
     last_session_id = profile.last_ingest_session_id if profile and not full_rescan else None
     last_ingest_at = profile.last_ingest_at if profile and not full_rescan else None
 
     print(f"Ingesting claude-code sessions for project: {project_name}")
+    if session_project_name != project_name:
+        print(f"Claude session project: {session_project_name}")
+    print(f"Project root: {project_root}")
     candidate_sessions = _select_claude_candidate_sessions(
         all_sessions,
         limit=limit,
@@ -142,7 +164,7 @@ async def _ingest_claude_code(
         sessions_dir = sessions_dir_value if isinstance(sessions_dir_value, Path) else Path(str(sessions_dir_value))
         project_path = _infer_claude_project_root(
             all_sessions,
-            fallback_project_path=sessions_dir / project_name,
+            fallback_project_path=project_root if project_root.exists() else sessions_dir / session_project_name,
         )
         if project_path.exists():
             detected = build_project_profile(project_path, project_name)
@@ -178,8 +200,13 @@ async def _ingest_codex_archive(
     project_name: str,
     limit: int,
     full_rescan: bool,
+    scope: str,
+    project_root: Path,
 ) -> int:
     print(f"Ingesting codex-archive sessions for project: {project_name}")
+    print(f"Scope: {scope}")
+    if scope == "project":
+        print(f"Project root: {project_root}")
     adapter = AdapterRegistry.build("codex-archive", backend)
     if not isinstance(adapter, CodexArchiveAdapter):
         raise TypeError("codex-archive adapter registry returned an unexpected adapter type")
@@ -189,6 +216,8 @@ async def _ingest_codex_archive(
         min_size_kb=0,
         full_rescan=full_rescan,
         cursor_path=project_adapter_cursor_path(project_name, "codex-archive"),
+        project_root=project_root,
+        scope=scope,
     )
     return _report_non_claude_ingest_result(
         client="codex-archive",
@@ -196,6 +225,60 @@ async def _ingest_codex_archive(
         result=result,
         full_rescan=full_rescan,
     )
+
+
+def _resolve_project_root(project_root: str | None) -> Path:
+    if project_root:
+        return normalize_project_root(Path(project_root).expanduser())
+    return normalize_project_root(Path.cwd())
+
+
+def _list_claude_sessions_for_current_project(
+    adapter: Any,
+    *,
+    project_name: str,
+    project_root: Path,
+) -> tuple[str, list[SessionRecord]]:
+    candidates = [project_name]
+    for path_project_name in reversed(claude_project_name_candidates_from_path(project_root)):
+        if path_project_name and path_project_name not in candidates:
+            candidates.insert(0, path_project_name)
+    for matched_project_name in _claude_project_names_matching_project(adapter, project_name):
+        if matched_project_name and matched_project_name not in candidates:
+            candidates.append(matched_project_name)
+
+    for candidate in candidates:
+        sessions = adapter.list_sessions(candidate, min_size_kb=0)
+        if sessions:
+            return candidate, sessions
+    return candidates[0], []
+
+
+def _claude_project_names_matching_project(adapter: Any, project_name: str) -> list[str]:
+    sessions_dir_value = getattr(adapter, "sessions_dir", None)
+    if not sessions_dir_value:
+        return []
+    sessions_dir = sessions_dir_value if isinstance(sessions_dir_value, Path) else Path(str(sessions_dir_value))
+    if not sessions_dir.exists() or not sessions_dir.is_dir():
+        return []
+    project_key = _normalized_claude_project_key(project_name)
+    matches: list[tuple[float, str]] = []
+    for project_dir in sessions_dir.iterdir():
+        if not project_dir.is_dir():
+            continue
+        dir_key = _normalized_claude_project_key(project_dir.name)
+        if not (dir_key == project_key or dir_key.endswith(f"-{project_key}")):
+            continue
+        latest_mtime = max(
+            (session.stat().st_mtime for session in project_dir.glob("*.jsonl")),
+            default=project_dir.stat().st_mtime,
+        )
+        matches.append((latest_mtime, project_dir.name))
+    return [name for _, name in sorted(matches, reverse=True)]
+
+
+def _normalized_claude_project_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
 def _select_claude_candidate_sessions(
@@ -268,6 +351,14 @@ def _report_non_claude_ingest_result(
         print(f"Warning: {warning['message']}")
 
     exit_code = 1 if result["errors"] > 0 and result["ingested"] == 0 else 0
+    scoped_sessions = result.get("scoped_sessions")
+    if (
+        result.get("scope") == "project"
+        and isinstance(scoped_sessions, int)
+        and result.get("sessions_found", 0) > 0
+        and scoped_sessions == 0
+    ):
+        exit_code = 1
     extra = {"client": client, **result, "full_rescan": full_rescan, "exit_code": exit_code}
 
     if result["sessions_found"] == 0:
@@ -282,6 +373,14 @@ def _report_non_claude_ingest_result(
         return 1
 
     print(f"Sessions found: {result['sessions_found']}")
+    if isinstance(scoped_sessions, int):
+        print(f"Project-scope sessions: {scoped_sessions}")
+        if result.get("scope") == "project" and scoped_sessions == 0:
+            root = result.get("project_root") or "<unknown>"
+            print(
+                f"No {client} sessions matched current project root: {root}. "
+                "Run from the target project directory, pass --project-root, or use --scope all explicitly."
+            )
     candidate_sessions = result.get("candidate_sessions")
     if isinstance(candidate_sessions, int):
         print(f"Candidates after cursor: {candidate_sessions}")

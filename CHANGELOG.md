@@ -4,6 +4,43 @@
 
 ---
 
+## [Unreleased]
+
+(no changes yet)
+
+---
+
+## [1.6.0] — 2026-05-17
+
+**主题：测量地基 + 记忆分型 schema（非破坏性 baseline 切片）**
+
+v1.6.x 三切片路线的第一刀。本切片只动 schema 与测量层，不动 retrieval / wake-up / distill 行为；为 v1.6.1（wake-up bucket budget + distill 只读边界）与 v1.6.2（sqlite-vec 持久化向量 + embedding 模型 shootout）打地基。
+
+完整决策与 baseline 见 [`docs/roadmap-v16x.md`](docs/roadmap-v16x.md) 与 [`docs/benchmark/v160-baseline.md`](docs/benchmark/v160-baseline.md)。
+
+### Added
+
+- **`MemoryEntry.memory_type` 字段**：新增 `Literal["episodic", "semantic", "procedural"]`，默认 `semantic`。`from_dict` 兼容老数据：缺字段时按 `category` 自动派生（`architecture / convention / api / bug / decision -> semantic`，否则 `episodic`）。`procedural` 字面量保留供 v1.8 使用，v1.6.0 不主动产生。
+- **`MemoryType` 类型别名**：从 `harness_mem.core.schemas` 顶层导出。
+- **`harness-mem maintenance assign-memory-types`**：一次性幂等 backfill 命令，把 `memory_type` 持久化到老 `MemoryEntry` JSON blob。`--dry-run` 默认；`--apply` 落盘；连续 `--apply` 后再次 `--dry-run` 显示 0 条变更。
+- **search payload 暴露 `memory_type`**：CLI / MCP `search_memory` / REST `/search` 三端在 memory entry 行返回 `memory_type` 字段（只读，v1.6.1 才引入按类型 filter）。CLI 输出格式从 `[category]` 改为 `[category/memory_type]`。
+- **LongMemEval 五维评分作为一等公民**：`harness_mem.tools.longmemeval` 顶部声明 `LONGMEMEVAL_QUESTION_TYPES` 常量（6 个登记维度）；CLI 输出 `PER-TYPE RECALL` 段；JSON 报告含 `per_type` 字典；未登记维度产生 `UserWarning`，不阻断评测。
+- **v1.6.0 LongMemEval baseline**：`docs/benchmark/v160-baseline.md` 记录 `fts / hybrid (synthetic) / hybrid (real)` 三种 mode 在 6 个维度的 R@5；`hybrid (real) avg = 0.953`，精确复现 v1.5.2/v1.5.3 数字。`docs/benchmark/longmemeval-five-dimensions.md` 解释每个维度含义与 v1.6.x 各切片预期。
+- **v1.6.x roadmap**：`docs/roadmap-v16x.md` 写明三切片切分、决策路径、不回退判定规则。
+
+### Changed
+
+- `docs/README.md` 登记 `roadmap-v15x` / `roadmap-v16x` / `roadmap-vision-v16-v18` 三份 roadmap，并更新 benchmark 目录条目。
+- `tests/conftest.py` 把 `maintenance` 模块加入 `DEFAULT_DATA_DIR` monkeypatch 列表。
+
+### Notes
+
+- v1.6.0 是非破坏性切片：v1.5.3 用户升级后不需要任何数据迁移。`MemoryEntry.from_dict` 在加载时即 derive `memory_type`，`maintenance assign-memory-types` 是把它显式持久化到 JSON 的运维入口，不是必需步骤。
+- LongMemEval 总分不再作为单一 KPI——v1.6.x 起所有 retrieval 改动必须贴五维对比表。详见 `docs/benchmark/longmemeval-five-dimensions.md` "为什么单一总分会误导" 段。
+- v1.6.2 默认 embedding 模型不在启动前预选，由 shootout 数据驱动；详见 `docs/roadmap-v16x.md` "已决策 3"。
+
+---
+
 ## [1.5.3] — 2026-05-17
 
 **主题：发布闭环与归档增量化**
@@ -15,7 +52,7 @@
   - `harness-mem ingest codex-archive` 支持默认增量扫描与 `--full-rescan` 显式回扫。
   - 已补 `tests/cli/test_ingest_codex_archive.py` 覆盖缺目录、增量追加、full-rescan 去重三条路径。
 - **PyPI 发布链路**
-  - 新增 tag 触发的 `.github/workflows/publish.yml`，构建 wheel + sdist，执行 `twine check`，并在发布前 smoke install 两种发行物。
+  - 新增 tag 触发的 `.github/workflows/publish.yml`，构建 wheel + sdist,执行 `twine check`，并在发布前 smoke install 两种发行物。
 - **Doctor 错误码目录**
   - `harness-mem doctor` 现在输出 `code: HM-xxx` 与对应修复命令。
   - 新增 `docs/error-codes.md` 作为稳定对照表。
@@ -25,6 +62,14 @@
 - `README.md` 现在把 `pip install harness-mem` 作为默认安装入口，保留 editable install 作为仓库开发路径。
 - `pyproject.toml` 增加 `dev` optional dependency，并把 `README.md` / `docs/error-codes.md` 纳入发行物元数据。
 - `test-matrix.yml` 改为使用仓库标准验证栈：`pytest` + `mypy` + `ruff`。
+- **MCP `search_memory` 工具签名调整**：`query` 提到第一位、`project_name` 改为可选关键字参数（`scope=all` 时省略即可）。MCP 客户端按 `input_schema` 字段名传参不受影响；任何按位置传参的内部脚本必须改成关键字传参。
+- **MCP `tool_search_memory` 内部合并 event loop**：之前每次请求会执行 4 次 `asyncio.run`（search / search_relation_facts / 循环 touch / build context map），现在合并为单次 `asyncio.run` 调用 `_gather_search_payload`。Backend 连接池在一次请求内保持活跃。返回字段不变。
+- **`HybridSearchLayer` 的 RRF 参数提到模块级常量**：`DEFAULT_RRF_K / DEFAULT_FTS_WEIGHT / DEFAULT_VECTOR_WEIGHT / DEFAULT_FTS_CONFIDENCE_EXPONENT / DEFAULT_VECTOR_CONFIDENCE_EXPONENT`，并在源码注释里诚实记录这些值是经验值而非 ablation 结果，留待 v1.6 embedding 升级时一并复评。
+
+### Notes
+
+- v1.5.2 的 `hybrid` P95 latency `625.17ms` 是 LongMemEval 全量带 vector encode 的端到端数据，**与 v1.5.1 baseline 文档里 wake-up 数据加载 `25.57ms` 的 P95 不可直接相比**。
+- v1.5.2 引入的 Porter-stem FTS fallback 会把 token 用前缀匹配扩散（`auth` -> `auth*` 命中 `auth_handler / auth_handler_v2`），这是 LongMemEval session_id-only 评分体系下不可见的 precision 副作用。代码符号搜索 / 完全匹配场景请显式 `mode="fts"` 并配合精确查询；细节见 `docs/benchmark/v152-recall-failure-analysis-stemfallback.md`。
 
 ## [1.5.0] — 2026-05-16
 

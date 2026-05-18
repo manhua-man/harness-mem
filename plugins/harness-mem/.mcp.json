@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "harness-mem": {
+    "harness_mem": {
       "command": "python",
       "args": [
         "-m",

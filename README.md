@@ -2,7 +2,7 @@
 
 Local-first, pluggable **AI memory runtime** for Claude Code, Codex, and Gemini CLI.
 
-**核心理念**：让 AI 拥有跨 Session、可审计的长期记忆。AI 是记忆的“操作员”，人是记忆的“审核员”。
+**核心理念**：让 AI 拥有跨 Session、可审计的长期记忆。AI 是记忆的“操作员”和一线审核员，人只做最终复核与纠错。
 
 Agent 协作真值见 [AGENTS.md](./AGENTS.md)。
 
@@ -12,9 +12,9 @@ Agent 协作真值见 [AGENTS.md](./AGENTS.md)。
 
 | 阶段 | 动作 | 驱动者 | 实现方式 |
 | :--- | :--- | :--- | :--- |
-| **1. 摄取 (Ingest)** | 抓取原始会话日志 | AI / 人 | `harness-mem ingest` |
+| **1. 摄取 (Ingest)** | 抓取原始会话日志 | AI | MCP `ingest_sessions` / Slash `/hm:distill` |
 | **2. 提炼 (Distill)** | **AI 读 Session 提炼精华知识** | **AI** | **Skill: `session-distill`** |
-| **3. 审核 (Review)** | 确认或拒绝 AI 提炼的记忆 | **人** | `harness-mem confirm/reject` |
+| **3. 自动审核 (Auto-review)** | AI 自动确认低风险记忆、拒绝噪声，并把高风险项留给用户复核 | **AI + 人复核** | Slash `/hm:distill` + MCP `confirm_*` / `reject_*` |
 | **4. 消费 (Use)** | AI 在新任务中自动加载记忆 | AI | **MCP: `search_memory` / `wake`** |
 
 ---
@@ -39,7 +39,20 @@ pip install -e ".[dev]"
 - **提炼知识**：如果你发现了重要规则，调用 `suggest_rule`。
 - **批量提炼**：如果需要处理大量历史，建议触发专门的 `session-distill` Skill。
 
-### 3. 作为人类：如何审核记忆
+### 3. 作为人类：如何复核记忆
+日常不需要手动跑 CLI，也不需要逐条审核候选。优先在 agent 里使用 slash / MCP：
+
+```text
+/hm:status
+/hm:distill <project> 10
+/hm:wake
+/hm:search "authentication"
+```
+
+`/hm:distill` 会完成 ingest、Skill 提炼、AI 自动审核低风险候选，并给你最终复核摘要。`/hm:review` 只作为复查、纠错或处理旧 pending 候选的兜底入口。
+
+CLI 只作为安装、排障和显式 cleanup 的本地控制面。下面命令不是用户日常路径，只是本地兜底：
+
 ```bash
 harness-mem candidates    # 查看 AI 提炼的候选条目
 harness-mem confirm <id>  # 确认记忆：从此该条目会进入 AI 的唤醒上下文
@@ -54,7 +67,7 @@ harness-mem reject <id>   # 拒绝记忆：过滤掉 AI 提取的废话
 
 - **Runtime over interface**: 核心价值是让多个 AI client 共享同一套长期记忆，不是某一个前端形态本身。
 - **Local-first and auditable**: 记忆默认留在本地；用户可以搜索、追溯、纠正和清理，而不是接受黑箱记忆。
-- **CLI as bootstrap**: CLI 是当前最小可交付入口，负责安装、试用、调试和显式控制，不是最终产品形态。
+- **CLI as bootstrap**: CLI 负责安装、试用、调试和显式控制，不是用户日常主路径；日常主路径应是 slash/MCP/Skill。
 - **MCP-first**: 长期主路径是把能力接到 agent runtime 里，让 Claude Code、Codex 等 client 默认能读写同一层记忆。
 - **Invisible by default, visible when needed**: 日常体验应尽量无感，但一旦用户想问“记住了什么、为什么被注入、怎么删掉”，系统必须可见、可解释、可退出。
 - **No extension/daemon or LSP roadmap**: 当前路线不规划 VS Code extension、后台 daemon 或 LSP server，先把 MCP 自动化和本地 runtime 主链路做透。
@@ -126,15 +139,19 @@ python -m harness_mem.tools.longmemeval --help
 harness-mem doctor
 ```
 
-`quickstart` 和 `doctor` 会自动发现最近的 Claude Code / Codex sessions，并根据当前阶段直接建议下一步更适合跑 `ingest`、`ds` 还是 `wake`。
+`quickstart` 和 `doctor` 会自动发现最近的 Claude Code / Codex sessions，并根据当前阶段直接建议下一步更适合走 `/hm:distill`、`ingest` 兜底还是 `wake`。默认摄取路径会按当前 agent 环境和当前项目路径收窄；跨项目或全局历史导入必须显式写 `--scope all`。
 
 ### 3. 接入 session
 
+用户日常入口是 `/hm:distill <project> 10`，由 Agent 通过 MCP `ingest_sessions` 自动完成当前环境和当前项目路径匹配。下面命令只作为开发者排障或自动化脚本参考。
+
 ```bash
 harness-mem use <project-name>
-harness-mem ingest claude-code -n 10
+harness-mem ingest -n 10                  # 默认 auto：当前 agent 环境 + 当前项目路径
+harness-mem ingest claude-code -n 10       # 显式 Claude Code 项目会话
 harness-mem ingest claude-code --full-rescan   # 显式忽略 ingest cursor
-harness-mem ingest codex -n 10
+harness-mem ingest codex-archive -n 10 --project-root .
+harness-mem ingest codex-archive -n 10 --scope all   # 显式全局回扫
 ```
 
 ### 4. 生成唤醒上下文
@@ -208,12 +225,13 @@ harness-mem handoff -t <id> -s "Fix auth bug" \
 
 ```bash
 # 安装 MCP server
-claude mcp add harness-mem -- python -m harness_mem.mcp.server
+claude mcp add -s user harness_mem "python -m harness_mem.mcp.server"
 
-# Claude Code 中可用工具
+# Claude Code 中可用工具（工具名使用无短横线 alias，如 mcp__harness_mem__search_memory）
+# - get_project_status, prepare_session_distill, list_candidates
 # - search_memory, timeline, get_observations
 # - get_task_handoffs, get_confirmed_rules, get_project_profile
-# - create_rule_candidate, confirm_rule, reject_rule, suggest_rule
+# - suggest_memory_entry, suggest_rule, suggest_relation_fact, create_task_handoff
 #
 # search_memory 支持:
 # - scope=project|all
@@ -270,8 +288,8 @@ V2 的重点不再是“补一个基础 hybrid search”，而是继续往 invis
 | `harness-mem quickstart` | 一步完成初始化、活动项目设置、最近 session 发现与接入引导 |
 | `harness-mem doctor` | 检查本地状态、展示最近 session，并给出最佳下一步建议 |
 | `harness-mem use` | 设置当前活动项目 |
-| `harness-mem ingest [claude-code\|codex]` | 默认增量接入 sessions，支持 `--full-rescan` |
-| `harness-mem distill` | 从 session 提取 structured memory |
+| `harness-mem ingest [auto\|claude-code\|codex\|codex-archive]` | 默认按当前 agent 环境与当前项目路径增量接入 sessions；全局导入需显式 `--scope all` |
+| `harness-mem distill` | 启发式 structured memory fallback；高质量主动提炼默认走 `/hm:distill` + `tools/session-distill` |
 | `harness-mem wake-up` | 生成项目唤醒上下文 |
 | `harness-mem search` | 搜索记忆，支持 `--mode auto\|fts\|hybrid` |
 | `harness-mem timeline` | 时间线视图 |
@@ -286,6 +304,7 @@ V2 的重点不再是“补一个基础 hybrid search”，而是继续往 invis
 | `harness-mem confirmed-rules` | 列出已确认规则 |
 | `harness-mem handoff` | 创建/更新任务交接 |
 | `harness-mem api` | 启动 REST API server |
+| `harness-mem maintenance assign-memory-types` | One-shot 幂等 backfill：给老 `MemoryEntry` 加 `memory_type`（`--dry-run` 默认；`--apply` 落盘）|
 
 ### 常用短别名
 

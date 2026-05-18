@@ -24,6 +24,7 @@ class SessionRecord(TypedDict, total=False):
     lines: int
     mtime: datetime
     mtime_ns: int
+    cwd: str
 
 
 class SessionAdapter(Protocol):

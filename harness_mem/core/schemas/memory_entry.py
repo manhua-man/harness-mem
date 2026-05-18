@@ -1,9 +1,50 @@
 """MemoryEntry schema — structured project knowledge."""
 
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+
+
+MemoryType = Literal["episodic", "semantic", "procedural"]
+"""Three-layer memory typing introduced in v1.6.0.
+
+- ``semantic`` — stable, structured project knowledge (rules, facts, decisions).
+  This is the v1.6.0 default; existing entries auto-derive to ``semantic`` when
+  their ``category`` matches the registered set (architecture / convention /
+  api / bug / decision).
+- ``episodic`` — event-shaped recollections. Used for entries whose ``category``
+  is unknown or free-form when loaded from legacy data.
+- ``procedural`` — multi-step skills / how-tos. Reserved for v1.8 — accepted
+  through the API but not produced by any v1.6.x ingest / distill path.
+
+Wake-up bucket budgets and search-time filtering on this field arrive in
+v1.6.1. v1.6.0 only exposes the field; behavior remains unchanged.
+"""
+
+
+_SEMANTIC_CATEGORIES: frozenset[str] = frozenset({
+    "architecture",
+    "convention",
+    "api",
+    "bug",
+    "decision",
+})
+
+
+def _derive_memory_type(category: str | None) -> MemoryType:
+    """Derive memory_type from category for legacy entries lacking the field.
+
+    Mirrors the rule documented in ``openspec/changes/2026-05-17-v160-eval-and-typing``:
+    registered categories map to ``semantic``; anything else (including missing
+    or empty ``category``) falls back to ``episodic``. This function NEVER
+    returns ``procedural`` — that type is only produced when explicitly set by
+    the caller.
+    """
+    if category and category in _SEMANTIC_CATEGORIES:
+        return "semantic"
+    return "episodic"
 
 
 class MemoryEntry(BaseModel):
@@ -48,6 +89,14 @@ class MemoryEntry(BaseModel):
         default=None,
         description="来源线索: {session_id, observation_ids, agent_type, tool_name}"
     )
+    memory_type: MemoryType = Field(
+        default="semantic",
+        description=(
+            "Three-layer memory typing (v1.6.0): episodic (events), "
+            "semantic (rules/facts), procedural (reserved for v1.8). "
+            "Exposed read-only in v1.6.0; consumed by wake-up bucketing in v1.6.1."
+        ),
+    )
 
     model_config = {"extra": "allow"}
 
@@ -67,6 +116,7 @@ class MemoryEntry(BaseModel):
             "usage_count": self.usage_count,
             "last_accessed_at": self.last_accessed_at.isoformat() if self.last_accessed_at else None,
             "provenance": self.provenance,
+            "memory_type": self.memory_type,
         }
 
     @classmethod
@@ -84,4 +134,6 @@ class MemoryEntry(BaseModel):
             data["last_accessed_at"] = None
         if "provenance" not in data:
             data["provenance"] = None
+        if "memory_type" not in data or data["memory_type"] is None:
+            data["memory_type"] = _derive_memory_type(data.get("category"))
         return cls(**data)

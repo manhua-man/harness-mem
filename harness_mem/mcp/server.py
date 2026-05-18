@@ -11,6 +11,11 @@ Tools:
   get_task_handoffs     — recent task handoffs
   get_confirmed_rules   — confirmed rules for a project
   get_project_profile   — project profile
+  get_project_status    — current project memory status and active project
+  ingest_sessions       — project-scoped environment-aware session ingest
+  prepare_session_distill — one-shot ingest + evidence packet for AI distill
+  distill_sessions      — heuristic distill fallback for ingested sessions
+  list_candidates       — pending/accepted/rejected review candidates
   create_rule_candidate — create a rule candidate
   confirm_rule          — promote candidate to confirmed rule
 """
@@ -21,8 +26,9 @@ import sys
 # --- MCP stdio protection -----------------------------------------------
 # Redirect stdout → stderr before heavy imports so that any stray print()
 # statements from dependencies never corrupt the JSON-RPC stream on stdout.
-_REAL_STDOUT = sys.stdout
 _REAL_STDOUT_FD = None
+_REAL_STDOUT_ENCODING = sys.stdout.encoding or "utf-8"
+_REAL_STDOUT_ERRORS = sys.stdout.errors or "replace"
 try:
     _REAL_STDOUT_FD = os.dup(1)
     os.dup2(2, 1)
@@ -30,11 +36,17 @@ except (OSError, AttributeError):
     pass
 sys.stdout = sys.stderr
 
+import contextlib  # noqa: E402
+import io  # noqa: E402
 import json  # noqa: E402
 import logging  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any, Callable, TypedDict  # noqa: E402
 
+from harness_mem.commands.distill import cmd_distill  # noqa: E402
+from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
+from harness_mem.commands.support import get_active_project  # noqa: E402
 from harness_mem.read_api import (  # noqa: E402
     build_search_project_context_map,
     search_memory,
@@ -95,40 +107,19 @@ def tool_search_memory(
             "error": "project_name is required when scope=project",
         }
 
-    entries, obs_list = asyncio.run(
-        search_memory(
+    entries, obs_list, relation_facts, tech_stack_by_project = asyncio.run(
+        _gather_search_payload(
             backend,
-            project_name=project_name,
             query=query,
+            project_name=project_name,
             scope=scope,
             mode=mode,
-            memory_entry_limit=20,
-            observation_limit=20,
         )
     )
-    relation_facts = asyncio.run(
-        search_relation_facts(
-            backend,
-            project_name=project_name,
-            query=query,
-            scope=scope,
-            limit=20,
-        )
-    )
-    for entry in entries:
-        asyncio.run(backend.structured_store.touch_memory_entry(entry.id))
 
     combined_results = entries or relation_facts or obs_list
     effective_mode = getattr(combined_results[0], "_search_mode", mode) if combined_results else mode
     fallback_reason = getattr(combined_results[0], "_search_fallback_reason", None) if combined_results else None
-    tech_stack_by_project = asyncio.run(
-        build_search_project_context_map(
-            backend,
-            entries=entries,
-            observations=obs_list,
-            relation_facts=relation_facts,
-        )
-    )
 
     return {
         "project_name": project_name,
@@ -157,6 +148,52 @@ def tool_search_memory(
         "relation_fact_count": len(relation_facts),
         "observation_count": len(obs_list),
     }
+
+
+async def _gather_search_payload(
+    backend: LocalMemoryBackend,
+    *,
+    query: str,
+    project_name: str | None,
+    scope: str,
+    mode: str,
+) -> tuple[
+    list[Any],
+    list[Any],
+    list[Any],
+    dict[str, list[str]],
+]:
+    """Collect every async dependency for tool_search_memory in a single loop.
+
+    Previously each await spun up its own asyncio.run, which built and tore
+    down the event loop four times per request. Consolidating keeps
+    LocalMemoryBackend's connection pool warm for the duration of one call.
+    """
+    entries, obs_list = await search_memory(
+        backend,
+        project_name=project_name,
+        query=query,
+        scope=scope,
+        mode=mode,
+        memory_entry_limit=20,
+        observation_limit=20,
+    )
+    relation_facts = await search_relation_facts(
+        backend,
+        project_name=project_name,
+        query=query,
+        scope=scope,
+        limit=20,
+    )
+    for entry in entries:
+        await backend.structured_store.touch_memory_entry(entry.id)
+    tech_stack_by_project = await build_search_project_context_map(
+        backend,
+        entries=entries,
+        observations=obs_list,
+        relation_facts=relation_facts,
+    )
+    return entries, obs_list, relation_facts, tech_stack_by_project
 
 
 def tool_timeline(project_name: str, limit: int = 50) -> dict:
@@ -254,6 +291,387 @@ def tool_get_project_profile(project_name: str) -> dict:
         "description": profile.description,
         "stacks": profile.stacks,
         "key_files": profile.key_files,
+    }
+
+
+async def _gather_project_status(backend: LocalMemoryBackend, project_name: str) -> dict[str, Any]:
+    observations = await backend.verbatim_store.list(limit=100000)
+    project_observations = [
+        observation
+        for observation in observations
+        if observation.metadata.get("project_name") == project_name
+    ]
+    memory_entries = await backend.structured_store.list_memory_entries(
+        project_name,
+        limit=100000,
+    )
+    handoffs = await backend.structured_store.get_latest_handoffs(project_name, limit=5)
+    confirmed_rules = await backend.structured_store.list_confirmed_rules(project_name)
+    pending_rules = await backend.structured_store.list_rule_candidates(
+        project_name,
+        status="pending",
+    )
+    pending_entries = await backend.structured_store.list_memory_entries(
+        project_name,
+        status="pending",
+        limit=100000,
+    )
+    pending_facts = await backend.structured_store.list_relation_facts(
+        project_name,
+        status="pending",
+        limit=100000,
+    )
+    return {
+        "observation_count": len(project_observations),
+        "memory_entry_count": len(memory_entries),
+        "task_handoff_count": len(handoffs),
+        "confirmed_rule_count": len(confirmed_rules),
+        "pending_candidate_count": len(pending_rules) + len(pending_entries) + len(pending_facts),
+    }
+
+
+def tool_get_project_status(project_name: str | None = None) -> dict:
+    """Return active project and memory counts without requiring CLI status."""
+    active_project = get_active_project()
+    resolved_project = project_name or active_project
+    if not resolved_project:
+        return {
+            "success": False,
+            "active_project": active_project,
+            "error": "project_name is required when no active project is set",
+        }
+
+    backend = _get_backend()
+    counts = asyncio.run(_gather_project_status(backend, resolved_project))
+    return {
+        "success": True,
+        "project_name": resolved_project,
+        "active_project": active_project,
+        **counts,
+    }
+
+
+def _run_command_to_payload(coro: Any) -> dict[str, Any]:
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        exit_code = asyncio.run(coro)
+    return {
+        "success": exit_code == 0,
+        "exit_code": exit_code,
+        "output": output.getvalue().strip(),
+    }
+
+
+def tool_ingest_sessions(
+    project_name: str,
+    client: str = "auto",
+    limit: int = 10,
+    full_rescan: bool = False,
+    scope: str = "project",
+    project_root: str | None = None,
+) -> dict:
+    """Ingest sessions through MCP so users do not need to drive CLI commands."""
+    if client not in {"auto", "claude-code", "codex", "codex-archive"}:
+        return {
+            "success": False,
+            "error": "client must be one of: auto, claude-code, codex, codex-archive",
+        }
+    if scope not in {"project", "all"}:
+        return {"success": False, "error": "scope must be one of: project, all"}
+
+    payload = _run_command_to_payload(
+        cmd_ingest(
+            client,
+            project_name,
+            limit,
+            full_rescan,
+            scope=scope,
+            project_root=project_root,
+        )
+    )
+    return {
+        "project_name": project_name,
+        "client": client,
+        "scope": scope,
+        "limit": limit,
+        **payload,
+    }
+
+
+async def _recent_project_observations(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    limit: int,
+) -> list[Any]:
+    observations = await backend.verbatim_store.list(limit=100000)
+    project_observations = [
+        observation
+        for observation in observations
+        if observation.metadata.get("project_name") == project_name
+    ]
+    return sorted(
+        project_observations,
+        key=lambda observation: observation.timestamp or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )[:limit]
+
+
+def _truncate_packet_text(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    omitted = len(value) - max_chars
+    return f"{value[:max_chars]}\n\n[TRUNCATED: {omitted} chars omitted]"
+
+
+def tool_prepare_session_distill(
+    project_name: str,
+    client: str = "auto",
+    limit: int = 5,
+    full_rescan: bool = False,
+    scope: str = "project",
+    project_root: str | None = None,
+    observation_limit: int = 5,
+    max_chars_per_observation: int = 6000,
+    run_ingest: bool = True,
+) -> dict:
+    """Prepare a compact evidence packet for AI-led session-distill.
+
+    This intentionally stops before synthesis. The model should read the
+    returned observations, decide what deserves a pending candidate, then call
+    suggest_* tools. Keeping the discovery work in one MCP call avoids slash
+    commands probing files, shell aliases, timeline, and observation IDs by hand.
+    """
+    if client not in {"auto", "claude-code", "codex", "codex-archive"}:
+        return {
+            "success": False,
+            "error": "client must be one of: auto, claude-code, codex, codex-archive",
+        }
+    if scope not in {"project", "all"}:
+        return {"success": False, "error": "scope must be one of: project, all"}
+
+    effective_limit = max(1, min(int(limit), 50))
+    effective_observation_limit = max(1, min(int(observation_limit), 20))
+    effective_max_chars = max(500, min(int(max_chars_per_observation), 20000))
+
+    ingest_payload: dict[str, Any] = {
+        "success": True,
+        "skipped": True,
+        "reason": "run_ingest=false",
+    }
+    if run_ingest:
+        ingest_payload = tool_ingest_sessions(
+            project_name=project_name,
+            client=client,
+            limit=effective_limit,
+            full_rescan=full_rescan,
+            scope=scope,
+            project_root=project_root,
+        )
+
+    backend = _get_backend()
+    observations = asyncio.run(
+        _recent_project_observations(
+            backend,
+            project_name=project_name,
+            limit=effective_observation_limit,
+        )
+    )
+    counts = asyncio.run(_gather_project_status(backend, project_name))
+
+    packet_observations = []
+    for observation in observations:
+        packet_observations.append(
+            {
+                "source": f"observation:{observation.id}",
+                "id": observation.id,
+                "session_id": observation.session_id,
+                "client": observation.client,
+                "content_type": observation.content_type,
+                "timestamp": observation.timestamp.isoformat() if observation.timestamp else None,
+                "tags": observation.tags,
+                "metadata": observation.metadata,
+                "raw_content": _truncate_packet_text(
+                    observation.raw_content,
+                    effective_max_chars,
+                ),
+            }
+        )
+
+    return {
+        "success": bool(packet_observations) or bool(ingest_payload.get("success")),
+        "project_name": project_name,
+        "project_root": project_root,
+        "client": client,
+        "scope": scope,
+        "limit": effective_limit,
+        "ingest": ingest_payload,
+        "status": counts,
+        "observation_limit": effective_observation_limit,
+        "max_chars_per_observation": effective_max_chars,
+        "observations": packet_observations,
+        "observation_count": len(packet_observations),
+        "distill_instructions": [
+            "Do not call Bash, cmem, cat, ls, find, timeline, or get_observations for this slash flow unless this packet is empty.",
+            "Read the observations in this response as the session-distill evidence packet.",
+            "Do not create candidates from tool probing, failed commands, MCP/slash mechanics, or agent orchestration failures unless the target project is that tooling.",
+            "For application/game projects, do not record AI review workflows or skill names as project architecture.",
+            "Create only reusable pending candidates with suggest_memory_entry, suggest_rule, suggest_relation_fact, or create_task_handoff.",
+            "Use source values from this packet, e.g. observation:<id>, unless a stronger session/file source is present.",
+            "Finish by calling list_candidates(project_name, status='pending') once.",
+        ],
+    }
+
+
+def tool_distill_sessions(
+    project_name: str,
+    session_id: str | None = None,
+    category: str | None = None,
+    project_root: str | None = None,
+) -> dict:
+    """Run heuristic distill through MCP as a fallback to AI session-distill."""
+    if category is not None and category not in {"architecture", "convention", "api", "bug", "decision"}:
+        return {
+            "success": False,
+            "error": "category must be one of: architecture, convention, api, bug, decision",
+        }
+
+    payload = _run_command_to_payload(
+        cmd_distill(
+            project_name,
+            session_id,
+            category=category,
+            project_root=project_root,
+        )
+    )
+    return {
+        "project_name": project_name,
+        "session_id": session_id,
+        "category": category,
+        "project_root": project_root,
+        **payload,
+    }
+
+
+def _isoformat(value: Any) -> str | None:
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _serialize_rule_candidate(candidate: Any) -> dict:
+    return {
+        "type": "rule",
+        "id": candidate.id,
+        "project_name": candidate.project_name,
+        "status": candidate.status,
+        "pattern": candidate.pattern,
+        "trigger": candidate.trigger,
+        "examples": candidate.examples,
+        "confidence": candidate.confidence,
+        "source_session_id": candidate.session_id,
+        "created_at": _isoformat(candidate.created_at),
+        "confirm_tool": "confirm_rule",
+        "reject_tool": "reject_rule",
+    }
+
+
+def _serialize_memory_entry_candidate(entry: Any) -> dict:
+    return {
+        "type": "memory_entry",
+        "id": entry.id,
+        "project_name": entry.project_name,
+        "status": entry.status,
+        "category": entry.category,
+        "memory_type": getattr(entry, "memory_type", None),
+        "content": entry.content,
+        "confidence": entry.confidence,
+        "source": entry.source,
+        "tags": entry.tags,
+        "created_at": _isoformat(entry.created_at),
+        "updated_at": _isoformat(entry.updated_at),
+        "provenance": entry.provenance,
+        "confirm_tool": "confirm_memory_entry",
+        "reject_tool": "reject_memory_entry",
+    }
+
+
+def _serialize_relation_fact_candidate(fact: Any) -> dict:
+    return {
+        "type": "relation_fact",
+        "id": fact.id,
+        "project_name": fact.project_name,
+        "status": fact.status,
+        "source_entity": fact.source_entity,
+        "target_entity": fact.target_entity,
+        "relation_type": fact.relation_type,
+        "evidence": fact.evidence,
+        "source": fact.source,
+        "confidence": fact.confidence,
+        "tags": fact.tags,
+        "created_at": _isoformat(fact.created_at),
+        "updated_at": _isoformat(fact.updated_at),
+        "provenance": fact.provenance,
+        "confirm_tool": "confirm_relation_fact",
+        "reject_tool": "reject_relation_fact",
+    }
+
+
+async def _gather_candidate_payload(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    status: str,
+    limit: int,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    rules = await backend.structured_store.list_rule_candidates(project_name, status=status)
+    entries = await backend.structured_store.list_memory_entries(project_name, status=status, limit=limit)
+    facts = await backend.structured_store.list_relation_facts(project_name, status=status, limit=limit)
+    return (
+        [_serialize_rule_candidate(candidate) for candidate in rules[:limit]],
+        [_serialize_memory_entry_candidate(entry) for entry in entries],
+        [_serialize_relation_fact_candidate(fact) for fact in facts],
+    )
+
+
+def tool_list_candidates(project_name: str, status: str = "pending", limit: int = 100) -> dict:
+    """Return structured memory candidates for human review."""
+    if status not in {"pending", "accepted", "rejected"}:
+        return {
+            "success": False,
+            "error": "status must be one of: pending, accepted, rejected",
+        }
+
+    effective_limit = max(1, min(int(limit), 500))
+    backend = _get_backend()
+    rule_candidates, memory_entries, relation_facts = asyncio.run(
+        _gather_candidate_payload(
+            backend,
+            project_name=project_name,
+            status=status,
+            limit=effective_limit,
+        )
+    )
+    all_candidates = [*rule_candidates, *memory_entries, *relation_facts]
+    all_candidates.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    candidates = all_candidates[:effective_limit]
+
+    return {
+        "success": True,
+        "project_name": project_name,
+        "status": status,
+        "limit": effective_limit,
+        "candidates": candidates,
+        "rule_candidates": rule_candidates,
+        "memory_entries": memory_entries,
+        "relation_facts": relation_facts,
+        "count": len(candidates),
+        "total_count": len(all_candidates),
+        "rule_count": len(rule_candidates),
+        "memory_entry_count": len(memory_entries),
+        "relation_fact_count": len(relation_facts),
     }
 
 
@@ -583,6 +1001,151 @@ TOOLS: dict[str, ToolSpec] = {
         },
         "handler": tool_get_project_profile,
     },
+    "get_project_status": {
+        "description": "Return active project and memory counts without requiring CLI status.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (defaults to active project when omitted)",
+                },
+            },
+        },
+        "handler": tool_get_project_status,
+    },
+    "ingest_sessions": {
+        "description": "Ingest local agent sessions for a project through MCP.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "client": {
+                    "type": "string",
+                    "enum": ["auto", "claude-code", "codex", "codex-archive"],
+                    "description": "Session client to ingest (default: auto)",
+                    "default": "auto",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum sessions to ingest (default: 10)",
+                    "default": 10,
+                },
+                "full_rescan": {
+                    "type": "boolean",
+                    "description": "Ignore ingest cursor and rescan matching sessions",
+                    "default": False,
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "all"],
+                    "description": "Session scope for global stores (default: project)",
+                    "default": "project",
+                },
+                "project_root": {
+                    "type": "string",
+                    "description": "Project root for cwd-scoped matching (default: current directory)",
+                },
+            },
+            "required": ["project_name"],
+        },
+        "handler": tool_ingest_sessions,
+    },
+    "prepare_session_distill": {
+        "description": "One-shot project-scoped ingest plus recent observation packet for AI-led session-distill.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "client": {
+                    "type": "string",
+                    "enum": ["auto", "claude-code", "codex", "codex-archive"],
+                    "description": "Session client to ingest (default: auto)",
+                    "default": "auto",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum sessions to ingest (default: 5)",
+                    "default": 5,
+                },
+                "full_rescan": {
+                    "type": "boolean",
+                    "description": "Ignore ingest cursor and rescan matching sessions",
+                    "default": False,
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "all"],
+                    "description": "Session scope for global stores (default: project)",
+                    "default": "project",
+                },
+                "project_root": {
+                    "type": "string",
+                    "description": "Project root for cwd-scoped matching",
+                },
+                "observation_limit": {
+                    "type": "integer",
+                    "description": "Recent observations to include in the evidence packet (default: 5)",
+                    "default": 5,
+                },
+                "max_chars_per_observation": {
+                    "type": "integer",
+                    "description": "Maximum raw_content chars per observation (default: 6000)",
+                    "default": 6000,
+                },
+                "run_ingest": {
+                    "type": "boolean",
+                    "description": "Run ingest before building the packet (default: true)",
+                    "default": True,
+                },
+            },
+            "required": ["project_name"],
+        },
+        "handler": tool_prepare_session_distill,
+    },
+    "distill_sessions": {
+        "description": "Run heuristic distill through MCP as a fallback to AI session-distill.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "session_id": {"type": "string", "description": "Optional session ID"},
+                "category": {
+                    "type": "string",
+                    "enum": ["architecture", "convention", "api", "bug", "decision"],
+                    "description": "Optional memory category filter",
+                },
+                "project_root": {
+                    "type": "string",
+                    "description": "Project root for Claude project session matching",
+                },
+            },
+            "required": ["project_name"],
+        },
+        "handler": tool_distill_sessions,
+    },
+    "list_candidates": {
+        "description": "List structured memory candidates for human review.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "status": {
+                    "type": "string",
+                    "enum": ["pending", "accepted", "rejected"],
+                    "description": "Candidate status to list (default: pending)",
+                    "default": "pending",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum candidates to return across all candidate types (default: 100)",
+                    "default": 100,
+                },
+            },
+            "required": ["project_name"],
+        },
+        "handler": tool_list_candidates,
+    },
     "create_rule_candidate": {
         "description": "Create a rule candidate from a correction pattern.",
         "input_schema": {
@@ -873,15 +1436,28 @@ def handle_request(request: dict) -> dict | None:
 
 def _restore_stdout():
     """Restore real stdout for MCP JSON-RPC output."""
-    global _REAL_STDOUT, _REAL_STDOUT_FD
+    global _REAL_STDOUT_FD
     if _REAL_STDOUT_FD is not None:
         try:
             os.dup2(_REAL_STDOUT_FD, 1)
-            os.close(_REAL_STDOUT_FD)
         except OSError:
             pass
+        finally:
+            try:
+                os.close(_REAL_STDOUT_FD)
+            except OSError:
+                pass
         _REAL_STDOUT_FD = None
-    sys.stdout = _REAL_STDOUT
+    try:
+        sys.stdout = os.fdopen(
+            os.dup(1),
+            "w",
+            buffering=1,
+            encoding=_REAL_STDOUT_ENCODING,
+            errors=_REAL_STDOUT_ERRORS,
+        )
+    except OSError:
+        sys.stdout = sys.__stdout__
 
 
 def main():
