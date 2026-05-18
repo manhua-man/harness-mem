@@ -280,52 +280,35 @@ V2 的重点不再是“补一个基础 hybrid search”，而是继续往 invis
 
 ---
 
-## CLI 命令
+## 命令面
 
-| 命令 | 说明 |
+用户日常不需要学习完整 CLI。正常入口是 Slash/MCP：
+
+| 入口 | 用途 |
 |------|------|
-| `harness-mem init` | 初始化数据目录 |
-| `harness-mem quickstart` | 一步完成初始化、活动项目设置、最近 session 发现与接入引导 |
-| `harness-mem doctor` | 检查本地状态、展示最近 session，并给出最佳下一步建议 |
-| `harness-mem use` | 设置当前活动项目 |
-| `harness-mem ingest [auto\|claude-code\|codex\|codex-archive]` | 默认按当前 agent 环境与当前项目路径增量接入 sessions；全局导入需显式 `--scope all` |
-| `harness-mem distill` | 启发式 structured memory fallback；高质量主动提炼默认走 `/hm:distill` + `tools/session-distill` |
-| `harness-mem wake-up` | 生成项目唤醒上下文 |
-| `harness-mem search` | 搜索记忆，支持 `--mode auto\|fts\|hybrid` |
-| `harness-mem timeline` | 时间线视图 |
-| `harness-mem show` | 查看单条 observation，支持 `-o/--observation-id` |
-| `harness-mem status` | 查看状态 |
-| `harness-mem profile` | 查看项目 profile |
-| `harness-mem purge` | 软删除旧 observations / structured memory |
-| `harness-mem correct` | 纠正 → 生成候选规则 |
-| `harness-mem confirm-rule` | 确认候选规则 |
-| `harness-mem reject-rule` | 拒绝候选规则 |
-| `harness-mem list-candidates` | 列出候选规则 |
-| `harness-mem confirmed-rules` | 列出已确认规则 |
-| `harness-mem handoff` | 创建/更新任务交接 |
-| `harness-mem api` | 启动 REST API server |
-| `harness-mem maintenance assign-memory-types` | One-shot 幂等 backfill：给老 `MemoryEntry` 加 `memory_type`（`--dry-run` 默认；`--apply` 落盘）|
+| `/hm:status` | 看当前项目记忆健康度和下一步建议 |
+| `/hm:distill <project> <n>` | 一键灌入、提炼、自动审核低风险候选，并给最终复核摘要 |
+| `/hm:wake` | 开新任务时加载已确认记忆 |
+| `/hm:search "query"` | 搜索本项目记忆 |
 
-### 常用短别名
+CLI 是开发者控制台，用于安装、诊断、脚本化和异常兜底。README 只保留最小参考，完整列表以 `harness-mem --help` 为准：
 
-| 简写 | 完整命令 |
-|------|----------|
-| `wake` | `wake-up` |
-| `tl` | `timeline` |
-| `ds` | `distill` |
-| `confirm` | `confirm-rule` |
-| `reject` | `reject-rule` |
-| `rules` | `confirmed-rules` |
-| `candidates` | `list-candidates` |
-| `st` | `status` |
-| `qs` | `quickstart` |
+| 场景 | 命令 |
+|------|------|
+| 安装/诊断 | `harness-mem quickstart`、`harness-mem doctor`、`harness-mem status` |
+| 当前项目 | `harness-mem use <project>`、`harness-mem profile` |
+| 摄取兜底 | `harness-mem ingest -n 10`，跨项目历史必须显式 `--scope all` |
+| 提炼兜底 | `harness-mem distill` / `harness-mem ds`，仅作启发式 fallback |
+| 运行时检查 | `harness-mem wake`、`harness-mem search "query"`、`harness-mem timeline`、`harness-mem show -o <id>` |
+| 候选修正 | `harness-mem candidates`、`harness-mem confirm <id>`、`harness-mem reject <id>` |
+| 维护/服务 | `harness-mem purge --dry-run`、`harness-mem api`、`harness-mem maintenance ...` |
 
 ---
 
 ## CLI UX Notes
 
-- `quickstart` 会先看最近的 session，再决定帮你走 ingest 还是提示你下一步
-- `doctor` 会根据当前项目里有没有 observations / structured memory，直接建议 `ingest`、`ds` 或 `wake`
+- `quickstart` 会先看最近的 session，再建议接入 Slash/MCP 主路径或给出本地兜底命令
+- `doctor` 会根据当前项目里有没有 observations / structured memory，优先建议 `/hm:distill`、`/hm:wake` 或必要的本地排障命令
 - `doctor` / `wake` 在 budget 达到高水位时，会直接给出带项目作用域的 `purge --dry-run` 建议
 - `search` 会展示请求模式和实际生效模式；embedding 不可用时会明确标注 fallback 到 FTS
 - 关键 CLI 流程现在会把 command / next-step 事件写入本地 `events.log`，方便内部 dogfooding

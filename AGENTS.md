@@ -62,28 +62,27 @@ alwaysApply: true
 
 ---
 
-## 常用命令
+## 日常入口与兜底命令
+
+用户日常入口优先 Slash/MCP/Skill；CLI 只作为本地排障兜底。
+
+```text
+/hm:status
+/hm:distill <project> 10
+/hm:wake
+/hm:search "auth logic"
+```
+
+`/hm:distill` 默认读取 `tools/session-distill`，并完成 ingest -> suggest_* -> list_candidates -> AI auto-review。CLI 只用于安装、诊断、脚本化和异常修正：
 
 ```bash
-# 诊断与状态
+harness-mem quickstart
 harness-mem doctor
 harness-mem status
-harness-mem quickstart
-
-# 用户日常入口优先 Slash/MCP/Skill；CLI 只作为本地排障兜底
-# /hm:distill 默认读取 tools/session-distill，并完成 ingest -> suggest_* -> list_candidates -> AI auto-review
-
-# 候选查看/修正（CLI 兜底；日常由 /hm:distill 自动处理低风险项）
 harness-mem candidates
 harness-mem confirm <id>
 harness-mem reject <id>
-
-# CLI 启发式 fallback，不是高质量提炼主路径
-harness-mem ds
-
-# 运行时消费检查
-harness-mem wake
-harness-mem search "auth logic"
+harness-mem distill  # 启发式 fallback，不是高质量提炼主路径
 ```
 
 ## Key Technologies
