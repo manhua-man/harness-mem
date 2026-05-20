@@ -89,5 +89,6 @@ harness-mem distill  # 启发式 fallback，不是高质量提炼主路径
 
 - **Runtime**: Python 3.13+
 - **Database**: SQLite FTS5 verbatim index + JSON blobs / JSONL-style structured memory
+- **Embedding baseline**: LongMemEval / benchmark docs default to `all-MiniLM-L6-v2`; `bge-small-en-v1.5` and `nomic-embed-text-v1.5` stay as configurable shootout candidates unless a later shootout explicitly changes the default.
 - **Integration**: MCP (Model Context Protocol) + GStack / Codex / Claude Skills
 - **Primary workflow**: Skill-driven distillation, Slash/MCP AI auto-review with human final review, MCP runtime consumption

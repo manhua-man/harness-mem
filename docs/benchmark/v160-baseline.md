@@ -2,6 +2,8 @@
 
 > 启动当日 baseline，作为 v1.6.x 三切片"不回退"承诺的锚点。
 >
+> 文档与 benchmark 默认以 `all-MiniLM-L6-v2` 作为 embedding 基线模型；除非单独的 shootout 报告另有说明，否则这里的 `hybrid (real)` 就是后续对比锚点。
+>
 > 数据集: `longmemeval_s_cleaned.json` (500 questions across 6 question types)
 > 跑测时间: 2026-05-17
 > 命令: `python -m harness_mem.tools.longmemeval <dataset> --mode <mode> --top-k 5 [--use-real-hybrid]`

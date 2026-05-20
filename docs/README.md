@@ -7,6 +7,8 @@
 | `benchmark/` | benchmark 系统设计与各版本基线，例如 `v160-baseline.md`、`v161-bucket-budget-impact.md`、`longmemeval-five-dimensions.md` |
 | `roadmap/` | 版本规划与 roadmap proposal |
 
+其中 LongMemEval / embedding 相关文档默认以 `all-MiniLM-L6-v2` 作为基线锚点，除非某份 shootout 文档明确写了其它模型。
+
 根目录常驻文档：
 
 | 文件 | 用途 |
