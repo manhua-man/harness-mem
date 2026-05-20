@@ -43,6 +43,20 @@ class LocalStructuredStore:
     def _blob_path(self, entity_type: str, id: str) -> Path:
         return self._subdirs[entity_type] / f"{id}.json"
 
+    def _current_only_clause(self) -> tuple[str, tuple[str]]:
+        now = datetime.now(timezone.utc).isoformat()
+        return "(valid_to IS NULL OR valid_to = '' OR valid_to > ?)", (now,)
+
+    def _is_current_data(self, data: dict) -> bool:
+        valid_to = data.get("valid_to")
+        if not valid_to:
+            return True
+        if isinstance(valid_to, str):
+            valid_to = datetime.fromisoformat(valid_to)
+        if valid_to.tzinfo is None:
+            valid_to = valid_to.replace(tzinfo=timezone.utc)
+        return valid_to > datetime.now(timezone.utc)
+
     def _backfill_confirmed_rule_source_sessions(self) -> None:
         """Backfill source_session_id for confirmed rules created before v1.1.1."""
         confirmed_rules_dir = self._subdirs["confirmed_rules"]
@@ -113,6 +127,11 @@ class LocalStructuredStore:
                 "usage_count": entry.usage_count,
                 "last_accessed_at": entry.last_accessed_at,
                 "memory_type": entry.memory_type,
+                "valid_from": entry.valid_from,
+                "valid_to": entry.valid_to,
+                "recorded_at": entry.recorded_at,
+                "supersedes": entry.supersedes,
+                "superseded_by": entry.superseded_by,
             },
         )
 
@@ -146,6 +165,7 @@ class LocalStructuredStore:
         category: str | None = None,
         limit: int = 100,
         status: str = "accepted",
+        include_history: bool = False,
     ) -> list[MemoryEntry]:
         where_parts = [
             "project_name = ?",
@@ -153,6 +173,10 @@ class LocalStructuredStore:
             "COALESCE(status, 'accepted') = ?",
         ]
         params = [project_name, status]
+        if not include_history:
+            clause, clause_params = self._current_only_clause()
+            where_parts.append(clause)
+            params.extend(clause_params)
         if category:
             where_parts.append("category = ?")
             params.append(category)
@@ -175,6 +199,8 @@ class LocalStructuredStore:
                 # If specifically listing accepted, but blob says otherwise, skip
                 if status == "accepted" and data.get("status", "accepted") != "accepted":
                     continue
+                if not include_history and not self._is_current_data(data):
+                    continue
                 results.append(MemoryEntry.from_dict(data))
         return results
 
@@ -186,12 +212,17 @@ class LocalStructuredStore:
         mode: str = "auto",
         status: str = "accepted",
         memory_type: list[str] | None = None,
+        include_history: bool = False,
     ) -> list[MemoryEntry]:
         extra_where_parts = [
             "COALESCE(compacted, 0) = 0",
             "COALESCE(status, 'accepted') = ?",
         ]
         extra_params: tuple = (status,)
+        if not include_history:
+            clause, clause_params = self._current_only_clause()
+            extra_where_parts.append(clause)
+            extra_params = (*extra_params, *clause_params)
         if project_name:
             extra_where_parts.append("project_name = ?")
             extra_params = (*extra_params, project_name)
@@ -220,6 +251,8 @@ class LocalStructuredStore:
                 if data.get("status", "accepted") != status:
                     continue
                 if memory_type and data.get("memory_type", "semantic") not in memory_type:
+                    continue
+                if not include_history and not self._is_current_data(data):
                     continue
                 data.update({
                     "_search_mode": search_result.effective_mode,
@@ -442,6 +475,11 @@ class LocalStructuredStore:
                 "source_candidate_id": rule.source_candidate_id,
                 "source_session_id": rule.source_session_id,
                 "tags": rule.tags,
+                "valid_from": rule.valid_from,
+                "valid_to": rule.valid_to,
+                "recorded_at": rule.recorded_at,
+                "supersedes": rule.supersedes,
+                "superseded_by": rule.superseded_by,
             },
         )
         return rule.id
@@ -453,12 +491,22 @@ class LocalStructuredStore:
         data = json.loads(blob_path.read_text())
         return ConfirmedRule.from_dict(data)
 
-    async def list_confirmed_rules(self, project_name: str) -> list[ConfirmedRule]:
+    async def list_confirmed_rules(
+        self,
+        project_name: str,
+        include_history: bool = False,
+    ) -> list[ConfirmedRule]:
+        where_parts = ["project_name = ?"]
+        params: list[str] = [project_name]
+        if not include_history:
+            clause, clause_params = self._current_only_clause()
+            where_parts.append(clause)
+            params.extend(clause_params)
         rows = await asyncio.to_thread(
             self._index.list,
             "confirmed_rules",
-            "project_name = ?",
-            (project_name,),
+            " AND ".join(where_parts),
+            tuple(params),
             order_by="confirmed_at DESC",
         )
         results = []
@@ -466,6 +514,8 @@ class LocalStructuredStore:
             blob_path = self._blob_path("confirmed_rules", row["id"])
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
+                if not include_history and not self._is_current_data(data):
+                    continue
                 results.append(ConfirmedRule.from_dict(data))
         return results
 
@@ -490,6 +540,11 @@ class LocalStructuredStore:
                 "created_at": fact.created_at,
                 "updated_at": fact.updated_at,
                 "tags": fact.tags,
+                "valid_from": fact.valid_from,
+                "valid_to": fact.valid_to,
+                "recorded_at": fact.recorded_at,
+                "supersedes": fact.supersedes,
+                "superseded_by": fact.superseded_by,
             },
         )
         return fact.id
@@ -509,12 +564,17 @@ class LocalStructuredStore:
         relation_type: str | None = None,
         limit: int = 100,
         status: str = "accepted",
+        include_history: bool = False,
     ) -> list[RelationFact]:
         where_parts = [
             "project_name = ?",
             "COALESCE(status, 'accepted') = ?",
         ]
         params = [project_name, status]
+        if not include_history:
+            clause, clause_params = self._current_only_clause()
+            where_parts.append(clause)
+            params.extend(clause_params)
         if source_entity:
             where_parts.append("source_entity = ?")
             params.append(source_entity)
@@ -540,6 +600,8 @@ class LocalStructuredStore:
                 data = json.loads(blob_path.read_text())
                 if data.get("status", "accepted") != status:
                     continue
+                if not include_history and not self._is_current_data(data):
+                    continue
                 results.append(RelationFact.from_dict(data))
         return results
 
@@ -549,9 +611,14 @@ class LocalStructuredStore:
         project_name: str | None = None,
         limit: int = 20,
         status: str = "accepted",
+        include_history: bool = False,
     ) -> list[RelationFact]:
         extra_where_parts = ["COALESCE(status, 'accepted') = ?"]
         extra_params: tuple = (status,)
+        if not include_history:
+            clause, clause_params = self._current_only_clause()
+            extra_where_parts.append(clause)
+            extra_params = (*extra_params, *clause_params)
         if project_name:
             extra_where_parts.append("project_name = ?")
             extra_params = (*extra_params, project_name)
@@ -570,6 +637,8 @@ class LocalStructuredStore:
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
                 if data.get("status", "accepted") != status:
+                    continue
+                if not include_history and not self._is_current_data(data):
                     continue
                 if "_fts_score" in row:
                     data["_fts_score"] = row["_fts_score"]

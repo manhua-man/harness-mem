@@ -39,7 +39,12 @@ _TABLE_SCHEMAS = {
         compacted INTEGER NOT NULL DEFAULT 0,
         usage_count INTEGER NOT NULL DEFAULT 0,
         last_accessed_at TEXT,
-        memory_type TEXT NOT NULL DEFAULT 'semantic'
+        memory_type TEXT NOT NULL DEFAULT 'semantic',
+        valid_from TEXT,
+        valid_to TEXT,
+        recorded_at TEXT,
+        supersedes TEXT NOT NULL DEFAULT '[]',
+        superseded_by TEXT NOT NULL DEFAULT '[]'
     """,
     "task_handoffs": """
         id TEXT PRIMARY KEY,
@@ -74,7 +79,12 @@ _TABLE_SCHEMAS = {
         confirmed_at TEXT NOT NULL,
         source_candidate_id TEXT NOT NULL,
         source_session_id TEXT NOT NULL DEFAULT '',
-        tags TEXT NOT NULL DEFAULT '[]'
+        tags TEXT NOT NULL DEFAULT '[]',
+        valid_from TEXT,
+        valid_to TEXT,
+        recorded_at TEXT,
+        supersedes TEXT NOT NULL DEFAULT '[]',
+        superseded_by TEXT NOT NULL DEFAULT '[]'
     """,
     "relation_facts": """
         id TEXT PRIMARY KEY,
@@ -88,7 +98,12 @@ _TABLE_SCHEMAS = {
         source TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        tags TEXT NOT NULL DEFAULT '[]'
+        tags TEXT NOT NULL DEFAULT '[]',
+        valid_from TEXT,
+        valid_to TEXT,
+        recorded_at TEXT,
+        supersedes TEXT NOT NULL DEFAULT '[]',
+        superseded_by TEXT NOT NULL DEFAULT '[]'
     """,
     "vec_embeddings": """
         entry_id TEXT PRIMARY KEY,
@@ -109,12 +124,27 @@ _COLUMN_MIGRATIONS = {
         "usage_count": "INTEGER NOT NULL DEFAULT 0",
         "last_accessed_at": "TEXT",
         "memory_type": "TEXT NOT NULL DEFAULT 'semantic'",
+        "valid_from": "TEXT",
+        "valid_to": "TEXT",
+        "recorded_at": "TEXT",
+        "supersedes": "TEXT NOT NULL DEFAULT '[]'",
+        "superseded_by": "TEXT NOT NULL DEFAULT '[]'",
     },
     "relation_facts": {
         "status": "TEXT NOT NULL DEFAULT 'accepted'",
+        "valid_from": "TEXT",
+        "valid_to": "TEXT",
+        "recorded_at": "TEXT",
+        "supersedes": "TEXT NOT NULL DEFAULT '[]'",
+        "superseded_by": "TEXT NOT NULL DEFAULT '[]'",
     },
     "confirmed_rules": {
         "source_session_id": "TEXT NOT NULL DEFAULT ''",
+        "valid_from": "TEXT",
+        "valid_to": "TEXT",
+        "recorded_at": "TEXT",
+        "supersedes": "TEXT NOT NULL DEFAULT '[]'",
+        "superseded_by": "TEXT NOT NULL DEFAULT '[]'",
     },
 }
 
@@ -481,11 +511,11 @@ class SQLiteIndex:
         """Deserialize JSON fields back to Python objects."""
         json_fields = {
             "observations": ["tags", "metadata"],
-            "memory_entries": ["tags"],
+            "memory_entries": ["tags", "supersedes", "superseded_by"],
             "task_handoffs": ["next_steps", "blockers", "context"],
             "rule_candidates": ["examples"],
-            "confirmed_rules": ["examples", "tags"],
-            "relation_facts": ["tags"],
+            "confirmed_rules": ["examples", "tags", "supersedes", "superseded_by"],
+            "relation_facts": ["tags", "supersedes", "superseded_by"],
         }
         fields = json_fields.get(table, [])
         for col in fields:

@@ -8,11 +8,17 @@ from harness_mem.adapters.claude_code.project_profile_detector import build_proj
 
 pytestmark = pytest.mark.integration
 
-WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
+def _fixture_path(name: str) -> Path:
+    test_file = Path(__file__).resolve()
+    for parent in test_file.parents:
+        candidate = parent / "tests" / "fixtures" / name
+        if candidate.exists():
+            return candidate
+    raise AssertionError(f"Fixture not found: {name}")
 
 
 def test_build_project_profile_detects_php_ts_monorepo():
-    fixture_path = WORKSPACE_ROOT / "tests" / "fixtures" / "php-ts-monorepo"
+    fixture_path = _fixture_path("php-ts-monorepo")
     profile = build_project_profile(fixture_path, project_name="php-ts-monorepo")
 
     assert profile.project_name == "php-ts-monorepo"

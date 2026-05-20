@@ -34,8 +34,34 @@ class ConfirmedRule(BaseModel):
         default=None,
         description="来源线索: {session_id, observation_ids, agent_type, tool_name}"
     )
+    valid_from: datetime | None = Field(
+        default=None,
+        description="When this rule becomes valid. Defaults to confirmed_at.",
+    )
+    valid_to: datetime | None = Field(
+        default=None,
+        description="When this rule stops being current; None means current.",
+    )
+    recorded_at: datetime | None = Field(
+        default=None,
+        description="When harness-mem recorded this rule. Defaults to confirmed_at.",
+    )
+    supersedes: list[str] = Field(
+        default_factory=list,
+        description="Rule ids this rule supersedes.",
+    )
+    superseded_by: list[str] = Field(
+        default_factory=list,
+        description="Rule ids that supersede this rule.",
+    )
 
     model_config = {"extra": "allow"}
+
+    def model_post_init(self, __context: object) -> None:
+        if self.valid_from is None:
+            self.valid_from = self.confirmed_at
+        if self.recorded_at is None:
+            self.recorded_at = self.confirmed_at
 
     def to_dict(self) -> dict:
         return {
@@ -49,12 +75,28 @@ class ConfirmedRule(BaseModel):
             "source_session_id": self.source_session_id,
             "tags": self.tags,
             "provenance": self.provenance,
+            "valid_from": self.valid_from.isoformat() if self.valid_from else None,
+            "valid_to": self.valid_to.isoformat() if self.valid_to else None,
+            "recorded_at": self.recorded_at.isoformat() if self.recorded_at else None,
+            "supersedes": self.supersedes,
+            "superseded_by": self.superseded_by,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "ConfirmedRule":
-        if isinstance(data.get("confirmed_at"), str):
-            data["confirmed_at"] = datetime.fromisoformat(data["confirmed_at"])
+        for field in ("confirmed_at", "valid_from", "valid_to", "recorded_at"):
+            if isinstance(data.get(field), str):
+                data[field] = datetime.fromisoformat(data[field])
         if "provenance" not in data:
             data["provenance"] = None
+        if "valid_from" not in data or data["valid_from"] is None:
+            data["valid_from"] = data.get("confirmed_at")
+        if "recorded_at" not in data or data["recorded_at"] is None:
+            data["recorded_at"] = data.get("confirmed_at")
+        if "valid_to" not in data:
+            data["valid_to"] = None
+        if "supersedes" not in data or data["supersedes"] is None:
+            data["supersedes"] = []
+        if "superseded_by" not in data or data["superseded_by"] is None:
+            data["superseded_by"] = []
         return cls(**data)
