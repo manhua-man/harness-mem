@@ -28,7 +28,11 @@ def test_cmd_distill_all_sessions_processes_project(
 
     patch_cli_adapters(monkeypatch, claude_sessions_root=claude_sessions_root)
 
-    assert run(cli.cmd_distill("demo")) == 0
+    # v1.6.1: distill default writes pending candidates. Use the explicit
+    # `--auto-confirm` path here so we can assert the entry shows up in the
+    # default (status='accepted') listing — that path is the legacy
+    # ingest -> distill -> wake dogfood loop.
+    assert run(cli.cmd_distill("demo", auto_confirm=True)) == 0
 
     backend = LocalMemoryBackend(data_dir)
     run(backend.init())
@@ -36,6 +40,47 @@ def test_cmd_distill_all_sessions_processes_project(
         entries = run(backend.structured_store.list_memory_entries("demo", limit=10))
         assert len(entries) == 1
         assert "SQLite FTS5" in entries[0].content
+        assert entries[0].status == "accepted"
+    finally:
+        run(backend.close())
+
+
+def test_cmd_distill_default_writes_pending_candidates(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    claude_sessions_root: Path,
+):
+    """v1.6.1: distill 默认产 pending 候选，不直接进入 accepted 列表。"""
+    write_claude_session(
+        claude_sessions_root,
+        "demo",
+        "sess-pending",
+        "Please help with search.",
+        ["We decided to use SQLite FTS5 for project search indexing."],
+    )
+
+    patch_cli_adapters(monkeypatch, claude_sessions_root=claude_sessions_root)
+
+    assert run(cli.cmd_distill("demo")) == 0
+
+    captured = capsys.readouterr().out
+    assert "(status: pending" in captured
+    assert "(pending) from 1 sessions" in captured
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        accepted = run(
+            backend.structured_store.list_memory_entries("demo", limit=10, status="accepted")
+        )
+        assert accepted == []
+        pending = run(
+            backend.structured_store.list_memory_entries("demo", limit=10, status="pending")
+        )
+        assert len(pending) == 1
+        assert pending[0].status == "pending"
+        assert "SQLite FTS5" in pending[0].content
     finally:
         run(backend.close())
 
@@ -59,7 +104,7 @@ def test_cmd_distill_uses_matching_claude_project_directory_when_mcp_cwd_differs
     patch_cli_adapters(monkeypatch, claude_sessions_root=claude_sessions_root)
     monkeypatch.chdir(mcp_server_cwd)
 
-    assert run(cli.cmd_distill("v0191_recover")) == 0
+    assert run(cli.cmd_distill("v0191_recover", auto_confirm=True)) == 0
 
     captured = capsys.readouterr().out
     assert "Claude session project: f--SourceCode-v0191-recover" in captured
@@ -91,7 +136,7 @@ def test_cmd_distill_prints_heuristic_pattern_source(
     assert run(cli.cmd_distill("demo", "sess-pattern-source")) == 0
 
     captured = capsys.readouterr().out
-    assert "(source: we decided to use)" in captured
+    assert "(status: pending, source: we decided to use)" in captured
 
 
 def test_cmd_distill_prints_per_entry_sources_for_multi_entry_session(
@@ -125,8 +170,8 @@ def test_cmd_distill_prints_per_entry_sources_for_multi_entry_session(
     assert run(cli.cmd_distill("demo", "sess-multi-entry")) == 0
 
     captured = capsys.readouterr().out
-    assert "(source: we decided to use)" in captured
-    assert "(source: the fix was)" in captured
+    assert "source: we decided to use" in captured
+    assert "source: the fix was" in captured
 
 
 def test_distill_ignores_user_only_prompts(data_dir: Path, claude_sessions_root: Path):
@@ -212,7 +257,7 @@ def test_distill_extracts_relation_facts(
 
     patch_cli_adapters(monkeypatch, claude_sessions_root=claude_sessions_root)
 
-    assert run(cli.cmd_distill("demo", "sess-relation")) == 0
+    assert run(cli.cmd_distill("demo", "sess-relation", auto_confirm=True)) == 0
     captured = capsys.readouterr().out
     assert "Extracted 1 relation facts from sess-relation" in captured
     assert "HybridSearchLayer --delegates_to-> SQLiteIndex" in captured

@@ -133,6 +133,16 @@ python -m harness_mem.tools.longmemeval --help
 
 `harness-mem` 这个裸命令来自 editable install 生成的 console script。Windows 上如果 `Scripts` 目录不在 `PATH`，就用 `python -m harness_mem.cli ...`，或把对应 Python 的 `Scripts` 目录加入 `PATH`。
 
+v1.6.2 里如果你要检查或重建向量索引，直接走：
+
+```bash
+harness-mem doctor
+harness-mem maintenance rebuild-vector-index --project <project-name>
+python -m harness_mem.tools.embedding_shootout
+```
+
+`doctor` 会提示是否需要重建向量索引；`rebuild-vector-index` 会把当前项目的持久化向量重建回来；`embedding_shootout` 会输出 `docs/benchmark/v162-embedding-shootout.md` 作为模型拍板记录。
+
 ### 2. 自检环境
 
 ```bash

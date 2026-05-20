@@ -88,10 +88,13 @@ class HybridSearchLayer:
 
     def _embed_texts(self, texts: builtins.list[str]) -> builtins.list[builtins.list[float]] | None:
         """Generate embeddings for texts. Returns None on failure."""
-        if not self._ensure_embedding() or self._embedding_model is None:
-            return None
         try:
-            embeddings = self._embedding_model.encode(texts, convert_to_numpy=True)
+            from harness_mem.commands.support import get_embedding_model_id
+            from harness_mem.embedding import get_model_loader
+
+            model_id = get_embedding_model_id()
+            loader = get_model_loader(model_id)
+            embeddings = loader.encode(texts)
             return embeddings.tolist()
         except Exception:
             return None
@@ -310,15 +313,21 @@ class HybridSearchLayer:
             return {}, {}, {}
 
         candidates = list(candidate_by_id.values())
-        content_field = self._content_field(table)
-        texts: builtins.list[str] = [str(row.get(content_field, "")) for row in candidates]
-        doc_embeddings = self._embed_texts(texts)
-        if doc_embeddings is None:
+
+        # v1.6.2: Read persisted embeddings from vec_embeddings table.
+        # If the table is missing, empty, or no rows survive filtering, fall
+        # back to FTS rather than re-encoding documents on the hot path.
+        doc_embeddings_dict = self._read_persisted_embeddings(
+            [row["id"] for row in candidates]
+        )
+        if doc_embeddings_dict is None:
             return None
 
         sim_scores: dict[str, float] = {}
-        for row, doc_emb in zip(candidates, doc_embeddings):
-            sim_scores[row["id"]] = self._cosine_similarity(query_embedding, doc_emb)
+        for row in candidates:
+            doc_emb = doc_embeddings_dict.get(row["id"])
+            if doc_emb is not None:
+                sim_scores[row["id"]] = self._cosine_similarity(query_embedding, doc_emb)
 
         vec_rank: dict[str, int] = {
             row_id: rank
@@ -348,6 +357,79 @@ class HybridSearchLayer:
             normalized = max(0.0, min(1.0, normalized))
             factors[row_id] = normalized**exponent if exponent > 0 else 1.0
         return factors
+
+    def _read_persisted_embeddings(
+        self, entry_ids: builtins.list[str]
+    ) -> dict[str, builtins.list[float]] | None:
+        """Read persisted embeddings from vec_embeddings table (v1.6.2).
+
+        Returns dict mapping entry_id to embedding vector (as list of floats).
+        Returns ``None`` if the table is missing, empty, or every row is
+        filtered out, so the caller can fall back to FTS.
+        """
+        if not entry_ids:
+            return None
+
+        try:
+            from harness_mem.commands.support import get_embedding_model_id
+            from harness_mem.embedding import get_model_loader
+            import numpy as np
+            import logging
+
+            model_id = get_embedding_model_id()
+            loader = get_model_loader(model_id)
+            expected_dim = loader.dimensions
+
+            conn = self._sqlite._conn_write()
+
+            # Build SQL query with IN clause
+            placeholders = ','.join('?' * len(entry_ids))
+            query = f"""
+                SELECT entry_id, embedding
+                FROM vec_embeddings
+                WHERE entry_id IN ({placeholders}) AND model_id = ?
+            """
+            params = (*entry_ids, model_id)
+
+            cursor = conn.execute(query, params)
+            rows = cursor.fetchall()
+            if not rows:
+                return None
+
+            result: dict[str, builtins.list[float]] = {}
+
+            for row in rows:
+                entry_id = row[0]
+                embedding_blob = row[1]
+
+                # Deserialize BLOB to numpy array
+                embedding_array = np.frombuffer(embedding_blob, dtype=np.float32)
+
+                # Dimension mismatch detection (v1.6.2)
+                if len(embedding_array) != expected_dim:
+                    logging.warning(
+                        f"Dimension mismatch for entry {entry_id}: "
+                        f"stored={len(embedding_array)}, expected={expected_dim}. "
+                        f"Skipping this vector. Run: harness-mem maintenance rebuild-vector-index"
+                    )
+                    continue
+
+                result[entry_id] = embedding_array.tolist()
+
+            # Log if all vectors filtered out
+            if rows and not result:
+                logging.warning(
+                    f"All {len(rows)} persisted vectors filtered out due to dimension mismatch. "
+                    f"Falling back to FTS mode. Run: harness-mem maintenance rebuild-vector-index"
+                )
+                return None
+
+            return result or None
+        except Exception as e:
+            # Table doesn't exist or other error, fall back to FTS.
+            import logging
+            logging.debug(f"Failed to read persisted embeddings: {e}")
+            return None
 
     def _list_vector_candidates(
         self,

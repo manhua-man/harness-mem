@@ -107,6 +107,14 @@ def main():
     wake = sub.add_parser("wake-up", aliases=["wake"], help="Generate wake-up context")
     wake.add_argument("-p", "--project")
     wake.add_argument("--no-auto-ingest", action="store_true", help="Skip automatic session ingestion")
+    wake.add_argument(
+        "--no-bucket-quota",
+        action="store_true",
+        help=(
+            "v1.6.1: disable memory_type bucket quotas; falls back to v1.6.0 "
+            "single-pool selection. Same as [wake] bucket_quota_enabled = false."
+        ),
+    )
     wake.set_defaults(command_name="wake-up")
 
     # search
@@ -115,6 +123,15 @@ def main():
     search.add_argument("-p", "--project")
     search.add_argument("-q", "--query")
     search.add_argument("--mode", choices=["auto", "fts", "hybrid"], default="auto")
+    search.add_argument(
+        "--memory-type",
+        action="append",
+        choices=["episodic", "semantic", "procedural"],
+        help=(
+            "v1.6.1: filter memory entries by memory_type (repeatable for OR-filter; "
+            "default no filter). Observations / relation facts are unaffected."
+        ),
+    )
     search.set_defaults(command_name="search")
 
     # timeline
@@ -150,6 +167,14 @@ def main():
     ds.add_argument("-s", "--session-id", dest="session_id")
     ds.add_argument("-c", "--category", choices=["architecture", "convention", "api", "bug", "decision"])
     ds.add_argument("--project-root", help="Project root for Claude project session matching")
+    ds.add_argument(
+        "--auto-confirm",
+        action="store_true",
+        help=(
+            "v1.6.1 compat: flip distilled candidates from 'pending' back to 'accepted' "
+            "after extraction (legacy ingest -> distill -> wake loop). Default is 'pending'."
+        ),
+    )
     ds.set_defaults(command_name="distill")
 
     # import
@@ -213,7 +238,7 @@ def main():
     maint = sub.add_parser("maintenance", help="One-shot maintenance utilities")
     maint.add_argument(
         "action",
-        choices=["assign-memory-types"],
+        choices=["assign-memory-types", "rebuild-vector-index"],
         help="Maintenance action to run",
     )
     maint.add_argument("-p", "--project", help="Project name (defaults to active project)")
@@ -262,14 +287,27 @@ def main():
         return asyncio.run(cmd_status(args.project))
 
     if command == "wake-up":
-        return asyncio.run(cmd_wake_up(args.project, no_auto_ingest=getattr(args, "no_auto_ingest", False)))
+        return asyncio.run(
+            cmd_wake_up(
+                args.project,
+                no_auto_ingest=getattr(args, "no_auto_ingest", False),
+                no_bucket_quota=getattr(args, "no_bucket_quota", False),
+            )
+        )
 
     if command == "search":
         query = args.query or args.query_arg
         if not query:
             print('No query provided. Try: harness-mem search "your search terms"')
             return 1
-        return asyncio.run(cmd_search(args.project, query, args.mode))
+        return asyncio.run(
+            cmd_search(
+                args.project,
+                query,
+                args.mode,
+                memory_type=getattr(args, "memory_type", None),
+            )
+        )
 
     if command == "timeline":
         limit = args.limit if args.limit is not None else (args.limit_arg or 50)
@@ -306,6 +344,7 @@ def main():
                 sid,
                 category=getattr(args, "category", None),
                 project_root=getattr(args, "project_root", None),
+                auto_confirm=getattr(args, "auto_confirm", False),
             )
         )
 
@@ -326,6 +365,11 @@ def main():
         if args.action == "assign-memory-types":
             return asyncio.run(
                 cmd_assign_memory_types(args.project, apply=not args.dry_run)
+            )
+        elif args.action == "rebuild-vector-index":
+            from harness_mem.commands.maintenance import cmd_rebuild_vector_index
+            return asyncio.run(
+                cmd_rebuild_vector_index(args.project)
             )
         parser.error(f"Unknown maintenance action: {args.action}")
 

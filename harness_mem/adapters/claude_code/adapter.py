@@ -17,6 +17,7 @@ from harness_mem.adapters.parser import (
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.core.schemas import MemoryEntry, Observation, RelationFact
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
+from harness_mem.distill_context import DistillContext
 
 
 # Default Claude Code session directory
@@ -176,6 +177,7 @@ class ClaudeCodeAdapter:
         category: str | None = None,
         *,
         session_project_name: str | None = None,
+        distill_context: DistillContext | None = None,
     ) -> list[MemoryEntry]:
         """Run heuristic pattern matching (not AI extraction) over a session.
 
@@ -194,7 +196,12 @@ class ClaudeCodeAdapter:
            use the ``session-distill`` skill instead.
 
         If *category* is specified, only entries matching that category are
-        returned/saved.  Returns all newly saved entries for this session.
+        returned/saved.
+
+        v1.6.1: when ``distill_context`` is provided, all writes go through the
+        candidate layer (``status="pending"``). The legacy ``backend`` path is
+        retained for adapters that have not migrated yet — those still write
+        directly with ``status="accepted"``.
         """
         project_dir = self.sessions_dir / (session_project_name or project_name)
         if not project_dir.exists():
@@ -220,6 +227,24 @@ class ClaudeCodeAdapter:
         if not entries:
             return []
 
+        if distill_context is not None:
+            existing_entries = await distill_context.list_memory_entries(
+                project_name, limit=10000
+            )
+            existing_keys = {
+                self._entry_key(entry.category, entry.content, entry.source)
+                for entry in existing_entries
+            }
+            saved_entries: list[MemoryEntry] = []
+            for entry in entries:
+                entry_key = self._entry_key(entry.category, entry.content, entry.source)
+                if entry_key in existing_keys:
+                    continue
+                await distill_context.suggest_memory_entry(entry)
+                existing_keys.add(entry_key)
+                saved_entries.append(entry)
+            return saved_entries
+
         if self.backend is None:
             raise RuntimeError("ClaudeCodeAdapter.distill_session requires an initialized backend")
 
@@ -232,7 +257,7 @@ class ClaudeCodeAdapter:
             for entry in existing_entries
         }
 
-        saved_entries: list[MemoryEntry] = []
+        saved_entries = []
         for entry in entries:
             entry_key = self._entry_key(entry.category, entry.content, entry.source)
             if entry_key in existing_keys:
@@ -249,8 +274,13 @@ class ClaudeCodeAdapter:
         project_name: str,
         *,
         session_project_name: str | None = None,
+        distill_context: DistillContext | None = None,
     ) -> list[RelationFact]:
-        """Extract and save explicit RelationFact records from a session."""
+        """Extract and save explicit RelationFact records from a session.
+
+        v1.6.1: when ``distill_context`` is provided, writes go through
+        ``DistillContext.suggest_relation_fact`` (``status="pending"``).
+        """
         project_dir = self.sessions_dir / (session_project_name or project_name)
         if not project_dir.exists():
             return []
@@ -269,6 +299,31 @@ class ClaudeCodeAdapter:
         if not facts:
             return []
 
+        if distill_context is not None:
+            existing_facts = await distill_context.list_relation_facts(
+                project_name, limit=10000
+            )
+            existing_keys = {
+                self._relation_fact_key(
+                    fact.source_entity, fact.relation_type, fact.target_entity, fact.source
+                )
+                for fact in existing_facts
+            }
+            saved_facts: list[RelationFact] = []
+            for fact in facts:
+                fact_key = self._relation_fact_key(
+                    fact.source_entity,
+                    fact.relation_type,
+                    fact.target_entity,
+                    fact.source,
+                )
+                if fact_key in existing_keys:
+                    continue
+                await distill_context.suggest_relation_fact(fact)
+                existing_keys.add(fact_key)
+                saved_facts.append(fact)
+            return saved_facts
+
         if self.backend is None:
             raise RuntimeError("ClaudeCodeAdapter.distill_relation_facts requires an initialized backend")
 
@@ -281,7 +336,7 @@ class ClaudeCodeAdapter:
             for fact in existing_facts
         }
 
-        saved_facts: list[RelationFact] = []
+        saved_facts = []
         for fact in facts:
             fact_key = self._relation_fact_key(
                 fact.source_entity,

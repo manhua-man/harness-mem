@@ -12,6 +12,7 @@ from pathlib import Path
 from harness_mem.adapters import AdapterRegistry
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
+    WakeBucketQuotaError,
     get_config,
     log_command_invoked,
     log_next_step_shown,
@@ -20,13 +21,19 @@ from harness_mem.commands.support import (
     profile_text,
     resolve_project_name,
     wake_budget,
+    wake_bucket_enabled,
+    wake_bucket_quotas,
 )
 from harness_mem.commands.ingest import _select_claude_candidate_sessions
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.event_log import EventType, get_event_logger
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
-from harness_mem.wake_selection import select_wake_memory_entries
+from harness_mem.wake_selection import (
+    BUCKET_ORDER,
+    select_wake_memory_entries,
+    select_wake_memory_entries_with_buckets,
+)
 
 AUTO_SYNC_TIMEOUT_SECONDS = 0.3
 DEFAULT_AUTO_INGEST_MIN_INTERVAL_SECONDS = 300
@@ -331,8 +338,17 @@ async def _session_exists_for_project(
     )
 
 
-async def cmd_wake_up(project_name: str | None, no_auto_ingest: bool = False) -> int:
-    """Generate wake-up context for a project."""
+async def cmd_wake_up(
+    project_name: str | None,
+    no_auto_ingest: bool = False,
+    *,
+    no_bucket_quota: bool = False,
+) -> int:
+    """Generate wake-up context for a project.
+
+    v1.6.1: ``no_bucket_quota`` (CLI ``--no-bucket-quota``) overrides config
+    ``[wake] bucket_quota_enabled`` and forces the v1.6.0 single-pool behavior.
+    """
     project_name = resolve_project_name(project_name, action_label="wake-up")
     if not project_name:
         return 1
@@ -340,6 +356,19 @@ async def cmd_wake_up(project_name: str | None, no_auto_ingest: bool = False) ->
     # Configuration check
     config = get_config()
     should_auto_ingest = not no_auto_ingest and config.get("wake", {}).get("auto_ingest", True)
+    bucket_quota_active = (not no_bucket_quota) and wake_bucket_enabled(config)
+    quotas: dict[str, float] | None = None
+    if bucket_quota_active:
+        try:
+            quotas = wake_bucket_quotas(config)
+        except WakeBucketQuotaError as exc:
+            print(f"Error ({exc.code}): {exc}")
+            print(
+                "Fix: edit ~/.harness-mem/config.toml [wake] bucket_quota_* "
+                "(default: 0.5 / 0.5 / 0.0). "
+                "Or run with --no-bucket-quota to fall back to v1.6.0 behavior."
+            )
+            return 1
 
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
@@ -444,21 +473,46 @@ async def cmd_wake_up(project_name: str | None, no_auto_ingest: bool = False) ->
             print()
 
         entry_candidates = await backend.structured_store.list_memory_entries(project_name, limit=50)
-        entries = select_wake_memory_entries(entry_candidates, limit=5)
+        if bucket_quota_active and quotas is not None:
+            entries, bucket_stats = select_wake_memory_entries_with_buckets(
+                entry_candidates, limit=5, quotas=quotas, enabled=True
+            )
+        else:
+            entries = select_wake_memory_entries(entry_candidates, limit=5)
+            bucket_stats = {}
         if entries:
             entry_chars = sum(len(entry.content or "") for entry in entries)
             print(f"# Memory Entries  (source: structured_memory, {len(entries)} entries, ~{entry_chars} chars)")
+            if bucket_quota_active and quotas is not None and bucket_stats:
+                quota_line = "  ".join(
+                    f"{bucket}={quotas[bucket]:.2f}" for bucket in BUCKET_ORDER
+                )
+                fill_line = "  ".join(
+                    f"{bucket}={bucket_stats[bucket].used}/{bucket_stats[bucket].quota_count}"
+                    for bucket in BUCKET_ORDER
+                )
+                print(f"#  bucket quotas: {quota_line}")
+                print(f"#  bucket fill:   {fill_line}")
             for entry in entries:
                 content_limit = 100
                 is_trunc = len(entry.content) > content_limit
                 content_preview = entry.content[:content_limit] + "..." if is_trunc else entry.content
                 trunc_marker = " [...truncated]" if is_trunc else ""
-                print(f"- [{entry.category}] {content_preview}{trunc_marker}")
+                memory_type = getattr(entry, "memory_type", "semantic")
+                print(f"- [{entry.category}/{memory_type}] {content_preview}{trunc_marker}")
                 if entry.provenance:
                     provenance = entry.provenance
                     source = provenance.get("session_id", provenance.get("agent_type", "unknown"))
                     print(f"  📍 {source}")
                 await backend.structured_store.touch_memory_entry(entry.id)
+            if bucket_quota_active and quotas is not None and bucket_stats:
+                for bucket in BUCKET_ORDER:
+                    stats = bucket_stats[bucket]
+                    if stats.truncated:
+                        print(
+                            f"[truncated within bucket: {bucket} "
+                            f"{stats.used}/{stats.candidates}]"
+                        )
             print()
         else:
             print("# Memory Entries  (source: structured_memory, empty)")

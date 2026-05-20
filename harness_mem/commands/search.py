@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from harness_mem.commands.support import DEFAULT_DATA_DIR, log_command_invoked, resolve_project_name
 from harness_mem.read_api import (
     format_observation_reference,
@@ -16,15 +18,39 @@ from harness_mem.read_api import (
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
+VALID_MEMORY_TYPES: frozenset[str] = frozenset({"episodic", "semantic", "procedural"})
+
+
 async def cmd_search(
     project_name: str | None,
     query: str,
     mode: str = "auto",
+    *,
+    memory_type: list[str] | None = None,
 ) -> int:
-    """Search memory for a project."""
+    """Search memory for a project.
+
+    v1.6.1: ``memory_type`` accepts a list of {episodic, semantic, procedural}
+    used as an OR filter on memory entries; observations are unaffected.
+    """
     project_name = resolve_project_name(project_name, action_label="search")
     if not project_name:
         return 1
+
+    if memory_type:
+        normalized = [value.strip().lower() for value in memory_type if value]
+        invalid = [value for value in normalized if value not in VALID_MEMORY_TYPES]
+        if invalid:
+            print(
+                "Error: unknown memory_type: "
+                + ", ".join(sorted(set(invalid)))
+                + ". Valid: episodic | semantic | procedural.",
+                file=sys.stderr,
+            )
+            return 1
+        memory_type = normalized
+    else:
+        memory_type = None
 
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
@@ -40,6 +66,7 @@ async def cmd_search(
             mode=mode,
             memory_entry_limit=10,
             observation_limit=10,
+            memory_type=memory_type,
         )
         relation_facts = await search_relation_facts(
             backend,
@@ -57,9 +84,9 @@ async def cmd_search(
             for entry in entries:
                 preview = entry.content[:150] + "..." if len(entry.content) > 150 else entry.content
                 search_mode = getattr(entry, "_search_mode", mode)
-                memory_type = getattr(entry, "memory_type", "semantic")
+                entry_memory_type = getattr(entry, "memory_type", "semantic")
                 print(
-                    f"- [{entry.category}/{memory_type}] {preview}  "
+                    f"- [{entry.category}/{entry_memory_type}] {preview}  "
                     f"(score: {format_search_score(entry)}, mode: {search_mode})  -> structured"
                 )
                 await backend.structured_store.touch_memory_entry(entry.id)

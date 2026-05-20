@@ -112,8 +112,25 @@ class LocalStructuredStore:
                 "compacted": entry.compacted,
                 "usage_count": entry.usage_count,
                 "last_accessed_at": entry.last_accessed_at,
+                "memory_type": entry.memory_type,
             },
         )
+
+        # Persist embedding vector (v1.6.2)
+        try:
+            from harness_mem.commands.support import get_embedding_model_id
+
+            model_id = get_embedding_model_id()
+            await asyncio.to_thread(
+                self._index.persist_embedding,
+                entry.id,
+                entry.content,
+                model_id,
+            )
+        except Exception:
+            # Embedding persistence is best-effort, don't fail the save
+            pass
+
         return entry.id
 
     async def get_memory_entry(self, id: str) -> MemoryEntry | None:
@@ -168,6 +185,7 @@ class LocalStructuredStore:
         limit: int = 20,
         mode: str = "auto",
         status: str = "accepted",
+        memory_type: list[str] | None = None,
     ) -> list[MemoryEntry]:
         extra_where_parts = [
             "COALESCE(compacted, 0) = 0",
@@ -177,6 +195,12 @@ class LocalStructuredStore:
         if project_name:
             extra_where_parts.append("project_name = ?")
             extra_params = (*extra_params, project_name)
+        if memory_type:
+            placeholders = ",".join(["?"] * len(memory_type))
+            extra_where_parts.append(
+                f"COALESCE(memory_type, 'semantic') IN ({placeholders})"
+            )
+            extra_params = (*extra_params, *memory_type)
         search_result = await asyncio.to_thread(
             self._search.search,
             query,
@@ -194,6 +218,8 @@ class LocalStructuredStore:
                 if data.get("compacted", False):
                     continue
                 if data.get("status", "accepted") != status:
+                    continue
+                if memory_type and data.get("memory_type", "semantic") not in memory_type:
                     continue
                 data.update({
                     "_search_mode": search_result.effective_mode,

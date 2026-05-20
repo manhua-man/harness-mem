@@ -129,6 +129,13 @@ def create_app() -> FastAPI:
         query: str = Query(..., description="Search query string"),
         project_name: str | None = Query(None, description="Project name"),
         type: str | None = Query(None, description="Memory type filter"),
+        memory_type: list[str] | None = Query(
+            None,
+            description=(
+                "v1.6.1: filter MemoryEntry.memory_type. Repeat the param for "
+                "multiple values; OR semantics."
+            ),
+        ),
         scope: str = Query("project", description="project or all"),
         mode: str = Query("auto", description="auto, fts, or hybrid"),
         limit: int = Query(20, ge=1, le=100),
@@ -140,6 +147,23 @@ def create_app() -> FastAPI:
         if scope == "project" and not project_name:
             raise HTTPException(status_code=400, detail="project_name required when scope=project")
 
+        valid_memory_types = {"episodic", "semantic", "procedural"}
+        if memory_type:
+            normalized = [value.strip().lower() for value in memory_type if value]
+            invalid = [value for value in normalized if value not in valid_memory_types]
+            if invalid:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "unknown memory_type: "
+                        + ", ".join(sorted(set(invalid)))
+                        + ". Valid: episodic | semantic | procedural."
+                    ),
+                )
+            memory_type = normalized
+        else:
+            memory_type = None
+
         backend = await _get_backend_async()
         entries, obs_list = await read_search_memory(
             backend,
@@ -149,6 +173,7 @@ def create_app() -> FastAPI:
             mode=mode,
             memory_entry_limit=limit,
             observation_limit=limit,
+            memory_type=memory_type,
         )
 
         if type:

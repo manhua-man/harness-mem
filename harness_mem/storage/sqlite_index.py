@@ -38,7 +38,8 @@ _TABLE_SCHEMAS = {
         tags TEXT NOT NULL DEFAULT '[]',
         compacted INTEGER NOT NULL DEFAULT 0,
         usage_count INTEGER NOT NULL DEFAULT 0,
-        last_accessed_at TEXT
+        last_accessed_at TEXT,
+        memory_type TEXT NOT NULL DEFAULT 'semantic'
     """,
     "task_handoffs": """
         id TEXT PRIMARY KEY,
@@ -89,6 +90,13 @@ _TABLE_SCHEMAS = {
         updated_at TEXT NOT NULL,
         tags TEXT NOT NULL DEFAULT '[]'
     """,
+    "vec_embeddings": """
+        entry_id TEXT PRIMARY KEY,
+        model_id TEXT NOT NULL,
+        model_version TEXT NOT NULL,
+        embedding BLOB NOT NULL,
+        created_at INTEGER NOT NULL
+    """,
 }
 
 _COLUMN_MIGRATIONS = {
@@ -100,6 +108,7 @@ _COLUMN_MIGRATIONS = {
         "compacted": "INTEGER NOT NULL DEFAULT 0",
         "usage_count": "INTEGER NOT NULL DEFAULT 0",
         "last_accessed_at": "TEXT",
+        "memory_type": "TEXT NOT NULL DEFAULT 'semantic'",
     },
     "relation_facts": {
         "status": "TEXT NOT NULL DEFAULT 'accepted'",
@@ -148,6 +157,9 @@ class SQLiteIndex:
             conn.execute(
                 f"CREATE TABLE IF NOT EXISTS {table_name} ({columns})"
             )
+            # Skip FTS for vec_embeddings (vector table doesn't need full-text search)
+            if table_name == "vec_embeddings":
+                continue
             # FTS virtual table for full-text search on 'content' or 'raw_content' field
             fts_col = "raw_content" if table_name == "observations" else (
                 "content" if table_name == "memory_entries" else
@@ -192,6 +204,25 @@ class SQLiteIndex:
             )
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.row_factory = sqlite3.Row
+            # Load sqlite-vec extension for vector storage (Windows-compatible)
+            try:
+                self._conn.enable_load_extension(True)
+                try:
+                    import sqlite_vec  # type: ignore[import-not-found]
+                    sqlite_vec.load(self._conn)
+                except ImportError:
+                    # sqlite-vec not installed, skip (will fallback to FTS in hybrid search)
+                    pass
+                self._conn.enable_load_extension(False)
+            except sqlite3.OperationalError as e:
+                # Extension loading disabled in this SQLite build
+                # Raise HM-202 error with clear guidance
+                raise RuntimeError(
+                    "HM-202: SQLite extension loading disabled. "
+                    "This SQLite build does not support loading extensions. "
+                    "Either recompile sqlite with SQLITE_OMIT_LOAD_EXTENSION undefined, "
+                    "or use FTS mode (set mode=fts in search commands)."
+                ) from e
         return self._conn
 
     def close(self) -> None:
@@ -199,6 +230,55 @@ class SQLiteIndex:
             if self._conn is not None:
                 self._conn.close()
                 self._conn = None
+
+    def persist_embedding(
+        self,
+        entry_id: str,
+        text: str,
+        model_id: str,
+        model_version: str | None = None,
+    ) -> None:
+        """Persist embedding vector for an entry.
+
+        Args:
+            entry_id: Entry identifier (observation id or memory entry id)
+            text: Text content to encode
+            model_id: Embedding model identifier
+            model_version: Model version string. If omitted, the active
+                loader's version is recorded after the first encode.
+        """
+        try:
+            from harness_mem.embedding import get_model_loader
+            import numpy as np
+        except ImportError:
+            # Embedding dependencies not installed, skip silently
+            return
+
+        loader = get_model_loader(model_id)
+        embedding = loader.encode(text)
+
+        embedding_array = np.asarray(embedding, dtype=np.float32).ravel()
+        embedding_blob = embedding_array.tobytes()
+        stored_model_version = model_version or loader.model_version
+
+        import time
+        conn = self._conn_write()
+        with self._lock:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO vec_embeddings
+                (entry_id, model_id, model_version, embedding, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    entry_id,
+                    model_id,
+                    stored_model_version,
+                    embedding_blob,
+                    int(time.time()),
+                ),
+            )
+            conn.commit()
 
     def insert(self, table: str, data: dict[str, Any]) -> str:
         """Insert a row into table. Returns the row id."""

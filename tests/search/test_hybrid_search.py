@@ -30,18 +30,41 @@ def _unit_vector_for_similarity(similarity: float) -> list[float]:
     return [similarity, remainder**0.5]
 
 
+def _patch_persisted_embeddings(
+    monkeypatch: pytest.MonkeyPatch,
+    layer: HybridSearchLayer,
+    embeddings_by_id: dict[str, list[float]],
+) -> None:
+    def fake_read_persisted_embeddings(entry_ids: list[str]):
+        return {
+            entry_id: embeddings_by_id[entry_id]
+            for entry_id in entry_ids
+            if entry_id in embeddings_by_id
+        }
+
+    monkeypatch.setattr(
+        layer,
+        "_read_persisted_embeddings",
+        fake_read_persisted_embeddings,
+    )
+
+
 def test_hybrid_search_uses_weighted_rrf(monkeypatch: pytest.MonkeyPatch):
     layer = HybridSearchLayer(FakeSQLite())
 
     def fake_embed_texts(texts: list[str]):
-        if texts == ["vector wins"]:
-            return [[1.0, 0.0]]
-        return [
-            [0.0, 1.0] if text == "exact lexical match" else [1.0, 0.0]
-            for text in texts
-        ]
+        assert texts == ["vector wins"]
+        return [[1.0, 0.0]]
 
     monkeypatch.setattr(layer, "_embed_texts", fake_embed_texts)
+    _patch_persisted_embeddings(
+        monkeypatch,
+        layer,
+        {
+            "fts-top": [0.0, 1.0],
+            "vector-top": [1.0, 0.0],
+        },
+    )
 
     result = layer.search("vector wins", table="memory_entries", limit=2, mode="hybrid")
 
@@ -71,14 +94,20 @@ def test_hybrid_search_includes_semantic_candidates_without_fts_hit(
     layer = HybridSearchLayer(SemanticOnlySQLite())
 
     def fake_embed_texts(texts: list[str]):
-        if texts == ["vector wins"]:
-            return [[1.0, 0.0]]
-        return [
-            [1.0, 0.0] if text == "semantic-only match" else [0.0, 1.0]
-            for text in texts
-        ]
+        assert texts == ["vector wins"]
+        return [[1.0, 0.0]]
 
     monkeypatch.setattr(layer, "_embed_texts", fake_embed_texts)
+    _patch_persisted_embeddings(
+        monkeypatch,
+        layer,
+        {
+            "fts-top": [0.0, 1.0],
+            "vector-only": [1.0, 0.0],
+            "noise-1": [0.0, 1.0],
+            "noise-2": [0.0, 1.0],
+        },
+    )
 
     result = layer.search("vector wins", table="memory_entries", limit=2, mode="hybrid")
 
@@ -100,14 +129,19 @@ def test_vector_search_uses_semantic_ranking_without_fts_dependency(
     layer = HybridSearchLayer(SemanticOnlySQLite())
 
     def fake_embed_texts(texts: list[str]):
-        if texts == ["vector wins"]:
-            return [[1.0, 0.0]]
-        return [
-            [1.0, 0.0] if text == "semantic match" else [0.0, 1.0]
-            for text in texts
-        ]
+        assert texts == ["vector wins"]
+        return [[1.0, 0.0]]
 
     monkeypatch.setattr(layer, "_embed_texts", fake_embed_texts)
+    _patch_persisted_embeddings(
+        monkeypatch,
+        layer,
+        {
+            "fts-top": [0.0, 1.0],
+            "vector-top": [1.0, 0.0],
+            "noise-1": [0.0, 1.0],
+        },
+    )
 
     result = layer.search_vector("vector wins", table="memory_entries", limit=2)
 
@@ -145,11 +179,18 @@ def test_hybrid_search_keeps_strong_lexical_match_when_vector_noise_is_stronger(
     }
 
     def fake_embed_texts(texts: list[str]):
-        if texts == ["road trip hours"]:
-            return [[1.0, 0.0]]
-        return [_unit_vector_for_similarity(similarity_by_text[text]) for text in texts]
+        assert texts == ["road trip hours"]
+        return [[1.0, 0.0]]
 
     monkeypatch.setattr(layer, "_embed_texts", fake_embed_texts)
+    _patch_persisted_embeddings(
+        monkeypatch,
+        layer,
+        {
+            row["id"]: _unit_vector_for_similarity(similarity_by_text[row["content"]])
+            for row in LexicalRescueSQLite._rows
+        },
+    )
 
     result = layer.search("road trip hours", table="memory_entries", limit=5, mode="hybrid")
 
@@ -184,11 +225,18 @@ def test_hybrid_search_keeps_vector_supported_answer_when_fts_is_wrong(
     }
 
     def fake_embed_texts(texts: list[str]):
-        if texts == ["dinner ingredients"]:
-            return [[1.0, 0.0]]
-        return [_unit_vector_for_similarity(similarity_by_text[text]) for text in texts]
+        assert texts == ["dinner ingredients"]
+        return [[1.0, 0.0]]
 
     monkeypatch.setattr(layer, "_embed_texts", fake_embed_texts)
+    _patch_persisted_embeddings(
+        monkeypatch,
+        layer,
+        {
+            row["id"]: _unit_vector_for_similarity(similarity_by_text[row["content"]])
+            for row in SemanticRescueSQLite._rows
+        },
+    )
 
     result = layer.search("dinner ingredients", table="memory_entries", limit=5, mode="hybrid")
 

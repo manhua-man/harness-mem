@@ -1,29 +1,15 @@
 """Maintenance commands.
 
-v1.6.0 introduces ``maintenance assign-memory-types``: a one-shot, idempotent
-backfill that persists the ``memory_type`` field for ``MemoryEntry`` blobs
-written before v1.6.0. Loading legacy blobs already derives the field
-on the fly via :meth:`MemoryEntry.from_dict`, but persisting it explicitly
-unblocks v1.6.1 (which will add a SQLite column for filtering) and makes
-the field directly visible in the on-disk JSON.
-
-Design notes:
-
-- ``dry_run=True`` is the default. ``--apply`` is required to mutate blobs.
-- "Needs update" is determined by the *raw JSON* — if a blob already has a
-  ``memory_type`` key (even if the value matches what derivation would
-  produce) it is considered already typed and skipped. This keeps the
-  command idempotent and never overwrites an explicit user choice.
-- The command requires a project context (active project or ``--project``);
-  there is no global "all projects" sweep in v1.6.0 to keep blast radius
-  small.
+v1.6.0 introduced ``maintenance assign-memory-types``: a one-shot,
+idempotent backfill that persists the ``memory_type`` field for legacy
+``MemoryEntry`` blobs.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
@@ -31,6 +17,8 @@ from harness_mem.commands.support import (
     resolve_project_name,
 )
 from harness_mem.core.schemas.memory_entry import MemoryType, _derive_memory_type
+from harness_mem.storage.local_structured_store import LocalStructuredStore
+from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -49,10 +37,7 @@ async def cmd_assign_memory_types(
     *,
     apply: bool,
 ) -> int:
-    """Backfill ``memory_type`` on legacy MemoryEntry blobs.
-
-    Returns 0 on success (including no-op), 1 on missing project context.
-    """
+    """Backfill ``memory_type`` on legacy MemoryEntry blobs."""
     resolved_project = resolve_project_name(
         project_name,
         required=True,
@@ -61,8 +46,6 @@ async def cmd_assign_memory_types(
     if not resolved_project:
         return 1
 
-    # Initialize the backend so log_command_invoked can attach project context;
-    # we read JSON blobs directly (no SQL writes needed for v1.6.0).
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
     try:
@@ -74,7 +57,6 @@ async def cmd_assign_memory_types(
             try:
                 data = json.loads(blob_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
-                # Skip unreadable blobs rather than crash the whole sweep.
                 continue
             if data.get("project_name") != resolved_project:
                 continue
@@ -127,5 +109,70 @@ async def cmd_assign_memory_types(
             },
         )
         return 0
+    finally:
+        await backend.close()
+
+
+async def cmd_rebuild_vector_index(project_name: str | None = None) -> int:
+    """Rebuild persisted vector rows for structured and verbatim stores."""
+    resolved_project = resolve_project_name(
+        project_name,
+        required=True,
+        action_label="maintenance rebuild-vector-index",
+    )
+    if not resolved_project:
+        return 1
+
+    print(f"Rebuilding vector index: {resolved_project}")
+    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
+    await backend.init()
+    try:
+        from harness_mem.commands.support import get_embedding_model_id
+
+        model_id = get_embedding_model_id()
+        print(f"Model: {model_id}")
+
+        structured_store = cast(LocalStructuredStore, backend.structured_store)
+        verbatim_store = cast(LocalVerbatimStore, backend.verbatim_store)
+        structured_index = structured_store._index
+        verbatim_index = verbatim_store._index
+        for index in (structured_index, verbatim_index):
+            conn = index._conn_write()
+            conn.execute("DROP TABLE IF EXISTS vec_embeddings")
+            conn.commit()
+            index.init_db()
+
+        entries = await structured_store.list_memory_entries(
+            resolved_project,
+            limit=100000,
+        )
+        for i, entry in enumerate(entries, 1):
+            if i % 10 == 0:
+                print(f"  entries {i}/{len(entries)}")
+            structured_index.persist_embedding(entry.id, entry.content, model_id)
+
+        observations = await verbatim_store.list(limit=100000)
+        project_observations = [
+            observation
+            for observation in observations
+            if observation.metadata.get("project_name") == resolved_project
+        ]
+        for i, observation in enumerate(project_observations, 1):
+            if i % 10 == 0:
+                print(f"  observations {i}/{len(project_observations)}")
+            verbatim_index.persist_embedding(
+                observation.id,
+                observation.raw_content,
+                model_id,
+            )
+
+        print(
+            f"Done: {len(entries)} entries, "
+            f"{len(project_observations)} observations"
+        )
+        return 0
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return 1
     finally:
         await backend.close()

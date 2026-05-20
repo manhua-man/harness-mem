@@ -52,6 +52,22 @@ class LocalVerbatimStore:
                 "compacted": observation.compacted,
             },
         )
+
+        # Persist embedding vector (v1.6.2)
+        try:
+            from harness_mem.commands.support import get_embedding_model_id
+
+            model_id = get_embedding_model_id()
+            await asyncio.to_thread(
+                self._index.persist_embedding,
+                observation.id,
+                observation.raw_content,
+                model_id,
+            )
+        except Exception:
+            # Embedding persistence is best-effort, don't fail the save
+            pass
+
         return observation.id
 
     async def get(self, id: str) -> Observation | None:

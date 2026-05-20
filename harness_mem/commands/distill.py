@@ -13,8 +13,27 @@ from harness_mem.commands.support import (
     log_command_invoked,
     resolve_project_name,
 )
+from harness_mem.distill_context import DistillContext
 from harness_mem.event_log import EventType
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+
+async def _confirm_pending_outputs(
+    backend: LocalMemoryBackend,
+    entries: list,
+    facts: list,
+) -> None:
+    """``--auto-confirm`` 的兼容路径：把 distill 刚写的 pending 转 accepted。
+
+    通过 ``update_*_status`` mutator 完成；这是 CLI 层的运维操作，不是 distill
+    路径，所以可以越过 DistillContext 边界直接调用 storage。
+    """
+    for entry in entries:
+        await backend.structured_store.update_memory_entry_status(entry.id, "accepted")
+        entry.status = "accepted"
+    for fact in facts:
+        await backend.structured_store.update_relation_fact_status(fact.id, "accepted")
+        fact.status = "accepted"
 
 
 async def cmd_distill(
@@ -22,8 +41,17 @@ async def cmd_distill(
     session_id: str | None = None,
     category: str | None = None,
     project_root: str | None = None,
+    *,
+    auto_confirm: bool = False,
 ) -> int:
-    """Extract structured memory and explicit relation facts from sessions."""
+    """Extract structured memory and explicit relation facts from sessions.
+
+    v1.6.1: distill default writes go through ``DistillContext`` and land in
+    the candidate layer with ``status="pending"``. ``--auto-confirm`` flips
+    them back to ``accepted`` after extraction completes — kept for the legacy
+    "ingest -> distill -> wake" dogfood loop. CHANGELOG flags this as a
+    breaking change in v1.6.1.
+    """
     project_name = resolve_project_name(project_name, action_label="distill")
     if not project_name:
         return 1
@@ -31,13 +59,15 @@ async def cmd_distill(
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
     try:
-        adapter = ClaudeCodeAdapter(backend)
+        adapter = ClaudeCodeAdapter(backend=None)
+        distill_context = DistillContext(backend)
         resolved_project_root = _resolve_distill_project_root(project_root)
         session_project_name, sessions = _list_claude_sessions_for_current_project(
             adapter,
             project_name=project_name,
             project_root=resolved_project_root,
         )
+        status_label = "accepted" if auto_confirm else "pending"
 
         if session_id:
             entries = await adapter.distill_session(
@@ -45,23 +75,32 @@ async def cmd_distill(
                 project_name,
                 category=category,
                 session_project_name=session_project_name,
+                distill_context=distill_context,
             )
             relation_facts = [] if category else await adapter.distill_relation_facts(
                 session_id,
                 project_name,
                 session_project_name=session_project_name,
+                distill_context=distill_context,
             )
+            if auto_confirm and (entries or relation_facts):
+                await _confirm_pending_outputs(backend, list(entries), list(relation_facts))
             if entries or relation_facts:
                 print(f"Extracted {len(entries)} memory entries from {session_id}:")
                 for entry in entries:
                     source_label = _memory_entry_source_label(entry)
-                    print(f"  [{entry.category}] {entry.content[:100]}  (source: {source_label})")
+                    print(
+                        f"  [{entry.category}/{entry.memory_type}] "
+                        f"{entry.content[:100]}  "
+                        f"(status: {status_label}, source: {source_label})"
+                    )
                 if relation_facts:
                     print(f"Extracted {len(relation_facts)} relation facts from {session_id}:")
                     for fact in relation_facts:
                         print(
                             f"  {fact.source_entity} --{fact.relation_type}-> "
-                            f"{fact.target_entity}  (source: {fact.source})"
+                            f"{fact.target_entity}  "
+                            f"(status: {status_label}, source: {fact.source})"
                         )
                 _log_distill_events(
                     project_name=project_name,
@@ -69,6 +108,7 @@ async def cmd_distill(
                     category=category,
                     memory_entries=len(entries),
                     relation_facts=len(relation_facts),
+                    auto_confirm=auto_confirm,
                 )
                 return 0
 
@@ -82,6 +122,7 @@ async def cmd_distill(
                 category=category,
                 memory_entries=0,
                 relation_facts=0,
+                auto_confirm=auto_confirm,
             )
             return 0
 
@@ -95,6 +136,8 @@ async def cmd_distill(
             print(f"Claude session project: {session_project_name}")
         total = 0
         relation_total = 0
+        all_entries: list = []
+        all_facts: list = []
         for session in sessions:
             current_session_id = str(session["session_id"])
             entries = await adapter.distill_session(
@@ -102,23 +145,35 @@ async def cmd_distill(
                 project_name,
                 category=category,
                 session_project_name=session_project_name,
+                distill_context=distill_context,
             )
             for entry in entries:
                 source_label = _memory_entry_source_label(entry)
-                print(f"  [{entry.category}] {entry.content[:100]}  (source: {source_label})")
+                print(
+                    f"  [{entry.category}/{entry.memory_type}] "
+                    f"{entry.content[:100]}  "
+                    f"(status: {status_label}, source: {source_label})"
+                )
                 total += 1
+            all_entries.extend(entries)
             if not category:
                 relation_facts = await adapter.distill_relation_facts(
                     current_session_id,
                     project_name,
                     session_project_name=session_project_name,
+                    distill_context=distill_context,
                 )
                 for fact in relation_facts:
                     print(
                         f"  [relation] {fact.source_entity} --{fact.relation_type}-> "
-                        f"{fact.target_entity}  (source: {fact.source})"
+                        f"{fact.target_entity}  "
+                        f"(status: {status_label}, source: {fact.source})"
                     )
                     relation_total += 1
+                all_facts.extend(relation_facts)
+
+        if auto_confirm and (all_entries or all_facts):
+            await _confirm_pending_outputs(backend, all_entries, all_facts)
 
         if total == 0 and category:
             print(f"No {category} entries found across {len(sessions)} sessions")
@@ -132,12 +187,18 @@ async def cmd_distill(
                 memory_entries=0,
                 relation_facts=0,
                 sessions=len(sessions),
+                auto_confirm=auto_confirm,
             )
             return 0
 
-        print(f"Extracted {total} memory entries from {len(sessions)} sessions")
+        verb = "accepted" if auto_confirm else "pending"
+        print(
+            f"Extracted {total} memory entries ({verb}) from {len(sessions)} sessions"
+        )
         if relation_total:
-            print(f"Extracted {relation_total} relation facts from {len(sessions)} sessions")
+            print(
+                f"Extracted {relation_total} relation facts ({verb}) from {len(sessions)} sessions"
+            )
         _log_distill_events(
             project_name=project_name,
             session_id=None,
@@ -145,6 +206,7 @@ async def cmd_distill(
             memory_entries=total,
             relation_facts=relation_total,
             sessions=len(sessions),
+            auto_confirm=auto_confirm,
         )
         return 0
     finally:
@@ -172,11 +234,13 @@ def _log_distill_events(
     memory_entries: int,
     relation_facts: int,
     sessions: int | None = None,
+    auto_confirm: bool = False,
 ) -> None:
     extra = {
         "category": category,
         "memory_entries": memory_entries,
         "relation_facts": relation_facts,
+        "auto_confirm": auto_confirm,
     }
     if sessions is not None:
         extra["sessions"] = sessions

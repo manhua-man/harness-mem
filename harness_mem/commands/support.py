@@ -22,6 +22,87 @@ CONFIG_TOML_PATH = Path.home() / ".harness-mem" / "config.toml"
 LEGACY_CONFIG_JSON_PATH = Path.home() / ".harness-mem" / "config.json"
 
 
+# v1.6.1: wake-up bucket quota defaults & validation.
+DEFAULT_BUCKET_QUOTAS: dict[str, float] = {
+    "semantic": 0.5,
+    "episodic": 0.5,
+    "procedural": 0.0,
+}
+_BUCKET_QUOTA_TOLERANCE: float = 0.001
+
+# v1.6.2: embedding model configuration
+DEFAULT_EMBEDDING_MODEL_ID: str = "all-MiniLM-L6-v2"
+EMBEDDING_MODEL_ENV: str = "HARNESS_MEM_EMBEDDING_MODEL_ID"
+
+
+class WakeBucketQuotaError(ValueError):
+    """``[wake] bucket_quota_*`` 段配置非法时抛出。
+
+    ``code`` 字段 = ``"HM-101"`` (sum mismatch) / ``"HM-102"`` (out of range)，
+    ``harness-mem doctor`` 会按此码格式化提示。
+    """
+
+    def __init__(self, message: str, *, code: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def wake_bucket_enabled(config: dict | None = None) -> bool:
+    """``[wake] bucket_quota_enabled`` 默认 True。"""
+    cfg = config if config is not None else get_config()
+    value = cfg.get("wake", {}).get("bucket_quota_enabled", True)
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
+
+
+def wake_bucket_quotas(config: dict | None = None) -> dict[str, float]:
+    """读取并校验 ``[wake] bucket_quota_*``，返回归一化的三桶比例。
+
+    校验规则：
+    - 单值必须在 ``[0.0, 1.0]``；否则 raise ``HM-102``
+    - 三值之和必须在 ``[0.999, 1.001]``；否则 raise ``HM-101``
+
+    缺省 / 缺字段时回落到 ``DEFAULT_BUCKET_QUOTAS``。
+    """
+    cfg = config if config is not None else get_config()
+    wake_cfg = cfg.get("wake", {}) or {}
+    quotas: dict[str, float] = {}
+    for bucket, default in DEFAULT_BUCKET_QUOTAS.items():
+        raw = wake_cfg.get(f"bucket_quota_{bucket}", default)
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            raise WakeBucketQuotaError(
+                f"wake.bucket_quota_{bucket} must be a float; got {raw!r}",
+                code="HM-102",
+            )
+        if value < 0.0 or value > 1.0:
+            raise WakeBucketQuotaError(
+                f"wake.bucket_quota_{bucket}={value} is out of range [0.0, 1.0]",
+                code="HM-102",
+            )
+        quotas[bucket] = value
+    total = sum(quotas.values())
+    if abs(total - 1.0) > _BUCKET_QUOTA_TOLERANCE:
+        raise WakeBucketQuotaError(
+            f"wake bucket quotas must sum to 1.0; got "
+            f"semantic={quotas['semantic']} episodic={quotas['episodic']} "
+            f"procedural={quotas['procedural']} (sum={total:g})",
+            code="HM-101",
+        )
+    return quotas
+
+
+def get_embedding_model_id(config: dict | None = None) -> str:
+    """读取 ``[embedding] model_id``，默认 all-MiniLM-L6-v2。"""
+    env_model_id = os.environ.get(EMBEDDING_MODEL_ENV)
+    if env_model_id:
+        return env_model_id
+    cfg = config if config is not None else get_config()
+    return cfg.get("embedding", {}).get("model_id", DEFAULT_EMBEDDING_MODEL_ID)
+
+
 def clean_cli_text(value: str | None) -> str | None:
     if value is None:
         return None

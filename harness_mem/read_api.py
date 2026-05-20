@@ -20,14 +20,22 @@ async def search_memory(
     mode: str = "auto",
     memory_entry_limit: int = 20,
     observation_limit: int = 20,
+    memory_type: list[str] | None = None,
 ) -> tuple[list[MemoryEntry], list[Observation]]:
-    """Return structured and verbatim search results with shared filtering."""
+    """Return structured and verbatim search results with shared filtering.
+
+    v1.6.1: ``memory_type`` is an optional list filter on
+    ``MemoryEntry.memory_type``. Multiple values are OR-ed; ``None`` / ``[]``
+    means no filtering. Filter only applies to memory entries — observations
+    have no memory_type concept.
+    """
     if scope == "all":
         entries = await backend.structured_store.search_memory_entries(
             query,
             project_name=None,
             limit=memory_entry_limit,
             mode=mode,
+            memory_type=memory_type,
         )
         observations = await backend.verbatim_store.search(
             query,
@@ -41,6 +49,7 @@ async def search_memory(
         project_name,
         limit=memory_entry_limit,
         mode=mode,
+        memory_type=memory_type,
     )
     observations = await backend.verbatim_store.search(
         query,

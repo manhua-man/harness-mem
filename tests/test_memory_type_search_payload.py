@@ -1,10 +1,13 @@
-"""End-to-end contract tests: memory_type is read-only exposed in search
-payloads across CLI, MCP, and REST in v1.6.0.
+"""End-to-end contract tests: memory_type is exposed (v1.6.0) and filterable
+(v1.6.1) across CLI, MCP, and REST.
 
 Per ``openspec/changes/2026-05-17-v160-eval-and-typing/specs/retrieval``:
 - memory_type SHALL be present in every memory entry result payload
 - memory_type SHALL match the underlying MemoryEntry.memory_type
-- v1.6.0 search SHALL NOT consume a memory_type filter parameter
+
+Per ``openspec/changes/2026-05-19-v161-bucket-budget-and-distill-readonly/specs/retrieval``:
+- search SHALL accept a ``memory_type`` filter (list, OR semantics)
+- invalid values SHALL surface as 422-class errors at the contract boundary
 """
 from __future__ import annotations
 
@@ -147,6 +150,81 @@ def test_mcp_search_memory_emits_memory_type(
     assert entries[0]["category"] == "decision"
 
 
+def test_mcp_search_memory_filters_by_memory_type(
+    data_dir: Path,
+) -> None:
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="convention",
+                    content="single quote is the project default",
+                    source="manual",
+                    memory_type="semantic",
+                )
+            )
+        )
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="bug",
+                    content="trailing comma breaks parser single",
+                    source="manual",
+                    memory_type="episodic",
+                )
+            )
+        )
+        mcp_server.set_backend_override(backend)
+        try:
+            semantic_only = mcp_server.tool_search_memory(
+                query="single",
+                project_name="demo",
+                mode="fts",
+                memory_type=["semantic"],
+            )
+            both = mcp_server.tool_search_memory(
+                query="single",
+                project_name="demo",
+                mode="fts",
+                memory_type=["semantic", "episodic"],
+            )
+            invalid = mcp_server.tool_search_memory(
+                query="single",
+                project_name="demo",
+                memory_type=["unknown"],
+            )
+        finally:
+            mcp_server.set_backend_override(None)
+    finally:
+        run(backend.close())
+
+    assert {e["memory_type"] for e in semantic_only["memory_entries"]} == {"semantic"}
+    assert {e["memory_type"] for e in both["memory_entries"]} == {"semantic", "episodic"}
+    assert invalid.get("success") is False
+    assert "unknown memory_type" in invalid["error"]
+
+
+def test_cli_search_filter_rejects_unknown_value(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rc = run(
+        cli.cmd_search(
+            "demo",
+            "anything",
+            "fts",
+            memory_type=["bogus"],
+        )
+    )
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "unknown memory_type" in err
+
+
 # ---------------------------------------------------------------------------
 # REST contract
 # ---------------------------------------------------------------------------
@@ -197,12 +275,12 @@ def test_rest_search_includes_memory_type(rest_client: TestClient) -> None:
     assert entries[0]["memory_type"] == "semantic"
 
 
-def test_rest_search_ignores_unknown_memory_type_param(rest_client: TestClient) -> None:
-    """v1.6.0: passing memory_type as a query param SHALL NOT filter results.
+def test_rest_search_filters_memory_type_v161(rest_client: TestClient) -> None:
+    """v1.6.1: passing ``memory_type`` actually filters memory entries.
 
-    v1.6.1 introduces actual filtering. Today the param is silently ignored
-    so that older clients can preview the field without breaking when the
-    filter is later added.
+    The v1.6.0 contract (silently ignore the param) was a transitional
+    behavior; v1.6.1 turns it into a real OR-filter. Multiple values are
+    accepted as repeated query params.
     """
     resp = rest_client.get("/search", params={
         "query": "single quote OR trailing comma",
@@ -213,8 +291,16 @@ def test_rest_search_ignores_unknown_memory_type_param(rest_client: TestClient) 
     })
     assert resp.status_code == 200
     data = resp.json()
-    types = sorted({e["memory_type"] for e in data["memory_entries"]})
-    # Both episodic and semantic results come back even when filter requested
-    # — confirms no filter is in effect at v1.6.0.
-    assert "semantic" in types
-    assert "episodic" in types
+    types = {e["memory_type"] for e in data["memory_entries"]}
+    assert types == {"semantic"} or types == set()
+
+
+def test_rest_search_rejects_unknown_memory_type(rest_client: TestClient) -> None:
+    resp = rest_client.get("/search", params={
+        "query": "anything",
+        "project_name": "demo",
+        "scope": "project",
+        "memory_type": "unknown",
+    })
+    assert resp.status_code == 422
+    assert "unknown memory_type" in resp.json()["detail"]

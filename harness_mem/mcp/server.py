@@ -92,13 +92,21 @@ def set_backend_override(backend: LocalMemoryBackend | None) -> None:
 # =============================================================================
 
 
+VALID_MEMORY_TYPES: frozenset[str] = frozenset({"episodic", "semantic", "procedural"})
+
+
 def tool_search_memory(
     query: str,
     project_name: str | None = None,
     scope: str = "project",
     mode: str = "auto",
+    memory_type: list[str] | None = None,
 ) -> dict:
-    """Search structured memory entries + verbatim observations."""
+    """Search structured memory entries + verbatim observations.
+
+    v1.6.1: ``memory_type`` is an optional list filter ({episodic, semantic,
+    procedural}). Empty / None disables the filter; values are OR-ed.
+    """
     backend = _get_backend()
 
     if scope == "project" and not project_name:
@@ -107,6 +115,21 @@ def tool_search_memory(
             "error": "project_name is required when scope=project",
         }
 
+    if memory_type:
+        normalized = [str(value).strip().lower() for value in memory_type]
+        invalid = [value for value in normalized if value not in VALID_MEMORY_TYPES]
+        if invalid:
+            return {
+                "success": False,
+                "error": (
+                    "unknown memory_type: " + ", ".join(sorted(set(invalid)))
+                    + ". Valid: episodic | semantic | procedural."
+                ),
+            }
+        memory_type = normalized
+    else:
+        memory_type = None
+
     entries, obs_list, relation_facts, tech_stack_by_project = asyncio.run(
         _gather_search_payload(
             backend,
@@ -114,6 +137,7 @@ def tool_search_memory(
             project_name=project_name,
             scope=scope,
             mode=mode,
+            memory_type=memory_type,
         )
     )
 
@@ -157,6 +181,7 @@ async def _gather_search_payload(
     project_name: str | None,
     scope: str,
     mode: str,
+    memory_type: list[str] | None = None,
 ) -> tuple[
     list[Any],
     list[Any],
@@ -177,6 +202,7 @@ async def _gather_search_payload(
         mode=mode,
         memory_entry_limit=20,
         observation_limit=20,
+        memory_type=memory_type,
     )
     relation_facts = await search_relation_facts(
         backend,
@@ -930,6 +956,11 @@ TOOLS: dict[str, ToolSpec] = {
                 "query": {"type": "string", "description": "Search query"},
                 "scope": {"type": "string", "enum": ["project", "all"], "description": "Search scope: project or all (default: project)"},
                 "mode": {"type": "string", "enum": ["auto", "fts", "hybrid"], "description": "Search mode (default: auto)"},
+                "memory_type": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["episodic", "semantic", "procedural"]},
+                    "description": "v1.6.1: optional filter on MemoryEntry.memory_type. Multiple values are OR-ed.",
+                },
             },
             "required": ["query"],
         },

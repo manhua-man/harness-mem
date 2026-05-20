@@ -30,6 +30,81 @@ def test_wake_without_profile_still_prints_budget(capsys: pytest.CaptureFixture[
     assert "[L0]" in captured
 
 
+def test_wake_bucket_quota_header_and_truncation(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    """v1.6.1: wake header shows quotas + fill, episodic overflow gets [truncated]."""
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        for i in range(2):
+            run(
+                backend.structured_store.save_memory_entry(
+                    MemoryEntry(
+                        project_name="demo",
+                        category="convention",
+                        content=f"semantic-{i} stable rule",
+                        confidence=0.9,
+                        source="manual",
+                        memory_type="semantic",
+                    )
+                )
+            )
+        for i in range(8):
+            run(
+                backend.structured_store.save_memory_entry(
+                    MemoryEntry(
+                        project_name="demo",
+                        category="raw_note",
+                        content=f"episodic-{i} observation",
+                        confidence=0.5,
+                        source="manual",
+                        memory_type="episodic",
+                    )
+                )
+            )
+    finally:
+        run(backend.close())
+
+    assert run(cli.cmd_wake_up("demo", no_auto_ingest=True)) == 0
+    out = capsys.readouterr().out
+    assert "bucket quotas:" in out
+    assert "semantic=0.50" in out
+    assert "episodic=0.50" in out
+    assert "procedural=0.00" in out
+    assert "bucket fill:" in out
+    assert "[truncated within bucket: episodic" in out
+
+
+def test_wake_no_bucket_quota_flag_suppresses_header(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="convention",
+                    content="stable convention",
+                    source="manual",
+                    memory_type="semantic",
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    assert run(cli.cmd_wake_up("demo", no_auto_ingest=True, no_bucket_quota=True)) == 0
+    out = capsys.readouterr().out
+    assert "bucket quotas:" not in out
+    assert "bucket fill:" not in out
+    assert "[truncated within bucket:" not in out
+
+
 def test_profile_and_wake_surface_conventions(
     data_dir: Path,
     capsys: pytest.CaptureFixture[str],
@@ -447,9 +522,9 @@ def test_best_practices_claude_mainline_flow(
     post_ingest_doctor = capsys.readouterr().out
     assert "harness-mem ds" in post_ingest_doctor
 
-    assert run(cli.cmd_distill("demo")) == 0
+    assert run(cli.cmd_distill("demo", auto_confirm=True)) == 0
     distill_output = capsys.readouterr().out
-    assert "Extracted 1 memory entries from 1 sessions" in distill_output
+    assert "Extracted 1 memory entries (accepted) from 1 sessions" in distill_output
 
     backend = LocalMemoryBackend(data_dir)
     run(backend.init())

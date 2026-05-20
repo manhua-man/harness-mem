@@ -11,7 +11,14 @@ from pydantic import BaseModel, Field
 class SearchRequest(BaseModel):
     query: str = Field(description="Search query string")
     project_name: Optional[str] = Field(None, description="Project name filter")
-    type: Optional[str] = Field(None, description="Memory type filter")
+    type: Optional[str] = Field(None, description="(reserved) memory type filter")
+    memory_type: Optional[list[str]] = Field(
+        None,
+        description=(
+            "v1.6.1: filter MemoryEntry.memory_type. Multiple values are "
+            "OR-ed; valid values: episodic, semantic, procedural."
+        ),
+    )
     scope: str = Field("project", description="project or all")
     mode: str = Field("auto", description="auto, fts, or hybrid")
     limit: int = Field(20, ge=1, le=100)

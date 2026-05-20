@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Sequence
+from typing import Sequence, cast
 
 from harness_mem import __version__
 from harness_mem.commands.error_codes import doctor_error, format_error_summary
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
+    WakeBucketQuotaError,
     claude_session_count,
     codex_scope_note,
     codex_session_count,
@@ -20,10 +21,12 @@ from harness_mem.commands.support import (
     recent_codex_sessions,
     resolve_project_name,
     suggested_next_step,
+    wake_bucket_quotas,
     wake_budget,
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
+from harness_mem.storage.local_structured_store import LocalStructuredStore
 
 STALE_MEMORY_DAYS = 90
 
@@ -42,6 +45,20 @@ async def cmd_doctor(project_name: str | None = None) -> int:
     if not initialized:
         issue = doctor_error("doctor_not_initialized")
         print(format_error_summary(issue))
+        print(f"Fix: {issue.fix_command}")
+        return 1
+
+    # v1.6.1: validate wake bucket quotas early so misconfiguration surfaces
+    # before any project-specific work (HM-101 / HM-102).
+    try:
+        wake_bucket_quotas()
+    except WakeBucketQuotaError as exc:
+        if exc.code == "HM-101":
+            issue = doctor_error("doctor_wake_bucket_quota_sum")
+        else:
+            issue = doctor_error("doctor_wake_bucket_quota_range")
+        print(format_error_summary(issue))
+        print(f"Detail: {exc}")
         print(f"Fix: {issue.fix_command}")
         return 1
 
@@ -84,6 +101,13 @@ async def cmd_doctor(project_name: str | None = None) -> int:
                     "Memory quality: "
                     f"{stale_count} stale, {never_accessed_count} never accessed"
                 )
+
+            # v1.6.2: Check vector index health
+            vector_health = _check_vector_index_health(backend, resolved_project)
+            if vector_health["has_issue"]:
+                print(f"\n⚠️  {vector_health['message']}")
+                print(f"Fix: {vector_health['fix_command']}")
+
             total_tokens, level = wake_budget(profile, entries, rules, handoffs)
             print(f"Estimated wake-up: ≈ {total_tokens:,} tokens [{level}]")
             if level in ("L3", "L4+"):
@@ -142,3 +166,63 @@ def _memory_quality_counts(entries: Sequence[object]) -> tuple[int, int]:
         if reference_time < stale_cutoff:
             stale_count += 1
     return stale_count, never_accessed_count
+
+
+def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -> dict:
+    """Check vec_embeddings table health (v1.6.2).
+
+    Returns dict with keys: has_issue, message, fix_command
+    """
+    try:
+        from harness_mem.commands.support import get_embedding_model_id
+
+        # Check if vec_embeddings table exists
+        structured_store = cast(LocalStructuredStore, backend.structured_store)
+        conn = structured_store._index._conn_write()
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='vec_embeddings'"
+        )
+        table_exists = cursor.fetchone() is not None
+
+        if not table_exists:
+            return {
+                "has_issue": True,
+                "message": "HM-201: Vector index not built",
+                "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
+            }
+
+        # Check if there are any vectors
+        cursor = conn.execute("SELECT COUNT(*) FROM vec_embeddings")
+        vector_count = cursor.fetchone()[0]
+
+        if vector_count == 0:
+            return {
+                "has_issue": True,
+                "message": "HM-201: Vector index is empty",
+                "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
+            }
+
+        # Check model_id mismatch
+        model_id = get_embedding_model_id()
+        cursor = conn.execute(
+            "SELECT COUNT(*) FROM vec_embeddings WHERE model_id = ?",
+            (model_id,)
+        )
+        matching_count = cursor.fetchone()[0]
+
+        if matching_count == 0:
+            cursor = conn.execute("SELECT DISTINCT model_id FROM vec_embeddings LIMIT 1")
+            stored_model = cursor.fetchone()
+            stored_model_id = stored_model[0] if stored_model else "unknown"
+            return {
+                "has_issue": True,
+                "message": f"Vector index uses different model ({stored_model_id}), current config is {model_id}",
+                "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
+            }
+
+        # All checks passed
+        return {"has_issue": False, "message": "", "fix_command": ""}
+
+    except Exception:
+        # If check fails, assume no issue (table might not exist yet)
+        return {"has_issue": False, "message": "", "fix_command": ""}

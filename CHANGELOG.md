@@ -10,6 +10,66 @@
 
 ---
 
+## [1.6.2] — 2026-05-20
+
+**主题：sqlite-vec 持久化向量 + embedding shootout 收口**
+
+v1.6.x 的第三刀，把热路径 embedding 从查询侧移到写入侧，补齐 persistent vector storage、doctor/maintenance 健康检查、embedding model shootout 入口，并把 LongMemEval 的 v1.6.2 集成验证挂到 benchmark 标记下。
+
+### Added
+
+- `vec_embeddings` 持久化表与写路径落盘。
+- `harness-mem maintenance rebuild-vector-index --project <name>`。
+- `HM-201 / HM-202 / HM-203` 错误码与 doctor 检测。
+- `harness_mem.tools.embedding_shootout` 与数据集自动定位。
+- `tests/benchmark/test_longmemeval_persistent_vectors_integration.py`，作为 v1.6.2 的 LongMemEval 集成门。
+
+### Changed
+
+- `HybridSearchLayer` 改为优先读持久化向量；缺表、空表、全过滤时回退 FTS。
+- `LocalStructuredStore.save_memory_entry()` 与 `LocalVerbatimStore.save()` 继续在写入后持久化 embedding。
+- persistent vector 测试统一改为显式 `MemoryEntry(...)` 传参。
+
+### Notes
+
+- 默认 embedding 模型仍保留 `all-MiniLM-L6-v2`，是否切换交由 shootout 决策。
+- v1.6.2 的 P95 latency 目标与完整 LongMemEval 结果仍以手动 benchmark 报告为准，CI 只保留可运行门与集成 smoke。
+
+---
+
+## [1.6.1] — 2026-05-19
+
+**主题：Wake-up bucket budget + distill 只读边界**
+
+v1.6.x 三切片路线的第二刀。在 v1.6.0 把 `MemoryEntry.memory_type` 做成一等字段之后，本切片把"读分桶 + 写边界"一次落地：wake-up 输出按 `memory_type` 分桶并显式可关，distill 写动作收紧到候选层（默认 `pending`），search 三端补齐 `memory_type` 过滤。**安全边界先于能力增强**——v1.6.2 引入 sqlite-vec 持久化向量后 distill 能"读全库 + 跑聚类"，写边界不锁死会被诱惑去顺手清理 truth。
+
+完整设计与决策见 [`docs/roadmap-v16x.md`](docs/roadmap-v16x.md)（v1.6.1 段）与 [`openspec/changes/2026-05-19-v161-bucket-budget-and-distill-readonly/`](openspec/changes/2026-05-19-v161-bucket-budget-and-distill-readonly/)。
+
+### Added
+
+- **wake-up 三桶预算**：`[wake]` 配置新增 `bucket_quota_semantic / bucket_quota_episodic / bucket_quota_procedural`（默认 `0.5 / 0.5 / 0.0`，见 `roadmap-v16x.md` "已决策 2"）+ `bucket_quota_enabled` 总开关。`select_wake_memory_entries_with_buckets` 按 `memory_type` 分桶选取，超额在桶内截断，未消费名额按 `semantic > episodic > procedural` 让渡（quota=0 桶不参与让渡）。
+- **wake-up 输出可观测性**：wake header 在 `(...chars)` 行下追加 `bucket quotas` 与 `bucket fill` 两行；某桶内候选超额时附 `[truncated within bucket: <type> X/Y]`。
+- **wake-up 显式可关**：CLI flag `harness-mem wake --no-bucket-quota` 与 config `[wake] bucket_quota_enabled = false` 同义；关闭时回到 v1.6.0 单池行为，header 不输出桶信息。
+- **DistillContext + DistillReadOnlyError**：新模块 `harness_mem.distill_context`。`cmd_distill` 入口现在构造 `DistillContext`，distill adapter 接受 `distill_context` 参数；mutator 形态名（`delete / update / purge`）通过 `__getattr__` 抛 `DistillReadOnlyError(method, hint)`。
+- **search 按 memory_type 过滤**：MCP `search_memory` / REST `/search` / CLI `harness-mem search` 三端新增 `memory_type` 列表过滤（`episodic | semantic | procedural`，OR 语义；`None / []` 不过滤）。MCP / REST 对非法值返回 422-class 错误，CLI stderr 提示并以非零退出码失败。
+- **doctor 错误码**：`HM-101 wake bucket quotas must sum to 1.0` 与 `HM-102 wake bucket quota out of range` 加入 `docs/error-codes.md`；`harness-mem doctor` 在 `[wake]` 配置非法时立即报告。
+- **storage 索引列**：`memory_entries` 表新增 `memory_type TEXT NOT NULL DEFAULT 'semantic'` 列（`_COLUMN_MIGRATIONS` 自动迁移），让 search 可以走 SQL `WHERE` 过滤而不是 blob 后置筛选。
+- **CLI distill `--auto-confirm` 兼容路径**：`harness-mem distill --auto-confirm` 在产出后立即把 pending 候选转 accepted，保留 v1.6.0 的 `ingest -> distill -> wake` dogfood 流。
+
+### Changed
+
+- **distill 默认产 pending（breaking）**：`harness-mem distill` 默认输出 `(status: pending)`，不再立即进入 accepted 列表。`wake-up` 与默认 `search` 因 `status="accepted"` 过滤天然看不到 pending 记忆，需要先 `confirm_memory_entry`/`--auto-confirm`。
+- `ClaudeCodeAdapter.distill_session / distill_relation_facts` 接受可选 `distill_context: DistillContext`；当传入时所有写动作走候选层，旧 `backend` 路径保留为兼容入口。
+- `read_api.search_memory` / `LocalStructuredStore.search_memory_entries` / `StructuredStore` Protocol 新增 `memory_type` 参数。
+
+### Notes
+
+- v1.6.1 不动 retrieval 算法；理论上 LongMemEval 五维 R@5 不应回退（hybrid (real) baseline 见 `docs/benchmark/v160-baseline.md`）。本切片提交前实测见 `benchmarks/results/v161-baseline-hybrid.json` 与 `docs/benchmark/v161-bucket-budget-impact.md`。
+- 持久化向量索引（sqlite-vec）+ embedding 模型 shootout 推迟到 v1.6.2；vision 文档与 `roadmap-v16x.md` 已划清边界。
+- `DistillContext` 不暴露 `auto_confirm_pending` 这类 mutator——`--auto-confirm` 的实际写入由 `harness_mem.commands.distill._confirm_pending_outputs` 通过 `update_*_status` mutator 完成；这是 CLI 层的"运维出口"，而非 distill 路径的"绕过候选层"。
+
+---
+
 ## [1.6.0] — 2026-05-17
 
 **主题：测量地基 + 记忆分型 schema（非破坏性 baseline 切片）**

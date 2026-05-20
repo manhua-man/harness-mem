@@ -46,8 +46,13 @@ class StructuredStore(Protocol):
         limit: int = 20,
         mode: str = "auto",
         status: str = "accepted",
+        memory_type: list[str] | None = None,
     ) -> list[MemoryEntry]:
-        """Full-text search memory entries with status filtering."""
+        """Full-text search memory entries with status filtering.
+
+        v1.6.1: ``memory_type`` is an optional OR-filter list ({episodic,
+        semantic, procedural}); ``None`` / ``[]`` means no filtering.
+        """
         ...
 
     async def update_memory_entry_status(self, id: str, status: str) -> bool:

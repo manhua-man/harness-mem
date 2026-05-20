@@ -28,9 +28,13 @@ import warnings
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import Stemmer  # type: ignore[import-not-found]
+
+if TYPE_CHECKING:
+    from harness_mem.storage.sqlite_index import SQLiteIndex
 
 ps = Stemmer.Stemmer("porter")
 
@@ -222,12 +226,16 @@ class BenchVerbatimStore:
     harness_mem.storage backend, to keep benchmarks independent.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, *, persist_vectors: bool = False):
         self.db_path = db_path
         self.blob_dir = os.path.join(os.path.dirname(db_path), "blobs")
         os.makedirs(self.blob_dir, exist_ok=True)
         self._init_db()
         self._lock = threading.Lock()
+        self._persist_vectors = persist_vectors
+        self._vector_index: SQLiteIndex | None = None
+        if persist_vectors:
+            self._init_vector_index()
 
     def _init_db(self):
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -243,6 +251,31 @@ class BenchVerbatimStore:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_session ON observations(session_id)")
         conn.commit()
         conn.close()
+
+    def _init_vector_index(self) -> None:
+        """Create the vec_embeddings table used by real hybrid search."""
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        try:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS vec_embeddings ("
+                "entry_id TEXT PRIMARY KEY, "
+                "model_id TEXT NOT NULL, "
+                "model_version TEXT NOT NULL, "
+                "embedding BLOB NOT NULL, "
+                "created_at INTEGER NOT NULL"
+                ")"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        from harness_mem.storage.sqlite_index import SQLiteIndex
+
+        self._vector_index = SQLiteIndex(Path(self.db_path))
+
+    def close(self) -> None:
+        if self._vector_index is not None:
+            self._vector_index.close()
 
     def add(self, obs_id: str, session_id: str, raw_content: str, timestamp: str):
         # Store blob keyed by session_id so hybrid_search can find it
@@ -265,6 +298,12 @@ class BenchVerbatimStore:
                 conn.commit()
             finally:
                 conn.close()
+
+        if self._persist_vectors and self._vector_index is not None:
+            from harness_mem.commands.support import get_embedding_model_id
+
+            model_id = get_embedding_model_id()
+            self._vector_index.persist_embedding(obs_id, raw_content, model_id)
 
     def _tokenize(self, text: str) -> list[str]:
         """Split query into tokens, filter out stop words."""
@@ -450,9 +489,14 @@ class RealHybridSearch:
         """Switch to a different SQLite file (one per question)."""
         if db_path == self._current_path:
             return
+        self.close()
         self._current_path = db_path
         from harness_mem.storage.sqlite_index import SQLiteIndex
         self._layer._sqlite = SQLiteIndex(Path(db_path))
+
+    def close(self) -> None:
+        self._layer._sqlite.close()
+        self._current_path = ""
 
     def search(
         self,
@@ -557,9 +601,10 @@ def run_benchmark(
 
         # Create temp backend for this question
         tmpdir = tempfile.mkdtemp(prefix="hm_lme_")
+        store = None
         try:
             db_path = os.path.join(tmpdir, "bench.sqlite")
-            store = BenchVerbatimStore(db_path)
+            store = BenchVerbatimStore(db_path, persist_vectors=use_real_hybrid)
 
             # Ingest all sessions as Observations
             for sess_id, text in zip(corpus_ids, corpus_texts):
@@ -602,6 +647,10 @@ def run_benchmark(
             })
 
         finally:
+            if store is not None:
+                store.close()
+            if _real_hybrid is not None:
+                _real_hybrid.close()
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     elapsed = (datetime.now() - start_time).total_seconds()
