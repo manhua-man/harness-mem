@@ -35,8 +35,12 @@ class StructuredStore(Protocol):
         category: str | None = None,
         limit: int = 100,
         status: str = "accepted",
+        include_history: bool = False,
     ) -> list[MemoryEntry]:
-        """List memory entries for a project, optionally filtered by category and status."""
+        """List memory entries for a project.
+
+        v1.7.0: ``include_history=False`` returns current truth only.
+        """
         ...
 
     async def search_memory_entries(
@@ -47,6 +51,7 @@ class StructuredStore(Protocol):
         mode: str = "auto",
         status: str = "accepted",
         memory_type: list[str] | None = None,
+        include_history: bool = False,
     ) -> list[MemoryEntry]:
         """Full-text search memory entries with status filtering.
 
@@ -127,8 +132,12 @@ class StructuredStore(Protocol):
     async def list_confirmed_rules(
         self,
         project_name: str,
+        include_history: bool = False,
     ) -> list[ConfirmedRule]:
-        """List all confirmed rules for a project."""
+        """List confirmed rules for a project.
+
+        v1.7.0: ``include_history=False`` returns current truth only.
+        """
         ...
 
     # ---- RelationFact ----
@@ -149,8 +158,9 @@ class StructuredStore(Protocol):
         relation_type: str | None = None,
         limit: int = 100,
         status: str = "accepted",
+        include_history: bool = False,
     ) -> list[RelationFact]:
-        """List relation facts for a project with optional entity/type/status filters."""
+        """List relation facts for a project with optional filters."""
         ...
 
     async def search_relation_facts(
@@ -159,6 +169,7 @@ class StructuredStore(Protocol):
         project_name: str | None = None,
         limit: int = 20,
         status: str = "accepted",
+        include_history: bool = False,
     ) -> list[RelationFact]:
         """Search relation facts by indexed evidence text with status filtering."""
         ...

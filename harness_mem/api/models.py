@@ -22,6 +22,10 @@ class SearchRequest(BaseModel):
     scope: str = Field("project", description="project or all")
     mode: str = Field("auto", description="auto, fts, or hybrid")
     limit: int = Field(20, ge=1, le=100)
+    include_history: bool = Field(
+        False,
+        description="v1.7.0: include historical structured truth.",
+    )
 
 
 class MemoryEntryResponse(BaseModel):
@@ -35,6 +39,12 @@ class MemoryEntryResponse(BaseModel):
     tags: list[str]
     search_mode: Optional[str] = None
     score: Optional[float] = None
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+    recorded_at: Optional[str] = None
+    supersedes: list[str] = Field(default_factory=list)
+    superseded_by: list[str] = Field(default_factory=list)
+    is_historical: bool = False
 
 
 class ObservationResponse(BaseModel):
@@ -55,6 +65,7 @@ class SearchResponse(BaseModel):
     requested_mode: str
     effective_mode: str
     fallback_reason: Optional[str] = None
+    include_history: bool = False
     memory_entries: list[MemoryEntryResponse]
     observations: list[ObservationResponse]
     memory_entry_count: int
@@ -131,11 +142,18 @@ class RuleResponse(BaseModel):
     trigger: str
     examples: list[str]
     confirmed_at: Optional[str]
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+    recorded_at: Optional[str] = None
+    supersedes: list[str] = Field(default_factory=list)
+    superseded_by: list[str] = Field(default_factory=list)
+    is_historical: bool = False
     tags: list[str]
 
 
 class RulesRequest(BaseModel):
     project_name: str
+    include_history: bool = False
 
 
 class RulesResponse(BaseModel):

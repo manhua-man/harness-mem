@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from harness_mem.core.schemas import RelationFact
+from harness_mem.core.schemas import ConfirmedRule, MemoryEntry, RelationFact
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.mcp.server import handle_request, set_backend_override
 from harness_mem.search.hybrid_search import HybridSearchLayer
@@ -143,6 +144,45 @@ def test_search_memory_returns_relation_facts(mcp_backend: LocalMemoryBackend):
     assert data["relation_fact_count"] == 1
     assert data["relation_facts"][0]["relation_type"] == "delegates_to"
     assert data["relation_facts"][0]["search_mode"] == "fts"
+
+
+def test_search_memory_include_history_returns_historical_structured_truth(
+    mcp_backend: LocalMemoryBackend,
+):
+    run(
+        mcp_backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="test-project",
+                category="decision",
+                content="Historical MCP temporal sentinel used Vue.",
+                source="manual",
+                valid_to=datetime.now(timezone.utc) - timedelta(days=1),
+            )
+        )
+    )
+
+    default_data = call_tool(
+        "search_memory",
+        {
+            "project_name": "test-project",
+            "query": "MCP temporal sentinel",
+            "mode": "fts",
+        },
+    )
+    assert default_data["memory_entry_count"] == 0
+
+    history_data = call_tool(
+        "search_memory",
+        {
+            "project_name": "test-project",
+            "query": "MCP temporal sentinel",
+            "mode": "fts",
+            "include_history": True,
+        },
+    )
+    assert history_data["include_history"] is True
+    assert history_data["memory_entry_count"] == 1
+    assert history_data["memory_entries"][0]["is_historical"] is True
 
 
 def test_timeline(mcp_backend: LocalMemoryBackend):
@@ -353,6 +393,41 @@ def test_get_confirmed_rules(mcp_backend: LocalMemoryBackend):
     result = resp["result"]["content"][0]["text"]
     data = json.loads(result)
     assert "rules" in data
+
+
+def test_get_confirmed_rules_include_history(mcp_backend: LocalMemoryBackend):
+    run(
+        mcp_backend.structured_store.save_confirmed_rule(
+            ConfirmedRule(
+                project_name="test-project",
+                pattern="Historical MCP rule used the old route.",
+                trigger="When checking MCP temporal history",
+                source_candidate_id="candidate-old",
+                valid_to=datetime.now(timezone.utc) - timedelta(days=1),
+            )
+        )
+    )
+
+    default_data = call_tool(
+        "get_confirmed_rules",
+        {"project_name": "test-project"},
+    )
+    assert all(
+        rule["pattern"] != "Historical MCP rule used the old route."
+        for rule in default_data["rules"]
+    )
+
+    history_data = call_tool(
+        "get_confirmed_rules",
+        {"project_name": "test-project", "include_history": True},
+    )
+    old_rule = next(
+        rule
+        for rule in history_data["rules"]
+        if rule["pattern"] == "Historical MCP rule used the old route."
+    )
+    assert history_data["include_history"] is True
+    assert old_rule["is_historical"] is True
 
 
 def test_get_project_profile(mcp_backend: LocalMemoryBackend):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -84,6 +85,23 @@ def set_backend_override(backend: LocalMemoryBackend | None) -> None:
         _backend = None
 
 
+def _rule_response(rule: ConfirmedRule) -> RuleResponse:
+    return RuleResponse(
+        id=rule.id,
+        pattern=rule.pattern,
+        trigger=rule.trigger,
+        examples=rule.examples,
+        confirmed_at=rule.confirmed_at.isoformat() if rule.confirmed_at else None,
+        valid_from=rule.valid_from.isoformat() if rule.valid_from else None,
+        valid_to=rule.valid_to.isoformat() if rule.valid_to else None,
+        recorded_at=rule.recorded_at.isoformat() if rule.recorded_at else None,
+        supersedes=rule.supersedes,
+        superseded_by=rule.superseded_by,
+        is_historical=bool(rule.valid_to and rule.valid_to <= datetime.now(timezone.utc)),
+        tags=rule.tags,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await _get_backend_async()
@@ -139,6 +157,10 @@ def create_app() -> FastAPI:
         scope: str = Query("project", description="project or all"),
         mode: str = Query("auto", description="auto, fts, or hybrid"),
         limit: int = Query(20, ge=1, le=100),
+        include_history: bool = Query(
+            False,
+            description="v1.7.0: include historical structured truth",
+        ),
     ):
         if scope not in {"project", "all"}:
             raise HTTPException(status_code=400, detail="scope must be 'project' or 'all'")
@@ -174,6 +196,7 @@ def create_app() -> FastAPI:
             memory_entry_limit=limit,
             observation_limit=limit,
             memory_type=memory_type,
+            include_history=include_history,
         )
 
         if type:
@@ -195,6 +218,7 @@ def create_app() -> FastAPI:
             requested_mode=mode,
             effective_mode=effective_mode,
             fallback_reason=fallback_reason,
+            include_history=include_history,
             memory_entries=[
                 MemoryEntryResponse(
                     **serialize_memory_entry_search_result(
@@ -346,23 +370,20 @@ def create_app() -> FastAPI:
     @app.get("/rules", response_model=RulesResponse)
     async def get_rules(
         project_name: str = Query(..., description="Project name"),
+        include_history: bool = Query(
+            False,
+            description="v1.7.0: include historical confirmed rules",
+        ),
     ):
         backend = await _get_backend_async()
-        rules = await backend.structured_store.list_confirmed_rules(project_name)
+        rules = await backend.structured_store.list_confirmed_rules(
+            project_name,
+            include_history=include_history,
+        )
 
         return RulesResponse(
             project_name=project_name,
-            rules=[
-                RuleResponse(
-                    id=r.id,
-                    pattern=r.pattern,
-                    trigger=r.trigger,
-                    examples=r.examples,
-                    confirmed_at=r.confirmed_at.isoformat() if r.confirmed_at else None,
-                    tags=r.tags,
-                )
-                for r in rules
-            ],
+            rules=[_rule_response(r) for r in rules],
             count=len(rules),
         )
 

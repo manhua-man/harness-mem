@@ -97,8 +97,34 @@ class MemoryEntry(BaseModel):
             "Exposed read-only in v1.6.0; consumed by wake-up bucketing in v1.6.1."
         ),
     )
+    valid_from: datetime | None = Field(
+        default=None,
+        description="When this truth becomes valid. Defaults to created_at.",
+    )
+    valid_to: datetime | None = Field(
+        default=None,
+        description="When this truth stops being current; None means current.",
+    )
+    recorded_at: datetime | None = Field(
+        default=None,
+        description="When harness-mem recorded this truth. Defaults to created_at.",
+    )
+    supersedes: list[str] = Field(
+        default_factory=list,
+        description="Truth ids this entry supersedes.",
+    )
+    superseded_by: list[str] = Field(
+        default_factory=list,
+        description="Truth ids that supersede this entry.",
+    )
 
     model_config = {"extra": "allow"}
+
+    def model_post_init(self, __context: object) -> None:
+        if self.valid_from is None:
+            self.valid_from = self.created_at
+        if self.recorded_at is None:
+            self.recorded_at = self.created_at
 
     def to_dict(self) -> dict:
         return {
@@ -117,11 +143,23 @@ class MemoryEntry(BaseModel):
             "last_accessed_at": self.last_accessed_at.isoformat() if self.last_accessed_at else None,
             "provenance": self.provenance,
             "memory_type": self.memory_type,
+            "valid_from": self.valid_from.isoformat() if self.valid_from else None,
+            "valid_to": self.valid_to.isoformat() if self.valid_to else None,
+            "recorded_at": self.recorded_at.isoformat() if self.recorded_at else None,
+            "supersedes": self.supersedes,
+            "superseded_by": self.superseded_by,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "MemoryEntry":
-        for field in ("created_at", "updated_at", "last_accessed_at"):
+        for field in (
+            "created_at",
+            "updated_at",
+            "last_accessed_at",
+            "valid_from",
+            "valid_to",
+            "recorded_at",
+        ):
             if isinstance(data.get(field), str):
                 data[field] = datetime.fromisoformat(data[field])
         if "status" not in data:
@@ -136,4 +174,14 @@ class MemoryEntry(BaseModel):
             data["provenance"] = None
         if "memory_type" not in data or data["memory_type"] is None:
             data["memory_type"] = _derive_memory_type(data.get("category"))
+        if "valid_from" not in data or data["valid_from"] is None:
+            data["valid_from"] = data.get("created_at")
+        if "recorded_at" not in data or data["recorded_at"] is None:
+            data["recorded_at"] = data.get("created_at")
+        if "valid_to" not in data:
+            data["valid_to"] = None
+        if "supersedes" not in data or data["supersedes"] is None:
+            data["supersedes"] = []
+        if "superseded_by" not in data or data["superseded_by"] is None:
+            data["superseded_by"] = []
         return cls(**data)
