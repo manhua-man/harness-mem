@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from harness_mem.commands import candidates as candidates_command
+from harness_mem.commands import search as search_command
 from harness_mem.core.schemas import ConfirmedRule, MemoryEntry, RelationFact
+from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from tests.helpers import run
 
@@ -163,3 +166,82 @@ def test_confirmed_rules_and_relation_facts_default_current_only(
 
     searched = run(store.search_relation_facts("frontend", "demo"))
     assert [fact.id for fact in searched] == ["fact-current"]
+
+
+def test_cli_include_history_marks_historical_truth(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    backend = LocalMemoryBackend(tmp_path)
+    run(backend.init())
+    try:
+        now = datetime.now(timezone.utc)
+        current = MemoryEntry(
+            id="cli-current-entry",
+            project_name="demo",
+            category="decision",
+            content="Current CLI temporal sentinel uses React.",
+            source="manual",
+        )
+        historical = MemoryEntry(
+            id="cli-historical-entry",
+            project_name="demo",
+            category="decision",
+            content="Historical CLI temporal sentinel used Vue.",
+            source="manual",
+            valid_to=now - timedelta(days=1),
+            superseded_by=["cli-current-entry"],
+        )
+        old_rule = ConfirmedRule(
+            id="cli-rule-old",
+            project_name="demo",
+            pattern="Historical CLI temporal rule used the old route.",
+            trigger="When checking CLI temporal history",
+            source_candidate_id="candidate-old",
+            valid_to=now - timedelta(days=1),
+            superseded_by=["cli-rule-current"],
+        )
+        run(backend.structured_store.save_memory_entry(current))
+        run(backend.structured_store.save_memory_entry(historical))
+        run(backend.structured_store.save_confirmed_rule(old_rule))
+
+        monkeypatch.setattr(search_command, "DEFAULT_DATA_DIR", tmp_path)
+        assert run(
+            search_command.cmd_search(
+                "demo",
+                "temporal sentinel",
+                "fts",
+            )
+        ) == 0
+        default_out = capsys.readouterr().out
+        assert "Historical CLI temporal sentinel" not in default_out
+
+        assert run(
+            search_command.cmd_search(
+                "demo",
+                "temporal sentinel",
+                "fts",
+                include_history=True,
+            )
+        ) == 0
+        history_out = capsys.readouterr().out
+        assert "Historical CLI temporal sentinel" in history_out
+        assert "[historical valid_to=" in history_out
+
+        monkeypatch.setattr(
+            candidates_command.command_support,
+            "DEFAULT_DATA_DIR",
+            tmp_path,
+        )
+        assert run(
+            candidates_command.cmd_confirmed_rules(
+                "demo",
+                include_history=True,
+            )
+        ) == 0
+        rules_out = capsys.readouterr().out
+        assert "Historical CLI temporal rule" in rules_out
+        assert "[historical valid_to=" in rules_out
+    finally:
+        run(backend.close())

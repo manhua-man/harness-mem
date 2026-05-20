@@ -124,6 +124,11 @@ def main():
     search.add_argument("-q", "--query")
     search.add_argument("--mode", choices=["auto", "fts", "hybrid"], default="auto")
     search.add_argument(
+        "--include-history",
+        action="store_true",
+        help="v1.7.0: include historical structured truth in search results.",
+    )
+    search.add_argument(
         "--memory-type",
         action="append",
         choices=["episodic", "semantic", "procedural"],
@@ -216,6 +221,11 @@ def main():
 
     cr = sub.add_parser("confirmed-rules", aliases=["rules"], help="List confirmed rules")
     cr.add_argument("-p", "--project")
+    cr.add_argument(
+        "--include-history",
+        action="store_true",
+        help="v1.7.0: include historical confirmed rules.",
+    )
     cr.set_defaults(command_name="confirmed-rules")
 
     # handoff
@@ -306,6 +316,7 @@ def main():
                 query,
                 args.mode,
                 memory_type=getattr(args, "memory_type", None),
+                include_history=getattr(args, "include_history", False),
             )
         )
 
@@ -439,7 +450,12 @@ def main():
         pn = resolve_project_name(args.project, action_label="confirmed-rules")
         if not pn:
             return 1
-        return asyncio.run(cmd_confirmed_rules(pn))
+        return asyncio.run(
+            cmd_confirmed_rules(
+                pn,
+                include_history=getattr(args, "include_history", False),
+            )
+        )
 
     if command == "handoff":
         task_id = clean_cli_text(args.task_id)

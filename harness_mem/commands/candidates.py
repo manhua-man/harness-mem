@@ -10,6 +10,7 @@ from harness_mem.core.schemas import (
     ConfirmedRule,
     RuleCandidate,
 )
+from harness_mem.read_api import format_validity_marker
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -122,14 +123,17 @@ async def cmd_list_candidates(project_name: str, status: str | None = None) -> i
     finally:
         await backend.close()
 
-async def cmd_confirmed_rules(project_name: str) -> int:
+async def cmd_confirmed_rules(project_name: str, *, include_history: bool = False) -> int:
     backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
     await backend.init()
     try:
-        rules = await backend.structured_store.list_confirmed_rules(project_name)
+        rules = await backend.structured_store.list_confirmed_rules(
+            project_name,
+            include_history=include_history,
+        )
         print(f"# Confirmed Rules ({project_name})")
         for rule in rules:
-            print(f"- {rule.trigger}: {rule.pattern}")
+            print(f"- {rule.trigger}{format_validity_marker(rule)}: {rule.pattern}")
         return 0
     finally:
         await backend.close()

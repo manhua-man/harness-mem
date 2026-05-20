@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from harness_mem.core.schemas.memory_entry import MemoryEntry
@@ -21,6 +22,7 @@ async def search_memory(
     memory_entry_limit: int = 20,
     observation_limit: int = 20,
     memory_type: list[str] | None = None,
+    include_history: bool = False,
 ) -> tuple[list[MemoryEntry], list[Observation]]:
     """Return structured and verbatim search results with shared filtering.
 
@@ -36,6 +38,7 @@ async def search_memory(
             limit=memory_entry_limit,
             mode=mode,
             memory_type=memory_type,
+            include_history=include_history,
         )
         observations = await backend.verbatim_store.search(
             query,
@@ -50,6 +53,7 @@ async def search_memory(
         limit=memory_entry_limit,
         mode=mode,
         memory_type=memory_type,
+        include_history=include_history,
     )
     observations = await backend.verbatim_store.search(
         query,
@@ -67,6 +71,7 @@ async def search_relation_facts(
     query: str,
     scope: str = "project",
     limit: int = 10,
+    include_history: bool = False,
 ) -> list[RelationFact]:
     """Return relation facts matching the query with shared project scoping."""
     if scope == "all":
@@ -74,12 +79,14 @@ async def search_relation_facts(
             query,
             project_name=None,
             limit=limit,
+            include_history=include_history,
         )
 
     return await backend.structured_store.search_relation_facts(
         query,
         project_name=project_name,
         limit=limit,
+        include_history=include_history,
     )
 
 
@@ -192,6 +199,14 @@ def format_observation_reference(observation: Observation) -> str:
     return f"[{observation.id}] session: {observation.session_id}"
 
 
+def format_validity_marker(result: object) -> str:
+    """Return a compact marker for historical structured truth."""
+    valid_to = _normalize_datetime(getattr(result, "valid_to", None))
+    if valid_to is None or valid_to > datetime.now(timezone.utc):
+        return ""
+    return f" [historical valid_to={valid_to.isoformat()}]"
+
+
 def preview_search_text(text: str, query: str, *, max_chars: int = 200) -> str:
     """Return a compact preview centered near the first query match."""
     cleaned_query = query.strip()
@@ -245,6 +260,7 @@ def serialize_memory_entry_search_result(
         "provenance": getattr(entry, "provenance"),
         "search_mode": getattr(entry, "_search_mode", requested_mode),
         "score": _raw_search_score(entry),
+        **_serialize_validity_fields(entry),
     }
 
 
@@ -287,6 +303,7 @@ def serialize_relation_fact_search_result(
         "provenance": fact.provenance,
         "search_mode": "fts",
         "score": _raw_search_score(fact),
+        **_serialize_validity_fields(fact),
     }
 
 
@@ -324,6 +341,35 @@ def _raw_search_score(result: object) -> float | None:
     if score is None:
         score = getattr(result, "_fts_score", None)
     return score if isinstance(score, (int, float)) else None
+
+
+def _serialize_validity_fields(result: object) -> dict[str, Any]:
+    valid_to = _normalize_datetime(getattr(result, "valid_to", None))
+    valid_from = _normalize_datetime(getattr(result, "valid_from", None))
+    recorded_at = _normalize_datetime(getattr(result, "recorded_at", None))
+    return {
+        "valid_from": valid_from.isoformat() if valid_from else None,
+        "valid_to": valid_to.isoformat() if valid_to else None,
+        "recorded_at": recorded_at.isoformat() if recorded_at else None,
+        "supersedes": list(getattr(result, "supersedes", []) or []),
+        "superseded_by": list(getattr(result, "superseded_by", []) or []),
+        "is_historical": bool(valid_to and valid_to <= datetime.now(timezone.utc)),
+    }
+
+
+def _normalize_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        normalized = value
+    elif isinstance(value, str) and value:
+        try:
+            normalized = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    else:
+        return None
+    if normalized.tzinfo is None:
+        normalized = normalized.replace(tzinfo=timezone.utc)
+    return normalized
 
 
 def _tech_stack_for_project(

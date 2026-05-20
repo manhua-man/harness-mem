@@ -101,6 +101,7 @@ def tool_search_memory(
     scope: str = "project",
     mode: str = "auto",
     memory_type: list[str] | None = None,
+    include_history: bool = False,
 ) -> dict:
     """Search structured memory entries + verbatim observations.
 
@@ -138,6 +139,7 @@ def tool_search_memory(
             scope=scope,
             mode=mode,
             memory_type=memory_type,
+            include_history=include_history,
         )
     )
 
@@ -152,6 +154,7 @@ def tool_search_memory(
         "requested_mode": mode,
         "effective_mode": effective_mode,
         "fallback_reason": fallback_reason,
+        "include_history": include_history,
         "memory_entries": [
             serialize_memory_entry_search_result(entry, mode, tech_stack_by_project)
             for entry in entries
@@ -182,6 +185,7 @@ async def _gather_search_payload(
     scope: str,
     mode: str,
     memory_type: list[str] | None = None,
+    include_history: bool = False,
 ) -> tuple[
     list[Any],
     list[Any],
@@ -203,6 +207,7 @@ async def _gather_search_payload(
         memory_entry_limit=20,
         observation_limit=20,
         memory_type=memory_type,
+        include_history=include_history,
     )
     relation_facts = await search_relation_facts(
         backend,
@@ -210,6 +215,7 @@ async def _gather_search_payload(
         query=query,
         scope=scope,
         limit=20,
+        include_history=include_history,
     )
     for entry in entries:
         await backend.structured_store.touch_memory_entry(entry.id)
@@ -282,12 +288,18 @@ def tool_get_task_handoffs(project_name: str, limit: int = 5) -> dict:
     }
 
 
-def tool_get_confirmed_rules(project_name: str) -> dict:
+def tool_get_confirmed_rules(project_name: str, include_history: bool = False) -> dict:
     """Return all confirmed rules for a project."""
     backend = _get_backend()
-    rules = asyncio.run(backend.structured_store.list_confirmed_rules(project_name))
+    rules = asyncio.run(
+        backend.structured_store.list_confirmed_rules(
+            project_name,
+            include_history=include_history,
+        )
+    )
     return {
         "project_name": project_name,
+        "include_history": include_history,
         "rules": [
             {
                 "id": r.id,
@@ -295,6 +307,12 @@ def tool_get_confirmed_rules(project_name: str) -> dict:
                 "trigger": r.trigger,
                 "examples": r.examples,
                 "confirmed_at": r.confirmed_at.isoformat() if r.confirmed_at else None,
+                "valid_from": r.valid_from.isoformat() if r.valid_from else None,
+                "valid_to": r.valid_to.isoformat() if r.valid_to else None,
+                "recorded_at": r.recorded_at.isoformat() if r.recorded_at else None,
+                "supersedes": r.supersedes,
+                "superseded_by": r.superseded_by,
+                "is_historical": bool(r.valid_to and r.valid_to <= datetime.now(timezone.utc)),
                 "tags": r.tags,
                 "provenance": r.provenance,
             }
@@ -961,6 +979,11 @@ TOOLS: dict[str, ToolSpec] = {
                     "items": {"type": "string", "enum": ["episodic", "semantic", "procedural"]},
                     "description": "v1.6.1: optional filter on MemoryEntry.memory_type. Multiple values are OR-ed.",
                 },
+                "include_history": {
+                    "type": "boolean",
+                    "description": "v1.7.0: include historical structured truth. Default false returns current truth only.",
+                    "default": False,
+                },
             },
             "required": ["query"],
         },
@@ -1016,6 +1039,11 @@ TOOLS: dict[str, ToolSpec] = {
             "type": "object",
             "properties": {
                 "project_name": {"type": "string", "description": "Project name"},
+                "include_history": {
+                    "type": "boolean",
+                    "description": "v1.7.0: include historical confirmed rules. Default false returns current rules only.",
+                    "default": False,
+                },
             },
             "required": ["project_name"],
         },

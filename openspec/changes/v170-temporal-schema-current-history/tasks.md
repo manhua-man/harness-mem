@@ -14,9 +14,9 @@
 
 ## 3. Surfaces
 
-- [ ] 3.1 Add CLI `--include-history` for search and confirmed-rule listing
-- [ ] 3.2 Add MCP / REST `include_history` parameters where relevant
-- [ ] 3.3 Mark historical results in output as `[historical valid_to=...]`
+- [x] 3.1 Add CLI `--include-history` for search and confirmed-rule listing
+- [x] 3.2 Add MCP / REST `include_history` parameters where relevant
+- [x] 3.3 Mark historical results in output as `[historical valid_to=...]`
 
 ## 4. Validation
 

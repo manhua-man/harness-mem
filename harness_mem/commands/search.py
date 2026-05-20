@@ -8,6 +8,7 @@ from harness_mem.commands.support import DEFAULT_DATA_DIR, log_command_invoked, 
 from harness_mem.read_api import (
     format_observation_reference,
     format_search_score,
+    format_validity_marker,
     preview_search_text,
     resolve_observation_identifier,
     search_header,
@@ -27,6 +28,7 @@ async def cmd_search(
     mode: str = "auto",
     *,
     memory_type: list[str] | None = None,
+    include_history: bool = False,
 ) -> int:
     """Search memory for a project.
 
@@ -67,6 +69,7 @@ async def cmd_search(
             memory_entry_limit=10,
             observation_limit=10,
             memory_type=memory_type,
+            include_history=include_history,
         )
         relation_facts = await search_relation_facts(
             backend,
@@ -74,6 +77,7 @@ async def cmd_search(
             query=query,
             scope="project",
             limit=10,
+            include_history=include_history,
         )
         combined_results = entries or relation_facts or observations
         print(search_header(combined_results, mode))
@@ -86,7 +90,7 @@ async def cmd_search(
                 search_mode = getattr(entry, "_search_mode", mode)
                 entry_memory_type = getattr(entry, "memory_type", "semantic")
                 print(
-                    f"- [{entry.category}/{entry_memory_type}] {preview}  "
+                    f"- [{entry.category}/{entry_memory_type}]{format_validity_marker(entry)} {preview}  "
                     f"(score: {format_search_score(entry)}, mode: {search_mode})  -> structured"
                 )
                 await backend.structured_store.touch_memory_entry(entry.id)
@@ -97,7 +101,8 @@ async def cmd_search(
             for fact in relation_facts:
                 evidence = fact.evidence[:150] + "..." if len(fact.evidence) > 150 else fact.evidence
                 print(
-                    f"- {fact.source_entity} --{fact.relation_type}-> {fact.target_entity}: "
+                    f"- {fact.source_entity} --{fact.relation_type}-> {fact.target_entity}"
+                    f"{format_validity_marker(fact)}: "
                     f"{evidence}  "
                     f"(confidence: {fact.confidence:.2f}, score: {format_search_score(fact)}, mode: fts)  "
                     "-> relation"
@@ -124,6 +129,7 @@ async def cmd_search(
                 "memory_entry_count": len(entries),
                 "relation_fact_count": len(relation_facts),
                 "observation_count": len(observations),
+                "include_history": include_history,
             },
         )
     finally:

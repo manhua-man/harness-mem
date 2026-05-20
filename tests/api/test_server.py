@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 
 from harness_mem.api.server import create_app, set_backend_override
+from harness_mem.core.schemas import ConfirmedRule, MemoryEntry
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.search.hybrid_search import HybridSearchLayer
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -112,6 +115,45 @@ def test_search_reports_effective_mode(client: TestClient, monkeypatch: pytest.M
     assert data["memory_entries"][0]["search_mode"] == "hybrid"
 
 
+def test_search_include_history_returns_historical_entries(
+    client: TestClient,
+    seeded_backend: LocalMemoryBackend,
+):
+    run(
+        seeded_backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="test-project",
+                category="decision",
+                content="Historical API temporal sentinel used Vue.",
+                source="manual",
+                valid_to=datetime.now(timezone.utc) - timedelta(days=1),
+            )
+        )
+    )
+
+    default_resp = client.get("/search", params={
+        "query": "API temporal sentinel",
+        "project_name": "test-project",
+        "scope": "project",
+        "mode": "fts",
+    })
+    assert default_resp.status_code == 200
+    assert default_resp.json()["memory_entry_count"] == 0
+
+    history_resp = client.get("/search", params={
+        "query": "API temporal sentinel",
+        "project_name": "test-project",
+        "scope": "project",
+        "mode": "fts",
+        "include_history": True,
+    })
+    assert history_resp.status_code == 200
+    data = history_resp.json()
+    assert data["include_history"] is True
+    assert data["memory_entry_count"] == 1
+    assert data["memory_entries"][0]["is_historical"] is True
+
+
 def test_timeline(client: TestClient):
     resp = client.get("/timeline", params={
         "project_name": "test-project",
@@ -155,6 +197,42 @@ def test_rules(client: TestClient):
     data = resp.json()
     assert "rules" in data
     assert "count" in data
+
+
+def test_rules_include_history(
+    client: TestClient,
+    seeded_backend: LocalMemoryBackend,
+):
+    run(
+        seeded_backend.structured_store.save_confirmed_rule(
+            ConfirmedRule(
+                project_name="test-project",
+                pattern="Historical API rule used the old route.",
+                trigger="When checking API temporal history",
+                source_candidate_id="candidate-old",
+                valid_to=datetime.now(timezone.utc) - timedelta(days=1),
+            )
+        )
+    )
+
+    default_resp = client.get("/rules", params={"project_name": "test-project"})
+    assert default_resp.status_code == 200
+    assert all(
+        rule["pattern"] != "Historical API rule used the old route."
+        for rule in default_resp.json()["rules"]
+    )
+
+    history_resp = client.get("/rules", params={
+        "project_name": "test-project",
+        "include_history": True,
+    })
+    assert history_resp.status_code == 200
+    old_rule = next(
+        rule
+        for rule in history_resp.json()["rules"]
+        if rule["pattern"] == "Historical API rule used the old route."
+    )
+    assert old_rule["is_historical"] is True
 
 
 def test_rules_candidates_list(client: TestClient):
