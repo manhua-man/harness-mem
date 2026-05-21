@@ -7,6 +7,7 @@ from typing import Protocol, runtime_checkable
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.task_handoff import TaskHandoff
 from harness_mem.core.schemas.rule_candidate import RuleCandidate
+from harness_mem.core.schemas.supersede_candidate import SupersedeCandidate
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.relation_fact import RelationFact
 
@@ -119,6 +120,38 @@ class StructuredStore(Protocol):
         """Update candidate status (pending/accepted/rejected)."""
         ...
 
+    # ---- SupersedeCandidate ----
+
+    async def save_supersede_candidate(
+        self,
+        candidate: SupersedeCandidate,
+    ) -> str:
+        """Save a supersede candidate. Returns the candidate id."""
+        ...
+
+    async def get_supersede_candidate(self, id: str) -> SupersedeCandidate | None:
+        """Get a single supersede candidate by id."""
+        ...
+
+    async def list_supersede_candidates(
+        self,
+        project_name: str,
+        status: str | None = None,
+    ) -> list[SupersedeCandidate]:
+        """List supersede candidates for a project, optionally filtered by status."""
+        ...
+
+    async def update_supersede_candidate_status(
+        self,
+        id: str,
+        status: str,
+        *,
+        reviewed_at: datetime | None = None,
+        reviewer_id: str | None = None,
+    ) -> bool:
+        """Update supersede candidate review status."""
+        ...
+
     # ---- ConfirmedRule ----
 
     async def save_confirmed_rule(self, rule: ConfirmedRule) -> str:
@@ -176,4 +209,14 @@ class StructuredStore(Protocol):
 
     async def update_relation_fact_status(self, id: str, status: str) -> bool:
         """Update the status of a relation fact."""
+        ...
+
+    async def confirm_supersede_candidate(
+        self,
+        id: str,
+        *,
+        reviewed_at: datetime | None = None,
+        reviewer_id: str | None = None,
+    ) -> SupersedeCandidate | None:
+        """Confirm a pending supersede candidate and link target/replacement truth."""
         ...

@@ -16,6 +16,9 @@ from harness_mem.commands.candidates import (
     cmd_reject_rule,
     cmd_list_candidates,
     cmd_confirmed_rules,
+    cmd_suggest_supersede,
+    cmd_confirm_supersede,
+    cmd_reject_supersede,
 )
 from harness_mem.commands.handoff import cmd_handoff
 from harness_mem.commands.onboarding import cmd_quickstart
@@ -37,6 +40,9 @@ __all__ = [
     "cmd_reject_rule",
     "cmd_list_candidates",
     "cmd_confirmed_rules",
+    "cmd_suggest_supersede",
+    "cmd_confirm_supersede",
+    "cmd_reject_supersede",
     "cmd_handoff",
     "cmd_use",
     "cmd_show",

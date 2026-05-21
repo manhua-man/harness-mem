@@ -9,6 +9,7 @@ from pathlib import Path
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.task_handoff import TaskHandoff
 from harness_mem.core.schemas.rule_candidate import RuleCandidate
+from harness_mem.core.schemas.supersede_candidate import SupersedeCandidate
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.search.hybrid_search import HybridSearchLayer
@@ -30,6 +31,7 @@ class LocalStructuredStore:
             "memory_entries": self.blob_dir / "memory_entries",
             "task_handoffs": self.blob_dir / "task_handoffs",
             "rule_candidates": self.blob_dir / "rule_candidates",
+            "supersede_candidates": self.blob_dir / "supersede_candidates",
             "confirmed_rules": self.blob_dir / "confirmed_rules",
             "relation_facts": self.blob_dir / "relation_facts",
         }
@@ -103,6 +105,101 @@ class LocalStructuredStore:
             rule_id,
             {"source_session_id": source_session_id},
         )
+
+    def _truth_collection_for_type(self, truth_type: str) -> str:
+        collections = {
+            "memory_entry": "memory_entries",
+            "relation_fact": "relation_facts",
+            "confirmed_rule": "confirmed_rules",
+        }
+        try:
+            return collections[truth_type]
+        except KeyError as exc:
+            raise ValueError(
+                "truth type must be one of: memory_entry, relation_fact, confirmed_rule"
+            ) from exc
+
+    def _load_truth_data(self, truth_type: str, truth_id: str) -> tuple[str, Path, dict] | None:
+        collection = self._truth_collection_for_type(truth_type)
+        blob_path = self._blob_path(collection, truth_id)
+        if not blob_path.exists():
+            return None
+        return collection, blob_path, json.loads(blob_path.read_text())
+
+    def _apply_truth_supersede_updates(
+        self,
+        data: dict,
+        *,
+        valid_to: datetime | None = None,
+        add_supersedes: str | None = None,
+        add_superseded_by: str | None = None,
+    ) -> dict:
+        updated = dict(data)
+        if valid_to is not None:
+            updated["valid_to"] = valid_to.isoformat()
+        if add_supersedes:
+            supersedes = list(updated.get("supersedes") or [])
+            if add_supersedes not in supersedes:
+                supersedes.append(add_supersedes)
+            updated["supersedes"] = supersedes
+        if add_superseded_by:
+            superseded_by = list(updated.get("superseded_by") or [])
+            if add_superseded_by not in superseded_by:
+                superseded_by.append(add_superseded_by)
+            updated["superseded_by"] = superseded_by
+        return updated
+
+    async def _persist_truth_snapshot(self, collection: str, truth_id: str, data: dict) -> bool:
+        blob_path = self._blob_path(collection, truth_id)
+        if not blob_path.exists():
+            return False
+
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        updates: dict[str, object] = {}
+        for key in ("valid_to", "supersedes", "superseded_by"):
+            if key in data:
+                updates[key] = data[key]
+        if updates:
+            updated = await asyncio.to_thread(self._index.update, collection, truth_id, updates)
+            if not updated:
+                return False
+        return True
+
+    async def _update_truth_supersede_fields(
+        self,
+        truth_type: str,
+        truth_id: str,
+        *,
+        valid_to: datetime | None = None,
+        add_supersedes: str | None = None,
+        add_superseded_by: str | None = None,
+    ) -> bool:
+        loaded = self._load_truth_data(truth_type, truth_id)
+        if loaded is None:
+            return False
+        collection, blob_path, data = loaded
+
+        updates: dict[str, object] = {}
+        if valid_to is not None:
+            data["valid_to"] = valid_to.isoformat()
+            updates["valid_to"] = valid_to
+        if add_supersedes:
+            supersedes = list(data.get("supersedes") or [])
+            if add_supersedes not in supersedes:
+                supersedes.append(add_supersedes)
+            data["supersedes"] = supersedes
+            updates["supersedes"] = supersedes
+        if add_superseded_by:
+            superseded_by = list(data.get("superseded_by") or [])
+            if add_superseded_by not in superseded_by:
+                superseded_by.append(add_superseded_by)
+            data["superseded_by"] = superseded_by
+            updates["superseded_by"] = superseded_by
+
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        if updates:
+            await asyncio.to_thread(self._index.update, collection, truth_id, updates)
+        return True
 
     # ---- MemoryEntry ----
 
@@ -456,6 +553,149 @@ class LocalStructuredStore:
         data["status"] = status
         blob_path.write_text(json.dumps(data, indent=2, default=str))
         return True
+
+    # ---- SupersedeCandidate ----
+
+    async def save_supersede_candidate(self, candidate: SupersedeCandidate) -> str:
+        blob_path = self._blob_path("supersede_candidates", candidate.id)
+        blob_path.write_text(json.dumps(candidate.to_dict(), indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.insert,
+            "supersede_candidates",
+            {
+                "id": candidate.id,
+                "project_name": candidate.project_name,
+                "target_type": candidate.target_type,
+                "target_id": candidate.target_id,
+                "replacement_type": candidate.replacement_type,
+                "replacement_id": candidate.replacement_id,
+                "reason": candidate.reason,
+                "evidence": candidate.evidence,
+                "confidence": candidate.confidence,
+                "status": candidate.status,
+                "source": candidate.source,
+                "created_at": candidate.created_at,
+                "reviewed_at": candidate.reviewed_at,
+                "reviewer_id": candidate.reviewer_id,
+            },
+        )
+        return candidate.id
+
+    async def get_supersede_candidate(self, id: str) -> SupersedeCandidate | None:
+        blob_path = self._blob_path("supersede_candidates", id)
+        if not blob_path.exists():
+            return None
+        data = json.loads(blob_path.read_text())
+        return SupersedeCandidate.from_dict(data)
+
+    async def list_supersede_candidates(
+        self,
+        project_name: str,
+        status: str | None = None,
+    ) -> list[SupersedeCandidate]:
+        where_parts = ["project_name = ?"]
+        params = [project_name]
+        if status:
+            where_parts.append("status = ?")
+            params.append(status)
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "supersede_candidates",
+            " AND ".join(where_parts),
+            tuple(params),
+            order_by="created_at DESC",
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("supersede_candidates", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(SupersedeCandidate.from_dict(data))
+        return results
+
+    async def update_supersede_candidate_status(
+        self,
+        id: str,
+        status: str,
+        *,
+        reviewed_at: datetime | None = None,
+        reviewer_id: str | None = None,
+    ) -> bool:
+        blob_path = self._blob_path("supersede_candidates", id)
+        if not blob_path.exists():
+            return False
+
+        reviewed_at = reviewed_at or datetime.now(timezone.utc)
+        updates: dict[str, object | None] = {
+            "status": status,
+            "reviewed_at": reviewed_at,
+            "reviewer_id": reviewer_id,
+        }
+        updated = await asyncio.to_thread(
+            self._index.update,
+            "supersede_candidates",
+            id,
+            updates,
+        )
+        if not updated:
+            return False
+
+        data = json.loads(blob_path.read_text())
+        data["status"] = status
+        data["reviewed_at"] = reviewed_at.isoformat()
+        data["reviewer_id"] = reviewer_id
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        return True
+
+    async def confirm_supersede_candidate(
+        self,
+        id: str,
+        *,
+        reviewed_at: datetime | None = None,
+        reviewer_id: str | None = None,
+    ) -> SupersedeCandidate | None:
+        candidate = await self.get_supersede_candidate(id)
+        if candidate is None or candidate.status != "pending":
+            return None
+        if candidate.target_type == candidate.replacement_type and candidate.target_id == candidate.replacement_id:
+            return None
+
+        reviewed_at = reviewed_at or datetime.now(timezone.utc)
+        try:
+            target_loaded = self._load_truth_data(candidate.target_type, candidate.target_id)
+            replacement_loaded = self._load_truth_data(candidate.replacement_type, candidate.replacement_id)
+        except ValueError:
+            return None
+        if target_loaded is None or replacement_loaded is None:
+            return None
+
+        target_collection, _, target_original = target_loaded
+        replacement_collection, _, replacement_original = replacement_loaded
+
+        target_updated = self._apply_truth_supersede_updates(
+            target_original,
+            valid_to=reviewed_at,
+            add_superseded_by=candidate.replacement_id,
+        )
+        replacement_updated = self._apply_truth_supersede_updates(
+            replacement_original,
+            add_supersedes=candidate.target_id,
+        )
+        if not await self._persist_truth_snapshot(target_collection, candidate.target_id, target_updated):
+            return None
+        if not await self._persist_truth_snapshot(replacement_collection, candidate.replacement_id, replacement_updated):
+            await self._persist_truth_snapshot(target_collection, candidate.target_id, target_original)
+            return None
+        if not await self.update_supersede_candidate_status(
+            id,
+            "accepted",
+            reviewed_at=reviewed_at,
+            reviewer_id=reviewer_id,
+        ):
+            await self._persist_truth_snapshot(replacement_collection, candidate.replacement_id, replacement_original)
+            await self._persist_truth_snapshot(target_collection, candidate.target_id, target_original)
+            return None
+        return await self.get_supersede_candidate(id)
 
     # ---- ConfirmedRule ----
 
