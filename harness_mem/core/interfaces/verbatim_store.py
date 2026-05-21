@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import builtins
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from harness_mem.core.schemas.observation import Observation
@@ -38,6 +39,7 @@ class VerbatimStore(Protocol):
         project_name: str | None = None,
         limit: int = 20,
         mode: str = "auto",
+        time_window: tuple[datetime | None, datetime | None] | None = None,
     ) -> builtins.list[Observation]:
         """Full-text search observations, optionally filtered by session_id or project_name."""
         ...

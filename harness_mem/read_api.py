@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+import re
 from typing import Any, Sequence
 
 from harness_mem.core.schemas.memory_entry import MemoryEntry
@@ -10,6 +12,50 @@ from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
+
+RELATION_TRACE_DEFAULT_DEPTH = 2
+RELATION_TRACE_MAX_DEPTH = 3
+
+
+@dataclass(frozen=True)
+class ParsedTimeWindow:
+    """A parsed relative query window with a cleaner query for FTS."""
+
+    query: str
+    start: datetime | None
+    end: datetime | None
+    phrase: str | None = None
+
+    @property
+    def time_window(self) -> tuple[datetime | None, datetime | None] | None:
+        if self.start is None and self.end is None:
+            return None
+        return self.start, self.end
+
+
+@dataclass(frozen=True)
+class RelationPath:
+    """A bounded relation traversal result."""
+
+    facts: tuple[RelationFact, ...]
+
+    @property
+    def depth(self) -> int:
+        return len(self.facts)
+
+    @property
+    def entities(self) -> list[str]:
+        if not self.facts:
+            return []
+        entities = [self.facts[0].source_entity]
+        entities.extend(fact.target_entity for fact in self.facts)
+        return entities
+
+    @property
+    def confidence(self) -> float:
+        if not self.facts:
+            return 0.0
+        return min(fact.confidence for fact in self.facts)
 
 
 async def search_memory(
@@ -23,6 +69,7 @@ async def search_memory(
     observation_limit: int = 20,
     memory_type: list[str] | None = None,
     include_history: bool = False,
+    time_window: tuple[datetime | None, datetime | None] | None = None,
 ) -> tuple[list[MemoryEntry], list[Observation]]:
     """Return structured and verbatim search results with shared filtering.
 
@@ -39,11 +86,13 @@ async def search_memory(
             mode=mode,
             memory_type=memory_type,
             include_history=include_history,
+            time_window=time_window,
         )
         observations = await backend.verbatim_store.search(
             query,
             limit=observation_limit,
             mode=mode,
+            time_window=time_window,
         )
         return entries, observations
 
@@ -54,12 +103,14 @@ async def search_memory(
         mode=mode,
         memory_type=memory_type,
         include_history=include_history,
+        time_window=time_window,
     )
     observations = await backend.verbatim_store.search(
         query,
         project_name=project_name,
         limit=observation_limit,
         mode=mode,
+        time_window=time_window,
     )
     return entries, observations
 
@@ -72,6 +123,7 @@ async def search_relation_facts(
     scope: str = "project",
     limit: int = 10,
     include_history: bool = False,
+    time_window: tuple[datetime | None, datetime | None] | None = None,
 ) -> list[RelationFact]:
     """Return relation facts matching the query with shared project scoping."""
     if scope == "all":
@@ -80,6 +132,7 @@ async def search_relation_facts(
             project_name=None,
             limit=limit,
             include_history=include_history,
+            time_window=time_window,
         )
 
     return await backend.structured_store.search_relation_facts(
@@ -87,7 +140,90 @@ async def search_relation_facts(
         project_name=project_name,
         limit=limit,
         include_history=include_history,
+        time_window=time_window,
     )
+
+
+def parse_relative_time_window(
+    query: str,
+    *,
+    now: datetime | None = None,
+) -> ParsedTimeWindow:
+    """Parse a small, deterministic relative time phrase from a query.
+
+    This intentionally handles a conservative set of English phrases. Unknown
+    phrasing falls back to the original query and no time filter.
+    """
+    reference = _normalize_datetime(now) or datetime.now(timezone.utc)
+    lowered = query.lower()
+    specs: tuple[tuple[str, str], ...] = (
+        ("yesterday", "yesterday"),
+        ("last week", "last_week"),
+        ("last month", "last_month"),
+        ("two months ago", "months_ago:2"),
+        ("2 months ago", "months_ago:2"),
+        ("one month ago", "months_ago:1"),
+        ("1 month ago", "months_ago:1"),
+    )
+    for phrase, spec in specs:
+        if phrase not in lowered:
+            continue
+        start, end = _window_for_spec(spec, reference)
+        cleaned = _clean_time_phrase(query, phrase)
+        return ParsedTimeWindow(query=cleaned, start=start, end=end, phrase=phrase)
+    return ParsedTimeWindow(query=query, start=None, end=None, phrase=None)
+
+
+async def trace_relation_paths(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    source_entity: str,
+    relation_type: str | None = None,
+    max_depth: int = RELATION_TRACE_DEFAULT_DEPTH,
+    limit: int = 10,
+    min_confidence: float = 0.0,
+    include_history: bool = False,
+) -> list[RelationPath]:
+    """Return bounded current relation paths starting at ``source_entity``."""
+    if max_depth < 1:
+        raise ValueError("max_depth must be >= 1")
+    if max_depth > RELATION_TRACE_MAX_DEPTH:
+        raise ValueError(f"max_depth must be <= {RELATION_TRACE_MAX_DEPTH}")
+
+    paths: list[RelationPath] = []
+    queue: list[tuple[str, tuple[RelationFact, ...], set[str]]] = [
+        (source_entity, (), {source_entity})
+    ]
+    effective_limit = max(1, limit)
+    while queue and len(paths) < effective_limit:
+        current_entity, current_path, seen_entities = queue.pop(0)
+        next_facts = await backend.structured_store.list_relation_facts(
+            project_name,
+            source_entity=current_entity,
+            relation_type=relation_type,
+            limit=effective_limit * 5,
+            include_history=include_history,
+        )
+        next_facts = [
+            fact for fact in next_facts
+            if fact.confidence >= min_confidence and fact.target_entity not in seen_entities
+        ]
+        next_facts.sort(key=lambda fact: (fact.confidence, fact.created_at), reverse=True)
+        for fact in next_facts:
+            next_path = (*current_path, fact)
+            paths.append(RelationPath(next_path))
+            if len(paths) >= effective_limit:
+                break
+            if len(next_path) < max_depth:
+                queue.append(
+                    (
+                        fact.target_entity,
+                        next_path,
+                        {*seen_entities, fact.target_entity},
+                    )
+                )
+    return paths[:effective_limit]
 
 
 async def timeline_observations(
@@ -307,6 +443,20 @@ def serialize_relation_fact_search_result(
     }
 
 
+def serialize_relation_path(path: RelationPath) -> dict[str, Any]:
+    """Serialize a bounded relation path for CLI/MCP/API clients."""
+    return {
+        "depth": path.depth,
+        "entities": path.entities,
+        "confidence": path.confidence,
+        "edges": [
+            serialize_relation_fact_search_result(fact)
+            for fact in path.facts
+        ],
+        "evidence": [fact.evidence for fact in path.facts],
+    }
+
+
 def serialize_timeline_observation(observation: Observation) -> dict[str, Any]:
     """Serialize a timeline item for MCP responses."""
     return {
@@ -370,6 +520,47 @@ def _normalize_datetime(value: object) -> datetime | None:
     if normalized.tzinfo is None:
         normalized = normalized.replace(tzinfo=timezone.utc)
     return normalized
+
+
+def _window_for_spec(
+    spec: str,
+    reference: datetime,
+) -> tuple[datetime, datetime]:
+    local_ref = reference.astimezone(timezone.utc)
+    if spec == "yesterday":
+        day = (local_ref - timedelta(days=1)).date()
+        start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+        return start, start + timedelta(days=1)
+    if spec == "last_week":
+        today = local_ref.date()
+        this_week_start = today - timedelta(days=today.weekday())
+        start_date = this_week_start - timedelta(days=7)
+        start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+        return start, start + timedelta(days=7)
+    if spec == "last_month":
+        month_start = datetime(local_ref.year, local_ref.month, 1, tzinfo=timezone.utc)
+        prior_month_end = month_start
+        prior_month_start = _shift_month(month_start, -1)
+        return prior_month_start, prior_month_end
+    if spec.startswith("months_ago:"):
+        months = int(spec.split(":", 1)[1])
+        end = _shift_month(datetime(local_ref.year, local_ref.month, 1, tzinfo=timezone.utc), -(months - 1))
+        start = _shift_month(end, -1)
+        return start, end
+    raise ValueError(f"unknown time window spec: {spec}")
+
+
+def _shift_month(value: datetime, months: int) -> datetime:
+    month_index = value.year * 12 + (value.month - 1) + months
+    year = month_index // 12
+    month = month_index % 12 + 1
+    return value.replace(year=year, month=month)
+
+
+def _clean_time_phrase(query: str, phrase: str) -> str:
+    cleaned = re.sub(re.escape(phrase), " ", query, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned or query
 
 
 def _tech_stack_for_project(

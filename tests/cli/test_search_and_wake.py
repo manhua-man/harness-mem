@@ -474,6 +474,61 @@ def test_cmd_search_surfaces_relation_facts(
     assert "-> relation" in output
 
 
+def test_cmd_trace_relations_outputs_two_hop_paths(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.structured_store.save_relation_fact(
+                RelationFact(
+                    project_name="demo",
+                    source_entity="Parser",
+                    target_entity="StructuredStore",
+                    relation_type="feeds",
+                    evidence="Parser feeds structured facts into StructuredStore.",
+                    source="manual",
+                )
+            )
+        )
+        run(
+            backend.structured_store.save_relation_fact(
+                RelationFact(
+                    project_name="demo",
+                    source_entity="StructuredStore",
+                    target_entity="SQLiteIndex",
+                    relation_type="feeds",
+                    evidence="StructuredStore feeds accepted facts into SQLiteIndex.",
+                    source="manual",
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    assert run(
+        cli.cmd_trace_relations(
+            "demo",
+            "Parser",
+            relation_type="feeds",
+            max_depth=2,
+        )
+    ) == 0
+    output = capsys.readouterr().out
+    assert "# Relation Trace: Parser" in output
+    assert "Parser -> StructuredStore -> SQLiteIndex" in output
+
+
+def test_cmd_trace_relations_rejects_depth_above_cap(
+    capsys: pytest.CaptureFixture[str],
+):
+    assert run(cli.cmd_trace_relations("demo", "Parser", max_depth=4)) == 1
+    captured = capsys.readouterr()
+    assert "max_depth must be <= 3" in captured.err
+
+
 @pytest.mark.integration
 def test_best_practices_claude_mainline_flow(
     data_dir: Path,

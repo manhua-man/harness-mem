@@ -59,6 +59,48 @@ class LocalStructuredStore:
             valid_to = valid_to.replace(tzinfo=timezone.utc)
         return valid_to > datetime.now(timezone.utc)
 
+    def _time_window_clause(
+        self,
+        time_window: tuple[datetime | None, datetime | None] | None,
+        *,
+        time_columns: tuple[str, ...] = ("recorded_at", "valid_from", "created_at"),
+    ) -> tuple[str, tuple[str, ...]]:
+        if not time_window:
+            return "", ()
+
+        start, end = _normalize_time_window(time_window)
+        clauses: list[str] = []
+        params: list[str] = []
+        coalesced = "COALESCE(" + ", ".join(time_columns) + ")"
+        if start is not None:
+            clauses.append(f"{coalesced} >= ?")
+            params.append(start.isoformat())
+        if end is not None:
+            clauses.append(f"{coalesced} < ?")
+            params.append(end.isoformat())
+        return " AND ".join(clauses), tuple(params)
+
+    def _truth_in_time_window(
+        self,
+        data: dict,
+        time_window: tuple[datetime | None, datetime | None] | None,
+    ) -> bool:
+        if not time_window:
+            return True
+        truth_time = (
+            _normalize_datetime(data.get("recorded_at"))
+            or _normalize_datetime(data.get("valid_from"))
+            or _normalize_datetime(data.get("created_at"))
+        )
+        if truth_time is None:
+            return False
+        start, end = _normalize_time_window(time_window)
+        if start is not None and truth_time < start:
+            return False
+        if end is not None and truth_time >= end:
+            return False
+        return True
+
     def _backfill_confirmed_rule_source_sessions(self) -> None:
         """Backfill source_session_id for confirmed rules created before v1.1.1."""
         confirmed_rules_dir = self._subdirs["confirmed_rules"]
@@ -310,6 +352,7 @@ class LocalStructuredStore:
         status: str = "accepted",
         memory_type: list[str] | None = None,
         include_history: bool = False,
+        time_window: tuple[datetime | None, datetime | None] | None = None,
     ) -> list[MemoryEntry]:
         extra_where_parts = [
             "COALESCE(compacted, 0) = 0",
@@ -329,6 +372,10 @@ class LocalStructuredStore:
                 f"COALESCE(memory_type, 'semantic') IN ({placeholders})"
             )
             extra_params = (*extra_params, *memory_type)
+        window_clause, window_params = self._time_window_clause(time_window)
+        if window_clause:
+            extra_where_parts.append(window_clause)
+            extra_params = (*extra_params, *window_params)
         search_result = await asyncio.to_thread(
             self._search.search,
             query,
@@ -350,6 +397,8 @@ class LocalStructuredStore:
                 if memory_type and data.get("memory_type", "semantic") not in memory_type:
                     continue
                 if not include_history and not self._is_current_data(data):
+                    continue
+                if not self._truth_in_time_window(data, time_window):
                     continue
                 data.update({
                     "_search_mode": search_result.effective_mode,
@@ -852,6 +901,7 @@ class LocalStructuredStore:
         limit: int = 20,
         status: str = "accepted",
         include_history: bool = False,
+        time_window: tuple[datetime | None, datetime | None] | None = None,
     ) -> list[RelationFact]:
         extra_where_parts = ["COALESCE(status, 'accepted') = ?"]
         extra_params: tuple = (status,)
@@ -862,6 +912,10 @@ class LocalStructuredStore:
         if project_name:
             extra_where_parts.append("project_name = ?")
             extra_params = (*extra_params, project_name)
+        window_clause, window_params = self._time_window_clause(time_window)
+        if window_clause:
+            extra_where_parts.append(window_clause)
+            extra_params = (*extra_params, *window_params)
 
         rows = await asyncio.to_thread(
             self._index.search,
@@ -879,6 +933,8 @@ class LocalStructuredStore:
                 if data.get("status", "accepted") != status:
                     continue
                 if not include_history and not self._is_current_data(data):
+                    continue
+                if not self._truth_in_time_window(data, time_window):
                     continue
                 if "_fts_score" in row:
                     data["_fts_score"] = row["_fts_score"]
@@ -903,3 +959,25 @@ class LocalStructuredStore:
 
     def close(self) -> None:
         self._index.close()
+
+
+def _normalize_time_window(
+    time_window: tuple[datetime | None, datetime | None],
+) -> tuple[datetime | None, datetime | None]:
+    start, end = time_window
+    return _normalize_datetime(start), _normalize_datetime(end)
+
+
+def _normalize_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        normalized = value
+    elif isinstance(value, str) and value:
+        try:
+            normalized = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    else:
+        return None
+    if normalized.tzinfo is None:
+        normalized = normalized.replace(tzinfo=timezone.utc)
+    return normalized
