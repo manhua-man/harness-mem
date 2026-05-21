@@ -1,0 +1,18 @@
+{
+  "project_name": "harness-mem",
+  "activation_condition": "Focused change touches memory runtime behavior",
+  "steps": [
+    "Run the most relevant focused tests first",
+    "Run lint and type checks",
+    "Escalate to full pytest only after the focused path is green"
+  ],
+  "termination_condition": "The changed surface is validated and ready for review",
+  "success_examples": [
+    "tests/temporal/test_current_history_reads.py passes",
+    "tests/cli/test_learning_loop.py passes",
+    "tests/mcp/test_smoke.py passes"
+  ],
+  "source_session_id": "procedural-spike-001",
+  "confidence": 0.72,
+  "status": "draft"
+}
