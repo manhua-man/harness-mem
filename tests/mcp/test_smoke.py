@@ -92,13 +92,14 @@ def test_stdio_initialize_writes_json_rpc_to_stdout():
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 25
+    assert len(tools) == 26
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
         "get_task_handoffs", "get_confirmed_rules", "get_project_profile",
         "get_project_status", "ingest_sessions", "prepare_session_distill", "distill_sessions",
         "list_candidates",
+        "trace_relations",
         "create_rule_candidate", "confirm_rule", "reject_rule", "suggest_rule",
         "suggest_supersede", "confirm_supersede", "reject_supersede",
         "suggest_memory_entry", "confirm_memory_entry", "reject_memory_entry",
@@ -145,6 +146,61 @@ def test_search_memory_returns_relation_facts(mcp_backend: LocalMemoryBackend):
     assert data["relation_fact_count"] == 1
     assert data["relation_facts"][0]["relation_type"] == "delegates_to"
     assert data["relation_facts"][0]["search_mode"] == "fts"
+
+
+def test_trace_relations_tool_returns_bounded_path(mcp_backend: LocalMemoryBackend):
+    run(
+        mcp_backend.structured_store.save_relation_fact(
+            RelationFact(
+                project_name="test-project",
+                source_entity="Parser",
+                target_entity="StructuredStore",
+                relation_type="feeds",
+                evidence="Parser feeds structured facts into StructuredStore.",
+                source="manual",
+            )
+        )
+    )
+    run(
+        mcp_backend.structured_store.save_relation_fact(
+            RelationFact(
+                project_name="test-project",
+                source_entity="StructuredStore",
+                target_entity="SQLiteIndex",
+                relation_type="feeds",
+                evidence="StructuredStore feeds accepted facts into SQLiteIndex.",
+                source="manual",
+            )
+        )
+    )
+
+    data = call_tool(
+        "trace_relations",
+        {
+            "project_name": "test-project",
+            "source_entity": "Parser",
+            "relation_type": "feeds",
+            "max_depth": 2,
+        },
+    )
+    assert data["success"] is True
+    assert data["path_count"] == 2
+    assert data["paths"][1]["entities"] == [
+        "Parser",
+        "StructuredStore",
+        "SQLiteIndex",
+    ]
+
+    rejected = call_tool(
+        "trace_relations",
+        {
+            "project_name": "test-project",
+            "source_entity": "Parser",
+            "max_depth": 4,
+        },
+    )
+    assert rejected["success"] is False
+    assert "max_depth must be <= 3" in rejected["error"]
 
 
 def test_search_memory_include_history_returns_historical_structured_truth(

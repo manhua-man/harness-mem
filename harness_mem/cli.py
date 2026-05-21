@@ -21,6 +21,7 @@ from harness_mem.commands import (
     cmd_show,
     cmd_status,
     cmd_timeline,
+    cmd_trace_relations,
     cmd_use,
     cmd_wake_up,
     cmd_correct,
@@ -148,6 +149,22 @@ def main():
     tl.add_argument("-p", "--project")
     tl.add_argument("-n", "--limit", type=int, default=50)
     tl.set_defaults(command_name="timeline")
+
+    # trace-relations
+    tr = sub.add_parser("trace-relations", help="Trace bounded relation paths")
+    tr.add_argument("source_entity_arg", nargs="?")
+    tr.add_argument("-p", "--project")
+    tr.add_argument("--source-entity", dest="source_entity")
+    tr.add_argument("--relation-type")
+    tr.add_argument("--max-depth", type=int, default=2)
+    tr.add_argument("-n", "--limit", type=int, default=10)
+    tr.add_argument("--min-confidence", type=float, default=0.0)
+    tr.add_argument(
+        "--include-history",
+        action="store_true",
+        help="v1.7.2: include historical relation facts in relation traces.",
+    )
+    tr.set_defaults(command_name="trace-relations")
 
     # show
     show = sub.add_parser("show", help="Show a specific observation")
@@ -346,6 +363,22 @@ def main():
     if command == "timeline":
         limit = args.limit if args.limit is not None else (args.limit_arg or 50)
         return asyncio.run(cmd_timeline(args.project, limit))
+
+    if command == "trace-relations":
+        source_entity = args.source_entity or args.source_entity_arg
+        if not source_entity:
+            parser.error("trace-relations requires --source-entity or a source entity argument.")
+        return asyncio.run(
+            cmd_trace_relations(
+                args.project,
+                source_entity,
+                relation_type=getattr(args, "relation_type", None),
+                max_depth=getattr(args, "max_depth", 2),
+                limit=getattr(args, "limit", 10),
+                min_confidence=getattr(args, "min_confidence", 0.0),
+                include_history=getattr(args, "include_history", False),
+            )
+        )
 
     if command == "show":
         obs_id = args.observation_id or args.observation_id_arg

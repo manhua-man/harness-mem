@@ -50,14 +50,17 @@ from harness_mem.commands.support import get_active_project  # noqa: E402
 from harness_mem.core.schemas import SupersedeCandidate  # noqa: E402
 from harness_mem.read_api import (  # noqa: E402
     build_search_project_context_map,
+    parse_relative_time_window,
     search_memory,
     search_relation_facts,
     serialize_memory_entry_search_result,
     serialize_observation,
     serialize_observation_search_result,
+    serialize_relation_path,
     serialize_relation_fact_search_result,
     serialize_timeline_observation,
     timeline_observations,
+    trace_relation_paths,
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend  # noqa: E402
 from harness_mem.storage.local_project_profile_store import (  # noqa: E402
@@ -132,15 +135,17 @@ def tool_search_memory(
     else:
         memory_type = None
 
+    parsed_time = parse_relative_time_window(query)
     entries, obs_list, relation_facts, tech_stack_by_project = asyncio.run(
         _gather_search_payload(
             backend,
-            query=query,
+            query=parsed_time.query,
             project_name=project_name,
             scope=scope,
             mode=mode,
             memory_type=memory_type,
             include_history=include_history,
+            time_window=parsed_time.time_window,
         )
     )
 
@@ -151,11 +156,21 @@ def tool_search_memory(
     return {
         "project_name": project_name,
         "query": query,
+        "effective_query": parsed_time.query,
         "scope": scope,
         "requested_mode": mode,
         "effective_mode": effective_mode,
         "fallback_reason": fallback_reason,
         "include_history": include_history,
+        "time_window": (
+            {
+                "start": parsed_time.start.isoformat() if parsed_time.start else None,
+                "end": parsed_time.end.isoformat() if parsed_time.end else None,
+                "phrase": parsed_time.phrase,
+            }
+            if parsed_time.time_window
+            else None
+        ),
         "memory_entries": [
             serialize_memory_entry_search_result(entry, mode, tech_stack_by_project)
             for entry in entries
@@ -187,6 +202,7 @@ async def _gather_search_payload(
     mode: str,
     memory_type: list[str] | None = None,
     include_history: bool = False,
+    time_window: tuple[datetime | None, datetime | None] | None = None,
 ) -> tuple[
     list[Any],
     list[Any],
@@ -209,6 +225,7 @@ async def _gather_search_payload(
         observation_limit=20,
         memory_type=memory_type,
         include_history=include_history,
+        time_window=time_window,
     )
     relation_facts = await search_relation_facts(
         backend,
@@ -217,6 +234,7 @@ async def _gather_search_payload(
         scope=scope,
         limit=20,
         include_history=include_history,
+        time_window=time_window,
     )
     for entry in entries:
         await backend.structured_store.touch_memory_entry(entry.id)
@@ -239,6 +257,46 @@ def tool_timeline(project_name: str, limit: int = 50) -> dict:
         "limit": limit,
         "observations": [serialize_timeline_observation(observation) for observation in obs_list],
         "count": len(obs_list),
+    }
+
+
+def tool_trace_relations(
+    project_name: str,
+    source_entity: str,
+    relation_type: str | None = None,
+    max_depth: int = 2,
+    limit: int = 10,
+    min_confidence: float = 0.0,
+    include_history: bool = False,
+) -> dict:
+    """Return bounded relation paths starting at a source entity."""
+    backend = _get_backend()
+    try:
+        paths = asyncio.run(
+            trace_relation_paths(
+                backend,
+                project_name=project_name,
+                source_entity=source_entity,
+                relation_type=relation_type,
+                max_depth=max_depth,
+                limit=limit,
+                min_confidence=min_confidence,
+                include_history=include_history,
+            )
+        )
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+
+    return {
+        "success": True,
+        "project_name": project_name,
+        "source_entity": source_entity,
+        "relation_type": relation_type,
+        "max_depth": max_depth,
+        "limit": limit,
+        "include_history": include_history,
+        "paths": [serialize_relation_path(path) for path in paths],
+        "path_count": len(paths),
     }
 
 
@@ -1092,6 +1150,42 @@ TOOLS: dict[str, ToolSpec] = {
             "required": ["project_name"],
         },
         "handler": tool_timeline,
+    },
+    "trace_relations": {
+        "description": "Trace bounded current relation paths for a project entity.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "source_entity": {"type": "string", "description": "Relation source entity"},
+                "relation_type": {
+                    "type": "string",
+                    "description": "Optional relation type filter, e.g. depends_on",
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "Maximum traversal depth (default 2, hard cap 3)",
+                    "default": 2,
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum paths to return (default 10)",
+                    "default": 10,
+                },
+                "min_confidence": {
+                    "type": "number",
+                    "description": "Minimum edge confidence (default 0.0)",
+                    "default": 0.0,
+                },
+                "include_history": {
+                    "type": "boolean",
+                    "description": "v1.7.2: include historical relation facts. Default false returns current relations only.",
+                    "default": False,
+                },
+            },
+            "required": ["project_name", "source_entity"],
+        },
+        "handler": tool_trace_relations,
     },
     "get_observations": {
         "description": "List all observations for a given session in a project.",

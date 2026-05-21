@@ -5,6 +5,7 @@ import builtins
 import json
 import asyncio
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from harness_mem.core.schemas.observation import Observation
@@ -114,6 +115,7 @@ class LocalVerbatimStore:
         project_name: str | None = None,
         limit: int = 20,
         mode: str = "auto",
+        time_window: tuple[datetime | None, datetime | None] | None = None,
     ) -> builtins.list[Observation]:
         """Full-text search observations, optionally filtered by session_id or project_name."""
         extra_where_parts = ["COALESCE(compacted, 0) = 0"]
@@ -126,6 +128,15 @@ class LocalVerbatimStore:
         if project_name:
             extra_where_parts.append("metadata LIKE ?")
             extra_params = (*extra_params, self._project_metadata_pattern(project_name))
+
+        if time_window:
+            start, end = _normalize_time_window(time_window)
+            if start is not None:
+                extra_where_parts.append("timestamp >= ?")
+                extra_params = (*extra_params, start.isoformat())
+            if end is not None:
+                extra_where_parts.append("timestamp < ?")
+                extra_params = (*extra_params, end.isoformat())
 
         extra_where = " AND ".join(extra_where_parts) if extra_where_parts else None
 
@@ -144,6 +155,8 @@ class LocalVerbatimStore:
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
                 if data.get("compacted", False):
+                    continue
+                if time_window and not _timestamp_in_window(data.get("timestamp"), time_window):
                     continue
                 data.update({
                     "_search_mode": search_result.effective_mode,
@@ -226,3 +239,40 @@ def _normalize_observation_search_text(text: str) -> str:
     """Add token boundaries for mixed CJK/ASCII text before FTS indexing."""
     text = _CJK_ASCII_LEFT_BOUNDARY.sub(r"\1 \2", text)
     return _CJK_ASCII_RIGHT_BOUNDARY.sub(r"\1 \2", text)
+
+
+def _normalize_time_window(
+    time_window: tuple[datetime | None, datetime | None],
+) -> tuple[datetime | None, datetime | None]:
+    start, end = time_window
+    return _normalize_datetime(start), _normalize_datetime(end)
+
+
+def _timestamp_in_window(
+    value: object,
+    time_window: tuple[datetime | None, datetime | None],
+) -> bool:
+    timestamp = _normalize_datetime(value)
+    if timestamp is None:
+        return False
+    start, end = _normalize_time_window(time_window)
+    if start is not None and timestamp < start:
+        return False
+    if end is not None and timestamp >= end:
+        return False
+    return True
+
+
+def _normalize_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        normalized = value
+    elif isinstance(value, str) and value:
+        try:
+            normalized = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    else:
+        return None
+    if normalized.tzinfo is None:
+        normalized = normalized.replace(tzinfo=timezone.utc)
+    return normalized

@@ -53,6 +53,7 @@ class StructuredStore(Protocol):
         status: str = "accepted",
         memory_type: list[str] | None = None,
         include_history: bool = False,
+        time_window: tuple[datetime | None, datetime | None] | None = None,
     ) -> list[MemoryEntry]:
         """Full-text search memory entries with status filtering.
 
@@ -203,6 +204,7 @@ class StructuredStore(Protocol):
         limit: int = 20,
         status: str = "accepted",
         include_history: bool = False,
+        time_window: tuple[datetime | None, datetime | None] | None = None,
     ) -> list[RelationFact]:
         """Search relation facts by indexed evidence text with status filtering."""
         ...

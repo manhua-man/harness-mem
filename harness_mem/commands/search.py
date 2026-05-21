@@ -9,11 +9,13 @@ from harness_mem.read_api import (
     format_observation_reference,
     format_search_score,
     format_validity_marker,
+    parse_relative_time_window,
     preview_search_text,
     resolve_observation_identifier,
     search_header,
     search_memory,
     search_relation_facts,
+    trace_relation_paths,
     timeline_observations,
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -58,26 +60,36 @@ async def cmd_search(
     await backend.init()
     try:
         print(f"# Search: {query}")
+        parsed_time = parse_relative_time_window(query)
+        effective_query = parsed_time.query
+        if parsed_time.time_window:
+            start, end = parsed_time.time_window
+            print(
+                "Time window: "
+                f"{start.isoformat() if start else '*'} -> {end.isoformat() if end else '*'}"
+            )
         print()
 
         entries, observations = await search_memory(
             backend,
             project_name=project_name,
-            query=query,
+            query=effective_query,
             scope="project",
             mode=mode,
             memory_entry_limit=10,
             observation_limit=10,
             memory_type=memory_type,
             include_history=include_history,
+            time_window=parsed_time.time_window,
         )
         relation_facts = await search_relation_facts(
             backend,
             project_name=project_name,
-            query=query,
+            query=effective_query,
             scope="project",
             limit=10,
             include_history=include_history,
+            time_window=parsed_time.time_window,
         )
         combined_results = entries or relation_facts or observations
         print(search_header(combined_results, mode))
@@ -112,7 +124,7 @@ async def cmd_search(
         if observations:
             print(f"## Observations ({len(observations)} results)")
             for observation in observations:
-                preview = preview_search_text(observation.raw_content, query)
+                preview = preview_search_text(observation.raw_content, effective_query)
                 search_mode = getattr(observation, "_search_mode", mode)
                 print(
                     f"- {format_observation_reference(observation)} {preview}  "
@@ -125,10 +137,93 @@ async def cmd_search(
             project_name=project_name,
             extra={
                 "query": query,
+                "effective_query": effective_query,
                 "requested_mode": mode,
                 "memory_entry_count": len(entries),
                 "relation_fact_count": len(relation_facts),
                 "observation_count": len(observations),
+                "include_history": include_history,
+                "time_window": (
+                    {
+                        "start": parsed_time.start.isoformat() if parsed_time.start else None,
+                        "end": parsed_time.end.isoformat() if parsed_time.end else None,
+                        "phrase": parsed_time.phrase,
+                    }
+                    if parsed_time.time_window
+                    else None
+                ),
+            },
+        )
+    finally:
+        await backend.close()
+    return 0
+
+
+async def cmd_trace_relations(
+    project_name: str | None,
+    source_entity: str,
+    *,
+    relation_type: str | None = None,
+    max_depth: int = 2,
+    limit: int = 10,
+    min_confidence: float = 0.0,
+    include_history: bool = False,
+) -> int:
+    """Trace bounded relation paths for a project entity."""
+    project_name = resolve_project_name(project_name, action_label="trace-relations")
+    if not project_name:
+        return 1
+
+    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
+    await backend.init()
+    try:
+        try:
+            paths = await trace_relation_paths(
+                backend,
+                project_name=project_name,
+                source_entity=source_entity,
+                relation_type=relation_type,
+                max_depth=max_depth,
+                limit=limit,
+                min_confidence=min_confidence,
+                include_history=include_history,
+            )
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+
+        print(f"# Relation Trace: {source_entity}")
+        print(f"Project: {project_name}")
+        print(f"Max depth: {max_depth}")
+        if relation_type:
+            print(f"Relation type: {relation_type}")
+        print()
+
+        if not paths:
+            print("No relation paths found.")
+            return 0
+
+        for index, path in enumerate(paths, 1):
+            chain = " -> ".join(path.entities)
+            print(f"## Path {index} (depth={path.depth}, confidence={path.confidence:.2f})")
+            print(chain)
+            for fact in path.facts:
+                evidence = fact.evidence[:160] + "..." if len(fact.evidence) > 160 else fact.evidence
+                print(
+                    f"- {fact.source_entity} --{fact.relation_type}-> {fact.target_entity}"
+                    f"{format_validity_marker(fact)}: {evidence}"
+                )
+            print()
+
+        log_command_invoked(
+            "trace-relations",
+            project_name=project_name,
+            extra={
+                "source_entity": source_entity,
+                "relation_type": relation_type,
+                "max_depth": max_depth,
+                "limit": limit,
+                "path_count": len(paths),
                 "include_history": include_history,
             },
         )

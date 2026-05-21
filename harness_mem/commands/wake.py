@@ -447,7 +447,11 @@ async def cmd_wake_up(
             print("# Confirmed Rules  (source: confirmed_rules, empty)")
             print()
 
-        relation_facts = await backend.structured_store.list_relation_facts(project_name, limit=5)
+        relation_candidates = await backend.structured_store.list_relation_facts(project_name, limit=20)
+        relation_facts = [
+            fact for fact in relation_candidates
+            if fact.confidence >= 0.7
+        ][:5]
         if relation_facts:
             relation_chars = sum(
                 len(fact.source_entity)
