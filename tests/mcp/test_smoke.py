@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from harness_mem.core.schemas import ConfirmedRule, MemoryEntry, RelationFact
+from harness_mem.core.schemas import ConfirmedRule, MemoryEntry, Observation, RelationFact
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.mcp.server import handle_request, set_backend_override
 from harness_mem.search.hybrid_search import HybridSearchLayer
@@ -92,10 +92,11 @@ def test_stdio_initialize_writes_json_rpc_to_stdout():
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 26
+    assert len(tools) == 27
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
+        "search_raw",
         "get_task_handoffs", "get_confirmed_rules", "get_project_profile",
         "get_project_status", "ingest_sessions", "prepare_session_distill", "distill_sessions",
         "list_candidates",
@@ -202,6 +203,42 @@ def test_trace_relations_tool_returns_bounded_path(mcp_backend: LocalMemoryBacke
     assert rejected["success"] is False
     assert "max_depth must be <= 3" in rejected["error"]
 
+
+def test_search_raw_tool_returns_exact_snippet(mcp_backend: LocalMemoryBackend):
+    run(
+        mcp_backend.verbatim_store.save(
+            Observation(
+                id="obs-mcp-raw",
+                session_id="mcp-raw-session",
+                client="codex",
+                raw_content="MCP raw evidence includes ERROR-5001.",
+                content_type="transcript",
+                metadata={"project_name": "test-project"},
+            )
+        )
+    )
+
+    data = call_tool(
+        "search_raw",
+        {
+            "project_name": "test-project",
+            "pattern": r"ERROR-\d+",
+        },
+    )
+    assert data["success"] is True
+    assert data["count"] == 1
+    assert data["matches"][0]["id"] == "obs-mcp-raw"
+    assert "ERROR-5001" in data["matches"][0]["snippet"]
+
+    rejected = call_tool(
+        "search_raw",
+        {
+            "project_name": "test-project",
+            "pattern": r"ERROR-[",
+        },
+    )
+    assert rejected["success"] is False
+    assert "invalid regex" in rejected["error"]
 
 def test_search_memory_include_history_returns_historical_structured_truth(
     mcp_backend: LocalMemoryBackend,

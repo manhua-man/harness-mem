@@ -529,6 +529,43 @@ def test_cmd_trace_relations_rejects_depth_above_cap(
     assert "max_depth must be <= 3" in captured.err
 
 
+def test_cmd_search_raw_surfaces_exact_observation_snippet(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.verbatim_store.save(
+                Observation(
+                    id="obs-raw-001",
+                    session_id="raw-session-001",
+                    client="codex",
+                    raw_content="Raw evidence includes ERROR-1842 and path F:/memory-lab.",
+                    content_type="transcript",
+                    metadata={"project_name": "demo"},
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    assert run(cli.cmd_search_raw("demo", r"ERROR-\d+", limit=5)) == 0
+    output = capsys.readouterr().out
+    assert "# Raw Evidence Search: ERROR-\\d+" in output
+    assert "[obs-raw-001]" in output
+    assert "ERROR-1842" in output
+    assert "candidates:" in output
+
+
+def test_cmd_search_raw_rejects_invalid_regex(
+    capsys: pytest.CaptureFixture[str],
+):
+    assert run(cli.cmd_search_raw("demo", r"ERROR-[", limit=5)) == 1
+    captured = capsys.readouterr()
+    assert "invalid regex" in captured.err
+
 @pytest.mark.integration
 def test_best_practices_claude_mainline_flow(
     data_dir: Path,

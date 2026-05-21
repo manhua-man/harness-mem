@@ -27,6 +27,7 @@ from harness_mem.commands.support import (
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from harness_mem.storage.local_structured_store import LocalStructuredStore
+from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 
 STALE_MEMORY_DAYS = 90
 
@@ -107,6 +108,10 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             if vector_health["has_issue"]:
                 print(f"\n⚠️  {vector_health['message']}")
                 print(f"Fix: {vector_health['fix_command']}")
+            exact_health = await _check_verbatim_exact_index_health(backend, resolved_project)
+            if exact_health["has_issue"]:
+                print(f"\n⚠️  {exact_health['message']}")
+                print(f"Fix: {exact_health['fix_command']}")
 
             total_tokens, level = wake_budget(profile, entries, rules, handoffs)
             print(f"Estimated wake-up: ≈ {total_tokens:,} tokens [{level}]")
@@ -225,4 +230,30 @@ def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -
 
     except Exception:
         # If check fails, assume no issue (table might not exist yet)
+        return {"has_issue": False, "message": "", "fix_command": ""}
+
+
+async def _check_verbatim_exact_index_health(
+    backend: LocalMemoryBackend,
+    project_name: str,
+) -> dict:
+    """Check v1.7.3 observation trigram exact-search index health."""
+    try:
+        verbatim_store = cast(LocalVerbatimStore, backend.verbatim_store)
+        observations = [
+            observation
+            for observation in await verbatim_store.list(limit=100000)
+            if observation.metadata.get("project_name") == project_name
+        ]
+        if not observations:
+            return {"has_issue": False, "message": "", "fix_command": ""}
+        stats = verbatim_store.exact_index_stats()
+        if stats["indexed_observation_count"] == 0:
+            return {
+                "has_issue": True,
+                "message": "HM-301: Verbatim exact index is empty",
+                "fix_command": f"harness-mem maintenance rebuild-verbatim-index --project {project_name}",
+            }
+        return {"has_issue": False, "message": "", "fix_command": ""}
+    except Exception:
         return {"has_issue": False, "message": "", "fix_command": ""}

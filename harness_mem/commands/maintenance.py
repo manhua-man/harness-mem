@@ -176,3 +176,33 @@ async def cmd_rebuild_vector_index(project_name: str | None = None) -> int:
         return 1
     finally:
         await backend.close()
+
+
+async def cmd_rebuild_verbatim_index(project_name: str | None = None) -> int:
+    """Rebuild exact regex trigram postings for observation raw_content."""
+    resolved_project = resolve_project_name(
+        project_name,
+        required=True,
+        action_label="maintenance rebuild-verbatim-index",
+    )
+    if not resolved_project:
+        return 1
+
+    print(f"Rebuilding verbatim exact index: {resolved_project}")
+    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
+    await backend.init()
+    try:
+        verbatim_store = cast(LocalVerbatimStore, backend.verbatim_store)
+        indexed, postings = await verbatim_store.rebuild_exact_index(resolved_project)
+        print(f"Done: {indexed} observations, {postings} trigram postings")
+        log_command_invoked(
+            "maintenance.rebuild-verbatim-index",
+            project_name=resolved_project,
+            extra={"indexed_observations": indexed, "postings": postings},
+        )
+        return 0
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return 1
+    finally:
+        await backend.close()
