@@ -70,6 +70,22 @@ _TABLE_SCHEMAS = {
         status TEXT NOT NULL DEFAULT 'pending',
         created_at TEXT NOT NULL
     """,
+    "supersede_candidates": """
+        id TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        replacement_type TEXT NOT NULL,
+        replacement_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        evidence TEXT NOT NULL,
+        confidence REAL NOT NULL DEFAULT 0.7,
+        status TEXT NOT NULL DEFAULT 'pending',
+        source TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        reviewed_at TEXT,
+        reviewer_id TEXT
+    """,
     "confirmed_rules": """
         id TEXT PRIMARY KEY,
         project_name TEXT NOT NULL,
@@ -194,6 +210,7 @@ class SQLiteIndex:
             fts_col = "raw_content" if table_name == "observations" else (
                 "content" if table_name == "memory_entries" else
                 "pattern" if table_name in ("rule_candidates", "confirmed_rules") else
+                "evidence" if table_name == "supersede_candidates" else
                 "evidence" if table_name == "relation_facts" else
                 "summary"
             )

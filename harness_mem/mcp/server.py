@@ -47,6 +47,7 @@ from typing import Any, Callable, TypedDict  # noqa: E402
 from harness_mem.commands.distill import cmd_distill  # noqa: E402
 from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
 from harness_mem.commands.support import get_active_project  # noqa: E402
+from harness_mem.core.schemas import SupersedeCandidate  # noqa: E402
 from harness_mem.read_api import (  # noqa: E402
     build_search_project_context_map,
     search_memory,
@@ -663,20 +664,44 @@ def _serialize_relation_fact_candidate(fact: Any) -> dict:
     }
 
 
+def _serialize_supersede_candidate(candidate: Any) -> dict:
+    return {
+        "type": "supersede",
+        "id": candidate.id,
+        "project_name": candidate.project_name,
+        "status": candidate.status,
+        "target_type": candidate.target_type,
+        "target_id": candidate.target_id,
+        "replacement_type": candidate.replacement_type,
+        "replacement_id": candidate.replacement_id,
+        "reason": candidate.reason,
+        "evidence": candidate.evidence,
+        "confidence": candidate.confidence,
+        "source": candidate.source,
+        "created_at": _isoformat(candidate.created_at),
+        "reviewed_at": _isoformat(candidate.reviewed_at),
+        "reviewer_id": candidate.reviewer_id,
+        "confirm_tool": "confirm_supersede",
+        "reject_tool": "reject_supersede",
+    }
+
+
 async def _gather_candidate_payload(
     backend: LocalMemoryBackend,
     *,
     project_name: str,
     status: str,
     limit: int,
-) -> tuple[list[dict], list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
     rules = await backend.structured_store.list_rule_candidates(project_name, status=status)
     entries = await backend.structured_store.list_memory_entries(project_name, status=status, limit=limit)
     facts = await backend.structured_store.list_relation_facts(project_name, status=status, limit=limit)
+    supersedes = await backend.structured_store.list_supersede_candidates(project_name, status=status)
     return (
         [_serialize_rule_candidate(candidate) for candidate in rules[:limit]],
         [_serialize_memory_entry_candidate(entry) for entry in entries],
         [_serialize_relation_fact_candidate(fact) for fact in facts],
+        [_serialize_supersede_candidate(candidate) for candidate in supersedes[:limit]],
     )
 
 
@@ -690,7 +715,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
 
     effective_limit = max(1, min(int(limit), 500))
     backend = _get_backend()
-    rule_candidates, memory_entries, relation_facts = asyncio.run(
+    rule_candidates, memory_entries, relation_facts, supersede_candidates = asyncio.run(
         _gather_candidate_payload(
             backend,
             project_name=project_name,
@@ -698,7 +723,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
             limit=effective_limit,
         )
     )
-    all_candidates = [*rule_candidates, *memory_entries, *relation_facts]
+    all_candidates = [*rule_candidates, *memory_entries, *relation_facts, *supersede_candidates]
     all_candidates.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     candidates = all_candidates[:effective_limit]
 
@@ -711,11 +736,13 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         "rule_candidates": rule_candidates,
         "memory_entries": memory_entries,
         "relation_facts": relation_facts,
+        "supersede_candidates": supersede_candidates,
         "count": len(candidates),
         "total_count": len(all_candidates),
         "rule_count": len(rule_candidates),
         "memory_entry_count": len(memory_entries),
         "relation_fact_count": len(relation_facts),
+        "supersede_count": len(supersede_candidates),
     }
 
 
@@ -802,6 +829,67 @@ def tool_reject_rule(rule_id: str, reason: str | None = None) -> dict:
         "success": True,
         "rejected_rule_id": rule_id,
         "reason": reason or "No reason provided",
+    }
+
+
+def tool_suggest_supersede(
+    project_name: str,
+    target_type: str,
+    target_id: str,
+    replacement_type: str,
+    replacement_id: str,
+    reason: str,
+    evidence: str,
+    source: str = "",
+    confidence: float = 0.7,
+) -> dict:
+    backend = _get_backend()
+    candidate = SupersedeCandidate(
+        project_name=project_name,
+        target_type=target_type,
+        target_id=target_id,
+        replacement_type=replacement_type,
+        replacement_id=replacement_id,
+        reason=reason,
+        evidence=evidence,
+        source=source,
+        confidence=confidence,
+    )
+    saved_id = asyncio.run(backend.structured_store.save_supersede_candidate(candidate))
+    return {
+        "success": True,
+        "candidate_id": saved_id,
+        "target_type": candidate.target_type,
+        "target_id": candidate.target_id,
+        "replacement_type": candidate.replacement_type,
+        "replacement_id": candidate.replacement_id,
+    }
+
+
+def tool_confirm_supersede(candidate_id: str) -> dict:
+    backend = _get_backend()
+    confirmed = asyncio.run(backend.structured_store.confirm_supersede_candidate(candidate_id))
+    if confirmed is None:
+        return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
+    return {
+        "success": True,
+        "candidate_id": confirmed.id,
+        "status": confirmed.status,
+    }
+
+
+def tool_reject_supersede(candidate_id: str) -> dict:
+    backend = _get_backend()
+    candidate = asyncio.run(backend.structured_store.get_supersede_candidate(candidate_id))
+    if not candidate:
+        return {"success": False, "error": f"Candidate not found: {candidate_id}"}
+    updated = asyncio.run(backend.structured_store.update_supersede_candidate_status(candidate_id, "rejected"))
+    if not updated:
+        return {"success": False, "error": f"Failed to reject candidate: {candidate_id}"}
+    return {
+        "success": True,
+        "rejected_candidate_id": candidate_id,
+        "status": "rejected",
     }
 
 
@@ -1204,6 +1292,55 @@ TOOLS: dict[str, ToolSpec] = {
             "required": ["project_name"],
         },
         "handler": tool_list_candidates,
+    },
+    "suggest_supersede": {
+        "description": "Suggest a supersede candidate to mark old truth historical.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "target_type": {
+                    "type": "string",
+                    "enum": ["memory_entry", "relation_fact", "confirmed_rule"],
+                    "description": "Truth type to supersede",
+                },
+                "target_id": {"type": "string", "description": "Existing truth id to mark historical"},
+                "replacement_type": {
+                    "type": "string",
+                    "enum": ["memory_entry", "relation_fact", "confirmed_rule"],
+                    "description": "Replacement truth type",
+                },
+                "replacement_id": {"type": "string", "description": "Replacement truth id"},
+                "reason": {"type": "string", "description": "Why the replacement is needed"},
+                "evidence": {"type": "string", "description": "Evidence for the replacement"},
+                "source": {"type": "string", "description": "Source id (optional)"},
+                "confidence": {"type": "number", "description": "Confidence score 0.0-1.0"},
+            },
+            "required": ["project_name", "target_type", "target_id", "replacement_type", "replacement_id", "reason", "evidence"],
+        },
+        "handler": tool_suggest_supersede,
+    },
+    "confirm_supersede": {
+        "description": "Confirm a supersede candidate and link truth records.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "candidate_id": {"type": "string", "description": "Supersede candidate ID to confirm"},
+            },
+            "required": ["candidate_id"],
+        },
+        "handler": tool_confirm_supersede,
+    },
+    "reject_supersede": {
+        "description": "Reject a supersede candidate.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "candidate_id": {"type": "string", "description": "Supersede candidate ID to reject"},
+            },
+            "required": ["candidate_id"],
+        },
+        "handler": tool_reject_supersede,
     },
     "create_rule_candidate": {
         "description": "Create a rule candidate from a correction pattern.",

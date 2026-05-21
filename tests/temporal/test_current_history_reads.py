@@ -7,7 +7,7 @@ import pytest
 
 from harness_mem.commands import candidates as candidates_command
 from harness_mem.commands import search as search_command
-from harness_mem.core.schemas import ConfirmedRule, MemoryEntry, RelationFact
+from harness_mem.core.schemas import ConfirmedRule, MemoryEntry, RelationFact, SupersedeCandidate
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from tests.helpers import run
@@ -245,3 +245,98 @@ def test_cli_include_history_marks_historical_truth(
         assert "[historical valid_to=" in rules_out
     finally:
         run(backend.close())
+
+
+def test_supersede_candidate_confirm_marks_old_truth_historical(
+    store: LocalStructuredStore,
+):
+    old_rule = ConfirmedRule(
+        id="rule-old",
+        project_name="demo",
+        pattern="Use the legacy API route.",
+        trigger="When editing API clients",
+        source_candidate_id="candidate-old",
+    )
+    new_rule = ConfirmedRule(
+        id="rule-new",
+        project_name="demo",
+        pattern="Use the current API route.",
+        trigger="When editing API clients",
+        source_candidate_id="candidate-new",
+    )
+    run(store.save_confirmed_rule(old_rule))
+    run(store.save_confirmed_rule(new_rule))
+
+    candidate = SupersedeCandidate(
+        id="sup-1",
+        project_name="demo",
+        target_type="confirmed_rule",
+        target_id="rule-old",
+        replacement_type="confirmed_rule",
+        replacement_id="rule-new",
+        reason="The new API route replaced the old one.",
+        evidence="Project documentation now points to the current route.",
+        source="manual",
+    )
+    run(store.save_supersede_candidate(candidate))
+
+    pending = run(store.list_supersede_candidates("demo"))
+    assert [item.id for item in pending] == ["sup-1"]
+
+    confirmed = run(store.confirm_supersede_candidate("sup-1"))
+    assert confirmed is not None
+    assert confirmed.status == "accepted"
+
+    old_loaded = run(store.get_confirmed_rule("rule-old"))
+    new_loaded = run(store.get_confirmed_rule("rule-new"))
+    assert old_loaded is not None
+    assert new_loaded is not None
+    assert old_loaded.valid_to is not None
+    assert old_loaded.superseded_by == ["rule-new"]
+    assert new_loaded.supersedes == ["rule-old"]
+
+    historical = run(store.list_confirmed_rules("demo", include_history=True))
+    assert {rule.id for rule in historical} == {"rule-old", "rule-new"}
+
+
+def test_supersede_candidate_reject_preserves_truth(store: LocalStructuredStore):
+    old_fact = RelationFact(
+        id="fact-old",
+        project_name="demo",
+        source_entity="Frontend",
+        target_entity="Vue",
+        relation_type="uses",
+        evidence="Historical frontend used Vue.",
+        source="manual",
+    )
+    new_fact = RelationFact(
+        id="fact-new",
+        project_name="demo",
+        source_entity="Frontend",
+        target_entity="React",
+        relation_type="uses",
+        evidence="Current frontend uses React.",
+        source="manual",
+    )
+    run(store.save_relation_fact(old_fact))
+    run(store.save_relation_fact(new_fact))
+
+    candidate = SupersedeCandidate(
+        id="sup-2",
+        project_name="demo",
+        target_type="relation_fact",
+        target_id="fact-old",
+        replacement_type="relation_fact",
+        replacement_id="fact-new",
+        reason="React replaced Vue in the frontend.",
+        evidence="The codebase now points to React.",
+        source="manual",
+    )
+    run(store.save_supersede_candidate(candidate))
+    assert run(store.update_supersede_candidate_status("sup-2", "rejected")) is True
+
+    rejected = run(store.get_supersede_candidate("sup-2"))
+    assert rejected is not None
+    assert rejected.status == "rejected"
+    assert run(store.get_relation_fact("fact-old")).valid_to is None
+    assert run(store.get_relation_fact("fact-new")).valid_to is None

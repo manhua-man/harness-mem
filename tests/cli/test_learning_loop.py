@@ -9,9 +9,11 @@ import pytest
 from harness_mem.commands import (
     cmd_correct,
     cmd_confirm_rule,
+    cmd_confirm_supersede,
     cmd_handoff,
+    cmd_suggest_supersede,
 )
-from harness_mem.core.schemas import Observation, RuleCandidate
+from harness_mem.core.schemas import Observation, RuleCandidate, ConfirmedRule
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from tests.helpers import run
 
@@ -214,5 +216,70 @@ def test_handoff_rejects_invalid_status(data_dir: Path, capsys: pytest.CaptureFi
     try:
         handoffs = run(backend.structured_store.get_latest_handoffs("demo", limit=10))
         assert handoffs == []
+    finally:
+        run(backend.close())
+
+
+def test_supersede_cli_marks_old_truth_historical(data_dir: Path):
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        run(
+            backend.structured_store.save_confirmed_rule(
+                ConfirmedRule(
+                    id="rule-old",
+                    project_name="demo",
+                    pattern="Use the old route.",
+                    trigger="When editing API clients",
+                    source_candidate_id="candidate-old",
+                )
+            )
+        )
+        run(
+            backend.structured_store.save_confirmed_rule(
+                ConfirmedRule(
+                    id="rule-new",
+                    project_name="demo",
+                    pattern="Use the new route.",
+                    trigger="When editing API clients",
+                    source_candidate_id="candidate-new",
+                )
+            )
+        )
+    finally:
+        run(backend.close())
+
+    assert run(
+        cmd_suggest_supersede(
+            "demo",
+            "confirmed_rule",
+            "rule-old",
+            "confirmed_rule",
+            "rule-new",
+            "New route replaces old route",
+            "Project docs now point to the new route.",
+        )
+    ) == 0
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        candidates = run(backend.structured_store.list_supersede_candidates("demo"))
+        assert len(candidates) == 1
+        candidate = candidates[0]
+    finally:
+        run(backend.close())
+
+    assert run(cmd_confirm_supersede(candidate.id)) == 0
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        old_rule = run(backend.structured_store.get_confirmed_rule("rule-old"))
+        new_rule = run(backend.structured_store.get_confirmed_rule("rule-new"))
+        supersede = run(backend.structured_store.get_supersede_candidate(candidate.id))
+        assert old_rule is not None and old_rule.valid_to is not None
+        assert new_rule is not None and new_rule.supersedes == ["rule-old"]
+        assert supersede is not None and supersede.status == "accepted"
     finally:
         run(backend.close())

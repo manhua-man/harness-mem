@@ -92,7 +92,7 @@ def test_stdio_initialize_writes_json_rpc_to_stdout():
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 22
+    assert len(tools) == 25
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
@@ -100,6 +100,7 @@ def test_tools_list():
         "get_project_status", "ingest_sessions", "prepare_session_distill", "distill_sessions",
         "list_candidates",
         "create_rule_candidate", "confirm_rule", "reject_rule", "suggest_rule",
+        "suggest_supersede", "confirm_supersede", "reject_supersede",
         "suggest_memory_entry", "confirm_memory_entry", "reject_memory_entry",
         "suggest_relation_fact", "confirm_relation_fact", "reject_relation_fact",
         "create_task_handoff",
@@ -291,26 +292,43 @@ def test_list_candidates_returns_pending_review_items(mcp_backend: LocalMemoryBa
         },
     )
 
+    supersede = call_tool(
+        "suggest_supersede",
+        {
+            "project_name": "test-project",
+            "target_type": "confirmed_rule",
+            "target_id": "rule-old",
+            "replacement_type": "confirmed_rule",
+            "replacement_id": "rule-new",
+            "reason": "The new rule replaced the old one.",
+            "evidence": "Project docs now point to the new rule.",
+            "source": "test-session-001",
+        },
+    )
+
     data = call_tool("list_candidates", {"project_name": "test-project"})
 
     assert data["success"] is True
     assert data["status"] == "pending"
-    assert data["count"] == 3
-    assert data["total_count"] == 3
+    assert data["count"] == 4
+    assert data["total_count"] == 4
     assert data["rule_count"] == 1
     assert data["memory_entry_count"] == 1
     assert data["relation_fact_count"] == 1
+    assert data["supersede_count"] == 1
     ids_by_type = {candidate["type"]: candidate["id"] for candidate in data["candidates"]}
     assert ids_by_type == {
         "rule": rule["candidate_id"],
         "memory_entry": entry["entry_id"],
         "relation_fact": fact["fact_id"],
+        "supersede": supersede["candidate_id"],
     }
     tools_by_type = {candidate["type"]: candidate["confirm_tool"] for candidate in data["candidates"]}
     assert tools_by_type == {
         "rule": "confirm_rule",
         "memory_entry": "confirm_memory_entry",
         "relation_fact": "confirm_relation_fact",
+        "supersede": "confirm_supersede",
     }
 
     confirmed = call_tool("confirm_memory_entry", {"entry_id": entry["entry_id"]})
@@ -319,7 +337,105 @@ def test_list_candidates_returns_pending_review_items(mcp_backend: LocalMemoryBa
     after_confirm = call_tool("list_candidates", {"project_name": "test-project"})
     pending_ids = {candidate["id"] for candidate in after_confirm["candidates"]}
     assert entry["entry_id"] not in pending_ids
-    assert after_confirm["count"] == 2
+    assert after_confirm["count"] == 3
+
+
+def test_confirm_supersede_marks_truth_historical(mcp_backend: LocalMemoryBackend):
+    run(
+        mcp_backend.structured_store.save_confirmed_rule(
+            ConfirmedRule(
+                id="rule-old",
+                project_name="test-project",
+                pattern="Use the old route.",
+                trigger="When editing API clients",
+                source_candidate_id="candidate-old",
+            )
+        )
+    )
+    run(
+        mcp_backend.structured_store.save_confirmed_rule(
+            ConfirmedRule(
+                id="rule-new",
+                project_name="test-project",
+                pattern="Use the new route.",
+                trigger="When editing API clients",
+                source_candidate_id="candidate-new",
+            )
+        )
+    )
+
+    created = call_tool(
+        "suggest_supersede",
+        {
+            "project_name": "test-project",
+            "target_type": "confirmed_rule",
+            "target_id": "rule-old",
+            "replacement_type": "confirmed_rule",
+            "replacement_id": "rule-new",
+            "reason": "The new route replaces the old one.",
+            "evidence": "Docs point to the new route now.",
+            "source": "test-session-001",
+        },
+    )
+    assert created["success"] is True
+
+    confirmed = call_tool("confirm_supersede", {"candidate_id": created["candidate_id"]})
+    assert confirmed["success"] is True
+
+    old_rule = run(mcp_backend.structured_store.get_confirmed_rule("rule-old"))
+    new_rule = run(mcp_backend.structured_store.get_confirmed_rule("rule-new"))
+    assert old_rule is not None
+    assert new_rule is not None
+    assert old_rule.valid_to is not None
+    assert new_rule.supersedes == ["rule-old"]
+
+
+def test_reject_supersede_keeps_truth_current(mcp_backend: LocalMemoryBackend):
+    run(
+        mcp_backend.structured_store.save_confirmed_rule(
+            ConfirmedRule(
+                id="rule-old-reject",
+                project_name="test-project",
+                pattern="Use the old route.",
+                trigger="When editing API clients",
+                source_candidate_id="candidate-old",
+            )
+        )
+    )
+    run(
+        mcp_backend.structured_store.save_confirmed_rule(
+            ConfirmedRule(
+                id="rule-new-reject",
+                project_name="test-project",
+                pattern="Use the new route.",
+                trigger="When editing API clients",
+                source_candidate_id="candidate-new",
+            )
+        )
+    )
+
+    created = call_tool(
+        "suggest_supersede",
+        {
+            "project_name": "test-project",
+            "target_type": "confirmed_rule",
+            "target_id": "rule-old-reject",
+            "replacement_type": "confirmed_rule",
+            "replacement_id": "rule-new-reject",
+            "reason": "The new route replaces the old one.",
+            "evidence": "Docs point to the new route now.",
+            "source": "test-session-001",
+        },
+    )
+    assert created["success"] is True
+
+    rejected = call_tool("reject_supersede", {"candidate_id": created["candidate_id"]})
+    assert rejected["success"] is True
+
+    old_rule = run(mcp_backend.structured_store.get_confirmed_rule("rule-old-reject"))
+    new_rule = run(mcp_backend.structured_store.get_confirmed_rule("rule-new-reject"))
+    assert old_rule is not None and old_rule.valid_to is None
+    assert new_rule is not None and new_rule.supersedes == []
 
 
 def test_suggest_relation_fact_rejected_remains_hidden(mcp_backend: LocalMemoryBackend):

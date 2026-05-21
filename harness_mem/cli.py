@@ -29,6 +29,9 @@ from harness_mem.commands import (
     cmd_handoff,
     cmd_list_candidates,
     cmd_reject_rule,
+    cmd_confirm_supersede,
+    cmd_reject_supersede,
+    cmd_suggest_supersede,
 )
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
@@ -203,6 +206,26 @@ def main():
         p.add_argument("rule_id_arg", nargs="?")
         p.add_argument("-r", "--rule-id", dest="rule_id")
         p.set_defaults(command_name=name)
+
+    sup = sub.add_parser("supersede", help="Create a supersede candidate")
+    sup.add_argument("-p", "--project")
+    sup.add_argument("--target-type", required=True, choices=["memory_entry", "relation_fact", "confirmed_rule"])
+    sup.add_argument("--target-id", required=True)
+    sup.add_argument("--replacement-type", required=True, choices=["memory_entry", "relation_fact", "confirmed_rule"])
+    sup.add_argument("--replacement-id", required=True)
+    sup.add_argument("--reason", required=True)
+    sup.add_argument("--evidence", required=True)
+    sup.add_argument("--source", default="")
+    sup.add_argument("--confidence", type=float, default=0.7)
+    sup.set_defaults(command_name="supersede")
+
+    cs = sub.add_parser("confirm-supersede", aliases=["confirm-sup"], help="Confirm a supersede candidate")
+    cs.add_argument("candidate_id")
+    cs.set_defaults(command_name="confirm-supersede")
+
+    rs = sub.add_parser("reject-supersede", aliases=["reject-sup"], help="Reject a supersede candidate")
+    rs.add_argument("candidate_id")
+    rs.set_defaults(command_name="reject-supersede")
 
     # purge
     purge = sub.add_parser("purge", help="Soft-delete observations/structured memory")
@@ -439,6 +462,30 @@ def main():
             log_command_invoked("reject", project_name=ap)
             log_cli_event(EventType.RULE_REJECTED, project_name=ap, command="reject", extra={"rule_id": rule_id})
         return result
+
+    if command == "supersede":
+        pn = resolve_project_name(args.project, action_label="supersede")
+        if not pn:
+            return 1
+        return asyncio.run(
+            cmd_suggest_supersede(
+                pn,
+                args.target_type,
+                args.target_id,
+                args.replacement_type,
+                args.replacement_id,
+                args.reason,
+                args.evidence,
+                source=getattr(args, "source", ""),
+                confidence=getattr(args, "confidence", 0.7),
+            )
+        )
+
+    if command == "confirm-supersede":
+        return asyncio.run(cmd_confirm_supersede(args.candidate_id))
+
+    if command == "reject-supersede":
+        return asyncio.run(cmd_reject_supersede(args.candidate_id))
 
     if command == "list-candidates":
         pn = resolve_project_name(args.project, action_label="list-candidates")
