@@ -10,6 +10,7 @@ from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
+from harness_mem.storage.local_verbatim_store import RegexObservationMatch
 
 
 async def search_memory(
@@ -98,6 +99,23 @@ async def timeline_observations(
 ) -> list[Observation]:
     """Return a project-scoped observation timeline."""
     return await backend.verbatim_store.timeline(project_name=project_name, limit=limit)
+
+
+async def regex_search_observations(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str | None,
+    pattern: str,
+    scope: str = "project",
+    limit: int = 20,
+) -> list[RegexObservationMatch]:
+    """Return exact evidence matches from raw observation text."""
+    effective_project = None if scope == "all" else project_name
+    return await backend.verbatim_store.regex_search_observations(
+        pattern,
+        project_name=effective_project,
+        limit=limit,
+    )
 
 
 async def resolve_observation_identifier(
@@ -331,6 +349,23 @@ def serialize_observation(observation: Observation) -> dict[str, Any]:
         "raw_content": observation.raw_content,
         "tags": observation.tags,
         "metadata": observation.metadata,
+    }
+
+
+def serialize_regex_observation_match(match: RegexObservationMatch) -> dict[str, Any]:
+    """Serialize a regex observation match for CLI/MCP/API clients."""
+    observation = getattr(match, "observation")
+    return {
+        "id": observation.id,
+        "project_name": observation.metadata.get("project_name"),
+        "session_id": observation.session_id,
+        "content_type": observation.content_type,
+        "timestamp": observation.timestamp.isoformat() if observation.timestamp else None,
+        "snippet": getattr(match, "snippet"),
+        "match_start": getattr(match, "match_start"),
+        "match_end": getattr(match, "match_end"),
+        "candidate_count": getattr(match, "candidate_count"),
+        "tags": observation.tags,
     }
 
 

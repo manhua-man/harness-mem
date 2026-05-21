@@ -40,6 +40,7 @@ import contextlib  # noqa: E402
 import io  # noqa: E402
 import json  # noqa: E402
 import logging  # noqa: E402
+import re  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any, Callable, TypedDict  # noqa: E402
@@ -52,9 +53,11 @@ from harness_mem.read_api import (  # noqa: E402
     build_search_project_context_map,
     search_memory,
     search_relation_facts,
+    regex_search_observations,
     serialize_memory_entry_search_result,
     serialize_observation,
     serialize_observation_search_result,
+    serialize_regex_observation_match,
     serialize_relation_fact_search_result,
     serialize_timeline_observation,
     timeline_observations,
@@ -239,6 +242,43 @@ def tool_timeline(project_name: str, limit: int = 50) -> dict:
         "limit": limit,
         "observations": [serialize_timeline_observation(observation) for observation in obs_list],
         "count": len(obs_list),
+    }
+
+
+def tool_search_raw(
+    pattern: str,
+    project_name: str | None = None,
+    scope: str = "project",
+    limit: int = 20,
+) -> dict:
+    """Regex search raw observation evidence."""
+    if scope not in {"project", "all"}:
+        return {"success": False, "error": "scope must be one of: project, all"}
+    if scope == "project" and not project_name:
+        return {"success": False, "error": "project_name is required when scope=project"}
+
+    backend = _get_backend()
+    try:
+        matches = asyncio.run(
+            regex_search_observations(
+                backend,
+                project_name=project_name,
+                pattern=pattern,
+                scope=scope,
+                limit=limit,
+            )
+        )
+    except re.error as exc:
+        return {"success": False, "error": f"invalid regex: {exc}"}
+
+    return {
+        "success": True,
+        "project_name": project_name,
+        "pattern": pattern,
+        "scope": scope,
+        "limit": limit,
+        "matches": [serialize_regex_observation_match(match) for match in matches],
+        "count": len(matches),
     }
 
 
@@ -1092,6 +1132,29 @@ TOOLS: dict[str, ToolSpec] = {
             "required": ["project_name"],
         },
         "handler": tool_timeline,
+    },
+    "search_raw": {
+        "description": "Regex search raw observation evidence with exact snippets.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name (required when scope=project)"},
+                "pattern": {"type": "string", "description": "Python regex pattern"},
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "all"],
+                    "description": "Search scope: project or all (default: project)",
+                    "default": "project",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum matches to return (default 20)",
+                    "default": 20,
+                },
+            },
+            "required": ["pattern"],
+        },
+        "handler": tool_search_raw,
     },
     "get_observations": {
         "description": "List all observations for a given session in a project.",

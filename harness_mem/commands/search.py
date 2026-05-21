@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 
 from harness_mem.commands.support import DEFAULT_DATA_DIR, log_command_invoked, resolve_project_name
@@ -10,6 +11,7 @@ from harness_mem.read_api import (
     format_search_score,
     format_validity_marker,
     preview_search_text,
+    regex_search_observations,
     resolve_observation_identifier,
     search_header,
     search_memory,
@@ -130,6 +132,72 @@ async def cmd_search(
                 "relation_fact_count": len(relation_facts),
                 "observation_count": len(observations),
                 "include_history": include_history,
+            },
+        )
+    finally:
+        await backend.close()
+    return 0
+
+
+async def cmd_search_raw(
+    project_name: str | None,
+    pattern: str,
+    *,
+    limit: int = 20,
+    scope: str = "project",
+) -> int:
+    """Regex search raw observation evidence."""
+    if scope not in {"project", "all"}:
+        print("Error: scope must be one of: project, all", file=sys.stderr)
+        return 1
+    resolved_project = (
+        resolve_project_name(project_name, action_label="search-raw")
+        if scope == "project"
+        else project_name
+    )
+    if scope == "project" and not resolved_project:
+        return 1
+
+    try:
+        re.compile(pattern)
+    except re.error as exc:
+        print(f"Error: invalid regex: {exc}", file=sys.stderr)
+        return 1
+
+    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
+    await backend.init()
+    try:
+        matches = await regex_search_observations(
+            backend,
+            project_name=resolved_project,
+            pattern=pattern,
+            scope=scope,
+            limit=limit,
+        )
+
+        print(f"# Raw Evidence Search: {pattern}")
+        print(f"Scope: {scope}")
+        if resolved_project:
+            print(f"Project: {resolved_project}")
+        print(f"Matches: {len(matches)}")
+        print()
+        for match in matches:
+            observation = match.observation
+            print(
+                f"- {format_observation_reference(observation)} "
+                f"{match.snippet}  "
+                f"(span: {match.match_start}-{match.match_end}, "
+                f"candidates: {match.candidate_count})"
+            )
+
+        log_command_invoked(
+            "search-raw",
+            project_name=resolved_project,
+            extra={
+                "pattern": pattern,
+                "scope": scope,
+                "limit": limit,
+                "match_count": len(matches),
             },
         )
     finally:

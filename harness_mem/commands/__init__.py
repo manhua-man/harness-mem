@@ -7,7 +7,7 @@ from harness_mem.commands.import_bridge import cmd_import
 from harness_mem.commands.maintenance import cmd_assign_memory_types
 from harness_mem.commands.profile import cmd_profile, cmd_profile_edit, cmd_use
 from harness_mem.commands.purge import cmd_purge
-from harness_mem.commands.search import cmd_search, cmd_show, cmd_timeline
+from harness_mem.commands.search import cmd_search, cmd_search_raw, cmd_show, cmd_timeline
 from harness_mem.commands.status import cmd_status
 from harness_mem.commands.wake import cmd_wake_up
 from harness_mem.commands.candidates import (
@@ -33,6 +33,7 @@ __all__ = [
     "cmd_profile_edit",
     "cmd_purge",
     "cmd_search",
+    "cmd_search_raw",
     "cmd_status",
     "cmd_wake_up",
     "cmd_correct",

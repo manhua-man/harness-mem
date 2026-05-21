@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import builtins
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from harness_mem.core.schemas.observation import Observation
 
@@ -40,6 +40,17 @@ class VerbatimStore(Protocol):
         mode: str = "auto",
     ) -> builtins.list[Observation]:
         """Full-text search observations, optionally filtered by session_id or project_name."""
+        ...
+
+    async def regex_search_observations(
+        self,
+        pattern: str,
+        *,
+        project_name: str | None = None,
+        limit: int = 20,
+        flags: int = 0,
+    ) -> builtins.list[Any]:
+        """Regex search raw observations with exact evidence snippets."""
         ...
 
     async def delete(self, id: str) -> bool:

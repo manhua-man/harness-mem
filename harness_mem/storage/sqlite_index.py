@@ -242,6 +242,7 @@ class SQLiteIndex:
                 END
             """)
             self._ensure_columns(conn, table_name)
+        self._ensure_verbatim_exact_index(conn)
         conn.commit()
 
     def _conn_write(self) -> sqlite3.Connection:
@@ -514,6 +515,74 @@ class SQLiteIndex:
             conn.commit()
             return cursor.rowcount > 0
 
+    def replace_observation_trigrams(self, observation_id: str, text: str) -> int:
+        """Replace trigram postings for one observation raw_content blob."""
+        trigrams = sorted(_trigrams(text))
+        conn = self._conn_write()
+        with self._lock:
+            conn.execute(
+                "DELETE FROM observation_trigrams WHERE observation_id = ?",
+                (observation_id,),
+            )
+            conn.executemany(
+                """
+                INSERT OR IGNORE INTO observation_trigrams (ngram, observation_id)
+                VALUES (?, ?)
+                """,
+                [(ngram, observation_id) for ngram in trigrams],
+            )
+            conn.commit()
+        return len(trigrams)
+
+    def delete_observation_trigrams(self, observation_id: str) -> None:
+        """Delete exact-search postings for one observation."""
+        conn = self._conn_write()
+        with self._lock:
+            conn.execute(
+                "DELETE FROM observation_trigrams WHERE observation_id = ?",
+                (observation_id,),
+            )
+            conn.commit()
+
+    def candidate_observation_ids_for_trigrams(
+        self,
+        trigrams: set[str],
+        *,
+        limit: int = 1000,
+    ) -> builtins.list[str]:
+        """Return observation ids containing every requested trigram."""
+        if not trigrams:
+            return []
+        conn = self._conn_write()
+        ordered = sorted(trigrams)
+        placeholders = ",".join(["?"] * len(ordered))
+        sql = f"""
+            SELECT observation_id
+            FROM observation_trigrams
+            WHERE ngram IN ({placeholders})
+            GROUP BY observation_id
+            HAVING COUNT(DISTINCT ngram) = ?
+            LIMIT ?
+        """
+        with self._lock:
+            rows = conn.execute(sql, (*ordered, len(ordered), limit)).fetchall()
+        return [str(row["observation_id"]) for row in rows]
+
+    def observation_trigram_stats(self) -> dict[str, int]:
+        """Return small health counters for the exact evidence index."""
+        conn = self._conn_write()
+        with self._lock:
+            posting_count = conn.execute(
+                "SELECT COUNT(*) FROM observation_trigrams"
+            ).fetchone()[0]
+            indexed_count = conn.execute(
+                "SELECT COUNT(DISTINCT observation_id) FROM observation_trigrams"
+            ).fetchone()[0]
+        return {
+            "posting_count": int(posting_count),
+            "indexed_observation_count": int(indexed_count),
+        }
+
     def count(self, table: str, where: str | None = None, where_params: tuple = ()) -> int:
         """Count rows matching the WHERE clause."""
         conn = self._conn_write()
@@ -574,6 +643,19 @@ class SQLiteIndex:
             if column_name in existing:
                 continue
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column_name} {column_def}")
+
+    def _ensure_verbatim_exact_index(self, conn: sqlite3.Connection) -> None:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS observation_trigrams (
+                ngram TEXT NOT NULL,
+                observation_id TEXT NOT NULL,
+                PRIMARY KEY (ngram, observation_id)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_observation_trigrams_observation
+            ON observation_trigrams(observation_id)
+        """)
 
     @staticmethod
     def _escape_match_token(token: str) -> str:
@@ -658,3 +740,13 @@ class SQLiteIndex:
             return str(_PORTER_STEMMER.stemWord(token))
         except Exception:
             return token
+
+
+def _trigrams(text: str) -> set[str]:
+    normalized = re.sub(r"\s+", " ", text.lower())
+    if len(normalized) < 3:
+        return {normalized} if normalized else set()
+    return {
+        normalized[index:index + 3]
+        for index in range(0, len(normalized) - 2)
+    }

@@ -18,6 +18,7 @@ from harness_mem.commands import (
     cmd_purge,
     cmd_quickstart,
     cmd_search,
+    cmd_search_raw,
     cmd_show,
     cmd_status,
     cmd_timeline,
@@ -141,6 +142,15 @@ def main():
         ),
     )
     search.set_defaults(command_name="search")
+
+    # search-raw
+    search_raw = sub.add_parser("search-raw", help="Regex search raw observation evidence")
+    search_raw.add_argument("pattern_arg", nargs="?")
+    search_raw.add_argument("-p", "--project")
+    search_raw.add_argument("--regex", dest="pattern")
+    search_raw.add_argument("-n", "--limit", type=int, default=20)
+    search_raw.add_argument("--scope", choices=["project", "all"], default="project")
+    search_raw.set_defaults(command_name="search-raw")
 
     # timeline
     tl = sub.add_parser("timeline", aliases=["tl"], help="Show observation timeline")
@@ -271,7 +281,7 @@ def main():
     maint = sub.add_parser("maintenance", help="One-shot maintenance utilities")
     maint.add_argument(
         "action",
-        choices=["assign-memory-types", "rebuild-vector-index"],
+        choices=["assign-memory-types", "rebuild-vector-index", "rebuild-verbatim-index"],
         help="Maintenance action to run",
     )
     maint.add_argument("-p", "--project", help="Project name (defaults to active project)")
@@ -343,6 +353,20 @@ def main():
             )
         )
 
+    if command == "search-raw":
+        pattern = args.pattern or args.pattern_arg
+        if not pattern:
+            print('No regex provided. Try: harness-mem search-raw --regex "ERROR-[0-9]+"')
+            return 1
+        return asyncio.run(
+            cmd_search_raw(
+                args.project,
+                pattern,
+                limit=getattr(args, "limit", 20),
+                scope=getattr(args, "scope", "project"),
+            )
+        )
+
     if command == "timeline":
         limit = args.limit if args.limit is not None else (args.limit_arg or 50)
         return asyncio.run(cmd_timeline(args.project, limit))
@@ -404,6 +428,11 @@ def main():
             from harness_mem.commands.maintenance import cmd_rebuild_vector_index
             return asyncio.run(
                 cmd_rebuild_vector_index(args.project)
+            )
+        elif args.action == "rebuild-verbatim-index":
+            from harness_mem.commands.maintenance import cmd_rebuild_verbatim_index
+            return asyncio.run(
+                cmd_rebuild_verbatim_index(args.project)
             )
         parser.error(f"Unknown maintenance action: {args.action}")
 

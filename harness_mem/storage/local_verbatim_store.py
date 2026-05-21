@@ -6,6 +6,7 @@ import json
 import asyncio
 import re
 from pathlib import Path
+from typing import NamedTuple
 
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.search.hybrid_search import HybridSearchLayer
@@ -13,6 +14,15 @@ from harness_mem.storage.sqlite_index import SQLiteIndex
 
 _CJK_ASCII_LEFT_BOUNDARY = re.compile(r"([\u3400-\u9fff])([A-Za-z0-9_])")
 _CJK_ASCII_RIGHT_BOUNDARY = re.compile(r"([A-Za-z0-9_])([\u3400-\u9fff])")
+_REGEX_META_CHARS = set(r"\.^$*+?{}[]|()")
+
+
+class RegexObservationMatch(NamedTuple):
+    observation: Observation
+    snippet: str
+    match_start: int
+    match_end: int
+    candidate_count: int
 
 
 class LocalVerbatimStore:
@@ -51,6 +61,11 @@ class LocalVerbatimStore:
                 "metadata": observation.metadata,
                 "compacted": observation.compacted,
             },
+        )
+        await asyncio.to_thread(
+            self._index.replace_observation_trigrams,
+            observation.id,
+            observation.raw_content,
         )
 
         # Persist embedding vector (v1.6.2)
@@ -159,10 +174,68 @@ class LocalVerbatimStore:
                 results.append(Observation.from_dict(data))
         return results
 
+    async def regex_search_observations(
+        self,
+        pattern: str,
+        *,
+        project_name: str | None = None,
+        limit: int = 20,
+        flags: int = 0,
+    ) -> builtins.list[RegexObservationMatch]:
+        """Search raw observation text by regex using trigram candidate pruning."""
+        compiled = re.compile(pattern, flags)
+        literal = _longest_literal_fragment(pattern)
+        trigrams = _trigrams(literal) if literal else set()
+        candidate_limit = max(limit * 20, 100)
+        if trigrams:
+            candidate_ids = await asyncio.to_thread(
+                self._index.candidate_observation_ids_for_trigrams,
+                trigrams,
+                limit=candidate_limit,
+            )
+            if not candidate_ids:
+                return []
+        else:
+            candidate_ids = []
+
+        if not candidate_ids:
+            observations = await self.list(limit=candidate_limit)
+            candidate_count = len(observations)
+        else:
+            observations = [
+                observation
+                for observation_id in candidate_ids
+                if (observation := await self.get(observation_id)) is not None
+            ]
+            candidate_count = len(candidate_ids)
+
+        matches: list[RegexObservationMatch] = []
+        for observation in observations:
+            if project_name and observation.metadata.get("project_name") != project_name:
+                continue
+            if observation.compacted:
+                continue
+            match = compiled.search(observation.raw_content)
+            if match is None:
+                continue
+            matches.append(
+                RegexObservationMatch(
+                    observation=observation,
+                    snippet=_regex_snippet(observation.raw_content, match.start(), match.end()),
+                    match_start=match.start(),
+                    match_end=match.end(),
+                    candidate_count=candidate_count,
+                )
+            )
+            if len(matches) >= limit:
+                break
+        return matches
+
     async def delete(self, id: str) -> bool:
         """Delete observation blob and SQLite index entry."""
         blob_path = self.blob_dir / f"{id}.json"
         deleted_index = await asyncio.to_thread(self._index.delete, "observations", id)
+        await asyncio.to_thread(self._index.delete_observation_trigrams, id)
         deleted_blob = False
         if blob_path.exists():
             blob_path.unlink()
@@ -177,6 +250,7 @@ class LocalVerbatimStore:
         data = json.loads(blob_path.read_text())
         data["compacted"] = True
         blob_path.write_text(json.dumps(data, indent=2, default=str))
+        await asyncio.to_thread(self._index.delete_observation_trigrams, id)
         await asyncio.to_thread(
             self._index.update,
             "observations",
@@ -214,6 +288,25 @@ class LocalVerbatimStore:
                 results.append(Observation.from_dict(data))
         return results
 
+    async def rebuild_exact_index(self, project_name: str | None = None) -> tuple[int, int]:
+        """Rebuild exact-search trigram postings for observations."""
+        observations = await self.list(limit=100000)
+        indexed = 0
+        postings = 0
+        for observation in observations:
+            if project_name and observation.metadata.get("project_name") != project_name:
+                continue
+            postings += await asyncio.to_thread(
+                self._index.replace_observation_trigrams,
+                observation.id,
+                observation.raw_content,
+            )
+            indexed += 1
+        return indexed, postings
+
+    def exact_index_stats(self) -> dict[str, int]:
+        return self._index.observation_trigram_stats()
+
     def close(self) -> None:
         self._index.close()
 
@@ -226,3 +319,57 @@ def _normalize_observation_search_text(text: str) -> str:
     """Add token boundaries for mixed CJK/ASCII text before FTS indexing."""
     text = _CJK_ASCII_LEFT_BOUNDARY.sub(r"\1 \2", text)
     return _CJK_ASCII_RIGHT_BOUNDARY.sub(r"\1 \2", text)
+
+
+def _trigrams(text: str) -> set[str]:
+    normalized = re.sub(r"\s+", " ", text.lower())
+    if len(normalized) < 3:
+        return {normalized} if normalized else set()
+    return {
+        normalized[index:index + 3]
+        for index in range(0, len(normalized) - 2)
+    }
+
+
+def _longest_literal_fragment(pattern: str) -> str:
+    fragments: list[str] = []
+    current: list[str] = []
+    escaped = False
+    for char in pattern:
+        if escaped:
+            if char in "dDsSwWbBAZ":
+                if current:
+                    fragments.append("".join(current))
+                    current = []
+            else:
+                current.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char in _REGEX_META_CHARS:
+            if current:
+                fragments.append("".join(current))
+                current = []
+            continue
+        current.append(char)
+    if escaped:
+        current.append("\\")
+    if current:
+        fragments.append("".join(current))
+    return max((fragment.strip() for fragment in fragments), key=len, default="")
+
+
+def _regex_snippet(text: str, start: int, end: int, *, max_chars: int = 220) -> str:
+    context = max_chars // 3
+    snippet_start = max(0, start - context)
+    snippet_end = min(len(text), max(end + context, snippet_start + max_chars))
+    if snippet_end - snippet_start > max_chars:
+        snippet_end = snippet_start + max_chars
+    snippet = text[snippet_start:snippet_end].replace("\n", " ")
+    if snippet_start > 0:
+        snippet = "..." + snippet
+    if snippet_end < len(text):
+        snippet += "..."
+    return snippet
