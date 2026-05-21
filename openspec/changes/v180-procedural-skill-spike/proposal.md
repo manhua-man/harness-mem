@@ -4,13 +4,15 @@ v1.7 解决的是 semantic truth 的时间感和 supersede 链，但很多反复
 
 ## What Changes
 
-- Define a `Skill` candidate shape for process knowledge: activation condition, ordered steps, termination condition, success examples, confidence, status
-- Keep the v1.8 spike read-only at first: extract and review skill candidates, but do not auto-activate them or let them mutate truth
+- Define a `ProceduralCandidate` shape for process knowledge: activation condition, ordered steps, termination condition, success examples, confidence, status
+- Add a confirmed `Skill` shape that is created only after human/AI review confirmation; confirmed skills can be searched and can record execution success/failure
+- Keep the v1.8 line conservative: candidates do not auto-activate, confirmed skills do not mutate semantic truth, and wake selection does not consume procedural skills by default
 - Add a small fixture set that represents repeated multi-step workflows from the repo's own development loop
-- Reserve retrieval and wake integration for later follow-up changes after the candidate loop is proven useful
+- Reserve wake integration and autonomous learning for later follow-up changes after the candidate/skill loop is proven useful
 
 ## Impact
 
 - Procedural knowledge gets a dedicated review path instead of being squeezed into `RuleCandidate`
 - Repeated workflows can be evaluated as reusable skills rather than one-off notes
+- `search_skills` lets AI consumers find confirmed procedures explicitly at task start, without stuffing them into wake context
 - The spike keeps the v1.7 truth boundary intact and does not add autonomous behavior

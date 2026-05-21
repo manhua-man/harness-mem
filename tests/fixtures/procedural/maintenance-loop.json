@@ -1,0 +1,18 @@
+{
+  "project_name": "harness-mem",
+  "activation_condition": "A local memory index or maintenance surface may be stale",
+  "steps": [
+    "Run the doctor or status command to identify the stale surface",
+    "Run the narrow maintenance command with an explicit project scope",
+    "Re-run the diagnostic command to verify the stale surface is repaired"
+  ],
+  "termination_condition": "The diagnostic command no longer reports the stale condition",
+  "success_examples": [
+    "harness-mem doctor reports the exact index rebuild hint",
+    "harness-mem maintenance rebuild-verbatim-index --project harness-mem completes",
+    "harness-mem doctor no longer reports missing exact-search postings"
+  ],
+  "source_session_id": "procedural-spike-003",
+  "confidence": 0.66,
+  "status": "draft"
+}

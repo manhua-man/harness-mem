@@ -86,6 +86,41 @@ _TABLE_SCHEMAS = {
         reviewed_at TEXT,
         reviewer_id TEXT
     """,
+    "procedural_candidates": """
+        id TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        activation_condition TEXT NOT NULL,
+        steps TEXT NOT NULL DEFAULT '[]',
+        termination_condition TEXT NOT NULL,
+        success_examples TEXT NOT NULL DEFAULT '[]',
+        source_session_id TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT '',
+        confidence REAL NOT NULL DEFAULT 0.5,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL,
+        search_text TEXT NOT NULL
+    """,
+    "skills": """
+        id TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        name TEXT NOT NULL,
+        activation_condition TEXT NOT NULL,
+        steps TEXT NOT NULL DEFAULT '[]',
+        termination_condition TEXT NOT NULL,
+        success_examples TEXT NOT NULL DEFAULT '[]',
+        source_candidate_id TEXT NOT NULL DEFAULT '',
+        source_session_id TEXT NOT NULL DEFAULT '',
+        confidence REAL NOT NULL DEFAULT 0.7,
+        status TEXT NOT NULL DEFAULT 'active',
+        usage_count INTEGER NOT NULL DEFAULT 0,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        failure_count INTEGER NOT NULL DEFAULT 0,
+        success_rate REAL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_used_at TEXT,
+        search_text TEXT NOT NULL
+    """,
     "confirmed_rules": """
         id TEXT PRIMARY KEY,
         project_name TEXT NOT NULL,
@@ -209,6 +244,7 @@ class SQLiteIndex:
             # FTS virtual table for full-text search on 'content' or 'raw_content' field
             fts_col = "raw_content" if table_name == "observations" else (
                 "content" if table_name == "memory_entries" else
+                "search_text" if table_name in ("procedural_candidates", "skills") else
                 "pattern" if table_name in ("rule_candidates", "confirmed_rules") else
                 "evidence" if table_name == "supersede_candidates" else
                 "evidence" if table_name == "relation_facts" else
@@ -600,6 +636,8 @@ class SQLiteIndex:
             "memory_entries": ["tags", "supersedes", "superseded_by"],
             "task_handoffs": ["next_steps", "blockers", "context"],
             "rule_candidates": ["examples"],
+            "procedural_candidates": ["steps", "success_examples"],
+            "skills": ["steps", "success_examples"],
             "confirmed_rules": ["examples", "tags", "supersedes", "superseded_by"],
             "relation_facts": ["tags", "supersedes", "superseded_by"],
         }

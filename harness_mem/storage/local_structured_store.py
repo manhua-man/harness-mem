@@ -10,6 +10,8 @@ from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.task_handoff import TaskHandoff
 from harness_mem.core.schemas.rule_candidate import RuleCandidate
 from harness_mem.core.schemas.supersede_candidate import SupersedeCandidate
+from harness_mem.core.schemas.procedural_candidate import ProceduralCandidate
+from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.search.hybrid_search import HybridSearchLayer
@@ -32,6 +34,8 @@ class LocalStructuredStore:
             "task_handoffs": self.blob_dir / "task_handoffs",
             "rule_candidates": self.blob_dir / "rule_candidates",
             "supersede_candidates": self.blob_dir / "supersede_candidates",
+            "procedural_candidates": self.blob_dir / "procedural_candidates",
+            "skills": self.blob_dir / "skills",
             "confirmed_rules": self.blob_dir / "confirmed_rules",
             "relation_facts": self.blob_dir / "relation_facts",
         }
@@ -160,6 +164,30 @@ class LocalStructuredStore:
             raise ValueError(
                 "truth type must be one of: memory_entry, relation_fact, confirmed_rule"
             ) from exc
+
+    def _procedural_search_text(
+        self,
+        *,
+        activation_condition: str,
+        steps: list[str],
+        termination_condition: str,
+        success_examples: list[str],
+        name: str = "",
+    ) -> str:
+        parts = [
+            name,
+            activation_condition,
+            *steps,
+            termination_condition,
+            *success_examples,
+        ]
+        return "\n".join(part for part in parts if part)
+
+    def _skill_name_for_candidate(self, candidate: ProceduralCandidate) -> str:
+        activation = candidate.activation_condition.strip().rstrip(".")
+        if len(activation) <= 80:
+            return activation
+        return activation[:77].rstrip() + "..."
 
     def _load_truth_data(self, truth_type: str, truth_id: str) -> tuple[str, Path, dict] | None:
         collection = self._truth_collection_for_type(truth_type)
@@ -745,6 +773,238 @@ class LocalStructuredStore:
             await self._persist_truth_snapshot(target_collection, candidate.target_id, target_original)
             return None
         return await self.get_supersede_candidate(id)
+
+    # ---- ProceduralCandidate ----
+
+    async def save_procedural_candidate(self, candidate: ProceduralCandidate) -> str:
+        blob_path = self._blob_path("procedural_candidates", candidate.id)
+        blob_path.write_text(json.dumps(candidate.to_dict(), indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.insert,
+            "procedural_candidates",
+            {
+                "id": candidate.id,
+                "project_name": candidate.project_name,
+                "activation_condition": candidate.activation_condition,
+                "steps": candidate.steps,
+                "termination_condition": candidate.termination_condition,
+                "success_examples": candidate.success_examples,
+                "source_session_id": candidate.source_session_id,
+                "source": candidate.source,
+                "confidence": candidate.confidence,
+                "status": candidate.status,
+                "created_at": candidate.created_at,
+                "search_text": self._procedural_search_text(
+                    activation_condition=candidate.activation_condition,
+                    steps=candidate.steps,
+                    termination_condition=candidate.termination_condition,
+                    success_examples=candidate.success_examples,
+                ),
+            },
+        )
+        return candidate.id
+
+    async def get_procedural_candidate(self, id: str) -> ProceduralCandidate | None:
+        blob_path = self._blob_path("procedural_candidates", id)
+        if not blob_path.exists():
+            return None
+        data = json.loads(blob_path.read_text())
+        return ProceduralCandidate.from_dict(data)
+
+    async def list_procedural_candidates(
+        self,
+        project_name: str,
+        status: str | None = None,
+    ) -> list[ProceduralCandidate]:
+        where_parts = ["project_name = ?"]
+        params = [project_name]
+        if status:
+            where_parts.append("status = ?")
+            params.append(status)
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "procedural_candidates",
+            " AND ".join(where_parts),
+            tuple(params),
+            order_by="created_at DESC",
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("procedural_candidates", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(ProceduralCandidate.from_dict(data))
+        return results
+
+    async def update_procedural_candidate_status(self, id: str, status: str) -> bool:
+        blob_path = self._blob_path("procedural_candidates", id)
+        if not blob_path.exists():
+            return False
+
+        updated = await asyncio.to_thread(
+            self._index.update,
+            "procedural_candidates",
+            id,
+            {"status": status},
+        )
+        if not updated:
+            return False
+
+        data = json.loads(blob_path.read_text())
+        data["status"] = status
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        return True
+
+    async def confirm_procedural_candidate(self, id: str) -> Skill | None:
+        candidate = await self.get_procedural_candidate(id)
+        if candidate is None or candidate.status != "pending":
+            return None
+
+        now = datetime.now(timezone.utc)
+        skill = Skill(
+            project_name=candidate.project_name,
+            name=self._skill_name_for_candidate(candidate),
+            activation_condition=candidate.activation_condition,
+            steps=candidate.steps,
+            termination_condition=candidate.termination_condition,
+            success_examples=candidate.success_examples,
+            source_candidate_id=candidate.id,
+            source_session_id=candidate.source_session_id,
+            confidence=candidate.confidence,
+            created_at=now,
+            updated_at=now,
+        )
+        await self.save_skill(skill)
+        updated = await self.update_procedural_candidate_status(candidate.id, "accepted")
+        if not updated:
+            return None
+        return skill
+
+    # ---- Skill ----
+
+    async def save_skill(self, skill: Skill) -> str:
+        blob_path = self._blob_path("skills", skill.id)
+        blob_path.write_text(json.dumps(skill.to_dict(), indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.insert,
+            "skills",
+            {
+                "id": skill.id,
+                "project_name": skill.project_name,
+                "name": skill.name,
+                "activation_condition": skill.activation_condition,
+                "steps": skill.steps,
+                "termination_condition": skill.termination_condition,
+                "success_examples": skill.success_examples,
+                "source_candidate_id": skill.source_candidate_id,
+                "source_session_id": skill.source_session_id,
+                "confidence": skill.confidence,
+                "status": skill.status,
+                "usage_count": skill.usage_count,
+                "success_count": skill.success_count,
+                "failure_count": skill.failure_count,
+                "success_rate": skill.success_rate,
+                "created_at": skill.created_at,
+                "updated_at": skill.updated_at,
+                "last_used_at": skill.last_used_at,
+                "search_text": self._procedural_search_text(
+                    name=skill.name,
+                    activation_condition=skill.activation_condition,
+                    steps=skill.steps,
+                    termination_condition=skill.termination_condition,
+                    success_examples=skill.success_examples,
+                ),
+            },
+        )
+        return skill.id
+
+    async def get_skill(self, id: str) -> Skill | None:
+        blob_path = self._blob_path("skills", id)
+        if not blob_path.exists():
+            return None
+        data = json.loads(blob_path.read_text())
+        return Skill.from_dict(data)
+
+    async def list_skills(
+        self,
+        project_name: str,
+        status: str = "active",
+    ) -> list[Skill]:
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "skills",
+            "project_name = ? AND COALESCE(status, 'active') = ?",
+            (project_name, status),
+            order_by="updated_at DESC",
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("skills", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(Skill.from_dict(data))
+        return results
+
+    async def search_skills(
+        self,
+        query: str,
+        project_name: str | None = None,
+        limit: int = 10,
+        status: str = "active",
+    ) -> list[Skill]:
+        extra_where_parts = ["COALESCE(status, 'active') = ?"]
+        extra_params: tuple = (status,)
+        if project_name:
+            extra_where_parts.append("project_name = ?")
+            extra_params = (*extra_params, project_name)
+
+        rows = await asyncio.to_thread(
+            self._index.search,
+            "skills",
+            query,
+            limit,
+            " AND ".join(extra_where_parts),
+            extra_params,
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("skills", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                if data.get("status", "active") != status:
+                    continue
+                if "_fts_score" in row:
+                    data["_fts_score"] = row["_fts_score"]
+                results.append(Skill.from_dict(data))
+        return results
+
+    async def record_skill_result(
+        self,
+        id: str,
+        *,
+        success: bool,
+        used_at: datetime | None = None,
+    ) -> Skill | None:
+        skill = await self.get_skill(id)
+        if skill is None:
+            return None
+        updated_skill = skill.record_result(success=success, used_at=used_at)
+        blob_path = self._blob_path("skills", updated_skill.id)
+        blob_path.write_text(json.dumps(updated_skill.to_dict(), indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.update,
+            "skills",
+            updated_skill.id,
+            {
+                "usage_count": updated_skill.usage_count,
+                "success_count": updated_skill.success_count,
+                "failure_count": updated_skill.failure_count,
+                "success_rate": updated_skill.success_rate,
+                "updated_at": updated_skill.updated_at,
+                "last_used_at": updated_skill.last_used_at,
+            },
+        )
+        return updated_skill
 
     # ---- ConfirmedRule ----
 

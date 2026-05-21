@@ -10,7 +10,11 @@ from harness_mem.commands import (
     cmd_correct,
     cmd_confirm_rule,
     cmd_confirm_supersede,
+    cmd_confirm_procedural,
     cmd_handoff,
+    cmd_record_skill_result,
+    cmd_search_skills,
+    cmd_suggest_procedural,
     cmd_suggest_supersede,
 )
 from harness_mem.core.schemas import Observation, RuleCandidate, ConfirmedRule
@@ -283,3 +287,50 @@ def test_supersede_cli_marks_old_truth_historical(data_dir: Path):
         assert supersede is not None and supersede.status == "accepted"
     finally:
         run(backend.close())
+
+
+def test_procedural_cli_confirms_searches_and_records_skill(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    assert run(
+        cmd_suggest_procedural(
+            "demo",
+            "Focused runtime change needs validation",
+            [
+                "Run focused tests",
+                "Run ruff and mypy",
+                "Run full pytest",
+            ],
+            "All checks are green",
+            success_examples=["328 passed, 1 skipped"],
+            source_session_id="session-proc-cli",
+        )
+    ) == 0
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        candidates = run(backend.structured_store.list_procedural_candidates("demo"))
+        assert len(candidates) == 1
+        candidate = candidates[0]
+    finally:
+        run(backend.close())
+
+    assert run(cmd_confirm_procedural(candidate.id)) == 0
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        skills = run(backend.structured_store.list_skills("demo"))
+        assert len(skills) == 1
+        skill = skills[0]
+    finally:
+        run(backend.close())
+
+    assert run(cmd_search_skills("demo", "focused validation")) == 0
+    search_output = capsys.readouterr().out
+    assert "Focused runtime change needs validation" in search_output
+
+    assert run(cmd_record_skill_result(skill.id, success=True)) == 0
+    result_output = capsys.readouterr().out
+    assert "success_rate=1.0" in result_output

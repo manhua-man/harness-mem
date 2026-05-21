@@ -132,6 +132,8 @@
 
 **主题**：从"记得起" → "做得对"。当前 ConfirmedRule 是声明式（"在这个项目里要用 single quote"），但很多有价值的"记忆"其实是过程式（"修这种 SQL 注入 bug 的步骤是 1-2-3"）。procedural memory 让 AI 把同类任务的解决路径沉淀为可调用 skill。
 
+> **状态：2026-05-22 v1.8.x 已完成保守闭环。** 已新增 `ProceduralCandidate` 候选层、confirmed `Skill` 层、三组 repo-relevant fixture、`search_skills` 检索入口，以及 `record_skill_result` 成功率回写。边界仍然不变：不接入默认 wake selection、不自动提升 truth、不跨项目共享 skill、不做后台 daemon。
+
 ### v1.8 现状痛点
 
 - `RuleCandidate` 只能表达"如果 X 则应当 Y"，无法表达"做 Z 任务时按 step1 → step2 → step3 走"

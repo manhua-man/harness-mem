@@ -92,17 +92,18 @@ def test_stdio_initialize_writes_json_rpc_to_stdout():
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 27
+    assert len(tools) == 32
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
-        "search_raw",
+        "search_raw", "search_skills",
         "get_task_handoffs", "get_confirmed_rules", "get_project_profile",
         "get_project_status", "ingest_sessions", "prepare_session_distill", "distill_sessions",
         "list_candidates",
         "trace_relations",
         "create_rule_candidate", "confirm_rule", "reject_rule", "suggest_rule",
         "suggest_supersede", "confirm_supersede", "reject_supersede",
+        "suggest_skill", "confirm_skill", "reject_skill", "record_skill_result",
         "suggest_memory_entry", "confirm_memory_entry", "reject_memory_entry",
         "suggest_relation_fact", "confirm_relation_fact", "reject_relation_fact",
         "create_task_handoff",
@@ -352,6 +353,53 @@ def test_suggest_memory_entry_pending_hidden_until_confirmed(mcp_backend: LocalM
     )
     assert accepted_search["memory_entry_count"] == 1
     assert accepted_search["memory_entries"][0]["id"] == suggested["entry_id"]
+
+
+def test_suggest_confirm_search_and_record_skill(mcp_backend: LocalMemoryBackend):
+    suggested = call_tool(
+        "suggest_skill",
+        {
+            "project_name": "test-project",
+            "activation_condition": "Focused MCP runtime change needs validation",
+            "steps": ["Run focused tests", "Run full pytest"],
+            "termination_condition": "All validation commands pass",
+            "success_examples": ["tests/mcp/test_smoke.py passes"],
+            "source_session_id": "test-session-001",
+        },
+    )
+    assert suggested["success"] is True
+
+    listed = call_tool("list_candidates", {"project_name": "test-project"})
+    assert listed["procedural_count"] >= 1
+    assert any(
+        candidate["id"] == suggested["candidate_id"]
+        for candidate in listed["procedural_candidates"]
+    )
+
+    confirmed = call_tool("confirm_skill", {"candidate_id": suggested["candidate_id"]})
+    assert confirmed["success"] is True
+    skill_id = confirmed["skill"]["id"]
+
+    searched = call_tool(
+        "search_skills",
+        {
+            "project_name": "test-project",
+            "query": "MCP validation",
+        },
+    )
+    assert searched["success"] is True
+    assert searched["skills"][0]["id"] == skill_id
+
+    recorded = call_tool(
+        "record_skill_result",
+        {
+            "skill_id": skill_id,
+            "success": True,
+        },
+    )
+    assert recorded["success"] is True
+    assert recorded["skill"]["usage_count"] == 1
+    assert recorded["skill"]["success_rate"] == 1.0
 
 
 def test_list_candidates_returns_pending_review_items(mcp_backend: LocalMemoryBackend):

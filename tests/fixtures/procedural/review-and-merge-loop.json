@@ -1,0 +1,18 @@
+{
+  "project_name": "harness-mem",
+  "activation_condition": "A feature branch or worktree is ready to land",
+  "steps": [
+    "Inspect the diff and branch merge status",
+    "Run the repository quality gate",
+    "Commit or merge only after the working tree is clean and tests are green"
+  ],
+  "termination_condition": "The branch is merged or committed with validation evidence",
+  "success_examples": [
+    "git branch --merged main includes the work branch",
+    "python -m pytest -q passes",
+    "git status reports a clean working tree"
+  ],
+  "source_session_id": "procedural-spike-002",
+  "confidence": 0.69,
+  "status": "draft"
+}

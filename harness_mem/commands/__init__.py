@@ -25,6 +25,11 @@ from harness_mem.commands.candidates import (
     cmd_suggest_supersede,
     cmd_confirm_supersede,
     cmd_reject_supersede,
+    cmd_suggest_procedural,
+    cmd_confirm_procedural,
+    cmd_reject_procedural,
+    cmd_search_skills,
+    cmd_record_skill_result,
 )
 from harness_mem.commands.handoff import cmd_handoff
 from harness_mem.commands.onboarding import cmd_quickstart
@@ -50,6 +55,11 @@ __all__ = [
     "cmd_suggest_supersede",
     "cmd_confirm_supersede",
     "cmd_reject_supersede",
+    "cmd_suggest_procedural",
+    "cmd_confirm_procedural",
+    "cmd_reject_procedural",
+    "cmd_search_skills",
+    "cmd_record_skill_result",
     "cmd_handoff",
     "cmd_use",
     "cmd_show",

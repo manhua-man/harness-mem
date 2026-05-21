@@ -34,6 +34,11 @@ from harness_mem.commands import (
     cmd_confirm_supersede,
     cmd_reject_supersede,
     cmd_suggest_supersede,
+    cmd_suggest_procedural,
+    cmd_confirm_procedural,
+    cmd_reject_procedural,
+    cmd_search_skills,
+    cmd_record_skill_result,
 )
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
@@ -253,6 +258,39 @@ def main():
     rs = sub.add_parser("reject-supersede", aliases=["reject-sup"], help="Reject a supersede candidate")
     rs.add_argument("candidate_id")
     rs.set_defaults(command_name="reject-supersede")
+
+    proc = sub.add_parser("suggest-skill", aliases=["skill-candidate"], help="Create a procedural skill candidate")
+    proc.add_argument("-p", "--project")
+    proc.add_argument("--activation-condition", required=True)
+    proc.add_argument("--step", dest="steps", action="append", required=True)
+    proc.add_argument("--termination-condition", required=True)
+    proc.add_argument("--success-example", dest="success_examples", action="append", default=[])
+    proc.add_argument("--source-session-id", default="")
+    proc.add_argument("--source", default="")
+    proc.add_argument("--confidence", type=float, default=0.7)
+    proc.set_defaults(command_name="suggest-skill")
+
+    cp = sub.add_parser("confirm-skill", help="Confirm a procedural skill candidate")
+    cp.add_argument("candidate_id")
+    cp.set_defaults(command_name="confirm-skill")
+
+    rp = sub.add_parser("reject-skill", help="Reject a procedural skill candidate")
+    rp.add_argument("candidate_id")
+    rp.set_defaults(command_name="reject-skill")
+
+    ss = sub.add_parser("search-skills", aliases=["skills"], help="Search confirmed procedural skills")
+    ss.add_argument("query_arg", nargs="?")
+    ss.add_argument("-p", "--project")
+    ss.add_argument("-q", "--query")
+    ss.add_argument("-n", "--limit", type=int, default=10)
+    ss.set_defaults(command_name="search-skills")
+
+    sr = sub.add_parser("record-skill-result", help="Record a confirmed skill execution result")
+    sr.add_argument("skill_id")
+    outcome = sr.add_mutually_exclusive_group(required=True)
+    outcome.add_argument("--success", action="store_true")
+    outcome.add_argument("--failure", action="store_true")
+    sr.set_defaults(command_name="record-skill-result")
 
     # purge
     purge = sub.add_parser("purge", help="Soft-delete observations/structured memory")
@@ -548,6 +586,46 @@ def main():
 
     if command == "reject-supersede":
         return asyncio.run(cmd_reject_supersede(args.candidate_id))
+
+    if command == "suggest-skill":
+        pn = resolve_project_name(args.project, action_label="suggest-skill")
+        if not pn:
+            return 1
+        return asyncio.run(
+            cmd_suggest_procedural(
+                pn,
+                args.activation_condition,
+                args.steps,
+                args.termination_condition,
+                success_examples=getattr(args, "success_examples", []),
+                source_session_id=getattr(args, "source_session_id", ""),
+                source=getattr(args, "source", ""),
+                confidence=getattr(args, "confidence", 0.7),
+            )
+        )
+
+    if command == "confirm-skill":
+        return asyncio.run(cmd_confirm_procedural(args.candidate_id))
+
+    if command == "reject-skill":
+        return asyncio.run(cmd_reject_procedural(args.candidate_id))
+
+    if command == "search-skills":
+        query = args.query or args.query_arg
+        if not query:
+            parser.error("search-skills requires a query.")
+        pn = resolve_project_name(args.project, action_label="search-skills")
+        if not pn:
+            return 1
+        return asyncio.run(cmd_search_skills(pn, query, limit=getattr(args, "limit", 10)))
+
+    if command == "record-skill-result":
+        return asyncio.run(
+            cmd_record_skill_result(
+                args.skill_id,
+                success=bool(getattr(args, "success", False)),
+            )
+        )
 
     if command == "list-candidates":
         pn = resolve_project_name(args.project, action_label="list-candidates")

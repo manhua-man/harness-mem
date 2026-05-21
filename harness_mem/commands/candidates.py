@@ -8,10 +8,11 @@ from uuid import uuid4
 from harness_mem.commands import support as command_support
 from harness_mem.core.schemas import (
     ConfirmedRule,
+    ProceduralCandidate,
     RuleCandidate,
     SupersedeCandidate,
 )
-from harness_mem.read_api import format_validity_marker
+from harness_mem.read_api import format_validity_marker, serialize_skill
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -113,7 +114,8 @@ async def cmd_list_candidates(project_name: str, status: str | None = None) -> i
         entries = await backend.structured_store.list_memory_entries(project_name, status=effective_status)
         facts = await backend.structured_store.list_relation_facts(project_name, status=effective_status)
         supersedes = await backend.structured_store.list_supersede_candidates(project_name, status=effective_status)
-        total = len(rules) + len(entries) + len(facts) + len(supersedes)
+        procedural = await backend.structured_store.list_procedural_candidates(project_name, status=effective_status)
+        total = len(rules) + len(entries) + len(facts) + len(supersedes) + len(procedural)
         print(f"# Candidates ({project_name}): {total} items ({effective_status})")
         for rule_candidate in rules:
             print(f"  [Rule] {rule_candidate.id}: {rule_candidate.pattern[:50]}")
@@ -126,6 +128,8 @@ async def cmd_list_candidates(project_name: str, status: str | None = None) -> i
                 f"  [Supersede] {supersede_candidate.id}: "
                 f"{supersede_candidate.target_type} -> {supersede_candidate.replacement_type}"
             )
+        for candidate in procedural:
+            print(f"  [Procedural] {candidate.id}: {candidate.activation_condition[:50]}")
         return 0
     finally:
         await backend.close()
@@ -203,6 +207,106 @@ async def cmd_reject_supersede(candidate_id: str) -> int:
         if not updated:
             return 1
         print(f"Rejected SupersedeCandidate: {candidate_id}")
+        return 0
+    finally:
+        await backend.close()
+
+
+async def cmd_suggest_procedural(
+    project_name: str,
+    activation_condition: str,
+    steps: list[str],
+    termination_condition: str,
+    *,
+    success_examples: list[str] | None = None,
+    source_session_id: str = "",
+    source: str = "",
+    confidence: float = 0.7,
+) -> int:
+    backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
+    await backend.init()
+    try:
+        candidate = ProceduralCandidate(
+            project_name=project_name,
+            activation_condition=activation_condition,
+            steps=command_support.clean_cli_list(steps),
+            termination_condition=termination_condition,
+            success_examples=command_support.clean_cli_list(success_examples),
+            source_session_id=source_session_id,
+            source=source,
+            confidence=confidence,
+            status="pending",
+        )
+        saved_id = await backend.structured_store.save_procedural_candidate(candidate)
+        print(f"Created ProceduralCandidate: {saved_id}")
+        return 0
+    finally:
+        await backend.close()
+
+
+async def cmd_confirm_procedural(candidate_id: str) -> int:
+    backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
+    await backend.init()
+    try:
+        skill = await backend.structured_store.confirm_procedural_candidate(candidate_id)
+        if skill is None:
+            return 1
+        print(f"Confirmed Skill: {skill.id}")
+        return 0
+    finally:
+        await backend.close()
+
+
+async def cmd_reject_procedural(candidate_id: str) -> int:
+    backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
+    await backend.init()
+    try:
+        updated = await backend.structured_store.update_procedural_candidate_status(
+            candidate_id,
+            "rejected",
+        )
+        if not updated:
+            return 1
+        print(f"Rejected ProceduralCandidate: {candidate_id}")
+        return 0
+    finally:
+        await backend.close()
+
+
+async def cmd_search_skills(project_name: str, query: str, limit: int = 10) -> int:
+    backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
+    await backend.init()
+    try:
+        skills = await backend.structured_store.search_skills(
+            query,
+            project_name=project_name,
+            limit=limit,
+        )
+        print(f"# Skills ({project_name}): {len(skills)}")
+        for skill in skills:
+            payload = serialize_skill(skill)
+            print(f"- {payload['name']} [{payload['id']}] success_rate={payload['success_rate']}")
+            for index, step in enumerate(skill.steps, start=1):
+                print(f"  {index}. {step}")
+        return 0
+    finally:
+        await backend.close()
+
+
+async def cmd_record_skill_result(skill_id: str, success: bool) -> int:
+    backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
+    await backend.init()
+    try:
+        skill = await backend.structured_store.record_skill_result(
+            skill_id,
+            success=success,
+        )
+        if skill is None:
+            return 1
+        print(
+            f"Recorded Skill result: {skill.id} "
+            f"success_rate={skill.success_rate} usage_count={skill.usage_count}"
+        )
         return 0
     finally:
         await backend.close()

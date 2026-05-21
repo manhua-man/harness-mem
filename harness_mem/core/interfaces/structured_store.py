@@ -8,6 +8,8 @@ from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.task_handoff import TaskHandoff
 from harness_mem.core.schemas.rule_candidate import RuleCandidate
 from harness_mem.core.schemas.supersede_candidate import SupersedeCandidate
+from harness_mem.core.schemas.procedural_candidate import ProceduralCandidate
+from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.relation_fact import RelationFact
 
@@ -221,4 +223,73 @@ class StructuredStore(Protocol):
         reviewer_id: str | None = None,
     ) -> SupersedeCandidate | None:
         """Confirm a pending supersede candidate and link target/replacement truth."""
+        ...
+
+    # ---- ProceduralCandidate / Skill ----
+
+    async def save_procedural_candidate(
+        self,
+        candidate: ProceduralCandidate,
+    ) -> str:
+        """Save a procedural candidate. Returns the candidate id."""
+        ...
+
+    async def get_procedural_candidate(self, id: str) -> ProceduralCandidate | None:
+        """Get a single procedural candidate by id."""
+        ...
+
+    async def list_procedural_candidates(
+        self,
+        project_name: str,
+        status: str | None = None,
+    ) -> list[ProceduralCandidate]:
+        """List procedural candidates for a project, optionally filtered by status."""
+        ...
+
+    async def update_procedural_candidate_status(
+        self,
+        id: str,
+        status: str,
+    ) -> bool:
+        """Update procedural candidate status."""
+        ...
+
+    async def confirm_procedural_candidate(self, id: str) -> Skill | None:
+        """Promote a pending procedural candidate into a confirmed skill."""
+        ...
+
+    async def save_skill(self, skill: Skill) -> str:
+        """Save a confirmed skill. Returns the skill id."""
+        ...
+
+    async def get_skill(self, id: str) -> Skill | None:
+        """Get a single skill by id."""
+        ...
+
+    async def list_skills(
+        self,
+        project_name: str,
+        status: str = "active",
+    ) -> list[Skill]:
+        """List confirmed skills for a project."""
+        ...
+
+    async def search_skills(
+        self,
+        query: str,
+        project_name: str | None = None,
+        limit: int = 10,
+        status: str = "active",
+    ) -> list[Skill]:
+        """Search confirmed skills by activation, steps, and examples."""
+        ...
+
+    async def record_skill_result(
+        self,
+        id: str,
+        *,
+        success: bool,
+        used_at: datetime | None = None,
+    ) -> Skill | None:
+        """Record one skill execution outcome and return the updated skill."""
         ...

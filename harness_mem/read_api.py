@@ -10,6 +10,7 @@ from typing import Any, Sequence
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
+from harness_mem.core.schemas.skill import Skill
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from harness_mem.storage.local_verbatim_store import RegexObservationMatch
@@ -142,6 +143,28 @@ async def search_relation_facts(
         limit=limit,
         include_history=include_history,
         time_window=time_window,
+    )
+
+
+async def search_skills(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str | None,
+    query: str,
+    scope: str = "project",
+    limit: int = 10,
+) -> list[Skill]:
+    """Search confirmed procedural skills with shared project scoping."""
+    if scope == "all":
+        return await backend.structured_store.search_skills(
+            query,
+            project_name=None,
+            limit=limit,
+        )
+    return await backend.structured_store.search_skills(
+        query,
+        project_name=project_name,
+        limit=limit,
     )
 
 
@@ -472,6 +495,31 @@ def serialize_relation_path(path: RelationPath) -> dict[str, Any]:
             for fact in path.facts
         ],
         "evidence": [fact.evidence for fact in path.facts],
+    }
+
+
+def serialize_skill(skill: Skill) -> dict[str, Any]:
+    """Serialize a confirmed procedural skill for CLI/MCP/API clients."""
+    return {
+        "id": skill.id,
+        "project_name": skill.project_name,
+        "name": skill.name,
+        "activation_condition": skill.activation_condition,
+        "steps": skill.steps,
+        "termination_condition": skill.termination_condition,
+        "success_examples": skill.success_examples,
+        "source_candidate_id": skill.source_candidate_id,
+        "source_session_id": skill.source_session_id,
+        "confidence": skill.confidence,
+        "status": skill.status,
+        "usage_count": skill.usage_count,
+        "success_count": skill.success_count,
+        "failure_count": skill.failure_count,
+        "success_rate": skill.success_rate,
+        "created_at": skill.created_at.isoformat() if skill.created_at else None,
+        "updated_at": skill.updated_at.isoformat() if skill.updated_at else None,
+        "last_used_at": skill.last_used_at.isoformat() if skill.last_used_at else None,
+        "score": _raw_search_score(skill),
     }
 
 

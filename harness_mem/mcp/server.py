@@ -48,19 +48,21 @@ from typing import Any, Callable, TypedDict  # noqa: E402
 from harness_mem.commands.distill import cmd_distill  # noqa: E402
 from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
 from harness_mem.commands.support import get_active_project  # noqa: E402
-from harness_mem.core.schemas import SupersedeCandidate  # noqa: E402
+from harness_mem.core.schemas import ProceduralCandidate, SupersedeCandidate  # noqa: E402
 from harness_mem.read_api import (  # noqa: E402
     build_search_project_context_map,
     parse_relative_time_window,
     regex_search_observations,
     search_memory,
     search_relation_facts,
+    search_skills,
     serialize_memory_entry_search_result,
     serialize_observation,
     serialize_observation_search_result,
     serialize_relation_path,
     serialize_regex_observation_match,
     serialize_relation_fact_search_result,
+    serialize_skill,
     serialize_timeline_observation,
     timeline_observations,
     trace_relation_paths,
@@ -337,6 +339,39 @@ def tool_search_raw(
         "limit": limit,
         "matches": [serialize_regex_observation_match(match) for match in matches],
         "count": len(matches),
+    }
+
+
+def tool_search_skills(
+    query: str,
+    project_name: str | None = None,
+    scope: str = "project",
+    limit: int = 10,
+) -> dict:
+    """Search confirmed procedural skills."""
+    if scope not in {"project", "all"}:
+        return {"success": False, "error": "scope must be one of: project, all"}
+    if scope == "project" and not project_name:
+        return {"success": False, "error": "project_name is required when scope=project"}
+
+    backend = _get_backend()
+    skills = asyncio.run(
+        search_skills(
+            backend,
+            project_name=project_name,
+            query=query,
+            scope=scope,
+            limit=limit,
+        )
+    )
+    return {
+        "success": True,
+        "project_name": project_name,
+        "query": query,
+        "scope": scope,
+        "limit": limit,
+        "skills": [serialize_skill(skill) for skill in skills],
+        "count": len(skills),
     }
 
 
@@ -784,22 +819,43 @@ def _serialize_supersede_candidate(candidate: Any) -> dict:
     }
 
 
+def _serialize_procedural_candidate(candidate: Any) -> dict:
+    return {
+        "type": "procedural",
+        "id": candidate.id,
+        "project_name": candidate.project_name,
+        "status": candidate.status,
+        "activation_condition": candidate.activation_condition,
+        "steps": candidate.steps,
+        "termination_condition": candidate.termination_condition,
+        "success_examples": candidate.success_examples,
+        "source_session_id": candidate.source_session_id,
+        "source": candidate.source,
+        "confidence": candidate.confidence,
+        "created_at": _isoformat(candidate.created_at),
+        "confirm_tool": "confirm_skill",
+        "reject_tool": "reject_skill",
+    }
+
+
 async def _gather_candidate_payload(
     backend: LocalMemoryBackend,
     *,
     project_name: str,
     status: str,
     limit: int,
-) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict]]:
     rules = await backend.structured_store.list_rule_candidates(project_name, status=status)
     entries = await backend.structured_store.list_memory_entries(project_name, status=status, limit=limit)
     facts = await backend.structured_store.list_relation_facts(project_name, status=status, limit=limit)
     supersedes = await backend.structured_store.list_supersede_candidates(project_name, status=status)
+    procedural = await backend.structured_store.list_procedural_candidates(project_name, status=status)
     return (
         [_serialize_rule_candidate(candidate) for candidate in rules[:limit]],
         [_serialize_memory_entry_candidate(entry) for entry in entries],
         [_serialize_relation_fact_candidate(fact) for fact in facts],
         [_serialize_supersede_candidate(candidate) for candidate in supersedes[:limit]],
+        [_serialize_procedural_candidate(candidate) for candidate in procedural[:limit]],
     )
 
 
@@ -813,7 +869,13 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
 
     effective_limit = max(1, min(int(limit), 500))
     backend = _get_backend()
-    rule_candidates, memory_entries, relation_facts, supersede_candidates = asyncio.run(
+    (
+        rule_candidates,
+        memory_entries,
+        relation_facts,
+        supersede_candidates,
+        procedural_candidates,
+    ) = asyncio.run(
         _gather_candidate_payload(
             backend,
             project_name=project_name,
@@ -821,7 +883,13 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
             limit=effective_limit,
         )
     )
-    all_candidates = [*rule_candidates, *memory_entries, *relation_facts, *supersede_candidates]
+    all_candidates = [
+        *rule_candidates,
+        *memory_entries,
+        *relation_facts,
+        *supersede_candidates,
+        *procedural_candidates,
+    ]
     all_candidates.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     candidates = all_candidates[:effective_limit]
 
@@ -835,12 +903,14 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         "memory_entries": memory_entries,
         "relation_facts": relation_facts,
         "supersede_candidates": supersede_candidates,
+        "procedural_candidates": procedural_candidates,
         "count": len(candidates),
         "total_count": len(all_candidates),
         "rule_count": len(rule_candidates),
         "memory_entry_count": len(memory_entries),
         "relation_fact_count": len(relation_facts),
         "supersede_count": len(supersede_candidates),
+        "procedural_count": len(procedural_candidates),
     }
 
 
@@ -1020,6 +1090,84 @@ def tool_suggest_rule(
         "pattern": candidate.pattern,
         "trigger": candidate.trigger,
         "status": "suggested",
+    }
+
+
+def tool_suggest_skill(
+    project_name: str,
+    activation_condition: str,
+    steps: list[str],
+    termination_condition: str,
+    success_examples: list[str] | None = None,
+    source_session_id: str | None = None,
+    source: str = "",
+    confidence: float = 0.7,
+) -> dict:
+    """Suggest a procedural skill candidate for later review."""
+    backend = _get_backend()
+    candidate = ProceduralCandidate(
+        project_name=project_name,
+        activation_condition=activation_condition,
+        steps=steps,
+        termination_condition=termination_condition,
+        success_examples=success_examples or [],
+        source_session_id=source_session_id or "",
+        source=source,
+        confidence=confidence,
+        status="pending",
+    )
+    saved_id = asyncio.run(backend.structured_store.save_procedural_candidate(candidate))
+    return {
+        "success": True,
+        "candidate_id": saved_id,
+        "status": "pending",
+        "activation_condition": candidate.activation_condition,
+    }
+
+
+def tool_confirm_skill(candidate_id: str) -> dict:
+    """Confirm a procedural skill candidate."""
+    backend = _get_backend()
+    skill = asyncio.run(backend.structured_store.confirm_procedural_candidate(candidate_id))
+    if skill is None:
+        return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
+    return {
+        "success": True,
+        "candidate_id": candidate_id,
+        "skill": serialize_skill(skill),
+    }
+
+
+def tool_reject_skill(candidate_id: str) -> dict:
+    """Reject a procedural skill candidate."""
+    backend = _get_backend()
+    updated = asyncio.run(
+        backend.structured_store.update_procedural_candidate_status(
+            candidate_id,
+            "rejected",
+        )
+    )
+    return {
+        "success": updated,
+        "candidate_id": candidate_id,
+        "status": "rejected" if updated else "not_found",
+    }
+
+
+def tool_record_skill_result(skill_id: str, success: bool) -> dict:
+    """Record one execution result for a confirmed skill."""
+    backend = _get_backend()
+    skill = asyncio.run(
+        backend.structured_store.record_skill_result(
+            skill_id,
+            success=success,
+        )
+    )
+    if skill is None:
+        return {"success": False, "error": f"Skill not found: {skill_id}"}
+    return {
+        "success": True,
+        "skill": serialize_skill(skill),
     }
 
 
@@ -1249,6 +1397,29 @@ TOOLS: dict[str, ToolSpec] = {
             "required": ["pattern"],
         },
         "handler": tool_search_raw,
+    },
+    "search_skills": {
+        "description": "Search confirmed procedural skills.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name (required when scope=project)"},
+                "query": {"type": "string", "description": "Task or workflow query"},
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "all"],
+                    "description": "Search scope: project or all (default: project)",
+                    "default": "project",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum skills to return (default 10)",
+                    "default": 10,
+                },
+            },
+            "required": ["query"],
+        },
+        "handler": tool_search_skills,
     },
     "get_observations": {
         "description": "List all observations for a given session in a project.",
@@ -1498,6 +1669,66 @@ TOOLS: dict[str, ToolSpec] = {
             "required": ["candidate_id"],
         },
         "handler": tool_reject_supersede,
+    },
+    "suggest_skill": {
+        "description": "Suggest a procedural skill candidate for later review.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "activation_condition": {"type": "string", "description": "When this workflow should run"},
+                "steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Ordered workflow steps",
+                },
+                "termination_condition": {"type": "string", "description": "When this workflow is complete"},
+                "success_examples": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Successful execution examples",
+                },
+                "source_session_id": {"type": "string", "description": "Source session id"},
+                "source": {"type": "string", "description": "Source observation/file/candidate id"},
+                "confidence": {"type": "number", "description": "Confidence score 0.0-1.0"},
+            },
+            "required": ["project_name", "activation_condition", "steps", "termination_condition"],
+        },
+        "handler": tool_suggest_skill,
+    },
+    "confirm_skill": {
+        "description": "Confirm a procedural skill candidate.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "candidate_id": {"type": "string", "description": "Procedural candidate ID to confirm"},
+            },
+            "required": ["candidate_id"],
+        },
+        "handler": tool_confirm_skill,
+    },
+    "reject_skill": {
+        "description": "Reject a procedural skill candidate.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "candidate_id": {"type": "string", "description": "Procedural candidate ID to reject"},
+            },
+            "required": ["candidate_id"],
+        },
+        "handler": tool_reject_skill,
+    },
+    "record_skill_result": {
+        "description": "Record one execution outcome for a confirmed skill.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "skill_id": {"type": "string", "description": "Confirmed skill ID"},
+                "success": {"type": "boolean", "description": "Whether the execution succeeded"},
+            },
+            "required": ["skill_id", "success"],
+        },
+        "handler": tool_record_skill_result,
     },
     "create_rule_candidate": {
         "description": "Create a rule candidate from a correction pattern.",
