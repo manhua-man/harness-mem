@@ -3,7 +3,7 @@ name: session-distill
 version: 1.6.0
 description: |
   Harness-mem 项目的主动会话蒸馏技能。用于把当前项目相关的 Claude/Codex 会话整理成可审核的候选记忆。
-  当用户运行 /hm:distill、要求整理会话、提炼经验、固化项目规则或生成任务交接时使用。
+  当用户主动要求蒸馏会话、整理记忆、提炼经验、固化项目规则或生成任务交接时使用（无论触发方式是 slash 命令、自然语言请求还是其他客户端入口）。
 allowed-tools:
   - Bash
   - Read
@@ -32,7 +32,7 @@ allowed-tools:
 
 `session-distill` 是用户主动蒸馏时的默认体验层。
 
-默认目标是把当前项目相关会话转成候选，并在 `/hm:distill` 同一轮里自动审核和处理低风险项。用户只看最终复核摘要；`/hm:review` 是复查/纠错/手动补救入口，不是日常必经步骤。
+默认目标是把当前项目相关会话转成候选，并在同一轮里自动审核和处理低风险项。用户只看最终复核摘要；显式复查 / 纠错 / 手动补救（无论通过 slash、自然语言还是 CLI）是兜底入口，不是日常必经步骤。
 
 ## 主链
 
@@ -50,31 +50,17 @@ Raw Sessions
 
 ## 默认动作序列
 
-### 0. 使用稳定 MCP 别名
+### 0. MCP 工具命名
 
-在 Claude Code 中调用 MCP 工具时，优先选择无短横线 server alias：
+直接用工具的裸名（`prepare_session_distill`、`suggest_memory_entry`、`list_candidates` 等）。客户端如何把它们映射成可调用 alias（带短横线 / 不带短横线 / 带 server 前缀）由客户端自己决定，本 skill 不假设。
 
-- `mcp__harness_mem__get_project_status`
-- `mcp__harness_mem__prepare_session_distill`
-- `mcp__harness_mem__suggest_memory_entry`
-- `mcp__harness_mem__suggest_rule`
-- `mcp__harness_mem__suggest_relation_fact`
-- `mcp__harness_mem__create_task_handoff`
-- `mcp__harness_mem__list_candidates`
-- `mcp__harness_mem__confirm_memory_entry`
-- `mcp__harness_mem__reject_memory_entry`
-- `mcp__harness_mem__confirm_rule`
-- `mcp__harness_mem__reject_rule`
-- `mcp__harness_mem__confirm_relation_fact`
-- `mcp__harness_mem__reject_relation_fact`
-
-不要选择旧别名 `mcp__harness-mem__...`，因为部分 Claude Code tool-call parser 会把带短横线的 MCP server 名解析坏。
+如果你的客户端通过 MCP Router 接入，工具名通常就是裸名；如果直连 server，可能会带 server name 前缀。两种都能跑，prompt 里不要写死前缀。
 
 ### 1. 确认项目和真实项目根
 
 先通过 MCP `get_project_status` 读取 active project。调用方必须传入当前 agent 工作区对应的真实项目根目录，不能让 MCP server 用自己的进程 cwd 猜。
 
-如果用户在 `/hm:distill <project> <count>` 里给了项目名，使用用户给定项目名；否则使用 active project。仍无法确定时，只问项目名，不要求用户运行 CLI。
+如果用户在请求里给了项目名（例如 `/hm:distill <project> <count>` 或自然语言中明确指定），使用用户给定项目名；否则使用 active project。仍无法确定时，只问项目名，不要求用户运行 CLI。
 
 ### 2. 灌入当前项目会话
 
@@ -84,7 +70,7 @@ Raw Sessions
 - `client="auto"`
 - `limit=<count>`，默认 5
 - `scope="project"`
-- `project_root=<当前 Claude/Codex 工作区项目根目录>`
+- `project_root=<当前 agent 工作区项目根目录>`
 - `observation_limit=5`
 - `max_chars_per_observation=6000`
 
@@ -111,7 +97,7 @@ Raw Sessions
 
 不要生成这些候选：
 
-- 当前 `/hm:distill` 或 MCP/slash 调用过程本身。
+- 当前 distill 调用过程本身（无论是 slash、MCP 还是其他触发方式）。
 - `Bash`、`cmem`、`ToolSearch`、MCP 参数错误、agent idle、TeamCreate/SendMessage/TeamDelete 等工具编排故障，除非目标项目本身就是这些工具。
 - `/plan-eng-review`、`/plan-ceo-review`、`/plan-design-review` 等 AI review workflow，除非用户明确要记录为全局工作流记忆。
 - 对应用/游戏项目而言，把 AI 工作流、评审方式或工具名写成项目架构事实。
@@ -129,7 +115,7 @@ Raw Sessions
 
 只有高风险 confirm（会改变未来 AI 行为、影响范围大、置信不足但可能重要）才保留 pending，并放进最终摘要的"需要你确认"区。
 
-最后给用户看处理结果摘要，让用户纠错，而不是让用户继续跑 `/hm:review`。
+最后给用户看处理结果摘要，让用户纠错，而不是把用户重新推回到一个独立的 review 入口。
 
 ## 外置协作者
 
