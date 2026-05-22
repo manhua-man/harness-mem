@@ -442,6 +442,11 @@ async def cmd_wake_up(
                     provenance = rule.provenance
                     source = provenance.get("session_id", provenance.get("agent_type", "unknown"))
                     print(f"  📍 {source}")
+                # Record that this rule actually showed up in wake-up output.
+                # Mirrors the touch_memory_entry call further below; lets
+                # doctor / dashboards detect rules that were confirmed but
+                # never consumed.
+                await backend.structured_store.touch_confirmed_rule(rule.id)
             print()
         else:
             print("# Confirmed Rules  (source: confirmed_rules, empty)")

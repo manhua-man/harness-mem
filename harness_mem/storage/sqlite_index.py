@@ -131,6 +131,8 @@ _TABLE_SCHEMAS = {
         source_candidate_id TEXT NOT NULL,
         source_session_id TEXT NOT NULL DEFAULT '',
         tags TEXT NOT NULL DEFAULT '[]',
+        usage_count INTEGER NOT NULL DEFAULT 0,
+        last_surfaced_at TEXT,
         valid_from TEXT,
         valid_to TEXT,
         recorded_at TEXT,
@@ -191,6 +193,8 @@ _COLUMN_MIGRATIONS = {
     },
     "confirmed_rules": {
         "source_session_id": "TEXT NOT NULL DEFAULT ''",
+        "usage_count": "INTEGER NOT NULL DEFAULT 0",
+        "last_surfaced_at": "TEXT",
         "valid_from": "TEXT",
         "valid_to": "TEXT",
         "recorded_at": "TEXT",

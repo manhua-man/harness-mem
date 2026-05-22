@@ -1024,6 +1024,8 @@ class LocalStructuredStore:
                 "source_candidate_id": rule.source_candidate_id,
                 "source_session_id": rule.source_session_id,
                 "tags": rule.tags,
+                "usage_count": rule.usage_count,
+                "last_surfaced_at": rule.last_surfaced_at,
                 "valid_from": rule.valid_from,
                 "valid_to": rule.valid_to,
                 "recorded_at": rule.recorded_at,
@@ -1039,6 +1041,37 @@ class LocalStructuredStore:
             return None
         data = json.loads(blob_path.read_text())
         return ConfirmedRule.from_dict(data)
+
+    async def touch_confirmed_rule(
+        self, id: str, accessed_at: datetime | None = None
+    ) -> bool:
+        """Record that a confirmed rule was surfaced (e.g. by wake-up).
+
+        Increments ``usage_count`` and updates ``last_surfaced_at`` on the
+        blob and the index. Mirrors :meth:`touch_memory_entry` so wake-up
+        and search can use a uniform "I just showed this to a user" signal
+        regardless of which structured truth type they touched.
+        """
+        blob_path = self._blob_path("confirmed_rules", id)
+        if not blob_path.exists():
+            return False
+
+        touched_at = accessed_at or datetime.now(timezone.utc)
+        data = json.loads(blob_path.read_text())
+        usage_count = int(data.get("usage_count") or 0) + 1
+        data["usage_count"] = usage_count
+        data["last_surfaced_at"] = touched_at.isoformat()
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.update,
+            "confirmed_rules",
+            id,
+            {
+                "usage_count": usage_count,
+                "last_surfaced_at": touched_at,
+            },
+        )
+        return True
 
     async def list_confirmed_rules(
         self,

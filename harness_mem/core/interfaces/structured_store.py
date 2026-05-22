@@ -176,6 +176,17 @@ class StructuredStore(Protocol):
         """
         ...
 
+    async def touch_confirmed_rule(
+        self, id: str, accessed_at: datetime | None = None
+    ) -> bool:
+        """Record that a confirmed rule was surfaced (e.g. by wake-up).
+
+        Mirrors :meth:`touch_memory_entry`: increments ``usage_count`` and
+        updates ``last_surfaced_at`` so doctor / dashboards can flag rules
+        that were confirmed but never actually consumed.
+        """
+        ...
+
     # ---- RelationFact ----
 
     async def save_relation_fact(self, fact: RelationFact) -> str:
