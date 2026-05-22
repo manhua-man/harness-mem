@@ -17,6 +17,7 @@ Tools:
   distill_sessions      — heuristic distill fallback for ingested sessions
   list_candidates       — pending/accepted/rejected review candidates
   auto_review_candidates — heuristic auto-confirm / auto-reject pass (preview or apply)
+  suggest_correction    — one-shot rule replacement (new rule + supersede chain)
   create_rule_candidate — create a rule candidate
   confirm_rule          — promote candidate to confirmed rule
 
@@ -1028,6 +1029,104 @@ def tool_reject_supersede(candidate_id: str) -> dict:
     }
 
 
+def tool_suggest_correction(
+    project_name: str,
+    supersedes_rule_id: str,
+    pattern: str,
+    trigger: str,
+    reason: str,
+    *,
+    examples: list[str] | None = None,
+    source_session_id: str = "",
+) -> dict:
+    """One-shot rule replacement: create new rule + mark old rule historical.
+
+    This is the right tool to call when reality changed (Tauri v1 -> v2,
+    framework upgrade, policy reversal) and an old confirmed rule is now
+    actively wrong. The caller has already named the specific old rule, so
+    no extra human confirm step is needed — the supersede chain is applied
+    immediately.
+
+    For brand-new rules (no specific old rule to replace), use
+    ``create_rule_candidate`` -> ``confirm_rule`` instead.
+    """
+    backend = _get_backend()
+    old_rule = asyncio.run(backend.structured_store.get_confirmed_rule(supersedes_rule_id))
+    if old_rule is None:
+        return {
+            "success": False,
+            "error": f"ConfirmedRule not found: {supersedes_rule_id}",
+        }
+    if old_rule.project_name != project_name:
+        return {
+            "success": False,
+            "error": (
+                f"Rule {supersedes_rule_id} belongs to project "
+                f"{old_rule.project_name!r}, not {project_name!r}"
+            ),
+        }
+    if old_rule.valid_to is not None:
+        return {
+            "success": False,
+            "error": (
+                f"Rule {supersedes_rule_id} is already historical "
+                f"(valid_to={old_rule.valid_to.isoformat()})"
+            ),
+        }
+
+    from uuid import uuid4
+    from datetime import datetime, timezone
+    from harness_mem.core.schemas import ConfirmedRule
+
+    source_id = source_session_id or "agent-correction"
+    new_rule = ConfirmedRule(
+        id=str(uuid4()),
+        project_name=project_name,
+        pattern=pattern,
+        trigger=trigger,
+        examples=list(examples or []),
+        confirmed_at=datetime.now(timezone.utc),
+        source_candidate_id=f"correction:{source_id}",
+        source_session_id=source_id,
+    )
+    asyncio.run(backend.structured_store.save_confirmed_rule(new_rule))
+
+    candidate = SupersedeCandidate(
+        id=str(uuid4()),
+        project_name=project_name,
+        target_type="confirmed_rule",
+        target_id=old_rule.id,
+        replacement_type="confirmed_rule",
+        replacement_id=new_rule.id,
+        reason=reason,
+        evidence=f"Agent-driven correction (source: {source_id}).",
+        source=f"correction:{source_id}",
+        confidence=1.0,
+    )
+    asyncio.run(backend.structured_store.save_supersede_candidate(candidate))
+    confirmed = asyncio.run(
+        backend.structured_store.confirm_supersede_candidate(candidate.id)
+    )
+    if confirmed is None:
+        return {
+            "success": False,
+            "error": (
+                f"Saved new rule {new_rule.id} but supersede confirmation failed; "
+                f"old rule {old_rule.id} is still current. "
+                f"Call confirm_supersede with candidate_id={candidate.id} to retry."
+            ),
+            "new_rule_id": new_rule.id,
+            "supersede_candidate_id": candidate.id,
+        }
+    return {
+        "success": True,
+        "new_rule_id": new_rule.id,
+        "old_rule_id": old_rule.id,
+        "supersede_candidate_id": candidate.id,
+        "old_rule_valid_to": confirmed.reviewed_at.isoformat() if confirmed.reviewed_at else None,
+    }
+
+
 def tool_suggest_rule(
     project_name: str,
     pattern: str,
@@ -1670,6 +1769,57 @@ TOOLS: dict[str, ToolSpec] = {
             "required": ["candidate_id"],
         },
         "handler": tool_reject_supersede,
+    },
+    "suggest_correction": {
+        "description": (
+            "Replace an existing confirmed rule in one shot. Creates a new "
+            "ConfirmedRule, marks the old rule historical (valid_to set, "
+            "supersedes/superseded_by linked), and returns the supersede "
+            "chain ids so the caller can show the user what changed. Use "
+            "this when reality changed (framework upgrade, policy reversal) "
+            "and a previously confirmed rule is now actively wrong. Do NOT "
+            "use this for adding a brand-new rule — use create_rule_candidate "
+            "+ confirm_rule for that."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "supersedes_rule_id": {
+                    "type": "string",
+                    "description": "ConfirmedRule id this correction replaces",
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "Replacement rule pattern text",
+                },
+                "trigger": {
+                    "type": "string",
+                    "description": "Replacement rule trigger text",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Why the old rule is being replaced (recorded on the supersede chain)",
+                },
+                "examples": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional examples for the new rule",
+                },
+                "source_session_id": {
+                    "type": "string",
+                    "description": "Session id this correction was triggered from",
+                },
+            },
+            "required": [
+                "project_name",
+                "supersedes_rule_id",
+                "pattern",
+                "trigger",
+                "reason",
+            ],
+        },
+        "handler": tool_suggest_correction,
     },
     "suggest_skill": {
         "description": "Suggest a procedural skill candidate for later review.",

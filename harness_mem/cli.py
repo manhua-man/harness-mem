@@ -230,6 +230,22 @@ def main():
     corr.add_argument("-p", "--project")
     corr.add_argument("-r", "--pattern")
     corr.add_argument("-t", "--trigger")
+    corr.add_argument(
+        "--supersedes",
+        dest="supersedes_rule_id",
+        help=(
+            "ConfirmedRule id this correction replaces. When set, the old "
+            "rule is marked historical and the new rule is confirmed in one "
+            "step (supersede chain stays auditable via --include-history). "
+            "Use this when reality changed (schema upgrade, policy reversal) "
+            "rather than when adding a brand new rule."
+        ),
+    )
+    corr.add_argument(
+        "--reason",
+        dest="reason",
+        help="Optional human-readable reason recorded on the supersede chain.",
+    )
     corr.set_defaults(command_name="correct")
 
     # confirm-rule / reject-rule
@@ -534,10 +550,30 @@ def main():
         project_name = resolve_project_name(args.project, action_label="correct")
         if not project_name:
             return 1
-        result = asyncio.run(cmd_correct(session_id, project_name, pattern, trigger))
+        result = asyncio.run(
+            cmd_correct(
+                session_id,
+                project_name,
+                pattern,
+                trigger,
+                supersedes_rule_id=clean_cli_text(getattr(args, "supersedes_rule_id", None)),
+                reason=clean_cli_text(getattr(args, "reason", None)),
+            )
+        )
         if result == 0:
             log_command_invoked("correct", project_name=project_name, session_id=session_id)
-            log_cli_event(EventType.LEARNING_LOOP_COMPLETE, project_name=project_name, command="correct", session_id=session_id, extra={"stage": "candidate_created"})
+            stage = (
+                "rule_superseded"
+                if getattr(args, "supersedes_rule_id", None)
+                else "candidate_created"
+            )
+            log_cli_event(
+                EventType.LEARNING_LOOP_COMPLETE,
+                project_name=project_name,
+                command="correct",
+                session_id=session_id,
+                extra={"stage": stage},
+            )
         return result
 
     if command == "confirm-rule":

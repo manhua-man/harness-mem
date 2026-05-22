@@ -16,8 +16,34 @@ from harness_mem.read_api import format_validity_marker, serialize_skill
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
-async def cmd_correct(session_id: str, project_name: str, pattern: str, trigger: str, examples: list[str] | None = None) -> int:
-    """Create a RuleCandidate from a correction."""
+async def cmd_correct(
+    session_id: str,
+    project_name: str,
+    pattern: str,
+    trigger: str,
+    examples: list[str] | None = None,
+    *,
+    supersedes_rule_id: str | None = None,
+    reason: str | None = None,
+) -> int:
+    """Create a RuleCandidate from a correction.
+
+    When ``supersedes_rule_id`` is provided, the correction goes through the
+    supersede path instead: a new ConfirmedRule is created immediately and
+    the old rule's ``valid_to`` is set, with ``supersedes`` / ``superseded_by``
+    links established. This is the right shape for "I'm correcting an
+    existing rule because reality changed" (e.g. a Tauri v1 -> v2 migration
+    obsoleting an IPC rule).
+
+    The ordinary candidate-layer path (no ``supersedes_rule_id``) stays
+    unchanged for backward compatibility and for "this is a new rule" flows.
+
+    Why this is *not* a candidate-layer write when supersede is requested:
+    the user (or an LLM agent calling ``suggest_correction``) has already
+    expressed an explicit intent to replace a specific old rule. That intent
+    is the confirm — making them then approve a supersede candidate would
+    require two manual confirms for one decision.
+    """
     backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
     await backend.init()
 
@@ -25,7 +51,7 @@ async def cmd_correct(session_id: str, project_name: str, pattern: str, trigger:
         # Find observations from this session
         # We search project-specific first, then session-wide
         all_obs = await backend.verbatim_store.list(session_id=session_id, limit=1000)
-        
+
         # Filtering logic: matches project_name OR has no project_name metadata (legacy/direct)
         session_obs = [
             obs for obs in all_obs
@@ -38,7 +64,19 @@ async def cmd_correct(session_id: str, project_name: str, pattern: str, trigger:
 
         print(f"Found {len(session_obs)} observations for session {session_id}")
 
-        # Build candidate
+        if supersedes_rule_id:
+            return await _correct_via_supersede(
+                backend,
+                project_name=project_name,
+                session_id=session_id,
+                pattern=pattern,
+                trigger=trigger,
+                examples=command_support.clean_cli_list(examples),
+                supersedes_rule_id=supersedes_rule_id,
+                reason=reason,
+            )
+
+        # Default path: build a regular RuleCandidate.
         candidate = RuleCandidate(
             id=str(uuid4()),
             project_name=project_name,
@@ -55,6 +93,86 @@ async def cmd_correct(session_id: str, project_name: str, pattern: str, trigger:
         return 0
     finally:
         await backend.close()
+
+
+async def _correct_via_supersede(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    session_id: str,
+    pattern: str,
+    trigger: str,
+    examples: list[str],
+    supersedes_rule_id: str,
+    reason: str | None,
+) -> int:
+    """Implement the ``supersedes_rule_id`` branch of ``cmd_correct``.
+
+    Steps:
+      1. Verify the old ConfirmedRule exists and is current (valid_to is None).
+      2. Save the new ConfirmedRule (no candidate detour — the user supplied
+         an explicit old_rule_id, which is the confirm).
+      3. Save a SupersedeCandidate, then immediately confirm it. The confirm
+         path applies all temporal updates atomically (old.valid_to,
+         old.superseded_by, new.supersedes).
+      4. Print a summary the human can read at a glance.
+    """
+    old_rule = await backend.structured_store.get_confirmed_rule(supersedes_rule_id)
+    if old_rule is None:
+        print(f"Cannot supersede: ConfirmedRule {supersedes_rule_id!r} not found.")
+        return 1
+    if old_rule.project_name != project_name:
+        print(
+            f"Cannot supersede: rule {supersedes_rule_id!r} belongs to project "
+            f"{old_rule.project_name!r}, not {project_name!r}."
+        )
+        return 1
+    if old_rule.valid_to is not None:
+        print(
+            f"Cannot supersede: rule {supersedes_rule_id!r} is already historical "
+            f"(valid_to={old_rule.valid_to.isoformat()})."
+        )
+        return 1
+
+    new_rule = ConfirmedRule(
+        id=str(uuid4()),
+        project_name=project_name,
+        pattern=pattern,
+        trigger=trigger,
+        examples=examples,
+        confirmed_at=datetime.now(timezone.utc),
+        source_candidate_id=f"correction:{session_id}",
+        source_session_id=session_id,
+    )
+    await backend.structured_store.save_confirmed_rule(new_rule)
+
+    candidate = SupersedeCandidate(
+        id=str(uuid4()),
+        project_name=project_name,
+        target_type="confirmed_rule",
+        target_id=old_rule.id,
+        replacement_type="confirmed_rule",
+        replacement_id=new_rule.id,
+        reason=reason or f"Correction from session {session_id}.",
+        evidence=f"User-driven correction in session {session_id}.",
+        source=f"correction:{session_id}",
+        confidence=1.0,
+    )
+    await backend.structured_store.save_supersede_candidate(candidate)
+    confirmed = await backend.structured_store.confirm_supersede_candidate(candidate.id)
+    if confirmed is None:
+        print(
+            f"Created new rule {new_rule.id} but supersede confirmation failed; "
+            f"old rule {old_rule.id} is still current. "
+            f"Run: harness-mem confirm-supersede {candidate.id}"
+        )
+        return 1
+
+    print(
+        f"Superseded rule {old_rule.id} with new rule {new_rule.id}. "
+        f"Old rule is now historical (valid_to={confirmed.reviewed_at.isoformat() if confirmed.reviewed_at else 'now'})."
+    )
+    return 0
 
 async def cmd_confirm_rule(rule_id: str) -> int:
     backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
