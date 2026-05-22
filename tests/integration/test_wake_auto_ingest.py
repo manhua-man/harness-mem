@@ -21,6 +21,12 @@ async def test_wake_up_auto_ingest_success(tmp_path, monkeypatch):
     data_dir.mkdir()
     monkeypatch.setattr("harness_mem.commands.wake.DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr("harness_mem.commands.support.DEFAULT_DATA_DIR", data_dir)
+    # Functional test: relax the 300ms P95 budget. The production budget is
+    # asserted in performance benchmarks, not here. CI hosts and machines
+    # warming up sentence-transformers / sqlite easily breach 300ms on the
+    # first wake-up call, which would otherwise mask functional regressions
+    # behind a flaky timeout.
+    monkeypatch.setattr("harness_mem.commands.wake.AUTO_SYNC_TIMEOUT_SECONDS", 30.0)
 
     # Mock Project Profile
     from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -76,6 +82,9 @@ async def test_wake_up_auto_ingest_skips_existing_session(tmp_path, monkeypatch)
     data_dir.mkdir()
     monkeypatch.setattr("harness_mem.commands.wake.DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr("harness_mem.commands.support.DEFAULT_DATA_DIR", data_dir)
+    # Same reasoning as test_wake_up_auto_ingest_success: relax the 300ms
+    # P95 budget for functional tests.
+    monkeypatch.setattr("harness_mem.commands.wake.AUTO_SYNC_TIMEOUT_SECONDS", 30.0)
 
     from datetime import datetime, timezone
 
