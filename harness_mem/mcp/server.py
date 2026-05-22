@@ -16,6 +16,7 @@ Tools:
   prepare_session_distill — one-shot ingest + evidence packet for AI distill
   distill_sessions      — heuristic distill fallback for ingested sessions
   list_candidates       — pending/accepted/rejected review candidates
+  auto_review_candidates — heuristic auto-confirm / auto-reject pass (preview or apply)
   create_rule_candidate — create a rule candidate
   confirm_rule          — promote candidate to confirmed rule
 """
@@ -46,6 +47,7 @@ from pathlib import Path  # noqa: E402
 from typing import Any, Callable, TypedDict  # noqa: E402
 
 from harness_mem import __version__ as _HARNESS_MEM_VERSION  # noqa: E402
+from harness_mem.commands.auto_review import auto_review_candidates  # noqa: E402
 from harness_mem.commands.distill import cmd_distill  # noqa: E402
 from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
 from harness_mem.commands.support import get_active_project  # noqa: E402
@@ -915,6 +917,26 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
     }
 
 
+def tool_auto_review_candidates(project_name: str, apply: bool = False) -> dict:
+    """Run conservative heuristic auto-review over the project's pending candidates.
+
+    Returns the summary shape documented in `openspec/specs/mcp/spec.md`
+    (auto_confirmed / auto_rejected / kept_pending / needs_user_confirmation).
+    With ``apply=False`` the structured store is not modified — the response
+    is what auto-review *would* do. With ``apply=True`` decisions are applied
+    via the same status mutators users would invoke manually.
+    """
+    backend = _get_backend()
+    summary = asyncio.run(
+        auto_review_candidates(backend, project_name=project_name, apply=apply)
+    )
+    payload = summary.to_dict()
+    payload["success"] = True
+    payload["project_name"] = project_name
+    payload["applied"] = bool(apply)
+    return payload
+
+
 # =============================================================================
 # WRITE TOOLS
 # =============================================================================
@@ -1621,6 +1643,33 @@ TOOLS: dict[str, ToolSpec] = {
             "required": ["project_name"],
         },
         "handler": tool_list_candidates,
+    },
+    "auto_review_candidates": {
+        "description": (
+            "Run conservative heuristic auto-review across pending memory entries "
+            "and rule candidates. Returns the summary shape from "
+            "openspec/specs/mcp/spec.md (auto_confirmed / auto_rejected / "
+            "kept_pending / needs_user_confirmation). Use apply=true to apply "
+            "the decisions via the same status mutators users would invoke "
+            "manually; apply=false (default) returns a preview without "
+            "modifying any candidate."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "apply": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, apply auto_confirm / auto_reject decisions. "
+                        "When false (default), preview without writes."
+                    ),
+                    "default": False,
+                },
+            },
+            "required": ["project_name"],
+        },
+        "handler": tool_auto_review_candidates,
     },
     "suggest_supersede": {
         "description": "Suggest a supersede candidate to mark old truth historical.",

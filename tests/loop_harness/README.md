@@ -18,7 +18,7 @@
 | # | 文件 | 状态 | 输出指标 |
 |---|---|---|---|
 | 1 | `test_distill_precision_recall.py` | ✅ 真跑 | `precision`, `recall`, `f1` |
-| 2 | `test_auto_confirm_calibration.py` | ⚠️ `xfail` 占位 | `false_positive_rate`, `false_negative_rate` |
+| 2 | `test_auto_confirm_calibration.py` | ✅ 真跑 | `false_positive_rate`, `false_negative_rate`, `auto_confirmed`, `auto_rejected`, `kept_pending` |
 | 3 | `test_wake_actually_surfaces.py` | ✅ 真跑 | `confirmed_rule_surfaced` (bool), `surface_count` |
 | 4 | `test_supersede_replaces.py` | ✅ 真跑 | `current_truth_correct` (bool), `history_visible_when_requested` (bool) |
 

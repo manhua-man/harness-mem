@@ -97,14 +97,14 @@ def test_stdio_initialize_writes_json_rpc_to_stdout():
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 32
+    assert len(tools) == 33
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
         "search_raw", "search_skills",
         "get_task_handoffs", "get_confirmed_rules", "get_project_profile",
         "get_project_status", "ingest_sessions", "prepare_session_distill", "distill_sessions",
-        "list_candidates",
+        "list_candidates", "auto_review_candidates",
         "trace_relations",
         "create_rule_candidate", "confirm_rule", "reject_rule", "suggest_rule",
         "suggest_supersede", "confirm_supersede", "reject_supersede",
@@ -484,6 +484,78 @@ def test_list_candidates_returns_pending_review_items(mcp_backend: LocalMemoryBa
     pending_ids = {candidate["id"] for candidate in after_confirm["candidates"]}
     assert entry["entry_id"] not in pending_ids
     assert after_confirm["count"] == 3
+
+
+def test_auto_review_candidates_preview_and_apply(mcp_backend: LocalMemoryBackend):
+    """auto_review_candidates returns the spec-shaped summary and respects apply."""
+    # Seed three pending entries: one obvious noise, one auto-confirm target,
+    # one bug entry that should defer.
+    call_tool(
+        "suggest_memory_entry",
+        {
+            "project_name": "test-project",
+            "category": "decision",
+            "content": "Glad we got that one nailed down — that was a tricky one.",
+            "confidence": 0.85,
+            "source": "test-session-auto-review",
+        },
+    )
+    call_tool(
+        "suggest_memory_entry",
+        {
+            "project_name": "test-project",
+            "category": "decision",
+            "content": (
+                "We decided to use invoke for all data-shaped IPC and reserve "
+                "emit only for fire-and-forget UI events because Tauri v1 "
+                "emit deadlocked on Windows for payloads >1MB."
+            ),
+            "confidence": 0.9,
+            "source": "test-session-auto-review",
+        },
+    )
+    call_tool(
+        "suggest_memory_entry",
+        {
+            "project_name": "test-project",
+            "category": "bug",
+            "content": (
+                "The root cause was a missing JWT exp validation; the fix "
+                "was to check the exp claim before any authenticated call."
+            ),
+            "confidence": 0.95,
+            "source": "test-session-auto-review",
+        },
+    )
+
+    preview = call_tool(
+        "auto_review_candidates",
+        {"project_name": "test-project", "apply": False},
+    )
+    assert preview["success"] is True
+    assert preview["applied"] is False
+    assert preview["auto_confirmed"] >= 1
+    assert preview["auto_rejected"] >= 1
+    assert preview["kept_pending"] >= 1
+    assert preview["new_candidates"] == (
+        preview["auto_confirmed"] + preview["auto_rejected"] + preview["kept_pending"]
+    )
+    # Preview must not mutate.
+    assert preview["applied_decisions"] == []
+
+    applied = call_tool(
+        "auto_review_candidates",
+        {"project_name": "test-project", "apply": True},
+    )
+    assert applied["success"] is True
+    assert applied["applied"] is True
+    assert applied["auto_confirmed"] == preview["auto_confirmed"]
+    assert applied["auto_rejected"] == preview["auto_rejected"]
+    assert len(applied["applied_decisions"]) == (
+        applied["auto_confirmed"] + applied["auto_rejected"]
+    )
+    actions = {d["action"] for d in applied["applied_decisions"]}
+    assert {"auto_confirm", "auto_reject"}.issubset(actions)
 
 
 def test_confirm_supersede_marks_truth_historical(mcp_backend: LocalMemoryBackend):
