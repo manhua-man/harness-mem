@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("Stemmer")
+
 from harness_mem.tools import longmemeval
 from harness_mem.tools.embedding_shootout import load_baseline
 

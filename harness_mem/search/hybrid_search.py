@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 import builtins
+import logging
+import sqlite3
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Sequence
 
@@ -32,6 +34,8 @@ DEFAULT_FTS_WEIGHT = 2.0
 DEFAULT_VECTOR_WEIGHT = 6.0
 DEFAULT_FTS_CONFIDENCE_EXPONENT = 1.0
 DEFAULT_VECTOR_CONFIDENCE_EXPONENT = 2.0
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -374,7 +378,6 @@ class HybridSearchLayer:
             from harness_mem.commands.support import get_embedding_model_id
             from harness_mem.embedding import get_model_loader
             import numpy as np
-            import logging
 
             model_id = get_embedding_model_id()
             loader = get_model_loader(model_id)
@@ -394,6 +397,11 @@ class HybridSearchLayer:
             cursor = conn.execute(query, params)
             rows = cursor.fetchall()
             if not rows:
+                logger.warning(
+                    "No persisted vectors found for current model_id=%s; falling back to FTS. "
+                    "Run: harness-mem maintenance rebuild-vector-index",
+                    model_id,
+                )
                 return None
 
             result: dict[str, builtins.list[float]] = {}
@@ -407,10 +415,12 @@ class HybridSearchLayer:
 
                 # Dimension mismatch detection (v1.6.2)
                 if len(embedding_array) != expected_dim:
-                    logging.warning(
-                        f"Dimension mismatch for entry {entry_id}: "
-                        f"stored={len(embedding_array)}, expected={expected_dim}. "
-                        f"Skipping this vector. Run: harness-mem maintenance rebuild-vector-index"
+                    logger.warning(
+                        "Dimension mismatch for entry %s: stored=%s, expected=%s. "
+                        "Skipping this vector. Run: harness-mem maintenance rebuild-vector-index",
+                        entry_id,
+                        len(embedding_array),
+                        expected_dim,
                     )
                     continue
 
@@ -418,17 +428,22 @@ class HybridSearchLayer:
 
             # Log if all vectors filtered out
             if rows and not result:
-                logging.warning(
-                    f"All {len(rows)} persisted vectors filtered out due to dimension mismatch. "
-                    f"Falling back to FTS mode. Run: harness-mem maintenance rebuild-vector-index"
+                logger.warning(
+                    "All %s persisted vectors were filtered out; falling back to FTS. "
+                    "Run: harness-mem maintenance rebuild-vector-index",
+                    len(rows),
                 )
                 return None
 
             return result or None
-        except Exception as e:
-            # Table doesn't exist or other error, fall back to FTS.
-            import logging
-            logging.debug(f"Failed to read persisted embeddings: {e}")
+        except sqlite3.OperationalError as exc:
+            if "vec_embeddings" in str(exc):
+                logger.warning("vec_embeddings table not found, falling back to FTS")
+            else:
+                logger.warning("Could not read persisted vectors, falling back to FTS: %s", exc)
+            return None
+        except Exception as exc:
+            logger.warning("Could not read persisted vectors, falling back to FTS: %s", exc)
             return None
 
     def _list_vector_candidates(

@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("Stemmer")
+
 from harness_mem.tools import longmemeval
 
 pytestmark = pytest.mark.benchmark

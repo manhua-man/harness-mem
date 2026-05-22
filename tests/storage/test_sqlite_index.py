@@ -138,6 +138,8 @@ def test_search_prefers_rows_matching_more_query_tokens(idx: SQLiteIndex):
 
 
 def test_search_uses_stem_fallback_when_primary_tokens_miss(idx: SQLiteIndex):
+    pytest.importorskip("Stemmer")
+
     now = datetime.now(timezone.utc)
     idx.insert("observations", {
         "id": "obs-stem-fallback",
@@ -202,6 +204,8 @@ def test_tokenize_query():
 
 
 def test_expand_query_tokens_adds_stemmed_fallback():
+    pytest.importorskip("Stemmer")
+
     primary, fallback = SQLiteIndex._expand_query_tokens("participated events")
 
     assert "participated*" in primary

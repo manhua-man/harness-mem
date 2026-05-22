@@ -20,33 +20,33 @@
 - [x] 3.2 Integrate `_persist_embedding` into `LocalVerbatimStore.save_observation()` after writing observation
 - [x] 3.3 Integrate `_persist_embedding` into `LocalStructuredStore.save_memory_entry()` after writing memory entry
 - [x] 3.4 Serialize numpy array to BLOB using `np.array.tobytes()`
-- [ ] 3.5 Add progress logging for batch ingest: "Encoding embeddings: X/Y"
+- [ ] 3.5 Add progress logging for batch ingest: "Encoding embeddings: X/Y" (deferred to v1.6.3 batch encode; v1.6.2 rebuild command prints project-level progress)
 
 ## 4. Read Path: Query Persisted Vectors
 
-- [ ] 4.1 Modify `HybridSearchLayer._search_hybrid()` to query `vec_embeddings` via SQL JOIN instead of calling `model.encode` on candidate pool
-- [ ] 4.2 Add SQL query: `SELECT entry_id, embedding FROM vec_embeddings WHERE entry_id IN (?) AND model_id = ?`
-- [ ] 4.3 Deserialize BLOB to numpy array using `np.frombuffer(blob, dtype=np.float32).reshape(-1, dim)`
-- [ ] 4.4 Keep query-side encoding: call `model.encode(query_text)` exactly once
-- [ ] 4.5 Compute cosine similarity between query vector and persisted vectors
-- [ ] 4.6 Apply RRF fusion with FTS scores (keep existing RRF logic)
+- [x] 4.1 Modify `HybridSearchLayer._search_hybrid()` to query `vec_embeddings` via SQL JOIN instead of calling `model.encode` on candidate pool
+- [x] 4.2 Add SQL query: `SELECT entry_id, embedding FROM vec_embeddings WHERE entry_id IN (?) AND model_id = ?`
+- [x] 4.3 Deserialize BLOB to numpy array using `np.frombuffer(blob, dtype=np.float32).reshape(-1, dim)`
+- [x] 4.4 Keep query-side encoding: call `model.encode(query_text)` exactly once
+- [x] 4.5 Compute cosine similarity between query vector and persisted vectors
+- [x] 4.6 Apply RRF fusion with FTS scores (keep existing RRF logic)
 
 ## 5. Fallback and Error Handling
 
-- [ ] 5.1 Implement fallback to FTS when `vec_embeddings` table does not exist
-- [ ] 5.2 Implement fallback to FTS when `vec_embeddings` table is empty
-- [ ] 5.3 Add dimension mismatch detection: log warning and skip mismatched vectors
-- [ ] 5.4 If all vectors are filtered out (model_id mismatch or dimension mismatch), fallback to FTS
-- [ ] 5.5 Log clear warnings for each fallback scenario
+- [x] 5.1 Implement fallback to FTS when `vec_embeddings` table does not exist
+- [x] 5.2 Implement fallback to FTS when `vec_embeddings` table is empty
+- [x] 5.3 Add dimension mismatch detection: log warning and skip mismatched vectors
+- [x] 5.4 If all vectors are filtered out (model_id mismatch or dimension mismatch), fallback to FTS
+- [x] 5.5 Log clear warnings for each fallback scenario
 
 ## 6. Doctor and Maintenance Commands
 
-- [ ] 6.1 Extend `harness-mem doctor` to detect missing `vec_embeddings` table (HM-201 error code)
-- [ ] 6.2 Extend `harness-mem doctor` to detect model_id mismatch between config and stored vectors
-- [ ] 6.3 Extend `harness-mem doctor` to detect dimension mismatch
-- [ ] 6.4 Implement `harness-mem maintenance rebuild-vector-index --project <name>` command
-- [ ] 6.5 Rebuild command: drop existing `vec_embeddings` table, re-encode all entries, insert with current model_id/model_version
-- [ ] 6.6 Add progress output for rebuild: "Rebuilding vector index: X/Y entries"
+- [x] 6.1 Extend `harness-mem doctor` to detect missing `vec_embeddings` table (HM-201 error code)
+- [x] 6.2 Extend `harness-mem doctor` to detect model_id mismatch between config and stored vectors
+- [x] 6.3 Extend `harness-mem doctor` to detect dimension mismatch
+- [x] 6.4 Implement `harness-mem maintenance rebuild-vector-index --project <name>` command
+- [x] 6.5 Rebuild command: drop existing `vec_embeddings` table, re-encode all entries, insert with current model_id/model_version
+- [x] 6.6 Add progress output for rebuild: "Rebuilding vector index: X/Y entries"
 
 ## 7. Error Codes Documentation
 
@@ -80,22 +80,22 @@
 - [x] 9.6 Unit test: dimension mismatch triggers warning and fallback
 - [x] 9.7 Unit test: rebuild-vector-index drops and recreates table
 - [x] 9.8 Unit test: doctor detects HM-201, HM-202, HM-203 scenarios
-- [ ] 9.9 Integration test: run LongMemEval with persistent vectors, verify R@5 ≥ baseline on ≥3 dimensions
+- [x] 9.9 Integration test: run LongMemEval with persistent vectors, verify R@5 ≥ baseline on ≥3 dimensions (test exists and skips unless `LONGMEMEVAL_INTEGRATION=1`)
 
 ## 10. Benchmarking and Validation
 
-- [ ] 10.1 Run embedding shootout: `python -m harness_mem.tools.embedding_shootout`
-- [ ] 10.2 Verify shootout report is generated at `docs/benchmark/v162-embedding-shootout.md`
-- [ ] 10.3 Apply decision rule result: update default model in `pyproject.toml` if needed
-- [ ] 10.4 Run LongMemEval with final model, verify ≥3 dimensions do not regress
-- [ ] 10.5 Measure P95 latency with persistent vectors, verify ≤437ms (target: -30% from 625.17ms baseline)
+- [x] 10.1 Run embedding shootout: `python -m harness_mem.tools.embedding_shootout`
+- [x] 10.2 Verify shootout report is generated at `docs/benchmark/v162-embedding-shootout.md`
+- [x] 10.3 Apply decision rule result: keep default model at `all-MiniLM-L6-v2` per rule 3 fallback
+- [ ] 10.4 Run LongMemEval with final model, verify ≥3 dimensions do not regress (manual release gate; integration test is present but full run is not automatic)
+- [ ] 10.5 Measure P95 latency with persistent vectors, verify ≤437ms (manual release gate; not claimed by CHANGELOG)
 
 ## 11. Documentation and Release
 
-- [ ] 11.1 Update `CHANGELOG.md` with v1.6.2 section documenting all changes
-- [ ] 11.2 Update `docs/roadmap-v16x.md` to mark v1.6.2 as complete
-- [ ] 11.3 Document embedding model configuration in README or docs/
-- [ ] 11.4 Document rebuild-vector-index workflow for model switching
-- [ ] 11.5 Run full test suite: `python -m pytest -q`
-- [ ] 11.6 Run type checking: `python -m mypy harness_mem`
-- [ ] 11.7 Run linting: `python -m ruff check .`
+- [x] 11.1 Update `CHANGELOG.md` with v1.6.2 section documenting all changes
+- [x] 11.2 Update `docs/roadmap-v16x.md` to mark v1.6.2 runtime complete with manual benchmark gates called out
+- [x] 11.3 Document embedding model configuration in README or docs/
+- [x] 11.4 Document rebuild-vector-index workflow for model switching
+- [x] 11.5 Run full test suite: `python -m pytest -q`
+- [x] 11.6 Run type checking: `python -m mypy harness_mem`
+- [x] 11.7 Run linting: `python -m ruff check .`

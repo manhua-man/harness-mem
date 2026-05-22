@@ -45,6 +45,7 @@ from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any, Callable, TypedDict  # noqa: E402
 
+from harness_mem import __version__ as _HARNESS_MEM_VERSION  # noqa: E402
 from harness_mem.commands.distill import cmd_distill  # noqa: E402
 from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
 from harness_mem.commands.support import get_active_project  # noqa: E402
@@ -1917,7 +1918,7 @@ def handle_request(request: dict) -> dict | None:
             "result": {
                 "protocolVersion": negotiated,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "harness-mem", "version": "1.4.0"},
+                "serverInfo": {"name": "harness-mem", "version": _HARNESS_MEM_VERSION},
             },
         }
 

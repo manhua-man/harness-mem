@@ -19,44 +19,87 @@ Agent 协作真值见 [AGENTS.md](./AGENTS.md)。
 
 ---
 
-## 快速开始
+## Golden Path：用户怎么用
 
-### 1. 安装与接入
+### 1. 安装
+
 ```bash
 pip install harness-mem
 harness-mem quickstart
 ```
 
+需要启用本地 hybrid vector search 时安装 extra：
+
+```bash
+pip install "harness-mem[hybrid]"
+```
+
 如果你是在这个仓库里开发而不是只使用成品包，再改用：
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,hybrid]"
 ```
 
-### 2. 作为 AI：如何主动管理记忆
-如果你是正在操作此仓库的 AI Agent：
-- **学习历史**：调用 `get_observations` 读一个旧 Session。
-- **提炼知识**：如果你发现了重要规则，调用 `suggest_rule`。
-- **批量提炼**：如果需要处理大量历史，建议触发专门的 `session-distill` Skill。
+### 2. 提炼历史：`/hm:distill`
 
-### 3. 作为人类：如何复核记忆
-日常不需要手动跑 CLI，也不需要逐条审核候选。优先在 agent 里使用 slash / MCP：
+在支持 harness-mem slash / MCP 的 agent 里运行：
 
 ```text
-/hm:status
 /hm:distill <project> 10
+```
+
+这一步会完成 session 摄取、AI 提炼、低风险候选自动审核，并把确实需要人看的内容留在最终摘要里。用户不需要逐条扫原始 session，也不需要手动分类候选。
+
+### 3. 开新任务：`/hm:wake`
+
+```text
 /hm:wake
+```
+
+`wake` 只注入已确认的记忆。pending 候选、procedural Skill 候选和历史失效 truth 不会默认混进上下文。
+
+### 4. 查记忆：`/hm:search`
+
+```text
 /hm:search "authentication"
 ```
 
-`/hm:distill` 会完成 ingest、Skill 提炼、AI 自动审核低风险候选，并给你最终复核摘要。`/hm:review` 只作为复查、纠错或处理旧 pending 候选的兜底入口。
+Agent 内部也可以直接调用 MCP：
+
+```text
+search_memory(project_name="<project>", query="authentication", mode="auto")
+```
+
+需要找原始证据、错误码、路径或日志片段时，让 agent 用 `search_raw` / `harness-mem search-raw`；它只做 observation 证据定位，不替代语义检索。
+
+### 5. 查可复用流程：`search_skills`
+
+v1.8.0 起，重复工作流可以沉淀为 confirmed Skill。日常入口是 MCP：
+
+```text
+search_skills(project_name="<project>", query="release hygiene")
+record_skill_result(skill_id="<id>", success=true)
+```
+
+本地兜底 CLI：
+
+```bash
+harness-mem search-skills -p <project> "release hygiene"
+harness-mem record-skill-result <skill-id> --success
+```
+
+Skill 不会自动自学习，也不会进入默认 `wake`。新 Skill 必须先成为 `ProceduralCandidate`，再经 `confirm_skill` / `harness-mem confirm-skill` 显式确认。
+
+### 6. 只有需要复核或排障时才碰 CLI
 
 CLI 只作为安装、排障和显式 cleanup 的本地控制面。下面命令不是用户日常路径，只是本地兜底：
 
 ```bash
-harness-mem candidates    # 查看 AI 提炼的候选条目
-harness-mem confirm <id>  # 确认记忆：从此该条目会进入 AI 的唤醒上下文
-harness-mem reject <id>   # 拒绝记忆：过滤掉 AI 提取的废话
+harness-mem candidates           # 查看 AI 提炼的候选条目
+harness-mem confirm <id>         # 确认记忆：从此该条目可被 wake/search 消费
+harness-mem reject <id>          # 拒绝噪声候选
+harness-mem confirm-skill <id>   # 确认 procedural Skill 候选
+harness-mem search-raw --regex "HM-201|timeout"
 ```
 
 ---
@@ -104,25 +147,17 @@ session-distill -> packet-memory-export -> memory-drafts review -> knowledge-bas
 
 ---
 
-## 快速开始
+## 开发者与 CLI 参考
 
-### 1. 安装
+日常用户先走上面的 Golden Path。本节只保留开发者、本地排障和脚本化入口。
 
-```bash
-pip install harness-mem
-# 如果你想真正启用 hybrid vector search，而不是只使用自动 fallback：
-pip install "harness-mem[hybrid]"
-# 如果你要跑 LongMemEval benchmark：
-pip install "harness-mem[benchmark,hybrid]"
-harness-mem quickstart
-```
-
-如果你是在仓库里开发，改用 editable install：
+### 环境自检
 
 ```bash
-pip install -e ".[dev]"
-pip install -e ".[benchmark,hybrid]"
+harness-mem doctor
 ```
+
+`quickstart` 和 `doctor` 会自动发现最近的 Claude Code / Codex sessions，并根据当前阶段直接建议下一步更适合走 `/hm:distill`、`ingest` 兜底还是 `wake`。默认摄取路径会按当前 agent 环境和当前项目路径收窄；跨项目或全局历史导入必须显式写 `--scope all`。
 
 开发环境里也可以不依赖 console script，直接从源码树运行：
 
@@ -133,25 +168,7 @@ python -m harness_mem.tools.longmemeval --help
 
 `harness-mem` 这个裸命令来自 editable install 生成的 console script。Windows 上如果 `Scripts` 目录不在 `PATH`，就用 `python -m harness_mem.cli ...`，或把对应 Python 的 `Scripts` 目录加入 `PATH`。
 
-v1.6.2 里如果你要检查或重建向量索引，直接走：
-
-```bash
-harness-mem doctor
-harness-mem maintenance rebuild-vector-index --project <project-name>
-python -m harness_mem.tools.embedding_shootout
-```
-
-`doctor` 会提示是否需要重建向量索引；`rebuild-vector-index` 会把当前项目的持久化向量重建回来；`embedding_shootout` 会输出 `docs/benchmark/v162-embedding-shootout.md` 作为模型拍板记录。
-
-### 2. 自检环境
-
-```bash
-harness-mem doctor
-```
-
-`quickstart` 和 `doctor` 会自动发现最近的 Claude Code / Codex sessions，并根据当前阶段直接建议下一步更适合走 `/hm:distill`、`ingest` 兜底还是 `wake`。默认摄取路径会按当前 agent 环境和当前项目路径收窄；跨项目或全局历史导入必须显式写 `--scope all`。
-
-### 3. 接入 session
+### Session 接入兜底
 
 用户日常入口是 `/hm:distill <project> 10`，由 Agent 通过 MCP `ingest_sessions` 自动完成当前环境和当前项目路径匹配。下面命令只作为开发者排障或自动化脚本参考。
 
@@ -164,33 +181,33 @@ harness-mem ingest codex-archive -n 10 --project-root .
 harness-mem ingest codex-archive -n 10 --scope all   # 显式全局回扫
 ```
 
-### 4. 生成唤醒上下文
+### 运行时检查
 
 ```bash
 harness-mem wake
-```
-
-### 5. 搜索记忆
-
-```bash
 harness-mem search "authentication" --mode auto
 harness-mem search "authentication" --mode hybrid
+harness-mem search-raw --regex "HM-201|timeout"
+harness-mem search-skills -p <project-name> "release hygiene"
 harness-mem tl 20
 harness-mem show -o <observation-id>
 ```
 
 `auto` 会优先尝试 hybrid search；embedding 不可用时自动回退到 FTS，并把实际模式显示在结果头部。
 
-### 6. 清理旧记忆
+### 维护与 benchmark
 
 ```bash
+harness-mem maintenance rebuild-vector-index --project <project-name>
+harness-mem maintenance rebuild-verbatim-index --project <project-name>
+python -m harness_mem.tools.embedding_shootout
 harness-mem purge -p my-project --before 2026-01-01 --category all --dry-run
 harness-mem purge -p my-project --before 2026-01-01 --category observations
 ```
 
-`purge` 使用 soft-delete / `compacted` 标记。被 purge 的 observations 和 memory entries 默认不会再出现在 `wake`、`search`、`timeline` 和常规列表结果里。对 `structured` 或 `all`，现在会要求明确项目上下文，不再静默跳过非活动项目的数据。
+`doctor` 会提示是否需要重建向量索引或 exact evidence 索引；`rebuild-vector-index` 和 `rebuild-verbatim-index` 会按项目重建本地索引。`purge` 使用 soft-delete / `compacted` 标记。被 purge 的 observations 和 memory entries 默认不会再出现在 `wake`、`search`、`timeline` 和常规列表结果里。
 
-### 7. 编辑 Profile
+### 编辑 Profile
 
 ```bash
 harness-mem profile --edit
@@ -198,7 +215,7 @@ harness-mem profile --edit
 # 回车保持原值，!clear 重置字段
 ```
 
-### 8. 规则学习循环
+### 规则学习循环
 
 ```bash
 # 交互式输入
@@ -219,7 +236,7 @@ harness-mem reject <candidate-id>
 harness-mem rules
 ```
 
-### 9. 任务交接
+### 任务交接
 
 ```bash
 # 交互式输入
@@ -231,7 +248,7 @@ harness-mem handoff -t <id> -s "Fix auth bug" \
   -b "Waiting for token samples"
 ```
 
-### 10. MCP Server (Claude Code 中使用)
+### MCP Server (Claude Code 中使用)
 
 ```bash
 # 安装 MCP server
@@ -242,6 +259,7 @@ claude mcp add -s user harness_mem "python -m harness_mem.mcp.server"
 # - search_memory, timeline, get_observations
 # - get_task_handoffs, get_confirmed_rules, get_project_profile
 # - suggest_memory_entry, suggest_rule, suggest_relation_fact, create_task_handoff
+# - search_raw, search_skills, suggest_skill, confirm_skill, reject_skill, record_skill_result
 #
 # search_memory 支持:
 # - scope=project|all
@@ -250,7 +268,7 @@ claude mcp add -s user harness_mem "python -m harness_mem.mcp.server"
 
 长期来看，MCP 是首选集成形态；CLI 继续保留为 bootstrap、调试入口和显式控制面板。目标不是让用户反复手动敲 `ingest` / `wake`，而是让记忆能力尽量自然地出现在 agent 工作流里。
 
-### 11. REST API
+### REST API
 
 ```bash
 harness-mem api
@@ -272,10 +290,13 @@ Adapter Layer
 
 Memory Core (dual-layer)
   Verbatim Layer    →  Observation (原始 session transcript)
-  Structured Layer  →  MemoryEntry, TaskHandoff, RuleCandidate, ConfirmedRule
+  Structured Layer  →  MemoryEntry, RelationFact, TaskHandoff
+                      RuleCandidate, SupersedeCandidate, ProceduralCandidate
+                      ConfirmedRule, Skill
 
 Storage
   JSON blobs + SQLite FTS5 index
+  Persistent vector index + verbatim exact evidence index
   Optional local hybrid retrieval (FTS + vector fallback-safe)
   ~/.harness-mem/data/
 ```
@@ -333,9 +354,13 @@ CLI 是开发者控制台，用于安装、诊断、脚本化和异常兜底。R
   verbatim/                     JSON blobs (Observation)
   structured/
     memory_entries/             JSON blobs
+    relation_facts/             JSON blobs
     task_handoffs/              JSON blobs
     rule_candidates/            JSON blobs
+    supersede_candidates/       JSON blobs
+    procedural_candidates/      JSON blobs
     confirmed_rules/            JSON blobs
+    skills/                     JSON blobs
   profiles/                     Project profiles
   events.log                    本地事件日志
   active_project.txt            当前活动项目

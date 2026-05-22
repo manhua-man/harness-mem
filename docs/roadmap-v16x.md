@@ -134,7 +134,7 @@ vision 文档中留白的 3 个品味决策，本 roadmap 启动前一次定齐�
 
 **用户故事**：每次 `wake-up` / `search` 不再热路径 encode 整个 FTS 候选池；P95 latency 下降一档；用户可以选 bge-small / nomic-embed 替代 all-MiniLM-L6-v2，不需要等 v2.0。
 
-> **状态：2026-05-20 已完成。** 代码、测试与收尾文档已落地；完整 shootout 与 P95 数字仍以手动 benchmark 报告为最终来源。
+> **状态：2026-05-20 runtime complete；manual benchmark gates remain.** 代码、测试与收尾文档已落地；`docs/benchmark/v162-embedding-shootout.md` 已按规则 3 保持 `all-MiniLM-L6-v2`。完整 LongMemEval final run 与 P95 latency 仍是发版前手动门槛，不在 CHANGELOG 中冒充已验证。
 
 **前置基线**：
 - v1.6.0 + v1.6.1 已落地的五维 R@5
@@ -145,7 +145,7 @@ vision 文档中留白的 3 个品味决策，本 roadmap 启动前一次定齐�
 |--------|------|------|
 | P0 | sqlite-vec 集成（**必选**，见下方"已决策"段）：`pip install "harness-mem[hybrid]"` 强制带 sqlite-vec；`verbatim_index.sqlite` / `structured_index.sqlite` 增加 `vec_*` 表，存 384/768 维向量；ingest / save 时落盘 embedding | 已完成；单测覆盖写入即查，二次启动直接读已有 vector，不再 encode |
 | P0 | search 走持久化向量 JOIN：`HybridSearchLayer._search_hybrid` 改为 SQL JOIN 路径，候选池查询不再调 `model.encode`；query 端 embedding 仍然实时算（只 1 次） | 已完成；缺表、空表、全过滤时回退 FTS；P95 latency 的完整手动验证仍保留为 benchmark 门 |
-| P0 | embedding 模型评估并拍板：在 v1.6.0 的五维 baseline 上分别跑 `all-MiniLM-L6-v2 / bge-small-en-v1.5 / nomic-embed-text-v1.5`，写 `docs/benchmark/v162-embedding-shootout.md`；按 `recall_per_dim_uplift / model_size / cold_load_time` 三轴决策；最终默认模型必须**至少在 3 个维度不回退**且总 R@5 不低于 v1.6.1 baseline | 入口已完成；最终 shootout 报告仍作为手动 benchmark 产物 |
+| P0 | embedding 模型评估并拍板：在 v1.6.0 的五维 baseline 上分别跑 `all-MiniLM-L6-v2 / bge-small-en-v1.5 / nomic-embed-text-v1.5`，写 `docs/benchmark/v162-embedding-shootout.md`；按 `recall_per_dim_uplift / model_size / cold_load_time` 三轴决策；最终默认模型必须**至少在 3 个维度不回退**且总 R@5 不低于 v1.6.1 baseline | 已完成；报告触发规则 3，默认模型保持 `all-MiniLM-L6-v2` |
 | P1 | 向量层 schema 升级路径：现有用户 `.harness-mem/data/` 第一次升级到 v1.6.2 时，`harness-mem doctor` 输出"需要重建向量索引"提示 + 一键命令 `harness-mem maintenance rebuild-vector-index --project <name>`；不阻塞 search（缺向量时回退 FTS） | 已完成；doctor / rebuild / fallback 测试覆盖 |
 | P1 | embedding 模型版本写入 schema：每条 `vec_*` 行带 `model_id / model_version`，不同模型混存时按版本筛选，避免老索引污染新模型查询 | 已完成；换模型后老向量会被自动过滤或回退 |
 | P2 | LongMemEval 五维 R@5 目标：单一维度 ≥ +1 pp（不强求总 R@5 跨过 0.96，留给 v1.7 时间维度优化） | benchmark 报告含 v1.6.0 / v1.6.1 / v1.6.2 三列对比 |

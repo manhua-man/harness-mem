@@ -147,8 +147,7 @@ async def cmd_rebuild_vector_index(project_name: str | None = None) -> int:
             limit=100000,
         )
         for i, entry in enumerate(entries, 1):
-            if i % 10 == 0:
-                print(f"  entries {i}/{len(entries)}")
+            print(f"Rebuilding vector index: {i}/{len(entries)} entries")
             structured_index.persist_embedding(entry.id, entry.content, model_id)
 
         observations = await verbatim_store.list(limit=100000)
@@ -158,8 +157,7 @@ async def cmd_rebuild_vector_index(project_name: str | None = None) -> int:
             if observation.metadata.get("project_name") == resolved_project
         ]
         for i, observation in enumerate(project_observations, 1):
-            if i % 10 == 0:
-                print(f"  observations {i}/{len(project_observations)}")
+            print(f"Rebuilding vector index: {i}/{len(project_observations)} observations")
             verbatim_index.persist_embedding(
                 observation.id,
                 observation.raw_content,

@@ -55,10 +55,15 @@ def call_tool(name: str, arguments: dict) -> dict:
 
 
 def test_initialize():
+    from harness_mem import __version__
+
     resp = rpc("initialize", {"protocolVersion": "2024-11-05"})
     result = resp["result"]
     assert result["protocolVersion"] == "2024-11-05"
     assert result["serverInfo"]["name"] == "harness-mem"
+    # Pin serverInfo.version to the package's single source of truth so the
+    # MCP handshake never drifts behind harness_mem.__version__ again.
+    assert result["serverInfo"]["version"] == __version__
 
 
 def test_stdio_initialize_writes_json_rpc_to_stdout():

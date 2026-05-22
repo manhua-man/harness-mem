@@ -10,6 +10,73 @@
 
 ---
 
+## [1.8.0] — 2026-05-22
+
+**主题：Procedural Skill loop + v1.7 evidence closeout**
+
+v1.8.0 把 v1.7 的时间感、supersede 审核链和证据定位收口到一个可发布版本，并新增保守版 procedural memory：AI 可以把可复用流程沉淀为候选 Skill，经显式确认后检索和记录执行结果。它仍然是可审计 memory runtime，不是后台自学习 agent。
+
+### Added
+
+- **Procedural memory 保守闭环**：新增 `ProceduralCandidate` 候选层与 confirmed `Skill` 层，支持 `activation_condition`、ordered `steps`、`termination_condition`、provenance、confidence 和 review status。
+- **Skill review / retrieval / outcome 工具**：CLI 新增 `suggest-skill`、`confirm-skill`、`reject-skill`、`search-skills`、`record-skill-result`；MCP 新增 `suggest_skill`、`confirm_skill`、`reject_skill`、`search_skills`、`record_skill_result`。
+- **Skill 成功率回写**：confirmed Skill 记录 `usage_count`、`success_count`、`failure_count`、`success_rate` 与 `last_used_at`。
+- **Procedural fixtures**：新增 focused test loop、review-and-merge loop、maintenance loop 三组 fixture，验证候选形态和只读边界。
+- **v1.7.3 exact evidence search**：新增 raw observation exact / regex 证据定位路径，包含 verbatim n-gram index、`search-raw`、MCP `search_raw`、`maintenance rebuild-verbatim-index` 与 doctor health hint。
+- **Loop harness 骨架**：新增 `tests/loop_harness/`，覆盖 distill extraction、wake surfacing、supersede replacement 三条真跑场景，并用 `xfail` 标出 auto-review 仍缺少程序化入口。
+
+### Changed
+
+- `list_candidates` / MCP candidate payload 覆盖 procedural candidates，让 Skill 候选进入同一审核视图。
+- MCP initialize handshake 的 `serverInfo.version` 改为读取 `harness_mem.__version__`，避免 server 元信息落后于包版本。
+- `docs/roadmap-v17x.md`、`docs/roadmap-vision-v16-v18.md` 与 OpenSpec change 记录 v1.7.3 / v1.8.0 的真实完成状态。
+- `README.md` 收敛为用户视角 golden path：安装 -> `/hm:distill` -> `/hm:wake` -> `/hm:search` -> `search_skills`。
+
+### Safety Boundaries
+
+- Procedural candidates 不会自动确认。
+- Confirmed Skill 不会写入 semantic truth，不会进入默认 `wake` selection。
+- v1.8.0 不做跨项目 Skill 共享、不做后台 daemon、不做自治删除或自学习强化。
+
+### Validation
+
+- `python -m ruff check .`
+- `python -m mypy harness_mem`
+- `python -m pytest -q`
+- `openspec validate v173-verbatim-exact-evidence-search`
+- `openspec validate v180-procedural-skill-spike`
+
+---
+
+## [1.7.x] — 2026-05-21
+
+**主题：Temporal truth + supersede review + bounded graph retrieval**
+
+v1.7.x 让 `harness-mem` 从“记住事实”前进到“知道事实什么时候有效、什么时候被替代、证据在哪里”。这组切片为 v1.8 procedural skills 打底：Skill 可以复用流程，但 semantic truth 仍然保留时间、历史和审核链。
+
+### Added
+
+- **Temporal structured memory**：truth-like records 支持 current/history reads，默认消费 current truth，历史事实需要显式查询。
+- **Supersede candidate loop**：新增 supersede 候选审核链；确认后旧 truth 标记为 historical，不物理删除。
+- **Bounded relation graph retrieval**：支持受限关系追踪和时间感检索，避免 stale truth 混入默认 wake。
+- **Verbatim exact evidence search**：新增 observation raw-content exact / regex 证据定位，不替代 FTS5 / vector semantic search。
+
+### Safety Boundaries
+
+- v1.7 采用 mark-not-delete：旧事实保留 provenance 和历史窗口。
+- Supersede 需要显式确认，不允许 distill 直接改写 confirmed truth。
+- Graph traversal 有深度和预算边界，不把 SQLite runtime 扩成完整 KG 平台。
+
+### Validation
+
+- v1.7.x 各切片均有 storage / CLI / MCP focused tests。
+- `openspec validate v170-temporal-schema-current-history`
+- `openspec validate v171-supersede-candidate-loop`
+- `openspec validate v172-temporal-graph-retrieval`
+- `openspec validate v173-verbatim-exact-evidence-search`
+
+---
+
 ## [1.6.2] — 2026-05-20
 
 **主题：sqlite-vec 持久化向量 + embedding shootout 收口**
@@ -33,7 +100,8 @@ v1.6.x 的第三刀，把热路径 embedding 从查询侧移到写入侧，补�
 ### Notes
 
 - 默认 embedding 模型仍保留 `all-MiniLM-L6-v2`，是否切换交由 shootout 决策。
-- v1.6.2 的 P95 latency 目标与完整 LongMemEval 结果仍以手动 benchmark 报告为准，CI 只保留可运行门与集成 smoke。
+- `docs/benchmark/v162-embedding-shootout.md` 的规则 3 已拍板：`bge-small-en-v1.5` 与 `nomic-embed-text-v1.5` 未满足升级规则，默认模型保持 `all-MiniLM-L6-v2`。
+- v1.6.2 的 P95 latency 目标与完整 LongMemEval 结果仍是手动 release gate；本发布只声称 runtime read path、fallback、doctor/maintenance 与 benchmark 入口已落地，CI 保留可运行门与集成 smoke。
 
 ---
 

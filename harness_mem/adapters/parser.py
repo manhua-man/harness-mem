@@ -577,6 +577,26 @@ RELATION_FACT_PATTERNS: list[tuple[re.Pattern, str, str]] = [
 ]
 
 
+def _sentence_window(text: str, start: int, end: int, *, max_after: int = 160) -> str:
+    """Return the surrounding sentence-bounded slice of ``text``.
+
+    Looks left from ``start`` for the nearest ``.`` / ``\\n`` and right from
+    ``end`` for the nearest ``.`` / ``\\n``. Falls back to a fixed right
+    window when no terminator is found. Whitespace is collapsed.
+
+    Used by both heuristic memory extraction and relation-fact extraction so
+    both produce content that begins on a real sentence boundary instead of
+    a byte offset that can drag in the tail of a previous sentence.
+    """
+    left = max(text.rfind(".", 0, start), text.rfind("\n", 0, start))
+    right_candidates = [
+        idx for idx in (text.find(".", end), text.find("\n", end)) if idx != -1
+    ]
+    right = min(right_candidates) if right_candidates else min(len(text), end + max_after)
+    sentence_start = 0 if left == -1 else left + 1
+    return " ".join(text[sentence_start:right].split())
+
+
 def extract_heuristic_entries(
     turns: list[Turn],
     project_name: str,
@@ -655,10 +675,17 @@ def extract_heuristic_entries(
             m = pattern.search(all_text)
             if not m:
                 continue
-            match_start = m.start()
-            ctx_start = max(0, match_start - context_before)
-            ctx_end = min(len(all_text), match_start + context_after)
-            sentence = all_text[ctx_start:ctx_end].strip()
+            sentence = _sentence_window(
+                all_text, m.start(), m.end(), max_after=context_after
+            )
+            # Backward-compatible fallback: if the sentence-bounded slice is
+            # too short (e.g. matched at the very start of a fragment with no
+            # punctuation), fall back to the byte-offset window so callers
+            # tuning ``context_before`` / ``context_after`` still get content.
+            if len(sentence) <= min_sentence_length:
+                ctx_start = max(0, m.start() - context_before)
+                ctx_end = min(len(all_text), m.start() + context_after)
+                sentence = all_text[ctx_start:ctx_end].strip()
             if len(sentence) > min_sentence_length:
                 confidence = confidence_bug if category == "bug" else confidence_other
                 _add(
@@ -691,15 +718,6 @@ def extract_relation_facts(
     facts: list[RelationFact] = []
     seen: set[tuple[str, str, str]] = set()
 
-    def _sentence_around(text: str, start: int, end: int) -> str:
-        left = max(text.rfind(".", 0, start), text.rfind("\n", 0, start))
-        right_candidates = [
-            idx for idx in (text.find(".", end), text.find("\n", end)) if idx != -1
-        ]
-        right = min(right_candidates) if right_candidates else min(len(text), end + 160)
-        sentence_start = 0 if left == -1 else left + 1
-        return " ".join(text[sentence_start:right].split())
-
     for turn in turns:
         assistant_texts = turn.get("assistant", [])
         if not assistant_texts:
@@ -722,7 +740,7 @@ def extract_relation_facts(
                         target_entity=target_entity,
                         relation_type=relation_type,
                         confidence=0.65,
-                        evidence=_sentence_around(all_text, match.start(), match.end()),
+                        evidence=_sentence_window(all_text, match.start(), match.end()),
                         source=f"session:{session_id}",
                         tags=["relation", "heuristic", f"pattern-source:{label}"],
                     )

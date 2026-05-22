@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Sequence, cast
 
@@ -180,6 +181,7 @@ def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -
     """
     try:
         from harness_mem.commands.support import get_embedding_model_id
+        from harness_mem.embedding import get_model_loader
 
         # Check if vec_embeddings table exists
         structured_store = cast(LocalStructuredStore, backend.structured_store)
@@ -225,10 +227,27 @@ def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -
                 "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
             }
 
+        expected_dim = get_model_loader(model_id).dimensions
+        cursor = conn.execute(
+            "SELECT entry_id, length(embedding) FROM vec_embeddings WHERE model_id = ? LIMIT 100",
+            (model_id,),
+        )
+        for entry_id, byte_length in cursor.fetchall():
+            stored_dim = int(byte_length) // 4
+            if stored_dim != expected_dim:
+                return {
+                    "has_issue": True,
+                    "message": (
+                        "Vector index dimension mismatch "
+                        f"(entry={entry_id}, stored={stored_dim}, current={expected_dim})"
+                    ),
+                    "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}",
+                }
+
         # All checks passed
         return {"has_issue": False, "message": "", "fix_command": ""}
 
-    except Exception:
+    except (sqlite3.Error, ValueError):
         # If check fails, assume no issue (table might not exist yet)
         return {"has_issue": False, "message": "", "fix_command": ""}
 
