@@ -201,6 +201,24 @@ to make risks concrete), output:
 
 ---
 
+## Related Reality-Check Skills
+
+This skill is one of three sharing the same evidence-over-narrative
+discipline:
+
+| Skill | When to use | Output |
+|---|---|---|
+| `project-honest-audit` (this skill) | "How is this project doing overall?" — find risks before transition | Markdown audit report with scorecard |
+| `loop-evaluation-harness` | "Is our multi-step loop actually working end-to-end?" — instrument the loop | `tests/loop_harness/` test code + README |
+| `multi-client-field-test` | "Will real users in each target client succeed?" — pre-release validation | Markdown persona packet at `docs/...-packet.md` |
+
+When an audit surfaces "no measurement for this loop" or "we promise X
+but only validate it in dogfood", the next skill in the chain takes the
+finding and turns it into instrumentation or a field test. The audit's
+output should name which follow-up skill (if any) the user should run.
+
+---
+
 ## Anti-patterns to refuse
 
 - **Don't grade A unless every dimension has concrete evidence.** Default

@@ -227,6 +227,25 @@ After running, the harness will surface real things you didn't know:
 
 ---
 
+## Related Reality-Check Skills
+
+This skill is one of three sharing the same evidence-over-narrative
+discipline:
+
+| Skill | When to use | Output |
+|---|---|---|
+| `project-honest-audit` | "How is this project doing overall?" — find risks before transition | Markdown audit report with scorecard |
+| `loop-evaluation-harness` (this skill) | "Is our multi-step loop actually working end-to-end?" — instrument the loop | `tests/loop_harness/` test code + README |
+| `multi-client-field-test` | "Will real users in each target client succeed?" — pre-release validation | Markdown persona packet at `docs/...-packet.md` |
+
+A loop harness gives you deterministic numbers but doesn't tell you
+whether the experience is usable from the outside. When an audit or
+field test surfaces "the wiring works but users still bounce off", that's
+typically a docs / prompt / setup issue this skill can't catch — escalate
+to `multi-client-field-test`.
+
+---
+
 ## Anti-patterns to refuse
 
 - **Don't write a unit test in disguise.** If the scenario's assertion

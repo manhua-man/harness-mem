@@ -5,6 +5,8 @@
 > 核心要测的事：v2.0 砍掉了 heuristic distill 之后，**任意 LLM agent 通过 MCP 驱动 distill 主链**这条承诺，在三个客户端里是否真的成立。
 >
 > 预计每个 persona 30-60 分钟。建议三个都跑一遍，写下来在哪里卡住。
+>
+> 此 packet 由 `.claude/skills/multi-client-field-test/` 生成。下个发版（v2.1 / v3 等）需要新 packet 时调用同一个 skill；本文件本身不是模板。
 
 ---
 
