@@ -104,6 +104,18 @@ async def cmd_doctor(project_name: str | None = None) -> int:
                     f"{stale_count} stale, {never_accessed_count} never accessed"
                 )
 
+            stale_rule_count, never_surfaced_rule_count = _confirmed_rule_quality_counts(rules)
+            if rules:
+                print(
+                    "Rule quality: "
+                    f"{stale_rule_count} stale (>{UNUSED_RULE_DAYS}d), "
+                    f"{never_surfaced_rule_count} never surfaced"
+                )
+                if stale_rule_count or never_surfaced_rule_count:
+                    issue = doctor_error("doctor_unused_confirmed_rules")
+                    print(format_error_summary(issue))
+                    print(f"Fix: {issue.fix_command}")
+
             # v1.6.2: Check vector index health
             vector_health = _check_vector_index_health(backend, resolved_project)
             if vector_health["has_issue"]:
@@ -172,6 +184,41 @@ def _memory_quality_counts(entries: Sequence[object]) -> tuple[int, int]:
         if reference_time < stale_cutoff:
             stale_count += 1
     return stale_count, never_accessed_count
+
+
+UNUSED_RULE_DAYS = 90
+
+
+def _confirmed_rule_quality_counts(rules: Sequence[object]) -> tuple[int, int]:
+    """Mirror of ``_memory_quality_counts`` for ConfirmedRule.
+
+    Returns ``(stale_count, never_surfaced_count)``:
+
+    - ``never_surfaced_count``: rules with ``usage_count == 0``. These rules
+      were confirmed but wake-up has never actually emitted them — the
+      strongest signal that the rule is dead weight.
+    - ``stale_count``: rules whose last surface (or, if never surfaced, the
+      confirmation timestamp) is older than ``UNUSED_RULE_DAYS``. Captures
+      "this rule was useful once but the project has moved on".
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=UNUSED_RULE_DAYS)
+    stale_count = 0
+    never_surfaced_count = 0
+    for rule in rules:
+        usage_count = getattr(rule, "usage_count", 0)
+        if usage_count == 0:
+            never_surfaced_count += 1
+        reference_time = getattr(rule, "last_surfaced_at", None) or getattr(
+            rule, "confirmed_at", None
+        )
+        if reference_time is None:
+            continue
+        if reference_time.tzinfo is None:
+            reference_time = reference_time.replace(tzinfo=timezone.utc)
+        if reference_time < cutoff:
+            stale_count += 1
+    return stale_count, never_surfaced_count
 
 
 def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -> dict:

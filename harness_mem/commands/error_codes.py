@@ -52,6 +52,16 @@ CLI_ERROR_CODES: dict[str, CliErrorCode] = {
         fix_command="edit ~/.harness-mem/config.toml [wake] bucket_quota_* (each value in [0.0, 1.0])",
         note="Each bucket_quota_* value must be a finite float in [0.0, 1.0].",
     ),
+    "doctor_unused_confirmed_rules": CliErrorCode(
+        code="HM-401",
+        level="warning",
+        summary="confirmed rules have not been surfaced in any wake-up for the configured retention window.",
+        fix_command="harness-mem rules  # review unused rules; manually reject or supersede stale ones",
+        note=(
+            "Rules with usage_count == 0 or last_surfaced_at older than the retention window are likely "
+            "no longer relevant. doctor only flags them; deletion remains a deliberate human action."
+        ),
+    ),
 }
 
 

@@ -12,6 +12,8 @@
 | `HM-201` | warning | Vector index table (`vec_embeddings`) does not exist, is empty, or uses a different embedding model than current config. | `harness-mem maintenance rebuild-vector-index --project <name>` | Rebuilds the persistent vector index with the current embedding model. Hybrid search falls back to FTS until rebuilt. v1.6.2+. |
 | `HM-202` | error | SQLite extension loading is disabled in the Python sqlite3 build. | Recompile Python with `--enable-loadable-sqlite-extensions` or use `--mode fts` for search commands. | `sqlite-vec` requires extension loading support. Most official Python builds support this; custom builds may not. v1.6.2+. |
 | `HM-203` | error | Configured embedding model is not in the supported model registry. | Edit `~/.harness-mem/config.toml` `[embedding]` `model_id` to one of: `all-MiniLM-L6-v2`, `bge-small-en-v1.5`, `nomic-embed-text-v1.5`. | Only models in the registry have validated dimensions and licenses. v1.6.2+. |
+| `HM-301` | warning | Verbatim exact-evidence trigram index is empty (no observations indexed yet). | `harness-mem maintenance rebuild-verbatim-index --project <name>` | `search-raw` and MCP `search_raw` will fall back to slow path until the trigram index is rebuilt. v1.7.3+. |
+| `HM-401` | warning | Confirmed rules have not been surfaced in any wake-up for the configured retention window (default 90 days), or have ``usage_count == 0``. | `harness-mem rules` (review unused rules; reject or supersede stale ones) | doctor only flags them; deletion remains a deliberate human action. v1.8+. |
 
 ## Output shape
 

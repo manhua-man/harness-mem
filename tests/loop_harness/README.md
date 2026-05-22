@@ -1,6 +1,6 @@
 # Loop Evaluation Harness
 
-> **状态**: scenario 1–6 真跑并产生指标。
+> **状态**: scenario 1–7 真跑并产生指标。
 
 ## 这个 harness 解决什么问题
 
@@ -13,7 +13,7 @@
 | LongMemEval | 检索算法好不好 | "embedding 升级后，semantic R@5 从 0.95 涨到 0.96" |
 | Loop harness | 闭环各环节有没有偷工减料 | "AI 自动 confirm 的低风险候选，哪些其实应该 reject" |
 
-## 六个 scenario
+## 七个 scenario
 
 | # | 文件 | 状态 | 输出指标 |
 |---|---|---|---|
@@ -23,6 +23,7 @@
 | 4 | `test_supersede_replaces.py` | ✅ 真跑 | `current_truth_correct` (bool), `history_visible_when_requested` (bool) |
 | 5 | `test_rule_surface_count_increments.py` | ✅ 真跑 | `usage_count` (int), `has_last_surfaced_at` (bool) |
 | 6 | `test_relation_graph_data_pipeline.py` | ✅ 真跑 | `relation_facts_extracted`, `relation_to_memory_ratio` |
+| 7 | `test_doctor_flags_unused_rules.py` | ✅ 真跑 | `hm_401_emitted` (bool), `rule_quality_line_present`, `stale_count_visible` |
 
 ## 跨版本对比怎么用
 
@@ -38,10 +39,14 @@
 
 ## 下一步（不在本切片）
 
-- **scenario 7**: 三个月没被命中的 ConfirmedRule，doctor 是否提示删除（scenario 5 已经把"事实"打通——usage_count + last_surfaced_at——剩下是产品决策：保留期阈值 / doctor 文案）
 - **scenario 8**: 跨项目复用通用 rule 的产品语义（依赖 `global_rule` schema，目前缺）
 
 scenario 6 实证：自然 session 提取 0 relation facts / 5 memory entries，
 ratio = 0.0。要让 v1.7.2 graph traversal 真正可用，必须有 LLM-driven distill
 能从普通 prose 里提炼实体关系，或者把 `suggest_relation_fact` 提升为 distill
 管线里的明确步骤——这是产品决策，不是工程问题。
+
+scenario 7 实证：doctor 现在有 HM-401 提示用户处理久未命中或从未命中的规则。
+保留期默认 90 天，写在 `harness_mem/commands/doctor.py::UNUSED_RULE_DAYS`，
+等到有真实使用数据再调整。doctor 只提示，不删——删除继续是 reject /
+supersede 的明确人工动作。
