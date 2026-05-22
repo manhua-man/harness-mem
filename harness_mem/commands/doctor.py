@@ -116,6 +116,19 @@ async def cmd_doctor(project_name: str | None = None) -> int:
                     print(format_error_summary(issue))
                     print(f"Fix: {issue.fix_command}")
 
+            # v1.7.2 graph traversal status (info only — not a warning).
+            # The graph table is rarely populated by heuristic distill;
+            # loop_harness scenario 6 measured 0 facts from natural prose.
+            # Showing the count without nagging keeps users informed
+            # without implying action they probably can't take yet.
+            relation_facts = await backend.structured_store.list_relation_facts(
+                resolved_project, limit=1000
+            )
+            print(
+                f"Relation graph: {len(relation_facts)} facts "
+                f"(trace_relations returns empty when 0)"
+            )
+
             # v1.6.2: Check vector index health
             vector_health = _check_vector_index_health(backend, resolved_project)
             if vector_health["has_issue"]:

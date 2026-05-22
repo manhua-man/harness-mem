@@ -1307,7 +1307,14 @@ TOOLS: dict[str, ToolSpec] = {
         "handler": tool_timeline,
     },
     "trace_relations": {
-        "description": "Trace bounded current relation paths for a project entity.",
+        "description": (
+            "Trace bounded current relation paths for a project entity. "
+            "Returns empty unless relation facts have been populated for "
+            "the project — heuristic distill rarely produces them from "
+            "natural prose (loop_harness scenario 6 measured 0 facts from "
+            "5 memory entries on real-style sessions). Populate via "
+            "suggest_relation_fact or an LLM-driven distill pass."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {

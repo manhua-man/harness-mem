@@ -191,3 +191,65 @@ def test_doctor_silent_when_rules_are_healthy(
     )
     # Rule quality line should still print, just without the HM-401 follow-up.
     assert "0 stale" in captured and "0 never surfaced" in captured
+
+
+def test_doctor_reports_relation_graph_count_without_nagging(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    """v1.7.2 graph traversal: doctor surfaces the count as info, not warning.
+
+    The relation graph is rarely populated by heuristic distill (see
+    scenario 6). doctor must therefore *show* the count so users aren't
+    confused when ``trace_relations`` returns empty, but it must *not*
+    emit a warning code or fix command — there's nothing actionable a
+    user can do without an LLM-driven distiller or manual entity work.
+    """
+    project_name = "loop-harness-doctor-relation-info"
+    set_active_project(project_name)
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        # Seed a rule so the project has something to inspect; we only
+        # care about the relation graph line here.
+        _seed_rule(
+            backend,
+            project_name,
+            rule_id="rule-side",
+            pattern="A rule that exists so doctor has a project to walk.",
+            confirmed_at=datetime.now(timezone.utc) - timedelta(days=1),
+            usage_count=1,
+            last_surfaced_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        )
+    finally:
+        run(backend.close())
+
+    assert run(cmd_doctor(project_name)) == 0
+    captured = capsys.readouterr().out
+
+    LoopMetrics(
+        name="doctor_relation_graph_info",
+        values={
+            "info_line_emitted": float("Relation graph:" in captured),
+            "no_warning_code": float("HM-4" not in captured.replace("HM-401", "")),
+        },
+    ).report()
+
+    assert "Relation graph: 0 facts" in captured, (
+        f"doctor must report relation graph count for v1.7.2 transparency; "
+        f"captured:\n{captured}"
+    )
+    # The relation-graph line itself must be info-only — no inline warning
+    # code, no Fix: command attached to it. Other unrelated checks
+    # (HM-201 vector index, HM-401 unused rules, etc.) may still emit
+    # their own Fix: commands later in the output, and that's fine.
+    relation_line_start = captured.find("Relation graph:")
+    next_section_start = captured.find("\n", relation_line_start) + 1
+    relation_line = captured[relation_line_start:next_section_start]
+    assert "Fix:" not in relation_line, (
+        f"Relation graph line itself must be info-only; got: {relation_line!r}"
+    )
+    assert "HM-" not in relation_line, (
+        f"Relation graph line must not carry an HM-xxx code; got: {relation_line!r}"
+    )

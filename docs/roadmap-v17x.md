@@ -173,6 +173,28 @@ v1.7 不应该在 v1.6.2 半截时开工。先收口这些门槛：
 
 ---
 
+## v1.7.2 实证现状（v1.8 audit 补记）
+
+`tests/loop_harness/test_relation_graph_data_pipeline.py` 在 v1.8 加入后，把 v1.7.2 的真实状态量化了下来：
+
+| 输入类型 | memory entries | relation facts |
+|---|---|---|
+| 自然 prose（loop_harness 三个真实风格 fixture） | 5 | **0** |
+| 刻意构造的 relation-friendly prose | 0 | **3** |
+
+**结论**：`trace_relations` 的引擎是对的，但**heuristic distill -> 关系图**这条数据管线对自然 session 几乎不工作。`adapters/parser.py::RELATION_FACT_PATTERNS` 要求实体两侧大写、动词在固定六个之内、整段在同句——真实 Claude/Codex session 几乎不会自然命中。
+
+**当前归宿（不动 API、不动 schema）**：
+
+- 代码保留：API surface 已发布，砍掉是 breaking change。
+- doctor 加了一行 info：`Relation graph: N facts (trace_relations returns empty when 0)`。不是 warning——用户没法行动的事不该 nag。
+- MCP `trace_relations` 工具描述显式说"empty unless populated"。
+- 启用路径有两条：用户主动 `suggest_relation_fact`（罕见），或未来 LLM-driven distill 自动喂数据（v1.8+ 可能）。
+
+**为什么不砍**：API surface 已 ship + RelationFact schema 在 storage/index 里，砍是 v1.x → v2.0 级别的事。当前的最佳折中是诚实标注 + 留出未来启用入口。
+
+---
+
 ## 成功判定
 
 v1.7.x 不是为了把总 R@5 硬推到某个漂亮数字。成功标准是：
