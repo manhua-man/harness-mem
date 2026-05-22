@@ -32,12 +32,6 @@ allowed-tools:
 
 `session-distill` 是用户主动蒸馏时的默认体验层。
 
-它不是让用户手敲 CLI，也不是把 `distill_sessions` 的启发式结果包装一下。正确分层是：
-
-- **Skill**: 负责阅读、判断、归纳、拆分候选、保留证据。
-- **MCP**: 负责状态查询、会话灌入、候选写入、候选审核。
-- **CLI**: 只作为开发者本地排障兜底。
-
 默认目标是把当前项目相关会话转成候选，并在 `/hm:distill` 同一轮里自动审核和处理低风险项。用户只看最终复核摘要；`/hm:review` 是复查/纠错/手动补救入口，不是日常必经步骤。
 
 ## 主链
@@ -53,8 +47,6 @@ Raw Sessions
   -> AI auto-review and low-risk confirm/reject
   -> Human final result review
 ```
-
-`distill_sessions` 只是低成本 smoke/fallback，用于验证 runtime 能跑或提取非常明显的模式；它不是 `/hm:distill` 的默认高质量蒸馏器。
 
 ## 默认动作序列
 

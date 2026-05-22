@@ -10,6 +10,53 @@
 
 ---
 
+## [2.0.0] — 2026-05-22
+
+**主题：Heuristic distill 移除 — distill 路径只接受 LLM agent**
+
+v2.0 是单一焦点的 breaking 切片：移除 `harness-mem distill` CLI 子命令、`tool_distill_sessions` MCP 工具、以及 `harness_mem/adapters/parser.py::HEURISTIC_PATTERNS` / `extract_heuristic_entries` / `extract_relation_facts` 整套正则启发式实现。`ClaudeCodeAdapter.distill_session` / `distill_relation_facts` 一并删除。
+
+**为什么 breaking**：
+
+- 启发式 distill 默认产出 confidence=0.7 的候选，恰好低于 v1.6.1 引入的 auto-review 自动确认阈值 (0.75)。loop_harness scenario 2 实测：**5/5 候选全部 defer，没有一条能进入 auto-confirm 路径**。
+- 启发式 RelationFact 提取要求实体两侧大写、动词在固定六个之内、整段在同句。loop_harness scenario 6 实测：**自然 Claude/Codex prose 5 条 memory entries → 0 条 relation facts，ratio = 0.0**。
+- 启发式产物长得像"AI 提炼"，但实际是低 confidence 正则匹配，违反 README 顶部的"AI memory runtime"承诺。
+
+**用户日常路径不变**：`/hm:distill` slash + MCP `suggest_*` 工具仍是 distill 入口。任意 LLM agent (Claude Code、Codex、Cursor、Gemini、自定义) 都可以通过 MCP 写候选。
+
+**dogfood 流不变**：可由任意 AI 工具驱动，不绑 Claude Code。
+
+### Removed (BREAKING)
+
+- `harness-mem distill` / `harness-mem ds` CLI 子命令。
+- `tool_distill_sessions` MCP 工具（tool count 34 → 33）。
+- `harness_mem/commands/distill.py` 整文件。
+- `harness_mem/adapters/parser.py`: `HEURISTIC_PATTERNS`, `RELATION_FACT_PATTERNS`, `extract_heuristic_entries`, `extract_relation_facts`, `_sentence_window`。
+- `harness_mem/adapters/claude_code/adapter.py`: `distill_session`, `distill_relation_facts`, `_extract_entries`, `_entry_key`, `_relation_fact_key`。
+- `tests/cli/test_distill.py`, `tests/loop_harness/test_distill_precision_recall.py`, `tests/loop_harness/test_relation_graph_data_pipeline.py`。
+
+### Kept
+
+- `prepare_session_distill` MCP 工具（产 evidence packet 给 LLM agent，是 LLM-driven distill 路径的关键入口）。
+- `tools/session-distill/SKILL.md`（Claude Code skill 实现，仍然是参考实现；其它 client 可以照样写自己的 prompt + MCP 调用）。
+- `harness_mem/distill_context.py`（`DistillContext` 只读边界仍然给 MCP `suggest_*` 工具用）。
+- ingest 路径完整保留（adapter session 解析、`turns_to_observation`、`harness-mem ingest` CLI、MCP `ingest_sessions`）。
+- supersede / correction 路径完整保留（v1.8 引入的 `suggest_correction` 不变）。
+
+### Migration
+
+升级到 v2.0 不需要数据迁移。已存在的 `MemoryEntry` / `RelationFact` / `RuleCandidate` blob 完全兼容。唯一影响：
+
+- 任何脚本 / Slash / 文档里写了 `harness-mem distill` 的，要改成"通过 LLM agent + MCP `suggest_memory_entry` 写候选"，或走 `/hm:distill` slash（Claude Code）/ 等价 skill（其它 client）。
+- 任何脚本调用 MCP `distill_sessions` 工具的，要改成 `prepare_session_distill` + agent 处理 evidence packet + `suggest_memory_entry`。
+
+### Test surface
+
+- 352 → 325 passed (1 skipped). 删除 27 个测试用例（heuristic-only 测试），新增 / 重写 4 个（auto-review calibration 直接 seed、CLI mainline 用 LLM 路径模拟）。
+- mypy 0 errors / 75 source files。ruff clean。
+
+---
+
 ## [1.8.0] — 2026-05-22
 
 **主题：Procedural Skill loop + v1.7 evidence closeout**

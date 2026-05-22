@@ -2,7 +2,9 @@
 
 Local-first, pluggable **AI memory runtime** for Claude Code, Codex, and Gemini CLI.
 
-**核心理念**：让 AI 拥有跨 Session、可审计的长期记忆。AI 是记忆的“操作员”和一线审核员，人只做最终复核与纠错。
+**核心理念**：让 AI 拥有跨 Session、可审计的长期记忆。AI 是记忆的"操作员"和一线审核员，人只做最终复核与纠错。
+
+> **v2.0**：distill 路径只接受 LLM agent。低质量正则启发式已在 v2.0 移除——它产出的 0.7 confidence 候选既无法触发 auto-review 自动确认、也几乎抓不到自然 prose 里的关系事实，违反"AI memory runtime"承诺。任意 LLM agent（Claude Code skill、Codex agent、Cursor、Gemini、自定义）都可以通过 MCP `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` 写候选；harness-mem 不绑特定客户端。
 
 Agent 协作真值见 [AGENTS.md](./AGENTS.md)。
 
@@ -329,7 +331,6 @@ CLI 是开发者控制台，用于安装、诊断、脚本化和异常兜底。R
 | 安装/诊断 | `harness-mem quickstart`、`harness-mem doctor`、`harness-mem status` |
 | 当前项目 | `harness-mem use <project>`、`harness-mem profile` |
 | 摄取兜底 | `harness-mem ingest -n 10`，跨项目历史必须显式 `--scope all` |
-| 提炼兜底 | `harness-mem distill` / `harness-mem ds`，仅作启发式 fallback |
 | 运行时检查 | `harness-mem wake`、`harness-mem search "query"`、`harness-mem timeline`、`harness-mem show -o <id>` |
 | 候选修正 | `harness-mem candidates`、`harness-mem confirm <id>`、`harness-mem reject <id>` |
 | 维护/服务 | `harness-mem purge --dry-run`、`harness-mem api`、`harness-mem maintenance ...` |
