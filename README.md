@@ -12,12 +12,14 @@ Agent 协作真值见 [AGENTS.md](./AGENTS.md)。
 
 ## 核心工作流 (The Cycle)
 
-| 阶段 | 动作 | 驱动者 | 实现方式 |
+| 阶段 | 动作 | 驱动者 | MCP 工具 |
 | :--- | :--- | :--- | :--- |
-| **1. 摄取 (Ingest)** | 抓取原始会话日志 | AI | MCP `ingest_sessions` / Slash `/hm:distill` |
-| **2. 提炼 (Distill)** | **AI 读 Session 提炼精华知识** | **AI** | **Skill: `session-distill`** |
-| **3. 自动审核 (Auto-review)** | AI 自动确认低风险记忆、拒绝噪声，并把高风险项留给用户复核 | **AI + 人复核** | Slash `/hm:distill` + MCP `confirm_*` / `reject_*` |
-| **4. 消费 (Use)** | AI 在新任务中自动加载记忆 | AI | **MCP: `search_memory` / `wake`** |
+| **1. 摄取 (Ingest)** | 抓取原始会话日志 | AI | `ingest_sessions` |
+| **2. 提炼 (Distill)** | **AI 读 Session 提炼精华知识** | **AI** | `prepare_session_distill` + `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` |
+| **3. 自动审核 (Auto-review)** | AI 自动确认低风险记忆、拒绝噪声，并把高风险项留给用户复核 | **AI + 人复核** | `auto_review_candidates` + `confirm_*` / `reject_*` |
+| **4. 消费 (Use)** | AI 在新任务中自动加载记忆 | AI | `search_memory` / `wake` |
+
+支持 slash 命令的客户端（如 Claude Code）可以把这些工具包成 `/hm:distill` / `/hm:wake` / `/hm:search` 之类的快捷入口。Slash 是便利层，不是必需层；MCP 工具本身是统一接口。
 
 ---
 
@@ -42,57 +44,61 @@ pip install "harness-mem[hybrid]"
 pip install -e ".[dev,hybrid]"
 ```
 
-### 2. 提炼历史：`/hm:distill`
+### 2. 接到你的 IDE / Agent
 
-在支持 harness-mem slash / MCP 的 agent 里运行：
+harness-mem 是一个 MCP server。任何 MCP 兼容客户端都可以连——推荐路径是 **MCP Router**：让 router 统一管 server，IDE / agent 只接 router。
 
-```text
-/hm:distill <project> 10
+启动命令（由 router 或客户端调用）：
+
+```bash
+python -m harness_mem.mcp.server
 ```
 
-这一步会完成 session 摄取、AI 提炼、低风险候选自动审核，并把确实需要人看的内容留在最终摘要里。用户不需要逐条扫原始 session，也不需要手动分类候选。
+不想用 router 也行，把同一条命令配在客户端的 MCP server 列表里即可。harness-mem 不挑客户端，也不挑 router；只要 MCP 协议能通就能用。
 
-### 3. 开新任务：`/hm:wake`
+### 3. 提炼历史
+
+在你的 agent 里直接告诉它："用 harness-mem 整理过去 N 个 session 的项目记忆，自动审核低风险候选。" Agent 会按下面顺序调 MCP 工具：
 
 ```text
-/hm:wake
+prepare_session_distill(project_name=..., limit=10)
+  → 拿到 evidence packet
+suggest_memory_entry / suggest_rule / suggest_relation_fact
+  → 写候选
+auto_review_candidates(project_name=..., apply=true)
+  → 自动确认低风险、拒绝噪声、保留高风险给你看
+```
+
+支持 slash 命令的客户端（Claude Code）可以把整套包成 `/hm:distill <project> 10` 一键触发。其他客户端用自然语言驱动 agent，效果一致。
+
+### 4. 开新任务时加载记忆
+
+```text
+wake(project_name=...)
 ```
 
 `wake` 只注入已确认的记忆。pending 候选、procedural Skill 候选和历史失效 truth 不会默认混进上下文。
 
-### 4. 查记忆：`/hm:search`
+### 5. 查记忆
 
 ```text
-/hm:search "authentication"
+search_memory(project_name=..., query="authentication", mode="auto")
 ```
 
-Agent 内部也可以直接调用 MCP：
+需要找原始证据、错误码、路径或日志片段时用 `search_raw`；它只做 observation 证据定位，不替代语义检索。
+
+### 6. 查可复用流程
+
+v1.8.0 起，重复工作流可以沉淀为 confirmed Skill：
 
 ```text
-search_memory(project_name="<project>", query="authentication", mode="auto")
+search_skills(project_name=..., query="release hygiene")
+record_skill_result(skill_id=..., success=true)
 ```
 
-需要找原始证据、错误码、路径或日志片段时，让 agent 用 `search_raw` / `harness-mem search-raw`；它只做 observation 证据定位，不替代语义检索。
+Skill 不会自动自学习，也不会进入默认 `wake`。新 Skill 必须先成为 `ProceduralCandidate`，再经 `confirm_skill` 显式确认。
 
-### 5. 查可复用流程：`search_skills`
-
-v1.8.0 起，重复工作流可以沉淀为 confirmed Skill。日常入口是 MCP：
-
-```text
-search_skills(project_name="<project>", query="release hygiene")
-record_skill_result(skill_id="<id>", success=true)
-```
-
-本地兜底 CLI：
-
-```bash
-harness-mem search-skills -p <project> "release hygiene"
-harness-mem record-skill-result <skill-id> --success
-```
-
-Skill 不会自动自学习，也不会进入默认 `wake`。新 Skill 必须先成为 `ProceduralCandidate`，再经 `confirm_skill` / `harness-mem confirm-skill` 显式确认。
-
-### 6. 只有需要复核或排障时才碰 CLI
+### 7. 只有需要复核或排障时才碰 CLI
 
 CLI 只作为安装、排障和显式 cleanup 的本地控制面。下面命令不是用户日常路径，只是本地兜底：
 
@@ -113,7 +119,7 @@ harness-mem search-raw --regex "HM-201|timeout"
 - **Runtime over interface**: 核心价值是让多个 AI client 共享同一套长期记忆，不是某一个前端形态本身。
 - **Local-first and auditable**: 记忆默认留在本地；用户可以搜索、追溯、纠正和清理，而不是接受黑箱记忆。
 - **CLI as bootstrap**: CLI 负责安装、试用、调试和显式控制，不是用户日常主路径；日常主路径应是 slash/MCP/Skill。
-- **MCP-first**: 长期主路径是把能力接到 agent runtime 里，让 Claude Code、Codex 等 client 默认能读写同一层记忆。
+- **MCP-first**: 长期主路径是把能力接到 agent runtime 里，让任何 MCP 兼容客户端（Claude Code、Cursor、Codex、Gemini、自定义 agent）默认能读写同一层记忆。
 - **Invisible by default, visible when needed**: 日常体验应尽量无感，但一旦用户想问“记住了什么、为什么被注入、怎么删掉”，系统必须可见、可解释、可退出。
 - **No extension/daemon or LSP roadmap**: 当前路线不规划 VS Code extension、后台 daemon 或 LSP server，先把 MCP 自动化和本地 runtime 主链路做透。
 
@@ -159,7 +165,7 @@ session-distill -> packet-memory-export -> memory-drafts review -> knowledge-bas
 harness-mem doctor
 ```
 
-`quickstart` 和 `doctor` 会自动发现最近的 Claude Code / Codex sessions，并根据当前阶段直接建议下一步更适合走 `/hm:distill`、`ingest` 兜底还是 `wake`。默认摄取路径会按当前 agent 环境和当前项目路径收窄；跨项目或全局历史导入必须显式写 `--scope all`。
+`quickstart` 和 `doctor` 会自动发现最近的 Claude Code / Codex sessions，并根据当前阶段直接建议下一步是触发 agent 跑 distill MCP 工具、走 `ingest` 兜底，还是直接 `wake`。默认摄取路径会按当前 agent 环境和当前项目路径收窄；跨项目或全局历史导入必须显式写 `--scope all`。
 
 开发环境里也可以不依赖 console script，直接从源码树运行：
 
@@ -172,7 +178,7 @@ python -m harness_mem.tools.longmemeval --help
 
 ### Session 接入兜底
 
-用户日常入口是 `/hm:distill <project> 10`，由 Agent 通过 MCP `ingest_sessions` 自动完成当前环境和当前项目路径匹配。下面命令只作为开发者排障或自动化脚本参考。
+用户日常入口是让 agent 通过 MCP `ingest_sessions` 自动完成当前环境和当前项目路径匹配。下面命令只作为开发者排障或自动化脚本参考。
 
 ```bash
 harness-mem use <project-name>
@@ -250,23 +256,29 @@ harness-mem handoff -t <id> -s "Fix auth bug" \
   -b "Waiting for token samples"
 ```
 
-### MCP Server (Claude Code 中使用)
+### MCP Server
+
+harness-mem 是一个 MCP server。推荐通过 **MCP Router** 让 IDE / agent 接入：在 router 的 server 列表里加一条指向下面命令的 server，然后 IDE 只接 router。
 
 ```bash
-# 安装 MCP server
-claude mcp add -s user harness_mem "python -m harness_mem.mcp.server"
-
-# Claude Code 中可用工具（工具名使用无短横线 alias，如 mcp__harness_mem__search_memory）
-# - get_project_status, prepare_session_distill, list_candidates
-# - search_memory, timeline, get_observations
-# - get_task_handoffs, get_confirmed_rules, get_project_profile
-# - suggest_memory_entry, suggest_rule, suggest_relation_fact, create_task_handoff
-# - search_raw, search_skills, suggest_skill, confirm_skill, reject_skill, record_skill_result
-#
-# search_memory 支持:
-# - scope=project|all
-# - mode=auto|fts|hybrid
+python -m harness_mem.mcp.server
 ```
+
+不用 router 也行，把同一条命令配进客户端的 MCP 配置即可。具体配置语法因客户端而异（Claude Code 用 `claude mcp add`、Cursor / Codex / Gemini CLI 各有自己的 MCP 配置位置）；这是客户端层面的细节，不在 harness-mem 维护范围内。
+
+可用工具（MCP 工具名，调用前缀由客户端决定）：
+
+```
+get_project_status, prepare_session_distill, list_candidates,
+search_memory, timeline, get_observations,
+get_task_handoffs, get_confirmed_rules, get_project_profile,
+suggest_memory_entry, suggest_rule, suggest_relation_fact,
+auto_review_candidates, suggest_correction, create_task_handoff,
+search_raw, search_skills, suggest_skill, confirm_skill, reject_skill,
+record_skill_result
+```
+
+`search_memory` 支持 `scope=project|all` 和 `mode=auto|fts|hybrid`。
 
 长期来看，MCP 是首选集成形态；CLI 继续保留为 bootstrap、调试入口和显式控制面板。目标不是让用户反复手动敲 `ingest` / `wake`，而是让记忆能力尽量自然地出现在 agent 工作流里。
 
@@ -315,14 +327,16 @@ V2 的重点不再是“补一个基础 hybrid search”，而是继续往 invis
 
 ## 命令面
 
-用户日常不需要学习完整 CLI。正常入口是 Slash/MCP：
+用户日常不需要学习完整 CLI。正常入口是 **MCP**——agent 直接调；客户端如果支持 slash，可以包成快捷入口（例如 Claude Code 的 `/hm:status` / `/hm:distill` / `/hm:wake` / `/hm:search`）。
 
-| 入口 | 用途 |
+主要 MCP 工具：
+
+| 工具 | 用途 |
 |------|------|
-| `/hm:status` | 看当前项目记忆健康度和下一步建议 |
-| `/hm:distill <project> <n>` | 一键灌入、提炼、自动审核低风险候选，并给最终复核摘要 |
-| `/hm:wake` | 开新任务时加载已确认记忆 |
-| `/hm:search "query"` | 搜索本项目记忆 |
+| `get_project_status` | 看当前项目记忆健康度和下一步建议 |
+| `prepare_session_distill` + `suggest_*` + `auto_review_candidates` | 灌入、提炼、自动审核低风险候选 |
+| `wake` | 开新任务时加载已确认记忆 |
+| `search_memory` | 搜索本项目记忆 |
 
 CLI 是开发者控制台，用于安装、诊断、脚本化和异常兜底。README 只保留最小参考，完整列表以 `harness-mem --help` 为准：
 
@@ -339,8 +353,8 @@ CLI 是开发者控制台，用于安装、诊断、脚本化和异常兜底。R
 
 ## CLI UX Notes
 
-- `quickstart` 会先看最近的 session，再建议接入 Slash/MCP 主路径或给出本地兜底命令
-- `doctor` 会根据当前项目里有没有 observations / structured memory，优先建议 `/hm:distill`、`/hm:wake` 或必要的本地排障命令
+- `quickstart` 会先看最近的 session，再建议接入 MCP 主路径或给出本地兜底命令
+- `doctor` 会根据当前项目里有没有 observations / structured memory，优先建议触发 distill MCP 工具、`wake` 或必要的本地排障命令
 - `doctor` / `wake` 在 budget 达到高水位时，会直接给出带项目作用域的 `purge --dry-run` 建议
 - `search` 会展示请求模式和实际生效模式；embedding 不可用时会明确标注 fallback 到 FTS
 - 关键 CLI 流程现在会把 command / next-step 事件写入本地 `events.log`，方便内部 dogfooding

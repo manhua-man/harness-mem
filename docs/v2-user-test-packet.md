@@ -227,20 +227,23 @@ pip install harness-mem  # 注意：他是普通用户，他装的是 PyPI 包�
 harness-mem quickstart
 ```
 
-把 MCP server 接到 Cursor 的 MCP 配置里。Cursor 的 MCP 集成跟 Claude Code 不一样，**这一步本身可能就是第一个真问题**。
+把 harness-mem 加到他的 **MCP Router** 配置里（router 是 harness-mem 推荐的客户端集成路径）。Cursor 已经接好 router，所以 router 加 server 即可，Cursor 端无需单独配置。
 
 ### 执行步骤
 
-**Step 1：MCP 接入难度**
+**Step 1：MCP Router 接入速度**
 
-记录从"装完 pip 包"到"Cursor 能看到 harness-mem MCP 工具"花了多久。
+把 harness-mem 加到 router 的 server 列表（指向 `python -m harness_mem.mcp.server`），等 Cursor 重新拉到 server。
 
-- README 里有没有 Cursor 专属的接入说明？
-- 没有的话，他要去 google "cursor mcp setup" 才能弄通——**这就是 P0**。
+记录：
+- 从 router 加 server 到 Cursor agent 能调用 `prepare_session_distill` 花了多久？
+- 期待：< 2 分钟。
+- 如果超过，原因是什么？是 README 没说清 router 集成路径？还是 server 启动失败？哪个环节卡住记下来。
+- 如果 README 让他不知道"router 是推荐路径"，强迫他自己去 google "cursor mcp setup"——**这是 P0 文档问题**。
 
 **Step 2：触发 distill**
 
-Cursor 没有 `/hm:distill` slash。他怎么触发主链？
+Cursor 没有 slash 命令。他怎么触发主链？
 
 让他在 Cursor 里直接说：
 
@@ -249,7 +252,7 @@ Cursor 没有 `/hm:distill` slash。他怎么触发主链？
 记录：
 - Cursor 能不能照着 MCP 工具描述自己跑通？
 - 如果不能，Cursor 的内置 agent 是不是会建议跑 CLI（`harness-mem distill`，已被 v2.0 移除）？
-- README 有没有给"非 Claude Code 用户"一个明确的 fallback prompt？
+- README 有没有给"agent 自然语言驱动"一个清晰示例？还是默认假设用户有 slash？
 
 **Step 3：Tauri IPC 规则真的被记住了吗**
 
@@ -291,13 +294,13 @@ Cursor 没有 `/hm:distill` slash。他怎么触发主链？
 
 ### v2.0 关注点
 
-周明远是 **v2.0 重新对得起 Cursor 用户的关键证据**。第一次 audit 里识别的 5 个痛点（Cursor 用户拿不到 auto-review、规则命中反馈缺失、Schema 升级 supersede、跨项目复用、30 条候选首次 review 量），v2.0 里：
+周明远是 **v2.0 重新对得起非-Claude-Code 用户的关键证据**。第一次 audit 里识别的 5 个痛点，v2.0 里：
 
 | 痛点 | 第一次 audit 时状态 | v2.0 后预期 | 你要验证什么 |
 |------|---------|-------------|------------|
-| Cursor 用户拿不到 auto-review | P0 痛点 | `auto_review_candidates` MCP 工具任意 client 可调 | Cursor 真的能自己调到吗 |
+| 非 Claude Code 用户拿不到 auto-review | P0 痛点（误以为是 client 限制） | `auto_review_candidates` 是 MCP 工具，router 后任何客户端可调 | Cursor 是否真的能调到，agent 是否会自然想到调用它 |
 | 规则命中反馈缺失 | P0 痛点 | `usage_count` + `last_surfaced_at` 已上 schema | wake 时真的会增 count 吗 |
-| Schema 升级 supersede | P1 痛点 | `suggest_correction` MCP 工具一步到位 | Cursor 知道要调它吗 |
+| Schema 升级 supersede | P1 痛点 | `suggest_correction` MCP 工具一步到位 | Cursor agent 知道要调它吗 |
 | 跨项目通用 rule | P2 痛点 | **没做**（按用户决策） | 周明远会不会因为这个流失 |
 | 30 条首次 review | P2 痛点 | auto-review 起作用后应缓解 | 实际留给他看的 pending 数量是多少 |
 
