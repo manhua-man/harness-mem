@@ -9,7 +9,6 @@ import sys
 from harness_mem import __version__
 from harness_mem.commands import (
     cmd_assign_memory_types,
-    cmd_distill,
     cmd_doctor,
     cmd_ingest,
     cmd_import,
@@ -199,23 +198,6 @@ def main():
     prof.add_argument("-p", "--project")
     prof.add_argument("--edit", action="store_true", help="Edit profile fields interactively")
     prof.set_defaults(command_name="profile")
-
-    # distill
-    ds = sub.add_parser("distill", aliases=["ds"], help="Extract structured memory from sessions")
-    ds.add_argument("session_id_arg", nargs="?")
-    ds.add_argument("-p", "--project")
-    ds.add_argument("-s", "--session-id", dest="session_id")
-    ds.add_argument("-c", "--category", choices=["architecture", "convention", "api", "bug", "decision"])
-    ds.add_argument("--project-root", help="Project root for Claude project session matching")
-    ds.add_argument(
-        "--auto-confirm",
-        action="store_true",
-        help=(
-            "v1.6.1 compat: flip distilled candidates from 'pending' back to 'accepted' "
-            "after extraction (legacy ingest -> distill -> wake loop). Default is 'pending'."
-        ),
-    )
-    ds.set_defaults(command_name="distill")
 
     # import
     imp = sub.add_parser("import", help="Import memory drafts from AI skills into candidate layer")
@@ -480,18 +462,6 @@ def main():
         if getattr(args, "edit", False):
             return asyncio.run(cmd_profile_edit(args.project))
         return asyncio.run(cmd_profile(args.project))
-
-    if command == "distill":
-        sid = args.session_id or args.session_id_arg
-        return asyncio.run(
-            cmd_distill(
-                args.project,
-                sid,
-                category=getattr(args, "category", None),
-                project_root=getattr(args, "project_root", None),
-                auto_confirm=getattr(args, "auto_confirm", False),
-            )
-        )
 
     if command == "import":
         return asyncio.run(cmd_import(args.file, args.project))

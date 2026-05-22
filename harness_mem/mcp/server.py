@@ -14,7 +14,6 @@ Tools:
   get_project_status    — current project memory status and active project
   ingest_sessions       — project-scoped environment-aware session ingest
   prepare_session_distill — one-shot ingest + evidence packet for AI distill
-  distill_sessions      — heuristic distill fallback for ingested sessions
   list_candidates       — pending/accepted/rejected review candidates
   auto_review_candidates — heuristic auto-confirm / auto-reject pass (preview or apply)
   suggest_correction    — one-shot rule replacement (new rule + supersede chain)
@@ -40,7 +39,7 @@ Future split note (do not split ad-hoc):
           read.py        — search_memory / timeline / trace_relations /
                            search_raw / search_skills / get_*
           ingest.py      — ingest_sessions / prepare_session_distill /
-                           distill_sessions / list_candidates /
+                           list_candidates /
                            auto_review_candidates
           review.py      — confirm_* / reject_* / suggest_*
           write.py       — create_rule_candidate / create_task_handoff
@@ -87,7 +86,6 @@ from typing import Any, Callable, TypedDict  # noqa: E402
 
 from harness_mem import __version__ as _HARNESS_MEM_VERSION  # noqa: E402
 from harness_mem.commands.auto_review import auto_review_candidates  # noqa: E402
-from harness_mem.commands.distill import cmd_distill  # noqa: E402
 from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
 from harness_mem.commands.support import get_active_project  # noqa: E402
 from harness_mem.core.schemas import ProceduralCandidate, SupersedeCandidate  # noqa: E402
@@ -740,36 +738,6 @@ def tool_prepare_session_distill(
             "Use source values from this packet, e.g. observation:<id>, unless a stronger session/file source is present.",
             "Finish by calling list_candidates(project_name, status='pending') once.",
         ],
-    }
-
-
-def tool_distill_sessions(
-    project_name: str,
-    session_id: str | None = None,
-    category: str | None = None,
-    project_root: str | None = None,
-) -> dict:
-    """Run heuristic distill through MCP as a fallback to AI session-distill."""
-    if category is not None and category not in {"architecture", "convention", "api", "bug", "decision"}:
-        return {
-            "success": False,
-            "error": "category must be one of: architecture, convention, api, bug, decision",
-        }
-
-    payload = _run_command_to_payload(
-        cmd_distill(
-            project_name,
-            session_id,
-            category=category,
-            project_root=project_root,
-        )
-    )
-    return {
-        "project_name": project_name,
-        "session_id": session_id,
-        "category": category,
-        "project_root": project_root,
-        **payload,
     }
 
 
@@ -1650,27 +1618,6 @@ TOOLS: dict[str, ToolSpec] = {
             "required": ["project_name"],
         },
         "handler": tool_prepare_session_distill,
-    },
-    "distill_sessions": {
-        "description": "Run heuristic distill through MCP as a fallback to AI session-distill.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "session_id": {"type": "string", "description": "Optional session ID"},
-                "category": {
-                    "type": "string",
-                    "enum": ["architecture", "convention", "api", "bug", "decision"],
-                    "description": "Optional memory category filter",
-                },
-                "project_root": {
-                    "type": "string",
-                    "description": "Project root for Claude project session matching",
-                },
-            },
-            "required": ["project_name"],
-        },
-        "handler": tool_distill_sessions,
     },
     "list_candidates": {
         "description": "List structured memory candidates for human review.",

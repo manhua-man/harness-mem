@@ -8,16 +8,13 @@ from typing import Any
 from uuid import uuid4
 
 from harness_mem.adapters.parser import (
-    extract_relation_facts,
-    extract_heuristic_entries,
     list_session_files,
     parse_claude_jsonl_session,
     session_sort_key,
 )
 from harness_mem.adapters.protocol import Issue, SessionRecord
-from harness_mem.core.schemas import MemoryEntry, Observation, RelationFact
+from harness_mem.core.schemas import Observation
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
-from harness_mem.distill_context import DistillContext
 
 
 # Default Claude Code session directory
@@ -170,202 +167,6 @@ class ClaudeCodeAdapter:
             raise ValueError("project_name is required for Claude Code ingest")
         return await self.ingest_project(project_name, limit=limit, min_size_kb=min_size_kb)
 
-    async def distill_session(
-        self,
-        session_id: str,
-        project_name: str,
-        category: str | None = None,
-        *,
-        session_project_name: str | None = None,
-        distill_context: DistillContext | None = None,
-    ) -> list[MemoryEntry]:
-        """Run heuristic pattern matching (not AI extraction) over a session.
-
-        Scans session transcript for reusable project knowledge using
-        heuristic regex patterns (see :data:`parser.HEURISTIC_PATTERNS`):
-
-        - technical decisions ("we decided to use X")
-        - conventions ("I always use X", "the standard is Y")
-        - bug workarounds ("the fix was X", "workaround: Y")
-        - architecture notes ("I organized X into Y")
-
-        .. note::
-
-           This is **heuristic-based**, not AI-powered.  For higher-quality
-           extraction with dedup, clustering, and cross-session synthesis,
-           use the ``session-distill`` skill instead.
-
-        If *category* is specified, only entries matching that category are
-        returned/saved.
-
-        v1.6.1: when ``distill_context`` is provided, all writes go through the
-        candidate layer (``status="pending"``). The legacy ``backend`` path is
-        retained for adapters that have not migrated yet — those still write
-        directly with ``status="accepted"``.
-        """
-        project_dir = self.sessions_dir / (session_project_name or project_name)
-        if not project_dir.exists():
-            return []
-
-        # Find the session file
-        session_file = None
-        for sf in project_dir.glob("*.jsonl"):
-            if session_id in sf.name:
-                session_file = sf
-                break
-
-        if not session_file:
-            return []
-
-        turns = self.parse_jsonl_session(session_file)
-        entries = self._extract_entries(turns, project_name, session_id)
-
-        # Filter by category if specified
-        if category:
-            entries = [e for e in entries if e.category == category]
-
-        if not entries:
-            return []
-
-        if distill_context is not None:
-            existing_entries = await distill_context.list_memory_entries(
-                project_name, limit=10000
-            )
-            existing_keys = {
-                self._entry_key(entry.category, entry.content, entry.source)
-                for entry in existing_entries
-            }
-            saved_entries: list[MemoryEntry] = []
-            for entry in entries:
-                entry_key = self._entry_key(entry.category, entry.content, entry.source)
-                if entry_key in existing_keys:
-                    continue
-                await distill_context.suggest_memory_entry(entry)
-                existing_keys.add(entry_key)
-                saved_entries.append(entry)
-            return saved_entries
-
-        if self.backend is None:
-            raise RuntimeError("ClaudeCodeAdapter.distill_session requires an initialized backend")
-
-        existing_entries = await self.backend.structured_store.list_memory_entries(
-            project_name,
-            limit=10000,
-        )
-        existing_keys = {
-            self._entry_key(entry.category, entry.content, entry.source)
-            for entry in existing_entries
-        }
-
-        saved_entries = []
-        for entry in entries:
-            entry_key = self._entry_key(entry.category, entry.content, entry.source)
-            if entry_key in existing_keys:
-                continue
-            await self.backend.structured_store.save_memory_entry(entry)
-            existing_keys.add(entry_key)
-            saved_entries.append(entry)
-
-        return saved_entries
-
-    async def distill_relation_facts(
-        self,
-        session_id: str,
-        project_name: str,
-        *,
-        session_project_name: str | None = None,
-        distill_context: DistillContext | None = None,
-    ) -> list[RelationFact]:
-        """Extract and save explicit RelationFact records from a session.
-
-        v1.6.1: when ``distill_context`` is provided, writes go through
-        ``DistillContext.suggest_relation_fact`` (``status="pending"``).
-        """
-        project_dir = self.sessions_dir / (session_project_name or project_name)
-        if not project_dir.exists():
-            return []
-
-        session_file = None
-        for sf in project_dir.glob("*.jsonl"):
-            if session_id in sf.name:
-                session_file = sf
-                break
-
-        if not session_file:
-            return []
-
-        turns = self.parse_jsonl_session(session_file)
-        facts = extract_relation_facts(turns, project_name, session_id)
-        if not facts:
-            return []
-
-        if distill_context is not None:
-            existing_facts = await distill_context.list_relation_facts(
-                project_name, limit=10000
-            )
-            existing_keys = {
-                self._relation_fact_key(
-                    fact.source_entity, fact.relation_type, fact.target_entity, fact.source
-                )
-                for fact in existing_facts
-            }
-            saved_facts: list[RelationFact] = []
-            for fact in facts:
-                fact_key = self._relation_fact_key(
-                    fact.source_entity,
-                    fact.relation_type,
-                    fact.target_entity,
-                    fact.source,
-                )
-                if fact_key in existing_keys:
-                    continue
-                await distill_context.suggest_relation_fact(fact)
-                existing_keys.add(fact_key)
-                saved_facts.append(fact)
-            return saved_facts
-
-        if self.backend is None:
-            raise RuntimeError("ClaudeCodeAdapter.distill_relation_facts requires an initialized backend")
-
-        existing_facts = await self.backend.structured_store.list_relation_facts(
-            project_name,
-            limit=10000,
-        )
-        existing_keys = {
-            self._relation_fact_key(fact.source_entity, fact.relation_type, fact.target_entity, fact.source)
-            for fact in existing_facts
-        }
-
-        saved_facts = []
-        for fact in facts:
-            fact_key = self._relation_fact_key(
-                fact.source_entity,
-                fact.relation_type,
-                fact.target_entity,
-                fact.source,
-            )
-            if fact_key in existing_keys:
-                continue
-            await self.backend.structured_store.save_relation_fact(fact)
-            existing_keys.add(fact_key)
-            saved_facts.append(fact)
-
-        return saved_facts
-
-    def _extract_entries(
-        self,
-        turns: list[dict[str, Any]],
-        project_name: str,
-        session_id: str,
-    ) -> list[MemoryEntry]:
-        """Run heuristic extraction over parsed turns.
-
-        Delegates to :func:`harness_mem.adapters.parser.extract_heuristic_entries`.
-        This is a heuristic (regex) extraction, **not** AI-powered distillation.
-        For higher-quality extraction, use the ``session-distill`` skill.
-        """
-        return extract_heuristic_entries(turns, project_name, session_id)
-
     @staticmethod
     def _select_observation_turns(
         turns: list[dict[str, Any]],
@@ -381,25 +182,6 @@ class ClaudeCodeAdapter:
         tail_start = len(turns) - tail_count + 1
         tail = list(enumerate(turns[-tail_count:], tail_start))
         return head + tail
-
-    @staticmethod
-    def _entry_key(category: str, content: str, source: str) -> tuple[str, str, str]:
-        normalized = " ".join(content.lower().split())
-        return (category, normalized, source)
-
-    @staticmethod
-    def _relation_fact_key(
-        source_entity: str,
-        relation_type: str,
-        target_entity: str,
-        source: str,
-    ) -> tuple[str, str, str, str]:
-        return (
-            source_entity.strip().lower(),
-            relation_type.strip().lower(),
-            target_entity.strip().lower(),
-            source,
-        )
 
     @staticmethod
     def _session_sort_key(session: SessionRecord) -> datetime:

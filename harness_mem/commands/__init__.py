@@ -1,6 +1,5 @@
 """Commands module — CLI implementation entry points."""
 
-from harness_mem.commands.distill import cmd_distill
 from harness_mem.commands.doctor import cmd_doctor
 from harness_mem.commands.ingest import cmd_ingest
 from harness_mem.commands.import_bridge import cmd_import
@@ -36,7 +35,6 @@ from harness_mem.commands.onboarding import cmd_quickstart
 
 __all__ = [
     "cmd_assign_memory_types",
-    "cmd_distill",
     "cmd_doctor",
     "cmd_ingest",
     "cmd_import",
