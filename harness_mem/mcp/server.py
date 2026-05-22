@@ -19,6 +19,44 @@ Tools:
   auto_review_candidates — heuristic auto-confirm / auto-reject pass (preview or apply)
   create_rule_candidate — create a rule candidate
   confirm_rule          — promote candidate to confirmed rule
+
+Future split note (do not split ad-hoc):
+  This file currently sits at ~2000 lines / 33 tools and the size is the
+  highest single-file source weight in the project. The natural split
+  axes are:
+
+      mcp/
+        server.py        — JSON-RPC handler, stdio plumbing, TOOLS registry,
+                           main loop. Stays small.
+        backend.py       — _get_backend / set_backend_override singleton.
+                           Public contract: set_backend_override is imported
+                           by tests (tests/mcp/test_smoke.py,
+                           tests/api/test_server.py) — re-export from
+                           server.py if moved.
+        serializers.py   — _serialize_rule_candidate / _serialize_memory_
+                           entry_candidate / _isoformat etc.
+        tools/
+          read.py        — search_memory / timeline / trace_relations /
+                           search_raw / search_skills / get_*
+          ingest.py      — ingest_sessions / prepare_session_distill /
+                           distill_sessions / list_candidates /
+                           auto_review_candidates
+          review.py      — confirm_* / reject_* / suggest_*
+          write.py       — create_rule_candidate / create_task_handoff
+
+  Reasons NOT to split today:
+   1. set_backend_override is a public test-facing API; moving its module
+      breaks imports across tests/. A re-export shim works but adds
+      complexity without runtime benefit.
+   2. _REAL_STDOUT_FD redirection lives at module-import time in this
+      file. Splitting risks ordering bugs in stdio protection.
+   3. No user-facing pain point drives the split — it's pure long-term
+      maintainability. That class of change deserves an OpenSpec change
+      proposal, not an ad-hoc refactor.
+
+  When the file crosses ~2500 lines, or when adding a new tool category
+  forces a 5th cluster, file an OpenSpec change ("split MCP server into
+  read/ingest/review/write modules") and execute it as a coordinated PR.
 """
 
 import os
@@ -734,111 +772,17 @@ def tool_distill_sessions(
     }
 
 
-def _isoformat(value: Any) -> str | None:
-    if value is None:
-        return None
-    if hasattr(value, "isoformat"):
-        return value.isoformat()
-    return str(value)
-
-
-def _serialize_rule_candidate(candidate: Any) -> dict:
-    return {
-        "type": "rule",
-        "id": candidate.id,
-        "project_name": candidate.project_name,
-        "status": candidate.status,
-        "pattern": candidate.pattern,
-        "trigger": candidate.trigger,
-        "examples": candidate.examples,
-        "confidence": candidate.confidence,
-        "source_session_id": candidate.session_id,
-        "created_at": _isoformat(candidate.created_at),
-        "confirm_tool": "confirm_rule",
-        "reject_tool": "reject_rule",
-    }
-
-
-def _serialize_memory_entry_candidate(entry: Any) -> dict:
-    return {
-        "type": "memory_entry",
-        "id": entry.id,
-        "project_name": entry.project_name,
-        "status": entry.status,
-        "category": entry.category,
-        "memory_type": getattr(entry, "memory_type", None),
-        "content": entry.content,
-        "confidence": entry.confidence,
-        "source": entry.source,
-        "tags": entry.tags,
-        "created_at": _isoformat(entry.created_at),
-        "updated_at": _isoformat(entry.updated_at),
-        "provenance": entry.provenance,
-        "confirm_tool": "confirm_memory_entry",
-        "reject_tool": "reject_memory_entry",
-    }
-
-
-def _serialize_relation_fact_candidate(fact: Any) -> dict:
-    return {
-        "type": "relation_fact",
-        "id": fact.id,
-        "project_name": fact.project_name,
-        "status": fact.status,
-        "source_entity": fact.source_entity,
-        "target_entity": fact.target_entity,
-        "relation_type": fact.relation_type,
-        "evidence": fact.evidence,
-        "source": fact.source,
-        "confidence": fact.confidence,
-        "tags": fact.tags,
-        "created_at": _isoformat(fact.created_at),
-        "updated_at": _isoformat(fact.updated_at),
-        "provenance": fact.provenance,
-        "confirm_tool": "confirm_relation_fact",
-        "reject_tool": "reject_relation_fact",
-    }
-
-
-def _serialize_supersede_candidate(candidate: Any) -> dict:
-    return {
-        "type": "supersede",
-        "id": candidate.id,
-        "project_name": candidate.project_name,
-        "status": candidate.status,
-        "target_type": candidate.target_type,
-        "target_id": candidate.target_id,
-        "replacement_type": candidate.replacement_type,
-        "replacement_id": candidate.replacement_id,
-        "reason": candidate.reason,
-        "evidence": candidate.evidence,
-        "confidence": candidate.confidence,
-        "source": candidate.source,
-        "created_at": _isoformat(candidate.created_at),
-        "reviewed_at": _isoformat(candidate.reviewed_at),
-        "reviewer_id": candidate.reviewer_id,
-        "confirm_tool": "confirm_supersede",
-        "reject_tool": "reject_supersede",
-    }
-
-
-def _serialize_procedural_candidate(candidate: Any) -> dict:
-    return {
-        "type": "procedural",
-        "id": candidate.id,
-        "project_name": candidate.project_name,
-        "status": candidate.status,
-        "activation_condition": candidate.activation_condition,
-        "steps": candidate.steps,
-        "termination_condition": candidate.termination_condition,
-        "success_examples": candidate.success_examples,
-        "source_session_id": candidate.source_session_id,
-        "source": candidate.source,
-        "confidence": candidate.confidence,
-        "created_at": _isoformat(candidate.created_at),
-        "confirm_tool": "confirm_skill",
-        "reject_tool": "reject_skill",
-    }
+# Pure serializers extracted to mcp/serializers.py — see the future-split
+# note in the module docstring. We re-export the names here so internal
+# callers (and any external import that already uses them) keep working.
+from harness_mem.mcp.serializers import (  # noqa: E402, F401
+    _isoformat,
+    _serialize_memory_entry_candidate,
+    _serialize_procedural_candidate,
+    _serialize_relation_fact_candidate,
+    _serialize_rule_candidate,
+    _serialize_supersede_candidate,
+)
 
 
 async def _gather_candidate_payload(
