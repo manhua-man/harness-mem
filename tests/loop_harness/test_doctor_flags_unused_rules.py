@@ -253,3 +253,87 @@ def test_doctor_reports_relation_graph_count_without_nagging(
     assert "HM-" not in relation_line, (
         f"Relation graph line must not carry an HM-xxx code; got: {relation_line!r}"
     )
+
+
+def test_doctor_flags_unused_in_mixed_population(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    """Mixed real-world projects: some healthy rules, some dead weight.
+
+    Real projects don't look like the isolation scenarios above — they have
+    a mix of rules that get surfaced often and rules that quietly rotted.
+    HM-401 must still fire and the counts must be honest: 1 stale + 1
+    never-surfaced, not collapsed into a single number, and not silenced
+    by the presence of healthy rules.
+    """
+    project_name = "loop-harness-doctor-mixed"
+    set_active_project(project_name)
+
+    now = datetime.now(timezone.utc)
+    long_ago = now - timedelta(days=UNUSED_RULE_DAYS + 14)
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        # Healthy rule: surfaced this morning, recently confirmed.
+        _seed_rule(
+            backend,
+            project_name,
+            rule_id="rule-healthy",
+            pattern="A rule wake-up just surfaced.",
+            confirmed_at=now - timedelta(days=20),
+            usage_count=8,
+            last_surfaced_at=now - timedelta(hours=3),
+        )
+        # Stale rule: surfaced once, but last surface predates the cutoff.
+        _seed_rule(
+            backend,
+            project_name,
+            rule_id="rule-stale",
+            pattern="A rule that worked once but the project moved on.",
+            confirmed_at=long_ago,
+            usage_count=2,
+            last_surfaced_at=long_ago,
+        )
+        # Never-surfaced rule: confirmed yesterday, no surface ever.
+        _seed_rule(
+            backend,
+            project_name,
+            rule_id="rule-never",
+            pattern="A rule confirmed in haste, never invoked.",
+            confirmed_at=now - timedelta(days=1),
+            usage_count=0,
+            last_surfaced_at=None,
+        )
+    finally:
+        run(backend.close())
+
+    assert run(cmd_doctor(project_name)) == 0
+    captured = capsys.readouterr().out
+
+    LoopMetrics(
+        name="doctor_unused_rules_mixed",
+        values={
+            "hm_401_emitted": float("HM-401" in captured),
+            "stale_count_visible": float("1 stale" in captured),
+            "never_surfaced_count_visible": float("1 never surfaced" in captured),
+            "rule_quality_line_present": float("Rule quality:" in captured),
+        },
+    ).report()
+
+    assert "Rule quality:" in captured, (
+        "doctor must print Rule quality line when any confirmed rules exist"
+    )
+    assert "1 stale" in captured, (
+        f"doctor must report 1 stale rule despite the presence of healthy "
+        f"and never-surfaced rules; captured:\n{captured}"
+    )
+    assert "1 never surfaced" in captured, (
+        f"doctor must report 1 never-surfaced rule despite the presence of "
+        f"healthy and stale rules; captured:\n{captured}"
+    )
+    assert "HM-401" in captured, (
+        "doctor must emit HM-401 when any rule (stale OR never-surfaced) "
+        "qualifies, even if other rules are healthy"
+    )

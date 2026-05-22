@@ -52,6 +52,16 @@ scenario 7 实证：doctor 现在有 HM-401 提示用户处理久未命中或从
 等到有真实使用数据再调整。doctor 只提示，不删——删除继续是 reject /
 supersede 的明确人工动作。
 
+scenario 7 现在覆盖四种真实情况：never-surfaced 隔离、stale 隔离、healthy
+项目无误报、以及**混合人口**（healthy + stale + never-surfaced 共存）的
+实际场景。混合 case 是关键回归——确认了健康规则的存在不会让 doctor 把
+HM-401 静默掉，stale / never-surfaced 计数也分开输出而不是合并成单一数字。
+
+实跑验证：在真实开发数据（v0191_recover 项目，0 confirmed rules）下
+`python -m harness_mem.cli doctor` 不显示 "Rule quality:" 行——这是
+正确行为，零规则的项目无可报告。HM-401 的实际触发要等 v2.0 LLM-driven
+distill 在真实使用中产生足够多的 confirmed rules 后才会自然出现。
+
 scenario 8 实证：周明远场景里"Tauri v1 → v2 升级，老 IPC 规则现在错了"的
 一步纠错路径已打通。CLI `harness-mem correct ... --supersedes <id> --reason ...`
 和 MCP `suggest_correction(...)` 走同一份 Python 逻辑，老规则 valid_to 设置 +
