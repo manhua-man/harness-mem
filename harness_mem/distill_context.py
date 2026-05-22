@@ -152,8 +152,9 @@ class DistillContext:
     async def suggest_memory_entry(self, entry: MemoryEntry) -> MemoryEntry:
         """以 ``status="pending"`` 落盘 MemoryEntry 候选。
 
-        v1.6.1 起 distill 默认走这条路径；旧的 "立即 accepted" 行为只能由 CLI
-        ``--auto-confirm`` flag 在外层显式转换。
+        v2.0: distill 只接受 LLM agent；agent 通过 MCP ``suggest_memory_entry``
+        进入这条路径。从 pending 转 accepted 由 ``confirm_memory_entry`` 或
+        auto_review 路径完成，DistillContext 自身不暴露这种 mutator。
         """
         entry.status = "pending"
         await self._backend.structured_store.save_memory_entry(entry)

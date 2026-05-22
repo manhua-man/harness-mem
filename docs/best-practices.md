@@ -62,8 +62,8 @@ harness-mem handoff
 ```
 
 ### 4.3 记忆维护 (Gardener 职责)
-建议定期进行一次“园艺工作”：
-1. **提炼与自动审核**：优先运行 `/hm:distill`。它应使用 `session-distill` Skill 做 AI 长程理解，并在同一轮自动确认低风险候选、拒绝噪声，最后给用户复核摘要。MCP `distill_sessions` 是低成本启发式 fallback，只会把明显 pattern 转为候选。
+建议定期进行一次"园艺工作"：
+1. **提炼与自动审核**：运行 `/hm:distill`。它应使用 `session-distill` Skill 做 AI 长程理解，并在同一轮自动确认低风险候选、拒绝噪声，最后给用户复核摘要。v2.0 后没有启发式兜底——distill 只接受 LLM agent。
 2. **清理**：`harness-mem purge --dry-run` — 发现并压缩陈旧、低频的记忆。
 3. **诊断**：`harness-mem doctor` — 检查项目健康度。
 
@@ -102,8 +102,7 @@ harness-mem handoff
   1. 用户日常运行 `/hm:distill`；Agent 通过 MCP `prepare_session_distill` 一次性完成项目范围 ingest 并拿到 evidence packet。
   2. 需要高质量结构化记忆时，使用 `session-distill` Skill 读取 packet，再通过 `suggest_*` / `create_task_handoff` 写入候选层。
   3. 写入候选后，`/hm:distill` 同一轮读取 `list_candidates`，自动确认低风险事实、拒绝噪声，只把真正高风险或证据不足项放进最终摘要。
-  4. MCP `distill_sessions` 只作为启发式兜底：没有明显可提取 pattern 时产出 0 是正常信号，不代表 observation 不可搜索。
-  5. 历史记忆会带有 `archive` 标签，方便在搜索时识别溯源。
+  4. 历史记忆会带有 `archive` 标签，方便在搜索时识别溯源。
 
 ---
 

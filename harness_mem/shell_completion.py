@@ -22,12 +22,12 @@ def completion_bash() -> str:
     """Generate bash completion script."""
     commands = [
         "init", "use", "quickstart", "doctor", "ingest", "wake-up", "search",
-        "timeline", "show", "status", "profile", "distill", "correct",
+        "timeline", "show", "status", "profile", "correct",
         "confirm-rule", "reject-rule", "purge", "list-candidates", "confirmed-rules",
         "handoff",
     ]
     aliases = {
-        "qs": "quickstart", "wake": "wake-up", "ds": "distill",
+        "qs": "quickstart", "wake": "wake-up",
         "confirm": "confirm-rule", "reject": "reject-rule",
         "tl": "timeline", "st": "status", "rules": "confirmed-rules",
         "candidates": "list-candidates",
@@ -89,7 +89,7 @@ def completion_zsh() -> str:
     """Generate zsh completion script."""
     commands = " ".join([
         "init", "use", "quickstart", "doctor", "ingest", "wake-up", "search",
-        "timeline", "show", "status", "profile", "distill", "correct",
+        "timeline", "show", "status", "profile", "correct",
         "confirm-rule", "reject-rule", "purge", "list-candidates", "confirmed-rules",
         "handoff",
     ])
@@ -150,7 +150,7 @@ def completion_fish() -> str:
     """Generate fish completion script."""
     commands = " ".join([
         "init", "use", "quickstart", "doctor", "ingest", "wake-up", "search",
-        "timeline", "show", "status", "profile", "distill", "correct",
+        "timeline", "show", "status", "profile", "correct",
         "confirm-rule", "reject-rule", "purge", "list-candidates", "confirmed-rules",
         "handoff",
     ])
@@ -208,11 +208,6 @@ complete -c harness-mem -n '__fish_seen_subcommand_from status; or __fish_seen_s
 # profile
 complete -c harness-mem -n '__fish_seen_subcommand_from profile' -l project -r -d "Project name"
 complete -c harness-mem -n '__fish_seen_subcommand_from profile' -l edit -d "Edit interactively"
-
-# distill
-complete -c harness-mem -n '__fish_seen_subcommand_from distill; or __fish_seen_subcommand_from ds' -l project -r -d "Project name"
-complete -c harness-mem -n '__fish_seen_subcommand_from distill; or __fish_seen_subcommand_from ds' -l session-id -r -d "Session ID"
-complete -c harness-mem -n '__fish_seen_subcommand_from distill; or __fish_seen_subcommand_from ds' -l category -x -a "architecture convention api bug decision" -d "Category"
 
 # correct
 complete -c harness-mem -n '__fish_seen_subcommand_from correct' -l project -r -d "Project name"

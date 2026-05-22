@@ -67,7 +67,7 @@ def test_quickstart_shows_recent_sessions_and_recommends_distill(
     assert "Recent Claude Code sessions:" in captured
     assert "sess-recent-001" in captured
     assert "📍 Phase:" in captured
-    assert "harness-mem ds" in captured
+    assert "/hm:distill" in captured
 
 
 def test_quickstart_auto_does_not_ingest_global_codex_sessions(

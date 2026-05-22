@@ -145,7 +145,6 @@ def get_config() -> dict:
 
 _ADOPTED_NEXT_STEP_COMMANDS = {
     "ingest",
-    "distill",
     "wake-up",
     "search",
     "purge",
@@ -591,10 +590,15 @@ def suggested_next_step(
         )
 
     if memory_entry_count == 0 and claude_sessions:
-        latest = session_identifier(claude_sessions[0])
         return (
-            "harness-mem ds",
-            f"Recent Claude Code sessions are already in memory. Distill structured memory from the newest session: {latest}.",
+            "/hm:distill",
+            (
+                "Sessions are ingested but no memory entries exist yet. "
+                "Run /hm:distill in your AI agent (Claude Code, Codex, "
+                "Cursor, etc.) so it can read sessions and write candidates "
+                "via MCP suggest_memory_entry. v2.0 removed the heuristic "
+                "CLI distill — distill is LLM-driven only."
+            ),
         )
 
     if memory_entry_count == 0:

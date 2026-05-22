@@ -39,9 +39,11 @@ alwaysApply: true
 - Agent 不应把逐条分类工作交给用户，也不应把 `/hm:review` 作为日常必经下一步。用户看到的默认形态是 `/hm:distill` 的最终摘要：自动确认了什么、自动拒绝了什么、哪些保留待定、哪些确实需要用户确认。
 - 只有 MCP 不可用、需要本地排障，或用户主动要求复查旧 pending 候选时，才退回 `/hm:review` 或 `harness-mem candidates` / `harness-mem confirm <id>` / `harness-mem reject <id>`。
 
-### 4. 正则 Distill 的定位
-- `harness-mem distill` / `harness-mem ds` 是启发式 fallback，适合快速 smoke、离线低成本扫描，或没有 AI Skill 可用的环境。
-- 不要把正则提取当成长期主提炼引擎。高质量记忆应由 AI Skill 产生，并通过候选审核链路进入结构化存储。
+### 4. Distill 的边界（v2.0）
+- distill **只接受 LLM agent**。v2.0 删除了 `harness-mem distill` CLI 子命令、MCP `distill_sessions` 工具，以及 `adapters/parser.py` 里的 heuristic 正则提取。
+- 任意 LLM agent（Claude Code skill、Codex agent、Cursor、Gemini、自定义）可以通过 MCP `prepare_session_distill` 拿 evidence packet，然后调 `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` 写候选。
+- `tools/session-distill/SKILL.md` 是 Claude Code 的参考实现；其它 client 可以照样写自己的 prompt + MCP 调用。
+- 没有 LLM agent 可用时，distill 路径就是 unavailable——这是有意设计，不是缺失。低质量正则伪装成 AI 提炼是 v2.0 砍掉它的原因。
 
 ---
 
@@ -82,7 +84,7 @@ harness-mem status
 harness-mem candidates
 harness-mem confirm <id>
 harness-mem reject <id>
-harness-mem distill  # 启发式 fallback，不是高质量提炼主路径
+# distill 路径在 v2.0 后由 LLM agent 通过 MCP 驱动；CLI 不再暴露 distill 子命令。
 ```
 
 ## Key Technologies
