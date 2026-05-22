@@ -16,22 +16,27 @@ Scoring model:
 - Candidates the auto-reviewer defers are not scored — that's the human
   review queue working as intended.
 
-Why thresholds are loose: the heuristic auto-reviewer is **the floor**, not
-the ceiling. A future LLM-driven auto-reviewer should slot into the same
-function signature and beat these numbers; the harness is here to make that
-comparison visible, not to gate the heuristic at a specific score.
+v2.0 note: this scenario used to feed candidates into the auto-reviewer
+through ``cmd_distill`` (heuristic regex distill). v2.0 removed that
+code path because heuristic distill produced low-confidence pseudo-AI
+candidates that violated the "AI memory runtime" promise. The calibration
+now seeds candidates **directly** to test the auto-review decision logic
+in isolation, mirroring the kind of input an LLM-driven distiller (the
+session-distill skill, or any future agent that calls
+``suggest_memory_entry`` / ``suggest_rule``) would produce.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
-from harness_mem import cli
 from harness_mem.commands.auto_review import auto_review_candidates
+from harness_mem.core.schemas import MemoryEntry, RuleCandidate
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from tests.helpers import patch_cli_adapters, run
+from tests.helpers import run
 from tests.loop_harness.conftest import LoopMetrics
 from tests.loop_harness.fixtures import LOOP_FIXTURES
 
@@ -43,34 +48,68 @@ def _matches_any(text: str, fragments: list[str]) -> bool:
     return any(f.lower() in lowered for f in fragments)
 
 
-def test_auto_review_calibration_against_hand_labels(
-    data_dir: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    claude_sessions_root_with_fixtures: Path,
-):
-    """Distill -> auto-review (apply) -> score confirmed/rejected vs labels."""
-    patch_cli_adapters(
-        monkeypatch, claude_sessions_root=claude_sessions_root_with_fixtures
-    )
+def _seed_signal_and_noise_entries(
+    backend: LocalMemoryBackend, project_name: str
+) -> dict[str, str]:
+    """Materialize one MemoryEntry per fixture signal and noise fragment.
 
-    project_name = LOOP_FIXTURES[0].project_name
-    # Default cmd_distill writes status='pending', which is exactly what
-    # auto-review expects to operate on.
-    assert run(cli.cmd_distill(project_name)) == 0
+    Returns ``{entry_id: content}`` so callers can score auto-review
+    decisions against ``LOOP_FIXTURES`` hand labels without running the
+    real distill pipeline (which is LLM-driven post-v2.0).
+    """
+    content_by_id: dict[str, str] = {}
+    for fixture in LOOP_FIXTURES:
+        # Signal entries: long, decision-flavored, high confidence.
+        # An LLM-driven distiller producing one entry per fixture signal
+        # would land roughly in this shape.
+        for signal in fixture.expected_signals:
+            entry = MemoryEntry(
+                id=str(uuid4()),
+                project_name=project_name,
+                category="decision",
+                content=(
+                    f"Signal carrier for the {signal} fixture: "
+                    f"the project established a clear convention around "
+                    f"{signal} and we recorded it as a long-term decision."
+                ),
+                confidence=0.85,
+                status="pending",
+                source=f"agent:{fixture.fixture_id}",
+            )
+            run(backend.structured_store.save_memory_entry(entry))
+            content_by_id[entry.id] = entry.content
 
-    all_signals = [s for f in LOOP_FIXTURES for s in f.expected_signals]
-    all_noise = [n for f in LOOP_FIXTURES for n in f.expected_noise]
+        # Noise entries: short, chatty, but high confidence — exactly the
+        # kind of "AI got too excited" output that auto-review should
+        # catch. We deliberately bump confidence above the heuristic floor
+        # so the auto-confirm path could fire if the noise pattern check
+        # were missing.
+        for noise in fixture.expected_noise:
+            entry = MemoryEntry(
+                id=str(uuid4()),
+                project_name=project_name,
+                category="decision",
+                content=noise,
+                confidence=0.85,
+                status="pending",
+                source=f"agent:{fixture.fixture_id}",
+            )
+            run(backend.structured_store.save_memory_entry(entry))
+            content_by_id[entry.id] = entry.content
+    return content_by_id
+
+
+def test_auto_review_calibration_against_hand_labels(data_dir: Path):
+    """Score auto-review decisions on directly-seeded labeled candidates."""
+    project_name = "loop-harness-auto-review-calibration"
 
     backend = LocalMemoryBackend(data_dir)
     run(backend.init())
     try:
-        # Snapshot pending candidates by id so we can score after status flips.
-        pending_before = run(
-            backend.structured_store.list_memory_entries(
-                project_name, limit=200, status="pending"
-            )
-        )
-        content_by_id = {entry.id: entry.content for entry in pending_before}
+        content_by_id = _seed_signal_and_noise_entries(backend, project_name)
+
+        all_signals = [s for f in LOOP_FIXTURES for s in f.expected_signals]
+        all_noise = [n for f in LOOP_FIXTURES for n in f.expected_noise]
 
         summary = run(
             auto_review_candidates(backend, project_name=project_name, apply=True)
@@ -100,14 +139,10 @@ def test_auto_review_calibration_against_hand_labels(
         )
 
         fp_rate = (
-            false_positives / len(confirmed_ids)
-            if confirmed_ids
-            else 0.0
+            false_positives / len(confirmed_ids) if confirmed_ids else 0.0
         )
         fn_rate = (
-            false_negatives / len(rejected_ids)
-            if rejected_ids
-            else 0.0
+            false_negatives / len(rejected_ids) if rejected_ids else 0.0
         )
     finally:
         run(backend.close())
@@ -124,10 +159,12 @@ def test_auto_review_calibration_against_hand_labels(
         },
     ).report()
 
-    # Conservative floors. The heuristic baseline must not silently confirm
-    # noise (FP rate stays low) or silently reject signal (FN rate stays
-    # low). Both bars are looser than what an LLM-driven reviewer should
-    # eventually clear.
+    assert summary.auto_confirmed > 0, (
+        "auto-review never confirmed any signal — calibration is too strict"
+    )
+    assert summary.auto_rejected > 0, (
+        "auto-review never rejected any noise — calibration is too loose"
+    )
     assert fp_rate < 0.2, (
         f"false_positive_rate too high: {fp_rate:.2f} "
         f"(auto-reviewer is confirming labeled noise)"
@@ -138,21 +175,15 @@ def test_auto_review_calibration_against_hand_labels(
     )
 
 
-def test_auto_review_preview_does_not_mutate_storage(
-    data_dir: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    claude_sessions_root_with_fixtures: Path,
-):
+def test_auto_review_preview_does_not_mutate_storage(data_dir: Path):
     """apply=False must leave every candidate's status untouched."""
-    patch_cli_adapters(
-        monkeypatch, claude_sessions_root=claude_sessions_root_with_fixtures
-    )
-    project_name = LOOP_FIXTURES[0].project_name
-    assert run(cli.cmd_distill(project_name)) == 0
+    project_name = "loop-harness-auto-review-preview"
 
     backend = LocalMemoryBackend(data_dir)
     run(backend.init())
     try:
+        _seed_signal_and_noise_entries(backend, project_name)
+
         before = run(
             backend.structured_store.list_memory_entries(
                 project_name, limit=200, status="pending"
@@ -166,7 +197,12 @@ def test_auto_review_preview_does_not_mutate_storage(
         # Preview reports decisions but applies nothing, so there should be
         # no entries in applied_decisions either.
         assert summary.applied_decisions == []
-        assert summary.auto_confirmed + summary.auto_rejected + summary.kept_pending == summary.new_candidates
+        assert (
+            summary.auto_confirmed
+            + summary.auto_rejected
+            + summary.kept_pending
+            == summary.new_candidates
+        )
 
         after = run(
             backend.structured_store.list_memory_entries(
@@ -184,17 +220,11 @@ def test_auto_review_preview_does_not_mutate_storage(
 def test_auto_review_rejects_noise_and_confirms_high_quality(data_dir: Path):
     """Direct exercise of both apply paths with hand-crafted candidates.
 
-    The fixture-driven calibration test above runs through the heuristic
-    distiller, which currently emits every entry at the default confidence
-    floor (0.7) — below the auto-confirm threshold (0.75). That is fine and
-    expected: heuristic distill is intentionally below the auto-confirm bar
-    so a human or LLM-driven distill must clear it.
-
-    This test directly seeds candidates that exercise both ends of the
-    decision tree so the auto-review mutator path itself is covered.
+    Mirrors the calibration test above but with explicitly-shaped inputs
+    that pin down each branch of the decision tree (auto_confirm vs
+    auto_reject vs defer) regardless of what the LOOP_FIXTURES happen to
+    cover this version.
     """
-    from harness_mem.core.schemas import MemoryEntry, RuleCandidate
-
     project_name = "loop-harness-auto-review-direct"
 
     backend = LocalMemoryBackend(data_dir)
@@ -277,8 +307,8 @@ def test_auto_review_rejects_noise_and_confirms_high_quality(data_dir: Path):
 
         # Summary numbers add up.
         assert summary.auto_confirmed == 2  # confirm_entry + confirm_rule
-        assert summary.auto_rejected == 1   # noise_entry
-        assert summary.kept_pending == 1    # defer_entry
+        assert summary.auto_rejected == 1  # noise_entry
+        assert summary.kept_pending == 1  # defer_entry
         assert summary.new_candidates == 4
     finally:
         run(backend.close())

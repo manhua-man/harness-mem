@@ -1,4 +1,4 @@
-"""Tests for :mod:`harness_mem.adapters.parser`."""
+﻿"""Tests for :mod:`harness_mem.adapters.parser`."""
 
 from __future__ import annotations
 
@@ -9,9 +9,7 @@ from pathlib import Path
 import pytest
 
 from harness_mem.adapters.parser import (
-    HEURISTIC_PATTERNS,
     extract_claude_session_cwd,
-    extract_heuristic_entries,
     list_session_files,
     parse_claude_jsonl_session,
     parse_codex_jsonl_session,
@@ -314,88 +312,3 @@ class TestSelectTurnsForPacket:
         assert selected == []
         assert omitted == 0
 
-
-# ===================================================================
-# HEURISTIC_PATTERNS / extract_heuristic_entries
-# ===================================================================
-
-class TestExtractHeuristicEntries:
-    def test_decision_pattern(self):
-        turns = [_claude_turn("", ["we decided to use FastAPI for the backend"])]
-        entries = extract_heuristic_entries(turns, "demo", "sess-1")
-        assert any(e.category == "decision" for e in entries)
-
-    def test_architecture_pattern(self):
-        turns = [_claude_turn("", ["I set up the database with PostgreSQL"])]
-        entries = extract_heuristic_entries(turns, "demo", "sess-1")
-        assert any(e.category == "architecture" for e in entries)
-
-    def test_bug_pattern(self):
-        turns = [_claude_turn("", ["the fix was to increase the timeout to 30s"])]
-        entries = extract_heuristic_entries(turns, "demo", "sess-1")
-        assert any(e.category == "bug" for e in entries)
-
-    def test_tool_api_errors_are_not_distilled_as_bugs(self):
-        turns = [_claude_turn("", [
-            "API Error: 400 Kiro API error: CONTENT_LENGTH_EXCEEDS. "
-            "An exception occurred while sending a tool request."
-        ])]
-        entries = extract_heuristic_entries(turns, "demo", "sess-1")
-        assert entries == []
-
-    def test_convention_pattern(self):
-        turns = [_claude_turn("", ["the standard is to use snake_case"])]
-        entries = extract_heuristic_entries(turns, "demo", "sess-1")
-        assert any(e.category == "convention" for e in entries)
-
-    def test_api_pattern(self):
-        turns = [_claude_turn("", ["the api endpoint is at /v2/users"])]
-        entries = extract_heuristic_entries(turns, "demo", "sess-1")
-        assert any(e.category == "api" for e in entries)
-
-    def test_ignores_user_turns(self):
-        """User text should not produce entries."""
-        turns = [_claude_turn("we should use FastAPI", [])]
-        entries = extract_heuristic_entries(turns, "demo", "sess-1")
-        assert len(entries) == 0
-
-    def test_empty_turns(self):
-        assert extract_heuristic_entries([], "demo", "sess-1") == []
-
-    def test_deduplicates_identical_content(self):
-        turns = [_claude_turn("", [
-            "we decided to use FastAPI",
-            "we decided to use FastAPI",  # same content again
-        ])]
-        entries = extract_heuristic_entries(turns, "demo", "sess-1")
-        decision_entries = [e for e in entries if e.category == "decision"]
-        assert len(decision_entries) == 1
-
-    def test_custom_patterns(self):
-        custom = [(__import__("re").compile(r"\bmy_custom_pattern\b", __import__("re").I), "custom", "custom")]
-        turns = [_claude_turn("", ["my_custom_pattern was used"])]
-        entries = extract_heuristic_entries(turns, "demo", "sess-1", patterns=custom)
-        assert len(entries) == 1
-        assert entries[0].category == "custom"
-
-    def test_bug_confidence_lower(self):
-        turns = [_claude_turn("", ["the fix was to restart the service"])]
-        entries = extract_heuristic_entries(turns, "demo", "sess-1")
-        bug_entry = next(e for e in entries if e.category == "bug")
-        assert bug_entry.confidence == 0.6  # bug confidence
-
-    def test_other_confidence_higher(self):
-        turns = [_claude_turn("", ["we decided to use Redis"])]
-        entries = extract_heuristic_entries(turns, "demo", "sess-1")
-        dec_entry = next(e for e in entries if e.category == "decision")
-        assert dec_entry.confidence == 0.7  # non-bug confidence
-
-    def test_heuristic_patterns_constant_is_populated(self):
-        """Verify HEURISTIC_PATTERNS has the expected number of patterns."""
-        assert len(HEURISTIC_PATTERNS) >= 20
-        categories = {c for _, c, _ in HEURISTIC_PATTERNS}
-        assert "decision" in categories
-        assert "architecture" in categories
-        assert "bug" in categories
-        assert "convention" in categories
-        assert "api" in categories

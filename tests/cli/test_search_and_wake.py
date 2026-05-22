@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -566,14 +566,24 @@ def test_cmd_search_raw_rejects_invalid_regex(
     captured = capsys.readouterr()
     assert "invalid regex" in captured.err
 
+
 @pytest.mark.integration
-def test_best_practices_claude_mainline_flow(
+def test_v2_mainline_ingest_suggest_confirm_wake_search_flow(
     data_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     claude_sessions_root: Path,
     codex_sessions_root: Path,
 ):
+    """v2.0 mainline: ingest -> LLM-driven distill (simulated) -> confirm -> wake -> search.
+
+    v2.0 removed the heuristic ``cmd_distill`` code path. The user-facing
+    distill step now lives entirely in an LLM agent (Claude Code skill,
+    Codex agent, etc.) which calls MCP ``suggest_memory_entry`` to write
+    candidates into the structured store. This test stands in for that
+    agent by writing a candidate directly through the structured store
+    and then walking the rest of the mainline (confirm -> wake -> search).
+    """
     write_claude_session(
         claude_sessions_root,
         "demo",
@@ -607,29 +617,24 @@ def test_best_practices_claude_mainline_flow(
         observations = run(backend.verbatim_store.list(limit=10))
         assert len(observations) == 1
         assert observations[0].metadata["project_name"] == "demo"
+
+        # Stand-in for an LLM agent calling MCP suggest_memory_entry +
+        # confirm_memory_entry. The real mainline lives behind the
+        # session-distill skill; here we reproduce its observable effect
+        # so wake/search can be exercised without an LLM in the loop.
+        from harness_mem.core.schemas import MemoryEntry
+
+        agent_entry = MemoryEntry(
+            project_name="demo",
+            category="architecture",
+            content="SQLite FTS5 powers local-first search in this project.",
+            confidence=0.9,
+            status="accepted",
+            source=f"observation:{observations[0].id}",
+        )
+        run(backend.structured_store.save_memory_entry(agent_entry))
     finally:
         run(backend.close())
-
-    assert run(cli.cmd_doctor("demo")) == 0
-    post_ingest_doctor = capsys.readouterr().out
-    assert "harness-mem ds" in post_ingest_doctor
-
-    assert run(cli.cmd_distill("demo", auto_confirm=True)) == 0
-    distill_output = capsys.readouterr().out
-    assert "Extracted 1 memory entries (accepted) from 1 sessions" in distill_output
-
-    backend = LocalMemoryBackend(data_dir)
-    run(backend.init())
-    try:
-        entries = run(backend.structured_store.list_memory_entries("demo", limit=10))
-        assert len(entries) == 1
-        assert "SQLite FTS5" in entries[0].content
-    finally:
-        run(backend.close())
-
-    assert run(cli.cmd_doctor("demo")) == 0
-    post_distill_doctor = capsys.readouterr().out
-    assert "harness-mem wake" in post_distill_doctor
 
     assert run(cli.cmd_wake_up("demo")) == 0
     wake_output = capsys.readouterr().out

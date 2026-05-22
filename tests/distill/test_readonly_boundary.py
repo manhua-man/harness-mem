@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
-
 import pytest
 
 from harness_mem.core.schemas import MemoryEntry, RelationFact
@@ -107,10 +105,16 @@ def test_suggest_relation_fact_persists_pending(backend) -> None:
     )
 
 
-def test_auto_confirm_via_cli_helper_flips_status(backend) -> None:
-    """``--auto-confirm`` 走 CLI helper，而非 DistillContext。"""
-    from harness_mem.commands.distill import _confirm_pending_outputs
+def test_auto_confirm_via_status_mutator_flips_status(backend) -> None:
+    """v2.0: pending entries become accepted via update_*_status mutators.
 
+    Before v2.0 there was a CLI helper ``_confirm_pending_outputs`` that
+    bridged ``--auto-confirm`` to the structured store. v2.0 removed the
+    heuristic distill code path entirely (along with that helper), so
+    callers that need to flip pending entries to accepted go straight
+    through the structured store. The DistillContext itself still
+    refuses to mutate truth — that boundary is the point.
+    """
     ctx = DistillContext(backend)
     entry = MemoryEntry(
         project_name="demo",
@@ -120,8 +124,13 @@ def test_auto_confirm_via_cli_helper_flips_status(backend) -> None:
     )
     run(ctx.suggest_memory_entry(entry))
 
-    run(_confirm_pending_outputs(backend, [entry], []))
-    assert entry.status == "accepted"
+    # Direct mutator call: this is what an MCP tool (e.g. confirm_memory_entry)
+    # or any future auto-review applier would do. DistillContext is bypassed
+    # here on purpose — its job is producing candidates, not promoting them.
+    flipped = run(
+        backend.structured_store.update_memory_entry_status(entry.id, "accepted")
+    )
+    assert flipped is True
 
     accepted = run(
         backend.structured_store.search_memory_entries(
@@ -157,16 +166,3 @@ def test_distill_context_compare_returns_diff_summary(backend) -> None:
     a, b, diff = ctx.compare(left, right)
     assert a is left and b is right
     assert diff == {"content_changed": True, "category_changed": False}
-
-
-def test_adapter_distill_signature_accepts_distill_context() -> None:
-    """ClaudeCodeAdapter.distill_session MUST accept distill_context kwarg.
-
-    This is a static contract: distill adapters must not require LocalMemoryBackend.
-    """
-    from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
-
-    sig = inspect.signature(ClaudeCodeAdapter.distill_session)
-    assert "distill_context" in sig.parameters
-    sig_facts = inspect.signature(ClaudeCodeAdapter.distill_relation_facts)
-    assert "distill_context" in sig_facts.parameters

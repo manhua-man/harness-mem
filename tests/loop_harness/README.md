@@ -1,6 +1,6 @@
 # Loop Evaluation Harness
 
-> **状态**: scenario 1–8 真跑并产生指标。
+> **状态**: scenario 2/3/4/5/7/8 真跑（v2.0 砍除 1 和 6——见下表脚注）。
 
 ## 这个 harness 解决什么问题
 
@@ -13,18 +13,18 @@
 | LongMemEval | 检索算法好不好 | "embedding 升级后，semantic R@5 从 0.95 涨到 0.96" |
 | Loop harness | 闭环各环节有没有偷工减料 | "AI 自动 confirm 的低风险候选，哪些其实应该 reject" |
 
-## 八个 scenario
+## 六个 scenario
 
 | # | 文件 | 状态 | 输出指标 |
 |---|---|---|---|
-| 1 | `test_distill_precision_recall.py` | ✅ 真跑 | `precision`, `recall`, `f1` |
 | 2 | `test_auto_confirm_calibration.py` | ✅ 真跑 | `false_positive_rate`, `false_negative_rate`, `auto_confirmed`, `auto_rejected`, `kept_pending` |
 | 3 | `test_wake_actually_surfaces.py` | ✅ 真跑 | `confirmed_rule_surfaced` (bool), `surface_count` |
 | 4 | `test_supersede_replaces.py` | ✅ 真跑 | `current_truth_correct` (bool), `history_visible_when_requested` (bool) |
 | 5 | `test_rule_surface_count_increments.py` | ✅ 真跑 | `usage_count` (int), `has_last_surfaced_at` (bool) |
-| 6 | `test_relation_graph_data_pipeline.py` | ✅ 真跑 | `relation_facts_extracted`, `relation_to_memory_ratio` |
 | 7 | `test_doctor_flags_unused_rules.py` | ✅ 真跑 | `hm_401_emitted` (bool), `rule_quality_line_present`, `stale_count_visible` |
 | 8 | `test_correction_supersede_one_shot.py` | ✅ 真跑 | `old_rule_marked_historical` (bool), `supersede_chain_returned` (bool) |
+
+**Scenario 1 (distill precision/recall)** 和 **scenario 6 (relation graph data pipeline)** 在 v2.0 移除——它们测的是启发式 distill，已在 v2.0 砍除。LLM-driven distill 的输出非确定性，不能在 CI 中以静态 fixture 跑出 baseline；agent 端的评估应放在 skill prompt 测试或 manual eval 报告里，不挤进 loop_harness。
 
 ## 跨版本对比怎么用
 
