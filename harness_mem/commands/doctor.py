@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Sequence, cast
 
 from harness_mem import __version__
@@ -49,6 +50,29 @@ async def cmd_doctor(project_name: str | None = None) -> int:
         print(format_error_summary(issue))
         print(f"Fix: {issue.fix_command}")
         return 1
+
+    # HM-501: surface obvious cwd / active-project mismatch before doing
+    # anything project-scoped. Catches the common Cursor / Codex case
+    # where the user ran ``harness-mem use`` once weeks ago and now
+    # writes memory into the wrong project from a different repo.
+    profile_store_for_listing = LocalProjectProfileStore(DEFAULT_DATA_DIR)
+    known_profiles = await profile_store_for_listing.list()
+    known_project_names = [p.project_name for p in known_profiles]
+    suspected_project = detect_cwd_project_mismatch(
+        cwd=Path.cwd(),
+        active_project=active_project,
+        known_projects=known_project_names,
+    )
+    if suspected_project:
+        # We hand-format here instead of calling format_error_summary so
+        # the user sees both their cwd and the suspected project; the
+        # generic summary is too lossy for this specific check.
+        doctor_error("doctor_cwd_project_mismatch")  # validate code is registered
+        print(
+            f"\n⚠️  HM-501: cwd ({Path.cwd().name}) looks like a different known "
+            f"project than the active one ({active_project})."
+        )
+        print(f"Fix: harness-mem use {suspected_project}")
 
     # v1.6.1: validate wake bucket quotas early so misconfiguration surfaces
     # before any project-specific work (HM-101 / HM-102).
@@ -336,3 +360,37 @@ async def _check_verbatim_exact_index_health(
         return {"has_issue": False, "message": "", "fix_command": ""}
     except Exception:
         return {"has_issue": False, "message": "", "fix_command": ""}
+
+
+def detect_cwd_project_mismatch(
+    *,
+    cwd: Path,
+    active_project: str | None,
+    known_projects: Sequence[str],
+) -> str | None:
+    """Return a known-project name when cwd unambiguously points elsewhere.
+
+    Conservative on purpose:
+
+    - If there is no active project, no candidate, or only one known project,
+      return None (nothing to disambiguate).
+    - The cwd's basename must exactly match a known project name *and* differ
+      from the active project. Soft matches ("ink" matching "inkpad") are
+      intentionally not enough; users hit those constantly when navigating
+      monorepos and we'd cry wolf.
+    - Returns the suspected project name so the caller can format its own
+      message and Fix: command.
+
+    The function is pure (no I/O) so it's trivial to unit-test from a
+    loop-harness scenario.
+    """
+    if not active_project or not known_projects:
+        return None
+    candidate = cwd.name
+    if not candidate:
+        return None
+    if candidate == active_project:
+        return None
+    if candidate in known_projects:
+        return candidate
+    return None

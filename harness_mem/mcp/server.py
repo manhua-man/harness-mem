@@ -96,8 +96,10 @@ from typing import Any  # noqa: E402
 from harness_mem import __version__ as _HARNESS_MEM_VERSION  # noqa: E402
 from harness_mem.commands.auto_review import auto_review_candidates  # noqa: E402
 from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
-from harness_mem.commands.support import get_active_project  # noqa: E402
+from harness_mem.commands.support import get_active_project, set_active_project  # noqa: E402
+from harness_mem.commands.wake import cmd_wake_up  # noqa: E402
 from harness_mem.core.schemas import ProceduralCandidate, SupersedeCandidate  # noqa: E402
+from harness_mem.core.schemas.project_profile import ProjectProfile  # noqa: E402
 from harness_mem.read_api import (  # noqa: E402
     build_search_project_context_map,
     parse_relative_time_window,
@@ -575,6 +577,165 @@ def tool_get_project_status(project_name: str | None = None) -> dict:
         "project_name": resolved_project,
         "active_project": active_project,
         **counts,
+    }
+
+
+def tool_set_active_project(project_name: str) -> dict:
+    """Set the active project so wake/search/suggest defaults pick it up.
+
+    Mirror of ``harness-mem use <project>`` — but driveable from any MCP
+    client. The active project is the implicit default for tools that
+    take ``project_name`` and is the only thing that keeps memory written
+    in different working directories from cross-contaminating.
+    """
+    name = (project_name or "").strip()
+    if not name:
+        return {"success": False, "error": "project_name must not be empty"}
+    previous = get_active_project()
+    set_active_project(name)
+    return {
+        "success": True,
+        "project_name": name,
+        "previous_active_project": previous,
+    }
+
+
+async def _merge_project_profile(
+    project_name: str,
+    *,
+    description: str | None,
+    stacks: list[str] | None,
+    key_files: list[str] | None,
+    conventions: list[str] | None,
+    service_hints: list[str] | None,
+    database_hints: list[str] | None,
+    replace: bool,
+) -> ProjectProfile:
+    """Apply a non-interactive update to ``ProjectProfile``.
+
+    ``replace=False`` (default) merges: ``None`` keeps the existing value,
+    a list extends with deduplication, and ``description`` overwrites only
+    when explicitly provided. ``replace=True`` substitutes each provided
+    field outright; missing fields still keep their existing values.
+    """
+    # Read DEFAULT_DATA_DIR through command_support so tests that
+    # monkeypatch the data dir (tests/conftest.py:data_dir) flow through
+    # this MCP tool too. Importing at call time is intentional.
+    from harness_mem.commands import support as _support
+
+    store = LocalProjectProfileStore(_support.DEFAULT_DATA_DIR)
+    existing = await store.get(project_name)
+
+    def _merge_list(old: list[str], new: list[str] | None) -> list[str]:
+        if new is None:
+            return list(old)
+        if replace:
+            return list(new)
+        combined = list(old)
+        seen = {item for item in combined}
+        for item in new:
+            if item not in seen:
+                combined.append(item)
+                seen.add(item)
+        return combined
+
+    if existing is None:
+        profile = ProjectProfile(
+            project_name=project_name,
+            description=description or "",
+            stacks=list(stacks or []),
+            key_files=list(key_files or []),
+            conventions=list(conventions or []),
+            service_hints=list(service_hints or []),
+            database_hints=list(database_hints or []),
+        )
+    else:
+        profile = ProjectProfile(
+            id=existing.id,
+            project_name=project_name,
+            description=description if description is not None else existing.description,
+            stacks=_merge_list(existing.stacks, stacks),
+            key_files=_merge_list(existing.key_files, key_files),
+            conventions=_merge_list(existing.conventions, conventions),
+            service_hints=_merge_list(existing.service_hints, service_hints),
+            database_hints=_merge_list(existing.database_hints, database_hints),
+            created_at=existing.created_at,
+            last_updated=datetime.now(timezone.utc),
+            last_ingest_at=existing.last_ingest_at,
+            last_ingest_session_id=existing.last_ingest_session_id,
+        )
+
+    await store.save(profile)
+    return profile
+
+
+def tool_update_project_profile(
+    project_name: str,
+    description: str | None = None,
+    stacks: list[str] | None = None,
+    key_files: list[str] | None = None,
+    conventions: list[str] | None = None,
+    service_hints: list[str] | None = None,
+    database_hints: list[str] | None = None,
+    replace: bool = False,
+) -> dict:
+    """Non-interactive replacement for ``harness-mem profile --edit``.
+
+    Adds (or, with ``replace=True``, substitutes) profile fields. Fields
+    omitted from the call are left untouched on the existing profile.
+    Lists are deduplicated when merged so repeated calls are idempotent
+    for the same value. Returns the resulting profile.
+    """
+    name = (project_name or "").strip()
+    if not name:
+        return {"success": False, "error": "project_name must not be empty"}
+
+    profile = asyncio.run(
+        _merge_project_profile(
+            name,
+            description=description,
+            stacks=stacks,
+            key_files=key_files,
+            conventions=conventions,
+            service_hints=service_hints,
+            database_hints=database_hints,
+            replace=replace,
+        )
+    )
+    return {
+        "success": True,
+        "project_name": profile.project_name,
+        "profile": {
+            "description": profile.description,
+            "stacks": profile.stacks,
+            "key_files": profile.key_files,
+            "conventions": profile.conventions,
+            "service_hints": profile.service_hints,
+            "database_hints": profile.database_hints,
+            "last_updated": profile.last_updated.isoformat(),
+        },
+    }
+
+
+def tool_wake(project_name: str | None = None, no_auto_ingest: bool = False) -> dict:
+    """Generate the wake-up context (project profile + recent rules / handoffs).
+
+    Mirror of ``harness-mem wake`` but agent-driveable. Captures the
+    printed wake-up summary as ``output`` so the agent can ingest it
+    directly without spawning a CLI subprocess.
+    """
+    resolved = project_name or get_active_project()
+    if not resolved:
+        return {
+            "success": False,
+            "error": "project_name is required when no active project is set",
+        }
+    payload = _run_command_to_payload(
+        cmd_wake_up(resolved, no_auto_ingest=no_auto_ingest)
+    )
+    return {
+        "project_name": resolved,
+        **payload,
     }
 
 
@@ -1352,6 +1513,9 @@ TOOLS: dict[str, ToolSpec] = build_tools({
     "get_confirmed_rules": tool_get_confirmed_rules,
     "get_project_profile": tool_get_project_profile,
     "get_project_status": tool_get_project_status,
+    "set_active_project": tool_set_active_project,
+    "update_project_profile": tool_update_project_profile,
+    "wake": tool_wake,
     "ingest_sessions": tool_ingest_sessions,
     "prepare_session_distill": tool_prepare_session_distill,
     "list_candidates": tool_list_candidates,

@@ -269,7 +269,8 @@ python -m harness_mem.mcp.server
 可用工具（MCP 工具名，调用前缀由客户端决定）：
 
 ```
-get_project_status, prepare_session_distill, list_candidates,
+get_project_status, set_active_project, update_project_profile, wake,
+prepare_session_distill, list_candidates,
 search_memory, timeline, get_observations,
 get_task_handoffs, get_confirmed_rules, get_project_profile,
 suggest_memory_entry, suggest_rule, suggest_relation_fact,
@@ -279,6 +280,7 @@ record_skill_result
 ```
 
 `search_memory` 支持 `scope=project|all` 和 `mode=auto|fts|hybrid`。
+`set_active_project` / `update_project_profile` / `wake` 让 agent 不必丢 CLI 给用户跑——任何 MCP 客户端都能驱动完整 setup。
 
 长期来看，MCP 是首选集成形态；CLI 继续保留为 bootstrap、调试入口和显式控制面板。目标不是让用户反复手动敲 `ingest` / `wake`，而是让记忆能力尽量自然地出现在 agent 工作流里。
 

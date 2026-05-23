@@ -62,6 +62,17 @@ CLI_ERROR_CODES: dict[str, CliErrorCode] = {
             "no longer relevant. doctor only flags them; deletion remains a deliberate human action."
         ),
     ),
+    "doctor_cwd_project_mismatch": CliErrorCode(
+        code="HM-501",
+        level="warning",
+        summary="active project does not match the current working directory.",
+        fix_command="harness-mem use <project-name>",
+        note=(
+            "Memory written while the active project is wrong gets attributed to the wrong project, "
+            "and wake/search will surface unrelated context. Switch projects, or unset and re-run "
+            "doctor from the right directory."
+        ),
+    ),
 }
 
 

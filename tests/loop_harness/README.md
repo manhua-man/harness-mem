@@ -23,6 +23,7 @@
 | 5 | `test_rule_surface_count_increments.py` | ✅ 真跑 | `usage_count` (int), `has_last_surfaced_at` (bool) |
 | 7 | `test_doctor_flags_unused_rules.py` | ✅ 真跑 | `hm_401_emitted` (bool), `rule_quality_line_present`, `stale_count_visible` |
 | 8 | `test_correction_supersede_one_shot.py` | ✅ 真跑 | `old_rule_marked_historical` (bool), `supersede_chain_returned` (bool) |
+| 9 | `test_mcp_setup_without_cli.py` | ✅ 真跑 | `set_active_project_works`, `update_profile_idempotent`, `wake_surfaces_convention`, `hm_501_emitted` |
 
 **Scenario 1 (distill precision/recall)** 和 **scenario 6 (relation graph data pipeline)** 在 v2.0 移除——它们测的是启发式 distill，已在 v2.0 砍除。LLM-driven distill 的输出非确定性，不能在 CI 中以静态 fixture 跑出 baseline；agent 端的评估应放在 skill prompt 测试或 manual eval 报告里，不挤进 loop_harness。
 
@@ -40,7 +41,7 @@
 
 ## 下一步（不在本切片）
 
-- **scenario 9**: 跨项目复用通用 rule 的产品语义（依赖 `global_rule` schema，目前缺；优先级 P2，等真实多项目用户反馈再做）
+- **scenario 10**: 跨项目复用通用 rule 的产品语义（依赖 `global_rule` schema，目前缺；优先级 P2，等真实多项目用户反馈再做）
 
 scenario 6 实证：自然 session 提取 0 relation facts / 5 memory entries，
 ratio = 0.0。要让 v1.7.2 graph traversal 真正可用，必须有 LLM-driven distill
@@ -67,3 +68,12 @@ scenario 8 实证：周明远场景里"Tauri v1 → v2 升级，老 IPC 规则�
 和 MCP `suggest_correction(...)` 走同一份 Python 逻辑，老规则 valid_to 设置 +
 supersede 链建立 + 默认 list_confirmed_rules 不再返回老规则，include_history
 仍可审计。
+
+
+scenario 9 实证：在 v2.0 周明远 / Cursor field test 中暴露的"agent 把 CLI
+命令丢给用户跑"问题，根因是缺少三个 MCP 工具：`set_active_project`、
+`update_project_profile`、`wake`。这一组 scenario 直接通过 JSON-RPC
+`handle_request` 走完一遍 agent 该做的 setup（设项目 → 写 profile → 增量再
+写一次保 idempotent → wake 验证 convention 出现在输出里），并加一个 HM-501
+（cwd 与 active project 不一致）的 doctor 测，覆盖正反两面：cwd 名字命中已
+知项目时必须告警，cwd 是无关目录时必须沉默。

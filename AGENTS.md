@@ -32,6 +32,8 @@ alwaysApply: true
 ### 2. 运行时读写（Runtime Access）
 - **主动搜索**：执行任务前，如果历史上下文可能影响当前判断，Agent 应使用 MCP `search_memory`。
 - **随手记录**：当日常工作中出现新的约定、事实或纠正，Agent 应使用 MCP `suggest_rule` / `suggest_memory_entry`，而不是等待后续批量提炼。
+- **设置项目和 profile**：进入新项目时第一步是 `set_active_project`；要把稳定约定（栈、关键文件、conventions）写进 wake-up 时调 `update_project_profile`，不要让用户开终端跑 `harness-mem use` / `profile --edit`。
+- **生成唤醒上下文**：用 `wake` 让用户/agent 直接拿到 wake-up 文本，不要丢 `harness-mem wake` CLI 给用户。
 - **消费边界**：`search_memory` / `wake` 默认只消费已确认记忆；pending 候选用于审核，不应污染唤醒上下文。
 
 ### 3. 自动审核与人类复核（Auto-review + Human Final Review）

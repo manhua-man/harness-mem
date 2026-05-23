@@ -97,13 +97,14 @@ def test_stdio_initialize_writes_json_rpc_to_stdout():
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 33
+    assert len(tools) == 36
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
         "search_raw", "search_skills",
         "get_task_handoffs", "get_confirmed_rules", "get_project_profile",
-        "get_project_status", "ingest_sessions", "prepare_session_distill",
+        "get_project_status", "set_active_project", "update_project_profile", "wake",
+        "ingest_sessions", "prepare_session_distill",
         "list_candidates", "auto_review_candidates",
         "trace_relations",
         "create_rule_candidate", "confirm_rule", "reject_rule", "suggest_rule",

@@ -229,6 +229,98 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             },
         },
     },
+    "set_active_project": {
+        "description": (
+            "Set the active project so wake / search / suggest defaults pick it up. "
+            "Mirror of `harness-mem use <project>` for any MCP client. The active "
+            "project is the only thing that prevents memory written from different "
+            "working directories from cross-contaminating; agents should call this "
+            "once at the start of a session in a new project."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Project to mark as active",
+                },
+            },
+            "required": ["project_name"],
+        },
+    },
+    "update_project_profile": {
+        "description": (
+            "Non-interactive replacement for `harness-mem profile --edit`. Adds "
+            "(or, with replace=true, substitutes) profile fields. Fields omitted "
+            "from the call are left untouched. Lists are deduplicated when merged "
+            "so repeated calls with the same value are idempotent. Profiles feed "
+            "wake-up directly, so this is the fastest way to teach the system a "
+            "stable convention without going through the candidate review loop."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "description": {
+                    "type": "string",
+                    "description": "Short description of the project",
+                },
+                "stacks": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Languages and frameworks (e.g. ['rust', 'tauri', 'typescript'])",
+                },
+                "key_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Important file paths",
+                },
+                "conventions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Project conventions or guard rails",
+                },
+                "service_hints": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Service names or URLs",
+                },
+                "database_hints": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Database connection strings or types",
+                },
+                "replace": {
+                    "type": "boolean",
+                    "description": "When true, replace each provided list outright instead of merging.",
+                    "default": False,
+                },
+            },
+            "required": ["project_name"],
+        },
+    },
+    "wake": {
+        "description": (
+            "Generate the wake-up context (project profile + recent rules + "
+            "handoffs) for the given project, or the active project when "
+            "project_name is omitted. Mirror of `harness-mem wake`. Returns the "
+            "wake-up text in `output` so the agent can ingest it directly."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (defaults to active project when omitted)",
+                },
+                "no_auto_ingest": {
+                    "type": "boolean",
+                    "description": "Skip the auto-ingest pass before generating wake-up text.",
+                    "default": False,
+                },
+            },
+        },
+    },
     "ingest_sessions": {
         "description": "Ingest local agent sessions for a project through MCP.",
         "input_schema": {
