@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v1.6.x
 
-> 状态：草案。v1.6.0 已经具备启动条件；v1.6.1 / v1.6.2 的细节会在前一切片收尾时再具化。
+> 状态：v1.6.0 - v1.6.2 已完成实现；完整当前状态见 [`roadmap-status.md`](./roadmap-status.md)。本文件保留切片设计、验收口径和历史决策链。
 >
 > 配合 [`roadmap-v15x.md`](./roadmap-v15x.md) 与 [`roadmap-vision-v16-v18.md`](./roadmap-vision-v16-v18.md) 阅读：v1.5.x 是把当前架构做扎实，v1.6.x 是把 vision 文档里 v1.6 那段"持久化向量 + 记忆分型 + 预算纪律 + distill 安全"翻译成可执行的三切片。
 >

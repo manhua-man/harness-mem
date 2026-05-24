@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-harness-mem MCP Server — structured memory access for Claude Code
+harness-mem MCP Server — structured memory access for AI agents
 =================================================================
 Install: claude mcp add harness-mem -- python -m harness_mem.mcp.server
 
@@ -33,7 +33,6 @@ Future split note (do not split ad-hoc):
         backend.py       — _get_backend / set_backend_override singleton.
                            Public contract: set_backend_override is imported
                            by tests (tests/mcp/test_smoke.py,
-                           tests/api/test_server.py,
                            tests/test_memory_type_search_payload.py,
                            tests/loop_harness/test_correction_supersede_one_shot.py)
                            — re-export from server.py if moved.
@@ -583,10 +582,9 @@ def tool_get_project_status(project_name: str | None = None) -> dict:
 def tool_set_active_project(project_name: str) -> dict:
     """Set the active project so wake/search/suggest defaults pick it up.
 
-    Mirror of ``harness-mem use <project>`` — but driveable from any MCP
-    client. The active project is the implicit default for tools that
-    take ``project_name`` and is the only thing that keeps memory written
-    in different working directories from cross-contaminating.
+    The active project is the implicit default for tools that take
+    ``project_name`` and is the only thing that keeps memory written in
+    different working directories from cross-contaminating.
     """
     name = (project_name or "").strip()
     if not name:
@@ -679,7 +677,7 @@ def tool_update_project_profile(
     database_hints: list[str] | None = None,
     replace: bool = False,
 ) -> dict:
-    """Non-interactive replacement for ``harness-mem profile --edit``.
+    """Non-interactive project profile update.
 
     Adds (or, with ``replace=True``, substitutes) profile fields. Fields
     omitted from the call are left untouched on the existing profile.
@@ -720,9 +718,8 @@ def tool_update_project_profile(
 def tool_wake(project_name: str | None = None, no_auto_ingest: bool = False) -> dict:
     """Generate the wake-up context (project profile + recent rules / handoffs).
 
-    Mirror of ``harness-mem wake`` but agent-driveable. Captures the
-    printed wake-up summary as ``output`` so the agent can ingest it
-    directly without spawning a CLI subprocess.
+    Captures the printed wake-up summary as ``output`` so the agent can
+    ingest it directly without spawning a CLI subprocess.
     """
     resolved = project_name or get_active_project()
     if not resolved:

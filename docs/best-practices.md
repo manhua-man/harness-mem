@@ -1,14 +1,14 @@
 # harness-mem 最佳实践 (v1.4+)
 
-## 1. 核心架构：4 角色协作
+## 1. 核心架构：AI-led Candidate Loop
 
 harness-mem 不仅仅是一个工具，它定义了一套 AI 参与的记忆生命周期。
 
 | 角色 | 职责 | 主要交互方式 |
 |------|------|-------------|
 | **User (用户)** | 提出目标，复核最终摘要并纠错。 | 自然语言 / Slash |
-| **Executor (执行者)** | 完成具体的编码或研究任务。 | MCP 工具调用 |
-| **Gardener (园丁)** | 维护记忆健康：ingest、distill、auto-review、purge、关联条目。 | MCP/Skill，CLI 仅排障 |
+| **Executor (执行者)** | 完成具体的编码或研究任务。 | Slash / Skill / Agent 自然语言入口 |
+| **Gardener (园丁)** | 维护记忆健康：ingest、distill、auto-review、purge、关联条目。 | `/hm:distill` / Skill；CLI 仅排障 |
 | **Memory Expert (专家)** | 判断候选价值，自动确认低风险事实、拒绝噪声，把高风险项留给用户。 | MCP (`list_candidates` / `confirm_*` / `reject_*`) |
 
 ---
@@ -19,13 +19,13 @@ harness-mem 不仅仅是一个工具，它定义了一套 AI 参与的记忆生�
 
 为了保证记忆库的信噪比，所有由 AI 产生的结构化知识（MemoryEntry, Rule, Relation）都应先进入“候选层”（状态为 `pending`）。
 
-- **Executor 行为**：在任务结束或发现关键决策时，使用 `suggest_memory_entry` 或 `create_task_handoff`。
+- **Executor 行为**：在用户明确要求记录、或 `/hm:distill` / Skill 流程中发现关键决策时，使用 `suggest_memory_entry` 或 `create_task_handoff`。
 - **Gardener 行为**：`/hm:distill` 应在同一轮通过 MCP `list_candidates` 读取候选，自动确认低风险长期事实，拒绝工具噪声、跨项目 workflow、泛泛原则、重复项或证据不足项。
 - **User 行为**：查看 `/hm:distill` 的最终摘要，指出处理不对的编号。`/hm:review` 只用于复查旧 pending、纠错或 MCP 异常后的手动补救，不是日常必经步骤。
 
 ---
 
-## 3. MCP 工具全集 (AI 视角)
+## 3. Runtime 工具全集 (Agent 视角)
 
 Executor 应根据场景自主选择工具：
 
@@ -47,25 +47,18 @@ Executor 应根据场景自主选择工具：
 ## 4. 日常流 (Workflow)
 
 ### 4.1 开启新 Session (Wake-up)
-AI 应在启动时自动调用 `wake-up` 逻辑（通常由客户端集成完成），或由 User 运行：
-```bash
-harness-mem wake
-```
+AI 应在启动时通过客户端集成或 MCP 工具调用 `wake` 逻辑。不要把终端命令当成用户日常入口；CLI 只用于本地排障兜底。
 **目标**：将 Profile、Rules 和最近的 Task Handoffs 注入 Context。
 
 ### 4.2 任务切换与交接
 在 Executor 完成阶段性工作后，应主动调用：
-```bash
-# AI 通过 MCP 调用 create_task_handoff
-# 或用户手动：
-harness-mem handoff
-```
+AI 应通过 MCP `create_task_handoff` 记录任务交接；不要把终端 handoff 命令作为日常入口。
 
 ### 4.3 记忆维护 (Gardener 职责)
 建议定期进行一次"园艺工作"：
 1. **提炼与自动审核**：运行 `/hm:distill`。它应使用 `session-distill` Skill 做 AI 长程理解，并在同一轮自动确认低风险候选、拒绝噪声，最后给用户复核摘要。v2.0 后没有启发式兜底——distill 只接受 LLM agent。
-2. **清理**：`harness-mem purge --dry-run` — 发现并压缩陈旧、低频的记忆。
-3. **诊断**：`harness-mem doctor` — 检查项目健康度。
+2. **清理**：需要 cleanup 时先走显式 dry-run，由 Agent 解释范围后再执行。
+3. **诊断**：需要本地排障时再运行 doctor；日常状态由 Agent 在背后读取 runtime status。
 
 ---
 
@@ -80,8 +73,8 @@ harness-mem handoff
 ## 6. 高级技巧
 
 - **跨项目搜索**：使用 `scope="all"` 可以在所有已知项目中检索通用知识。
-- **溯源 (Provenance)**：每条记忆条目都带有 `source` 标记，可以通过 `harness-mem show <obs-id>` 查看其产生的原始语境。
-- **自定义 Profile**：通过 `harness-mem profile --edit` 维护 `key_files` 和 `conventions`，这是 `wake-up` 时最重要的静态权重。
+- **溯源 (Provenance)**：每条记忆条目都带有 `source` 标记，应优先通过 MCP `get_observations` / `timeline` 查看其产生的原始语境。
+- **自定义 Profile**：通过 MCP `update_project_profile` 维护 `key_files` 和 `conventions`，这是 `wake-up` 时最重要的静态权重。
 
 ---
 
@@ -94,12 +87,9 @@ harness-mem handoff
   /hm:distill <project> 20
   ```
 - **显式全局导入**：
-  ```bash
-  # 仅开发者排障或用户明确要求跨项目历史时使用
-  harness-mem ingest codex-archive -n 20 --scope all
-  ```
+  仅在开发者排障或用户明确要求跨项目历史时，让 Agent 执行跨项目 archive ingest，并在最终摘要里说明范围。
 - **工作流建议**：
-  1. 用户日常运行 `/hm:distill`；Agent 通过 MCP `prepare_session_distill` 一次性完成项目范围 ingest 并拿到 evidence packet。
+  1. 用户日常运行 `/hm:distill`；Agent 在背后一次性完成项目范围 ingest 并拿到 evidence packet。
   2. 需要高质量结构化记忆时，使用 `session-distill` Skill 读取 packet，再通过 `suggest_*` / `create_task_handoff` 写入候选层。
   3. 写入候选后，`/hm:distill` 同一轮读取 `list_candidates`，自动确认低风险事实、拒绝噪声，只把真正高风险或证据不足项放进最终摘要。
   4. 历史记忆会带有 `archive` 标签，方便在搜索时识别溯源。
@@ -125,11 +115,11 @@ harness-mem handoff
 
 > **这个方法是"任何上层应用都需要的最小集"，还是"当前 CLI / MCP 应用的便利封装"？**
 
-如果是后者，放到 `commands/`、`mcp/`、`api/` 或 `tools/`，**不要污染 interface**。
+如果是后者，放到 `commands/`、`mcp/` 或 `tools/`，**不要污染 interface**。
 
 ### 判断准则
 
-| 应放进 interface | 应放在 commands/ 或 mcp/ 或 api/ |
+| 应放进 interface | 应放在 commands/ 或 mcp/ |
 |-----------------|-------------------------------|
 | `save_memory_entry(entry)` | `cmd_correct(...)`（先建 candidate 再调 save） |
 | `search_memory_entries(query, scope)` | `cmd_search(...)`（含 UI 输出格式化） |

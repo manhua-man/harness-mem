@@ -18,6 +18,7 @@
 | `error-codes.md` | `doctor` 输出的 `HM-xxx` 错误码与修复命令映射 |
 | `reference-projects.md` | 外部 memory/wiki/self-evolution 参考项目，以及本地 `F:\memory-lab\upstreams` 镜像说明 |
 | `retrospective-v13-v14.md` | v13 -> v14 架构演进评审记录 |
+| `roadmap-status.md` | 当前 roadmap 完成情况：v1.6/v1.7/v1.8/v2.0/v2.1 已完成项、边界和未做项 |
 | `roadmap-v15x.md` | v1.5.x 分切片交付记录（v1.5.1 - v1.5.3） |
 | `roadmap-v16x.md` | v1.6.x roadmap：measurement foundation、typing、bucket budget、persistent vectors |
 | `roadmap-v17x.md` | v1.7.x roadmap：temporal schema、supersede、bounded relation graph、verbatim exact evidence search |

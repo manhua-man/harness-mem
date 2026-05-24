@@ -164,7 +164,7 @@ async def _correct_via_supersede(
         print(
             f"Created new rule {new_rule.id} but supersede confirmation failed; "
             f"old rule {old_rule.id} is still current. "
-            f"Run: harness-mem confirm-supersede {candidate.id}"
+            f"Call MCP confirm_supersede(candidate_id={candidate.id!r})"
         )
         return 1
 

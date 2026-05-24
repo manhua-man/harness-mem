@@ -126,7 +126,7 @@ def test_doctor_reports_missing_project_context(
     captured = capsys.readouterr().out
     assert "📍 Phase: No Project Selected" in captured
     assert "code: HM-002" in captured
-    assert "harness-mem use <project-name>" in captured
+    assert 'MCP set_active_project(project_name="<project-name>")' in captured
 
 
 def test_doctor_shows_recent_sessions_and_recommends_wake(
@@ -186,7 +186,7 @@ def test_doctor_shows_recent_sessions_and_recommends_wake(
     assert "Recent Claude Code sessions:" in captured
     assert "sess-recent-001" in captured
     assert "📍 Phase:" in captured
-    assert "harness-mem wake" in captured
+    assert 'MCP wake(project_name="demo")' in captured
 
 
 def test_doctor_reports_memory_quality_counts(
@@ -252,7 +252,7 @@ def test_doctor_recommends_project_scoped_auto_ingest_for_codex_sessions(
     captured = capsys.readouterr().out
     assert "Codex sessions (global): 1" in captured
     assert "not project-scoped" in captured
-    assert "harness-mem ingest auto -p demo -n 1" in captured
+    assert 'MCP ingest_sessions(project_name="demo", client="auto", limit=1)' in captured
     assert "--scope all" in captured
     assert "Start by ingesting the newest session" not in captured
 
@@ -295,9 +295,9 @@ def test_doctor_codex_only_project_recommends_search_until_structured_memory_exi
     captured = capsys.readouterr().out
     assert "Observations: 1" in captured
     assert "Memory entries: 0" in captured
-    assert "harness-mem search <query>" in captured
+    assert 'MCP search_memory(query="<query>")' in captured
     assert "wake-up needs structured memory" in captured
-    assert "harness-mem wake" not in captured
+    assert "MCP wake" not in captured
 
 
 def test_doctor_logs_next_step_event(
@@ -356,6 +356,6 @@ def test_doctor_logs_next_step_event(
     assert any(
         event["type"] == "next_step_shown"
         and event["command"] == "doctor"
-        and event["next_step"] == "harness-mem wake"
+        and event["next_step"] == 'MCP wake(project_name="demo")'
         for event in events
     )

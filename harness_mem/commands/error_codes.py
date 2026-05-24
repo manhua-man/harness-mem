@@ -28,7 +28,7 @@ CLI_ERROR_CODES: dict[str, CliErrorCode] = {
         code="HM-002",
         level="warning",
         summary="doctor has no project context to inspect.",
-        fix_command="harness-mem use <project-name>",
+        fix_command='MCP set_active_project(project_name="<project-name>")',
         note="Sets the active project so doctor can inspect project-scoped memory and sessions.",
     ),
     "doctor_wake_budget_large": CliErrorCode(
@@ -56,7 +56,7 @@ CLI_ERROR_CODES: dict[str, CliErrorCode] = {
         code="HM-401",
         level="warning",
         summary="confirmed rules have not been surfaced in any wake-up for the configured retention window.",
-        fix_command="harness-mem rules  # review unused rules; manually reject or supersede stale ones",
+        fix_command="MCP get_confirmed_rules -> reject_rule or suggest_supersede",
         note=(
             "Rules with usage_count == 0 or last_surfaced_at older than the retention window are likely "
             "no longer relevant. doctor only flags them; deletion remains a deliberate human action."
@@ -66,7 +66,7 @@ CLI_ERROR_CODES: dict[str, CliErrorCode] = {
         code="HM-501",
         level="warning",
         summary="active project does not match the current working directory.",
-        fix_command="harness-mem use <project-name>",
+        fix_command='MCP set_active_project(project_name="<project-name>")',
         note=(
             "Memory written while the active project is wrong gets attributed to the wrong project, "
             "and wake/search will surface unrelated context. Switch projects, or unset and re-run "

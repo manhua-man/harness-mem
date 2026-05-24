@@ -218,7 +218,7 @@ def test_status_with_active_project_reports_healthy_state(
     captured = capsys.readouterr().out
     assert "Project: demo" in captured
     assert "📍 Phase: Healthy" in captured
-    assert "harness-mem wake" in captured
+    assert 'MCP wake(project_name="demo")' in captured
 
 
 def test_search_surfaces_observation_id_for_show(data_dir: Path, capsys: pytest.CaptureFixture[str]):
@@ -603,7 +603,7 @@ def test_v2_mainline_ingest_suggest_confirm_wake_search_flow(
 
     assert run(cli.cmd_doctor("demo")) == 0
     initial_doctor = capsys.readouterr().out
-    assert "harness-mem ingest claude-code -n 1" in initial_doctor
+    assert 'MCP ingest_sessions(project_name="demo", client="claude-code", limit=1)' in initial_doctor
     assert "Start by ingesting the newest session: sess-best-practice-001." in initial_doctor
 
     assert run(cli.cmd_ingest("claude-code", "demo", 5)) == 0

@@ -5,13 +5,11 @@ get a project from zero state to ready-for-distill using only MCP tools,
 without ever shelling out to harness-mem CLI?"
 
 This closes the gap surfaced by the v2.0 周明远 field test (May 2026):
-the Cursor agent recommended four CLI commands (``harness-mem use``,
-``harness-mem profile --edit``, ``harness-mem wake``,
-``python -m harness_mem.mcp.server``) when README's "MCP-first" promise
-implied none of those should be needed for everyday setup. The first
-three of those are now MCP tools (set_active_project,
-update_project_profile, wake); the fourth is the server bootstrap, which
-necessarily lives outside the agent loop.
+the Cursor agent recommended terminal commands for active project setup,
+profile editing, wake-up, and server bootstrap when README's "MCP-first"
+promise implied none of those should be needed for everyday setup. The
+first three are MCP tools (set_active_project, update_project_profile,
+wake); the fourth is server bootstrap.
 
 The scenario walks the agent path end-to-end against the real backend,
 storing through the same MCP tools an agent in Cursor would call.
@@ -216,7 +214,7 @@ def test_doctor_flags_cwd_project_mismatch(
         name="doctor_cwd_mismatch_warns",
         values={
             "hm_501_emitted": float("HM-501" in captured),
-            "fix_suggests_switch": float("harness-mem use inkpad" in captured),
+            "fix_suggests_switch": float('set_active_project(project_name="inkpad")' in captured),
         },
     ).report()
 
@@ -224,7 +222,7 @@ def test_doctor_flags_cwd_project_mismatch(
         "doctor must emit HM-501 when cwd matches a different known project "
         f"than the active one; captured:\n{captured}"
     )
-    assert "harness-mem use inkpad" in captured, (
+    assert 'set_active_project(project_name="inkpad")' in captured, (
         "fix command should point at the suspected project; "
         f"captured:\n{captured}"
     )

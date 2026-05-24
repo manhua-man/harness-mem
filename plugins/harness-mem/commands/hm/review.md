@@ -36,7 +36,7 @@ tags: [harness-mem, review, memory]
      - `status="pending"`
      - `limit=100`
    - 不要用 `search_memory` 找 pending；`search_memory` 默认只返回 accepted 记忆，不能作为审核列表来源
-   - 不要要求用户安装或直接运行 `harness-mem candidates`；MCP 不可用时说明 runtime 工具不可用
+   - 不要要求用户安装或直接运行终端命令；MCP 不可用时说明 runtime 工具不可用
 
 3. **AI 预审分组**
 

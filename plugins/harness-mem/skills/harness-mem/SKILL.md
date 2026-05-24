@@ -13,7 +13,7 @@ Treat the project as real production context:
 
 - Prefer MCP tools (`get_project_status`, `wake`-style reads, `search_memory`, `timeline`) before guessing from memory.
 - Ingest recent sessions through MCP `ingest_sessions` when the project state may be stale.
-- Use repo-local `tools/session-distill` for user-triggered distillation; `distill_sessions` is only a smoke/fallback extractor.
+- Use repo-local `tools/session-distill` for user-triggered distillation; do not use the removed heuristic distill path.
 - Distilled memory is a draft signal. Review it before treating it as durable truth.
 - Use `suggest_*`, `list_candidates`, and `confirm_*` / `reject_*` for stable rules the user explicitly wants remembered.
 - Do not delete raw Claude/Codex session files unless the user explicitly asks for raw-file cleanup.
@@ -29,28 +29,28 @@ In Claude Code, prefer the no-hyphen MCP alias names such as
 - `ingest_sessions`: indexes raw local agent session files into harness-mem observations.
 - `prepare_session_distill`: one-shot ingest plus recent observation packet for `/hm:distill`.
 - `tools/session-distill`: default user-facing distillation playbook that reads evidence and writes pending candidates.
-- `distill_sessions`: low-cost heuristic fallback that extracts obvious draft structured memories.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
 - `suggest_*` / `list_candidates` / `confirm_*`: create and review durable memory candidates.
 - `purge` remains a CLI/debug operation for explicit cleanup, and only soft-deletes harness-mem indexed data.
 
 ## Daily Workflow
 
-From the repository root, the user-facing path is slash/MCP, not manual CLI.
+From the repository root, the user-facing path is IDE command / skill / natural-language agent instruction, not manual CLI. If the client has no slash command surface (for example Cursor through a router), tell the user the natural-language prompt to give the agent instead of listing terminal commands or MCP tool names.
 
 For status and wake-up:
 
 1. Call `get_project_status` to resolve the active project and counts.
 2. Call `get_project_profile`, `get_task_handoffs`, `get_confirmed_rules`, and `timeline`.
-3. Summarize the usable context and suggest `/hm:distill`, `/hm:review`, or `/hm:wake`.
+3. Summarize the usable context and suggest the next IDE-native action:
+   - Claude Code: `/hm:distill`, `/hm:review`, or `/hm:wake`.
+   - Cursor / generic AI IDE: "用 harness-mem 唤醒当前项目" or "用 harness-mem 整理最近 N 个 session".
+   - Do not present terminal commands as the normal answer when MCP tools are available.
 
 If the project has new sessions:
 
 1. Call `prepare_session_distill(project_name=<project>, client="auto", scope="project", project_root=<current project root>)`.
 2. Activate repo-local `tools/session-distill`: read the returned evidence packet, apply `references/distillation-rules.md`, and write pending candidates with `suggest_memory_entry`, `suggest_rule`, `suggest_relation_fact`, or `create_task_handoff`.
-3. Call `list_candidates(project_name=<project>, status="pending")` and ask the user what to confirm or reject.
-
-Call `distill_sessions(project_name=<project>, project_root=<current project root>)` only when the user explicitly asks for a quick fallback, when testing MCP availability, or when debugging the runtime.
+3. Call `auto_review_candidates(project_name=<project>, apply=True)` when available, or call `list_candidates(project_name=<project>, status="pending")` and use `confirm_*` / `reject_*` for low-risk items. Show the user a final summary, with only high-risk leftovers for review.
 
 When looking for prior work:
 

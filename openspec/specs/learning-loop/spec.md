@@ -1,71 +1,75 @@
 # learning-loop Specification
 
 ## Purpose
-TBD - created by archiving change v1x-retention-stability-reset. Update Purpose after archive.
+
+定义"correct → suggest_rule → 候选层 → confirm/reject → wake 命中"这条 learning loop 的 MCP 工具契约。学习闭环的用户入口是 IDE 命令 / Skill / Agent 自然语言；spec scenario 描述的是 MCP 工具间的协作语义。
+
 ## Requirements
+
 ### Requirement: suggest_rule
 
-系统 MUST 支持 suggest_rule，完成 confirm/reject/suggest 完整闭环。
-
-接口: MCP tool `suggest_rule`
+系统 MUST 支持 `suggest_rule`，让 Agent 在显式 distill 流程或用户明确要求记录规则时把候选写入 pending 层。
 
 #### Scenario: 建议规则
+
 ```json
-MCP → suggest_rule({
-  rule_text: "User prefers dark mode for code reviews",
-  context: "mentioned during session"
+MCP -> suggest_rule({
+  "project_name": "demo",
+  "pattern": "User prefers dark mode for code reviews",
+  "trigger": "When discussing UI defaults",
+  "session_id": "sess_123"
 })
-Response: { success: true, suggestion_id: "sug_001" }
+Response: { "success": true, "rule_id": "rule_456", "status": "pending" }
 ```
 
 ### Requirement: confirm/reject/suggest 完整闭环
 
-系统 MUST 支持 confirm_rule_candidate + reject_rule_candidate + suggest_rule 形成完整闭环。
+系统 MUST 支持 `confirm_rule` + `reject_rule` + `suggest_rule` 形成完整闭环。
 
 #### Scenario: 完整闭环
-```json
-// 1. 用户提出建议
-MCP → suggest_rule({ rule_text: "...", context: "..." })
 
-// 2. 系统展示建议
-Response: { suggestion_id: "sug_001", status: "pending" }
+```text
+1. Agent 调 suggest_rule(project_name=..., pattern=..., trigger=...)
+   -> {rule_id: "rule_001", status: "pending"}
 
-// 3. 用户确认
-MCP → confirm_rule_candidate({ suggestion_id: "sug_001" })
+2. Agent / auto-review 决定确认
+   MCP -> confirm_rule({rule_id: "rule_001"})
+   -> {success: true, confirmed_rule_id: "rule_001"}
 
-// 或拒绝
-MCP → reject_rule_candidate({ suggestion_id: "sug_001", reason: "..." })
+   或拒绝
+   MCP -> reject_rule({rule_id: "rule_001", reason: "duplicate"})
+   -> {success: true}
 ```
 
 ### Requirement: scope=project|all
 
-系统 SHALL 支持 MCP 查询增加 scope=project|all，支持跨项目检索。project_name 仅在 scope=project 时必填。
-
-接口: MCP 查询 `scope=project|all`
+`search_memory` / `search_skills` MUST 支持 `scope=project|all`，让 Agent 跨项目检索 confirmed 记忆。`project_name` 仅在 `scope=project` 时必填。
 
 #### Scenario: 跨项目检索 learning
+
 ```json
-MCP → search_memories({
-  query: "dark mode preference",
-  scope: "all"
+MCP -> search_memory({
+  "query": "dark mode preference",
+  "scope": "all"
 })
 Response: {
-  results: [...],
-  project_count: 3,
-  projects: ["project-a", "project-b", "project-c"]
+  "results": [...],
+  "project_count": 3,
+  "projects": ["project-a", "project-b", "project-c"]
 }
 ```
 
 ### Requirement: 同聊天流完成
 
-系统 SHALL 支持 correct -> review -> confirm/reject 尽量在同一聊天流里完成。
+Agent SHOULD 让 correct -> review -> confirm/reject 尽量在同一聊天流里完成，不把候选审核工作甩给独立 review 入口。学习闭环命中后，下次 `wake` MUST 在 wake-up 输出里反映该规则。
 
 #### Scenario: 同一会话完成闭环
-```
-User: correct "obs_123" "User prefers dark mode"
-Assistant: I'll update that. Reviewing changes...
 
-Confirmed: obs_123 now reflects "User prefers dark mode"
-💡 This rule is now active. Run 'harness-mem wake' to see it.
+```text
+User: "我们项目的事实是 X，刚才 Agent 的 Y 是错的，记一条 X 的规则。"
+Agent:
+  1. suggest_rule(project_name=..., pattern="X", trigger="when ...")
+  2. confirm_rule(rule_id=...)
+Agent 回复:
+  Confirmed rule rule_001. Run /hm:wake (or 让我用 harness-mem 唤醒) 即可在新对话看到这条规则。
 ```
-

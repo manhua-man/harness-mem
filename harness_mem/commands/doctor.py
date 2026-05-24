@@ -53,7 +53,7 @@ async def cmd_doctor(project_name: str | None = None) -> int:
 
     # HM-501: surface obvious cwd / active-project mismatch before doing
     # anything project-scoped. Catches the common Cursor / Codex case
-    # where the user ran ``harness-mem use`` once weeks ago and now
+    # where an old active project was set weeks ago and now
     # writes memory into the wrong project from a different repo.
     profile_store_for_listing = LocalProjectProfileStore(DEFAULT_DATA_DIR)
     known_profiles = await profile_store_for_listing.list()
@@ -72,7 +72,7 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             f"\n⚠️  HM-501: cwd ({Path.cwd().name}) looks like a different known "
             f"project than the active one ({active_project})."
         )
-        print(f"Fix: harness-mem use {suspected_project}")
+        print(f'Fix: call MCP set_active_project(project_name="{suspected_project}")')
 
     # v1.6.1: validate wake bucket quotas early so misconfiguration surfaces
     # before any project-specific work (HM-101 / HM-102).

@@ -232,9 +232,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     "set_active_project": {
         "description": (
             "Set the active project so wake / search / suggest defaults pick it up. "
-            "Mirror of `harness-mem use <project>` for any MCP client. The active "
-            "project is the only thing that prevents memory written from different "
-            "working directories from cross-contaminating; agents should call this "
+            "The active project is the only thing that prevents memory written "
+            "from different working directories from cross-contaminating; agents should call this "
             "once at the start of a session in a new project."
         ),
         "input_schema": {
@@ -250,9 +249,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "update_project_profile": {
         "description": (
-            "Non-interactive replacement for `harness-mem profile --edit`. Adds "
-            "(or, with replace=true, substitutes) profile fields. Fields omitted "
-            "from the call are left untouched. Lists are deduplicated when merged "
+            "Non-interactive project profile update. Adds (or, with replace=true, "
+            "substitutes) profile fields. Fields omitted from the call are left "
+            "untouched. Lists are deduplicated when merged "
             "so repeated calls with the same value are idempotent. Profiles feed "
             "wake-up directly, so this is the fastest way to teach the system a "
             "stable convention without going through the candidate review loop."
@@ -303,8 +302,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         "description": (
             "Generate the wake-up context (project profile + recent rules + "
             "handoffs) for the given project, or the active project when "
-            "project_name is omitted. Mirror of `harness-mem wake`. Returns the "
-            "wake-up text in `output` so the agent can ingest it directly."
+            "project_name is omitted. Returns the wake-up text in `output` so "
+            "the agent can ingest it directly."
         ),
         "input_schema": {
             "type": "object",

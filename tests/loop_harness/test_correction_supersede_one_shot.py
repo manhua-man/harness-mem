@@ -5,21 +5,20 @@ upgrade, policy reversal), can a user replace an old confirmed rule
 with a new one in a single action — without manually walking the
 candidate -> confirm -> supersede-suggest -> supersede-confirm chain?"
 
-This closes the 周明远 P1 痛点that the 1st/2nd audit flagged: the
+This closes the 周明远 P1 痛点 that the 1st/2nd audit flagged: the
 supersede storage path was already wired (scenario 4 proves it), but
-the *daily user entry point* — `harness-mem correct` and the matching
-MCP tool — used to drop users on the candidate layer with no awareness
-that an existing rule was being replaced. They had to:
+the correction path used to drop users on the candidate layer with no
+awareness that an existing rule was being replaced. They had to:
 
-  1. harness-mem correct ...           (creates RuleCandidate, status=pending)
-  2. harness-mem confirm-rule <new>    (promotes to ConfirmedRule)
-  3. harness-mem supersede ...         (creates SupersedeCandidate)
-  4. harness-mem confirm-supersede ... (applies the temporal updates)
+  1. suggest a new rule candidate
+  2. confirm the new rule
+  3. suggest a supersede candidate
+  4. confirm the supersede candidate
 
 This scenario covers the new one-shot path:
 
-  CLI:  harness-mem correct ... --supersedes <old_rule_id> --reason "Tauri v2"
-  MCP:  suggest_correction(supersedes_rule_id=..., pattern=..., trigger=..., reason=...)
+  MCP: suggest_correction(supersedes_rule_id=..., pattern=..., trigger=..., reason=...)
+  Internal command helper: cmd_correct(..., supersedes_rule_id=..., reason=...)
 
 Both end states must be identical: old rule has valid_to set + superseded_by
 link; new rule is current with supersedes link; the default
@@ -113,18 +112,18 @@ def _assert_supersede_chain_intact(
     )
 
 
-def test_cli_correct_with_supersedes_replaces_rule_in_one_step(
+def test_command_correct_with_supersedes_replaces_rule_in_one_step(
     data_dir: Path,
     capsys: pytest.CaptureFixture[str],
 ):
-    """harness-mem correct ... --supersedes <id> applies the supersede chain."""
-    project_name = "loop-harness-correct-supersede-cli"
+    """cmd_correct(..., supersedes_rule_id=<id>) applies the supersede chain."""
+    project_name = "loop-harness-correct-supersede-command"
     session_id = "tauri-v2-upgrade-session"
 
     backend = LocalMemoryBackend(data_dir)
     run(backend.init())
     try:
-        old_rule = _seed_old_rule(backend, project_name, rule_id="rule-tauri-v1-cli")
+        old_rule = _seed_old_rule(backend, project_name, rule_id="rule-tauri-v1-command")
         _seed_correction_session(backend, project_name, session_id=session_id)
     finally:
         run(backend.close())

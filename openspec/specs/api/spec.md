@@ -1,43 +1,16 @@
 # api Specification
 
 ## Purpose
-TBD - created by archiving change v1x-internal-dogfood-hardening. Update Purpose after archive.
+
+> **Removed in v2.1.** REST API 层（`harness-mem api`、`/search` 端点、`harness_mem.api` 包）已从产品 surface 与依赖清单中移除。本文件保留为历史标记，不再承诺任何 API 行为。MCP 是当前唯一受支持的 runtime 接入面。
+
+如果需要程序化访问 harness-mem 数据，请通过：
+
+- **MCP 工具**：`search_memory`、`timeline`、`get_observations`、`get_confirmed_rules` 等。
+- **本地数据目录**：`~/.harness-mem/data/` 下的 JSON blob 与 SQLite FTS5 索引（仅在 maintenance 场景使用，不作为稳定接口）。
+
 ## Requirements
-### Requirement: REST API backend lifecycle
 
-系统 MUST 为 REST API 提供 async-safe 的 backend 初始化路径，并且在请求处理阶段不得在运行中的 event loop 内调用 `asyncio.run()`。
+无。本规格不再提出 REST 接口契约。
 
-#### Scenario: API 请求在已运行的 event loop 中工作
-```bash
-$ harness-mem api
-INFO:     Application startup complete.
-```
-
-### Requirement: project-scoped search contract
-
-当 `/search` 使用 `scope=project` 时，系统 MUST 要求调用方显式传入 `project_name`，避免 project 过滤语义退化成隐式全局查询。
-
-#### Scenario: project scope 缺少 project_name
-```http
-GET /search?q=dark%20mode&scope=project
-```
-
-```json
-{
-  "detail": "project_name is required when scope=project"
-}
-```
-
-### Requirement: search mode transparency
-
-`/search` MUST 返回 `requested_mode`、`effective_mode` 和 `fallback_reason`，让 API 调用方知道查询实际上使用了哪种检索模式。
-
-#### Scenario: embedding 不可用时 API 明确回退到 FTS
-```json
-{
-  "requested_mode": "auto",
-  "effective_mode": "fts",
-  "fallback_reason": "embedding not available"
-}
-```
-
+历史变更见 `openspec/changes/v1x-internal-dogfood-hardening/`、`openspec/changes/v15x-retrieval-coordinator/` 等档案；它们记录的是 v2.1 之前的 REST 实现，不代表当前代码库行为。

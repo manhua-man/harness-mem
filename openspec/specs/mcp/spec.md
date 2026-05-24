@@ -1,15 +1,19 @@
 # mcp Specification
 
 ## Purpose
-Define MCP/CLI semantic alignment for memory lifecycle, search, rule learning, and observable output contracts.
+
+定义 MCP 工具语义与生命周期契约。v2.1 起，MCP 是 harness-mem 唯一的日常运行时入口——用户通过 IDE 命令（`/hm:distill`、`/hm:wake`、`/hm:search`）或自然语言驱动 Agent，Agent 在背后调 MCP 工具完成 ingest、distill、search、timeline、candidate review、wake 等流程。CLI 不再承载日常 memory 操作，仅保留 `init` / `quickstart` / `doctor` / `import` / `purge` / `maintenance` 这类安装与维护命令。
+
 ## Requirements
+
 ### Requirement: MCP owns the daily user workflow
 
-MCP MUST expose status, ingest, distill, search, timeline, and candidate-review tools so slash/agent workflows do not require users to manually drive CLI commands. CLI MAY remain available for bootstrap, diagnostics, and explicit cleanup, but MUST NOT be the normal user-facing control path when MCP is available.
+MCP MUST expose status, ingest, distill, search, timeline, and candidate-review tools so slash/agent workflows do not require users to manually drive CLI commands. CLI MAY remain available for installation, diagnostics, and explicit cleanup, but MUST NOT be the normal user-facing control path.
 
 `/hm:distill` MUST be the daily closed-loop flow: prepare current-project evidence, let the AI generate candidates, let the AI auto-confirm or auto-reject low-risk candidates, and return a final human review summary. `/hm:review` MAY exist only as a repair/recheck path for old pending candidates, high-risk leftovers, or user corrections; it MUST NOT be required after every distill run.
 
 #### Scenario: Agent ingests current project sessions without asking for CLI
+
 ```json
 MCP -> ingest_sessions({
   "project_name": "demo-project",
@@ -25,6 +29,7 @@ Response: {
 ```
 
 #### Scenario: Agent prepares a session-distill evidence packet in one call
+
 ```json
 MCP -> prepare_session_distill({
   "project_name": "demo-project",
@@ -52,6 +57,7 @@ Response: {
 ```
 
 #### Scenario: Agent finishes distill with auto-review instead of asking for `/hm:review`
+
 ```json
 MCP -> list_candidates({
   "project_name": "demo-project",
@@ -71,6 +77,7 @@ Response summary: {
 ```
 
 #### Scenario: Agent checks project status without CLI
+
 ```json
 MCP -> get_project_status({
   "project_name": "demo-project"
@@ -85,11 +92,10 @@ Response: {
 
 ### Requirement: list_candidates 审核入口
 
-MCP MUST 提供 `list_candidates` 工具，用于按项目和状态列出待审结构化记忆候选，覆盖 rule candidate、memory entry、relation fact 三类候选。`search_memory` 仍 MUST 默认只返回 accepted 记忆，不得被用作 pending 审核列表来源。
-
-接口: MCP tool `list_candidates`
+MCP MUST 提供 `list_candidates` 工具，用于按项目和状态列出待审结构化记忆候选，覆盖 rule candidate、memory entry、relation fact、supersede candidate、procedural candidate 五类。`search_memory` 仍 MUST 默认只返回 accepted 记忆，不得被用作 pending 审核列表来源。
 
 #### Scenario: 列出 pending 候选
+
 ```json
 MCP -> list_candidates({
   "project_name": "demo-project",
@@ -113,107 +119,115 @@ Response: {
 }
 ```
 
-### Requirement: reject_rule_candidate
+### Requirement: reject_rule
 
-系统 MUST 支持 reject_rule_candidate，与 confirm_rule_candidate 对称。
-
-接口: MCP tool `reject_rule_candidate`
+系统 MUST 支持 reject_rule，与 confirm_rule 对称。
 
 #### Scenario: 拒绝规则候选
+
 ```json
-MCP → reject_rule_candidate({
-  rule_id: "rule_123",
-  reason: "outdated or incorrect"
+MCP -> reject_rule({
+  "rule_id": "rule_123",
+  "reason": "outdated or incorrect"
 })
-Response: { success: true, message: "Rule rejected" }
+Response: { "success": true, "message": "Rule rejected" }
 ```
 
 ### Requirement: suggest_rule
 
 系统 MUST 支持 suggest_rule，完成 confirm/reject/suggest 完整闭环。
 
-接口: MCP tool `suggest_rule`
-
 #### Scenario: 建议新规则
+
 ```json
-MCP → suggest_rule({
-  rule_text: "User prefers dark mode",
-  context: "User mentioned this in session sess_123"
+MCP -> suggest_rule({
+  "project_name": "demo-project",
+  "pattern": "User prefers dark mode",
+  "trigger": "When discussing UI defaults",
+  "session_id": "sess_123"
 })
-Response: { success: true, suggestion_id: "sug_456" }
+Response: { "success": true, "rule_id": "rule_456", "status": "pending" }
 ```
 
-### Requirement: show -o/--observation-id
+### Requirement: get_observations 暴露原始证据
 
-系统 SHALL 支持 show 新增 `-o/--observation-id`，保留 `-i/--id` 作为 v1.4 前兼容别名。
+MCP MUST 提供 `get_observations` 工具，按项目 + session id 取原始 Observation。该工具替代历史 CLI `harness-mem show -o <id>` 的语义。
 
-接口: `harness-mem show -o <observation-id>`
+#### Scenario: Agent 取一条原始观察
 
-#### Scenario: 使用新标志
-```
-$ harness-mem show -o obs_123
-=== Observation ===
-ID: obs_123
-Content: User prefers dark mode...
-💡 Source: from session sess_456 (2026-04-20)
+```json
+MCP -> get_observations({
+  "project_name": "demo-project",
+  "session_id": "sess_456"
+})
+Response: {
+  "observations": [
+    {
+      "id": "obs_123",
+      "content": "User prefers dark mode...",
+      "source_session": "sess_456",
+      "timestamp": "2026-04-20T10:00:00Z"
+    }
+  ]
+}
 ```
 
 ### Requirement: wake-up 截断标记
 
-系统 SHALL 在 wake-up 输出统一加 `[...truncated]`。
-
-接口: wake 命令输出
+`wake` MCP 工具 MUST 在输出文本里对超长的 rule pattern / memory content 加 `[...truncated]` 后缀，避免 Agent 把截断后的字符串当成完整事实。
 
 #### Scenario: wake 输出截断
-```
-$ harness-mem wake
-Rule: User prefers dark mode for code reviews [...truncated]
-💡 Source: obs_123 from session sess_456
+
+```text
+Agent 调 wake(project_name="demo-project")
+→ 返回 output 含: "Rule: User prefers dark mode for code reviews [...truncated]"
+       "  📍 obs_123 from session sess_456"
 ```
 
 ### Requirement: search score 展示
 
-系统 SHALL 在搜索结果统一展示排序依据或 score。
-
-接口: search 命令输出
+`search_memory` MCP 工具 MUST 在每条结果上返回 score 字段，让客户端能展示排序依据。
 
 #### Scenario: 搜索结果带分数
-```
-$ harness-mem search "dark mode"
-1. obs_456 "User prefers dark mode" (score: 0.94)
-2. obs_123 "Dark theme for IDE" (score: 0.87)
+
+```text
+Agent 调 search_memory(project_name="demo-project", query="dark mode")
+→ 返回 results 包含:
+  [{id: "obs_456", content: "User prefers dark mode", score: 0.94},
+   {id: "obs_123", content: "Dark theme for IDE", score: 0.87}]
 ```
 
 ### Requirement: scope=project|all
 
-系统 SHALL 支持 MCP 查询增加 scope=project|all，支持跨项目检索。project_name 仅在 scope=project 时必填。
-
-接口: MCP 查询 `scope=project|all`
+MCP `search_memory` MUST 支持 `scope=project|all`。`project_name` 仅在 `scope=project` 时必填。
 
 #### Scenario: 跨项目检索
+
 ```json
-MCP → search_memories({
-  query: "dark mode",
-  scope: "all"
+MCP -> search_memory({
+  "query": "dark mode",
+  "scope": "all"
 })
-Response: { results: [...], project_count: 3 }
+Response: { "results": [...], "project_count": 3 }
 ```
 
 #### Scenario: 项目内检索
+
 ```json
-MCP → search_memories({
-  query: "dark mode",
-  scope: "project",
-  project_name: "my-project"
+MCP -> search_memory({
+  "query": "dark mode",
+  "scope": "project",
+  "project_name": "my-project"
 })
-Response: { results: [...], project_count: 1 }
+Response: { "results": [...], "project_count": 1 }
 ```
 
 ### Requirement: search_memory 查询语义
 
-`search_memory` MCP 工具 MUST 支持可选 `mode=auto|fts|hybrid`，并与 CLI 共享同一套 store search 语义。
+`search_memory` MCP 工具 MUST 支持可选 `mode=auto|fts|hybrid`，并与 runtime 共享同一套 store search 语义。
 
 #### Scenario: MCP search_memory 指定 hybrid mode
+
 ```json
 {
   "name": "search_memory",
@@ -226,6 +240,7 @@ Response: { results: [...], project_count: 1 }
 ```
 
 #### Scenario: MCP 返回一致的模式信息
+
 ```json
 {
   "requested_mode": "hybrid",

@@ -5,9 +5,8 @@ Repo-local plugin wrapper for the `harness-mem` local-first AI memory runtime.
 It packages four layers:
 
 - **Skill**: tells an agent when to use memory commands.
-- **MCP config**: exposes `python -m harness_mem.mcp.server` as `harness_mem` structured runtime tools.
-- **Slash commands**: `/hm:status`, `/hm:distill`, `/hm:wake`, `/hm:search`, plus optional `/hm:review` —
-  ready-to-use Claude Code slash commands so end users never need to memorize CLI flags.
+- **MCP config**: exposes `python -m harness_mem.mcp.server` as hidden structured runtime tools for agents.
+- **IDE commands**: Claude Code slash commands (`/hm:status`, `/hm:distill`, `/hm:wake`, `/hm:search`, optional `/hm:review`) and reusable command instructions that Cursor/Codex-style agents can follow, so end users do not need to memorize CLI flags or MCP tool names.
 - **Scripts**: install and doctor helpers for local validation.
 
 Install from the repository root:
@@ -46,9 +45,11 @@ Claude Code tool names should use the no-hyphen alias, for example
 `harness-mem`; some Claude Code tool-call paths misparse MCP server names that
 contain `-`.
 
-## Daily flow inside Claude Code
+## Daily flow inside AI IDEs
 
-Once installed, drive harness-mem entirely through slash commands and chat:
+Once installed, drive harness-mem through IDE commands and chat. MCP is the transport layer behind the agent.
+
+### Claude Code
 
 | Slash | What it does |
 |-------|--------------|
@@ -57,6 +58,18 @@ Once installed, drive harness-mem entirely through slash commands and chat:
 | `/hm:review` | Optional repair/recheck command for pending candidates left over from old runs, high-risk suggestions, or user corrections. Not part of the daily happy path. |
 | `/hm:wake` | Pull project profile, recent task handoffs, confirmed rules, and recent observations as fresh-session context. |
 | `/hm:search "query"` | Hybrid memory search via MCP `search_memory`. |
+
+### Cursor / Generic MCP IDE
+
+Cursor does not need separate repo-local command templates. Reuse the existing Claude/Codex command instructions or use chat prompts that name the user-visible action:
+
+```text
+用 harness-mem 唤醒当前项目。
+用 harness-mem 搜索 "auth logic"。
+用 harness-mem 整理最近 10 个 session，自动审核低风险候选，最后只给我复核摘要。
+```
+
+Do not give users a CLI command list as the normal AI IDE path. CLI remains for install, diagnostics, automation scripts, and explicit cleanup.
 
 This plugin does not delete raw Claude or Codex session files. `ingest` indexes
 local session data into harness-mem, and `purge` only soft-deletes harness-mem

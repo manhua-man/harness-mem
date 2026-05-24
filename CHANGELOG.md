@@ -6,7 +6,45 @@
 
 ## [Unreleased]
 
-(no changes yet)
+---
+
+## [2.1.0] — 2026-05-24
+
+**主题：Surface 瘦身 + 文档诚实化 — CLI 退回维护控制台，纠正"AI 随手记"承诺**
+
+v2.1 不加新能力，做两件事：把用户路径从 CLI 子命令搬到 IDE 命令 / Skill / Agent 自然语言，把 README/AGENTS.md 里悬空的"AI 随手记"叙事改成与实现一致的描述。这是产品定位的硬转向——v2.1 之前 harness-mem 表面像个 CLI-driven memory tool，v2.1 之后表面是 invisible memory runtime，CLI 只做安装、自检、清理。
+
+### Removed (BREAKING)
+
+- **CLI 子命令大幅精简**。日常 memory 操作（`use`、`ingest`、`wake`、`search`、`timeline`、`status`、`profile`、`candidates`、`confirm`、`reject`、`correct`、`handoff`、`rules`、`search-raw`、`search-skills`、`suggest-skill`、`confirm-skill`、`reject-skill`、`record-skill-result`）不再注册为 `harness-mem` 子命令。CLI 现在只剩 `init` / `quickstart` (`qs`) / `doctor` / `import` / `purge` / `maintenance` 七个安装、自检、维护命令。
+- **REST API 层完全移除**。删除 `harness_mem/api/__init__.py`、`harness_mem/api/models.py`、`harness_mem/api/server.py` 与对应测试。MCP 是产品的传输层；REST 不在主路径上，没有用户依赖，留着只会让接口面板膨胀。
+- 与 REST API 相关的 `harness-mem api` CLI 入口同步移除。
+
+### Changed
+
+- **CHANGELOG / README / AGENTS.md 措辞纠正**。之前的"4 角色"叙事里"AI（操作者 / 随手）"角色描述为"日常写代码顺手记"，但产品里**没有后台 daemon、IDE hook 或 turn-end 自检**来驱动这个行为。`suggest_*` 工具确实存在并被调用，但调用 100% 来自显式 distill 流程或用户明确要求。文档现在如实写：候选写入只在显式流程里发生，autonomous learning 不属于当前实现。
+- **CLI 自我描述**：`harness-mem --help` 顶部现在写 "Local harness-mem maintenance console. Daily AI memory workflows use IDE commands, repo skills, or agent workflows instead of CLI subcommands."
+- **README 重写为用户视角**：用户入口收敛到 `/hm:distill` / `/hm:wake` / `/hm:search` / 自然语言；MCP 是 Agent 背后的传输层，不是用户心智模型；CLI 是维护控制台。
+- **AGENTS.md 角色表更新**：从 4 角色改为 3 角色 + 一项"候选写入能力"。明确写出当前没有 turn-end 自检 hook，`suggest_*` 是显式流程的接口而非自治学习的痕迹。
+- **Roadmap 状态页**：新增 `docs/roadmap-status.md`，明确 v1.8 已完成的是保守 procedural-skill 闭环，不包含后台自学习、默认 wake 注入或跨项目 skill 共享。
+- **OpenSpec spec 同步**：`openspec/specs/cli/spec.md`、`ingest/spec.md`、`retrieval/spec.md`、`purge/spec.md`、`mcp/spec.md`、`telemetry/spec.md`、`memory-typing/spec.md` 里所有以已移除 CLI 命令为入口的 Scenario 重写为 IDE 命令 / Skill / 自然语言视角；CLI 命令只在 `init` / `doctor` / `purge` / `maintenance` 这类剩余子命令的 Scenario 里出现。
+
+### Migration
+
+- 任何脚本调用被移除的 CLI 子命令（`harness-mem wake / search / candidates / confirm / reject` 等）会立即失败。迁移到 MCP 客户端配置 + IDE 命令 / Skill。
+- 读 OpenSpec spec 的人现在看到的 Scenario 是 IDE 视角（`/hm:search`、自然语言 prompt），不是 CLI。
+- REST API 用户没有迁移路径——这是有意的，因为没有维护 REST 的用户基。
+
+### Why this isn't 3.0
+
+按 SemVer 严格定义，删 CLI 子命令和删 REST API 都是 breaking。但实际上 CLI 历来定位是"bootstrap / 试用 / dogfood"，没有外部脚本依赖；REST API 在产品 surface 上从未被推荐过。**真正的兼容性约束是 MCP 工具签名和数据 schema**——这两者在 v2.1 完全不动。
+
+v2.1 是"产品定位转向"的标志，不是"重大功能升级"。3.0 留给真正的能力级 breaking（例如 schema 重构、跨项目记忆、或后台 daemon）。
+
+### Test surface
+
+- 326 → 322 passed (1 skipped)。-4 测试来自删除的 CLI 子命令路径和 REST API 测试；新增 4 个测试在 v2.0 系列已落地（`set_active_project` / `update_project_profile` / `wake` / HM-501 cwd mismatch）。
+- mypy 0 errors / 73 source files。ruff clean。
 
 ---
 
@@ -248,16 +286,16 @@ v1.6.x 三切片路线的第一刀。本切片只动 schema 与测量层，不�
 
 ## [1.5.0] — 2026-05-16
 
-**主题：The 4-Role Memory Loop (4 角色记忆闭环)**
+**主题：AI-led Memory Candidate Loop (AI 记忆候选闭环)**
 
 本版本正式确立了 harness-mem 的核心协作协议，实现了“历史归档集成”与“AI 原生工作流”的深度统一。
 
 | 角色 | 动作与职责 | 最佳技术载体 |
 | :--- | :--- | :--- |
 | **AI（操作者/后端）** | 批量读取旧 Session，用强大的 LLM 提炼知识，过滤废话，生成结构化记忆。 | Skill (如 `session-distill`) |
-| **AI（操作者/随手）** | 在日常写代码中，顿悟了某个规则，随手记下一笔。 | MCP (调用 `suggest_rule`) |
+| **候选写入能力** | 在显式 distill、Skill 流程或用户明确要求记录时，把规则/知识写入候选层。 | MCP (调用 `suggest_rule` / `suggest_memory_entry`) |
 | **人（审查者）** | 不看几万字的废话，只看 AI 提炼好的结论，点确认 (Confirm) 或拒绝 (Reject)。 | CLI (`confirm` / `reject`) |
-| **AI（消费者/前端）** | 在新 Session 中，自动读取之前人确认过的记忆 (Wake/Search)，应用到任务。 | MCP (`search_memory`) |
+| **AI（消费者/前端）** | 在新 Session 中通过 Wake/Search 读取之前人确认过的记忆，应用到任务。 | MCP (`search_memory`) |
 
 ### Added
 
@@ -274,7 +312,7 @@ v1.6.x 三切片路线的第一刀。本切片只动 schema 与测量层，不�
 
 ### Changed
 - **文档体系大重构**
-  - 重写 `best-practices.md`：转向“4 角色协作”与“候选层”核心机制。
+  - 重写 `best-practices.md`：转向“AI 记忆候选闭环”与“候选层”核心机制。
   - 重写 `session-distill` Skill 定义：废弃本地文件 Packet 流，拥抱 Python 原生与 MCP 接口。
   - 生成 `retrospective-v13-v14.md`：归档“八方评审”结论，确立架构演进真值。
 - **检索与 Ingest 体验硬化**

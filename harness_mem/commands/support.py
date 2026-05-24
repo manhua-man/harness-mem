@@ -420,7 +420,8 @@ def resolve_project_name(
             set_active_project(resolved)
     if required and not resolved:
         print(
-            f"Project name required for {action_label}. Pass -p/--project or run: harness-mem use <project-name>"
+            f"Project name required for {action_label}. Pass -p/--project, "
+            "set HARNESS_MEM_PROJECT, or call MCP set_active_project first."
         )
         return None
     return resolved
@@ -576,17 +577,17 @@ def suggested_next_step(
         if claude_sessions:
             latest = session_identifier(claude_sessions[0])
             return (
-                f"harness-mem ingest claude-code -n {min(5, len(claude_sessions))}",
+                f'MCP ingest_sessions(project_name="{project_name}", client="claude-code", limit={min(5, len(claude_sessions))})',
                 f"Recent Claude Code sessions were found. Start by ingesting the newest session: {latest}.",
             )
         if codex_sessions:
             return (
-                f"harness-mem ingest auto -p {project_name} -n {min(5, len(codex_sessions))}",
+                f'MCP ingest_sessions(project_name="{project_name}", client="auto", limit={min(5, len(codex_sessions))})',
                 f"{codex_scope_note()} The default auto ingest path is project-scoped; use `--scope all` only for an explicit cross-project import.",
             )
         return (
-            f"harness-mem ingest claude-code -p {project_name} -n 5",
-            "No local sessions have been ingested yet.",
+            f'MCP ingest_sessions(project_name="{project_name}", client="claude-code", limit=5)',
+            "No local sessions have been ingested yet; ingestion should be driven by the agent through MCP.",
         )
 
     if memory_entry_count == 0 and claude_sessions:
@@ -603,13 +604,13 @@ def suggested_next_step(
 
     if memory_entry_count == 0:
         return (
-            "harness-mem search <query>",
+            'MCP search_memory(query="<query>")',
             "Observations are searchable, but wake-up needs structured memory before it becomes useful.",
         )
 
     return (
-        "harness-mem wake",
-        "Structured memory is ready, so wake-up is the shortest path back into project context.",
+        f'MCP wake(project_name="{project_name}")',
+        "Structured memory is ready, so MCP wake is the shortest path back into project context.",
     )
 
 

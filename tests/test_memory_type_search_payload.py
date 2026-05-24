@@ -1,5 +1,5 @@
 """End-to-end contract tests: memory_type is exposed (v1.6.0) and filterable
-(v1.6.1) across CLI, MCP, and REST.
+(v1.6.1) across the internal command helpers and MCP.
 
 Per ``openspec/changes/2026-05-17-v160-eval-and-typing/specs/retrieval``:
 - memory_type SHALL be present in every memory entry result payload
@@ -14,10 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from harness_mem import cli
-from harness_mem.api.server import create_app, set_backend_override
 from harness_mem.core.schemas import MemoryEntry
 from harness_mem.mcp import server as mcp_server
 from harness_mem.read_api import serialize_memory_entry_search_result
@@ -223,84 +221,3 @@ def test_cli_search_filter_rejects_unknown_value(
     err = capsys.readouterr().err
     assert rc == 1
     assert "unknown memory_type" in err
-
-
-# ---------------------------------------------------------------------------
-# REST contract
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def rest_client(data_dir: Path) -> TestClient:
-    backend = LocalMemoryBackend(data_dir)
-    run(backend.init())
-    entry = MemoryEntry(
-        project_name="demo",
-        category="convention",
-        content="single quote is the project default",
-        source="manual",
-        memory_type="semantic",
-    )
-    legacy_entry = MemoryEntry(
-        project_name="demo",
-        category="bug",
-        content="trailing comma breaks parser",
-        source="manual",
-        memory_type="episodic",
-    )
-    run(backend.structured_store.save_memory_entry(entry))
-    run(backend.structured_store.save_memory_entry(legacy_entry))
-
-    app = create_app()
-    set_backend_override(backend)
-    try:
-        with TestClient(app) as client:
-            yield client
-    finally:
-        set_backend_override(None)
-        run(backend.close())
-
-
-def test_rest_search_includes_memory_type(rest_client: TestClient) -> None:
-    resp = rest_client.get("/search", params={
-        "query": "single quote",
-        "project_name": "demo",
-        "scope": "project",
-        "mode": "fts",
-    })
-    assert resp.status_code == 200
-    data = resp.json()
-    entries = data["memory_entries"]
-    assert entries, "expected at least one memory entry"
-    assert entries[0]["memory_type"] == "semantic"
-
-
-def test_rest_search_filters_memory_type_v161(rest_client: TestClient) -> None:
-    """v1.6.1: passing ``memory_type`` actually filters memory entries.
-
-    The v1.6.0 contract (silently ignore the param) was a transitional
-    behavior; v1.6.1 turns it into a real OR-filter. Multiple values are
-    accepted as repeated query params.
-    """
-    resp = rest_client.get("/search", params={
-        "query": "single quote OR trailing comma",
-        "project_name": "demo",
-        "scope": "project",
-        "mode": "fts",
-        "memory_type": "semantic",
-    })
-    assert resp.status_code == 200
-    data = resp.json()
-    types = {e["memory_type"] for e in data["memory_entries"]}
-    assert types == {"semantic"} or types == set()
-
-
-def test_rest_search_rejects_unknown_memory_type(rest_client: TestClient) -> None:
-    resp = rest_client.get("/search", params={
-        "query": "anything",
-        "project_name": "demo",
-        "scope": "project",
-        "memory_type": "unknown",
-    })
-    assert resp.status_code == 422
-    assert "unknown memory_type" in resp.json()["detail"]

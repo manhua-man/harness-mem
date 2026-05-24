@@ -62,12 +62,9 @@ tags: [harness-mem, distill, memory, skill]
    - 用 MCP `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` / `create_task_handoff` 写入 pending 候选
    - 每条候选必须带 source evidence，例如 observation id、session id、packet turn、命令或文件路径
 
-   `distill_sessions(project_name=<project>, project_root=<当前项目根目录>)` 只允许作为 smoke/fallback：
-   - MCP 可用性验证
-   - 用户明确要求快速低成本提取
-   - Skill 无法读取 evidence 时的开发者排障
-
-   不要把 `distill_sessions` 的 `No patterns found` 当成 `/hm:distill` 的最终高质量结论。
+   不要退回旧的 heuristic fallback。v2.0 已移除正则提取式 distill；
+   如果 `prepare_session_distill` 或 Skill 无法提供 evidence packet，应把它当作
+   runtime / 配置问题排障，而不是退回低质量自动提取。
 
 4. **自动审核并处理候选**
    调 MCP `list_candidates`，参数为 `project_name=<project>`、`status="pending"`、`limit=100`。
@@ -108,4 +105,4 @@ tags: [harness-mem, distill, memory, skill]
 - 不要把 `codex` / `codex-archive` 写死为默认来源；默认入口必须是 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根目录>)`
 - codex 历史是用户全局的，默认必须按当前项目路径过滤；跨项目导入必须由用户显式要求 `scope="all"`
 - 用户主路径是 Slash + MCP + Skill；CLI 只能作为开发者排障兜底
-- MCP server 的 cwd 不等于 Claude/Codex 当前项目目录；调用 `ingest_sessions` 和 fallback `distill_sessions` 时必须显式传 `project_root`
+- MCP server 的 cwd 不等于 Claude/Codex 当前项目目录；调用 `prepare_session_distill` / `ingest_sessions` 时必须显式传 `project_root`

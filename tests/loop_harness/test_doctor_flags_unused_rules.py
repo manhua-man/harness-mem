@@ -10,8 +10,8 @@ those numbers actually drive a visible doctor signal so the user has
 something to act on.
 
 Scope (deliberately narrow): doctor *flags* unused rules with HM-401 and
-points at ``harness-mem rules`` for review. doctor does **not** delete
-anything — deletion is always a deliberate human action via
+points at MCP ``get_confirmed_rules`` for review. doctor does **not**
+delete anything — deletion is always a deliberate human action via
 reject/supersede. The retention window default (90 days) is encoded as
 ``UNUSED_RULE_DAYS`` in ``harness_mem/commands/doctor.py`` and is a
 straightforward edit when product feedback says it should change.

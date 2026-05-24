@@ -79,15 +79,17 @@ async def _status_project_async(backend: LocalMemoryBackend, project_name: str) 
     elif len(project_obs) == 0:
         print()
         print("📍 Phase: Empty")
-        print("→ Next: harness-mem ingest claude-code")
-        print("   Why: No observations yet, ingest sessions to get started")
-        log_next_step_shown(project_name, "status", "harness-mem ingest claude-code")
+        next_step = f'MCP ingest_sessions(project_name="{project_name}", client="claude-code")'
+        print(f"→ Next: {next_step}")
+        print("   Why: No observations yet; ingestion should be driven by the agent through MCP")
+        log_next_step_shown(project_name, "status", next_step)
     else:
         print()
         print("📍 Phase: Healthy")
-        print("→ Next: harness-mem wake")
-        print("   Why: Memory is ready, wake-up is the shortest path to project context")
-        log_next_step_shown(project_name, "status", "harness-mem wake")
+        next_step = f'MCP wake(project_name="{project_name}")'
+        print(f"→ Next: {next_step}")
+        print("   Why: Memory is ready, MCP wake is the shortest path to project context")
+        log_next_step_shown(project_name, "status", next_step)
 
 
 def _suggested_purge_command(project_name: str | None) -> str:

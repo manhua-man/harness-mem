@@ -46,7 +46,7 @@ async def cmd_import(
         if counts["relation_facts"]:
             print(f"  - {counts['relation_facts']} Relation Facts (status: pending)")
             
-        print("\nNext step: Review these candidates using 'harness-mem candidates'")
+        print("\nNext step: Review these candidates with MCP list_candidates")
         
         log_command_invoked("import", project_name=project_name, extra={"file": file_path, "count": total})
         log_cli_event(

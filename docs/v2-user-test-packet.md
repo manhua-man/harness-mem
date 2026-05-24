@@ -2,7 +2,7 @@
 
 > 给开发者扮演用的脚本。**不是 marketing persona**，是给你在 Codex CLI / Claude Code / Cursor 三个客户端里 stress test v2.0 的具体角色。
 >
-> 核心要测的事：v2.0 砍掉了 heuristic distill 之后，**任意 LLM agent 通过 MCP 驱动 distill 主链**这条承诺，在三个客户端里是否真的成立。
+> 核心要测的事：v2.0 砍掉了 heuristic distill 之后，**用户通过 `/hm:distill` 或自然语言入口触发，Agent 在背后完成 distill 主链**这条承诺，在三个客户端里是否真的成立。
 >
 > 预计每个 persona 30-60 分钟。建议三个都跑一遍，写下来在哪里卡住。
 >
@@ -14,7 +14,7 @@
 
 不管你扮演哪个 persona，请遵守：
 
-1. **忘掉你是 harness-mem 开发者**。你不知道 `harness_mem/commands/auto_review.py` 长什么样，你只看 README、quickstart 输出和 agent 给你的回复。
+1. **忘掉你是 harness-mem 开发者**。你不知道 `harness_mem/commands/auto_review.py` 长什么样，你只看 README、安装/doctor 输出和 agent 给你的回复。
 2. **只读 persona 角色卡里写的文档**。不去翻 CHANGELOG、`tools/session-distill/SKILL.md`、source code。如果你忍不住想翻 source 才能继续，**那就是一个真问题**——记下来。
 3. **遇到卡点先记，再决定要不要绕过**。一卡就翻 source 解决，等于把"它对真用户能不能用"这件事自己作弊回答了。
 4. **错误信息照原样抄进反馈表**。不要总结成"distill 报错"，要抄出来。
@@ -35,14 +35,13 @@
 ### 你被允许读的文档
 
 - `README.md`（只读 v2.0 callout + Golden Path 那一段）
-- `harness-mem doctor` / `harness-mem quickstart` 的输出
+- 安装脚本 / `harness-mem doctor` 的输出
 - Claude Code 内 `/hm:distill` 给你的最终摘要
 
 ### 环境准备
 
 ```bash
 pip install -e ".[dev,hybrid]"
-harness-mem quickstart
 claude mcp add -s user harness_mem "python -m harness_mem.mcp.server"
 ```
 
@@ -66,7 +65,7 @@ claude mcp add -s user harness_mem "python -m harness_mem.mcp.server"
 **Step 2：跑主链**
 
 ```
-/hm:distill <你这个 Django 项目名> 10
+/hm:distill
 ```
 
 放手让 Claude Code 自己调 MCP。**不要中途打断它**。等它给你最终摘要。
@@ -101,10 +100,7 @@ claude mcp add -s user harness_mem "python -m harness_mem.mcp.server"
 
 **Step 5：cleanup**
 
-```bash
-harness-mem candidates --status pending
-harness-mem rules
-```
+让 Agent 通过 MCP `list_candidates(status="pending")` 和 `get_confirmed_rules` 做最终复查。
 
 记录：你还能看懂 candidate 和 rule 列表吗？
 
@@ -137,10 +133,9 @@ harness-mem rules
 
 ```bash
 pip install -e ".[dev,hybrid]"
-harness-mem quickstart
 ```
 
-把 harness-mem MCP server 接到 Codex CLI 的 MCP 配置里（具体配置取决于 Codex CLI 当前版本；如果你卡在这一步就是第一个反馈点）。
+把 harness-mem 接到 Codex CLI 的工具配置里（具体配置取决于 Codex CLI 当前版本；如果你卡在这一步就是第一个反馈点）。
 
 ### 执行步骤
 
@@ -151,16 +146,14 @@ harness-mem quickstart
 > "我装了 harness-mem，想让你帮我整理过去 10 个 session 的项目记忆，怎么开始？"
 
 记录：
-- Codex 自己想到调 MCP 工具了吗？还是建议你跑 `harness-mem distill`（这是 v2.0 已经移除的 CLI）？
+- Codex 能否从 README / AGENTS 的显式说明里给出“直接整理/等价 `/hm:distill`”的路径？还是建议你跑 `harness-mem distill`（这是 v2.0 已经移除的 CLI）？
 - 如果它建议了 v2.0 已经不存在的命令，**这是 README/AGENTS.md 的诚实度问题**。
 
 **Step 2：手动喂 Codex 一段 prompt**
 
-如果 Step 1 它没自己想到，就给它一段最小指令：
+如果 Step 1 它没自己想到，就给它一段最小用户指令：
 
-> "用 MCP 工具 `prepare_session_distill` 拿当前项目最近 10 个 session 的 evidence，
-> 按 `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` 写候选，
-> 然后 `list_candidates` 看 pending，最后用 `confirm_*` / `reject_*` 处理低风险项。
+> "用 harness-mem 整理当前项目最近 10 个 session 的记忆，自动审核低风险候选。
 > 高风险项留给我看。"
 
 观察：
@@ -217,42 +210,42 @@ harness-mem quickstart
 ### 你被允许读的文档
 
 - `README.md`（只读 v2.0 callout + Golden Path）
-- `harness-mem quickstart` 输出
+- 安装脚本 / `harness-mem doctor` 输出
 - 不读 source。不读 SKILL.md。不读 AGENTS.md（他不是 agent 集成开发者，他是用户）
 
 ### 环境准备
 
 ```bash
 pip install harness-mem  # 注意：他是普通用户，他装的是 PyPI 包，不是 editable
-harness-mem quickstart
 ```
 
 把 harness-mem 加到他的 **MCP Router** 配置里（router 是 harness-mem 推荐的客户端集成路径）。Cursor 已经接好 router，所以 router 加 server 即可，Cursor 端无需单独配置。
 
 ### 执行步骤
 
-**Step 1：MCP Router 接入速度**
+**Step 1：安装后能不能直接触发主链**
 
-把 harness-mem 加到 router 的 server 列表（指向 `python -m harness_mem.mcp.server`），等 Cursor 重新拉到 server。
+把 harness-mem 加到 router 的 server 列表（安装阶段可以接触 MCP 配置），等 Cursor 重新拉到 server。然后在 Cursor 里直接说：
+
+> "用 harness-mem 整理最近 10 个 session，自动审核低风险候选。"
 
 记录：
-- 从 router 加 server 到 Cursor agent 能调用 `prepare_session_distill` 花了多久？
+- 从安装/接入到 Cursor agent 能执行 distill 花了多久？
 - 期待：< 2 分钟。
-- 如果超过，原因是什么？是 README 没说清 router 集成路径？还是 server 启动失败？哪个环节卡住记下来。
-- 如果 README 让他不知道"router 是推荐路径"，强迫他自己去 google "cursor mcp setup"——**这是 P0 文档问题**。
+- 如果超过，原因是什么？是安装接入没说清？还是 server 启动失败？还是 agent 把用户带去 CLI/MCP 工具名？
 
 **Step 2：触发 distill**
 
-Cursor 没有 slash 命令。他怎么触发主链？
+Cursor 不需要单独维护一套 `.cursor/commands`。他应该通过现有 Claude/Codex command 说明或自然语言指令触发主链。
 
 让他在 Cursor 里直接说：
 
-> "用 harness-mem 的 MCP 工具，帮我整理过去 10 个 session 的项目记忆，自动审核低风险候选。"
+> "用 harness-mem 帮我整理过去 10 个 session 的项目记忆，自动审核低风险候选。"
 
 记录：
-- Cursor 能不能照着 MCP 工具描述自己跑通？
+- Cursor 能不能照着用户级指令自己跑通？
 - 如果不能，Cursor 的内置 agent 是不是会建议跑 CLI（`harness-mem distill`，已被 v2.0 移除）？
-- README 有没有给"agent 自然语言驱动"一个清晰示例？还是默认假设用户有 slash？
+- README 有没有给"agent 自然语言驱动 / 复用 command 说明"一个清晰示例？还是又滑回让用户手动跑 CLI？
 
 **Step 3：Tauri IPC 规则真的被记住了吗**
 
@@ -298,11 +291,11 @@ Cursor 没有 slash 命令。他怎么触发主链？
 
 | 痛点 | 第一次 audit 时状态 | v2.0 后预期 | 你要验证什么 |
 |------|---------|-------------|------------|
-| 非 Claude Code 用户拿不到 auto-review | P0 痛点（误以为是 client 限制） | `auto_review_candidates` 是 MCP 工具，router 后任何客户端可调 | Cursor 是否真的能调到，agent 是否会自然想到调用它 |
+| 非 Claude Code 用户拿不到 auto-review | P0 痛点（误以为是 client 限制） | `auto_review_candidates` 是 runtime 工具，router 后任何客户端可调 | Cursor 是否能在明确 distill 指令或等价 skill 下调到 |
 | 规则命中反馈缺失 | P0 痛点 | `usage_count` + `last_surfaced_at` 已上 schema | wake 时真的会增 count 吗 |
-| Schema 升级 supersede | P1 痛点 | `suggest_correction` MCP 工具一步到位 | Cursor agent 知道要调它吗 |
+| Schema 升级 supersede | P1 痛点 | `suggest_correction` runtime 工具一步到位 | Cursor agent 知道要调它吗 |
 | 跨项目通用 rule | P2 痛点 | **没做**（按用户决策） | 周明远会不会因为这个流失 |
-| 30 条首次 review | P2 痛点 | auto-review 起作用后应缓解 | 实际留给他看的 pending 数量是多少 |
+| 首次显式 distill 的 review 量 | P2 痛点 | auto-review 只处理显式 distill 产生的候选，不代表后台自动产生日常候选 | 实际留给他看的 pending 数量是多少 |
 
 ---
 

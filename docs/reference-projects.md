@@ -119,7 +119,7 @@ Claude Code hooks
 
 不能照搬：
 
-- `claude-mem` 是 Claude Code 深绑定 hook 插件；`harness-mem` 的主线是 MCP-first, multi-client runtime，不能变成只服务 Claude Code 的 hook daemon。
+- `claude-mem` 是 Claude Code 深绑定 hook 插件；`harness-mem` 的主线是跨 Agent 的本地 memory runtime，MCP 只是隐藏传输层，不能变成只服务 Claude Code 的 hook daemon。
 - 不应默认引入常驻 worker/daemon。当前 `harness-mem` 路线已经明确先做本地 runtime 和 MCP 自动化，不把 daemon 当主路线。
 - File Read Gate 不应直接变成默认阻断行为；这类能力要先有用户可理解的 escape hatch 和 stale 判断。
 
@@ -224,7 +224,7 @@ sleep scan
 可接受：
 
 ```text
-harness-mem wake --format compact
+/hm:wake --format compact
 ```
 
 输出短摘要、实体、标签、source ID。
