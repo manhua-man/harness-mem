@@ -24,6 +24,7 @@
 | 7 | `test_doctor_flags_unused_rules.py` | ✅ 真跑 | `hm_401_emitted` (bool), `rule_quality_line_present`, `stale_count_visible` |
 | 8 | `test_correction_supersede_one_shot.py` | ✅ 真跑 | `old_rule_marked_historical` (bool), `supersede_chain_returned` (bool) |
 | 9 | `test_mcp_setup_without_cli.py` | ✅ 真跑 | `set_active_project_works`, `update_profile_idempotent`, `wake_surfaces_convention`, `hm_501_emitted` |
+| 10 | `test_wake_usage_badge.py` | ✅ 真跑 | `fresh_rule_marked_never_surfaced`, `veteran_rule_shows_count`, `veteran_rule_shows_recency` |
 
 **Scenario 1 (distill precision/recall)** 和 **scenario 6 (relation graph data pipeline)** 在 v2.0 移除——它们测的是启发式 distill，已在 v2.0 砍除。LLM-driven distill 的输出非确定性，不能在 CI 中以静态 fixture 跑出 baseline；agent 端的评估应放在 skill prompt 测试或 manual eval 报告里，不挤进 loop_harness。
 
@@ -77,3 +78,11 @@ scenario 9 实证：在 v2.0 周明远 / Cursor field test 中暴露的"agent �
 写一次保 idempotent → wake 验证 convention 出现在输出里），并加一个 HM-501
 （cwd 与 active project 不一致）的 doctor 测，覆盖正反两面：cwd 名字命中已
 知项目时必须告警，cwd 是无关目录时必须沉默。
+
+
+scenario 10 实证：v1.7.x 起 ConfirmedRule 已经记 usage_count + last_surfaced_at，
+但用户从来没在 wake-up 输出里看到——只在 doctor 的"Rule quality"汇总里有体现。
+现在每条 confirmed rule 在 wake 输出末尾带一个紧凑徽章："used 4×, last 2h ago"
+或"never surfaced before"。徽章渲染的是 **pre-touch** 快照（这次 wake 之前的累
+计值），而 wake 完成后再 touch，所以下次 wake 看到的是已经 +1 的数字——这是徽
+章在连续 wake 之间保持诚实的关键。

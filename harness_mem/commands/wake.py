@@ -46,6 +46,50 @@ def _elapsed_ms(start_time: float) -> int:
     return int((time.perf_counter() - start_time) * 1000)
 
 
+def _format_usage_badge(
+    usage_count: int | None,
+    last_surfaced_at: datetime | None,
+    *,
+    now: datetime | None = None,
+) -> str:
+    """Render the per-rule "this is how often it shows up" suffix.
+
+    Wakes don't tell users whether a confirmed rule is dead weight or
+    genuinely useful. This helper turns ``usage_count`` /
+    ``last_surfaced_at`` into a compact suffix so the user can see, at
+    a glance, which rules are working ("used 8×, last 2d ago") and
+    which are silent ("never surfaced before").
+
+    The values rendered here are the **pre-touch** snapshot — the
+    counter still reflects history *before* this wake, so users see
+    the cumulative work the rule has done up to (but not including)
+    the current call. The next wake will show the incremented count.
+
+    Pure function. ``now`` is injectable for deterministic tests.
+    """
+    count = int(usage_count or 0)
+    if count <= 0 or last_surfaced_at is None:
+        return "  _(never surfaced before)_"
+
+    reference = now or datetime.now(timezone.utc)
+    surfaced = last_surfaced_at
+    if surfaced.tzinfo is None:
+        surfaced = surfaced.replace(tzinfo=timezone.utc)
+    delta = reference - surfaced
+    minutes = int(delta.total_seconds() // 60)
+    if minutes < 1:
+        ago = "just now"
+    elif minutes < 60:
+        ago = f"{minutes}m ago"
+    elif minutes < 60 * 24:
+        ago = f"{minutes // 60}h ago"
+    elif minutes < 60 * 24 * 30:
+        ago = f"{minutes // (60 * 24)}d ago"
+    else:
+        ago = f"{minutes // (60 * 24 * 30)}mo ago"
+    return f"  _(used {count}×, last {ago})_"
+
+
 def _print_auto_sync_skipped(reason: str, start_time: float) -> None:
     print(f"🔄 Auto-sync skipped: {reason} ({_elapsed_ms(start_time)}ms)")
 
@@ -437,7 +481,11 @@ async def cmd_wake_up(
                 p_preview = rule.pattern[:pattern_limit] + "..." if is_pattern_trunc else rule.pattern
                 
                 trunc_marker = " [...truncated]" if (is_trigger_trunc or is_pattern_trunc) else ""
-                print(f"- **{t_preview}**: {p_preview}{trunc_marker}")
+                # Render the pre-touch counters so users see how many times
+                # this rule has surfaced *before* this wake-up. The touch
+                # below increments for the next call.
+                usage_badge = _format_usage_badge(rule.usage_count, rule.last_surfaced_at)
+                print(f"- **{t_preview}**: {p_preview}{trunc_marker}{usage_badge}")
                 if rule.provenance:
                     provenance = rule.provenance
                     source = provenance.get("session_id", provenance.get("agent_type", "unknown"))
