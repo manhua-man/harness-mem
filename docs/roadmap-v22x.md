@@ -26,7 +26,7 @@ v2.1 已经砍掉误导性 surface：日常 CLI 命令和 REST API 不再是产�
 - Agent 自动审核低风险项
 - 用户只看到简洁摘要和少数高风险残留
 
-如果这条链不稳，v2.3 / v2.4 做再强的内部能力，也只会制造更多用户够不到、审不动的候选。
+如果这条链不稳，v2.3-v2.7 做再强的内部能力，也只会制造更多用户够不到、审不动的候选。
 
 ---
 
@@ -110,4 +110,3 @@ v2.2 发布前必须满足：
 - `openspec validate --all --strict`
 - removed daily CLI command 的 stale surface scan
 - v2.2 client test packet 至少跑 Claude Code + 一个非 Claude client
-

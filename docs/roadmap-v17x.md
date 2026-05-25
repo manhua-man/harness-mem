@@ -2,7 +2,7 @@
 
 > 状态：v1.7.0 - v1.7.3 已完成实现并通过 full `pytest / ruff / mypy` release gate。v1.7.3 的收口点是 verbatim exact evidence search：只索引 `Observation.raw_content`，用于证据定位，不替代 FTS5 / vector search。
 >
-> 配合 [`roadmap-v16x.md`](./roadmap-v16x.md)、[`roadmap-vision-v16-v18.md`](./roadmap-vision-v16-v18.md) 与 [`roadmap-v23-v24.md`](./roadmap-v23-v24.md) 阅读：v1.7 的职责是让 memory runtime 长出"时间感"，不是提前做 Memory Metabolism，也不是提前做 procedural memory。
+> 配合 [`roadmap-v16x.md`](./roadmap-v16x.md)、[`roadmap-vision-v16-v18.md`](./roadmap-vision-v16-v18.md) 与 [`roadmap-v23.md`](./roadmap-v23.md) 阅读：v1.7 的职责是让 memory runtime 长出"时间感"，不是提前做 Memory Metabolism，也不是提前做 procedural memory。
 
 ---
 
