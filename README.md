@@ -45,23 +45,41 @@ MCP 是 Agent 背后的传输层，不是用户日常心智模型。CLI 是安�
 
 ### 1. 安装
 
+harness-mem 不发 PyPI；从 git 安装即可。三条路径按需选：
+
+**A. Cursor / Codex / 通用 MCP 客户端**——直接从 git 安装包：
+
 ```bash
-pip install harness-mem
+pip install git+https://github.com/manhua-man/harness-mem.git
 ```
 
-需要启用本地 hybrid vector search 时安装 extra：
+需要本地 hybrid vector search 时加 extra：
 
 ```bash
-pip install "harness-mem[hybrid]"
+pip install "harness-mem[hybrid] @ git+https://github.com/manhua-man/harness-mem.git"
 ```
 
-如果你是在这个仓库里开发而不是只使用成品包，再改用：
+**B. Claude Code 用户**——通过 repo-local plugin 一键装好包 + slash 命令 + （可选）MCP 注册：
+
+```powershell
+git clone https://github.com/manhua-man/harness-mem.git
+cd harness-mem
+.\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
+```
+
+脚本会做：editable install harness-mem、把 `plugins/harness-mem/commands/hm/*.md` 复制到
+`~/.claude/commands/hm/` 让 `/hm:distill` `/hm:wake` `/hm:search` `/hm:review` `/hm:status`
+全局可用、`claude mcp add` 把 MCP server 注册到 Claude Code、最后跑 `harness-mem doctor` 自检。
+
+**C. 改 harness-mem 自身的开发者**——editable install：
 
 ```bash
+git clone https://github.com/manhua-man/harness-mem.git
+cd harness-mem
 pip install -e ".[dev,hybrid]"
 ```
 
-第一次安装或本机状态异常时再运行：
+任意路径装完后，第一次或本机状态异常时跑：
 
 ```bash
 harness-mem quickstart

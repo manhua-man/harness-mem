@@ -1,7 +1,4 @@
-param(
-    [switch]$Wake,
-    [string]$Search
-)
+param()
 
 $ErrorActionPreference = "Stop"
 
@@ -13,14 +10,6 @@ Push-Location $repoRoot
 try {
     & $python.Source -m harness_mem.cli doctor
     & $python.Source -m harness_mem.cli status
-
-    if ($Wake) {
-        & $python.Source -m harness_mem.cli wake
-    }
-
-    if ($Search) {
-        & $python.Source -m harness_mem.cli search $Search --mode auto
-    }
 }
 finally {
     Pop-Location
