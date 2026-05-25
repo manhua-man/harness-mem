@@ -1646,12 +1646,20 @@ def handle_request(request: dict) -> dict | None:
                 "id": req_id,
                 "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]},
             }
-        except Exception:
+        except Exception as exc:
+            # Full traceback to stderr for postmortem; concise class+message
+            # surfaced to the client so an agent can debug without SSH-ing
+            # to the MCP server's logs. We deliberately keep this short:
+            # leaking the full traceback over JSON-RPC could expose
+            # filesystem paths or third-party stack frames.
             logger.exception(f"Tool error in {tool_name}")
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "error": {"code": -32000, "message": "Internal tool error"},
+                "error": {
+                    "code": -32000,
+                    "message": f"Internal tool error in {tool_name}: {exc.__class__.__name__}: {exc}",
+                },
             }
 
     # Notifications (missing id) must never get a response

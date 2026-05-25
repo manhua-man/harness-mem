@@ -2,7 +2,7 @@
 
 > 状态：v1.7.0 - v1.7.3 已完成实现并通过 full `pytest / ruff / mypy` release gate。v1.7.3 的收口点是 verbatim exact evidence search：只索引 `Observation.raw_content`，用于证据定位，不替代 FTS5 / vector search。
 >
-> 配合 [`roadmap-v16x.md`](./roadmap-v16x.md)、[`roadmap-vision-v16-v18.md`](./roadmap-vision-v16-v18.md) 与 [`roadmap-vision-v19-memory-metabolism.md`](./roadmap-vision-v19-memory-metabolism.md) 阅读：v1.7 的职责是让 memory runtime 长出"时间感"，不是提前做 Dream，也不是提前做 procedural memory。
+> 配合 [`roadmap-v16x.md`](./roadmap-v16x.md)、[`roadmap-vision-v16-v18.md`](./roadmap-vision-v16-v18.md) 与 [`roadmap-v23-v24.md`](./roadmap-v23-v24.md) 阅读：v1.7 的职责是让 memory runtime 长出"时间感"，不是提前做 Memory Metabolism，也不是提前做 procedural memory。
 
 ---
 
@@ -234,7 +234,7 @@ v1.7.x 不是为了把总 R@5 硬推到某个漂亮数字。成功标准是：
 | 方向 | 放在哪里 | 原因 |
 |---|---|---|
 | procedural memory / Skill schema | v1.8 | 需要 v1.7 的 semantic truth 和 supersede 链作为地基 |
-| Dream / Memory Metabolism | v1.9 | 需要 v1.6 分型预算、v1.7 时间感、v1.8 procedural layer 都完成 |
+| Memory Metabolism | v2.3 | 需要 v1.6 分型预算、v1.7 时间感、v1.8 procedural layer 都完成 |
 | 自动删 truth | 不做 | 和 auditable memory runtime 冲突 |
 | 常驻 daemon / proactive assistant | 不做 | 超出 memory layer |
 | 完整 ontology 演化 | v2.0 以后再评估 | 当前目标是 local-first 可解释最小子集 |

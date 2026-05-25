@@ -22,6 +22,8 @@
 | `roadmap-v15x.md` | v1.5.x 分切片交付记录（v1.5.1 - v1.5.3） |
 | `roadmap-v16x.md` | v1.6.x roadmap：measurement foundation、typing、bucket budget、persistent vectors |
 | `roadmap-v17x.md` | v1.7.x roadmap：temporal schema、supersede、bounded relation graph、verbatim exact evidence search |
+| `roadmap-v22x.md` | v2.2.x roadmap：AI IDE 入口闭环、跨客户端测试、auto-review UX |
+| `roadmap-v23-v24.md` | v2.3-v2.4 roadmap：Memory Metabolism foundations、跨项目 Skill、可控 Skill 激活 |
 | `roadmap-vision-v16-v18.md` | v1.6 - v1.8 远景方向，不等同于承诺路线图 |
 
 设计规格在 `openspec/specs/` 和 `openspec/changes/`。

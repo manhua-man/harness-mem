@@ -8,6 +8,63 @@
 
 ---
 
+## [2.2.0] — 2026-05-25
+
+**主题：AI IDE 入口闭环 — 锁住 Slash / Skill / 自然语言 golden path，让 auto-review 真正"自动"**
+
+v2.2 不加新能力，把 v2.0 / v2.1 累积下来的"用户走 IDE 入口、Agent 背后调 MCP、CLI 只做维护"承诺正式拼成可测试的契约。前一个版本砍掉了误导 surface（heuristic distill、daily CLI、REST API），但承诺与实现的对齐还散在各文件里；v2.2 把它收成一份 spec、一份跨客户端测试矩阵、一组防回归扫描，以及更稳健的 auto-review UX。
+
+### Added
+
+- **MCP error visibility**：`handle_request` 抛异常时返回的 `error.message` 现在带异常 class + message（例如 `"Internal tool error in suggest_memory_entry: RuntimeError: ..."`）。Traceback 仍只进 stderr 不泄露文件路径。配套 regression test `tests/mcp/test_smoke.py::test_tool_error_message_includes_class_and_message`。背景：v2.2 release gate 测试时 tester 收到通用 "Internal tool error" 无法定位根因，后来发现是 stale MCP server 进程，但 fix 让未来同类问题第一时间可诊断。
+- **`openspec/specs/daily-workflow/` spec**：固化 8 条 user-visible workflow 契约——entrypoint、project resolution、distill 闭环、5 类 failure 文案、auto-review 共享策略、evidence-id 强约束、kept-pending vs needs-user-confirmation 拆分、6 项 canonical counters、`/hm:review` 作为 repair-only 入口。
+- **跨客户端测试矩阵 `docs/v2-user-test-packet.md`**：从 v2.0 三 persona 脚本升级为 4 客户端 × 12 scenario 矩阵，覆盖 Claude Code / Codex CLI / Cursor / generic MCP client。每个 scenario 给 Intent / Pre-condition / Per-client input / Expected / Pass criterion / Common failure mode 六个维度；客户端特异失败必须落到 docs / prompt PR，禁止 IM tribal knowledge。
+- **stale-doc 防回归扫描 `tests/test_stale_cli_surface.py`**：参数化扫描 README / AGENTS / plugin docs / SKILL.md，断言 `harness-mem wake/search/timeline/candidates/distill` 这五个 v2.0 砍掉的 daily 子命令不会以"用户教学"形式重现。允许列表只覆盖明确的负面引用（如 AGENTS.md 描述 v2.0 移除的那行）。
+- **agent-without-CLI 回归测试 `tests/loop_harness/test_agent_distill_closed_loop_no_cli.py`**：覆盖 `set_active_project → suggest_memory_entry → list_candidates → auto_review_candidates` 全链通过 MCP 的 happy path，断言六计数器 summary 字段齐全、`applied_decisions` 含 `candidate_id + reason`。
+- **`AutoReviewDecision.evidence_id` 与 `is_high_risk` 字段**：每条决策直接携带证据来源 id（`MemoryEntry.source` 或 `RuleCandidate.examples[0]`），让"为什么 X 被自动 confirm/reject?"问题有可解释答案；`is_high_risk` 把 defer 拆成静默挂起 vs 需要用户确认。
+- **`explain_decision(summary, candidate_id)` helper**：`/hm:distill` / Skill 流程在用户追问"why"时一行调用即可拿到 `{candidate_id, kind, action, reason, evidence_id}`。
+- **5 类噪声 fixture**：tool failure、cross-project workflow leakage、generic advice、distill-process self-reference、duplicate candidate。`tests/test_auto_review_noise_fixtures.py` 提供 24 个用例，其中 duplicate 走 `auto_review_candidates(apply=True)` 验证 reason 引用首条 id。
+
+### Changed
+
+- **`harness_mem/commands/auto_review.py` 成为唯一 auto-review 真值源**：`/hm:distill` slash、`session-distill` skill、MCP `auto_review_candidates` 三个调用方共用同一份策略（noise patterns / 阈值 / 类别白名单 / 证据校验）。模块顶部新增 "Shared policy contract" 段记录这条契约。
+- **Auto-confirm 规则收紧**：`MemoryEntry` 自动确认要求 `source != "manual"` 且非空；`RuleCandidate` 自动确认要求 `examples` 非空。证据缺失则 defer 并标 `is_high_risk=True`，让用户看见。
+- **同 pass 内重复候选自动 reject**：按 `(project, category, content[:200].lower())` 去重，第二条同内容候选 → `auto_reject` + reason `duplicate of <first_id>`。
+- **Auto-review summary 拆分**：`kept_pending` 与 `needs_user_confirmation` 分开计数。低风险 defer（如 `bug` 类别需要人工 triage）只增 `kept_pending`；高风险 defer（rule candidate、`decision/architecture` 类别证据缺失）同时增 `needs_user_confirmation`。`next_user_action` 文案分三档。
+- **`docs/v2-user-test-packet.md` 全面重写**：v2.0 的三 persona 脚本仍可作为 scenario 内的 flavor，但脊椎换成"同一行为跨客户端并排跑"。Run log 章节使用同文件追加而非 sibling 目录，降低运维摩擦。
+
+### Removed
+
+- 无 breaking 移除。v2.2 是契约固化与 UX 收尾，不动 schema / MCP 工具签名 / data 格式。
+
+### OpenSpec
+
+- 归档 `v220-ai-ide-entry-loop` 为 `archive/2026-05-25-v220-ai-ide-entry-loop/`。
+- 新增 `openspec/specs/daily-workflow/spec.md`（8 个 Requirements / 22 个 Scenario）。
+
+### Test surface
+
+- 359 passed, 1 skipped（v2.1 baseline 322 → 359：新增 37 个测试覆盖 auto-review 噪声分类、stale-doc 扫描、loop harness no-CLI happy path、MCP error visibility regression、daily-workflow scenarios）。
+- mypy 0 errors / 73 source files。ruff clean。`openspec validate --all --strict` 全绿（20 specs）。
+
+### Manual release gate
+
+- v2.2 client test packet 必须由测试者跑 Claude Code + 至少一个非 Claude client（Codex / Cursor / generic MCP），结果记录到 `docs/v2-user-test-packet.md` 的 Run log 章节。本版本的 Run log 入口见下：
+
+  ```
+  ## YYYY-MM-DD — <tester>
+  Clients: <list>
+  Pass: <scenarios>
+  Fail: <scenarios + 描述>
+  Fixes filed: <PR / 文档路径>
+  ```
+
+### Why this is 2.2 not 2.1.1
+
+v2.2 是契约层的硬升级——之前承诺散在 README / AGENTS / SKILL.md 里、用户测试只有 dogfood 流；现在 daily-workflow spec 是单点契约，跨客户端 12 scenario 是可重复测试，5 类噪声 fixture 让 auto-review 行为可解释。这超出了 patch 范围。但 schema / MCP 签名 / data 不动，所以也不是 3.0。
+
+---
+
 ## [2.1.0] — 2026-05-24
 
 **主题：Surface 瘦身 + 文档诚实化 — CLI 退回维护控制台，纠正"AI 随手记"承诺**

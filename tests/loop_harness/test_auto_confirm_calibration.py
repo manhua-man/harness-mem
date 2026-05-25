@@ -232,7 +232,8 @@ def test_auto_review_rejects_noise_and_confirms_high_quality(data_dir: Path):
     try:
         store = backend.structured_store
 
-        # Auto-confirm target: long enough, low-risk category, high confidence.
+        # Auto-confirm target: long enough, low-risk category, high confidence,
+        # and a non-manual evidence id (v2.2 auto-review requires it).
         confirm_entry = MemoryEntry(
             project_name=project_name,
             category="decision",
@@ -243,7 +244,7 @@ def test_auto_review_rejects_noise_and_confirms_high_quality(data_dir: Path):
             ),
             confidence=0.85,
             status="pending",
-            source="manual",
+            source="obs_test_confirm",
         )
         # Auto-reject target: matches a noise pattern.
         noise_entry = MemoryEntry(
@@ -252,7 +253,7 @@ def test_auto_review_rejects_noise_and_confirms_high_quality(data_dir: Path):
             content="Glad we got that one nailed down — that was a tricky one.",
             confidence=0.85,
             status="pending",
-            source="manual",
+            source="obs_test_noise",
         )
         # Defer target: bug category is a hard defer in the heuristic.
         defer_entry = MemoryEntry(
@@ -264,14 +265,16 @@ def test_auto_review_rejects_noise_and_confirms_high_quality(data_dir: Path):
             ),
             confidence=0.95,
             status="pending",
-            source="manual",
+            source="obs_test_defer",
         )
-        # Auto-confirm rule candidate: high confidence + no noise.
+        # Auto-confirm rule candidate: high confidence + no noise + at least
+        # one example as evidence (v2.2 contract).
         confirm_rule = RuleCandidate(
             project_name=project_name,
             session_id="manual-session",
             pattern="Use parameterized queries for every dynamic SQL fragment.",
             trigger="Before composing SQL strings with user input",
+            examples=["fix(auth): switched to bind params in users.py"],
             confidence=0.9,
             status="pending",
         )

@@ -2,11 +2,50 @@
 
 ## Purpose
 
-CLI 是本地维护控制台。日常 AI 记忆工作（wake / search / ingest / candidate review / handoff 等）通过 IDE 命令、Skill 或 Agent 自然语言驱动 MCP 完成；CLI 只承担**安装、自检、显式 cleanup、本地维护**这类必须在终端执行的任务。
+CLI 是本地维护控制台。v2.1 起，日常 AI 记忆工作（wake / search / ingest /
+candidate review / handoff 等）通过 IDE 命令、Skill 或 Agent 自然语言驱动 MCP
+完成；CLI 只承担**安装、自检、显式 cleanup、本地维护、离线导入**这类必须在终端执行的任务。
 
-v2.1 起 CLI 子命令收敛为：`init` / `quickstart` (`qs`) / `doctor` / `import` / `purge` / `maintenance`。其他历史 CLI 子命令（`use`、`wake`、`search`、`ingest`、`status`、`profile`、`timeline`、`candidates`、`confirm`、`reject`、`correct`、`handoff` 等）已移除。日常等价行为请走 `mcp` 与 `daily-workflow` 规格。
+当前 CLI 子命令仅为：`init` / `quickstart` (`qs`) / `doctor` / `import` /
+`purge` / `maintenance`。历史日常子命令（`use`、`wake`、`search`、`ingest`、
+`status`、`profile`、`timeline`、`candidates`、`confirm`、`reject`、`correct`、
+`handoff`、`search-raw`、`trace-relations`、`distill` 等）不属于当前 CLI surface。
 
 ## Requirements
+
+### Requirement: CLI exposes maintenance commands only
+
+`harness-mem --help` MUST list only the current maintenance command set:
+`init`, `quickstart`, `qs`, `doctor`, `import`, `purge`, and `maintenance`.
+
+#### Scenario: help text excludes daily memory commands
+
+```text
+$ harness-mem --help
+usage: harness-mem ... {init,quickstart,qs,doctor,import,purge,maintenance} ...
+```
+
+The output MUST NOT list `wake`, `search`, `timeline`, `candidates`, `confirm`,
+`reject`, `distill`, `search-raw`, or `trace-relations` as subcommands.
+
+### Requirement: removed daily commands fail loudly
+
+Historical daily commands MUST fail as invalid choices instead of silently
+falling back to old behavior.
+
+#### Scenario: removed wake command is rejected
+
+```text
+$ harness-mem wake
+harness-mem: error: argument command: invalid choice: 'wake'
+```
+
+#### Scenario: removed distill command is rejected
+
+```text
+$ harness-mem distill
+harness-mem: error: argument command: invalid choice: 'distill'
+```
 
 ### Requirement: 状态型命令统一格式
 
@@ -34,13 +73,15 @@ $ harness-mem doctor
 
 ### Requirement: structured purge 必须有明确项目上下文
 
-当用户执行 `purge --category structured` 或 `purge --category all` 时，系统 MUST 具备明确的项目上下文；如果既没有 `--project` 也无法解析出活动项目（`active_project.txt`），命令 MUST 以非零退出码失败并提示用户显式给出项目。
+当用户执行 `purge --category structured` 或 `purge --category all` 时，系统 MUST
+具备明确的项目上下文；如果既没有 `--project` 也无法解析出活动项目，命令 MUST
+以非零退出码失败并提示用户显式给出项目。
 
 #### Scenario: structured purge 缺少项目上下文
 
 ```bash
 $ harness-mem purge --before 2026-01-01 --category all
-Error: structured memory purge requires a project context. Use --project <name>, or set the active project from your IDE / Agent (e.g. 调用 set_active_project MCP 工具).
+Error: structured memory purge requires a project context. Use --project <name>, or set the active project from your IDE / Agent.
 ```
 
 ### Requirement: project-scoped purge
@@ -80,9 +121,6 @@ CLI MUST 提供 `harness-mem maintenance assign-memory-types`，参数语义如�
 ```bash
 $ harness-mem maintenance assign-memory-types --dry-run
 Would update 18 MemoryEntry rows (0 already typed).
-- mem_123 (category=convention) -> semantic
-- mem_456 (category=bug)        -> semantic
-- mem_789 (category=raw_note)   -> episodic
 No changes written. Use --apply to commit.
 ```
 
@@ -96,20 +134,58 @@ $ harness-mem maintenance assign-memory-types --dry-run
 Would update 0 MemoryEntry rows (18 already typed).
 ```
 
-#### Scenario: 缺项目上下文时失败而非静默
+### Requirement: maintenance rebuild-vector-index
+
+CLI MUST 提供 `harness-mem maintenance rebuild-vector-index --project <name>`，
+用于显式重建持久化向量索引。
+
+#### Scenario: rebuild-vector-index 重建项目向量
 
 ```bash
-$ harness-mem maintenance assign-memory-types --apply
-Error: maintenance commands require a project context. Use --project <name>, or set the active project from your IDE / Agent.
+$ harness-mem maintenance rebuild-vector-index --project alpha
+Rebuilding vector index: alpha
+Rebuilt vector index for project 'alpha'.
+```
+
+### Requirement: maintenance rebuild-verbatim-index
+
+CLI MUST 提供 `harness-mem maintenance rebuild-verbatim-index --project <name>`，
+用于显式重建 raw observation exact/regex evidence index。
+
+#### Scenario: rebuild-verbatim-index 重建证据索引
+
+```bash
+$ harness-mem maintenance rebuild-verbatim-index --project alpha
+Rebuilt verbatim exact index for project 'alpha'.
 ```
 
 ### Requirement: import 子命令承担文件级离线导入
 
-CLI `harness-mem import` MUST 支持把 AI Skill 在本地文件系统产出的 memory drafts 注入候选层。这是少数必须在终端执行的离线流程之一（agent 输出文件 → CLI 读取 → 候选层），不属于日常用户操作。
+CLI `harness-mem import` MUST 支持把 AI Skill 在本地文件系统产出的 memory drafts
+注入候选层。这是少数必须在终端执行的离线流程之一（agent 输出文件 -> CLI 读取 ->
+候选层），不属于日常用户操作。
 
 #### Scenario: import 把本地文件灌进候选层
 
 ```bash
 $ harness-mem import --drafts ./tmp-drafts.jsonl --project alpha
 Imported 7 draft memory entries into pending candidates for project 'alpha'.
+```
+
+### Requirement: doctor 登记 HM-101 / HM-102 错误码
+
+`harness-mem doctor` MUST 在 `[wake]` config 段非法时输出：
+
+- `HM-101 wake bucket quotas must sum to 1.0`
+- `HM-102 wake bucket quota out of range`
+
+修复指引 MUST 指向 `~/.harness-mem/config.toml` 的 `[wake]` 段，并提示默认值。
+
+#### Scenario: doctor 报告 HM-101
+
+```bash
+$ harness-mem doctor
+✗ wake bucket quotas
+  code: HM-101 wake bucket quotas must sum to 1.0
+  fix: edit ~/.harness-mem/config.toml [wake] bucket_quota_* (default: 0.5 / 0.5 / 0.0)
 ```

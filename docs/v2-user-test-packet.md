@@ -1,346 +1,297 @@
-# harness-mem v2.0 用户测试 Packet
+# harness-mem v2.2 跨客户端测试矩阵
 
-> 给开发者扮演用的脚本。**不是 marketing persona**，是给你在 Codex CLI / Claude Code / Cursor 三个客户端里 stress test v2.0 的具体角色。
+> v2.2 cross-client test matrix。证明同一份用户可见契约（`/hm:wake` / `/hm:distill` / `/hm:search` / `/hm:review` 与对应自然语言入口）在 **Claude Code、Codex CLI、Cursor、generic MCP client** 上行为一致。
 >
-> 核心要测的事：v2.0 砍掉了 heuristic distill 之后，**用户通过 `/hm:distill` 或自然语言入口触发，Agent 在背后完成 distill 主链**这条承诺，在三个客户端里是否真的成立。
+> **取代** `docs/v2-user-test-packet.md` v2.0 的三 persona 脚本。原来的 林安宁 / 张子轩 / 周明远 仍可作为 scenario 内的 flavor 出现，但不再是测试结构的脊椎；脊椎是「同一行为跨客户端并排跑」。
 >
-> 预计每个 persona 30-60 分钟。建议三个都跑一遍，写下来在哪里卡住。
+> 由 `.claude/skills/multi-client-field-test/` 拥有。下次需要新版 packet（v2.3 / v3 等）请直接调用同一个 skill 重生成；不要在本文件做侵入式改写。
 >
-> 此 packet 由 `.claude/skills/multi-client-field-test/` 生成。下个发版（v2.1 / v3 等）需要新 packet 时调用同一个 skill；本文件本身不是模板。
+> 契约真值源：`openspec/changes/v220-ai-ide-entry-loop/specs/daily-workflow/spec.md`。本 packet 中所有 "Expected behavior" 都引用该 spec 的 Requirement。
 
 ---
 
-## 共用扮演纪律
+## 测试矩阵（test matrix）
 
-不管你扮演哪个 persona，请遵守：
+每行一个 scenario，每列一个客户端。单元格写「Pass target / 测试者输入」。详细 expected behavior 见下面 Scenarios 章节。
 
-1. **忘掉你是 harness-mem 开发者**。你不知道 `harness_mem/commands/auto_review.py` 长什么样，你只看 README、安装/doctor 输出和 agent 给你的回复。
-2. **只读 persona 角色卡里写的文档**。不去翻 CHANGELOG、`tools/session-distill/SKILL.md`、source code。如果你忍不住想翻 source 才能继续，**那就是一个真问题**——记下来。
-3. **遇到卡点先记，再决定要不要绕过**。一卡就翻 source 解决，等于把"它对真用户能不能用"这件事自己作弊回答了。
-4. **错误信息照原样抄进反馈表**。不要总结成"distill 报错"，要抄出来。
-5. **使用真项目而不是空仓库**。v2.0 distill 依赖真实 session 的语义内容；空仓库下 LLM agent 会幻觉，测出来的不是产品问题是测试设置问题。
-
----
-
-## Persona A: 林安宁（Claude Code 重度用户）
-
-### 角色卡
-
-- 30 岁，后端工程师，一线 SaaS 公司，独立维护一个 Django + PostgreSQL 项目（约 6 万行）
-- 重度 Claude Code 用户，每天 5-7 小时在 agent 里写代码
-- 关键痛点：Claude 反复忘掉这个项目用 PostgreSQL **JSONB**（不是 MySQL JSON），每次新 session 都要重新提醒 `JSONField(encoder=DjangoJSONEncoder)`、`GIN index`、`db_index=True` 这些约定。三个月里他重复说过 ≥ 8 次。
-- 上 HN 看到 harness-mem 的 "local-first AI memory runtime" 标语，下载来试。
-- 之前试过 mem0、letta，嫌 cloud-only 或 setup 太重。
-
-### 你被允许读的文档
-
-- `README.md`（只读 v2.0 callout + Golden Path 那一段）
-- 安装脚本 / `harness-mem doctor` 的输出
-- Claude Code 内 `/hm:distill` 给你的最终摘要
-
-### 环境准备
-
-```bash
-pip install -e ".[dev,hybrid]"
-claude mcp add -s user harness_mem "python -m harness_mem.mcp.server"
-```
-
-确认 Claude Code 重启后能看到 `mcp__harness_mem__*` 工具。
-
-### 执行步骤
-
-**Step 1：在 Claude Code 里启动 wake，看看冷启动是什么样**
-
-在 Claude Code 里发送：
-
-```
-/hm:wake
-```
-
-记录：
-- agent 给你看到了什么？
-- 显示的是 "no confirmed memories" 还是空摘要？
-- 有没有提示你下一步该跑 `/hm:distill`？
-
-**Step 2：跑主链**
-
-```
-/hm:distill
-```
-
-放手让 Claude Code 自己调 MCP。**不要中途打断它**。等它给你最终摘要。
-
-记录：
-- 它实际读了几个 session？读对了项目吗？
-- AI 自动 confirm 了几条？自动 reject 了几条？保留 pending 给你看的几条？
-- **关键**：留给你看的 pending 条目里，是否包含那条 "PostgreSQL JSONB 而不是 MySQL JSON" 的事实？
-- 摘要好读吗？你能在 60 秒内决定要不要 confirm 高风险项吗？
-
-**Step 3：模拟真实工作 — 开新对话**
-
-新开一个 Claude Code 对话窗口（强制 wake-up 重新跑），让 Claude 帮你写：
-
-> "给 User 模型加一个 metadata 字段，存任意 key-value，可以索引"
-
-记录：
-- Claude 第一次出手，提的字段类型是 `JSONField` 还是 `models.TextField` / `JSONField` 但带 MySQL 注释？
-- 它有没有提到 GIN index？
-- 如果之前 distill 抓到那条规则，这一步应该 0 提醒就给出正确答案。
-
-**Step 4：纠错路径**
-
-故意告诉 Claude："这个项目其实跑在 MySQL 上"（这是个谎，目的是测 supersede）。让它帮你改记忆。
-
-观察 Claude 是不是会触发 `mcp__harness_mem__suggest_correction`，给出 supersede 候选。
-
-记录：
-- 它有没有主动想到要 correct？
-- supersede 候选是显示给你的还是直接 confirm 了？
-- 如果它直接 confirm 了一个错的事实，**这是 P0 真问题**。
-
-**Step 5：cleanup**
-
-让 Agent 通过 MCP `list_candidates(status="pending")` 和 `get_confirmed_rules` 做最终复查。
-
-记录：你还能看懂 candidate 和 rule 列表吗？
-
-### v2.0 关注点
-
-林安宁是 v2.0 的 **happy path baseline**。如果他这一轮卡住，其他两个 persona 大概率也会卡。重点看：
-
-1. `/hm:distill` 是否真的"一键到摘要"，还是中途会停下来问你东西？
-2. auto-review 给的"自动 confirm/reject" 数量是否 reasonable？是不是把所有东西都丢回 pending 了？
-3. v2.0 移除 heuristic 后，distill 摘要里的候选是否明显更准（不再有 "fix(auth): JWT validation" 这种 git commit 抄写）？
+| Scenario | Claude Code | Codex CLI | Cursor | Generic MCP client |
+|----------|-------------|-----------|--------|--------------------|
+| S1 Cold wake on empty project | Pass: 报空 + 不教 CLI / `/hm:wake` | Pass: 报空 + 不教 CLI / "用 harness-mem 唤醒当前项目" | Pass: 报空 + 不教 CLI / "用 harness-mem 唤醒当前项目" | Pass: 调 `wake` 工具，结果空 / 直接调用 MCP `wake` |
+| S2 Distill closed loop produces canonical summary | Pass: 摘要含六计数器 / `/hm:distill` | Pass: 摘要含六计数器 / "用 harness-mem 整理最近 10 个 session" | Pass: 摘要含六计数器 / "用 harness-mem 整理最近 10 个 session" | Pass: 完整链 + 摘要 / 顺序调 `prepare_session_distill` → `suggest_*` → `list_candidates` → `auto_review_candidates` |
+| S3 Project resolution | Pass: 不让用户跑 `harness-mem use` / `/hm:wake` | Pass: 同左 / "唤醒当前项目" | Pass: 同左 / "唤醒当前项目" | Pass: agent 解析项目 / 注入 `project_root` 参数 |
+| S4 MCP unavailable | Pass: 报 unavailable + 指 doctor / `/hm:distill` | Pass: 同左 / "整理最近 session" | Pass: 同左 / "整理最近 session" | Pass: 同左 / 任意 MCP 调用 |
+| S5 No LLM agent (distill) | N/A（Claude Code 总有 LLM） | Pass: 报 unavailable，不启发式回退 / "整理最近 session"（用 weak/无模型） | Pass: 同左 / 同左 | Pass: 同左 / 模拟无 LLM agent |
+| S6 Empty evidence packet | Pass: 报 "no recent session evidence" / `/hm:distill` | Pass: 同左 / 自然语言指令 | Pass: 同左 / 自然语言指令 | Pass: 同左 / 直接调 `prepare_session_distill` |
+| S7 Project mismatch | Pass: 一句反问 / `/hm:distill <错项目>` | Pass: 同左 / "整理项目 X 的 session"（X 与 cwd 不符） | Pass: 同左 / 同左 | Pass: 同左 / 注入冲突 `project_name` |
+| S8 Auto-review confirms low-risk + defers high-risk | Pass: ≥1 低风险自动 confirm + ≥1 高风险残留 / `/hm:distill`（带 fixture） | Pass: 同左 / NL 指令 | Pass: 同左 / NL 指令 | Pass: 同左 / `auto_review_candidates` |
+| S9 Supersede on user correction | Pass: 触发 `suggest_correction`，不静默覆盖 / 在对话里说 "我们其实用 MySQL" | Pass: 同左 / 同左 | Pass: 同左 / 同左 | Pass: 同左 / 显式调 `suggest_correction` |
+| S10 Cross-client confirmed truth visibility | Pass: Codex confirm 的事实在 Claude Code wake 出现 / `/hm:wake` | Pass: 在 Codex 里 confirm 一条事实 | (同 Claude Code 行为，可作为读端) | (同上) |
+| S11 Stale CLI surface absence | Pass: README/AGENTS/plugin 文档 grep 不到日常 CLI 教学 / 字符串扫描 | 同左 | 同左 | 同左 |
+| S12 `/hm:review` is repair-only | Pass: 成功 `/hm:distill` 摘要不再说 "now run /hm:review" / `/hm:distill` 跑通后看摘要 | Pass: NL distill 摘要不指引 review | Pass: 同左 | Pass: 同左 |
 
 ---
 
-## Persona B: 张子轩（Codex CLI 用户）
+## 客户端接入说明（client setup notes）
 
-### 角色卡
+每个客户端的最小接入路径。tool name 别名约定：**无横线** 的 `mcp__harness_mem__...` 是 canonical（部分 Claude Code tool-call 路径会误解析含 `-` 的 server name）。详见 [`plugins/harness-mem/README.md`](../plugins/harness-mem/README.md)。
 
-- 28 岁，ML 工程师，自研一个 PyTorch 训练管线（数据增强 + 多卡分布式 + 自定义 LR scheduler）
-- 主用 OpenAI Codex CLI，因为他的工作流要 grep / sed 大量数据脚本，喜欢 Codex 的 shell-first 体感
-- 关键痛点：Codex 每次新 session 都忘记他写的 `WarmupCosineWithRestarts` scheduler 的 reset 行为，重复改回 PyTorch 默认 `CosineAnnealingLR`。
-- 朋友丢给他 harness-mem 链接，说"这个不绑 Claude Code"，他来试一下。
+### Claude Code
 
-### 你被允许读的文档
+slash 命令安装走 plugin 安装脚本：
 
-- `README.md`（只读 v2.0 callout 那一段）
-- `AGENTS.md`（"Distill 的边界（v2.0）" 那段，他想确认 Codex 真的能用）
-- 他**不会**主动去读 `tools/session-distill/SKILL.md`——除非 README 让他读
-
-### 环境准备
-
-```bash
-pip install -e ".[dev,hybrid]"
+```powershell
+.\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
-把 harness-mem 接到 Codex CLI 的工具配置里（具体配置取决于 Codex CLI 当前版本；如果你卡在这一步就是第一个反馈点）。
+该脚本会：
 
-### 执行步骤
+1. `pip install -e .[hybrid]`
+2. 把 `plugins/harness-mem/commands/hm/*.md` 复制到 `~/.claude/commands/hm/`，于是 `/hm:status` `/hm:distill` `/hm:wake` `/hm:search` `/hm:review` 在任何 Claude Code 项目都能用
+3. `claude mcp add -s user harness_mem "python -m harness_mem.mcp.server"`
+4. 跑 `harness-mem doctor`
 
-**Step 1：Codex 在不在主路径上？**
+工具别名：MCP 工具一律以 `mcp__harness_mem__<tool_name>` 形式被 agent 调用，例如 `mcp__harness_mem__wake`、`mcp__harness_mem__prepare_session_distill`。
 
-在 Codex CLI 里问：
+### Codex CLI
 
-> "我装了 harness-mem，想让你帮我整理过去 10 个 session 的项目记忆，怎么开始？"
+Codex 原生没有 slash 命令，靠自然语言驱动 agent。LLM agent 执行 distill 主链时的 prompt 模板真值源是 [`tools/session-distill/SKILL.md`](../tools/session-distill/SKILL.md)。Codex agent 应被指引到该文件作为 prompt 参照。
 
-记录：
-- Codex 能否从 README / AGENTS 的显式说明里给出“直接整理/等价 `/hm:distill`”的路径？还是建议你跑 `harness-mem distill`（这是 v2.0 已经移除的 CLI）？
-- 如果它建议了 v2.0 已经不存在的命令，**这是 README/AGENTS.md 的诚实度问题**。
+接入 MCP server（Codex CLI 当前版本所支持的 MCP 配置写法）：
 
-**Step 2：手动喂 Codex 一段 prompt**
+- server name：`harness_mem`（无横线）
+- 启动命令：`python -m harness_mem.mcp.server`
+- transport：stdio（MCP 默认）
 
-如果 Step 1 它没自己想到，就给它一段最小用户指令：
+最小用户级指令模板（Codex agent 应能照此跑通主链）：
 
-> "用 harness-mem 整理当前项目最近 10 个 session 的记忆，自动审核低风险候选。
-> 高风险项留给我看。"
+```text
+用 harness-mem 整理当前项目最近 10 个 session 的记忆，自动审核低风险候选，
+高风险项留给我看。最后输出 ingested / candidates / auto_confirmed /
+auto_rejected / pending / high_risk 六项计数器摘要。
+```
 
-观察：
-- Codex 能不能照样跑通这条链？
-- 它中途有没有问你"项目根目录在哪"？还是直接拿 cwd 就上？
-- 它产出的候选质量比 Persona A（Claude Code）差很多吗？
+### Cursor
 
-**Step 3：对照 Persona A 的差异**
+Cursor 不需要单独的 `.cursor/commands` 模板。两条接入路径，二选一：
 
-如果你也跑了 Persona A，把同一个项目（或同样规模的项目）在两个 client 里跑出的候选数量、自动 confirm 率、留给人看的项数对比一下。
+1. **MCP Router（推荐）**：把 `harness_mem` server 注册到本地 MCP Router，Cursor 已经接好 router 时无需 Cursor 端再配。
+2. **直接配置**：在 Cursor 的 MCP 设置里加一个 server，启动命令 `python -m harness_mem.mcp.server`。
 
-记录：
-- Codex 的输出是否明显欠火候？
-- 是 Codex 模型本身的问题，还是 harness-mem 没给 Codex 足够提示？
+驱动方式同 Codex：用户级自然语言指令。例：
 
-**Step 4：跨 client 验证**
+```text
+用 harness-mem 唤醒当前项目。
+用 harness-mem 搜索 "auth logic"。
+用 harness-mem 整理最近 10 个 session，自动审核低风险候选。
+```
 
-新开一个 Claude Code 窗口，跑 `/hm:wake`。
+工具别名同上：`mcp__harness_mem__*`。
 
-记录：
-- 在 Codex 里 confirm 的记忆，Claude Code 这边能 wake 出来吗？
-- 这是 v2.0 "任意 LLM agent" 承诺的关键证据。如果两个 client 看不到同一份 confirmed 记忆，**P0**。
+### Generic MCP client（开发者向）
 
-**Step 5：unhappy path**
+任何符合 MCP 协议的客户端：
 
-故意把 MCP server 关掉，再让 Codex 想做 distill。
+- 启动命令：`python -m harness_mem.mcp.server`
+- transport：stdio
+- 工具 schema：见 `harness_mem/mcp/server.py` 中 `register_tools()` 暴露的 tool 列表
+- canonical tool prefix：`mcp__harness_mem__`
 
-记录：
-- 它有没有 graceful 降级到"distill unavailable"？
-- 还是在那里 hallucination 假装做了 distill 但什么都没存？
-- v2.0 的设计是 LLM 不可用时 distill 应该是 unavailable，不是悄悄走假路径。
-
-### v2.0 关注点
-
-张子轩是验证 **v2.0 解耦 Claude Code 承诺**的关键 persona。重点看：
-
-1. 没有 slash 命令的环境里，AGENTS.md 给的指引是否足够 LLM 自己照着跑？
-2. session-distill 的核心提示是不是只在 `tools/session-distill/SKILL.md` 里？如果是，AGENTS.md 应该明确告诉非 Claude Code agent 去读那个文件作为 prompt 模板。
-3. Codex 跑出来的 confirmed 记忆，Claude Code 能消费吗？反过来呢？
+排错入口：`harness-mem doctor`（CLI 唯一被允许的日常接触点）。MCP stdout 必须保持纯净 JSON-RPC（项目规则 P0），任何调试输出走 stderr。
 
 ---
 
-## Persona C: 周明远（Cursor 用户，v2.0 真考验）
+## Scenarios
 
-### 角色卡
+每个 scenario 块结构：**Intent / Pre-condition / Per-client input / Expected / Pass criterion / Common failure mode**。Expected 一栏直接引用 spec Requirement。
 
-- 34 岁，独立开发者 + 偶尔接外包，上海，咖啡馆工作型
-- 主项目：自研 Notion-like 笔记产品 inkpad，TypeScript + Tauri + Rust 后端，4 万行代码，1.5 年
-- 副业：每月接 1-2 个 Unity / 小程序外包
-- 重度 Cursor 用户，每天 4-6 小时在 Cursor 里写代码
-- 关键痛点：Tauri IPC 在 Windows 上有个 codepath（用 `invoke` 而不是 `emit` 传大对象），他三个月前花两天调通过；Cursor 反复忘记，每次都改回错的形态
-- 看 HN 帖子说 harness-mem "local-first, auditable"，决定试试
+### S1 Cold wake on empty project
 
-### 你被允许读的文档
+- **Intent**：刚装完，没灌过任何 session，`/hm:wake` 等价入口必须报告"空"，不能引导用户去敲 CLI。
+- **Pre-condition**：fresh `~/.harness-mem/data/`，未跑过 ingest / distill。
+- **Per-client input**：
+  - Claude Code：`/hm:wake`
+  - Codex CLI：`用 harness-mem 唤醒当前项目`
+  - Cursor：`用 harness-mem 唤醒当前项目`
+  - Generic MCP：直接调 `mcp__harness_mem__wake`，必要时附 `project_root=<workspace>`
+- **Expected**：参见 spec _User-visible memory entrypoints_ + _Project resolution_。Agent 调 MCP `wake`，得到空结果，向用户报告"无 confirmed 记忆 / 无 recent observation"，不指引用户去跑 `harness-mem wake`。
+- **Pass criterion**：摘要里出现"空 / no confirmed / no recent observation"字样；不出现 `harness-mem wake` / `harness-mem search` 这种 CLI 教学。
+- **Common failure mode**：agent 看到空结果后说"请先在终端运行 `harness-mem wake`"——这是 v2.1 已经要砍掉的反模式。
 
-- `README.md`（只读 v2.0 callout + Golden Path）
-- 安装脚本 / `harness-mem doctor` 输出
-- 不读 source。不读 SKILL.md。不读 AGENTS.md（他不是 agent 集成开发者，他是用户）
+### S2 Distill closed loop produces canonical summary
 
-### 环境准备
+- **Intent**：`/hm:distill` 等价入口必须以六计数器摘要结束。
+- **Pre-condition**：项目至少有一个真实 session 可被 `prepare_session_distill` 摘到；建议用最近一周的实际开发会话。
+- **Per-client input**：
+  - Claude Code：`/hm:distill`
+  - Codex CLI / Cursor：`用 harness-mem 整理当前项目最近 10 个 session，自动审核低风险候选，最后给我六项计数器摘要`
+  - Generic MCP：依次调 `prepare_session_distill` → `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` / `create_task_handoff` → `list_candidates(status="pending")` → `auto_review_candidates`
+- **Expected**：参见 spec _Distill closes the review loop_ + _Final summary uses canonical counters_。完成主链后输出六个计数器：`ingested / candidates / auto_confirmed / auto_rejected / pending / high_risk`。
+- **Pass criterion**：摘要里能逐字数到这六个名字（或对应中文 alias：新灌入 / 新候选 / 自动确认 / 自动拒绝 / 保留待定 / 需要你确认）；`auto_confirmed + auto_rejected + pending + high_risk = candidates`。
+- **Common failure mode**：摘要里只给"已 distill X 条"或者只给一个"pending: N"——少了 auto-review 的可见性，这是 v2.1 的回归。
 
-```bash
-pip install harness-mem  # 注意：他是普通用户，他装的是 PyPI 包，不是 editable
-```
+### S3 Project resolution
 
-把 harness-mem 加到他的 **MCP Router** 配置里（router 是 harness-mem 推荐的客户端集成路径）。Cursor 已经接好 router，所以 router 加 server 即可，Cursor 端无需单独配置。
+- **Intent**：active project → workspace root → 一次简短反问。不能让用户跑 `harness-mem use`。
+- **Pre-condition**：分两组测试。组 A：`set_active_project` 已设。组 B：未设 active project，但 cwd 在某项目根。
+- **Per-client input**：
+  - 各客户端：`/hm:wake` 或 `用 harness-mem 唤醒当前项目`，不在指令里写项目名
+- **Expected**：参见 spec _Project resolution before workflow execution_。组 A 直接用 active；组 B 用 workspace root；组 C（active 与 cwd 都判不出唯一）触发 **一句** 反问。
+- **Pass criterion**：组 A/B 不反问；组 C 反问只有一句，且不包含 "请运行 harness-mem use" 这种 CLI 指令。
+- **Common failure mode**：agent 反问两次以上、或在每次调用前都重新问项目名。
 
-### 执行步骤
+### S4 MCP unavailable
 
-**Step 1：安装后能不能直接触发主链**
+- **Intent**：MCP transport 不通时，graceful 报错 + 指向 doctor，不私自 fallback 到 CLI 命令。
+- **Pre-condition**：有意 break MCP server（例：把可执行文件改名、或在 client 配置里把启动命令指向不存在的 python）。
+- **Per-client input**：各客户端发起任意 daily workflow（`/hm:distill`、`用 harness-mem 整理最近 session`）。
+- **Expected**：参见 spec _Failure states are explicit / MCP transport is unavailable_。文案包含 "harness-mem MCP runtime unavailable" 及 `harness-mem doctor` 指引；不出现 "请改用 `harness-mem distill`" 这种 CLI fallback。
+- **Pass criterion**：错误信息可读、含 doctor 指引；事后 grep 当轮 transcript 不到 `harness-mem distill` / `harness-mem wake` / `harness-mem search` / `harness-mem timeline` / `harness-mem candidates` 这五个被 v2.1 砍掉的日常子命令。
+- **Common failure mode**：agent 看到 MCP 失败后建议"那你直接终端跑 `harness-mem distill`"——直接 P0 修文档/prompt。
 
-把 harness-mem 加到 router 的 server 列表（安装阶段可以接触 MCP 配置），等 Cursor 重新拉到 server。然后在 Cursor 里直接说：
+### S5 No LLM agent (Codex / Cursor without the right model)
 
-> "用 harness-mem 整理最近 10 个 session，自动审核低风险候选。"
+- **Intent**：distill 是 LLM-driven。没 LLM 时报 unavailable，不退回启发式抽取。
+- **Pre-condition**：在 Codex CLI 或 Cursor 里把模型显式选成不可用 / 占位 / 极弱模型；或 mock 一个 LLM agent failure。
+- **Per-client input**：`用 harness-mem 整理最近 10 个 session`。
+- **Expected**：参见 spec _Failure states are explicit / No LLM agent is available_。报告 distill unavailable，并把开发者指向 `tools/session-distill/SKILL.md` 作为 LLM-agent 集成参考；不调 `prepare_session_distill` 之外的 `suggest_*` 接口造候选。
+- **Pass criterion**：摘要里说"distill unavailable"或同义表达；`list_candidates(status="pending")` 在测试前后差值为 0（没有静默写入候选）。
+- **Common failure mode**：agent 看 LLM 不可用后，自己用 regex / git log / 文件名启发式抽规则塞进候选——这正是 v2.0 砍掉的 heuristic 路径，绝对不可复活。
 
-记录：
-- 从安装/接入到 Cursor agent 能执行 distill 花了多久？
-- 期待：< 2 分钟。
-- 如果超过，原因是什么？是安装接入没说清？还是 server 启动失败？还是 agent 把用户带去 CLI/MCP 工具名？
+### S6 Empty evidence packet
 
-**Step 2：触发 distill**
+- **Intent**：项目下没有可用 session 时，不发明候选。
+- **Pre-condition**：选一个从未有过 Claude/Codex session 的项目目录（或临时改 session 路径让 packet 为空）。
+- **Per-client input**：各客户端发起 distill。
+- **Expected**：参见 spec _Failure states are explicit / Evidence packet is empty_。报"no recent session evidence for `<project>`"，建议检查 session 源路径或跑 `harness-mem doctor`；**不调** `suggest_*`。
+- **Pass criterion**：摘要里出现 "no recent session evidence"；候选总数为 0；摘要不出现"已 distilled" / "已生成 N 条"等可能让用户误以为有内容的措辞。
+- **Common failure mode**：agent 在 evidence 为空时仍写若干 generic candidate（"this project uses Python"），把它们标成 distilled。
 
-Cursor 不需要单独维护一套 `.cursor/commands`。他应该通过现有 Claude/Codex command 说明或自然语言指令触发主链。
+### S7 Project mismatch
 
-让他在 Cursor 里直接说：
+- **Intent**：用户提到的项目名和 active / workspace root 不一致时，必须显式问，不静默选一个。
+- **Pre-condition**：active project = `inkpad`，cwd 也在 inkpad。
+- **Per-client input**：用户说 `用 harness-mem 整理项目 unity-side-job 最近 5 个 session 的记忆`（项目名故意冲突）。
+- **Expected**：参见 spec _Project resolution / Project mismatch between request and runtime_。摘要把检测到的两个名字都展示给用户，反问一句澄清。
+- **Pass criterion**：agent 同时回显 `inkpad` 和 `unity-side-job` 两个名字，且只问一次；在用户回答前不写候选、不调 distill 主链。
+- **Common failure mode**：agent 默认按 active 走，不告诉用户它做了选择；或者反问超过一次。
 
-> "用 harness-mem 帮我整理过去 10 个 session 的项目记忆，自动审核低风险候选。"
+### S8 Auto-review confirms low-risk + defers high-risk
 
-记录：
-- Cursor 能不能照着用户级指令自己跑通？
-- 如果不能，Cursor 的内置 agent 是不是会建议跑 CLI（`harness-mem distill`，已被 v2.0 移除）？
-- README 有没有给"agent 自然语言驱动 / 复用 command 说明"一个清晰示例？还是又滑回让用户手动跑 CLI？
+- **Intent**：用真实 fixture 验证 auto-review 行为对称：低风险至少自动 confirm 一条、高风险至少留一条 pending 给用户。
+- **Pre-condition**：确保项目里有可被 distill 抽出至少 1 条低风险事实（例："运行时 Python 3.13"，有 evidence id）和至少 1 条高风险规则（例："禁止使用 X 库"——会改变 agent 长期行为）。
+- **Per-client input**：各客户端跑 distill。
+- **Expected**：参见 spec _Final summary uses canonical counters_。`auto_confirmed ≥ 1`、`high_risk ≥ 1`；用户问"为什么 X 被自动 confirm 了"时 agent 能回 candidate id、evidence id、policy reason（来自 `auto_review_candidates.applied_decisions`）。
+- **Pass criterion**：摘要里 `auto_confirmed ≥ 1` 且 `high_risk ≥ 1`；后续追问 "why?" 能拿到 candidate id + evidence id + policy reason 三项。
+- **Common failure mode**：所有候选都被丢回 pending（auto-review 没真在跑）；或者高风险被自动 confirm 了（policy 边界失守）。
 
-**Step 3：Tauri IPC 规则真的被记住了吗**
+### S9 Supersede on user correction
 
-找他历史 session 里那个 Tauri IPC 调试过程，看 distill 摘要里有没有抓到。
+- **Intent**：用户纠正一个已 confirm 的事实时，agent 走 `suggest_correction`，不静默改写真值。
+- **Pre-condition**：已通过 distill 或手工 confirm 过一条事实（例："这个项目用 PostgreSQL JSONB"）。
+- **Per-client input**：用户在对话里说 `这个项目其实跑在 MySQL 上`（或任意已 confirm 事实的反向陈述）。
+- **Expected**：agent 调 `mcp__harness_mem__suggest_correction`，把新事实作为 supersede 候选写入；老事实保留可追溯。新事实在用户确认前不会出现在 wake 输出里覆盖原值。
+- **Pass criterion**：`list_candidates(status="pending")` 中能看到 supersede 标记的候选；老 confirmed 记忆没被静默删除或覆盖。
+- **Common failure mode**：agent 直接 reject 老事实 + confirm 新事实两步走，丢了 supersede 链；或者完全没调 `suggest_correction`，只在对话里口头同意。
 
-记录：
-- 抓到了吗？这条对 inkpad 这个项目是 P0 价值。
-- 抓到的措辞合理吗？还是 LLM 把它泛化成"Windows IPC 要用 invoke"这种含糊话？
+### S10 Cross-client confirmed truth visibility
 
-**Step 4：升级 schema 后 supersede**
+- **Intent**：v2.0 起的"任意 LLM agent 都能驱动"承诺要看跨客户端读写一致。
+- **Pre-condition**：在 Codex CLI 里完成一次 `/hm:distill` 等价流程并 confirm 一条事实（例："使用 `WarmupCosineWithRestarts` scheduler"）。
+- **Per-client input**：在 Claude Code 里发 `/hm:wake`。
+- **Expected**：刚才在 Codex confirm 的事实出现在 Claude Code 的 wake 输出里。
+- **Pass criterion**：`/hm:wake` 输出含该事实文本片段或对应 memory id；两端读到同一份 SQLite 数据。
+- **Common failure mode**：两端走了不同 data dir / 不同 backend；或者 confirmed 状态在某个 client 没真正落库。
 
-故意告诉 Cursor：
+### S11 Stale CLI surface absence
 
-> "我们把 Tauri 升级到 v2，IPC API 变了。原来那条规则不再适用。"
+- **Intent**：spec 已经把日常 CLI 入口砍掉，README / AGENTS / plugin 文档不能再教用户跑这些命令。
+- **Pre-condition**：当前 working tree。
+- **Test action（字符串扫描）**：
+  - `rg "harness-mem (wake|search|timeline|candidates|distill)\b" README.md AGENTS.md plugins/harness-mem/README.md plugins/harness-mem/commands/hm/*.md tools/session-distill/SKILL.md`
+- **Expected**：上述 5 个子命令在以上文件里 **不应** 作为日常用户 path 出现。允许的维护类 CLI 命令是 `harness-mem quickstart` / `doctor` / `purge` / `maintenance` / `import`。
+- **Pass criterion**：grep 结果为空，或仅出现在"砍掉的 CLI"显式列表（如本 packet 的 S4、S11）作为反例引用。
+- **Common failure mode**：某个文档忘了改，仍写 "run `harness-mem wake` to load context"。
 
-观察 Cursor 调不调用 `mcp__harness_mem__suggest_correction`。
+### S12 `/hm:review` is repair-only
 
-记录：
-- 它知不知道有这个工具？
-- 如果它走的是"reject 老 + 写新"两步流程，那 v1.7.1 的 supersede 在 Cursor 里**实际上没跑通**。
-- 这是 audit 里识别出的 P1 痛点，看 v2.0 之后是不是闭环了。
-
-**Step 5：跨项目体验**
-
-切到他的 Unity 外包项目目录，跑 wake。
-
-记录：
-- 当前项目的记忆能切对吗？
-- inkpad 的"Tauri IPC"规则会不会污染到 Unity 项目？这是预期的隔离行为。
-- 但他想从 inkpad 借一条通用 TypeScript 规则到外包项目，**有没有路径**？没有就是 P2 痛点。
-
-**Step 6：心算 ROI**
-
-让他 honest 评估：
-
-- 这一周里 Cursor"真的"想起东西的次数：几次？
-- 这一周他花在 confirm/reject 候选上的时间：几分钟？
-- 他会推荐给开发者朋友吗？为什么？
-
-### v2.0 关注点
-
-周明远是 **v2.0 重新对得起非-Claude-Code 用户的关键证据**。第一次 audit 里识别的 5 个痛点，v2.0 里：
-
-| 痛点 | 第一次 audit 时状态 | v2.0 后预期 | 你要验证什么 |
-|------|---------|-------------|------------|
-| 非 Claude Code 用户拿不到 auto-review | P0 痛点（误以为是 client 限制） | `auto_review_candidates` 是 runtime 工具，router 后任何客户端可调 | Cursor 是否能在明确 distill 指令或等价 skill 下调到 |
-| 规则命中反馈缺失 | P0 痛点 | `usage_count` + `last_surfaced_at` 已上 schema | wake 时真的会增 count 吗 |
-| Schema 升级 supersede | P1 痛点 | `suggest_correction` runtime 工具一步到位 | Cursor agent 知道要调它吗 |
-| 跨项目通用 rule | P2 痛点 | **没做**（按用户决策） | 周明远会不会因为这个流失 |
-| 首次显式 distill 的 review 量 | P2 痛点 | auto-review 只处理显式 distill 产生的候选，不代表后台自动产生日常候选 | 实际留给他看的 pending 数量是多少 |
-
----
-
-## 反馈表模板
-
-每个 persona 测完，按下面的格式回填。三个 persona 之间互相参照能区分"真问题 vs 客户端特定 vs persona-specific"。
-
-```markdown
-## Persona <A/B/C> Feedback
-
-### Setup 阶段
-- 装包到 MCP 接通用了多久：
-- 卡点：
-
-### Step-by-step 观察
-| Step | 观察到的输出 / 行为 | 是否符合 README 承诺 |
-|------|---------|----------------------|
-| 1    |         |                      |
-| 2    |         |                      |
-| ...  |         |                      |
-
-### 卡点分类
-| # | 描述 | 类型 (真问题 / 客户端特定 / persona-specific) | 优先级 (P0/P1/P2) |
-|---|------|----|------|
-| 1 |     |    |      |
-| 2 |     |    |      |
-
-### 整体感受
-- 我会不会留下用：
-- 我会不会推荐给朋友：
-- 最让我惊喜的是：
-- 最让我想骂街的是：
-```
+- **Intent**：成功的 distill 不再把用户引去 review。
+- **Pre-condition**：S2 跑通后立即检查摘要文本。
+- **Per-client input**：S2 完成后，看 agent 的最终用户可见摘要。
+- **Expected**：参见 spec _Review is a repair entry / Successful distill does not require review_。摘要不出现 "now run /hm:review" / "请接着跑 /hm:review" 这种引导；高风险项直接列在摘要里。
+- **Pass criterion**：摘要文本 grep 不到 `/hm:review` 作为下一步指令；高风险列表（若存在）直接呈现。
+- **Common failure mode**：摘要末尾默认补一句 "运行 `/hm:review` 处理高风险项"——把 review 当成主链一部分而非 repair。
 
 ---
 
-## 三个 persona 跑完之后
+## 客户端特异失败必须落到 docs / prompt fix
 
-在表里把每个卡点对应填进下面这张矩阵，再决定下一切片做什么：
+测试者发现的 client-specific 失败 **必须以可追溯的文件 PR 形式落地**，而不是停在私聊或 issue 评论里的 tribal knowledge。
 
-| 卡点类型 | 表现 | 处理路径 |
-|----------|------|----------|
-| **真问题（三个 persona 都卡）** | 同一个错误信息或 UX 问题在三个 client 里都出现 | 当 P0 修，进 v2.0.x patch |
-| **客户端特定（只在 B 或 C 里出现）** | Cursor MCP 接入说明缺失、Codex 自我引导不够 | 进 v2.0.x docs/prompt 优化 |
-| **Persona-specific（只在某个角色用法下出现）** | 周明远跨项目借规则没路径 | 进 v2.0.x roadmap，不阻塞主链 |
-| **README 承诺与实现脱节** | 比如 README 说"任意 LLM agent 都能用"但 Codex 实际找不到入口 | 当 P0 修文档，先于功能 |
+记录模板（按 scenario 填入）：
 
-记得：v2.0 的真正考验不是"林安宁 happy path 跑通"——那是 dogfood 老路。**真正考验是周明远那个 packet 跑下来还想不想用**。
+### Client-specific failures (file as docs / prompt fixes)
+
+| Client | Scenario | Symptom | Root cause | Fix path (which file) |
+|--------|----------|---------|------------|-----------------------|
+
+落地路径只允许是下面之一：
+
+- `docs/...`（用户可见说明、setup notes、错误信息措辞）
+- `plugins/harness-mem/commands/hm/*.md`（Claude Code slash 内置 prompt）
+- `plugins/harness-mem/README.md`（plugin 接入说明）
+- `tools/session-distill/SKILL.md`（LLM agent 主链 prompt 模板）
+- `AGENTS.md` / `CLAUDE.md`（事实与协议）
+- 必要时 `openspec/changes/<change>/specs/...`（spec 真值变化）
+
+不允许的形态：只在 Slack/Discord/IM 里说"我们都知道 Codex 在那个场景要这样问一下才行"。任何这类口口相传的修法在下次回归测试里都会重新爆。
+
+---
+
+## Run guidance（怎么跑、产物落哪）
+
+- 每次发版至少跑 **1 个 Claude Code 客户端 + 1 个非 Claude 客户端**（Codex 或 Cursor 或 generic MCP）。
+- 想覆盖更多就再加；矩阵的横向扩展就是这个目的。
+- 测试产物落在本文件下方的 **Run log** 章节，按日期追加，低摩擦原则——不再单独维护 `docs/v2-user-test-runs/<date>.md`。如果某次运行特别长（>2 KB 摘要），再单独建 sibling 文件并在 Run log 里留链接。
+
+### Run log
+
+按时间倒序追加。每次 entry 包含：日期、tester、跑了哪些 client、scenario 通过情况、客户端特异失败矩阵填充。
+
+> 例：
+>
+> ```text
+> ## 2025-XX-XX — <tester>
+>
+> Clients: Claude Code, Codex CLI
+> Pass: S1 S2 S3 S6 S8 S10 S11 S12
+> Fail: S4 (Codex 没指 doctor), S9 (Cursor 没调 suggest_correction)
+> Fixes filed: docs/... PR #xxx, tools/session-distill/SKILL.md PR #yyy
+> ```
+
+## 2026-05-25 — v2.2.0 release gate / Claude Code (Windows, F:\TFT)
+
+Clients: Claude Code (CLI)
+harness-mem version: 2.2.0
+Project: F--TFT
+
+Pass: S1 S2 S3 S6 S7 S8 S9 S11 S12
+Skipped: S4 (无法运行时模拟 MCP 断连), S5 (无法运行时切换模型)
+N/A: S10 (单 client run)
+Known gap: 非 Claude client (Codex / Cursor / generic MCP) 未跑；待后续 entry 补全。
+
+事故记录：本轮第一次跑 S2/S8/S9 时，`mcp__harness_mem__suggest_memory_entry` 与 `create_rule_candidate` 全部返回 `Internal tool error (MCP error -32000)`，看似是 P0 写入路径崩溃。诊断过程：
+1. 在仓库本机直接调用 `tool_suggest_memory_entry` 完全成功 → 证明函数本身没坏。
+2. 检查 `harness_mem/mcp/server.py::handle_request` 的异常处理：旧逻辑用 `except Exception: ... message: "Internal tool error"` 把异常完全吞掉，client 拿不到任何根因信息。
+3. 把异常 class + message 暴露到 JSON-RPC error.message（traceback 仍只进 stderr），并加 regression guard `tests/mcp/test_smoke.py::test_tool_error_message_includes_class_and_message`。
+4. 测试代理重启 MCP server 后 S2/S8/S9 全部通过。
+
+真因结论：测试代理那台机器上的 MCP server 进程在 fix 前跑的是 stale 代码（重启之前进程没 pick up v2.2 完整代码 + error-visibility 补丁）。**写入路径在 v2.2 没坏过**——只是错误不可见让人误判为崩溃。
+
+Fixes filed:
+- `harness_mem/mcp/server.py` 错误信息暴露补丁（已合入 v2.2.0）
+- `tests/mcp/test_smoke.py::test_tool_error_message_includes_class_and_message` 防回归（已合入 v2.2.0）
+
+后续 tester 看到 "Internal tool error" 时的处理顺序：
+1. 重启 MCP server（client 端 reload，或 quit + reopen）
+2. 再跑一次。如果还失败，新 error.message 会带 exception class + 真正的失败原因。
+3. 仍无法定位时再向仓库提交 issue。

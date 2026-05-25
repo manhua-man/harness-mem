@@ -907,3 +907,57 @@ def test_search_memory_reports_effective_mode(
     data = json.loads(result)
     assert data["effective_mode"] == "hybrid"
     assert data["memory_entries"][0]["search_mode"] == "hybrid"
+
+
+def test_tool_error_message_includes_class_and_message(
+    mcp_backend: LocalMemoryBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failing tool must surface its exception class + message to the client.
+
+    Regression guard for v2.2 release: an external tester reported every
+    ``suggest_*`` write returning ``Internal tool error`` with no further
+    information, which made root-causing impossible without SSH'ing into
+    the MCP server's stderr stream. The handler still hides the full
+    traceback, but the JSON-RPC error message must now carry enough text
+    that an agent can debug from the client side.
+    """
+    from harness_mem.mcp import server as mcp_server
+
+    def boom(*_args: object, **_kwargs: object) -> dict:
+        raise RuntimeError("structured store offline")
+
+    # Patch the registered handler so we don't depend on which production
+    # path happens to fail. Restoring in monkeypatch teardown keeps the
+    # other tests in this module insulated.
+    original = mcp_server.TOOLS["suggest_memory_entry"]["handler"]
+    monkeypatch.setitem(
+        mcp_server.TOOLS["suggest_memory_entry"], "handler", boom
+    )
+    try:
+        request = {
+            "jsonrpc": "2.0",
+            "id": 99,
+            "method": "tools/call",
+            "params": {
+                "name": "suggest_memory_entry",
+                "arguments": {
+                    "project_name": "release-gate",
+                    "category": "decision",
+                    "content": "anything long enough to be valid input",
+                    "source": "observation:gate",
+                },
+            },
+        }
+        response = handle_request(request)
+    finally:
+        monkeypatch.setitem(
+            mcp_server.TOOLS["suggest_memory_entry"], "handler", original
+        )
+
+    assert response is not None
+    assert response["error"]["code"] == -32000
+    message = response["error"]["message"]
+    assert "suggest_memory_entry" in message
+    assert "RuntimeError" in message
+    assert "structured store offline" in message

@@ -11,6 +11,25 @@
 
 ## Requirements
 
-无。本规格不再提出 REST 接口契约。
+### Requirement: REST API surface is removed
+
+v2.1 起系统 MUST NOT expose REST API as a supported product entry. The
+`harness_mem.api` package and `harness-mem api` CLI command are not part of the
+runtime surface. Programmatic clients MUST use MCP tools instead.
+
+#### Scenario: CLI rejects the removed api command
+
+```text
+$ harness-mem api
+harness-mem: error: argument command: invalid choice: 'api'
+```
+
+#### Scenario: API clients use MCP instead
+
+```text
+WHEN a client needs search, timeline, wake, or candidate review
+THEN it calls the MCP server tools
+AND no `/search` REST endpoint is documented as current behavior
+```
 
 历史变更见 `openspec/changes/v1x-internal-dogfood-hardening/`、`openspec/changes/v15x-retrieval-coordinator/` 等档案；它们记录的是 v2.1 之前的 REST 实现，不代表当前代码库行为。

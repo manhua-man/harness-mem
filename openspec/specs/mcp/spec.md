@@ -3,9 +3,7 @@
 ## Purpose
 
 定义 MCP 工具语义与生命周期契约。v2.1 起，MCP 是 harness-mem 唯一的日常运行时入口——用户通过 IDE 命令（`/hm:distill`、`/hm:wake`、`/hm:search`）或自然语言驱动 Agent，Agent 在背后调 MCP 工具完成 ingest、distill、search、timeline、candidate review、wake 等流程。CLI 不再承载日常 memory 操作，仅保留 `init` / `quickstart` / `doctor` / `import` / `purge` / `maintenance` 这类安装与维护命令。
-
 ## Requirements
-
 ### Requirement: MCP owns the daily user workflow
 
 MCP MUST expose status, ingest, distill, search, timeline, and candidate-review tools so slash/agent workflows do not require users to manually drive CLI commands. CLI MAY remain available for installation, diagnostics, and explicit cleanup, but MUST NOT be the normal user-facing control path.
@@ -248,3 +246,72 @@ Response: { "results": [...], "project_count": 1 }
   "fallback_reason": null
 }
 ```
+
+### Requirement: MCP supersede review tools
+
+The MCP server SHALL expose `suggest_supersede`, `confirm_supersede`, and `reject_supersede`.
+
+#### Scenario: Suggest supersede
+
+- **WHEN** `suggest_supersede` is called with target and replacement truth ids
+- **THEN** the server returns `success=true`
+- **AND** a pending supersede candidate id
+
+#### Scenario: Confirm supersede
+
+- **GIVEN** a pending supersede candidate
+- **WHEN** `confirm_supersede` is called
+- **THEN** the server returns `success=true`
+- **AND** the candidate status becomes `accepted`
+- **AND** the target truth becomes historical
+
+#### Scenario: Reject supersede
+
+- **GIVEN** a pending supersede candidate
+- **WHEN** `reject_supersede` is called
+- **THEN** the server returns `success=true`
+- **AND** the candidate status becomes `rejected`
+- **AND** target and replacement truth remain current
+
+### Requirement: MCP candidate listing includes supersede candidates
+
+`list_candidates` SHALL include supersede candidates and return `supersede_count`.
+
+#### Scenario: Mixed candidate list
+
+- **GIVEN** one rule candidate, one memory entry candidate, one relation fact candidate, and one supersede candidate
+- **WHEN** `list_candidates` is called
+- **THEN** the response count is 4
+- **AND** the supersede candidate has `confirm_tool=confirm_supersede`
+
+### Requirement: Trace Relations Tool
+
+The MCP server SHALL expose a `trace_relations` tool.
+
+#### Scenario: Bounded trace payload
+
+- **WHEN** a client calls `trace_relations`
+- **THEN** the payload includes serialized paths with entities, depth, confidence, and edge evidence
+
+### Requirement: Search Memory Time Window Metadata
+
+The MCP `search_memory` tool SHALL return parsed time-window metadata when a supported phrase is present.
+
+#### Scenario: Relative time search
+
+- **WHEN** `search_memory` receives a query containing `two months ago`
+- **THEN** the response includes the original query, cleaned effective query, and UTC window metadata
+
+### Requirement: Search Raw Tool
+
+The MCP server SHALL expose `search_raw`.
+
+#### Scenario: Exact evidence payload
+
+- **WHEN** a client calls `search_raw` with a regex pattern
+- **THEN** the response includes exact observation matches, snippets, match spans, and candidate counts
+
+#### Scenario: Invalid regex payload
+
+- **WHEN** a client calls `search_raw` with an invalid regex
+- **THEN** the tool returns `success=false` with a regex error message

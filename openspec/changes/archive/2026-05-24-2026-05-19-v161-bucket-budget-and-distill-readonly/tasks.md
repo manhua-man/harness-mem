@@ -49,4 +49,4 @@
 - [x] `python -m ruff check .` 无警告
 - [x] `python -m mypy harness_mem` 无错误
 - [x] LongMemEval 五维：6 维度 0 回退，总 R@5 与 v1.6.0 baseline 完全相同（0.953）
-- [ ] `openspec validate 2026-05-19-v161-bucket-budget-and-distill-readonly`（仓库未携带 openspec CLI；change 目录结构与命名遵循 v1.6.0 已归档 change 的约定）
+- [x] `openspec validate 2026-05-19-v161-bucket-budget-and-distill-readonly` 通过；后续 `openspec validate --all --strict` 也覆盖该 change。
