@@ -16,7 +16,7 @@ v2.3.0 是 **Memory Metabolism foundations 的第一刀**：先把"信号 + 重�
 suggestion。后续 v2.3.1 / v2.3.2 才能基于这些信号产出可审核的代谢建议。
 
 这一刀的硬约束是 **candidate-before-truth + no daemon + no auto-mutate truth**——
-v2.3 共同原则在 `docs/roadmap-v23-v24.md` 已经写明，本切片完全遵守。
+v2.3 共同原则在 `docs/roadmap-v23.md` 已经写明，本切片完全遵守。
 
 ## What Changes
 
@@ -45,7 +45,7 @@ v2.3 共同原则在 `docs/roadmap-v23-v24.md` 已经写明，本切片完全遵
   effect，不进入 wake 上下文；preview run 必须显式调用。
 - v2.3.1 (Compression and Stale Suggestions) 可以直接消费 `RetrievalSignal`
   和 `MetabolismRun.input_window` 而不需要再造一遍信号采集。
-- v2.4 cross-project skill / activation hint 可以使用同一信号流来定义
+- v2.7 cross-project skill / activation hint 可以使用同一信号流来定义
   "这条 skill 在哪些情境下被用过"。
 - 失败模式：selector / preview 失败时不阻断主任务，只写一条
   `MetabolismRun(status="error")`，并把诊断指针指向 `harness-mem doctor`。

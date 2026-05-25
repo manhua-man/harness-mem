@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from harness_mem.commands import support as command_support
+from harness_mem.commands.retrieval_signals import record_retrieval_signal
 from harness_mem.core.schemas import (
     ConfirmedRule,
     ProceduralCandidate,
@@ -168,6 +169,24 @@ async def _correct_via_supersede(
         )
         return 1
 
+    # v2.3.0: shadow-emit a `supersede_completed` retrieval signal so the
+    # metabolism replay-window selector treats CLI-driven corrections the
+    # same as MCP-driven ones.
+    await record_retrieval_signal(
+        backend,
+        project_name=project_name,
+        signal_type="supersede_completed",
+        target_kind="supersede",
+        target_id=confirmed.id,
+        context={
+            "target_type": confirmed.target_type,
+            "target_id": confirmed.target_id,
+            "replacement_type": confirmed.replacement_type,
+            "replacement_id": confirmed.replacement_id,
+            "source": "cmd_correct",
+        },
+    )
+
     print(
         f"Superseded rule {old_rule.id} with new rule {new_rule.id}. "
         f"Old rule is now historical (valid_to={confirmed.reviewed_at.isoformat() if confirmed.reviewed_at else 'now'})."
@@ -308,6 +327,19 @@ async def cmd_confirm_supersede(candidate_id: str) -> int:
         confirmed = await backend.structured_store.confirm_supersede_candidate(candidate_id)
         if confirmed is None:
             return 1
+        await record_retrieval_signal(
+            backend,
+            project_name=confirmed.project_name,
+            signal_type="supersede_completed",
+            target_kind="supersede",
+            target_id=confirmed.id,
+            context={
+                "target_type": confirmed.target_type,
+                "target_id": confirmed.target_id,
+                "replacement_type": confirmed.replacement_type,
+                "replacement_id": confirmed.replacement_id,
+            },
+        )
         print(f"Confirmed SupersedeCandidate: {confirmed.id}")
         return 0
     finally:
@@ -421,6 +453,16 @@ async def cmd_record_skill_result(skill_id: str, success: bool) -> int:
         )
         if skill is None:
             return 1
+        await record_retrieval_signal(
+            backend,
+            project_name=skill.project_name,
+            signal_type=(
+                "skill_result_success" if success else "skill_result_failure"
+            ),
+            target_kind="skill",
+            target_id=skill.id,
+            value=skill.success_rate,
+        )
         print(
             f"Recorded Skill result: {skill.id} "
             f"success_rate={skill.success_rate} usage_count={skill.usage_count}"

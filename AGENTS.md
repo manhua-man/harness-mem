@@ -37,6 +37,8 @@ alwaysApply: true
 - **设置项目和 profile**：进入新项目时第一步是 `set_active_project`；要把稳定约定（栈、关键文件、conventions）写进 wake-up 时调 `update_project_profile`，不要让用户开终端维护 active project 或 profile。
 - **生成唤醒上下文**：用 `wake` 让用户/agent 直接拿到 wake-up 文本，不要把终端 CLI 当作日常入口。
 - **消费边界**：`search_memory` / `wake` 默认只消费已确认记忆；pending 候选用于审核，不应污染唤醒上下文。
+- **后台 signal 层（v2.3.0）**：现有 `wake` / `search_memory` / `auto_review_candidates` apply 分支 / `record_skill_result` / `confirm_supersede` 调用会**额外**写入 `RetrievalSignal` 影子记录（`wake_surfaced` / `search_hit` / `confirmed` / `rejected` / `skill_result_success` / `skill_result_failure` / `supersede_completed`），描述记忆是怎么被消费的。Agent 不需要主动读这些信号，它们只是 metabolism 层的证据来源；写失败会日志告警但不影响主调用，也不改 truth。
+- **代谢预览工具 `metabolism_preview`（v2.3.0）**：新增 MCP 工具，一次调用返回一份 replay 窗口（recent observations / stale pending / 最近变历史的 truth / 低成功率 skills / 重复 search hit），并写一条 `MetabolismRun(kind="preview", status="preview")` 作为审计；**不动 truth、不改 `usage_count` / `last_accessed_at`、不生成建议、不开 daemon**。仅在用户明确要求看下一次 metabolism 会盯哪些证据时调用，日常 wake / search / distill 主链路不变。
 
 ### 3. 自动审核与人类复核（Auto-review + Human Final Review）
 - 未确认记忆保持候选状态。Agent 创建候选后，应通过 MCP `list_candidates` 自行读取候选，并直接调用 `confirm_*` / `reject_*` 处理低风险项：明确长期事实可确认，工具噪声、跨项目 workflow、泛泛原则、证据不足项可拒绝。

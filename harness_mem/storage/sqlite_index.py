@@ -165,6 +165,24 @@ _TABLE_SCHEMAS = {
         embedding BLOB NOT NULL,
         created_at INTEGER NOT NULL
     """,
+    "metabolism_runs": """
+        id TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'preview',
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        status TEXT NOT NULL DEFAULT 'preview',
+        duration_ms INTEGER NOT NULL DEFAULT 0
+    """,
+    "retrieval_signals": """
+        id TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        signal_type TEXT NOT NULL,
+        target_kind TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        recorded_at TEXT NOT NULL,
+        value REAL
+    """,
 }
 
 _COLUMN_MIGRATIONS = {
@@ -244,6 +262,11 @@ class SQLiteIndex:
             )
             # Skip FTS for vec_embeddings (vector table doesn't need full-text search)
             if table_name == "vec_embeddings":
+                continue
+            # Skip FTS for metabolism_runs / retrieval_signals — they index
+            # structured signal rows, queried by (project, time, type) not by
+            # free text. Avoids a no-op FTS table and unused triggers.
+            if table_name in ("metabolism_runs", "retrieval_signals"):
                 continue
             # FTS virtual table for full-text search on 'content' or 'raw_content' field
             fts_col = "raw_content" if table_name == "observations" else (

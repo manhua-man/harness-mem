@@ -90,14 +90,21 @@ import logging  # noqa: E402
 import re  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
-from typing import Any  # noqa: E402
+from typing import Any, cast  # noqa: E402
 
 from harness_mem import __version__ as _HARNESS_MEM_VERSION  # noqa: E402
 from harness_mem.commands.auto_review import auto_review_candidates  # noqa: E402
 from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
+from harness_mem.commands.retrieval_signals import record_retrieval_signal  # noqa: E402
 from harness_mem.commands.support import get_active_project, set_active_project  # noqa: E402
+from harness_mem.commands.replay_window import (  # noqa: E402
+    ReplayBudget,
+    ReplayWindow,
+    select_replay_window,
+)
 from harness_mem.commands.wake import cmd_wake_up  # noqa: E402
 from harness_mem.core.schemas import ProceduralCandidate, SupersedeCandidate  # noqa: E402
+from harness_mem.core.schemas.metabolism_run import MetabolismRun  # noqa: E402
 from harness_mem.core.schemas.project_profile import ProjectProfile  # noqa: E402
 from harness_mem.read_api import (  # noqa: E402
     build_search_project_context_map,
@@ -121,11 +128,17 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend  # noqa:
 from harness_mem.storage.local_project_profile_store import (  # noqa: E402
     LocalProjectProfileStore,
 )
+from harness_mem.storage.local_structured_store import LocalStructuredStore  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
 logger = logging.getLogger("harness_mem_mcp")
 
 DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
+
+_METABOLISM_PREVIEW_DOCTOR_POINTER = (
+    "Run `harness-mem doctor` to inspect local data directory, "
+    "signal store, and project context."
+)
 
 # Singleton backend — initialized once per MCP server process lifetime.
 _backend: LocalMemoryBackend | None = None
@@ -747,6 +760,151 @@ def _run_command_to_payload(coro: Any) -> dict[str, Any]:
     }
 
 
+def _replay_window_to_input_window(window: ReplayWindow) -> dict[str, Any]:
+    """Serialize a ``ReplayWindow`` into the JSON-friendly preview shape.
+
+    Locked in by ``test_metabolism_run_preview_shape_round_trip`` (3.5):
+    ``time_range`` is an ISO ``{start, end}`` mapping, ``dimensions`` is
+    a name → ``{selected_ids, truncated, total_seen}`` mapping in the
+    selector's iteration order, ``signal_ids`` and ``notes`` are plain
+    lists. Datetimes don't ``asdict`` cleanly, so we walk the dataclass
+    by hand.
+    """
+    dimensions: dict[str, dict[str, Any]] = {}
+    for name, dim in window.dimensions.items():
+        dimensions[name] = {
+            "selected_ids": list(dim.selected_ids),
+            "truncated": dim.truncated,
+            "total_seen": dim.total_seen,
+        }
+    return {
+        "time_range": {
+            "start": window.time_range[0].isoformat(),
+            "end": window.time_range[1].isoformat(),
+        },
+        "dimensions": dimensions,
+        "signal_ids": list(window.signal_ids),
+        "notes": list(window.notes),
+    }
+
+
+def tool_metabolism_preview(
+    project_name: str | None = None,
+    budget: dict | None = None,
+) -> dict:
+    """Preview the next metabolism run's input window.
+
+    v2.3.0: read-only. Resolves the project (active-project fallback),
+    normalizes the optional ``budget`` against ``ReplayBudget`` defaults,
+    runs ``select_replay_window``, persists a
+    ``MetabolismRun(kind="preview", status="preview")`` for audit, and
+    returns the window summary. Selector / persistence failures funnel
+    through a single ``except`` that records an
+    ``MetabolismRun(status="error")`` (best-effort) and returns
+    ``{success: False, error, doctor_pointer}``. This handler MUST NOT
+    raise.
+    """
+    resolved = (project_name or "").strip() or get_active_project()
+    if not resolved:
+        return {
+            "success": False,
+            "error": "project_name is required when no active project is set",
+        }
+
+    backend = _get_backend()
+    started_at = datetime.now(timezone.utc)
+    # Writers stay implementation-side per the StructuredStore Protocol
+    # contract (only `list_metabolism_runs` is on the Protocol). Cast to
+    # the local concrete store to access `save_metabolism_run`.
+    structured_store = cast(LocalStructuredStore, backend.structured_store)
+
+    try:
+        budget_kwargs: dict[str, int] = {}
+        if budget:
+            for key in (
+                "max_observations",
+                "max_pending_candidates",
+                "max_historical_truths",
+                "max_low_success_skills",
+                "max_repeat_search_hits",
+                "max_total_tokens",
+                "signal_lookback_days",
+            ):
+                if key in budget and budget[key] is not None:
+                    budget_kwargs[key] = budget[key]
+
+        normalized_budget = ReplayBudget(**budget_kwargs)
+        window = asyncio.run(
+            select_replay_window(
+                backend,
+                project_name=resolved,
+                budget=normalized_budget,
+            )
+        )
+        input_window = _replay_window_to_input_window(window)
+        completed_at = datetime.now(timezone.utc)
+        duration_ms = int((completed_at - started_at).total_seconds() * 1000)
+        run_id = asyncio.run(
+            structured_store.save_metabolism_run(
+                MetabolismRun(
+                    project_name=resolved,
+                    kind="preview",
+                    status="preview",
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    input_window=input_window,
+                    selected_signal_ids=list(window.signal_ids),
+                    output_counts={"suggestions": 0},
+                    duration_ms=duration_ms,
+                    notes=list(window.notes) if window.notes else None,
+                )
+            )
+        )
+    except Exception as exc:
+        completed_at = datetime.now(timezone.utc)
+        duration_ms = int((completed_at - started_at).total_seconds() * 1000)
+        error_message = str(exc) or exc.__class__.__name__
+        # Best-effort persist an error run record. Failure here is logged
+        # and swallowed — the user-visible error payload is still returned.
+        try:
+            asyncio.run(
+                structured_store.save_metabolism_run(
+                    MetabolismRun(
+                        project_name=resolved,
+                        kind="preview",
+                        status="error",
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        input_window={},
+                        selected_signal_ids=[],
+                        output_counts={"suggestions": 0},
+                        duration_ms=duration_ms,
+                        notes=[f"selector failed: {error_message}"],
+                    )
+                )
+            )
+        except Exception:
+            logger.exception(
+                "metabolism_preview: failed to persist error run for project=%s",
+                resolved,
+            )
+        return {
+            "success": False,
+            "error": error_message,
+            "doctor_pointer": _METABOLISM_PREVIEW_DOCTOR_POINTER,
+        }
+
+    return {
+        "success": True,
+        "run_id": run_id,
+        "project_name": resolved,
+        "time_range": input_window["time_range"],
+        "dimensions": input_window["dimensions"],
+        "notes": list(window.notes),
+        "signals_used": len(window.signal_ids),
+    }
+
+
 def tool_ingest_sessions(
     project_name: str,
     client: str = "auto",
@@ -1142,6 +1300,21 @@ def tool_confirm_supersede(candidate_id: str) -> dict:
     confirmed = asyncio.run(backend.structured_store.confirm_supersede_candidate(candidate_id))
     if confirmed is None:
         return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
+    asyncio.run(
+        record_retrieval_signal(
+            backend,
+            project_name=confirmed.project_name,
+            signal_type="supersede_completed",
+            target_kind="supersede",
+            target_id=confirmed.id,
+            context={
+                "target_type": confirmed.target_type,
+                "target_id": confirmed.target_id,
+                "replacement_type": confirmed.replacement_type,
+                "replacement_id": confirmed.replacement_id,
+            },
+        )
+    )
     return {
         "success": True,
         "candidate_id": confirmed.id,
@@ -1253,6 +1426,21 @@ def tool_suggest_correction(
             "new_rule_id": new_rule.id,
             "supersede_candidate_id": candidate.id,
         }
+    asyncio.run(
+        record_retrieval_signal(
+            backend,
+            project_name=confirmed.project_name,
+            signal_type="supersede_completed",
+            target_kind="supersede",
+            target_id=confirmed.id,
+            context={
+                "target_type": confirmed.target_type,
+                "target_id": confirmed.target_id,
+                "replacement_type": confirmed.replacement_type,
+                "replacement_id": confirmed.replacement_id,
+            },
+        )
+    )
     return {
         "success": True,
         "new_rule_id": new_rule.id,
@@ -1366,6 +1554,18 @@ def tool_record_skill_result(skill_id: str, success: bool) -> dict:
     )
     if skill is None:
         return {"success": False, "error": f"Skill not found: {skill_id}"}
+    asyncio.run(
+        record_retrieval_signal(
+            backend,
+            project_name=skill.project_name,
+            signal_type=(
+                "skill_result_success" if success else "skill_result_failure"
+            ),
+            target_kind="skill",
+            target_id=skill.id,
+            value=skill.success_rate,
+        )
+    )
     return {
         "success": True,
         "skill": serialize_skill(skill),
@@ -1515,6 +1715,7 @@ TOOLS: dict[str, ToolSpec] = build_tools({
     "wake": tool_wake,
     "ingest_sessions": tool_ingest_sessions,
     "prepare_session_distill": tool_prepare_session_distill,
+    "metabolism_preview": tool_metabolism_preview,
     "list_candidates": tool_list_candidates,
     "auto_review_candidates": tool_auto_review_candidates,
     "suggest_supersede": tool_suggest_supersede,

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import re
 from typing import Any, Sequence
 
+from harness_mem.commands.retrieval_signals import record_retrieval_signal
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
@@ -96,6 +97,7 @@ async def search_memory(
             mode=mode,
             time_window=time_window,
         )
+        await _emit_search_hit_signals(backend, entries, query)
         return entries, observations
 
     entries = await backend.structured_store.search_memory_entries(
@@ -114,7 +116,34 @@ async def search_memory(
         mode=mode,
         time_window=time_window,
     )
+    await _emit_search_hit_signals(backend, entries, query)
     return entries, observations
+
+
+async def _emit_search_hit_signals(
+    backend: LocalMemoryBackend,
+    entries: Sequence[MemoryEntry],
+    query: str,
+) -> None:
+    """Shadow-write one ``search_hit`` per memory entry returned to the user.
+
+    Capped naturally by the caller's ``memory_entry_limit`` — we only iterate
+    what already flowed back. Truncate the query to keep the signal context
+    compact even if the user pastes a very long payload.
+    """
+    truncated_query = query[:200]
+    for entry in entries:
+        project = getattr(entry, "project_name", None)
+        if not project:
+            continue
+        await record_retrieval_signal(
+            backend,
+            project_name=project,
+            signal_type="search_hit",
+            target_kind="memory_entry",
+            target_id=entry.id,
+            context={"query": truncated_query},
+        )
 
 
 async def search_relation_facts(

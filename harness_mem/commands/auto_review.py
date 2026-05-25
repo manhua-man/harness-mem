@@ -81,6 +81,7 @@ from typing import Any, Literal
 
 from harness_mem.core.schemas import MemoryEntry, RuleCandidate
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.commands.retrieval_signals import record_retrieval_signal
 
 
 AutoReviewAction = Literal["auto_confirm", "auto_reject", "defer"]
@@ -510,6 +511,21 @@ async def auto_review_candidates(
                         decision.candidate_id, "accepted"
                     )
                 summary.applied_decisions.append(decision)
+                await record_retrieval_signal(
+                    backend,
+                    project_name=project_name,
+                    signal_type="confirmed",
+                    target_kind=(
+                        "memory_entry"
+                        if decision.kind == "memory_entry"
+                        else "candidate"
+                    ),
+                    target_id=decision.candidate_id,
+                    context={
+                        "reason": decision.reason,
+                        "evidence_id": decision.evidence_id,
+                    },
+                )
         elif decision.action == "auto_reject":
             summary.auto_rejected += 1
             if apply:
@@ -522,6 +538,21 @@ async def auto_review_candidates(
                         decision.candidate_id, "rejected"
                     )
                 summary.applied_decisions.append(decision)
+                await record_retrieval_signal(
+                    backend,
+                    project_name=project_name,
+                    signal_type="rejected",
+                    target_kind=(
+                        "memory_entry"
+                        if decision.kind == "memory_entry"
+                        else "candidate"
+                    ),
+                    target_id=decision.candidate_id,
+                    context={
+                        "reason": decision.reason,
+                        "evidence_id": decision.evidence_id,
+                    },
+                )
         else:
             summary.kept_pending += 1
             if decision.is_high_risk:

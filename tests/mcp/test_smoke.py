@@ -97,7 +97,7 @@ def test_stdio_initialize_writes_json_rpc_to_stdout():
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 36
+    assert len(tools) == 37
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
@@ -113,6 +113,7 @@ def test_tools_list():
         "suggest_memory_entry", "confirm_memory_entry", "reject_memory_entry",
         "suggest_relation_fact", "confirm_relation_fact", "reject_relation_fact",
         "create_task_handoff",
+        "metabolism_preview",
     }
     assert expected.issubset(names)
 

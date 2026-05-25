@@ -10,6 +10,12 @@ from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.core.schemas.relation_fact import RelationFact
+from harness_mem.core.schemas.metabolism_run import MetabolismRun
+from harness_mem.core.schemas.retrieval_signal import (
+    RetrievalSignal,
+    VALID_SIGNAL_TYPES,
+    VALID_TARGET_KINDS,
+)
 
 __all__ = [
     "Observation",
@@ -23,4 +29,8 @@ __all__ = [
     "ConfirmedRule",
     "ProjectProfile",
     "RelationFact",
+    "MetabolismRun",
+    "RetrievalSignal",
+    "VALID_SIGNAL_TYPES",
+    "VALID_TARGET_KINDS",
 ]

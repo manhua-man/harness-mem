@@ -749,6 +749,42 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["project_name", "task_id", "summary", "status"],
         },
     },
+    "metabolism_preview": {
+        "description": (
+            "Preview the next metabolism run's input window without writing "
+            "suggestions or mutating truth. Reads recent observations, stale "
+            "pending candidates, recently-superseded historical truths, "
+            "low-success skills, and repeat search-hit aggregates over the "
+            "lookback window, applies per-dimension caps and a heuristic soft "
+            "token budget, then persists a MetabolismRun(kind=\"preview\", "
+            "status=\"preview\") for audit. Returns {success, run_id, "
+            "project_name, time_range, dimensions, notes, signals_used}. "
+            "v2.3.0: preview only, no daemon, no suggestions, no truth mutation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (defaults to the active project when omitted).",
+                },
+                "budget": {
+                    "type": "object",
+                    "description": "Optional per-dimension caps and soft token cap. Missing fields fall back to ReplayBudget defaults.",
+                    "properties": {
+                        "max_observations": {"type": "integer", "minimum": 0},
+                        "max_pending_candidates": {"type": "integer", "minimum": 0},
+                        "max_historical_truths": {"type": "integer", "minimum": 0},
+                        "max_low_success_skills": {"type": "integer", "minimum": 0},
+                        "max_repeat_search_hits": {"type": "integer", "minimum": 0},
+                        "max_total_tokens": {"type": "integer", "minimum": 0},
+                        "signal_lookback_days": {"type": "integer", "minimum": 1},
+                    },
+                    "additionalProperties": False,
+                },
+            },
+        },
+    },
 }
 
 

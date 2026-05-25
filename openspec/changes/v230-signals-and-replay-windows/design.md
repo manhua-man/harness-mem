@@ -112,7 +112,7 @@ Write call sites in v2.3.0:
 Each signal write is wrapped in a try / log-and-continue: if the signal
 table cannot be written, the user-visible primary mutation must still
 succeed. That preserves the `Main task must not be held hostage` rule
-from `docs/roadmap-v23-v24.md`.
+from `docs/roadmap-v23.md`.
 
 ### Replay window selector
 
@@ -136,8 +136,13 @@ flood downstream passes:
 - `max_historical_truths: int = 50`
 - `max_low_success_skills: int = 20`
 - `max_repeat_search_hits: int = 50`
-- `max_total_tokens: int = 16000` — soft limit (selector trims oldest
-  first when total content estimate exceeds this)
+- `max_total_tokens: int = 16000` — soft limit. v2.3.0 enforces this
+  via a heuristic per-id slot per dimension (no content read), trimming
+  the tail of dimensions in fixed cross-dimension order:
+  `repeat_search_hits → low_success_skills → historical_truths →
+  pending_candidates → observations`. Content-based trimming ("read the
+  body, count tokens, drop oldest") is deferred to v2.3.1+ so v2.3.0
+  stays a pure read-id selector.
 
 `ReplayWindow` carries enough info to be reconstructed and audited:
 
@@ -150,6 +155,13 @@ flood downstream passes:
 - `signal_ids: list[str]` — the `RetrievalSignal.id` rows that drove
   selection (so the run record can replay)
 - `notes: list[str]` — `["truncated_within_observations: 200/847", ...]`
+  for hard per-dimension caps, plus
+  `soft_token_budget: <estimate>/<max>` whenever the heuristic
+  estimate is computed, plus `trimmed_for_token_budget: <dim>,<dim>,...`
+  whenever the soft cap forced a tail trim. Hard-cap denominators are
+  always the true pool size (the `observations` dimension issues a
+  follow-up `COUNT` when the `cap+1` probe says it overflowed; other
+  dimensions already aggregate the full pool in 3.2).
 
 ### `metabolism_preview` MCP tool
 
@@ -224,3 +236,18 @@ same slice. We deliberately don't, for three reasons:
 - No automatic procedural skill regeneration
 - No mutation of `usage_count` / `last_accessed_at` semantics
 - No new wake / search behaviour change visible to end users
+
+### No README change (v2.3.0)
+
+v2.3.0 ships no slash command, no natural-language trigger, no CLI
+subcommand, and no UI surface. The single API addition — the
+`metabolism_preview` MCP tool — is Agent-invoked on user request, not
+something users reach for directly. The user-facing README therefore
+intentionally has no v2.3.0 section.
+
+If a future doc audit notices the README "missing" v2.3.x and reaches
+for an edit, **stop**. Do not add a README section until v2.3.1+ lands
+a real user-facing entrypoint (suggestion application, scheduled run,
+or similar). The v2.2 contract — canonical six counters, `/hm:review`
+repair-only, `/hm:distill` six-step loop — remains the truth surface
+for users; v2.3.0 only adds background plumbing.

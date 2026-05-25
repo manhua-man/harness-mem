@@ -12,6 +12,8 @@ from harness_mem.core.schemas.procedural_candidate import ProceduralCandidate
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.relation_fact import RelationFact
+from harness_mem.core.schemas.metabolism_run import MetabolismRun
+from harness_mem.core.schemas.retrieval_signal import RetrievalSignal
 
 
 @runtime_checkable
@@ -303,4 +305,36 @@ class StructuredStore(Protocol):
         used_at: datetime | None = None,
     ) -> Skill | None:
         """Record one skill execution outcome and return the updated skill."""
+        ...
+
+    # ---- MetabolismRun (read-side) ----
+
+    async def list_metabolism_runs(
+        self,
+        project_name: str,
+        *,
+        limit: int = 50,
+        kind: str | None = None,
+    ) -> list[MetabolismRun]:
+        """List metabolism runs for a project, newest first.
+
+        Writers (``save_metabolism_run``) stay implementation-side; only
+        the read path is exposed on the Protocol, mirroring how
+        ``touch_*`` and other write helpers are handled.
+        """
+        ...
+
+    # ---- RetrievalSignal (read-side) ----
+
+    async def query_retrieval_signals(
+        self,
+        project_name: str,
+        *,
+        signal_type: str | None = None,
+        target_kind: str | None = None,
+        target_id: str | None = None,
+        since: datetime | None = None,
+        limit: int = 1000,
+    ) -> list[RetrievalSignal]:
+        """Query retrieval signals by filters; newest first."""
         ...

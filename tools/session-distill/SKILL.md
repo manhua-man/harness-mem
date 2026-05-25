@@ -127,6 +127,17 @@ Raw Sessions
 | `answer-me` | 候选缺证据，需要补代码、配置或历史上下文。 |
 | `mem-distill` | 用户要整理已有 memory / observations，而不是原始 session。 |
 
+## Memory Metabolism preview (v2.3.0)
+
+> 详细行为见 `openspec/changes/v230-signals-and-replay-windows/design.md`，归档后位于 `openspec/specs/memory-metabolism/spec.md`。
+
+v2.3.0 给后续 metabolism 流程铺地基，但**不**改本 skill 的主链行为。你需要知道它的形态，避免把它当成 `/hm:distill` 的同类入口去触发。
+
+- **只有 MCP 工具，没有 slash / 自然语言入口**。v2.3.0 仅新增一个工具：`metabolism_preview`。没有 `/hm:metabolism`，没有触发短语；客户端走标准 MCP `tools/call` 调用，和其他 MCP 工具一致。
+- **Signals 是后台写入，不进入用户视野**。`wake_surfaced` / `search_hit` / `confirmed` / `rejected` / `skill_result_*` / `supersede_completed` 都是已有用户可见动作上的 shadow write。用户和 agent 不会看到、不需要响应；唯一的"展面"是 `metabolism_preview` 输出的窗口摘要和 `list_metabolism_runs` 返回的运行记录审计。
+- **不动 truth，没有 daemon**。Preview 全程只读：每次调用写一条 `MetabolismRun(kind="preview", status="preview")` 作为审计，不触碰 `usage_count` / `last_accessed_at`，不产 rule / candidate，不调度后台任务。工具只在被显式调用时跑。
+- **返回结构**。`{success, run_id, project_name, time_range, dimensions, notes, signals_used}`。`dimensions` 五个固定维度：`observations`、`pending_candidates`、`historical_truths`、`low_success_skills`、`repeat_search_hits`，每条携带 `selected_ids` / `truncated` / `total_seen`。`notes` 列出命中的硬上限 `truncated_within_<dim>: X/Y`，并始终包含一行 `soft_token_budget: <est>/<max>` 审计；若软上限触发尾部裁剪，再追加 `trimmed_for_token_budget: <dims>`。
+
 ## 不做的事
 
 - 不要求普通用户手动跑 `harness-mem ingest` 或 `harness-mem distill`。

@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from harness_mem.adapters import AdapterRegistry
+from harness_mem.commands.retrieval_signals import record_retrieval_signal
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     WakeBucketQuotaError,
@@ -495,6 +496,14 @@ async def cmd_wake_up(
                 # doctor / dashboards detect rules that were confirmed but
                 # never consumed.
                 await backend.structured_store.touch_confirmed_rule(rule.id)
+                await record_retrieval_signal(
+                    backend,
+                    project_name=rule.project_name,
+                    signal_type="wake_surfaced",
+                    target_kind="rule",
+                    target_id=rule.id,
+                    context={"source": "wake"},
+                )
             print()
         else:
             print("# Confirmed Rules  (source: confirmed_rules, empty)")
@@ -562,6 +571,14 @@ async def cmd_wake_up(
                     source = provenance.get("session_id", provenance.get("agent_type", "unknown"))
                     print(f"  📍 {source}")
                 await backend.structured_store.touch_memory_entry(entry.id)
+                await record_retrieval_signal(
+                    backend,
+                    project_name=entry.project_name,
+                    signal_type="wake_surfaced",
+                    target_kind="memory_entry",
+                    target_id=entry.id,
+                    context={"source": "wake"},
+                )
             if bucket_quota_active and quotas is not None and bucket_stats:
                 for bucket in BUCKET_ORDER:
                     stats = bucket_stats[bucket]

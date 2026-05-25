@@ -301,6 +301,70 @@ class LocalVerbatimStore:
                 results.append(Observation.from_dict(data))
         return results
 
+    async def recent_observations(
+        self,
+        project_name: str,
+        since: datetime,
+        limit: int,
+    ) -> builtins.list[Observation]:
+        """Observations for a project recorded at or after ``since``, newest first.
+
+        Mirrors :meth:`timeline` but adds a ``timestamp >= ?`` predicate. Used
+        by the v2.3.0 replay-window selector to feed the recent-observations
+        dimension. ``since`` is serialized as ISO-8601, matching how
+        ``timestamp`` is stored in the SQLite index.
+        """
+        where_parts = [
+            "COALESCE(compacted, 0) = 0",
+            "metadata LIKE ?",
+            "timestamp >= ?",
+        ]
+        params: tuple = (
+            self._project_metadata_pattern(project_name),
+            since.isoformat(),
+        )
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "observations",
+            " AND ".join(where_parts),
+            params,
+            order_by="timestamp DESC",
+            limit=limit,
+        )
+        results = []
+        for row in rows:
+            blob_path = self.blob_dir / f"{row['id']}.json"
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                if data.get("compacted", False):
+                    continue
+                results.append(Observation.from_dict(data))
+        return results
+
+    async def count_recent_observations(
+        self,
+        project_name: str,
+        since: datetime,
+    ) -> int:
+        """Count non-compacted observations for a project at or after ``since``.
+
+        Companion to :meth:`recent_observations`. The replay-window selector
+        uses this when the ``cap+1`` probe has reported truncation, so the
+        ``truncated_within_observations: <selected>/<pool>`` note can carry
+        the true pool size as the denominator.
+        """
+        where = "COALESCE(compacted, 0) = 0 AND metadata LIKE ? AND timestamp >= ?"
+        params = (
+            self._project_metadata_pattern(project_name),
+            since.isoformat(),
+        )
+        return await asyncio.to_thread(
+            self._index.count,
+            "observations",
+            where,
+            params,
+        )
+
     async def rebuild_exact_index(self, project_name: str | None = None) -> tuple[int, int]:
         """Rebuild exact-search trigram postings for observations."""
         observations = await self.list(limit=100000)

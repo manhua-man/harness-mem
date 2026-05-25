@@ -6,7 +6,7 @@
 
 把 v2.0/v2.1/v2.2 累积下来的"Slash + Skill + 自然语言为主入口、MCP 为隐藏传输层、CLI 仅做维护控制台"的承诺固化到一个 spec 里：项目解析顺序、distill 闭环、失败契约、auto-review 共享策略、证据强约束、kept_pending vs needs_user_confirmation 拆分、最终摘要 6 项 canonical counters、`/hm:review` 作为 repair-only 入口。
 
-下游 v2.3 / v2.4 metabolism / cross-project skill 工作必须沿用本 spec 的入口契约，不允许在不更新这里的情况下绕过 candidate-before-truth 或自动写 confirmed truth。
+下游 v2.3-v2.7 的 signals、reflection、context assembly、wiki bridge、cross-project skill 工作必须沿用本 spec 的入口契约，不允许在不更新这里的情况下绕过 candidate-before-truth 或自动写 confirmed truth。
 ## Requirements
 ### Requirement: User-visible memory entrypoints
 
@@ -204,4 +204,3 @@ step after every successful `/hm:distill`.
 - **WHEN** the user explicitly runs `/hm:review` or asks the agent to "重新审核老的 pending 候选"
 - **THEN** the agent resolves the project, lists pending candidates via MCP `list_candidates`, runs the same low-risk auto-review policy, and emits the canonical summary
 - **AND** the workflow remains supported even though it is not part of the daily happy path
-
