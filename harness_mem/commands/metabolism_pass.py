@@ -12,10 +12,12 @@ section "Suggestion 选择算法" for the algorithm contract:
 * ``_propose_merges`` is window-seeded (entry-entry only in v2.3.1).
 * ``_propose_stale`` is project-scoped, NOT window-scoped — silent
   truth is by definition missing from the window.
-* ``_propose_supersedes`` is window-bound over historical_truths.
+* ``_propose_supersedes`` is window-bound over historical_truths, but
+  intentionally deferred in v2.3.1 until a stronger supersede signal is
+  specified.
 
-Task 2.1 is the orchestration scaffold; proposers are stubs.
-Algorithms land in 2.2 / 2.3 / 2.4 and are tested in 2.5.
+The pass is fully read-only: it selects suggestions but leaves
+``MetabolismRun`` and candidate persistence to the MCP tool layer.
 """
 
 from __future__ import annotations
@@ -109,10 +111,9 @@ async def select_metabolism_pass(
     record. This keeps the pass a pure local algorithm with stable
     test boundaries.
 
-    Phase 2.1 is the orchestration scaffold. The three proposer
-    helpers are stubs returning empty lists; their algorithms land in
-    tasks 2.2 / 2.3 / 2.4. This way 2.5's test fixtures can exercise
-    each algorithm independently without rewriting the orchestrator.
+    v2.3.1 implements merge and stale suggestion selection. Supersede
+    remains intentionally deferred: similarity over historical truths is
+    not strong enough by itself to rewrite truth lineage safely.
     """
     window = await select_replay_window(
         backend, project_name=project_name, budget=budget
