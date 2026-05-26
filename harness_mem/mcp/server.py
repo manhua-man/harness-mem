@@ -95,6 +95,7 @@ from typing import Any, cast  # noqa: E402
 from harness_mem import __version__ as _HARNESS_MEM_VERSION  # noqa: E402
 from harness_mem.commands.auto_review import auto_review_candidates  # noqa: E402
 from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
+from harness_mem.commands.metabolism_pass import select_metabolism_pass  # noqa: E402
 from harness_mem.commands.retrieval_signals import record_retrieval_signal  # noqa: E402
 from harness_mem.commands.support import get_active_project, set_active_project  # noqa: E402
 from harness_mem.commands.replay_window import (  # noqa: E402
@@ -620,6 +621,7 @@ async def _merge_project_profile(
     conventions: list[str] | None,
     service_hints: list[str] | None,
     database_hints: list[str] | None,
+    weak_link_signals: bool | None,
     replace: bool,
 ) -> ProjectProfile:
     """Apply a non-interactive update to ``ProjectProfile``.
@@ -659,6 +661,7 @@ async def _merge_project_profile(
             conventions=list(conventions or []),
             service_hints=list(service_hints or []),
             database_hints=list(database_hints or []),
+            weak_link_signals=bool(weak_link_signals) if weak_link_signals is not None else False,
         )
     else:
         profile = ProjectProfile(
@@ -670,6 +673,9 @@ async def _merge_project_profile(
             conventions=_merge_list(existing.conventions, conventions),
             service_hints=_merge_list(existing.service_hints, service_hints),
             database_hints=_merge_list(existing.database_hints, database_hints),
+            weak_link_signals=(
+                weak_link_signals if weak_link_signals is not None else existing.weak_link_signals
+            ),
             created_at=existing.created_at,
             last_updated=datetime.now(timezone.utc),
             last_ingest_at=existing.last_ingest_at,
@@ -688,6 +694,7 @@ def tool_update_project_profile(
     conventions: list[str] | None = None,
     service_hints: list[str] | None = None,
     database_hints: list[str] | None = None,
+    weak_link_signals: bool | None = None,
     replace: bool = False,
 ) -> dict:
     """Non-interactive project profile update.
@@ -710,6 +717,7 @@ def tool_update_project_profile(
             conventions=conventions,
             service_hints=service_hints,
             database_hints=database_hints,
+            weak_link_signals=weak_link_signals,
             replace=replace,
         )
     )
@@ -723,6 +731,7 @@ def tool_update_project_profile(
             "conventions": profile.conventions,
             "service_hints": profile.service_hints,
             "database_hints": profile.database_hints,
+            "weak_link_signals": profile.weak_link_signals,
             "last_updated": profile.last_updated.isoformat(),
         },
     }
@@ -902,6 +911,173 @@ def tool_metabolism_preview(
         "dimensions": input_window["dimensions"],
         "notes": list(window.notes),
         "signals_used": len(window.signal_ids),
+    }
+
+
+def tool_metabolism_run(
+    project_name: str | None = None,
+    budget: dict | None = None,
+) -> dict:
+    """Run a metabolism pass and persist suggestion candidates.
+
+    v2.3.1: mirrors :func:`tool_metabolism_preview`'s argument shape and
+    error handling but performs the full suggestion pass:
+
+    1. Resolve the project (active-project fallback) and normalize
+       ``budget`` against ``ReplayBudget`` defaults.
+    2. Run :func:`select_metabolism_pass`, which wraps
+       ``select_replay_window`` and produces merge / stale / supersede
+       candidates (auto-supersede deferred to v2.3.2 — proposer
+       returns ``[]``).
+    3. Persist a ``MetabolismRun(kind="metabolism", status="completed")``
+       audit record carrying per-type ``output_counts``.
+    4. Persist each candidate, rewriting ``metabolism_run_id`` to the
+       newly-saved run id (the pass writes a ``"pending"`` sentinel).
+
+    On any exception the handler best-effort persists a
+    ``MetabolismRun(kind="metabolism", status="error")`` and returns
+    ``{success: False, error, doctor_pointer}`` without raising. This
+    matches the v2.3.0 preview contract bit-for-bit so MCP callers can
+    treat both tools the same way.
+    """
+    resolved = (project_name or "").strip() or get_active_project()
+    if not resolved:
+        return {
+            "success": False,
+            "error": "project_name is required when no active project is set",
+        }
+
+    backend = _get_backend()
+    started_at = datetime.now(timezone.utc)
+    # Same Protocol-vs-impl reasoning as ``tool_metabolism_preview``:
+    # writers stay implementation-side, so cast to the local concrete
+    # store to access ``save_metabolism_run`` and the candidate writers.
+    structured_store = cast(LocalStructuredStore, backend.structured_store)
+
+    try:
+        budget_kwargs: dict[str, int] = {}
+        if budget:
+            for key in (
+                "max_observations",
+                "max_pending_candidates",
+                "max_historical_truths",
+                "max_low_success_skills",
+                "max_repeat_search_hits",
+                "max_total_tokens",
+                "signal_lookback_days",
+            ):
+                if key in budget and budget[key] is not None:
+                    budget_kwargs[key] = budget[key]
+
+        normalized_budget = ReplayBudget(**budget_kwargs)
+        pass_result = asyncio.run(
+            select_metabolism_pass(
+                backend,
+                project_name=resolved,
+                budget=normalized_budget,
+            )
+        )
+        window = pass_result.window
+        input_window = _replay_window_to_input_window(window)
+
+        merge_count = len(pass_result.merge)
+        stale_count = len(pass_result.stale)
+        supersede_count = len(pass_result.supersede)
+        output_counts = {
+            "merge_suggestions": merge_count,
+            "stale_suggestions": stale_count,
+            "supersede_suggestions": supersede_count,
+        }
+
+        # Window notes come from the replay-window selector; pass notes
+        # come from the proposers (e.g. ``stale_scan_truncated``). Both
+        # contribute to the run's audit trail.
+        combined_notes: list[str] = []
+        combined_notes.extend(window.notes)
+        combined_notes.extend(pass_result.notes)
+
+        completed_at = datetime.now(timezone.utc)
+        duration_ms = int((completed_at - started_at).total_seconds() * 1000)
+
+        run_record = MetabolismRun(
+            project_name=resolved,
+            kind="metabolism",
+            status="completed",
+            started_at=started_at,
+            completed_at=completed_at,
+            input_window=input_window,
+            selected_signal_ids=list(window.signal_ids),
+            output_counts=output_counts,
+            duration_ms=duration_ms,
+            notes=combined_notes if combined_notes else None,
+        )
+        run_id = asyncio.run(structured_store.save_metabolism_run(run_record))
+
+        # Persist candidates with the real run id. The pass writes a
+        # ``"pending"`` sentinel so it stays free of the run lifecycle;
+        # the MCP layer is the single place that knows the run id.
+        for merge_candidate in pass_result.merge:
+            merge_candidate.metabolism_run_id = run_id
+            asyncio.run(
+                structured_store.save_merge_suggestion_candidate(merge_candidate)
+            )
+        for stale_candidate in pass_result.stale:
+            stale_candidate.metabolism_run_id = run_id
+            asyncio.run(
+                structured_store.save_stale_truth_suggestion_candidate(stale_candidate)
+            )
+        # Supersede candidates are deferred (proposer returns []) but
+        # iterating still costs nothing and keeps the shape stable for
+        # the day v2.3.2 reactivates the leg.
+        for supersede in pass_result.supersede:
+            asyncio.run(structured_store.save_supersede_candidate(supersede))
+    except Exception as exc:
+        completed_at = datetime.now(timezone.utc)
+        duration_ms = int((completed_at - started_at).total_seconds() * 1000)
+        error_message = str(exc) or exc.__class__.__name__
+        # Best-effort persist an error run record. Failure here is logged
+        # and swallowed — the user-visible error payload is still returned.
+        try:
+            asyncio.run(
+                structured_store.save_metabolism_run(
+                    MetabolismRun(
+                        project_name=resolved,
+                        kind="metabolism",
+                        status="error",
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        input_window={},
+                        selected_signal_ids=[],
+                        output_counts={
+                            "merge_suggestions": 0,
+                            "stale_suggestions": 0,
+                            "supersede_suggestions": 0,
+                        },
+                        duration_ms=duration_ms,
+                        notes=[f"metabolism_run failed: {error_message}"],
+                    )
+                )
+            )
+        except Exception:
+            logger.exception(
+                "metabolism_run: failed to persist error run for project=%s",
+                resolved,
+            )
+        return {
+            "success": False,
+            "error": error_message,
+            "doctor_pointer": _METABOLISM_PREVIEW_DOCTOR_POINTER,
+        }
+
+    return {
+        "success": True,
+        "run_id": run_id,
+        "project_name": resolved,
+        "time_range": input_window["time_range"],
+        "dimensions": input_window["dimensions"],
+        "notes": list(combined_notes),
+        "signals_used": len(window.signal_ids),
+        "output_counts": output_counts,
     }
 
 
@@ -1716,6 +1892,7 @@ TOOLS: dict[str, ToolSpec] = build_tools({
     "ingest_sessions": tool_ingest_sessions,
     "prepare_session_distill": tool_prepare_session_distill,
     "metabolism_preview": tool_metabolism_preview,
+    "metabolism_run": tool_metabolism_run,
     "list_candidates": tool_list_candidates,
     "auto_review_candidates": tool_auto_review_candidates,
     "suggest_supersede": tool_suggest_supersede,

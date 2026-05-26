@@ -36,6 +36,17 @@ class ProjectProfile(BaseModel):
         default_factory=list,
         description="Coding conventions or rules"
     )
+    weak_link_signals: bool = Field(
+        default=False,
+        description=(
+            "Opt-in flag for v2.3.1 weak-link signal application: when True, "
+            "wake re-groups confirmed rules into Recent active / Stable / "
+            "quiet using RetrievalSignal history, and search_memory boosts "
+            "results with repeat search hits. Default off; flip on after "
+            "the project has accumulated enough signal history (typically "
+            "after a week of normal usage)."
+        ),
+    )
     last_updated: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -63,6 +74,7 @@ class ProjectProfile(BaseModel):
             "service_hints": self.service_hints,
             "database_hints": self.database_hints,
             "conventions": self.conventions,
+            "weak_link_signals": self.weak_link_signals,
             "last_updated": self.last_updated.isoformat(),
             "created_at": self.created_at.isoformat(),
             "last_ingest_at": self.last_ingest_at.isoformat() if self.last_ingest_at else None,

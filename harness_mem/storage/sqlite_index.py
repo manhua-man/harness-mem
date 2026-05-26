@@ -183,6 +183,29 @@ _TABLE_SCHEMAS = {
         recorded_at TEXT NOT NULL,
         value REAL
     """,
+    "merge_suggestion_candidates": """
+        id TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        target_a_id TEXT NOT NULL,
+        target_a_kind TEXT NOT NULL,
+        target_b_id TEXT NOT NULL,
+        target_b_kind TEXT NOT NULL,
+        similarity_score REAL NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        metabolism_run_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    """,
+    "stale_truth_suggestion_candidates": """
+        id TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        target_kind TEXT NOT NULL,
+        last_surfaced_at TEXT,
+        days_since_last_surface INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        metabolism_run_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    """,
 }
 
 _COLUMN_MIGRATIONS = {
@@ -268,6 +291,14 @@ class SQLiteIndex:
             # free text. Avoids a no-op FTS table and unused triggers.
             if table_name in ("metabolism_runs", "retrieval_signals"):
                 continue
+            # Skip FTS for the v2.3.1 suggestion candidate tables — they are
+            # filter/sort indexes only; full content (proposed_content,
+            # evidence_signal_ids) lives in the JSON blob.
+            if table_name in (
+                "merge_suggestion_candidates",
+                "stale_truth_suggestion_candidates",
+            ):
+                continue
             # FTS virtual table for full-text search on 'content' or 'raw_content' field
             fts_col = "raw_content" if table_name == "observations" else (
                 "content" if table_name == "memory_entries" else
@@ -306,6 +337,7 @@ class SQLiteIndex:
             """)
             self._ensure_columns(conn, table_name)
         self._ensure_verbatim_exact_index(conn)
+        self._ensure_suggestion_candidate_indexes(conn)
         conn.commit()
 
     def _conn_write(self) -> sqlite3.Connection:
@@ -720,6 +752,52 @@ class SQLiteIndex:
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_observation_trigrams_observation
             ON observation_trigrams(observation_id)
+        """)
+
+    def _ensure_suggestion_candidate_indexes(self, conn: sqlite3.Connection) -> None:
+        """Secondary indexes for v2.3.1 suggestion candidate tables.
+
+        Mirrors the existing approach in :meth:`_ensure_verbatim_exact_index`:
+        keep auxiliary indexes out of ``_TABLE_SCHEMAS`` and create them with
+        ``CREATE INDEX IF NOT EXISTS`` so they are idempotent.
+
+        The composite ``(target_a_id, target_b_id)`` index on
+        ``merge_suggestion_candidates`` powers the dedupe lookup the metabolism
+        proposer uses to skip pairs it has already proposed (the pair is
+        normalized to ``target_a_id < target_b_id`` at construction time, so
+        the natural key matches exactly).
+        """
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_merge_suggestion_candidates_project
+            ON merge_suggestion_candidates(project_name)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_merge_suggestion_candidates_status
+            ON merge_suggestion_candidates(status)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_merge_suggestion_candidates_run
+            ON merge_suggestion_candidates(metabolism_run_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_merge_suggestion_candidates_pair
+            ON merge_suggestion_candidates(target_a_id, target_b_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_stale_truth_suggestion_candidates_project
+            ON stale_truth_suggestion_candidates(project_name)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_stale_truth_suggestion_candidates_status
+            ON stale_truth_suggestion_candidates(status)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_stale_truth_suggestion_candidates_run
+            ON stale_truth_suggestion_candidates(metabolism_run_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_stale_truth_suggestion_candidates_target
+            ON stale_truth_suggestion_candidates(target_id)
         """)
 
     @staticmethod

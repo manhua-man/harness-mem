@@ -8,6 +8,10 @@ from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.task_handoff import TaskHandoff
 from harness_mem.core.schemas.rule_candidate import RuleCandidate
 from harness_mem.core.schemas.supersede_candidate import SupersedeCandidate
+from harness_mem.core.schemas.merge_suggestion_candidate import MergeSuggestionCandidate
+from harness_mem.core.schemas.stale_truth_suggestion_candidate import (
+    StaleTruthSuggestionCandidate,
+)
 from harness_mem.core.schemas.procedural_candidate import ProceduralCandidate
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
@@ -305,6 +309,38 @@ class StructuredStore(Protocol):
         used_at: datetime | None = None,
     ) -> Skill | None:
         """Record one skill execution outcome and return the updated skill."""
+        ...
+
+    # ---- MergeSuggestionCandidate (read-side) ----
+
+    async def get_merge_suggestion_candidate(
+        self, id: str
+    ) -> MergeSuggestionCandidate | None:
+        """Get a single merge suggestion candidate by id."""
+        ...
+
+    async def list_merge_suggestion_candidates(
+        self,
+        project_name: str,
+        status: str | None = None,
+    ) -> list[MergeSuggestionCandidate]:
+        """List merge suggestion candidates for a project, optionally filtered by status."""
+        ...
+
+    # ---- StaleTruthSuggestionCandidate (read-side) ----
+
+    async def get_stale_truth_suggestion_candidate(
+        self, id: str
+    ) -> StaleTruthSuggestionCandidate | None:
+        """Get a single stale-truth suggestion candidate by id."""
+        ...
+
+    async def list_stale_truth_suggestion_candidates(
+        self,
+        project_name: str,
+        status: str | None = None,
+    ) -> list[StaleTruthSuggestionCandidate]:
+        """List stale-truth suggestion candidates for a project, optionally filtered by status."""
         ...
 
     # ---- MetabolismRun (read-side) ----

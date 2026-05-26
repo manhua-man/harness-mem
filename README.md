@@ -241,6 +241,7 @@ Agent 编排层
 领域模型
   Observation, MemoryEntry, RelationFact, RuleCandidate
   SupersedeCandidate, ProceduralCandidate, ConfirmedRule, Skill
+  MergeSuggestionCandidate, StaleTruthSuggestionCandidate
 
 检索与渲染
   search/ (SQLite FTS5 + optional vector hybrid)
@@ -280,6 +281,8 @@ V2 的重点不是让用户学习更多底层工具，而是把记忆能力藏�
     rule_candidates/            JSON blobs
     supersede_candidates/       JSON blobs
     procedural_candidates/      JSON blobs
+    merge_suggestion_candidates/ JSON blobs
+    stale_truth_suggestion_candidates/ JSON blobs
     confirmed_rules/            JSON blobs
     skills/                     JSON blobs
   profiles/                     Project profiles

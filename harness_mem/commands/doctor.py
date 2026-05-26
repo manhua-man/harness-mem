@@ -186,6 +186,7 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             )
 
             print()
+            await _doctor_weak_link_block(backend, resolved_project)
             print("📍 Phase: Ready")
             print(f"→ Next: {next_command}")
             print(f"   Why: {reason}")
@@ -394,3 +395,96 @@ def detect_cwd_project_mismatch(
     if candidate in known_projects:
         return candidate
     return None
+
+
+async def _doctor_weak_link_block(
+    backend: LocalMemoryBackend,
+    project_name: str | None,
+) -> None:
+    """Print the v2.3.1 weak-link signal influence block.
+
+    Three shapes:
+
+    - Project-less doctor (no active project): one line noting the
+      block is skipped — the flag lives on the profile, so without
+      one there's nothing to report.
+    - ``weak_link_signals=False``: one disabled line with the opt-in
+      hint so users see the switch without having to read the
+      project profile.
+    - ``weak_link_signals=True``: header + 3 stat lines:
+        rules pushed to 'Stable / quiet' group:    X / Y
+        search results boosted (last 7 days):      N distinct targets
+        experimental skills:                       — (deferred to v2.3.2)
+
+    The "stable" stat reuses :func:`pull_recent_signals` against
+    confirmed rules over the last 30 days (mirrors the wake re-grouping
+    window in 4.2). The "boosted" stat counts distinct memory_entry
+    targets with at least 2 ``search_hit`` signals in the last 7 days
+    (mirrors 4.3's repeat-boost trigger). When the flag is off we skip
+    those queries entirely so doctor stays fast on big projects.
+    """
+    if project_name is None:
+        print("Weak-link signal influence: skipped (no active project)")
+        return
+
+    profile_store = LocalProjectProfileStore(backend.data_dir)
+    profile = await profile_store.get(project_name)
+    if profile is None or not profile.weak_link_signals:
+        print(
+            "Weak-link signal influence: disabled "
+            "(set weak_link_signals=true in project profile)"
+        )
+        return
+
+    # Lazy import: signal_influence pulls in the v2.3.1 weak-link helper
+    # that we only need when the flag is on. Keeping it lazy means doctor
+    # on the v2.2-default-off path doesn't pay any import cost.
+    from harness_mem.commands.signal_influence import pull_recent_signals
+
+    now = datetime.now(timezone.utc)
+
+    # 1) rules pushed to 'Stable / quiet' group (no surface signals in
+    #    the last 30 days).
+    rules = await backend.structured_store.list_confirmed_rules(project_name)
+    if rules:
+        rule_summaries = await pull_recent_signals(
+            backend,
+            project_name=project_name,
+            target_ids=[r.id for r in rules],
+            since=now - timedelta(days=30),
+        )
+        stable_count = sum(
+            1
+            for r in rules
+            if (s := rule_summaries.get(r.id)) is None
+            or s.wake_surfaced_count + s.search_hit_count == 0
+        )
+    else:
+        stable_count = 0
+
+    # 2) boosted search targets (last 7 days, memory_entry targets with
+    #    >= 2 search_hit signals — mirrors 4.3's REPEAT_BOOST trigger).
+    seven_days_ago = now - timedelta(days=7)
+    search_signals = await backend.structured_store.query_retrieval_signals(
+        project_name,
+        signal_type="search_hit",
+        since=seven_days_ago,
+        limit=10000,
+    )
+    target_counts: dict[str, int] = {}
+    for sig in search_signals:
+        if sig.target_kind == "memory_entry":
+            target_counts[sig.target_id] = target_counts.get(sig.target_id, 0) + 1
+    boosted_count = sum(1 for c in target_counts.values() if c >= 2)
+
+    # 3) experimental skills line — deferred to v2.3.2 per design.md.
+    print("Weak-link signal influence (v2.3.1):")
+    print(
+        f"  rules pushed to 'Stable / quiet' group:    "
+        f"{stable_count} / {len(rules)}"
+    )
+    print(
+        f"  search results boosted (last 7 days):      "
+        f"{boosted_count} distinct targets"
+    )
+    print("  experimental skills:                       — (deferred to v2.3.2)")

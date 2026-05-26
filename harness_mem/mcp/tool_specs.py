@@ -289,6 +289,14 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "items": {"type": "string"},
                     "description": "Database connection strings or types",
                 },
+                "weak_link_signals": {
+                    "type": "boolean",
+                    "description": (
+                        "Opt-in for v2.3.1 weak-link signal application "
+                        "(wake re-grouping into Recent active / Stable / "
+                        "quiet + search boost on repeat hits). Default false."
+                    ),
+                },
                 "replace": {
                     "type": "boolean",
                     "description": "When true, replace each provided list outright instead of merging.",
@@ -760,6 +768,47 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "status=\"preview\") for audit. Returns {success, run_id, "
             "project_name, time_range, dimensions, notes, signals_used}. "
             "v2.3.0: preview only, no daemon, no suggestions, no truth mutation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (defaults to the active project when omitted).",
+                },
+                "budget": {
+                    "type": "object",
+                    "description": "Optional per-dimension caps and soft token cap. Missing fields fall back to ReplayBudget defaults.",
+                    "properties": {
+                        "max_observations": {"type": "integer", "minimum": 0},
+                        "max_pending_candidates": {"type": "integer", "minimum": 0},
+                        "max_historical_truths": {"type": "integer", "minimum": 0},
+                        "max_low_success_skills": {"type": "integer", "minimum": 0},
+                        "max_repeat_search_hits": {"type": "integer", "minimum": 0},
+                        "max_total_tokens": {"type": "integer", "minimum": 0},
+                        "signal_lookback_days": {"type": "integer", "minimum": 1},
+                    },
+                    "additionalProperties": False,
+                },
+            },
+        },
+    },
+    "metabolism_run": {
+        "description": (
+            "Run a metabolism pass over signals + replay window and "
+            "persist suggestion candidates for later review. Uses the "
+            "same window selection as metabolism_preview, then runs the "
+            "merge / stale proposers (auto-supersede deferred to v2.3.2) "
+            "and writes each suggestion as a pending candidate plus a "
+            "MetabolismRun(kind=\"metabolism\", status=\"completed\") "
+            "audit record. Unlike metabolism_preview this DOES persist new "
+            "candidate rows — use it when you want suggestions to land in "
+            "the review queue, not just see what they would be. v2.3.1: "
+            "merge candidates write proposed_content=\"\" (the Agent fills "
+            "the merged content at confirm time); stale candidates set "
+            "valid_to=now on confirm without producing a replacement. "
+            "Returns {success, run_id, project_name, time_range, "
+            "dimensions, notes, output_counts}."
         ),
         "input_schema": {
             "type": "object",

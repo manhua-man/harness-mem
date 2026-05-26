@@ -11,6 +11,7 @@ from pathlib import Path
 
 from harness_mem.adapters import AdapterRegistry
 from harness_mem.commands.retrieval_signals import record_retrieval_signal
+from harness_mem.commands.signal_influence import pull_recent_signals
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     WakeBucketQuotaError,
@@ -26,6 +27,7 @@ from harness_mem.commands.support import (
     wake_bucket_quotas,
 )
 from harness_mem.commands.ingest import _select_claude_candidate_sessions
+from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.event_log import EventType, get_event_logger
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -93,6 +95,79 @@ def _format_usage_badge(
 
 def _print_auto_sync_skipped(reason: str, start_time: float) -> None:
     print(f"🔄 Auto-sync skipped: {reason} ({_elapsed_ms(start_time)}ms)")
+
+
+def _render_rule(rule: ConfirmedRule) -> None:
+    """Print one confirmed rule to stdout in v2.2 wake format.
+
+    Extracted from the inline body of ``cmd_wake_up`` so the v2.2 path
+    and the v2.3.1 weak-link grouping path share identical formatting.
+    The touch / signal calls live in the caller — they're per-render
+    side effects, not part of the format.
+    """
+    trigger_limit = 60
+    pattern_limit = 100
+    is_trigger_trunc = len(rule.trigger) > trigger_limit
+    is_pattern_trunc = len(rule.pattern) > pattern_limit
+
+    t_preview = rule.trigger[:trigger_limit] + "..." if is_trigger_trunc else rule.trigger
+    p_preview = rule.pattern[:pattern_limit] + "..." if is_pattern_trunc else rule.pattern
+
+    trunc_marker = " [...truncated]" if (is_trigger_trunc or is_pattern_trunc) else ""
+    usage_badge = _format_usage_badge(rule.usage_count, rule.last_surfaced_at)
+    print(f"- **{t_preview}**: {p_preview}{trunc_marker}{usage_badge}")
+    if rule.provenance:
+        provenance = rule.provenance
+        source = provenance.get("session_id", provenance.get("agent_type", "unknown"))
+        print(f"  📍 {source}")
+
+
+async def _split_rules_for_weak_link(
+    backend: LocalMemoryBackend,
+    rules: list[ConfirmedRule],
+    project_name: str,
+    *,
+    total_budget: int,
+) -> tuple[list[ConfirmedRule], list[ConfirmedRule]]:
+    """Split rules into ``(recent_active, stable_quiet)`` for v2.3.1 wake.
+
+    A rule is "recent active" iff it had at least one ``wake_surfaced``
+    or ``search_hit`` signal in the last 30 days. Within each group the
+    input order is preserved (caller passes rules sorted by
+    ``confirmed_at DESC``). Total output is capped at ``total_budget``;
+    recent fills first, stable fills the remainder.
+
+    Gated upstream by ``ProjectProfile.weak_link_signals`` — this helper
+    is only called when the flag is on, so it unconditionally hits
+    ``pull_recent_signals``.
+    """
+    if not rules:
+        return [], []
+
+    now = datetime.now(timezone.utc)
+    summaries = await pull_recent_signals(
+        backend,
+        project_name=project_name,
+        target_ids=[rule.id for rule in rules],
+        since=now - timedelta(days=30),
+    )
+
+    recent: list[ConfirmedRule] = []
+    stable: list[ConfirmedRule] = []
+    for rule in rules:
+        summary = summaries.get(rule.id)
+        is_recent = summary is not None and (
+            summary.wake_surfaced_count + summary.search_hit_count > 0
+        )
+        if is_recent:
+            recent.append(rule)
+        else:
+            stable.append(rule)
+
+    recent_capped = recent[:total_budget]
+    remaining = total_budget - len(recent_capped)
+    stable_capped = stable[:remaining] if remaining > 0 else []
+    return recent_capped, stable_capped
 
 
 def _wake_int_setting(config: dict, key: str, default: int) -> int:
@@ -472,38 +547,60 @@ async def cmd_wake_up(
         if rules:
             rules_chars = sum(len(rule.trigger or "") + len(rule.pattern or "") for rule in rules)
             print(f"# Confirmed Rules  (source: confirmed_rules, {len(rules)} rules, ~{rules_chars} chars)")
-            for rule in rules[:5]:
-                trigger_limit = 60
-                pattern_limit = 100
-                is_trigger_trunc = len(rule.trigger) > trigger_limit
-                is_pattern_trunc = len(rule.pattern) > pattern_limit
-                
-                t_preview = rule.trigger[:trigger_limit] + "..." if is_trigger_trunc else rule.trigger
-                p_preview = rule.pattern[:pattern_limit] + "..." if is_pattern_trunc else rule.pattern
-                
-                trunc_marker = " [...truncated]" if (is_trigger_trunc or is_pattern_trunc) else ""
-                # Render the pre-touch counters so users see how many times
-                # this rule has surfaced *before* this wake-up. The touch
-                # below increments for the next call.
-                usage_badge = _format_usage_badge(rule.usage_count, rule.last_surfaced_at)
-                print(f"- **{t_preview}**: {p_preview}{trunc_marker}{usage_badge}")
-                if rule.provenance:
-                    provenance = rule.provenance
-                    source = provenance.get("session_id", provenance.get("agent_type", "unknown"))
-                    print(f"  📍 {source}")
-                # Record that this rule actually showed up in wake-up output.
-                # Mirrors the touch_memory_entry call further below; lets
-                # doctor / dashboards detect rules that were confirmed but
-                # never consumed.
-                await backend.structured_store.touch_confirmed_rule(rule.id)
-                await record_retrieval_signal(
-                    backend,
-                    project_name=rule.project_name,
-                    signal_type="wake_surfaced",
-                    target_kind="rule",
-                    target_id=rule.id,
-                    context={"source": "wake"},
+
+            weak_link_on = bool(profile and profile.weak_link_signals)
+            if weak_link_on:
+                # v2.3.1 weak-link signal application: split into Recent
+                # active / Stable / quiet using the last 30d of surface
+                # signals. Total budget stays at 5; recent fills first.
+                recent_group, stable_group = await _split_rules_for_weak_link(
+                    backend, rules, project_name, total_budget=5
                 )
+                if recent_group:
+                    print("### Recent active")
+                    for rule in recent_group:
+                        _render_rule(rule)
+                        await backend.structured_store.touch_confirmed_rule(rule.id)
+                        await record_retrieval_signal(
+                            backend,
+                            project_name=rule.project_name,
+                            signal_type="wake_surfaced",
+                            target_kind="rule",
+                            target_id=rule.id,
+                            context={"source": "wake"},
+                        )
+                if stable_group:
+                    print("### Stable / quiet")
+                    for rule in stable_group:
+                        _render_rule(rule)
+                        await backend.structured_store.touch_confirmed_rule(rule.id)
+                        await record_retrieval_signal(
+                            backend,
+                            project_name=rule.project_name,
+                            signal_type="wake_surfaced",
+                            target_kind="rule",
+                            target_id=rule.id,
+                            context={"source": "wake"},
+                        )
+            else:
+                # Default off: v2.2-identical path. No call to
+                # pull_recent_signals; same loop, same order, same
+                # touch + signal side effects.
+                for rule in rules[:5]:
+                    _render_rule(rule)
+                    # Record that this rule actually showed up in wake-up
+                    # output. Mirrors the touch_memory_entry call further
+                    # below; lets doctor / dashboards detect rules that
+                    # were confirmed but never consumed.
+                    await backend.structured_store.touch_confirmed_rule(rule.id)
+                    await record_retrieval_signal(
+                        backend,
+                        project_name=rule.project_name,
+                        signal_type="wake_surfaced",
+                        target_kind="rule",
+                        target_id=rule.id,
+                        context={"source": "wake"},
+                    )
             print()
         else:
             print("# Confirmed Rules  (source: confirmed_rules, empty)")

@@ -21,6 +21,14 @@ section "Replay window selector", for the full contract:
   Persistence as a ``MetabolismRun`` is the caller's job (task 4.2).
 
 Task 3.3 adds budget-enforcement notes and the heuristic soft token cap.
+
+v2.3.1 task 3.2 swaps the per-id heuristic for a content-based token
+count via :mod:`harness_mem.commands.token_estimator`. The selector
+now fetches each selected id's underlying text and sums actual token
+counts; ``_DIM_TOKEN_WEIGHT`` survives as the third-tier fallback for
+ids whose content can't be resolved (deleted blob, mid-flight schema
+change, etc.). When the tokenizer falls back to its char-heuristic
+path, an audit note records that fact ahead of the soft-budget line.
 """
 
 from __future__ import annotations
@@ -32,7 +40,10 @@ from dataclasses import replace as dc_replace
 from datetime import datetime, timedelta, timezone
 from typing import cast
 
+from harness_mem.commands import token_estimator
+from harness_mem.commands.token_estimator import count_tokens
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 
 # Pending candidates older than this are considered "stale" and eligible
@@ -66,6 +77,120 @@ _DIM_TOKEN_WEIGHT: dict[str, int] = {
     "low_success_skills": _TOKENS_PER_LOW_SUCCESS_SKILL,
     "repeat_search_hits": _TOKENS_PER_REPEAT_HIT,
 }
+
+
+async def _fetch_content_for_id(
+    backend: LocalMemoryBackend,
+    dim_name: str,
+    entry_id: str,
+) -> str | None:
+    """Resolve the text behind one selected id, per dimension.
+
+    Mapping (matches what each ``_select_*`` populates ``selected_ids``
+    with):
+
+    - ``observations``: ``Observation.raw_content`` from the verbatim
+      blob.
+    - ``pending_candidates``: rule / supersede / procedural candidates
+      live in the same dim; try each get path in order, first hit wins.
+    - ``historical_truths``: memory entry / confirmed rule / relation
+      fact; try each in order.
+    - ``low_success_skills``: skill activation_condition + steps.
+    - ``repeat_search_hits``: target ids resolve to memory entries
+      (mirrors v2.3.0 search_hit signal target_kind).
+
+    Returns ``None`` when the id can't be resolved, which signals to
+    the caller that it should fall back to ``_DIM_TOKEN_WEIGHT`` for
+    this id.
+    """
+    structured = cast(LocalStructuredStore, backend.structured_store)
+
+    if dim_name == "observations":
+        verbatim = cast(LocalVerbatimStore, backend.verbatim_store)
+        observation = await verbatim.get(entry_id)
+        return observation.raw_content if observation else None
+
+    if dim_name == "pending_candidates":
+        rule = await structured.get_rule_candidate(entry_id)
+        if rule is not None:
+            return rule.pattern
+        supersede = await structured.get_supersede_candidate(entry_id)
+        if supersede is not None:
+            return supersede.evidence
+        procedural = await structured.get_procedural_candidate(entry_id)
+        if procedural is not None:
+            return procedural.activation_condition
+        return None
+
+    if dim_name == "historical_truths":
+        entry = await structured.get_memory_entry(entry_id)
+        if entry is not None:
+            return entry.content
+        confirmed_rule = await structured.get_confirmed_rule(entry_id)
+        if confirmed_rule is not None:
+            return confirmed_rule.pattern
+        fact = await structured.get_relation_fact(entry_id)
+        if fact is not None:
+            return fact.evidence
+        return None
+
+    if dim_name == "low_success_skills":
+        skill = await structured.get_skill(entry_id)
+        if skill is None:
+            return None
+        return "\n".join((skill.activation_condition, *skill.steps))
+
+    if dim_name == "repeat_search_hits":
+        entry = await structured.get_memory_entry(entry_id)
+        return entry.content if entry else None
+
+    return None
+
+
+async def _estimate_tokens_with_breakdown(
+    backend: LocalMemoryBackend,
+    dim_name: str,
+    selected_ids: list[str],
+) -> tuple[int, dict[str, int], int]:
+    """Sum content-based token counts and return a per-id breakdown.
+
+    The breakdown lets the soft-cap trim loop subtract the exact token
+    contribution of each popped id, instead of falling back to the dim
+    weight constant which would now be wrong (estimate is variable).
+
+    Per-id pipeline:
+      1. Fetch the underlying content via ``_fetch_content_for_id``.
+      2. ``count_tokens(content)`` (tiktoken cl100k_base, with internal
+         char-heuristic fallback baked into ``token_estimator``).
+      3. If content fetch returns ``None`` or ``count_tokens`` returns
+         ``0``, fall back to ``_DIM_TOKEN_WEIGHT[dim_name]`` for that
+         id. This is the design's third-tier fallback.
+
+    Returns ``(total, per_id, count_tokens_calls)``. The third value is
+    how many ``count_tokens`` calls actually ran (i.e. how many ids
+    resolved to non-empty content). The selector uses it to decide
+    whether a ``tokenizer_fallback`` audit note is meaningful for this
+    run — if zero calls happened, the module-level ``tokenizer_kind``
+    is stale state from a prior run and shouldn't leak into notes.
+    """
+    if not selected_ids:
+        return 0, {}, 0
+
+    fallback = _DIM_TOKEN_WEIGHT[dim_name]
+    per_id: dict[str, int] = {}
+    total = 0
+    count_tokens_calls = 0
+    for entry_id in selected_ids:
+        text = await _fetch_content_for_id(backend, dim_name, entry_id)
+        if not text:
+            tokens = fallback
+        else:
+            counted = count_tokens(text)
+            count_tokens_calls += 1
+            tokens = counted if counted > 0 else fallback
+        per_id[entry_id] = tokens
+        total += tokens
+    return total, per_id, count_tokens_calls
 
 
 @dataclass(frozen=True)
@@ -185,10 +310,22 @@ async def select_replay_window(
 
     # Soft total-token cap. Always emit `soft_token_budget` (audit data),
     # then trim tails in fixed cross-dimension order if over budget.
-    estimate = sum(
-        len(dim.selected_ids) * _DIM_TOKEN_WEIGHT[name]
-        for name, dim in dimensions.items()
-    )
+    # v2.3.1 task 3.2: estimate is content-based via ``count_tokens``,
+    # with a per-id breakdown so the trim loop can subtract the exact
+    # contribution of each popped id (estimate is no longer per-id
+    # constant). ``_DIM_TOKEN_WEIGHT`` survives as the third-tier
+    # fallback when content fetch returns nothing.
+    dim_token_breakdown: dict[str, dict[str, int]] = {}
+    estimate = 0
+    total_count_tokens_calls = 0
+    for name, dim in dimensions.items():
+        dim_total, per_id, calls = await _estimate_tokens_with_breakdown(
+            backend, name, dim.selected_ids
+        )
+        dim_token_breakdown[name] = per_id
+        estimate += dim_total
+        total_count_tokens_calls += calls
+
     trimmed_dims: list[str] = []
     if estimate > budget.max_total_tokens:
         for trim_name in _TRIM_ORDER:
@@ -196,11 +333,16 @@ async def select_replay_window(
                 break
             dim = dimensions[trim_name]
             new_ids = list(dim.selected_ids)
-            weight = _DIM_TOKEN_WEIGHT[trim_name]
+            per_id_tokens = dim_token_breakdown[trim_name]
+            fallback_weight = _DIM_TOKEN_WEIGHT[trim_name]
             popped = 0
             while estimate > budget.max_total_tokens and new_ids:
-                new_ids.pop()
-                estimate -= weight
+                dropped = new_ids.pop()
+                # ``per_id_tokens`` always contains every id we estimated
+                # for; ``.get`` with the dim weight is a defensive guard
+                # that keeps the trim loop honest even if the maps ever
+                # disagree.
+                estimate -= per_id_tokens.get(dropped, fallback_weight)
                 popped += 1
             if popped > 0:
                 # Soft trim counts as truncation; total_seen stays at the
@@ -211,6 +353,16 @@ async def select_replay_window(
                 )
                 trimmed_dims.append(trim_name)
 
+    # Surface tokenizer fallback BEFORE the soft-budget line so the
+    # audit trail explains the estimate's accuracy first. We only emit
+    # the note when this run actually called ``count_tokens`` at least
+    # once — otherwise ``tokenizer_kind`` could be stale state from a
+    # prior run and the note would mislead.
+    if (
+        total_count_tokens_calls > 0
+        and token_estimator.tokenizer_kind == "char-heuristic"
+    ):
+        notes.append("tokenizer_fallback: char-heuristic")
     notes.append(f"soft_token_budget: {estimate}/{budget.max_total_tokens}")
     if trimmed_dims:
         notes.append(f"trimmed_for_token_budget: {','.join(trimmed_dims)}")

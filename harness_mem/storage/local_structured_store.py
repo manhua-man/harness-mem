@@ -10,6 +10,10 @@ from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.task_handoff import TaskHandoff
 from harness_mem.core.schemas.rule_candidate import RuleCandidate
 from harness_mem.core.schemas.supersede_candidate import SupersedeCandidate
+from harness_mem.core.schemas.merge_suggestion_candidate import MergeSuggestionCandidate
+from harness_mem.core.schemas.stale_truth_suggestion_candidate import (
+    StaleTruthSuggestionCandidate,
+)
 from harness_mem.core.schemas.procedural_candidate import ProceduralCandidate
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
@@ -42,6 +46,10 @@ class LocalStructuredStore:
             "relation_facts": self.blob_dir / "relation_facts",
             "metabolism_runs": self.blob_dir / "metabolism_runs",
             "retrieval_signals": self.blob_dir / "retrieval_signals",
+            "merge_suggestion_candidates": self.blob_dir / "merge_suggestion_candidates",
+            "stale_truth_suggestion_candidates": (
+                self.blob_dir / "stale_truth_suggestion_candidates"
+            ),
         }
         for subdir in self._subdirs.values():
             subdir.mkdir(parents=True, exist_ok=True)
@@ -777,6 +785,165 @@ class LocalStructuredStore:
             await self._persist_truth_snapshot(target_collection, candidate.target_id, target_original)
             return None
         return await self.get_supersede_candidate(id)
+
+    # ---- MergeSuggestionCandidate ----
+
+    async def save_merge_suggestion_candidate(
+        self, candidate: MergeSuggestionCandidate
+    ) -> str:
+        blob_path = self._blob_path("merge_suggestion_candidates", candidate.id)
+        blob_path.write_text(json.dumps(candidate.to_dict(), indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.insert,
+            "merge_suggestion_candidates",
+            {
+                "id": candidate.id,
+                "project_name": candidate.project_name,
+                "target_a_id": candidate.target_a_id,
+                "target_a_kind": candidate.target_a_kind,
+                "target_b_id": candidate.target_b_id,
+                "target_b_kind": candidate.target_b_kind,
+                "similarity_score": candidate.similarity_score,
+                "status": candidate.status,
+                "metabolism_run_id": candidate.metabolism_run_id,
+                "created_at": candidate.created_at,
+            },
+        )
+        return candidate.id
+
+    async def get_merge_suggestion_candidate(
+        self, id: str
+    ) -> MergeSuggestionCandidate | None:
+        blob_path = self._blob_path("merge_suggestion_candidates", id)
+        if not blob_path.exists():
+            return None
+        data = json.loads(blob_path.read_text())
+        return MergeSuggestionCandidate.from_dict(data)
+
+    async def list_merge_suggestion_candidates(
+        self,
+        project_name: str,
+        status: str | None = None,
+    ) -> list[MergeSuggestionCandidate]:
+        where_parts = ["project_name = ?"]
+        params: list[str] = [project_name]
+        if status:
+            where_parts.append("status = ?")
+            params.append(status)
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "merge_suggestion_candidates",
+            " AND ".join(where_parts),
+            tuple(params),
+            order_by="created_at DESC",
+        )
+        results: list[MergeSuggestionCandidate] = []
+        for row in rows:
+            blob_path = self._blob_path("merge_suggestion_candidates", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(MergeSuggestionCandidate.from_dict(data))
+        return results
+
+    async def update_merge_suggestion_candidate_status(
+        self, id: str, status: str
+    ) -> bool:
+        blob_path = self._blob_path("merge_suggestion_candidates", id)
+        if not blob_path.exists():
+            return False
+
+        updated = await asyncio.to_thread(
+            self._index.update,
+            "merge_suggestion_candidates",
+            id,
+            {"status": status},
+        )
+        if not updated:
+            return False
+
+        data = json.loads(blob_path.read_text())
+        data["status"] = status
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        return True
+
+    # ---- StaleTruthSuggestionCandidate ----
+
+    async def save_stale_truth_suggestion_candidate(
+        self, candidate: StaleTruthSuggestionCandidate
+    ) -> str:
+        blob_path = self._blob_path("stale_truth_suggestion_candidates", candidate.id)
+        blob_path.write_text(json.dumps(candidate.to_dict(), indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.insert,
+            "stale_truth_suggestion_candidates",
+            {
+                "id": candidate.id,
+                "project_name": candidate.project_name,
+                "target_id": candidate.target_id,
+                "target_kind": candidate.target_kind,
+                "last_surfaced_at": candidate.last_surfaced_at,
+                "days_since_last_surface": candidate.days_since_last_surface,
+                "status": candidate.status,
+                "metabolism_run_id": candidate.metabolism_run_id,
+                "created_at": candidate.created_at,
+            },
+        )
+        return candidate.id
+
+    async def get_stale_truth_suggestion_candidate(
+        self, id: str
+    ) -> StaleTruthSuggestionCandidate | None:
+        blob_path = self._blob_path("stale_truth_suggestion_candidates", id)
+        if not blob_path.exists():
+            return None
+        data = json.loads(blob_path.read_text())
+        return StaleTruthSuggestionCandidate.from_dict(data)
+
+    async def list_stale_truth_suggestion_candidates(
+        self,
+        project_name: str,
+        status: str | None = None,
+    ) -> list[StaleTruthSuggestionCandidate]:
+        where_parts = ["project_name = ?"]
+        params: list[str] = [project_name]
+        if status:
+            where_parts.append("status = ?")
+            params.append(status)
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "stale_truth_suggestion_candidates",
+            " AND ".join(where_parts),
+            tuple(params),
+            order_by="created_at DESC",
+        )
+        results: list[StaleTruthSuggestionCandidate] = []
+        for row in rows:
+            blob_path = self._blob_path("stale_truth_suggestion_candidates", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(StaleTruthSuggestionCandidate.from_dict(data))
+        return results
+
+    async def update_stale_truth_suggestion_candidate_status(
+        self, id: str, status: str
+    ) -> bool:
+        blob_path = self._blob_path("stale_truth_suggestion_candidates", id)
+        if not blob_path.exists():
+            return False
+
+        updated = await asyncio.to_thread(
+            self._index.update,
+            "stale_truth_suggestion_candidates",
+            id,
+            {"status": status},
+        )
+        if not updated:
+            return False
+
+        data = json.loads(blob_path.read_text())
+        data["status"] = status
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        return True
 
     # ---- ProceduralCandidate ----
 

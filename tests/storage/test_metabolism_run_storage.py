@@ -75,6 +75,68 @@ def test_metabolism_run_from_dict_defends_against_missing_fields():
     assert rebuilt.notes is None
 
 
+def test_metabolism_run_from_dict_back_compat_old_and_new_output_counts():
+    """v2.3.1 task 5.4: ``output_counts`` must round-trip both shapes.
+
+    * v2.3.0 wrote ``{"suggestions": 0}`` (single-key form). ``from_dict``
+      must accept it untouched — no silent rewrite to per-type keys.
+    * v2.3.1 writes three explicit keys
+      (``merge_suggestions / stale_suggestions / supersede_suggestions``).
+      ``from_dict`` must round-trip the full dict.
+    * Records that drop one of the three new keys reload with
+      ``.get(key, 0)`` semantics — readers treat the absent key as 0
+      without ``from_dict`` inventing one (we don't want every old blob
+      to grow synthetic keys on read).
+    """
+    base = {
+        "id": "run-old-form",
+        "project_name": "demo",
+        "started_at": "2026-05-17T00:00:00+00:00",
+    }
+
+    # 1) Old preview shape from v2.3.0 round-trips verbatim.
+    old_form = MetabolismRun.from_dict({**base, "output_counts": {"suggestions": 0}})
+    assert old_form.output_counts == {"suggestions": 0}
+    # Legacy readers that look for the new keys see 0 via .get().
+    assert old_form.output_counts.get("merge_suggestions", 0) == 0
+    assert old_form.output_counts.get("stale_suggestions", 0) == 0
+    assert old_form.output_counts.get("supersede_suggestions", 0) == 0
+
+    # 2) New v2.3.1 shape with all three keys round-trips.
+    new_form = MetabolismRun.from_dict(
+        {
+            **base,
+            "id": "run-new-form",
+            "output_counts": {
+                "merge_suggestions": 2,
+                "stale_suggestions": 1,
+                "supersede_suggestions": 0,
+            },
+        }
+    )
+    assert new_form.output_counts == {
+        "merge_suggestions": 2,
+        "stale_suggestions": 1,
+        "supersede_suggestions": 0,
+    }
+    # Legacy ``"suggestions"`` key absent on new records.
+    assert "suggestions" not in new_form.output_counts
+
+    # 3) Partial new form (one of the three keys missing) — caller's
+    # ``.get(key, 0)`` reads it as 0, ``from_dict`` does not invent the
+    # missing key.
+    partial = MetabolismRun.from_dict(
+        {
+            **base,
+            "id": "run-partial-form",
+            "output_counts": {"merge_suggestions": 3},
+        }
+    )
+    assert partial.output_counts == {"merge_suggestions": 3}
+    assert partial.output_counts.get("stale_suggestions", 0) == 0
+    assert partial.output_counts.get("supersede_suggestions", 0) == 0
+
+
 def test_metabolism_run_storage_roundtrip(store: LocalStructuredStore):
     """save_* persists and list_* returns the same record."""
     record = MetabolismRun(

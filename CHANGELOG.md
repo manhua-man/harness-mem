@@ -8,6 +8,69 @@
 
 ---
 
+## [2.3.1] — 2026-05-27
+
+**主题：Metabolism Suggestion Pass — 从 replay window 生成可审核的代谢建议**
+
+v2.3.1 把 v2.3.0 的 signals / replay 地基升级为显式 suggestion pass。它仍然遵守 candidate-before-truth：系统可以提出 merge / stale 建议，但不能静默改 confirmed truth。
+
+### Added
+
+- **`MergeSuggestionCandidate` 与 `StaleTruthSuggestionCandidate`**：新增两类可审核代谢候选及对应 SQLite index / JSON blob 存储、读路径和测试。
+- **`metabolism_run` MCP tool**：写侧工具会运行 suggestion pass，持久化 `MetabolismRun(kind="metabolism")`，并保存 merge / stale / supersede 计数。`metabolism_preview` 保持只读。
+- **`select_metabolism_pass(...)`**：基于 replay window 生成 merge / stale / supersede 三路输出。v2.3.1 中 merge 只处理 `memory_entry`-`memory_entry`，stale 处理 current `memory_entry` / `confirmed_rule`，supersede proposer 明确 deferred。
+- **Content-based token trim**：`count_tokens()` 优先使用 `tiktoken` `cl100k_base`，不可用时降级到 char heuristic，再降级到 dimension weight，并把 fallback 写入 window notes。
+- **Weak-link signal influence**：`ProjectProfile.weak_link_signals` 默认关闭；开启后 wake 将 confirmed rules 分为 `Recent active` / `Stable / quiet`，search 对近 7 天重复命中 entry 增加小幅 boost。
+- **Doctor signal visibility**：`doctor` 输出 weak-link signal influence 状态和 enabled/disabled 诊断。
+- **Calibration notes**：`tests/metabolism/calibration.md` 记录 similarity、silence、repeat-boost 阈值 fixture 结果。
+
+### Changed
+
+- `read_api.search_memory` 在 `weak_link_signals=True` 时会基于近期 repeated `search_hit` signal 调整 memory entry 排序；关闭时保持 v2.2/v2.3.0 行为。
+- `wake` renderer 在 `weak_link_signals=True` 时对 confirmed rules 做 opt-in 分组；关闭时输出与旧行为保持一致。
+- `MetabolismRun.from_dict` 兼容旧 `{"suggestions": 0}` output_counts，也支持新三类 suggestion counters。
+- `AGENTS.md`、`README.md`、`tools/session-distill/SKILL.md` 和 roadmap 文档补充 metabolism_run、candidate types、weak-link opt-in 边界。
+
+### OpenSpec
+
+- 归档 `v231-metabolism-suggestion-pass`，更新 `openspec/specs/metabolism/spec.md`。
+
+### Test surface
+
+- 414 passed, 1 skipped。
+- mypy 0 errors / 82 source files。ruff clean。`openspec validate --all --strict` 全绿（22 items）。
+
+---
+
+## [2.3.0] — 2026-05-26
+
+**主题：Memory Metabolism Foundation — signals、replay window 与 preview-only run**
+
+v2.3.0 给 memory metabolism 铺地基：记录记忆如何被 wake/search/review/skill/supersede 消费，并提供只读 preview window。它不生成 suggestion、不改 truth、不改变默认 wake/search/distill 输出。
+
+### Added
+
+- **`RetrievalSignal` schema 与存储**：记录 `confirmed`、`rejected`、`wake_surfaced`、`search_hit`、`skill_result_success`、`skill_result_failure`、`supersede_completed` 等信号。
+- **`MetabolismRun` schema 与存储**：记录 preview/metabolism run 的 project、input window、selected signals、output counts、duration、status 和 notes。
+- **`record_retrieval_signal(...)` shadow write helper**：signal 写入失败只记录日志，不影响主调用。
+- **Replay window selector**：从 recent observations、stale pending candidates、historical truth、low-success skills、repeat search hits 中按预算选取 preview window。
+- **`metabolism_preview` MCP tool**：显式返回 replay window 摘要和入选理由，并写 `MetabolismRun(kind="preview", status="preview")`。
+
+### Changed
+
+- wake/search/auto-review/skill-result/supersede 路径增加 signal shadow write；用户可见输出不变。
+- `tools/session-distill/SKILL.md`、`AGENTS.md` 和 roadmap 文档明确 v2.3.0 只有 preview，没有用户可见新入口。
+
+### OpenSpec
+
+- 归档 `v230-signals-and-replay-windows`，新增 `openspec/specs/metabolism/spec.md`。
+
+### Test surface
+
+- pytest / ruff / mypy / OpenSpec release gate 在 v2.3.0 收口时通过。
+
+---
+
 ## [2.2.0] — 2026-05-25
 
 **主题：AI IDE 入口闭环 — 锁住 Slash / Skill / 自然语言 golden path，让 auto-review 真正"自动"**

@@ -39,6 +39,8 @@ alwaysApply: true
 - **消费边界**：`search_memory` / `wake` 默认只消费已确认记忆；pending 候选用于审核，不应污染唤醒上下文。
 - **后台 signal 层（v2.3.0）**：现有 `wake` / `search_memory` / `auto_review_candidates` apply 分支 / `record_skill_result` / `confirm_supersede` 调用会**额外**写入 `RetrievalSignal` 影子记录（`wake_surfaced` / `search_hit` / `confirmed` / `rejected` / `skill_result_success` / `skill_result_failure` / `supersede_completed`），描述记忆是怎么被消费的。Agent 不需要主动读这些信号，它们只是 metabolism 层的证据来源；写失败会日志告警但不影响主调用，也不改 truth。
 - **代谢预览工具 `metabolism_preview`（v2.3.0）**：新增 MCP 工具，一次调用返回一份 replay 窗口（recent observations / stale pending / 最近变历史的 truth / 低成功率 skills / 重复 search hit），并写一条 `MetabolismRun(kind="preview", status="preview")` 作为审计；**不动 truth、不改 `usage_count` / `last_accessed_at`、不生成建议、不开 daemon**。仅在用户明确要求看下一次 metabolism 会盯哪些证据时调用，日常 wake / search / distill 主链路不变。
+- **代谢执行工具 `metabolism_run`（v2.3.1）**：`metabolism_preview` 的写侧兄弟。跑 suggestion pass 并持久化三类候选：`MergeSuggestionCandidate`（高相似度 entry 合并建议）、`StaleTruthSuggestionCandidate`（长期未被 surface 的 truth 过期建议）、`SupersedeCandidate`（复用 v1.7.1 schema，v2.3.1 算法暂为 stub）。写 `MetabolismRun(kind="metabolism", status="completed")`。仍由 Agent 显式触发，无后台 daemon。
+- **Weak-link signal 排序影响（v2.3.1）**：当 `ProjectProfile.weak_link_signals` 为 `True` 时，`wake` 将 confirmed rules 按近 30 天 signal 活跃度分为 `Recent active` / `Stable / quiet` 两组；`search_memory` 对近 7 天内重复命中 ≥2 次的 entry 加 0.1 boost。默认关闭（opt-in），可通过 `update_project_profile(weak_link_signals=True)` 开启。关闭时 wake / search 输出与 v2.2 完全一致。
 
 ### 3. 自动审核与人类复核（Auto-review + Human Final Review）
 - 未确认记忆保持候选状态。Agent 创建候选后，应通过 MCP `list_candidates` 自行读取候选，并直接调用 `confirm_*` / `reject_*` 处理低风险项：明确长期事实可确认，工具噪声、跨项目 workflow、泛泛原则、证据不足项可拒绝。

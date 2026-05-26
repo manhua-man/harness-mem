@@ -1,9 +1,8 @@
 # Roadmap: harness-mem v2.3
 
-> 状态：进行中。当前 active OpenSpec change 是
-> `openspec/changes/v230-signals-and-replay-windows/`。
+> 状态：**已完成**。v2.3.0 (Signals & Replay Windows) + v2.3.1 (Metabolism Suggestion Pass) 均已落地。
 >
-> 主题：Signals / Replay 地基。先让系统记录“记忆如何被使用”，再决定后续怎么整理。
+> 主题：Signals / Replay 地基 → Suggestion 生成 → 弱链接信号应用。
 
 ---
 
@@ -40,7 +39,7 @@ v2.3 只铺底层信号和 replay window，不做用户可见的新入口，也�
 
 ---
 
-## v2.3.0：Signals and Replay Windows
+## v2.3.0：Signals and Replay Windows ✅
 
 **用户故事**：系统能解释“为什么这批旧记忆值得回看”，而不是黑箱扫全库。
 
@@ -75,6 +74,27 @@ v2.3 只铺底层信号和 replay window，不做用户可见的新入口，也�
 - `python -m mypy harness_mem`
 - `openspec validate --all --strict`
 - `tests/loop_harness/` 仍通过，证明 signal shadow write 不破坏 v2.2 closed loop
+
+---
+
+## v2.3.1：Metabolism Suggestion Pass ✅
+
+> OpenSpec: `openspec/changes/v231-metabolism-suggestion-pass/`
+> 状态：已完成 (2026-05-27)
+
+**用户故事**：系统能基于 replay window 自动产出可审核的代谢建议候选（合并 / 标 stale / supersede），同时让信号反向影响 wake/search 排序。
+
+| 领域 | 交付物 |
+|---|---|
+| Suggestion schemas | `MergeSuggestionCandidate` + `StaleTruthSuggestionCandidate`（存储 + Protocol 读路径） |
+| Suggestion pass | `select_metabolism_pass()` — 三路 proposer（merge entry-entry 0.85 阈值 / stale 60d 静默 / supersede deferred） |
+| Token trim | `count_tokens()` tiktoken cl100k_base → char-heuristic → dim-weight 三级降级；`select_replay_window` 内容级估算 |
+| Weak-link signals | `pull_recent_signals()` + wake 分组（Recent active / Stable quiet）+ search boost +0.1 + doctor 输出；`ProjectProfile.weak_link_signals` 开关（默认 off，v2.2-identical） |
+| MCP tool | `metabolism_run`（写侧）— 持久化 `MetabolismRun(kind="metabolism")` + 候选；`metabolism_preview` 保持只读 |
+| Back-compat | `MetabolismRun.from_dict` 兼容旧 `{"suggestions": 0}` 和新三键形态 |
+| Calibration | `tests/metabolism/calibration.md` 归档阈值验证结果 |
+
+**验证结果**：pytest 414 passed · mypy clean · ruff clean · openspec 22/22 · loop_harness 28 passed
 
 ---
 

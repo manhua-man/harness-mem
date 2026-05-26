@@ -21,7 +21,6 @@ import asyncio
 import json
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
 from harness_mem.commands.replay_window import ReplayBudget, select_replay_window
 from harness_mem.commands.support import DEFAULT_DATA_DIR

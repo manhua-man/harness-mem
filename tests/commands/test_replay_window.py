@@ -3,6 +3,12 @@
 Task 3.1 only ships the time-range + empty-dimension contract. The
 per-dimension querying lives in 3.2 and gets a fuller test matrix in
 3.4 / 3.5. This file just locks in the empty-window invariant.
+
+v2.3.1 task 3.2 swapped the soft-cap estimate from per-id constants
+to content-based ``count_tokens``. Tests that previously pinned exact
+token totals (derived from ``_TOKENS_PER_*``) now assert on shape and
+trim ordering instead — the math is no longer a constant of the
+fixture, it depends on the actual content tokenized.
 """
 
 from __future__ import annotations
@@ -15,11 +21,6 @@ from harness_mem.commands.replay_window import (
     ReplayBudget,
     ReplayDimension,
     ReplayWindow,
-    _TOKENS_PER_HISTORICAL,
-    _TOKENS_PER_LOW_SUCCESS_SKILL,
-    _TOKENS_PER_OBSERVATION,
-    _TOKENS_PER_PENDING,
-    _TOKENS_PER_REPEAT_HIT,
     select_replay_window,
 )
 from harness_mem.core.schemas import (
@@ -177,19 +178,19 @@ async def test_select_replay_window_one_per_dimension(
 
     assert len(window.signal_ids) == 3
     # No hard-cap notes should fire (each dimension has 1 row); only the
-    # always-on `soft_token_budget` audit note. Estimate:
-    # 1*400 (obs) + 1*350 (pending) + 1*300 (historical) + 1*120 (skill)
-    # + 1*40 (repeat) = 1210.
-    expected_estimate = (
-        _TOKENS_PER_OBSERVATION
-        + _TOKENS_PER_PENDING
-        + _TOKENS_PER_HISTORICAL
-        + _TOKENS_PER_LOW_SUCCESS_SKILL
-        + _TOKENS_PER_REPEAT_HIT
-    )
-    assert window.notes == [
-        f"soft_token_budget: {expected_estimate}/{ReplayBudget().max_total_tokens}"
-    ]
+    # always-on `soft_token_budget` audit note. v2.3.1 task 3.2 made the
+    # estimate content-based, so we no longer pin exact token totals —
+    # the tiktoken count varies with the actual fixture text. Assert
+    # only the note's shape and that it is the sole note (no trim, no
+    # truncation, no tokenizer fallback when tiktoken is available).
+    assert len(window.notes) == 1, window.notes
+    soft_note = window.notes[0]
+    assert soft_note.startswith("soft_token_budget: ")
+    assert soft_note.endswith(f"/{ReplayBudget().max_total_tokens}")
+    estimate_str = soft_note.removeprefix("soft_token_budget: ").split("/")[0]
+    estimate_value = int(estimate_str)
+    assert estimate_value > 0
+    assert estimate_value <= ReplayBudget().max_total_tokens
 
 
 @pytest.mark.anyio
@@ -344,24 +345,29 @@ async def test_soft_token_cap_trims_in_priority_order(
             )
             await structured_store.save_retrieval_signal(signal)
 
-    # Pre-trim estimate:
-    # 3*400 + 2*350 + 2*300 + 2*120 + 4*40 = 1200+700+600+240+160 = 2900.
-    budget = ReplayBudget(max_total_tokens=1000)
+    # v2.3.1 task 3.2: estimate is content-based, not per-id constant,
+    # so the exact 800/1000 arithmetic from v2.3.0 no longer holds.
+    # We still want to verify the trim cascade: cheap-signals-first,
+    # observations-last. Set a tiny budget so trim definitely fires
+    # all the way through and most dims drain; then assert on shape
+    # and trim order rather than on the exact estimate value.
+    budget = ReplayBudget(max_total_tokens=1)
     window = await select_replay_window(
         backend, project_name=project_name, budget=budget
     )
 
-    # Expected trim walk (target = 1000):
-    #   repeats 160 -> 0 (estimate 2740)
-    #   skills  240 -> 0 (estimate 2500)
-    #   historicals 600 -> 0 (estimate 1900)
-    #   pending 700 -> 0 (estimate 1200)
-    #   observations: pop 1 -> estimate 800. STOP.
-    assert len(window.dimensions["observations"].selected_ids) == 2
-    assert window.dimensions["pending_candidates"].selected_ids == []
-    assert window.dimensions["historical_truths"].selected_ids == []
-    assert window.dimensions["low_success_skills"].selected_ids == []
+    # Trim walks _TRIM_ORDER draining cheaper dims to empty before
+    # touching observations. With max_total_tokens=1 every cheaper
+    # dim ends up empty.
     assert window.dimensions["repeat_search_hits"].selected_ids == []
+    assert window.dimensions["low_success_skills"].selected_ids == []
+    assert window.dimensions["historical_truths"].selected_ids == []
+    assert window.dimensions["pending_candidates"].selected_ids == []
+    # Observations are the last dim in _TRIM_ORDER. Some — possibly
+    # all — get popped depending on per-id token counts; the contract
+    # is "trim from the tail until budget is met, but never go below
+    # zero ids" (the loop stops at empty).
+    assert len(window.dimensions["observations"].selected_ids) <= len(observation_ids)
 
     # All repeats trimmed -> all supporting signal ids dropped.
     assert window.signal_ids == []
@@ -371,7 +377,17 @@ async def test_soft_token_cap_trims_in_priority_order(
         "repeat_search_hits,low_success_skills,historical_truths,"
         "pending_candidates,observations"
     ) in window.notes
-    assert "soft_token_budget: 800/1000" in window.notes
+    # Soft-budget audit note carries an exact post-trim integer; we
+    # don't pin the exact number anymore (content-based) but verify
+    # the format and that the value is non-negative.
+    soft_note = next(
+        note for note in window.notes if note.startswith("soft_token_budget: ")
+    )
+    assert soft_note.endswith("/1")
+    estimate_value = int(
+        soft_note.removeprefix("soft_token_budget: ").split("/")[0]
+    )
+    assert estimate_value >= 0
 
 
 @pytest.mark.anyio
@@ -398,7 +414,17 @@ async def test_soft_token_cap_no_trim_when_under_budget(
     )
 
     assert not any(note.startswith("trimmed_for_token_budget") for note in window.notes)
-    assert "soft_token_budget: 400/16000" in window.notes
+    # v2.3.1 task 3.2: estimate is content-based, so we don't pin a
+    # specific token count. Just verify the audit note shape and that
+    # the estimate fits the budget.
+    soft_note = next(
+        note for note in window.notes if note.startswith("soft_token_budget: ")
+    )
+    assert soft_note.endswith(f"/{ReplayBudget().max_total_tokens}")
+    estimate_value = int(
+        soft_note.removeprefix("soft_token_budget: ").split("/")[0]
+    )
+    assert 0 < estimate_value <= ReplayBudget().max_total_tokens
 
 
 # ---------------------------------------------------------------------------
@@ -628,10 +654,13 @@ async def test_select_replay_window_realistic_mixed_counts(
 ) -> None:
     """Integration: realistic counts trigger soft trim but no hard cap.
 
-    Pre-trim estimate: 50*400 + 30*350 + 20*300 + 10*120 + 8*40 = 38020.
-    Soft cap (default 16000) walks _TRIM_ORDER tails:
-        repeats (320) -> skills (1200) -> historicals (6000) ->
-        pendings (10500) -> observations (pop 10) -> 16000.
+    v2.3.1 task 3.2: estimate is now content-based, so the v2.3.0
+    arithmetic (50*400 + 30*350 + ... = 38020) no longer holds. The
+    test still locks in the cross-dim trim contract: cheaper signals
+    drain first, observations last; total_seen is preserved through
+    the soft-cap walk; no hard-cap note fires when dim caps are
+    generous. We use a small ``max_total_tokens`` to force the trim
+    cascade regardless of how the actual content tokenizes.
     """
     project_name = "replay-3-4-integration"
     now = datetime.now(timezone.utc)
@@ -772,8 +801,14 @@ async def test_select_replay_window_realistic_mixed_counts(
                 )
             )
 
+    # Force trim cascade with a small budget — content-based token
+    # totals depend on actual fixture text, so we don't rely on the
+    # default 16000 budget triggering a specific arithmetic outcome.
+    target = 100
     window = await select_replay_window(
-        backend, project_name=project_name, budget=ReplayBudget()
+        backend,
+        project_name=project_name,
+        budget=ReplayBudget(max_total_tokens=target),
     )
 
     # Sanity: selector saw the full pool — total_seen is preserved across
@@ -784,32 +819,12 @@ async def test_select_replay_window_realistic_mixed_counts(
     assert window.dimensions["low_success_skills"].total_seen == 10
     assert window.dimensions["repeat_search_hits"].total_seen == 8
 
-    # Derive expected post-trim observation count from the module
-    # constants so this stays robust to weight tweaks.
-    pre_trim_estimate = (
-        50 * _TOKENS_PER_OBSERVATION
-        + 30 * _TOKENS_PER_PENDING
-        + 20 * _TOKENS_PER_HISTORICAL
-        + 10 * _TOKENS_PER_LOW_SUCCESS_SKILL
-        + 8 * _TOKENS_PER_REPEAT_HIT
-    )
-    assert pre_trim_estimate == 38020
-    cheaper_dims_drained = (
-        8 * _TOKENS_PER_REPEAT_HIT
-        + 10 * _TOKENS_PER_LOW_SUCCESS_SKILL
-        + 20 * _TOKENS_PER_HISTORICAL
-        + 30 * _TOKENS_PER_PENDING
-    )
-    remaining_after_drain = pre_trim_estimate - cheaper_dims_drained
-    target = ReplayBudget().max_total_tokens
-    obs_to_pop = (remaining_after_drain - target) // _TOKENS_PER_OBSERVATION
-    expected_obs_kept = 50 - obs_to_pop
-    assert expected_obs_kept == 40
-
-    # Soft cap drains all four cheaper dims, then chops 10 observations.
+    # Soft cap drains all four cheaper dims; observations may keep some
+    # ids depending on per-id content tokens (the loop stops once the
+    # estimate fits the budget).
     obs_dim = window.dimensions["observations"]
-    assert len(obs_dim.selected_ids) == expected_obs_kept
     assert obs_dim.truncated is True
+    assert len(obs_dim.selected_ids) <= 50
     for cheaper in (
         "pending_candidates",
         "historical_truths",
@@ -823,15 +838,87 @@ async def test_select_replay_window_realistic_mixed_counts(
     # All repeat targets dropped -> all supporting signal ids dropped.
     assert window.signal_ids == []
 
-    # Notes: the trim chain ran top-to-bottom; soft budget hit exactly.
+    # Notes: the trim chain ran top-to-bottom across all five dims.
     assert (
         "trimmed_for_token_budget: "
         "repeat_search_hits,low_success_skills,historical_truths,"
         "pending_candidates,observations"
     ) in window.notes
-    assert f"soft_token_budget: {target}/{target}" in window.notes
+    soft_note = next(
+        note for note in window.notes if note.startswith("soft_token_budget: ")
+    )
+    assert soft_note.endswith(f"/{target}")
 
     # No hard cap hit anywhere — all dim caps are well above the seeded
     # pool; every "truncated" flag here came from the soft-cap walk.
     for note in window.notes:
         assert not note.startswith("truncated_within_"), note
+
+
+# ---------------------------------------------------------------------------
+# Task 3.4 — third-tier dim-weight fallback (selector-level)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_dim_weight_fallback_when_content_fetch_returns_none(
+    backend: LocalMemoryBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Per-id token cost falls back to ``_DIM_TOKEN_WEIGHT[dim]`` on fetch miss.
+
+    Validates the third leg of the token-estimate fallback chain:
+    tiktoken → char-heuristic (both inside ``count_tokens``) →
+    dim-weight constant (selector-side). When ``_fetch_content_for_id``
+    returns ``None`` for every selected id (deleted blob, mid-flight
+    schema change, or any other resolution failure), the soft-cap
+    estimate must still be sensible — it falls back to the per-dim
+    constant from ``_DIM_TOKEN_WEIGHT``.
+    """
+    from harness_mem.commands import replay_window
+
+    project_name = "v231-3-4-fallback"
+    now = datetime.now(timezone.utc)
+
+    # Seed exactly one observation so the observations dim has a
+    # selected id; we then force its content fetch to fail.
+    observation = Observation(
+        session_id="sess-fallback",
+        client="claude-code",
+        raw_content="One observation seed for dim-weight fallback.",
+        content_type="transcript",
+        timestamp=now - timedelta(hours=1),
+        metadata={"project_name": project_name},
+    )
+    await backend.verbatim_store.save(observation)
+
+    async def fake_fetch(
+        *_args: object, **_kwargs: object
+    ) -> str | None:
+        return None
+
+    monkeypatch.setattr(replay_window, "_fetch_content_for_id", fake_fetch)
+
+    window = await select_replay_window(
+        backend, project_name=project_name, budget=ReplayBudget()
+    )
+
+    # Sanity: only the observations dim has a selected id (one).
+    assert window.dimensions["observations"].selected_ids == [observation.id]
+
+    soft_note = next(
+        note for note in window.notes if note.startswith("soft_token_budget: ")
+    )
+    estimate_value = int(
+        soft_note.removeprefix("soft_token_budget: ").split("/")[0]
+    )
+
+    # With one id in observations and content fetch returning None for
+    # every dim, the estimate equals exactly the per-dim weight for
+    # observations (400). No tokenizer fallback note fires because
+    # ``count_tokens`` was never called (count_tokens_calls == 0).
+    expected = replay_window._DIM_TOKEN_WEIGHT["observations"]
+    assert estimate_value == expected
+    assert not any(
+        note.startswith("tokenizer_fallback") for note in window.notes
+    )
