@@ -160,7 +160,7 @@ Cursor 不需要单独的 `.cursor/commands` 模板。两条接入路径，二�
 ### S6 Empty evidence packet
 
 - **Intent**：项目下没有可用 session 时，不发明候选。
-- **Pre-condition**：选一个从未有过 Claude/Codex session 的项目目录（或临时改 session 路径让 packet 为空）。
+- **Pre-condition**：选一个从未有过可识别 agent session 的项目目录（或临时改 session 路径让 packet 为空）。
 - **Per-client input**：各客户端发起 distill。
 - **Expected**：参见 spec _Failure states are explicit / Evidence packet is empty_。报"no recent session evidence for `<project>`"，建议检查 session 源路径或跑 `harness-mem doctor`；**不调** `suggest_*`。
 - **Pass criterion**：摘要里出现 "no recent session evidence"；候选总数为 0；摘要不出现"已 distilled" / "已生成 N 条"等可能让用户误以为有内容的措辞。

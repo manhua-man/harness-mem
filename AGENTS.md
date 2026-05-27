@@ -14,10 +14,10 @@ alwaysApply: true
 | :--- | :--- |
 | **AI（操作者 / 提炼）** | 用 `tools/session-distill` 这类 **Skill** 批量读取旧 Session，做高质量提炼。 |
 | **候选写入能力** | 在 `/hm:distill`、`session-distill` 或用户明确要求记录时，用 **MCP** `suggest_rule` / `suggest_memory_entry` / `suggest_relation_fact` 写候选。 |
-| **人（复核者）** | 日常只看 `/hm:distill` 的最终处理摘要并纠错；不负责逐条判断候选。 |
+| **人（复核者）** | 日常只看 `/hm:distill` 的最终处理摘要并纠错；需要维护时也通过 `/hm:mark`、`/hm:prune`、`/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry` 这类 Slash 入口触发。 |
 | **AI（消费者）** | 用 **MCP** `search_memory` / `wake` 读取已确认记忆。 |
 
-关键原则：**用户看到 Slash / command / Skill；Agent 背后调 MCP；CLI 只做安装、自检、排障和维护。** AI 提炼或显式记录的内容应先进入候选区；`/hm:distill` 同一轮应由 AI 自动确认低风险事实、拒绝噪声，把高风险或证据不足项留给人类最终复核。只有 confirmed 记忆会进入 `search_memory` / `wake` 可消费的稳定层。
+关键原则：**用户看到 Slash / command / Skill；Agent 背后调 MCP 或 repo-local 实现层；CLI 只做安装、自检、排障和维护实现，不作为产品入口叙事。** AI 提炼或显式记录的内容应先进入候选区；`/hm:distill` 同一轮应由 AI 自动确认低风险事实、拒绝噪声，把高风险或证据不足项留给人类最终复核。只有 confirmed 记忆会进入 `search_memory` / `wake` 可消费的稳定层。
 
 当前实现没有后台 daemon、IDE hook 或 turn-end 自检来让 Agent 在普通编码任务中自动“随手记”。`suggest_*` 是显式 agent 流程中的候选写入接口，不代表 autonomous learning 已经存在。
 
@@ -28,7 +28,7 @@ alwaysApply: true
 ### 1. 记忆提炼（Distillation）
 - **触发逻辑**：当一个开发阶段结束，或有大量原始 Session / Observations 累积时，应启动 `tools/session-distill` 这类专职 Skill，而不是让日常编码 Agent 临时兼职长程提炼。
 - **AI 任务**：专职操作者应完整阅读原始日志，判断哪些是真正影响后续开发的技术决策、协作规则、任务状态和 rationale，而不是死板匹配关键词。
-- **提炼边界**：长程提炼主路径是 `session-distill -> packet-memory-export -> memory-drafts review -> candidate layer`。Skill 负责理解和筛选，`harness-mem` 负责结构化落盘与后续消费。
+- **提炼边界**：用户日常只有一条主路径：`/hm:distill` / 自然语言等价入口背后的 MCP 闭环。Agent 调 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根>)`，由 runtime 自动识别 Codex / Claude Code / Cursor / Antigravity / opencode / Hermes / generic agent 来源并返回 evidence packet，然后走 `session-distill -> suggest_* -> list_candidates -> auto_review_candidates/confirm/reject -> final summary`。任何来源最终都必须接到 candidate layer，而不是绕过候选审核。
 - **落盘方式**：提炼结果应先进入候选区，例如 `RuleCandidate`、pending `MemoryEntry` 或 pending `RelationFact`。只有经过 `confirm` 后，才能成为稳定结构化记忆。
 
 ### 2. 运行时读写（Runtime Access）
@@ -49,8 +49,8 @@ alwaysApply: true
 
 ### 4. Distill 的边界（v2.0）
 - distill **只接受 LLM agent**。v2.0 删除了 `harness-mem distill` CLI 子命令、MCP `distill_sessions` 工具，以及 `adapters/parser.py` 里的 heuristic 正则提取。
-- 任意 LLM agent（Claude Code skill、Codex agent、Cursor、Gemini、自定义）可以通过 MCP `prepare_session_distill` 拿 evidence packet，然后调 `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` 写候选。
-- `tools/session-distill/SKILL.md` 是 Claude Code 的参考实现；其它 client 可以照样写自己的 prompt + MCP 调用。
+- 任意 LLM agent（Codex、Claude Code、Cursor、Antigravity、opencode、Hermes、Gemini、自定义 agent）可以通过 MCP `prepare_session_distill(client="auto")` 拿 evidence packet，然后调 `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` 写候选。
+- `tools/session-distill/SKILL.md` 是参考实现；其它 client 可以照样写自己的 prompt + MCP 调用。
 - 没有 LLM agent 可用时，distill 路径就是 unavailable——这是有意设计，不是缺失。低质量正则伪装成 AI 提炼是 v2.0 砍掉它的原因。
 
 ---
@@ -76,11 +76,11 @@ alwaysApply: true
 
 用户日常入口优先 AI IDE 内的 Slash / command / Skill / 自然语言指令；MCP 是 Agent 背后的传输层，CLI 只作为本地排障兜底。不要把一串 `harness-mem ...` 命令当成普通用户工作流丢给 AI IDE 用户。
 
-- Claude Code：使用 `/hm:status`、`/hm:distill <project> 10`、`/hm:wake`、`/hm:search "auth logic"`。
-- Cursor / 其它 AI IDE：不要引导用户去终端敲 CLI，也不要把 MCP tool names 当成用户入口；直接让 Agent 复用现有 Claude/Codex command 说明，例如“用 harness-mem 唤醒当前项目”或“用 harness-mem 整理最近 10 个 session 并自动审核候选”。
+- Claude Code：使用 `/hm:status`、`/hm:distill <project> 10`、`/hm:wake`、`/hm:search "auth logic"`；维护入口使用 `/hm:mark`、`/hm:prune`、`/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry`。
+- Cursor / Antigravity / opencode / Hermes / 其它 AI IDE：不要引导用户去终端敲 CLI，也不要把 MCP tool names 当成用户入口；直接让 Agent 复用现有 command 说明，例如“用 harness-mem 唤醒当前项目”“用 harness-mem 整理最近 10 个 session 并自动审核候选”“复查这个 knowledge 条目是否还成立”。
 - 终端 CLI：只在安装、自检、MCP 不可用、显式 cleanup 或开发者排障时使用。
 
-`/hm:distill` 的实质是让 Agent 走 MCP：`prepare_session_distill -> suggest_* -> list_candidates -> auto_review_candidates/confirm/reject`。本文件不列日常 CLI 菜单；需要安装、自检或本地排障时再查 CLI `--help`。
+`/hm:distill` 的实质是让 Agent 走 MCP：`prepare_session_distill -> suggest_* -> list_candidates -> auto_review_candidates/confirm/reject`。`/hm:mark` / `/hm:prune` / `/hm:review-kb` / `/hm:prune-kb` / `/hm:verify-entry` 是同级 Slash 维护入口；它们可以调用 repo-local 脚本作为实现层，但不要把底层 CLI 菜单当成用户工作流。
 
 ## Key Technologies
 

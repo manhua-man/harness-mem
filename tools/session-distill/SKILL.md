@@ -2,7 +2,7 @@
 name: session-distill
 version: 1.6.0
 description: |
-  Harness-mem 项目的主动会话蒸馏技能。用于把当前项目相关的 Claude/Codex 会话整理成可审核的候选记忆。
+  Harness-mem 项目的主动会话蒸馏技能。用于把当前项目相关的 Codex / Claude Code / Cursor / Antigravity / opencode / Hermes / generic agent 会话整理成可审核的候选记忆。
   当用户主动要求蒸馏会话、整理记忆、提炼经验、固化项目规则或生成任务交接时使用（无论触发方式是 slash 命令、自然语言请求还是其他客户端入口）。
 allowed-tools:
   - Bash
@@ -36,9 +36,12 @@ allowed-tools:
 
 ## 主链
 
+用户只有一条默认主链：`/hm:distill` / 自然语言等价入口。Agent 不要求用户区分 Codex、Claude Code、Cursor、Antigravity、opencode、Hermes 或 generic agent 历史；入口统一调 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根>)`，由 runtime 自动识别可用来源并返回 evidence packet。
+
 ```text
 Raw Sessions
-  -> MCP ingest_sessions(project scoped)
+  -> MCP prepare_session_distill(client="auto", project scoped)
+  -> runtime auto-detects client/source
   -> Observation Store
   -> session-distill Skill reads evidence
   -> MCP suggest_memory_entry / suggest_rule / suggest_relation_fact / create_task_handoff
@@ -127,6 +130,29 @@ Raw Sessions
 | `answer-me` | 候选缺证据，需要补代码、配置或历史上下文。 |
 | `mem-distill` | 用户要整理已有 memory / observations，而不是原始 session。 |
 
+## `/hm:*` 管理入口
+
+这些是用户可见的 Slash / command 入口，不是要求用户手敲 CLI。CLI 只作为 repo-local 实现层和测试入口存在。
+
+| 入口 | 目的 |
+|------|------|
+| `/hm:mark <session-id> distilled [--keep-raw]` | 通过 guardrail 后把单个 session 落为 `distilled`。 |
+| `/hm:prune --statuses distilled,skipped --source-missing` | 清理 raw 已不存在、只剩 manifest 占位的已处理记录。 |
+| `/hm:review-kb --next 20` | 巡检 `knowledge-base.md`，输出 stable / needs-review / stale / superseded。 |
+| `/hm:prune-kb --statuses stale,superseded` | 先备份，再清理过期或被替代的 knowledge 条目。 |
+| `/hm:verify-entry <session-id|keyword>` | 定向复查命中条目，并输出 grill-style 复查问题。 |
+
+`/hm:mark` 的 `distilled` 收口必须检查：
+
+- `distilled/sessions/<session-id>.md` 存在。
+- session note 至少包含 `Source`、`Raw Review`、`Summary`、`Verification From Session`、`Promotion Decision`。
+- partial packet 的 `Raw Review` 明确写 `Raw transcript reviewed: yes`。
+- `Promotion Decision` 明确写 `Promote:` 或 `No Promotion:`，不能还有 pending/TODO。
+- `memory-drafts/<session-id>.json` 不能还有 pending 条目。
+- 同源 `knowledge-base.md` 条目不能处于 `needs-review` / `stale` / `superseded`。
+
+raw transcript 删除只由 `/hm:mark ... distilled` 的实现层在安全白名单内执行；`--keep-raw` 会保留 raw。raw 删除后 manifest 仍保留 `distilled/skipped` 状态和 `source_missing` / `raw_deleted_at`，避免重新进入待处理队列。
+
 ## Memory Metabolism preview (v2.3.0)
 
 > 详细行为见 `openspec/changes/v230-signals-and-replay-windows/design.md`，归档后位于 `openspec/specs/memory-metabolism/spec.md`。
@@ -141,10 +167,11 @@ v2.3.0 给后续 metabolism 流程铺地基，但**不**改本 skill 的主链�
 ## 不做的事
 
 - 不要求普通用户手动跑 `harness-mem ingest` 或 `harness-mem distill`。
-- 不默认把用户级全局 Codex archive 灌进当前项目。
+- 不默认把用户级全局 agent 历史灌进当前项目。
 - 不把 "no patterns found" 当成最终高质量蒸馏结论；那只说明 fallback 没抽到明显模式。
 - 不把逐条分类工作交给用户；AI 必须自动审核 pending 候选，低风险项直接处理，高风险项才留给用户最终确认。
 - 不把 `grill-me` / `answer-me` / `mem-distill` 合并进主链，除非用户明确要求。
+- 不把 `session-distill.py` 命令列表当成用户产品面；用户入口是 `/hm:*` 或自然语言等价命令。
 
 ## 兜底策略
 

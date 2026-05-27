@@ -1,69 +1,128 @@
 #!/usr/bin/env python3
+"""Session Distiller maintenance CLI.
+
+This CLI is the scriptable implementation layer for the `/hm:*` slash commands.
+The user-facing product path remains Slash/MCP/Skill; this file keeps local
+maintenance deterministic and testable.
 """
-Claude Code Session Distiller - Python implementation
-"""
+
+from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
+import shutil
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, Optional
 
-# Allow importing vendored parser from lib/parser.py
-# This works both in development (running from repo) and in production
-# (skill installed at ~/.claude/skills/session-distill/).
+# Allow importing vendored parser from lib/parser.py.
 _SKILL_ROOT = Path(__file__).resolve().parent.parent
 _LIB_DIR = _SKILL_ROOT / "lib"
 if _LIB_DIR.exists():
     sys.path.insert(0, str(_SKILL_ROOT))
 
-from lib.parser import (  # noqa: E402  # isort:skip
+from lib.parser import (  # type: ignore[import-untyped]  # noqa: E402  # isort:skip
     list_session_files,
     parse_claude_jsonl_session,
 )
 
+
+def _default_distill_dir() -> Path:
+    env_dir = os.environ.get("SESSION_DISTILL_DIR")
+    if env_dir:
+        return Path(env_dir).expanduser()
+    return Path.home() / ".codex" / "session-distill"
+
+
 # Configuration
-DISTILL_DIR = Path.home() / ".claude" / "session-distill"
+DISTILL_DIR = _default_distill_dir()
 MANIFEST_FILE = DISTILL_DIR / "manifest.json"
 KNOWLEDGE_FILE = DISTILL_DIR / "knowledge-base.md"
 PACKETS_DIR = DISTILL_DIR / "packets"
 DISTILLED_DIR = DISTILL_DIR / "distilled" / "sessions"
-PROJECTS_DIR = Path.home() / ".claude" / "projects"
+MEMORY_DRAFTS_DIR = DISTILL_DIR / "memory-drafts"
+KB_BACKUPS_DIR = DISTILL_DIR / "backups" / "knowledge-base"
+KB_REVIEW_STATE_FILE = DISTILL_DIR / "kb-review-state.json"
+PRUNED_SOURCES_FILE = DISTILL_DIR / "pruned-sources.jsonl"
+
+PROJECTS_DIR = Path(os.environ.get("SESSION_DISTILL_PROJECTS_DIR", Path.home() / ".claude" / "projects"))
+
 # PRD sync configuration
-PRD_DISTILLED_DIR = Path.home() / ".claude" / "session-distill" / "prd-distilled"
-PRD_DECISION_LOG = Path.home() / ".claude" / "session-distill" / "prd-decision-log-candidate.md"
+PRD_DISTILLED_DIR = DISTILL_DIR / "prd-distilled"
+PRD_DECISION_LOG = DISTILL_DIR / "prd-decision-log-candidate.md"
+
 DEFAULT_RUN_NEXT = 3
 DEFAULT_LIST_MIN_SIZE_KB = 100
+REQUIRED_NOTE_SECTIONS = (
+    "Source",
+    "Raw Review",
+    "Summary",
+    "Verification From Session",
+    "Promotion Decision",
+)
+CODEX_RAW_ROOTS = (
+    Path.home() / ".codex" / "archived_sessions",
+    Path.home() / ".codex" / "sessions",
+)
 
 
-def ensure_dirs():
-    """Create necessary directories"""
+@dataclass
+class PacketAudit:
+    coverage: str
+    compaction_events: int
+    invalid_json_lines: int
+    orphan_tool_results: int
+
+
+@dataclass
+class KnowledgeEntry:
+    section: str
+    line_no: int
+    text: str
+    source_session_id: Optional[str]
+    status: str
+    reasons: list[str]
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def ensure_dirs() -> None:
+    """Create necessary directories."""
     DISTILL_DIR.mkdir(parents=True, exist_ok=True)
     PACKETS_DIR.mkdir(parents=True, exist_ok=True)
     DISTILLED_DIR.mkdir(parents=True, exist_ok=True)
+    MEMORY_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    KB_BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
 
     if not KNOWLEDGE_FILE.exists():
-        KNOWLEDGE_FILE.write_text("# Session Distill Knowledge Base\n")
+        KNOWLEDGE_FILE.write_text("# Session Distill Knowledge Base\n", encoding="utf-8")
 
     if not MANIFEST_FILE.exists():
-        manifest = {"version": 1, "updated_at": "", "sessions": []}
-        save_manifest(manifest)
+        save_manifest({"version": 1, "updated_at": "", "sessions": []})
 
 
-def load_manifest():
-    """Load manifest file"""
+def load_manifest() -> dict[str, Any]:
+    """Load manifest file."""
     if MANIFEST_FILE.exists():
-        return json.loads(MANIFEST_FILE.read_text())
+        return json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
     return {"version": 1, "updated_at": "", "sessions": []}
 
 
-def save_manifest(manifest):
-    """Save manifest file"""
-    MANIFEST_FILE.write_text(json.dumps(manifest, indent=2))
+def save_manifest(manifest: dict[str, Any]) -> None:
+    """Save manifest file."""
+    manifest["updated_at"] = utc_now()
+    MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    MANIFEST_FILE.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
-def find_project_path(project_name=None):
-    """Find project directory"""
+def find_project_path(project_name: Optional[str] = None) -> Optional[Path]:
+    """Find project directory."""
     if not project_name:
         project_name = Path.cwd().name
 
@@ -73,7 +132,7 @@ def find_project_path(project_name=None):
     return None
 
 
-def source_signature(session):
+def source_signature(session: dict[str, Any]) -> dict[str, Any]:
     """Return a comparable signature for a session file."""
     path = Path(session["path"])
     stat = path.stat()
@@ -82,15 +141,16 @@ def source_signature(session):
         "file_size_bytes": stat.st_size,
         "source_mtime": stat.st_mtime,
         "size": f"{stat.st_size / 1024:.1f}KB",
-        "last_seen_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "last_seen_at": utc_now(),
+        "source_missing": False,
     }
 
 
-def cmd_index(project_path):
-    """Index sessions"""
+def cmd_index(project_path: Optional[Path]) -> int:
+    """Index sessions."""
     print("==> Index: Scanning sessions")
+    ensure_dirs()
     manifest = load_manifest()
-    timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     new_count = 0
     refreshed_count = 0
 
@@ -104,15 +164,17 @@ def cmd_index(project_path):
 
         if not existing:
             print(f"  + {session['name']} ({session['size']})")
-            manifest["sessions"].append({
-                "session_id": session_id,
-                "file_name": session["name"],
-                **signature,
-                "status": "new",
-                "bundle_path": None,
-                "distilled_path": None,
-                "notes": ""
-            })
+            manifest["sessions"].append(
+                {
+                    "session_id": session_id,
+                    "file_name": session["name"],
+                    **signature,
+                    "status": "new",
+                    "bundle_path": None,
+                    "distilled_path": None,
+                    "notes": "",
+                }
+            )
             new_count += 1
             continue
 
@@ -122,12 +184,17 @@ def cmd_index(project_path):
             or existing.get("source_mtime") != signature["source_mtime"]
         )
 
-        existing["file_name"] = session["name"]
-        existing["size"] = signature["size"]
-        existing["file_path"] = signature["file_path"]
-        existing["file_size_bytes"] = signature["file_size_bytes"]
-        existing["source_mtime"] = signature["source_mtime"]
-        existing["last_seen_at"] = signature["last_seen_at"]
+        existing.update(
+            {
+                "file_name": session["name"],
+                "size": signature["size"],
+                "file_path": signature["file_path"],
+                "file_size_bytes": signature["file_size_bytes"],
+                "source_mtime": signature["source_mtime"],
+                "last_seen_at": signature["last_seen_at"],
+                "source_missing": False,
+            }
+        )
 
         if changed:
             existing["status"] = "new"
@@ -136,24 +203,25 @@ def cmd_index(project_path):
             refreshed_count += 1
             print(f"  ~ Refreshed: {session['name']} ({session['size']})")
 
-    manifest["updated_at"] = timestamp
     save_manifest(manifest)
     print(f"==> Index done: {new_count} new sessions, {refreshed_count} refreshed")
+    return 0
 
 
-def pending_sessions(manifest):
+def pending_sessions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     """Return bundle candidates sorted by freshest source first."""
     candidates = [s for s in manifest["sessions"] if s["status"] in ["new", "bundled"]]
-    return sorted(
-        candidates,
-        key=lambda s: s.get("source_mtime", 0),
-        reverse=True,
-    )
+    return sorted(candidates, key=lambda s: s.get("source_mtime", 0), reverse=True)
 
 
-def cmd_bundle(project_path, force=False, next_count=DEFAULT_RUN_NEXT):
-    """Generate packets"""
+def cmd_bundle(
+    project_path: Optional[Path],
+    force: bool = False,
+    next_count: int = DEFAULT_RUN_NEXT,
+) -> int:
+    """Generate packets."""
     print("==> Bundle: Generating packets")
+    ensure_dirs()
     manifest = load_manifest()
     count = 0
 
@@ -178,16 +246,51 @@ def cmd_bundle(project_path, force=False, next_count=DEFAULT_RUN_NEXT):
 
     save_manifest(manifest)
     print(f"==> Bundle done: {count} packets")
+    return 0
 
 
-def generate_packet(session, packet_path):
-    """Generate a packet file with actual session content (FULL VERSION)"""
-    session_path = Path(session['file_path'])
-    all_turns = parse_claude_jsonl_session(session_path, filter_xml_directives=True, on_error="warn")
+def inspect_session_file(session_path: Path) -> PacketAudit:
+    compaction_events = 0
+    invalid_json_lines = 0
+    orphan_tool_results = 0
 
-    # We no longer omit any turns. Every detail matters.
-    turns = all_turns
-    omitted_turns = 0
+    content = session_path.read_text(encoding="utf-8-sig", errors="replace")
+    for line in content.splitlines():
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line.strip())
+        except json.JSONDecodeError:
+            invalid_json_lines += 1
+            continue
+
+        if record.get("subtype") == "compact_boundary" or record.get("compactMetadata"):
+            compaction_events += 1
+
+        content_items = record.get("message", {}).get("content", "")
+        if isinstance(content_items, list):
+            for item in content_items:
+                if isinstance(item, dict) and item.get("type") == "tool_result":
+                    orphan_tool_results += 1
+
+    coverage = "partial" if compaction_events or invalid_json_lines or orphan_tool_results else "high"
+    return PacketAudit(
+        coverage=coverage,
+        compaction_events=compaction_events,
+        invalid_json_lines=invalid_json_lines,
+        orphan_tool_results=orphan_tool_results,
+    )
+
+
+def generate_packet(session: dict[str, Any], packet_path: Path) -> None:
+    """Generate a packet file with actual session content."""
+    session_path = Path(session["file_path"])
+    audit = inspect_session_file(session_path)
+    turns = parse_claude_jsonl_session(
+        session_path,
+        filter_xml_directives=True,
+        on_error="warn",
+    )
 
     lines = [
         f"# Session Packet: {session['session_id']} (FULL)",
@@ -198,6 +301,13 @@ def generate_packet(session, packet_path):
         f"- Size: {session['size']}",
         f"- Path: `{session['file_path']}`",
         "",
+        "## Packet Audit",
+        "",
+        f"- Coverage: `{audit.coverage}`",
+        f"- Compaction events: {audit.compaction_events}",
+        f"- Invalid JSON lines skipped: {audit.invalid_json_lines}",
+        f"- Orphan tool results: {audit.orphan_tool_results}",
+        "",
         "## Distillation Reminder",
         "",
         "- Promote stable workflows, commands, file maps",
@@ -207,87 +317,52 @@ def generate_packet(session, packet_path):
     ]
 
     if not turns:
-        lines.extend([
-            "## Content",
-            "",
-            "(No parseable content found in this session)",
-            ""
-        ])
+        lines.extend(["## Content", "", "(No parseable content found in this session)", ""])
     else:
-        if omitted_turns:
-            lines.extend([
-                "## Packet Scope",
-                "",
-                f"- Total parsed turns: {len(all_turns)}",
-                f"- Included turns: {len(turns)}",
-                f"- Omitted middle turns: {omitted_turns}",
-                "- Strategy: keep the beginning request and the ending resolution",
-                "",
-            ])
-
         for i, turn in enumerate(turns, 1):
-            lines.extend([
-                f"## Turn {i}",
-                "",
-            ])
+            lines.extend([f"## Turn {i}", ""])
 
-            if turn.get('user'):
-                lines.extend([
-                    "### User Request",
-                    "",
-                    "```text",
-                    turn['user'],
-                    "```",
-                    ""
-                ])
+            if turn.get("user"):
+                lines.extend(["### User Request", "", "```text", turn["user"], "```", ""])
 
-            if turn.get('assistant'):
-                lines.extend([
-                    "### Assistant Response",
-                    ""
-                ])
-                for resp in turn['assistant'][:2]:  # Max 2 responses per turn
-                    lines.extend([
-                        "```text",
-                        resp,
-                        "```",
-                        ""
-                    ])
+            if turn.get("assistant"):
+                lines.extend(["### Assistant Response", ""])
+                for resp in turn["assistant"][:2]:
+                    lines.extend(["```text", resp, "```", ""])
 
-            if turn.get('tools'):
-                lines.extend([
-                    "### Tools Used",
-                    ""
-                ])
-                for tool in turn['tools'][:5]:  # Max 5 tools per turn
+            if turn.get("tools"):
+                lines.extend(["### Tools Used", ""])
+                for tool in turn["tools"][:5]:
                     lines.append(f"- `{tool['name']}`: {tool['input']}")
                 lines.append("")
 
-    lines.extend([
-        "---",
-        "",
-        "## Suggested Next Step",
-        "",
-        "1. Read this packet",
-        "2. Query existing memory for dedup",
-        f"3. Write session note -> distilled/sessions/{session['session_id']}.md",
-        "4. Append to knowledge-base.md",
-        "5. Decide whether to promote to project rules",
-        f"6. Run: session-distill mark {session['session_id']} distilled",
-        ""
-    ])
+    lines.extend(
+        [
+            "---",
+            "",
+            "## Suggested Next Step",
+            "",
+            "1. Read this packet",
+            "2. Query existing memory for dedup",
+            f"3. Write session note -> distilled/sessions/{session['session_id']}.md",
+            "4. Append stable lessons to knowledge-base.md if warranted",
+            "5. Decide whether to promote to project rules",
+            f"6. Use `/hm:mark {session['session_id']} distilled`",
+            "",
+        ]
+    )
 
-    packet_path.write_text('\n'.join(lines), encoding='utf-8')
+    packet_path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def cmd_status(project_path):
-    """Show status"""
+def cmd_status(project_path: Optional[Path]) -> int:
+    """Show status."""
     print("==> Session Distiller Status")
     print("")
 
     if not MANIFEST_FILE.exists():
         print("No sessions recorded yet")
-        return
+        return 0
 
     manifest = load_manifest()
     total = len(manifest["sessions"])
@@ -295,8 +370,13 @@ def cmd_status(project_path):
     bundled = sum(1 for s in manifest["sessions"] if s["status"] == "bundled")
     distilled = sum(1 for s in manifest["sessions"] if s["status"] == "distilled")
     skipped = sum(1 for s in manifest["sessions"] if s["status"] == "skipped")
+    source_missing = sum(1 for s in manifest["sessions"] if s.get("source_missing"))
 
-    print(f"Sessions: {total} total | new={new} | bundled={bundled} | distilled={distilled} | skipped={skipped}")
+    print(
+        "Sessions: "
+        f"{total} total | new={new} | bundled={bundled} | "
+        f"distilled={distilled} | skipped={skipped} | source_missing={source_missing}"
+    )
     print("")
 
     if bundled > 0:
@@ -306,70 +386,499 @@ def cmd_status(project_path):
                 print(f"  - {session['session_id']}")
         print("")
 
-    kb_lines = len(KNOWLEDGE_FILE.read_text().splitlines()) if KNOWLEDGE_FILE.exists() else 0
+    kb_lines = len(KNOWLEDGE_FILE.read_text(encoding="utf-8").splitlines()) if KNOWLEDGE_FILE.exists() else 0
     print(f"Knowledge base: {KNOWLEDGE_FILE} ({kb_lines} lines)")
+    return 0
 
 
-def cmd_list(project_path, min_size=100):
-    """List available sessions"""
+def cmd_list(project_path: Optional[Path], min_size: int = 100) -> int:
+    """List available sessions."""
     print("==> Available Sessions")
     print("")
 
     sessions = list_session_files(project_path, min_size_kb=min_size) if project_path else []
     if not sessions:
         print(f"No sessions found larger than {min_size}KB")
-        return
+        return 0
 
     print(f"{'Size':<8} {'Lines':<6} {'Modified':<12} Filename")
     print("-" * 60)
     for session in sessions:
-        mtime_str = session['mtime'].strftime("%Y-%m-%d") if hasattr(session['mtime'], 'strftime') else str(session['mtime'])
+        if hasattr(session["mtime"], "strftime"):
+            mtime_str = session["mtime"].strftime("%Y-%m-%d")
+        else:
+            mtime_str = str(session["mtime"])
         print(f"{session['size']:<8} {session['lines']:<6} {mtime_str:<12} {session['name']}")
+    return 0
 
 
-def cmd_mark(session_id, status):
-    """Mark session status"""
+def find_manifest_session(manifest: dict[str, Any], session_id: str) -> Optional[dict[str, Any]]:
+    for session in manifest["sessions"]:
+        if session["session_id"] == session_id:
+            return session
+    return None
+
+
+def note_path_for(session_id: str, session: Optional[dict[str, Any]] = None) -> Path:
+    if session and session.get("distilled_path"):
+        return Path(session["distilled_path"])
+    return DISTILLED_DIR / f"{session_id}.md"
+
+
+def bundle_path_for(session_id: str, session: Optional[dict[str, Any]] = None) -> Path:
+    if session and session.get("bundle_path"):
+        return Path(session["bundle_path"])
+    return PACKETS_DIR / f"{session_id}.md"
+
+
+def section_text(markdown: str, heading: str) -> str:
+    pattern = re.compile(rf"^##\s+{re.escape(heading)}\s*$", re.IGNORECASE | re.MULTILINE)
+    match = pattern.search(markdown)
+    if not match:
+        return ""
+    rest = markdown[match.end() :]
+    next_heading = re.search(r"^##\s+", rest, flags=re.MULTILINE)
+    return rest[: next_heading.start()] if next_heading else rest
+
+
+def packet_is_partial(session_id: str, session: Optional[dict[str, Any]] = None) -> bool:
+    packet_path = bundle_path_for(session_id, session)
+    if not packet_path.exists():
+        return False
+    packet_text = packet_path.read_text(encoding="utf-8", errors="replace").lower()
+    return "coverage: `partial`" in packet_text or "coverage: partial" in packet_text
+
+
+def validate_session_note(session_id: str, session: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    note_path = note_path_for(session_id, session)
+    if not note_path.exists():
+        return [f"session note missing: {note_path}"]
+
+    note = note_path.read_text(encoding="utf-8", errors="replace")
+    for heading in REQUIRED_NOTE_SECTIONS:
+        if not section_text(note, heading).strip():
+            errors.append(f"missing or empty section: {heading}")
+
+    if packet_is_partial(session_id, session):
+        raw_review = section_text(note, "Raw Review")
+        if not re.search(r"raw (?:transcript )?reviewed\s*:\s*yes", raw_review, re.IGNORECASE):
+            errors.append("partial packet requires Raw Review to say `Raw transcript reviewed: yes`")
+
+    promotion = section_text(note, "Promotion Decision")
+    if re.search(r"\b(todo|pending|tbd|fill in)\b", promotion, re.IGNORECASE):
+        errors.append("Promotion Decision still contains placeholder/pending text")
+    if not re.search(r"\b(promote|no promotion)\b\s*:", promotion, re.IGNORECASE):
+        errors.append("Promotion Decision must include `Promote:` or `No Promotion:`")
+
+    return errors
+
+
+def iter_dicts(value: Any) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        found.append(value)
+        for item in value.values():
+            found.extend(iter_dicts(item))
+    elif isinstance(value, list):
+        for item in value:
+            found.extend(iter_dicts(item))
+    return found
+
+
+def draft_has_pending(session_id: str) -> tuple[bool, Optional[Path]]:
+    draft_path = MEMORY_DRAFTS_DIR / f"{session_id}.json"
+    if not draft_path.exists():
+        return False, None
+    try:
+        payload = json.loads(draft_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return True, draft_path
+
+    for item in iter_dicts(payload):
+        for field in ("status", "review_status", "readiness"):
+            if str(item.get(field, "")).lower() == "pending":
+                return True, draft_path
+    return False, draft_path
+
+
+def is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def raw_deletion_root(path: Path) -> Optional[Path]:
+    for root in CODEX_RAW_ROOTS:
+        if is_relative_to(path, root):
+            return root
+    return None
+
+
+def append_pruned_source(record: dict[str, Any]) -> None:
+    PRUNED_SOURCES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with PRUNED_SOURCES_FILE.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def maybe_delete_raw_source(session: dict[str, Any], keep_raw: bool) -> None:
+    if keep_raw:
+        session["raw_retained_reason"] = "keep_raw"
+        return
+
+    file_path = session.get("file_path")
+    if not file_path:
+        session["source_missing"] = True
+        return
+
+    raw_path = Path(file_path)
+    if not raw_path.exists():
+        session["source_missing"] = True
+        session.setdefault("raw_missing_seen_at", utc_now())
+        return
+
+    allowed_root = raw_deletion_root(raw_path)
+    if allowed_root is None:
+        session["raw_retained_reason"] = "outside_codex_raw_roots"
+        return
+
+    stat = raw_path.stat()
+    append_pruned_source(
+        {
+            "session_id": session["session_id"],
+            "path": str(raw_path),
+            "bytes": stat.st_size,
+            "deleted_at": utc_now(),
+            "allowed_root": str(allowed_root),
+        }
+    )
+    raw_path.unlink()
+    session["source_missing"] = True
+    session["raw_deleted_at"] = utc_now()
+
+
+def validate_same_source_kb(session_id: str) -> list[str]:
+    errors: list[str] = []
+    entries = parse_knowledge_entries()
+    for entry in entries:
+        if entry.source_session_id == session_id and entry.status != "stable":
+            errors.append(
+                f"knowledge-base line {entry.line_no} for same source is {entry.status}: "
+                + "; ".join(entry.reasons)
+            )
+    return errors
+
+
+def cmd_mark(session_id: str, status: str, keep_raw: bool = False) -> int:
+    """Mark session status after running guardrails for distilled sessions."""
     if not session_id or not status:
         print("Usage: session-distill mark SESSION-ID STATUS")
         return 1
 
+    ensure_dirs()
     print("==> Mark: Updating status")
     manifest = load_manifest()
-
-    found = False
-    for session in manifest["sessions"]:
-        if session["session_id"] == session_id:
-            session["status"] = status
-            found = True
-            break
-
-    if not found:
+    session = find_manifest_session(manifest, session_id)
+    if not session:
         print(f"  ! Session not found: {session_id}")
         return 1
 
+    if status == "distilled":
+        errors = []
+        errors.extend(validate_session_note(session_id, session))
+        pending, draft_path = draft_has_pending(session_id)
+        if pending:
+            errors.append(f"memory draft still has pending entries: {draft_path}")
+        errors.extend(validate_same_source_kb(session_id))
+
+        if errors:
+            print("  ! Mark refused by guardrails:")
+            for error in errors:
+                print(f"    - {error}")
+            return 1
+
+        session["distilled_path"] = str(note_path_for(session_id, session))
+        maybe_delete_raw_source(session, keep_raw)
+
+    session["status"] = status
+    session["marked_at"] = utc_now()
     save_manifest(manifest)
     print(f"  -> {session_id} -> {status}")
+    if status == "distilled" and session.get("source_missing"):
+        print("  -> raw source marked missing/deleted; manifest keeps distilled state")
+    elif status == "distilled" and session.get("raw_retained_reason"):
+        print(f"  -> raw source retained: {session['raw_retained_reason']}")
     print("==> Mark done")
     return 0
 
 
-def cmd_prd_sync(project_path, dry_run=True):
-    """Generate PRD sync candidates from bundled packets"""
+def parse_statuses(statuses_text: Optional[str]) -> set[str]:
+    if not statuses_text:
+        return {"distilled", "skipped"}
+    return {item.strip() for item in statuses_text.split(",") if item.strip()}
+
+
+def cmd_prune(statuses_text: Optional[str], source_missing: bool, apply: bool) -> int:
+    """Prune source-missing manifest placeholders."""
+    ensure_dirs()
+    statuses = parse_statuses(statuses_text)
+    manifest = load_manifest()
+    candidates = []
+    kept = []
+    for session in manifest["sessions"]:
+        matches_status = session.get("status") in statuses
+        matches_source = bool(session.get("source_missing")) if source_missing else True
+        if matches_status and matches_source:
+            candidates.append(session)
+        else:
+            kept.append(session)
+
+    print("==> Prune manifest placeholders")
+    print(f"Statuses: {', '.join(sorted(statuses))}")
+    print(f"Source missing required: {source_missing}")
+    print(f"Candidates: {len(candidates)}")
+    for session in candidates:
+        print(f"  - {session['session_id']} ({session.get('status')})")
+
+    if not apply:
+        print("Dry-run only. Re-run with --apply to remove these manifest entries.")
+        return 0
+
+    manifest["sessions"] = kept
+    save_manifest(manifest)
+    print(f"Removed: {len(candidates)}")
+    return 0
+
+
+def extract_source_session_id(text: str) -> Optional[str]:
+    patterns = [
+        r"\[source:\s*`?([A-Za-z0-9_.-]{6,})`?\]",
+        r"\(source:\s*`?([A-Za-z0-9_.-]{6,})`?\)",
+        r"source(?: session)?\s*[:=]\s*`?([A-Za-z0-9_.-]{6,})`?",
+        r"session(?: id)?\s*[:=]\s*`?([A-Za-z0-9_.-]{6,})`?",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(1).rstrip(".,;)")
+    return None
+
+
+def note_has_no_promotion(session_id: str) -> bool:
+    path = note_path_for(session_id)
+    if not path.exists():
+        return False
+    promotion = section_text(path.read_text(encoding="utf-8", errors="replace"), "Promotion Decision")
+    return bool(re.search(r"\bno promotion\b\s*:", promotion, re.IGNORECASE))
+
+
+def classify_knowledge_entry(text: str, source_session_id: Optional[str]) -> tuple[str, list[str]]:
+    lower = text.lower()
+    reasons: list[str] = []
+
+    if "superseded" in lower or "replaced by" in lower or "替代" in text:
+        return "superseded", ["entry explicitly says it is superseded/replaced"]
+
+    stale_terms = ("stale", "obsolete", "deprecated", "outdated", "no longer", "过期", "废弃")
+    if any(term in lower for term in stale_terms):
+        return "stale", ["entry uses stale/obsolete language"]
+
+    if source_session_id and note_has_no_promotion(source_session_id):
+        return "stale", ["source session note says No Promotion"]
+
+    review_terms = (
+        "todo",
+        "pending",
+        "tbd",
+        "maybe",
+        "workaround",
+        "temporary",
+        "one-off",
+        "needs review",
+        "待确认",
+        "临时",
+        "一次性",
+    )
+    if not source_session_id:
+        reasons.append("missing source session id")
+    if any(term in lower for term in review_terms):
+        reasons.append("entry looks temporary or unresolved")
+    if len(text) < 20:
+        reasons.append("entry is too short to audit")
+
+    if reasons:
+        return "needs-review", reasons
+    return "stable", ["source-linked reusable entry"]
+
+
+def parse_knowledge_entries() -> list[KnowledgeEntry]:
+    if not KNOWLEDGE_FILE.exists():
+        return []
+
+    entries: list[KnowledgeEntry] = []
+    section = "root"
+    for line_no, line in enumerate(KNOWLEDGE_FILE.read_text(encoding="utf-8").splitlines(), 1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            section = stripped.lstrip("#").strip() or "root"
+            continue
+        if not (stripped.startswith("- ") or re.match(r"^\d+\.\s+", stripped)):
+            continue
+
+        text = re.sub(r"^(?:-|\d+\.)\s+", "", stripped)
+        source_session_id = extract_source_session_id(text)
+        status, reasons = classify_knowledge_entry(text, source_session_id)
+        entries.append(
+            KnowledgeEntry(
+                section=section,
+                line_no=line_no,
+                text=text,
+                source_session_id=source_session_id,
+                status=status,
+                reasons=reasons,
+            )
+        )
+    return entries
+
+
+def cmd_review_kb(next_count: int) -> int:
+    """Review knowledge-base entries with lightweight audit heuristics."""
+    ensure_dirs()
+    entries = parse_knowledge_entries()
+    summary = {status: 0 for status in ("stable", "needs-review", "stale", "superseded")}
+    for entry in entries:
+        summary[entry.status] = summary.get(entry.status, 0) + 1
+
+    print("==> Knowledge Base Review")
+    print(f"Entries: {len(entries)}")
+    print(
+        "Summary: "
+        f"stable={summary.get('stable', 0)} | "
+        f"needs-review={summary.get('needs-review', 0)} | "
+        f"stale={summary.get('stale', 0)} | "
+        f"superseded={summary.get('superseded', 0)}"
+    )
+    print("")
+
+    for entry in entries[:next_count]:
+        source = entry.source_session_id or "none"
+        print(f"- line {entry.line_no} [{entry.status}] source={source} section={entry.section}")
+        print(f"  {entry.text}")
+        if entry.reasons:
+            print(f"  reason: {'; '.join(entry.reasons)}")
+
+    KB_REVIEW_STATE_FILE.write_text(
+        json.dumps(
+            {
+                "reviewed_at": utc_now(),
+                "total_entries": len(entries),
+                "summary": summary,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return 0
+
+
+def backup_knowledge_base() -> Path:
+    KB_BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    backup_path = KB_BACKUPS_DIR / f"knowledge-base-{timestamp}.md"
+    shutil.copy2(KNOWLEDGE_FILE, backup_path)
+    return backup_path
+
+
+def cmd_prune_kb(statuses_text: Optional[str], dry_run: bool = False) -> int:
+    """Prune knowledge-base entries by review status, with backup."""
+    ensure_dirs()
+    statuses = parse_statuses(statuses_text or "stale,superseded")
+    entries = parse_knowledge_entries()
+    remove_lines = {entry.line_no for entry in entries if entry.status in statuses}
+
+    print("==> Knowledge Base Prune")
+    print(f"Statuses: {', '.join(sorted(statuses))}")
+    print(f"Candidates: {len(remove_lines)}")
+    for entry in entries:
+        if entry.line_no in remove_lines:
+            print(f"  - line {entry.line_no} [{entry.status}] {entry.text}")
+
+    if not remove_lines:
+        print("Nothing to prune.")
+        return 0
+
+    if dry_run:
+        print("Dry-run only. Re-run without --dry-run to prune with backup.")
+        return 0
+
+    backup_path = backup_knowledge_base()
+    lines = KNOWLEDGE_FILE.read_text(encoding="utf-8").splitlines()
+    kept = [line for line_no, line in enumerate(lines, 1) if line_no not in remove_lines]
+    KNOWLEDGE_FILE.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    print(f"Backup: {backup_path}")
+    print(f"Removed: {len(remove_lines)}")
+    return 0
+
+
+def cmd_verify_entry(query: str) -> int:
+    """Show matching knowledge entries with grill-style recheck prompts."""
+    ensure_dirs()
+    entries = parse_knowledge_entries()
+    lowered = query.lower()
+    matches = [
+        entry
+        for entry in entries
+        if lowered in entry.text.lower()
+        or (entry.source_session_id and lowered in entry.source_session_id.lower())
+    ]
+
+    print(f"==> Verify Entry: {query}")
+    if not matches:
+        print("No matching knowledge entries.")
+        return 1
+
+    for entry in matches:
+        source = entry.source_session_id or "none"
+        print(f"- line {entry.line_no} [{entry.status}] source={source} section={entry.section}")
+        print(f"  {entry.text}")
+        print("  Recheck questions:")
+        print("  1. Is this still true against current code/config/docs?")
+        print("  2. Did a later session supersede or narrow this claim?")
+        print("  3. Is this reusable workflow knowledge, or only a one-off note?")
+        print("  4. Should it stay in knowledge-base, become needs-review, or move back to session note?")
+    return 0
+
+
+def cmd_prd_sync(project_path: Optional[Path], dry_run: bool = True) -> int:
+    """Generate PRD sync candidates from bundled packets."""
     print("==> PRD Sync: Generating candidates from bundled packets")
     print(f"    Dry-run: {dry_run}")
     print("")
 
+    ensure_dirs()
     manifest = load_manifest()
     bundled = [s for s in manifest["sessions"] if s["status"] == "bundled"]
 
     if not bundled:
-        print("  No bundled packets found. Run 'session-distill run' first.")
-        return
+        print("  No bundled packets found. Run /hm:distill first.")
+        return 0
 
-    # Scan bundled packets for PRD-related content
     prd_keywords = [
-        "prd", "roadmap", "launch", "v1", "feature", "architecture",
-        "decision", "milestone", "scope", "requirement", "product"
+        "prd",
+        "roadmap",
+        "launch",
+        "v1",
+        "feature",
+        "architecture",
+        "decision",
+        "milestone",
+        "scope",
+        "requirement",
+        "product",
     ]
 
     candidates = []
@@ -386,40 +895,21 @@ def cmd_prd_sync(project_path, dry_run=True):
 
     if not candidates:
         print("  No PRD-related packets found.")
-        return
+        return 0
 
     print(f"  Found {len(candidates)} PRD-related packet(s):")
     for session in candidates:
         print(f"    - {session['session_id']}")
 
-    print("")
-    print("  Generating candidates...")
-
-    # Generate distilled candidate
     today = datetime.now().strftime("%Y-%m-%d")
     distilled_path = PRD_DISTILLED_DIR / f"{today}-prd-sync-candidate.md"
     PRD_DISTILLED_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Extract PRD-relevant turns from packets
-    lines = [
-        f"# PRD Sync Candidate — {today}",
-        "",
-        "## Source Packets",
-        "",
-    ]
-
+    lines = [f"# PRD Sync Candidate - {today}", "", "## Source Packets", ""]
     for session in candidates:
         lines.append(f"- `{session['session_id']}`")
 
-    lines.extend([
-        "",
-        "## Detected Topics",
-        "",
-        "*(Auto-detected from packet content)*",
-        "",
-    ])
-
-    # Simple keyword extraction
+    lines.extend(["", "## Detected Topics", "", "*(Auto-detected from packet content)*", ""])
     detected = set()
     for session in candidates:
         if session.get("bundle_path"):
@@ -430,76 +920,42 @@ def cmd_prd_sync(project_path, dry_run=True):
     for kw in sorted(detected):
         lines.append(f"- {kw}")
 
-    lines.extend([
-        "",
-        "## Suggested Decision Records",
-        "",
-        "*(Placeholder — fill in after review)*",
-        "",
-        "```markdown",
-        "## YYYY-MM-DD — <topic>",
-        "- **status**: pending",
-        "- **decision**: <summary>",
-        "- **source**: <doc>",
-        "- **rationale**: <distilled-path>",
-        "```",
-        "",
-        "## Next Steps",
-        "",
-        "1. Review this candidate",
-        "2. Fill in decision records",
-        "3. Run: session-distill prd-sync --apply",
-        "",
-    ])
-
-    distilled_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"  -> Generated: {distilled_path}")
-
-    # Generate decision log candidate
-    decision_lines = [
-        f"# Decision Log Candidate — {today}",
-        "",
-        "```markdown",
-    ]
-
-    for session in candidates:
-        session_id = session["session_id"]
-        decision_lines.extend([
-            f"## {today} — {session_id}",
-            "- **status**: pending",
-            f"- **decision**: (from `{session_id}`)",
-            f"- **source**: {session.get('bundle_path', 'unknown')}",
-            "- **rationale**: <fill in>",
+    lines.extend(
+        [
             "",
-        ])
+            "## Suggested Decision Records",
+            "",
+            "*(Placeholder - fill in after review)*",
+            "",
+            "```markdown",
+            "## YYYY-MM-DD - <topic>",
+            "- **status**: pending",
+            "- **decision**: <summary>",
+            "- **source**: <doc>",
+            "- **rationale**: <distilled-path>",
+            "```",
+            "",
+        ]
+    )
 
-    decision_lines.extend([
-        "```",
-        "",
-        "## To Apply",
-        "",
-        "Copy the above into `docs/prd/decision-log.md` after review.",
-        "",
-    ])
-
-    decision_path = PRD_DECISION_LOG
-    decision_path.parent.mkdir(parents=True, exist_ok=True)
-    decision_path.write_text("\n".join(decision_lines), encoding="utf-8")
-    print(f"  -> Generated: {decision_path}")
-
-    print("")
-    if dry_run:
-        print("  [DRY-RUN] No files written. Use --apply to confirm.")
+    if not dry_run:
+        distilled_path.write_text("\n".join(lines), encoding="utf-8")
+        print(f"  -> Generated: {distilled_path}")
     else:
-        print("  [APPLIED] Candidates written.")
+        print("  [DRY-RUN] No files written. Use --apply to confirm.")
+    return 0
 
 
-def cmd_run(project_path, force=False, next_count=DEFAULT_RUN_NEXT):
-    """Run preparation phase"""
+def cmd_run(
+    project_path: Optional[Path],
+    force: bool = False,
+    next_count: int = DEFAULT_RUN_NEXT,
+) -> int:
+    """Run preparation phase."""
     print("==> Session Distiller: Preparation Phase")
     print("")
     print("This command runs: index + bundle")
-    print("AI will handle distillation after")
+    print("AI/Slash commands handle distillation after")
     print("")
 
     ensure_dirs()
@@ -512,60 +968,100 @@ def cmd_run(project_path, force=False, next_count=DEFAULT_RUN_NEXT):
     print("Next steps:")
     print("  1. AI reads packets/")
     print("  2. AI writes session notes -> distilled/sessions/")
-    print("  3. AI appends to knowledge-base.md")
+    print("  3. AI updates knowledge-base.md only for stable reusable lessons")
     print("  4. AI decides on project rules promotion")
-    print("  5. Run: session-distill mark SESSION-ID distilled")
+    print("  5. User/agent invokes /hm:mark SESSION-ID distilled")
     print("")
 
-    cmd_status(project_path)
+    return cmd_status(project_path)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Claude Code Session Distiller")
-    parser.add_argument("command", nargs="?", choices=["run", "status", "list", "mark", "prd-sync", "help"], default="help")
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Session Distiller maintenance CLI")
     parser.add_argument("--project", help="Project name")
-    parser.add_argument("--next", type=int, default=DEFAULT_RUN_NEXT, help="Number of pending sessions to bundle for run")
-    parser.add_argument("--size", type=int, default=DEFAULT_LIST_MIN_SIZE_KB, help="Minimum session size in KB for list")
-    parser.add_argument("--force", action="store_true", help="Force regeneration")
-    parser.add_argument("--dry-run", action="store_true", default=True, help="Dry-run mode (default)")
-    parser.add_argument("--apply", action="store_true", help="Apply changes instead of dry-run")
-    parser.add_argument("args", nargs="*", help="Additional arguments")
+    subparsers = parser.add_subparsers(dest="command")
 
-    args = parser.parse_args()
+    run = subparsers.add_parser("run")
+    run.add_argument("--next", type=int, default=DEFAULT_RUN_NEXT)
+    run.add_argument("--force", action="store_true")
 
-    if args.command == "help":
+    status = subparsers.add_parser("status")
+    status.set_defaults(command="status")
+
+    list_cmd = subparsers.add_parser("list")
+    list_cmd.add_argument("--size", type=int, default=DEFAULT_LIST_MIN_SIZE_KB)
+
+    mark = subparsers.add_parser("mark")
+    mark.add_argument("session_id")
+    mark.add_argument("status")
+    mark.add_argument("--keep-raw", action="store_true")
+
+    prune = subparsers.add_parser("prune")
+    prune.add_argument("--statuses", default="distilled,skipped")
+    prune.add_argument("--source-missing", action="store_true")
+    prune.add_argument("--apply", action="store_true")
+    prune.add_argument("--dry-run", action="store_true")
+
+    review_kb = subparsers.add_parser("review-kb")
+    review_kb.add_argument("--next", type=int, default=20)
+
+    prune_kb = subparsers.add_parser("prune-kb")
+    prune_kb.add_argument("--statuses", default="stale,superseded")
+    prune_kb.add_argument("--dry-run", action="store_true")
+
+    verify = subparsers.add_parser("verify-entry")
+    verify.add_argument("query")
+
+    prd = subparsers.add_parser("prd-sync")
+    prd.add_argument("--apply", action="store_true")
+
+    subparsers.add_parser("help")
+    return parser
+
+
+def resolve_project_path(args: argparse.Namespace) -> Optional[Path]:
+    if args.project:
+        return find_project_path(args.project)
+    return find_project_path()
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if not args.command or args.command == "help":
         parser.print_help()
         return 0
 
-    if args.command == "mark":
-        if len(args.args) < 2:
-            print("Usage: session-distill mark SESSION-ID STATUS")
-            return 1
-        return cmd_mark(args.args[0], args.args[1])
+    projectless = {"mark", "prune", "review-kb", "prune-kb", "verify-entry"}
+    project_path = None if args.command in projectless else resolve_project_path(args)
 
-    # Find project path
-    project_path = None
-    if args.project:
-        project_path = find_project_path(args.project)
-    else:
-        project_path = find_project_path()
-
-    if not project_path and args.command != "mark":
+    if args.command not in projectless and not project_path:
         print("Error: Cannot find project directory")
         print("Use --project to specify, or run from project directory")
         return 1
 
     if args.command == "run":
-        cmd_run(project_path, args.force, args.next)
-    elif args.command == "status":
-        cmd_status(project_path)
-    elif args.command == "list":
-        cmd_list(project_path, args.size)
-    elif args.command == "prd-sync":
-        dry_run = not args.apply
-        cmd_prd_sync(project_path, dry_run=dry_run)
+        return cmd_run(project_path, force=args.force, next_count=args.next)
+    if args.command == "status":
+        return cmd_status(project_path)
+    if args.command == "list":
+        return cmd_list(project_path, args.size)
+    if args.command == "mark":
+        return cmd_mark(args.session_id, args.status, keep_raw=args.keep_raw)
+    if args.command == "prune":
+        return cmd_prune(args.statuses, source_missing=args.source_missing, apply=args.apply)
+    if args.command == "review-kb":
+        return cmd_review_kb(args.next)
+    if args.command == "prune-kb":
+        return cmd_prune_kb(args.statuses, dry_run=args.dry_run)
+    if args.command == "verify-entry":
+        return cmd_verify_entry(args.query)
+    if args.command == "prd-sync":
+        return cmd_prd_sync(project_path, dry_run=not args.apply)
 
-    return 0
+    parser.print_help()
+    return 1
 
 
 if __name__ == "__main__":

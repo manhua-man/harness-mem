@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`/hm:*` distillation maintenance entries**: added `/hm:mark`, `/hm:prune`, `/hm:review-kb`, `/hm:prune-kb`, and `/hm:verify-entry` as first-class Slash-facing management actions while keeping the Python CLI as the implementation/test layer.
+- **Session-distill guardrails**: `mark ... distilled` now checks session notes, partial packet raw review, promotion decisions, pending memory drafts, and same-source knowledge-base stability before closing a session.
+- **Knowledge-base audit utilities**: added lightweight `stable / needs-review / stale / superseded` classification, targeted entry verification, and backup-before-prune cleanup for session-distill `knowledge-base.md`.
+
 ---
 
 ## [2.3.1] — 2026-05-27

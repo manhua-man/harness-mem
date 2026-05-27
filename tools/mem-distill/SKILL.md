@@ -20,19 +20,19 @@ allowed-tools:
 
 `mem-distill` 是既有记忆整理入口。
 
-它只处理已经存在的 memory / observations，不负责原始 `.jsonl` 会话解析，也不替代 `session-distill` 或 `packet-memory-export`。
+它只处理已经存在的 memory / observations，不负责原始会话来源识别，也不替代 `session-distill`。
 
 它可以作为 `session-distill` review 阶段的外置协作者被调用，但不是默认链路硬依赖。
 
 ## 主链边界
 
-`session-distill` 的 durable memory promotion 主链仍然是：
+`session-distill` 的 durable memory promotion 主链仍然是统一 MCP candidate loop：
 
 ```text
-session-distill -> packet-memory-export -> memory-drafts review -> knowledge-base / sync-list / local-only
+prepare_session_distill(client="auto") -> session-distill -> suggest_* -> list_candidates -> auto-review / confirm / reject -> final summary
 ```
 
-`mem-distill` 不进入这条 raw session 处理链。它只在用户已经要整理既有 memory / observations 时切换过去。
+`mem-distill` 不进入这条会话来源识别和候选写入链。它只在用户已经要整理既有 memory / observations 时切换过去。
 
 任何情况下，缺少 `mem-distill` 都不应阻塞 `session-distill` 主链。
 
@@ -40,22 +40,19 @@ session-distill -> packet-memory-export -> memory-drafts review -> knowledge-bas
 
 | 场景 | 使用哪个入口 |
 |------|--------------|
-| 用户要整理原始会话、生成 packet、写 session note | `session-distill` |
-| 用户已有 packet，要导出结构化 memory drafts | `packet-memory-export` |
+| 用户要整理原始会话或生成候选记忆 | `session-distill` |
 | 用户要整理现有 memory / observations、去重、归并、补充知识库 | `mem-distill` |
 
 一句话分工：
 
 - `session-distill` 是原始会话入口
-- `packet-memory-export` 是默认 draft gate
 - `mem-distill` 是现有记忆整理入口
 
 和 `session-distill` 的衔接方式：
 
-- `session-distill` 第一阶段先生成 packet 和 `Packet Audit`
-- `packet-memory-export` 再把 packet 变成结构化 draft memory entries
-- `mem-distill` 再处理已经存在的 observations，负责去重、归并、提炼和稳定化
-- 如果手里还是 packet 或 draft memory entries，说明你还在 `session-distill / packet-memory-export` 阶段，不应直接切到 `mem-distill`
+- `session-distill` 先通过 `prepare_session_distill(client="auto")` 获取 evidence packet，再写 pending candidates
+- `mem-distill` 再处理已经存在的 observations / confirmed memory，负责去重、归并、提炼和稳定化
+- 如果手里还是原始 session 或 evidence packet，说明你还在 `session-distill` 阶段，不应直接切到 `mem-distill`
 
 ## 目标
 

@@ -18,10 +18,10 @@ from harness_mem.adapters.claude_code.project_profile_detector import (
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     claude_project_name_candidates_from_path,
-    current_agent_client,
     log_cli_event,
     log_command_invoked,
     project_adapter_cursor_path,
+    resolve_ingest_client,
     resolve_project_name,
     set_active_project,
 )
@@ -40,8 +40,9 @@ async def cmd_ingest(
     project_root: str | None = None,
 ) -> int:
     """Ingest sessions for a supported client."""
-    if client == "auto":
-        client = current_agent_client()
+    requested_client = client
+    client = resolve_ingest_client(client)
+    if client != requested_client:
         print(f"Auto-detected ingest client: {client}")
 
     project_name = resolve_project_name(project_name, action_label=f"{client} ingest")

@@ -22,13 +22,13 @@ Use it when a draft or plan raises a design question that should be resolved bef
 
 ## Main Chain Boundary
 
-The durable memory promotion chain remains:
+The durable memory promotion chain remains the unified MCP candidate loop:
 
 ```text
-session-distill -> packet-memory-export -> memory-drafts review -> knowledge-base / sync-list / local-only
+prepare_session_distill(client="auto") -> session-distill -> suggest_* -> list_candidates -> auto-review / confirm / reject -> final summary
 ```
 
-`ask-me` can inform the human review decision, but it does not write memory, approve drafts, or create sync-list output.
+`ask-me` can inform the review decision, but it does not write memory, approve candidates, or create durable output.
 
 ## When To Use
 
@@ -50,6 +50,6 @@ Return a concise consultation note with:
 ## Non-Goals
 
 - Do not promote memory entries.
-- Do not create sync-list entries.
+- Do not create candidate or durable memory entries.
 - Do not turn architecture advice into memory automatically.
 - Do not make `session-distill` depend on this skill.

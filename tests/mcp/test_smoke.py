@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -853,6 +854,34 @@ def test_prepare_session_distill_returns_one_call_evidence_packet(
     assert data["observations"][0]["source"].startswith("observation:")
     assert "SQLite FTS5" in data["observations"][0]["raw_content"]
     assert any("Do not call Bash" in item for item in data["distill_instructions"])
+
+
+@pytest.mark.parametrize(
+    "client",
+    ["cursor", "antigravity", "opencode", "hermes", "agent"],
+)
+def test_prepare_session_distill_accepts_generic_agent_clients(
+    mcp_backend: LocalMemoryBackend,
+    monkeypatch: pytest.MonkeyPatch,
+    client: str,
+):
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+    for key in list(os.environ):
+        if key.startswith("CLAUDE_CODE"):
+            monkeypatch.delenv(key, raising=False)
+
+    data = call_tool(
+        "prepare_session_distill",
+        {
+            "project_name": "test-project",
+            "client": client,
+            "run_ingest": False,
+        },
+    )
+
+    assert data["success"] is True
+    assert data["client"] == client
+    assert data["resolved_client"] == "claude-code"
 
 
 def test_search_memory_no_project(mcp_backend: LocalMemoryBackend):

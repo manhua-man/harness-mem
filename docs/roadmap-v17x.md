@@ -182,7 +182,7 @@ v1.7 不应该在 v1.6.2 半截时开工。先收口这些门槛：
 | 自然 prose（loop_harness 三个真实风格 fixture） | 5 | **0** |
 | 刻意构造的 relation-friendly prose | 0 | **3** |
 
-**结论**：`trace_relations` 的引擎是对的，但**heuristic distill -> 关系图**这条数据管线对自然 session 几乎不工作。`adapters/parser.py::RELATION_FACT_PATTERNS` 要求实体两侧大写、动词在固定六个之内、整段在同句——真实 Claude/Codex session 几乎不会自然命中。
+**结论**：`trace_relations` 的引擎是对的，但**heuristic distill -> 关系图**这条数据管线对自然 session 几乎不工作。`adapters/parser.py::RELATION_FACT_PATTERNS` 要求实体两侧大写、动词在固定六个之内、整段在同句——真实 agent session 几乎不会自然命中。
 
 **当前归宿（不动 API、不动 schema）**：
 

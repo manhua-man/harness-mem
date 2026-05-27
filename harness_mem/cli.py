@@ -140,7 +140,7 @@ def main():
         "import",
         help="Import memory drafts from AI skills into the candidate layer",
     )
-    import_cmd.add_argument("file", help="Path to JSON draft or sync-list")
+    import_cmd.add_argument("file", help="Path to legacy or AI-generated JSON draft")
     import_cmd.add_argument("-p", "--project")
     import_cmd.set_defaults(command_name="import")
 

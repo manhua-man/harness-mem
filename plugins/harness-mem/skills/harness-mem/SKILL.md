@@ -1,6 +1,6 @@
 ---
 name: harness-mem
-description: Use harness-mem as a local-first memory runtime for the current project. Trigger when the user asks to remember prior work, resume a project, search old agent sessions, ingest recent Claude/Codex sessions, create durable project rules, or explain what the project currently knows.
+description: Use harness-mem as a local-first memory runtime for the current project. Trigger when the user asks to remember prior work, resume a project, search old agent sessions, ingest recent agent sessions, create durable project rules, or explain what the project currently knows.
 ---
 
 # harness-mem
@@ -16,7 +16,8 @@ Treat the project as real production context:
 - Use repo-local `tools/session-distill` for user-triggered distillation; do not use the removed heuristic distill path.
 - Distilled memory is a draft signal. Review it before treating it as durable truth.
 - Use `suggest_*`, `list_candidates`, and `confirm_*` / `reject_*` for stable rules the user explicitly wants remembered.
-- Do not delete raw Claude/Codex session files unless the user explicitly asks for raw-file cleanup.
+- Use `/hm:mark`, `/hm:prune`, `/hm:review-kb`, `/hm:prune-kb`, and `/hm:verify-entry` for distillation maintenance. These are user-facing Slash entries; the repo-local script is only the implementation layer.
+- Do not delete raw agent session files unless the user explicitly asks for raw-file cleanup through a maintenance entry.
 
 In Claude Code, prefer the no-hyphen MCP alias names such as
 `mcp__harness_mem__get_project_status` and
@@ -29,6 +30,7 @@ In Claude Code, prefer the no-hyphen MCP alias names such as
 - `ingest_sessions`: indexes raw local agent session files into harness-mem observations.
 - `prepare_session_distill`: one-shot ingest plus recent observation packet for `/hm:distill`.
 - `tools/session-distill`: default user-facing distillation playbook that reads evidence and writes pending candidates.
+- `/hm:mark` / `/hm:prune` / `/hm:review-kb` / `/hm:prune-kb` / `/hm:verify-entry`: Slash maintenance entries for session closure, manifest cleanup, and knowledge-base audit.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
 - `suggest_*` / `list_candidates` / `confirm_*`: create and review durable memory candidates.
 - `purge` remains a CLI/debug operation for explicit cleanup, and only soft-deletes harness-mem indexed data.
@@ -43,7 +45,7 @@ For status and wake-up:
 2. Call `get_project_profile`, `get_task_handoffs`, `get_confirmed_rules`, and `timeline`.
 3. Summarize the usable context and suggest the next IDE-native action:
    - Claude Code: `/hm:distill`, `/hm:review`, or `/hm:wake`.
-   - Cursor / generic AI IDE: "用 harness-mem 唤醒当前项目" or "用 harness-mem 整理最近 N 个 session".
+   - Cursor / Antigravity / opencode / Hermes / generic AI IDE: "用 harness-mem 唤醒当前项目" or "用 harness-mem 整理最近 N 个 session".
    - Do not present terminal commands as the normal answer when MCP tools are available.
 
 If the project has new sessions:
@@ -55,6 +57,16 @@ If the project has new sessions:
 When looking for prior work:
 
 Call MCP `search_memory(project_name=<project>, query=<query>, mode="auto")`, then use `timeline` or `get_observations` for provenance.
+
+For distillation maintenance:
+
+Use the matching `/hm:*` entry rather than presenting a terminal command:
+
+- `/hm:mark <session-id> distilled [--keep-raw]`
+- `/hm:prune --statuses distilled,skipped --source-missing`
+- `/hm:review-kb --next 20`
+- `/hm:prune-kb --statuses stale,superseded`
+- `/hm:verify-entry <session-id|keyword>`
 
 When the user states a durable project rule:
 

@@ -21,13 +21,13 @@ Use it when a candidate conclusion is high-risk, broad, ambiguous, or likely to 
 
 ## Main Chain Boundary
 
-The durable memory promotion chain remains:
+The durable memory promotion chain remains the unified MCP candidate loop:
 
 ```text
-session-distill -> packet-memory-export -> memory-drafts review -> knowledge-base / sync-list / local-only
+prepare_session_distill(client="auto") -> session-distill -> suggest_* -> list_candidates -> auto-review / confirm / reject -> final summary
 ```
 
-`grill-me` can be called during `memory-drafts review`, but it does not replace `packet-memory-export`, does not approve entries by itself, and does not write to the memory backend.
+`grill-me` can be called during candidate review, but it does not approve entries by itself and does not write to the memory backend.
 
 ## When To Use
 
@@ -49,6 +49,6 @@ Return a short pressure-test note with:
 ## Non-Goals
 
 - Do not promote memory entries.
-- Do not create sync-list entries.
+- Do not create candidate or durable memory entries.
 - Do not make `session-distill` depend on this skill.
 - Do not treat lack of `grill-me` as an error.

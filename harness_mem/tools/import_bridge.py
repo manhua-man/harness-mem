@@ -1,9 +1,8 @@
 """
 AI-led Distillation Bridge — Import memory drafts from AI skills.
 ==============================================================
-This tool bridges the gap between AI-driven distillation skills
-(like session-distill / packet-memory-export) and the harness-mem
-structured storage candidate layer.
+This tool bridges the gap between AI-driven distillation skills and the
+harness-mem structured storage candidate layer.
 
 It reads JSON drafts and saves them as 'pending' entries for human review.
 """
@@ -25,7 +24,7 @@ class ImportBridge:
         self.backend = backend
 
     async def import_file(self, file_path: Path, project_name: str | None = None) -> dict[str, int]:
-        """Import entries from a JSON file (draft or sync-list)."""
+        """Import entries from a legacy or AI-generated JSON file."""
         if not file_path.exists():
             raise FileNotFoundError(f"Import file not found: {file_path}")
 
@@ -56,7 +55,7 @@ class ImportBridge:
 
     def _map_to_memory_entry(self, item: dict[str, Any], project_name: str | None) -> MemoryEntry:
         """Map AI draft JSON to MemoryEntry."""
-        # Handle 'packet-memory-export' schema or generic AI output
+        # Handle legacy draft schemas or generic AI output
         content = item.get("content") or item.get("conclusion") or item.get("pattern") or str(item)
         category = item.get("category") or "decision"
         source = item.get("source") or item.get("session_id") or "ai-bridge"

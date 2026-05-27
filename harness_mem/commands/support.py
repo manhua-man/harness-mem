@@ -21,6 +21,17 @@ DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
 CONFIG_TOML_PATH = Path.home() / ".harness-mem" / "config.toml"
 LEGACY_CONFIG_JSON_PATH = Path.home() / ".harness-mem" / "config.json"
 
+NATIVE_INGEST_CLIENTS = {"claude-code", "codex", "codex-archive"}
+AUTO_DETECT_CLIENTS = {
+    "auto",
+    "agent",
+    "cursor",
+    "antigravity",
+    "opencode",
+    "hermes",
+}
+SUPPORTED_INGEST_CLIENTS = NATIVE_INGEST_CLIENTS | AUTO_DETECT_CLIENTS
+
 
 # v1.6.1: wake-up bucket quota defaults & validation.
 DEFAULT_BUCKET_QUOTAS: dict[str, float] = {
@@ -238,19 +249,48 @@ def safe_project_slug(project_name: str) -> str:
 def current_agent_client() -> str:
     """Infer the current assistant runtime for default session ingestion.
 
-    Explicit ``HARNESS_MEM_CLIENT`` wins. Otherwise Codex-specific markers win
+    Explicit native ``HARNESS_MEM_CLIENT`` wins. Generic agent runtime names
+    such as cursor/antigravity/opencode/hermes are treated as auto-detect
+    requests. Otherwise Codex-specific markers win
     over generic Claude Code environment flags, because Claude-related env vars
     can be present in nested or bridged shells while ``CODEX_THREAD_ID`` is a
     stronger signal that the active conversation is a Codex rollout.
     """
-    configured = os.environ.get("HARNESS_MEM_CLIENT")
-    if configured in {"claude-code", "codex", "codex-archive"}:
+    configured = normalize_client_name(os.environ.get("HARNESS_MEM_CLIENT"))
+    if configured in NATIVE_INGEST_CLIENTS:
         return configured
     if os.environ.get("CODEX_THREAD_ID"):
         return "codex-archive"
     if any(key.startswith("CLAUDE_CODE") for key in os.environ):
         return "claude-code"
     return "claude-code"
+
+
+def normalize_client_name(client: str | None) -> str:
+    """Normalize user/runtime-facing client names for ingestion."""
+    value = (client or "auto").strip().lower()
+    aliases = {
+        "claude": "claude-code",
+        "claude_code": "claude-code",
+        "claudecode": "claude-code",
+        "codex_archive": "codex-archive",
+        "codexarchive": "codex-archive",
+        "open-code": "opencode",
+        "open_code": "opencode",
+        "generic-agent": "agent",
+        "generic_agent": "agent",
+    }
+    return aliases.get(value, value)
+
+
+def resolve_ingest_client(client: str | None) -> str:
+    """Resolve a requested client to a concrete adapter-backed source."""
+    normalized = normalize_client_name(client)
+    if normalized in NATIVE_INGEST_CLIENTS:
+        return normalized
+    if normalized in AUTO_DETECT_CLIENTS:
+        return current_agent_client()
+    return normalized
 
 
 def claude_project_name_from_path(path: Path) -> str:

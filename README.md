@@ -171,7 +171,7 @@ AI IDE 用户不需要学习 CLI 命令清单。候选复核、确认、拒绝�
 - `benchmarks/`: benchmark 结果与评测相关内容
 - `.claude/` / `.codex/` / `.cursor/`: 多 Agent 协作配置
 - `openspec/`: 变更提案和 spec 资产
-- `tools/session-distill/`: raw session -> packet 主入口
+- `tools/session-distill/`: 用户主动蒸馏入口；由 runtime 自动识别 Codex / Claude Code / Cursor / Antigravity / opencode / Hermes / generic agent 来源，统一走 evidence packet -> candidate layer
 - `tools/mem-distill/`: 既有 memory / observations 整理入口
 - `tools/grill-me/` / `tools/answer-me/` / `tools/ask-me/`: review 阶段可选协作者，不是默认主链依赖
 
@@ -179,13 +179,29 @@ AI IDE 用户不需要学习 CLI 命令清单。候选复核、确认、拒绝�
 
 ### Workflow Skill Boundary
 
-默认主链是：
+用户只有一条默认主链：`/hm:distill` / 自然语言等价入口。Agent 不要求用户区分 Codex、Claude Code、Cursor、Antigravity、opencode、Hermes 或 generic agent 历史；入口统一调 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根>)`，由 runtime 自动识别可用来源并返回 evidence packet。
 
 ```text
-session-distill -> packet-memory-export -> memory-drafts review -> knowledge-base / sync-list / local-only
+prepare_session_distill
+-> auto-detect client/source and project-scoped sessions
+-> session-distill reads evidence
+-> suggest_memory_entry / suggest_rule / suggest_relation_fact
+-> list_candidates
+-> auto-review / confirm / reject
+-> final summary
 ```
 
 `grill-me`、`answer-me`、`ask-me` 和 `mem-distill` 只在已安装且场景匹配时接入 review 或整理阶段。任何一个外置协作者不可用时，主链仍应继续运行。
+
+维护类能力同样走 `/hm:*` 入口，而不是让用户记底层 CLI：
+
+| Slash | 用途 |
+|-------|------|
+| `/hm:mark <session-id> distilled [--keep-raw]` | 通过 session note / raw review / promotion / draft / KB guardrail 后关闭单个 session。 |
+| `/hm:prune --statuses distilled,skipped --source-missing` | 清理 raw 已不存在的 manifest 占位。 |
+| `/hm:review-kb --next 20` | 巡检 knowledge-base 条目稳定性。 |
+| `/hm:prune-kb --statuses stale,superseded` | 先备份，再清理 stale / superseded knowledge 条目。 |
+| `/hm:verify-entry <session-id|keyword>` | 定向复查命中知识条目。 |
 
 如果根目录里又冒出 `.pytest_cache/`、`.mypy_cache/`、`.ruff_cache/`、`.gstack/`、`.coverage` 或 `tmp-*`，可以把它们当成本地运行产物，不算项目主结构。
 
@@ -254,7 +270,7 @@ Agent 编排层
   ~/.harness-mem/data/
 
 适配器
-  Claude Code sessions, Codex archive/search sessions, future client adapters
+  auto-detected agent sessions: Codex, Claude Code, Cursor, Antigravity, opencode, Hermes, generic agent, future adapters
 ```
 
 REST API 不属于当前产品主路径，也不作为默认接入层维护。

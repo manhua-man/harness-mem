@@ -44,15 +44,13 @@ tags: [harness-mem, distill, memory, skill]
    - `client="auto"`
    - `limit=<count>`
    - `scope="project"`
-   - `project_root=<当前 Claude/Codex 工作区项目根目录>`（必须传；不要让 MCP server 用自己的进程 cwd 猜）
+   - `project_root=<当前 agent 工作区项目根目录>`（必须传；不要让 MCP server 用自己的进程 cwd 猜）
    - `observation_limit=5`
    - `max_chars_per_observation=6000`
 
    这个工具会一次性完成项目范围 ingest，并返回最近 observations 的 evidence packet。不要再手动调用 `timeline`、`get_observations`、`Bash`、`cmem`、`ls`、`cat` 或 `find` 去摸索同一批内容；只有 packet 为空或工具明确报错时才排障。
 
-   默认只 ingest 当前 agent 环境、当前项目路径匹配的会话：
-   - 在 Codex 环境下，使用 Codex rollout/archive 解析，并按 session `cwd` 过滤到当前项目路径
-   - 在 Claude Code 环境下，使用 Claude Code 项目会话目录
+   默认只 ingest 当前 agent 环境、当前项目路径匹配的会话。`client="auto"` 会自动识别 Codex、Claude Code、Cursor、Antigravity、opencode、Hermes 或 generic agent 入口，并按当前项目根过滤证据。
    - 只有用户明确要求全局历史时，才允许 `scope="all"`
 
 3. **启动仓库 Skill 做主动提炼**
@@ -102,7 +100,7 @@ tags: [harness-mem, distill, memory, skill]
 
 - `/hm:distill` 是默认闭环：整理、提炼、自动审核、处理低风险候选、给最终摘要
 - `/hm:review` 只作为复查/纠错/手动补救入口，不是日常必经流程
-- 不要把 `codex` / `codex-archive` 写死为默认来源；默认入口必须是 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根目录>)`
-- codex 历史是用户全局的，默认必须按当前项目路径过滤；跨项目导入必须由用户显式要求 `scope="all"`
+- 不要把具体客户端写死为默认来源；默认入口必须是 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根目录>)`
+- agent 历史可能是用户全局数据源，默认必须按当前项目路径过滤；跨项目导入必须由用户显式要求 `scope="all"`
 - 用户主路径是 Slash + MCP + Skill；CLI 只能作为开发者排障兜底
-- MCP server 的 cwd 不等于 Claude/Codex 当前项目目录；调用 `prepare_session_distill` / `ingest_sessions` 时必须显式传 `project_root`
+- MCP server 的 cwd 不等于当前 agent 项目目录；调用 `prepare_session_distill` / `ingest_sessions` 时必须显式传 `project_root`

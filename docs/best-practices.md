@@ -80,17 +80,18 @@ AI 应通过 MCP `create_task_handoff` 记录任务交接；不要把终端 hand
 
 ## 7. 历史记忆激活 (Legacy Activation)
 
-如果你拥有大量的 Codex 历史归档（`rollout-*.jsonl`），默认也只能把“当前项目路径相关”的会话注入新项目。Codex archive 是用户级全局数据源，不能在项目目录里无脑全扫。
+如果你拥有大量的 agent 历史归档或跨客户端会话记录，默认也只能把“当前项目路径相关”的会话注入新项目。agent 历史可能是用户级全局数据源，不能在项目目录里无脑全扫。
 
 - **批量导入**：
   ```bash
   /hm:distill <project> 20
   ```
 - **显式全局导入**：
-  仅在开发者排障或用户明确要求跨项目历史时，让 Agent 执行跨项目 archive ingest，并在最终摘要里说明范围。
+  仅在开发者排障或用户明确要求跨项目历史时，让 Agent 执行跨项目 ingest，并在最终摘要里说明范围。
 - **工作流建议**：
   1. 用户日常运行 `/hm:distill`；Agent 在背后一次性完成项目范围 ingest 并拿到 evidence packet。
   2. 需要高质量结构化记忆时，使用 `session-distill` Skill 读取 packet，再通过 `suggest_*` / `create_task_handoff` 写入候选层。
+  3. 需要关闭、巡检或清理蒸馏资产时，用 `/hm:mark`、`/hm:prune`、`/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry` 这些 Slash 管理入口；不要把底层脚本当作用户工作流。
   3. 写入候选后，`/hm:distill` 同一轮读取 `list_candidates`，自动确认低风险事实、拒绝噪声，只把真正高风险或证据不足项放进最终摘要。
   4. 历史记忆会带有 `archive` 标签，方便在搜索时识别溯源。
 

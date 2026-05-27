@@ -97,7 +97,13 @@ from harness_mem.commands.auto_review import auto_review_candidates  # noqa: E40
 from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
 from harness_mem.commands.metabolism_pass import select_metabolism_pass  # noqa: E402
 from harness_mem.commands.retrieval_signals import record_retrieval_signal  # noqa: E402
-from harness_mem.commands.support import get_active_project, set_active_project  # noqa: E402
+from harness_mem.commands.support import (  # noqa: E402
+    SUPPORTED_INGEST_CLIENTS,
+    get_active_project,
+    normalize_client_name,
+    resolve_ingest_client,
+    set_active_project,
+)
 from harness_mem.commands.replay_window import (  # noqa: E402
     ReplayBudget,
     ReplayWindow,
@@ -1090,17 +1096,18 @@ def tool_ingest_sessions(
     project_root: str | None = None,
 ) -> dict:
     """Ingest sessions through MCP so users do not need to drive CLI commands."""
-    if client not in {"auto", "claude-code", "codex", "codex-archive"}:
+    normalized_client = normalize_client_name(client)
+    if normalized_client not in SUPPORTED_INGEST_CLIENTS:
         return {
             "success": False,
-            "error": "client must be one of: auto, claude-code, codex, codex-archive",
+            "error": "client must be one of: auto, agent, claude-code, codex, codex-archive, cursor, antigravity, opencode, hermes",
         }
     if scope not in {"project", "all"}:
         return {"success": False, "error": "scope must be one of: project, all"}
 
     payload = _run_command_to_payload(
         cmd_ingest(
-            client,
+            normalized_client,
             project_name,
             limit,
             full_rescan,
@@ -1110,7 +1117,8 @@ def tool_ingest_sessions(
     )
     return {
         "project_name": project_name,
-        "client": client,
+        "client": normalized_client,
+        "resolved_client": resolve_ingest_client(normalized_client),
         "scope": scope,
         "limit": limit,
         **payload,
@@ -1161,10 +1169,11 @@ def tool_prepare_session_distill(
     suggest_* tools. Keeping the discovery work in one MCP call avoids slash
     commands probing files, shell aliases, timeline, and observation IDs by hand.
     """
-    if client not in {"auto", "claude-code", "codex", "codex-archive"}:
+    normalized_client = normalize_client_name(client)
+    if normalized_client not in SUPPORTED_INGEST_CLIENTS:
         return {
             "success": False,
-            "error": "client must be one of: auto, claude-code, codex, codex-archive",
+            "error": "client must be one of: auto, agent, claude-code, codex, codex-archive, cursor, antigravity, opencode, hermes",
         }
     if scope not in {"project", "all"}:
         return {"success": False, "error": "scope must be one of: project, all"}
@@ -1181,7 +1190,7 @@ def tool_prepare_session_distill(
     if run_ingest:
         ingest_payload = tool_ingest_sessions(
             project_name=project_name,
-            client=client,
+            client=normalized_client,
             limit=effective_limit,
             full_rescan=full_rescan,
             scope=scope,
@@ -1221,7 +1230,8 @@ def tool_prepare_session_distill(
         "success": bool(packet_observations) or bool(ingest_payload.get("success")),
         "project_name": project_name,
         "project_root": project_root,
-        "client": client,
+        "client": normalized_client,
+        "resolved_client": resolve_ingest_client(normalized_client),
         "scope": scope,
         "limit": effective_limit,
         "ingest": ingest_payload,

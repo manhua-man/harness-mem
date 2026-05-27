@@ -22,13 +22,13 @@ Use it when a memory draft is plausible but does not yet have enough supporting 
 
 ## Main Chain Boundary
 
-The durable memory promotion chain remains:
+The durable memory promotion chain remains the unified MCP candidate loop:
 
 ```text
-session-distill -> packet-memory-export -> memory-drafts review -> knowledge-base / sync-list / local-only
+prepare_session_distill(client="auto") -> session-distill -> suggest_* -> list_candidates -> auto-review / confirm / reject -> final summary
 ```
 
-`answer-me` can provide missing evidence during `memory-drafts review`, but it does not approve, reject, or sync memory entries.
+`answer-me` can provide missing evidence during candidate review, but it does not approve, reject, or sync memory entries.
 
 ## When To Use
 
@@ -49,6 +49,6 @@ Return a compact evidence answer with:
 ## Non-Goals
 
 - Do not promote memory entries.
-- Do not create sync-list entries.
+- Do not create candidate or durable memory entries.
 - Do not rewrite draft conclusions beyond evidence-scoped wording.
 - Do not make `session-distill` depend on this skill.
