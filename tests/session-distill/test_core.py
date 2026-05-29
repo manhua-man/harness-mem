@@ -91,7 +91,12 @@ class SessionDistillCoreTests(unittest.TestCase):
             },
         ]
 
-    def write_good_note(self, session_name, raw_review="Raw transcript reviewed: yes"):
+    def write_good_note(
+        self,
+        session_name,
+        raw_review="Raw transcript reviewed: yes",
+        summary="Reviewed the packet and source.",
+    ):
         note_path = self.module.DISTILLED_DIR / f"{session_name}.md"
         note_path.write_text(
             "\n".join(
@@ -105,7 +110,7 @@ class SessionDistillCoreTests(unittest.TestCase):
                     f"- {raw_review}",
                     "",
                     "## Summary",
-                    "- Reviewed the packet and source.",
+                    f"- {summary}",
                     "",
                     "## Verification From Session",
                     "- Evidence supports the archival decision.",
@@ -367,6 +372,66 @@ class SessionDistillCoreTests(unittest.TestCase):
         self.assertEqual(0, result)
         self.assertIn("Recheck questions", output.getvalue())
         self.assertIn("current code/config/docs", output.getvalue())
+
+    def test_mark_distilled_reminds_when_kb_review_is_due(self):
+        self.write_jsonl("sample-session", self.make_turn_records(1))
+        self.bundle_session("sample-session", force=True)
+        self.write_good_note("sample-session")
+        entries = [
+            f"- Stable workflow {index} for packet review. [source: old-session-{index}]"
+            for index in range(1, 6)
+        ]
+        self.module.KNOWLEDGE_FILE.write_text("\n".join(entries) + "\n", encoding="utf-8")
+        self.module.KB_REVIEW_STATE_FILE.write_text(
+            json.dumps({"reviewed_at": "2026-05-01T00:00:00Z", "total_entries": 0}),
+            encoding="utf-8",
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = self.module.cmd_mark("sample-session", "distilled")
+
+        self.assertEqual(0, result)
+        self.assertIn("/hm:review-kb --next 20", output.getvalue())
+
+    def test_bundle_reminds_verify_entry_when_packet_hits_old_knowledge(self):
+        self.module.KNOWLEDGE_FILE.write_text(
+            "- Authentication token refresh workflow stays in project memory. [source: old-session]\n",
+            encoding="utf-8",
+        )
+        self.write_jsonl(
+            "sample-session",
+            self.make_turn_records(1, final_text="Authentication token refresh failed again."),
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            self.module.cmd_index(self.project_path)
+            result = self.module.cmd_bundle(self.project_path, next_count=1, force=True)
+
+        self.assertEqual(0, result)
+        self.assertIn("/hm:verify-entry", output.getvalue())
+        self.assertIn("authentication", output.getvalue())
+
+    def test_mark_distilled_reminds_verify_entry_when_note_hits_old_knowledge(self):
+        self.write_jsonl("sample-session", self.make_turn_records(1))
+        self.bundle_session("sample-session", force=True)
+        self.write_good_note(
+            "sample-session",
+            summary="Cache invalidation policy changed during review.",
+        )
+        self.module.KNOWLEDGE_FILE.write_text(
+            "- Cache invalidation policy should be verified before promotion. [source: old-session]\n",
+            encoding="utf-8",
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = self.module.cmd_mark("sample-session", "distilled")
+
+        self.assertEqual(0, result)
+        self.assertIn("/hm:verify-entry", output.getvalue())
+        self.assertIn("cache", output.getvalue())
 
 
 if __name__ == "__main__":

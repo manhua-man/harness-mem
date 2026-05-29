@@ -39,6 +39,13 @@ The script writes its working files to the distillation workspace, which default
 - `/hm:prune-kb --statuses stale,superseded`: back up and remove stale or superseded knowledge entries.
 - `/hm:verify-entry <session-id|keyword>`: pull matching knowledge entries and grill-style recheck questions.
 
+## Lightweight Reminders
+
+- After `/hm:mark ... distilled`, suggest `/hm:review-kb --next 20` when the knowledge-base has gained at least 5 entries since the last recorded review.
+- If no review baseline exists yet, suggest `/hm:review-kb --next 20` once the knowledge-base reaches 5 entries.
+- After packet generation or note marking, suggest `/hm:verify-entry <keyword>` when new content overlaps older knowledge entries.
+- Reminders never mutate state by themselves; they are prompts for review, not gates.
+
 ## Cleanup
 
 Cleanup is a developer maintenance concern, not part of the user-facing distill flow.

@@ -153,6 +153,17 @@ Raw Sessions
 
 raw transcript 删除只由 `/hm:mark ... distilled` 的实现层在安全白名单内执行；`--keep-raw` 会保留 raw。raw 删除后 manifest 仍保留 `distilled/skipped` 状态和 `source_missing` / `raw_deleted_at`，避免重新进入待处理队列。
 
+### 半自动提醒
+
+这些提醒只出现在命令摘要里，不是强 gate，也不会自动清理 truth：
+
+- `/hm:mark ... distilled` 后，如果 `knowledge-base.md` 条目数相比上次 `/hm:review-kb` 新增达到 5 条，会提示跑 `/hm:review-kb --next 20`。
+- 如果还没有 review baseline，但 knowledge-base 已有至少 5 条，也会提示先跑一次 `/hm:review-kb --next 20` 建基线。
+- 新 packet 生成后，若 packet 关键词命中旧 knowledge 条目，会提示 `/hm:verify-entry <keyword>`。
+- 新 note mark 后，若 note 关键词命中旧 knowledge 条目，也会提示 `/hm:verify-entry <keyword>`。
+
+提醒的作用是让用户或 Agent 想起来复查，不要把它升级成自动 prune、自动 supersede 或多轮追问。
+
 ## Memory Metabolism preview (v2.3.0)
 
 > 详细行为见 `openspec/changes/v230-signals-and-replay-windows/design.md`，归档后位于 `openspec/specs/memory-metabolism/spec.md`。

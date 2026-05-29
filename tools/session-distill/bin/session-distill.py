@@ -57,6 +57,30 @@ PRD_DECISION_LOG = DISTILL_DIR / "prd-decision-log-candidate.md"
 
 DEFAULT_RUN_NEXT = 3
 DEFAULT_LIST_MIN_SIZE_KB = 100
+KB_REVIEW_REMINDER_THRESHOLD = 5
+VERIFY_REMINDER_LIMIT = 5
+KEYWORD_STOPWORDS = {
+    "assistant",
+    "content",
+    "distilled",
+    "distillation",
+    "evidence",
+    "final",
+    "knowledge",
+    "metadata",
+    "packet",
+    "project",
+    "request",
+    "response",
+    "review",
+    "session",
+    "source",
+    "summary",
+    "tools",
+    "transcript",
+    "turn",
+    "user",
+}
 REQUIRED_NOTE_SECTIONS = (
     "Source",
     "Raw Review",
@@ -240,6 +264,11 @@ def cmd_bundle(
 
         print(f"  -> Generating: {session_id}")
         generate_packet(session, packet_path)
+        maybe_print_verify_entry_reminder(
+            session_id,
+            packet_path.read_text(encoding="utf-8", errors="replace"),
+            trigger="packet",
+        )
         session["status"] = "bundled"
         session["bundle_path"] = str(packet_path)
         count += 1
@@ -610,6 +639,15 @@ def cmd_mark(session_id: str, status: str, keep_raw: bool = False) -> int:
         print("  -> raw source marked missing/deleted; manifest keeps distilled state")
     elif status == "distilled" and session.get("raw_retained_reason"):
         print(f"  -> raw source retained: {session['raw_retained_reason']}")
+    if status == "distilled":
+        note_path = note_path_for(session_id, session)
+        if note_path.exists():
+            maybe_print_verify_entry_reminder(
+                session_id,
+                note_path.read_text(encoding="utf-8", errors="replace"),
+                trigger="session note",
+            )
+        maybe_print_kb_review_reminder()
     print("==> Mark done")
     return 0
 
@@ -743,6 +781,103 @@ def parse_knowledge_entries() -> list[KnowledgeEntry]:
             )
         )
     return entries
+
+
+def load_kb_review_state() -> Optional[dict[str, Any]]:
+    if not KB_REVIEW_STATE_FILE.exists():
+        return None
+    try:
+        payload = json.loads(KB_REVIEW_STATE_FILE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def maybe_print_kb_review_reminder() -> None:
+    entries = parse_knowledge_entries()
+    current_count = len(entries)
+    if current_count == 0:
+        return
+
+    state = load_kb_review_state()
+    if not state:
+        if current_count < KB_REVIEW_REMINDER_THRESHOLD:
+            return
+        print("")
+        print("==> Reminder: knowledge-base has not been reviewed yet")
+        print(f"  Entries now: {current_count}")
+        print("  Suggested: /hm:review-kb --next 20")
+        return
+
+    previous_count = int(state.get("total_entries") or 0)
+    delta = current_count - previous_count
+    if delta < KB_REVIEW_REMINDER_THRESHOLD:
+        return
+
+    reviewed_at = state.get("reviewed_at", "unknown")
+    print("")
+    print("==> Reminder: knowledge-base review is due")
+    print(f"  Last review: {reviewed_at} at {previous_count} entries")
+    print(f"  Entries now: {current_count} (+{delta})")
+    print("  Suggested: /hm:review-kb --next 20")
+
+
+def extract_keywords(text: str) -> list[str]:
+    tokens = re.findall(r"[A-Za-z][A-Za-z0-9_-]{3,}|[\u4e00-\u9fff]{2,}", text.lower())
+    seen: set[str] = set()
+    keywords: list[str] = []
+    for token in tokens:
+        normalized = token.strip("_-")
+        if not normalized or normalized in KEYWORD_STOPWORDS:
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        keywords.append(normalized)
+    return keywords
+
+
+def related_knowledge_entries(
+    text: str,
+    source_session_id: str,
+    limit: int = VERIFY_REMINDER_LIMIT,
+) -> list[tuple[KnowledgeEntry, list[str]]]:
+    keywords = extract_keywords(text)
+    if not keywords:
+        return []
+
+    matches: list[tuple[KnowledgeEntry, list[str]]] = []
+    for entry in parse_knowledge_entries():
+        if entry.source_session_id == source_session_id:
+            continue
+        lower = entry.text.lower()
+        hits = [keyword for keyword in keywords if keyword in lower]
+        if len(hits) >= 2:
+            matches.append((entry, hits[:5]))
+
+    matches.sort(key=lambda item: (-len(item[1]), item[0].line_no))
+    return matches[:limit]
+
+
+def maybe_print_verify_entry_reminder(
+    source_session_id: str,
+    text: str,
+    trigger: str,
+) -> None:
+    matches = related_knowledge_entries(text, source_session_id)
+    if not matches:
+        return
+
+    print("")
+    print(f"==> Reminder: {trigger} overlaps existing knowledge")
+    for entry, hits in matches:
+        source = entry.source_session_id or "none"
+        query = hits[0]
+        print(
+            f"  - line {entry.line_no} [{entry.status}] "
+            f"source={source} hits={', '.join(hits)}"
+        )
+        print(f"    Suggested: /hm:verify-entry {query}")
 
 
 def cmd_review_kb(next_count: int) -> int:

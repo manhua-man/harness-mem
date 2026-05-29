@@ -28,6 +28,7 @@ tags: [harness-mem, review-kb, knowledge-base]
    - stale 数量
    - superseded 数量
    - 下次建议：是否需要 `/hm:verify-entry` 或 `/hm:prune-kb`
+   - 本次 review 会更新后续 `/hm:mark` 的“新增 5 条后提醒”基线
 
 **Notes**
 

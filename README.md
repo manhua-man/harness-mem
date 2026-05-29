@@ -203,6 +203,8 @@ prepare_session_distill
 | `/hm:prune-kb --statuses stale,superseded` | 先备份，再清理 stale / superseded knowledge 条目。 |
 | `/hm:verify-entry <session-id|keyword>` | 定向复查命中知识条目。 |
 
+系统会做轻提醒：`/hm:mark ... distilled` 后，如果 knowledge-base 相比上次 `/hm:review-kb` 新增达到 5 条，会提示巡检；新 packet 或新 note 与旧 knowledge 关键词重合时，会提示 `/hm:verify-entry`。提醒只进摘要，不会自动清理或打断主链。
+
 如果根目录里又冒出 `.pytest_cache/`、`.mypy_cache/`、`.ruff_cache/`、`.gstack/`、`.coverage` 或 `tmp-*`，可以把它们当成本地运行产物，不算项目主结构。
 
 ---

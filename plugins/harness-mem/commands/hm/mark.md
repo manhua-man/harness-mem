@@ -32,8 +32,10 @@ tags: [harness-mem, mark, distill, audit]
    - session 已落 `distilled`
    - raw 是否删除、保留或因非白名单路径未删除
    - manifest 是否保留 `source_missing` / `raw_deleted_at`
+   - 是否出现 `/hm:review-kb` 或 `/hm:verify-entry` 轻提醒
 
 **Notes**
 
 - 不要把这包装成让用户手敲 CLI；slash agent 自己调用实现层。
 - raw 删除只允许实现层的安全白名单执行；非白名单 raw 保留并说明原因。
+- 轻提醒不是强制步骤；只有用户要求或当前任务需要时才继续执行提醒里的复查入口。
