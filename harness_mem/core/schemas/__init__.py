@@ -15,6 +15,12 @@ from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.core.schemas.metabolism_run import MetabolismRun
+from harness_mem.core.schemas.reflection_job import (
+    ALLOWED_TRANSITIONS,
+    ReflectionJob,
+    new_pending_job,
+    validate_transition,
+)
 from harness_mem.core.schemas.retrieval_signal import (
     RetrievalSignal,
     VALID_SIGNAL_TYPES,
@@ -36,6 +42,10 @@ __all__ = [
     "ProjectProfile",
     "RelationFact",
     "MetabolismRun",
+    "ReflectionJob",
+    "ALLOWED_TRANSITIONS",
+    "new_pending_job",
+    "validate_transition",
     "RetrievalSignal",
     "VALID_SIGNAL_TYPES",
     "VALID_TARGET_KINDS",

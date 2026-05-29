@@ -777,6 +777,83 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["project_name", "task_id", "summary", "status"],
         },
     },
+    "list_reflection_jobs": {
+        "description": (
+            "Read-only list of v2.4.0 reflection jobs for a project. "
+            "Filters by project_name, status, and kind; orders by "
+            "created_at descending. Default limit 50, max 200 (limit "
+            "is clamped server-side). Returns ``{success, jobs}`` where "
+            "``jobs`` is a list of ReflectionJob.to_dict() payloads — "
+            "empty when no jobs match. Invalid status / kind values "
+            "return ``{success: false, error}`` listing the valid set. "
+            "This tool never mutates job state."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Filter by project name (optional)",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "pending",
+                        "processing",
+                        "completed",
+                        "failed",
+                        "retryable",
+                        "needs_distill",
+                    ],
+                    "description": "Filter by job status (optional)",
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": ["reflection"],
+                    "description": "Filter by job kind (optional, v2.4.0 only allows 'reflection')",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum jobs to return (default 50, max 200, clamped server-side)",
+                    "default": 50,
+                },
+            },
+        },
+    },
+    "get_reflection_job": {
+        "description": (
+            "Read-only fetch of a single v2.4.0 reflection job by id. "
+            "Returns ``{success: true, job}`` where ``job`` is the full "
+            "ReflectionJob.to_dict() payload, or "
+            "``{success: false, error}`` when the id does not exist. "
+            "This tool never mutates job state."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "string",
+                    "description": "Reflection job id to fetch",
+                },
+            },
+            "required": ["job_id"],
+        },
+    },
+    "health_summary": {
+        "description": (
+            "Read-only project health summary (reflection queue + candidate "
+            "health + signal freshness + chronic failures + maintenance hints)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (defaults to active project when omitted).",
+                },
+            },
+        },
+    },
     "metabolism_preview": {
         "description": (
             "Preview the next metabolism run's input window without writing "

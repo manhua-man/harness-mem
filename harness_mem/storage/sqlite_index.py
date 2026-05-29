@@ -206,6 +206,21 @@ _TABLE_SCHEMAS = {
         metabolism_run_id TEXT NOT NULL,
         created_at TEXT NOT NULL
     """,
+    "reflection_jobs": """
+        id TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'reflection',
+        phase TEXT NOT NULL DEFAULT 'ingest',
+        status TEXT NOT NULL DEFAULT 'pending',
+        source TEXT NOT NULL,
+        idempotency_key TEXT,
+        data TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        lease_owner TEXT,
+        lease_until TEXT,
+        attempt_count INTEGER NOT NULL DEFAULT 0
+    """,
 }
 
 _COLUMN_MIGRATIONS = {
@@ -286,10 +301,11 @@ class SQLiteIndex:
             # Skip FTS for vec_embeddings (vector table doesn't need full-text search)
             if table_name == "vec_embeddings":
                 continue
-            # Skip FTS for metabolism_runs / retrieval_signals — they index
-            # structured signal rows, queried by (project, time, type) not by
-            # free text. Avoids a no-op FTS table and unused triggers.
-            if table_name in ("metabolism_runs", "retrieval_signals"):
+            # Skip FTS for metabolism_runs / retrieval_signals / reflection_jobs —
+            # they index structured rows, not full-text content.
+            if table_name in ("metabolism_runs", "retrieval_signals", "reflection_jobs"):
+                # structured signal rows, queried by (project, time, type) not by
+                # free text. Avoids a no-op FTS table and unused triggers.
                 continue
             # Skip FTS for the v2.3.1 suggestion candidate tables — they are
             # filter/sort indexes only; full content (proposed_content,

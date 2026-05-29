@@ -94,6 +94,7 @@ from typing import Any, cast  # noqa: E402
 
 from harness_mem import __version__ as _HARNESS_MEM_VERSION  # noqa: E402
 from harness_mem.commands.auto_review import auto_review_candidates  # noqa: E402
+from harness_mem.commands.doctor import health_summary  # noqa: E402
 from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
 from harness_mem.commands.metabolism_pass import select_metabolism_pass  # noqa: E402
 from harness_mem.commands.retrieval_signals import record_retrieval_signal  # noqa: E402
@@ -1874,6 +1875,114 @@ def tool_create_task_handoff(
 
 
 # =============================================================================
+# REFLECTION JOB VISIBILITY (v2.4.0, Req 7)
+# =============================================================================
+
+# Mirrors the Literal sets on ReflectionJob so we can validate caller
+# input without importing the schema at module-import time. Source of
+# truth for the values is harness_mem.core.schemas.reflection_job.
+_VALID_REFLECTION_JOB_STATUSES: frozenset[str] = frozenset(
+    {"pending", "processing", "completed", "failed", "retryable", "needs_distill"}
+)
+_VALID_REFLECTION_JOB_KINDS: frozenset[str] = frozenset({"reflection"})
+
+# Caller-facing limit window per Req 7.1 — default 50, hard ceiling 200.
+_REFLECTION_JOB_LIST_DEFAULT_LIMIT = 50
+_REFLECTION_JOB_LIST_MAX_LIMIT = 200
+
+
+def tool_list_reflection_jobs(
+    project_name: str | None = None,
+    status: str | None = None,
+    kind: str | None = None,
+    limit: int = _REFLECTION_JOB_LIST_DEFAULT_LIMIT,
+) -> dict:
+    """List recent reflection jobs (Req 7.1, 7.3, 7.5, 7.6).
+
+    Read-only filtered listing. Status / kind values outside the schema's
+    Literal sets short-circuit with ``{success: false, error}`` listing
+    the valid options (Req 7.5). The ``limit`` is clamped server-side to
+    ``[1, 200]`` so a caller asking for ``limit=500`` still gets at most
+    200 rows (Req 7.1).
+    """
+    if status is not None and status not in _VALID_REFLECTION_JOB_STATUSES:
+        valid = ", ".join(sorted(_VALID_REFLECTION_JOB_STATUSES))
+        return {
+            "success": False,
+            "error": f"Invalid status: {status!r}. Valid values: {valid}.",
+        }
+    if kind is not None and kind not in _VALID_REFLECTION_JOB_KINDS:
+        valid = ", ".join(sorted(_VALID_REFLECTION_JOB_KINDS))
+        return {
+            "success": False,
+            "error": f"Invalid kind: {kind!r}. Valid values: {valid}.",
+        }
+
+    # Clamp limit to [1, 200]. Anything non-int has already been coerced
+    # by the JSON-RPC parameter handling layer; if it ever isn't, fall
+    # back to the default rather than 500'ing.
+    try:
+        clamped = int(limit)
+    except (TypeError, ValueError):
+        clamped = _REFLECTION_JOB_LIST_DEFAULT_LIMIT
+    clamped = max(1, min(clamped, _REFLECTION_JOB_LIST_MAX_LIMIT))
+
+    backend = _get_backend()
+    jobs = backend.reflection_job_store.list(
+        project_name=project_name,
+        status=status,
+        kind=kind,
+        limit=clamped,
+    )
+    return {
+        "success": True,
+        "jobs": [job.to_dict() for job in jobs],
+    }
+
+
+def tool_get_reflection_job(job_id: str) -> dict:
+    """Fetch a single reflection job by id (Req 7.2, 7.4, 7.6).
+
+    Read-only. Returns the full ``to_dict()`` payload on hit; on miss
+    surfaces ``{success: false, error}`` with a "not found" message so
+    Agents can branch on the result without parsing message text
+    (Req 7.4).
+    """
+    backend = _get_backend()
+    job = backend.reflection_job_store.get(job_id)
+    if job is None:
+        return {
+            "success": False,
+            "error": f"Reflection job not found: {job_id}",
+        }
+    return {
+        "success": True,
+        "job": job.to_dict(),
+    }
+
+
+def tool_health_summary(project_name: str | None = None) -> dict:
+    """Read-only combined v2.4.0 + v2.4.2 project health summary (Req 6).
+
+    Resolves the active project when ``project_name`` is omitted, then wraps
+    the ``health_summary`` orchestrator's payload in the standard ``success``
+    envelope. The orchestrator is total (never raises) and self-heals each
+    failed category into a ``{"warnings": [...]}`` slice (Req 6.7), so this
+    handler only needs to guard the project-resolution precondition. No
+    ``print`` here per project rule P0 (MCP stdio protection).
+    """
+    resolved = (project_name or "").strip() or get_active_project()
+    if not resolved:
+        return {
+            "success": False,
+            "error": "project_name is required when no active project is set",
+        }
+    backend = _get_backend()
+    payload = asyncio.run(health_summary(backend, resolved))
+    return {"success": True, "project_name": resolved, **payload}
+
+
+# =============================================================================
 # MCP TOOL REGISTRY
 # =============================================================================
 
@@ -1924,6 +2033,9 @@ TOOLS: dict[str, ToolSpec] = build_tools({
     "confirm_relation_fact": tool_confirm_relation_fact,
     "reject_relation_fact": tool_reject_relation_fact,
     "create_task_handoff": tool_create_task_handoff,
+    "list_reflection_jobs": tool_list_reflection_jobs,
+    "get_reflection_job": tool_get_reflection_job,
+    "health_summary": tool_health_summary,
 })
 
 
