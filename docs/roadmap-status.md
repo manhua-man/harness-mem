@@ -10,18 +10,17 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.3.1` |
-| `harness_mem/__init__.py` | `2.3.1` |
-| `CHANGELOG.md` | 已有 `2.3.1` 段 |
+| `pyproject.toml` | `2.4.3` |
+| `harness_mem/__init__.py` | `2.4.3` |
+| `CHANGELOG.md` | 已有 `2.4.3` 段 |
 
-当前收口基线是 v2.3.1：v2.3.0 signals / replay 已发布，v2.3.1 metabolism suggestion pass
-已完成实现与验证。日常用户入口仍保持 v2.2 契约：Slash / Skill / 自然语言优先，
-CLI 仍是 maintenance console。
+当前收口基线是 v2.4.3：v2.4.0–v2.4.3 的 host-triggered reflection 全线（job model、
+host 入口契约、queue health/doctor、维护 CLI）已实现、验证并发版。日常用户入口仍保持
+v2.2 契约：Slash / Skill / 自然语言优先，CLI 仍是 maintenance console。
 
-> **v2.4 实现状态（2026-05-30）**：v2.4.0 / v2.4.1 / v2.4.2 / v2.4.3 四个切片的代码与
-> 测试已全部落地并验证通过（见下方完成矩阵），但 `pyproject.toml` /
-> `harness_mem.__version__` **仍标记 `2.3.1`，版本号尚未 bump，改动尚未提交/发版**。
-> 因此当前「已发布基线」仍是 v2.3.1；v2.4.x 属于「代码完成、待发版」状态。
+> **v2.4 发版状态（2026-05-30）**：版本号已从 `2.3.1` bump 到 `2.4.3`，`CHANGELOG.md`
+> 已收口 v2.4.0–v2.4.3 发版段。v2.4 默认 `triggers.* = off`，不改变现有 wake/search
+> 行为，也不启用 always-on daemon。
 
 ## 完成矩阵
 
@@ -37,11 +36,11 @@ CLI 仍是 maintenance console。
 | v2.1.0 | 已完成 | CLI parser 只暴露 maintenance 命令；REST package/tests 删除；README/AGENTS/OpenSpec 已围绕 Slash/Skill/Agent workflow 重写 | breaking surface cleanup；MCP tool signatures 与 data schema 保持稳定。 |
 | v2.2.0 | 已完成 | `plugins/harness-mem/commands/hm/*.md`、`plugins/harness-mem/skills/harness-mem/SKILL.md`、`docs/v2-user-test-packet.md`、loop harness tests | 用户入口稳定为 Slash / Skill / 自然语言；CLI 仍是 maintenance console；无后台 daemon。 |
 | v2.3.0 | 已完成 | `RetrievalSignal`、`MetabolismRun`、replay window selector、`metabolism_preview` MCP tool、OpenSpec `metabolism` spec | 只读 preview / signal 地基；不写 suggestion、不改 truth。 |
-| v2.3.1 | 当前收口基线 | `MergeSuggestionCandidate`、`StaleTruthSuggestionCandidate`、`metabolism_run` MCP tool、weak-link signal opt-in、token trim、calibration tests | 生成 reviewable suggestions；默认不改变 wake/search 行为，`weak_link_signals` 需 opt-in。 |
-| v2.4.0 | 代码完成、待发版 | `ReflectionJob` schema / 状态机、processing lease、provenance（`user\|agent\|ide_hook\|scheduler`）、retry policy、job list/read MCP helper、`test_reflection_*.py`（121）、`test_mcp_reflection_jobs.py`（10） | host-triggered reflection 的 job 生命周期地基；不引入常驻 worker；不暴露 `harness-mem reflection` 业务子命令。 |
-| v2.4.1 | 代码完成、待发版 | `harness_mem/config/`（errors + `load_merged_config` + `MergedConfig`）、`harness_mem/host_entry/`（argparse + 输出契约 + exit codes）、`test_config_errors.py`、`test_load_merged_config.py`（27）、`test_host_entry_*.py`（90+，含 contract / default-off / interruption / smoke） | host 入口只走 `python -m harness_mem.host_entry`，集成测试断言 hook 模板不出现 `harness-mem` 可执行调用；config `off` 时零 job/candidate 副作用。 |
-| v2.4.2 | 代码完成、待发版 | doctor queue / stale candidate / signal freshness / chronic failures checks、maintenance hints、结构化 health summary、`test_doctor_queue_health.py`、`test_candidate_health.py`、`test_signal_freshness.py`、`test_chronic_failures.py`、`test_maintenance_hints.py`、`test_health_summary.py` | 只读健康报告；不自动修复、不改 truth。 |
-| v2.4.3 | 代码完成、待发版 | `config get/set/list/validate`、`integration install-cursor-hook` / `install-claude-hook`、`harness_mem/config/writer.py`（tomli_w）、`harness_mem/integration/`（模板 + installer + 边界自检）、`docs/cli/v2.4.md`、hook 边界契约测试 + scope guard（127 全绿） | 维护子命令只读/写 toml；生成的 hook 仅嵌入 `python -m harness_mem.host_entry --source ide_hook`，从不调 `harness-mem` 控制台脚本；CLI 维持 maintenance-only。 |
+| v2.3.1 | 已完成 | `MergeSuggestionCandidate`、`StaleTruthSuggestionCandidate`、`metabolism_run` MCP tool、weak-link signal opt-in、token trim、calibration tests | 生成 reviewable suggestions；默认不改变 wake/search 行为，`weak_link_signals` 需 opt-in。 |
+| v2.4.0 | 已完成（v2.4.3 收口发版） | `ReflectionJob` schema / 状态机、processing lease、provenance（`user\|agent\|ide_hook\|scheduler`）、retry policy、job list/read MCP helper、`test_reflection_*.py`（121）、`test_mcp_reflection_jobs.py`（10） | host-triggered reflection 的 job 生命周期地基；不引入常驻 worker；不暴露 `harness-mem reflection` 业务子命令。 |
+| v2.4.1 | 已完成（v2.4.3 收口发版） | `harness_mem/config/`（errors + `load_merged_config` + `MergedConfig`）、`harness_mem/host_entry/`（argparse + 输出契约 + exit codes）、`test_config_errors.py`、`test_load_merged_config.py`（27）、`test_host_entry_*.py`（90+，含 contract / default-off / interruption / smoke） | host 入口只走 `python -m harness_mem.host_entry`，集成测试断言 hook 模板不出现 `harness-mem` 可执行调用；config `off` 时零 job/candidate 副作用。 |
+| v2.4.2 | 已完成（v2.4.3 收口发版） | doctor queue / stale candidate / signal freshness / chronic failures checks、maintenance hints、结构化 health summary、`test_doctor_queue_health.py`、`test_candidate_health.py`、`test_signal_freshness.py`、`test_chronic_failures.py`、`test_maintenance_hints.py`、`test_health_summary.py` | 只读健康报告；不自动修复、不改 truth。 |
+| v2.4.3 | 当前收口基线 | `config get/set/list/validate`、`integration install-cursor-hook` / `install-claude-hook`、`harness_mem/config/writer.py`（tomli_w）、`harness_mem/integration/`（模板 + installer + 边界自检）、`docs/cli/v2.4.md`、hook 边界契约测试 + scope guard（127 全绿） | 维护子命令只读/写 toml；生成的 hook 仅嵌入 `python -m harness_mem.host_entry --source ide_hook`，从不调 `harness-mem` 控制台脚本；CLI 维持 maintenance-only。 |
 
 ## 未完成 / 不做项
 
@@ -78,9 +77,8 @@ v2.2 已完成用户入口闭环，但当前产品仍不是后台自学习或自
 再做 v2.4 reflection queue，随后是 v2.5 context assembly、v2.6 wiki/contradiction，
 最后再进入 v2.7 cross-project skill。
 
-v2.4 reflection queue 四个切片（v2.4.0–v2.4.3）的代码与测试已落地并验证通过，
-但版本号尚未 bump、改动尚未发版——已发布基线仍是 v2.3.1。v2.4 默认 `triggers.* = off`，
-不改变现有 wake/search 行为，也不启用 always-on daemon。
+v2.4 reflection queue 四个切片（v2.4.0–v2.4.3）已实现、验证并发版（当前基线 v2.4.3）。
+v2.4 默认 `triggers.* = off`，不改变现有 wake/search 行为，也不启用 always-on daemon。
 
 优先级依据是：没有 signals 就无法 replay；没有 queue health 就无法安全 reflection；
 没有 context assembly，更多 memory / skill 只会变成可搜索对象而不是真正可控的 agent memory。

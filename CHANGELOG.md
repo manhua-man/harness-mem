@@ -6,12 +6,40 @@
 
 ## [Unreleased]
 
+---
+
+## [2.4.3] — 2026-05-30
+
+**主题：Host-triggered Reflection 全线落地 + 维护 CLI — v2.4.0 到 v2.4.3**
+
+v2.4 把 reflection / distill 这类较重任务收敛成一套**安全的 host-triggered 闭环**：由 user / Agent / IDE hook / scheduler 在配置允许时触发，默认 `triggers.* = off` 时零副作用；人通过维护子命令管配置、装 hook；hook 只调 `python -m harness_mem.host_entry`，从不调 `harness-mem` 控制台脚本。整条线遵守 candidate-before-truth，不引入 always-on daemon。本版本号一次性收口 v2.4.0–v2.4.3 四个切片。
+
 ### Added
 
-- **`/hm:*` distillation maintenance entries**: added `/hm:mark`, `/hm:prune`, `/hm:review-kb`, `/hm:prune-kb`, and `/hm:verify-entry` as first-class Slash-facing management actions while keeping the Python CLI as the implementation/test layer.
-- **Session-distill guardrails**: `mark ... distilled` now checks session notes, partial packet raw review, promotion decisions, pending memory drafts, and same-source knowledge-base stability before closing a session.
-- **Knowledge-base audit utilities**: added lightweight `stable / needs-review / stale / superseded` classification, targeted entry verification, and backup-before-prune cleanup for session-distill `knowledge-base.md`.
-- **Lightweight distillation reminders**: packet generation and session mark now suggest `/hm:verify-entry` when new content overlaps old knowledge, and `mark ... distilled` suggests `/hm:review-kb` when the knowledge base has grown by 5 entries since the last review.
+- **v2.4.0 Reflection Job Model**：`ReflectionJob` schema 与状态机（`pending / processing / completed / failed / retryable / needs_distill`）、processing lease（超时转 retryable）、provenance（`user | agent | ide_hook | scheduler` + project + phase + candidate ids）、retry policy（不重复写相同 candidate）、job list/read MCP helper。
+- **v2.4.1 Host-Triggered Reflection Contract**：`harness_mem/config/`（`errors` + `load_merged_config` + 冻结 `MergedConfig`，用户级/项目级 TOML deep-merge）、`harness_mem/host_entry/`（`python -m` 入口、argparse、`HostEntryResult` 输出契约、`ExitCode`）。MCP 与 host 入口共用同一业务实现，对同一 fixture 产出一致 job/ingest 结果。
+- **v2.4.2 Queue Health & Doctor**：doctor 的 queue / stale candidate / signal freshness / chronic failures 检查、maintenance hints、结构化 health summary（供 MCP 消费）。只读，不自动修复。
+- **v2.4.3 CLI Configuration & Integration**：`harness-mem config get/set/list/validate`（读经 `load_merged_config`，写经新增 `harness_mem/config/writer.py`，`tomli_w`）；`harness-mem integration install-cursor-hook` / `install-claude-hook`（`harness_mem/integration/` 模板 + installer + 边界自检）。`docs/cli/v2.4.md` 操作者参考。
+- **Embeddings opt-out 开关**：`HARNESS_MEM_DISABLE_EMBEDDINGS` 在 `persist_embedding` 与 hybrid search 路径跳过 SentenceTransformer/torch 加载，便于无模型 / CI 环境运行测试；env 未设时生产默认行为不变。
+- **Distillation 维护入口**：`/hm:mark`、`/hm:prune`、`/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry` 成为一等 Slash 管理动作；session-distill guardrails 与 knowledge-base 审计工具；轻量 distillation 提醒。
+
+### Changed
+
+- `harness-mem` CLI 顶层新增 `config` 与 `integration` 两个维护子命令；CLI 维持 maintenance-only，不暴露 `reflection / distill / ingest / wake` 业务子命令（scope guard 测试守卫）。
+- `pyproject.toml` 新增 `tomli_w>=1.0,<1.3` 运行时依赖（TOML 写入）。
+- `docs/roadmap-status.md` 补登 v2.4.0–v2.4.3 完成矩阵与边界。
+
+### Boundary / Non-Goals
+
+- 默认 `triggers.after_agent = off` / `triggers.scheduler = off`：装了 hook 也不会自动 reflection，需显式 `config set triggers.after_agent on --scope project` 才 opt-in。
+- 无 always-on daemon（`worker.mode=daemon` 须 opt-in 且无 CLI 安装器）。
+- 生成的 hook 只嵌入 `python -m harness_mem.host_entry --source ide_hook`，hook 失败 `exit 0` 不阻断 IDE 回合；host 触发不静默写 confirmed truth。
+
+### Test surface
+
+- v2.4.3 维护 CLI 面 127 passed；v2.4.1 config/host_entry 面 123 passed；v2.4.0–v2.4.2 回归 320 passed。
+- 全量非 benchmark 套件（`HARNESS_MEM_DISABLE_EMBEDDINGS=1`）881 passed / 7 skipped（7 项需真实 embedding 模型，已用 skip marker 守卫）。
+- ruff clean；mypy clean（host_entry / config / cli）。
 
 ---
 
