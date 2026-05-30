@@ -6,7 +6,7 @@ from harness_mem.commands.doctor import cmd_doctor
 from harness_mem.core.schemas import MemoryEntry
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.commands.support import set_active_project
-from tests.helpers import run
+from tests.helpers import requires_embeddings, run
 
 
 def test_doctor_detects_missing_vec_table(data_dir, capsys):
@@ -135,6 +135,7 @@ def test_doctor_detects_empty_vec_table(data_dir, capsys):
     run(_test())
 
 
+@requires_embeddings
 def test_doctor_detects_vector_dimension_mismatch(data_dir, capsys):
     """Doctor detects vectors whose dimensions do not match the current model."""
     async def _test():

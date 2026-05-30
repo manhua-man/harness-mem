@@ -35,7 +35,7 @@ def test_cli_help_only_lists_maintenance_console_commands():
     )
 
     assert result.returncode == 0
-    assert "{init,quickstart,qs,doctor,import,purge,maintenance}" in result.stdout
+    assert "{init,quickstart,qs,doctor,import,purge,maintenance,config,integration}" in result.stdout
     for removed in [
         "wake",
         "search",

@@ -7,6 +7,7 @@ from harness_mem.embedding.model_registry import (
 )
 from harness_mem.embedding.model_loader import (
     EmbeddingModelLoader,
+    embeddings_disabled,
     get_model_loader,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "SUPPORTED_MODELS",
     "get_model_spec",
     "EmbeddingModelLoader",
+    "embeddings_disabled",
     "get_model_loader",
 ]

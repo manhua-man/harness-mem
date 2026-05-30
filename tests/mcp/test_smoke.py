@@ -18,6 +18,7 @@ from harness_mem.storage.local_project_profile_store import LocalProjectProfileS
 from tests.helpers import (
     fake_embed_texts,
     patch_cli_adapters,
+    requires_embeddings,
     run,
     seed_search_backend,
     write_codex_archive_session,
@@ -921,6 +922,7 @@ def test_search_memory_scope_all_includes_project_context(mcp_backend: LocalMemo
     assert data["observations"][0]["tech_stack"] == ["python", "sqlite"]
 
 
+@requires_embeddings
 def test_search_memory_reports_effective_mode(
     mcp_backend: LocalMemoryBackend,
     monkeypatch: pytest.MonkeyPatch,

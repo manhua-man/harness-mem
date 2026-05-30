@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
+
+import pytest
 
 from harness_mem import cli
 from harness_mem.adapters import AdapterRegistry
@@ -14,6 +17,25 @@ from harness_mem.core.schemas import MemoryEntry, Observation
 
 def run(coro):
     return asyncio.run(coro)
+
+
+def _embeddings_disabled() -> bool:
+    """True when HARNESS_MEM_DISABLE_EMBEDDINGS opts embeddings out."""
+    return os.environ.get("HARNESS_MEM_DISABLE_EMBEDDINGS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+# Skip marker for tests that need a real embedding model (vector rows, hybrid
+# mode, dimension checks). When HARNESS_MEM_DISABLE_EMBEDDINGS is set the model
+# is never loaded, so these assertions cannot hold — skip rather than fail.
+requires_embeddings = pytest.mark.skipif(
+    _embeddings_disabled(),
+    reason="embeddings disabled via HARNESS_MEM_DISABLE_EMBEDDINGS",
+)
 
 
 def read_events(data_dir: Path) -> list[dict]:

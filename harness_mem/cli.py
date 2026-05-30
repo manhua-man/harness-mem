@@ -14,6 +14,10 @@ import sys
 from harness_mem import __version__
 from harness_mem.commands import (
     cmd_assign_memory_types,
+    cmd_config_get,
+    cmd_config_list,
+    cmd_config_set,
+    cmd_config_validate,
     cmd_correct,
     cmd_confirm_procedural,
     cmd_confirm_rule,
@@ -23,6 +27,8 @@ from harness_mem.commands import (
     cmd_handoff,
     cmd_import,
     cmd_ingest,
+    cmd_install_claude_hook,
+    cmd_install_cursor_hook,
     cmd_list_candidates,
     cmd_profile,
     cmd_profile_edit,
@@ -52,6 +58,10 @@ from harness_mem.adapters.codex.adapter import CodexAdapter  # noqa: F401
 __all__ = [
     "main",
     "cmd_assign_memory_types",
+    "cmd_config_get",
+    "cmd_config_set",
+    "cmd_config_list",
+    "cmd_config_validate",
     "cmd_correct",
     "cmd_confirm_procedural",
     "cmd_confirm_rule",
@@ -61,6 +71,8 @@ __all__ = [
     "cmd_handoff",
     "cmd_import",
     "cmd_ingest",
+    "cmd_install_cursor_hook",
+    "cmd_install_claude_hook",
     "cmd_list_candidates",
     "cmd_profile",
     "cmd_profile_edit",
@@ -175,6 +187,98 @@ def main():
     )
     maintenance.set_defaults(command_name="maintenance")
 
+    config = sub.add_parser(
+        "config",
+        help="Manage harness-mem TOML configuration files",
+        description=(
+            "Manage the user-level and project-level harness-mem TOML config "
+            "files. Note: v2.4 triggers default to 'off'; installing an IDE "
+            "hook does not by itself enable reflection. Opt in explicitly with "
+            "'config set triggers.after_agent on --scope project'."
+        ),
+    )
+    config.set_defaults(command_name="config")
+    config_sub = config.add_subparsers(dest="config_action")
+
+    config_get = config_sub.add_parser(
+        "get", help="Read a single merged configuration value"
+    )
+    config_get.add_argument("key", help="Dotted key path, e.g. triggers.after_agent")
+    config_get.add_argument("--project-root", help="Project directory (default: cwd)")
+
+    config_set = config_sub.add_parser(
+        "set", help="Write a single configuration value to a Config_File"
+    )
+    config_set.add_argument("key", help="Dotted key path, e.g. triggers.after_agent")
+    config_set.add_argument("value", help="Literal value to write")
+    config_set.add_argument(
+        "--scope",
+        choices=["user", "project"],
+        required=True,
+        help="Which Config_File to modify",
+    )
+    config_set.add_argument("--project-root", help="Project directory (default: cwd)")
+
+    config_list = config_sub.add_parser(
+        "list", help="Print every recognized key plus extras with source labels"
+    )
+    config_list.add_argument("--project-root", help="Project directory (default: cwd)")
+
+    config_validate = config_sub.add_parser(
+        "validate", help="Validate that the resolved Config_File set parses and merges"
+    )
+    config_validate.add_argument(
+        "--project-root", help="Project directory (default: cwd)"
+    )
+
+    integration = sub.add_parser(
+        "integration",
+        help="Install IDE hooks that invoke the v2.4.1 host entry",
+        description=(
+            "Generate IDE hook scripts that invoke 'python -m "
+            "harness_mem.host_entry'. Note: v2.4 triggers default to 'off'; "
+            "installing a hook does not by itself enable reflection. Opt in "
+            "explicitly with 'config set triggers.after_agent on --scope "
+            "project'."
+        ),
+    )
+    integration.set_defaults(command_name="integration")
+    integration_sub = integration.add_subparsers(dest="integration_action")
+
+    install_cursor = integration_sub.add_parser(
+        "install-cursor-hook",
+        help="Generate the Cursor after-agent hook script",
+        description=(
+            "Generate the Cursor after-agent hook at "
+            "<project_root>/.cursor/hooks/after-agent.sh. After install, opt in "
+            "via: harness-mem config set triggers.after_agent on --scope "
+            "project"
+        ),
+    )
+    install_cursor.add_argument(
+        "--project-root", help="Project directory (default: cwd)"
+    )
+    install_cursor.add_argument(
+        "--force", action="store_true", help="Overwrite an existing hook"
+    )
+
+    install_claude = integration_sub.add_parser(
+        "install-claude-hook",
+        help="Generate the Claude Code after-turn hook script",
+        description=(
+            "Generate the Claude Code after-turn hook at "
+            "<project_root>/.claude/hooks/after-turn.sh. After install, opt in "
+            "via: harness-mem config set triggers.after_agent on --scope "
+            "project"
+        ),
+    )
+    install_claude.add_argument(
+        "--project-root", help="Project directory (default: cwd)"
+    )
+    install_claude.add_argument(
+        "--force", action="store_true", help="Overwrite an existing hook"
+    )
+
     args = parser.parse_args()
     command = getattr(args, "command_name", args.command)
 
@@ -213,6 +317,30 @@ def main():
 
             return asyncio.run(cmd_rebuild_verbatim_index(args.project))
         parser.error(f"Unknown maintenance action: {args.action}")
+
+    if command == "config":
+        if args.config_action is None:
+            config.print_help()
+            return 0
+        if args.config_action == "get":
+            return cmd_config_get(args.key, args.project_root)
+        if args.config_action == "set":
+            return cmd_config_set(args.key, args.value, args.scope, args.project_root)
+        if args.config_action == "list":
+            return cmd_config_list(args.project_root)
+        if args.config_action == "validate":
+            return cmd_config_validate(args.project_root)
+        config.error(f"Unknown config action: {args.config_action}")
+
+    if command == "integration":
+        if args.integration_action is None:
+            integration.print_help()
+            return 0
+        if args.integration_action == "install-cursor-hook":
+            return cmd_install_cursor_hook(args.project_root, args.force)
+        if args.integration_action == "install-claude-hook":
+            return cmd_install_claude_hook(args.project_root, args.force)
+        integration.error(f"Unknown integration action: {args.integration_action}")
 
     return 0
 

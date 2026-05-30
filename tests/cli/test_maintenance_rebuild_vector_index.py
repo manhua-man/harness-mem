@@ -5,9 +5,10 @@ from __future__ import annotations
 from harness_mem.commands.maintenance import cmd_rebuild_vector_index
 from harness_mem.core.schemas import MemoryEntry
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from tests.helpers import run
+from tests.helpers import requires_embeddings, run
 
 
+@requires_embeddings
 def test_rebuild_vector_index_drops_and_recreates(data_dir):
     """Task 9.7: rebuild-vector-index drops and recreates table."""
     async def _test():

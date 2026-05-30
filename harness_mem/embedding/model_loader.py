@@ -1,9 +1,26 @@
 """Embedding model loader with lazy initialization."""
 
 from __future__ import annotations
+import os
 from typing import Any
 
 from harness_mem.embedding.model_registry import get_model_spec, ModelSpec
+
+_DISABLE_ENV_VAR = "HARNESS_MEM_DISABLE_EMBEDDINGS"
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def embeddings_disabled() -> bool:
+    """Return True when embedding model loading is disabled via env.
+
+    Set ``HARNESS_MEM_DISABLE_EMBEDDINGS`` to a truthy value (``1``, ``true``,
+    ``yes``, ``on``; case-insensitive) to skip all sentence-transformers model
+    loading. This is an opt-out escape hatch for environments where importing
+    the embedding stack hangs or is unavailable (for example a CI box without a
+    cached model, or a broken ``torch`` install). When set, embedding writes
+    and search-time embedding are skipped instead of loading the model.
+    """
+    return os.environ.get(_DISABLE_ENV_VAR, "").strip().lower() in _TRUTHY
 
 
 class EmbeddingModelLoader:

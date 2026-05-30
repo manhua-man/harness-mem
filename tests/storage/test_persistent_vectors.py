@@ -9,7 +9,7 @@ import pytest
 
 from harness_mem.core.schemas import MemoryEntry
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from tests.helpers import run
+from tests.helpers import requires_embeddings, run
 
 
 @pytest.fixture
@@ -23,6 +23,7 @@ def temp_backend():
             run(backend.close())
 
 
+@requires_embeddings
 def test_write_embedding_creates_vec_row(temp_backend):
     """Task 9.1: Write embedding, verify row exists with correct model_id/model_version."""
     async def _test():
@@ -153,6 +154,7 @@ def test_model_id_filter(temp_backend):
     run(_test())
 
 
+@requires_embeddings
 def test_switch_model_excludes_old_vectors(temp_backend):
     """Task 9.4: Switch model_id, verify old vectors are excluded from search."""
     async def _test():
@@ -239,6 +241,7 @@ def test_missing_vec_table_fallback_fts(temp_backend):
     run(_test())
 
 
+@requires_embeddings
 def test_dimension_mismatch_triggers_warning(temp_backend, caplog):
     """Task 9.6: Dimension mismatch triggers warning and fallback."""
     async def _test():

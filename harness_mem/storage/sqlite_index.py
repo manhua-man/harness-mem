@@ -407,10 +407,16 @@ class SQLiteIndex:
                 loader's version is recorded after the first encode.
         """
         try:
-            from harness_mem.embedding import get_model_loader
+            from harness_mem.embedding import embeddings_disabled, get_model_loader
             import numpy as np
         except ImportError:
             # Embedding dependencies not installed, skip silently
+            return
+
+        if embeddings_disabled():
+            # Opt-out escape hatch (HARNESS_MEM_DISABLE_EMBEDDINGS): skip model
+            # loading entirely so environments with a broken/hanging embedding
+            # stack can still persist entries without a vector row.
             return
 
         loader = get_model_loader(model_id)

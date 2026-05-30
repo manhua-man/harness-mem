@@ -80,6 +80,11 @@ class HybridSearchLayer:
             return self._embedding_model is not None
         self._embedding_loaded = True
         try:
+            from harness_mem.embedding import embeddings_disabled
+            if embeddings_disabled():
+                # Opt-out escape hatch (HARNESS_MEM_DISABLE_EMBEDDINGS): never
+                # load the model; hybrid search degrades to FTS-only.
+                return False
             import importlib.util
             if importlib.util.find_spec("sentence_transformers") is None:
                 return False
@@ -94,8 +99,10 @@ class HybridSearchLayer:
         """Generate embeddings for texts. Returns None on failure."""
         try:
             from harness_mem.commands.support import get_embedding_model_id
-            from harness_mem.embedding import get_model_loader
+            from harness_mem.embedding import embeddings_disabled, get_model_loader
 
+            if embeddings_disabled():
+                return None
             model_id = get_embedding_model_id()
             loader = get_model_loader(model_id)
             embeddings = loader.encode(texts)

@@ -16,6 +16,7 @@ from tests.helpers import (
     no_embed_texts,
     patch_cli_adapters,
     read_events,
+    requires_embeddings,
     run,
     write_claude_session,
 )
@@ -350,6 +351,7 @@ def test_natural_language_search_matches_relevant_observation(data_dir: Path):
         run(backend.close())
 
 
+@requires_embeddings
 def test_cmd_search_reports_hybrid_mode(
     data_dir: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -32,9 +32,25 @@ from harness_mem.commands.candidates import (
 )
 from harness_mem.commands.handoff import cmd_handoff
 from harness_mem.commands.onboarding import cmd_quickstart
+from harness_mem.commands.config_cmds import (
+    cmd_config_get,
+    cmd_config_set,
+    cmd_config_list,
+    cmd_config_validate,
+)
+from harness_mem.commands.integration_cmds import (
+    cmd_install_cursor_hook,
+    cmd_install_claude_hook,
+)
 
 __all__ = [
     "cmd_assign_memory_types",
+    "cmd_config_get",
+    "cmd_config_set",
+    "cmd_config_list",
+    "cmd_config_validate",
+    "cmd_install_cursor_hook",
+    "cmd_install_claude_hook",
     "cmd_doctor",
     "cmd_ingest",
     "cmd_import",
