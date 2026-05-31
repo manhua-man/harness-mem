@@ -33,10 +33,12 @@ from harness_mem.commands.support import (
     recent_claude_sessions,
     recent_codex_sessions,
     resolve_project_name,
+    find_project_root,
     suggested_next_step,
     wake_bucket_quotas,
     wake_budget,
 )
+from harness_mem.knowledge_cache import knowledge_cache_health
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from harness_mem.storage.local_structured_store import LocalStructuredStore
@@ -118,6 +120,8 @@ async def cmd_doctor(project_name: str | None = None) -> int:
         print(f"Profile saved: {'yes' if profile else 'no'}")
         if profile and profile.stacks:
             print(f"Stacks detected: {', '.join(profile.stacks)}")
+        if profile and profile.curated_doc_paths:
+            print(f"Curated docs: {len(profile.curated_doc_paths)}")
 
         backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
         await backend.init()
@@ -214,6 +218,14 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             _doctor_signal_freshness_block(report["signal_freshness"], resolved_project)
             _doctor_chronic_failures_block(report["chronic_failures"])
             _doctor_maintenance_block(report["maintenance_hints"])
+            knowledge_report = await knowledge_cache_health(
+                backend,
+                data_dir=DEFAULT_DATA_DIR,
+                project_name=resolved_project,
+                profile=profile,
+                project_root=find_project_root(resolved_project),
+            )
+            _doctor_knowledge_cache_block(knowledge_report)
             print("📍 Phase: Ready")
             print(f"→ Next: {next_command}")
             print(f"   Why: {reason}")
@@ -1288,3 +1300,37 @@ def _doctor_maintenance_block(maintenance_report: dict[str, Any]) -> None:
     for hint in hints:
         print(f"⚠️  {hint['message']}")
         print(f"Fix: {hint['fix_command']}")
+
+
+def _doctor_knowledge_cache_block(knowledge_report: dict[str, Any]) -> None:
+    """Render the v2.6.0 knowledge-cache boundary visibility block."""
+    print("Knowledge cache:")
+    print(
+        "  boundary: "
+        f"manual={knowledge_report['manual_root']} | "
+        f"generated={knowledge_report['generated_root']}"
+    )
+    print(
+        "  sources: "
+        f"{knowledge_report['source_count']} tracked "
+        f"({knowledge_report['curated_doc_count']} curated docs)"
+    )
+    if knowledge_report["prepared"]:
+        print(f"  sync map: {knowledge_report['sync_map_path']}")
+    else:
+        print(
+            "⚠️  knowledge cache boundary not prepared. "
+            "Fix: harness-mem maintenance prepare-knowledge-cache "
+            f"--project {knowledge_report['project_name']}"
+        )
+    if knowledge_report["stale_source_count"] > 0:
+        print(
+            f"⚠️  {knowledge_report['stale_source_count']} source(s) changed or missing since "
+            "the last boundary snapshot."
+        )
+    if knowledge_report["orphaned_output_count"] > 0:
+        print(
+            f"⚠️  {knowledge_report['orphaned_output_count']} orphaned generated output(s). "
+            "Fix: harness-mem maintenance cleanup-generated-cache "
+            f"--project {knowledge_report['project_name']} --apply"
+        )

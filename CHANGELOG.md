@@ -8,16 +8,54 @@
 
 ### Added
 
-- **v2.5.2 File Context（未发版）**：新增只读 `file_context(path)` helper（`harness_mem/file_context.py`）与配套 schema（`harness_mem/core/schemas/file_context.py`），在读取大文件前返回与路径关联的 compact memory：`ProjectProfile.key_files` 命中、observation raw evidence、accepted / historical `MemoryEntry`、confirmed rules、recent task handoffs、procedural skill hints。每条结果都带 `source_ids`，raw evidence 走 `DrilldownPointer`，默认不展开全文。
-- **cost hint + stale-file signal**：`file_context` 结果包含 `cost_hint`（复用 `chars_to_tokens` + `disclosure_level`）与显式 `stale_file_signal`，可提示“当前 key_files 不含该路径但历史 memory 提到过它”或“该路径存在更新的 recent activity”。
-- **MCP `file_context` tool（未发版）**：通过 `build_tools(...)` 注册到 MCP 工具表，显式暴露 `path` / `project_name` 输入，返回 JSON-serializable payload，不污染 JSON-RPC stdout。
-- **v2.5.2 test surface**：新增 focused tests 覆盖 path association、historical-path handling、read-only invariant、MCP stdout cleanliness 与 MCP smoke registration：`tests/test_file_context.py`、`tests/test_file_context_readonly.py`、`tests/mcp/test_file_context_stdout.py`，并更新 `tests/mcp/test_smoke.py`。
+- 尚无未发布条目。
 
 ### Notes
 
-- 这批 `file_context` 改动已在 repo 中实现并通过验证，但**尚未**随 `pyproject.toml` / `harness_mem.__version__` 的版本号 bump 一起发版；当前正式版本真值仍以 `2.5.1` 为准。
+- 下一条未发布功能将在此记录。
 
 ---
+
+## [2.6.0] — 2026-05-31
+
+**主题：Knowledge Cache Boundary**
+
+v2.6.0 先落地 wiki bridge 之前最重要的边界层：accepted memory 与 curated docs
+可以被显式声明为知识源，但 manual authority 与 generated outputs 不会混在一起，
+更不会被偷偷当成 runtime truth。这个版本只做 layout、sync map、source hash、
+stale/orphan visibility 和 cleanup；不编译 compact claim，也不生成 contradiction
+suggestion。
+
+### Added
+
+- **project-scoped knowledge cache boundary**：新增 `harness_mem/knowledge_cache.py`，
+  为每个项目建立 `knowledge-cache/manual/` 与 `knowledge-cache/generated/` 的显式分层，
+  并持久化 `sync-map.json`、`source-manifest.json` 与 generated `index.json`。
+- **source authority + source hash**：accepted memory snapshot 与 `ProjectProfile.curated_doc_paths`
+  会生成 `KnowledgeSourceEntry`，记录 `source_kind`、`authority`、`target_path`、`source_hash`
+  与 `exists` 状态，为后续增量 wiki compile / stale detection 打地基。
+- **`ProjectProfile.curated_doc_paths`**：project profile 现在可以显式声明 curated docs，
+  CLI profile 展示与 MCP `get_project_profile` / `update_project_profile` 均已对齐。
+- **knowledge cache doctor visibility**：`harness-mem doctor` 新增 `Knowledge cache:` block，
+  显示 manual/generated 边界、source count、curated doc count、sync map 是否已准备、
+  stale/missing source 数量，以及 orphaned generated outputs 的 cleanup 指针。
+- **maintenance actions**：
+  - `harness-mem maintenance prepare-knowledge-cache --project <name>`
+  - `harness-mem maintenance cleanup-generated-cache --project <name> [--apply]`
+- **v2.6.0 OpenSpec change**：新增 `openspec/changes/v260-knowledge-cache-boundary/`
+  记录 proposal/tasks/spec。
+
+### Changed
+
+- 正式版本号从 `2.5.1` bump 到 `2.6.0`。
+- `docs/roadmap-status.md` 与 `docs/roadmap-v26.md` 同步更新为 v2.6.0 已完成。
+
+### Boundaries
+
+- 不编译 wiki claim，不写 compact index。
+- generated cache 不是 runtime truth，`wake` / `search_memory` 不消费 generated outputs。
+- cleanup 只删除 orphaned generated outputs；不会删除 accepted memory、confirmed rules、
+  relation facts、observations 或 curated docs。
 
 ## [2.5.1] — 2026-05-31
 

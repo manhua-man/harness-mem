@@ -63,7 +63,7 @@ def test_profile_edit_existing_profile_merges_without_crashing(
         )
     )
 
-    answers = iter(["", "", "", ""])
+    answers = iter(["", "", "", "", ""])
     monkeypatch.setattr(profile_mod, "can_prompt", lambda: True)
     monkeypatch.setattr(support_mod, "can_prompt", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
@@ -75,6 +75,7 @@ def test_profile_edit_existing_profile_merges_without_crashing(
     assert updated.description == "old desc"
     assert updated.stacks == ["python"]
     assert updated.key_files == ["app.py"]
+    assert updated.curated_doc_paths == []
     assert updated.conventions == ["run tests first"]
 
 
@@ -95,7 +96,7 @@ def test_profile_edit_description_supports_clear(
         )
     )
 
-    answers = iter(["!clear", "", "", ""])
+    answers = iter(["!clear", "", "", "", ""])
     monkeypatch.setattr(profile_mod, "can_prompt", lambda: True)
     monkeypatch.setattr(support_mod, "can_prompt", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
@@ -105,3 +106,4 @@ def test_profile_edit_description_supports_clear(
     updated = run(profile_store.get("demo"))
     assert updated is not None
     assert updated.description == ""
+    assert updated.curated_doc_paths == []

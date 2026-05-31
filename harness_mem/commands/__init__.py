@@ -3,7 +3,11 @@
 from harness_mem.commands.doctor import cmd_doctor
 from harness_mem.commands.ingest import cmd_ingest
 from harness_mem.commands.import_bridge import cmd_import
-from harness_mem.commands.maintenance import cmd_assign_memory_types
+from harness_mem.commands.maintenance import (
+    cmd_assign_memory_types,
+    cmd_cleanup_generated_cache,
+    cmd_prepare_knowledge_cache,
+)
 from harness_mem.commands.profile import cmd_profile, cmd_profile_edit, cmd_use
 from harness_mem.commands.purge import cmd_purge
 from harness_mem.commands.search import (
@@ -45,6 +49,7 @@ from harness_mem.commands.integration_cmds import (
 
 __all__ = [
     "cmd_assign_memory_types",
+    "cmd_cleanup_generated_cache",
     "cmd_config_get",
     "cmd_config_set",
     "cmd_config_list",
@@ -56,6 +61,7 @@ __all__ = [
     "cmd_import",
     "cmd_profile",
     "cmd_profile_edit",
+    "cmd_prepare_knowledge_cache",
     "cmd_purge",
     "cmd_search",
     "cmd_search_raw",

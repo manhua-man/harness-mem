@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.6
 
-> 状态：规划中。
+> 状态：v2.6.0 已完成；v2.6.1+ 仍在规划中。
 >
 > 主题：Wiki Bridge + Compact Index + Contradiction Suggestions。把长期知识从权威源编译成可检索上下文，并把冲突处理保持在 candidate 层。
 
@@ -45,6 +45,16 @@ v2.6 吸收 `ai-harness` 的 source cache / generated cache 边界，以及 MemP
 | P0 | sync map visibility | 映射规则能被 docs index 或 doctor 看见 |
 | P1 | source hash | 支持增量编译和 stale detection |
 | P1 | generated cache cleanup | 删除过期 generated 输出不影响 canonical storage |
+
+### 当前实现（2026-05-31）
+
+- 已实现 project-scoped `knowledge-cache/manual/` 与 `knowledge-cache/generated/` 分层。
+- 已实现 `sync-map.json` + `source-manifest.json` + generated `index.json`。
+- 已实现 `ProjectProfile.curated_doc_paths` 作为 manual curated docs 入口。
+- 已实现 `harness-mem doctor` 的 knowledge-cache visibility block。
+- 已实现 `maintenance prepare-knowledge-cache` 与
+  `maintenance cleanup-generated-cache`。
+- 仍未实现 wiki compiler / compact claim index；这些属于 v2.6.1。
 
 ## v2.6.1：Wiki Bridge and Compact Claim Index
 
@@ -98,4 +108,3 @@ v2.6 吸收 `ai-harness` 的 source cache / generated cache 边界，以及 MemP
 |---|---|
 | cross-project procedural skill | `docs/roadmap-v27.md` |
 | controlled skill activation / shared skill hints | `docs/roadmap-v27.md` |
-

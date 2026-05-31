@@ -14,6 +14,7 @@ import sys
 from harness_mem import __version__
 from harness_mem.commands import (
     cmd_assign_memory_types,
+    cmd_cleanup_generated_cache,
     cmd_config_get,
     cmd_config_list,
     cmd_config_set,
@@ -32,6 +33,7 @@ from harness_mem.commands import (
     cmd_list_candidates,
     cmd_profile,
     cmd_profile_edit,
+    cmd_prepare_knowledge_cache,
     cmd_purge,
     cmd_quickstart,
     cmd_record_skill_result,
@@ -58,6 +60,7 @@ from harness_mem.adapters.codex.adapter import CodexAdapter  # noqa: F401
 __all__ = [
     "main",
     "cmd_assign_memory_types",
+    "cmd_cleanup_generated_cache",
     "cmd_config_get",
     "cmd_config_set",
     "cmd_config_list",
@@ -76,6 +79,7 @@ __all__ = [
     "cmd_list_candidates",
     "cmd_profile",
     "cmd_profile_edit",
+    "cmd_prepare_knowledge_cache",
     "cmd_purge",
     "cmd_quickstart",
     "cmd_record_skill_result",
@@ -167,7 +171,13 @@ def main():
     maintenance = sub.add_parser("maintenance", help="One-shot maintenance utilities")
     maintenance.add_argument(
         "action",
-        choices=["assign-memory-types", "rebuild-vector-index", "rebuild-verbatim-index"],
+        choices=[
+            "assign-memory-types",
+            "rebuild-vector-index",
+            "rebuild-verbatim-index",
+            "prepare-knowledge-cache",
+            "cleanup-generated-cache",
+        ],
         help="Maintenance action to run",
     )
     maintenance.add_argument("-p", "--project", help="Project name")
@@ -316,6 +326,10 @@ def main():
             from harness_mem.commands.maintenance import cmd_rebuild_verbatim_index
 
             return asyncio.run(cmd_rebuild_verbatim_index(args.project))
+        if args.action == "prepare-knowledge-cache":
+            return asyncio.run(cmd_prepare_knowledge_cache(args.project))
+        if args.action == "cleanup-generated-cache":
+            return asyncio.run(cmd_cleanup_generated_cache(args.project, apply=not args.dry_run))
         parser.error(f"Unknown maintenance action: {args.action}")
 
     if command == "config":

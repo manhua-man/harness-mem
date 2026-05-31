@@ -295,6 +295,11 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "items": {"type": "string"},
                     "description": "Important file paths",
                 },
+                "curated_doc_paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Manual curated doc paths for knowledge-cache source mapping",
+                },
                 "conventions": {
                     "type": "array",
                     "items": {"type": "string"},

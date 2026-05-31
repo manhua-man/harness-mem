@@ -10,21 +10,18 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.5.1` |
-| `harness_mem/__init__.py` | `2.5.1` |
-| `CHANGELOG.md` | 已有 `2.5.1` 段（收口 v2.5.0–v2.5.1）；`Unreleased` 已记录 v2.5.2 file_context |
+| `pyproject.toml` | `2.6.0` |
+| `harness_mem/__init__.py` | `2.6.0` |
+| `CHANGELOG.md` | 已有 `2.6.0` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.5.1：v2.5.0（Context Assembly Plan）与 v2.5.1（Wake Renderer Hardening）
-已实现、验证并发版。`wake` 现在由只读的 `ContextAssemblyPlan` 驱动分层渲染（L0/L1/L2），
-每条上下文带 source id 与 why-included。日常用户入口仍保持 v2.2 契约：Slash / Skill /
-自然语言优先，CLI 仍是 maintenance console。
+当前收口基线是 v2.6.0：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+file_context 已全部落地，v2.6.0 再往前补上 knowledge cache boundary。
+现在 runtime 已具备显式的 manual/generated 分层、source hash 与 cleanup 边界；
+wiki bridge / compact index / contradiction detector 仍在后续切片。
 
-> **v2.5 发版状态（2026-05-31）**：版本号已从 `2.4.3` bump 到 `2.5.1`，`CHANGELOG.md`
-> 已收口 v2.5.0–v2.5.1 发版段。repo 当前还包含**未发版**的 v2.5.2 `file_context`
-> 实现（见 `CHANGELOG.md` `Unreleased`）；但正式版本真值仍是 `2.5.1`，直到
-> `pyproject.toml` / `harness_mem.__version__` / 发布说明一起收口。v2.5.1 保留既有
-> `wake_surfaced` 信号 + 使用计数 touch 与 MCP stdout 纯净性；Plan_Assembler 全程
-> side-effect free。
+> **v2.6.0 发版状态（2026-05-31）**：版本号已 bump 到 `2.6.0`。v2.5.2 `file_context`
+> 已并入正式版本线，同时新增 v2.6.0 knowledge cache boundary。当前仍未实现 wiki
+> compiler / compact claim index / contradiction suggestions；这些继续留在 v2.6.1+。
 
 ## 完成矩阵
 
@@ -47,7 +44,8 @@
 | v2.4.3 | 当前收口基线 | `config get/set/list/validate`、`integration install-cursor-hook` / `install-claude-hook`、`harness_mem/config/writer.py`（tomli_w）、`harness_mem/integration/`（模板 + installer + 边界自检）、`docs/cli/v2.4.md`、hook 边界契约测试 + scope guard（127 全绿） | 维护子命令只读/写 toml；生成的 hook 仅嵌入 `python -m harness_mem.host_entry --source ide_hook`，从不调 `harness-mem` 控制台脚本；CLI 维持 maintenance-only。 |
 | v2.5.0 | 已完成（v2.5.1 收口发版） | `ContextAssemblyPlan` schema（`harness_mem/core/schemas/context_assembly_plan.py`：L0–L4、`PlanEntry` 带 source_ids/why_included/summary/truth_status、`Budget`、`TruncationAccounting`、L4 `DrilldownPointer`）、side-effect-free `assemble_context_plan(...)`（`harness_mem/context_assembly.py`）、`tests/test_context_assembly_*.py` | 只读 planning artifact；组装于既有读面之上，不改 `wake`/`search` 输出、不写存储、不发 `RetrievalSignal`。 |
 | v2.5.1 | 当前收口基线 | 纯函数渲染模块 `harness_mem/commands/wake_render.py`（`render_wake_plan` + helpers，无 I/O）、计划驱动的 `cmd_wake_up`、`tests/test_wake_render_*.py` / `tests/integration/test_wake_render_side_effects.py` / `tests/mcp/test_wake_render_stdout.py`（pytest 956 passed） | cold-start `wake` 由 plan 驱动分层渲染 L0/L1/L2，每条带 source id + `📍`；L1/L2 只渲染 `confirmed_current`。旧扁平格式（Confirmed Rules / Relation Facts / Memory Entries / bucket-quota / weak-link 子标题 / 使用徽章）被取代；relation facts/skill hints 归 L3 query-driven。schema/assembler 未改动；既有信号+touch、MCP stdout 纯净性保留；未引入 `file_context`（v2.5.2）。 |
-| v2.5.2 | repo 已实现，待发版 | `harness_mem/core/schemas/file_context.py`、`harness_mem/file_context.py`、MCP `file_context` tool（`harness_mem/mcp/server.py` + `harness_mem/mcp/tool_specs.py`）、`tests/test_file_context.py` / `tests/test_file_context_readonly.py` / `tests/mcp/test_file_context_stdout.py` / `tests/mcp/test_smoke.py` | 明确是 advisory-only helper：不拦截读文件、不发 `RetrievalSignal`、不 bump usage / last_accessed、skill 只给 hint、结果包含 `cost_hint` 与 `stale_file_signal`。正式版本号仍未 bump。 |
+| v2.5.2 | 已完成并并入 v2.6.0 | `harness_mem/core/schemas/file_context.py`、`harness_mem/file_context.py`、MCP `file_context` tool（`harness_mem/mcp/server.py` + `harness_mem/mcp/tool_specs.py`）、`tests/test_file_context.py` / `tests/test_file_context_readonly.py` / `tests/mcp/test_file_context_stdout.py` / `tests/mcp/test_smoke.py` | advisory-only helper：不拦截读文件、不发 `RetrievalSignal`、不 bump usage / last_accessed、skill 只给 hint、结果包含 `cost_hint` 与 `stale_file_signal`。 |
+| v2.6.0 | 已完成 | `harness_mem/knowledge_cache.py`、`ProjectProfile.curated_doc_paths`、doctor knowledge-cache block、`maintenance prepare-knowledge-cache` / `cleanup-generated-cache`、`tests/test_knowledge_cache.py`、`tests/cli/test_knowledge_cache_cli.py`、OpenSpec `v260-knowledge-cache-boundary` | 只做 boundary / visibility / source hash / cleanup；不编译 wiki、不让 generated cache 进入 wake/search truth。 |
 
 ## 未完成 / 不做项
 
@@ -56,7 +54,7 @@
 | 条目 | 当前状态 | 规划归宿 |
 |---|---|---|
 | 后台 daemon / IDE hook / turn-end 自检“随手记” | host 触发链路代码已完成（v2.4.0–v2.4.3，待发版）：`triggers.* = off` 默认；opt-in 时 hook 用 `python -m harness_mem.host_entry` 调业务命令，不调 `harness-mem` CLI。仍**无** always-on daemon（`worker.mode=daemon` 须 opt-in 且无 CLI 安装器）。 | v2.4 已交付 opt-in 安全触发；默认行为不变（off）。见 `docs/roadmap-v24.md`。 |
-| Context Assembly / File Context | 基本完成但未统一收口发版。Context Assembly（v2.5.0 `ContextAssemblyPlan` + v2.5.1 plan 驱动的分层 wake renderer）已实现；`file_context(path)` 也已在 repo 中实现为显式 helper / MCP tool，包含 cost hint 与 stale-file signal。 | 正式版本真值仍是 `2.5.1`；v2.5.2 代码已落地但待版本号 / changelog release 段收口。见 `docs/roadmap-v25.md`。 |
+| Context Assembly / File Context | 已完成并并入正式版本线。 | 见 `docs/roadmap-v25.md`。 |
 | Wiki Bridge / Compact Claim Index | 未实现。当前有 raw evidence 和 search_raw，但没有 generated knowledge cache / compact claim index。 | v2.6 |
 | 自动 contradiction / stale / merge suggestion | 未实现。当前已有 supersede candidate 机制，但还没有 detector 主动发现冲突。 | v2.6 |
 | 跨项目 Skill sharing | 未实现。v1.8 Skill 是 project-scoped。 | v2.7.0 |
@@ -85,12 +83,10 @@ v2.2 已完成用户入口闭环，但当前产品仍不是后台自学习或自
 最后再进入 v2.7 cross-project skill。
 
 v2.4 reflection queue 四个切片（v2.4.0–v2.4.3）已实现、验证并发版。
-v2.5 context assembly 的已发版基线仍是 v2.5.1：v2.5.0 产出只读
-`ContextAssemblyPlan`，v2.5.1 让 `wake` 渲染真正反映该计划（分层 L0/L1/L2、
-source id 可溯源、每层预算与截断说明）。与此同时，v2.5.2 File Context 已在
-repo 中实现为显式 helper / MCP tool，但版本号与 release 段尚未收口，所以正式
-版本真值还停留在 `2.5.1`。v2.5.1 / v2.5.2 都保留 MCP stdout 纯净性，未启用
-always-on daemon。
+v2.5 context assembly 与 file context 已全部并入正式版本线；v2.6.0 进一步把
+knowledge cache boundary 做成显式 runtime surface：manual/generated 分层、
+sync map/source manifest、doctor visibility、generated cleanup。当前仍未启用
+always-on daemon，MCP stdout 纯净性继续保持。
 
 优先级依据是：没有 signals 就无法 replay；没有 queue health 就无法安全 reflection；
 没有 context assembly，更多 memory / skill 只会变成可搜索对象而不是真正可控的 agent memory。

@@ -80,6 +80,11 @@ async def cmd_profile(project_name: str | None) -> int:
         print(f"  - {key_file}")
     if len(profile.key_files) > 10:
         print(f"  ... and {len(profile.key_files) - 10} more")
+    print(f"Curated docs ({len(profile.curated_doc_paths)}):")
+    for curated_doc in profile.curated_doc_paths[:10]:
+        print(f"  - {curated_doc}")
+    if len(profile.curated_doc_paths) > 10:
+        print(f"  ... and {len(profile.curated_doc_paths) - 10} more")
     print(f"Conventions ({len(profile.conventions)}):")
     for convention in profile.conventions[:10]:
         print(f"  - {convention}")
@@ -127,6 +132,9 @@ async def cmd_profile_edit(project_name: str | None) -> int:
         new_key_files_raw = prompt_list_labeled(
             "key_files", "important files", existing=profile.key_files,
         )
+        new_curated_docs_raw = prompt_list_labeled(
+            "curated_doc_paths", "curated docs", existing=profile.curated_doc_paths,
+        )
         new_conventions_raw = prompt_list_labeled(
             "conventions", "coding conventions", existing=profile.conventions,
         )
@@ -134,6 +142,7 @@ async def cmd_profile_edit(project_name: str | None) -> int:
         new_description = prompt_text("description", allow_empty=True)
         new_stacks_raw = prompt_list("stacks (one per line, blank to finish)")
         new_key_files_raw = prompt_list("key files (one per line, blank to finish)")
+        new_curated_docs_raw = prompt_list("curated docs (one per line, blank to finish)")
         new_conventions_raw = prompt_list("conventions (one per line, blank to finish)")
 
     if profile:
@@ -143,6 +152,11 @@ async def cmd_profile_edit(project_name: str | None) -> int:
             description=new_description if new_description is not None else profile.description,
             stacks=new_stacks_raw if new_stacks_raw is not None else profile.stacks,
             key_files=new_key_files_raw if new_key_files_raw is not None else profile.key_files,
+            curated_doc_paths=(
+                new_curated_docs_raw
+                if new_curated_docs_raw is not None
+                else profile.curated_doc_paths
+            ),
             conventions=new_conventions_raw if new_conventions_raw is not None else profile.conventions,
             service_hints=profile.service_hints,
             database_hints=profile.database_hints,
@@ -155,6 +169,7 @@ async def cmd_profile_edit(project_name: str | None) -> int:
             description=new_description or "",
             stacks=new_stacks_raw or [],
             key_files=new_key_files_raw or [],
+            curated_doc_paths=new_curated_docs_raw or [],
             conventions=new_conventions_raw or [],
             service_hints=[],
             database_hints=[],

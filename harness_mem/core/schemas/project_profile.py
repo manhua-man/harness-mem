@@ -24,6 +24,13 @@ class ProjectProfile(BaseModel):
         default_factory=list,
         description="Important file paths, e.g. ['backend/app/Services/AuthService.php']"
     )
+    curated_doc_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Project-relative or absolute document paths that are treated as "
+            "manual curated knowledge sources for the future wiki bridge."
+        ),
+    )
     service_hints: list[str] = Field(
         default_factory=list,
         description="Service names or URLs, e.g. ['api:8080', 'mysql:3306']"
@@ -71,6 +78,7 @@ class ProjectProfile(BaseModel):
             "description": self.description,
             "stacks": self.stacks,
             "key_files": self.key_files,
+            "curated_doc_paths": self.curated_doc_paths,
             "service_hints": self.service_hints,
             "database_hints": self.database_hints,
             "conventions": self.conventions,
