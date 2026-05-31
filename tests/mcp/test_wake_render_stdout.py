@@ -1,0 +1,116 @@
+"""MCP stdout cleanliness for the hardened wake renderer (v2.5.1, Req 8).
+
+The wake renderer emits the Rendered_Wake_Output only through ``print`` /
+``sys.stdout``. Under MCP, ``tool_wake`` runs ``cmd_wake_up`` inside
+``_run_command_to_payload``, which wraps execution in
+``contextlib.redirect_stdout(io.StringIO())`` and returns the captured text as
+``payload["output"]``. This test pins the three guarantees of Requirement 8:
+
+* 8.1 — the rendered text is returned through the captured output channel
+  (``payload["output"]``).
+* 8.2 — the real process stdout receives none of the rendered text.
+* 8.3 — the returned payload stays JSON-serializable as the tool output.
+
+Data isolation follows project rule P1: a ``LocalMemoryBackend`` is built
+against the ``tmp_path``-backed ``data_dir`` fixture (never ``~/.harness-mem/``)
+and closed in a ``finally`` block. The backend is injected via the MCP
+``set_backend_override`` contract, and ``cmd_wake_up`` reads the same
+``tmp_path`` data dir because the autouse ``data_dir`` fixture monkeypatches
+``wake.DEFAULT_DATA_DIR`` to it.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from harness_mem.core.schemas import ConfirmedRule, MemoryEntry
+from harness_mem.core.schemas.project_profile import ProjectProfile
+from harness_mem.mcp.server import set_backend_override, tool_wake
+from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
+from tests.helpers import run
+
+pytestmark = pytest.mark.mcp
+
+PROJECT = "wake-render-stdout-project"
+
+
+async def _seed(backend: LocalMemoryBackend) -> None:
+    """Seed a profile + confirmed rule + accepted entry so wake renders L0/L1.
+
+    Minimal but non-trivial: the profile drives the L0 identity entry, the
+    confirmed rule and the accepted current-truth entry drive L1, so the
+    rendered text carries real plan-backed content rather than only headers.
+    """
+    # L0 — project profile (identity entry).
+    profile_store = LocalProjectProfileStore(backend.data_dir)
+    await profile_store.save(
+        ProjectProfile(
+            project_name=PROJECT,
+            description="Wake renderer hardening stdout test project",
+            stacks=["python", "sqlite"],
+        )
+    )
+    # L1 — confirmed rule (current, no valid_to).
+    await backend.structured_store.save_confirmed_rule(
+        ConfirmedRule(
+            project_name=PROJECT,
+            pattern="Redirect MCP server stdout to stderr to protect JSON-RPC.",
+            trigger="When emitting diagnostics from the MCP server",
+            source_candidate_id="candidate-stdout",
+        )
+    )
+    # L1 — accepted current-truth memory entry.
+    await backend.structured_store.save_memory_entry(
+        MemoryEntry(
+            project_name=PROJECT,
+            category="architecture",
+            content="Wake output is captured and returned as the MCP tool payload.",
+            source="manual",
+        )
+    )
+
+
+def test_tool_wake_render_stdout_stays_clean(
+    data_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Feature: v251-wake-renderer-hardening — MCP stdout cleanliness (Req 8.1, 8.2, 8.3)."""
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    set_backend_override(backend)
+    try:
+        run(_seed(backend))
+
+        # Drop anything buffered during seeding so the post-call capture only
+        # reflects what tool_wake wrote to the real process stdout.
+        capsys.readouterr()
+
+        payload = tool_wake(project_name=PROJECT, no_auto_ingest=True)
+
+        captured = capsys.readouterr()
+
+        # Req 8.1 — the rendered text is returned through the captured channel.
+        assert payload["success"] is True
+        output = payload["output"]
+        assert "# Project Profile" in output
+        assert "# Essential Truth" in output
+        assert "# Active Task" in output
+        # Seeded plan-backed content actually surfaced in the rendered L1 text.
+        assert "Redirect MCP server stdout to stderr" in output
+
+        # Req 8.2 — the real process stdout received none of the rendered text.
+        assert captured.out == ""
+        assert "# Project Profile" not in captured.out
+        assert "Redirect MCP server stdout to stderr" not in captured.out
+
+        # Req 8.3 — the payload is serializable as the JSON-RPC tool output.
+        serialized = json.dumps(payload)
+        assert isinstance(serialized, str)
+        assert json.loads(serialized)["output"] == output
+    finally:
+        set_backend_override(None)
+        run(backend.close())
