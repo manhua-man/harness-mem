@@ -35,7 +35,18 @@ def test_wake_bucket_quota_header_and_truncation(
     data_dir: Path,
     capsys: pytest.CaptureFixture[str],
 ):
-    """v1.6.1: wake header shows quotas + fill, episodic overflow gets [truncated]."""
+    """v2.5.1: accepted entries surface via the plan-backed L1 section and
+    over-budget entries are reported through the per-layer truncation indicator.
+
+    The v1.6.1 ``bucket quotas:`` / ``bucket fill:`` / per-bucket
+    ``[truncated within bucket]`` block is superseded by the plan-backed wake
+    renderer (design Data Models): accepted current-truth entries now surface
+    under L1 (``# Essential Truth``), and when the candidate count exceeds the
+    L1 budget the renderer emits a single truncation indicator stating the
+    ``dropped`` count taken from the layer's TruncationAccounting. This test
+    preserves the original intent — entries surface AND wake reports when it
+    capped to fit budget — against the new rendering.
+    """
     backend = LocalMemoryBackend(data_dir)
     run(backend.init())
     try:
@@ -70,12 +81,13 @@ def test_wake_bucket_quota_header_and_truncation(
 
     assert run(cli.cmd_wake_up("demo", no_auto_ingest=True)) == 0
     out = capsys.readouterr().out
-    assert "bucket quotas:" in out
-    assert "semantic=0.50" in out
-    assert "episodic=0.50" in out
-    assert "procedural=0.00" in out
-    assert "bucket fill:" in out
-    assert "[truncated within bucket: episodic" in out
+    # Accepted entries surface through the plan-backed L1 essential-truth section.
+    assert "# Essential Truth  (L1 · confirmed current)" in out
+    assert "stable rule" in out
+    # 10 accepted entries exceed the L1 budget (7); the renderer reports the
+    # cap via the truncation indicator sourced from TruncationAccounting.
+    assert "dropped=3" in out
+    assert "to fit budget" in out
 
 
 def test_wake_no_bucket_quota_flag_suppresses_header(
@@ -130,14 +142,33 @@ def test_profile_and_wake_surface_conventions(
 
     assert run(cli.cmd_wake_up("demo")) == 0
     wake_output = capsys.readouterr().out
-    assert "Conventions:" in wake_output
-    assert "run tests first" in wake_output
+    # v2.5.1: cold-start wake renders the profile through the plan-backed L0
+    # identity section, which carries the project name / description / stacks
+    # (the assembler's identity summary) — not the full conventions list. The
+    # standalone ad-hoc "Conventions:" wake block is superseded; conventions
+    # remain visible through ``cmd_profile`` (asserted above). Preserve the
+    # original intent that wake surfaces the project's identity.
+    assert "# Project Profile  (L0 · identity)" in wake_output
+    assert "active project: demo" in wake_output
+    assert "stacks: python" in wake_output
 
 
 def test_wake_surfaces_relation_facts(
     data_dir: Path,
     capsys: pytest.CaptureFixture[str],
 ):
+    """v2.5.1: relation facts are an L3 (query-driven) concern, omitted from
+    cold-start queryless wake.
+
+    The standalone ``# Relation Facts`` wake block is superseded by the
+    plan-backed renderer. Per Req 1.5 and the design Layer→section mapping,
+    relation facts live on L3 (topic recall), which is only populated when wake
+    runs with a query; cold-start wake runs without one, so relation-fact
+    content does not appear. This test pins the new reality: wake still renders
+    its L0/L1/L2 sections and the token-budget summary, and the relation fact
+    is NOT surfaced. (Relation-fact retrieval remains available via
+    ``cmd_search`` — see ``test_cmd_search_surfaces_relation_facts``.)
+    """
     backend = LocalMemoryBackend(data_dir)
     run(backend.init())
     try:
@@ -158,8 +189,10 @@ def test_wake_surfaces_relation_facts(
 
     assert run(cli.cmd_wake_up("demo")) == 0
     wake_output = capsys.readouterr().out
-    assert "# Relation Facts" in wake_output
-    assert "HybridSearchLayer --delegates_to-> SQLiteIndex" in wake_output
+    assert "# Relation Facts" not in wake_output
+    assert "HybridSearchLayer --delegates_to-> SQLiteIndex" not in wake_output
+    # The plan-backed sections and the disclosure summary still render.
+    assert "# Essential Truth  (L1 · confirmed current)" in wake_output
     assert "Approx wake-up tokens:" in wake_output
 
 
@@ -640,7 +673,10 @@ def test_v2_mainline_ingest_suggest_confirm_wake_search_flow(
 
     assert run(cli.cmd_wake_up("demo")) == 0
     wake_output = capsys.readouterr().out
-    assert "# Memory Entries" in wake_output
+    # v2.5.1: the accepted current-truth entry surfaces through the plan-backed
+    # L1 essential-truth section. The standalone v1.6.1 "# Memory Entries"
+    # block is superseded; the entry content still appears in wake.
+    assert "# Essential Truth  (L1 · confirmed current)" in wake_output
     assert "Approx wake-up tokens:" in wake_output
     assert "SQLite FTS5" in wake_output
 

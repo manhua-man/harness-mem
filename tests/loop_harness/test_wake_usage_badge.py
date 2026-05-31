@@ -116,11 +116,18 @@ def _seed_rule(
 def test_wake_renders_pre_touch_usage_badges(
     data_dir: Path,
     capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
 ):
-    """A user looking at wake output should see one rule marked
-    'never surfaced before' (just confirmed, not yet shown) and one
-    rule marked with its previous usage count and recency."""
+    """v2.5.1: confirmed rules surface in wake and each surfaced rule is touched.
+
+    The inline per-rule usage badge (``never surfaced before`` / ``used N×, last
+    …``) was an artifact of the superseded ad-hoc ``# Confirmed Rules`` wake
+    block; the plan-backed L1 renderer surfaces the rule's content without that
+    rendered badge. The badge-formatting contract itself is still covered by the
+    pure ``_format_usage_badge`` unit tests above. What survives end-to-end here
+    is the underlying behavior the badge depended on: every surfaced confirmed
+    rule is *touched* (its ``usage_count`` increments), so this test now pins the
+    touch side effect via the persisted record instead of the removed badge text.
+    """
     project_name = "loop-harness-wake-badge"
     set_active_project(project_name)
 
@@ -156,27 +163,45 @@ def test_wake_renders_pre_touch_usage_badges(
     assert exit_code == 0
     captured = capsys.readouterr().out
 
+    # Read the touched counters back from storage to verify the side effect.
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        fresh_after = run(backend.structured_store.get_confirmed_rule("rule-fresh"))
+        veteran_after = run(
+            backend.structured_store.get_confirmed_rule("rule-veteran")
+        )
+    finally:
+        run(backend.close())
+    assert fresh_after is not None and veteran_after is not None
+
+    both_surfaced = (
+        "A rule confirmed today, never surfaced." in captured
+        and "A rule that wake-up has shown a few times." in captured
+    )
+
     LoopMetrics(
         name="wake_renders_usage_badges",
         values={
-            "fresh_rule_marked_never_surfaced": float(
-                "never surfaced before" in captured
-            ),
-            "veteran_rule_shows_count": float("used 4" in captured),
-            "veteran_rule_shows_recency": float("h ago" in captured),
+            "both_rules_surfaced": float(both_surfaced),
+            "fresh_rule_touched": float(fresh_after.usage_count == 1),
+            "veteran_rule_touched": float(veteran_after.usage_count == 5),
         },
     ).report()
 
-    assert "never surfaced before" in captured, (
-        "fresh rule must be marked as never surfaced; captured:\n" + captured
+    # Both rules surface under the plan-backed L1 essential-truth section.
+    assert "# Essential Truth  (L1 · confirmed current)" in captured
+    assert both_surfaced, (
+        "both confirmed rules must surface in wake output; captured:\n" + captured
     )
-    assert "used 4" in captured, (
-        "veteran rule should expose its pre-touch usage_count; captured:\n"
-        + captured
+    # The wake touch fired once per surfaced rule (pre-touch 0 -> 1, 4 -> 5).
+    assert fresh_after.usage_count == 1, (
+        "fresh rule should be touched exactly once by wake; "
+        f"got usage_count={fresh_after.usage_count}"
     )
-    assert "2h ago" in captured or "h ago" in captured, (
-        "veteran rule should show recency in human terms; captured:\n"
-        + captured
+    assert veteran_after.usage_count == 5, (
+        "veteran rule should be touched exactly once by wake; "
+        f"got usage_count={veteran_after.usage_count}"
     )
 
 
@@ -184,10 +209,15 @@ def test_wake_increments_after_rendering_pre_touch_value(
     data_dir: Path,
     capsys: pytest.CaptureFixture[str],
 ):
-    """The badge shows the count *before* this wake. After this wake
-    completes, the persisted count should be one higher — so the next
-    wake shows the bumped value, not the stale one. This is what makes
-    the badge honest across consecutive wakes."""
+    """The wake touch side effect bumps the persisted counter on each wake.
+
+    v2.5.1: the rendered ``used N×`` badge is superseded by the plan-backed
+    renderer, but the touch side effect it depended on still fires — each wake
+    that surfaces a confirmed rule increments its ``usage_count``. This test
+    preserves the original intent ("the counter advances across consecutive
+    wakes") by asserting the persisted record's ``usage_count`` instead of the
+    removed rendered badge text.
+    """
     project_name = "loop-harness-wake-badge-increment"
     set_active_project(project_name)
 
@@ -208,20 +238,44 @@ def test_wake_increments_after_rendering_pre_touch_value(
     finally:
         run(backend.close())
 
-    # First wake: should display "used 2" and bump counter to 3
+    # First wake: surfaces the rule and bumps the counter 2 -> 3.
     exit_code = run(cmd_wake_up(project_name, no_auto_ingest=True))
     assert exit_code == 0
     first_output = capsys.readouterr().out
-    assert "used 2" in first_output, (
-        "first wake should show pre-touch counter (2); captured:\n"
-        + first_output
+    assert "A rule whose counter we expect to bump." in first_output, (
+        "first wake should surface the rule under L1; captured:\n" + first_output
     )
 
-    # Second wake: should now display "used 3" — proves the touch ran
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        after_first = run(
+            backend.structured_store.get_confirmed_rule("rule-counter")
+        )
+    finally:
+        run(backend.close())
+    assert after_first is not None
+    assert after_first.usage_count == 3, (
+        "first wake should bump the pre-touch counter (2) to 3; "
+        f"got usage_count={after_first.usage_count}"
+    )
+
+    # Second wake: surfaces the rule again and bumps the counter 3 -> 4.
     exit_code = run(cmd_wake_up(project_name, no_auto_ingest=True))
     assert exit_code == 0
     second_output = capsys.readouterr().out
-    assert "used 3" in second_output, (
-        "second wake should show count bumped to 3; captured:\n"
-        + second_output
+    assert "A rule whose counter we expect to bump." in second_output
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        after_second = run(
+            backend.structured_store.get_confirmed_rule("rule-counter")
+        )
+    finally:
+        run(backend.close())
+    assert after_second is not None
+    assert after_second.usage_count == 4, (
+        "second wake should bump the counter to 4, proving the touch ran; "
+        f"got usage_count={after_second.usage_count}"
     )

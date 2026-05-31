@@ -14,29 +14,28 @@ from harness_mem.commands.retrieval_signals import record_retrieval_signal
 from harness_mem.commands.signal_influence import pull_recent_signals
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
-    WakeBucketQuotaError,
+    chars_to_tokens,
+    disclosure_level,
     get_config,
     log_command_invoked,
     log_next_step_shown,
     project_ingest_lock_path,
     project_ingest_scan_stamp_path,
-    profile_text,
     resolve_project_name,
-    wake_budget,
-    wake_bucket_enabled,
-    wake_bucket_quotas,
 )
 from harness_mem.commands.ingest import _select_claude_candidate_sessions
+from harness_mem.commands.wake_render import (
+    SURFACED_LAYERS,
+    render_wake_plan,
+    select_rendered_entries,
+)
+from harness_mem.context_assembly import assemble_context_plan
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
+from harness_mem.core.schemas.context_assembly_plan import ContextAssemblyPlan
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.event_log import EventType, get_event_logger
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
-from harness_mem.wake_selection import (
-    BUCKET_ORDER,
-    select_wake_memory_entries,
-    select_wake_memory_entries_with_buckets,
-)
 
 AUTO_SYNC_TIMEOUT_SECONDS = 0.3
 DEFAULT_AUTO_INGEST_MIN_INTERVAL_SECONDS = 300
@@ -458,6 +457,78 @@ async def _session_exists_for_project(
     )
 
 
+# Map each plan ``why_included`` (set by the v2.5.0 assembler) to the
+# ``wake_surfaced`` signal ``target_kind`` for the records that carry wake's
+# existing side effects. ``active:recent_handoff`` (task handoffs) and
+# ``identity:active_project`` (the project profile) are intentionally absent —
+# they carry no signal/touch, matching current wake behavior.
+_SIGNAL_TARGET_BY_WHY: dict[str, str] = {
+    "essential:confirmed_rule": "rule",
+    "essential:high_confidence_truth": "memory_entry",
+    "active:recently_surfaced": "memory_entry",
+}
+
+
+async def _apply_surface_side_effects(
+    backend: LocalMemoryBackend,
+    plan: ContextAssemblyPlan,
+) -> None:
+    """Apply wake's existing per-record side effects over the rendered entries.
+
+    Walks the surfaced layers (L0/L1/L2) in render order, selecting the same
+    entries the renderer shows (truth-filtered + budget-capped via
+    ``select_rendered_entries``), and for each surfaced confirmed-rule /
+    accepted-memory-entry record applies the existing ``wake_surfaced`` signal
+    plus its usage-counter touch (``touch_confirmed_rule`` /
+    ``touch_memory_entry``) **once per distinct source record id** across the
+    whole render — an accepted entry can appear in both L1 and L2 (Req 7.1).
+    Handoffs and the profile carry no side effect, and no other
+    ``RetrievalSignal`` is emitted (Req 7.4).
+    """
+    seen_ids: set[str] = set()
+    for layer_id in SURFACED_LAYERS:
+        layer = plan.layer(layer_id)
+        for entry in select_rendered_entries(layer):
+            target_kind = _SIGNAL_TARGET_BY_WHY.get(entry.why_included)
+            if target_kind is None:
+                continue
+            record_id = next((sid for sid in entry.source_ids if sid), "")
+            if not record_id or record_id in seen_ids:
+                continue
+            seen_ids.add(record_id)
+            if target_kind == "rule":
+                await backend.structured_store.touch_confirmed_rule(record_id)
+            else:
+                await backend.structured_store.touch_memory_entry(record_id)
+            await record_retrieval_signal(
+                backend,
+                project_name=plan.project_name,
+                signal_type="wake_surfaced",
+                target_kind=target_kind,
+                target_id=record_id,
+                context={"source": "wake"},
+            )
+
+
+def _disclosure_level_for_plan(plan: ContextAssemblyPlan) -> tuple[int, str]:
+    """Compute the Disclosure_Level token-budget summary for a plan (Req 1.6).
+
+    Pure: estimates tokens from the surfaced (L0/L1/L2) rendered entry
+    summaries via the existing ``chars_to_tokens`` helper and maps that to the
+    existing ``{L0, L1, L2, L3, L4+}`` label set via ``disclosure_level``. This
+    is the v2.5.1 plan-backed analogue of the old ``wake_budget`` summary; the
+    label set is a separate concept from a plan Layer (glossary) and is not
+    governed by per-layer Budget caps.
+    """
+    total_chars = sum(
+        len(entry.summary)
+        for layer_id in SURFACED_LAYERS
+        for entry in select_rendered_entries(plan.layer(layer_id))
+    )
+    total_tokens = chars_to_tokens(total_chars)
+    return total_tokens, disclosure_level(total_tokens)
+
+
 async def cmd_wake_up(
     project_name: str | None,
     no_auto_ingest: bool = False,
@@ -466,8 +537,16 @@ async def cmd_wake_up(
 ) -> int:
     """Generate wake-up context for a project.
 
-    v1.6.1: ``no_bucket_quota`` (CLI ``--no-bucket-quota``) overrides config
-    ``[wake] bucket_quota_enabled`` and forces the v1.6.0 single-pool behavior.
+    v2.5.1: the rendered output reflects the v2.5.0 ``ContextAssemblyPlan``.
+    ``cmd_wake_up`` assembles a plan for the resolved project, renders the
+    cold-start surfaced layers (L0/L1/L2) through the pure
+    :func:`render_wake_plan`, applies wake's existing side effects
+    (``wake_surfaced`` signals + usage-counter touches) in a separate
+    de-duplicated pass, and prints the Disclosure_Level token-budget summary.
+
+    ``no_bucket_quota`` is retained for CLI / back-compat; the v1.6.1
+    bucket-quota ``Memory Entries`` block is superseded by the plan-backed
+    L1/L2 rendering, so the flag no longer affects the rendered output.
     """
     project_name = resolve_project_name(project_name, action_label="wake-up")
     if not project_name:
@@ -476,220 +555,31 @@ async def cmd_wake_up(
     # Configuration check
     config = get_config()
     should_auto_ingest = not no_auto_ingest and config.get("wake", {}).get("auto_ingest", True)
-    bucket_quota_active = (not no_bucket_quota) and wake_bucket_enabled(config)
-    quotas: dict[str, float] | None = None
-    if bucket_quota_active:
-        try:
-            quotas = wake_bucket_quotas(config)
-        except WakeBucketQuotaError as exc:
-            print(f"Error ({exc.code}): {exc}")
-            print(
-                "Fix: edit ~/.harness-mem/config.toml [wake] bucket_quota_* "
-                "(default: 0.5 / 0.5 / 0.0). "
-                "Or run with --no-bucket-quota to fall back to v1.6.0 behavior."
-            )
-            return 1
 
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
-    
+
     if should_auto_ingest:
         await _auto_sync_sessions(backend, project_name)
 
-    profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
     try:
-        profile = await profile_store.get(project_name)
-        if profile:
-            profile_chars = len(profile.project_name or "") + len(profile_text(profile))
-            print(f"# Project Profile  (source: profile, ~{profile_chars} chars)")
-            if profile.description:
-                print(f"Description: {profile.description}")
-            if profile.stacks:
-                print(f"Stacks: {', '.join(profile.stacks)}")
-            if profile.key_files:
-                print("Key files:")
-                for key_file in profile.key_files[:5]:
-                    print(f"  - {key_file}")
-            if profile.conventions:
-                print("Conventions:")
-                for convention in profile.conventions[:5]:
-                    print(f"  - {convention}")
-            if not any([profile.description, profile.stacks, profile.key_files, profile.conventions]):
-                print("(empty profile)")
-            print()
-        else:
-            print("# Project Profile  (source: profile, empty)")
-            print()
+        # Req 1.7 — if no plan can be produced, stop before emitting any
+        # plan-backed section and return a non-zero code naming the failure.
+        try:
+            plan = await assemble_context_plan(backend, project_name=project_name)
+        except Exception as exc:
+            print(f"Error: could not assemble context plan for '{project_name}': {exc}")
+            return 1
 
-        handoffs = await backend.structured_store.get_latest_handoffs(project_name, limit=3)
-        if handoffs:
-            handoff_chars = sum(
-                len(handoff.summary or "") + len(str(handoff.next_steps)) + len(str(handoff.blockers))
-                for handoff in handoffs
-            )
-            print(f"# Recent Tasks  (source: task_handoffs, {len(handoffs)} items, ~{handoff_chars} chars)")
-            for handoff in handoffs:
-                print(f"## [{handoff.status}] {handoff.summary}")
-                if handoff.next_steps:
-                    print(f"  Next: {handoff.next_steps[0]}")
-                if handoff.blockers:
-                    print(f"  Blockers: {', '.join(handoff.blockers)}")
-                if handoff.provenance:
-                    provenance = handoff.provenance
-                    source = provenance.get("session_id", provenance.get("agent_type", "unknown"))
-                    print(f"  📍 {source}")
-            print()
-        else:
-            print("# Recent Tasks  (source: task_handoffs, empty)")
-            print()
+        # Req 1, 8 — pure render -> stdout; the MCP redirect_stdout capture
+        # stays complete because rendering emits only via print().
+        print(render_wake_plan(plan))
 
-        rules = await backend.structured_store.list_confirmed_rules(project_name)
-        if rules:
-            rules_chars = sum(len(rule.trigger or "") + len(rule.pattern or "") for rule in rules)
-            print(f"# Confirmed Rules  (source: confirmed_rules, {len(rules)} rules, ~{rules_chars} chars)")
+        # Req 7 — wake's existing per-record signals/touches, de-duplicated.
+        await _apply_surface_side_effects(backend, plan)
 
-            weak_link_on = bool(profile and profile.weak_link_signals)
-            if weak_link_on:
-                # v2.3.1 weak-link signal application: split into Recent
-                # active / Stable / quiet using the last 30d of surface
-                # signals. Total budget stays at 5; recent fills first.
-                recent_group, stable_group = await _split_rules_for_weak_link(
-                    backend, rules, project_name, total_budget=5
-                )
-                if recent_group:
-                    print("### Recent active")
-                    for rule in recent_group:
-                        _render_rule(rule)
-                        await backend.structured_store.touch_confirmed_rule(rule.id)
-                        await record_retrieval_signal(
-                            backend,
-                            project_name=rule.project_name,
-                            signal_type="wake_surfaced",
-                            target_kind="rule",
-                            target_id=rule.id,
-                            context={"source": "wake"},
-                        )
-                if stable_group:
-                    print("### Stable / quiet")
-                    for rule in stable_group:
-                        _render_rule(rule)
-                        await backend.structured_store.touch_confirmed_rule(rule.id)
-                        await record_retrieval_signal(
-                            backend,
-                            project_name=rule.project_name,
-                            signal_type="wake_surfaced",
-                            target_kind="rule",
-                            target_id=rule.id,
-                            context={"source": "wake"},
-                        )
-            else:
-                # Default off: v2.2-identical path. No call to
-                # pull_recent_signals; same loop, same order, same
-                # touch + signal side effects.
-                for rule in rules[:5]:
-                    _render_rule(rule)
-                    # Record that this rule actually showed up in wake-up
-                    # output. Mirrors the touch_memory_entry call further
-                    # below; lets doctor / dashboards detect rules that
-                    # were confirmed but never consumed.
-                    await backend.structured_store.touch_confirmed_rule(rule.id)
-                    await record_retrieval_signal(
-                        backend,
-                        project_name=rule.project_name,
-                        signal_type="wake_surfaced",
-                        target_kind="rule",
-                        target_id=rule.id,
-                        context={"source": "wake"},
-                    )
-            print()
-        else:
-            print("# Confirmed Rules  (source: confirmed_rules, empty)")
-            print()
-
-        relation_candidates = await backend.structured_store.list_relation_facts(project_name, limit=20)
-        relation_facts = [
-            fact for fact in relation_candidates
-            if fact.confidence >= 0.7
-        ][:5]
-        if relation_facts:
-            relation_chars = sum(
-                len(fact.source_entity)
-                + len(fact.relation_type)
-                + len(fact.target_entity)
-                + len(fact.evidence)
-                for fact in relation_facts
-            )
-            print(
-                f"# Relation Facts  (source: relation_facts, "
-                f"{len(relation_facts)} facts, ~{relation_chars} chars)"
-            )
-            for fact in relation_facts:
-                evidence_limit = 100
-                is_trunc = len(fact.evidence) > evidence_limit
-                evidence_preview = fact.evidence[:evidence_limit] + "..." if is_trunc else fact.evidence
-                trunc_marker = " [...truncated]" if is_trunc else ""
-                print(f"- {fact.source_entity} --{fact.relation_type}-> {fact.target_entity}: {evidence_preview}{trunc_marker}")
-                if fact.provenance:
-                    provenance = fact.provenance
-                    source = provenance.get("session_id", provenance.get("agent_type", "unknown"))
-                    print(f"  📍 {source}")
-            print()
-
-        entry_candidates = await backend.structured_store.list_memory_entries(project_name, limit=50)
-        if bucket_quota_active and quotas is not None:
-            entries, bucket_stats = select_wake_memory_entries_with_buckets(
-                entry_candidates, limit=5, quotas=quotas, enabled=True
-            )
-        else:
-            entries = select_wake_memory_entries(entry_candidates, limit=5)
-            bucket_stats = {}
-        if entries:
-            entry_chars = sum(len(entry.content or "") for entry in entries)
-            print(f"# Memory Entries  (source: structured_memory, {len(entries)} entries, ~{entry_chars} chars)")
-            if bucket_quota_active and quotas is not None and bucket_stats:
-                quota_line = "  ".join(
-                    f"{bucket}={quotas[bucket]:.2f}" for bucket in BUCKET_ORDER
-                )
-                fill_line = "  ".join(
-                    f"{bucket}={bucket_stats[bucket].used}/{bucket_stats[bucket].quota_count}"
-                    for bucket in BUCKET_ORDER
-                )
-                print(f"#  bucket quotas: {quota_line}")
-                print(f"#  bucket fill:   {fill_line}")
-            for entry in entries:
-                content_limit = 100
-                is_trunc = len(entry.content) > content_limit
-                content_preview = entry.content[:content_limit] + "..." if is_trunc else entry.content
-                trunc_marker = " [...truncated]" if is_trunc else ""
-                memory_type = getattr(entry, "memory_type", "semantic")
-                print(f"- [{entry.category}/{memory_type}] {content_preview}{trunc_marker}")
-                if entry.provenance:
-                    provenance = entry.provenance
-                    source = provenance.get("session_id", provenance.get("agent_type", "unknown"))
-                    print(f"  📍 {source}")
-                await backend.structured_store.touch_memory_entry(entry.id)
-                await record_retrieval_signal(
-                    backend,
-                    project_name=entry.project_name,
-                    signal_type="wake_surfaced",
-                    target_kind="memory_entry",
-                    target_id=entry.id,
-                    context={"source": "wake"},
-                )
-            if bucket_quota_active and quotas is not None and bucket_stats:
-                for bucket in BUCKET_ORDER:
-                    stats = bucket_stats[bucket]
-                    if stats.truncated:
-                        print(
-                            f"[truncated within bucket: {bucket} "
-                            f"{stats.used}/{stats.candidates}]"
-                        )
-            print()
-        else:
-            print("# Memory Entries  (source: structured_memory, empty)")
-            print()
-
-        total_tokens, level = wake_budget(profile, entries, rules, handoffs, relation_facts)
+        # Req 1.6 — preserve the Disclosure_Level token-budget summary line.
+        total_tokens, level = _disclosure_level_for_plan(plan)
         print(f"Approx wake-up tokens: ≈ {total_tokens:,} [{level}]")
         if level in ("L3", "L4+"):
             three_months_ago = (
@@ -703,14 +593,16 @@ async def cmd_wake_up(
             print("   to preview what can be archived.")
             log_next_step_shown(project_name, "wake-up", purge_command)
 
+        surfaced_entries = sum(
+            len(select_rendered_entries(plan.layer(layer_id)))
+            for layer_id in SURFACED_LAYERS
+        )
         log_command_invoked(
             "wake-up",
             project_name=project_name,
             extra={
                 "disclosure_level": level,
-                "memory_entries": len(entries),
-                "relation_facts": len(relation_facts),
-                "rules": len(rules),
+                "surfaced_entries": surfaced_entries,
             },
         )
     finally:

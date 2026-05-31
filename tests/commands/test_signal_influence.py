@@ -202,12 +202,16 @@ async def test_wake_off_path_does_not_call_pull_recent_signals(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Flag off ⇒ wake takes the v2.2 path (no signals call, no subheads).
+    """Cold-start wake never calls ``pull_recent_signals`` (no weak-link IO).
 
-    Monkeypatch ``harness_mem.commands.wake.pull_recent_signals`` to raise.
-    If the v2.2 path is intact, the patched function is never called and
-    wake completes with no error. This is stronger than asserting on the
-    output alone — it also pins the "no extra IO when off" property.
+    v2.5.1: the rendered wake output is plan-backed (L0/L1/L2). The v2.3.1
+    weak-link grouping path — and its ``pull_recent_signals`` call — is
+    superseded; cold-start wake no longer performs weak-link signal IO at all,
+    regardless of the ``weak_link_signals`` flag. This test pins that "no extra
+    IO" property: ``pull_recent_signals`` is monkeypatched to raise, and if the
+    new renderer is intact it is never called and wake completes cleanly. The
+    confirmed rule still surfaces — now under the plan-backed L1 essential-truth
+    section rather than the superseded ``# Confirmed Rules`` block.
     """
     project_name = "proj-wake-off"
     rule = _seed_rule(
@@ -228,22 +232,21 @@ async def test_wake_off_path_does_not_call_pull_recent_signals(
 
     def _explode(*_args: object, **_kwargs: object) -> None:
         raise AssertionError(
-            "pull_recent_signals must NOT be called when "
-            "weak_link_signals is False"
+            "pull_recent_signals must NOT be called by the plan-backed "
+            "cold-start wake renderer"
         )
 
-    # Patch at the import site inside the wake module. The wake
-    # renderer imports ``pull_recent_signals`` from
-    # ``harness_mem.commands.signal_influence`` into its own
-    # namespace, so this is the binding that matters.
+    # Patch at the import site inside the wake module. The plan-backed
+    # renderer must never reach ``pull_recent_signals``; this binding is
+    # the one that would matter if it did.
     monkeypatch.setattr(wake_module, "pull_recent_signals", _explode)
 
     # ``no_auto_ingest`` keeps the test off the real ~/.claude tree.
     assert await cmd_wake_up(project_name, no_auto_ingest=True) == 0
     captured = capsys.readouterr().out
 
-    # The v2.2 contract: plain "# Confirmed Rules" block, no subheads.
-    assert "# Confirmed Rules" in captured
+    # The rule surfaces under the plan-backed L1 section; no weak-link subheads.
+    assert "# Essential Truth  (L1 · confirmed current)" in captured
     assert "### Recent active" not in captured
     assert "### Stable / quiet" not in captured
     # The rule itself still appears.
@@ -255,11 +258,15 @@ async def test_wake_on_path_splits_into_two_groups(
     backend: LocalMemoryBackend,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Flag on ⇒ rules render under both subheads, total ≤ 5.
+    """v2.5.1: confirmed rules surface under L1 with no weak-link grouping.
 
-    Three rules; one has a recent ``wake_surfaced`` signal, one has a
-    recent ``search_hit`` signal, one is signal-less. The first two
-    land in ``Recent active`` and the third in ``Stable / quiet``.
+    The v2.3.1 weak-link split into ``### Recent active`` / ``### Stable /
+    quiet`` subheads is superseded by the plan-backed wake renderer, which has
+    no signal-driven grouping in cold-start wake — even with the
+    ``weak_link_signals`` flag on and recent signals present. This test
+    preserves the surviving intent: every confirmed rule still surfaces in
+    wake (now under the plan-backed L1 essential-truth section), the superseded
+    subheads are absent, and the rendered rule count stays within the L1 budget.
     """
     project_name = "proj-wake-on"
     now = datetime.now(timezone.utc)
@@ -286,7 +293,8 @@ async def test_wake_on_path_splits_into_two_groups(
         await backend.structured_store.save_confirmed_rule(rule)
 
     # Recent surface signals: rule_a got a wake_surfaced, rule_b got a
-    # search_hit; rule_c stays silent.
+    # search_hit; rule_c stays silent. Under the plan-backed renderer these no
+    # longer drive any rendered grouping — seeded here to prove that.
     await _save_signal(
         backend,
         project_name=project_name,
@@ -312,29 +320,24 @@ async def test_wake_on_path_splits_into_two_groups(
     assert await cmd_wake_up(project_name, no_auto_ingest=True) == 0
     out = capsys.readouterr().out
 
-    # Both subheads present.
-    assert "### Recent active" in out
-    assert "### Stable / quiet" in out
+    # Rules surface under the plan-backed L1 section; no weak-link subheads.
+    assert "# Essential Truth  (L1 · confirmed current)" in out
+    assert "### Recent active" not in out
+    assert "### Stable / quiet" not in out
 
-    # Rule patterns appear; we don't pin which group each lands in via
-    # text-position arithmetic (brittle), but we do pin overall presence.
+    # Every rule pattern still appears.
     assert "Pattern A" in out
     assert "Pattern B" in out
     assert "Pattern C" in out
 
-    # rule_a / rule_b sit above the "### Stable / quiet" subhead;
-    # rule_c sits below it. This double-checks the grouping without
-    # depending on render order across the whole stdout.
-    stable_index = out.index("### Stable / quiet")
-    assert out.index("Pattern A") < stable_index
-    assert out.index("Pattern B") < stable_index
-    assert out.index("Pattern C") > stable_index
-
-    # Total budget stays at 5 — only 3 rules are seeded so all three
-    # render. Counting markdown bullets is enough.
-    rendered_rules = sum(1 for line in out.splitlines() if line.startswith("- **"))
+    # All three rules render under L1 (well within the L1 budget of 7). The
+    # plan-backed renderer emits one bullet per surfaced entry; the three rule
+    # patterns are the only confirmed-rule bullets present.
+    rendered_rules = sum(
+        1 for line in out.splitlines() if line.startswith("- Pattern ")
+    )
     assert rendered_rules == 3
-    assert rendered_rules <= 5
+    assert rendered_rules <= 7
 
 
 # ---------------------------------------------------------------------------

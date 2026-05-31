@@ -26,6 +26,26 @@ from harness_mem.core.schemas.retrieval_signal import (
     VALID_SIGNAL_TYPES,
     VALID_TARGET_KINDS,
 )
+from harness_mem.core.schemas.context_assembly_plan import (
+    Budget,
+    ContextAssemblyPlan,
+    DrilldownPointer,
+    LAYER_ORDER,
+    Layer,
+    LayerId,
+    PlanEntry,
+    TruncationAccounting,
+    TruthStatus,
+)
+from harness_mem.core.schemas.file_context import (
+    CostHint,
+    FileContextItem,
+    FileContextItemKind,
+    FileContextResult,
+    FileContextTruthStatus,
+    StaleFileSignal,
+    StaleFileSignalState,
+)
 
 __all__ = [
     "Observation",
@@ -49,4 +69,20 @@ __all__ = [
     "RetrievalSignal",
     "VALID_SIGNAL_TYPES",
     "VALID_TARGET_KINDS",
+    "Budget",
+    "ContextAssemblyPlan",
+    "DrilldownPointer",
+    "LAYER_ORDER",
+    "Layer",
+    "LayerId",
+    "PlanEntry",
+    "TruncationAccounting",
+    "TruthStatus",
+    "FileContextItem",
+    "FileContextItemKind",
+    "FileContextResult",
+    "FileContextTruthStatus",
+    "CostHint",
+    "StaleFileSignal",
+    "StaleFileSignalState",
 ]

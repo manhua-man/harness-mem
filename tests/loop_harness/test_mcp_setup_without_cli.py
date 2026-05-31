@@ -118,19 +118,27 @@ def test_agent_drives_setup_through_mcp_only(
             "invoke" in convention for convention in on_disk.conventions
         )
 
-        # Step 4: agent calls wake. The output should contain the
-        # convention so a fresh chat actually has the IPC rule available.
-        # ``no_auto_ingest`` keeps the scenario hermetic (no probing of
-        # ~/.claude or ~/.codex from inside the test).
+        # Step 4: agent calls wake. The output should carry the project's
+        # plan-backed L0 identity (name / description / stacks) so a fresh chat
+        # has the project context loaded. ``no_auto_ingest`` keeps the scenario
+        # hermetic (no probing of ~/.claude or ~/.codex from inside the test).
+        #
+        # v2.5.1 note: cold-start wake renders the profile through the
+        # plan-backed L0 identity summary, which carries name / description /
+        # stacks but not the full conventions list (an L3/profile-detail concern
+        # superseded for queryless wake). The agent still gets the project
+        # identity; conventions remain available through the profile itself
+        # (asserted on-disk above).
         wake_resp = _call(
             "wake", project_name="inkpad", no_auto_ingest=True
         )
         assert wake_resp["success"] is True
         wake_output = wake_resp["output"]
-        assert "inkpad" in wake_output.lower() or "tauri" in wake_output.lower()
-        assert "invoke" in wake_output, (
-            "wake-up output must surface the project convention so the "
-            "agent has the IPC rule loaded; got:\n" + wake_output
+        assert "# Project Profile  (L0 · identity)" in wake_output
+        assert "inkpad" in wake_output.lower()
+        assert "tauri" in wake_output.lower(), (
+            "wake-up output must surface the project identity (stacks) so the "
+            "agent has project context loaded; got:\n" + wake_output
         )
     finally:
         mcp_server.set_backend_override(None)

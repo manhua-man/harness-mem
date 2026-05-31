@@ -84,6 +84,7 @@ async def search_memory(
     memory_type: list[str] | None = None,
     include_history: bool = False,
     time_window: tuple[datetime | None, datetime | None] | None = None,
+    record_signals: bool = True,
 ) -> tuple[list[MemoryEntry], list[Observation]]:
     """Return structured and verbatim search results with shared filtering.
 
@@ -110,7 +111,8 @@ async def search_memory(
         )
         # Cross-project search has no single profile → flag is implicitly
         # off, no boost. Keep the v2.2 ranking when ``scope == "all"``.
-        await _emit_search_hit_signals(backend, entries, query)
+        if record_signals:
+            await _emit_search_hit_signals(backend, entries, query)
         return entries, observations
 
     entries = await backend.structured_store.search_memory_entries(
@@ -133,7 +135,8 @@ async def search_memory(
     # own search_hit signal so the current call doesn't double-count
     # against itself.
     entries = await _apply_repeat_boost(backend, entries, project_name)
-    await _emit_search_hit_signals(backend, entries, query)
+    if record_signals:
+        await _emit_search_hit_signals(backend, entries, query)
     return entries, observations
 
 

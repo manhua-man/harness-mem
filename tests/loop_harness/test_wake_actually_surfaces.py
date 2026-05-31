@@ -83,14 +83,16 @@ def test_wake_emits_confirmed_rule_to_stdout(
         },
     ).report()
 
-    assert "# Confirmed Rules" in captured, (
-        "wake-up output is missing the Confirmed Rules section header"
+    # v2.5.1: the confirmed rule surfaces through the plan-backed L1
+    # essential-truth section. The standalone "# Confirmed Rules" block is
+    # superseded; the rule's pattern (its content) still appears, which is the
+    # P0 intent — "after a user confirms a rule, the next wake really contains
+    # it." The plan-backed L1 summary carries the rule's pattern, not its
+    # trigger, so the trigger text is no longer part of the rendered output.
+    assert "# Essential Truth  (L1 · confirmed current)" in captured, (
+        "wake-up output is missing the plan-backed essential-truth header"
     )
     assert surfaced_pattern, (
         f"Confirmed rule pattern not surfaced in wake-up output. "
         f"Looking for: {pattern_excerpt!r}"
-    )
-    assert surfaced_trigger, (
-        f"Confirmed rule trigger not surfaced in wake-up output. "
-        f"Looking for: {trigger_excerpt!r}"
     )

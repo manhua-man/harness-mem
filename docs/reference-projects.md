@@ -179,12 +179,13 @@ Claude Code hooks
 - `claude-mem`：先展示 observation index，再按 ID 拉详情。
 - `mempalace`：先搜 closet，再打开 drawer。
 
-所以 `harness-mem` 后续的正确形态不是“wake 时塞更多全文”，而是：
+所以 `harness-mem` 后续的正确形态不是“wake 时塞更多全文”，而是（v2.5.0/v2.5.1 已落地为分层 context assembly）：
 
 ```text
 wake-up
--> 显示项目 profile / confirmed rules / handoff / compact memory index
--> search/timeline/get_observations 按需取详情
+-> 分层渲染 L0 项目 profile/identity · L1 essential truth(confirmed rules + accepted current truth) · L2 active task(handoff)
+   每条带 source id 与 why-included，每层有预算与截断说明
+-> search/timeline/get_observations 按需取详情（relation facts / skill 完整步骤 / raw evidence 属 query-driven L3/L4，不在 cold-start wake）
 -> source observation 永远可追溯
 ```
 
