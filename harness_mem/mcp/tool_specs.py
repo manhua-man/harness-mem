@@ -217,6 +217,27 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["project_name"],
         },
     },
+    "file_context": {
+        "description": (
+            "Return compact, source-attributed memory already associated with a "
+            "file path before reading the file itself. Advisory only; never "
+            "blocks file reads."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (defaults to active project when omitted)",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "File path to look up in memory",
+                },
+            },
+            "required": ["path"],
+        },
+    },
     "get_project_status": {
         "description": "Return active project and memory counts without requiring CLI status.",
         "input_schema": {

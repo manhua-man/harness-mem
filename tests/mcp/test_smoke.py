@@ -99,12 +99,13 @@ def test_stdio_initialize_writes_json_rpc_to_stdout():
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 41
+    assert len(tools) == 42
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
         "search_raw", "search_skills",
         "get_task_handoffs", "get_confirmed_rules", "get_project_profile",
+        "file_context",
         "get_project_status", "set_active_project", "update_project_profile", "wake",
         "ingest_sessions", "prepare_session_distill",
         "list_candidates", "auto_review_candidates",
@@ -120,6 +121,52 @@ def test_tools_list():
         "health_summary",
     }
     assert expected.issubset(names)
+
+
+def test_file_context_tool(mcp_backend: LocalMemoryBackend):
+    run(
+        LocalProjectProfileStore(mcp_backend.data_dir).save(
+            ProjectProfile(
+                project_name="test-project",
+                key_files=["harness_mem/mcp/server.py"],
+            )
+        )
+    )
+    run(
+        mcp_backend.verbatim_store.save(
+            Observation(
+                id="obs-file-context",
+                session_id="mcp-file-context-session",
+                client="codex",
+                raw_content="Edited harness_mem/mcp/server.py to add file_context support.",
+                content_type="transcript",
+                metadata={"project_name": "test-project"},
+            )
+        )
+    )
+    run(
+        mcp_backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="test-project",
+                category="architecture",
+                content="harness_mem/mcp/server.py owns MCP tool registration.",
+                source="manual",
+            )
+        )
+    )
+
+    data = call_tool(
+        "file_context",
+        {
+            "project_name": "test-project",
+            "path": "harness_mem/mcp/server.py",
+        },
+    )
+
+    assert data["success"] is True
+    assert data["item_count"] >= 2
+    assert data["normalized_path"] == "harness_mem/mcp/server.py"
+    assert any(item["kind"] == "observation" for item in data["items"])
 
 
 def test_search_memory(mcp_backend: LocalMemoryBackend):

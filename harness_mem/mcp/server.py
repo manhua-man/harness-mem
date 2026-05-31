@@ -95,6 +95,7 @@ from typing import Any, cast  # noqa: E402
 from harness_mem import __version__ as _HARNESS_MEM_VERSION  # noqa: E402
 from harness_mem.commands.auto_review import auto_review_candidates  # noqa: E402
 from harness_mem.commands.doctor import health_summary  # noqa: E402
+from harness_mem.file_context import build_file_context  # noqa: E402
 from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
 from harness_mem.commands.metabolism_pass import select_metabolism_pass  # noqa: E402
 from harness_mem.commands.retrieval_signals import record_retrieval_signal  # noqa: E402
@@ -541,6 +542,20 @@ def tool_get_project_profile(project_name: str) -> dict:
         "stacks": profile.stacks,
         "key_files": profile.key_files,
     }
+
+
+def tool_file_context(path: str, project_name: str | None = None) -> dict:
+    """Return compact, source-attributed memory already associated with a path."""
+    backend = _get_backend()
+    try:
+        result = asyncio.run(
+            build_file_context(backend, project_name=project_name, path=path)
+        )
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+    payload = result.to_dict()
+    payload["success"] = True
+    return payload
 
 
 async def _gather_project_status(backend: LocalMemoryBackend, project_name: str) -> dict[str, Any]:
@@ -2004,6 +2019,7 @@ TOOLS: dict[str, ToolSpec] = build_tools({
     "get_task_handoffs": tool_get_task_handoffs,
     "get_confirmed_rules": tool_get_confirmed_rules,
     "get_project_profile": tool_get_project_profile,
+    "file_context": tool_file_context,
     "get_project_status": tool_get_project_status,
     "set_active_project": tool_set_active_project,
     "update_project_profile": tool_update_project_profile,
