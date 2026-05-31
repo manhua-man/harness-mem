@@ -6,6 +6,39 @@
 
 ## [Unreleased]
 
+### Added
+
+- **v2.5.2 File Context（未发版）**：新增只读 `file_context(path)` helper（`harness_mem/file_context.py`）与配套 schema（`harness_mem/core/schemas/file_context.py`），在读取大文件前返回与路径关联的 compact memory：`ProjectProfile.key_files` 命中、observation raw evidence、accepted / historical `MemoryEntry`、confirmed rules、recent task handoffs、procedural skill hints。每条结果都带 `source_ids`，raw evidence 走 `DrilldownPointer`，默认不展开全文。
+- **cost hint + stale-file signal**：`file_context` 结果包含 `cost_hint`（复用 `chars_to_tokens` + `disclosure_level`）与显式 `stale_file_signal`，可提示“当前 key_files 不含该路径但历史 memory 提到过它”或“该路径存在更新的 recent activity”。
+- **MCP `file_context` tool（未发版）**：通过 `build_tools(...)` 注册到 MCP 工具表，显式暴露 `path` / `project_name` 输入，返回 JSON-serializable payload，不污染 JSON-RPC stdout。
+- **v2.5.2 test surface**：新增 focused tests 覆盖 path association、historical-path handling、read-only invariant、MCP stdout cleanliness 与 MCP smoke registration：`tests/test_file_context.py`、`tests/test_file_context_readonly.py`、`tests/mcp/test_file_context_stdout.py`，并更新 `tests/mcp/test_smoke.py`。
+
+### Notes
+
+- 这批 `file_context` 改动已在 repo 中实现并通过验证，但**尚未**随 `pyproject.toml` / `harness_mem.__version__` 的版本号 bump 一起发版；当前正式版本真值仍以 `2.5.1` 为准。
+
+---
+
+## [2.5.1] — 2026-05-31
+
+**主题：Context Assembly + Wake Renderer Hardening — v2.5.0 到 v2.5.1**
+
+v2.5 把 `wake` 从"塞更多记忆"重构为**可解释、可预算、分层**的上下文组装：先由 v2.5.0 产出只读的 `ContextAssemblyPlan`（L0–L4 五层 + 每层 Budget / TruncationAccounting + 每条 source id / why-included），再由 v2.5.1 让渲染出的 `wake` 文本真正反映这份计划。本版本号一次性收口 v2.5.0–v2.5.1 两个切片。整条线保持 evidence-first 与 accepted-only 边界，Plan_Assembler 全程无副作用。
+
+### Added
+
+- **v2.5.0 Context Assembly Plan**：只读、可序列化的 `ContextAssemblyPlan` 数据结构（`harness_mem/core/schemas/context_assembly_plan.py`）—— 五层 L0（profile/identity）/ L1（essential truth）/ L2（active task）/ L3（topic recall）/ L4（raw evidence drilldown），每个 `PlanEntry` 携带 `source_ids` / `why_included` / `summary` / `truth_status`，每层带 `Budget`（`max_entries`）与 `TruncationAccounting`（available/included/dropped），L4 用 `DrilldownPointer` 只给展开指针。side-effect-free 的 `assemble_context_plan(...)`（`harness_mem/context_assembly.py`）组装于既有读面之上，不改 `wake`/`search` 输出、不写存储、不发 `RetrievalSignal`。
+
+- **v2.5.1 Wake Renderer Hardening**：新增纯函数渲染模块 `harness_mem/commands/wake_render.py`（无 I/O / 无 store 访问 / 不 `print`）：`select_rendered_entries`（L1/L2 只保留 `confirmed_current` 真值 + 每层预算上限）、`render_truth_status_label`（historical/pending 醒目区分标记）、`render_source_id_display`（逐字符显示每条 source id，可溯源）、`render_entry_line`（摘要 + 真值标签 + Source_Id_Display + `📍` 出处标记）、`render_truncation_indicator`（从 `TruncationAccounting` 取数显示丢弃条数）、`render_wake_plan`（按固定顺序 L0 → L1 → L2 渲染，绝不渲染 L3/L4）。
+
+### Changed
+
+- **`cmd_wake_up` 改为计划驱动渲染**（`harness_mem/commands/wake.py`）：先 `assemble_context_plan` → `print(render_wake_plan(plan))` → 单独一遍去重应用既有的 `wake_surfaced` 信号 + 使用计数 touch（`touch_confirmed_rule` / `touch_memory_entry`，按 distinct source id 去重）→ 保留 Disclosure_Level token 摘要行。plan 组装失败时先报错并返回非零码，不输出任何 plan-backed 段。
+- **被取代的旧 wake 扁平格式**：cold-start `wake` 的 `# Confirmed Rules` / `# Relation Facts` / `# Memory Entries` / bucket-quota 块、v2.3.1 weak-link `### Recent active` / `### Stable / quiet` 子标题、每条规则的使用徽章均被分层格式取代。confirmed rules 与 accepted current-truth entries 改在 L1（`# Essential Truth`）下出现；relation facts 属 L3（query-driven），无 query 的 cold-start wake 不再渲染（检索仍可经 `search`/`search_memory`）。
+- **边界保持**：`ContextAssemblyPlan` schema 与 Plan_Assembler 选择逻辑在 v2.5.1 未改动（Req 9.2）；既有 `wake_surfaced` 信号 + touch 副作用、MCP stdout 纯净性均完好保留；未引入 `file_context`（推迟到 v2.5.2）、wiki bridge 或 contradiction/stale-truth 建议生成。
+- 版本号从 `2.4.3` bump 到 `2.5.1`（`pyproject.toml` + `harness_mem/__init__.py`）。
+- `docs/roadmap-v25.md`、`docs/roadmap-status.md`、`docs/reference-projects.md` 同步更新以反映 v2.5.0–v2.5.1 已落地与新的分层 wake 形态。
+
 ---
 
 ## [2.4.3] — 2026-05-30
