@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.6
 
-> 状态：v2.6.1 已完成；v2.6.2+ 仍在规划中。
+> 状态：v2.6.2 已完成；v2.6.3+ 仍在规划中。
 >
 > 主题：Wiki Bridge + Compact Index + Contradiction Suggestions。把长期知识从权威源编译成可检索上下文，并把冲突处理保持在 candidate 层。
 
@@ -91,6 +91,16 @@ v2.6 吸收 `ai-harness` 的 source cache / generated cache 边界，以及 MemP
 | P0 | merge suggestion | 重复 memory / relation 生成可审核合并建议 |
 | P1 | evidence bundle | 每条 suggestion 带 source ids 和 reasoning |
 | P1 | review surface | `/hm:review` 区分普通 candidate 和 metabolism/wiki suggestions |
+
+### 当前实现（2026-06-02）
+
+- 已创建并完成 `v262-candidate-review-surface-and-contradiction-boundary` OpenSpec 变更。
+- 已把既有 `MergeSuggestionCandidate` 与 `StaleTruthSuggestionCandidate` 接入
+  `list_candidates` review surface，并补上 per-type counts。
+- 已重新启用 metabolism pass 的 `SupersedeCandidate` proposer：对 recent historical truth
+  和 highly similar current truth 生成 candidate-only supersede suggestion。
+- 已补 proposer、`metabolism_run`、MCP review surface 的回归测试。
+- 已验证 merge/stale/supersede suggestion 仍然停留在 candidate/review 层，不进入默认 truth surface。
 
 ## v2.6.3：Compact Renderer Experiment
 

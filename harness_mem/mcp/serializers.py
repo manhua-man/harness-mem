@@ -127,3 +127,37 @@ def _serialize_procedural_candidate(candidate: Any) -> dict:
         "confirm_tool": "confirm_skill",
         "reject_tool": "reject_skill",
     }
+
+
+def _serialize_merge_suggestion_candidate(candidate: Any) -> dict:
+    return {
+        "type": "merge_suggestion",
+        "id": candidate.id,
+        "project_name": candidate.project_name,
+        "status": candidate.status,
+        "target_a_id": candidate.target_a_id,
+        "target_a_kind": candidate.target_a_kind,
+        "target_b_id": candidate.target_b_id,
+        "target_b_kind": candidate.target_b_kind,
+        "proposed_content": candidate.proposed_content,
+        "similarity_score": candidate.similarity_score,
+        "evidence_signal_ids": list(candidate.evidence_signal_ids),
+        "metabolism_run_id": candidate.metabolism_run_id,
+        "created_at": _isoformat(candidate.created_at),
+    }
+
+
+def _serialize_stale_truth_suggestion_candidate(candidate: Any) -> dict:
+    return {
+        "type": "stale_truth_suggestion",
+        "id": candidate.id,
+        "project_name": candidate.project_name,
+        "status": candidate.status,
+        "target_id": candidate.target_id,
+        "target_kind": candidate.target_kind,
+        "last_surfaced_at": _isoformat(candidate.last_surfaced_at),
+        "days_since_last_surface": candidate.days_since_last_surface,
+        "evidence_signal_ids": list(candidate.evidence_signal_ids),
+        "metabolism_run_id": candidate.metabolism_run_id,
+        "created_at": _isoformat(candidate.created_at),
+    }

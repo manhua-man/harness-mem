@@ -16,6 +16,43 @@
 
 ---
 
+## [2.6.2] — 2026-06-02
+
+**主题：Contradiction and Stale Suggestions**
+
+v2.6.2 把 `v2.3.1` 已有的 metabolism suggestion 能力真正接入 review surface，
+并补上此前 deferred 的 supersede/contradiction proposer。这个版本仍然坚持
+candidate-before-truth：系统可以提出 merge、stale、supersede suggestion，
+但不会把 generated/wiki evidence 或 suggestion 自己偷偷注入默认 truth surface。
+
+### Added
+
+- **review surface for metabolism suggestions**：`list_candidates` 现在会返回
+  `MergeSuggestionCandidate` 与 `StaleTruthSuggestionCandidate`，并暴露
+  `merge_suggestion_count` / `stale_truth_suggestion_count`。
+- **supersede proposer reactivated**：`harness_mem/commands/metabolism_pass.py`
+  的 `_propose_supersedes(...)` 不再是空实现；它会针对 recent historical truth
+  与 highly similar current truth 生成 pending `SupersedeCandidate`。
+- **focused regression coverage**：补充 metabolism proposer、`metabolism_run`
+  和 MCP review surface 的测试，锁定 merge/stale/supersede 三类 suggestion 的
+  candidate-only contract。
+- **v2.6.2 OpenSpec change**：新增并完成
+  `openspec/changes/v262-candidate-review-surface-and-contradiction-boundary/`。
+
+### Changed
+
+- 正式版本号从 `2.6.1` bump 到 `2.6.2`。
+- `docs/roadmap-v26.md` 同步更新为 v2.6.2 已完成。
+
+### Boundaries
+
+- supersede proposer 只创建 `SupersedeCandidate`；不会自动 confirm，也不会直接改 truth。
+- merge/stale/supersede suggestion 仍然只出现在 review surface，不进入默认 `wake` /
+  `search_memory` current-truth read path。
+- generated/wiki evidence 仍然只作为 suggestion 的证据来源，不会变成 hidden truth。
+
+---
+
 ## [2.6.1] — 2026-06-02
 
 **主题：Wiki Bridge + Compact Claim Index**

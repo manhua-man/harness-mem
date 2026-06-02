@@ -9,7 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from harness_mem.core.schemas import ConfirmedRule, MemoryEntry, Observation, RelationFact
+from harness_mem.core.schemas import (
+    ConfirmedRule,
+    MemoryEntry,
+    MergeSuggestionCandidate,
+    Observation,
+    RelationFact,
+    StaleTruthSuggestionCandidate,
+)
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.mcp.server import handle_request, set_backend_override
 from harness_mem.search.hybrid_search import HybridSearchLayer
@@ -504,31 +511,72 @@ def test_list_candidates_returns_pending_review_items(mcp_backend: LocalMemoryBa
             "source": "test-session-001",
         },
     )
+    run(
+        mcp_backend.structured_store.save_merge_suggestion_candidate(
+            MergeSuggestionCandidate(
+                project_name="test-project",
+                target_a_id="entry-a",
+                target_a_kind="memory_entry",
+                target_b_id="entry-b",
+                target_b_kind="memory_entry",
+                similarity_score=0.91,
+                evidence_signal_ids=["sig-1"],
+                metabolism_run_id="run-1",
+            )
+        )
+    )
+    run(
+        mcp_backend.structured_store.save_stale_truth_suggestion_candidate(
+            StaleTruthSuggestionCandidate(
+                project_name="test-project",
+                target_id="rule-old",
+                target_kind="confirmed_rule",
+                last_surfaced_at=None,
+                days_since_last_surface=90,
+                evidence_signal_ids=[],
+                metabolism_run_id="run-1",
+            )
+        )
+    )
 
     data = call_tool("list_candidates", {"project_name": "test-project"})
 
     assert data["success"] is True
     assert data["status"] == "pending"
-    assert data["count"] == 4
-    assert data["total_count"] == 4
+    assert data["count"] == 6
+    assert data["total_count"] == 6
     assert data["rule_count"] == 1
     assert data["memory_entry_count"] == 1
     assert data["relation_fact_count"] == 1
     assert data["supersede_count"] == 1
+    assert data["merge_suggestion_count"] == 1
+    assert data["stale_truth_suggestion_count"] == 1
     ids_by_type = {candidate["type"]: candidate["id"] for candidate in data["candidates"]}
-    assert ids_by_type == {
-        "rule": rule["candidate_id"],
-        "memory_entry": entry["entry_id"],
-        "relation_fact": fact["fact_id"],
-        "supersede": supersede["candidate_id"],
+    assert ids_by_type["rule"] == rule["candidate_id"]
+    assert ids_by_type["memory_entry"] == entry["entry_id"]
+    assert ids_by_type["relation_fact"] == fact["fact_id"]
+    assert ids_by_type["supersede"] == supersede["candidate_id"]
+    assert ids_by_type["merge_suggestion"]
+    assert ids_by_type["stale_truth_suggestion"]
+    tools_by_type = {
+        candidate["type"]: candidate["confirm_tool"]
+        for candidate in data["candidates"]
+        if "confirm_tool" in candidate
     }
-    tools_by_type = {candidate["type"]: candidate["confirm_tool"] for candidate in data["candidates"]}
     assert tools_by_type == {
         "rule": "confirm_rule",
         "memory_entry": "confirm_memory_entry",
         "relation_fact": "confirm_relation_fact",
         "supersede": "confirm_supersede",
     }
+    merge_item = next(candidate for candidate in data["candidates"] if candidate["type"] == "merge_suggestion")
+    stale_item = next(
+        candidate for candidate in data["candidates"] if candidate["type"] == "stale_truth_suggestion"
+    )
+    assert "confirm_tool" not in merge_item
+    assert "reject_tool" not in merge_item
+    assert "confirm_tool" not in stale_item
+    assert "reject_tool" not in stale_item
 
     confirmed = call_tool("confirm_memory_entry", {"entry_id": entry["entry_id"]})
     assert confirmed["success"] is True
@@ -536,7 +584,7 @@ def test_list_candidates_returns_pending_review_items(mcp_backend: LocalMemoryBa
     after_confirm = call_tool("list_candidates", {"project_name": "test-project"})
     pending_ids = {candidate["id"] for candidate in after_confirm["candidates"]}
     assert entry["entry_id"] not in pending_ids
-    assert after_confirm["count"] == 3
+    assert after_confirm["count"] == 5
 
 
 def test_auto_review_candidates_preview_and_apply(mcp_backend: LocalMemoryBackend):

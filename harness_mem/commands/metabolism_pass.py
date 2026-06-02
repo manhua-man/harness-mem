@@ -25,6 +25,7 @@ from __future__ import annotations
 import itertools
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, Literal, cast
 
 from harness_mem.commands.replay_window import (
@@ -561,27 +562,194 @@ async def _propose_supersedes(
     *,
     notes: list[str],
 ) -> list[SupersedeCandidate]:
-    """Auto-supersede deferred in v2.3.1 — returns empty list.
+    """Propose candidate-only supersedes from recent historical truths.
 
-    The proposer slot exists so :class:`MetabolismPass` and the
-    downstream ``MetabolismRun.output_counts`` schema keep stable
-    shape, but no algorithm runs in v2.3.1.
+    v2.6.2 activates the previously deferred supersede leg with a narrow,
+    evidence-backed contract:
 
-    Rationale (see design.md "Suggestion 选择算法"):
-
-    * Embedding similarity alone over-generates: a similar pair could
-      be a merge candidate or a supersede candidate, and v2.3.1 has
-      no signal that distinguishes the two.
-    * The original "orphan supersede chain" framing reads backwards
-      against the v2.3.0 schema — ``historical_truths`` is exactly the
-      truths that already have ``valid_to`` set.
-    * Manual supersede via :func:`tool_propose_supersede` (v1.7.1)
-      remains the supported path. v2.3.1 only declines to *automate*
-      supersede; users do not lose the capability.
-
-    Auto-supersede returns when a distinguishing signal lands:
-    explicit "search A → accept B" feedback, an intent field at
-    create time, or a calibrated higher-similarity band. Each is
-    its own change, deferred to v2.3.2+.
+    - Only historical truths from ``window.historical_truths`` are considered
+      as supersede targets.
+    - A target must find a current truth of the same kind in the same project.
+    - Similarity must clear a high threshold so this leg stays distinct from
+      ordinary merge suggestions.
+    - The proposer remains read-only and returns only ``SupersedeCandidate``.
     """
+    historical_ids = window.dimensions.get("historical_truths")
+    if historical_ids is None or not historical_ids.selected_ids:
+        return []
+
+    store = cast(LocalStructuredStore, backend.structured_store)
+    candidates: list[tuple[float, SupersedeCandidate]] = []
+    seen_pairs: set[tuple[str, str]] = set()
+
+    for historical_id in historical_ids.selected_ids:
+        historical = await _load_truth_for_supersede(store, historical_id)
+        if historical is None:
+            continue
+        project_name = str(historical["project_name"])
+        truth_kind = str(historical["truth_kind"])
+        comparison_text = str(historical["comparison_text"])
+        current_truths = await _current_truths_for_kind(
+            store,
+            project_name=project_name,
+            truth_kind=truth_kind,
+        )
+        if not current_truths:
+            continue
+
+        best_score = 0.0
+        best_replacement: dict[str, object] | None = None
+        for current in current_truths:
+            if current["id"] == historical["id"]:
+                continue
+            score = _content_similarity(
+                comparison_text,
+                str(current["comparison_text"]),
+            )
+            if score > best_score:
+                best_score = score
+                best_replacement = current
+
+        if best_replacement is None or best_score < 0.78:
+            continue
+        pair = (str(historical["id"]), str(best_replacement["id"]))
+        if pair in seen_pairs:
+            continue
+        seen_pairs.add(pair)
+
+        replacement_hint = _replacement_hint(
+            comparison_text,
+            str(best_replacement["comparison_text"]),
+        )
+        candidates.append(
+            (
+                best_score,
+                SupersedeCandidate(
+                    project_name=str(historical["project_name"]),
+                    target_type=truth_kind,
+                    target_id=str(historical["id"]),
+                    replacement_type=str(best_replacement["truth_kind"]),
+                    replacement_id=str(best_replacement["id"]),
+                    reason=(
+                        "Recent historical truth has a highly similar current replacement; "
+                        "supersede review can relink the lineage explicitly."
+                    ),
+                    evidence=(
+                        f"similarity={best_score:.3f}; historical='{replacement_hint[0]}'; "
+                        f"current='{replacement_hint[1]}'"
+                    ),
+                    source=f"metabolism-run:{historical['id']}",
+                    confidence=min(0.99, max(0.7, best_score)),
+                ),
+            )
+        )
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return [candidate for _, candidate in candidates]
+
+
+async def _load_truth_for_supersede(
+    store: LocalStructuredStore,
+    truth_id: str,
+) -> dict[str, object] | None:
+    entry = await store.get_memory_entry(truth_id)
+    if entry is not None and entry.valid_to is not None:
+        return {
+            "id": entry.id,
+            "project_name": entry.project_name,
+            "truth_kind": "memory_entry",
+            "comparison_text": entry.content,
+        }
+    rule = await store.get_confirmed_rule(truth_id)
+    if rule is not None and rule.valid_to is not None:
+        return {
+            "id": rule.id,
+            "project_name": rule.project_name,
+            "truth_kind": "confirmed_rule",
+            "comparison_text": f"{rule.trigger}\n{rule.pattern}",
+        }
+    fact = await store.get_relation_fact(truth_id)
+    if fact is not None and fact.valid_to is not None:
+        return {
+            "id": fact.id,
+            "project_name": fact.project_name,
+            "truth_kind": "relation_fact",
+            "comparison_text": (
+                f"{fact.source_entity} {fact.relation_type} {fact.target_entity}\n{fact.evidence}"
+            ),
+        }
+    return None
+
+
+async def _current_truths_for_kind(
+    store: LocalStructuredStore,
+    *,
+    project_name: str,
+    truth_kind: str,
+) -> list[dict[str, object]]:
+    if truth_kind == "memory_entry":
+        entries = await store.list_memory_entries(
+            project_name,
+            limit=100000,
+            status="accepted",
+            include_history=False,
+        )
+        return [
+            {
+                "id": entry.id,
+                "truth_kind": "memory_entry",
+                "comparison_text": entry.content,
+            }
+            for entry in entries
+        ]
+    if truth_kind == "confirmed_rule":
+        rules = await store.list_confirmed_rules(project_name, include_history=False)
+        return [
+            {
+                "id": rule.id,
+                "truth_kind": "confirmed_rule",
+                "comparison_text": f"{rule.trigger}\n{rule.pattern}",
+            }
+            for rule in rules
+        ]
+    if truth_kind == "relation_fact":
+        facts = await store.list_relation_facts(
+            project_name,
+            limit=100000,
+            status="accepted",
+            include_history=False,
+        )
+        return [
+            {
+                "id": fact.id,
+                "truth_kind": "relation_fact",
+                "comparison_text": (
+                    f"{fact.source_entity} {fact.relation_type} {fact.target_entity}\n{fact.evidence}"
+                ),
+            }
+            for fact in facts
+        ]
     return []
+
+
+def _content_similarity(left: str, right: str) -> float:
+    left_tokens = set(_tokenize_similarity_text(left))
+    right_tokens = set(_tokenize_similarity_text(right))
+    if not left_tokens or not right_tokens:
+        return 0.0
+    overlap = len(left_tokens & right_tokens)
+    overlap_floor = overlap / min(len(left_tokens), len(right_tokens))
+    sequence_ratio = SequenceMatcher(None, left.lower(), right.lower()).ratio()
+    return max(overlap_floor, sequence_ratio)
+
+
+def _tokenize_similarity_text(text: str) -> list[str]:
+    return [
+        token.lower()
+        for token in text.replace("/", " ").replace("-", " ").split()
+        if token.strip()
+    ]
+
+
+def _replacement_hint(left: str, right: str) -> tuple[str, str]:
+    return (left[:120], right[:120])

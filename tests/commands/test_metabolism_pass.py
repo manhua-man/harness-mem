@@ -114,7 +114,6 @@ async def test_propose_merges_isolated_pair(backend: LocalMemoryBackend) -> None
     # Stale silence default is 60d; entries created an hour ago don't
     # qualify, so stale stays empty.
     assert result.stale == []
-    # Auto-supersede deferred in v2.3.1.
     assert result.supersede == []
 
 
@@ -205,7 +204,6 @@ async def test_propose_stale_isolated_silent_truth(
 
     # No near-duplicates and a single fresh entry → merge stays empty.
     assert result.merge == []
-    # Auto-supersede deferred in v2.3.1.
     assert result.supersede == []
 
 
@@ -213,60 +211,44 @@ async def test_propose_stale_isolated_silent_truth(
 async def test_propose_supersedes_deferred_returns_empty(
     backend: LocalMemoryBackend,
 ) -> None:
-    """Auto-supersede is deferred — proposer returns ``[]`` even when
-    historical truths exist in the window.
-
-    This is the deferral contract test: phase 2.4 is intentionally a
-    stub until v2.3.2's distinguishing signal is spec'd. Locking in the
-    empty result here keeps a future PR from accidentally reactivating
-    auto-supersede on similarity alone.
-    """
+    """Historical truth with a near-identical current replacement yields a supersede candidate."""
     project_name = "proj-supersede"
     now = datetime.now(timezone.utc)
 
-    # Two historical entries + one historical rule, ``valid_to`` within
-    # the default 30d lookback so the window's ``historical_truths``
-    # dimension actually populates.
     historical_entry_a = MemoryEntry(
         project_name=project_name,
         category="bug",
-        content="Old workaround for SQLite write contention.",
+        content="Use invoke for IPC payloads on Windows to avoid large emit deadlocks.",
         source="manual",
         created_at=now - timedelta(days=20),
         valid_to=now - timedelta(days=2),
     )
-    historical_entry_b = MemoryEntry(
+    current_entry = MemoryEntry(
         project_name=project_name,
         category="api",
-        content="Deprecated /v0 endpoint shape.",
+        content="Use invoke for IPC payloads on Windows to avoid large emit deadlocks and keep payload delivery stable.",
         source="manual",
-        created_at=now - timedelta(days=18),
-        valid_to=now - timedelta(days=1),
-    )
-    historical_rule = ConfirmedRule(
-        project_name=project_name,
-        pattern="Always use the legacy auth header.",
-        trigger="On any inbound request",
-        source_candidate_id="seed-historical-rule",
-        confirmed_at=now - timedelta(days=25),
-        valid_to=now - timedelta(days=3),
+        created_at=now - timedelta(days=1),
     )
 
     structured_store = backend.structured_store
     assert isinstance(structured_store, LocalStructuredStore)
     await structured_store.save_memory_entry(historical_entry_a)
-    await structured_store.save_memory_entry(historical_entry_b)
-    await structured_store.save_confirmed_rule(historical_rule)
+    await structured_store.save_memory_entry(current_entry)
 
     result = await select_metabolism_pass(
         backend, project_name=project_name, budget=ReplayBudget()
     )
 
-    # The window observed the historical truths (sanity: confirms the
-    # fixture actually exercises the historical_truths dimension).
-    assert result.window.dimensions["historical_truths"].total_seen >= 3
-    # …but the proposer stays a stub regardless.
-    assert result.supersede == []
+    assert result.window.dimensions["historical_truths"].total_seen >= 1
+    assert len(result.supersede) == 1
+    candidate = result.supersede[0]
+    assert candidate.target_type == "memory_entry"
+    assert candidate.target_id == historical_entry_a.id
+    assert candidate.replacement_type == "memory_entry"
+    assert candidate.replacement_id == current_entry.id
+    assert candidate.status == "pending"
+    assert candidate.confidence >= 0.7
 
 
 @pytest.mark.anyio
@@ -276,8 +258,8 @@ async def test_select_metabolism_pass_integration_merge_and_stale(
     """One window, three proposer legs.
 
     Merge fires on a near-duplicate pair, stale fires on long-silent
-    truth (entry + rule), and supersede stays ``[]`` per the v2.3.1
-    deferral. Also pins the window-shape contract: both duplicates land
+    truth (entry + rule), and supersede may fire for recent historical
+    truths with a near-identical current replacement. Also pins the window-shape contract: both duplicates land
     in ``repeat_search_hits``, and pass-level notes stay empty on a
     small fixture (no truncation paths fire).
     """
@@ -313,12 +295,29 @@ async def test_select_metabolism_pass_integration_merge_and_stale(
         confirmed_at=now - timedelta(days=80),
         last_surfaced_at=now - timedelta(days=70),
     )
+    historical_entry = MemoryEntry(
+        project_name=project_name,
+        category="decision",
+        content="Use invoke for IPC payloads on Windows to avoid large emit deadlocks.",
+        source="manual",
+        created_at=now - timedelta(days=10),
+        valid_to=now - timedelta(days=1),
+    )
+    replacement_entry = MemoryEntry(
+        project_name=project_name,
+        category="decision",
+        content="Use invoke for IPC payloads on Windows to avoid large emit deadlocks and keep payload delivery stable.",
+        source="manual",
+        created_at=now - timedelta(hours=3),
+    )
 
     structured_store = backend.structured_store
     assert isinstance(structured_store, LocalStructuredStore)
     await structured_store.save_memory_entry(duplicate_a)
     await structured_store.save_memory_entry(duplicate_b)
     await structured_store.save_memory_entry(stale_entry)
+    await structured_store.save_memory_entry(historical_entry)
+    await structured_store.save_memory_entry(replacement_entry)
     await structured_store.save_confirmed_rule(stale_rule)
 
     # Two search_hit signals per duplicate → each lands in
@@ -340,7 +339,7 @@ async def test_select_metabolism_pass_integration_merge_and_stale(
 
     assert len(result.merge) >= 1
     assert len(result.stale) >= 2
-    assert result.supersede == []
+    assert len(result.supersede) >= 1
 
     # Window structure: both duplicates qualify as repeat_search_hits.
     repeat_dim = result.window.dimensions["repeat_search_hits"]

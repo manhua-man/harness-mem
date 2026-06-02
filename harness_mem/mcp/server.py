@@ -1280,10 +1280,12 @@ def tool_prepare_session_distill(
 # callers (and any external import that already uses them) keep working.
 from harness_mem.mcp.serializers import (  # noqa: E402, F401
     _isoformat,
+    _serialize_merge_suggestion_candidate,
     _serialize_memory_entry_candidate,
     _serialize_procedural_candidate,
     _serialize_relation_fact_candidate,
     _serialize_rule_candidate,
+    _serialize_stale_truth_suggestion_candidate,
     _serialize_supersede_candidate,
 )
 
@@ -1294,18 +1296,22 @@ async def _gather_candidate_payload(
     project_name: str,
     status: str,
     limit: int,
-) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict], list[dict], list[dict]]:
     rules = await backend.structured_store.list_rule_candidates(project_name, status=status)
     entries = await backend.structured_store.list_memory_entries(project_name, status=status, limit=limit)
     facts = await backend.structured_store.list_relation_facts(project_name, status=status, limit=limit)
     supersedes = await backend.structured_store.list_supersede_candidates(project_name, status=status)
     procedural = await backend.structured_store.list_procedural_candidates(project_name, status=status)
+    merge_suggestions = await backend.structured_store.list_merge_suggestion_candidates(project_name, status=status)
+    stale_suggestions = await backend.structured_store.list_stale_truth_suggestion_candidates(project_name, status=status)
     return (
         [_serialize_rule_candidate(candidate) for candidate in rules[:limit]],
         [_serialize_memory_entry_candidate(entry) for entry in entries],
         [_serialize_relation_fact_candidate(fact) for fact in facts],
         [_serialize_supersede_candidate(candidate) for candidate in supersedes[:limit]],
         [_serialize_procedural_candidate(candidate) for candidate in procedural[:limit]],
+        [_serialize_merge_suggestion_candidate(candidate) for candidate in merge_suggestions[:limit]],
+        [_serialize_stale_truth_suggestion_candidate(candidate) for candidate in stale_suggestions[:limit]],
     )
 
 
@@ -1325,6 +1331,8 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         relation_facts,
         supersede_candidates,
         procedural_candidates,
+        merge_suggestion_candidates,
+        stale_truth_suggestion_candidates,
     ) = asyncio.run(
         _gather_candidate_payload(
             backend,
@@ -1339,6 +1347,8 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         *relation_facts,
         *supersede_candidates,
         *procedural_candidates,
+        *merge_suggestion_candidates,
+        *stale_truth_suggestion_candidates,
     ]
     all_candidates.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     candidates = all_candidates[:effective_limit]
@@ -1354,6 +1364,8 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         "relation_facts": relation_facts,
         "supersede_candidates": supersede_candidates,
         "procedural_candidates": procedural_candidates,
+        "merge_suggestion_candidates": merge_suggestion_candidates,
+        "stale_truth_suggestion_candidates": stale_truth_suggestion_candidates,
         "count": len(candidates),
         "total_count": len(all_candidates),
         "rule_count": len(rule_candidates),
@@ -1361,6 +1373,8 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         "relation_fact_count": len(relation_facts),
         "supersede_count": len(supersede_candidates),
         "procedural_count": len(procedural_candidates),
+        "merge_suggestion_count": len(merge_suggestion_candidates),
+        "stale_truth_suggestion_count": len(stale_truth_suggestion_candidates),
     }
 
 

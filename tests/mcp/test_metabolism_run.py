@@ -37,8 +37,7 @@ pytestmark = pytest.mark.mcp
 
 
 def _seed_merge_pair(backend: LocalMemoryBackend, project_name: str) -> tuple[str, str]:
-    """Two near-duplicate entries plus search_hit signals so the merge
-    proposer fires on this fixture (entry-entry leg of the pool)."""
+    """Two near-duplicate current entries plus search_hit signals."""
     now = datetime.now(timezone.utc)
 
     duplicate_a = MemoryEntry(
@@ -75,6 +74,31 @@ def _seed_merge_pair(backend: LocalMemoryBackend, project_name: str) -> tuple[st
     return duplicate_a.id, duplicate_b.id
 
 
+def _seed_supersede_pair(backend: LocalMemoryBackend, project_name: str) -> tuple[str, str]:
+    """One historical/current near-identical pair so the supersede proposer fires."""
+    now = datetime.now(timezone.utc)
+    historical = MemoryEntry(
+        project_name=project_name,
+        category="decision",
+        content="Use invoke for IPC payloads on Windows to avoid large emit deadlocks.",
+        source="manual",
+        created_at=now - timedelta(days=10),
+        valid_to=now - timedelta(days=1),
+    )
+    current = MemoryEntry(
+        project_name=project_name,
+        category="decision",
+        content="Use invoke for IPC payloads on Windows to avoid large emit deadlocks and keep payload delivery stable.",
+        source="manual",
+        created_at=now - timedelta(hours=3),
+    )
+    structured_store = backend.structured_store
+    assert isinstance(structured_store, LocalStructuredStore)
+    run(structured_store.save_memory_entry(historical))
+    run(structured_store.save_memory_entry(current))
+    return historical.id, current.id
+
+
 def test_metabolism_run_success_persists_run_and_candidates(tmp_path: Path) -> None:
     """Success path: run record is metabolism/completed, candidates carry
     the new run id, ``output_counts`` has three explicit per-type keys.
@@ -88,6 +112,7 @@ def test_metabolism_run_success_persists_run_and_candidates(tmp_path: Path) -> N
     set_backend_override(backend)
     try:
         entry_a_id, entry_b_id = _seed_merge_pair(backend, project_name)
+        superseded_id, replacement_id = _seed_supersede_pair(backend, project_name)
 
         result = tool_metabolism_run(project_name=project_name)
 
@@ -104,8 +129,7 @@ def test_metabolism_run_success_persists_run_and_candidates(tmp_path: Path) -> N
         assert output_counts["merge_suggestions"] == 1
         # Fresh entries don't trip the 60d silence threshold.
         assert output_counts["stale_suggestions"] == 0
-        # Auto-supersede is deferred in v2.3.1.
-        assert output_counts["supersede_suggestions"] == 0
+        assert output_counts["supersede_suggestions"] == 1
 
         structured_store = backend.structured_store
         assert isinstance(structured_store, LocalStructuredStore)
@@ -119,7 +143,7 @@ def test_metabolism_run_success_persists_run_and_candidates(tmp_path: Path) -> N
         assert record.output_counts == {
             "merge_suggestions": 1,
             "stale_suggestions": 0,
-            "supersede_suggestions": 0,
+            "supersede_suggestions": 1,
         }
 
         merge_candidates = run(
@@ -137,6 +161,14 @@ def test_metabolism_run_success_persists_run_and_candidates(tmp_path: Path) -> N
             structured_store.list_stale_truth_suggestion_candidates(project_name)
         )
         assert stale_candidates == []
+        supersede_candidates = run(
+            structured_store.list_supersede_candidates(project_name)
+        )
+        assert len(supersede_candidates) == 1
+        supersede = supersede_candidates[0]
+        assert supersede.target_id == superseded_id
+        assert supersede.replacement_id == replacement_id
+        assert supersede.status == "pending"
 
         # Sibling check: metabolism_preview still works and writes a
         # separate kind="preview" record without disturbing the run row.
