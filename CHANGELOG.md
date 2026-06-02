@@ -8,6 +8,30 @@
 
 ---
 
+## [2.9.12] — 2026-06-03
+
+**主题：Distill-Mode Truth Sync**
+
+v2.9.12 继续收 v2.4 配置口径。当前 runtime 和 tests 一直只承认
+`distill.mode = "defer_to_agent" | "inline" | "worker"`，但 `roadmap-v24`
+里还留着 `notify_only` / `embedded_llm` 这组更早的设计值。这一版不改行为，只把
+current-truth 文档收回到 shipped loader truth，并把 focused guard 扩到
+`distill.mode`。
+
+### Changed
+
+- **v2.4 roadmap truth sync**：`docs/roadmap-v24.md` 现在把 `distill.mode` 表收成
+  `defer_to_agent` / `inline` / `worker`。
+- **status/release sync**：`docs/roadmap-status.md` 与 `docs/roadmap-v29.md` 已同步到
+  v2.9.12。
+- **focused regression coverage**：`tests/test_worker_mode_truth.py` 现在也守
+  `distill.mode` 的文档口径。
+
+### Boundaries
+
+- 本版本不新增 inline LLM orchestration、worker daemon、notify-only channel 或 host-entry 行为。
+- 它只同步当前 config truth，并防止旧的 `notify_only` / `embedded_llm` 口径继续误导用户。
+
 ## [2.9.11] — 2026-06-03
 
 **主题：Scheduler Trigger Truth Sync**

@@ -91,8 +91,8 @@ resolve project_name: 项目 toml > active_project.txt > 目录启发（与 v2.2
 | 值 | 行为 | 是否要再开 Agent |
 |---|---|---|
 | `defer_to_agent` | 只 ingest + prepare，job 标记 `needs_distill` | **要**：`/hm:distill` 或 MCP + LLM |
-| `notify_only` | 同上 + events / 可选通知 | **要** |
-| `embedded_llm` | 共享实现内调 LLM 适配器 → suggest + auto_review | **不要**（仍只写候选层） |
+| `inline` | 仍由共享 business command 同步推进后续逻辑；当前 v2.4 shipped runtime 尚未把它扩成默认 LLM 主路径 | 视具体实现而定，但当前默认不是这条路径 |
+| `worker` | 允许为后续 worker orchestration 预留配置值；当前 shipped runtime 仍未提供默认 always-on worker 主路径 | **不要默认依赖** |
 
 默认 **`defer_to_agent`**。
 

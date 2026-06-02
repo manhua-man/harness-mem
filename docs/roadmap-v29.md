@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -319,3 +319,24 @@ reflection 时，不应该再被旧文档误导去写 `worker.mode = "daemon"`�
   - `on` 只是 scheduler/cron host trigger gate
   - 当前 runtime 不内建 cron expression schema 或 schedule installer
 - focused regression guard 已扩展到 scheduler trigger truth。
+
+## v2.9.12：Distill-Mode Truth Sync
+
+**用户故事**：当维护者回看 v2.4 配置文档时，不应该再被 `notify_only` /
+`embedded_llm` 这类旧设计项误导，因为当前 loader 和 tests 只承认
+`defer_to_agent | inline | worker`。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | roadmap truth sync | `roadmap-v24` 的 `distill.mode` 表对齐 shipped values |
+| P0 | release/status sync | `roadmap-status` / `CHANGELOG` / `v29` 说明当前 truth |
+| P1 | focused regression guard | docs truth 绑定 `_RECOGNIZED_KEYS` 中的 `distill.mode` |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/v2912-distill-mode-truth-sync/`。
+- `distill.mode` 当前真值已收束成：
+  - 允许值只有 `defer_to_agent` / `inline` / `worker`
+  - `defer_to_agent` 仍是默认 shipped path
+  - 当前 runtime 仍未把 `inline` / `worker` 扩成默认 LLM/daemon 主路径
+- focused regression guard 已扩展到 `distill.mode` truth。
