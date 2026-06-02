@@ -37,7 +37,7 @@ v2.4 让 reflection、distill、metabolism 这类较重任务有清晰的 job �
 
 **业务命令 ≠ `harness-mem` 的某个子命令。** v2.4 不为 hook 新增 `harness-mem reflection` 这类「业务向 CLI」；hook/cron 通过下面方式调用业务命令：
 
-- `python -m harness_mem.<host_entry> reflection_once --project-root …`（推荐：无 Click 的模块入口），或
+- `python -m harness_mem.host_entry --project-root … --source ide_hook [--trigger-id … --session-ids …]`（推荐：无 Click 的模块入口；scheduler 场景把 `--source` 换成 `scheduler`），或
 - 极短的 stub 脚本 `import harness_mem...; reflection_once(...)`，或
 - 已有 Agent 会话时走 **MCP tool**（tool 内部映射到同一业务命令实现）。
 
@@ -75,7 +75,7 @@ resolve project_name: 项目 toml > active_project.txt > 目录启发（与 v2.2
 
 - 仅 **维护子命令**（人使用）：`config *`、`integration install-*`、`doctor`、`purge`、`quickstart` 等。
 - **不**在 CLI 上暴露业务命令；业务命令只通过 MCP 与 `python -m` host 入口调用。
-- `integration install-*` 写入 hook 的必须是 **`python -m harness_mem.<host_entry> …`**（或文档给出的 stub 路径），**不得**写 `harness-mem config/doctor/…`，也 **不得**写 `harness-mem reflection` 等（v2.4 不提供这类 CLI）。
+- `integration install-*` 写入 hook 的必须是 **`python -m harness_mem.host_entry --project-root … --source ide_hook …`**（或文档给出的 stub 路径），**不得**写 `harness-mem config/doctor/…`，也 **不得**写 `harness-mem reflection` 等（v2.4 不提供这类 CLI）。
 
 ### 建议配置键（草案）
 
@@ -102,7 +102,7 @@ resolve project_name: 项目 toml > active_project.txt > 目录启发（与 v2.2
 
 前置：`harness-mem integration install-cursor-hook` 写好 hooks；项目 `.harness-mem.toml` 中 `triggers.after_agent = on`；全局默认 `off`。
 
-1. Agent 结束 → hook 执行例如 `python -m harness_mem.host reflection_once --project-root …`（**不是** `harness-mem` CLI）。
+1. Agent 结束 → hook 执行例如 `python -m harness_mem.host_entry --project-root … --source ide_hook --trigger-id …`（**不是** `harness-mem` CLI）。
 2. host 入口读取合并后的 toml；若 `off` 则 exit 0。
 3. 否则执行业务命令 `reflection_once`（内部 ingest + prepare、写 job）。
 4. `distill.mode = defer_to_agent` 时不跑 LLM；用户稍后再 `/hm:distill`（MCP）。
@@ -153,7 +153,7 @@ resolve project_name: 项目 toml > active_project.txt > 目录启发（与 v2.2
 | 优先级 | 任务 | 验收 |
 |---|---|---|
 | P0 | reflection contract | 四类触发源；行为与 MCP 调用的共享实现一致 |
-| P0 | host 入口 | `python -m harness_mem.<host_entry>` 映射到业务命令；集成测试断言 hook 模板不出现 `harness-mem` 可执行调用 |
+| P0 | host 入口 | `python -m harness_mem.host_entry` 通过 flags 映射到业务命令；集成测试断言 hook 模板不出现 `harness-mem` 可执行调用 |
 | P0 | config merge | 各入口共用 `load_merged_config(project_root)` |
 | P0 | no implicit writes tests | 配置为 `off` 时，hook 不产生 job/candidate |
 | P0 | output shape | phase、下一步（如 `needs_distill`） |
@@ -179,7 +179,7 @@ resolve project_name: 项目 toml > active_project.txt > 目录启发（与 v2.2
 |---|---|---|
 | P0 | `config set/get/list` | 用户级与项目级 toml |
 | P0 | `config validate` | 合并结果可打印 |
-| P0 | `integration install-cursor-hook` | 生成 hooks；仅嵌入 `python -m harness_mem.<host_entry> …` |
+| P0 | `integration install-cursor-hook` | 生成 hooks；仅嵌入 `python -m harness_mem.host_entry --project-root … --source ide_hook …` |
 | P1 | `integration install-claude-hook` | 同上 |
 | P1 | 文档 | 说明 opt-in、默认 off、与 MCP distill 主链关系 |
 

@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -340,3 +340,26 @@ reflection 时，不应该再被旧文档误导去写 `worker.mode = "daemon"`�
   - `defer_to_agent` 仍是默认 shipped path
   - 当前 runtime 仍未把 `inline` / `worker` 扩成默认 LLM/daemon 主路径
 - focused regression guard 已扩展到 `distill.mode` truth。
+
+## v2.9.13：Host-Entry Module Truth Sync
+
+**用户故事**：当维护者回看 v2.4 roadmap 里的 hook/host trigger 示例时，不应该再看到
+`harness_mem.<host_entry>` 这样的占位符、`python -m harness_mem.host` 这种旧模块名，
+或把 `reflection_once` 写成 host-entry 位置参数的旧调用形式，因为当前 shipped
+runtime、hook 模板和 operator doc 都只承认 `python -m harness_mem.host_entry`
+加 flags 的调用方式。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | roadmap truth sync | `roadmap-v24` 的 host-entry 示例改为 shipped module path + flags |
+| P0 | placeholder/old-path removal | 不再保留 `harness_mem.<host_entry>`、`harness_mem.host`、`host_entry reflection_once` |
+| P1 | focused regression guard | current-truth docs 回流到旧 host-entry 口径时测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2913-host-entry-module-truth-sync/`。
+- `docs/roadmap-v24.md` 现在统一使用：
+  - `python -m harness_mem.host_entry`
+  - `--project-root ...`
+  - `--source ide_hook`
+- 已补 focused regression test：`tests/test_host_entry_module_truth.py`

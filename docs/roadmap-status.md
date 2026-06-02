@@ -10,18 +10,18 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.12` |
-| `harness_mem/__init__.py` | `2.9.12` |
-| `CHANGELOG.md` | 已有 `2.9.12` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.13` |
+| `harness_mem/__init__.py` | `2.9.13` |
+| `CHANGELOG.md` | 已有 `2.9.13` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.12：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.13：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
 boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力，以及
 v2.8.0–v2.8.2 的 session-distill maintenance surfaces、v2.9.0 的 PRD sync
 candidate surface、v2.9.1 的 status triage surface、v2.9.2 的 plugin
 doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 stale CLI surface guard sync、v2.9.5 的 shell completion maintenance truth、v2.9.6 的 maintenance surface collateral sync、v2.9.7 的 README and telemetry maintenance truth、v2.9.8 的 maintenance surface collateral guard、v2.9.9 的 reflection project-root resolution、v2.9.10 的 worker-mode truth sync，以及 v2.9.11 的 scheduler-trigger truth sync 都已落地。
 
-> **v2.9.12 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.12`。v2.9 在保持
+> **v2.9.13 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.13`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -31,7 +31,11 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 > 收紧成 known-root-first、cwd-final-fallback，并清掉 `worker.mode` 的旧 daemon
 > 这一类会误导当前 config loader 的旧口径；`triggers.scheduler` 也已同步收成
 > shipped `off|on` gate，而不再保留 `off|cron` 的旧写法；`distill.mode` 也已同步收成
-> shipped `defer_to_agent | inline | worker`，不再保留更早期设计阶段的额外枚举值。
+> shipped `defer_to_agent | inline | worker`，不再保留更早期设计阶段的额外枚举值；同时
+> `roadmap-v24` 的 host-trigger 示例也已收束到 shipped 的
+> `python -m harness_mem.host_entry --project-root ... --source ide_hook` 形式，
+> 不再保留 `<host_entry>` 占位符、`harness_mem.host` 旧模块名或伪 `reflection_once`
+> 子命令。
 
 ## 完成矩阵
 
@@ -77,7 +81,8 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 | v2.9.9 | 已完成 | `harness_mem/commands/reflection_jobs.py` known-root-first resolution、`tests/test_reflection_once_integration.py` 两个缺省 root 覆盖、OpenSpec `v299-reflection-project-root-resolution` | 只收紧共享 reflection business command 的缺省 `project_root` 解析；`host_entry` 仍优先传显式 `--project-root`。 |
 | v2.9.10 | 已完成 | `docs/roadmap-v24.md` / `docs/cli/v2.4.md` / `docs/roadmap-status.md` worker-mode truth sync、`tests/test_worker_mode_truth.py`、OpenSpec `v2910-worker-mode-truth-sync` | `worker.mode` 当前真值已锁定为 `off/on` gate；不代表 shipped always-on daemon。 |
 | v2.9.11 | 已完成 | `docs/roadmap-v24.md` / `docs/cli/v2.4.md` scheduler truth sync、`tests/test_worker_mode_truth.py` 扩展覆盖 scheduler、OpenSpec `v2911-scheduler-trigger-truth-sync` | `triggers.scheduler` 当前真值已锁定为 `off/on` gate；不代表 shipped cron expression schema。 |
-| v2.9.12 | 当前版本 | `docs/roadmap-v24.md` distill-mode truth sync、`tests/test_worker_mode_truth.py` 扩展覆盖 `distill.mode`、OpenSpec `v2912-distill-mode-truth-sync` | `distill.mode` 当前真值已锁定为 `defer_to_agent/inline/worker`；不代表 shipped inline LLM 或 always-on worker path。 |
+| v2.9.12 | 已完成 | `docs/roadmap-v24.md` distill-mode truth sync、`tests/test_worker_mode_truth.py` 扩展覆盖 `distill.mode`、OpenSpec `v2912-distill-mode-truth-sync` | `distill.mode` 当前真值已锁定为 `defer_to_agent/inline/worker`；不代表 shipped inline LLM 或 always-on worker path。 |
+| v2.9.13 | 当前版本 | `docs/roadmap-v24.md` host-entry example sync、`tests/test_host_entry_module_truth.py`、OpenSpec `v2913-host-entry-module-truth-sync` | current-truth docs 现在只使用 `python -m harness_mem.host_entry --project-root ... --source ide_hook` 这一 shipped host-entry invocation；不再保留 `<host_entry>` placeholder、`harness_mem.host` 旧模块名或伪 `reflection_once` 子命令。 |
 
 ## 未完成 / 不做项
 

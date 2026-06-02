@@ -8,6 +8,33 @@
 
 ---
 
+## [2.9.13] — 2026-06-03
+
+**主题：Host-Entry Module Truth Sync**
+
+v2.9.13 收的是一处剩余的 v2.4 host-trigger 文档漂移。当前 runtime、hook 模板、
+CLI operator doc 和 tests 都已经统一到 `python -m harness_mem.host_entry` 的
+flag-only 调用形式，但 `roadmap-v24` 还留着 `harness_mem.<host_entry>` 占位符、
+`python -m harness_mem.host` 旧模块名，以及把 `reflection_once` 写成 host-entry
+位置参数的旧例子。这一版不改 runtime，只把当前文档真值收回到 shipped host-entry
+contract，并用 focused guard 锁住。
+
+### Changed
+
+- **v2.4 roadmap host-entry sync**：`docs/roadmap-v24.md` 现在统一使用
+  `python -m harness_mem.host_entry --project-root ... --source ide_hook ...`
+  的 shipped invocation 形式。
+- **focused regression coverage**：新增 `tests/test_host_entry_module_truth.py`，
+  防止 current-truth docs 回流到 `harness_mem.<host_entry>`、
+  `python -m harness_mem.host` 或 `host_entry reflection_once` 旧口径。
+- **release/status writeback**：`docs/roadmap-v29.md` 与
+  `docs/roadmap-status.md` 已同步到 v2.9.13。
+
+### Boundaries
+
+- 本版本不新增 host-entry flags、CLI 命令、hook 行为或 reflection runtime。
+- 它只同步当前文档真值，并防止旧的 host-entry 调用示例继续误导维护者。
+
 ## [2.9.12] — 2026-06-03
 
 **主题：Distill-Mode Truth Sync**
