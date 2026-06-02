@@ -186,8 +186,7 @@ prepare_session_distill
 -> auto-detect client/source and project-scoped sessions
 -> session-distill reads evidence
 -> suggest_memory_entry / suggest_rule / suggest_relation_fact
--> list_candidates
--> auto-review / confirm / reject
+-> auto_review_candidates(apply=true)
 -> final summary
 ```
 

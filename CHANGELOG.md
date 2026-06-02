@@ -8,6 +8,30 @@
 
 ---
 
+## [2.9.20] — 2026-06-03
+
+**主题：README Distill Workflow Truth Sync**
+
+v2.9.20 收的是 `README.md` 里残留的一处 distill workflow 旧口径。当前 shipped
+runtime 里，distill 的 review 步骤已经是一等的
+`auto_review_candidates(project_name=<project>, apply=true)` surface；但 README 的
+Workflow Skill Boundary 图还在画 `list_candidates -> auto-review / confirm / reject`
+这条更早的主链。这一版不改 runtime，只把 README 图写回当前 shipped review truth，
+并补 focused guard。
+
+### Changed
+
+- **README workflow sync**：Workflow Skill Boundary 图现在把 distill review 步骤
+  直接写成 `auto_review_candidates(apply=true)`。
+- **focused regression coverage**：新增 `tests/test_readme_distill_truth.py`。
+- **release/status writeback**：`docs/roadmap-v29.md` 与
+  `docs/roadmap-status.md` 已同步到 v2.9.20。
+
+### Boundaries
+
+- 本版本不新增新的 auto-review policy、候选类型或 MCP runtime 行为。
+- 它只同步 README 的 distill workflow 图到当前 shipped review surface，并防止 README 回流到旧主链画法。
+
 ## [2.9.19] — 2026-06-03
 
 **主题：Best-Practices Auto-Review Truth Sync**
