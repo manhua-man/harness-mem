@@ -28,7 +28,7 @@ alwaysApply: true
 ### 1. 记忆提炼（Distillation）
 - **触发逻辑**：当一个开发阶段结束，或有大量原始 Session / Observations 累积时，应启动 `tools/session-distill` 这类专职 Skill，而不是让日常编码 Agent 临时兼职长程提炼。
 - **AI 任务**：专职操作者应完整阅读原始日志，判断哪些是真正影响后续开发的技术决策、协作规则、任务状态和 rationale，而不是死板匹配关键词。
-- **提炼边界**：用户日常只有一条主路径：`/hm:distill` / 自然语言等价入口背后的 MCP 闭环。Agent 调 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根>)`，由 runtime 自动识别 Codex / Claude Code / Cursor / Antigravity / opencode / Hermes / generic agent 来源并返回 evidence packet，然后走 `session-distill -> suggest_* -> list_candidates -> auto_review_candidates/confirm/reject -> final summary`。任何来源最终都必须接到 candidate layer，而不是绕过候选审核。
+- **提炼边界**：用户日常只有一条主路径：`/hm:distill` / 自然语言等价入口背后的 MCP 闭环。Agent 调 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根>)`，由 runtime 自动识别 Codex / Claude Code / Cursor / Antigravity / opencode / Hermes / generic agent 来源并返回 evidence packet，然后走 `session-distill -> suggest_* -> auto_review_candidates(project_name=<project>, apply=true) -> final summary`。任何来源最终都必须接到 candidate layer，而不是绕过候选审核。
 - **落盘方式**：提炼结果应先进入候选区，例如 `RuleCandidate`、pending `MemoryEntry` 或 pending `RelationFact`。只有经过 `confirm` 后，才能成为稳定结构化记忆。
 
 ### 2. 运行时读写（Runtime Access）
@@ -43,9 +43,9 @@ alwaysApply: true
 - **Weak-link signal 排序影响（v2.3.1）**：当 `ProjectProfile.weak_link_signals` 为 `True` 时，`wake` 将 confirmed rules 按近 30 天 signal 活跃度分为 `Recent active` / `Stable / quiet` 两组；`search_memory` 对近 7 天内重复命中 ≥2 次的 entry 加 0.1 boost。默认关闭（opt-in），可通过 `update_project_profile(weak_link_signals=True)` 开启。关闭时 wake / search 输出与 v2.2 完全一致。
 
 ### 3. 自动审核与人类复核（Auto-review + Human Final Review）
-- 未确认记忆保持候选状态。Agent 创建候选后，应通过 MCP `list_candidates` 自行读取候选，并直接调用 `confirm_*` / `reject_*` 处理低风险项：明确长期事实可确认，工具噪声、跨项目 workflow、泛泛原则、证据不足项可拒绝。
+- 未确认记忆保持候选状态。Agent 创建候选后，应通过 MCP `auto_review_candidates(project_name=<project>, apply=true)` 直接复用 shared low-risk review policy 处理低风险项，并在最终摘要里保留高风险残留。若用户追问某个候选为什么被自动确认或自动拒绝，再查看 `applied_decisions` 解释 candidate id、evidence id 和 policy reason。
 - Agent 不应把逐条分类工作交给用户，也不应把 `/hm:review` 作为日常必经下一步。用户看到的默认形态是 `/hm:distill` 的最终摘要：自动确认了什么、自动拒绝了什么、哪些保留待定、哪些确实需要用户确认。
-- 只有 MCP 不可用、需要本地排障，或用户主动要求复查旧 pending 候选时，才退回 `/hm:review`；候选读取与处理仍应优先使用 MCP `list_candidates` / `confirm_*` / `reject_*`。
+- 只有 MCP 不可用、需要本地排障，或用户主动要求复查旧 pending 候选时，才退回 `/hm:review`；这类 repair/recheck 流里仍可显式使用 MCP `list_candidates` / `confirm_*` / `reject_*` 做逐项 drilldown。
 
 ### 4. Distill 的边界（v2.0）
 - distill **只接受 LLM agent**。v2.0 删除了 `harness-mem distill` CLI 子命令、MCP `distill_sessions` 工具，以及 `adapters/parser.py` 里的 heuristic 正则提取。
@@ -80,7 +80,7 @@ alwaysApply: true
 - Cursor / Antigravity / opencode / Hermes / 其它 AI IDE：不要引导用户去终端敲 CLI，也不要把 MCP tool names 当成用户入口；直接让 Agent 复用现有 command 说明，例如“用 harness-mem 唤醒当前项目”“用 harness-mem 整理最近 10 个 session 并自动审核候选”“复查这个 knowledge 条目是否还成立”。
 - 终端 CLI：只在安装、自检、MCP 不可用、显式 cleanup 或开发者排障时使用。
 
-`/hm:distill` 的实质是让 Agent 走 MCP：`prepare_session_distill -> suggest_* -> list_candidates -> auto_review_candidates/confirm/reject`。`/hm:mark` / `/hm:prune` / `/hm:review-kb` / `/hm:prune-kb` / `/hm:verify-entry` 是同级 Slash 维护入口；它们可以调用 repo-local 脚本作为实现层，但不要把底层 CLI 菜单当成用户工作流。
+`/hm:distill` 的实质是让 Agent 走 MCP：`prepare_session_distill -> suggest_* -> auto_review_candidates(project_name=<project>, apply=true)`。`/hm:mark` / `/hm:prune` / `/hm:review-kb` / `/hm:prune-kb` / `/hm:verify-entry` 是同级 Slash 维护入口；它们可以调用 repo-local 脚本作为实现层，但不要把底层 CLI 菜单当成用户工作流。
 
 ## Key Technologies
 

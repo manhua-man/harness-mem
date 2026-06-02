@@ -8,6 +8,31 @@
 
 ---
 
+## [2.9.23] — 2026-06-03
+
+**主题：AGENTS Distill Truth Sync**
+
+v2.9.23 收的是根 `AGENTS.md` 里残留的 distill 主链旧口径。当前 shipped runtime
+里，distill 的 review 步骤已经是一等的
+`auto_review_candidates(project_name=<project>, apply=true)` surface；但 `AGENTS.md`
+仍把主链写成 `list_candidates` 加逐条 confirm/reject。这一版不改 runtime，只把
+根事实文档写回当前 shipped review truth，并补 focused guard。
+
+### Changed
+
+- **AGENTS distill mainline sync**：`AGENTS.md` 现在把 distill 主链写成
+  `prepare_session_distill -> suggest_* -> auto_review_candidates(project_name=<project>, apply=true)`。
+- **repair boundary sync**：`list_candidates`、`confirm_*`、`reject_*` 现在明确只
+  属于 repair/recheck drilldown，而不是默认 distill 主路径。
+- **focused regression coverage**：新增 `tests/test_agents_distill_truth.py`。
+- **release/status writeback**：`docs/roadmap-v29.md` 与
+  `docs/roadmap-status.md` 已同步到 v2.9.23。
+
+### Boundaries
+
+- 本版本不新增新的 auto-review policy、候选类型或 MCP runtime 行为。
+- 它只同步根 `AGENTS.md` 到当前 shipped distill review surface，并防止事实文档回流到旧主链写法。
+
 ## [2.9.22] — 2026-06-03
 
 **主题：Session-Distill Skill Truth Sync**
