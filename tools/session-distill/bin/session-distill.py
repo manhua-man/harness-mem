@@ -89,6 +89,8 @@ REQUIRED_NOTE_SECTIONS = (
     "Promotion Decision",
 )
 HANDLED_MANIFEST_STATUSES = frozenset({"distilled", "skipped"})
+KNOWLEDGE_REVIEW_STATUSES = ("stable", "needs-review", "stale", "superseded")
+PRUNABLE_KB_STATUSES = frozenset({"stale", "superseded"})
 CODEX_RAW_ROOTS = (
     Path.home() / ".codex" / "archived_sessions",
     Path.home() / ".codex" / "sessions",
@@ -910,7 +912,7 @@ def cmd_review_kb(next_count: int) -> int:
     """Review knowledge-base entries with lightweight audit heuristics."""
     ensure_dirs()
     entries = parse_knowledge_entries()
-    summary = {status: 0 for status in ("stable", "needs-review", "stale", "superseded")}
+    summary = {status: 0 for status in KNOWLEDGE_REVIEW_STATUSES}
     for entry in entries:
         summary[entry.status] = summary.get(entry.status, 0) + 1
 
@@ -958,6 +960,15 @@ def cmd_prune_kb(statuses_text: Optional[str], dry_run: bool = False) -> int:
     """Prune knowledge-base entries by review status, with backup."""
     ensure_dirs()
     statuses = parse_statuses(statuses_text or "stale,superseded")
+    invalid_statuses = statuses.difference(PRUNABLE_KB_STATUSES)
+    if invalid_statuses:
+        print("==> Knowledge Base Prune")
+        print(
+            "  ! Prune refused: knowledge-base cleanup is confined to "
+            f"{', '.join(sorted(PRUNABLE_KB_STATUSES))}"
+        )
+        print(f"    Invalid: {', '.join(sorted(invalid_statuses))}")
+        return 1
     entries = parse_knowledge_entries()
     remove_lines = {entry.line_no for entry in entries if entry.status in statuses}
 

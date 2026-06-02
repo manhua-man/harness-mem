@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.8
 
-> 状态：v2.8.0 已完成；v2.8.1 / v2.8.2 待实现。
+> 状态：v2.8.0 / v2.8.1 已完成；v2.8.2 待实现。
 >
 > 主题：Session-Distill Maintenance Surfaces。把 `/hm:mark`、`/hm:prune`、
 > `/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry` 从 repo-local tool 约定收束成
@@ -95,11 +95,16 @@ v2.8 的目的就是把这些维护能力从“工具存在 + 文档提到”升
 
 ### 当前状态（2026-06-02）
 
-- 已创建 `openspec/changes/v281-knowledge-base-review-and-prune/`。
+- 已完成 `openspec/changes/v281-knowledge-base-review-and-prune/`。
 - 当前实现和命令说明已经存在于 `tools/session-distill/bin/session-distill.py` 与
   `plugins/harness-mem/commands/hm/review-kb.md` / `prune-kb.md`。
-- 下一步是把 status model、review baseline、backup-first cleanup 和 prune confinement
-  提升成主 OpenSpec contract。
+- 已把 `/hm:review-kb --next <n>` 与 `/hm:prune-kb --statuses stale,superseded`
+  收进主 OpenSpec workflow contract。
+- `session-distill.py` 现在显式固定：
+  - review baseline state：`reviewed_at`、`total_entries`、`summary`
+  - knowledge review status model：`stable / needs-review / stale / superseded`
+  - prune-kb 只允许 `stale/superseded`
+  - dry-run 不写 backup、不改 knowledge-base
 
 ## v2.8.2：Targeted Verification and Reminder Surfaces
 
@@ -111,6 +116,13 @@ v2.8 的目的就是把这些维护能力从“工具存在 + 文档提到”升
 | P0 | reminder thresholds | 新增 5 条 KB / packet-keyword overlap / note overlap 的轻提醒 |
 | P1 | summary-only reminders | 提醒只进入摘要，不自动 prune、不自动 supersede |
 | P1 | doctor / health reuse | 维护建议与既有 doctor next-step 文案保持一致 |
+
+### 当前状态（2026-06-02）
+
+- 已创建 `openspec/changes/v282-targeted-verification-and-reminder-surfaces/`。
+- 当前 repo 已经有 `/hm:verify-entry`、KB growth reminder、packet overlap reminder、
+  note overlap reminder 的实现与说明。
+- 下一步是把 targeted review 和 reminder-only boundary 提升成主 OpenSpec contract。
 
 ---
 

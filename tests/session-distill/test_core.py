@@ -417,6 +417,48 @@ class SessionDistillCoreTests(unittest.TestCase):
         self.assertNotIn("obsolete", content)
         self.assertEqual(1, len(backups))
 
+    def test_prune_kb_refuses_non_prunable_statuses(self):
+        original = "\n".join(
+            [
+                "# Session Distill Knowledge Base",
+                "",
+                "## Stable workflows",
+                "- Keep this stable workflow. [source: sample-session]",
+                "- TODO: maybe temporary workaround.",
+                "",
+            ]
+        )
+        self.module.KNOWLEDGE_FILE.write_text(original, encoding="utf-8")
+
+        result = self.module.cmd_prune_kb("stable,needs-review", dry_run=False)
+
+        content = self.module.KNOWLEDGE_FILE.read_text(encoding="utf-8")
+        backups = list(self.module.KB_BACKUPS_DIR.glob("knowledge-base-*.md"))
+        self.assertEqual(1, result)
+        self.assertEqual(original, content)
+        self.assertEqual([], backups)
+
+    def test_prune_kb_dry_run_does_not_write_backup_or_mutate(self):
+        original = "\n".join(
+            [
+                "# Session Distill Knowledge Base",
+                "",
+                "## Stable workflows",
+                "- Keep this stable workflow. [source: sample-session]",
+                "- This old rule is obsolete. [source: stale-session]",
+                "",
+            ]
+        )
+        self.module.KNOWLEDGE_FILE.write_text(original, encoding="utf-8")
+
+        result = self.module.cmd_prune_kb("stale", dry_run=True)
+
+        content = self.module.KNOWLEDGE_FILE.read_text(encoding="utf-8")
+        backups = list(self.module.KB_BACKUPS_DIR.glob("knowledge-base-*.md"))
+        self.assertEqual(0, result)
+        self.assertEqual(original, content)
+        self.assertEqual([], backups)
+
     def test_verify_entry_outputs_recheck_questions(self):
         self.module.KNOWLEDGE_FILE.write_text(
             "- Use packet first before raw review. [source: sample-session]\n",
