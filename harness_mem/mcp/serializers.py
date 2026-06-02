@@ -129,6 +129,25 @@ def _serialize_procedural_candidate(candidate: Any) -> dict:
     }
 
 
+def _serialize_skill_promotion_candidate(candidate: Any) -> dict:
+    return {
+        "type": "skill_promotion",
+        "id": candidate.id,
+        "project_name": candidate.project_name,
+        "status": candidate.status,
+        "source_skill_id": candidate.source_skill_id,
+        "requested_scope": candidate.requested_scope,
+        "origin_project": candidate.origin_project,
+        "source_ids": list(candidate.source_ids),
+        "portability_notes": candidate.portability_notes,
+        "disabled_assumptions": list(candidate.disabled_assumptions),
+        "confidence": candidate.confidence,
+        "created_at": _isoformat(candidate.created_at),
+        "confirm_tool": "confirm_skill_promotion",
+        "reject_tool": "reject_skill_promotion",
+    }
+
+
 def _serialize_merge_suggestion_candidate(candidate: Any) -> dict:
     return {
         "type": "merge_suggestion",

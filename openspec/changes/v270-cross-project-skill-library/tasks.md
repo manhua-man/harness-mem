@@ -8,10 +8,10 @@
 
 ## 2. Promotion candidate loop
 
-- [ ] 2.1 Add a reviewed candidate type for promoting a project skill to shared scope.
-- [ ] 2.2 Expose promotion candidates through `list_candidates`.
-- [ ] 2.3 Confirming a promotion creates or updates a shared skill without mutating unrelated project skills.
-- [ ] 2.4 Rejecting a promotion leaves the original project skill unchanged.
+- [x] 2.1 Add a reviewed candidate type for promoting a project skill to shared scope.
+- [x] 2.2 Expose promotion candidates through `list_candidates`.
+- [x] 2.3 Confirming a promotion creates or updates a shared skill without mutating unrelated project skills.
+- [x] 2.4 Rejecting a promotion leaves the original project skill unchanged.
 
 ## 3. Explicit cross-project search
 
@@ -28,6 +28,6 @@
 ## 5. Validation
 
 - [x] 5.1 Add schema/store migration tests.
-- [ ] 5.2 Add MCP promotion review tests.
+- [x] 5.2 Add MCP promotion review tests.
 - [ ] 5.3 Add explicit cross-project search tests.
 - [x] 5.4 Verify default wake and default skill search do not include shared skills.

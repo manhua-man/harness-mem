@@ -112,9 +112,14 @@ from harness_mem.commands.replay_window import (  # noqa: E402
     select_replay_window,
 )
 from harness_mem.commands.wake import cmd_wake_up  # noqa: E402
-from harness_mem.core.schemas import ProceduralCandidate, SupersedeCandidate  # noqa: E402
+from harness_mem.core.schemas import (  # noqa: E402
+    ProceduralCandidate,
+    SkillPromotionCandidate,
+    SupersedeCandidate,
+)
 from harness_mem.core.schemas.metabolism_run import MetabolismRun  # noqa: E402
 from harness_mem.core.schemas.project_profile import ProjectProfile  # noqa: E402
+from harness_mem.core.schemas.skill_promotion_candidate import PromotionScope  # noqa: E402
 from harness_mem.knowledge_cache import (  # noqa: E402
     COMPACT_RENDERER_NAME,
     load_compact_wake_payload,
@@ -1321,6 +1326,7 @@ from harness_mem.mcp.serializers import (  # noqa: E402, F401
     _serialize_procedural_candidate,
     _serialize_relation_fact_candidate,
     _serialize_rule_candidate,
+    _serialize_skill_promotion_candidate,
     _serialize_stale_truth_suggestion_candidate,
     _serialize_supersede_candidate,
 )
@@ -1332,12 +1338,24 @@ async def _gather_candidate_payload(
     project_name: str,
     status: str,
     limit: int,
-) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict], list[dict], list[dict]]:
+) -> tuple[
+    list[dict],
+    list[dict],
+    list[dict],
+    list[dict],
+    list[dict],
+    list[dict],
+    list[dict],
+    list[dict],
+]:
     rules = await backend.structured_store.list_rule_candidates(project_name, status=status)
     entries = await backend.structured_store.list_memory_entries(project_name, status=status, limit=limit)
     facts = await backend.structured_store.list_relation_facts(project_name, status=status, limit=limit)
     supersedes = await backend.structured_store.list_supersede_candidates(project_name, status=status)
     procedural = await backend.structured_store.list_procedural_candidates(project_name, status=status)
+    skill_promotions = await backend.structured_store.list_skill_promotion_candidates(
+        project_name, status=status
+    )
     merge_suggestions = await backend.structured_store.list_merge_suggestion_candidates(project_name, status=status)
     stale_suggestions = await backend.structured_store.list_stale_truth_suggestion_candidates(project_name, status=status)
     return (
@@ -1346,6 +1364,7 @@ async def _gather_candidate_payload(
         [_serialize_relation_fact_candidate(fact) for fact in facts],
         [_serialize_supersede_candidate(candidate) for candidate in supersedes[:limit]],
         [_serialize_procedural_candidate(candidate) for candidate in procedural[:limit]],
+        [_serialize_skill_promotion_candidate(candidate) for candidate in skill_promotions[:limit]],
         [_serialize_merge_suggestion_candidate(candidate) for candidate in merge_suggestions[:limit]],
         [_serialize_stale_truth_suggestion_candidate(candidate) for candidate in stale_suggestions[:limit]],
     )
@@ -1367,6 +1386,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         relation_facts,
         supersede_candidates,
         procedural_candidates,
+        skill_promotion_candidates,
         merge_suggestion_candidates,
         stale_truth_suggestion_candidates,
     ) = asyncio.run(
@@ -1383,6 +1403,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         *relation_facts,
         *supersede_candidates,
         *procedural_candidates,
+        *skill_promotion_candidates,
         *merge_suggestion_candidates,
         *stale_truth_suggestion_candidates,
     ]
@@ -1400,6 +1421,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         "relation_facts": relation_facts,
         "supersede_candidates": supersede_candidates,
         "procedural_candidates": procedural_candidates,
+        "skill_promotion_candidates": skill_promotion_candidates,
         "merge_suggestion_candidates": merge_suggestion_candidates,
         "stale_truth_suggestion_candidates": stale_truth_suggestion_candidates,
         "count": len(candidates),
@@ -1409,6 +1431,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         "relation_fact_count": len(relation_facts),
         "supersede_count": len(supersede_candidates),
         "procedural_count": len(procedural_candidates),
+        "skill_promotion_count": len(skill_promotion_candidates),
         "merge_suggestion_count": len(merge_suggestion_candidates),
         "stale_truth_suggestion_count": len(stale_truth_suggestion_candidates),
     }
@@ -1802,6 +1825,80 @@ def tool_reject_skill(candidate_id: str) -> dict:
     }
 
 
+def tool_suggest_skill_promotion(
+    skill_id: str,
+    target_scope: str,
+    portability_notes: str = "",
+    disabled_assumptions: list[str] | None = None,
+    confidence: float | None = None,
+) -> dict:
+    """Suggest promoting a project skill into shared scope."""
+    if target_scope not in {"workspace", "global"}:
+        return {
+            "success": False,
+            "error": "target_scope must be one of: workspace, global",
+        }
+    requested_scope = cast(PromotionScope, target_scope)
+
+    backend = _get_backend()
+    skill = asyncio.run(backend.structured_store.get_skill(skill_id))
+    if skill is None:
+        return {"success": False, "error": f"Skill not found: {skill_id}"}
+    if skill.scope != "project":
+        return {
+            "success": False,
+            "error": f"Only project-scoped skills can be promoted: {skill_id}",
+        }
+
+    candidate = SkillPromotionCandidate(
+        project_name=skill.project_name,
+        source_skill_id=skill.id,
+        requested_scope=requested_scope,
+        origin_project=skill.origin_project,
+        source_ids=skill.source_ids,
+        portability_notes=portability_notes,
+        disabled_assumptions=disabled_assumptions or [],
+        confidence=skill.confidence if confidence is None else confidence,
+    )
+    saved_id = asyncio.run(backend.structured_store.save_skill_promotion_candidate(candidate))
+    return {
+        "success": True,
+        "candidate_id": saved_id,
+        "skill_id": skill.id,
+        "requested_scope": candidate.requested_scope,
+        "status": candidate.status,
+    }
+
+
+def tool_confirm_skill_promotion(candidate_id: str) -> dict:
+    """Confirm a skill promotion candidate into shared scope."""
+    backend = _get_backend()
+    skill = asyncio.run(backend.structured_store.confirm_skill_promotion_candidate(candidate_id))
+    if skill is None:
+        return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
+    return {
+        "success": True,
+        "candidate_id": candidate_id,
+        "skill": serialize_skill(skill),
+    }
+
+
+def tool_reject_skill_promotion(candidate_id: str) -> dict:
+    """Reject a skill promotion candidate."""
+    backend = _get_backend()
+    updated = asyncio.run(
+        backend.structured_store.update_skill_promotion_candidate_status(
+            candidate_id,
+            "rejected",
+        )
+    )
+    return {
+        "success": updated,
+        "candidate_id": candidate_id,
+        "status": "rejected" if updated else "not_found",
+    }
+
+
 def tool_record_skill_result(skill_id: str, success: bool) -> dict:
     """Record one execution result for a confirmed skill."""
     backend = _get_backend()
@@ -2094,6 +2191,9 @@ TOOLS: dict[str, ToolSpec] = build_tools({
     "suggest_skill": tool_suggest_skill,
     "confirm_skill": tool_confirm_skill,
     "reject_skill": tool_reject_skill,
+    "suggest_skill_promotion": tool_suggest_skill_promotion,
+    "confirm_skill_promotion": tool_confirm_skill_promotion,
+    "reject_skill_promotion": tool_reject_skill_promotion,
     "record_skill_result": tool_record_skill_result,
     "create_rule_candidate": tool_create_rule_candidate,
     "confirm_rule": tool_confirm_rule,

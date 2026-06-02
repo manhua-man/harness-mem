@@ -12,11 +12,15 @@
   `scope=project|workspace|global`、`origin_project`、`source_ids`、
   `portability_notes` 与 `disabled_assumptions`；新旧 skill 默认保持
   `scope=project`，不启用 shared consumption。
+- **v2.7.0 promotion candidate loop**：新增 reviewed `skill_promotion`
+  candidate 与 MCP `suggest_skill_promotion` / `confirm_skill_promotion` /
+  `reject_skill_promotion`；`list_candidates` 现在会返回
+  `skill_promotion_candidates` 和 `skill_promotion_count`。
 
 ### Notes
 
-- Promotion candidate 和 explicit shared search 仍未实现；默认 wake / skill search
-  不消费 workspace/global shared skills。
+- explicit shared search 仍未实现；默认 wake / skill search 不消费
+  workspace/global shared skills。
 
 ---
 

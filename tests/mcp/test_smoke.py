@@ -15,6 +15,7 @@ from harness_mem.core.schemas import (
     MergeSuggestionCandidate,
     Observation,
     RelationFact,
+    Skill,
     StaleTruthSuggestionCandidate,
 )
 from harness_mem.core.schemas.project_profile import ProjectProfile
@@ -106,7 +107,7 @@ def test_stdio_initialize_writes_json_rpc_to_stdout():
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 42
+    assert len(tools) == 45
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
@@ -120,6 +121,7 @@ def test_tools_list():
         "create_rule_candidate", "confirm_rule", "reject_rule", "suggest_rule",
         "suggest_supersede", "confirm_supersede", "reject_supersede", "suggest_correction",
         "suggest_skill", "confirm_skill", "reject_skill", "record_skill_result",
+        "suggest_skill_promotion", "confirm_skill_promotion", "reject_skill_promotion",
         "suggest_memory_entry", "confirm_memory_entry", "reject_memory_entry",
         "suggest_relation_fact", "confirm_relation_fact", "reject_relation_fact",
         "create_task_handoff",
@@ -585,6 +587,104 @@ def test_list_candidates_returns_pending_review_items(mcp_backend: LocalMemoryBa
     pending_ids = {candidate["id"] for candidate in after_confirm["candidates"]}
     assert entry["entry_id"] not in pending_ids
     assert after_confirm["count"] == 5
+
+
+def test_skill_promotion_review_flow(mcp_backend: LocalMemoryBackend):
+    suggested = call_tool(
+        "suggest_skill",
+        {
+            "project_name": "test-project",
+            "activation_condition": "When preparing a Python release",
+            "steps": ["Run pytest", "Update changelog"],
+            "termination_condition": "Release checks pass",
+            "source_session_id": "promotion-session-1",
+        },
+    )
+    confirmed = call_tool("confirm_skill", {"candidate_id": suggested["candidate_id"]})
+    project_skill_id = confirmed["skill"]["id"]
+
+    promotion = call_tool(
+        "suggest_skill_promotion",
+        {
+            "skill_id": project_skill_id,
+            "target_scope": "global",
+            "portability_notes": "Only reuse in repos with pytest and a changelog.",
+            "disabled_assumptions": ["Do not assume CI job names are identical."],
+        },
+    )
+    assert promotion["success"] is True
+
+    listed = call_tool("list_candidates", {"project_name": "test-project"})
+    assert listed["skill_promotion_count"] == 1
+    promotion_candidate = next(
+        candidate for candidate in listed["candidates"] if candidate["type"] == "skill_promotion"
+    )
+    assert promotion_candidate["id"] == promotion["candidate_id"]
+    assert promotion_candidate["source_skill_id"] == project_skill_id
+    assert promotion_candidate["requested_scope"] == "global"
+    assert promotion_candidate["confirm_tool"] == "confirm_skill_promotion"
+    assert promotion_candidate["reject_tool"] == "reject_skill_promotion"
+
+    shared = call_tool(
+        "confirm_skill_promotion",
+        {"candidate_id": promotion["candidate_id"]},
+    )
+    assert shared["success"] is True
+    assert shared["skill"]["scope"] == "global"
+    assert shared["skill"]["origin_project"] == "test-project"
+    assert shared["skill"]["portability_notes"] == "Only reuse in repos with pytest and a changelog."
+    assert shared["skill"]["disabled_assumptions"] == [
+        "Do not assume CI job names are identical."
+    ]
+    assert project_skill_id in shared["skill"]["source_ids"]
+
+    default_search = call_tool(
+        "search_skills",
+        {
+            "project_name": "test-project",
+            "query": "Python release changelog",
+        },
+    )
+    assert [skill["scope"] for skill in default_search["skills"]] == ["project"]
+
+
+def test_reject_skill_promotion_candidate(mcp_backend: LocalMemoryBackend):
+    run(
+        mcp_backend.structured_store.save_skill(
+            Skill(
+                project_name="test-project",
+                name="Deploy smoke loop",
+                activation_condition="When deploying",
+                steps=["Run smoke tests"],
+                termination_condition="Smoke tests pass",
+            )
+        )
+    )
+    project_skill = run(mcp_backend.structured_store.search_skills("Deploy smoke", project_name="test-project"))[0]
+    promotion = call_tool(
+        "suggest_skill_promotion",
+        {
+            "skill_id": project_skill.id,
+            "target_scope": "workspace",
+        },
+    )
+
+    rejected = call_tool(
+        "reject_skill_promotion",
+        {"candidate_id": promotion["candidate_id"]},
+    )
+    assert rejected["success"] is True
+
+    listed = call_tool("list_candidates", {"project_name": "test-project"})
+    assert listed["skill_promotion_count"] == 0
+    all_skills = call_tool(
+        "search_skills",
+        {
+            "query": "Deploy smoke",
+            "scope": "all",
+        },
+    )
+    assert [skill["scope"] for skill in all_skills["skills"]] == ["project"]
 
 
 def test_auto_review_candidates_preview_and_apply(mcp_backend: LocalMemoryBackend):

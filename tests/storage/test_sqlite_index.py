@@ -397,3 +397,32 @@ def test_init_db_migrates_skill_scope_columns(tmp_path: Path):
         "portability_notes",
         "disabled_assumptions",
     }.issubset(skill_columns)
+
+
+def test_init_db_creates_skill_promotion_candidate_table(tmp_path: Path):
+    db_path = tmp_path / "skill-promotions.db"
+    idx = SQLiteIndex(db_path)
+    try:
+        idx.init_db()
+        conn = sqlite3.connect(db_path)
+        try:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            indexes = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'index'"
+                ).fetchall()
+            }
+        finally:
+            conn.close()
+    finally:
+        idx.close()
+
+    assert "skill_promotion_candidates" in tables
+    assert "idx_skill_promotion_candidates_project" in indexes
+    assert "idx_skill_promotion_candidates_status" in indexes

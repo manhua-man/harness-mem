@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from harness_mem.core.schemas import ProceduralCandidate, Skill
+from harness_mem.core.schemas import ProceduralCandidate, Skill, SkillPromotionCandidate
 from harness_mem.read_api import serialize_skill
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from tests.helpers import run
@@ -141,3 +141,82 @@ def test_default_project_skill_search_excludes_shared_scope(tmp_path: Path) -> N
     assert [skill.id for skill in listed] == [project_skill.id]
     assert [skill.id for skill in matches] == [project_skill.id]
     assert {skill.id for skill in all_matches} == {project_skill.id, global_skill.id}
+
+
+def test_confirm_skill_promotion_creates_shared_skill_without_mutating_source(tmp_path: Path) -> None:
+    store = LocalStructuredStore(tmp_path)
+    project_skill = Skill(
+        project_name="demo",
+        name="Release hygiene",
+        activation_condition="When preparing a release",
+        steps=["Run tests", "Update changelog"],
+        termination_condition="Release checks pass",
+        source_candidate_id="proc-1",
+        source_session_id="sess-1",
+        source_ids=["proc-1", "sess-1"],
+    )
+    run(store.save_skill(project_skill))
+    candidate = SkillPromotionCandidate(
+        project_name="demo",
+        source_skill_id=project_skill.id,
+        requested_scope="global",
+        origin_project="demo",
+        source_ids=["obs-7"],
+        portability_notes="Only reuse in Python repos with pytest.",
+        disabled_assumptions=["Do not assume npm is available."],
+    )
+
+    run(store.save_skill_promotion_candidate(candidate))
+    shared_skill = run(store.confirm_skill_promotion_candidate(candidate.id))
+    reloaded_project_skill = run(store.get_skill(project_skill.id))
+    reloaded_candidate = run(store.get_skill_promotion_candidate(candidate.id))
+
+    assert shared_skill is not None
+    assert shared_skill.id != project_skill.id
+    assert shared_skill.scope == "global"
+    assert shared_skill.origin_project == "demo"
+    assert shared_skill.portability_notes == "Only reuse in Python repos with pytest."
+    assert shared_skill.disabled_assumptions == ["Do not assume npm is available."]
+    assert project_skill.id in shared_skill.source_ids
+    assert "proc-1" in shared_skill.source_ids
+    assert "sess-1" in shared_skill.source_ids
+    assert "obs-7" in shared_skill.source_ids
+    assert candidate.id in shared_skill.source_ids
+    assert reloaded_project_skill is not None
+    assert reloaded_project_skill.id == project_skill.id
+    assert reloaded_project_skill.scope == "project"
+    assert reloaded_project_skill.portability_notes == ""
+    assert reloaded_candidate is not None
+    assert reloaded_candidate.status == "accepted"
+
+
+def test_reject_skill_promotion_leaves_project_skill_unchanged(tmp_path: Path) -> None:
+    store = LocalStructuredStore(tmp_path)
+    project_skill = Skill(
+        project_name="demo",
+        name="Deploy checklist",
+        activation_condition="When deploying",
+        steps=["Run smoke tests"],
+        termination_condition="Deploy is verified",
+    )
+    run(store.save_skill(project_skill))
+    candidate = SkillPromotionCandidate(
+        project_name="demo",
+        source_skill_id=project_skill.id,
+        requested_scope="workspace",
+        origin_project="demo",
+        portability_notes="Assume the repo already has a smoke endpoint.",
+    )
+
+    run(store.save_skill_promotion_candidate(candidate))
+    assert run(store.update_skill_promotion_candidate_status(candidate.id, "rejected")) is True
+
+    listed_shared = run(store.search_skills("deploy checklist", project_name=None))
+    reloaded_project_skill = run(store.get_skill(project_skill.id))
+    reloaded_candidate = run(store.get_skill_promotion_candidate(candidate.id))
+
+    assert [skill.id for skill in listed_shared] == [project_skill.id]
+    assert reloaded_project_skill is not None
+    assert reloaded_project_skill.scope == "project"
+    assert reloaded_candidate is not None
+    assert reloaded_candidate.status == "rejected"

@@ -660,6 +660,53 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["candidate_id"],
         },
     },
+    "suggest_skill_promotion": {
+        "description": "Suggest promoting a project skill into workspace/global shared scope.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "skill_id": {"type": "string", "description": "Confirmed project skill ID"},
+                "target_scope": {
+                    "type": "string",
+                    "description": "Requested shared scope: workspace or global",
+                },
+                "portability_notes": {
+                    "type": "string",
+                    "description": "How to adapt or constrain this skill across projects",
+                },
+                "disabled_assumptions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Project-specific assumptions that must not carry over",
+                },
+                "confidence": {
+                    "type": "number",
+                    "description": "Optional override confidence score 0.0-1.0",
+                },
+            },
+            "required": ["skill_id", "target_scope"],
+        },
+    },
+    "confirm_skill_promotion": {
+        "description": "Confirm a skill promotion candidate into shared scope.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "candidate_id": {"type": "string", "description": "Skill promotion candidate ID"},
+            },
+            "required": ["candidate_id"],
+        },
+    },
+    "reject_skill_promotion": {
+        "description": "Reject a skill promotion candidate.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "candidate_id": {"type": "string", "description": "Skill promotion candidate ID"},
+            },
+            "required": ["candidate_id"],
+        },
+    },
     "record_skill_result": {
         "description": "Record one execution outcome for a confirmed skill.",
         "input_schema": {
