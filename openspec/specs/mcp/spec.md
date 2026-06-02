@@ -57,19 +57,24 @@ Response: {
 #### Scenario: Agent finishes distill with auto-review instead of asking for `/hm:review`
 
 ```json
-MCP -> list_candidates({
+MCP -> auto_review_candidates({
   "project_name": "demo-project",
-  "status": "pending",
-  "limit": 100
+  "apply": true
 })
-MCP -> confirm_memory_entry({"entry_id": "mem_safe_fact"})
-MCP -> reject_rule({"rule_id": "rule_tool_noise", "reason": "tool orchestration noise, not a project rule"})
 Response summary: {
   "new_candidates": 2,
   "auto_confirmed": 1,
   "auto_rejected": 1,
   "kept_pending": 0,
   "needs_user_confirmation": 0,
+  "applied_decisions": [
+    {
+      "candidate_id": "mem_safe_fact",
+      "action": "auto_confirm",
+      "evidence_id": "observation:obs_123",
+      "reason": "high-confidence decision with concrete evidence id"
+    }
+  ],
   "next_user_action": "review the summary and mention any incorrect item id"
 }
 ```

@@ -8,6 +8,37 @@
 
 ---
 
+## [2.9.17] — 2026-06-03
+
+**主题：Distill Auto-Review Entrypoint Truth Sync**
+
+v2.9.17 收的是 `/hm:distill` 用户面真路径的残余漂移。当前 shipped runtime 里，
+distill 的低风险 review 已经有共享的 MCP `auto_review_candidates(apply=true)`
+surface；但 repo-local `/hm:distill` 文档、`harness-mem` skill 和 MCP 主 spec 示例
+里还保留着“先 `list_candidates` 再逐条 `confirm_*` / `reject_*`”的旧写法。这一版
+不改 runtime，只把这些高可见入口同步回当前 shipped review truth，并补 focused
+guard。
+
+### Changed
+
+- **`/hm:distill` command truth sync**：`plugins/harness-mem/commands/hm/distill.md`
+  现在把 `auto_review_candidates(project_name=<project>, apply=true)` 写成默认
+  review surface，并要求最终摘要以 canonical counters 和 `applied_decisions`
+  为准。
+- **repo-local skill sync**：`plugins/harness-mem/skills/harness-mem/SKILL.md`
+  不再保留 “when available” 式旧回退；默认 distill review 路径已经明确收束到
+  `auto_review_candidates(...)`。
+- **MCP example sync**：`openspec/specs/mcp/spec.md` 的 distill closed-loop 示例
+  现在直接展示 `auto_review_candidates` 返回的 summary 和 `applied_decisions`。
+- **focused regression coverage**：新增 `tests/test_distill_auto_review_truth.py`。
+- **release/status writeback**：`docs/roadmap-v29.md` 与
+  `docs/roadmap-status.md` 已同步到 v2.9.17。
+
+### Boundaries
+
+- 本版本不新增新的 auto-review policy、候选类型或 MCP runtime 行为。
+- 它只同步用户面 distill 真路径，并防止文档/skill 回流到手工 per-item review 的旧写法。
+
 ## [2.9.16] — 2026-06-03
 
 **主题：Best-Practices Wake Truth Sync**

@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -428,3 +428,27 @@ MCP `wake` surface，以及 compact / skill-hint 这两个显式 opt-in 扩展�
   - 默认走 MCP `wake(project_name=<project>)`
   - `renderer="compact"` / `include_skill_hints=true` 是显式 opt-in
 - 已补 focused regression test：`tests/test_best_practices_wake_truth.py`
+
+## v2.9.17：Distill Auto-Review Entrypoint Truth Sync
+
+**用户故事**：当维护者回看 `/hm:distill` 命令文档、repo-local skill 或 MCP 主 spec
+示例时，不应该再被“先 `list_candidates` 再逐条 `confirm_*` / `reject_*`”的旧写法误导，
+因为当前 shipped distill review truth 已经是一等 `auto_review_candidates(apply=true)`
+shared policy。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | `/hm:distill` truth sync | slash 文档默认走 `auto_review_candidates(project_name=<project>, apply=true)` |
+| P0 | repo-local skill sync | skill 不再保留 “when available” 式旧回退 |
+| P0 | MCP example sync | MCP 主 spec 的 distill 示例直接使用 `auto_review_candidates` |
+| P1 | focused regression guard | distill 文档与 skill 回流到手工 per-item review 时测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2917-distill-auto-review-entrypoint-truth-sync/`。
+- `/hm:distill` 文档现在明确：
+  - 默认 review surface 是 MCP `auto_review_candidates(project_name=<project>, apply=true)`
+  - 最终摘要以 `auto_review_candidates` 返回的 canonical counters 和 `applied_decisions` 为准
+- repo-local `harness-mem` skill 不再把手工 `list_candidates` + `confirm_*` / `reject_*`
+  写成默认 shipped fallback
+- 已补 focused regression test：`tests/test_distill_auto_review_truth.py`

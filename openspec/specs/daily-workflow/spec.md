@@ -75,7 +75,7 @@ summary.
 - **WHEN** the user runs `/hm:distill`
 - **THEN** the agent prepares an evidence packet
 - **AND** writes candidates through `suggest_*`
-- **AND** reviews pending candidates
+- **AND** runs `auto_review_candidates(project_name=<project>, apply=true)` as the default low-risk review surface
 - **AND** returns counts for ingested, candidates, auto-confirmed, auto-rejected, pending, and high-risk items
 
 ### Requirement: Auto-review uses one shared low-risk policy

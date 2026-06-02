@@ -17,13 +17,7 @@ tags: [harness-mem, distill, memory, skill]
 - `mcp__harness_mem__suggest_rule`
 - `mcp__harness_mem__suggest_relation_fact`
 - `mcp__harness_mem__create_task_handoff`
-- `mcp__harness_mem__list_candidates`
-- `mcp__harness_mem__confirm_memory_entry`
-- `mcp__harness_mem__reject_memory_entry`
-- `mcp__harness_mem__confirm_rule`
-- `mcp__harness_mem__reject_rule`
-- `mcp__harness_mem__confirm_relation_fact`
-- `mcp__harness_mem__reject_relation_fact`
+- `mcp__harness_mem__auto_review_candidates`
 
 不要选择旧别名 `mcp__harness-mem__...`。
 
@@ -65,22 +59,22 @@ tags: [harness-mem, distill, memory, skill]
    runtime / 配置问题排障，而不是退回低质量自动提取。
 
 4. **自动审核并处理候选**
-   调 MCP `list_candidates`，参数为 `project_name=<project>`、`status="pending"`、`limit=100`。
+   调 MCP `auto_review_candidates`：
+   - `project_name=<project>`
+   - `apply=true`
+
    MCP 不可用时，直接说明 runtime 工具不可用；CLI 只是开发者本地排障层，不要求普通用户手动运行。
 
-   不要停下来让用户逐条选择，也不要提示用户去运行 `/hm:review`。AI 必须自动判断每条候选：
+   不要停下来让用户逐条选择，也不要提示用户去运行 `/hm:review`。低风险候选的判断必须复用 shared auto-review policy，而不是在 slash 文档里手写另一套规则。
 
-   - **confirm**：明确项目长期事实、真实架构、稳定约定、source 可靠、不会改变未来行为边界。
-   - **reject**：工具故障、agent 编排故障、跨项目 workflow、泛泛原则、重复候选、证据不足、把本次 distill 过程误写成项目事实。
-   - **keep_pending**：可能有价值但证据不足，暂不打扰用户。
-   - **migrate**：有价值但属于全局工作流或别的项目；当前项目内默认 reject，并在摘要说明应该迁移。
+   摘要必须以 `auto_review_candidates` 返回的结果为准：
+   - `auto_confirmed`
+   - `auto_rejected`
+   - `kept_pending`
+   - `needs_user_confirmation`
+   - `applied_decisions`
 
-   AI 可以直接调用对应 MCP 工具处理低风险项：
-   - `confirm_rule` / `reject_rule`
-   - `confirm_memory_entry` / `reject_memory_entry`
-   - `confirm_relation_fact` / `reject_relation_fact`
-
-   只有高风险 confirm（会改变未来 AI 行为、影响范围大、置信不足但可能重要）才保留 pending，并放进最终摘要的"需要你确认"区。
+   只有 `needs_user_confirmation` 里的高风险残留才放进最终摘要的“需要你确认”区。如果用户追问某个候选为什么被自动确认或自动拒绝，再从 `applied_decisions` 里解释 candidate id、evidence id 和 policy reason。
 
 5. **总结呈现**
    按"新灌入 N / 新候选 M / 自动确认 C / 自动拒绝 R / 保留待定 K / 需要你确认 H"格式给用户看结果。
