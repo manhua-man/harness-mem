@@ -34,7 +34,7 @@ if (-not $NoSlashCommands) {
         Copy-Item -Path (Join-Path $slashSrc "*.md") -Destination $slashDst -Force
         $count = (Get-ChildItem $slashDst -Filter "*.md").Count
         Write-Host "Installed $count Claude Code slash commands to $slashDst"
-        Write-Host "  Available: /hm:status /hm:distill /hm:review /hm:wake /hm:search /hm:mark /hm:prune /hm:review-kb /hm:prune-kb /hm:verify-entry"
+        Write-Host "  Available: /hm:status /hm:distill /hm:review /hm:wake /hm:search /hm:mark /hm:prune /hm:review-kb /hm:prune-kb /hm:verify-entry /hm:prd-sync"
     } else {
         Write-Warning "Slash command source not found at $slashSrc; skipping."
     }

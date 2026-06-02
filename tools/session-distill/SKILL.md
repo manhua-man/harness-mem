@@ -141,6 +141,7 @@ Raw Sessions
 | `/hm:review-kb --next 20` | 巡检 `knowledge-base.md`，输出 stable / needs-review / stale / superseded。 |
 | `/hm:prune-kb --statuses stale,superseded` | 先备份，再清理过期或被替代的 knowledge 条目。 |
 | `/hm:verify-entry <session-id|keyword>` | 定向复查命中条目，并输出 grill-style 复查问题。 |
+| `/hm:prd-sync [--apply]` | 扫描 bundled packets，预览或生成 candidate PRD sync note。 |
 
 `/hm:mark` 的 `distilled` 收口必须检查：
 
@@ -163,6 +164,12 @@ raw transcript 删除只由 `/hm:mark ... distilled` 的实现层在安全白名
 - 新 note mark 后，若 note 关键词命中旧 knowledge 条目，也会提示 `/hm:verify-entry <keyword>`。
 
 提醒的作用是让用户或 Agent 想起来复查，不要把它升级成自动 prune、自动 supersede 或多轮追问。
+
+`/hm:prd-sync` 是 maintenance / review bridge，不是 `/hm:distill` 主链的一部分：
+
+- 默认 dry-run，只预览命中的 bundled packet 和 topic。
+- 只有显式 `--apply` 才写 `prd-distilled/*.md` candidate 文件。
+- 不直接改正式 PRD、roadmap、knowledge-base 或 confirmed truth。
 
 ## Memory Metabolism preview (v2.3.0)
 

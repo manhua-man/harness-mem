@@ -10,19 +10,20 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.8.2` |
-| `harness_mem/__init__.py` | `2.8.2` |
-| `CHANGELOG.md` | 已有 `2.8.2` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.0` |
+| `harness_mem/__init__.py` | `2.9.0` |
+| `CHANGELOG.md` | 已有 `2.9.0` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.8.2：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.0：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
 boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力，以及
-v2.8.0–v2.8.2 的 session-distill maintenance surfaces 都已落地。
+v2.8.0–v2.8.2 的 session-distill maintenance surfaces 与 v2.9.0 的 PRD sync
+candidate surface 都已落地。
 
-> **v2.8.2 发版状态（2026-06-02）**：版本号已 bump 到 `2.8.2`。v2.8 在保持
+> **v2.9.0 发版状态（2026-06-02）**：版本号已 bump 到 `2.9.0`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
-> 把 `/hm:mark`、`/hm:prune`、`/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry`
-> 固化成显式、可验证、非自治的维护面。
+> 把 `/hm:prd-sync [--apply]` 固化成显式、可验证、candidate-only 的
+> maintenance / review bridge。
 
 ## 完成矩阵
 
@@ -56,6 +57,7 @@ v2.8.0–v2.8.2 的 session-distill maintenance surfaces 都已落地。
 | v2.8.0 | 已完成 | `/hm:mark` closure guardrails、`validate_distilled_guardrails(...)`、`/hm:prune --statuses distilled,skipped --source-missing` boundary、OpenSpec `v280-session-distill-maintenance-surfaces` | session closure 和 manifest cleanup 正式进入版本线；不碰 canonical truth。 |
 | v2.8.1 | 已完成 | `/hm:review-kb` baseline state（`reviewed_at` / `total_entries` / `summary`）、`stable/needs-review/stale/superseded` status model、`/hm:prune-kb` backup-first and stale/superseded confinement、OpenSpec `v281-knowledge-base-review-and-prune` | knowledge-base audit 与 cleanup 正式进入版本线；dry-run 不写 backup、不改文件。 |
 | v2.8.2 | 当前收口基线 | `/hm:verify-entry` targeted recheck、KB growth reminder、packet overlap reminder、note overlap reminder、OpenSpec `v282-targeted-verification-and-reminder-surfaces` | targeted review 与 reminder 只做 summary-level nudges；不会自动 prune、auto-supersede 或阻断 distill。 |
+| v2.9.0 | 当前收口基线 | `/hm:prd-sync [--apply]`、projectless maintenance boundary、`prd-distilled/*.md` candidate output、OpenSpec `v290-prd-sync-candidate-surface`、`test_prd_sync_*` | PRD sync 只读 bundled packets，默认 dry-run；`--apply` 只写 candidate markdown，不直改 PRD/roadmap 或 confirmed truth。 |
 
 ## 未完成 / 不做项
 
@@ -85,6 +87,7 @@ v2.8.0–v2.8.2 的 session-distill maintenance surfaces 都已落地。
 | v2.6.x | Wiki Bridge + Compact Index + Contradiction：knowledge cache、claim index、stale/merge/supersede suggestions | `docs/roadmap-v26.md` |
 | v2.7.x | Cross-Project Skills + Controlled Activation：shared skills、skill hints、skill improvement suggestions | `docs/roadmap-v27.md` |
 | v2.8.x | Session-Distill Maintenance Surfaces：`/hm:mark`、`/hm:prune`、`/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry` 的正式版本线 | `docs/roadmap-v28.md` |
+| v2.9.x | PRD Sync Candidate Surface：`/hm:prd-sync` 默认 dry-run、`--apply` 只写 candidate markdown、不直改 PRD/roadmap | `docs/roadmap-v29.md` |
 
 ## 短结论
 

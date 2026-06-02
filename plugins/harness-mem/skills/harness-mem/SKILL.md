@@ -16,7 +16,7 @@ Treat the project as real production context:
 - Use repo-local `tools/session-distill` for user-triggered distillation; do not use the removed heuristic distill path.
 - Distilled memory is a draft signal. Review it before treating it as durable truth.
 - Use `suggest_*`, `list_candidates`, and `confirm_*` / `reject_*` for stable rules the user explicitly wants remembered.
-- Use `/hm:mark`, `/hm:prune`, `/hm:review-kb`, `/hm:prune-kb`, and `/hm:verify-entry` for distillation maintenance. These are user-facing Slash entries; the repo-local script is only the implementation layer.
+- Use `/hm:mark`, `/hm:prune`, `/hm:review-kb`, `/hm:prune-kb`, `/hm:verify-entry`, and `/hm:prd-sync` for distillation maintenance. These are user-facing Slash entries; the repo-local script is only the implementation layer.
 - Do not delete raw agent session files unless the user explicitly asks for raw-file cleanup through a maintenance entry.
 
 In Claude Code, prefer the no-hyphen MCP alias names such as
@@ -30,7 +30,7 @@ In Claude Code, prefer the no-hyphen MCP alias names such as
 - `ingest_sessions`: indexes raw local agent session files into harness-mem observations.
 - `prepare_session_distill`: one-shot ingest plus recent observation packet for `/hm:distill`.
 - `tools/session-distill`: default user-facing distillation playbook that reads evidence and writes pending candidates.
-- `/hm:mark` / `/hm:prune` / `/hm:review-kb` / `/hm:prune-kb` / `/hm:verify-entry`: Slash maintenance entries for session closure, manifest cleanup, and knowledge-base audit.
+- `/hm:mark` / `/hm:prune` / `/hm:review-kb` / `/hm:prune-kb` / `/hm:verify-entry` / `/hm:prd-sync`: Slash maintenance entries for session closure, manifest cleanup, knowledge-base audit, and candidate PRD sync.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
 - `suggest_*` / `list_candidates` / `confirm_*`: create and review durable memory candidates.
 - `purge` remains a CLI/debug operation for explicit cleanup, and only soft-deletes harness-mem indexed data.
@@ -67,6 +67,7 @@ Use the matching `/hm:*` entry rather than presenting a terminal command:
 - `/hm:review-kb --next 20`
 - `/hm:prune-kb --statuses stale,superseded`
 - `/hm:verify-entry <session-id|keyword>`
+- `/hm:prd-sync [--apply]`
 
 When the user states a durable project rule:
 

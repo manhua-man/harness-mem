@@ -14,6 +14,7 @@ The script writes its working files to the distillation workspace, which default
 - `memory-drafts/<session-id>.json`: structured draft entries that must be resolved before `/hm:mark ... distilled`.
 - `kb-review-state.json`: last `/hm:review-kb` timestamp, entry count, and status summary.
 - `backups/knowledge-base/`: automatic backups written before `/hm:prune-kb` mutates `knowledge-base.md`.
+- `prd-distilled/<date>-prd-sync-candidate.md`: candidate PRD/roadmap sync notes written only by explicit `/hm:prd-sync --apply`.
 
 ## Statuses
 
@@ -38,6 +39,7 @@ The script writes its working files to the distillation workspace, which default
 - `/hm:review-kb --next 20`: classify knowledge-base entries as stable / needs-review / stale / superseded.
 - `/hm:prune-kb --statuses stale,superseded`: back up and remove stale or superseded knowledge entries.
 - `/hm:verify-entry <session-id|keyword>`: pull matching knowledge entries and grill-style recheck questions.
+- `/hm:prd-sync [--apply]`: scan bundled packets for PRD/roadmap topics and optionally write a candidate sync note.
 
 ## Lightweight Reminders
 
@@ -50,3 +52,4 @@ The script writes its working files to the distillation workspace, which default
 
 Cleanup is a developer maintenance concern, not part of the user-facing distill flow.
 Keep `knowledge-base.md` and `manifest.json`; only remove raw source archives after an explicit cleanup request.
+`prd-sync` also stays candidate-only: it may write `prd-distilled/*.md`, but it does not directly edit canonical PRD or roadmap docs.

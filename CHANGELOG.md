@@ -8,6 +8,35 @@
 
 ---
 
+## [2.9.0] — 2026-06-02
+
+**主题：PRD Sync Candidate Surface**
+
+v2.9.0 把原本只存在于 `session-distill.py` 里的 `prd-sync` 半成品命令收束成了
+正式的 maintenance / review bridge。`/hm:prd-sync` 现在和其它 `/hm:*`
+维护入口一样，有明确的用户面文档、OpenSpec contract、测试覆盖和 candidate-only
+边界：默认 dry-run，只预览命中的 bundled packets 与 topic；显式 `--apply`
+时也只会写 `prd-distilled/*.md` 候选笔记，不会越权直接修改正式 PRD、roadmap、
+knowledge-base 或 confirmed truth。
+
+### Added
+
+- **v2.9.0 PRD sync maintenance entry**：新增正式 `/hm:prd-sync [--apply]`
+  维护入口文档、plugin command、session-distill reference 与 install 输出。
+- **projectless boundary**：`prd-sync` 不再要求项目 cwd / `--project` 解析，
+  作为 maintenance entry 可以直接运行。
+- **candidate-only output contract**：`--apply` 只写 `prd-distilled/*.md`
+  candidate 文件；dry-run 不落盘，并明确声明 canonical PRD/roadmap docs
+  保持不变。
+- **focused regression coverage**：新增 no-bundles、dry-run、apply、
+  bundled-only scanning 与 parser projectless 覆盖。
+
+### Boundaries
+
+- `prd-sync` 只读取 manifest 中 `bundled` 的 packet。
+- 它不是 `/hm:distill` 主链，也不会自动改产品文档。
+- 任何正式 PRD/roadmap 更新仍然需要后续人工或 agent review。
+
 ## [2.8.2] — 2026-06-02
 
 **主题：Session-Distill Maintenance Surfaces**

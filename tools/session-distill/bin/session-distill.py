@@ -53,8 +53,6 @@ PROJECTS_DIR = Path(os.environ.get("SESSION_DISTILL_PROJECTS_DIR", Path.home() /
 
 # PRD sync configuration
 PRD_DISTILLED_DIR = DISTILL_DIR / "prd-distilled"
-PRD_DECISION_LOG = DISTILL_DIR / "prd-decision-log-candidate.md"
-
 DEFAULT_RUN_NEXT = 3
 DEFAULT_LIST_MIN_SIZE_KB = 100
 KB_REVIEW_REMINDER_THRESHOLD = 5
@@ -1025,7 +1023,7 @@ def cmd_verify_entry(query: str) -> int:
     return 0
 
 
-def cmd_prd_sync(project_path: Optional[Path], dry_run: bool = True) -> int:
+def cmd_prd_sync(dry_run: bool = True) -> int:
     """Generate PRD sync candidates from bundled packets."""
     print("==> PRD Sync: Generating candidates from bundled packets")
     print(f"    Dry-run: {dry_run}")
@@ -1077,7 +1075,14 @@ def cmd_prd_sync(project_path: Optional[Path], dry_run: bool = True) -> int:
     distilled_path = PRD_DISTILLED_DIR / f"{today}-prd-sync-candidate.md"
     PRD_DISTILLED_DIR.mkdir(parents=True, exist_ok=True)
 
-    lines = [f"# PRD Sync Candidate - {today}", "", "## Source Packets", ""]
+    lines = [
+        f"# PRD Sync Candidate - {today}",
+        "",
+        "> Candidate only. Review before editing canonical PRD or roadmap docs.",
+        "",
+        "## Source Packets",
+        "",
+    ]
     for session in candidates:
         lines.append(f"- `{session['session_id']}`")
 
@@ -1094,6 +1099,12 @@ def cmd_prd_sync(project_path: Optional[Path], dry_run: bool = True) -> int:
 
     lines.extend(
         [
+            "",
+            "## Boundary",
+            "",
+            "- This note is generated from bundled session-distill packets.",
+            "- It does not update canonical PRD docs, roadmap docs, knowledge-base truth, or confirmed truth by itself.",
+            "- Treat it as a review artifact before any manual product-doc edits.",
             "",
             "## Suggested Decision Records",
             "",
@@ -1112,9 +1123,11 @@ def cmd_prd_sync(project_path: Optional[Path], dry_run: bool = True) -> int:
 
     if not dry_run:
         distilled_path.write_text("\n".join(lines), encoding="utf-8")
-        print(f"  -> Generated: {distilled_path}")
+        print(f"  -> Generated candidate: {distilled_path}")
+        print("  -> No canonical PRD/roadmap docs were modified.")
     else:
         print("  [DRY-RUN] No files written. Use --apply to confirm.")
+        print("  [DRY-RUN] Candidate preview only; canonical PRD/roadmap docs remain unchanged.")
     return 0
 
 
@@ -1205,7 +1218,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.print_help()
         return 0
 
-    projectless = {"mark", "prune", "review-kb", "prune-kb", "verify-entry"}
+    projectless = {"mark", "prune", "review-kb", "prune-kb", "verify-entry", "prd-sync"}
     project_path = None if args.command in projectless else resolve_project_path(args)
 
     if args.command not in projectless and not project_path:
@@ -1230,7 +1243,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.command == "verify-entry":
         return cmd_verify_entry(args.query)
     if args.command == "prd-sync":
-        return cmd_prd_sync(project_path, dry_run=not args.apply)
+        return cmd_prd_sync(dry_run=not args.apply)
 
     parser.print_help()
     return 1

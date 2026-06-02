@@ -18,7 +18,7 @@
 | `error-codes.md` | `doctor` 输出的 `HM-xxx` 错误码与修复命令映射 |
 | `reference-projects.md` | 外部 memory/wiki/self-evolution 参考项目，以及本地 `F:\memory-lab\upstreams` 镜像说明 |
 | `retrospective-v13-v14.md` | v13 -> v14 架构演进评审记录 |
-| `roadmap-status.md` | 当前 roadmap 完成情况：从 v1.6 到 v2.7 的已完成项、边界和未做项 |
+| `roadmap-status.md` | 当前 roadmap 完成情况：从 v1.6 到 v2.9 的已完成项、边界和未做项 |
 | `roadmap-v15x.md` | v1.5.x 分切片交付记录（v1.5.1 - v1.5.3） |
 | `roadmap-v16x.md` | v1.6.x roadmap：measurement foundation、typing、bucket budget、persistent vectors |
 | `roadmap-v17x.md` | v1.7.x roadmap：temporal schema、supersede、bounded relation graph、verbatim exact evidence search |
@@ -29,6 +29,7 @@
 | `roadmap-v26.md` | v2.6 roadmap：wiki bridge、compact claim index、contradiction suggestions、compact wake renderer |
 | `roadmap-v27.md` | v2.7 roadmap：cross-project skills、controlled activation、skill improvement suggestions |
 | `roadmap-v28.md` | v2.8 roadmap：session-distill maintenance、knowledge-base review/prune/verify surfaces |
+| `roadmap-v29.md` | v2.9 roadmap：PRD sync candidate surface |
 | `roadmap-vision-v16-v18.md` | v1.6 - v1.8 远景方向，不等同于承诺路线图 |
 
 设计规格在 `openspec/specs/` 和 `openspec/changes/`。

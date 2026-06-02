@@ -34,6 +34,7 @@ class SessionDistillCoreTests(unittest.TestCase):
         self.module.KB_BACKUPS_DIR = self.module.DISTILL_DIR / "backups" / "knowledge-base"
         self.module.KB_REVIEW_STATE_FILE = self.module.DISTILL_DIR / "kb-review-state.json"
         self.module.PRUNED_SOURCES_FILE = self.module.DISTILL_DIR / "pruned-sources.jsonl"
+        self.module.PRD_DISTILLED_DIR = self.module.DISTILL_DIR / "prd-distilled"
         self.module.PROJECTS_DIR = self.home / ".claude" / "projects"
         self.module.CODEX_RAW_ROOTS = (
             self.home / ".codex" / "archived_sessions",
@@ -563,6 +564,94 @@ class SessionDistillCoreTests(unittest.TestCase):
         self.assertEqual(0, result)
         self.assertIn("/hm:verify-entry", output.getvalue())
         self.assertIn("cache", output.getvalue())
+
+    def test_prd_sync_dry_run_reports_candidates_without_writing_file(self):
+        self.write_jsonl(
+            "product-session",
+            self.make_turn_records(1, final_text="Roadmap scope and architecture decisions changed."),
+        )
+        self.bundle_session("product-session", force=True)
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = self.module.cmd_prd_sync(dry_run=True)
+
+        candidate_files = list((self.module.DISTILL_DIR / "prd-distilled").glob("*.md"))
+        self.assertEqual(0, result)
+        self.assertIn("Found 1 PRD-related packet", output.getvalue())
+        self.assertIn("Candidate preview only", output.getvalue())
+        self.assertEqual([], candidate_files)
+
+    def test_prd_sync_apply_writes_candidate_file_only(self):
+        self.write_jsonl(
+            "product-session",
+            self.make_turn_records(1, final_text="PRD roadmap feature requirement and architecture review."),
+        )
+        self.bundle_session("product-session", force=True)
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = self.module.cmd_prd_sync(dry_run=False)
+
+        candidate_files = list((self.module.DISTILL_DIR / "prd-distilled").glob("*.md"))
+        self.assertEqual(0, result)
+        self.assertEqual(1, len(candidate_files))
+        candidate_text = candidate_files[0].read_text(encoding="utf-8")
+        self.assertIn("Candidate only", candidate_text)
+        self.assertIn("No canonical PRD/roadmap docs were modified", output.getvalue())
+        self.assertTrue(self.module.KNOWLEDGE_FILE.exists())
+
+    def test_prd_sync_scans_bundled_sessions_only(self):
+        bundled_path = self.write_jsonl(
+            "bundled-session",
+            self.make_turn_records(1, final_text="Architecture roadmap scope update."),
+        )
+        ignored_path = self.write_jsonl(
+            "new-session",
+            self.make_turn_records(2, final_text="PRD feature launch requirement."),
+        )
+        manifest = {
+            "version": 1,
+            "updated_at": "",
+            "sessions": [
+                {
+                    "session_id": "bundled-session",
+                    "file_name": bundled_path.name,
+                    "file_path": str(bundled_path),
+                    "size": "1.0KB",
+                    "status": "bundled",
+                    "bundle_path": str(self.module.PACKETS_DIR / "bundled-session.md"),
+                },
+                {
+                    "session_id": "new-session",
+                    "file_name": ignored_path.name,
+                    "file_path": str(ignored_path),
+                    "size": "1.0KB",
+                    "status": "new",
+                    "bundle_path": str(self.module.PACKETS_DIR / "new-session.md"),
+                },
+            ],
+        }
+        self.module.save_manifest(manifest)
+        self.module.generate_packet(manifest["sessions"][0], self.module.PACKETS_DIR / "bundled-session.md")
+        self.module.generate_packet(manifest["sessions"][1], self.module.PACKETS_DIR / "new-session.md")
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = self.module.cmd_prd_sync(dry_run=True)
+
+        self.assertEqual(0, result)
+        self.assertIn("bundled-session", output.getvalue())
+        self.assertNotIn("new-session", output.getvalue())
+
+    def test_main_allows_prd_sync_without_project_resolution(self):
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = self.module.main(["prd-sync"])
+
+        self.assertEqual(0, result)
+        self.assertIn("No bundled packets found", output.getvalue())
 
 
 if __name__ == "__main__":

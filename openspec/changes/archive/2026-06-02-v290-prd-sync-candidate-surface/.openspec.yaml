@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-06-02
+change_kind: feature
+area: daily-workflow
+summary: Formalize the session-distill PRD sync candidate surface as an explicit maintenance entry

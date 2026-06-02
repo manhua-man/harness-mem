@@ -202,8 +202,10 @@ prepare_session_distill
 | `/hm:review-kb --next 20` | 巡检 knowledge-base 条目稳定性。 |
 | `/hm:prune-kb --statuses stale,superseded` | 先备份，再清理 stale / superseded knowledge 条目。 |
 | `/hm:verify-entry <session-id|keyword>` | 定向复查命中知识条目。 |
+| `/hm:prd-sync [--apply]` | 扫描 bundled packets，预览或生成 candidate PRD sync note。 |
 
 系统会做轻提醒：`/hm:mark ... distilled` 后，如果 knowledge-base 相比上次 `/hm:review-kb` 新增达到 5 条，会提示巡检；新 packet 或新 note 与旧 knowledge 关键词重合时，会提示 `/hm:verify-entry`。提醒只进摘要，不会自动清理或打断主链。
+`/hm:prd-sync` 属于 maintenance / review bridge：默认 dry-run，只预览命中的 packets 和 topic；只有显式 `--apply` 才会写 `prd-distilled/*.md` candidate 文件，而且不会直接改正式 PRD、roadmap 或 confirmed truth。
 
 如果根目录里又冒出 `.pytest_cache/`、`.mypy_cache/`、`.ruff_cache/`、`.gstack/`、`.coverage` 或 `tmp-*`，可以把它们当成本地运行产物，不算项目主结构。
 

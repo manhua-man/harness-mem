@@ -6,7 +6,7 @@ It packages four layers:
 
 - **Skill**: tells an agent when to use memory commands.
 - **MCP config**: exposes `python -m harness_mem.mcp.server` as hidden structured runtime tools for agents.
-- **IDE commands**: Claude Code slash commands (`/hm:status`, `/hm:distill`, `/hm:wake`, `/hm:search`, optional `/hm:review`, plus `/hm:mark` / `/hm:prune` / `/hm:review-kb` / `/hm:prune-kb` / `/hm:verify-entry`) and reusable command instructions that Cursor/Codex-style agents can follow, so end users do not need to memorize CLI flags or MCP tool names.
+- **IDE commands**: Claude Code slash commands (`/hm:status`, `/hm:distill`, `/hm:wake`, `/hm:search`, optional `/hm:review`, plus `/hm:mark` / `/hm:prune` / `/hm:review-kb` / `/hm:prune-kb` / `/hm:verify-entry` / `/hm:prd-sync`) and reusable command instructions that Cursor/Codex-style agents can follow, so end users do not need to memorize CLI flags or MCP tool names.
 - **Scripts**: install and doctor helpers for local validation.
 
 Install from the repository root:
@@ -63,6 +63,7 @@ Once installed, drive harness-mem through IDE commands and chat. MCP is the tran
 | `/hm:review-kb --next 20` | Audit `knowledge-base.md` into stable / needs-review / stale / superseded. |
 | `/hm:prune-kb --statuses stale,superseded` | Back up and clean stale/superseded knowledge-base entries. |
 | `/hm:verify-entry <session-id|keyword>` | Targeted recheck of matching knowledge-base entries with grill-style questions. |
+| `/hm:prd-sync [--apply]` | Scan bundled packets for PRD/roadmap topics and optionally write a candidate sync note under `prd-distilled/`. |
 
 ### Cursor / Antigravity / opencode / Hermes / Generic MCP IDE
 
