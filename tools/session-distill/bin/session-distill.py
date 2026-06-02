@@ -88,6 +88,7 @@ REQUIRED_NOTE_SECTIONS = (
     "Verification From Session",
     "Promotion Decision",
 )
+HANDLED_MANIFEST_STATUSES = frozenset({"distilled", "skipped"})
 CODEX_RAW_ROOTS = (
     Path.home() / ".codex" / "archived_sessions",
     Path.home() / ".codex" / "sessions",
@@ -600,6 +601,23 @@ def validate_same_source_kb(session_id: str) -> list[str]:
     return errors
 
 
+def validate_distilled_guardrails(session_id: str, session: dict[str, Any]) -> list[str]:
+    """Return the closure guardrail failures for `/hm:mark ... distilled`.
+
+    v2.8 formalizes `distilled` as the explicit session-closure state. A
+    session cannot be marked `distilled` unless all note/draft/knowledge
+    guardrails are already satisfied. Keeping the checks in one helper makes
+    the contract easier to test and harder to drift.
+    """
+    errors = []
+    errors.extend(validate_session_note(session_id, session))
+    pending, draft_path = draft_has_pending(session_id)
+    if pending:
+        errors.append(f"memory draft still has pending entries: {draft_path}")
+    errors.extend(validate_same_source_kb(session_id))
+    return errors
+
+
 def cmd_mark(session_id: str, status: str, keep_raw: bool = False) -> int:
     """Mark session status after running guardrails for distilled sessions."""
     if not session_id or not status:
@@ -615,13 +633,7 @@ def cmd_mark(session_id: str, status: str, keep_raw: bool = False) -> int:
         return 1
 
     if status == "distilled":
-        errors = []
-        errors.extend(validate_session_note(session_id, session))
-        pending, draft_path = draft_has_pending(session_id)
-        if pending:
-            errors.append(f"memory draft still has pending entries: {draft_path}")
-        errors.extend(validate_same_source_kb(session_id))
-
+        errors = validate_distilled_guardrails(session_id, session)
         if errors:
             print("  ! Mark refused by guardrails:")
             for error in errors:
@@ -662,12 +674,26 @@ def cmd_prune(statuses_text: Optional[str], source_missing: bool, apply: bool) -
     """Prune source-missing manifest placeholders."""
     ensure_dirs()
     statuses = parse_statuses(statuses_text)
+    invalid_statuses = statuses.difference(HANDLED_MANIFEST_STATUSES)
+    if invalid_statuses:
+        print("==> Prune manifest placeholders")
+        print(
+            "  ! Prune refused: only handled statuses may be cleaned "
+            f"({', '.join(sorted(HANDLED_MANIFEST_STATUSES))})"
+        )
+        print(f"    Invalid: {', '.join(sorted(invalid_statuses))}")
+        return 1
+    if not source_missing:
+        print("==> Prune manifest placeholders")
+        print("  ! Prune refused: cleanup is limited to source-missing handled placeholders")
+        print("    Re-run with --source-missing.")
+        return 1
     manifest = load_manifest()
     candidates = []
     kept = []
     for session in manifest["sessions"]:
         matches_status = session.get("status") in statuses
-        matches_source = bool(session.get("source_missing")) if source_missing else True
+        matches_source = bool(session.get("source_missing"))
         if matches_status and matches_source:
             candidates.append(session)
         else:

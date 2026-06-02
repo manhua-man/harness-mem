@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.8
 
-> 状态：OpenSpec skeleton 已创建，代码未开始。
+> 状态：v2.8.0 已完成；v2.8.1 / v2.8.2 待实现。
 >
 > 主题：Session-Distill Maintenance Surfaces。把 `/hm:mark`、`/hm:prune`、
 > `/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry` 从 repo-local tool 约定收束成
@@ -67,6 +67,20 @@ v2.8 的目的就是把这些维护能力从“工具存在 + 文档提到”升
 - repo-local 实现主要位于 `tools/session-distill/bin/session-distill.py`。
 - 相关提示词与 guardrail 已写进 `tools/session-distill/SKILL.md`，但尚未进入主 OpenSpec。
 
+### 当前状态（2026-06-02）
+
+- 已完成 `openspec/changes/v280-session-distill-maintenance-surfaces/`。
+- 已把 `/hm:mark ... distilled [--keep-raw]` 和 `/hm:prune --statuses distilled,skipped --source-missing`
+  收进主 OpenSpec workflow contract。
+- 现有 `session-distill.py` 已收紧 boundary：
+  - `distilled` 收口统一走 note/draft/knowledge guardrail helper
+  - `prune` 只允许 handled statuses（`distilled` / `skipped`）
+  - `prune` 现在强制要求 `--source-missing`
+- 已补 focused tests，覆盖：
+  - unstable same-source knowledge 阻止 `mark distilled`
+  - `prune` 拒绝 `new/bundled` 等未处理状态
+  - `prune` 拒绝绕过 `--source-missing`
+
 ## v2.8.1：Knowledge-Base Review and Prune
 
 **用户故事**：knowledge-base 需要像候选层一样有可审计的巡检和清理流程，而不是手工编辑一个不断膨胀的 markdown 文件。
@@ -78,6 +92,14 @@ v2.8 的目的就是把这些维护能力从“工具存在 + 文档提到”升
 | P0 | `/hm:prune-kb` backup-first | 清理前自动备份 knowledge-base |
 | P1 | prune confinement | 只删 stale/superseded 条目，不碰其他产物 |
 | P1 | review summary | 输出下一步建议：是否该 verify-entry 或 prune-kb |
+
+### 当前状态（2026-06-02）
+
+- 已创建 `openspec/changes/v281-knowledge-base-review-and-prune/`。
+- 当前实现和命令说明已经存在于 `tools/session-distill/bin/session-distill.py` 与
+  `plugins/harness-mem/commands/hm/review-kb.md` / `prune-kb.md`。
+- 下一步是把 status model、review baseline、backup-first cleanup 和 prune confinement
+  提升成主 OpenSpec contract。
 
 ## v2.8.2：Targeted Verification and Reminder Surfaces
 

@@ -242,6 +242,28 @@ class SessionDistillCoreTests(unittest.TestCase):
         self.assertEqual(1, result)
         self.assertEqual("bundled", self.manifest_session("sample-session")["status"])
 
+    def test_mark_distilled_blocks_unstable_same_source_knowledge_entry(self):
+        self.write_jsonl("sample-session", self.make_turn_records(1))
+        self.bundle_session("sample-session", force=True)
+        self.write_good_note("sample-session")
+        self.module.KNOWLEDGE_FILE.write_text(
+            "\n".join(
+                [
+                    "# Session Distill Knowledge Base",
+                    "",
+                    "## Review queue",
+                    "- TODO: maybe temporary workaround. [source: sample-session]",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.module.cmd_mark("sample-session", "distilled")
+
+        self.assertEqual(1, result)
+        self.assertEqual("bundled", self.manifest_session("sample-session")["status"])
+
     def test_mark_distilled_deletes_codex_raw_source_and_keeps_manifest_state(self):
         raw_dir = self.home / ".codex" / "archived_sessions"
         source = self.write_jsonl("sample-session", self.make_turn_records(1), directory=raw_dir)
@@ -306,6 +328,42 @@ class SessionDistillCoreTests(unittest.TestCase):
         self.assertEqual(0, applied)
         new_manifest = self.module.load_manifest()
         self.assertIsNone(self.module.find_manifest_session(new_manifest, "gone"))
+        self.assertIsNotNone(self.module.find_manifest_session(new_manifest, "kept"))
+
+    def test_prune_refuses_non_handled_statuses(self):
+        manifest = {
+            "version": 1,
+            "updated_at": "",
+            "sessions": [
+                {"session_id": "new-one", "status": "new", "source_missing": True},
+                {"session_id": "bundled-one", "status": "bundled", "source_missing": True},
+            ],
+        }
+        self.module.save_manifest(manifest)
+
+        result = self.module.cmd_prune("bundled,new", source_missing=True, apply=True)
+
+        self.assertEqual(1, result)
+        new_manifest = self.module.load_manifest()
+        self.assertIsNotNone(self.module.find_manifest_session(new_manifest, "new-one"))
+        self.assertIsNotNone(self.module.find_manifest_session(new_manifest, "bundled-one"))
+
+    def test_prune_requires_source_missing_boundary(self):
+        manifest = {
+            "version": 1,
+            "updated_at": "",
+            "sessions": [
+                {"session_id": "gone", "status": "distilled", "source_missing": True},
+                {"session_id": "kept", "status": "distilled", "source_missing": False},
+            ],
+        }
+        self.module.save_manifest(manifest)
+
+        result = self.module.cmd_prune("distilled,skipped", source_missing=False, apply=True)
+
+        self.assertEqual(1, result)
+        new_manifest = self.module.load_manifest()
+        self.assertIsNotNone(self.module.find_manifest_session(new_manifest, "gone"))
         self.assertIsNotNone(self.module.find_manifest_session(new_manifest, "kept"))
 
     def test_review_kb_classifies_entries_and_records_state(self):
