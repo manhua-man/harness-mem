@@ -208,7 +208,7 @@ async def test_propose_stale_isolated_silent_truth(
 
 
 @pytest.mark.anyio
-async def test_propose_supersedes_deferred_returns_empty(
+async def test_propose_supersedes_returns_candidate_for_historical_replacement(
     backend: LocalMemoryBackend,
 ) -> None:
     """Historical truth with a near-identical current replacement yields a supersede candidate."""
