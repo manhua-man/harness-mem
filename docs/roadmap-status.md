@@ -1,6 +1,6 @@
 # Roadmap Status
 
-> 最后核对：2026-05-31，基于当前 repo 文件、实现模块、OpenSpec 状态与测试状态。
+> 最后核对：2026-06-02，基于当前 repo 文件、实现模块、OpenSpec 状态与测试状态。
 > 版本真值以 `pyproject.toml` + `harness_mem.__version__` 为准。
 
 本文回答一个问题：哪些 roadmap 切片真的完成了，哪些只是 vision，哪些明确不做。
@@ -10,18 +10,18 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.6.0` |
-| `harness_mem/__init__.py` | `2.6.0` |
-| `CHANGELOG.md` | 已有 `2.6.0` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.6.3` |
+| `harness_mem/__init__.py` | `2.6.3` |
+| `CHANGELOG.md` | 已有 `2.6.3` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.6.0：v2.5.0–v2.5.2 的 context assembly / wake renderer /
-file_context 已全部落地，v2.6.0 再往前补上 knowledge cache boundary。
-现在 runtime 已具备显式的 manual/generated 分层、source hash 与 cleanup 边界；
-wiki bridge / compact index / contradiction detector 仍在后续切片。
+当前收口基线是 v2.6.3：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+file_context 已全部落地；v2.6.0–v2.6.3 已补上 knowledge cache boundary、
+wiki bridge / compact claim index、candidate-only contradiction/stale suggestions，
+以及 opt-in compact wake renderer。
 
-> **v2.6.0 发版状态（2026-05-31）**：版本号已 bump 到 `2.6.0`。v2.5.2 `file_context`
-> 已并入正式版本线，同时新增 v2.6.0 knowledge cache boundary。当前仍未实现 wiki
-> compiler / compact claim index / contradiction suggestions；这些继续留在 v2.6.1+。
+> **v2.6.3 发版状态（2026-06-02）**：版本号已 bump 到 `2.6.3`。v2.6 仍保持
+> manual/generated 分层和 candidate-before-truth 边界：generated wiki 可被显式编译和
+> compact 渲染，但不会进入默认 `wake` / `search_memory` confirmed-truth surface。
 
 ## 完成矩阵
 
@@ -46,6 +46,9 @@ wiki bridge / compact index / contradiction detector 仍在后续切片。
 | v2.5.1 | 当前收口基线 | 纯函数渲染模块 `harness_mem/commands/wake_render.py`（`render_wake_plan` + helpers，无 I/O）、计划驱动的 `cmd_wake_up`、`tests/test_wake_render_*.py` / `tests/integration/test_wake_render_side_effects.py` / `tests/mcp/test_wake_render_stdout.py`（pytest 956 passed） | cold-start `wake` 由 plan 驱动分层渲染 L0/L1/L2，每条带 source id + `📍`；L1/L2 只渲染 `confirmed_current`。旧扁平格式（Confirmed Rules / Relation Facts / Memory Entries / bucket-quota / weak-link 子标题 / 使用徽章）被取代；relation facts/skill hints 归 L3 query-driven。schema/assembler 未改动；既有信号+touch、MCP stdout 纯净性保留；未引入 `file_context`（v2.5.2）。 |
 | v2.5.2 | 已完成并并入 v2.6.0 | `harness_mem/core/schemas/file_context.py`、`harness_mem/file_context.py`、MCP `file_context` tool（`harness_mem/mcp/server.py` + `harness_mem/mcp/tool_specs.py`）、`tests/test_file_context.py` / `tests/test_file_context_readonly.py` / `tests/mcp/test_file_context_stdout.py` / `tests/mcp/test_smoke.py` | advisory-only helper：不拦截读文件、不发 `RetrievalSignal`、不 bump usage / last_accessed、skill 只给 hint、结果包含 `cost_hint` 与 `stale_file_signal`。 |
 | v2.6.0 | 已完成 | `harness_mem/knowledge_cache.py`、`ProjectProfile.curated_doc_paths`、doctor knowledge-cache block、`maintenance prepare-knowledge-cache` / `cleanup-generated-cache`、`tests/test_knowledge_cache.py`、`tests/cli/test_knowledge_cache_cli.py`、OpenSpec `v260-knowledge-cache-boundary` | 只做 boundary / visibility / source hash / cleanup；不编译 wiki、不让 generated cache 进入 wake/search truth。 |
+| v2.6.1 | 已完成 | `rebuild_wiki_bridge(...)`、`knowledge-cache/generated/claims.json` / `topics.json` / `entities.json`、`maintenance rebuild-wiki-bridge`、doctor generated counts、OpenSpec `v261-wiki-bridge-compact-index` | 编译 accepted memory / confirmed rules / relation facts / curated docs 到 generated wiki bridge；claim 带 source drilldown，但 generated outputs 不进默认 truth surface。 |
+| v2.6.2 | 已完成 | `list_candidates` 返回 `MergeSuggestionCandidate` / `StaleTruthSuggestionCandidate`、`merge_suggestion_count` / `stale_truth_suggestion_count`、`_propose_supersedes(...)`、OpenSpec `v262-candidate-review-surface-and-contradiction-boundary` | merge/stale/supersede suggestion 只进入 candidate/review surface；不会自动 confirm、不会直接 mutate truth。 |
+| v2.6.3 | 当前收口基线 | MCP `wake(renderer="compact")`、`load_compact_wake_payload(...)`、`render_compact_wake_payload(...)`、OpenSpec `v263-compact-wake-renderer`、compact renderer tests | compact renderer 是 opt-in generated summary；默认 `wake` 不变，generated-only 内容仍不进入默认 `search_memory`。 |
 
 ## 未完成 / 不做项
 
@@ -55,8 +58,8 @@ wiki bridge / compact index / contradiction detector 仍在后续切片。
 |---|---|---|
 | 后台 daemon / IDE hook / turn-end 自检“随手记” | host 触发链路代码已完成（v2.4.0–v2.4.3，待发版）：`triggers.* = off` 默认；opt-in 时 hook 用 `python -m harness_mem.host_entry` 调业务命令，不调 `harness-mem` CLI。仍**无** always-on daemon（`worker.mode=daemon` 须 opt-in 且无 CLI 安装器）。 | v2.4 已交付 opt-in 安全触发；默认行为不变（off）。见 `docs/roadmap-v24.md`。 |
 | Context Assembly / File Context | 已完成并并入正式版本线。 | 见 `docs/roadmap-v25.md`。 |
-| Wiki Bridge / Compact Claim Index | 未实现。当前有 raw evidence 和 search_raw，但没有 generated knowledge cache / compact claim index。 | v2.6 |
-| 自动 contradiction / stale / merge suggestion | 未实现。当前已有 supersede candidate 机制，但还没有 detector 主动发现冲突。 | v2.6 |
+| Wiki Bridge / Compact Claim Index / Compact Renderer | 已完成到 v2.6.3 范围：generated wiki bridge、claim/topic/entity index、opt-in compact wake renderer。 | 见 `docs/roadmap-v26.md`。 |
+| 自动 contradiction / stale / merge suggestion | v2.6.2 已完成 candidate-only review surface 和 supersede proposer；仍不做自动 apply / autonomous truth mutation。 | 后续若扩展，只能继续走 candidate/review 边界。 |
 | 跨项目 Skill sharing | 未实现。v1.8 Skill 是 project-scoped。 | v2.7.0 |
 | Procedural Skill 默认进入 wake | 未实现，且当前设计是显式 `search_skills`。 | v2.7.1 可做 compact opt-in skill hints；完整默认注入仍是 non-goal。 |
 | AI 自治删除或改写 truth | 未实现，也不应该做。Truth 变化走 candidate / supersede / review。 | 永不做；只走 candidate/supersede/review。 |
@@ -83,9 +86,9 @@ v2.2 已完成用户入口闭环，但当前产品仍不是后台自学习或自
 最后再进入 v2.7 cross-project skill。
 
 v2.4 reflection queue 四个切片（v2.4.0–v2.4.3）已实现、验证并发版。
-v2.5 context assembly 与 file context 已全部并入正式版本线；v2.6.0 进一步把
-knowledge cache boundary 做成显式 runtime surface：manual/generated 分层、
-sync map/source manifest、doctor visibility、generated cleanup。当前仍未启用
+v2.5 context assembly 与 file context 已全部并入正式版本线；v2.6.0–v2.6.3
+进一步把 knowledge cache boundary、wiki bridge / compact index、candidate-only
+suggestions 和 opt-in compact wake renderer 做成显式 runtime surface。当前仍未启用
 always-on daemon，MCP stdout 纯净性继续保持。
 
 优先级依据是：没有 signals 就无法 replay；没有 queue health 就无法安全 reflection；

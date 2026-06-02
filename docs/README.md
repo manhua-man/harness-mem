@@ -26,7 +26,7 @@
 | `roadmap-v23.md` | v2.3 roadmap：Signals / Replay 地基、`RetrievalSignal`、`MetabolismRun`、`metabolism_preview` |
 | `roadmap-v24.md` | v2.4 roadmap：host-triggered reflection、job queue、health / doctor 韧性 |
 | `roadmap-v25.md` | v2.5 roadmap：context assembly、Memory Stack renderer、file-context |
-| `roadmap-v26.md` | v2.6 roadmap：wiki bridge、compact claim index、contradiction suggestions |
+| `roadmap-v26.md` | v2.6 roadmap：wiki bridge、compact claim index、contradiction suggestions、compact wake renderer |
 | `roadmap-v27.md` | v2.7 roadmap：cross-project skills、controlled activation、skill improvement suggestions |
 | `roadmap-vision-v16-v18.md` | v1.6 - v1.8 远景方向，不等同于承诺路线图 |
 
