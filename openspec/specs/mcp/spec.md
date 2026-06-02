@@ -498,3 +498,22 @@ conflicting shared skills.
 - **WHEN** `confirm_skill_deprecation(candidate_id)` runs
 - **THEN** the candidate status becomes accepted
 - **AND** the returned skill payload has `status="retired"`
+
+### Requirement: MCP exposes read-only reflection job visibility
+
+The MCP server SHALL expose read-only helpers for listing recent reflection jobs
+and reading one persisted reflection job by id. These helpers SHALL NOT repair,
+retry, or otherwise mutate job state as a side effect.
+
+#### Scenario: Agent lists recent reflection jobs
+
+- **WHEN** `list_reflection_jobs(project_name="demo")` runs
+- **THEN** the payload includes recent job rows with id, kind, phase, status,
+  source, attempt count, updated time, and short error summary when present
+- **AND** the helper supports filtering by status and kind
+
+#### Scenario: Agent reads one reflection job
+
+- **WHEN** `get_reflection_job(job_id)` runs
+- **THEN** the payload includes the full persisted job record
+- **AND** unknown ids return a structured not-found response rather than raising

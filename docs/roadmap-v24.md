@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.4
 
-> 状态：规划中。前置 v2.3 (Signals + Suggestion Pass) 已完成。
+> 状态：已完成，并已由 `v2.4.3` 收口发版。前置 v2.3 (Signals + Suggestion Pass) 已完成。
 >
 > 主题：Host-triggered Reflection + Queue Health。吸收 `claude-mem` 的运行时韧性，但不照搬「产品内置 always-on daemon / 默认 IDE hook」。
 
@@ -9,6 +9,13 @@
 ## 目标
 
 v2.4 让 reflection、distill、metabolism 这类较重任务有清晰的 job 生命周期和健康检查。
+
+## 当前真值
+
+- `ReflectionJob` schema、lease、idempotent `reflection_once(...)`、host entry、MCP `list_reflection_jobs` / `get_reflection_job`、doctor queue health 已落地并覆盖测试。
+- 默认行为仍然是 opt-in host trigger：`triggers.* = off` 时零副作用；`distill.mode=defer_to_agent` 时只走到 `needs_distill`，不会静默调用 LLM。
+- v2.4 的业务命令共享实现位于 `harness_mem.commands.reflection_jobs`；hook/host 入口走 `python -m harness_mem.host_entry`，不走 `harness-mem reflection` 这类 CLI 业务子命令。
+- 下文保留的是 v2.4 规划与边界说明，作为已实现版本的设计记录。
 
 这一版不追求「默认自动随手记」，而是：
 

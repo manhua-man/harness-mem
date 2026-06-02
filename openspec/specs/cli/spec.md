@@ -231,3 +231,19 @@ delete accepted memory, confirmed rules, relation facts, or curated docs.
 - **THEN** the orphaned generated file is removed
 - **AND** the tracked generated file remains
 - **AND** canonical storage under structured/verbatim stores remains unchanged
+
+### Requirement: doctor reports reflection queue health
+
+The doctor command SHALL report reflection queue health without mutating jobs.
+The report SHALL make pending, processing, retryable, failed, and
+needs-distill jobs visible without blocking the current coding task.
+
+#### Scenario: doctor reports queue counts and next actions
+
+- **WHEN** `harness-mem doctor -p <project>` runs
+- **THEN** it reports counts for `pending`, `processing`, `retryable`, `failed`,
+  and `needs_distill` jobs
+- **AND** it reports the oldest pending or retryable age when present
+- **AND** it reports active processing leases and failed job errors when present
+- **AND** it names `/hm:distill` or the equivalent MCP Agent flow as the next
+  action for `needs_distill` jobs
