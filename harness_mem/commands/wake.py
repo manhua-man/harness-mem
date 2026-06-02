@@ -33,6 +33,7 @@ from harness_mem.context_assembly import assemble_context_plan
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.context_assembly_plan import ContextAssemblyPlan
 from harness_mem.core.schemas.project_profile import ProjectProfile
+from harness_mem.core.schemas.skill import Skill
 from harness_mem.event_log import EventType, get_event_logger
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -42,6 +43,7 @@ DEFAULT_AUTO_INGEST_MIN_INTERVAL_SECONDS = 300
 DEFAULT_AUTO_INGEST_MIN_NEW_SESSIONS = 1
 DEFAULT_AUTO_INGEST_SCAN_THROTTLE_SECONDS = 60
 DEFAULT_AUTO_INGEST_LOCK_TTL_SECONDS = 3600
+DEFAULT_SKILL_HINT_LIMIT = 3
 
 
 def _elapsed_ms(start_time: float) -> int:
@@ -175,6 +177,49 @@ def _wake_int_setting(config: dict, key: str, default: int) -> int:
         return max(0, int(value))
     except (TypeError, ValueError):
         return default
+
+
+def _wake_bool_setting(config: dict, key: str, default: bool) -> bool:
+    value = config.get("wake", {}).get(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
+
+
+async def _select_wake_skill_hints(
+    backend: LocalMemoryBackend,
+    project_name: str,
+    *,
+    limit: int,
+) -> list[Skill]:
+    if limit <= 0:
+        return []
+    skills = await backend.structured_store.list_skills(project_name)
+    return skills[:limit]
+
+
+def _render_skill_hint_line(skill: Skill) -> str:
+    reason = skill.activation_condition.strip()
+    if len(reason) > 100:
+        reason = reason[:97].rstrip() + "..."
+    return f"- skill {skill.id}: {skill.name} | when: {reason}"
+
+
+def _render_skill_hint_block(skills: list[Skill]) -> str:
+    lines = ["# Skill Hints  (opt-in compact)"]
+    if skills:
+        lines.extend(_render_skill_hint_line(skill) for skill in skills)
+    else:
+        lines.append("_(none)_")
+    hint_tokens = chars_to_tokens(len("\n".join(lines)))
+    lines.append(f"_Approx skill-hint tokens: ≈ {hint_tokens:,} [separate budget]_")
+    return "\n".join(lines)
 
 
 def _read_lock_record(lock_path: Path) -> dict:
@@ -534,6 +579,8 @@ async def cmd_wake_up(
     no_auto_ingest: bool = False,
     *,
     no_bucket_quota: bool = False,
+    include_skill_hints: bool | None = None,
+    skill_hint_limit: int | None = None,
 ) -> int:
     """Generate wake-up context for a project.
 
@@ -555,6 +602,16 @@ async def cmd_wake_up(
     # Configuration check
     config = get_config()
     should_auto_ingest = not no_auto_ingest and config.get("wake", {}).get("auto_ingest", True)
+    skill_hints_enabled = (
+        _wake_bool_setting(config, "include_skill_hints", False)
+        if include_skill_hints is None
+        else bool(include_skill_hints)
+    )
+    effective_skill_hint_limit = (
+        _wake_int_setting(config, "skill_hint_limit", DEFAULT_SKILL_HINT_LIMIT)
+        if skill_hint_limit is None
+        else max(0, int(skill_hint_limit))
+    )
 
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
@@ -574,6 +631,13 @@ async def cmd_wake_up(
         # Req 1, 8 — pure render -> stdout; the MCP redirect_stdout capture
         # stays complete because rendering emits only via print().
         print(render_wake_plan(plan))
+        if skill_hints_enabled:
+            skill_hints = await _select_wake_skill_hints(
+                backend,
+                project_name,
+                limit=effective_skill_hint_limit,
+            )
+            print(_render_skill_hint_block(skill_hints))
 
         # Req 7 — wake's existing per-record signals/touches, de-duplicated.
         await _apply_surface_side_effects(backend, plan)

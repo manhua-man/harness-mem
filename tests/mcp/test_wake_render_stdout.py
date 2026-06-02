@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from harness_mem.core.schemas import ConfirmedRule, MemoryEntry
+from harness_mem.core.schemas import ConfirmedRule, MemoryEntry, Skill
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.knowledge_cache import rebuild_wiki_bridge
 from harness_mem.mcp.server import set_backend_override, tool_wake
@@ -71,6 +71,19 @@ async def _seed(backend: LocalMemoryBackend) -> None:
             category="architecture",
             content="Wake output is captured and returned as the MCP tool payload.",
             source="manual",
+        )
+    )
+    await backend.structured_store.save_skill(
+        Skill(
+            project_name=PROJECT,
+            name="Release verification workflow",
+            activation_condition="When preparing to ship a code change",
+            steps=[
+                "Run focused tests",
+                "Run full pytest",
+                "Confirm the working tree is clean",
+            ],
+            termination_condition="All gates are green",
         )
     )
 
@@ -159,6 +172,38 @@ def test_tool_wake_compact_renderer_returns_generated_summary(
         assert "Compact MCP wake renderer" in payload["output"]
         assert payload["compact_payload"]["authority"] == "generated_claim"
         assert payload["compact_payload"]["source_ids"]
+    finally:
+        set_backend_override(None)
+        run(backend.close())
+
+
+def test_tool_wake_opt_in_skill_hints_are_compact_and_default_stays_unchanged(
+    data_dir: Path,
+) -> None:
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    set_backend_override(backend)
+    try:
+        run(_seed(backend))
+
+        default_payload = tool_wake(project_name=PROJECT, no_auto_ingest=True)
+        hinted_payload = tool_wake(
+            project_name=PROJECT,
+            no_auto_ingest=True,
+            include_skill_hints=True,
+            skill_hint_limit=1,
+        )
+
+        assert default_payload["success"] is True
+        assert "# Skill Hints  (opt-in compact)" not in default_payload["output"]
+
+        assert hinted_payload["success"] is True
+        assert "# Skill Hints  (opt-in compact)" in hinted_payload["output"]
+        assert "Release verification workflow" in hinted_payload["output"]
+        assert "When preparing to ship a code change" in hinted_payload["output"]
+        assert "Run focused tests" not in hinted_payload["output"]
+        assert "Run full pytest" not in hinted_payload["output"]
+        assert "Approx skill-hint tokens:" in hinted_payload["output"]
     finally:
         set_backend_override(None)
         run(backend.close())

@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.7
 
-> 状态：v2.7.0 已完成。
+> 状态：v2.7.0 已完成；v2.7.1 第一片已完成。
 >
 > 主题：Cross-Project Skills and Controlled Activation。让可复用 procedural knowledge 跨项目流动，但必须显式、带边界、可审核。
 
@@ -86,6 +86,15 @@ v2.7 处理原先放在 v2.4 的跨项目 Skill 方向。它被后移的原因�
 | P0 | conflict handling | project-specific skill 与 shared skill 冲突时默认 project-specific 胜出 |
 | P1 | usage feedback | `record_skill_result` 记录 hinted skill 是否被使用、是否有帮助 |
 | P1 | budget isolation | skill hints 有独立预算，不挤占 essential rules |
+
+### 当前状态（2026-06-02）
+
+- 已创建 `openspec/changes/v271-controlled-skill-activation/`。
+- 已实现 opt-in compact skill hints：MCP `wake` 支持
+  `include_skill_hints` / `skill_hint_limit`，默认 wake 不变。
+- hint 输出只包含 id/title/reason，不会内联 procedural steps。
+- 已新增 MCP `get_skill`，让 agent 可以按 id 显式展开完整 skill body。
+- skill hints 采用独立小预算，并单独显示 token 估算，不挤占 L0/L1/L2。
 
 ## v2.7.2：Skill Improvement Suggestions
 

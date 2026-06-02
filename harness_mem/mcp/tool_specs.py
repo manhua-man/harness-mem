@@ -177,6 +177,16 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["query"],
         },
     },
+    "get_skill": {
+        "description": "Get a full confirmed skill payload by id.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "skill_id": {"type": "string", "description": "Confirmed skill ID"},
+            },
+            "required": ["skill_id"],
+        },
+    },
     "get_observations": {
         "description": "List all observations for a given session in a project.",
         "input_schema": {
@@ -372,6 +382,14 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "confirmed truth."
                     ),
                     "default": "default",
+                },
+                "include_skill_hints": {
+                    "type": "boolean",
+                    "description": "Opt-in compact skill hints appended only to the default wake renderer.",
+                },
+                "skill_hint_limit": {
+                    "type": "integer",
+                    "description": "Maximum compact skill hints to append when include_skill_hints is enabled.",
                 },
             },
         },

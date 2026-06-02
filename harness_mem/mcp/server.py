@@ -471,6 +471,18 @@ def tool_search_skills(
     }
 
 
+def tool_get_skill(skill_id: str) -> dict:
+    """Return a full confirmed skill payload by id."""
+    backend = _get_backend()
+    skill = asyncio.run(backend.structured_store.get_skill(skill_id))
+    if skill is None:
+        return {"success": False, "error": f"Skill not found: {skill_id}"}
+    return {
+        "success": True,
+        "skill": serialize_skill(skill),
+    }
+
+
 def tool_get_observations(project_name: str, session_id: str) -> dict:
     """List all observations for a given session."""
     backend = _get_backend()
@@ -794,6 +806,8 @@ def tool_wake(
     project_name: str | None = None,
     no_auto_ingest: bool = False,
     renderer: str = "default",
+    include_skill_hints: bool | None = None,
+    skill_hint_limit: int | None = None,
 ) -> dict:
     """Generate the wake-up context (project profile + recent rules / handoffs).
 
@@ -813,6 +827,13 @@ def tool_wake(
             "error": "renderer must be one of: default, compact",
         }
     if normalized_renderer == COMPACT_RENDERER_NAME:
+        if include_skill_hints:
+            return {
+                "success": False,
+                "project_name": resolved,
+                "renderer": normalized_renderer,
+                "error": "include_skill_hints is only supported with renderer=default",
+            }
         backend = _get_backend()
         payload = load_compact_wake_payload(backend.data_dir, project_name=resolved)
         if payload is None:
@@ -833,11 +854,18 @@ def tool_wake(
             "compact_payload": payload.to_dict(),
         }
     command_payload = _run_command_to_payload(
-        cmd_wake_up(resolved, no_auto_ingest=no_auto_ingest)
+        cmd_wake_up(
+            resolved,
+            no_auto_ingest=no_auto_ingest,
+            include_skill_hints=include_skill_hints,
+            skill_hint_limit=skill_hint_limit,
+        )
     )
     return {
         "project_name": resolved,
         "renderer": normalized_renderer,
+        "include_skill_hints": include_skill_hints,
+        "skill_hint_limit": skill_hint_limit,
         **command_payload,
     }
 
@@ -2183,6 +2211,7 @@ TOOLS: dict[str, ToolSpec] = build_tools({
     "trace_relations": tool_trace_relations,
     "search_raw": tool_search_raw,
     "search_skills": tool_search_skills,
+    "get_skill": tool_get_skill,
     "get_observations": tool_get_observations,
     "get_task_handoffs": tool_get_task_handoffs,
     "get_confirmed_rules": tool_get_confirmed_rules,

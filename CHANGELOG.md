@@ -22,6 +22,9 @@
 - **v2.7.0 activation warnings and separate feedback**：shared skill 搜索结果
   新增 `activation_warnings`，在 activation 前暴露 portability warnings；
   project/shared skill 的 `record_skill_result` 继续维持各自独立的 usage counters。
+- **v2.7.1 controlled skill activation (slice 1)**：MCP `wake` 新增显式
+  `include_skill_hints` / `skill_hint_limit`，以 opt-in 方式追加 compact
+  skill hints；同时新增 `get_skill` 读工具用于按 id 显式展开完整 skill。
 
 ### Notes
 

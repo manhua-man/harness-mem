@@ -107,11 +107,11 @@ def test_stdio_initialize_writes_json_rpc_to_stdout():
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 45
+    assert len(tools) == 46
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
-        "search_raw", "search_skills",
+        "search_raw", "search_skills", "get_skill",
         "get_task_handoffs", "get_confirmed_rules", "get_project_profile",
         "file_context",
         "get_project_status", "set_active_project", "update_project_profile", "wake",
@@ -467,6 +467,11 @@ def test_suggest_confirm_search_and_record_skill(mcp_backend: LocalMemoryBackend
     assert recorded["success"] is True
     assert recorded["skill"]["usage_count"] == 1
     assert recorded["skill"]["success_rate"] == 1.0
+
+    loaded = call_tool("get_skill", {"skill_id": skill_id})
+    assert loaded["success"] is True
+    assert loaded["skill"]["id"] == skill_id
+    assert loaded["skill"]["steps"] == ["Run focused tests", "Run full pytest"]
 
 
 def test_list_candidates_returns_pending_review_items(mcp_backend: LocalMemoryBackend):
