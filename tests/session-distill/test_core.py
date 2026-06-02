@@ -473,6 +473,20 @@ class SessionDistillCoreTests(unittest.TestCase):
         self.assertIn("Recheck questions", output.getvalue())
         self.assertIn("current code/config/docs", output.getvalue())
 
+    def test_verify_entry_matches_keyword_in_knowledge_text(self):
+        self.module.KNOWLEDGE_FILE.write_text(
+            "- Cache invalidation policy should be verified before promotion. [source: old-session]\n",
+            encoding="utf-8",
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = self.module.cmd_verify_entry("cache")
+
+        self.assertEqual(0, result)
+        self.assertIn("Cache invalidation policy", output.getvalue())
+        self.assertIn("Recheck questions", output.getvalue())
+
     def test_mark_distilled_reminds_when_kb_review_is_due(self):
         self.write_jsonl("sample-session", self.make_turn_records(1))
         self.bundle_session("sample-session", force=True)
@@ -493,6 +507,23 @@ class SessionDistillCoreTests(unittest.TestCase):
 
         self.assertEqual(0, result)
         self.assertIn("/hm:review-kb --next 20", output.getvalue())
+
+    def test_mark_distilled_does_not_remind_review_before_threshold(self):
+        self.write_jsonl("sample-session", self.make_turn_records(1))
+        self.bundle_session("sample-session", force=True)
+        self.write_good_note("sample-session")
+        entries = [
+            f"- Stable workflow {index} for packet review. [source: old-session-{index}]"
+            for index in range(1, 5)
+        ]
+        self.module.KNOWLEDGE_FILE.write_text("\n".join(entries) + "\n", encoding="utf-8")
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            result = self.module.cmd_mark("sample-session", "distilled")
+
+        self.assertEqual(0, result)
+        self.assertNotIn("/hm:review-kb --next 20", output.getvalue())
 
     def test_bundle_reminds_verify_entry_when_packet_hits_old_knowledge(self):
         self.module.KNOWLEDGE_FILE.write_text(

@@ -8,6 +8,35 @@
 
 ---
 
+## [2.8.2] — 2026-06-02
+
+**主题：Session-Distill Maintenance Surfaces**
+
+v2.8.2 把已经存在于 `session-distill` 工具、slash 命令文档和 repo-local
+维护脚本中的 distill 后处理能力，正式收束成一条版本化维护面。`/hm:mark`、
+`/hm:prune`、`/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry` 现在不再只是
+“工具存在”，而是有明确 guardrail、cleanup 边界、review baseline、backup-first
+约束和 reminder-only 非阻断契约。
+
+### Added
+
+- **v2.8.0 session closure and manifest cleanup**：`/hm:mark <session-id> distilled [--keep-raw]`
+  现在有统一的 closure guardrail helper；`/hm:prune` 只允许清理
+  `distilled/skipped` 且 `source_missing` 的 manifest 占位，不再接受未处理状态。
+- **v2.8.1 knowledge-base review and prune**：`/hm:review-kb` 的 status model
+  固定为 `stable / needs-review / stale / superseded`，review baseline 固定写
+  `reviewed_at` / `total_entries` / `summary`；`/hm:prune-kb` 只允许清理
+  `stale/superseded`，并保持 backup-first 与 dry-run 不落盘。
+- **v2.8.2 targeted verification and reminder surfaces**：`/hm:verify-entry` 的
+  session-id / keyword 命中与 grill-style recheck questions 被正式锁定；KB growth、
+  packet overlap、note overlap reminder 被固定为 summary-only、non-blocking。
+
+### Boundaries
+
+- 这些维护入口仍然是 slash-first、自然语言优先；repo-local script 只是实现层。
+- `mark/prune/review-kb/prune-kb/verify-entry` 都不会直接修改 canonical truth。
+- reminder 只给建议，不会自动 prune、auto-supersede、也不会阻断 distill 成功返回。
+
 ## [2.7.2] — 2026-06-02
 
 **主题：Cross-Project Skills and Controlled Activation**

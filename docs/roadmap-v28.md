@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.8
 
-> 状态：v2.8.0 / v2.8.1 已完成；v2.8.2 待实现。
+> 状态：v2.8.0 / v2.8.1 / v2.8.2 已完成。
 >
 > 主题：Session-Distill Maintenance Surfaces。把 `/hm:mark`、`/hm:prune`、
 > `/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry` 从 repo-local tool 约定收束成
@@ -119,10 +119,18 @@ v2.8 的目的就是把这些维护能力从“工具存在 + 文档提到”升
 
 ### 当前状态（2026-06-02）
 
-- 已创建 `openspec/changes/v282-targeted-verification-and-reminder-surfaces/`。
+- 已完成 `openspec/changes/v282-targeted-verification-and-reminder-surfaces/`。
 - 当前 repo 已经有 `/hm:verify-entry`、KB growth reminder、packet overlap reminder、
   note overlap reminder 的实现与说明。
-- 下一步是把 targeted review 和 reminder-only boundary 提升成主 OpenSpec contract。
+- 已把 targeted review 和 reminder-only boundary 提升成主 OpenSpec contract。
+- `/hm:verify-entry` 现在有 focused coverage，锁定了：
+  - session id 命中
+  - keyword 命中
+  - grill-style recheck questions输出
+- reminder surface 现在有 focused coverage，锁定了：
+  - KB 条目数达到阈值时才提示 `/hm:review-kb`
+  - packet / note overlap 只给 `/hm:verify-entry` 建议
+  - reminder 不阻塞 `mark` / `bundle` 成功返回
 
 ---
 

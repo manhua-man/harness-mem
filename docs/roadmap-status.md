@@ -10,18 +10,19 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.7.2` |
-| `harness_mem/__init__.py` | `2.7.2` |
-| `CHANGELOG.md` | 已有 `2.7.2` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.8.2` |
+| `harness_mem/__init__.py` | `2.8.2` |
+| `CHANGELOG.md` | 已有 `2.8.2` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.7.2：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.8.2：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
-boundary、以及 v2.7.0–v2.7.2 的 cross-project procedural skill 能力都已落地。
+boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力，以及
+v2.8.0–v2.8.2 的 session-distill maintenance surfaces 都已落地。
 
-> **v2.7.2 发版状态（2026-06-02）**：版本号已 bump 到 `2.7.2`。v2.7 在保持
-> candidate-before-truth 与 explicit activation 边界的前提下，补上 shared skill
-> scope、review-gated promotion、opt-in skill hints、以及 reviewed improvement /
-> deprecation suggestion。默认 `wake` / `search_skills` 仍不会静默消费 shared skill。
+> **v2.8.2 发版状态（2026-06-02）**：版本号已 bump 到 `2.8.2`。v2.8 在保持
+> slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
+> 把 `/hm:mark`、`/hm:prune`、`/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry`
+> 固化成显式、可验证、非自治的维护面。
 
 ## 完成矩阵
 
@@ -51,7 +52,10 @@ boundary、以及 v2.7.0–v2.7.2 的 cross-project procedural skill 能力都�
 | v2.6.3 | 已完成 | MCP `wake(renderer="compact")`、`load_compact_wake_payload(...)`、`render_compact_wake_payload(...)`、OpenSpec `v263-compact-wake-renderer`、compact renderer tests | compact renderer 是 opt-in generated summary；默认 `wake` 不变，generated-only 内容仍不进入默认 `search_memory`。 |
 | v2.7.0 | 已完成 | shared `Skill.scope` model、`origin_project` / `source_ids` / portability metadata、`skill_promotion` candidate、explicit shared `search_skills`、activation warnings、separate project/shared feedback、OpenSpec `v270-cross-project-skill-library` | shared skill 只能 reviewed promotion；默认 wake / skill search 仍 project-scoped。 |
 | v2.7.1 | 已完成 | MCP `wake(include_skill_hints=...)`、`skill_hint_limit`、MCP `get_skill`、OpenSpec `v271-controlled-skill-activation` | skill hint 是 opt-in compact surface；默认 wake 不注入完整 procedural body。 |
-| v2.7.2 | 当前收口基线 | `skill_revision_suggestion` / `skill_deprecation_suggestion` candidates、`detect_skill_improvements` / `confirm_skill_revision` / `reject_skill_revision`、`detect_skill_deprecations` / `confirm_skill_deprecation` / `reject_skill_deprecation`、OpenSpec `v272-skill-improvement-suggestions` | 改进与退役都走 review；confirmed skill 不自动改写，shared skill 不静默退役。 |
+| v2.7.2 | 已完成 | `skill_revision_suggestion` / `skill_deprecation_suggestion` candidates、`detect_skill_improvements` / `confirm_skill_revision` / `reject_skill_revision`、`detect_skill_deprecations` / `confirm_skill_deprecation` / `reject_skill_deprecation`、OpenSpec `v272-skill-improvement-suggestions` | 改进与退役都走 review；confirmed skill 不自动改写，shared skill 不静默退役。 |
+| v2.8.0 | 已完成 | `/hm:mark` closure guardrails、`validate_distilled_guardrails(...)`、`/hm:prune --statuses distilled,skipped --source-missing` boundary、OpenSpec `v280-session-distill-maintenance-surfaces` | session closure 和 manifest cleanup 正式进入版本线；不碰 canonical truth。 |
+| v2.8.1 | 已完成 | `/hm:review-kb` baseline state（`reviewed_at` / `total_entries` / `summary`）、`stable/needs-review/stale/superseded` status model、`/hm:prune-kb` backup-first and stale/superseded confinement、OpenSpec `v281-knowledge-base-review-and-prune` | knowledge-base audit 与 cleanup 正式进入版本线；dry-run 不写 backup、不改文件。 |
+| v2.8.2 | 当前收口基线 | `/hm:verify-entry` targeted recheck、KB growth reminder、packet overlap reminder、note overlap reminder、OpenSpec `v282-targeted-verification-and-reminder-surfaces` | targeted review 与 reminder 只做 summary-level nudges；不会自动 prune、auto-supersede 或阻断 distill。 |
 
 ## 未完成 / 不做项
 
@@ -85,15 +89,16 @@ boundary、以及 v2.7.0–v2.7.2 的 cross-project procedural skill 能力都�
 ## 短结论
 
 v2.2 已完成用户入口闭环，但当前产品仍不是后台自学习或自动随手记。
-路线已经按一个版本一个文档重切并完成到 v2.7：v2.3 signals/replay、
+路线已经按一个版本一个文档重切并完成到 v2.8：v2.3 signals/replay、
 v2.4 reflection queue、v2.5 context assembly、v2.6 wiki/contradiction、
-以及 v2.7 cross-project skill 都已落地。
+v2.7 cross-project skill，以及 v2.8 session-distill maintenance 都已落地。
 
 v2.4 reflection queue 四个切片（v2.4.0–v2.4.3）已实现、验证并发版。
 v2.5 context assembly 与 file context、v2.6 knowledge cache / wiki /
-candidate-only contradiction boundary，以及 v2.7 shared skill / controlled
-activation / reviewed improvement suggestions 都已并入正式版本线。当前仍未启用
-always-on daemon，MCP stdout 纯净性继续保持，shared skill 也仍然坚持显式消费。
+candidate-only contradiction boundary、v2.7 shared skill / controlled
+activation / reviewed improvement suggestions，以及 v2.8 session-distill
+maintenance surfaces 都已并入正式版本线。当前仍未启用 always-on daemon，
+MCP stdout 纯净性继续保持，shared skill 也仍然坚持显式消费。
 
 优先级依据是：没有 signals 就无法 replay；没有 queue health 就无法安全 reflection；
 没有 context assembly，更多 memory / skill 只会变成可搜索对象而不是真正可控的 agent memory。
