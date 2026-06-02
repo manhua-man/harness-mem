@@ -54,7 +54,7 @@ v2.1 已经砍掉误导性 surface：日常 CLI 命令和 REST API 不再是产�
 |---|---|---|
 | P0 | 统一 `/hm:distill`、`/hm:wake`、`/hm:search`、`/hm:review` 与自然语言等价入口 | `plugins/harness-mem/commands/hm/*.md`、`plugins/harness-mem/skills/harness-mem/SKILL.md`、`README.md`、`AGENTS.md` 使用同一套口径，不把 CLI/MCP 名字当用户指令 |
 | P0 | 项目解析契约 | Agent 优先用 active project / project profile，其次当前 workspace root，最后只问一个短问题；绝不提示用户运行 `harness-mem use` |
-| P0 | Distill 闭环契约 | `/hm:distill` 路径固定为 `prepare_session_distill -> session-distill -> suggest_* -> list_candidates -> auto-review/confirm/reject -> summary` |
+| P0 | Distill 闭环契约 | `/hm:distill` 路径固定为 `prepare_session_distill -> session-distill -> suggest_* -> auto_review_candidates(apply=true) -> summary` |
 | P0 | 失败契约 | MCP 不可用、LLM agent 不可用、evidence packet 为空、project mismatch、权限问题，各自有一句用户可懂提示和一条开发者排障指针 |
 | P1 | 摘要格式契约 | distill 最终输出固定包含：ingested / candidates / auto-confirmed / auto-rejected / pending / high-risk |
 | P1 | `/hm:review` 定位 | review 是复查/修复入口，不是每次 distill 后的必经步骤 |

@@ -10,18 +10,18 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.23` |
-| `harness_mem/__init__.py` | `2.9.23` |
-| `CHANGELOG.md` | 已有 `2.9.23` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.24` |
+| `harness_mem/__init__.py` | `2.9.24` |
+| `CHANGELOG.md` | 已有 `2.9.24` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.23：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.24：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
 boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力，以及
 v2.8.0–v2.8.2 的 session-distill maintenance surfaces、v2.9.0 的 PRD sync
 candidate surface、v2.9.1 的 status triage surface、v2.9.2 的 plugin
 doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 stale CLI surface guard sync、v2.9.5 的 shell completion maintenance truth、v2.9.6 的 maintenance surface collateral sync、v2.9.7 的 README and telemetry maintenance truth、v2.9.8 的 maintenance surface collateral guard、v2.9.9 的 reflection project-root resolution、v2.9.10 的 worker-mode truth sync，以及 v2.9.11 的 scheduler-trigger truth sync 都已落地。
 
-> **v2.9.23 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.23`。v2.9 在保持
+> **v2.9.24 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.24`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -59,7 +59,9 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 > `tools/session-distill/SKILL.md` 与 plugin README 的 `/hm:distill` 摘要也已统一到
 > `auto_review_candidates(project_name=<project>, apply=true)` 这条 shipped review surface；
 > 同时，根 `AGENTS.md` 里的 distill 主链与 repair 边界也已同步到这条 shipped surface，
-> 不再把 `list_candidates` 加逐条 confirm/reject 写成默认主路径。
+> 不再把 `list_candidates` 加逐条 confirm/reject 写成默认主路径；同时，
+> `docs/roadmap-v22x.md` 这类仍会描述 active distill contract 的历史版本线文档也已同步
+> 到 `auto_review_candidates(apply=true)`，不再保留旧主链表述。
 
 ## 完成矩阵
 
@@ -116,7 +118,8 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 | v2.9.20 | 已完成 | `README.md`、`tests/test_readme_distill_truth.py`、OpenSpec `v2920-readme-distill-workflow-truth-sync` | README 的 distill workflow 图现在直接指向 `auto_review_candidates(apply=true)`；不再把 `list_candidates -> auto-review / confirm / reject` 画成 shipped 主链。 |
 | v2.9.21 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_distill_truth.py`、OpenSpec `v2921-user-test-packet-distill-truth-sync` | v2 user test packet 的 generic MCP distill 流现在直接指向 `auto_review_candidates`；不再把 `list_candidates -> auto_review_candidates` 记成默认测试主链。 |
 | v2.9.22 | 已完成 | `tools/session-distill/SKILL.md`、`plugins/harness-mem/README.md`、`tests/test_session_distill_skill_truth.py`、OpenSpec `v2922-session-distill-skill-truth-sync` | session-distill skill 与 plugin distill 摘要现在默认走 `auto_review_candidates(project_name=<project>, apply=true)`；`list_candidates` / `confirm_*` / `reject_*` 只保留给 drilldown 或 repair。 |
-| v2.9.23 | 当前版本 | `AGENTS.md`、`tests/test_agents_distill_truth.py`、OpenSpec `v2923-agents-distill-truth-sync` | 根 AGENTS 现在把 distill 主链直接写成 `prepare_session_distill -> suggest_* -> auto_review_candidates(project_name=<project>, apply=true)`；旧的 `list_candidates + confirm/reject` 只保留给 repair/drilldown。 |
+| v2.9.23 | 已完成 | `AGENTS.md`、`tests/test_agents_distill_truth.py`、OpenSpec `v2923-agents-distill-truth-sync` | 根 AGENTS 现在把 distill 主链直接写成 `prepare_session_distill -> suggest_* -> auto_review_candidates(project_name=<project>, apply=true)`；旧的 `list_candidates + confirm/reject` 只保留给 repair/drilldown。 |
+| v2.9.24 | 当前版本 | `docs/roadmap-v22x.md`、`tests/test_roadmap_v22x_distill_truth.py`、OpenSpec `v2924-roadmap-v22x-distill-truth-sync` | 历史 v2.2 roadmap 里仍会描述 active distill contract 的那一行，现在已直接指向 `auto_review_candidates(apply=true)`；不再保留 `list_candidates -> auto-review/confirm/reject` 的旧写法。 |
 
 ## 未完成 / 不做项
 

@@ -8,6 +8,29 @@
 
 ---
 
+## [2.9.24] — 2026-06-03
+
+**主题：Roadmap-v22x Distill Truth Sync**
+
+v2.9.24 收的是 `docs/roadmap-v22x.md` 里残留的一处 distill 主链旧口径。当前 shipped
+runtime 里，distill 的 review 步骤已经是一等的 `auto_review_candidates(apply=true)`
+surface；但 v2.2 roadmap 仍把闭环写成 `suggest_* -> list_candidates ->
+auto-review/confirm/reject`。这一版不改 runtime，只把历史 roadmap 中仍会描述 active
+contract 的这行写回当前 shipped truth，并补 focused guard。
+
+### Changed
+
+- **roadmap-v22x distill sync**：`docs/roadmap-v22x.md` 现在把 distill 闭环写成
+  `prepare_session_distill -> session-distill -> suggest_* -> auto_review_candidates(apply=true) -> summary`。
+- **focused regression coverage**：新增 `tests/test_roadmap_v22x_distill_truth.py`。
+- **release/status writeback**：`docs/roadmap-v29.md` 与
+  `docs/roadmap-status.md` 已同步到 v2.9.24。
+
+### Boundaries
+
+- 本版本不新增新的 auto-review policy、候选类型或 MCP runtime 行为。
+- 它只同步历史 roadmap 中仍会描述 active distill contract 的表述，并防止该文档回流到旧主链写法。
+
 ## [2.9.23] — 2026-06-03
 
 **主题：AGENTS Distill Truth Sync**

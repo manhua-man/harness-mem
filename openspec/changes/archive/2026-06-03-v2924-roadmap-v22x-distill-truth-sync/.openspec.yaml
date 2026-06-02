@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-06-03
+change_kind: bugfix
+area: docs
+summary: Align roadmap-v22x distill contract wording with the shipped auto-review surface

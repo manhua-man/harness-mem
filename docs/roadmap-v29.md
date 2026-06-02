@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -584,3 +584,25 @@ truth 已经是一等 `auto_review_candidates(project_name=<project>, apply=true
   - distill mainline 是 `prepare_session_distill -> suggest_* -> auto_review_candidates(project_name=<project>, apply=true)`
   - `list_candidates` / `confirm_*` / `reject_*` 只保留给 repair/recheck drilldown
 - 已补 focused regression test：`tests/test_agents_distill_truth.py`
+
+## v2.9.24：Roadmap-v22x Distill Truth Sync
+
+**用户故事**：当维护者回看 `docs/roadmap-v22x.md` 这类历史版本线文档时，不应该再看到
+`suggest_* -> list_candidates -> auto-review/confirm/reject` 这种旧 distill 主链，
+因为当前 shipped review truth 已经是一等 `auto_review_candidates(apply=true)` surface。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | roadmap-v22x distill sync | v2.2 roadmap 的 distill 闭环表述直接指向 `auto_review_candidates(apply=true)` |
+| P1 | focused regression guard | roadmap-v22x 回流到旧 distill 主链时测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2924-roadmap-v22x-distill-truth-sync/`。
+- `docs/roadmap-v22x.md` 现在把 distill 闭环写成：
+  - `prepare_session_distill`
+  - `session-distill`
+  - `suggest_*`
+  - `auto_review_candidates(apply=true)`
+  - `summary`
+- 已补 focused regression test：`tests/test_roadmap_v22x_distill_truth.py`
