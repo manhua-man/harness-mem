@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -114,6 +114,29 @@ candidate surface。
 - 已补脚本级 smoke，覆盖：
   - 隔离 home 环境下脚本成功返回
   - 不再出现 `invalid choice: 'status'`
+
+## v2.9.3：CLI Maintenance Surface Truth
+
+**用户故事**：当维护者查看 `harness-mem --help` 或回读主 CLI spec 时，应该看到
+同一份 maintenance-only 真值，而不是实现和 OpenSpec 对 `config` /
+`integration` 是否属于正式 CLI surface 各说各话。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | top-level CLI truth sync | 主 `cli` spec 的命令集合与真实 `--help` 一致 |
+| P0 | `config` namespace contract | 明确 `get/set/list/validate` 属于 maintenance config 面 |
+| P0 | `integration` namespace contract | 明确 hook 安装器属于 maintenance integration 面 |
+| P1 | release writeback | roadmap / status / changelog / version 与 v2.9.3 一致 |
+
+### 当前状态（2026-06-02）
+
+- 已完成 `openspec/changes/v293-cli-maintenance-surface-truth/`。
+- 主 `openspec/specs/cli/spec.md` 现在与真实 `harness-mem --help` 对齐：
+  - top-level command set 包含 `config` 与 `integration`
+  - `config` 明确是 TOML 配置维护命名空间
+  - `integration` 明确是 host-entry hook 安装命名空间
+- 该切片只做 current-truth sync，不引入新的业务 CLI 子命令，也不恢复
+  `wake/search/distill` 等日常 memory CLI 面。
 
 ---
 

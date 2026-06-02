@@ -8,6 +8,36 @@
 
 ---
 
+## [2.9.3] — 2026-06-02
+
+**主题：CLI Maintenance Surface Truth**
+
+v2.9.3 收的是一处 current-truth 偏差：真实 `harness-mem --help` 早已把
+`config` 和 `integration` 暴露为 top-level maintenance commands，测试也一直按
+这个表面验证；但主 `openspec/specs/cli/spec.md` 还停留在只到 `maintenance`
+为止。这个版本不新增运行时能力，只把主 contract、roadmap 和发版元数据对齐到
+已经 shipped 的 CLI maintenance surface。
+
+### Changed
+
+- **top-level CLI contract sync**：主 `cli` spec 现在把当前 maintenance command
+  set 记为 `init / quickstart / qs / doctor / import / purge / maintenance /
+  config / integration`，与真实 `harness-mem --help` 一致。
+- **explicit config namespace contract**：主 `cli` spec 现在明确 `config
+  get/set/list/validate` 属于 TOML 配置维护命名空间，而不是日常 memory
+  workflow surface。
+- **explicit integration namespace contract**：主 `cli` spec 现在明确
+  `integration install-cursor-hook/install-claude-hook` 属于 host-entry hook
+  安装命名空间，不会重新引入业务型 CLI 子命令。
+- **release writeback**：`docs/roadmap-v29.md` 与
+  `docs/roadmap-status.md` 已同步到 v2.9.3。
+
+### Boundaries
+
+- 本版本不新增 CLI 业务子命令。
+- `wake`、`search`、`distill`、`ingest`、`reflection` 等日常 memory flows
+  仍然不属于 top-level CLI surface。
+
 ## [2.9.2] — 2026-06-02
 
 **主题：Plugin Doctor Helper Integrity**
