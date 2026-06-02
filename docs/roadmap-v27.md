@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.7
 
-> 状态：规划中。
+> 状态：v2.7.0 OpenSpec 已创建；实现未开始。
 >
 > 主题：Cross-Project Skills and Controlled Activation。让可复用 procedural knowledge 跨项目流动，但必须显式、带边界、可审核。
 
@@ -47,6 +47,13 @@ v2.7 处理原先放在 v2.4 的跨项目 Skill 方向。它被后移的原因�
 | P1 | cross-project search | 只有 Agent workflow 显式请求时才包含 shared skills |
 | P1 | provenance display | 输出 origin project、source ids、confirm history |
 
+### 当前状态（2026-06-02）
+
+- 已创建 `openspec/changes/v270-cross-project-skill-library/`。
+- 已定义 scope model、promotion candidate、explicit shared search、
+  project-specific precedence 与 provenance 边界。
+- 尚未实现 schema/storage/MCP runtime；现有 Skill 仍是 project-scoped。
+
 ## v2.7.1：Controlled Skill Activation
 
 **用户故事**：任务开始时，Agent 可以知道“可能有一个有用 skill”，但不会把完整步骤塞进每次 wake。
@@ -79,4 +86,3 @@ v2.7 处理原先放在 v2.4 的跨项目 Skill 方向。它被后移的原因�
 - 不无审核提升 project skill。
 - 不无审核改写 confirmed skill。
 - 不做 always-on skill learner。
-

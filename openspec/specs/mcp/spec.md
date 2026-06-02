@@ -315,3 +315,87 @@ The MCP server SHALL expose `search_raw`.
 
 - **WHEN** a client calls `search_raw` with an invalid regex
 - **THEN** the tool returns `success=false` with a regex error message
+
+### Requirement: Wiki bridge compiles generated claims from explicit sources only
+
+The system SHALL compile generated wiki/claim artifacts only from accepted
+memory and curated docs already declared in the knowledge-cache boundary.
+
+#### Scenario: Compile accepted memory and curated docs into generated claims
+
+- **GIVEN** a project has prepared knowledge-cache metadata
+- **AND** it has accepted memory and at least one curated doc
+- **WHEN** the wiki bridge compiler runs
+- **THEN** it writes generated claim/index artifacts under `knowledge-cache/generated/`
+- **AND** every generated claim records its source memory/doc identifiers
+- **AND** no confirmed rule, memory entry, relation fact, or observation is mutated
+
+### Requirement: Compact claim index supports drilldown
+
+The system SHALL provide a compact index that lets an Agent inspect short claims
+and then drill down to the underlying source evidence.
+
+#### Scenario: Claim drilldown points back to source
+
+- **WHEN** an Agent inspects a generated claim
+- **THEN** the claim includes compact text plus topic/entity metadata
+- **AND** it includes drilldown pointers to memory entry ids, observation ids, or curated doc paths
+- **AND** the underlying source can be fetched without trusting the generated claim as truth
+
+### Requirement: Generated claims do not become hidden truth
+
+Generated wiki artifacts SHALL remain generated authority and SHALL NOT silently
+enter wake/current truth surfaces.
+
+#### Scenario: Generated claims stay out of default truth surfaces
+
+- **GIVEN** a generated claim exists for a project
+- **WHEN** default wake or current-truth search runs
+- **THEN** the generated claim is not returned as confirmed truth
+- **AND** the operator can still inspect it through explicit generated/wiki surfaces
+
+### Requirement: Candidate review surface includes metabolism suggestion candidates
+
+The system SHALL expose pending `MergeSuggestionCandidate` and
+`StaleTruthSuggestionCandidate` rows through the same candidate review surface
+used for ordinary pending review items.
+
+#### Scenario: list_candidates returns merge and stale suggestion candidates
+
+- **GIVEN** a project has one pending merge suggestion and one pending stale-truth suggestion
+- **WHEN** `list_candidates(project_name, status="pending")` runs
+- **THEN** both suggestion candidates appear in the returned `candidates` list
+- **AND** the payload includes per-type counts for merge and stale suggestions
+- **AND** ordinary rule/memory/fact/supersede/procedural candidates remain present unchanged
+
+### Requirement: Suggestion visibility does not widen truth consumption
+
+Review-surface visibility for merge/stale/contradiction suggestions SHALL NOT
+cause those suggestion records, or generated wiki evidence that helped produce
+them, to appear as confirmed truth in default runtime reads.
+
+#### Scenario: reviewable suggestions stay outside default truth surfaces
+
+- **GIVEN** a project has pending merge/stale suggestion candidates
+- **WHEN** default wake or current-truth search runs
+- **THEN** the suggestion candidates do not appear as confirmed truth
+- **AND** any generated/wiki evidence associated with them remains inspectable only through explicit review or generated surfaces
+
+### Requirement: MCP wake accepts a renderer selector
+
+MCP `wake` SHALL accept an optional `renderer` parameter with values
+`default` and `compact`.
+
+#### Scenario: compact renderer selected explicitly
+
+- **WHEN** a client calls `wake(renderer="compact")`
+- **THEN** the server returns `renderer="compact"`
+- **AND** the payload includes the rendered compact output
+- **AND** the payload includes structured compact metadata for claims, topics,
+  entities, and source ids
+
+#### Scenario: invalid renderer is rejected
+
+- **WHEN** a client calls `wake(renderer="unknown")`
+- **THEN** the server returns `success=false`
+- **AND** the error lists the valid renderer names

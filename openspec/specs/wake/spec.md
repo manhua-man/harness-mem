@@ -4,9 +4,7 @@
 
 Wake renders confirmed project memory for an agent at task start. v2.1 起用户入口是
 IDE command / Skill / Agent 自然语言（例如 `/hm:wake` 或“用 harness-mem 唤醒当前项目”），背后调用 MCP `wake` 或 shared wake renderer；CLI 不暴露日常 `wake` 子命令。
-
 ## Requirements
-
 ### Requirement: wake-up 按 memory_type 分桶预算
 
 Wake renderer MUST 按 `memory_type` 把 `MemoryEntry` 候选分到三个桶：
@@ -87,3 +85,33 @@ $ harness-mem doctor
   code: HM-101 wake bucket quotas must sum to 1.0
   fix: edit ~/.harness-mem/config.toml [wake] bucket_quota_* (default: 0.5 / 0.5 / 0.0)
 ```
+
+### Requirement: Opt-in compact wake renderer
+
+The system SHALL support an explicit compact wake renderer that reads generated
+wiki-bridge artifacts and returns a low-token, source-attributed summary.
+
+#### Scenario: compact wake renders generated claims with source ids
+
+- **GIVEN** a project has rebuilt wiki-bridge artifacts
+- **WHEN** MCP `wake(project_name="demo", renderer="compact")` runs
+- **THEN** the response includes compact claim, topic, entity, and source-id material
+- **AND** the output labels itself as generated summary, not confirmed truth
+
+### Requirement: Compact wake does not replace default wake truth
+
+The compact renderer SHALL be opt-in and SHALL NOT change the default wake
+renderer or promote generated wiki claims into confirmed truth surfaces.
+
+#### Scenario: default wake remains unchanged
+
+- **GIVEN** a project has generated wiki-bridge artifacts
+- **WHEN** MCP `wake(project_name="demo")` runs without a renderer override
+- **THEN** the existing default wake renderer is used
+- **AND** generated wiki claims are not rendered as confirmed truth
+
+#### Scenario: generated-only compact material is not searchable as truth
+
+- **GIVEN** a token appears only in generated wiki bridge material
+- **WHEN** default `search_memory` runs for that token
+- **THEN** no confirmed memory entry or observation is returned for that generated-only token
