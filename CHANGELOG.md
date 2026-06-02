@@ -8,6 +8,35 @@
 
 ---
 
+## [2.9.14] — 2026-06-03
+
+**主题：v2.4 Config And Job Truth Sync**
+
+v2.9.14 收的是 `roadmap-v24` 里两处同主题的规划态残留。当前 shipped v2.4
+runtime 的 merged-config loader 只认四个 key：
+`triggers.after_agent`、`triggers.scheduler`、`distill.mode`、`worker.mode`；
+它不会解析 `project_name`，也不会读取 `active_project.txt`。同时，当前 queue
+model 只有一个 `ReflectionJob` schema，`review` 只是它的 phase，不存在单独的
+`ReviewJob` 类型。这一版不改 runtime，只把文档、主 spec 和 focused guard
+收回到这份 current truth。
+
+### Changed
+
+- **v2.4 roadmap config truth sync**：`docs/roadmap-v24.md` 不再把
+  `.harness-mem.toml` 写成会覆盖 `project_name`，也不再把
+  `active_project.txt` 写进 `load_merged_config(project_root)` contract。
+- **v2.4 roadmap job-model truth sync**：`docs/roadmap-v24.md` 现在明确只有
+  `ReflectionJob` schema；`review` 只是 phase，不是单独 job 类型。
+- **focused regression coverage**：新增 `tests/test_v24_config_and_job_truth.py`，
+  把 config-loader scope 和 single-ReflectionJob model 锁到当前 runtime truth。
+- **release/status writeback**：`docs/roadmap-v29.md` 与
+  `docs/roadmap-status.md` 已同步到 v2.9.14。
+
+### Boundaries
+
+- 本版本不新增 config key、project-name resolver、queue schema 或新的 review job。
+- 它只同步 v2.4 current-truth 文档，并防止规划态表述再次回流。
+
 ## [2.9.13] — 2026-06-03
 
 **主题：Host-Entry Module Truth Sync**

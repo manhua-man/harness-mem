@@ -60,7 +60,7 @@ v2.4 让 reflection、distill、metabolism 这类较重任务有清晰的 job �
 | 文件 | 作用 |
 |---|---|
 | `~/.harness-mem/config.toml` | 用户级默认：是否允许 host 触发、distill 策略、限流等 |
-| `<repo>/.harness-mem.toml` | 项目级覆盖：`triggers.*`、`project_name` 等 |
+| `<repo>/.harness-mem.toml` | 项目级覆盖：`triggers.*`、`distill.mode`、`worker.mode` 等 |
 | `~/.harness-mem/data/` | 记忆与 job 数据（不变） |
 
 **合并顺序**（host 触发入口与 `harness-mem config validate` 共用）：
@@ -68,7 +68,8 @@ v2.4 让 reflection、distill、metabolism 这类较重任务有清晰的 job �
 ```text
 load ~/.harness-mem/config.toml
 if exists(<repo>/.harness-mem.toml): deep-merge 覆盖
-resolve project_name: 项目 toml > active_project.txt > 目录启发（与 v2.2 一致）
+validate/fill recognized keys: triggers.after_agent / triggers.scheduler / distill.mode / worker.mode
+preserve unrecognized tables in extras
 ```
 
 **CLI 在本版的角色**
@@ -138,7 +139,7 @@ resolve project_name: 项目 toml > active_project.txt > 目录启发（与 v2.2
 
 | 优先级 | 任务 | 验收 |
 |---|---|---|
-| P0 | `ReflectionJob` / `ReviewJob` schema | `pending / processing / completed / failed / retryable`（及 `needs_distill`） |
+| P0 | `ReflectionJob` schema | `pending / processing / completed / failed / retryable`（及 `needs_distill`）；`review` 只是 phase，不是单独 job 类型 |
 | P0 | processing lease | 超时 → retryable |
 | P0 | job provenance | 来源 `user \| agent \| ide_hook \| scheduler`、project、phase、candidate ids |
 | P1 | retry policy | 不重复写相同 candidate |

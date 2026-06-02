@@ -134,6 +134,19 @@ sessions or archive paths, and any host-supplied trigger id.
 - **AND** it does not write duplicate observations, prepared artifacts, or
   candidates
 
+### Requirement: current docs describe one reflection job type
+
+Current-truth roadmap and operator docs SHALL describe the v2.4 queue model as
+one durable `ReflectionJob` type whose lifecycle may enter a `review` phase,
+rather than as separate `ReflectionJob` and `ReviewJob` schema types.
+
+#### Scenario: docs keep the shipped reflection-job model
+
+- **WHEN** maintainers update current roadmap or operator docs for the v2.4 queue model
+- **THEN** those docs describe a single `ReflectionJob` schema
+- **AND** they may describe `review` as a phase of that job
+- **AND** they do not claim a separate shipped `ReviewJob` schema exists
+
 ### Requirement: Reflection resolves project roots before cwd fallback
 
 The system SHALL resolve a missing `project_root` for the shared reflection

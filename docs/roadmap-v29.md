@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -363,3 +363,25 @@ runtime、hook 模板和 operator doc 都只承认 `python -m harness_mem.host_e
   - `--project-root ...`
   - `--source ide_hook`
 - 已补 focused regression test：`tests/test_host_entry_module_truth.py`
+
+## v2.9.14：v2.4 Config And Job Truth Sync
+
+**用户故事**：当维护者回看 v2.4 roadmap 的 config merge 和 queue model 段落时，
+不应该再被规划期残留误导成“loader 会解析 `project_name` / `active_project.txt`”
+或“runtime 里还有一个单独的 `ReviewJob` schema”，因为当前 shipped truth 并不是这样。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | config-loader truth sync | `roadmap-v24` 只描述 `load_merged_config()` 实际认的四个 key |
+| P0 | single-job-model truth sync | `roadmap-v24` 只描述 `ReflectionJob`；`review` 仅为 phase |
+| P1 | focused regression guard | config/job model 旧口径回流时测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2914-v24-config-and-job-truth-sync/`。
+- `docs/roadmap-v24.md` 现在明确：
+  - merged-config loader 的 recognized keys 只有
+    `triggers.after_agent` / `triggers.scheduler` / `distill.mode` / `worker.mode`
+  - `project_name` 和 `active_project.txt` 不属于这个 loader contract
+  - 当前 queue model 只有 `ReflectionJob`；`review` 只是 phase
+- 已补 focused regression test：`tests/test_v24_config_and_job_truth.py`
