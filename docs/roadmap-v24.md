@@ -50,7 +50,8 @@ v2.4 让 reflection、distill、metabolism 这类较重任务有清晰的 job �
 - **Host 触发**：hook/cron → `python -m`（或 stub）→ 业务命令实现；**禁止** hook 调用 `harness-mem`（无论维护还是假想中的业务子命令）。
 - 可选：hook 环境有 Agent 时走 MCP，仍映射到同一业务命令实现。
 
-**长驻 worker**：仅 `worker.mode=daemon` opt-in；默认不做 always-on daemon。
+**长驻 worker gate**：仅 `worker.mode=on` opt-in；默认不做 always-on daemon，也不提供
+默认后台安装器。
 
 ---
 
@@ -83,7 +84,7 @@ resolve project_name: 项目 toml > active_project.txt > 目录启发（与 v2.2
 | `triggers.after_agent` | `off` | `off` \| `on` — IDE 回合结束后是否执行 host 触发脚本 |
 | `triggers.scheduler` | `off` | `off` \| `cron`（表达式仅用户级） |
 | `distill.mode` | `defer_to_agent` | 见下表 |
-| `worker.mode` | `off` | `off` \| `daemon`（non-default） |
+| `worker.mode` | `off` | `off` \| `on`（non-default gate） |
 
 **`distill.mode`（host 触发跑完 ingest/prepare 之后）**
 
@@ -186,7 +187,8 @@ resolve project_name: 项目 toml > active_project.txt > 目录启发（与 v2.2
 
 ## Non-Goals
 
-- 不把 always-on daemon 作为默认（`worker.mode=daemon` 须 opt-in）。
+- 不把 always-on daemon 作为默认（`worker.mode=on` 也只打开配置 gate，不代表
+  提供默认 daemon 安装器或后台主路径）。
 - 不默认启用 IDE hook（`triggers.after_agent=off`）。
 - 不恢复 v2.0 日常 CLI 工作流（`wake/search/timeline` 等）作为**产品主入口**。
 - hook/cron **不得**调用 CLI（`harness-mem`）；记忆动作只通过 **业务命令**（`python -m` host 或 MCP）。

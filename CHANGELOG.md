@@ -8,6 +8,31 @@
 
 ---
 
+## [2.9.10] — 2026-06-03
+
+**主题：Worker-Mode Truth Sync**
+
+v2.9.10 收的是一个 current-truth 配置口径修正。当前 runtime 和 tests 一直只承认
+`worker.mode = "off" | "on"`，但少数 v2.4 路线文档仍把它写成
+`worker.mode = "daemon"`。这一版不改行为，只把这些高可见文档收回到 shipped
+loader truth，并加 focused guard 防止旧口径回流。
+
+### Changed
+
+- **v2.4 roadmap truth sync**：`docs/roadmap-v24.md` 现在把 `worker.mode` 写成
+  `off|on` non-default gate，而不是 `off|daemon`。
+- **status truth sync**：`docs/roadmap-status.md` 不再把未完成项写成
+  `worker.mode=daemon`；改为明确当前只有 `off/on` gate，且无默认后台安装器。
+- **operator doc clarification**：`docs/cli/v2.4.md` 现在明确 `on` 只是 config
+  gate，不代表 shipped always-on daemon installer。
+- **focused regression coverage**：新增 `tests/test_worker_mode_truth.py`，把文档口径
+  绑定到 `_RECOGNIZED_KEYS` 的当前 runtime truth。
+
+### Boundaries
+
+- 本版本不新增 daemon、worker、scheduler 或 host-entry 运行时行为。
+- 它只同步当前 config truth，并防止 `worker.mode=daemon` 旧说法继续误导用户。
+
 ## [2.9.9] — 2026-06-02
 
 **主题：Reflection Project-Root Resolution**

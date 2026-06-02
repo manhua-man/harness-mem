@@ -1,6 +1,6 @@
 # Roadmap Status
 
-> 最后核对：2026-06-02，基于当前 repo 文件、实现模块、OpenSpec 状态与测试状态。
+> 最后核对：2026-06-03，基于当前 repo 文件、实现模块、OpenSpec 状态与测试状态。
 > 版本真值以 `pyproject.toml` + `harness_mem.__version__` 为准。
 
 本文回答一个问题：哪些 roadmap 切片真的完成了，哪些只是 vision，哪些明确不做。
@@ -10,25 +10,26 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.9` |
-| `harness_mem/__init__.py` | `2.9.9` |
-| `CHANGELOG.md` | 已有 `2.9.9` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.10` |
+| `harness_mem/__init__.py` | `2.9.10` |
+| `CHANGELOG.md` | 已有 `2.9.10` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.9：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.10：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
 boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力，以及
 v2.8.0–v2.8.2 的 session-distill maintenance surfaces、v2.9.0 的 PRD sync
 candidate surface、v2.9.1 的 status triage surface，以及 v2.9.2 的 plugin
-doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 stale CLI surface guard sync、v2.9.5 的 shell completion maintenance truth、v2.9.6 的 maintenance surface collateral sync、v2.9.7 的 README and telemetry maintenance truth、v2.9.8 的 maintenance surface collateral guard，以及 v2.9.9 的 reflection project-root resolution 都已落地。
+doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 stale CLI surface guard sync、v2.9.5 的 shell completion maintenance truth、v2.9.6 的 maintenance surface collateral sync、v2.9.7 的 README and telemetry maintenance truth、v2.9.8 的 maintenance surface collateral guard、v2.9.9 的 reflection project-root resolution，以及 v2.9.10 的 worker-mode truth sync 都已落地。
 
-> **v2.9.9 发版状态（2026-06-02）**：版本号已 bump 到 `2.9.9`。v2.9 在保持
+> **v2.9.10 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.10`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
 > stale-surface guardrail、shell completion、MCP/user-test collateral 与
 > README/telemetry collateral guard 一起对齐到已经 shipped 的 `config` /
 > `integration` 命名空间；同时把 `reflection_once(project_root=None)` 的缺省解析
-> 收紧成 known-root-first、cwd-final-fallback。
+> 收紧成 known-root-first、cwd-final-fallback，并清掉 `worker.mode` 的旧 daemon
+> 这一类会误导当前 config loader 的旧口径。
 
 ## 完成矩阵
 
@@ -71,7 +72,8 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 | v2.9.6 | 已完成 | `openspec/specs/mcp/spec.md` sync、`docs/v2-user-test-packet.md` sync、OpenSpec `v296-maintenance-surface-collateral-sync` | MCP 主 spec 与用户测试包现在都承认 `config` / `integration` 属于当前维护 CLI surface。 |
 | v2.9.7 | 已完成 | `README.md` maintenance summary sync、`openspec/specs/telemetry/spec.md` sync、OpenSpec `v297-maintenance-surface-readme-and-telemetry-sync` | README 与 telemetry 主 spec 现在都承认 `config` / `integration` 属于当前维护 CLI surface。 |
 | v2.9.8 | 当前收口基线 | `tests/test_maintenance_surface_collateral.py`、OpenSpec `v298-maintenance-surface-collateral-guard` | maintenance-surface collateral 现在有 focused regression guard，不再只靠人工回读。 |
-| v2.9.9 | 当前版本 | `harness_mem/commands/reflection_jobs.py` known-root-first resolution、`tests/test_reflection_once_integration.py` 两个缺省 root 覆盖、OpenSpec `v299-reflection-project-root-resolution` | 只收紧共享 reflection business command 的缺省 `project_root` 解析；`host_entry` 仍优先传显式 `--project-root`。 |
+| v2.9.9 | 已完成 | `harness_mem/commands/reflection_jobs.py` known-root-first resolution、`tests/test_reflection_once_integration.py` 两个缺省 root 覆盖、OpenSpec `v299-reflection-project-root-resolution` | 只收紧共享 reflection business command 的缺省 `project_root` 解析；`host_entry` 仍优先传显式 `--project-root`。 |
+| v2.9.10 | 当前版本 | `docs/roadmap-v24.md` / `docs/cli/v2.4.md` / `docs/roadmap-status.md` worker-mode truth sync、`tests/test_worker_mode_truth.py`、OpenSpec `v2910-worker-mode-truth-sync` | `worker.mode` 当前真值已锁定为 `off/on` gate；不代表 shipped always-on daemon。 |
 
 ## 未完成 / 不做项
 
@@ -79,7 +81,7 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 
 | 条目 | 当前状态 | 规划归宿 |
 |---|---|---|
-| 后台 daemon / IDE hook / turn-end 自检“随手记” | host 触发链路代码已完成（v2.4.0–v2.4.3）并已发版：`triggers.* = off` 默认；opt-in 时 hook 用 `python -m harness_mem.host_entry` 调业务命令，不调 `harness-mem` CLI。仍**无** always-on daemon（`worker.mode=daemon` 须 opt-in 且无 CLI 安装器）。 | v2.4 已交付 opt-in 安全触发；默认行为不变（off）。见 `docs/roadmap-v24.md`。 |
+| 后台 daemon / IDE hook / turn-end 自检“随手记” | host 触发链路代码已完成（v2.4.0–v2.4.3）并已发版：`triggers.* = off` 默认；opt-in 时 hook 用 `python -m harness_mem.host_entry` 调业务命令，不调 `harness-mem` CLI。仍**无** always-on daemon（`worker.mode` 当前只有 `off/on` gate，且无 CLI 安装器或默认后台路径）。 | v2.4 已交付 opt-in 安全触发；默认行为不变（off）。见 `docs/roadmap-v24.md`。 |
 | Context Assembly / File Context | 已完成并并入正式版本线。 | 见 `docs/roadmap-v25.md`。 |
 | Wiki Bridge / Compact Claim Index / Compact Renderer | 已完成到 v2.6.3 范围：generated wiki bridge、claim/topic/entity index、opt-in compact wake renderer。 | 见 `docs/roadmap-v26.md`。 |
 | 自动 contradiction / stale / merge suggestion | v2.6.2 已完成 candidate-only review surface 和 supersede proposer；仍不做自动 apply / autonomous truth mutation。 | 后续若扩展，只能继续走 candidate/review 边界。 |

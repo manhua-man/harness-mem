@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -278,3 +278,24 @@ job 记录里就不应该退化成调用方 cwd；只有在确实找不到已知
 - 已补 focused tests，覆盖：
   - `project_root=None` 且能找到已知 root
   - `project_root=None` 且找不到已知 root
+
+## v2.9.10：Worker-Mode Truth Sync
+
+**用户故事**：当维护者按 v2.4 roadmap 或 operator doc 配置 host-triggered
+reflection 时，不应该再被旧文档误导去写 `worker.mode = "daemon"`，因为当前 loader
+和 tests 只承认 `off|on`。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | roadmap truth sync | `roadmap-v24` / `roadmap-status` 不再把 `worker.mode` 写成 `daemon` |
+| P0 | operator doc sync | `docs/cli/v2.4.md` 对齐当前 `off|on` gate |
+| P1 | focused regression guard | docs truth 绑定 `_RECOGNIZED_KEYS` 中的 `worker.mode` |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/v2910-worker-mode-truth-sync/`。
+- `worker.mode` 当前真值已收束成：
+  - 允许值只有 `off` / `on`
+  - `on` 只是 non-default config gate
+  - 当前 runtime 仍无默认 always-on daemon 安装器或后台主路径
+- 已补 focused regression test：`tests/test_worker_mode_truth.py`
