@@ -8,6 +8,36 @@
 
 ---
 
+## [2.9.22] — 2026-06-03
+
+**主题：Session-Distill Skill Truth Sync**
+
+v2.9.22 收的是 repo-local `session-distill` playbook 里残留的 distill review 旧口径。
+当前 shipped runtime 里，distill 的 review 步骤已经是一等的
+`auto_review_candidates(project_name=<project>, apply=true)` surface；但
+`tools/session-distill/SKILL.md` 仍把主链写成 `list_candidates` 加逐条 confirm/reject，
+plugin README 的 `/hm:distill` 摘要也还没有显式点名 `auto_review_candidates`。这一版
+不改 runtime，只把这些高可见 repo-local playbook 写回当前 shipped review truth，
+并补 focused guard。
+
+### Changed
+
+- **session-distill skill sync**：`tools/session-distill/SKILL.md` 现在把
+  `auto_review_candidates(project_name=<project>, apply=true)` 写成 default review
+  surface。
+- **drilldown boundary sync**：`list_candidates`、`confirm_*`、`reject_*` 现在明确只
+  属于显式 drilldown / user-correction / repair 流，而不是默认 distill 主链。
+- **plugin distill summary sync**：`plugins/harness-mem/README.md` 的 `/hm:distill`
+  摘要现在直接提到 `auto_review_candidates`。
+- **focused regression coverage**：新增 `tests/test_session_distill_skill_truth.py`。
+- **release/status writeback**：`docs/roadmap-v29.md` 与
+  `docs/roadmap-status.md` 已同步到 v2.9.22。
+
+### Boundaries
+
+- 本版本不新增新的 auto-review policy、候选类型或 MCP runtime 行为。
+- 它只同步 repo-local distill playbook 到当前 shipped review surface，并防止 playbook 回流到旧主链写法。
+
 ## [2.9.21] — 2026-06-03
 
 **主题：V2 User Test Packet Distill Truth Sync**

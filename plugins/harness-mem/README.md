@@ -57,7 +57,7 @@ Once installed, drive harness-mem through IDE commands and chat. MCP is the tran
 | Slash | What it does |
 |-------|--------------|
 | `/hm:status` | Read-only project triage via MCP `get_project_status`, with next-step hints for `/hm:distill`, `/hm:wake`, and optional repair-only `/hm:review`. |
-| `/hm:distill <project> <n>` | Call MCP `prepare_session_distill` once, run `tools/session-distill`, auto-judge and handle low-risk candidates, then show a final review summary. This is the normal closed-loop path. |
+| `/hm:distill <project> <n>` | Call MCP `prepare_session_distill` once, run `tools/session-distill`, then apply `auto_review_candidates` as the default low-risk review surface before showing the final review summary. This is the normal closed-loop path. |
 | `/hm:review` | Optional repair/recheck command for pending candidates left over from old runs, high-risk suggestions, or user corrections. Not part of the daily happy path. |
 | `/hm:wake` | Read-only wake-up via MCP `wake`, with optional compact renderer and opt-in skill hints. |
 | `/hm:search "query"` | Hybrid memory search via MCP `search_memory`. |

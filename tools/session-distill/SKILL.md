@@ -17,6 +17,7 @@ allowed-tools:
   - mcp__harness_mem__suggest_rule
   - mcp__harness_mem__suggest_relation_fact
   - mcp__harness_mem__create_task_handoff
+  - mcp__harness_mem__auto_review_candidates
   - mcp__harness_mem__list_candidates
   - mcp__harness_mem__confirm_memory_entry
   - mcp__harness_mem__reject_memory_entry
@@ -46,8 +47,7 @@ Raw Sessions
   -> session-distill Skill reads evidence
   -> MCP suggest_memory_entry / suggest_rule / suggest_relation_fact / create_task_handoff
   -> Candidate Layer (pending)
-  -> list_candidates
-  -> AI auto-review and low-risk confirm/reject
+  -> auto_review_candidates(apply=true)
   -> Human final result review
 ```
 
@@ -55,7 +55,7 @@ Raw Sessions
 
 ### 0. MCP 工具命名
 
-直接用工具的裸名（`prepare_session_distill`、`suggest_memory_entry`、`list_candidates` 等）。客户端如何把它们映射成可调用 alias（带短横线 / 不带短横线 / 带 server 前缀）由客户端自己决定，本 skill 不假设。
+直接用工具的裸名（`prepare_session_distill`、`suggest_memory_entry`、`auto_review_candidates` 等）。客户端如何把它们映射成可调用 alias（带短横线 / 不带短横线 / 带 server 前缀）由客户端自己决定，本 skill 不假设。
 
 如果你的客户端通过 MCP Router 接入，工具名通常就是裸名；如果直连 server，可能会带 server name 前缀。两种都能跑，prompt 里不要写死前缀。
 
@@ -107,16 +107,19 @@ Raw Sessions
 
 ### 4. 自动审核并处理
 
-调用 MCP `list_candidates(project_name=<project>, status="pending")`，读取当前 pending 候选。
+调用 MCP `auto_review_candidates(project_name=<project>, apply=true)`，复用 shared low-risk review policy。
 
-不要停下来让用户逐条选择。AI 应直接判断并处理低风险项：
+不要停下来让用户逐条选择。默认 distill 路径必须直接消费 `auto_review_candidates` 返回的结果：
 
-- **低风险 confirm**：明确项目长期事实、真实架构、稳定约定、source 可靠、不会改变未来行为边界。
-- **低风险 reject**：工具故障、agent 编排故障、跨项目 workflow、泛泛原则、重复候选、证据不足、把本次 distill 过程误写成项目事实。
-- **keep_pending**：可能有价值但证据不足，暂不打扰用户。
-- **migrate**：有价值但属于全局工作流或别的项目；当前项目内默认 reject，并在摘要说明应该迁移。
+- `auto_confirmed`
+- `auto_rejected`
+- `kept_pending`
+- `needs_user_confirmation`
+- `applied_decisions`
 
-只有高风险 confirm（会改变未来 AI 行为、影响范围大、置信不足但可能重要）才保留 pending，并放进最终摘要的"需要你确认"区。
+只有 `needs_user_confirmation` 里的高风险残留才放进最终摘要的“需要你确认”区。若用户追问某个候选为什么被自动确认或自动拒绝，再从 `applied_decisions` 里解释 candidate id、evidence id 和 policy reason。
+
+`list_candidates`、`confirm_*`、`reject_*` 仍可用于显式 review drilldown、用户纠错或 repair/recheck 流程，但它们不是默认 distill 主链。
 
 最后给用户看处理结果摘要，让用户纠错，而不是把用户重新推回到一个独立的 review 入口。
 
