@@ -670,6 +670,10 @@ def test_skill_promotion_review_flow(mcp_backend: LocalMemoryBackend):
     assert shared_search["skills"][1]["disabled_assumptions"] == [
         "Do not assume CI job names are identical."
     ]
+    assert shared_search["skills"][1]["activation_warnings"] == [
+        "Only reuse in repos with pytest and a changelog.",
+        "Do not assume CI job names are identical.",
+    ]
 
     shared_only = call_tool(
         "search_skills",
@@ -680,6 +684,23 @@ def test_skill_promotion_review_flow(mcp_backend: LocalMemoryBackend):
         },
     )
     assert [skill["scope"] for skill in shared_only["skills"]] == ["global"]
+
+    recorded_shared = call_tool(
+        "record_skill_result",
+        {
+            "skill_id": shared["skill"]["id"],
+            "success": True,
+        },
+    )
+    assert recorded_shared["success"] is True
+    assert recorded_shared["skill"]["usage_count"] == 1
+
+    project_skill = run(mcp_backend.structured_store.get_skill(project_skill_id))
+    shared_skill = run(mcp_backend.structured_store.get_skill(shared["skill"]["id"]))
+    assert project_skill is not None
+    assert project_skill.usage_count == 0
+    assert shared_skill is not None
+    assert shared_skill.usage_count == 1
 
 
 def test_reject_skill_promotion_candidate(mcp_backend: LocalMemoryBackend):

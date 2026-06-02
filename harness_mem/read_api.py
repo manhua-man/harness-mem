@@ -623,6 +623,11 @@ def serialize_relation_path(path: RelationPath) -> dict[str, Any]:
 
 def serialize_skill(skill: Skill) -> dict[str, Any]:
     """Serialize a confirmed procedural skill for CLI/MCP/API clients."""
+    activation_warnings: list[str] = []
+    if skill.scope in {"workspace", "global"}:
+        if skill.portability_notes:
+            activation_warnings.append(skill.portability_notes)
+        activation_warnings.extend(skill.disabled_assumptions)
     return {
         "id": skill.id,
         "project_name": skill.project_name,
@@ -638,6 +643,7 @@ def serialize_skill(skill: Skill) -> dict[str, Any]:
         "source_ids": skill.source_ids,
         "portability_notes": skill.portability_notes,
         "disabled_assumptions": skill.disabled_assumptions,
+        "activation_warnings": activation_warnings,
         "confidence": skill.confidence,
         "status": skill.status,
         "usage_count": skill.usage_count,

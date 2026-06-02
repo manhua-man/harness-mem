@@ -22,8 +22,8 @@
 ## 4. Conflict and provenance
 
 - [x] 4.1 Prefer project-scoped skills over shared skills when both match.
-- [ ] 4.2 Surface portability warnings and disabled assumptions before a shared skill is activated.
-- [ ] 4.3 Record usage feedback separately for project and shared skills.
+- [x] 4.2 Surface portability warnings and disabled assumptions before a shared skill is activated.
+- [x] 4.3 Record usage feedback separately for project and shared skills.
 
 ## 5. Validation
 

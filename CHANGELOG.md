@@ -19,6 +19,9 @@
 - **v2.7.0 explicit shared search**：MCP `search_skills` 新增显式
   `include_shared` / `shared_scope=exclude|include|only`，默认仍只返回
   project-scoped skills；shared-inclusive 结果会保留 project-first 排序。
+- **v2.7.0 activation warnings and separate feedback**：shared skill 搜索结果
+  新增 `activation_warnings`，在 activation 前暴露 portability warnings；
+  project/shared skill 的 `record_skill_result` 继续维持各自独立的 usage counters。
 
 ### Notes
 

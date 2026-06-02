@@ -110,6 +110,10 @@ def test_shared_skill_metadata_round_trips_and_serializes(tmp_path: Path) -> Non
     assert serialized["source_ids"] == ["skill-source", "observation-source"]
     assert serialized["portability_notes"] == "Use only for Python packages with pytest."
     assert serialized["disabled_assumptions"] == ["Do not assume npm scripts exist."]
+    assert serialized["activation_warnings"] == [
+        "Use only for Python packages with pytest.",
+        "Do not assume npm scripts exist.",
+    ]
 
 
 def test_default_project_skill_search_excludes_shared_scope(tmp_path: Path) -> None:
@@ -277,3 +281,36 @@ def test_reject_skill_promotion_leaves_project_skill_unchanged(tmp_path: Path) -
     assert reloaded_project_skill.scope == "project"
     assert reloaded_candidate is not None
     assert reloaded_candidate.status == "rejected"
+
+
+def test_recording_shared_skill_result_does_not_change_project_skill_usage(tmp_path: Path) -> None:
+    store = LocalStructuredStore(tmp_path)
+    project_skill = Skill(
+        project_name="demo",
+        name="Release hygiene",
+        activation_condition="When preparing a release",
+        steps=["Run tests", "Update changelog"],
+        termination_condition="Release checks pass",
+    )
+    run(store.save_skill(project_skill))
+    candidate = SkillPromotionCandidate(
+        project_name="demo",
+        source_skill_id=project_skill.id,
+        requested_scope="global",
+        origin_project="demo",
+        portability_notes="Only reuse in Python repos with pytest.",
+        disabled_assumptions=["Do not assume npm is available."],
+    )
+    run(store.save_skill_promotion_candidate(candidate))
+    shared_skill = run(store.confirm_skill_promotion_candidate(candidate.id))
+
+    assert shared_skill is not None
+    updated_shared = run(store.record_skill_result(shared_skill.id, success=True))
+    reloaded_project_skill = run(store.get_skill(project_skill.id))
+
+    assert updated_shared is not None
+    assert updated_shared.usage_count == 1
+    assert updated_shared.success_rate == 1.0
+    assert reloaded_project_skill is not None
+    assert reloaded_project_skill.usage_count == 0
+    assert reloaded_project_skill.success_rate is None
