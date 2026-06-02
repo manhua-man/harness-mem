@@ -5,7 +5,7 @@ category: Memory
 tags: [harness-mem, status]
 ---
 
-通过 MCP 显示当前项目的记忆状态，并给出下一步建议。
+通过 MCP 显示当前项目的记忆状态，并给出 slash-first 下一步建议。
 
 **Input**: 可指定项目（`/hm:status bazi-apps`），省略则用 active project。
 
@@ -20,10 +20,11 @@ tags: [harness-mem, status]
    - Observations / Memory entries / Confirmed rules 数量
    - Pending candidates 数量
    - 最近 observations 是否存在
+   - `phase` / `suggested_slash` / `reason`
 4. 用自然语言总结给用户，并给出具体可点的 slash 建议：
-   - 如果无 observations → 建议用户跑 `/hm:distill`
-   - 如果有 pending 候选 → 说明 `/hm:distill` 会自动处理低风险候选；`/hm:review` 仅用于复查/纠错
-   - 如果已有上下文 → 建议 `/hm:wake`
+   - `phase=needs-distill` → 建议用户跑 `/hm:distill`
+   - `phase=ready` → 建议 `/hm:wake`
+   - 如果 MCP 还返回 `repair_hint=/hm:review`，把它表述成显式复查/纠错入口，不要把 review 说成日常必经步骤
 
 **Notes**
 

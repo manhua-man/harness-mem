@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 已完成。
+> 状态：v2.9.0 / v2.9.1 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -70,6 +70,31 @@ candidate surface。
   - dry-run 不写文件
   - apply 只写 candidate markdown
   - 只扫描 `bundled` sessions
+
+## v2.9.1：Status Triage Surface
+
+**用户故事**：用户运行 `/hm:status` 时，看到的是一个稳定的、只读的项目记忆分诊入口，而不是不同文档各说各话的“也许是 doctor，也许是 MCP status”的混合面。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | `/hm:status` contract | 成为正式 read-only triage 入口 |
+| P0 | MCP triage hints | `get_project_status` 返回 `phase` / `suggested_slash` / `reason` |
+| P0 | review-only hint boundary | pending candidates 只追加 repair hint，不把 `/hm:review` 升成主 happy path |
+| P1 | doc alignment | plugin README、slash command、roadmap 与真实 MCP 行为一致 |
+
+### 当前状态（2026-06-02）
+
+- 已完成 `openspec/changes/v291-status-triage-surface/`。
+- `/hm:status` 现在正式收束成 read-only triage surface。
+- MCP `get_project_status` 现在会返回：
+  - `phase`
+  - `suggested_slash`
+  - `reason`
+  - 可选 `repair_hint` / `repair_reason`
+- triage 语义锁定为：
+  - empty project → `/hm:distill`
+  - ready project → `/hm:wake`
+  - pending candidates → 只作为 repair-only `/hm:review` hint
 
 ---
 

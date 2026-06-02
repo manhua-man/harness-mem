@@ -260,7 +260,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         },
     },
     "get_project_status": {
-        "description": "Return active project and memory counts without requiring CLI status.",
+        "description": (
+            "Return active project, memory counts, and slash-native next-step triage hints "
+            "without requiring CLI status."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {

@@ -8,6 +8,34 @@
 
 ---
 
+## [2.9.1] — 2026-06-02
+
+**主题：Status Triage Surface**
+
+v2.9.1 把已经广泛出现在 README、plugin 安装输出和 slash 命令里的 `/hm:status`
+收束成了正式的 read-only triage surface。此前 repo 存在口径分裂：有的文档把它说成
+`doctor` 代理，有的命令说明又把它当成 MCP `get_project_status` 驱动的状态入口。
+现在这条线被正式锁定：`/hm:status` 是一个 slash-first 的项目记忆分诊入口，MCP
+会直接返回下一步 hint，而不是让各处 prompt 自己猜。
+
+### Added
+
+- **v2.9.1 status triage contract**：`/hm:status` 正式进入 daily-workflow
+  contract，成为 read-only 项目状态入口。
+- **structured MCP hints**：`get_project_status` 现在会返回 `phase`、
+  `suggested_slash`、`reason`，并在存在 pending candidates 时追加
+  `repair_hint` / `repair_reason`。
+- **review-only boundary**：pending candidates 不会让 `/hm:review` 升格成
+  主 happy-path；它只作为显式 repair hint 暴露。
+- **focused regression coverage**：新增 ready / empty / pending-candidate
+  三种 `get_project_status` triage 场景测试。
+
+### Boundaries
+
+- `/hm:status` 仍是只读入口，不写候选、不改 truth。
+- 主 happy path 仍然是 empty → `/hm:distill`、ready → `/hm:wake`。
+- `/hm:review` 继续只用于显式复查、纠错或处理旧 pending 残留。
+
 ## [2.9.0] — 2026-06-02
 
 **主题：PRD Sync Candidate Surface**

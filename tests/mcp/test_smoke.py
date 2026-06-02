@@ -15,6 +15,7 @@ from harness_mem.core.schemas import (
     MergeSuggestionCandidate,
     Observation,
     RelationFact,
+    RuleCandidate,
     Skill,
     StaleTruthSuggestionCandidate,
 )
@@ -1179,6 +1180,56 @@ def test_get_project_status_returns_counts_without_cli(mcp_backend: LocalMemoryB
     assert data["project_name"] == "test-project"
     assert data["observation_count"] >= 1
     assert data["memory_entry_count"] >= 1
+    assert data["phase"] == "ready"
+    assert data["suggested_slash"] == "/hm:wake"
+
+
+def test_get_project_status_empty_project_suggests_distill(mcp_backend: LocalMemoryBackend):
+    data = call_tool("get_project_status", {"project_name": "empty-project"})
+
+    assert data["success"] is True
+    assert data["project_name"] == "empty-project"
+    assert data["observation_count"] == 0
+    assert data["phase"] == "needs-distill"
+    assert data["suggested_slash"] == "/hm:distill"
+    assert data["repair_hint"] is None
+
+
+def test_get_project_status_pending_candidates_adds_review_hint(
+    mcp_backend: LocalMemoryBackend,
+):
+    run(
+        mcp_backend.verbatim_store.save(
+            Observation(
+                id="obs-status-pending",
+                session_id="status-pending-session",
+                client="codex",
+                raw_content="Pending candidate project has usable memory context.",
+                content_type="transcript",
+                metadata={"project_name": "pending-project"},
+            )
+        )
+    )
+    run(
+        mcp_backend.structured_store.save_rule_candidate(
+            RuleCandidate(
+                project_name="pending-project",
+                session_id="status-pending-session",
+                pattern="Review pending status candidates before promoting them.",
+                trigger="When older pending items remain after distill",
+                examples=["obs-status-pending"],
+                confidence=0.6,
+            )
+        )
+    )
+
+    data = call_tool("get_project_status", {"project_name": "pending-project"})
+
+    assert data["success"] is True
+    assert data["phase"] == "ready"
+    assert data["suggested_slash"] == "/hm:wake"
+    assert data["repair_hint"] == "/hm:review"
+    assert "Pending candidates remain" in data["repair_reason"]
 
 
 def test_ingest_sessions_mcp_uses_project_scoped_codex_archive(

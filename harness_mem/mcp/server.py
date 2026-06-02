@@ -647,17 +647,47 @@ def tool_get_project_status(project_name: str | None = None) -> dict:
         return {
             "success": False,
             "active_project": active_project,
+            "phase": "needs-project",
+            "suggested_slash": None,
+            "reason": "Provide project_name or set an active project before status can resolve memory context.",
             "error": "project_name is required when no active project is set",
         }
 
     backend = _get_backend()
     counts = asyncio.run(_gather_project_status(backend, resolved_project))
+    triage = _status_triage_hints(counts)
     return {
         "success": True,
         "project_name": resolved_project,
         "active_project": active_project,
         **counts,
+        **triage,
     }
+
+
+def _status_triage_hints(counts: dict[str, int]) -> dict[str, Any]:
+    if counts["observation_count"] == 0:
+        return {
+            "phase": "needs-distill",
+            "suggested_slash": "/hm:distill",
+            "reason": "No observations have been ingested for this project yet.",
+            "repair_hint": None,
+            "repair_reason": None,
+        }
+
+    hints: dict[str, Any] = {
+        "phase": "ready",
+        "suggested_slash": "/hm:wake",
+        "reason": "Project memory is available for wake-up context.",
+        "repair_hint": None,
+        "repair_reason": None,
+    }
+    if counts["pending_candidate_count"] > 0:
+        hints["repair_hint"] = "/hm:review"
+        hints["repair_reason"] = (
+            "Pending candidates remain; use review only for explicit recheck or correction."
+        )
+    return hints
 
 
 def tool_set_active_project(project_name: str) -> dict:
