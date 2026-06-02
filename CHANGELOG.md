@@ -8,6 +8,27 @@
 
 ---
 
+## [2.9.8] — 2026-06-02
+
+**主题：Maintenance Surface Collateral Guard**
+
+v2.9.8 不再继续靠人工扫文档来守 maintenance-surface 真值，而是给已经同步好的
+README、MCP spec、telemetry spec 和 v2 user-test packet 加上 focused
+regression guard。这样后续如果谁把 `config` / `integration` 从这些高可见摘要里
+删掉，测试会直接报警。
+
+### Added
+
+- **collateral truth guard**：新增 `tests/test_maintenance_surface_collateral.py`，
+  覆盖 README、`openspec/specs/mcp/spec.md`、
+  `openspec/specs/telemetry/spec.md`、`docs/v2-user-test-packet.md` 的当前
+  maintenance-surface 摘要。
+
+### Boundaries
+
+- 本版本不新增 CLI、MCP、telemetry 或 plugin 运行时能力。
+- 它只给既有 collateral truth 增加 focused regression guard。
+
 ## [2.9.7] — 2026-06-02
 
 **主题：README And Telemetry Maintenance Truth**

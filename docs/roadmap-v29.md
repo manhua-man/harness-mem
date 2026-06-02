@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -237,3 +237,22 @@ v2.9 是对 session-distill maintenance family 的补片：从 bundled packet �
   - telemetry 主 spec 已包含 `qs` / `config` / `integration`
   - `docs/roadmap-status.md` 的重复 summary 行已移除
 - 该切片不改 runtime surface，只做 README / spec / status writeback。
+
+## v2.9.8：Maintenance Surface Collateral Guard
+
+**用户故事**：既然 README、MCP spec、telemetry spec 和 user-test packet 都已经同步到了当前 maintenance console，就应该有一个 focused regression test 把这份真值锁住，而不是每次靠人工再扫一遍。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | collateral truth guard | README / MCP spec / telemetry spec / user-test packet 都被 focused test 覆盖 |
+| P1 | release writeback | roadmap / status / changelog / version 与 v2.9.8 一致 |
+
+### 当前状态（2026-06-02）
+
+- 已完成 `openspec/changes/v298-maintenance-surface-collateral-guard/`。
+- 新增 `tests/test_maintenance_surface_collateral.py`，覆盖：
+  - README maintenance-console summary
+  - MCP spec maintenance surface summary
+  - telemetry spec maintenance surface summary
+  - v2 user-test packet 的允许维护命令 summary
+- 该切片不改 runtime surface，只给现有 collateral truth 加回归护栏。
