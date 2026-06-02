@@ -17,6 +17,7 @@ from harness_mem.knowledge_cache import (
     knowledge_cache_paths,
     write_knowledge_cache_boundary,
     build_knowledge_sources,
+    rebuild_wiki_bridge,
 )
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
@@ -302,3 +303,43 @@ async def cmd_cleanup_generated_cache(
         },
     )
     return 0
+
+
+async def cmd_rebuild_wiki_bridge(project_name: str | None = None) -> int:
+    """Rebuild generated wiki-bridge artifacts from accepted sources."""
+    resolved_project = resolve_project_name(
+        project_name,
+        required=True,
+        action_label="maintenance rebuild-wiki-bridge",
+    )
+    if not resolved_project:
+        return 1
+
+    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
+    await backend.init()
+    try:
+        profile = await LocalProjectProfileStore(DEFAULT_DATA_DIR).get(resolved_project)
+        result = await rebuild_wiki_bridge(
+            backend,
+            data_dir=DEFAULT_DATA_DIR,
+            project_name=resolved_project,
+            profile=profile,
+            project_root=find_project_root(resolved_project),
+        )
+        print(f"Rebuilt wiki bridge: {resolved_project}")
+        print(f"Claims: {result['claim_count']}")
+        print(f"Topics: {result['topic_count']}")
+        print(f"Entities: {result['entity_count']}")
+        print(f"Index: {result['index_path']}")
+        log_command_invoked(
+            "maintenance.rebuild-wiki-bridge",
+            project_name=resolved_project,
+            extra={
+                "claim_count": result["claim_count"],
+                "topic_count": result["topic_count"],
+                "entity_count": result["entity_count"],
+            },
+        )
+        return 0
+    finally:
+        await backend.close()

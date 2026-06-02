@@ -16,6 +16,44 @@
 
 ---
 
+## [2.6.1] — 2026-06-02
+
+**主题：Wiki Bridge + Compact Claim Index**
+
+v2.6.1 在 v2.6.0 的 knowledge-cache boundary 之上，补上最小可用的 generated
+wiki bridge。accepted memory、confirmed rules、relation facts 与 curated docs
+会被显式编译成 generated claim/topic/entity 索引，每条 claim 都保留 source drilldown，
+但这些 generated outputs 仍然不会进入默认 wake 或 `search_memory` truth surface。
+
+### Added
+
+- **wiki bridge compiler**：`harness_mem/knowledge_cache.py` 新增 `rebuild_wiki_bridge(...)`，
+  从 accepted memory、confirmed rules、relation facts 与 curated docs 编译 generated artifacts。
+- **compact generated artifacts**：在 `knowledge-cache/generated/` 下生成
+  `claims.json`、`topics.json`、`entities.json`，并把 source hash / counts /
+  tracked outputs 写回增强版 `generated/index.json`。
+- **claim drilldown pointers**：每条 generated claim 都携带 `source_refs`，可回到
+  `memory_entry_id`、`confirmed_rule_id`、`relation_fact_id` 或 `curated_doc_path`。
+- **explicit rebuild entry point**：
+  `harness-mem maintenance rebuild-wiki-bridge --project <name>`。
+- **doctor generated visibility**：`harness-mem doctor` 的 `Knowledge cache:` block
+  现在显示 generated claim/topic/entity 计数，并在 source stale 时提示 rebuild。
+
+### Changed
+
+- 正式版本号从 `2.6.0` bump 到 `2.6.1`。
+- `maintenance --help` / shell completion 同步纳入 `rebuild-wiki-bridge`。
+- `docs/roadmap-v26.md` 与 `openspec/changes/v261-wiki-bridge-compact-index/tasks.md`
+  同步更新为 v2.6.1 已完成。
+
+### Boundaries
+
+- generated wiki 仍然只落在 `knowledge-cache/generated/`，不写回 canonical truth。
+- 默认 `wake` / `search_memory` 仍然只消费既有 accepted truth 与 verbatim surfaces。
+- contradiction / stale / merge suggestions 仍留在 v2.6.2。
+
+---
+
 ## [2.6.0] — 2026-05-31
 
 **主题：Knowledge Cache Boundary**

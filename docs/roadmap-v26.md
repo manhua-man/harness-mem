@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.6
 
-> 状态：v2.6.0 已完成；v2.6.1+ 仍在规划中。
+> 状态：v2.6.1 已完成；v2.6.2+ 仍在规划中。
 >
 > 主题：Wiki Bridge + Compact Index + Contradiction Suggestions。把长期知识从权威源编译成可检索上下文，并把冲突处理保持在 candidate 层。
 
@@ -54,7 +54,7 @@ v2.6 吸收 `ai-harness` 的 source cache / generated cache 边界，以及 MemP
 - 已实现 `harness-mem doctor` 的 knowledge-cache visibility block。
 - 已实现 `maintenance prepare-knowledge-cache` 与
   `maintenance cleanup-generated-cache`。
-- 仍未实现 wiki compiler / compact claim index；这些属于 v2.6.1。
+- wiki compiler / compact claim index 仍未在 v2.6.0 内实现；这些由 v2.6.1 补齐。
 
 ## v2.6.1：Wiki Bridge and Compact Claim Index
 
@@ -67,6 +67,18 @@ v2.6 吸收 `ai-harness` 的 source cache / generated cache 边界，以及 MemP
 | P0 | drawer-style drilldown | 每条 claim 能回到 observation / memory / doc source |
 | P1 | no hidden truth | generated wiki 不会被 wake 当作 confirmed truth |
 | P1 | docs for authority levels | 用户能理解 manual、accepted memory、generated cache 的区别 |
+
+### 当前实现（2026-06-02）
+
+- 已实现 `rebuild_wiki_bridge(...)`，从 accepted memory、confirmed rules、relation facts
+  和 curated docs 编译 generated wiki bridge。
+- 已实现 `knowledge-cache/generated/claims.json`、`topics.json`、`entities.json` 与增强版
+  `generated/index.json`。
+- 已实现 claim -> source drilldown，source 可回到 `memory_entry_id`、`confirmed_rule_id`、
+  `relation_fact_id` 或 `curated_doc_path`。
+- 已实现 `maintenance rebuild-wiki-bridge` 显式重建入口。
+- 已实现 doctor 对 generated claim/topic/entity 计数的可见性。
+- 已验证 generated wiki 不进入默认 `wake` / `search_memory` truth surface。
 
 ## v2.6.2：Contradiction and Stale Suggestions
 

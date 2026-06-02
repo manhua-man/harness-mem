@@ -1303,7 +1303,7 @@ def _doctor_maintenance_block(maintenance_report: dict[str, Any]) -> None:
 
 
 def _doctor_knowledge_cache_block(knowledge_report: dict[str, Any]) -> None:
-    """Render the v2.6.0 knowledge-cache boundary visibility block."""
+    """Render the v2.6.1 knowledge-cache boundary and generated bridge visibility."""
     print("Knowledge cache:")
     print(
         "  boundary: "
@@ -1314,6 +1314,12 @@ def _doctor_knowledge_cache_block(knowledge_report: dict[str, Any]) -> None:
         "  sources: "
         f"{knowledge_report['source_count']} tracked "
         f"({knowledge_report['curated_doc_count']} curated docs)"
+    )
+    print(
+        "  generated: "
+        f"{knowledge_report['generated_claim_count']} claims, "
+        f"{knowledge_report['generated_topic_count']} topics, "
+        f"{knowledge_report['generated_entity_count']} entities"
     )
     if knowledge_report["prepared"]:
         print(f"  sync map: {knowledge_report['sync_map_path']}")
@@ -1327,6 +1333,10 @@ def _doctor_knowledge_cache_block(knowledge_report: dict[str, Any]) -> None:
         print(
             f"⚠️  {knowledge_report['stale_source_count']} source(s) changed or missing since "
             "the last boundary snapshot."
+        )
+        print(
+            "Fix: harness-mem maintenance rebuild-wiki-bridge "
+            f"--project {knowledge_report['project_name']}"
         )
     if knowledge_report["orphaned_output_count"] > 0:
         print(

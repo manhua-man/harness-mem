@@ -37,6 +37,7 @@ from harness_mem.commands import (
     cmd_purge,
     cmd_quickstart,
     cmd_record_skill_result,
+    cmd_rebuild_wiki_bridge,
     cmd_reject_procedural,
     cmd_reject_rule,
     cmd_reject_supersede,
@@ -83,6 +84,7 @@ __all__ = [
     "cmd_purge",
     "cmd_quickstart",
     "cmd_record_skill_result",
+    "cmd_rebuild_wiki_bridge",
     "cmd_reject_procedural",
     "cmd_reject_rule",
     "cmd_reject_supersede",
@@ -176,6 +178,7 @@ def main():
             "rebuild-vector-index",
             "rebuild-verbatim-index",
             "prepare-knowledge-cache",
+            "rebuild-wiki-bridge",
             "cleanup-generated-cache",
         ],
         help="Maintenance action to run",
@@ -328,6 +331,8 @@ def main():
             return asyncio.run(cmd_rebuild_verbatim_index(args.project))
         if args.action == "prepare-knowledge-cache":
             return asyncio.run(cmd_prepare_knowledge_cache(args.project))
+        if args.action == "rebuild-wiki-bridge":
+            return asyncio.run(cmd_rebuild_wiki_bridge(args.project))
         if args.action == "cleanup-generated-cache":
             return asyncio.run(cmd_cleanup_generated_cache(args.project, apply=not args.dry_run))
         parser.error(f"Unknown maintenance action: {args.action}")

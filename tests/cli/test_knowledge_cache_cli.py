@@ -11,6 +11,7 @@ from harness_mem.commands.doctor import cmd_doctor
 from harness_mem.commands.maintenance import (
     cmd_cleanup_generated_cache,
     cmd_prepare_knowledge_cache,
+    cmd_rebuild_wiki_bridge,
 )
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.knowledge_cache import ensure_knowledge_cache_layout, knowledge_cache_paths
@@ -43,6 +44,8 @@ def test_doctor_reports_knowledge_cache_boundary_visibility(
     try:
         assert run(cmd_prepare_knowledge_cache("demo")) == 0
         capsys.readouterr()
+        assert run(cmd_rebuild_wiki_bridge("demo")) == 0
+        capsys.readouterr()
         assert run(cmd_doctor("demo")) == 0
     finally:
         maintenance_module.find_project_root = previous_find_project_root
@@ -51,6 +54,7 @@ def test_doctor_reports_knowledge_cache_boundary_visibility(
     assert "Knowledge cache:" in output
     assert "boundary:" in output
     assert "sources: 2 tracked (1 curated docs)" in output
+    assert "generated:" in output
     assert "sync map:" in output
 
 
@@ -97,4 +101,39 @@ def test_cli_help_lists_new_knowledge_cache_maintenance_actions(
     assert exc_info.value.code == 0
     output = capsys.readouterr().out
     assert "prepare-knowledge-cache" in output
+    assert "rebuild-wiki-bridge" in output
     assert "cleanup-generated-cache" in output
+
+
+def test_rebuild_wiki_bridge_command_writes_counts(
+    backend,
+    data_dir: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    project_root = tmp_path / "demo"
+    docs_dir = project_root / "docs"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "architecture.md").write_text("SQLite FTS5 powers retrieval.", encoding="utf-8")
+    run(
+        LocalProjectProfileStore(data_dir).save(
+            ProjectProfile(
+                project_name="demo",
+                curated_doc_paths=["docs/architecture.md"],
+            )
+        )
+    )
+    cli.cmd_use("demo")
+
+    previous_find_project_root = maintenance_module.find_project_root
+    maintenance_module.find_project_root = lambda _project: project_root
+    try:
+        assert run(cmd_rebuild_wiki_bridge("demo")) == 0
+    finally:
+        maintenance_module.find_project_root = previous_find_project_root
+
+    output = capsys.readouterr().out
+    assert "Rebuilt wiki bridge: demo" in output
+    assert "Claims:" in output
+    assert "Topics:" in output
+    assert "Entities:" in output

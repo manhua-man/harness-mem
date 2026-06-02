@@ -7,6 +7,7 @@ from harness_mem.commands.maintenance import (
     cmd_assign_memory_types,
     cmd_cleanup_generated_cache,
     cmd_prepare_knowledge_cache,
+    cmd_rebuild_wiki_bridge,
 )
 from harness_mem.commands.profile import cmd_profile, cmd_profile_edit, cmd_use
 from harness_mem.commands.purge import cmd_purge
@@ -62,6 +63,7 @@ __all__ = [
     "cmd_profile",
     "cmd_profile_edit",
     "cmd_prepare_knowledge_cache",
+    "cmd_rebuild_wiki_bridge",
     "cmd_purge",
     "cmd_search",
     "cmd_search_raw",
