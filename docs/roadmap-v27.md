@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.7
 
-> 状态：v2.7.0 / v2.7.1 已完成；v2.7.2 第一片进行中。
+> 状态：v2.7.0 / v2.7.1 / v2.7.2 已完成。
 >
 > 主题：Cross-Project Skills and Controlled Activation。让可复用 procedural knowledge 跨项目流动，但必须显式、带边界、可审核。
 
@@ -118,7 +118,10 @@ v2.7 处理原先放在 v2.4 的跨项目 Skill 方向。它被后移的原因�
 - `list_candidates` 已接入 `skill_revision_suggestion`；
   `confirm_skill_revision` / `reject_skill_revision` 只改 candidate 状态，
   不改写 confirmed skill。
-- 尚未实现 duplicate suppression 的更细粒度策略和 shared-skill deprecation suggestion。
+- 已实现 duplicate suppression：重复运行 detector 不会为同一 skill 反复堆积 pending revision suggestion。
+- 已实现 shared-skill deprecation suggestion：
+  `detect_skill_deprecations(project_name)` 会为 stale/conflicting shared skill
+  创建 reviewed `skill_deprecation_suggestion`，确认后 shared skill 会被标成 `retired`。
 
 ---
 

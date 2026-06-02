@@ -29,6 +29,11 @@
   `skill_revision_suggestion` candidate、MCP `detect_skill_improvements` /
   `confirm_skill_revision` / `reject_skill_revision`，把低成功率 skill 转成
   待审改进建议，同时保持 confirmed skill 不被自动改写。
+- **v2.7.2 duplicate suppression and shared-skill deprecation**：
+  重复运行 improvement detector 不会为同一 skill 重复创建 pending revision
+  suggestion；新增 `skill_deprecation_suggestion` 与 MCP
+  `detect_skill_deprecations` / `confirm_skill_deprecation` /
+  `reject_skill_deprecation`，让 stale/conflicting shared skill 经 review 后退役。
 
 ### Notes
 

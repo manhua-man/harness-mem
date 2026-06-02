@@ -7,16 +7,16 @@
 
 - [x] 2.1 Add a detector for low-success skills using the replay-window thresholds.
 - [x] 2.2 Detector creates pending candidates without mutating confirmed skills.
-- [ ] 2.3 Prevent duplicate pending suggestions from repeated detector runs.
+- [x] 2.3 Prevent duplicate pending suggestions from repeated detector runs.
 
 ## 3. Review surface
 
 - [x] 3.1 Expose revision suggestions through `list_candidates`.
 - [x] 3.2 Add confirm/reject tools that only change candidate status, not the skill body.
-- [ ] 3.3 Add explicit deprecation suggestions for stale/conflicting shared skills.
+- [x] 3.3 Add explicit deprecation suggestions for stale/conflicting shared skills.
 
 ## 4. Validation
 
 - [x] 4.1 Add SQLite/store tests for the new candidate type.
 - [x] 4.2 Add MCP detector/review tests.
-- [ ] 4.3 Add focused tests for duplicate suppression and deprecation flow.
+- [x] 4.3 Add focused tests for duplicate suppression and deprecation flow.

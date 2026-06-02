@@ -170,6 +170,26 @@ def _serialize_skill_revision_suggestion_candidate(candidate: Any) -> dict:
     }
 
 
+def _serialize_skill_deprecation_suggestion_candidate(candidate: Any) -> dict:
+    return {
+        "type": "skill_deprecation_suggestion",
+        "id": candidate.id,
+        "project_name": candidate.project_name,
+        "status": candidate.status,
+        "source_skill_id": candidate.source_skill_id,
+        "trigger": candidate.trigger,
+        "summary": candidate.summary,
+        "conflicting_skill_id": candidate.conflicting_skill_id,
+        "usage_count": candidate.usage_count,
+        "success_rate": candidate.success_rate,
+        "last_used_at": _isoformat(candidate.last_used_at),
+        "confidence": candidate.confidence,
+        "created_at": _isoformat(candidate.created_at),
+        "confirm_tool": "confirm_skill_deprecation",
+        "reject_tool": "reject_skill_deprecation",
+    }
+
+
 def _serialize_merge_suggestion_candidate(candidate: Any) -> dict:
     return {
         "type": "merge_suggestion",

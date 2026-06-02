@@ -455,3 +455,32 @@ def test_init_db_creates_skill_revision_suggestion_candidate_table(tmp_path: Pat
     assert "skill_revision_suggestion_candidates" in tables
     assert "idx_skill_revision_suggestion_candidates_project" in indexes
     assert "idx_skill_revision_suggestion_candidates_status" in indexes
+
+
+def test_init_db_creates_skill_deprecation_suggestion_candidate_table(tmp_path: Path):
+    db_path = tmp_path / "skill-deprecations.db"
+    idx = SQLiteIndex(db_path)
+    try:
+        idx.init_db()
+        conn = sqlite3.connect(db_path)
+        try:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            indexes = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'index'"
+                ).fetchall()
+            }
+        finally:
+            conn.close()
+    finally:
+        idx.close()
+
+    assert "skill_deprecation_suggestion_candidates" in tables
+    assert "idx_skill_deprecation_suggestion_candidates_project" in indexes
+    assert "idx_skill_deprecation_suggestion_candidates_status" in indexes

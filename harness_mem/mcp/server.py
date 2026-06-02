@@ -124,6 +124,10 @@ from harness_mem.core.schemas.skill_promotion_candidate import PromotionScope  #
 from harness_mem.core.schemas.skill_revision_suggestion_candidate import (  # noqa: E402
     RevisionTrigger,
 )
+from harness_mem.core.schemas.skill_deprecation_suggestion_candidate import (  # noqa: E402
+    DeprecationTrigger,
+    SkillDeprecationSuggestionCandidate,
+)
 from harness_mem.knowledge_cache import (  # noqa: E402
     COMPACT_RENDERER_NAME,
     load_compact_wake_payload,
@@ -1372,6 +1376,7 @@ from harness_mem.mcp.serializers import (  # noqa: E402, F401
     _serialize_procedural_candidate,
     _serialize_relation_fact_candidate,
     _serialize_rule_candidate,
+    _serialize_skill_deprecation_suggestion_candidate,
     _serialize_skill_promotion_candidate,
     _serialize_skill_revision_suggestion_candidate,
     _serialize_stale_truth_suggestion_candidate,
@@ -1395,6 +1400,7 @@ async def _gather_candidate_payload(
     list[dict],
     list[dict],
     list[dict],
+    list[dict],
 ]:
     rules = await backend.structured_store.list_rule_candidates(project_name, status=status)
     entries = await backend.structured_store.list_memory_entries(project_name, status=status, limit=limit)
@@ -1407,6 +1413,9 @@ async def _gather_candidate_payload(
     skill_revisions = await backend.structured_store.list_skill_revision_suggestion_candidates(
         project_name, status=status
     )
+    skill_deprecations = await backend.structured_store.list_skill_deprecation_suggestion_candidates(
+        project_name, status=status
+    )
     merge_suggestions = await backend.structured_store.list_merge_suggestion_candidates(project_name, status=status)
     stale_suggestions = await backend.structured_store.list_stale_truth_suggestion_candidates(project_name, status=status)
     return (
@@ -1417,6 +1426,7 @@ async def _gather_candidate_payload(
         [_serialize_procedural_candidate(candidate) for candidate in procedural[:limit]],
         [_serialize_skill_promotion_candidate(candidate) for candidate in skill_promotions[:limit]],
         [_serialize_skill_revision_suggestion_candidate(candidate) for candidate in skill_revisions[:limit]],
+        [_serialize_skill_deprecation_suggestion_candidate(candidate) for candidate in skill_deprecations[:limit]],
         [_serialize_merge_suggestion_candidate(candidate) for candidate in merge_suggestions[:limit]],
         [_serialize_stale_truth_suggestion_candidate(candidate) for candidate in stale_suggestions[:limit]],
     )
@@ -1440,6 +1450,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         procedural_candidates,
         skill_promotion_candidates,
         skill_revision_suggestion_candidates,
+        skill_deprecation_suggestion_candidates,
         merge_suggestion_candidates,
         stale_truth_suggestion_candidates,
     ) = asyncio.run(
@@ -1458,6 +1469,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         *procedural_candidates,
         *skill_promotion_candidates,
         *skill_revision_suggestion_candidates,
+        *skill_deprecation_suggestion_candidates,
         *merge_suggestion_candidates,
         *stale_truth_suggestion_candidates,
     ]
@@ -1477,6 +1489,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         "procedural_candidates": procedural_candidates,
         "skill_promotion_candidates": skill_promotion_candidates,
         "skill_revision_suggestion_candidates": skill_revision_suggestion_candidates,
+        "skill_deprecation_suggestion_candidates": skill_deprecation_suggestion_candidates,
         "merge_suggestion_candidates": merge_suggestion_candidates,
         "stale_truth_suggestion_candidates": stale_truth_suggestion_candidates,
         "count": len(candidates),
@@ -1488,6 +1501,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         "procedural_count": len(procedural_candidates),
         "skill_promotion_count": len(skill_promotion_candidates),
         "skill_revision_suggestion_count": len(skill_revision_suggestion_candidates),
+        "skill_deprecation_suggestion_count": len(skill_deprecation_suggestion_candidates),
         "merge_suggestion_count": len(merge_suggestion_candidates),
         "stale_truth_suggestion_count": len(stale_truth_suggestion_candidates),
     }
@@ -2089,6 +2103,97 @@ def tool_detect_skill_improvements(
     return asyncio.run(_run())
 
 
+def _shared_skill_conflict_target(skills: list[Any], skill: Any) -> Any | None:
+    for other in skills:
+        if other.id == skill.id or other.scope not in {"workspace", "global"}:
+            continue
+        if other.name == skill.name and other.activation_condition == skill.activation_condition:
+            if other.updated_at >= skill.updated_at:
+                return other
+    return None
+
+
+def _skill_deprecation_summary(skill: Any, trigger: str, conflicting_skill: Any | None) -> str:
+    if trigger == "conflicting_shared_skill" and conflicting_skill is not None:
+        return (
+            f"Shared skill overlaps with newer shared skill {conflicting_skill.id}; "
+            "review whether the older one should be retired."
+        )
+    return (
+        "Shared skill has been inactive beyond the stale window; "
+        "review whether it should be retired from the shared library."
+    )
+
+
+def tool_detect_skill_deprecations(
+    project_name: str,
+    limit: int = 20,
+    stale_days: int = 60,
+) -> dict:
+    """Create reviewed deprecation suggestions for stale/conflicting shared skills."""
+    backend = _get_backend()
+    effective_limit = max(1, min(int(limit), 200))
+    effective_stale_days = max(1, min(int(stale_days), 3650))
+
+    async def _run() -> dict[str, Any]:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=effective_stale_days)
+        skills = await backend.structured_store.list_skills_any_scope(
+            project_name,
+            status="active",
+        )
+        shared_skills = [skill for skill in skills if skill.scope in {"workspace", "global"}]
+        pending = await backend.structured_store.list_skill_deprecation_suggestion_candidates(
+            project_name,
+            status="pending",
+        )
+        pending_skill_ids = {candidate.source_skill_id for candidate in pending}
+        created: list[SkillDeprecationSuggestionCandidate] = []
+        skipped_existing = 0
+
+        for skill in shared_skills:
+            if len(created) >= effective_limit:
+                break
+            if skill.id in pending_skill_ids:
+                skipped_existing += 1
+                continue
+            conflicting_skill = _shared_skill_conflict_target(shared_skills, skill)
+            is_stale = (
+                (skill.last_used_at is not None and skill.last_used_at < cutoff)
+                or (skill.last_used_at is None and skill.created_at < cutoff)
+            )
+            if conflicting_skill is None and not is_stale:
+                continue
+            trigger = cast(
+                DeprecationTrigger,
+                "conflicting_shared_skill" if conflicting_skill is not None else "stale_shared_skill",
+            )
+            candidate = SkillDeprecationSuggestionCandidate(
+                project_name=project_name,
+                source_skill_id=skill.id,
+                trigger=trigger,
+                summary=_skill_deprecation_summary(skill, trigger, conflicting_skill),
+                conflicting_skill_id=conflicting_skill.id if conflicting_skill is not None else "",
+                usage_count=skill.usage_count,
+                success_rate=skill.success_rate,
+                last_used_at=skill.last_used_at,
+                confidence=0.8 if trigger == "conflicting_shared_skill" else 0.7,
+            )
+            await backend.structured_store.save_skill_deprecation_suggestion_candidate(candidate)
+            created.append(candidate)
+
+        return {
+            "success": True,
+            "project_name": project_name,
+            "stale_days": effective_stale_days,
+            "shared_skill_count": len(shared_skills),
+            "created_count": len(created),
+            "skipped_existing_count": skipped_existing,
+            "candidate_ids": [candidate.id for candidate in created],
+        }
+
+    return asyncio.run(_run())
+
+
 def tool_confirm_skill_revision(candidate_id: str) -> dict:
     """Accept a skill revision suggestion without rewriting the skill."""
     backend = _get_backend()
@@ -2119,6 +2224,54 @@ def tool_reject_skill_revision(candidate_id: str) -> dict:
     backend = _get_backend()
     updated = asyncio.run(
         backend.structured_store.update_skill_revision_suggestion_candidate_status(
+            candidate_id,
+            "rejected",
+        )
+    )
+    return {
+        "success": updated,
+        "candidate_id": candidate_id,
+        "status": "rejected" if updated else "not_found",
+    }
+
+
+def tool_confirm_skill_deprecation(candidate_id: str) -> dict:
+    """Accept a skill deprecation suggestion and retire the shared skill."""
+    backend = _get_backend()
+    candidate = asyncio.run(
+        backend.structured_store.get_skill_deprecation_suggestion_candidate(candidate_id)
+    )
+    if candidate is None or candidate.status != "pending":
+        return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
+    retired_skill = asyncio.run(
+        backend.structured_store.update_skill_status(
+            candidate.source_skill_id,
+            "retired",
+        )
+    )
+    if retired_skill is None:
+        return {"success": False, "error": f"Skill not found: {candidate.source_skill_id}"}
+    updated = asyncio.run(
+        backend.structured_store.update_skill_deprecation_suggestion_candidate_status(
+            candidate_id,
+            "accepted",
+        )
+    )
+    if not updated:
+        return {"success": False, "error": f"Failed to confirm candidate: {candidate_id}"}
+    return {
+        "success": True,
+        "candidate_id": candidate_id,
+        "status": "accepted",
+        "skill": serialize_skill(retired_skill),
+    }
+
+
+def tool_reject_skill_deprecation(candidate_id: str) -> dict:
+    """Reject a skill deprecation suggestion."""
+    backend = _get_backend()
+    updated = asyncio.run(
+        backend.structured_store.update_skill_deprecation_suggestion_candidate_status(
             candidate_id,
             "rejected",
         )
@@ -2401,6 +2554,9 @@ TOOLS: dict[str, ToolSpec] = build_tools({
     "detect_skill_improvements": tool_detect_skill_improvements,
     "confirm_skill_revision": tool_confirm_skill_revision,
     "reject_skill_revision": tool_reject_skill_revision,
+    "detect_skill_deprecations": tool_detect_skill_deprecations,
+    "confirm_skill_deprecation": tool_confirm_skill_deprecation,
+    "reject_skill_deprecation": tool_reject_skill_deprecation,
     "create_rule_candidate": tool_create_rule_candidate,
     "confirm_rule": tool_confirm_rule,
     "reject_rule": tool_reject_rule,

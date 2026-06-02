@@ -14,6 +14,9 @@ from harness_mem.core.schemas.skill_promotion_candidate import SkillPromotionCan
 from harness_mem.core.schemas.skill_revision_suggestion_candidate import (
     SkillRevisionSuggestionCandidate,
 )
+from harness_mem.core.schemas.skill_deprecation_suggestion_candidate import (
+    SkillDeprecationSuggestionCandidate,
+)
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.project_profile import ProjectProfile
@@ -63,6 +66,7 @@ __all__ = [
     "ProceduralCandidate",
     "SkillPromotionCandidate",
     "SkillRevisionSuggestionCandidate",
+    "SkillDeprecationSuggestionCandidate",
     "Skill",
     "ConfirmedRule",
     "ProjectProfile",

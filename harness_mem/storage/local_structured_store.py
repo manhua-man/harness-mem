@@ -19,6 +19,9 @@ from harness_mem.core.schemas.skill_promotion_candidate import SkillPromotionCan
 from harness_mem.core.schemas.skill_revision_suggestion_candidate import (
     SkillRevisionSuggestionCandidate,
 )
+from harness_mem.core.schemas.skill_deprecation_suggestion_candidate import (
+    SkillDeprecationSuggestionCandidate,
+)
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.relation_fact import RelationFact
@@ -48,6 +51,9 @@ class LocalStructuredStore:
             "skill_promotion_candidates": self.blob_dir / "skill_promotion_candidates",
             "skill_revision_suggestion_candidates": (
                 self.blob_dir / "skill_revision_suggestion_candidates"
+            ),
+            "skill_deprecation_suggestion_candidates": (
+                self.blob_dir / "skill_deprecation_suggestion_candidates"
             ),
             "skills": self.blob_dir / "skills",
             "confirmed_rules": self.blob_dir / "confirmed_rules",
@@ -1181,6 +1187,26 @@ class LocalStructuredStore:
                 results.append(Skill.from_dict(data))
         return results
 
+    async def list_skills_any_scope(
+        self,
+        project_name: str,
+        status: str = "active",
+    ) -> list[Skill]:
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "skills",
+            "project_name = ? AND COALESCE(status, 'active') = ?",
+            (project_name, status),
+            order_by="updated_at DESC",
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("skills", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(Skill.from_dict(data))
+        return results
+
     async def search_skills(
         self,
         query: str,
@@ -1279,6 +1305,29 @@ class LocalStructuredStore:
                 "success_rate": updated_skill.success_rate,
                 "updated_at": updated_skill.updated_at,
                 "last_used_at": updated_skill.last_used_at,
+            },
+        )
+        return updated_skill
+
+    async def update_skill_status(self, id: str, status: str) -> Skill | None:
+        skill = await self.get_skill(id)
+        if skill is None:
+            return None
+        updated_skill = skill.model_copy(
+            update={
+                "status": status,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
+        blob_path = self._blob_path("skills", updated_skill.id)
+        blob_path.write_text(json.dumps(updated_skill.to_dict(), indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.update,
+            "skills",
+            updated_skill.id,
+            {
+                "status": updated_skill.status,
+                "updated_at": updated_skill.updated_at,
             },
         )
         return updated_skill
@@ -1499,6 +1548,87 @@ class LocalStructuredStore:
         updated = await asyncio.to_thread(
             self._index.update,
             "skill_revision_suggestion_candidates",
+            id,
+            {"status": status},
+        )
+        if not updated:
+            return False
+        data = json.loads(blob_path.read_text())
+        data["status"] = status
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        return True
+
+    async def save_skill_deprecation_suggestion_candidate(
+        self,
+        candidate: SkillDeprecationSuggestionCandidate,
+    ) -> str:
+        blob_path = self._blob_path("skill_deprecation_suggestion_candidates", candidate.id)
+        blob_path.write_text(json.dumps(candidate.to_dict(), indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.insert,
+            "skill_deprecation_suggestion_candidates",
+            {
+                "id": candidate.id,
+                "project_name": candidate.project_name,
+                "source_skill_id": candidate.source_skill_id,
+                "trigger": candidate.trigger,
+                "summary": candidate.summary,
+                "conflicting_skill_id": candidate.conflicting_skill_id,
+                "usage_count": candidate.usage_count,
+                "success_rate": candidate.success_rate,
+                "last_used_at": candidate.last_used_at,
+                "confidence": candidate.confidence,
+                "status": candidate.status,
+                "created_at": candidate.created_at,
+            },
+        )
+        return candidate.id
+
+    async def get_skill_deprecation_suggestion_candidate(
+        self, id: str
+    ) -> SkillDeprecationSuggestionCandidate | None:
+        blob_path = self._blob_path("skill_deprecation_suggestion_candidates", id)
+        if not blob_path.exists():
+            return None
+        data = json.loads(blob_path.read_text())
+        return SkillDeprecationSuggestionCandidate.from_dict(data)
+
+    async def list_skill_deprecation_suggestion_candidates(
+        self,
+        project_name: str,
+        status: str | None = None,
+    ) -> list[SkillDeprecationSuggestionCandidate]:
+        where_parts = ["project_name = ?"]
+        params = [project_name]
+        if status:
+            where_parts.append("status = ?")
+            params.append(status)
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "skill_deprecation_suggestion_candidates",
+            " AND ".join(where_parts),
+            tuple(params),
+            order_by="created_at DESC",
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("skill_deprecation_suggestion_candidates", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(SkillDeprecationSuggestionCandidate.from_dict(data))
+        return results
+
+    async def update_skill_deprecation_suggestion_candidate_status(
+        self,
+        id: str,
+        status: str,
+    ) -> bool:
+        blob_path = self._blob_path("skill_deprecation_suggestion_candidates", id)
+        if not blob_path.exists():
+            return False
+        updated = await asyncio.to_thread(
+            self._index.update,
+            "skill_deprecation_suggestion_candidates",
             id,
             {"status": status},
         )

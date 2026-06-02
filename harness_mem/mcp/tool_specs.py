@@ -787,6 +787,46 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["candidate_id"],
         },
     },
+    "detect_skill_deprecations": {
+        "description": "Create reviewed deprecation suggestions for stale or conflicting shared skills.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum shared skills to create deprecation candidates for",
+                    "default": 20,
+                },
+                "stale_days": {
+                    "type": "integer",
+                    "description": "Staleness threshold for unused shared skills",
+                    "default": 60,
+                },
+            },
+            "required": ["project_name"],
+        },
+    },
+    "confirm_skill_deprecation": {
+        "description": "Accept a skill deprecation suggestion and retire the shared skill.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "candidate_id": {"type": "string", "description": "Skill deprecation suggestion candidate ID"},
+            },
+            "required": ["candidate_id"],
+        },
+    },
+    "reject_skill_deprecation": {
+        "description": "Reject a skill deprecation suggestion.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "candidate_id": {"type": "string", "description": "Skill deprecation suggestion candidate ID"},
+            },
+            "required": ["candidate_id"],
+        },
+    },
     "create_rule_candidate": {
         "description": "Create a rule candidate from a correction pattern.",
         "input_schema": {

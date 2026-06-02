@@ -1,7 +1,9 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from harness_mem.core.schemas import (
     ProceduralCandidate,
+    SkillDeprecationSuggestionCandidate,
     Skill,
     SkillPromotionCandidate,
     SkillRevisionSuggestionCandidate,
@@ -358,5 +360,44 @@ def test_skill_revision_suggestion_round_trip_and_acceptance_do_not_rewrite_skil
     accepted = run(store.get_skill_revision_suggestion_candidate(candidate.id))
     assert reloaded_skill is not None
     assert reloaded_skill.steps == ["Run tests", "Update changelog"]
+    assert accepted is not None
+    assert accepted.status == "accepted"
+
+
+def test_skill_deprecation_suggestion_round_trip_and_retire_skill(tmp_path: Path) -> None:
+    store = LocalStructuredStore(tmp_path)
+    skill = Skill(
+        project_name="demo",
+        name="Old shared release hygiene",
+        activation_condition="When preparing a release",
+        steps=["Run tests", "Update changelog"],
+        termination_condition="Release checks pass",
+        scope="global",
+        created_at=datetime.now(timezone.utc) - timedelta(days=120),
+        updated_at=datetime.now(timezone.utc) - timedelta(days=120),
+    )
+    run(store.save_skill(skill))
+    candidate = SkillDeprecationSuggestionCandidate(
+        project_name="demo",
+        source_skill_id=skill.id,
+        trigger="stale_shared_skill",
+        summary="Shared skill has been inactive beyond the stale window; review whether it should be retired from the shared library.",
+        usage_count=0,
+        success_rate=None,
+        last_used_at=None,
+    )
+    run(store.save_skill_deprecation_suggestion_candidate(candidate))
+
+    loaded = run(store.get_skill_deprecation_suggestion_candidate(candidate.id))
+    assert loaded is not None
+    assert loaded.source_skill_id == skill.id
+    assert loaded.trigger == "stale_shared_skill"
+
+    retired = run(store.update_skill_status(skill.id, "retired"))
+    assert retired is not None
+    assert retired.status == "retired"
+    assert run(store.update_skill_deprecation_suggestion_candidate_status(candidate.id, "accepted")) is True
+
+    accepted = run(store.get_skill_deprecation_suggestion_candidate(candidate.id))
     assert accepted is not None
     assert accepted.status == "accepted"

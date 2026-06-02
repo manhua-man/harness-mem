@@ -107,7 +107,7 @@ def test_stdio_initialize_writes_json_rpc_to_stdout():
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 49
+    assert len(tools) == 52
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
@@ -123,6 +123,7 @@ def test_tools_list():
         "suggest_skill", "confirm_skill", "reject_skill", "record_skill_result",
         "suggest_skill_promotion", "confirm_skill_promotion", "reject_skill_promotion",
         "detect_skill_improvements", "confirm_skill_revision", "reject_skill_revision",
+        "detect_skill_deprecations", "confirm_skill_deprecation", "reject_skill_deprecation",
         "suggest_memory_entry", "confirm_memory_entry", "reject_memory_entry",
         "suggest_relation_fact", "confirm_relation_fact", "reject_relation_fact",
         "create_task_handoff",
@@ -798,6 +799,16 @@ def test_detect_skill_improvements_creates_review_candidates_without_rewriting_s
     assert detected["matched_skill_count"] >= 1
     assert detected["created_count"] == 1
 
+    repeated = call_tool(
+        "detect_skill_improvements",
+        {
+            "project_name": "test-project",
+        },
+    )
+    assert repeated["success"] is True
+    assert repeated["created_count"] == 0
+    assert repeated["skipped_existing_count"] >= 1
+
     listed = call_tool("list_candidates", {"project_name": "test-project"})
     assert listed["skill_revision_suggestion_count"] == 1
     candidate = next(
@@ -822,6 +833,55 @@ def test_detect_skill_improvements_creates_review_candidates_without_rewriting_s
 
     still_same_skill = call_tool("get_skill", {"skill_id": skill_id})
     assert still_same_skill["skill"]["steps"] == ["Run tests", "Update changelog"]
+
+
+def test_detect_skill_deprecations_retires_stale_shared_skill(
+    mcp_backend: LocalMemoryBackend,
+):
+    stale_shared_skill = Skill(
+        project_name="test-project",
+        name="Old shared release hygiene",
+        activation_condition="When preparing a release",
+        steps=["Run tests", "Update changelog"],
+        termination_condition="Release checks pass",
+        scope="global",
+        origin_project="test-project",
+        created_at=datetime.now(timezone.utc) - timedelta(days=120),
+        updated_at=datetime.now(timezone.utc) - timedelta(days=120),
+    )
+    run(mcp_backend.structured_store.save_skill(stale_shared_skill))
+
+    detected = call_tool(
+        "detect_skill_deprecations",
+        {
+            "project_name": "test-project",
+            "stale_days": 60,
+        },
+    )
+    assert detected["success"] is True
+    assert detected["created_count"] == 1
+
+    listed = call_tool("list_candidates", {"project_name": "test-project"})
+    assert listed["skill_deprecation_suggestion_count"] == 1
+    candidate = next(
+        item for item in listed["candidates"] if item["type"] == "skill_deprecation_suggestion"
+    )
+    assert candidate["source_skill_id"] == stale_shared_skill.id
+    assert candidate["trigger"] == "stale_shared_skill"
+    assert candidate["confirm_tool"] == "confirm_skill_deprecation"
+    assert candidate["reject_tool"] == "reject_skill_deprecation"
+
+    confirmed = call_tool(
+        "confirm_skill_deprecation",
+        {"candidate_id": candidate["id"]},
+    )
+    assert confirmed["success"] is True
+    assert confirmed["status"] == "accepted"
+    assert confirmed["skill"]["status"] == "retired"
+
+    loaded = call_tool("get_skill", {"skill_id": stale_shared_skill.id})
+    assert loaded["success"] is True
+    assert loaded["skill"]["status"] == "retired"
 
 
 def test_auto_review_candidates_preview_and_apply(mcp_backend: LocalMemoryBackend):
