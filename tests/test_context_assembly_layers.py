@@ -427,6 +427,7 @@ def _seed_skill(
     name: str,
     activation_condition: str,
     steps: list[str],
+    scope: str = "project",
 ) -> Skill:
     """Save a Skill via the same store surface L3's ``search_skills`` reads.
 
@@ -440,6 +441,7 @@ def _seed_skill(
         activation_condition=activation_condition,
         steps=steps,
         termination_condition="done",
+        scope=scope,  # type: ignore[arg-type]
     )
     run(backend.structured_store.save_skill(skill))
     return skill
@@ -501,6 +503,42 @@ def test_l3_populated_from_search_surfaces_with_skill_hints_only(data_dir: Path)
 
     # Budget reflects the L3 default (Req 5.4).
     assert l3.budget.max_entries == DEFAULT_BUDGETS["L3"]
+
+
+def test_l3_default_query_excludes_shared_scope_skill(data_dir: Path) -> None:
+    """v2.7.0 scope model: default query recall remains project-scoped."""
+    project_name = "l3-scope-recall"
+    query = "release"
+
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    try:
+        project_skill = _seed_skill(
+            backend,
+            project_name=project_name,
+            name="Project release validation",
+            activation_condition="when release validation is needed",
+            steps=["run project release checks"],
+        )
+        shared_skill = _seed_skill(
+            backend,
+            project_name=project_name,
+            name="Shared release validation",
+            activation_condition="when release validation is needed",
+            steps=["run shared release checks"],
+            scope="global",
+        )
+
+        plan = run(
+            assemble_context_plan(backend, project_name=project_name, query=query)
+        )
+    finally:
+        run(backend.close())
+
+    skill_entries = [e for e in plan.layer("L3").entries if e.why_included == "topic_recall:skill"]
+    skill_source_ids = [entry.source_ids[0] for entry in skill_entries]
+    assert project_skill.id in skill_source_ids
+    assert shared_skill.id not in skill_source_ids
 
 
 def test_l3_empty_when_query_off(data_dir: Path) -> None:

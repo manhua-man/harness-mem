@@ -1041,6 +1041,13 @@ class LocalStructuredStore:
             success_examples=candidate.success_examples,
             source_candidate_id=candidate.id,
             source_session_id=candidate.source_session_id,
+            scope="project",
+            origin_project=candidate.project_name,
+            source_ids=[
+                source_id
+                for source_id in (candidate.id, candidate.source_session_id, candidate.source)
+                if source_id
+            ],
             confidence=candidate.confidence,
             created_at=now,
             updated_at=now,
@@ -1069,6 +1076,11 @@ class LocalStructuredStore:
                 "success_examples": skill.success_examples,
                 "source_candidate_id": skill.source_candidate_id,
                 "source_session_id": skill.source_session_id,
+                "scope": skill.scope,
+                "origin_project": skill.origin_project,
+                "source_ids": skill.source_ids,
+                "portability_notes": skill.portability_notes,
+                "disabled_assumptions": skill.disabled_assumptions,
                 "confidence": skill.confidence,
                 "status": skill.status,
                 "usage_count": skill.usage_count,
@@ -1104,7 +1116,7 @@ class LocalStructuredStore:
         rows = await asyncio.to_thread(
             self._index.list,
             "skills",
-            "project_name = ? AND COALESCE(status, 'active') = ?",
+            "project_name = ? AND COALESCE(status, 'active') = ? AND COALESCE(scope, 'project') = 'project'",
             (project_name, status),
             order_by="updated_at DESC",
         )
@@ -1128,6 +1140,7 @@ class LocalStructuredStore:
         if project_name:
             extra_where_parts.append("project_name = ?")
             extra_params = (*extra_params, project_name)
+            extra_where_parts.append("COALESCE(scope, 'project') = 'project'")
 
         rows = await asyncio.to_thread(
             self._index.search,

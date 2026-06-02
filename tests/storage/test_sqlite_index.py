@@ -342,3 +342,58 @@ def test_init_db_migrates_compacted_columns(tmp_path: Path):
 
     assert "compacted" in observation_columns
     assert "compacted" in memory_entry_columns
+
+
+def test_init_db_migrates_skill_scope_columns(tmp_path: Path):
+    db_path = tmp_path / "legacy-skills.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE skills (
+                id TEXT PRIMARY KEY,
+                project_name TEXT NOT NULL,
+                name TEXT NOT NULL,
+                activation_condition TEXT NOT NULL,
+                steps TEXT NOT NULL DEFAULT '[]',
+                termination_condition TEXT NOT NULL,
+                success_examples TEXT NOT NULL DEFAULT '[]',
+                source_candidate_id TEXT NOT NULL DEFAULT '',
+                source_session_id TEXT NOT NULL DEFAULT '',
+                confidence REAL NOT NULL DEFAULT 0.7,
+                status TEXT NOT NULL DEFAULT 'active',
+                usage_count INTEGER NOT NULL DEFAULT 0,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                failure_count INTEGER NOT NULL DEFAULT 0,
+                success_rate REAL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_used_at TEXT,
+                search_text TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    idx = SQLiteIndex(db_path)
+    try:
+        idx.init_db()
+        conn = sqlite3.connect(db_path)
+        try:
+            skill_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(skills)").fetchall()
+            }
+        finally:
+            conn.close()
+    finally:
+        idx.close()
+
+    assert {
+        "scope",
+        "origin_project",
+        "source_ids",
+        "portability_notes",
+        "disabled_assumptions",
+    }.issubset(skill_columns)

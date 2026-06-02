@@ -5,12 +5,20 @@
 Confirmed procedural skills SHALL carry an explicit scope value of `project`,
 `workspace`, or `global`.
 
+#### Scenario: New confirmed skill defaults to project scope
+
+- **GIVEN** an Agent confirms or records a skill through the existing project skill flow
+- **WHEN** no reviewed shared-scope promotion is being applied
+- **THEN** the stored skill has `scope="project"`
+- **AND** default project skill search behavior remains unchanged
+
 #### Scenario: Existing project skills migrate to project scope
 
 - **GIVEN** a database has confirmed skills created before v2.7
 - **WHEN** the schema migration runs
 - **THEN** each existing skill is treated as `scope="project"`
 - **AND** its project ownership and usage counters are preserved
+- **AND** default wake and default project skill search outputs remain equivalent to the pre-migration behavior
 
 ### Requirement: Shared skills preserve provenance and portability notes
 

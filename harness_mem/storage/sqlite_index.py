@@ -110,6 +110,11 @@ _TABLE_SCHEMAS = {
         success_examples TEXT NOT NULL DEFAULT '[]',
         source_candidate_id TEXT NOT NULL DEFAULT '',
         source_session_id TEXT NOT NULL DEFAULT '',
+        scope TEXT NOT NULL DEFAULT 'project',
+        origin_project TEXT NOT NULL DEFAULT '',
+        source_ids TEXT NOT NULL DEFAULT '[]',
+        portability_notes TEXT NOT NULL DEFAULT '',
+        disabled_assumptions TEXT NOT NULL DEFAULT '[]',
         confidence REAL NOT NULL DEFAULT 0.7,
         status TEXT NOT NULL DEFAULT 'active',
         usage_count INTEGER NOT NULL DEFAULT 0,
@@ -256,6 +261,13 @@ _COLUMN_MIGRATIONS = {
         "recorded_at": "TEXT",
         "supersedes": "TEXT NOT NULL DEFAULT '[]'",
         "superseded_by": "TEXT NOT NULL DEFAULT '[]'",
+    },
+    "skills": {
+        "scope": "TEXT NOT NULL DEFAULT 'project'",
+        "origin_project": "TEXT NOT NULL DEFAULT ''",
+        "source_ids": "TEXT NOT NULL DEFAULT '[]'",
+        "portability_notes": "TEXT NOT NULL DEFAULT ''",
+        "disabled_assumptions": "TEXT NOT NULL DEFAULT '[]'",
     },
 }
 

@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.7
 
-> 状态：v2.7.0 OpenSpec 已创建；实现未开始。
+> 状态：v2.7.0 scope model 已完成；promotion / shared search 未开始。
 >
 > 主题：Cross-Project Skills and Controlled Activation。让可复用 procedural knowledge 跨项目流动，但必须显式、带边界、可审核。
 
@@ -52,7 +52,19 @@ v2.7 处理原先放在 v2.4 的跨项目 Skill 方向。它被后移的原因�
 - 已创建 `openspec/changes/v270-cross-project-skill-library/`。
 - 已定义 scope model、promotion candidate、explicit shared search、
   project-specific precedence 与 provenance 边界。
-- 尚未实现 schema/storage/MCP runtime；现有 Skill 仍是 project-scoped。
+- 已实现第一片 scope model：confirmed Skill 支持
+  `scope=project|workspace|global`、`origin_project`、`source_ids`、
+  portability metadata；旧 Skill 自动按 `scope=project` 迁移。
+- 尚未实现 promotion candidate 与 explicit shared search；默认 wake / skill search
+  仍不消费 shared skills。
+
+### 首片实现验收：scope model
+
+第一片 runtime slice 只建立 scope model 与兼容迁移边界，不启用跨项目消费：
+
+- 新建 confirmed Skill 默认仍为 `scope=project`，并保留现有 project ownership、usage counters 与 search 行为。
+- 旧 confirmed Skill 迁移后必须等价于 project-scoped skill；默认 wake 和默认 `search_skills` 不应出现 workspace/global skill。
+- scope/provenance/portability 字段可以先落 schema/storage，但 promotion candidate 与 explicit shared search 仍按后续任务验收，不在本片隐式开启。
 
 ## v2.7.1：Controlled Skill Activation
 

@@ -1,8 +1,10 @@
 ## 1. Scope model
 
-- [ ] 1.1 Extend confirmed skill schema with `scope = project | workspace | global`.
-- [ ] 1.2 Persist `origin_project`, `source_ids`, and portability metadata for shared skills.
-- [ ] 1.3 Migrate existing confirmed skills as `scope=project`.
+- [x] 1.1 Extend confirmed skill schema with `scope = project | workspace | global`.
+- [x] 1.2 New confirmed skills default to `scope=project` unless a reviewed promotion path explicitly creates a shared skill.
+- [x] 1.3 Persist `origin_project`, `source_ids`, and portability metadata for shared skills.
+- [x] 1.4 Migrate existing confirmed skills as `scope=project` while preserving project ownership, usage counters, and existing default search behavior.
+- [x] 1.5 Verify the scope-model slice does not enable promotion candidates, shared search, or default wake/search inclusion of shared skills before those later tasks are implemented.
 
 ## 2. Promotion candidate loop
 
@@ -25,7 +27,7 @@
 
 ## 5. Validation
 
-- [ ] 5.1 Add schema/store migration tests.
+- [x] 5.1 Add schema/store migration tests.
 - [ ] 5.2 Add MCP promotion review tests.
 - [ ] 5.3 Add explicit cross-project search tests.
-- [ ] 5.4 Verify default wake and default skill search do not include shared skills.
+- [x] 5.4 Verify default wake and default skill search do not include shared skills.

@@ -8,11 +8,15 @@
 
 ### Added
 
-- 尚无未发布条目。
+- **v2.7.0 scope model foundation**：confirmed `Skill` 现在支持
+  `scope=project|workspace|global`、`origin_project`、`source_ids`、
+  `portability_notes` 与 `disabled_assumptions`；新旧 skill 默认保持
+  `scope=project`，不启用 shared consumption。
 
 ### Notes
 
-- 下一条未发布功能将在此记录。
+- Promotion candidate 和 explicit shared search 仍未实现；默认 wake / skill search
+  不消费 workspace/global shared skills。
 
 ---
 
