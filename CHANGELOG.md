@@ -8,6 +8,28 @@
 
 ---
 
+## [2.9.9] — 2026-06-02
+
+**主题：Reflection Project-Root Resolution**
+
+v2.9.9 收的是一个小但真实的运行时缺口。共享 reflection business command
+`reflection_once(...)` 在 `project_root` 缺省时，之前会直接把调用方 cwd 记进
+job，即使 commands layer 已经可以按 `project_name` 找到已知 repo root。
+这一版把解析顺序收紧成“先 known root，后 cwd”，并补 focused tests 锁住它。
+
+### Changed
+
+- **known-root-first resolution**：`reflection_once(...)` 现在在
+  `project_root=None` 时优先调用 commands-layer 的 `find_project_root(project_name)`。
+- **cwd final fallback**：只有在没有已知 project root 时，才回退到当前工作目录。
+- **focused regression coverage**：`tests/test_reflection_once_integration.py`
+  新增 known-root path 与 cwd fallback 两个覆盖。
+
+### Boundaries
+
+- 本版本不引入新的 reflection queue、daemon、worker 或 CLI surface。
+- `host_entry` 仍然优先传显式 `--project-root`；这次只收紧共享 business command 的缺省解析语义。
+
 ## [2.9.8] — 2026-06-02
 
 **主题：Maintenance Surface Collateral Guard**

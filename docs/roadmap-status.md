@@ -10,24 +10,25 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.8` |
-| `harness_mem/__init__.py` | `2.9.8` |
-| `CHANGELOG.md` | 已有 `2.9.8` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.9` |
+| `harness_mem/__init__.py` | `2.9.9` |
+| `CHANGELOG.md` | 已有 `2.9.9` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.8：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.9：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
 boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力，以及
 v2.8.0–v2.8.2 的 session-distill maintenance surfaces、v2.9.0 的 PRD sync
 candidate surface、v2.9.1 的 status triage surface，以及 v2.9.2 的 plugin
-doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 stale CLI surface guard sync、v2.9.5 的 shell completion maintenance truth、v2.9.6 的 maintenance surface collateral sync、v2.9.7 的 README and telemetry maintenance truth、v2.9.8 的 maintenance surface collateral guard 都已落地。
+doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 stale CLI surface guard sync、v2.9.5 的 shell completion maintenance truth、v2.9.6 的 maintenance surface collateral sync、v2.9.7 的 README and telemetry maintenance truth、v2.9.8 的 maintenance surface collateral guard，以及 v2.9.9 的 reflection project-root resolution 都已落地。
 
-> **v2.9.8 发版状态（2026-06-02）**：版本号已 bump 到 `2.9.8`。v2.9 在保持
+> **v2.9.9 发版状态（2026-06-02）**：版本号已 bump 到 `2.9.9`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
 > stale-surface guardrail、shell completion、MCP/user-test collateral 与
 > README/telemetry collateral guard 一起对齐到已经 shipped 的 `config` /
-> `integration` 命名空间。
+> `integration` 命名空间；同时把 `reflection_once(project_root=None)` 的缺省解析
+> 收紧成 known-root-first、cwd-final-fallback。
 
 ## 完成矩阵
 
@@ -70,6 +71,7 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 | v2.9.6 | 已完成 | `openspec/specs/mcp/spec.md` sync、`docs/v2-user-test-packet.md` sync、OpenSpec `v296-maintenance-surface-collateral-sync` | MCP 主 spec 与用户测试包现在都承认 `config` / `integration` 属于当前维护 CLI surface。 |
 | v2.9.7 | 已完成 | `README.md` maintenance summary sync、`openspec/specs/telemetry/spec.md` sync、OpenSpec `v297-maintenance-surface-readme-and-telemetry-sync` | README 与 telemetry 主 spec 现在都承认 `config` / `integration` 属于当前维护 CLI surface。 |
 | v2.9.8 | 当前收口基线 | `tests/test_maintenance_surface_collateral.py`、OpenSpec `v298-maintenance-surface-collateral-guard` | maintenance-surface collateral 现在有 focused regression guard，不再只靠人工回读。 |
+| v2.9.9 | 当前版本 | `harness_mem/commands/reflection_jobs.py` known-root-first resolution、`tests/test_reflection_once_integration.py` 两个缺省 root 覆盖、OpenSpec `v299-reflection-project-root-resolution` | 只收紧共享 reflection business command 的缺省 `project_root` 解析；`host_entry` 仍优先传显式 `--project-root`。 |
 
 ## 未完成 / 不做项
 

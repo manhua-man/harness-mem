@@ -179,10 +179,11 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
     )
     from pathlib import Path
 
-    # project_name: v2.4.0 reflection_once has a TODO about wiring the real
-    # project resolver. We pass the repo directory basename as a reasonable
-    # project_name and the full --project-root as project_root. Fall back to
-    # the full path when the basename is empty (e.g. a root path).
+    # reflection_once resolves missing project_root via commands-layer lookup,
+    # but host entry already has the absolute repo path in hand. We therefore
+    # pass both a stable project_name (basename) and the explicit
+    # --project-root, falling back to the full path only when basename is
+    # empty (for example, a filesystem root).
     project_name = Path(args.project_root).name or args.project_root
 
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)

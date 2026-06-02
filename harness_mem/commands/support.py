@@ -470,12 +470,19 @@ def resolve_project_name(
 def project_roots(project_name: str) -> list[Path]:
     repo_root = Path(__file__).resolve().parents[2]
     cwd = Path.cwd()
-    return [
-        cwd,
-        cwd / project_name,
-        cwd.parent / project_name,
-        repo_root.parent / "tests" / "fixtures" / project_name,
-    ]
+    candidates: list[Path] = []
+    if cwd.name == project_name:
+        candidates.append(cwd)
+    candidates.extend(
+        [
+            cwd / project_name,
+            cwd.parent / project_name,
+            repo_root.parent / "tests" / "fixtures" / project_name,
+        ]
+    )
+    if cwd not in candidates:
+        candidates.append(cwd)
+    return candidates
 
 
 def find_project_root(project_name: str) -> Path | None:

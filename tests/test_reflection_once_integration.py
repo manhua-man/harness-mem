@@ -181,6 +181,59 @@ def test_explicit_defer_to_agent_within_500ms(
     assert elapsed < 0.5, f"defer path took {elapsed:.3f}s, exceeds 500ms budget"
 
 
+def test_project_root_defaults_to_known_project_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    store: ReflectionJobStore,
+) -> None:
+    """Validates: Requirement 5.4 known-root resolution before cwd fallback."""
+    workspace = tmp_path / "workspace"
+    project_root = workspace / "demo"
+    project_root.mkdir(parents=True)
+    monkeypatch.chdir(workspace)
+
+    result = run(
+        reflection_once(
+            project_name="demo",
+            config={},
+            source="agent",
+            session_ids=["s1"],
+            trigger_id="trigger-root-known",
+            project_root=None,
+            job_store=store,
+        )
+    )
+
+    assert result.created is True
+    assert result.job.project_root == str(project_root)
+
+
+def test_project_root_defaults_to_cwd_when_no_known_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    store: ReflectionJobStore,
+) -> None:
+    """Validates: Requirement 5.4 cwd remains the final fallback."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.chdir(workspace)
+
+    result = run(
+        reflection_once(
+            project_name="missing-project",
+            config={},
+            source="agent",
+            session_ids=["s1"],
+            trigger_id="trigger-root-cwd",
+            project_root=None,
+            job_store=store,
+        )
+    )
+
+    assert result.created is True
+    assert result.job.project_root == str(workspace)
+
+
 def test_idempotent_repeat_returns_existing_in_flight(
     store: ReflectionJobStore,
 ) -> None:

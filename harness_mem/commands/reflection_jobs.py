@@ -18,8 +18,10 @@ import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Literal
 
+from harness_mem.commands.support import find_project_root
 from harness_mem.core.schemas.reflection_job import ReflectionJob, validate_transition
 from harness_mem.storage.reflection_job_store import ReflectionJobStore
 
@@ -288,9 +290,10 @@ async def reflection_once(
 
     Behavior contract — implemented in this order:
 
-    1. Resolve project (Req 5.4) — if ``project_root`` is None, fall
-       back to ``os.getcwd()`` and tag a TODO so the proper resolver
-       can be wired in once it's exposed at the commands layer.
+    1. Resolve project (Req 5.4) — if ``project_root`` is None, first
+       try the commands-layer project-root resolver for ``project_name``;
+       if that finds nothing, fall back to the current working
+       directory.
     2. Compute idempotency key (Req 5.1) — covers project / source /
        phase / sorted session_ids / trigger_id.
     3. Job-store guard (Req 10.5, 10.7) — a missing store yields a
@@ -313,11 +316,8 @@ async def reflection_once(
     """
     # ---- 1. Resolve project (Req 5.4) -----------------------------------
     if project_root is None:
-        # TODO(v2.4.x): wire to project profile resolver once exposed in
-        # commands layer. For now we use cwd so reflection_once works in
-        # tests + hand-driven calls; production callers should pass an
-        # explicit project_root.
-        project_root = os.getcwd()
+        resolved_root = find_project_root(project_name)
+        project_root = str(resolved_root) if resolved_root is not None else str(Path.cwd())
 
     session_id_list = list(session_ids) if session_ids else []
 

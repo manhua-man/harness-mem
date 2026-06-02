@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -256,3 +256,25 @@ v2.9 是对 session-distill maintenance family 的补片：从 bundled packet �
   - telemetry spec maintenance surface summary
   - v2 user-test packet 的允许维护命令 summary
 - 该切片不改 runtime surface，只给现有 collateral truth 加回归护栏。
+
+## v2.9.9：Reflection Project-Root Resolution
+
+**用户故事**：当 host entry 之外的共享 reflection business command 以
+`project_root=None` 被调用时，如果 repo 已经能通过 commands-layer lookup 定位到，
+job 记录里就不应该退化成调用方 cwd；只有在确实找不到已知 root 时，cwd 才是最后兜底。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | known-root-first resolution | `reflection_once(...)` 先尝试 `find_project_root(project_name)` |
+| P0 | cwd final fallback | 没找到已知 root 时仍保留 cwd 兜底 |
+| P1 | focused regression tests | 覆盖 known-root path 和 no-known-root fallback |
+
+### 当前状态（2026-06-02）
+
+- 已完成 `openspec/changes/v299-reflection-project-root-resolution/`。
+- `harness_mem.commands.reflection_jobs.reflection_once(...)` 现在会：
+  - 优先使用 commands-layer 的已知 project root lookup
+  - 仅在 lookup 失败时回退到 cwd
+- 已补 focused tests，覆盖：
+  - `project_root=None` 且能找到已知 root
+  - `project_root=None` 且找不到已知 root
