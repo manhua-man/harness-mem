@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -200,3 +200,21 @@ v2.9 是对 session-distill maintenance family 的补片：从 bundled packet �
 - 已补 focused tests，覆盖：
   - bash / zsh / fish 生成脚本
   - `python -m harness_mem.cli --completion bash`
+
+## v2.9.6：Maintenance Surface Collateral Sync
+
+**用户故事**：当维护者阅读 MCP 主 spec 或拿 `docs/v2-user-test-packet.md` 做用户面验收时，不应该再看到一份停留在 `config/integration` 发版之前的旧 maintenance CLI 口径。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | MCP spec sync | `openspec/specs/mcp/spec.md` 对齐当前 maintenance CLI surface |
+| P0 | user-test packet sync | `docs/v2-user-test-packet.md` 的允许维护命令包含 `config` / `integration` |
+| P1 | release writeback | roadmap / status / changelog / version 与 v2.9.6 一致 |
+
+### 当前状态（2026-06-02）
+
+- 已完成 `openspec/changes/v296-maintenance-surface-collateral-sync/`。
+- 剩余高可见 collateral 已对齐当前 maintenance CLI truth：
+  - `openspec/specs/mcp/spec.md` 现在包含 `qs` / `config` / `integration`
+  - `docs/v2-user-test-packet.md` 现在把 `config` / `integration` 视为允许的维护类 CLI 命令
+- 该切片不改 runtime surface，只收束残留的 spec / user-test 口径。

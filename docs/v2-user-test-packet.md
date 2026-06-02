@@ -208,7 +208,7 @@ Cursor 不需要单独的 `.cursor/commands` 模板。两条接入路径，二�
 - **Pre-condition**：当前 working tree。
 - **Test action（字符串扫描）**：
   - `rg "harness-mem (wake|search|timeline|candidates|distill)\b" README.md AGENTS.md plugins/harness-mem/README.md plugins/harness-mem/commands/hm/*.md tools/session-distill/SKILL.md`
-- **Expected**：上述 5 个子命令在以上文件里 **不应** 作为日常用户 path 出现。允许的维护类 CLI 命令是 `harness-mem quickstart` / `doctor` / `purge` / `maintenance` / `import`。
+- **Expected**：上述 5 个子命令在以上文件里 **不应** 作为日常用户 path 出现。允许的维护类 CLI 命令是 `harness-mem quickstart` / `doctor` / `purge` / `maintenance` / `import` / `config` / `integration`。
 - **Pass criterion**：grep 结果为空，或仅出现在"砍掉的 CLI"显式列表（如本 packet 的 S4、S11）作为反例引用。
 - **Common failure mode**：某个文档忘了改，仍写 "run `harness-mem wake` to load context"。
 

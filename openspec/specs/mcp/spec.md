@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义 MCP 工具语义与生命周期契约。v2.1 起，MCP 是 harness-mem 唯一的日常运行时入口——用户通过 IDE 命令（`/hm:distill`、`/hm:wake`、`/hm:search`）或自然语言驱动 Agent，Agent 在背后调 MCP 工具完成 ingest、distill、search、timeline、candidate review、wake 等流程。CLI 不再承载日常 memory 操作，仅保留 `init` / `quickstart` / `doctor` / `import` / `purge` / `maintenance` 这类安装与维护命令。
+定义 MCP 工具语义与生命周期契约。v2.1 起，MCP 是 harness-mem 唯一的日常运行时入口——用户通过 IDE 命令（`/hm:distill`、`/hm:wake`、`/hm:search`）或自然语言驱动 Agent，Agent 在背后调 MCP 工具完成 ingest、distill、search、timeline、candidate review、wake 等流程。CLI 不再承载日常 memory 操作，仅保留 `init` / `quickstart` / `qs` / `doctor` / `import` / `purge` / `maintenance` / `config` / `integration` 这类安装与维护命令。
 ## Requirements
 ### Requirement: MCP owns the daily user workflow
 

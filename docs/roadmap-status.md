@@ -10,23 +10,24 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.5` |
-| `harness_mem/__init__.py` | `2.9.5` |
-| `CHANGELOG.md` | 已有 `2.9.5` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.6` |
+| `harness_mem/__init__.py` | `2.9.6` |
+| `CHANGELOG.md` | 已有 `2.9.6` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.5：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.6：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
 boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力，以及
 v2.8.0–v2.8.2 的 session-distill maintenance surfaces、v2.9.0 的 PRD sync
 candidate surface、v2.9.1 的 status triage surface，以及 v2.9.2 的 plugin
 doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 stale CLI surface guard sync、v2.9.5 的 shell completion maintenance truth 都已落地。
+doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 stale CLI surface guard sync、v2.9.5 的 shell completion maintenance truth、v2.9.6 的 maintenance surface collateral sync 都已落地。
 
-> **v2.9.5 发版状态（2026-06-02）**：版本号已 bump 到 `2.9.5`。v2.9 在保持
+> **v2.9.6 发版状态（2026-06-02）**：版本号已 bump 到 `2.9.6`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
-> stale-surface guardrail、shell completion 一起对齐到已经 shipped 的
-> `config` / `integration` 命名空间。
+> stale-surface guardrail、shell completion、MCP/user-test collateral 一起
+> 对齐到已经 shipped 的 `config` / `integration` 命名空间。
 
 ## 完成矩阵
 
@@ -65,7 +66,8 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 | v2.9.2 | 已完成 | `plugins/harness-mem/scripts/doctor.ps1` repair、hint-only `-Wake`、OpenSpec `v292-plugin-doctor-helper-integrity`、script smoke test | repo-local plugin doctor helper 只调用维护 CLI surface；不再触发 `invalid choice: 'status'`。 |
 | v2.9.3 | 已完成 | `openspec/specs/cli/spec.md` top-level command sync、`config` / `integration` namespace contract、OpenSpec `v293-cli-maintenance-surface-truth` | 主 CLI spec 现在与真实 `harness-mem --help` 一致，明确 `config` / `integration` 属于 maintenance-only surface。 |
 | v2.9.4 | 已完成 | `tests/test_stale_cli_surface.py` allowlist sync、OpenSpec `v294-stale-cli-surface-guard-sync` | focused stale-CLI guard 现在与当前 maintenance surface 一致，不会把 `config` / `integration` 视为过时口径。 |
-| v2.9.5 | 当前收口基线 | `harness_mem/shell_completion.py` sync、OpenSpec `v295-shell-completion-maintenance-truth`、`tests/test_shell_completion.py` | shell completion 现在与当前 maintenance surface 一致，不再漏掉 `config` / `integration` / `qs`。 |
+| v2.9.5 | 已完成 | `harness_mem/shell_completion.py` sync、OpenSpec `v295-shell-completion-maintenance-truth`、`tests/test_shell_completion.py` | shell completion 现在与当前 maintenance surface 一致，不再漏掉 `config` / `integration` / `qs`。 |
+| v2.9.6 | 当前收口基线 | `openspec/specs/mcp/spec.md` sync、`docs/v2-user-test-packet.md` sync、OpenSpec `v296-maintenance-surface-collateral-sync` | MCP 主 spec 与用户测试包现在都承认 `config` / `integration` 属于当前维护 CLI surface。 |
 
 ## 未完成 / 不做项
 

@@ -8,6 +8,29 @@
 
 ---
 
+## [2.9.6] — 2026-06-02
+
+**主题：Maintenance Surface Collateral Sync**
+
+v2.9.6 收的是两处残余的 maintenance-surface 旧口径。虽然主 CLI spec、stale
+doc guard、shell completion 都已经同步到 `config` / `integration` 时代，
+`openspec/specs/mcp/spec.md` 和 `docs/v2-user-test-packet.md` 仍然停留在更早的
+维护命令集。这个版本不改 runtime，只把剩余高可见 collateral 收回到同一份真值。
+
+### Changed
+
+- **MCP spec sync**：`openspec/specs/mcp/spec.md` 现在把 CLI 维护面写为
+  `init / quickstart / qs / doctor / import / purge / maintenance / config / integration`。
+- **user-test packet sync**：`docs/v2-user-test-packet.md` 现在把
+  `config` / `integration` 视为允许的维护类 CLI 命令。
+- **release writeback**：`docs/roadmap-v29.md` 与 `docs/roadmap-status.md`
+  已同步到 v2.9.6。
+
+### Boundaries
+
+- 本版本不新增 CLI、MCP、plugin 或 slash 运行时能力。
+- 它只修剩余 spec / user-test collateral 的 current-truth 漂移。
+
 ## [2.9.5] — 2026-06-02
 
 **主题：Shell Completion Maintenance Truth**
