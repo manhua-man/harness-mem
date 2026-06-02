@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -478,3 +478,25 @@ shared policy。
   - `reason`
   - 可选 `repair_hint` / `repair_reason`
 - 已补 focused regression test：`tests/test_status_entrypoint_truth.py`
+
+## v2.9.19：Best-Practices Auto-Review Truth Sync
+
+**用户故事**：当维护者回看 `docs/best-practices.md` 的候选层说明、角色表和工具表时，
+不应该再被“`/hm:distill` 默认先 `list_candidates` 再逐条 `confirm_*` / `reject_*`”
+的旧写法误导，因为当前 shipped distill review truth 已经是一等
+`auto_review_candidates(project_name=<project>, apply=true)` shared policy。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | best-practices auto-review sync | `best-practices` 把 `auto_review_candidates` 写成默认 distill review surface |
+| P0 | tool catalog sync | 管理工具表把 `auto_review_candidates` 视为默认 review tool，`list_candidates` 降为 drilldown/recheck |
+| P1 | focused regression guard | best-practices 回流到 per-item review 旧写法时测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2919-best-practices-auto-review-truth-sync/`。
+- `docs/best-practices.md` 现在明确：
+  - `Memory Expert` 默认复用 `auto_review_candidates`
+  - `Gardener` 在 `/hm:distill` 同一轮调用 `auto_review_candidates(project_name=<project>, apply=true)`
+  - `list_candidates` 只保留给显式 review drilldown 或用户纠错流
+- 已补 focused regression test：`tests/test_best_practices_auto_review_truth.py`

@@ -9,7 +9,7 @@ harness-mem 不仅仅是一个工具，它定义了一套 AI 参与的记忆生�
 | **User (用户)** | 提出目标，复核最终摘要并纠错。 | 自然语言 / Slash |
 | **Executor (执行者)** | 完成具体的编码或研究任务。 | Slash / Skill / Agent 自然语言入口 |
 | **Gardener (园丁)** | 维护记忆健康：ingest、distill、auto-review、purge、关联条目。 | `/hm:distill` / Skill；CLI 仅排障 |
-| **Memory Expert (专家)** | 判断候选价值，自动确认低风险事实、拒绝噪声，把高风险项留给用户。 | MCP (`list_candidates` / `confirm_*` / `reject_*`) |
+| **Memory Expert (专家)** | 复用 shared auto-review policy，自动处理低风险候选并把高风险项留给用户。 | MCP (`auto_review_candidates`，必要时查看 `applied_decisions`) |
 
 ---
 
@@ -20,7 +20,7 @@ harness-mem 不仅仅是一个工具，它定义了一套 AI 参与的记忆生�
 为了保证记忆库的信噪比，所有由 AI 产生的结构化知识（MemoryEntry, Rule, Relation）都应先进入“候选层”（状态为 `pending`）。
 
 - **Executor 行为**：在用户明确要求记录、或 `/hm:distill` / Skill 流程中发现关键决策时，使用 `suggest_memory_entry` 或 `create_task_handoff`。
-- **Gardener 行为**：`/hm:distill` 应在同一轮通过 MCP `list_candidates` 读取候选，自动确认低风险长期事实，拒绝工具噪声、跨项目 workflow、泛泛原则、重复项或证据不足项。
+- **Gardener 行为**：`/hm:distill` 应在同一轮调用 MCP `auto_review_candidates(project_name=<project>, apply=true)`，复用 shared low-risk policy 自动确认长期事实、拒绝工具噪声，并把高风险残留留在最终摘要里。
 - **User 行为**：查看 `/hm:distill` 的最终摘要，指出处理不对的编号。`/hm:review` 只用于复查旧 pending、纠错或 MCP 异常后的手动补救，不是日常必经步骤。
 
 ---
@@ -40,8 +40,9 @@ Executor 应根据场景自主选择工具：
 | | `create_task_handoff` | Session 结束前，记录进度、下一步计划和阻塞点。 |
 | | `suggest_rule` | 发现需要长期遵守的模式（如：禁止使用某库）。 |
 | | `suggest_relation_fact` | 建立实体间的关联（如：A 模块依赖 B 配置）。 |
-| **管理** | `list_candidates` | `/hm:distill` 自动审核候选前读取 pending 列表。 |
-| | `confirm_rule` / `reject_rule` | AI 自动处理低风险规则；高风险项才留给 User 最终确认。 |
+| **管理** | `auto_review_candidates` | `/hm:distill` 和 `/hm:review` 的默认低风险审核 surface；返回 canonical counters 与 `applied_decisions`。 |
+| | `list_candidates` | 显式 review、用户纠错或需要 drilldown 某个 pending 项时再读取。 |
+| | `confirm_rule` / `reject_rule` | 用户显式决定某条规则去留，或 repair/recheck 流程需要逐项处理时使用。 |
 
 ---
 
@@ -93,7 +94,7 @@ AI 应通过 MCP `create_task_handoff` 记录任务交接；不要把终端 hand
   1. 用户日常运行 `/hm:distill`；Agent 在背后一次性完成项目范围 ingest 并拿到 evidence packet。
   2. 需要高质量结构化记忆时，使用 `session-distill` Skill 读取 packet，再通过 `suggest_*` / `create_task_handoff` 写入候选层。
   3. 需要关闭、巡检或清理蒸馏资产时，用 `/hm:mark`、`/hm:prune`、`/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry` 这些 Slash 管理入口；不要把底层脚本当作用户工作流。
-  3. 写入候选后，`/hm:distill` 同一轮读取 `list_candidates`，自动确认低风险事实、拒绝噪声，只把真正高风险或证据不足项放进最终摘要。
+  3. 写入候选后，`/hm:distill` 同一轮调用 `auto_review_candidates(project_name=<project>, apply=true)`，自动处理低风险候选，只把真正高风险或证据不足项放进最终摘要。
   4. 历史记忆会带有 `archive` 标签，方便在搜索时识别溯源。
 
 ---

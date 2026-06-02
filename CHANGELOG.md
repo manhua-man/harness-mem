@@ -8,6 +8,34 @@
 
 ---
 
+## [2.9.19] — 2026-06-03
+
+**主题：Best-Practices Auto-Review Truth Sync**
+
+v2.9.19 收的是 `docs/best-practices.md` 里残留的 auto-review 旧口径。当前
+shipped runtime 里，distill 的低风险 review 已经是一等的
+`auto_review_candidates(project_name=<project>, apply=true)` shared surface；但
+`best-practices` 的角色表、候选层说明和管理工具表里还把 `list_candidates` +
+`confirm_*` / `reject_*` 写成默认 distill 路径。这一版不改 runtime，只把
+`best-practices` 写回当前 shipped review truth，并补 focused guard。
+
+### Changed
+
+- **best-practices role sync**：`Memory Expert` 现在明确默认复用
+  `auto_review_candidates`，必要时再查看 `applied_decisions`。
+- **candidate-loop guidance sync**：`Gardener` 行为现在明确在 `/hm:distill`
+  同一轮调用 `auto_review_candidates(project_name=<project>, apply=true)`。
+- **tool catalog sync**：管理工具表现在把 `auto_review_candidates` 记为默认
+  distill/review surface；`list_candidates` 降为显式 drilldown/recheck 工具。
+- **focused regression coverage**：新增 `tests/test_best_practices_auto_review_truth.py`。
+- **release/status writeback**：`docs/roadmap-v29.md` 与
+  `docs/roadmap-status.md` 已同步到 v2.9.19。
+
+### Boundaries
+
+- 本版本不新增新的 auto-review policy、候选类型或 MCP runtime 行为。
+- 它只同步 `best-practices` 文档到当前 shipped distill review surface，并防止文档回流到 per-item review 的旧写法。
+
 ## [2.9.18] — 2026-06-03
 
 **主题：Status Entrypoint Truth Sync**
