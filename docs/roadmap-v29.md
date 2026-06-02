@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -407,3 +407,24 @@ truth 已经是一等 MCP `wake` surface，并且 compact renderer 与 skill hin
   - procedural hints 走 `include_skill_hints=true`
 - `plugins/harness-mem/skills/harness-mem/SKILL.md` 的 wake-up 流程也已同步
 - 已补 focused regression test：`tests/test_wake_entrypoint_truth.py`
+
+## v2.9.16：Best-Practices Wake Truth Sync
+
+**用户故事**：当维护者回看 `docs/best-practices.md` 的 runtime 工具表和 wake-up
+章节时，不应该再看到抽象的“调用 wake 逻辑”写法，而应该直接看到当前 shipped 的一等
+MCP `wake` surface，以及 compact / skill-hint 这两个显式 opt-in 扩展。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | tool catalog sync | best-practices 的读取工具表包含 `wake` |
+| P0 | wake-up section sync | best-practices 明确默认走 `wake(project_name=<project>)` |
+| P1 | focused regression guard | best-practices 回流到旧抽象写法时测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2916-best-practices-wake-truth-sync/`。
+- `docs/best-practices.md` 现在明确：
+  - `wake` 是一等读取工具
+  - 默认走 MCP `wake(project_name=<project>)`
+  - `renderer="compact"` / `include_skill_hints=true` 是显式 opt-in
+- 已补 focused regression test：`tests/test_best_practices_wake_truth.py`

@@ -31,7 +31,8 @@ Executor 应根据场景自主选择工具：
 
 | 类别 | 工具名 | 最佳使用场景 |
 |------|--------|------------|
-| **读取** | `search_memory` | 寻找特定知识、代码约定或过往 bug 记录。 |
+| **读取** | `wake` | 拉取当前项目的一等 wake-up 上下文；默认优先于手工拼低层读工具。 |
+| | `search_memory` | 寻找特定知识、代码约定或过往 bug 记录。 |
 | | `timeline` | 回溯当前项目的开发脉络。 |
 | | `get_task_handoffs` | 在开始新任务前，恢复上一个 Session 的断点。 |
 | | `get_confirmed_rules` | 检查本项目必须遵守的硬性约束。 |
@@ -47,7 +48,7 @@ Executor 应根据场景自主选择工具：
 ## 4. 日常流 (Workflow)
 
 ### 4.1 开启新 Session (Wake-up)
-AI 应在启动时通过客户端集成或 MCP 工具调用 `wake` 逻辑。不要把终端命令当成用户日常入口；CLI 只用于本地排障兜底。
+AI 应在启动时通过客户端集成或 MCP `wake(project_name=<project>)` 工具调用一等 wake-up surface。只有在用户明确要求 generated compact summary 或 procedural hint 时，才分别开启 `renderer="compact"` 或 `include_skill_hints=true`。不要把终端命令当成用户日常入口；CLI 只用于本地排障兜底。
 **目标**：将 Profile、Rules 和最近的 Task Handoffs 注入 Context。
 
 ### 4.2 任务切换与交接

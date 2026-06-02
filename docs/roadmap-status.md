@@ -10,18 +10,18 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.15` |
-| `harness_mem/__init__.py` | `2.9.15` |
-| `CHANGELOG.md` | 已有 `2.9.15` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.16` |
+| `harness_mem/__init__.py` | `2.9.16` |
+| `CHANGELOG.md` | 已有 `2.9.16` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.15：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.16：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
 boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力，以及
 v2.8.0–v2.8.2 的 session-distill maintenance surfaces、v2.9.0 的 PRD sync
 candidate surface、v2.9.1 的 status triage surface、v2.9.2 的 plugin
 doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 stale CLI surface guard sync、v2.9.5 的 shell completion maintenance truth、v2.9.6 的 maintenance surface collateral sync、v2.9.7 的 README and telemetry maintenance truth、v2.9.8 的 maintenance surface collateral guard、v2.9.9 的 reflection project-root resolution、v2.9.10 的 worker-mode truth sync，以及 v2.9.11 的 scheduler-trigger truth sync 都已落地。
 
-> **v2.9.15 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.15`。v2.9 在保持
+> **v2.9.16 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.16`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -40,7 +40,8 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 > `active_project.txt`，而 queue model 只有 `ReflectionJob`，`review` 只是其 phase；
 > 此外，repo-local `/hm:wake` 命令和 `harness-mem` skill 现在也已同步到一等 MCP
 > `wake` surface，不再默认手工拼 `get_project_profile` / `get_task_handoffs` /
-> `get_confirmed_rules` / `timeline`。
+> `get_confirmed_rules` / `timeline`；而 `docs/best-practices.md` 现在也已把 `wake`
+> 收成一等读取工具，并把 compact renderer / skill hints 明确成 opt-in 路径。
 
 ## 完成矩阵
 
@@ -89,7 +90,8 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 | v2.9.12 | 已完成 | `docs/roadmap-v24.md` distill-mode truth sync、`tests/test_worker_mode_truth.py` 扩展覆盖 `distill.mode`、OpenSpec `v2912-distill-mode-truth-sync` | `distill.mode` 当前真值已锁定为 `defer_to_agent/inline/worker`；不代表 shipped inline LLM 或 always-on worker path。 |
 | v2.9.13 | 已完成 | `docs/roadmap-v24.md` host-entry example sync、`tests/test_host_entry_module_truth.py`、OpenSpec `v2913-host-entry-module-truth-sync` | current-truth docs 现在只使用 `python -m harness_mem.host_entry --project-root ... --source ide_hook` 这一 shipped host-entry invocation；不再保留 `<host_entry>` placeholder、`harness_mem.host` 旧模块名或伪 `reflection_once` 子命令。 |
 | v2.9.14 | 已完成 | `docs/roadmap-v24.md` config/job-model truth sync、`tests/test_v24_config_and_job_truth.py`、OpenSpec `v2914-v24-config-and-job-truth-sync` | current-truth docs 现在只把 `load_merged_config()` 描述成四个 recognized keys 的 merged loader，不再暗示 `project_name` / `active_project.txt`；queue model 也只描述 `ReflectionJob`，`review` 只是 phase。 |
-| v2.9.15 | 当前版本 | `plugins/harness-mem/commands/hm/wake.md`、`plugins/harness-mem/skills/harness-mem/SKILL.md`、`tests/test_wake_entrypoint_truth.py`、OpenSpec `v2915-wake-entrypoint-truth-sync` | repo-local wake guidance 现在默认走一等 MCP `wake` surface；compact/generated summary 与 skill hints 也通过 `wake(...)` 参数显式开启，不再默认手工拼低层 read tools。 |
+| v2.9.15 | 已完成 | `plugins/harness-mem/commands/hm/wake.md`、`plugins/harness-mem/skills/harness-mem/SKILL.md`、`tests/test_wake_entrypoint_truth.py`、OpenSpec `v2915-wake-entrypoint-truth-sync` | repo-local wake guidance 现在默认走一等 MCP `wake` surface；compact/generated summary 与 skill hints 也通过 `wake(...)` 参数显式开启，不再默认手工拼低层 read tools。 |
+| v2.9.16 | 当前版本 | `docs/best-practices.md`、`tests/test_best_practices_wake_truth.py`、OpenSpec `v2916-best-practices-wake-truth-sync` | `best-practices` 现在把 `wake` 记为一等读取工具，并把 MCP `wake(project_name=<project>)` 写成默认 wake-up surface；compact / skill hints 仍是显式 opt-in。 |
 
 ## 未完成 / 不做项
 

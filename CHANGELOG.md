@@ -8,6 +8,32 @@
 
 ---
 
+## [2.9.16] — 2026-06-03
+
+**主题：Best-Practices Wake Truth Sync**
+
+v2.9.16 收的是 `docs/best-practices.md` 对 wake surface 的残余抽象写法。当前
+shipped runtime 里，`wake` 已经是一等 MCP read surface，并且 compact renderer
+与 skill hints 都挂在它上面；但最佳实践文档的 runtime 工具表还没把 `wake`
+列为一等读取工具，wake-up 小节也还停留在“调用 wake 逻辑”的旧表述。这一版不改
+runtime，只把 best-practices 写回到当前 shipped truth，并补 focused guard。
+
+### Changed
+
+- **best-practices tool catalog sync**：`docs/best-practices.md` 现在把 `wake`
+  列为一等读取工具。
+- **best-practices wake guidance sync**：wake-up 小节现在明确默认走
+  MCP `wake(project_name=<project>)`，并把 `renderer="compact"` /
+  `include_skill_hints=true` 收成显式 opt-in。
+- **focused regression coverage**：新增 `tests/test_best_practices_wake_truth.py`。
+- **release/status writeback**：`docs/roadmap-v29.md` 与
+  `docs/roadmap-status.md` 已同步到 v2.9.16。
+
+### Boundaries
+
+- 本版本不新增新的 wake runtime 行为。
+- 它只同步 `best-practices` 文档到当前 shipped wake surface。
+
 ## [2.9.15] — 2026-06-03
 
 **主题：Wake Entrypoint Truth Sync**
