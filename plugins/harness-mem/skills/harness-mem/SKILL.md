@@ -11,7 +11,7 @@ Use this skill to operate the local `harness-mem` runtime from a project workspa
 
 Treat the project as real production context:
 
-- Prefer MCP tools (`get_project_status`, `wake`-style reads, `search_memory`, `timeline`) before guessing from memory.
+- Prefer MCP tools (`get_project_status`, `wake`, `search_memory`, `timeline`) before guessing from memory.
 - Ingest recent sessions through MCP `ingest_sessions` when the project state may be stale.
 - Use repo-local `tools/session-distill` for user-triggered distillation; do not use the removed heuristic distill path.
 - Distilled memory is a draft signal. Review it before treating it as durable truth.
@@ -42,8 +42,10 @@ From the repository root, the user-facing path is IDE command / skill / natural-
 For status and wake-up:
 
 1. Call `get_project_status` to resolve the active project and counts.
-2. Call `get_project_profile`, `get_task_handoffs`, `get_confirmed_rules`, and `timeline`.
-3. Summarize the usable context and suggest the next IDE-native action:
+2. When the project is ready, call `wake(project_name=<project>)` instead of manually stitching low-level read tools.
+3. If the user explicitly wants generated compact context, call `wake(project_name=<project>, renderer="compact")`.
+4. If the user explicitly wants procedural hints, call `wake(project_name=<project>, include_skill_hints=true)`, and only call `get_skill(skill_id)` if they ask to expand a specific hint.
+5. Summarize the usable context and suggest the next IDE-native action:
    - Claude Code: `/hm:distill`, `/hm:review`, or `/hm:wake`.
    - Cursor / Antigravity / opencode / Hermes / generic AI IDE: "用 harness-mem 唤醒当前项目" or "用 harness-mem 整理最近 N 个 session".
    - Do not present terminal commands as the normal answer when MCP tools are available.

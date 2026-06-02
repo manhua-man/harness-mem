@@ -1,30 +1,31 @@
 ﻿---
 name: "HM: Wake"
-description: 拉取项目过往上下文（最近 handoff、已确认规则、profile）作为新 session 起点
+description: 通过 MCP `wake` 拉取当前项目的 wake-up 上下文作为新 session 起点
 category: Memory
 tags: [harness-mem, wake]
 ---
 
-把当前项目的 wake-up 上下文拉出来：profile、最近任务交接、已确认规则、最近观察。
+调用 MCP `wake` 工具，把当前项目的 wake-up 上下文拉出来。
 
 **Input**: 可指定项目（`/hm:wake bazi-apps`），省略用 active project。
 
 **Steps**
 
 1. **确认项目**：从 slash 或 active project
-2. **并行调 MCP 工具**（充分利用工具）：
-   - `get_project_profile(project_name=<project>)` — 项目档案
-   - `get_task_handoffs(project_name=<project>, limit=5)` — 最近 5 条任务交接
-   - `get_confirmed_rules(project_name=<project>)` — 已生效规则
-   - `timeline(project_name=<project>, limit=10)` — 最近 10 条 observation
-3. **整合呈现**：
-   - 项目档案（描述、技术栈、关键文件、约定）
-   - 已生效规则（pattern → trigger）
-   - 最近的任务交接（哪个 task 卡在哪、下一步是什么、阻塞）
-   - 最近的事件时间线
-4. **结语**：明确告诉用户"以上是 wake-up 上下文，接下来你可以基于这些继续工作"
+2. **调 MCP `wake`**：
+   - 默认：`wake(project_name=<project>)`
+   - 如果用户明确要更紧凑的 generated 摘要：`wake(project_name=<project>, renderer="compact")`
+   - 如果用户明确想看 procedural 提示：`wake(project_name=<project>, include_skill_hints=true)`
+3. **直接呈现 `wake.output`**：
+   - 把 MCP 返回的 wake-up 文本作为主结果
+   - 如果返回了 compact skill hints，只把它们当作 hint，不要擅自展开完整 skill body
+   - 只有用户继续追问某个 hint 时，才调 `get_skill(skill_id)`
+4. **结语**：
+   - 有内容：明确告诉用户“以上是 wake-up 上下文，接下来你可以基于这些继续工作”
+   - 空结果：提示用户先 `/hm:distill`
 
 **Notes**
 
 - 这是只读操作
-- 如果项目从未有过数据（profile/handoffs/rules 都空），提示用户先 `/hm:distill`
+- `/hm:wake` 的 shipped truth 是一等 MCP `wake` surface，不要退回手工拼 `get_project_profile` / `get_task_handoffs` / `get_confirmed_rules` / `timeline`
+- 如果项目从未有过数据，提示用户先 `/hm:distill`

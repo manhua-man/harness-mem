@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -385,3 +385,25 @@ runtime、hook 模板和 operator doc 都只承认 `python -m harness_mem.host_e
   - `project_name` 和 `active_project.txt` 不属于这个 loader contract
   - 当前 queue model 只有 `ReflectionJob`；`review` 只是 phase
 - 已补 focused regression test：`tests/test_v24_config_and_job_truth.py`
+
+## v2.9.15：Wake Entrypoint Truth Sync
+
+**用户故事**：当维护者回看 repo-local `/hm:wake` 命令和 `harness-mem` skill 时，
+不应该再被旧 prompt 误导成“wake 默认要手工拼四个低层读工具”，因为当前 shipped
+truth 已经是一等 MCP `wake` surface，并且 compact renderer 与 skill hints 都挂在它上面。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | `/hm:wake` command truth sync | slash 文档默认走 `wake(project_name=<project>)` |
+| P0 | skill wake guidance sync | repo-local skill 默认走 `get_project_status` + `wake(...)` |
+| P1 | focused regression guard | wake 文档/skill 回流到旧 low-level choreography 时测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2915-wake-entrypoint-truth-sync/`。
+- `plugins/harness-mem/commands/hm/wake.md` 现在明确：
+  - 默认走 MCP `wake(project_name=<project>)`
+  - compact generated summary 走 `renderer="compact"`
+  - procedural hints 走 `include_skill_hints=true`
+- `plugins/harness-mem/skills/harness-mem/SKILL.md` 的 wake-up 流程也已同步
+- 已补 focused regression test：`tests/test_wake_entrypoint_truth.py`

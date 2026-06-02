@@ -8,6 +8,36 @@
 
 ---
 
+## [2.9.15] — 2026-06-03
+
+**主题：Wake Entrypoint Truth Sync**
+
+v2.9.15 收的是 repo-local plugin 和 skill 里的 `/hm:wake` 旧 choreography。
+当前 shipped runtime 早已有一等 MCP `wake` surface，并且 v2.5/v2.6/v2.7 把
+renderer、compact generated summary、skill hints 都挂在这条面上；但
+`plugins/harness-mem/commands/hm/wake.md` 和 repo-local `harness-mem` skill
+还在教 agent 手工拼 `get_project_profile` / `get_task_handoffs` /
+`get_confirmed_rules` / `timeline`。这一版不改 runtime，只把用户真路径收回到
+shipped MCP `wake` contract，并加 focused guard 锁住。
+
+### Changed
+
+- **`/hm:wake` command truth sync**：`plugins/harness-mem/commands/hm/wake.md`
+  现在以 MCP `wake(project_name=<project>)` 为默认路径，并补上
+  `renderer="compact"` / `include_skill_hints=true` 的 opt-in 说明。
+- **repo-local skill wake guidance sync**：
+  `plugins/harness-mem/skills/harness-mem/SKILL.md` 的 status/wake 流程现在以
+  `get_project_status` + `wake(...)` 为主，不再默认手工拼低层读工具。
+- **focused regression coverage**：新增 `tests/test_wake_entrypoint_truth.py`，
+  防止 `/hm:wake` 文档和 skill 指引回流到旧 choreography。
+- **release/status writeback**：`docs/roadmap-v29.md` 与
+  `docs/roadmap-status.md` 已同步到 v2.9.15。
+
+### Boundaries
+
+- 本版本不新增新的 wake renderer、skill-hint 语义或底层 MCP 工具。
+- 它只同步 repo-local command/skill 文档到 shipped MCP `wake` surface。
+
 ## [2.9.14] — 2026-06-03
 
 **主题：v2.4 Config And Job Truth Sync**
