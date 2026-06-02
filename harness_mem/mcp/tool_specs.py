@@ -351,6 +351,17 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "Skip the auto-ingest pass before generating wake-up text.",
                     "default": False,
                 },
+                "renderer": {
+                    "type": "string",
+                    "enum": ["default", "compact"],
+                    "description": (
+                        "v2.6.3: opt-in renderer. default returns confirmed "
+                        "truth wake output; compact returns generated wiki "
+                        "bridge summaries with source ids and never replaces "
+                        "confirmed truth."
+                    ),
+                    "default": "default",
+                },
             },
         },
     },

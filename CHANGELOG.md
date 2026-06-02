@@ -16,6 +16,33 @@
 
 ---
 
+## [2.6.3] — 2026-06-02
+
+**主题：Compact Wake Renderer Experiment**
+
+v2.6.3 把 v2.6.1 的 generated wiki bridge 接到一个显式 opt-in 的 compact wake
+renderer 上。它提供低 token 的 claim/topic/entity/source-id 摘要，但仍然只是一层
+renderer：默认 `wake` 不变，generated claims 不会被提升成 confirmed truth。
+
+### Added
+
+- **compact wake renderer**：MCP `wake` 新增 `renderer="compact"`，显式读取
+  project-scoped generated wiki bridge artifacts 并返回 compact output。
+- **compact payload loader**：`harness_mem/knowledge_cache.py` 新增 compact payload
+  读取与渲染辅助，输出 claims、topics、entities 与 source ids。
+- **focused regression coverage**：补充 generated-cache compact renderer 测试和 MCP
+  `wake(renderer="compact")` 测试。
+- **v2.6.3 OpenSpec change**：新增并完成
+  `openspec/changes/v263-compact-wake-renderer/`。
+
+### Boundaries
+
+- `renderer="compact"` 是 opt-in；默认 `wake` 仍使用 confirmed-truth renderer。
+- compact output 明确标记为 generated summary，不会伪装成 confirmed truth。
+- generated-only 内容仍不会进入默认 `search_memory` truth surface。
+
+---
+
 ## [2.6.2] — 2026-06-02
 
 **主题：Contradiction and Stale Suggestions**

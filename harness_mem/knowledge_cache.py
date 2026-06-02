@@ -31,6 +31,7 @@ GENERATED_CLAIMS_FILENAME = "claims.json"
 GENERATED_TOPICS_FILENAME = "topics.json"
 GENERATED_ENTITIES_FILENAME = "entities.json"
 COMPILED_AUTHORITY = "generated_claim"
+COMPACT_RENDERER_NAME = "compact"
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,34 @@ class GeneratedClaim:
         }
 
 
+@dataclass(frozen=True)
+class CompactWakePayload:
+    """Read-only compact wake material compiled from generated wiki artifacts."""
+
+    project_name: str
+    authority: str
+    claim_count: int
+    topic_count: int
+    entity_count: int
+    claims: tuple[dict[str, Any], ...]
+    topics: tuple[dict[str, Any], ...]
+    entities: tuple[dict[str, Any], ...]
+    source_ids: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "project_name": self.project_name,
+            "authority": self.authority,
+            "claim_count": self.claim_count,
+            "topic_count": self.topic_count,
+            "entity_count": self.entity_count,
+            "claims": [dict(item) for item in self.claims],
+            "topics": [dict(item) for item in self.topics],
+            "entities": [dict(item) for item in self.entities],
+            "source_ids": list(self.source_ids),
+        }
+
+
 def knowledge_cache_paths(data_dir: Path, project_name: str) -> KnowledgeCachePaths:
     """Return the project-scoped knowledge-cache paths without creating them."""
     safe_project = _safe_project_slug(project_name)
@@ -126,6 +155,60 @@ def ensure_knowledge_cache_layout(paths: KnowledgeCachePaths) -> None:
             json.dumps(payload, indent=2),
             encoding="utf-8",
         )
+
+
+def load_compact_wake_payload(
+    data_dir: Path,
+    *,
+    project_name: str,
+    max_claims: int = 5,
+    max_topics: int = 5,
+    max_entities: int = 5,
+) -> CompactWakePayload | None:
+    """Load compact wake material from generated wiki-bridge outputs.
+
+    Returns ``None`` when the generated wiki bridge has not been built yet or
+    when the required generated artifacts are missing or malformed.
+    """
+    paths = knowledge_cache_paths(data_dir, project_name)
+    claims_payload = _load_json(paths.generated_root / GENERATED_CLAIMS_FILENAME)
+    topics_payload = _load_json(paths.generated_root / GENERATED_TOPICS_FILENAME)
+    entities_payload = _load_json(paths.generated_root / GENERATED_ENTITIES_FILENAME)
+
+    claims_raw = claims_payload.get("claims")
+    topics_raw = topics_payload.get("topics")
+    entities_raw = entities_payload.get("entities")
+    if not isinstance(claims_raw, list) or not isinstance(topics_raw, list) or not isinstance(entities_raw, list):
+        return None
+
+    claims = tuple(
+        item
+        for item in claims_raw[:max(0, max_claims)]
+        if isinstance(item, dict)
+    )
+    topics = tuple(
+        item
+        for item in topics_raw[:max(0, max_topics)]
+        if isinstance(item, dict)
+    )
+    entities = tuple(
+        item
+        for item in entities_raw[:max(0, max_entities)]
+        if isinstance(item, dict)
+    )
+
+    source_ids = _collect_compact_source_ids(claims)
+    return CompactWakePayload(
+        project_name=project_name,
+        authority=str(claims_payload.get("authority") or COMPILED_AUTHORITY),
+        claim_count=len(claims_raw),
+        topic_count=len(topics_raw),
+        entity_count=len(entities_raw),
+        claims=claims,
+        topics=topics,
+        entities=entities,
+        source_ids=source_ids,
+    )
 
 
 async def build_knowledge_sources(
@@ -680,10 +763,77 @@ def _claims_from_curated_docs(
     return claims
 
 
+def render_compact_wake_payload(payload: CompactWakePayload) -> str:
+    """Render opt-in compact wake text from generated wiki artifacts only."""
+    lines = [
+        "# Compact Wake  (generated summary, not confirmed truth)",
+        (
+            f"# authority: {payload.authority}  "
+            f"claims={payload.claim_count} topics={payload.topic_count} entities={payload.entity_count}"
+        ),
+    ]
+
+    if payload.claims:
+        lines.append("# Claims")
+        for claim in payload.claims:
+            text = str(claim.get("text") or "").strip()
+            claim_id = str(claim.get("claim_id") or "")
+            topics = claim.get("topics") or []
+            topic_text = ", ".join(str(item) for item in topics if str(item).strip())
+            suffix = f"  [{claim_id}]" if claim_id else ""
+            if topic_text:
+                suffix += f"  (topics: {topic_text})"
+            lines.append(f"- {text}{suffix}".rstrip())
+    else:
+        lines.append("# Claims")
+        lines.append("_(none)_")
+
+    if payload.topics:
+        lines.append("# Topics")
+        for topic in payload.topics:
+            topic_name = str(topic.get("topic") or "").strip()
+            claim_ids = topic.get("claim_ids") or []
+            lines.append(f"- {topic_name}  [{len(claim_ids)} claims]")
+
+    if payload.entities:
+        lines.append("# Entities")
+        for entity in payload.entities:
+            entity_name = str(entity.get("entity") or "").strip()
+            claim_ids = entity.get("claim_ids") or []
+            lines.append(f"- {entity_name}  [{len(claim_ids)} claims]")
+
+    if payload.source_ids:
+        lines.append("# Source IDs")
+        lines.append("- " + ", ".join(payload.source_ids))
+
+    lines.append(
+        "Note: compact wake is generated from wiki bridge artifacts and does not replace confirmed truth."
+    )
+    return "\n".join(lines)
+
+
 def _topics_for_memory_entry(entry: MemoryEntry) -> list[str]:
     topics = [entry.category.lower()]
     topics.extend(_extract_keywords(entry.content, limit=4))
     return _unique_preserve_order(topics)
+
+
+def _collect_compact_source_ids(claims: tuple[dict[str, Any], ...]) -> tuple[str, ...]:
+    source_ids: list[str] = []
+    seen: set[str] = set()
+    for claim in claims:
+        refs = claim.get("source_refs") or []
+        if not isinstance(refs, list):
+            continue
+        for ref in refs:
+            if not isinstance(ref, dict):
+                continue
+            source_id = str(ref.get("source_id") or "").strip()
+            if not source_id or source_id in seen:
+                continue
+            seen.add(source_id)
+            source_ids.append(source_id)
+    return tuple(source_ids)
 
 
 def _topics_for_rule(rule: ConfirmedRule) -> list[str]:

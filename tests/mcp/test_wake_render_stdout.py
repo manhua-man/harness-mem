@@ -28,6 +28,7 @@ import pytest
 
 from harness_mem.core.schemas import ConfirmedRule, MemoryEntry
 from harness_mem.core.schemas.project_profile import ProjectProfile
+from harness_mem.knowledge_cache import rebuild_wiki_bridge
 from harness_mem.mcp.server import set_backend_override, tool_wake
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -111,6 +112,53 @@ def test_tool_wake_render_stdout_stays_clean(
         serialized = json.dumps(payload)
         assert isinstance(serialized, str)
         assert json.loads(serialized)["output"] == output
+    finally:
+        set_backend_override(None)
+        run(backend.close())
+
+
+def test_tool_wake_compact_renderer_returns_generated_summary(
+    data_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """v2.6.3: compact renderer is opt-in and source-attributed."""
+    backend = LocalMemoryBackend(data_dir)
+    run(backend.init())
+    set_backend_override(backend)
+    try:
+        project_root = tmp_path / PROJECT
+        docs_dir = project_root / "docs"
+        docs_dir.mkdir(parents=True)
+        (docs_dir / "compact.md").write_text(
+            "Compact MCP wake renderer keeps generated claims separate.",
+            encoding="utf-8",
+        )
+        profile = ProjectProfile(
+            project_name=PROJECT,
+            curated_doc_paths=["docs/compact.md"],
+        )
+        run(
+            rebuild_wiki_bridge(
+                backend,
+                data_dir=data_dir,
+                project_name=PROJECT,
+                profile=profile,
+                project_root=project_root,
+            )
+        )
+
+        payload = tool_wake(
+            project_name=PROJECT,
+            no_auto_ingest=True,
+            renderer="compact",
+        )
+
+        assert payload["success"] is True
+        assert payload["renderer"] == "compact"
+        assert "# Compact Wake  (generated summary, not confirmed truth)" in payload["output"]
+        assert "Compact MCP wake renderer" in payload["output"]
+        assert payload["compact_payload"]["authority"] == "generated_claim"
+        assert payload["compact_payload"]["source_ids"]
     finally:
         set_backend_override(None)
         run(backend.close())

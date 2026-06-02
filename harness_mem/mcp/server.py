@@ -115,6 +115,11 @@ from harness_mem.commands.wake import cmd_wake_up  # noqa: E402
 from harness_mem.core.schemas import ProceduralCandidate, SupersedeCandidate  # noqa: E402
 from harness_mem.core.schemas.metabolism_run import MetabolismRun  # noqa: E402
 from harness_mem.core.schemas.project_profile import ProjectProfile  # noqa: E402
+from harness_mem.knowledge_cache import (  # noqa: E402
+    COMPACT_RENDERER_NAME,
+    load_compact_wake_payload,
+    render_compact_wake_payload,
+)
 from harness_mem.read_api import (  # noqa: E402
     build_search_project_context_map,
     parse_relative_time_window,
@@ -766,7 +771,11 @@ def tool_update_project_profile(
     }
 
 
-def tool_wake(project_name: str | None = None, no_auto_ingest: bool = False) -> dict:
+def tool_wake(
+    project_name: str | None = None,
+    no_auto_ingest: bool = False,
+    renderer: str = "default",
+) -> dict:
     """Generate the wake-up context (project profile + recent rules / handoffs).
 
     Captures the printed wake-up summary as ``output`` so the agent can
@@ -778,12 +787,39 @@ def tool_wake(project_name: str | None = None, no_auto_ingest: bool = False) -> 
             "success": False,
             "error": "project_name is required when no active project is set",
         }
-    payload = _run_command_to_payload(
+    normalized_renderer = str(renderer or "default").strip().lower()
+    if normalized_renderer not in {"default", COMPACT_RENDERER_NAME}:
+        return {
+            "success": False,
+            "error": "renderer must be one of: default, compact",
+        }
+    if normalized_renderer == COMPACT_RENDERER_NAME:
+        backend = _get_backend()
+        payload = load_compact_wake_payload(backend.data_dir, project_name=resolved)
+        if payload is None:
+            return {
+                "success": False,
+                "project_name": resolved,
+                "renderer": normalized_renderer,
+                "error": (
+                    "compact wake is unavailable: generated wiki bridge artifacts "
+                    "have not been built for this project"
+                ),
+            }
+        return {
+            "success": True,
+            "project_name": resolved,
+            "renderer": normalized_renderer,
+            "output": render_compact_wake_payload(payload),
+            "compact_payload": payload.to_dict(),
+        }
+    command_payload = _run_command_to_payload(
         cmd_wake_up(resolved, no_auto_ingest=no_auto_ingest)
     )
     return {
         "project_name": resolved,
-        **payload,
+        "renderer": normalized_renderer,
+        **command_payload,
     }
 
 

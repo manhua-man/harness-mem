@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.6
 
-> 状态：v2.6.2 已完成；v2.6.3+ 仍在规划中。
+> 状态：v2.6.3 已完成；v2.6.4+ 暂未规划。
 >
 > 主题：Wiki Bridge + Compact Index + Contradiction Suggestions。把长期知识从权威源编译成可检索上下文，并把冲突处理保持在 candidate 层。
 
@@ -111,6 +111,16 @@ v2.6 吸收 `ai-harness` 的 source cache / generated cache 边界，以及 MemP
 | P1 | compact wake format | 输出短摘要、entities、topics、source ids |
 | P1 | AAAK-like renderer experiment | 只作为 renderer，不进入 storage truth |
 | P1 | quality checks | compact mode 不得丢失 source id 或冒充 verified truth |
+
+### 当前实现（2026-06-02）
+
+- 已实现 MCP `wake(renderer="compact")` 显式 opt-in compact renderer。
+- 已实现 generated wiki bridge compact payload 读取与文本渲染，输出 claim、topic、
+  entity 与 source ids。
+- compact output 明确标记为 generated summary，不冒充 confirmed truth。
+- 默认 `wake` renderer 不变，generated-only 内容仍不进入默认 `search_memory`
+  truth surface。
+- 已创建并完成 `v263-compact-wake-renderer` OpenSpec 变更。
 
 ---
 

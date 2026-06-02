@@ -15,7 +15,9 @@ from harness_mem.knowledge_cache import (
     ensure_knowledge_cache_layout,
     knowledge_cache_health,
     knowledge_cache_paths,
+    load_compact_wake_payload,
     rebuild_wiki_bridge,
+    render_compact_wake_payload,
     write_knowledge_cache_boundary,
 )
 from harness_mem.read_api import search_memory
@@ -266,6 +268,55 @@ def test_generated_wiki_bridge_does_not_enter_default_search_truth_surfaces(
             backend,
             project_name=PROJECT,
             query="GeneratedOnlyToken",
+        )
+    )
+    assert entries == []
+    assert observations == []
+
+
+def test_compact_wake_payload_reads_generated_claims_without_promoting_truth(
+    backend,
+    data_dir: Path,
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / PROJECT
+    docs_dir = project_root / "docs"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "compact.md").write_text(
+        "CompactOnlyToken appears only in curated generated bridge material.",
+        encoding="utf-8",
+    )
+    profile = ProjectProfile(
+        project_name=PROJECT,
+        curated_doc_paths=["docs/compact.md"],
+    )
+    run(
+        rebuild_wiki_bridge(
+            backend,
+            data_dir=data_dir,
+            project_name=PROJECT,
+            profile=profile,
+            project_root=project_root,
+        )
+    )
+
+    payload = load_compact_wake_payload(data_dir, project_name=PROJECT)
+    assert payload is not None
+    assert payload.authority == "generated_claim"
+    assert payload.claim_count >= 1
+    assert any("curated-doc://" in source_id for source_id in payload.source_ids)
+
+    rendered = render_compact_wake_payload(payload)
+    assert "# Compact Wake  (generated summary, not confirmed truth)" in rendered
+    assert "CompactOnlyToken" in rendered
+    assert "# Source IDs" in rendered
+    assert "does not replace confirmed truth" in rendered
+
+    entries, observations = run(
+        search_memory(
+            backend,
+            project_name=PROJECT,
+            query="CompactOnlyToken",
         )
     )
     assert entries == []
