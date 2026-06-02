@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-06-02
+change_kind: bugfix
+area: docs
+summary: Align README and telemetry collateral with the current maintenance CLI surface

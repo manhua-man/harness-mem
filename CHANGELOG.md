@@ -8,6 +8,29 @@
 
 ---
 
+## [2.9.7] — 2026-06-02
+
+**主题：README And Telemetry Maintenance Truth**
+
+v2.9.7 收的是剩余两处高可见 maintenance-surface 旧口径：README 的架构图摘要和
+telemetry 主 spec。两者都还停留在 `config` / `integration` 发版之前的命令集。
+这一版不改 runtime，只把这些 collateral 以及 `roadmap-status` 里的重复段同步到
+当前真值。
+
+### Changed
+
+- **README maintenance summary sync**：README 架构图中的 CLI maintenance console
+  现在包含 `config` / `integration`。
+- **telemetry spec sync**：`openspec/specs/telemetry/spec.md` 现在把
+  `qs` / `config` / `integration` 视为当前维护 CLI 覆盖的一部分。
+- **status doc cleanup**：移除了 `docs/roadmap-status.md` 中重复的一行
+  v2.9 summary。
+
+### Boundaries
+
+- 本版本不新增 CLI、MCP、telemetry 运行时能力。
+- 它只修 README / telemetry spec / status doc 的 current-truth 漂移。
+
 ## [2.9.6] — 2026-06-02
 
 **主题：Maintenance Surface Collateral Sync**

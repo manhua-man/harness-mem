@@ -252,7 +252,7 @@ Agent 编排层
 
 传输层
   MCP server (隐藏在 Agent/IDE 配置后)
-  CLI maintenance console (quickstart, doctor, purge, maintenance, import)
+  CLI maintenance console (quickstart, doctor, purge, maintenance, import, config, integration)
 
 命令与运行时编排
   commands/ (wake, ingest, search, candidates, handoff...)

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义 harness-mem 本地事件日志（`events.log`）的契约。Telemetry 是内部 dogfood 工具，覆盖**仍然在 CLI 控制台路径上的命令**（init / quickstart / doctor / purge / maintenance / import）以及**MCP 工具调用**。日常用户路径（IDE 命令 / Slash / Agent 自然语言）是否记 telemetry 由具体 MCP 工具实现决定，本规格不强制 IDE 客户端打点。
+定义 harness-mem 本地事件日志（`events.log`）的契约。Telemetry 是内部 dogfood 工具，覆盖**仍然在 CLI 控制台路径上的命令**（init / quickstart / qs / doctor / purge / maintenance / import / config / integration）以及**MCP 工具调用**。日常用户路径（IDE 命令 / Slash / Agent 自然语言）是否记 telemetry 由具体 MCP 工具实现决定，本规格不强制 IDE 客户端打点。
 
 所有 telemetry 默认只写本地数据目录，不发送任何远程服务。
 
@@ -10,7 +10,7 @@
 
 ### Requirement: local event log
 
-系统 MUST 把 CLI 控制台命令（`init` / `quickstart` / `doctor` / `purge` / `maintenance` / `import`）以及关键 MCP 工具调用写入本地 `events.log`，并且日志必须保留在本地数据目录，不得默认发送到远程服务。
+系统 MUST 把 CLI 控制台命令（`init` / `quickstart` / `qs` / `doctor` / `purge` / `maintenance` / `import` / `config` / `integration`）以及关键 MCP 工具调用写入本地 `events.log`，并且日志必须保留在本地数据目录，不得默认发送到远程服务。
 
 #### Scenario: doctor 命令写入本地事件
 

@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -218,3 +218,22 @@ v2.9 是对 session-distill maintenance family 的补片：从 bundled packet �
   - `openspec/specs/mcp/spec.md` 现在包含 `qs` / `config` / `integration`
   - `docs/v2-user-test-packet.md` 现在把 `config` / `integration` 视为允许的维护类 CLI 命令
 - 该切片不改 runtime surface，只收束残留的 spec / user-test 口径。
+
+## v2.9.7：README And Telemetry Maintenance Truth
+
+**用户故事**：当维护者读 README 架构图或 telemetry 主 spec 时，不应该再看到一套比真实 CLI 更旧的 maintenance command summary。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | README maintenance summary sync | README 架构图里的 maintenance console 包含 `config` / `integration` |
+| P0 | telemetry spec sync | telemetry 主 spec 的 CLI coverage 包含 `qs` / `config` / `integration` |
+| P1 | status doc cleanup | `docs/roadmap-status.md` 不再保留重复 summary 行 |
+
+### 当前状态（2026-06-02）
+
+- 已完成 `openspec/changes/v297-maintenance-surface-readme-and-telemetry-sync/`。
+- 剩余高可见 maintenance collateral 已对齐当前 truth：
+  - README 的 maintenance-console summary 已包含 `config` / `integration`
+  - telemetry 主 spec 已包含 `qs` / `config` / `integration`
+  - `docs/roadmap-status.md` 的重复 summary 行已移除
+- 该切片不改 runtime surface，只做 README / spec / status writeback。
