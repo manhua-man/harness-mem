@@ -15,13 +15,13 @@
 
 ## 3. Explicit cross-project search
 
-- [ ] 3.1 Add explicit shared-skill search parameters to MCP `search_skills`.
-- [ ] 3.2 Return origin project, scope, source ids, and portability notes in search results.
-- [ ] 3.3 Keep default skill search project-scoped.
+- [x] 3.1 Add explicit shared-skill search parameters to MCP `search_skills`.
+- [x] 3.2 Return origin project, scope, source ids, and portability notes in search results.
+- [x] 3.3 Keep default skill search project-scoped.
 
 ## 4. Conflict and provenance
 
-- [ ] 4.1 Prefer project-scoped skills over shared skills when both match.
+- [x] 4.1 Prefer project-scoped skills over shared skills when both match.
 - [ ] 4.2 Surface portability warnings and disabled assumptions before a shared skill is activated.
 - [ ] 4.3 Record usage feedback separately for project and shared skills.
 
@@ -29,5 +29,5 @@
 
 - [x] 5.1 Add schema/store migration tests.
 - [x] 5.2 Add MCP promotion review tests.
-- [ ] 5.3 Add explicit cross-project search tests.
+- [x] 5.3 Add explicit cross-project search tests.
 - [x] 5.4 Verify default wake and default skill search do not include shared skills.

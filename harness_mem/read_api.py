@@ -273,6 +273,7 @@ async def search_skills(
     query: str,
     scope: str = "project",
     limit: int = 10,
+    shared_scope: str = "exclude",
 ) -> list[Skill]:
     """Search confirmed procedural skills with shared project scoping."""
     if scope == "all":
@@ -280,11 +281,13 @@ async def search_skills(
             query,
             project_name=None,
             limit=limit,
+            shared_scope=shared_scope,
         )
     return await backend.structured_store.search_skills(
         query,
         project_name=project_name,
         limit=limit,
+        shared_scope=shared_scope,
     )
 
 

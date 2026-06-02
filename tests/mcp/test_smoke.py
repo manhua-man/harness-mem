@@ -647,6 +647,40 @@ def test_skill_promotion_review_flow(mcp_backend: LocalMemoryBackend):
     )
     assert [skill["scope"] for skill in default_search["skills"]] == ["project"]
 
+    shared_search = call_tool(
+        "search_skills",
+        {
+            "project_name": "test-project",
+            "query": "Python release changelog",
+            "include_shared": True,
+        },
+    )
+    assert shared_search["success"] is True
+    assert shared_search["shared_scope"] == "include"
+    assert [skill["scope"] for skill in shared_search["skills"]] == [
+        "project",
+        "global",
+    ]
+    assert shared_search["skills"][1]["origin_project"] == "test-project"
+    assert project_skill_id in shared_search["skills"][1]["source_ids"]
+    assert (
+        shared_search["skills"][1]["portability_notes"]
+        == "Only reuse in repos with pytest and a changelog."
+    )
+    assert shared_search["skills"][1]["disabled_assumptions"] == [
+        "Do not assume CI job names are identical."
+    ]
+
+    shared_only = call_tool(
+        "search_skills",
+        {
+            "project_name": "test-project",
+            "query": "Python release changelog",
+            "shared_scope": "only",
+        },
+    )
+    assert [skill["scope"] for skill in shared_only["skills"]] == ["global"]
+
 
 def test_reject_skill_promotion_candidate(mcp_backend: LocalMemoryBackend):
     run(
@@ -685,6 +719,20 @@ def test_reject_skill_promotion_candidate(mcp_backend: LocalMemoryBackend):
         },
     )
     assert [skill["scope"] for skill in all_skills["skills"]] == ["project"]
+
+
+def test_search_skills_rejects_invalid_shared_scope(mcp_backend: LocalMemoryBackend):
+    data = call_tool(
+        "search_skills",
+        {
+            "project_name": "test-project",
+            "query": "release hygiene",
+            "shared_scope": "surprise",
+        },
+    )
+
+    assert data["success"] is False
+    assert "shared_scope must be one of: exclude, include, only" in data["error"]
 
 
 def test_auto_review_candidates_preview_and_apply(mcp_backend: LocalMemoryBackend):

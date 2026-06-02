@@ -1181,33 +1181,73 @@ class LocalStructuredStore:
         project_name: str | None = None,
         limit: int = 10,
         status: str = "active",
+        shared_scope: str = "exclude",
     ) -> list[Skill]:
-        extra_where_parts = ["COALESCE(status, 'active') = ?"]
-        extra_params: tuple = (status,)
-        if project_name:
-            extra_where_parts.append("project_name = ?")
-            extra_params = (*extra_params, project_name)
-            extra_where_parts.append("COALESCE(scope, 'project') = 'project'")
+        if shared_scope not in {"exclude", "include", "only"}:
+            raise ValueError("shared_scope must be one of: exclude, include, only")
 
-        rows = await asyncio.to_thread(
-            self._index.search,
-            "skills",
-            query,
-            limit,
-            " AND ".join(extra_where_parts),
-            extra_params,
-        )
-        results = []
-        for row in rows:
-            blob_path = self._blob_path("skills", row["id"])
-            if blob_path.exists():
+        def load_rows(rows: list[dict]) -> list[Skill]:
+            results: list[Skill] = []
+            for row in rows:
+                blob_path = self._blob_path("skills", row["id"])
+                if not blob_path.exists():
+                    continue
                 data = json.loads(blob_path.read_text())
                 if data.get("status", "active") != status:
                     continue
                 if "_fts_score" in row:
                     data["_fts_score"] = row["_fts_score"]
                 results.append(Skill.from_dict(data))
-        return results
+            return results
+
+        async def run_search(where_parts: list[str], params: tuple[object, ...]) -> list[Skill]:
+            rows = await asyncio.to_thread(
+                self._index.search,
+                "skills",
+                query,
+                limit,
+                " AND ".join(where_parts),
+                params,
+            )
+            return load_rows(rows)
+
+        if not project_name:
+            where_parts = ["COALESCE(status, 'active') = ?"]
+            params: tuple[object, ...] = (status,)
+            if shared_scope == "only":
+                where_parts.append("COALESCE(scope, 'project') IN ('workspace', 'global')")
+            return await run_search(where_parts, params)
+
+        project_where_parts = [
+            "COALESCE(status, 'active') = ?",
+            "project_name = ?",
+            "COALESCE(scope, 'project') = 'project'",
+        ]
+        project_params: tuple[object, ...] = (status, project_name)
+        if shared_scope == "exclude":
+            return await run_search(project_where_parts, project_params)
+
+        shared_where_parts = [
+            "COALESCE(status, 'active') = ?",
+            "COALESCE(scope, 'project') IN ('workspace', 'global')",
+        ]
+        shared_params: tuple[object, ...] = (status,)
+
+        shared_matches = await run_search(shared_where_parts, shared_params)
+        if shared_scope == "only":
+            return shared_matches[:limit]
+
+        project_matches = await run_search(project_where_parts, project_params)
+        ordered_matches: list[Skill] = []
+        seen_ids: set[str] = set()
+        for skill in [*project_matches, *shared_matches]:
+            if skill.id in seen_ids:
+                continue
+            seen_ids.add(skill.id)
+            ordered_matches.append(skill)
+            if len(ordered_matches) >= limit:
+                break
+        return ordered_matches
 
     async def record_skill_result(
         self,

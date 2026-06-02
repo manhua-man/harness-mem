@@ -298,6 +298,7 @@ class StructuredStore(Protocol):
         project_name: str | None = None,
         limit: int = 10,
         status: str = "active",
+        shared_scope: str = "exclude",
     ) -> list[Skill]:
         """Search confirmed skills by activation, steps, and examples."""
         ...

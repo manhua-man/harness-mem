@@ -143,6 +143,63 @@ def test_default_project_skill_search_excludes_shared_scope(tmp_path: Path) -> N
     assert {skill.id for skill in all_matches} == {project_skill.id, global_skill.id}
 
 
+def test_explicit_shared_skill_search_can_include_or_isolate_shared_results(tmp_path: Path) -> None:
+    store = LocalStructuredStore(tmp_path)
+    project_skill = Skill(
+        project_name="demo",
+        name="Project release hygiene",
+        activation_condition="When preparing a release",
+        steps=["Run project checks"],
+        termination_condition="Project release checks pass",
+    )
+    workspace_skill = Skill(
+        project_name="other-project",
+        name="Workspace release hygiene",
+        activation_condition="When preparing a release",
+        steps=["Run workspace checks"],
+        termination_condition="Workspace release checks pass",
+        scope="workspace",
+        origin_project="other-project",
+        portability_notes="Only reuse in repos with pytest.",
+    )
+    global_skill = Skill(
+        project_name="ops-project",
+        name="Global release hygiene",
+        activation_condition="When preparing a release",
+        steps=["Run global checks"],
+        termination_condition="Global release checks pass",
+        scope="global",
+        origin_project="ops-project",
+        portability_notes="Assume changelog discipline exists.",
+    )
+
+    run(store.save_skill(project_skill))
+    run(store.save_skill(workspace_skill))
+    run(store.save_skill(global_skill))
+
+    included = run(
+        store.search_skills(
+            "release hygiene",
+            project_name="demo",
+            shared_scope="include",
+        )
+    )
+    shared_only = run(
+        store.search_skills(
+            "release hygiene",
+            project_name="demo",
+            shared_scope="only",
+        )
+    )
+
+    assert [skill.id for skill in included] == [
+        project_skill.id,
+        workspace_skill.id,
+        global_skill.id,
+    ]
+    assert [skill.id for skill in shared_only] == [workspace_skill.id, global_skill.id]
+
+
 def test_confirm_skill_promotion_creates_shared_skill_without_mutating_source(tmp_path: Path) -> None:
     store = LocalStructuredStore(tmp_path)
     project_skill = Skill(

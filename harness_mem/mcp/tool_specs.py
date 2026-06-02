@@ -157,6 +157,17 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "Search scope: project or all (default: project)",
                     "default": "project",
                 },
+                "include_shared": {
+                    "type": "boolean",
+                    "description": "When true, include workspace/global shared skills alongside project skills",
+                    "default": False,
+                },
+                "shared_scope": {
+                    "type": "string",
+                    "enum": ["exclude", "include", "only"],
+                    "description": "Shared-skill search mode. exclude=default project-only, include=project plus shared, only=shared only",
+                    "default": "exclude",
+                },
                 "limit": {
                     "type": "integer",
                     "description": "Maximum skills to return (default 10)",

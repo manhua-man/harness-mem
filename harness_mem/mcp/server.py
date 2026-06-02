@@ -429,12 +429,23 @@ def tool_search_skills(
     project_name: str | None = None,
     scope: str = "project",
     limit: int = 10,
+    include_shared: bool = False,
+    shared_scope: str = "exclude",
 ) -> dict:
     """Search confirmed procedural skills."""
     if scope not in {"project", "all"}:
         return {"success": False, "error": "scope must be one of: project, all"}
     if scope == "project" and not project_name:
         return {"success": False, "error": "project_name is required when scope=project"}
+    if shared_scope not in {"exclude", "include", "only"}:
+        return {
+            "success": False,
+            "error": "shared_scope must be one of: exclude, include, only",
+        }
+
+    effective_shared_scope = shared_scope
+    if include_shared and shared_scope == "exclude":
+        effective_shared_scope = "include"
 
     backend = _get_backend()
     skills = asyncio.run(
@@ -444,6 +455,7 @@ def tool_search_skills(
             query=query,
             scope=scope,
             limit=limit,
+            shared_scope=effective_shared_scope,
         )
     )
     return {
@@ -451,6 +463,8 @@ def tool_search_skills(
         "project_name": project_name,
         "query": query,
         "scope": scope,
+        "include_shared": include_shared,
+        "shared_scope": effective_shared_scope,
         "limit": limit,
         "skills": [serialize_skill(skill) for skill in skills],
         "count": len(skills),

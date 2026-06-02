@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.7
 
-> 状态：v2.7.0 scope model 与 promotion candidate 已完成；explicit shared search 未开始。
+> 状态：v2.7.0 scope model、promotion candidate、explicit shared search 已完成；剩余 portability warning/usage feedback。
 >
 > 主题：Cross-Project Skills and Controlled Activation。让可复用 procedural knowledge 跨项目流动，但必须显式、带边界、可审核。
 
@@ -58,7 +58,11 @@ v2.7 处理原先放在 v2.4 的跨项目 Skill 方向。它被后移的原因�
 - 已实现 promotion candidate review loop：project skill 可以经由 reviewed
   `skill_promotion` candidate 提升为 workspace/global shared skill，且 review surface、
   confirm/reject 流程与 provenance metadata 已接通。
-- 尚未实现 explicit shared search；默认 wake / skill search 仍不消费 shared skills。
+- 已实现 explicit shared search：MCP `search_skills` 支持显式
+  `include_shared` / `shared_scope=include|only`，并保持默认 project-scoped 行为。
+- shared-inclusive 搜索会让 project skill 排在 shared skill 前面，并继续返回
+  scope/origin/source ids/portability metadata。
+- 默认 wake / skill search 仍不消费 shared skills。
 
 ### 首片实现验收：scope model
 

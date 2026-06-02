@@ -16,11 +16,13 @@
   candidate 与 MCP `suggest_skill_promotion` / `confirm_skill_promotion` /
   `reject_skill_promotion`；`list_candidates` 现在会返回
   `skill_promotion_candidates` 和 `skill_promotion_count`。
+- **v2.7.0 explicit shared search**：MCP `search_skills` 新增显式
+  `include_shared` / `shared_scope=exclude|include|only`，默认仍只返回
+  project-scoped skills；shared-inclusive 结果会保留 project-first 排序。
 
 ### Notes
 
-- explicit shared search 仍未实现；默认 wake / skill search 不消费
-  workspace/global shared skills。
+- 默认 wake / skill search 仍不消费 workspace/global shared skills。
 
 ---
 
