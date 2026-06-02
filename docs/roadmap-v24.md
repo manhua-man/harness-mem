@@ -82,7 +82,7 @@ resolve project_name: 项目 toml > active_project.txt > 目录启发（与 v2.2
 | 键 | 默认 | 含义 |
 |---|---|---|
 | `triggers.after_agent` | `off` | `off` \| `on` — IDE 回合结束后是否执行 host 触发脚本 |
-| `triggers.scheduler` | `off` | `off` \| `cron`（表达式仅用户级） |
+| `triggers.scheduler` | `off` | `off` \| `on`（scheduler/cron host trigger gate） |
 | `distill.mode` | `defer_to_agent` | 见下表 |
 | `worker.mode` | `off` | `off` \| `on`（non-default gate） |
 

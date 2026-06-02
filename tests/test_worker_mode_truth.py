@@ -26,3 +26,19 @@ def test_worker_mode_docs_match_runtime_truth() -> None:
     assert "`off` \\| `on`" in roadmap_v24
     assert "`worker.mode=daemon`" not in roadmap_v24
     assert "`worker.mode=daemon`" not in roadmap_status
+
+
+def test_scheduler_trigger_docs_match_runtime_truth() -> None:
+    scheduler_row = next(
+        row for row in _RECOGNIZED_KEYS if row[0] == "triggers.scheduler"
+    )
+    assert scheduler_row[2] == ("off", "on")
+
+    cli_doc = _text("docs/cli/v2.4.md")
+    roadmap_v24 = _text("docs/roadmap-v24.md")
+    roadmap_status = _text("docs/roadmap-status.md")
+
+    assert "| `triggers.scheduler` | `off`, `on` | `off` |" in cli_doc
+    assert "`off` \\| `on`" in roadmap_v24
+    assert "`off` \\| `cron`" not in roadmap_v24
+    assert "`triggers.scheduler=cron`" not in roadmap_status

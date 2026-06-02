@@ -8,6 +8,31 @@
 
 ---
 
+## [2.9.11] — 2026-06-03
+
+**主题：Scheduler Trigger Truth Sync**
+
+v2.9.11 继续收 v2.4 配置口径。当前 runtime 和 tests 一直只承认
+`triggers.scheduler = "off" | "on"`，但 `roadmap-v24` 仍把它写成
+`off|cron`。这一版不改行为，只把剩余 current-truth 文档收回到 shipped loader
+truth，并把 focused guard 扩到 scheduler trigger。
+
+### Changed
+
+- **v2.4 roadmap truth sync**：`docs/roadmap-v24.md` 现在把
+  `triggers.scheduler` 写成 `off|on` scheduler gate，而不是 `off|cron`。
+- **operator doc clarification**：`docs/cli/v2.4.md` 现在明确 `on` 只是
+  scheduler/cron host trigger gate，不代表当前 runtime 自带 schedule installer。
+- **status/release writeback**：`docs/roadmap-status.md` 与 `docs/roadmap-v29.md`
+  已同步到 v2.9.11。
+- **focused regression coverage**：`tests/test_worker_mode_truth.py` 现在也守
+  `triggers.scheduler` 的文档口径。
+
+### Boundaries
+
+- 本版本不新增 scheduler、cron expression parser、daemon 或 host-entry 行为。
+- 它只同步当前 config truth，并防止 `triggers.scheduler=cron` 旧说法继续误导用户。
+
 ## [2.9.10] — 2026-06-03
 
 **主题：Worker-Mode Truth Sync**

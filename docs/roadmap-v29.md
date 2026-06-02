@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -299,3 +299,23 @@ reflection 时，不应该再被旧文档误导去写 `worker.mode = "daemon"`�
   - `on` 只是 non-default config gate
   - 当前 runtime 仍无默认 always-on daemon 安装器或后台主路径
 - 已补 focused regression test：`tests/test_worker_mode_truth.py`
+
+## v2.9.11：Scheduler Trigger Truth Sync
+
+**用户故事**：当维护者回看 v2.4 配置文档时，不应该再被 `triggers.scheduler = "cron"`
+这类旧口径误导，因为当前 loader 和 tests 只承认 `off|on`。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | roadmap truth sync | `roadmap-v24` 不再把 `triggers.scheduler` 写成 `off|cron` |
+| P0 | operator doc sync | `docs/cli/v2.4.md` 明确 `on` 只是 scheduler/cron gate |
+| P1 | focused regression guard | docs truth 绑定 `_RECOGNIZED_KEYS` 中的 `triggers.scheduler` |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/v2911-scheduler-trigger-truth-sync/`。
+- `triggers.scheduler` 当前真值已收束成：
+  - 允许值只有 `off` / `on`
+  - `on` 只是 scheduler/cron host trigger gate
+  - 当前 runtime 不内建 cron expression schema 或 schedule installer
+- focused regression guard 已扩展到 scheduler trigger truth。
