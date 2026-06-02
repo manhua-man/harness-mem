@@ -8,6 +8,30 @@
 
 ---
 
+## [2.9.21] — 2026-06-03
+
+**主题：V2 User Test Packet Distill Truth Sync**
+
+v2.9.21 收的是 `docs/v2-user-test-packet.md` 里残留的一处 generic MCP distill
+旧口径。当前 shipped runtime 里，distill 的 review 步骤已经是一等的
+`auto_review_candidates` surface；但 v2 user test packet 仍把 generic MCP 主链写成
+`prepare_session_distill -> suggest_* -> list_candidates -> auto_review_candidates`。
+这一版不改 runtime，只把 packet 写回当前 shipped review truth，并补 focused
+guard。
+
+### Changed
+
+- **v2 user test packet sync**：`docs/v2-user-test-packet.md` 的 generic MCP distill
+  链现在直接写成 `prepare_session_distill -> suggest_* -> auto_review_candidates`。
+- **focused regression coverage**：新增 `tests/test_v2_user_test_packet_distill_truth.py`。
+- **release/status writeback**：`docs/roadmap-v29.md` 与
+  `docs/roadmap-status.md` 已同步到 v2.9.21。
+
+### Boundaries
+
+- 本版本不新增新的 auto-review policy、候选类型或 MCP runtime 行为。
+- 它只同步 v2 user test packet 的 generic MCP distill 主链，并防止 packet 回流到旧测试链路写法。
+
 ## [2.9.20] — 2026-06-03
 
 **主题：README Distill Workflow Truth Sync**

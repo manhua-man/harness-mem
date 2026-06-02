@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-06-03
+change_kind: bugfix
+area: docs
+summary: Align the v2 user test packet distill flow with the shipped auto-review surface

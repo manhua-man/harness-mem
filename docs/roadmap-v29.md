@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -522,3 +522,23 @@ shared policy。
   - `auto_review_candidates(apply=true)`
   - `final summary`
 - 已补 focused regression test：`tests/test_readme_distill_truth.py`
+
+## v2.9.21：V2 User Test Packet Distill Truth Sync
+
+**用户故事**：当维护者回看 `docs/v2-user-test-packet.md` 的 generic MCP distill 流时，
+不应该再看到 `suggest_* -> list_candidates -> auto_review_candidates` 这类旧主链，
+因为当前 shipped distill review truth 已经是一等 `auto_review_candidates` surface。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | packet distill chain sync | v2 user test packet 的 generic MCP distill 链直接指向 `auto_review_candidates` |
+| P1 | focused regression guard | packet 回流到 `list_candidates -> auto_review_candidates` 旧写法时测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2921-user-test-packet-distill-truth-sync/`。
+- `docs/v2-user-test-packet.md` 的 generic MCP distill 流现在直接展示：
+  - `prepare_session_distill`
+  - `suggest_*`
+  - `auto_review_candidates`
+- 已补 focused regression test：`tests/test_v2_user_test_packet_distill_truth.py`

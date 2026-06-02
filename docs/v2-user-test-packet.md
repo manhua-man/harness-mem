@@ -17,7 +17,7 @@
 | Scenario | Claude Code | Codex CLI | Cursor | Generic MCP client |
 |----------|-------------|-----------|--------|--------------------|
 | S1 Cold wake on empty project | Pass: 报空 + 不教 CLI / `/hm:wake` | Pass: 报空 + 不教 CLI / "用 harness-mem 唤醒当前项目" | Pass: 报空 + 不教 CLI / "用 harness-mem 唤醒当前项目" | Pass: 调 `wake` 工具，结果空 / 直接调用 MCP `wake` |
-| S2 Distill closed loop produces canonical summary | Pass: 摘要含六计数器 / `/hm:distill` | Pass: 摘要含六计数器 / "用 harness-mem 整理最近 10 个 session" | Pass: 摘要含六计数器 / "用 harness-mem 整理最近 10 个 session" | Pass: 完整链 + 摘要 / 顺序调 `prepare_session_distill` → `suggest_*` → `list_candidates` → `auto_review_candidates` |
+| S2 Distill closed loop produces canonical summary | Pass: 摘要含六计数器 / `/hm:distill` | Pass: 摘要含六计数器 / "用 harness-mem 整理最近 10 个 session" | Pass: 摘要含六计数器 / "用 harness-mem 整理最近 10 个 session" | Pass: 完整链 + 摘要 / 顺序调 `prepare_session_distill` → `suggest_*` → `auto_review_candidates` |
 | S3 Project resolution | Pass: 不让用户跑 `harness-mem use` / `/hm:wake` | Pass: 同左 / "唤醒当前项目" | Pass: 同左 / "唤醒当前项目" | Pass: agent 解析项目 / 注入 `project_root` 参数 |
 | S4 MCP unavailable | Pass: 报 unavailable + 指 doctor / `/hm:distill` | Pass: 同左 / "整理最近 session" | Pass: 同左 / "整理最近 session" | Pass: 同左 / 任意 MCP 调用 |
 | S5 No LLM agent (distill) | N/A（Claude Code 总有 LLM） | Pass: 报 unavailable，不启发式回退 / "整理最近 session"（用 weak/无模型） | Pass: 同左 / 同左 | Pass: 同左 / 模拟无 LLM agent |
@@ -124,7 +124,7 @@ Cursor 不需要单独的 `.cursor/commands` 模板。两条接入路径，二�
 - **Per-client input**：
   - Claude Code：`/hm:distill`
   - Codex CLI / Cursor：`用 harness-mem 整理当前项目最近 10 个 session，自动审核低风险候选，最后给我六项计数器摘要`
-  - Generic MCP：依次调 `prepare_session_distill` → `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` / `create_task_handoff` → `list_candidates(status="pending")` → `auto_review_candidates`
+  - Generic MCP：依次调 `prepare_session_distill` → `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` / `create_task_handoff` → `auto_review_candidates`
 - **Expected**：参见 spec _Distill closes the review loop_ + _Final summary uses canonical counters_。完成主链后输出六个计数器：`ingested / candidates / auto_confirmed / auto_rejected / pending / high_risk`。
 - **Pass criterion**：摘要里能逐字数到这六个名字（或对应中文 alias：新灌入 / 新候选 / 自动确认 / 自动拒绝 / 保留待定 / 需要你确认）；`auto_confirmed + auto_rejected + pending + high_risk = candidates`。
 - **Common failure mode**：摘要里只给"已 distill X 条"或者只给一个"pending: N"——少了 auto-review 的可见性，这是 v2.1 的回归。
