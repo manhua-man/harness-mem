@@ -89,7 +89,12 @@ Response: {
   "success": true,
   "project_name": "demo-project",
   "observation_count": 3,
-  "pending_candidate_count": 1
+  "pending_candidate_count": 1,
+  "phase": "ready",
+  "suggested_slash": "/hm:wake",
+  "reason": "Project has usable memory context.",
+  "repair_hint": "/hm:review",
+  "repair_reason": "Pending candidates remain from earlier review work."
 }
 ```
 

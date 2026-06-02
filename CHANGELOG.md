@@ -8,6 +8,36 @@
 
 ---
 
+## [2.9.18] — 2026-06-03
+
+**主题：Status Entrypoint Truth Sync**
+
+v2.9.18 收的是 `/hm:status` 用户面真路径的残余漂移。当前 shipped runtime 里，
+status triage 已经有一等的 MCP `get_project_status(project_name=<project>)`
+surface，会直接返回 `phase`、`suggested_slash`、`reason` 和可选 repair hint；但
+repo-local `/hm:status` 命令文档还在教 agent 额外拼 `get_project_profile`、
+`list_candidates` 和 `timeline`，MCP 主 spec 的 status 示例也还没把 triage 字段写全。
+这一版不改 runtime，只把这些高可见入口同步回当前 shipped status truth，并补 focused
+guard。
+
+### Changed
+
+- **`/hm:status` command truth sync**：`plugins/harness-mem/commands/hm/status.md`
+  现在把 `get_project_status(project_name=<project>)` 写成默认 triage surface，并把
+  `timeline` / `list_candidates` 下放为用户显式追问时的 drilldown。
+- **status example sync**：`openspec/specs/mcp/spec.md` 的 status 示例现在直接展示
+  `phase`、`suggested_slash`、`reason`、`repair_hint` 和 `repair_reason`。
+- **workflow spec sync**：`openspec/specs/daily-workflow/spec.md` 新增 `/hm:status`
+  guidance requirement，防止文档再回流到手工拼低层读工具的旧路径。
+- **focused regression coverage**：新增 `tests/test_status_entrypoint_truth.py`。
+- **release/status writeback**：`docs/roadmap-v29.md` 与
+  `docs/roadmap-status.md` 已同步到 v2.9.18。
+
+### Boundaries
+
+- 本版本不新增新的 status runtime 字段、triage policy 或 MCP 行为。
+- 它只同步 `/hm:status` 用户面真路径，并防止文档/spec 回流到手工 assembly 的旧写法。
+
 ## [2.9.17] — 2026-06-03
 
 **主题：Distill Auto-Review Entrypoint Truth Sync**

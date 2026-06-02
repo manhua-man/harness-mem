@@ -43,6 +43,19 @@ review workflows.
 - **WHEN** the user requests a memory workflow
 - **THEN** the agent asks one short clarifying project-name question
 
+### Requirement: Status guidance uses the MCP status surface
+
+User-facing `/hm:status` guidance SHALL use the shipped MCP
+`get_project_status` tool as the primary triage surface rather than teaching a
+manual assembly of low-level reads.
+
+#### Scenario: Status guidance calls MCP status directly
+
+- **WHEN** maintainers update `/hm:status` command docs
+- **THEN** they instruct the agent to call `get_project_status(project_name=<project>)`
+- **AND** they summarize `phase`, `suggested_slash`, `reason`, and optional repair hints
+- **AND** they do not teach `get_project_profile` + `list_candidates` + `timeline` as the default status path
+
 ### Requirement: Wake-up guidance uses the MCP wake surface
 
 User-facing `/hm:wake`, skill docs, and natural-language wake guidance SHALL

@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -452,3 +452,29 @@ shared policy。
 - repo-local `harness-mem` skill 不再把手工 `list_candidates` + `confirm_*` / `reject_*`
   写成默认 shipped fallback
 - 已补 focused regression test：`tests/test_distill_auto_review_truth.py`
+
+## v2.9.18：Status Entrypoint Truth Sync
+
+**用户故事**：当维护者回看 `/hm:status` 命令文档或 MCP 主 spec 的 status 示例时，
+不应该再被“先 `get_project_profile` / `list_candidates` / `timeline` 再自己拼状态”的旧写法误导，
+因为当前 shipped triage truth 已经是一等 `get_project_status` surface，会直接返回
+`phase`、`suggested_slash`、`reason` 和可选 repair hint。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | `/hm:status` truth sync | slash 文档默认走 `get_project_status(project_name=<project>)` |
+| P0 | MCP status example sync | MCP 主 spec 示例直接展示 `phase` / `suggested_slash` / `reason` / repair hint |
+| P1 | focused regression guard | status 文档回流到手工拼低层读工具时测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2918-status-entrypoint-truth-sync/`。
+- `/hm:status` 文档现在明确：
+  - 默认 triage surface 是 MCP `get_project_status(project_name=<project>)`
+  - 只有用户明确追问 provenance 或旧 pending 细节时，才继续下钻 `timeline` / `list_candidates`
+- MCP 主 spec 的 status 示例现在直接展示：
+  - `phase`
+  - `suggested_slash`
+  - `reason`
+  - 可选 `repair_hint` / `repair_reason`
+- 已补 focused regression test：`tests/test_status_entrypoint_truth.py`

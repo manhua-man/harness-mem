@@ -12,19 +12,21 @@ tags: [harness-mem, status]
 **Steps**
 
 1. 调 MCP `get_project_status`（带项目参数如果有；省略时读取 active project）
-2. 并行补充：
-   - `get_project_profile(project_name=<project>)`
-   - `list_candidates(project_name=<project>, status="pending", limit=20)`
-   - `timeline(project_name=<project>, limit=5)`
-3. 解析结果，重点关注：
+2. 解析结果，重点关注：
    - Observations / Memory entries / Confirmed rules 数量
    - Pending candidates 数量
-   - 最近 observations 是否存在
    - `phase` / `suggested_slash` / `reason`
-4. 用自然语言总结给用户，并给出具体可点的 slash 建议：
+   - 可选 `repair_hint` / `repair_reason`
+3. 用自然语言总结给用户，并给出具体可点的 slash 建议：
    - `phase=needs-distill` → 建议用户跑 `/hm:distill`
    - `phase=ready` → 建议 `/hm:wake`
    - 如果 MCP 还返回 `repair_hint=/hm:review`，把它表述成显式复查/纠错入口，不要把 review 说成日常必经步骤
+
+4. 只有用户明确追问 provenance、老 pending 细节或最近历史时，才继续调更低层读取面：
+   - `timeline`
+   - `list_candidates`
+   - 其他只读 drilldown 工具
+   默认 `/hm:status` 不需要为了给下一步建议而手工拼这些低层工具。
 
 **Notes**
 
