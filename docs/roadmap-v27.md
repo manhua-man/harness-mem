@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.7
 
-> 状态：v2.7.0 已完成；v2.7.1 第一片已完成。
+> 状态：v2.7.0 / v2.7.1 已完成；v2.7.2 第一片进行中。
 >
 > 主题：Cross-Project Skills and Controlled Activation。让可复用 procedural knowledge 跨项目流动，但必须显式、带边界、可审核。
 
@@ -106,6 +106,19 @@ v2.7 处理原先放在 v2.4 的跨项目 Skill 方向。它被后移的原因�
 | P0 | revision provenance | 改进建议带失败案例和反例 |
 | P0 | no auto-rewrite | confirmed skill 不被静默覆盖 |
 | P1 | deprecation suggestion | 长期不用或冲突的 shared skill 生成 deactivate candidate |
+
+### 当前状态（2026-06-02）
+
+- 已创建 `openspec/changes/v272-skill-improvement-suggestions/`。
+- 已实现第一片 low-success detector：
+  `detect_skill_improvements(project_name)` 会基于现有 replay-window 阈值
+  为低成功率 skill 创建 reviewed `skill_revision_suggestion` candidate。
+- revision suggestion 会保留当前 usage/success/failure 计数和最近
+  `skill_result_success` / `skill_result_failure` signal ids。
+- `list_candidates` 已接入 `skill_revision_suggestion`；
+  `confirm_skill_revision` / `reject_skill_revision` 只改 candidate 状态，
+  不改写 confirmed skill。
+- 尚未实现 duplicate suppression 的更细粒度策略和 shared-skill deprecation suggestion。
 
 ---
 

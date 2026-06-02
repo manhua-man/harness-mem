@@ -107,7 +107,7 @@ def test_stdio_initialize_writes_json_rpc_to_stdout():
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 46
+    assert len(tools) == 49
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
@@ -122,6 +122,7 @@ def test_tools_list():
         "suggest_supersede", "confirm_supersede", "reject_supersede", "suggest_correction",
         "suggest_skill", "confirm_skill", "reject_skill", "record_skill_result",
         "suggest_skill_promotion", "confirm_skill_promotion", "reject_skill_promotion",
+        "detect_skill_improvements", "confirm_skill_revision", "reject_skill_revision",
         "suggest_memory_entry", "confirm_memory_entry", "reject_memory_entry",
         "suggest_relation_fact", "confirm_relation_fact", "reject_relation_fact",
         "create_task_handoff",
@@ -759,6 +760,68 @@ def test_search_skills_rejects_invalid_shared_scope(mcp_backend: LocalMemoryBack
 
     assert data["success"] is False
     assert "shared_scope must be one of: exclude, include, only" in data["error"]
+
+
+def test_detect_skill_improvements_creates_review_candidates_without_rewriting_skill(
+    mcp_backend: LocalMemoryBackend,
+):
+    suggested = call_tool(
+        "suggest_skill",
+        {
+            "project_name": "test-project",
+            "activation_condition": "When preparing a release",
+            "steps": ["Run tests", "Update changelog"],
+            "termination_condition": "Release checks pass",
+            "source_session_id": "skill-revision-session",
+        },
+    )
+    confirmed = call_tool("confirm_skill", {"candidate_id": suggested["candidate_id"]})
+    skill_id = confirmed["skill"]["id"]
+
+    for _ in range(5):
+        payload = call_tool(
+            "record_skill_result",
+            {
+                "skill_id": skill_id,
+                "success": False,
+            },
+        )
+        assert payload["success"] is True
+
+    detected = call_tool(
+        "detect_skill_improvements",
+        {
+            "project_name": "test-project",
+        },
+    )
+    assert detected["success"] is True
+    assert detected["matched_skill_count"] >= 1
+    assert detected["created_count"] == 1
+
+    listed = call_tool("list_candidates", {"project_name": "test-project"})
+    assert listed["skill_revision_suggestion_count"] == 1
+    candidate = next(
+        item for item in listed["candidates"] if item["type"] == "skill_revision_suggestion"
+    )
+    assert candidate["source_skill_id"] == skill_id
+    assert candidate["trigger"] == "zero_success_after_repeated_use"
+    assert candidate["failure_count"] == 5
+    assert candidate["success_count"] == 0
+    assert len(candidate["recent_failure_signal_ids"]) == 5
+    assert candidate["confirm_tool"] == "confirm_skill_revision"
+    assert candidate["reject_tool"] == "reject_skill_revision"
+
+    accepted = call_tool(
+        "confirm_skill_revision",
+        {"candidate_id": candidate["id"]},
+    )
+    assert accepted["success"] is True
+    assert accepted["status"] == "accepted"
+    assert accepted["skill"]["id"] == skill_id
+    assert accepted["skill"]["steps"] == ["Run tests", "Update changelog"]
+
+    still_same_skill = call_tool("get_skill", {"skill_id": skill_id})
+    assert still_same_skill["skill"]["steps"] == ["Run tests", "Update changelog"]
 
 
 def test_auto_review_candidates_preview_and_apply(mcp_backend: LocalMemoryBackend):

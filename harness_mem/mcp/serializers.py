@@ -148,6 +148,28 @@ def _serialize_skill_promotion_candidate(candidate: Any) -> dict:
     }
 
 
+def _serialize_skill_revision_suggestion_candidate(candidate: Any) -> dict:
+    return {
+        "type": "skill_revision_suggestion",
+        "id": candidate.id,
+        "project_name": candidate.project_name,
+        "status": candidate.status,
+        "source_skill_id": candidate.source_skill_id,
+        "trigger": candidate.trigger,
+        "summary": candidate.summary,
+        "usage_count": candidate.usage_count,
+        "success_count": candidate.success_count,
+        "failure_count": candidate.failure_count,
+        "success_rate": candidate.success_rate,
+        "recent_failure_signal_ids": list(candidate.recent_failure_signal_ids),
+        "recent_success_signal_ids": list(candidate.recent_success_signal_ids),
+        "confidence": candidate.confidence,
+        "created_at": _isoformat(candidate.created_at),
+        "confirm_tool": "confirm_skill_revision",
+        "reject_tool": "reject_skill_revision",
+    }
+
+
 def _serialize_merge_suggestion_candidate(candidate: Any) -> dict:
     return {
         "type": "merge_suggestion",

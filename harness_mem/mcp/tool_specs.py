@@ -747,6 +747,46 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["skill_id", "success"],
         },
     },
+    "detect_skill_improvements": {
+        "description": "Create reviewed revision suggestions for low-success skills.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum low-success skills to inspect",
+                    "default": 20,
+                },
+                "lookback_days": {
+                    "type": "integer",
+                    "description": "Lookback window for supporting skill result signals",
+                    "default": 30,
+                },
+            },
+            "required": ["project_name"],
+        },
+    },
+    "confirm_skill_revision": {
+        "description": "Accept a skill revision suggestion without rewriting the skill.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "candidate_id": {"type": "string", "description": "Skill revision suggestion candidate ID"},
+            },
+            "required": ["candidate_id"],
+        },
+    },
+    "reject_skill_revision": {
+        "description": "Reject a skill revision suggestion.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "candidate_id": {"type": "string", "description": "Skill revision suggestion candidate ID"},
+            },
+            "required": ["candidate_id"],
+        },
+    },
     "create_rule_candidate": {
         "description": "Create a rule candidate from a correction pattern.",
         "input_schema": {

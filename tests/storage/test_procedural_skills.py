@@ -1,6 +1,11 @@
 from pathlib import Path
 
-from harness_mem.core.schemas import ProceduralCandidate, Skill, SkillPromotionCandidate
+from harness_mem.core.schemas import (
+    ProceduralCandidate,
+    Skill,
+    SkillPromotionCandidate,
+    SkillRevisionSuggestionCandidate,
+)
 from harness_mem.read_api import serialize_skill
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from tests.helpers import run
@@ -314,3 +319,44 @@ def test_recording_shared_skill_result_does_not_change_project_skill_usage(tmp_p
     assert reloaded_project_skill is not None
     assert reloaded_project_skill.usage_count == 0
     assert reloaded_project_skill.success_rate is None
+
+
+def test_skill_revision_suggestion_round_trip_and_acceptance_do_not_rewrite_skill(
+    tmp_path: Path,
+) -> None:
+    store = LocalStructuredStore(tmp_path)
+    skill = Skill(
+        project_name="demo",
+        name="Release hygiene",
+        activation_condition="When preparing a release",
+        steps=["Run tests", "Update changelog"],
+        termination_condition="Release checks pass",
+    )
+    run(store.save_skill(skill))
+
+    candidate = SkillRevisionSuggestionCandidate(
+        project_name="demo",
+        source_skill_id=skill.id,
+        trigger="low_success_rate",
+        summary="Skill success rate is 0.33 across 6 uses; review the procedure against recent failure outcomes.",
+        usage_count=6,
+        success_count=2,
+        failure_count=4,
+        success_rate=2 / 6,
+        recent_failure_signal_ids=["sig-f-1", "sig-f-2"],
+        recent_success_signal_ids=["sig-s-1"],
+    )
+    run(store.save_skill_revision_suggestion_candidate(candidate))
+    loaded = run(store.get_skill_revision_suggestion_candidate(candidate.id))
+    assert loaded is not None
+    assert loaded.source_skill_id == skill.id
+    assert loaded.recent_failure_signal_ids == ["sig-f-1", "sig-f-2"]
+
+    assert run(store.update_skill_revision_suggestion_candidate_status(candidate.id, "accepted")) is True
+
+    reloaded_skill = run(store.get_skill(skill.id))
+    accepted = run(store.get_skill_revision_suggestion_candidate(candidate.id))
+    assert reloaded_skill is not None
+    assert reloaded_skill.steps == ["Run tests", "Update changelog"]
+    assert accepted is not None
+    assert accepted.status == "accepted"

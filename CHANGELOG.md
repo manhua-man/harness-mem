@@ -25,6 +25,10 @@
 - **v2.7.1 controlled skill activation (slice 1)**：MCP `wake` 新增显式
   `include_skill_hints` / `skill_hint_limit`，以 opt-in 方式追加 compact
   skill hints；同时新增 `get_skill` 读工具用于按 id 显式展开完整 skill。
+- **v2.7.2 skill improvement suggestions (slice 1)**：新增 reviewed
+  `skill_revision_suggestion` candidate、MCP `detect_skill_improvements` /
+  `confirm_skill_revision` / `reject_skill_revision`，把低成功率 skill 转成
+  待审改进建议，同时保持 confirmed skill 不被自动改写。
 
 ### Notes
 

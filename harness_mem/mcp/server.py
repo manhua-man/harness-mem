@@ -88,7 +88,7 @@ import io  # noqa: E402
 import json  # noqa: E402
 import logging  # noqa: E402
 import re  # noqa: E402
-from datetime import datetime, timezone  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any, cast  # noqa: E402
 
@@ -115,11 +115,15 @@ from harness_mem.commands.wake import cmd_wake_up  # noqa: E402
 from harness_mem.core.schemas import (  # noqa: E402
     ProceduralCandidate,
     SkillPromotionCandidate,
+    SkillRevisionSuggestionCandidate,
     SupersedeCandidate,
 )
 from harness_mem.core.schemas.metabolism_run import MetabolismRun  # noqa: E402
 from harness_mem.core.schemas.project_profile import ProjectProfile  # noqa: E402
 from harness_mem.core.schemas.skill_promotion_candidate import PromotionScope  # noqa: E402
+from harness_mem.core.schemas.skill_revision_suggestion_candidate import (  # noqa: E402
+    RevisionTrigger,
+)
 from harness_mem.knowledge_cache import (  # noqa: E402
     COMPACT_RENDERER_NAME,
     load_compact_wake_payload,
@@ -1369,6 +1373,7 @@ from harness_mem.mcp.serializers import (  # noqa: E402, F401
     _serialize_relation_fact_candidate,
     _serialize_rule_candidate,
     _serialize_skill_promotion_candidate,
+    _serialize_skill_revision_suggestion_candidate,
     _serialize_stale_truth_suggestion_candidate,
     _serialize_supersede_candidate,
 )
@@ -1389,6 +1394,7 @@ async def _gather_candidate_payload(
     list[dict],
     list[dict],
     list[dict],
+    list[dict],
 ]:
     rules = await backend.structured_store.list_rule_candidates(project_name, status=status)
     entries = await backend.structured_store.list_memory_entries(project_name, status=status, limit=limit)
@@ -1396,6 +1402,9 @@ async def _gather_candidate_payload(
     supersedes = await backend.structured_store.list_supersede_candidates(project_name, status=status)
     procedural = await backend.structured_store.list_procedural_candidates(project_name, status=status)
     skill_promotions = await backend.structured_store.list_skill_promotion_candidates(
+        project_name, status=status
+    )
+    skill_revisions = await backend.structured_store.list_skill_revision_suggestion_candidates(
         project_name, status=status
     )
     merge_suggestions = await backend.structured_store.list_merge_suggestion_candidates(project_name, status=status)
@@ -1407,6 +1416,7 @@ async def _gather_candidate_payload(
         [_serialize_supersede_candidate(candidate) for candidate in supersedes[:limit]],
         [_serialize_procedural_candidate(candidate) for candidate in procedural[:limit]],
         [_serialize_skill_promotion_candidate(candidate) for candidate in skill_promotions[:limit]],
+        [_serialize_skill_revision_suggestion_candidate(candidate) for candidate in skill_revisions[:limit]],
         [_serialize_merge_suggestion_candidate(candidate) for candidate in merge_suggestions[:limit]],
         [_serialize_stale_truth_suggestion_candidate(candidate) for candidate in stale_suggestions[:limit]],
     )
@@ -1429,6 +1439,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         supersede_candidates,
         procedural_candidates,
         skill_promotion_candidates,
+        skill_revision_suggestion_candidates,
         merge_suggestion_candidates,
         stale_truth_suggestion_candidates,
     ) = asyncio.run(
@@ -1446,6 +1457,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         *supersede_candidates,
         *procedural_candidates,
         *skill_promotion_candidates,
+        *skill_revision_suggestion_candidates,
         *merge_suggestion_candidates,
         *stale_truth_suggestion_candidates,
     ]
@@ -1464,6 +1476,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         "supersede_candidates": supersede_candidates,
         "procedural_candidates": procedural_candidates,
         "skill_promotion_candidates": skill_promotion_candidates,
+        "skill_revision_suggestion_candidates": skill_revision_suggestion_candidates,
         "merge_suggestion_candidates": merge_suggestion_candidates,
         "stale_truth_suggestion_candidates": stale_truth_suggestion_candidates,
         "count": len(candidates),
@@ -1474,6 +1487,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         "supersede_count": len(supersede_candidates),
         "procedural_count": len(procedural_candidates),
         "skill_promotion_count": len(skill_promotion_candidates),
+        "skill_revision_suggestion_count": len(skill_revision_suggestion_candidates),
         "merge_suggestion_count": len(merge_suggestion_candidates),
         "stale_truth_suggestion_count": len(stale_truth_suggestion_candidates),
     }
@@ -1970,6 +1984,152 @@ def tool_record_skill_result(skill_id: str, success: bool) -> dict:
     }
 
 
+def _skill_revision_summary(skill: Any, trigger: str) -> str:
+    if trigger == "zero_success_after_repeated_use":
+        return (
+            f"Skill has 0 successes across {skill.usage_count} uses; "
+            "review activation condition and steps against recent failures."
+        )
+    rate = 0.0 if skill.success_rate is None else skill.success_rate
+    return (
+        f"Skill success rate is {rate:.2f} across {skill.usage_count} uses; "
+        "review the procedure against recent failure outcomes."
+    )
+
+
+def tool_detect_skill_improvements(
+    project_name: str,
+    limit: int = 20,
+    lookback_days: int = 30,
+) -> dict:
+    """Create reviewed revision suggestions for low-success skills."""
+    backend = _get_backend()
+    effective_limit = max(1, min(int(limit), 200))
+    effective_lookback_days = max(1, min(int(lookback_days), 365))
+
+    async def _run() -> dict[str, Any]:
+        since = datetime.now(timezone.utc) - timedelta(days=effective_lookback_days)
+        skills = await backend.structured_store.list_skills(project_name, status="active")
+        pending = await backend.structured_store.list_skill_revision_suggestion_candidates(
+            project_name,
+            status="pending",
+        )
+        pending_skill_ids = {candidate.source_skill_id for candidate in pending}
+
+        matched = [
+            skill
+            for skill in skills
+            if (skill.success_rate is not None and skill.success_rate < 0.5)
+            or (skill.usage_count >= 5 and skill.success_count == 0)
+        ]
+        matched.sort(
+            key=lambda s: (
+                s.success_rate is None,
+                s.success_rate if s.success_rate is not None else 0.0,
+                -s.usage_count,
+            )
+        )
+
+        created: list[SkillRevisionSuggestionCandidate] = []
+        skipped_existing = 0
+        for skill in matched[:effective_limit]:
+            if skill.id in pending_skill_ids:
+                skipped_existing += 1
+                continue
+            failure_signals = await backend.structured_store.query_retrieval_signals(
+                project_name,
+                signal_type="skill_result_failure",
+                target_kind="skill",
+                target_id=skill.id,
+                since=since,
+                limit=1000,
+            )
+            success_signals = await backend.structured_store.query_retrieval_signals(
+                project_name,
+                signal_type="skill_result_success",
+                target_kind="skill",
+                target_id=skill.id,
+                since=since,
+                limit=1000,
+            )
+            trigger = cast(
+                RevisionTrigger,
+                (
+                "zero_success_after_repeated_use"
+                if skill.usage_count >= 5 and skill.success_count == 0
+                else "low_success_rate"
+                ),
+            )
+            candidate = SkillRevisionSuggestionCandidate(
+                project_name=project_name,
+                source_skill_id=skill.id,
+                trigger=trigger,
+                summary=_skill_revision_summary(skill, trigger),
+                usage_count=skill.usage_count,
+                success_count=skill.success_count,
+                failure_count=skill.failure_count,
+                success_rate=skill.success_rate,
+                recent_failure_signal_ids=[signal.id for signal in failure_signals],
+                recent_success_signal_ids=[signal.id for signal in success_signals],
+                confidence=0.85 if trigger == "zero_success_after_repeated_use" else 0.7,
+            )
+            await backend.structured_store.save_skill_revision_suggestion_candidate(candidate)
+            created.append(candidate)
+
+        return {
+            "success": True,
+            "project_name": project_name,
+            "lookback_days": effective_lookback_days,
+            "matched_skill_count": len(matched),
+            "created_count": len(created),
+            "skipped_existing_count": skipped_existing,
+            "candidate_ids": [candidate.id for candidate in created],
+        }
+
+    return asyncio.run(_run())
+
+
+def tool_confirm_skill_revision(candidate_id: str) -> dict:
+    """Accept a skill revision suggestion without rewriting the skill."""
+    backend = _get_backend()
+    candidate = asyncio.run(
+        backend.structured_store.get_skill_revision_suggestion_candidate(candidate_id)
+    )
+    if candidate is None or candidate.status != "pending":
+        return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
+    updated = asyncio.run(
+        backend.structured_store.update_skill_revision_suggestion_candidate_status(
+            candidate_id,
+            "accepted",
+        )
+    )
+    if not updated:
+        return {"success": False, "error": f"Failed to confirm candidate: {candidate_id}"}
+    skill = asyncio.run(backend.structured_store.get_skill(candidate.source_skill_id))
+    return {
+        "success": True,
+        "candidate_id": candidate_id,
+        "status": "accepted",
+        "skill": serialize_skill(skill) if skill is not None else None,
+    }
+
+
+def tool_reject_skill_revision(candidate_id: str) -> dict:
+    """Reject a skill revision suggestion."""
+    backend = _get_backend()
+    updated = asyncio.run(
+        backend.structured_store.update_skill_revision_suggestion_candidate_status(
+            candidate_id,
+            "rejected",
+        )
+    )
+    return {
+        "success": updated,
+        "candidate_id": candidate_id,
+        "status": "rejected" if updated else "not_found",
+    }
+
+
 def tool_suggest_memory_entry(
     project_name: str,
     category: str,
@@ -2238,6 +2398,9 @@ TOOLS: dict[str, ToolSpec] = build_tools({
     "confirm_skill_promotion": tool_confirm_skill_promotion,
     "reject_skill_promotion": tool_reject_skill_promotion,
     "record_skill_result": tool_record_skill_result,
+    "detect_skill_improvements": tool_detect_skill_improvements,
+    "confirm_skill_revision": tool_confirm_skill_revision,
+    "reject_skill_revision": tool_reject_skill_revision,
     "create_rule_candidate": tool_create_rule_candidate,
     "confirm_rule": tool_confirm_rule,
     "reject_rule": tool_reject_rule,

@@ -14,6 +14,9 @@ from harness_mem.core.schemas.stale_truth_suggestion_candidate import (
 )
 from harness_mem.core.schemas.procedural_candidate import ProceduralCandidate
 from harness_mem.core.schemas.skill_promotion_candidate import SkillPromotionCandidate
+from harness_mem.core.schemas.skill_revision_suggestion_candidate import (
+    SkillRevisionSuggestionCandidate,
+)
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.relation_fact import RelationFact
@@ -342,6 +345,35 @@ class StructuredStore(Protocol):
 
     async def confirm_skill_promotion_candidate(self, id: str) -> Skill | None:
         """Confirm a pending skill promotion candidate into a shared skill."""
+        ...
+
+    async def save_skill_revision_suggestion_candidate(
+        self,
+        candidate: SkillRevisionSuggestionCandidate,
+    ) -> str:
+        """Save a skill revision suggestion candidate. Returns the candidate id."""
+        ...
+
+    async def get_skill_revision_suggestion_candidate(
+        self, id: str
+    ) -> SkillRevisionSuggestionCandidate | None:
+        """Get a single skill revision suggestion candidate by id."""
+        ...
+
+    async def list_skill_revision_suggestion_candidates(
+        self,
+        project_name: str,
+        status: str | None = None,
+    ) -> list[SkillRevisionSuggestionCandidate]:
+        """List skill revision suggestion candidates for a project."""
+        ...
+
+    async def update_skill_revision_suggestion_candidate_status(
+        self,
+        id: str,
+        status: str,
+    ) -> bool:
+        """Update skill revision suggestion candidate status."""
         ...
 
     # ---- MergeSuggestionCandidate (read-side) ----

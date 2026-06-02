@@ -11,6 +11,9 @@ from harness_mem.core.schemas.stale_truth_suggestion_candidate import (
 )
 from harness_mem.core.schemas.procedural_candidate import ProceduralCandidate
 from harness_mem.core.schemas.skill_promotion_candidate import SkillPromotionCandidate
+from harness_mem.core.schemas.skill_revision_suggestion_candidate import (
+    SkillRevisionSuggestionCandidate,
+)
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.project_profile import ProjectProfile
@@ -59,6 +62,7 @@ __all__ = [
     "StaleTruthSuggestionCandidate",
     "ProceduralCandidate",
     "SkillPromotionCandidate",
+    "SkillRevisionSuggestionCandidate",
     "Skill",
     "ConfirmedRule",
     "ProjectProfile",

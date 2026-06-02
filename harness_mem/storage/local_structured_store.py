@@ -16,6 +16,9 @@ from harness_mem.core.schemas.stale_truth_suggestion_candidate import (
 )
 from harness_mem.core.schemas.procedural_candidate import ProceduralCandidate
 from harness_mem.core.schemas.skill_promotion_candidate import SkillPromotionCandidate
+from harness_mem.core.schemas.skill_revision_suggestion_candidate import (
+    SkillRevisionSuggestionCandidate,
+)
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.relation_fact import RelationFact
@@ -43,6 +46,9 @@ class LocalStructuredStore:
             "supersede_candidates": self.blob_dir / "supersede_candidates",
             "procedural_candidates": self.blob_dir / "procedural_candidates",
             "skill_promotion_candidates": self.blob_dir / "skill_promotion_candidates",
+            "skill_revision_suggestion_candidates": (
+                self.blob_dir / "skill_revision_suggestion_candidates"
+            ),
             "skills": self.blob_dir / "skills",
             "confirmed_rules": self.blob_dir / "confirmed_rules",
             "relation_facts": self.blob_dir / "relation_facts",
@@ -1419,6 +1425,89 @@ class LocalStructuredStore:
         if not updated:
             return None
         return shared_skill
+
+    async def save_skill_revision_suggestion_candidate(
+        self,
+        candidate: SkillRevisionSuggestionCandidate,
+    ) -> str:
+        blob_path = self._blob_path("skill_revision_suggestion_candidates", candidate.id)
+        blob_path.write_text(json.dumps(candidate.to_dict(), indent=2, default=str))
+        await asyncio.to_thread(
+            self._index.insert,
+            "skill_revision_suggestion_candidates",
+            {
+                "id": candidate.id,
+                "project_name": candidate.project_name,
+                "source_skill_id": candidate.source_skill_id,
+                "trigger": candidate.trigger,
+                "summary": candidate.summary,
+                "usage_count": candidate.usage_count,
+                "success_count": candidate.success_count,
+                "failure_count": candidate.failure_count,
+                "success_rate": candidate.success_rate,
+                "recent_failure_signal_ids": candidate.recent_failure_signal_ids,
+                "recent_success_signal_ids": candidate.recent_success_signal_ids,
+                "confidence": candidate.confidence,
+                "status": candidate.status,
+                "created_at": candidate.created_at,
+            },
+        )
+        return candidate.id
+
+    async def get_skill_revision_suggestion_candidate(
+        self, id: str
+    ) -> SkillRevisionSuggestionCandidate | None:
+        blob_path = self._blob_path("skill_revision_suggestion_candidates", id)
+        if not blob_path.exists():
+            return None
+        data = json.loads(blob_path.read_text())
+        return SkillRevisionSuggestionCandidate.from_dict(data)
+
+    async def list_skill_revision_suggestion_candidates(
+        self,
+        project_name: str,
+        status: str | None = None,
+    ) -> list[SkillRevisionSuggestionCandidate]:
+        where_parts = ["project_name = ?"]
+        params = [project_name]
+        if status:
+            where_parts.append("status = ?")
+            params.append(status)
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "skill_revision_suggestion_candidates",
+            " AND ".join(where_parts),
+            tuple(params),
+            order_by="created_at DESC",
+        )
+        results = []
+        for row in rows:
+            blob_path = self._blob_path("skill_revision_suggestion_candidates", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(SkillRevisionSuggestionCandidate.from_dict(data))
+        return results
+
+    async def update_skill_revision_suggestion_candidate_status(
+        self,
+        id: str,
+        status: str,
+    ) -> bool:
+        blob_path = self._blob_path("skill_revision_suggestion_candidates", id)
+        if not blob_path.exists():
+            return False
+        updated = await asyncio.to_thread(
+            self._index.update,
+            "skill_revision_suggestion_candidates",
+            id,
+            {"status": status},
+        )
+        if not updated:
+            return False
+        data = json.loads(blob_path.read_text())
+        data["status"] = status
+        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        return True
 
     # ---- ConfirmedRule ----
 
