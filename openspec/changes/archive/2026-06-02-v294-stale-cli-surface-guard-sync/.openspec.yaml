@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-06-02
+change_kind: bugfix
+area: cli
+summary: Align stale CLI surface guardrails with the shipped maintenance truth

@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "2.9.3"
+version = "2.9.4"
 description = "Local-first, pluggable AI memory runtime"
 readme = "README.md"
 requires-python = ">=3.9"

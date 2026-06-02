@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -160,3 +160,22 @@ candidate surface。
 
 v2.9 是对 session-distill maintenance family 的补片：从 bundled packet 到
 产品文档整理之间，补一个 candidate-only 的桥，而不是开启新的自治写面。
+
+## v2.9.4：Stale CLI Surface Guard Sync
+
+**用户故事**：当仓库用 focused regression test 守护“用户文档不要教已移除的日常 CLI”时，测试本身也应该描述当前真实 maintenance surface，而不是停留在 `config/integration` 发版之前的旧口径。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | stale-surface guard sync | `tests/test_stale_cli_surface.py` 的注释与 allowlist 对齐当前 CLI truth |
+| P0 | maintenance allowlist | `config` / `integration` 被视为受支持的 maintenance verbs，而不是未来误报源 |
+| P1 | release writeback | roadmap / status / changelog / version 与 v2.9.4 一致 |
+
+### 当前状态（2026-06-02）
+
+- 已完成 `openspec/changes/v294-stale-cli-surface-guard-sync/`。
+- `tests/test_stale_cli_surface.py` 现在与当前 maintenance-only CLI truth 对齐：
+  - 注释里的 command set 已包含 `config` / `integration`
+  - `ALLOWED_MAINTENANCE` 已包含 `config` / `integration`
+  - 该测试继续只禁止被移除的 daily-memory verbs，不阻止已支持的 maintenance docs
+- 该切片不改 runtime surface，只修 guardrail/test truth 与 release docs。

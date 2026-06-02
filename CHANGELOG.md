@@ -8,6 +8,31 @@
 
 ---
 
+## [2.9.4] — 2026-06-02
+
+**主题：Stale CLI Surface Guard Sync**
+
+v2.9.4 收的是一个 guardrail current-truth 偏差。v2.9.3 已把主 CLI spec 同步到
+真实 `harness-mem --help`，明确 top-level maintenance surface 包含 `config` 和
+`integration`；但 focused regression test `tests/test_stale_cli_surface.py` 的注释与
+maintenance allowlist 还停留在更早的口径。这个版本不改运行时，只把 stale-surface
+守护测试和发版文档同步到当前真值。
+
+### Changed
+
+- **stale-surface guard sync**：`tests/test_stale_cli_surface.py` 现在把当前
+  maintenance-only CLI surface 记为 `init / quickstart / qs / doctor / import /
+  purge / maintenance / config / integration`。
+- **maintenance allowlist sync**：focused doc guard 现在把 `config` 和
+  `integration` 视为受支持的 maintenance verbs，而不是未来文档补写时的假阳性来源。
+- **release writeback**：`docs/roadmap-v29.md` 与 `docs/roadmap-status.md`
+  已同步到 v2.9.4。
+
+### Boundaries
+
+- 本版本不新增 CLI 或 MCP 运行时能力。
+- 该守护测试继续只禁止被移除的 daily-memory CLI verbs：
+  `wake/search/timeline/candidates/distill`。
 ## [2.9.3] — 2026-06-02
 
 **主题：CLI Maintenance Surface Truth**
@@ -873,3 +898,4 @@ v1.6.x 三切片路线的第一刀。本切片只动 schema 与测量层，不�
 - **双层记忆底座**：Verbatim (Observation) + Structured (Entry/Rule/Handoff)。
 - **Adapter**：Claude Code + Codex。
 - **MCP Server**：完整读取/写入工具链。
+

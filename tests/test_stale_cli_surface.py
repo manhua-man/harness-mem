@@ -1,11 +1,11 @@
-"""Stale CLI surface scan for v2.2 user-facing docs.
+"""Stale CLI surface scan for the current user-facing docs.
 
 Question answered: "do README, AGENTS, and the harness-mem plugin
 documentation accidentally tell users to run any of the daily CLI
 subcommands that v2.0 removed?" The five removed daily commands are
-``wake / search / timeline / candidates / distill`` (see
-``openspec/specs/cli/spec.md`` — the only CLI surface left is
-``init / quickstart / qs / doctor / import / purge / maintenance``).
+``openspec/specs/cli/spec.md`` — the maintenance-only CLI surface is
+``init / quickstart / qs / doctor / import / purge / maintenance / config /
+integration``).
 
 This is a focused doc scan, not a global lint. It only opens files we
 expect to read like a fresh user would — README, AGENTS, the plugin
@@ -36,7 +36,7 @@ one or more whitespace characters between the binary and the subcommand
 catches both ``harness-mem wake`` and ``harness-mem  wake``."""
 
 ALLOWED_MAINTENANCE: frozenset[str] = frozenset(
-    {"quickstart", "doctor", "purge", "maintenance", "import"}
+    {"quickstart", "doctor", "purge", "maintenance", "import", "config", "integration"}
 )
 """Maintenance / install / cleanup CLI subcommands that are still part of
 the supported surface and may legitimately appear in user docs."""
@@ -121,12 +121,7 @@ def test_no_stale_daily_cli_in_user_docs(target: str) -> None:
 def test_maintenance_commands_still_documented() -> None:
     """Sanity check the allowlist isn't accidentally over-broad.
 
-    If we ever stop teaching ``harness-mem quickstart`` / ``doctor`` /
-    ``purge`` / ``maintenance`` / ``import`` in the user-facing READMEs,
-    the deprecated-CLI scan above could pass for the wrong reason — a
-    doc that no longer mentions any CLI at all is also "clean". This
-    asserts at least one maintenance command surfaces in the top-level
-    README or the plugin README so a future doc shrink is noticed.
+    If we ever stop teaching any current maintenance command in the user-facing READMEs, the deprecated-CLI scan above could pass for the wrong reason — a doc that no longer mentions any CLI at all is also "clean". This asserts at least one maintenance command surfaces in the top-level README or the plugin README so a future doc shrink is noticed.
     """
     readmes = (
         REPO_ROOT / "README.md",
@@ -142,8 +137,7 @@ def test_maintenance_commands_still_documented() -> None:
             mentioned.add(match.group(1))
     assert mentioned, (
         "Neither README.md nor plugins/harness-mem/README.md mentions any "
-        "maintenance CLI command (quickstart / doctor / purge / "
-        "maintenance / import). The stale-CLI scan above could now pass "
-        "for a doc that simply says nothing — restore the maintenance "
-        "command examples in the user-facing README."
+        "maintenance CLI command (quickstart / doctor / purge / maintenance / import / config / integration). The stale-CLI scan above could now pass for a doc that simply says nothing — restore the maintenance command examples in the user-facing README."
     )
+
+
