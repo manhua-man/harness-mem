@@ -10,18 +10,18 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.6.3` |
-| `harness_mem/__init__.py` | `2.6.3` |
-| `CHANGELOG.md` | 已有 `2.6.3` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.7.2` |
+| `harness_mem/__init__.py` | `2.7.2` |
+| `CHANGELOG.md` | 已有 `2.7.2` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.6.3：v2.5.0–v2.5.2 的 context assembly / wake renderer /
-file_context 已全部落地；v2.6.0–v2.6.3 已补上 knowledge cache boundary、
-wiki bridge / compact claim index、candidate-only contradiction/stale suggestions，
-以及 opt-in compact wake renderer。
+当前收口基线是 v2.7.2：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
+boundary、以及 v2.7.0–v2.7.2 的 cross-project procedural skill 能力都已落地。
 
-> **v2.6.3 发版状态（2026-06-02）**：版本号已 bump 到 `2.6.3`。v2.6 仍保持
-> manual/generated 分层和 candidate-before-truth 边界：generated wiki 可被显式编译和
-> compact 渲染，但不会进入默认 `wake` / `search_memory` confirmed-truth surface。
+> **v2.7.2 发版状态（2026-06-02）**：版本号已 bump 到 `2.7.2`。v2.7 在保持
+> candidate-before-truth 与 explicit activation 边界的前提下，补上 shared skill
+> scope、review-gated promotion、opt-in skill hints、以及 reviewed improvement /
+> deprecation suggestion。默认 `wake` / `search_skills` 仍不会静默消费 shared skill。
 
 ## 完成矩阵
 
@@ -41,14 +41,17 @@ wiki bridge / compact claim index、candidate-only contradiction/stale suggestio
 | v2.4.0 | 已完成（v2.4.3 收口发版） | `ReflectionJob` schema / 状态机、processing lease、provenance（`user\|agent\|ide_hook\|scheduler`）、retry policy、job list/read MCP helper、`test_reflection_*.py`（121）、`test_mcp_reflection_jobs.py`（10） | host-triggered reflection 的 job 生命周期地基；不引入常驻 worker；不暴露 `harness-mem reflection` 业务子命令。 |
 | v2.4.1 | 已完成（v2.4.3 收口发版） | `harness_mem/config/`（errors + `load_merged_config` + `MergedConfig`）、`harness_mem/host_entry/`（argparse + 输出契约 + exit codes）、`test_config_errors.py`、`test_load_merged_config.py`（27）、`test_host_entry_*.py`（90+，含 contract / default-off / interruption / smoke） | host 入口只走 `python -m harness_mem.host_entry`，集成测试断言 hook 模板不出现 `harness-mem` 可执行调用；config `off` 时零 job/candidate 副作用。 |
 | v2.4.2 | 已完成（v2.4.3 收口发版） | doctor queue / stale candidate / signal freshness / chronic failures checks、maintenance hints、结构化 health summary、`test_doctor_queue_health.py`、`test_candidate_health.py`、`test_signal_freshness.py`、`test_chronic_failures.py`、`test_maintenance_hints.py`、`test_health_summary.py` | 只读健康报告；不自动修复、不改 truth。 |
-| v2.4.3 | 当前收口基线 | `config get/set/list/validate`、`integration install-cursor-hook` / `install-claude-hook`、`harness_mem/config/writer.py`（tomli_w）、`harness_mem/integration/`（模板 + installer + 边界自检）、`docs/cli/v2.4.md`、hook 边界契约测试 + scope guard（127 全绿） | 维护子命令只读/写 toml；生成的 hook 仅嵌入 `python -m harness_mem.host_entry --source ide_hook`，从不调 `harness-mem` 控制台脚本；CLI 维持 maintenance-only。 |
+| v2.4.3 | 已完成 | `config get/set/list/validate`、`integration install-cursor-hook` / `install-claude-hook`、`harness_mem/config/writer.py`（tomli_w）、`harness_mem/integration/`（模板 + installer + 边界自检）、`docs/cli/v2.4.md`、hook 边界契约测试 + scope guard（127 全绿） | 维护子命令只读/写 toml；生成的 hook 仅嵌入 `python -m harness_mem.host_entry --source ide_hook`，从不调 `harness-mem` 控制台脚本；CLI 维持 maintenance-only。 |
 | v2.5.0 | 已完成（v2.5.1 收口发版） | `ContextAssemblyPlan` schema（`harness_mem/core/schemas/context_assembly_plan.py`：L0–L4、`PlanEntry` 带 source_ids/why_included/summary/truth_status、`Budget`、`TruncationAccounting`、L4 `DrilldownPointer`）、side-effect-free `assemble_context_plan(...)`（`harness_mem/context_assembly.py`）、`tests/test_context_assembly_*.py` | 只读 planning artifact；组装于既有读面之上，不改 `wake`/`search` 输出、不写存储、不发 `RetrievalSignal`。 |
-| v2.5.1 | 当前收口基线 | 纯函数渲染模块 `harness_mem/commands/wake_render.py`（`render_wake_plan` + helpers，无 I/O）、计划驱动的 `cmd_wake_up`、`tests/test_wake_render_*.py` / `tests/integration/test_wake_render_side_effects.py` / `tests/mcp/test_wake_render_stdout.py`（pytest 956 passed） | cold-start `wake` 由 plan 驱动分层渲染 L0/L1/L2，每条带 source id + `📍`；L1/L2 只渲染 `confirmed_current`。旧扁平格式（Confirmed Rules / Relation Facts / Memory Entries / bucket-quota / weak-link 子标题 / 使用徽章）被取代；relation facts/skill hints 归 L3 query-driven。schema/assembler 未改动；既有信号+touch、MCP stdout 纯净性保留；未引入 `file_context`（v2.5.2）。 |
+| v2.5.1 | 已完成 | 纯函数渲染模块 `harness_mem/commands/wake_render.py`（`render_wake_plan` + helpers，无 I/O）、计划驱动的 `cmd_wake_up`、`tests/test_wake_render_*.py` / `tests/integration/test_wake_render_side_effects.py` / `tests/mcp/test_wake_render_stdout.py`（pytest 956 passed） | cold-start `wake` 由 plan 驱动分层渲染 L0/L1/L2，每条带 source id + `📍`；L1/L2 只渲染 `confirmed_current`。旧扁平格式（Confirmed Rules / Relation Facts / Memory Entries / bucket-quota / weak-link 子标题 / 使用徽章）被取代；relation facts/skill hints 归 L3 query-driven。schema/assembler 未改动；既有信号+touch、MCP stdout 纯净性保留；未引入 `file_context`（v2.5.2）。 |
 | v2.5.2 | 已完成并并入 v2.6.0 | `harness_mem/core/schemas/file_context.py`、`harness_mem/file_context.py`、MCP `file_context` tool（`harness_mem/mcp/server.py` + `harness_mem/mcp/tool_specs.py`）、`tests/test_file_context.py` / `tests/test_file_context_readonly.py` / `tests/mcp/test_file_context_stdout.py` / `tests/mcp/test_smoke.py` | advisory-only helper：不拦截读文件、不发 `RetrievalSignal`、不 bump usage / last_accessed、skill 只给 hint、结果包含 `cost_hint` 与 `stale_file_signal`。 |
 | v2.6.0 | 已完成 | `harness_mem/knowledge_cache.py`、`ProjectProfile.curated_doc_paths`、doctor knowledge-cache block、`maintenance prepare-knowledge-cache` / `cleanup-generated-cache`、`tests/test_knowledge_cache.py`、`tests/cli/test_knowledge_cache_cli.py`、OpenSpec `v260-knowledge-cache-boundary` | 只做 boundary / visibility / source hash / cleanup；不编译 wiki、不让 generated cache 进入 wake/search truth。 |
 | v2.6.1 | 已完成 | `rebuild_wiki_bridge(...)`、`knowledge-cache/generated/claims.json` / `topics.json` / `entities.json`、`maintenance rebuild-wiki-bridge`、doctor generated counts、OpenSpec `v261-wiki-bridge-compact-index` | 编译 accepted memory / confirmed rules / relation facts / curated docs 到 generated wiki bridge；claim 带 source drilldown，但 generated outputs 不进默认 truth surface。 |
 | v2.6.2 | 已完成 | `list_candidates` 返回 `MergeSuggestionCandidate` / `StaleTruthSuggestionCandidate`、`merge_suggestion_count` / `stale_truth_suggestion_count`、`_propose_supersedes(...)`、OpenSpec `v262-candidate-review-surface-and-contradiction-boundary` | merge/stale/supersede suggestion 只进入 candidate/review surface；不会自动 confirm、不会直接 mutate truth。 |
-| v2.6.3 | 当前收口基线 | MCP `wake(renderer="compact")`、`load_compact_wake_payload(...)`、`render_compact_wake_payload(...)`、OpenSpec `v263-compact-wake-renderer`、compact renderer tests | compact renderer 是 opt-in generated summary；默认 `wake` 不变，generated-only 内容仍不进入默认 `search_memory`。 |
+| v2.6.3 | 已完成 | MCP `wake(renderer="compact")`、`load_compact_wake_payload(...)`、`render_compact_wake_payload(...)`、OpenSpec `v263-compact-wake-renderer`、compact renderer tests | compact renderer 是 opt-in generated summary；默认 `wake` 不变，generated-only 内容仍不进入默认 `search_memory`。 |
+| v2.7.0 | 已完成 | shared `Skill.scope` model、`origin_project` / `source_ids` / portability metadata、`skill_promotion` candidate、explicit shared `search_skills`、activation warnings、separate project/shared feedback、OpenSpec `v270-cross-project-skill-library` | shared skill 只能 reviewed promotion；默认 wake / skill search 仍 project-scoped。 |
+| v2.7.1 | 已完成 | MCP `wake(include_skill_hints=...)`、`skill_hint_limit`、MCP `get_skill`、OpenSpec `v271-controlled-skill-activation` | skill hint 是 opt-in compact surface；默认 wake 不注入完整 procedural body。 |
+| v2.7.2 | 当前收口基线 | `skill_revision_suggestion` / `skill_deprecation_suggestion` candidates、`detect_skill_improvements` / `confirm_skill_revision` / `reject_skill_revision`、`detect_skill_deprecations` / `confirm_skill_deprecation` / `reject_skill_deprecation`、OpenSpec `v272-skill-improvement-suggestions` | 改进与退役都走 review；confirmed skill 不自动改写，shared skill 不静默退役。 |
 
 ## 未完成 / 不做项
 
@@ -56,12 +59,12 @@ wiki bridge / compact claim index、candidate-only contradiction/stale suggestio
 
 | 条目 | 当前状态 | 规划归宿 |
 |---|---|---|
-| 后台 daemon / IDE hook / turn-end 自检“随手记” | host 触发链路代码已完成（v2.4.0–v2.4.3，待发版）：`triggers.* = off` 默认；opt-in 时 hook 用 `python -m harness_mem.host_entry` 调业务命令，不调 `harness-mem` CLI。仍**无** always-on daemon（`worker.mode=daemon` 须 opt-in 且无 CLI 安装器）。 | v2.4 已交付 opt-in 安全触发；默认行为不变（off）。见 `docs/roadmap-v24.md`。 |
+| 后台 daemon / IDE hook / turn-end 自检“随手记” | host 触发链路代码已完成（v2.4.0–v2.4.3）并已发版：`triggers.* = off` 默认；opt-in 时 hook 用 `python -m harness_mem.host_entry` 调业务命令，不调 `harness-mem` CLI。仍**无** always-on daemon（`worker.mode=daemon` 须 opt-in 且无 CLI 安装器）。 | v2.4 已交付 opt-in 安全触发；默认行为不变（off）。见 `docs/roadmap-v24.md`。 |
 | Context Assembly / File Context | 已完成并并入正式版本线。 | 见 `docs/roadmap-v25.md`。 |
 | Wiki Bridge / Compact Claim Index / Compact Renderer | 已完成到 v2.6.3 范围：generated wiki bridge、claim/topic/entity index、opt-in compact wake renderer。 | 见 `docs/roadmap-v26.md`。 |
 | 自动 contradiction / stale / merge suggestion | v2.6.2 已完成 candidate-only review surface 和 supersede proposer；仍不做自动 apply / autonomous truth mutation。 | 后续若扩展，只能继续走 candidate/review 边界。 |
-| 跨项目 Skill sharing | 未实现。v1.8 Skill 是 project-scoped。 | v2.7.0 |
-| Procedural Skill 默认进入 wake | 未实现，且当前设计是显式 `search_skills`。 | v2.7.1 可做 compact opt-in skill hints；完整默认注入仍是 non-goal。 |
+| 跨项目 Skill 默认静默注入 | 未实现，也不计划做。shared skill 已实现，但必须通过显式 shared search / opt-in hint surface 消费。 | 已由 v2.7.x 定义为 non-goal。 |
+| Procedural Skill 默认进入 wake | 未实现；当前只支持 opt-in compact skill hints，完整 body 仍需显式 `get_skill`。 | 已由 v2.7.1 定义为 non-goal。 |
 | AI 自治删除或改写 truth | 未实现，也不应该做。Truth 变化走 candidate / supersede / review。 | 永不做；只走 candidate/supersede/review。 |
 | REST API 作为产品入口 | v2.1 已移除。 | 不规划恢复。 |
 | CLI 日常工作流（`wake`、`search`、`timeline`、candidate review） | v2.1 已从 CLI surface 移除。日常使用走 IDE command / Skill / Agent workflow，背后由 MCP 支撑。 | 不规划恢复。 |
@@ -81,15 +84,15 @@ wiki bridge / compact claim index、candidate-only contradiction/stale suggestio
 ## 短结论
 
 v2.2 已完成用户入口闭环，但当前产品仍不是后台自学习或自动随手记。
-后续路线已经按一个版本一个文档重切：先做 v2.3 signals/replay，
-再做 v2.4 reflection queue，随后是 v2.5 context assembly、v2.6 wiki/contradiction，
-最后再进入 v2.7 cross-project skill。
+路线已经按一个版本一个文档重切并完成到 v2.7：v2.3 signals/replay、
+v2.4 reflection queue、v2.5 context assembly、v2.6 wiki/contradiction、
+以及 v2.7 cross-project skill 都已落地。
 
 v2.4 reflection queue 四个切片（v2.4.0–v2.4.3）已实现、验证并发版。
-v2.5 context assembly 与 file context 已全部并入正式版本线；v2.6.0–v2.6.3
-进一步把 knowledge cache boundary、wiki bridge / compact index、candidate-only
-suggestions 和 opt-in compact wake renderer 做成显式 runtime surface。当前仍未启用
-always-on daemon，MCP stdout 纯净性继续保持。
+v2.5 context assembly 与 file context、v2.6 knowledge cache / wiki /
+candidate-only contradiction boundary，以及 v2.7 shared skill / controlled
+activation / reviewed improvement suggestions 都已并入正式版本线。当前仍未启用
+always-on daemon，MCP stdout 纯净性继续保持，shared skill 也仍然坚持显式消费。
 
 优先级依据是：没有 signals 就无法 replay；没有 queue health 就无法安全 reflection；
 没有 context assembly，更多 memory / skill 只会变成可搜索对象而不是真正可控的 agent memory。

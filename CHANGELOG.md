@@ -6,6 +6,17 @@
 
 ## [Unreleased]
 
+---
+
+## [2.7.2] — 2026-06-02
+
+**主题：Cross-Project Skills and Controlled Activation**
+
+v2.7.2 把 v1.8 的 project-scoped procedural skill 扩展成一套显式、可审核的
+cross-project skill runtime。shared skill 只能通过 review 提升，默认 skill search /
+wake 仍保持 project-scoped；Agent 只有在显式请求 shared search、skill hint 或
+improvement/deprecation review 时，才会进入这些新 surface。
+
 ### Added
 
 - **v2.7.0 scope model foundation**：confirmed `Skill` 现在支持
@@ -22,10 +33,10 @@
 - **v2.7.0 activation warnings and separate feedback**：shared skill 搜索结果
   新增 `activation_warnings`，在 activation 前暴露 portability warnings；
   project/shared skill 的 `record_skill_result` 继续维持各自独立的 usage counters。
-- **v2.7.1 controlled skill activation (slice 1)**：MCP `wake` 新增显式
+- **v2.7.1 controlled skill activation**：MCP `wake` 新增显式
   `include_skill_hints` / `skill_hint_limit`，以 opt-in 方式追加 compact
   skill hints；同时新增 `get_skill` 读工具用于按 id 显式展开完整 skill。
-- **v2.7.2 skill improvement suggestions (slice 1)**：新增 reviewed
+- **v2.7.2 skill improvement suggestions**：新增 reviewed
   `skill_revision_suggestion` candidate、MCP `detect_skill_improvements` /
   `confirm_skill_revision` / `reject_skill_revision`，把低成功率 skill 转成
   待审改进建议，同时保持 confirmed skill 不被自动改写。
@@ -35,11 +46,11 @@
   `detect_skill_deprecations` / `confirm_skill_deprecation` /
   `reject_skill_deprecation`，让 stale/conflicting shared skill 经 review 后退役。
 
-### Notes
+### Boundaries
 
 - 默认 wake / skill search 仍不消费 workspace/global shared skills。
-
----
+- shared skill 只能通过 reviewed promotion/deprecation/revision 流程变更，不会静默跨项目注入，也不会自动改写 confirmed skill。
+- procedural steps 仍不会直接塞进默认 wake；完整 skill body 需通过显式 `get_skill` 展开。
 
 ## [2.6.3] — 2026-06-02
 
