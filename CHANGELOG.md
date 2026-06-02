@@ -8,6 +8,30 @@
 
 ---
 
+## [2.9.5] — 2026-06-02
+
+**主题：Shell Completion Maintenance Truth**
+
+v2.9.5 修复的是 CLI completion surface 的最后一处旧口径。虽然 `harness-mem --help`
+和主 CLI spec 早已升级到 `config` / `integration` maintenance namespaces，
+`harness_mem.shell_completion` 生成的 bash / zsh / fish 脚本仍然停留在更早的命令集，
+甚至 zsh 连 `qs` alias 都没带上。这个版本把 completion surface 收回到当前真值，
+并用 focused tests 把它锁住。
+
+### Changed
+
+- **top-level completion sync**：bash / zsh / fish completion 现在都包含
+  `config` / `integration` / `qs`。
+- **namespace action completion**：completion 现在会补出 `config get/set/list/validate`
+  和 `integration install-cursor-hook/install-claude-hook`。
+- **focused regression coverage**：新增 `tests/test_shell_completion.py`，
+  同时覆盖生成器输出和 CLI `--completion` 路径。
+
+### Boundaries
+
+- 本版本不新增新的 CLI 命令或 MCP 能力。
+- 它只把现有 `--completion` surface 对齐到已经 shipped 的 maintenance console。
+
 ## [2.9.4] — 2026-06-02
 
 **主题：Stale CLI Surface Guard Sync**

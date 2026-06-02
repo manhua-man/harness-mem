@@ -7,8 +7,27 @@ import sys
 
 
 SUPPORTED_SHELLS = ["bash", "zsh", "fish"]
-CLI_COMMANDS = ["init", "quickstart", "doctor", "import", "purge", "maintenance"]
+CLI_COMMANDS = [
+    "init",
+    "quickstart",
+    "doctor",
+    "import",
+    "purge",
+    "maintenance",
+    "config",
+    "integration",
+]
 CLI_ALIASES = {"qs": "quickstart"}
+MAINTENANCE_ACTIONS = [
+    "assign-memory-types",
+    "rebuild-vector-index",
+    "rebuild-verbatim-index",
+    "prepare-knowledge-cache",
+    "rebuild-wiki-bridge",
+    "cleanup-generated-cache",
+]
+CONFIG_ACTIONS = ["get", "set", "list", "validate"]
+INTEGRATION_ACTIONS = ["install-cursor-hook", "install-claude-hook"]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -21,10 +40,18 @@ def completion_bash() -> str:
     """Generate bash completion script."""
     commands = " ".join(CLI_COMMANDS)
     aliases = " ".join(CLI_ALIASES.keys())
+    maintenance_actions = " ".join(MAINTENANCE_ACTIONS)
+    config_actions = " ".join(CONFIG_ACTIONS)
+    integration_actions = " ".join(INTEGRATION_ACTIONS)
     return f"""# harness-mem bash completion
 _harness_mem_completion() {{
     local cur prev words cword
     _init_completion || return
+
+    if [[ "${{cword}}" -eq 1 ]]; then
+        COMPREPLY=($(compgen -W "{commands} {aliases}" -- "${{cur}}"))
+        return
+    fi
 
     if [[ "${{cur}}" == -* ]]; then
         case "${{prev}}" in
@@ -43,7 +70,31 @@ _harness_mem_completion() {{
                 ;;
         esac
     else
-        COMPREPLY=($(compgen -W "{commands} {aliases}" -- "${{cur}}"))
+        case "${{words[1]}}" in
+            maintenance)
+                COMPREPLY=($(compgen -W "{maintenance_actions}" -- "${{cur}}"))
+                return
+                ;;
+            config)
+                COMPREPLY=($(compgen -W "{config_actions}" -- "${{cur}}"))
+                return
+                ;;
+            integration)
+                COMPREPLY=($(compgen -W "{integration_actions}" -- "${{cur}}"))
+                return
+                ;;
+            *)
+                ;;
+        esac
+    fi
+
+    if [[ "${{words[1]}}" == "config" && "${{cur}}" == -* ]]; then
+        COMPREPLY=($(compgen -W "--project-root --scope" -- "${{cur}}"))
+        return
+    fi
+
+    if [[ "${{words[1]}}" == "integration" && "${{cur}}" == -* ]]; then
+        COMPREPLY=($(compgen -W "--project-root --force" -- "${{cur}}"))
         return
     fi
 }}
@@ -54,7 +105,10 @@ complete -F _harness_mem_completion harness-mem
 
 def completion_zsh() -> str:
     """Generate zsh completion script."""
-    commands = " ".join(CLI_COMMANDS)
+    commands = " ".join(CLI_COMMANDS + list(CLI_ALIASES.keys()))
+    maintenance_actions = " ".join(MAINTENANCE_ACTIONS)
+    config_actions = " ".join(CONFIG_ACTIONS)
+    integration_actions = " ".join(INTEGRATION_ACTIONS)
     return f"""# harness-mem zsh completion
 _harness_mem() {{
     local -a commands
@@ -72,12 +126,28 @@ _harness_mem() {{
         '--dry-run[preview only]' \\
         '--stale-only[only stale entries]' \\
         '--apply[write maintenance changes]' \\
+        '--project-root[project directory]:project_root:' \\
+        '--scope[config scope]:(user project)' \\
+        '--force[overwrite existing hook]' \\
         '1: :->command' \\
         '2: :->arg'
 
     case $state in
         command)
             _describe 'command' commands
+            ;;
+        arg)
+            case $words[2] in
+                maintenance)
+                    _values 'action' {maintenance_actions}
+                    ;;
+                config)
+                    _values 'action' {config_actions}
+                    ;;
+                integration)
+                    _values 'action' {integration_actions}
+                    ;;
+            esac
             ;;
     esac
 }}
@@ -121,6 +191,16 @@ complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -a "assign-
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l project -r -d "Project name"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l dry-run -d "Preview only"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l apply -d "Write changes"
+
+# config
+complete -c harness-mem -n '__fish_seen_subcommand_from config' -a "get set list validate" -d "Action"
+complete -c harness-mem -n '__fish_seen_subcommand_from config' -l project-root -r -d "Project directory"
+complete -c harness-mem -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from set' -l scope -x -a "user project" -d "Config scope"
+
+# integration
+complete -c harness-mem -n '__fish_seen_subcommand_from integration' -a "install-cursor-hook install-claude-hook" -d "Installer"
+complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l project-root -r -d "Project directory"
+complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l force -d "Overwrite existing hook"
 """
 
 

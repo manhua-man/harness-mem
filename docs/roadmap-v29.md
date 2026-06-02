@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -179,3 +179,24 @@ v2.9 是对 session-distill maintenance family 的补片：从 bundled packet �
   - `ALLOWED_MAINTENANCE` 已包含 `config` / `integration`
   - 该测试继续只禁止被移除的 daily-memory verbs，不阻止已支持的 maintenance docs
 - 该切片不改 runtime surface，只修 guardrail/test truth 与 release docs。
+
+## v2.9.5：Shell Completion Maintenance Truth
+
+**用户故事**：当维护者启用 `harness-mem --completion <shell>` 时，shell 提示应该和真实 CLI 一样包含 `config` / `integration`，而不是继续暴露一套更早期的 maintenance surface。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | top-level completion sync | bash / zsh / fish completion 包含 `config` / `integration` / `qs` |
+| P0 | namespace action completion | `config` / `integration` 的二级 action 能补全 |
+| P1 | focused regression tests | completion 输出和 CLI `--completion` 都有回归覆盖 |
+
+### 当前状态（2026-06-02）
+
+- 已完成 `openspec/changes/v295-shell-completion-maintenance-truth/`。
+- `harness_mem.shell_completion` 现在和当前 maintenance-only CLI truth 对齐：
+  - top-level completion 已包含 `config` / `integration` / `qs`
+  - `config` action completion 已包含 `get` / `set` / `list` / `validate`
+  - `integration` action completion 已包含 `install-cursor-hook` / `install-claude-hook`
+- 已补 focused tests，覆盖：
+  - bash / zsh / fish 生成脚本
+  - `python -m harness_mem.cli --completion bash`
