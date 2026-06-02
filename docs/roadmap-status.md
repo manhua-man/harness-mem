@@ -10,20 +10,21 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.1` |
-| `harness_mem/__init__.py` | `2.9.1` |
-| `CHANGELOG.md` | 已有 `2.9.1` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.2` |
+| `harness_mem/__init__.py` | `2.9.2` |
+| `CHANGELOG.md` | 已有 `2.9.2` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.1：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.2：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
 boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力，以及
 v2.8.0–v2.8.2 的 session-distill maintenance surfaces、v2.9.0 的 PRD sync
-candidate surface，以及 v2.9.1 的 status triage surface 都已落地。
+candidate surface、v2.9.1 的 status triage surface，以及 v2.9.2 的 plugin
+doctor helper integrity 都已落地。
 
-> **v2.9.1 发版状态（2026-06-02）**：版本号已 bump 到 `2.9.1`。v2.9 在保持
+> **v2.9.2 发版状态（2026-06-02）**：版本号已 bump 到 `2.9.2`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
-> 把 `/hm:prd-sync [--apply]` 和 `/hm:status` 一起收束成显式、可验证的
-> maintenance / triage surfaces。
+> 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
+> 一起收束成显式、可验证的 maintenance / triage surfaces。
 
 ## 完成矩阵
 
@@ -58,7 +59,8 @@ candidate surface，以及 v2.9.1 的 status triage surface 都已落地。
 | v2.8.1 | 已完成 | `/hm:review-kb` baseline state（`reviewed_at` / `total_entries` / `summary`）、`stable/needs-review/stale/superseded` status model、`/hm:prune-kb` backup-first and stale/superseded confinement、OpenSpec `v281-knowledge-base-review-and-prune` | knowledge-base audit 与 cleanup 正式进入版本线；dry-run 不写 backup、不改文件。 |
 | v2.8.2 | 当前收口基线 | `/hm:verify-entry` targeted recheck、KB growth reminder、packet overlap reminder、note overlap reminder、OpenSpec `v282-targeted-verification-and-reminder-surfaces` | targeted review 与 reminder 只做 summary-level nudges；不会自动 prune、auto-supersede 或阻断 distill。 |
 | v2.9.0 | 已完成 | `/hm:prd-sync [--apply]`、projectless maintenance boundary、`prd-distilled/*.md` candidate output、OpenSpec `v290-prd-sync-candidate-surface`、`test_prd_sync_*` | PRD sync 只读 bundled packets，默认 dry-run；`--apply` 只写 candidate markdown，不直改 PRD/roadmap 或 confirmed truth。 |
-| v2.9.1 | 当前收口基线 | `/hm:status` triage contract、MCP `get_project_status` `phase/suggested_slash/reason/repair_hint`、OpenSpec `v291-status-triage-surface`、`test_get_project_status_*` | status 是 read-only triage 入口；pending candidates 只作为 repair-only `/hm:review` hint，不升格成主 happy path。 |
+| v2.9.1 | 已完成 | `/hm:status` triage contract、MCP `get_project_status` `phase/suggested_slash/reason/repair_hint`、OpenSpec `v291-status-triage-surface`、`test_get_project_status_*` | status 是 read-only triage 入口；pending candidates 只作为 repair-only `/hm:review` hint，不升格成主 happy path。 |
+| v2.9.2 | 当前收口基线 | `plugins/harness-mem/scripts/doctor.ps1` repair、hint-only `-Wake`、OpenSpec `v292-plugin-doctor-helper-integrity`、script smoke test | repo-local plugin doctor helper 只调用维护 CLI surface；不再触发 `invalid choice: 'status'`。 |
 
 ## 未完成 / 不做项
 

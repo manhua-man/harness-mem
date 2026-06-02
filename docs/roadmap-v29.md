@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -94,7 +94,26 @@ candidate surface。
 - triage 语义锁定为：
   - empty project → `/hm:distill`
   - ready project → `/hm:wake`
-  - pending candidates → 只作为 repair-only `/hm:review` hint
+- pending candidates → 只作为 repair-only `/hm:review` hint
+
+## v2.9.2：Plugin Doctor Helper Integrity
+
+**用户故事**：repo-local plugin 提供的 `doctor.ps1` 应该是一个稳定的本地验证入口，而不是在成功跑完 doctor 之后又因为调用了已移除的 CLI `status` 子命令而自己报错。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | helper integrity | `doctor.ps1` 只调用当前受支持的 maintenance CLI surface |
+| P0 | `-Wake` hint-only | `-Wake` 只补充 IDE wake 提示，不重引入 CLI `status/wake` |
+| P1 | script smoke | 在隔离 `HOME/USERPROFILE` 下脚本能成功跑通 |
+
+### 当前状态（2026-06-02）
+
+- 已完成 `openspec/changes/v292-plugin-doctor-helper-integrity/`。
+- `doctor.ps1` 不再调用不存在的 `python -m harness_mem.cli status`。
+- `-Wake` 现在是 hint-only：会在 doctor 之后输出 `/hm:wake` 的 IDE 用法。
+- 已补脚本级 smoke，覆盖：
+  - 隔离 home 环境下脚本成功返回
+  - 不再出现 `invalid choice: 'status'`
 
 ---
 

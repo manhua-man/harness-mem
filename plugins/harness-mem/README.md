@@ -28,11 +28,14 @@ Skip slash command sync (e.g. for headless/CI machines):
 .\plugins\harness-mem\scripts\install.ps1 -NoSlashCommands
 ```
 
-Check the current project memory state:
+Run the repo-local maintenance smoke check:
 
 ```powershell
 .\plugins\harness-mem\scripts\doctor.ps1 -Wake
 ```
+
+`-Wake` is hint-only: it runs the normal doctor maintenance path, then prints
+the IDE-native wake action (`/hm:wake` or the natural-language equivalent).
 
 Register the MCP server with Claude Code when desired:
 

@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-06-02
+change_kind: bugfix
+area: cli
+summary: Keep the repo-local plugin doctor helper aligned with the maintenance-only CLI surface

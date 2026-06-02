@@ -8,6 +8,30 @@
 
 ---
 
+## [2.9.2] — 2026-06-02
+
+**主题：Plugin Doctor Helper Integrity**
+
+v2.9.2 修复了 repo-local plugin 的 `doctor.ps1` helper。此前脚本先跑
+`harness-mem doctor`，然后又调用已经被明确移除的 CLI `status` 子命令，导致用户
+在看到正确的 doctor 输出后仍然以 `invalid choice: 'status'` 失败收尾。现在该
+helper 被收回到维护控制台的真实边界内：只调用受支持的 maintenance 命令，`-Wake`
+也只作为 IDE-native wake 提示，而不是重新引入 CLI `status/wake` 面。
+
+### Fixed
+
+- **doctor helper no longer calls removed CLI status**：`plugins/harness-mem/scripts/doctor.ps1`
+  现在只运行 `python -m harness_mem.cli doctor`。
+- **hint-only `-Wake`**：当传入 `-Wake` 时，脚本会在 doctor 完成后输出
+  `/hm:wake` / 自然语言 wake 提示，而不是调用不存在的 CLI 子命令。
+- **script smoke coverage**：新增隔离 `HOME/USERPROFILE` 的脚本 smoke，
+  证明 helper 成功返回且不再输出 `invalid choice: 'status'`。
+
+### Boundaries
+
+- 该 helper 仍然是 repo-local plugin 的本地验证脚本，不是日常 memory CLI surface。
+- 它不会重新暴露 CLI `status` 或 `wake` 子命令。
+
 ## [2.9.1] — 2026-06-02
 
 **主题：Status Triage Surface**

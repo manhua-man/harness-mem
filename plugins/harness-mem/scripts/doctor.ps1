@@ -1,4 +1,6 @@
-param()
+param(
+    [switch]$Wake
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -9,9 +11,13 @@ $python = Get-Command python -ErrorAction Stop
 Push-Location $repoRoot
 try {
     & $python.Source -m harness_mem.cli doctor
-    & $python.Source -m harness_mem.cli status
+    if ($Wake) {
+        Write-Host ""
+        Write-Host "Wake hint:"
+        Write-Host "  In Claude Code: /hm:wake"
+        Write-Host "  In other AI IDEs: 用 harness-mem 唤醒当前项目。"
+    }
 }
 finally {
     Pop-Location
 }
-
