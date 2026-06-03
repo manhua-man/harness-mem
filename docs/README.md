@@ -32,6 +32,11 @@
 | `roadmap-v29.md` | v2.9 roadmap：PRD sync + maintenance/truth-sync release train |
 | `roadmap-vision-v16-v18.md` | v1.6 - v1.8 历史远景方向，不等同于当前版本承诺路线图 |
 
-设计规格在 `openspec/specs/` 和 `openspec/changes/`。
+OpenSpec 布局：
+
+- `openspec/specs/`：当前主 spec 真值
+- `openspec/changes/`：仍在进行中的 active changes
+- `openspec/changes/archive/`：已完成 change 的归档记录
+
 工作流 skill 资产在 `tools/`。
 插件与集成文档在 `plugins/harness-mem/`。

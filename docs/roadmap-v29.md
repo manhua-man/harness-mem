@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.46 已完成。
+> 状态：v2.9.0–v2.9.47 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1029,3 +1029,24 @@ truth 已经明确：新 session 先走一等 MCP `wake`，低层读工具只在
   - `session-distill/SKILL.md` 回指已归档的 `v230` design 和当前主 `metabolism` spec
   - 不再把这些已归档切片写成仍在 active change 目录里，也不再引用不存在的 `memory-metabolism` spec 路径
 - 已补 focused regression test：`tests/test_historical_archive_pointer_truth.py`
+
+## v2.9.47：Docs README OpenSpec Layout Truth Sync
+
+**用户故事**：维护者阅读 [docs/README.md](./README.md) 时，不应该再把 `openspec/specs/`、
+`openspec/changes/` 和归档 change 混成一个模糊面。当前 repo 已没有 active change，因此索引页
+应该直接把主 spec、active changes、archive 三层职责讲清楚，而不是继续写成“设计规格在
+`openspec/specs/` 和 `openspec/changes/`”。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | docs README OpenSpec layout sync | `docs/README.md` 明确区分主 spec、active changes、archive |
+| P1 | focused regression guard | 如果 `docs/README.md` 再回流到旧的两目录混写口径，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2947-docs-readme-openspec-layout-truth-sync/`。
+- `docs/README.md` 现在明确：
+  - `openspec/specs/` 是当前主 spec 真值
+  - `openspec/changes/` 是仍在进行中的 active changes
+  - `openspec/changes/archive/` 是已完成 change 的归档记录
+- 已补 focused regression test：`tests/test_docs_readme_openspec_layout_truth.py`

@@ -8,6 +8,30 @@
 
 ---
 
+## [2.9.47] — 2026-06-03
+
+**主题：Docs README OpenSpec Layout Truth Sync**
+
+v2.9.47 收的是 `docs/README.md` 对 OpenSpec 目录布局的索引口径。当前索引页仍把设计规格
+笼统写成在 `openspec/specs/` 和 `openspec/changes/`，但这会把主 spec、active changes
+和 archive change 混成一个面。当前 repo 已没有 active change，这种说法不够精确。 这一版
+不改 runtime，只把索引页收成当前主 spec / active change / archive 三层真值，并补 focused
+guard。
+
+### Changed
+
+- **docs README OpenSpec layout sync**：`docs/README.md` 现在明确区分
+  `openspec/specs/`、`openspec/changes/` 和 `openspec/changes/archive/` 的职责。
+- **focused regression coverage**：新增 `tests/test_docs_readme_openspec_layout_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.47`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 `docs/README.md` 的 OpenSpec 索引真值，使主 spec、active changes 和 archive
+  不再混成一个模糊目录面。
+
 ## [2.9.46] — 2026-06-03
 
 **主题：Historical Roadmap And Skill Archive Pointer Truth Sync**
