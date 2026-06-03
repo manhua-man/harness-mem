@@ -296,3 +296,24 @@ Fixes filed:
 1. 重启 MCP server（client 端 reload，或 quit + reopen）
 2. 再跑一次。如果还失败，新 error.message 会带 exception class + 真正的失败原因。
 3. 仍无法定位时再向仓库提交 issue。
+
+## 2026-06-03 — Codex MCP smoke (Windows, F:\memory-lab\harness-mem)
+
+Clients: Codex CLI (natural-language + MCP stdio)
+harness-mem version: 2.9.54
+Project: F--memory-lab--harness-mem
+
+Pass: S1 (cold wake on empty project, MCP `wake` path), S3 (project resolution via `set_active_project`), partial S2 (candidate write path via `suggest_memory_entry`)
+Not run: full 12-scenario matrix, S4/S5/S6/S7/S8/S9/S10/S11/S12
+
+Evidence:
+- `set_active_project(project_name="v22-codex-smoke")` returned success
+- `wake(project_name="v22-codex-smoke", no_auto_ingest=true)` returned empty L0/L1/L2 summary without teaching daily CLI
+- `suggest_memory_entry(...)` returned success with a pending entry id
+
+Boundary:
+- 这条 entry 证明 **至少有一条 non-Claude client 的最小 MCP smoke 已在当前机器上跑通**，
+  所以 packet 不应再写成“非 Claude client 完全未跑”。
+- 它**不等于** v2.2 full cross-client matrix 已补齐：目前只覆盖了 Codex 的最小 wake /
+  project-resolution / candidate-write 可用性，还没有补完 packet 里定义的完整 12-scenario
+  run，也没有补 Cursor / generic MCP 的对应 run log。

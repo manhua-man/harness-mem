@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.54 已完成。
+> 状态：v2.9.0–v2.9.55 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1188,4 +1188,28 @@ cross-client release gate 仍缺非 Claude client 的 Run log entry。
   - runtime / contract 已落地
   - loop harness 已提供 automated non-Claude parity evidence
   - 但 `docs/v2-user-test-packet.md` 的 Run log 仍缺 release gate 要求的非 Claude client entry
+- 已补 focused regression test：`tests/test_v22_manual_gate_truth.py`
+
+## v2.9.55：v2.2 Non-Claude Smoke Log Sync
+
+**用户故事**：当维护者回看 `docs/v2-user-test-packet.md` 时，不应该再看到 “非 Claude
+client 完全未跑” 这种已经被当前机器上的 Codex MCP smoke 证据推翻的说法；但也不能把
+一次最小 smoke 误写成 full cross-client matrix 已闭环。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | packet run-log truth sync | `v2-user-test-packet` 增加 1 条可核验的 Codex non-Claude smoke entry |
+| P0 | status wording sync | `roadmap-v22x` / `roadmap-status` 改成“已有 non-Claude smoke，但 full matrix 未闭” |
+| P1 | focused regression guard | 如果 packet 已有 non-Claude smoke entry，却仍写成“非 Claude client 未跑”，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2955-v22-non-claude-smoke-log-sync/`。
+- `v2-user-test-packet` 现在新增 1 条 Codex MCP smoke entry，覆盖：
+  - empty-project `wake`
+  - `set_active_project`
+  - `suggest_memory_entry`
+- `v2.2` 的手工 gate 口径也同步到更精确的当前真值：
+  - 已有 1 条 non-Claude smoke
+  - 但 full 12-scenario matrix 与 Cursor / generic MCP run log 仍未补齐
 - 已补 focused regression test：`tests/test_v22_manual_gate_truth.py`

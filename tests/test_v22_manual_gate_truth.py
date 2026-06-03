@@ -11,8 +11,10 @@ def test_v22_docs_keep_manual_gate_open_while_packet_has_non_claude_gap() -> Non
     roadmap_status = (REPO_ROOT / "docs" / "roadmap-status.md").read_text(encoding="utf-8")
     packet = (REPO_ROOT / "docs" / "v2-user-test-packet.md").read_text(encoding="utf-8")
 
-    assert "Known gap: 非 Claude client (Codex / Cursor / generic MCP) 未跑" in packet
-    assert "手工 cross-client release gate 尚未闭环" in roadmap_v22x
+    assert "## 2026-06-03 — Codex MCP smoke" in packet
+    assert "non-Claude client 的最小 MCP smoke 已在当前机器上跑通" in packet
+    assert "full 12-scenario matrix 已补齐" not in packet
+    assert "full cross-client release gate 仍未闭环" in roadmap_v22x
     assert "v2.2 runtime / contract 已完成" in roadmap_v22x
     assert "v2.2.0 | runtime 已完成；手工 gate 未闭" in roadmap_status
-    assert "Run log 仍只有 Claude Code entry" in roadmap_status
+    assert "已有 1 条 Codex non-Claude smoke entry" in roadmap_status

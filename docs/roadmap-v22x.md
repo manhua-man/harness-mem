@@ -1,7 +1,7 @@
 # Roadmap: harness-mem v2.2.x
 
-> 状态：v2.2 runtime / contract 已完成；但 `docs/v2-user-test-packet.md` 的 Run log
-> 仍缺 1 个非 Claude client entry，所以手工 cross-client release gate 尚未闭环。
+> 状态：v2.2 runtime / contract 已完成；`docs/v2-user-test-packet.md` 已补 1 条
+> Codex non-Claude smoke entry，但 full cross-client release gate 仍未闭环。
 >
 > 主题：让 Slash / Skill / 自然语言入口真的可用，用户不需要知道 CLI 子命令或 MCP tool name。
 
@@ -117,7 +117,9 @@ v2.2 发布前必须满足：
 - 自动化 loop harness 已覆盖 non-Claude agent parity（例如
   `tests/loop_harness/test_mcp_setup_without_cli.py` 与
   `tests/loop_harness/test_agent_distill_closed_loop_no_cli.py`）。
-- 但 `docs/v2-user-test-packet.md` 的 Run log 目前仍只有 `2026-05-25` 的
-  Claude Code entry，并明确写着 `Known gap: 非 Claude client ... 未跑`。
+- `docs/v2-user-test-packet.md` 现在已补 1 条 `2026-06-03` 的 Codex MCP smoke
+  entry，证明至少有一条 non-Claude client 路径在当前机器上可跑。
+- 但 packet 定义的 full 12-scenario cross-client matrix 仍未补齐，Cursor / generic MCP
+  也还没有对应 run log。
 - 因此，v2.2 的 runtime / contract 已落地，但这条手工 cross-client release gate
-  还不能算闭环。
+  仍不能算闭环。
