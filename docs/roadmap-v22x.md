@@ -122,6 +122,7 @@ v2.2 发布前必须满足：
   entry 与 generic MCP JSON-RPC smoke entry，证明至少两条 non-Claude 路径在当前机器上可跑。
 - 同时，Cursor 的 `integration install-cursor-hook` 生成也已在当前机器验证通过，说明接入资产本身可产出。
 - 此外，Cursor 本地证据现在已覆盖 hooks runtime、agent exec startup、`mcp-router` 连通，以及项目级 MCP cache 里出现 `wake` / `set_active_project` / `suggest_memory_entry` 等 harness-mem 工具描述。
-- 但 packet 定义的 full 12-scenario cross-client matrix 仍未补齐，Cursor 仍没有真正的 agent run log。
+- 此外，当前机器上的 Cursor 项目转录也已经出现真实的 harness-mem MCP 调用 run log，例如 `search_memory`、`timeline`、`get_project_profile`、`get_task_handoffs` 与 `get_confirmed_rules`。
+- 但这些 Cursor run log 仍来自 `bazi-apps` 等非 `integration` 工作区，packet 定义的 full 12-scenario cross-client matrix 也仍未补齐。
 - 因此，v2.2 的 runtime / contract 已落地，但这条手工 cross-client release gate
   仍不能算闭环。

@@ -337,7 +337,8 @@ Boundary:
 - 这条 entry 证明 **generic MCP client 路径** 也已经在当前机器上跑通最小 read/write smoke，
   不再只是理论上的 setup note。
 - 它仍**不等于** full matrix 已完成：这里只覆盖了 raw MCP 下的 empty wake、project activation、
-  candidate write/readback，还没有补完 packet 定义的其余 scenario，也没有 Cursor 端 run log。
+  candidate write/readback，还没有补完 packet 定义的其余 scenario，也没有 `integration` 工作区的
+  Cursor packet run log。
 
 ## 2026-06-03 — Cursor hook install smoke (Windows, temp project)
 
@@ -388,3 +389,36 @@ Boundary:
   hooks service 初始化了该工作区，agent exec 在该工作区启动，`mcp-router` 在该窗口连通，且项目级 MCP cache 已落出 harness-mem 工具描述。
 - 它仍**不是** Cursor agent memory run log：没有直接证据表明 Cursor agent 已实际调用 `wake`、`prepare_session_distill`、
   `suggest_memory_entry` 或其它 harness-mem MCP tools。
+
+## 2026-06-03 — Cursor agent run-log evidence (Windows, local Cursor project transcripts)
+
+Clients: Cursor agent transcript evidence (real MCP calls, but not the `integration` workspace packet run)
+harness-mem version: 2.9.55
+Project: `f:\huiben\bazi-apps`
+
+Pass: real Cursor agent MCP usage observed for search/timeline/status-adjacent harness-mem flows
+Not run: `integration` workspace packet scenarios, full 12-scenario matrix
+
+Evidence:
+- local Cursor project transcript:
+  `C:\Users\ManHua\.cursor\projects\f-huiben-bazi-apps\agent-tools\e0584dd0-f277-4a9d-8298-3f2de91906c1.txt`
+- local Cursor project transcript:
+  `C:\Users\ManHua\.cursor\projects\f-huiben-bazi-apps\agent-tools\cb589791-18c0-473a-afc0-ef6d583288d8.txt`
+- those transcripts show real Cursor agent tool calls including:
+  - `mcp__harness-mem__search_memory`
+  - `mcp__harness-mem__timeline`
+  - `mcp__harness-mem__get_project_profile`
+  - `mcp__harness-mem__get_task_handoffs`
+  - `mcp__harness-mem__get_confirmed_rules`
+- one transcript also shows a concrete natural-language flow:
+  - user asks Cursor to use `search_memory` for `bazi-apps`
+  - Cursor agent responds with the empty result and records `Tools: mcp__harness-mem__search_memory`
+  - user then asks for `timeline`
+  - Cursor agent responds and records `Tools: mcp__harness-mem__timeline`
+  - later `/hm:status`
+  - Cursor agent diagnoses via `mcp__harness-mem__get_project_profile`, `mcp__harness-mem__get_task_handoffs`, and `mcp__harness-mem__get_confirmed_rules`
+
+Boundary:
+- 这条 entry 证明 **当前机器上已经存在真实的 Cursor agent run log**，而且不是只停留在工具发现或 hooks/runtime stack 层。
+- 它仍**不等于** v2.2 packet 已经在 Cursor 上补齐：这些 run log 来自 `bazi-apps` 项目，不是
+  `harness_mem/integration` 工作区，也还没有覆盖 packet 定义的 full 12-scenario matrix。

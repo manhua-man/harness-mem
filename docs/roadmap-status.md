@@ -114,7 +114,7 @@ truth-sync 的 release train 都已落地。
 | v1.8.0 | 已完成保守闭环 | `ProceduralCandidate`、confirmed `Skill`、`search_skills`、`record_skill_result`、MCP skill tools、procedural tests/fixtures | 不是 autonomous learning：Skill 不进默认 wake、不自动确认、不跨项目共享，也没有 daemon。 |
 | v2.0.0 | 已完成 | heuristic `distill` CLI 与 MCP `distill_sessions` 已移除；distill 只走 LLM agent | `/hm:distill` 仍是用户工作流，背后走 `prepare_session_distill` + `suggest_*`。 |
 | v2.1.0 | 已完成 | CLI parser 只暴露 maintenance 命令；REST package/tests 删除；README/AGENTS/OpenSpec 已围绕 Slash/Skill/Agent workflow 重写 | breaking surface cleanup；MCP tool signatures 与 data schema 保持稳定。 |
-| v2.2.0 | runtime 已完成；手工 gate 未闭 | `plugins/harness-mem/commands/hm/*.md`、`plugins/harness-mem/skills/harness-mem/SKILL.md`、`docs/v2-user-test-packet.md`、loop harness tests | 用户入口稳定为 Slash / Skill / 自然语言；loop harness 已覆盖 non-Claude parity，且 packet 现在已有 Codex + generic MCP 两条 non-Claude smoke entry；Cursor hook install 可生成，且本地 Cursor 证据已覆盖 hooks runtime、agent exec startup、`mcp-router` 连通与 harness-mem 工具 cache；但 Cursor agent run log 与 full 12-scenario cross-client matrix 仍未补齐，所以 release gate 仍未闭环；CLI 仍是 maintenance console；无后台 daemon。 |
+| v2.2.0 | runtime 已完成；手工 gate 未闭 | `plugins/harness-mem/commands/hm/*.md`、`plugins/harness-mem/skills/harness-mem/SKILL.md`、`docs/v2-user-test-packet.md`、loop harness tests | 用户入口稳定为 Slash / Skill / 自然语言；loop harness 已覆盖 non-Claude parity，且 packet 现在已有 Codex + generic MCP 两条 non-Claude smoke entry；Cursor hook install 可生成，且本地 Cursor 证据已覆盖 hooks runtime、agent exec startup、`mcp-router` 连通与 harness-mem 工具 cache；当前机器还已出现真实的 Cursor agent run log（如 `search_memory` / `timeline` / `get_project_profile` 等 MCP 调用）；但这些 run log 仍不是 `integration` 工作区的 full packet 覆盖，12-scenario cross-client matrix 也仍未补齐，所以 release gate 仍未闭环；CLI 仍是 maintenance console；无后台 daemon。 |
 | v2.3.0 | 已完成 | `RetrievalSignal`、`MetabolismRun`、replay window selector、`metabolism_preview` MCP tool、OpenSpec `metabolism` spec | 只读 preview / signal 地基；不写 suggestion、不改 truth。 |
 | v2.3.1 | 已完成 | `MergeSuggestionCandidate`、`StaleTruthSuggestionCandidate`、`metabolism_run` MCP tool、weak-link signal opt-in、token trim、calibration tests | 生成 reviewable suggestions；默认不改变 wake/search 行为，`weak_link_signals` 需 opt-in。 |
 | v2.4.0 | 已完成（v2.4.3 收口发版） | `ReflectionJob` schema / 状态机、processing lease、provenance（`user\|agent\|ide_hook\|scheduler`）、retry policy、job list/read MCP helper、`test_reflection_*.py`（121）、`test_mcp_reflection_jobs.py`（10） | host-triggered reflection 的 job 生命周期地基；不引入常驻 worker；不暴露 `harness-mem reflection` 业务子命令。 |
@@ -241,7 +241,7 @@ truth-sync 的 release train 都已落地。
 从 v1.5 baseline 到 v2.9 release train，主实现路线已经按一个版本一个文档重切并连续收口。
 v1.5 baseline、v1.6 persistent vectors / bucket budget、v1.7 temporal truth、
 v1.8 procedural skill、v2.0 heuristic distill 移除、v2.1 maintenance-only CLI、
-v2.2 用户入口闭环（runtime / contract 已落地，且已有 Codex + generic MCP 两条 non-Claude smoke entry，Cursor hook install 已验证，但手工 full matrix gate 未闭）、
+v2.2 用户入口闭环（runtime / contract 已落地，且已有 Codex + generic MCP 两条 non-Claude smoke entry，Cursor hook install 与真实 agent run-log 证据已出现，但手工 full matrix gate 未闭）、
 v2.3 signals/replay、v2.4 reflection queue、v2.5 context assembly、v2.6
 wiki/contradiction、v2.7 cross-project skill、v2.8 session-distill maintenance，
 以及 v2.9 的 PRD sync / maintenance / triage / truth-sync release train 都已落地。
