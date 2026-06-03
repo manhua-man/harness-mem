@@ -103,7 +103,7 @@ vision 文档中留白的 3 个品味决策，本 roadmap 启动前一次定齐�
 
 ## v1.6.1：Wake-up bucket budget + distill 只读安全边界
 
-> **状态：2026-05-19 已完成。** 详见 [`openspec/changes/2026-05-19-v161-bucket-budget-and-distill-readonly/`](../openspec/changes/2026-05-19-v161-bucket-budget-and-distill-readonly/)、`CHANGELOG.md` `[1.6.1]` 段，与 [`docs/benchmark/v161-bucket-budget-impact.md`](./benchmark/v161-bucket-budget-impact.md)。
+> **状态：2026-05-19 已完成。** 详见 [`openspec/changes/archive/2026-05-24-2026-05-19-v161-bucket-budget-and-distill-readonly/`](../openspec/changes/archive/2026-05-24-2026-05-19-v161-bucket-budget-and-distill-readonly/)、`CHANGELOG.md` `[1.6.1]` 段，与 [`docs/benchmark/v161-bucket-budget-impact.md`](./benchmark/v161-bucket-budget-impact.md)。
 
 **用户故事**：wake-up 输出不再被一堆 episodic observation 抢光预算把 confirmed rule 挤出去；distill 阶段即使 LLM 想改 truth 也改不动——所有写动作只能落到候选层，不能直接 mutate `ConfirmedRule / RelationFact / Observation`。
 

@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.45 已完成。
+> 状态：v2.9.0–v2.9.46 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1007,3 +1007,25 @@ truth 已经明确：新 session 先走一等 MCP `wake`，低层读工具只在
   - `v270`–`v272` 和 `v280`–`v282` 的已完成条目统一回指 archive 真路径
   - 不再把这些已归档切片写成仍在 `openspec/changes/v27x...` / `v28x...` 的 active-change 口径
 - 已补 focused regression test：`tests/test_roadmap_v27_v28_archive_pointer_truth.py`
+
+## v2.9.46：Historical Roadmap And Skill Archive Pointer Truth Sync
+
+**用户故事**：维护者回读历史版本 roadmap 和 repo-local skill 时，不应该再看到已归档切片仍写成
+`openspec/changes/v16x...` / `v17x...` / `v23x...` 这种 active-change 路径，也不应该把
+当前主 spec 写成不存在的 `memory-metabolism` 目录。历史资料可以保留，但指针必须回到 archive
+真路径和当前主 spec 真值。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | historical roadmap archive-pointer sync | `roadmap-v16x`、`roadmap-v17x`、`roadmap-v23` 的已完成切片回指 archive 真路径 |
+| P0 | session-distill metabolism spec sync | `tools/session-distill/SKILL.md` 改为 archive design + 当前 `openspec/specs/metabolism/spec.md` |
+| P1 | focused regression guard | 如果这些高可见历史文档和 skill 再回流到 stale active-change 路径或错误 main-spec 路径，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2946-historical-roadmap-and-skill-archive-pointer-truth-sync/`。
+- 历史 roadmap / skill 现在明确：
+  - `roadmap-v16x`、`roadmap-v17x`、`roadmap-v23` 的已完成切片回指 archive 真路径
+  - `session-distill/SKILL.md` 回指已归档的 `v230` design 和当前主 `metabolism` spec
+  - 不再把这些已归档切片写成仍在 active change 目录里，也不再引用不存在的 `memory-metabolism` spec 路径
+- 已补 focused regression test：`tests/test_historical_archive_pointer_truth.py`

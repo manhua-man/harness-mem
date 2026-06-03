@@ -10,20 +10,20 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.45` |
-| `harness_mem/__init__.py` | `2.9.45` |
-| `CHANGELOG.md` | 已有 `2.9.45` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.46` |
+| `harness_mem/__init__.py` | `2.9.46` |
+| `CHANGELOG.md` | 已有 `2.9.46` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.45：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v2.9.46：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环、v2.3 signals/replay、v2.4
 reflection queue、v2.5 context assembly / wake renderer / file_context、
 v2.6 knowledge cache / wiki bridge / contradiction、v2.7 cross-project
 procedural skill、v2.8 session-distill maintenance surfaces，以及
-v2.9.0–v2.9.45 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
+v2.9.0–v2.9.46 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
 truth-sync 的 release train 都已落地。
 
-> **v2.9.45 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.45`。v2.9 在保持
+> **v2.9.46 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.46`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -79,7 +79,11 @@ truth-sync 的 release train 都已落地。
 > `docs/roadmap-v29.md` 里最早一批已完成的 `v290`–`v2912` 切片现在也统一回指 archive
 > 路径，不再把已归档变更写成仍在 `openspec/changes/v29xx...` 的 active-change 口径；同样，
 > `docs/roadmap-v27.md` 与 `docs/roadmap-v28.md` 的已完成切片也已同步到 archive 真路径，
-> 不再把 `v270`–`v272` / `v280`–`v282` 写成 active-change 目录。
+> 不再把 `v270`–`v272` / `v280`–`v282` 写成 active-change 目录；同时，
+> `docs/roadmap-v16x.md`、`docs/roadmap-v17x.md`、`docs/roadmap-v23.md` 与
+> `tools/session-distill/SKILL.md` 这组历史高可见资料也已同步到 archive 真路径与当前主
+> `openspec/specs/metabolism/spec.md`，不再把已归档切片写成 active-change 路径，也不再引用
+> 不存在的 `memory-metabolism` spec 目录。
 
 ## 完成矩阵
 
@@ -158,7 +162,8 @@ truth-sync 的 release train 都已落地。
 | v2.9.42 | 已完成 | `docs/roadmap-v29.md`、`tests/test_roadmap_v29_status_tail_truth.py`、OpenSpec `v2942-roadmap-v29-status-range-truth-sync` | `roadmap-v29` 顶部状态行现在进一步收束成范围式摘要：直接写成 `v2.9.0–v<current> 已完成`，并由 test 跟随 `__version__` 校验，不再每发一版就因手工 patch 枚举而立刻过时。 |
 | v2.9.43 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_contract_source_truth.py`、OpenSpec `v2943-user-test-packet-contract-source-truth-sync` | `v2-user-test-packet` 现在回指主 `openspec/specs/daily-workflow/spec.md` 作为契约真值源，并把 Codex MCP 接入说明写成 repo 当前维护并验证的 stdio 契约，不再依赖归档 change 路径或“当前版本客户端支持写法”。 |
 | v2.9.44 | 已完成 | `docs/roadmap-v29.md`、`tests/test_roadmap_v29_archive_pointer_truth.py`、OpenSpec `v2944-roadmap-v29-archive-pointer-truth-sync` | `roadmap-v29` 里最早一批已完成切片现在统一回指 archive 真路径：`v290`–`v2912` 不再写成仍在 `openspec/changes/v29xx...` 的 active-change 路径。 |
-| v2.9.45 | 当前版本 | `docs/roadmap-v27.md`、`docs/roadmap-v28.md`、`tests/test_roadmap_v27_v28_archive_pointer_truth.py`、OpenSpec `v2945-roadmap-v27-v28-archive-pointer-truth-sync` | `roadmap-v27` / `roadmap-v28` 现在也统一回指 archive 真路径：`v270`–`v272` 与 `v280`–`v282` 不再写成仍在 `openspec/changes/v27x...` / `v28x...` 的 active-change 路径。 |
+| v2.9.45 | 已完成 | `docs/roadmap-v27.md`、`docs/roadmap-v28.md`、`tests/test_roadmap_v27_v28_archive_pointer_truth.py`、OpenSpec `v2945-roadmap-v27-v28-archive-pointer-truth-sync` | `roadmap-v27` / `roadmap-v28` 现在也统一回指 archive 真路径：`v270`–`v272` 与 `v280`–`v282` 不再写成仍在 `openspec/changes/v27x...` / `v28x...` 的 active-change 路径。 |
+| v2.9.46 | 当前版本 | `docs/roadmap-v16x.md`、`docs/roadmap-v17x.md`、`docs/roadmap-v23.md`、`tools/session-distill/SKILL.md`、`tests/test_historical_archive_pointer_truth.py`、OpenSpec `v2946-historical-roadmap-and-skill-archive-pointer-truth-sync` | 历史 roadmap / skill 现在也统一回指 archive 真路径与当前 `metabolism` 主 spec：不再把 `v161`、`v170`–`v173`、`v231` 写成 active-change 路径，也不再引用不存在的 `memory-metabolism` spec 目录。 |
 
 ## 未完成 / 不做项
 

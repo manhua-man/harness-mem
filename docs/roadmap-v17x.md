@@ -210,14 +210,14 @@ v1.7.x 不是为了把总 R@5 硬推到某个漂亮数字。成功标准是：
 
 ---
 
-## OpenSpec 拆分建议
+## OpenSpec 最终归档目录
 
-| 变更 | 目录建议 |
+| 变更 | 归档目录 |
 |---|---|
-| v1.7.0 temporal schema | `openspec/changes/v170-temporal-schema-current-history/` |
-| v1.7.1 supersede loop | `openspec/changes/v171-supersede-candidate-loop/` |
-| v1.7.2 graph retrieval | `openspec/changes/v172-temporal-graph-retrieval/` |
-| v1.7.3 exact evidence search | `openspec/changes/v173-verbatim-exact-evidence-search/` |
+| v1.7.0 temporal schema | `openspec/changes/archive/2026-05-24-v170-temporal-schema-current-history/` |
+| v1.7.1 supersede loop | `openspec/changes/archive/2026-05-24-v171-supersede-candidate-loop/` |
+| v1.7.2 graph retrieval | `openspec/changes/archive/2026-05-24-v172-temporal-graph-retrieval/` |
+| v1.7.3 exact evidence search | `openspec/changes/archive/2026-05-24-v173-verbatim-exact-evidence-search/` |
 
 每个 change 至少覆盖：
 

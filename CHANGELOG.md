@@ -8,6 +8,31 @@
 
 ---
 
+## [2.9.46] — 2026-06-03
+
+**主题：Historical Roadmap And Skill Archive Pointer Truth Sync**
+
+v2.9.46 收的是历史 roadmap 和 repo-local skill 里的 OpenSpec 指针真值。`docs/roadmap-v16x.md`、
+`docs/roadmap-v17x.md`、`docs/roadmap-v23.md` 以及 `tools/session-distill/SKILL.md`
+仍残留已归档切片的 active-change 路径，`session-distill` 还把当前主 spec 写成不存在的
+`openspec/specs/memory-metabolism/spec.md`。这一版不改 runtime，只把这些高可见历史资料同步到
+archive 真路径和当前主 spec。
+
+### Changed
+
+- **historical roadmap archive-pointer sync**：`docs/roadmap-v16x.md`、`docs/roadmap-v17x.md`、
+  `docs/roadmap-v23.md` 里相关已完成切片现在统一回指 `openspec/changes/archive/...` 真路径。
+- **session-distill metabolism-spec sync**：`tools/session-distill/SKILL.md` 现在回指已归档的
+  `v230` design 和当前主 `openspec/specs/metabolism/spec.md`。
+- **focused regression coverage**：新增 `tests/test_historical_archive_pointer_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.46`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步历史 roadmap / skill 对已归档 OpenSpec change 和当前主 spec 的指针真值。
+
 ## [2.9.45] — 2026-06-03
 
 **主题：Roadmap-v27-v28 Archive Pointer Truth Sync**

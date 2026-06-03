@@ -79,7 +79,7 @@ v2.3 只铺底层信号和 replay window，不做用户可见的新入口，也�
 
 ## v2.3.1：Metabolism Suggestion Pass ✅
 
-> OpenSpec: `openspec/changes/v231-metabolism-suggestion-pass/`
+> OpenSpec: `openspec/changes/archive/2026-05-26-v231-metabolism-suggestion-pass/`
 > 状态：已完成 (2026-05-27)
 
 **用户故事**：系统能基于 replay window 自动产出可审核的代谢建议候选（合并 / 标 stale / supersede），同时让信号反向影响 wake/search 排序。

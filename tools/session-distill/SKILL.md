@@ -176,7 +176,7 @@ raw transcript 删除只由 `/hm:mark ... distilled` 的实现层在安全白名
 
 ## Memory Metabolism preview (v2.3.0)
 
-> 详细行为见 `openspec/changes/v230-signals-and-replay-windows/design.md`，归档后位于 `openspec/specs/memory-metabolism/spec.md`。
+> 详细行为最早记录在 `openspec/changes/archive/2026-05-25-v230-signals-and-replay-windows/design.md`，当前真值已并入 `openspec/specs/metabolism/spec.md`。
 
 v2.3.0 给后续 metabolism 流程铺地基，但**不**改本 skill 的主链行为。你需要知道它的形态，避免把它当成 `/hm:distill` 的同类入口去触发。
 
