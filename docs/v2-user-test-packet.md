@@ -503,6 +503,34 @@ Boundary:
   summary payload，而不是 Codex / Cursor / Claude 的最终 UI 表述。
 - 它也**不等于** packet 全补齐：这里只推进了 S12 的 generic MCP 证据。
 
+## 2026-06-04 — Stale CLI surface scan (repo truth, packet S11)
+
+Clients: Repo truth / string scan (shared across Claude Code, Codex CLI, Cursor, generic MCP docs surface)
+harness-mem version: 2.9.60
+Working tree scope: packet-defined S11 scan targets only
+
+Pass: S11 (stale daily CLI surface absent in the packet-defined user-doc range)
+Not run: client UI execution; this is the packet's explicit string-scan scenario
+
+Scan command:
+
+```text
+rg "harness-mem (wake|search|timeline|candidates|distill)\b" README.md AGENTS.md plugins/harness-mem/README.md plugins/harness-mem/commands/hm/*.md tools/session-distill/SKILL.md
+```
+
+Observed hits:
+- `AGENTS.md`: `harness-mem distill` only appears inside a sentence that says the CLI subcommand was removed in v2.0
+- `tools/session-distill/SKILL.md`: `harness-mem ingest` / `harness-mem distill` only appear inside a sentence that says ordinary users are **not required** to run them manually
+- no hit in `README.md`
+- no hit in `plugins/harness-mem/README.md`
+- no hit in `plugins/harness-mem/commands/hm/*.md`
+- no hit that teaches `harness-mem wake/search/timeline/candidates/distill` as the current daily user path
+
+Boundary:
+- 这条 entry 证明 **packet 定义范围内的 stale daily CLI surface** 现在已经只剩反例说明或删除说明，
+  不再作为当前用户 workflow 教学出现。
+- 它仍**不等于**整个仓库所有历史文档都绝对零命中；这里只验证 packet S11 明确定义的扫描范围。
+
 ## 2026-06-03 — Cursor hook install smoke (Windows, temp project)
 
 Clients: Cursor integration asset only (not a full Cursor agent run)

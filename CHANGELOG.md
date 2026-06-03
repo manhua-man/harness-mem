@@ -8,6 +8,29 @@
 
 ---
 
+## [2.9.60] — 2026-06-04
+
+**主题：Packet S11 Stale CLI Surface Evidence**
+
+v2.9.60 收的是 packet `S11` 的正式 evidence。当前仓库在 packet 指定的扫描范围里，已不再把
+`harness-mem wake/search/timeline/candidates/distill` 当作日常用户 path 来教学；grep 命中只剩
+“这些 CLI 面已经删除/不要求手动跑”的反例说明，而不是当前 workflow 指导。也就是说，`S11`
+已经可以从“表格里的期望”推进成一条可复核的 repo-truth evidence。
+
+### Changed
+
+- **packet S11 evidence**：`docs/v2-user-test-packet.md` 新增一条 `2026-06-04` stale CLI
+  surface scan entry，记录 packet 规定范围内的实际 grep 结果与允许边界。
+- **focused regression coverage**：新增
+  `tests/test_v2_user_test_packet_stale_cli_truth.py`，防止 packet 的 S11 evidence 回流消失。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.60`。
+
+### Boundaries
+
+- 本版本不宣称 full `12-scenario` cross-client matrix 已补齐。
+- 它只把 packet 里正式定义的 `S11` 字符串扫描场景收成当前 repo 可复核真值。
+
 ## [2.9.59] — 2026-06-04
 
 **主题：Generic MCP S12 Repair-Only Distill Summary**

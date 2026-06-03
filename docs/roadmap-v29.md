@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.59 已完成。
+> 状态：v2.9.0–v2.9.60 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1305,3 +1305,23 @@ candidates 作为 repair / follow-up 说明出来。
   - payload 不含 `/hm:review`
   - `next_user_action` 直接写成 review deferred candidates
 - 已补 focused regression coverage：`tests/test_v2_user_test_packet_review_only_truth.py`
+
+## v2.9.60：Packet S11 Stale CLI Surface Evidence
+
+**用户故事**：当维护者回看 packet 的 `S11 Stale CLI surface absence` 时，不应该只看到一条
+“去 grep” 的测试说明，而应该有一条当前仓库真值的结果记录：在 packet 指定的文档范围里，
+`harness-mem wake/search/timeline/candidates/distill` 这些旧 daily CLI 面是否还在被当成用户 path 教。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | packet S11 evidence | `v2-user-test-packet` 追加 packet-defined grep 的当前结果 |
+| P1 | focused regression guard | 如果这条 stale-CLI evidence 再次消失，测试失败 |
+
+### 当前状态（2026-06-04）
+
+- 已完成 `openspec/changes/archive/2026-06-04-v2960-packet-s11-stale-cli-surface-evidence/`。
+- `docs/v2-user-test-packet.md` 现在新增一条 `2026-06-04` stale-CLI scan entry，记录：
+  - packet 规定的扫描命令
+  - 当前命中只剩“已删除/不要求手动跑”的反例说明
+  - packet 范围内没有把旧 daily CLI 面当成当前用户 path 教学的命中
+- 已补 focused regression coverage：`tests/test_v2_user_test_packet_stale_cli_truth.py`

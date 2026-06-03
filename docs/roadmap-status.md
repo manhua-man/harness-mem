@@ -10,27 +10,26 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.59` |
-| `harness_mem/__init__.py` | `2.9.59` |
-| `CHANGELOG.md` | 已有 `2.9.59` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.60` |
+| `harness_mem/__init__.py` | `2.9.60` |
+| `CHANGELOG.md` | 已有 `2.9.60` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.59：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v2.9.60：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环（runtime 已落地；OpenSpec `5.5`
 手工 gate 已过，但 full matrix coverage 仍可继续扩展）、v2.3 signals/replay、v2.4
 reflection queue、v2.5 context assembly / wake renderer / file_context、
 v2.6 knowledge cache / wiki bridge / contradiction、v2.7 cross-project
 procedural skill、v2.8 session-distill maintenance surfaces，以及
-v2.9.0–v2.9.59 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
+v2.9.0–v2.9.60 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
 truth-sync 的 release train 都已落地。
 
-> **v2.9.59 发版状态（2026-06-04）**：版本号已 bump 到 `2.9.59`。这一版继续补
-> `v2-user-test-packet` 的 generic MCP 正式 scenario evidence，但目标从“能不能跑起来”
-> 往“summary 边界是否正确”推进：当前机器上，成功的
-> `auto_review_candidates(project_name=<project>, apply=true)` summary payload 已经明确不含
-> `/hm:review`，而只把 deferred candidates 写成自然语言 follow-up。也就是说，generic MCP
-> 这条链路上 `/hm:review` 现在已经回到 repair-only，而不是 distill 成功后的默认主链下一步。
-> full 12-scenario matrix 仍未补齐，尤其还缺更强的 UI 级 cross-client pair 和 `S4/S5/S7/S11`。
+> **v2.9.60 发版状态（2026-06-04）**：版本号已 bump 到 `2.9.60`。这一版继续补
+> `v2-user-test-packet` 的正式 scenario evidence，但这次落在 repo-truth 可复核面：packet
+> 定义的 `S11` 字符串扫描范围里，旧的 daily CLI 面现在只剩“已删除/不要求手动跑”的反例说明，
+> 不再作为当前用户 path 被教学。也就是说，`README.md`、plugin README、`plugins/harness-mem/commands/hm/*.md`
+> 这些高可见入口上，stale CLI surface 已经按 packet 定义范围收干净。剩下没补齐的仍是更强的
+> live client scenarios，尤其是 `S4/S5/S7` 和 UI 级 cross-client pair。
 
 ## 完成矩阵
 
@@ -123,7 +122,8 @@ truth-sync 的 release train 都已落地。
 | v2.9.56 | 已完成 | `harness_mem/embedding/model_loader.py`、`harness_mem/storage/sqlite_index.py`、`tests/test_disable_embeddings.py`、`docs/v2-user-test-packet.md`、OpenSpec `v2956-fresh-home-write-path-embedding-failfast` | fresh isolated home 下，interactive write path 现在不会再因为首次 Hugging Face 模型下载而卡住：cold cache 时直接跳过 vec 写入并记 warning；现有 timeout/circuit-breaker 继续覆盖 cached-but-hung encode/import。packet 现在也已有 `2026-06-04` generic MCP fresh-home smoke，证明 embeddings enabled、empty cache 条件下的 real stdio `suggest_memory_entry` 已能快速返回。 |
 | v2.9.57 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_empty_evidence_truth.py`、OpenSpec `v2957-generic-mcp-empty-packet-s6-evidence` | `v2-user-test-packet` 现在又补了一条 generic MCP 的正式 scenario evidence：isolated temp home 下，`prepare_session_distill(run_ingest=false)` 已在当前机器上实跑并返回 `observation_count = 0`、零 status counters 和空 `observations` 包。这把 generic MCP coverage 从最小 smoke / S8 / S9 / fresh-home write-path 再向 packet `S6 Empty evidence packet` 推进了一步，但 full 12-scenario matrix 仍未补齐。 |
 | v2.9.58 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_cross_session_truth.py`、OpenSpec `v2958-generic-mcp-cross-session-s10-evidence` | `v2-user-test-packet` 现在又补了一条 generic MCP 的 live S10 近邻证据：两个独立 stdio MCP 会话共用同一 temp home 时，writer 会话确认的 memory entry，reader 会话随后 `wake(no_auto_ingest=true)` 已能在 `# Essential Truth (L1 · confirmed current)` 中读回。这把 generic MCP coverage 从单会话 smoke 再推进到了跨会话 truth visibility，但还不是更强的 UI 级 cross-client pair。 |
-| v2.9.59 | 当前版本 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_review_only_truth.py`、OpenSpec `v2959-generic-mcp-s12-repair-only-summary` | `v2-user-test-packet` 现在又补了一条 generic MCP 的 live S12 近邻证据：successful `auto_review_candidates(..., apply=true)` summary payload 已经不再含 `/hm:review`，而是直接给出 deferred candidates 的自然语言 follow-up。这把 generic MCP coverage 从“能成功 auto-review”进一步推进到了“summary 仍保持 repair-only boundary”。 |
+| v2.9.59 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_review_only_truth.py`、OpenSpec `v2959-generic-mcp-s12-repair-only-summary` | `v2-user-test-packet` 现在又补了一条 generic MCP 的 live S12 近邻证据：successful `auto_review_candidates(..., apply=true)` summary payload 已经不再含 `/hm:review`，而是直接给出 deferred candidates 的自然语言 follow-up。这把 generic MCP coverage 从“能成功 auto-review”进一步推进到了“summary 仍保持 repair-only boundary”。 |
+| v2.9.60 | 当前版本 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_stale_cli_truth.py`、OpenSpec `v2960-packet-s11-stale-cli-surface-evidence` | `v2-user-test-packet` 现在又补了一条 S11 repo-truth evidence：packet 规定扫描范围内，`harness-mem wake/search/timeline/candidates/distill` 已不再作为当前用户 path 教学出现，grep 命中只剩“这些 CLI 面已经删除/不要求手动跑”的反例说明。这把 packet 从“定义了扫描命令”推进到了“记录了当前扫描结果”。 |
 
 ## 未完成 / 不做项
 
