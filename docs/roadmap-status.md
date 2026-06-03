@@ -10,18 +10,18 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.24` |
-| `harness_mem/__init__.py` | `2.9.24` |
-| `CHANGELOG.md` | 已有 `2.9.24` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.25` |
+| `harness_mem/__init__.py` | `2.9.25` |
+| `CHANGELOG.md` | 已有 `2.9.25` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.24：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.25：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
 boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力，以及
 v2.8.0–v2.8.2 的 session-distill maintenance surfaces、v2.9.0 的 PRD sync
 candidate surface、v2.9.1 的 status triage surface、v2.9.2 的 plugin
 doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 stale CLI surface guard sync、v2.9.5 的 shell completion maintenance truth、v2.9.6 的 maintenance surface collateral sync、v2.9.7 的 README and telemetry maintenance truth、v2.9.8 的 maintenance surface collateral guard、v2.9.9 的 reflection project-root resolution、v2.9.10 的 worker-mode truth sync，以及 v2.9.11 的 scheduler-trigger truth sync 都已落地。
 
-> **v2.9.24 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.24`。v2.9 在保持
+> **v2.9.25 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.25`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -61,7 +61,10 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 > 同时，根 `AGENTS.md` 里的 distill 主链与 repair 边界也已同步到这条 shipped surface，
 > 不再把 `list_candidates` 加逐条 confirm/reject 写成默认主路径；同时，
 > `docs/roadmap-v22x.md` 这类仍会描述 active distill contract 的历史版本线文档也已同步
-> 到 `auto_review_candidates(apply=true)`，不再保留旧主链表述。
+> 到 `auto_review_candidates(apply=true)`，不再保留旧主链表述。此外，`docs/README.md`
+> 与本页的 v2.9 索引摘要现在也已同步到当前真值：v2.9 不再只被描述成单一
+> `PRD sync candidate surface`，而是从 `/hm:prd-sync` 起步、随后持续扩展为一串
+> maintenance / triage / current-truth sync release slices。
 
 ## 完成矩阵
 
@@ -119,7 +122,8 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 | v2.9.21 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_distill_truth.py`、OpenSpec `v2921-user-test-packet-distill-truth-sync` | v2 user test packet 的 generic MCP distill 流现在直接指向 `auto_review_candidates`；不再把 `list_candidates -> auto_review_candidates` 记成默认测试主链。 |
 | v2.9.22 | 已完成 | `tools/session-distill/SKILL.md`、`plugins/harness-mem/README.md`、`tests/test_session_distill_skill_truth.py`、OpenSpec `v2922-session-distill-skill-truth-sync` | session-distill skill 与 plugin distill 摘要现在默认走 `auto_review_candidates(project_name=<project>, apply=true)`；`list_candidates` / `confirm_*` / `reject_*` 只保留给 drilldown 或 repair。 |
 | v2.9.23 | 已完成 | `AGENTS.md`、`tests/test_agents_distill_truth.py`、OpenSpec `v2923-agents-distill-truth-sync` | 根 AGENTS 现在把 distill 主链直接写成 `prepare_session_distill -> suggest_* -> auto_review_candidates(project_name=<project>, apply=true)`；旧的 `list_candidates + confirm/reject` 只保留给 repair/drilldown。 |
-| v2.9.24 | 当前版本 | `docs/roadmap-v22x.md`、`tests/test_roadmap_v22x_distill_truth.py`、OpenSpec `v2924-roadmap-v22x-distill-truth-sync` | 历史 v2.2 roadmap 里仍会描述 active distill contract 的那一行，现在已直接指向 `auto_review_candidates(apply=true)`；不再保留 `list_candidates -> auto-review/confirm/reject` 的旧写法。 |
+| v2.9.24 | 已完成 | `docs/roadmap-v22x.md`、`tests/test_roadmap_v22x_distill_truth.py`、OpenSpec `v2924-roadmap-v22x-distill-truth-sync` | 历史 v2.2 roadmap 里仍会描述 active distill contract 的那一行，现在已直接指向 `auto_review_candidates(apply=true)`；不再保留 `list_candidates -> auto-review/confirm/reject` 的旧写法。 |
+| v2.9.25 | 当前版本 | `docs/README.md`、`docs/roadmap-status.md`、`tests/test_v29_index_truth.py`、OpenSpec `v2925-v29-index-truth-sync` | 高可见文档索引现在把 v2.9 正确描述成从 `/hm:prd-sync` 起步、随后延伸成 maintenance / truth-sync release train；不再把整个版本线缩成单一 `PRD sync candidate surface`。 |
 
 ## 未完成 / 不做项
 
@@ -149,7 +153,7 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 | v2.6.x | Wiki Bridge + Compact Index + Contradiction：knowledge cache、claim index、stale/merge/supersede suggestions | `docs/roadmap-v26.md` |
 | v2.7.x | Cross-Project Skills + Controlled Activation：shared skills、skill hints、skill improvement suggestions | `docs/roadmap-v27.md` |
 | v2.8.x | Session-Distill Maintenance Surfaces：`/hm:mark`、`/hm:prune`、`/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry` 的正式版本线 | `docs/roadmap-v28.md` |
-| v2.9.x | PRD Sync Candidate Surface：`/hm:prd-sync` 默认 dry-run、`--apply` 只写 candidate markdown、不直改 PRD/roadmap | `docs/roadmap-v29.md` |
+| v2.9.x | PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train：`/hm:prd-sync`、`/hm:status`、plugin doctor helper、maintenance CLI collateral、reflection/config truth sync、wake/distill/status 入口真值收口 | `docs/roadmap-v29.md` |
 
 ## 短结论
 

@@ -29,7 +29,7 @@
 | `roadmap-v26.md` | v2.6 roadmap：wiki bridge、compact claim index、contradiction suggestions、compact wake renderer |
 | `roadmap-v27.md` | v2.7 roadmap：cross-project skills、controlled activation、skill improvement suggestions |
 | `roadmap-v28.md` | v2.8 roadmap：session-distill maintenance、knowledge-base review/prune/verify surfaces |
-| `roadmap-v29.md` | v2.9 roadmap：PRD sync candidate surface |
+| `roadmap-v29.md` | v2.9 roadmap：PRD sync + maintenance/truth-sync release train |
 | `roadmap-vision-v16-v18.md` | v1.6 - v1.8 远景方向，不等同于承诺路线图 |
 
 设计规格在 `openspec/specs/` 和 `openspec/changes/`。

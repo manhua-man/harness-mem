@@ -8,6 +8,30 @@
 
 ---
 
+## [2.9.25] — 2026-06-03
+
+**主题：v2.9 Index Truth Sync**
+
+v2.9.25 收的是高可见文档索引里的版本线摘要漂移。`docs/README.md` 和
+`docs/roadmap-status.md` 仍把整个 `v2.9` 缩成单一的 `PRD sync candidate surface`，
+但当前 shipped 的 `v2.9` 早已从 `/hm:prd-sync` 起步，扩展成 maintenance、
+triage 与 current-truth sync 的 release train。这一版不改 runtime，只把索引页写回
+当前真值，并补 focused guard。
+
+### Changed
+
+- **docs index sync**：`docs/README.md` 现在把 `roadmap-v29.md` 描述为
+  `PRD sync + maintenance/truth-sync release train`。
+- **roadmap-status sync**：`docs/roadmap-status.md` 现在把 `v2.9.x` 摘要写成
+  从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage / truth-sync release train。
+- **focused regression coverage**：新增 `tests/test_v29_index_truth.py`。
+- **release writeback**：`docs/roadmap-v29.md`、版本号与本 changelog 已同步到 `2.9.25`。
+
+### Boundaries
+
+- 本版本不新增新的 MCP tool、maintenance command、PRD sync 行为或 truth-mutation 逻辑。
+- 它只同步高可见索引页对 `v2.9` 版本线的摘要口径，并防止索引回流到过窄的旧说法。
+
 ## [2.9.24] — 2026-06-03
 
 **主题：Roadmap-v22x Distill Truth Sync**

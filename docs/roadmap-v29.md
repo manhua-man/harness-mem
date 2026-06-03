@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 已完成。
 >
 > 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
 > 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
@@ -606,3 +606,25 @@ truth 已经是一等 `auto_review_candidates(project_name=<project>, apply=true
   - `auto_review_candidates(apply=true)`
   - `summary`
 - 已补 focused regression test：`tests/test_roadmap_v22x_distill_truth.py`
+
+## v2.9.25：v2.9 Index Truth Sync
+
+**用户故事**：当维护者只看 `docs/README.md` 或 `docs/roadmap-status.md` 这种高可见索引页时，
+不应该再被“v2.9 只是 PRD sync candidate surface”误导，因为当前 shipped 的 `v2.9`
+早已从 `/hm:prd-sync` 起步，扩展成一串 maintenance、triage 与 current-truth sync
+release slices。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | docs index sync | `docs/README.md` 与 `docs/roadmap-status.md` 对 v2.9 的摘要对齐当前版本线真值 |
+| P1 | focused regression guard | v2.9 索引回流到单一 `PRD sync candidate surface` 旧说法时测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2925-v29-index-truth-sync/`。
+- `docs/README.md` 现在把 `roadmap-v29.md` 描述为：
+  - `v2.9 roadmap：PRD sync + maintenance/truth-sync release train`
+- `docs/roadmap-status.md` 现在也把 `v2.9.x` 摘要写成：
+  - 从 `/hm:prd-sync` 起步
+  - 之后扩展为 maintenance / triage / truth-sync release train
+- 已补 focused regression test：`tests/test_v29_index_truth.py`
