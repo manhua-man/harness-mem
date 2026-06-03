@@ -1,18 +1,43 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 已完成。
 >
-> 主题：PRD Sync Candidate Surface。把已有的 `prd-sync` 半成品脚本收束成
-> 正式的 `/hm:prd-sync` 维护入口：默认 dry-run，只生成 candidate，不直接改
-> PRD/roadmap 或 confirmed truth。
+> 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
+> v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
+> 收口了 `/hm:status`、plugin doctor helper、maintenance CLI collateral、
+> reflection/config truth、以及 wake / distill / status 等高可见入口的 current-truth
+> sync。
 
 ---
 
 ## 目标
 
-当前 repo 已经在 `tools/session-distill/bin/session-distill.py` 里放了一个
-`prd-sync` 命令：
+v2.9 的起点是把当前 repo 里已经存在的 `prd-sync` 半成品脚本收成正式维护面：
 
+- 它扫描 `bundled` packets
+- 它识别 PRD / roadmap / scope / architecture 一类关键词
+- 它可以在 `prd-distilled/` 下生成候选 markdown
+
+因此 v2.9.0 的第一目标是：
+
+- 把 `/hm:prd-sync` 收成正式的 candidate-only maintenance entry
+- 明确 dry-run default 与 `--apply` 只写 candidate markdown 的边界
+
+后续 v2.9.1+ 的版本线则沿着同一条思路继续推进：
+
+- 把 `/hm:status`、plugin doctor helper 等高可见维护/分诊入口收成正式 surface
+- 把 CLI / shell completion / MCP / README / telemetry / user-test packet 等
+  collateral 同步到已 shipped 的 maintenance-only truth
+- 把 `roadmap-v24`、`roadmap-status`、`README`、`AGENTS`、`best-practices`、
+  `roadmap-v22x` 等高可见文档持续回写到当前 shipped truth
+
+也就是说，`v2.9` 已不再只是 “PRD sync candidate surface” 这一条单独切片，而是一个
+围绕 maintenance / triage / truth-sync 收口的 release train。
+
+---
+
+当前 repo 最早在 `tools/session-distill/bin/session-distill.py` 里放了一个
+`prd-sync` 命令：
 - 它会扫描 `bundled` packets
 - 它会识别 PRD / roadmap / scope / architecture 一类关键词
 - 它可以在 `prd-distilled/` 下生成候选 markdown

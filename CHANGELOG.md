@@ -8,6 +8,30 @@
 
 ---
 
+## [2.9.27] — 2026-06-03
+
+**主题：Roadmap-v29 Theme Truth Sync**
+
+v2.9.27 收的是 `docs/roadmap-v29.md` 顶部标题区的残留旧口径。虽然这条版本线在
+正文里已经连续记录到了 `v2.9.26`，但文件头部仍把整个 `v2.9` 缩成单一
+`PRD Sync Candidate Surface`。这一版不改 runtime，只把 roadmap 头部主题与目标摘要
+写回当前真值，并补 focused guard。
+
+### Changed
+
+- **roadmap-v29 theme sync**：`docs/roadmap-v29.md` 顶部主题现在明确写成
+  `PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train`。
+- **roadmap-v29 goal sync**：目标段现在明确区分：
+  - `v2.9.0` 的起点是 `/hm:prd-sync`
+  - `v2.9.1+` 继续扩成 status / doctor helper / collateral / truth-sync slices
+- **focused regression coverage**：新增 `tests/test_roadmap_v29_theme_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、版本号与本 changelog 已同步到 `2.9.27`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、maintenance command 或 roadmap slice。
+- 它只同步 `roadmap-v29.md` 顶部主题/目标摘要到当前 shipped truth，并防止文件头回流到过窄的旧单主题写法。
+
 ## [2.9.26] — 2026-06-03
 
 **主题：Roadmap-Status Summary Truth Sync**
