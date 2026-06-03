@@ -8,6 +8,28 @@
 
 ---
 
+## [2.9.49] — 2026-06-03
+
+**主题：Root README And AGENTS OpenSpec Layout Truth Sync**
+
+v2.9.49 收的是 repo 根 `README.md` 和 `AGENTS.md` 对 OpenSpec 目录布局的说明。虽然
+`docs/README.md` 已经收成三层结构，但根说明面仍把 OpenSpec 笼统写成一个 `openspec/`
+目录桶。当前 repo 已没有 active change，高可见根说明面也应明确区分主 spec、active changes
+和 archive。
+
+### Changed
+
+- **root OpenSpec layout sync**：`README.md` 与 `AGENTS.md` 现在明确区分
+  `openspec/specs/`、`openspec/changes/` 和 `openspec/changes/archive/`。
+- **focused regression coverage**：新增 `tests/test_repo_openspec_layout_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.49`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 repo 根说明面对 OpenSpec 层级的当前真值。
+
 ## [2.9.48] — 2026-06-03
 
 **主题：User-Test-Packet OpenSpec Source Hierarchy Sync**

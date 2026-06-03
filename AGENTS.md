@@ -66,7 +66,9 @@ alwaysApply: true
 | `tools/grill-me/` / `tools/answer-me/` / `tools/ask-me/` | review 阶段可选协作者，不是主链硬依赖。 | 可选 |
 | `plugins/harness-mem/` | repo-local 插件封装：安装、MCP 配置、技能入口。 | 集成 |
 | `docs/` | 文档索引、设计说明、评审记录、最佳实践。 | 参考 |
-| `openspec/` | 规格与变更记录；能力边界或行为变化应记录在这里。 | 设计真值 |
+| `openspec/specs/` | 当前主 spec 真值；稳定能力边界和已并入主线的行为定义。 | 设计真值 |
+| `openspec/changes/` | 仍在进行中的 active changes；只有变更提案尚未归档时才会出现在这里。 | 进行中变更 |
+| `openspec/changes/archive/` | 已完成 change 的归档记录；历史 proposal / tasks / writeback 留存在这里。 | 历史记录 |
 | `tests/` | 产品测试：CLI、MCP、storage、search、integration。 | 验证 |
 | `benchmarks/` | 产品 benchmark 脚本与结果。 | 性能验证 |
 

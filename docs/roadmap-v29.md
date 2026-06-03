@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.48 已完成。
+> 状态：v2.9.0–v2.9.49 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1070,3 +1070,23 @@ proposal 时才下钻到 `openspec/changes/<change>/specs/...`。
   - 默认看 `openspec/specs/...` 作为当前主 spec 真值
   - 只有确实存在 active change proposal 时，才下钻 `openspec/changes/<change>/specs/...`
 - 已补 focused regression test：`tests/test_v2_user_test_packet_contract_source_truth.py`
+
+## v2.9.49：Root README And AGENTS OpenSpec Layout Truth Sync
+
+**用户故事**：维护者回读 repo 根 [README.md](../README.md) 和 [AGENTS.md](../AGENTS.md) 时，
+不应该只看到一个笼统的 `openspec/` 目录说明。当前 repo 已没有 active change，高可见根说明面
+也应该和 `docs/README.md` 对齐，明确区分主 spec、active changes 和 archive。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | root OpenSpec layout sync | README / AGENTS 明确区分 `openspec/specs/`、`openspec/changes/`、`openspec/changes/archive/` |
+| P1 | focused regression guard | 如果根说明面再回流到笼统 `openspec/` 桶描述，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2949-root-readme-and-agents-openspec-layout-truth-sync/`。
+- repo 根说明面现在明确：
+  - `openspec/specs/` 是当前主 spec 真值
+  - `openspec/changes/` 是仍在进行中的 active changes
+  - `openspec/changes/archive/` 是已完成 change 的归档记录
+- 已补 focused regression test：`tests/test_repo_openspec_layout_truth.py`

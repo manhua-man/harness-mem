@@ -170,7 +170,9 @@ AI IDE 用户不需要学习 CLI 命令清单。候选复核、确认、拒绝�
 - `docs/`: 文档和设计说明
 - `benchmarks/`: benchmark 结果与评测相关内容
 - `.claude/` / `.codex/` / `.cursor/`: 多 Agent 协作配置
-- `openspec/`: 变更提案和 spec 资产
+- `openspec/specs/`: 当前主 spec 真值
+- `openspec/changes/`: 仍在进行中的 active changes
+- `openspec/changes/archive/`: 已完成 change 的归档记录
 - `tools/session-distill/`: 用户主动蒸馏入口；由 runtime 自动识别 Codex / Claude Code / Cursor / Antigravity / opencode / Hermes / generic agent 来源，统一走 evidence packet -> candidate layer
 - `tools/mem-distill/`: 既有 memory / observations 整理入口
 - `tools/grill-me/` / `tools/answer-me/` / `tools/ask-me/`: review 阶段可选协作者，不是默认主链依赖
