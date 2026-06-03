@@ -8,6 +8,27 @@
 
 ---
 
+## [2.9.38] — 2026-06-03
+
+**主题：Roadmap-Status Baseline Scope Sync**
+
+v2.9.38 收的是 `docs/roadmap-status.md` 顶部 baseline 摘要的范围漂移。当前短结论和
+版本索引都已经覆盖 `v1.5` 到 `v2.9`，但这段最高可见摘要仍只从 `v2.5` 起讲。 这一版
+不改 runtime，只把 baseline 摘要回写到当前真值，并补 focused guard。
+
+### Changed
+
+- **roadmap-status baseline scope sync**：`docs/roadmap-status.md` 顶部 baseline
+  摘要现在明确从 `v1.5` baseline 到 `v2.9` release train 总结已完成主线。
+- **focused regression coverage**：`tests/test_roadmap_status_baseline_truth.py`
+  现在也会拒绝回流到只从 `v2.5` 起讲的旧口径。
+- **release writeback**：`docs/roadmap-v29.md`、版本号与本 changelog 已同步到 `2.9.38`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 `roadmap-status` 顶部 baseline 摘要范围，并防止该摘要再次回流到过窄的 `v2.5` 起点。
+
 ## [2.9.37] — 2026-06-03
 
 **主题：Roadmap-Status Version Index Truth Sync**

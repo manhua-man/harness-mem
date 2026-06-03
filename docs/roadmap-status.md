@@ -10,18 +10,20 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.37` |
-| `harness_mem/__init__.py` | `2.9.37` |
-| `CHANGELOG.md` | 已有 `2.9.37` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.38` |
+| `harness_mem/__init__.py` | `2.9.38` |
+| `CHANGELOG.md` | 已有 `2.9.38` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.37：v2.5.0–v2.5.2 的 context assembly / wake renderer /
-file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
-boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力、v2.8.0–v2.8.2
-的 session-distill maintenance surfaces，以及 v2.9.0–v2.9.37 这一整条从
-`/hm:prd-sync` 起步、随后扩成 maintenance / triage / truth-sync 的 release
-train 都已落地。
+当前收口基线是 v2.9.38：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
+v2.1 maintenance-only CLI、v2.2 用户入口闭环、v2.3 signals/replay、v2.4
+reflection queue、v2.5 context assembly / wake renderer / file_context、
+v2.6 knowledge cache / wiki bridge / contradiction、v2.7 cross-project
+procedural skill、v2.8 session-distill maintenance surfaces，以及
+v2.9.0–v2.9.38 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
+truth-sync 的 release train 都已落地。
 
-> **v2.9.37 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.37`。v2.9 在保持
+> **v2.9.38 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.38`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -135,7 +137,8 @@ train 都已落地。
 | v2.9.34 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_baseline_truth.py`、OpenSpec `v2934-roadmap-status-v29-baseline-tail-sync` | `roadmap-status` 顶部“当前收口基线”摘要现在不再把 `v2.9` release train 截在 `v2.9.27`；它已同步到当前版本尾号，并由 focused guard 跟随 `__version__` 校验。 |
 | v2.9.35 | 已完成 | `docs/README.md`、`tests/test_docs_readme_status_range_truth.py`、OpenSpec `v2935-docs-readme-status-range-truth-sync` | `docs/README.md` 里的 `roadmap-status.md` 索引说明现在与当前矩阵真值一致：不再把覆盖范围缩成 `v1.6–v2.9`，而是明确包括 `v1.5.x`。 |
 | v2.9.36 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_summary_truth.py`、OpenSpec `v2936-roadmap-status-short-summary-scope-sync` | `roadmap-status` 的短结论现在不再只从 `v2.2` 起讲，而是明确把 `v1.5` 到 `v2.9` 的已完成主线作为连续历史范围来总结。 |
-| v2.9.37 | 当前版本 | `docs/roadmap-status.md`、`tests/test_roadmap_status_version_index_truth.py`、OpenSpec `v2937-roadmap-status-version-index-truth-sync` | `roadmap-status` 的高可见版本索引现在从 `v1.5.x` 连续覆盖到 `v2.9.x`；不再以“后续 Roadmap”名义只从 `v2.2.x` 起列。 |
+| v2.9.37 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_version_index_truth.py`、OpenSpec `v2937-roadmap-status-version-index-truth-sync` | `roadmap-status` 的高可见版本索引现在从 `v1.5.x` 连续覆盖到 `v2.9.x`；不再以“后续 Roadmap”名义只从 `v2.2.x` 起列。 |
+| v2.9.38 | 当前版本 | `docs/roadmap-status.md`、`tests/test_roadmap_status_baseline_truth.py`、OpenSpec `v2938-roadmap-status-baseline-scope-sync` | `roadmap-status` 顶部 baseline 摘要现在不再只从 `v2.5` 起讲，而是明确覆盖 `v1.5` 到 `v2.9` 的连续已完成主线。 |
 
 ## 未完成 / 不做项
 
