@@ -8,6 +8,27 @@
 
 ---
 
+## [2.9.41] — 2026-06-03
+
+**主题：Roadmap-v29 Status Tail Truth Sync**
+
+v2.9.41 收的是 `docs/roadmap-v29.md` 顶部状态行的尾号漂移。当前文档正文、版本真值和
+`roadmap-status` 都已经推进到后续切片，但这条高可见头部摘要仍停在 `v2.9.39 已完成`。
+这一版不改 runtime，只把状态行回写到当前真值，并补 focused guard。
+
+### Changed
+
+- **roadmap-v29 status tail sync**：`docs/roadmap-v29.md` 顶部状态行现在明确写到
+  `v2.9.40 已完成`，不再把 release train 截在 `v2.9.39`。
+- **focused regression coverage**：新增 `tests/test_roadmap_v29_status_tail_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、版本号与本 changelog 已同步到
+  `2.9.41`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 `roadmap-v29` 顶部状态行的 release tail，并防止头部摘要再次停在更旧尾号。
+
 ## [2.9.40] — 2026-06-03
 
 **主题：Best-Practices Wake Drilldown Truth Sync**
