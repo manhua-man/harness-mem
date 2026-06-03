@@ -2,6 +2,9 @@
 
 `harness-mem` 的 CLI 设计默认遵循这几条：
 
+当前发版状态、已完成切片和未做边界以 [roadmap-status.md](./roadmap-status.md) 与
+`CHANGELOG.md` 为准；本文聚焦 CLI 设计原则与评审口径，不单独充当当前实现真值。
+
 ## 目标
 
 - 让用户先走通最短 happy path，再暴露高级参数

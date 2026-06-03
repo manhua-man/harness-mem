@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.52 已完成。
+> 状态：v2.9.0–v2.9.53 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1148,3 +1148,23 @@ authority 指向 `roadmap-status.md` 与 `CHANGELOG.md`。
   - plugin README 与 best-practices 的当前发版状态、已完成切片和未做边界都看 `roadmap-status.md` 与 `CHANGELOG.md`
   - 它们聚焦安装、集成和使用建议，不单独充当当前实现真值
 - 已补 focused regression test：`tests/test_usage_docs_truth_authority_sync.py`
+
+## v2.9.53：Reference Docs Truth Authority Sync
+
+**用户故事**：维护者从 `docs/cli/v2.4.md`、`docs/error-codes.md` 或
+`docs/cli-design-expert.md` 这些高可见参考文档进入时，不应该把操作说明、错误码表或设计准则误当成
+当前发版真值来源。参考文档也应明确把 shipped 状态与边界 authority 指向 `roadmap-status.md`
+与 `CHANGELOG.md`。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | reference-doc authority sync | CLI operator doc、error-codes、cli-design-expert 明确把当前发版状态与边界指向 `roadmap-status.md` + `CHANGELOG.md` |
+| P1 | focused regression guard | 如果这些高可见参考文档再缺失 authority 指针，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2953-reference-docs-truth-authority-sync/`。
+- 高可见参考文档现在明确：
+  - `docs/cli/v2.4.md`、`docs/error-codes.md`、`docs/cli-design-expert.md` 的当前发版状态与边界都看 `roadmap-status.md` 与 `CHANGELOG.md`
+  - 这些文档聚焦 operator reference、错误码和设计原则，不单独充当当前实现真值
+- 已补 focused regression test：`tests/test_reference_docs_truth_authority_sync.py`

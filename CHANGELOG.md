@@ -8,6 +8,30 @@
 
 ---
 
+## [2.9.53] — 2026-06-03
+
+**主题：Reference Docs Truth Authority Sync**
+
+v2.9.53 收的是三份高可见参考文档：`docs/cli/v2.4.md`、`docs/error-codes.md` 和
+`docs/cli-design-expert.md`。此前它们会告诉维护者怎么操作、怎么看错误码、怎么评审 CLI 设计，
+但没有直接说明当前 shipped 状态、已完成切片和未做边界应以 `roadmap-status.md` 与
+`CHANGELOG.md` 为准。 这一版不改 runtime，只把这些参考文档接到统一 authority chain 上，
+并补 focused guard。
+
+### Changed
+
+- **reference-doc authority sync**：`docs/cli/v2.4.md`、`docs/error-codes.md`、
+  `docs/cli-design-expert.md` 现在都明确把当前发版状态、已完成切片和未做边界指向
+  `roadmap-status.md` 与 `CHANGELOG.md`。
+- **focused regression coverage**：新增 `tests/test_reference_docs_truth_authority_sync.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.53`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步高可见参考文档对当前 release truth authority 的说明。
+
 ## [2.9.52] — 2026-06-03
 
 **主题：Usage Docs Truth Authority Sync**
