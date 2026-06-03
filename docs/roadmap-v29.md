@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 / v2.9.30 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 / v2.9.30 / v2.9.31 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -728,3 +728,21 @@ release slices。
   - `v2.5.0 / v2.5.1 / v2.5.2` 已完成
   - `v2.5.2` 已并入正式版本线，不再写成“待发版”
 - 已补 focused regression test：`tests/test_roadmap_v25_status_truth.py`
+
+## v2.9.31：Roadmap-v22x Status Truth Sync
+
+**用户故事**：当维护者回看 `docs/roadmap-v22x.md` 头部状态时，不应该再看到“规划中”，
+因为 `v2.2` 早已作为已完成版本线并入当前真值。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | roadmap-v22x header sync | `roadmap-v22x` 头部状态明确写成已完成，而不是规划中 |
+| P1 | focused regression guard | `roadmap-v22x` 回流到“规划中”旧口径时测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2931-roadmap-v22x-status-truth-sync/`。
+- `docs/roadmap-v22x.md` 现在明确：
+  - `v2.2.0` 已完成
+  - 不再把该版本线写成“规划中”
+- 已补 focused regression test：`tests/test_roadmap_v22x_status_truth.py`

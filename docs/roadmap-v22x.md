@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.2.x
 
-> 状态：规划中。v2.2 是 v2.1 surface 瘦身之后的用户入口与客户端互通版本。
+> 状态：v2.2.0 已完成。v2.2 是 v2.1 surface 瘦身之后的用户入口与客户端互通版本。
 >
 > 主题：让 Slash / Skill / 自然语言入口真的可用，用户不需要知道 CLI 子命令或 MCP tool name。
 

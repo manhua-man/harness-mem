@@ -8,6 +8,27 @@
 
 ---
 
+## [2.9.31] — 2026-06-03
+
+**主题：Roadmap-v22x Status Truth Sync**
+
+v2.9.31 收的是 `docs/roadmap-v22x.md` 头部状态的残留旧口径。当前 `v2.2` 早已完成，
+但该历史 roadmap 头部仍写着“规划中”。这一版不改 runtime，只把该版本线文档写回
+当前真值，并补 focused guard。
+
+### Changed
+
+- **roadmap-v22x header sync**：`docs/roadmap-v22x.md` 头部状态现在明确写成
+  `v2.2.0 已完成`。
+- **focused regression coverage**：新增 `tests/test_roadmap_v22x_status_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.31`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 `roadmap-v22x.md` 的版本线状态口径，并防止该历史 roadmap 回流到“规划中”的旧表述。
+
 ## [2.9.30] — 2026-06-03
 
 **主题：Roadmap-v25 Status Truth Sync**
