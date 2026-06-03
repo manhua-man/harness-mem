@@ -8,6 +8,29 @@
 
 ---
 
+## [2.9.42] — 2026-06-03
+
+**主题：Roadmap-v29 Status Range Truth Sync**
+
+v2.9.42 收的是 `docs/roadmap-v29.md` 顶部状态行的写法稳定性。上一版虽然把尾号推到
+更近的 patch，但这条头部摘要仍是“逐 patch 枚举”的脆弱格式，每发一版就会再次立刻过时。
+这一版不改 runtime，而是把头部状态收成跟当前版本真值对齐的范围式摘要，并让 focused
+guard 跟随 `__version__` 校验。
+
+### Changed
+
+- **roadmap-v29 status range sync**：`docs/roadmap-v29.md` 顶部状态行现在写成
+  `v2.9.0–v2.9.42 已完成` 这种范围式摘要，不再继续维护不断变长的 patch 枚举。
+- **focused regression coverage**：`tests/test_roadmap_v29_status_tail_truth.py` 现在改成
+  读取 `harness_mem.__version__` 校验头部状态范围。
+- **release writeback**：`docs/roadmap-status.md`、版本号与本 changelog 已同步到
+  `2.9.42`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只把 `roadmap-v29` 头部状态行从易漂移的逐 patch 枚举收束成稳定的范围式真值摘要。
+
 ## [2.9.41] — 2026-06-03
 
 **主题：Roadmap-v29 Status Tail Truth Sync**

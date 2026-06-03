@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 / v2.9.30 / v2.9.31 / v2.9.32 / v2.9.33 / v2.9.34 / v2.9.35 / v2.9.36 / v2.9.37 / v2.9.38 / v2.9.39 / v2.9.40 已完成。
+> 状态：v2.9.0–v2.9.42 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -927,21 +927,22 @@ truth 已经明确：新 session 先走一等 MCP `wake`，低层读工具只在
   - 不再把这些低层读工具摆成默认 wake-up 主路径
 - 已补 focused regression test：`tests/test_best_practices_wake_drilldown_truth.py`
 
-## v2.9.41：Roadmap-v29 Status Tail Truth Sync
+## v2.9.42：Roadmap-v29 Status Range Truth Sync
 
 **用户故事**：当维护者只看 `docs/roadmap-v29.md` 的顶部状态行时，不应该误以为
-`v2.9` release train 只完成到 `v2.9.39`，因为当前文档正文、`CHANGELOG` 和版本真值都
-已经推进到后续切片。
+`v2.9` release train 只完成到某个手工枚举的 patch，因为这条头部摘要在 `v2.9`
+阶段已经频繁发生尾号滞后。当前文档应该直接和版本真值保持范围式对齐，而不是继续列出
+越来越长、且每发一版就立刻过时的 patch 清单。
 
 | 优先级 | 任务 | 验收 |
 |---|---|---|
-| P0 | roadmap-v29 status tail sync | 顶部状态行把已完成尾号同步到 `v2.9.40` |
-| P1 | focused regression guard | 如果顶部状态行再次停在更旧尾号，测试失败 |
+| P0 | roadmap-v29 status range sync | 顶部状态行改成 `v2.9.0–v2.9.42 已完成` 这类范围式摘要，并和当前版本真值对齐 |
+| P1 | focused regression guard | 如果顶部状态行回流到旧的逐 patch 枚举尾号写法，测试失败 |
 
 ### 当前状态（2026-06-03）
 
-- 已完成 `openspec/changes/archive/2026-06-03-v2941-roadmap-v29-status-tail-truth-sync/`。
+- 已完成 `openspec/changes/archive/2026-06-03-v2942-roadmap-v29-status-range-truth-sync/`。
 - `docs/roadmap-v29.md` 顶部状态行现在明确：
-  - `v2.9.0` 到 `v2.9.40` 已完成
-  - 不再把 release train 头部摘要截在 `v2.9.39`
+  - 用 `v2.9.0–v2.9.42 已完成` 这类范围式摘要对齐当前版本真值
+  - 不再继续维护逐 patch 枚举、且易于立刻过时的头部状态行
 - 已补 focused regression test：`tests/test_roadmap_v29_status_tail_truth.py`

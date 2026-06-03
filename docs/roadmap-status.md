@@ -10,20 +10,20 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.41` |
-| `harness_mem/__init__.py` | `2.9.41` |
-| `CHANGELOG.md` | 已有 `2.9.41` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.42` |
+| `harness_mem/__init__.py` | `2.9.42` |
+| `CHANGELOG.md` | 已有 `2.9.42` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.41：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v2.9.42：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环、v2.3 signals/replay、v2.4
 reflection queue、v2.5 context assembly / wake renderer / file_context、
 v2.6 knowledge cache / wiki bridge / contradiction、v2.7 cross-project
 procedural skill、v2.8 session-distill maintenance surfaces，以及
-v2.9.0–v2.9.41 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
+v2.9.0–v2.9.42 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
 truth-sync 的 release train 都已落地。
 
-> **v2.9.41 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.41`。v2.9 在保持
+> **v2.9.42 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.42`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -71,7 +71,8 @@ truth-sync 的 release train 都已落地。
 > `wake` 作为默认 read surface 覆盖新 session 常见的 profile/rules/handoff 读取，
 > 而 `get_task_handoffs` / `get_confirmed_rules` 只保留给显式 drilldown，不再摆成
 > 默认 wake-up 起点；同时，`docs/roadmap-v29.md` 的顶部状态行也已同步到当前 release
-> tail，不再把这条版本线头部摘要截在更旧的尾号。
+> tail，不再把这条版本线头部摘要截在更旧的尾号；同时，该头部摘要也已从逐 patch 枚举
+> 收束为跟当前版本真值对齐的范围式写法，避免每发一版就立即再次过时。
 
 ## 完成矩阵
 
@@ -146,7 +147,8 @@ truth-sync 的 release train 都已落地。
 | v2.9.38 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_baseline_truth.py`、OpenSpec `v2938-roadmap-status-baseline-scope-sync` | `roadmap-status` 顶部 baseline 摘要现在不再只从 `v2.5` 起讲，而是明确覆盖 `v1.5` 到 `v2.9` 的连续已完成主线。 |
 | v2.9.39 | 已完成 | `README.md`、`AGENTS.md`、`tests/test_opt_in_hook_truth.py`、OpenSpec `v2939-opt-in-hook-truth-sync` | README 和 AGENTS 现在都不再把“没有 IDE hook”写成绝对句，而是明确：没有默认自动随手记，但已存在默认 off 的 opt-in host hook / scheduler trigger。 |
 | v2.9.40 | 已完成 | `docs/best-practices.md`、`tests/test_best_practices_wake_drilldown_truth.py`、OpenSpec `v2940-best-practices-wake-drilldown-truth-sync` | `best-practices` 现在把 `wake` 明确写成默认 read surface，并把 `get_task_handoffs` / `get_confirmed_rules` 收成显式 drilldown；不再把它们摆成默认 wake-up 起点。 |
-| v2.9.41 | 当前版本 | `docs/roadmap-v29.md`、`tests/test_roadmap_v29_status_tail_truth.py`、OpenSpec `v2941-roadmap-v29-status-tail-truth-sync` | `roadmap-v29` 顶部状态行现在也同步到当前真值：已完成尾号推进到 `v2.9.40`，不再把这条 release train 的头部摘要截在 `v2.9.39`。 |
+| v2.9.41 | 已完成 | `docs/roadmap-v29.md`、`tests/test_roadmap_v29_status_tail_truth.py`、OpenSpec `v2941-roadmap-v29-status-tail-truth-sync` | `roadmap-v29` 顶部状态行此前已从 `v2.9.39` 推进到 `v2.9.40`，不再把这条 release train 的头部摘要截在更旧尾号。 |
+| v2.9.42 | 当前版本 | `docs/roadmap-v29.md`、`tests/test_roadmap_v29_status_tail_truth.py`、OpenSpec `v2942-roadmap-v29-status-range-truth-sync` | `roadmap-v29` 顶部状态行现在进一步收束成范围式摘要：直接写成 `v2.9.0–v2.9.42 已完成`，并由 test 跟随 `__version__` 校验，不再每发一版就因手工 patch 枚举而立刻过时。 |
 
 ## 未完成 / 不做项
 
