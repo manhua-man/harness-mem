@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 / v2.9.30 / v2.9.31 / v2.9.32 / v2.9.33 / v2.9.34 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 / v2.9.30 / v2.9.31 / v2.9.32 / v2.9.33 / v2.9.34 / v2.9.35 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -812,3 +812,22 @@ release slices。
   - `v2.9.0–v2.9.34` 是当前完整的 v2.9 release train
   - 不再把该摘要停在 `v2.9.27`
 - `tests/test_roadmap_status_baseline_truth.py` 现在会跟随 `harness_mem.__version__` 校验。
+
+## v2.9.35：Docs README Status Range Truth Sync
+
+**用户故事**：当维护者查看 `docs/README.md` 里的文档索引时，不应该把
+`roadmap-status.md` 误读成只覆盖 `v1.6` 之后的版本，因为当前完成矩阵已经明确包含
+`v1.5.x` 这一历史基础线。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | docs README status-range sync | `docs/README.md` 把 `roadmap-status.md` 描述成覆盖 `v1.5` 到 `v2.9` |
+| P1 | focused regression guard | 如果 README 回流到 `v1.6` 起算的旧口径，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2935-docs-readme-status-range-truth-sync/`。
+- `docs/README.md` 现在明确：
+  - `roadmap-status.md` 覆盖 `v1.5` 到 `v2.9`
+  - 不再把覆盖范围缩成 `v1.6` 起步
+- 已补 focused regression test：`tests/test_docs_readme_status_range_truth.py`

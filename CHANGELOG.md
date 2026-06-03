@@ -8,6 +8,27 @@
 
 ---
 
+## [2.9.35] — 2026-06-03
+
+**主题：Docs README Status Range Truth Sync**
+
+v2.9.35 收的是 `docs/README.md` 里 `roadmap-status.md` 索引说明的范围漂移。当前
+完成矩阵已经明确包含 `v1.5.x`，但 docs index 仍把该状态页描述成“从 v1.6 到 v2.9”。
+这一版不改 runtime，只把 docs index 回写到当前真值，并补 focused guard。
+
+### Changed
+
+- **docs README status-range sync**：`docs/README.md` 现在把 `roadmap-status.md`
+  描述成覆盖 `v1.5` 到 `v2.9` 的已完成项、边界和未做项。
+- **focused regression coverage**：新增 `tests/test_docs_readme_status_range_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.35`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 docs index 对 `roadmap-status.md` 的范围描述，并防止 README 再次回流到 `v1.6` 起算的旧口径。
+
 ## [2.9.34] — 2026-06-03
 
 **主题：Roadmap-Status v2.9 Baseline Tail Sync**
