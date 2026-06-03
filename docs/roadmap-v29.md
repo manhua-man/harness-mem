@@ -1325,3 +1325,41 @@ candidates 作为 repair / follow-up 说明出来。
   - 当前命中只剩“已删除/不要求手动跑”的反例说明
   - packet 范围内没有把旧 daily CLI 面当成当前用户 path 教学的命中
 - 已补 focused regression coverage：`tests/test_v2_user_test_packet_stale_cli_truth.py`
+
+## v2.9.61：Packet Remaining-Evidence Guardrails + Stronger S4/S10 Near-Neighbors
+
+**用户故事**：当维护者继续补 `v2-user-test-packet` 时，不应该把 generic MCP 的底层 runtime repro、
+wake renderer 读端 readback，或者 Cursor runtime/cache/transcript 旁证误写成 full matrix 已完成。
+仓库需要同时做到两件事：一是把当前仍缺的强证据类别固定成可回归校验的 repo 真值；二是把
+`S4` 和 `S10` 往更强的 repo-owned near-neighbor evidence 再推进一步。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | remaining-evidence guardrails | 防止 packet/roadmap 再把旁证抬成 UI 级 cross-client 完成 |
+| P0 | S4 lower-layer repro | 固定当前机器上真实可复现的一种 MCP transport-unavailable 根因 |
+| P0 | S10 wake-renderer read-side evidence | 把 confirmed-truth readback 从 raw MCP payload 推进到真实 `cmd_wake_up` 读端 |
+| P1 | focused regression coverage | 让上述 truth 不再只靠手工回读 |
+
+### 当前状态（2026-06-04）
+
+- 当前已补的 stronger near-neighbor evidence：
+  - `S4` generic MCP 底层 transport-unavailable repro：
+    - 故意把启动目标改成 `python -m harness_mem.mcp.server_missing`
+    - 子进程在 JSON-RPC 握手前直接失败
+    - `stderr` 返回 `No module named harness_mem.mcp.server_missing`
+  - `S10` wake-renderer read-side evidence：
+    - temp backend 存一条 accepted current-truth entry
+    - `cmd_wake_up(..., no_auto_ingest=true)` 成功
+    - rendered output 在 `# Essential Truth  (L1 · confirmed current)` 下读回该事实
+- 当前已补的 focused guards：
+  - `tests/test_v2_user_test_packet_remaining_matrix_truth.py`
+  - `tests/test_v2_user_test_packet_s4_transport_unavailable_truth.py`
+  - `tests/test_v2_user_test_packet_wake_renderer_truth.py`
+  - `tests/integration/test_v2_user_test_packet_wake_renderer_truth.py`
+  - `tests/mcp/test_smoke.py` 中错误 launch target 的握手前失败测试
+
+### Boundaries
+
+- 这版仍**不是** UI 级 `S10` cross-client pair 完成。
+- 这版仍**不是** `harness_mem/integration` 工作区上的 Cursor packet run log。
+- 这版也没有补齐 `S5` 或 `S7` 的真实 client transcript。
