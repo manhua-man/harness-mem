@@ -8,6 +8,29 @@
 
 ---
 
+## [2.9.48] — 2026-06-03
+
+**主题：User-Test-Packet OpenSpec Source Hierarchy Sync**
+
+v2.9.48 收的是 `docs/v2-user-test-packet.md` 对 OpenSpec 真值入口层级的说明。当前 packet
+仍把 `openspec/changes/<change>/specs/...` 写成普通落地路径之一，这会让维护者误以为 active
+change spec 和主 `openspec/specs/...` 是并列默认入口。当前 repo 已没有 active change，因此
+默认真值入口应先指向主 spec，只有确有 active change proposal 时才下钻到 change-local spec。
+
+### Changed
+
+- **user-test-packet source-hierarchy sync**：`docs/v2-user-test-packet.md` 现在明确默认先看
+  `openspec/specs/...`，只有确有 active change proposal 时才下钻
+  `openspec/changes/<change>/specs/...`。
+- **focused regression coverage**：扩展 `tests/test_v2_user_test_packet_contract_source_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.48`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 `v2-user-test-packet` 对主 spec 与 active-change spec 的层级真值。
+
 ## [2.9.47] — 2026-06-03
 
 **主题：Docs README OpenSpec Layout Truth Sync**

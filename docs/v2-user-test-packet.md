@@ -241,7 +241,8 @@ Cursor 不需要单独的 `.cursor/commands` 模板。两条接入路径，二�
 - `plugins/harness-mem/README.md`（plugin 接入说明）
 - `tools/session-distill/SKILL.md`（LLM agent 主链 prompt 模板）
 - `AGENTS.md` / `CLAUDE.md`（事实与协议）
-- 必要时 `openspec/changes/<change>/specs/...`（spec 真值变化）
+- 默认看 `openspec/specs/...`（当前主 spec 真值）
+- 只有确实存在 active change proposal 时，才下钻 `openspec/changes/<change>/specs/...`
 
 不允许的形态：只在 Slack/Discord/IM 里说"我们都知道 Codex 在那个场景要这样问一下才行"。任何这类口口相传的修法在下次回归测试里都会重新爆。
 

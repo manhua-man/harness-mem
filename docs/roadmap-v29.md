@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.47 已完成。
+> 状态：v2.9.0–v2.9.48 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1050,3 +1050,23 @@ truth 已经明确：新 session 先走一等 MCP `wake`，低层读工具只在
   - `openspec/changes/` 是仍在进行中的 active changes
   - `openspec/changes/archive/` 是已完成 change 的归档记录
 - 已补 focused regression test：`tests/test_docs_readme_openspec_layout_truth.py`
+
+## v2.9.48：User-Test-Packet OpenSpec Source Hierarchy Sync
+
+**用户故事**：维护者照着 [v2-user-test-packet.md](./v2-user-test-packet.md) 修客户端口径时，
+不应该把 `openspec/changes/<change>/specs/...` 误当成默认 spec 真值入口。当前 repo 已没有
+active change，因此测试包应明确：默认先看主 `openspec/specs/...`，只有真的在审 active change
+proposal 时才下钻到 `openspec/changes/<change>/specs/...`。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | user-test-packet OpenSpec source hierarchy sync | `v2-user-test-packet.md` 明确主 spec 默认、active change proposal 仅作条件性下钻 |
+| P1 | focused regression guard | 如果测试包再回流到把 `openspec/changes/<change>/specs/...` 写成普通默认路径，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2948-user-test-packet-openspec-source-hierarchy-sync/`。
+- `docs/v2-user-test-packet.md` 现在明确：
+  - 默认看 `openspec/specs/...` 作为当前主 spec 真值
+  - 只有确实存在 active change proposal 时，才下钻 `openspec/changes/<change>/specs/...`
+- 已补 focused regression test：`tests/test_v2_user_test_packet_contract_source_truth.py`
