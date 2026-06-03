@@ -474,6 +474,35 @@ Boundary:
   Codex→Claude、Cursor→Claude 或 integration-workspace Cursor pair 的对应 run log。
 - 它也**不等于** full matrix 已完成：这里只把 generic MCP 从单会话 smoke 再推进到了跨会话 truth visibility。
 
+## 2026-06-04 — Generic MCP distill summary stays repair-only (Windows, isolated temp home)
+
+Clients: Generic MCP client (raw JSON-RPC over stdio contract)
+harness-mem version: 2.9.59
+Project: `v2959-review-only`
+Environment: isolated temp home, `HARNESS_MEM_DISABLE_EMBEDDINGS=1`
+
+Pass: near-neighbor S12 (successful auto-review summary does not tell the user to run `/hm:review`)
+Not run: full natural-language distill happy path, UI-level slash/client summary wording, S4/S5/S7/S11
+
+Evidence:
+- raw JSON-RPC `initialize` returned the MCP handshake successfully
+- raw JSON-RPC `set_active_project(project_name="v2959-review-only")` returned success
+- two pending entries were created via `suggest_memory_entry(...)`
+- `auto_review_candidates(project_name="v2959-review-only", apply=true)` returned success with:
+  - `new_candidates = 2`
+  - `auto_rejected = 1`
+  - `kept_pending = 1`
+  - `needs_user_confirmation = 1`
+  - `next_user_action = "review the deferred candidates and mention any incorrect item id"`
+- returned summary payload did **not** contain `/hm:review`
+
+Boundary:
+- 这条 entry 证明 **generic MCP 的成功 auto-review summary** 已经保持 repair-only 边界：
+  它不会在成功收口后默认把用户推去跑 `/hm:review`。
+- 它仍**不等于**所有 client 的自然语言 distill 摘要都已经逐字验证；这里验证的是 generic MCP
+  summary payload，而不是 Codex / Cursor / Claude 的最终 UI 表述。
+- 它也**不等于** packet 全补齐：这里只推进了 S12 的 generic MCP 证据。
+
 ## 2026-06-03 — Cursor hook install smoke (Windows, temp project)
 
 Clients: Cursor integration asset only (not a full Cursor agent run)

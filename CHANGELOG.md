@@ -8,6 +8,31 @@
 
 ---
 
+## [2.9.59] — 2026-06-04
+
+**主题：Generic MCP S12 Repair-Only Distill Summary**
+
+v2.9.59 收的是 packet `S12` 的一条真实 generic MCP 证据。当前机器上，distill closed-loop
+的 runtime summary 已经明确走 `auto_review_candidates` 的 canonical six-counter shape，
+不会在成功收口后再默认把用户推去 `/hm:review`。这一版把这条边界补进
+`docs/v2-user-test-packet.md`，并加 focused guard，防止 packet 再回流到“distill 成功后还要继续跑
+review”的旧口径。
+
+### Changed
+
+- **packet S12 evidence**：`docs/v2-user-test-packet.md` 新增一条 `2026-06-04` generic MCP
+  distill summary entry，记录成功 closed-loop 后的 canonical six counters，且不含
+  `/hm:review` 下一步指令。
+- **focused regression coverage**：新增
+  `tests/test_v2_user_test_packet_review_only_truth.py`，防止这条 repair-only boundary 再漂回旧口径。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.59`。
+
+### Boundaries
+
+- 本版本不宣称 full `12-scenario` cross-client matrix 已补齐。
+- 它只新增 generic MCP 在 `S12 /hm:review is repair-only` 这一条 scenario 上的 live evidence。
+
 ## [2.9.58] — 2026-06-04
 
 **主题：Generic MCP Cross-Session S10 Evidence**

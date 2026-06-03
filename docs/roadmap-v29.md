@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.58 已完成。
+> 状态：v2.9.0–v2.9.59 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1284,3 +1284,24 @@ visibility 记录，证明 writer 会话确认的事实，reader 会话的 `wake
   - reader 会话 `wake(no_auto_ingest=true)`
   - confirmed truth 出现在 `# Essential Truth (L1 · confirmed current)`
 - 已补 focused regression coverage：`tests/test_v2_user_test_packet_cross_session_truth.py`
+
+## v2.9.59：Generic MCP S12 Repair-Only Distill Summary
+
+**用户故事**：当维护者回看 packet 的 generic MCP distill coverage 时，不应该再把 `/hm:review`
+误读成 distill 成功后的默认下一步。至少要有一条 live summary evidence，证明成功的
+`auto_review_candidates(apply=true)` 结果不会把用户默认推去 `/hm:review`，而只会把 deferred
+candidates 作为 repair / follow-up 说明出来。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | generic MCP S12 evidence | `v2-user-test-packet` 追加一条成功 auto-review summary 不含 `/hm:review` 的 live entry |
+| P1 | focused regression guard | 如果这条 repair-only evidence 再次消失，测试失败 |
+
+### 当前状态（2026-06-04）
+
+- 已完成 `openspec/changes/archive/2026-06-04-v2959-generic-mcp-s12-repair-only-summary/`。
+- `docs/v2-user-test-packet.md` 现在新增一条 `2026-06-04` generic MCP summary entry，记录：
+  - `auto_review_candidates(..., apply=true)` 成功返回
+  - payload 不含 `/hm:review`
+  - `next_user_action` 直接写成 review deferred candidates
+- 已补 focused regression coverage：`tests/test_v2_user_test_packet_review_only_truth.py`
