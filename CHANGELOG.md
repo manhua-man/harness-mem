@@ -8,6 +8,28 @@
 
 ---
 
+## [2.9.50] — 2026-06-03
+
+**主题：Root Truth Authority Sync**
+
+v2.9.50 收的是 repo 根 `README.md` 与 `AGENTS.md` 对“当前发版真值看哪里”的 authority 说明。
+此前这两个高可见入口会把用户带到协作规则和能力说明，但没有直接指出当前 shipped 状态、
+已完成切片和未做边界应以 `docs/roadmap-status.md` 与 `CHANGELOG.md` 为准。 这一版不改
+runtime，只把根入口 authority chain 写清楚，并补 focused guard。
+
+### Changed
+
+- **root truth-authority sync**：`README.md` 与 `AGENTS.md` 现在都明确把当前发版状态、
+  已完成切片和未做边界指向 `docs/roadmap-status.md` 与 `CHANGELOG.md`。
+- **focused regression coverage**：新增 `tests/test_root_truth_authority_sync.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.50`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 repo 根入口对当前 release truth authority 的说明。
+
 ## [2.9.49] — 2026-06-03
 
 **主题：Root README And AGENTS OpenSpec Layout Truth Sync**

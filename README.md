@@ -9,6 +9,8 @@ Local-first, pluggable **AI memory runtime** for Claude Code, Codex, and Gemini 
 候选写入只发生在显式 agent 流程里：例如 `/hm:distill`、repo-local skill，或用户明确要求“记下这条规则”。当前产品仍没有默认后台 daemon、默认自动 IDE hook 路径或 turn-end 自检来自动产生“日常随手记”；v2.4 已提供 opt-in host hook / scheduler trigger，但 `triggers.*` 默认仍是 `off`，而且它们不会把候选写入变成 autonomous learning。
 
 Agent 协作真值见 [AGENTS.md](./AGENTS.md)。
+当前发版状态与已落地边界以 [docs/roadmap-status.md](./docs/roadmap-status.md) 和
+[CHANGELOG.md](./CHANGELOG.md) 为准；各版本 roadmap 更多是切片设计与历史决策链，不应单独当作当前实现真值。
 
 ---
 

@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.49 已完成。
+> 状态：v2.9.0–v2.9.50 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1090,3 +1090,23 @@ proposal 时才下钻到 `openspec/changes/<change>/specs/...`。
   - `openspec/changes/` 是仍在进行中的 active changes
   - `openspec/changes/archive/` 是已完成 change 的归档记录
 - 已补 focused regression test：`tests/test_repo_openspec_layout_truth.py`
+
+## v2.9.50：Root Truth Authority Sync
+
+**用户故事**：维护者从 repo 根入口开始看项目时，不应该只知道 `AGENTS.md` 讲协作、roadmap 讲设计，
+却不知道“当前到底 shipped 了什么、边界在哪里”该看哪个 authority。根 README 和 AGENTS 都应该
+直接指向 `docs/roadmap-status.md` 与 `CHANGELOG.md`，避免把历史 roadmap 当成当前实现真值。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | root truth-authority sync | README / AGENTS 明确把当前发版状态和边界 authority 指向 `roadmap-status.md` + `CHANGELOG.md` |
+| P1 | focused regression guard | 如果根入口再缺失这两个 authority 指针，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2950-root-truth-authority-sync/`。
+- repo 根入口现在明确：
+  - `AGENTS.md` 负责协作与事实面
+  - 当前发版状态、已完成切片和未做边界看 `docs/roadmap-status.md` 与 `CHANGELOG.md`
+  - 各版本 roadmap 主要保留切片设计与历史决策链，不单独充当当前实现真值
+- 已补 focused regression test：`tests/test_root_truth_authority_sync.py`

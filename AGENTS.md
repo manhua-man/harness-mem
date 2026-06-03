@@ -21,6 +21,8 @@ alwaysApply: true
 
 当前实现仍没有默认后台 daemon、默认自动 IDE hook 路径或 turn-end 自检来让 Agent 在普通编码任务中自动“随手记”。v2.4 已交付 opt-in host hook / scheduler trigger，但 `triggers.*` 默认仍是 `off`，而且 `suggest_*` 只是显式 agent 流程中的候选写入接口，不代表 autonomous learning 已经存在。
 
+当前发版状态、已完成切片和未做边界以 `docs/roadmap-status.md` 与 `CHANGELOG.md` 为准；各版本 roadmap 主要保留切片设计、验收口径和历史决策链，不应单独当作当前实现真值。
+
 ---
 
 ## AI 协作协议

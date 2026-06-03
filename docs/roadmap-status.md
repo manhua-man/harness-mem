@@ -10,20 +10,20 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.49` |
-| `harness_mem/__init__.py` | `2.9.49` |
-| `CHANGELOG.md` | 已有 `2.9.49` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.50` |
+| `harness_mem/__init__.py` | `2.9.50` |
+| `CHANGELOG.md` | 已有 `2.9.50` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.49：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v2.9.50：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环、v2.3 signals/replay、v2.4
 reflection queue、v2.5 context assembly / wake renderer / file_context、
 v2.6 knowledge cache / wiki bridge / contradiction、v2.7 cross-project
 procedural skill、v2.8 session-distill maintenance surfaces，以及
-v2.9.0–v2.9.49 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
+v2.9.0–v2.9.50 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
 truth-sync 的 release train 都已落地。
 
-> **v2.9.49 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.49`。v2.9 在保持
+> **v2.9.50 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.50`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -90,7 +90,8 @@ truth-sync 的 release train 都已落地。
 > `openspec/specs/...`，只有确有 active change proposal 时才下钻
 > `openspec/changes/<change>/specs/...`；同时，repo 根 `README.md` 与 `AGENTS.md`
 > 里的 `openspec/` 说明也已收束到同一层级真值，不再把主 spec、active changes、archive
-> 混成一个笼统目录桶。
+> 混成一个笼统目录桶；同时，repo 根入口现在也已直接把当前发版状态与边界 authority 指向
+> `docs/roadmap-status.md` 和 `CHANGELOG.md`，避免把历史 roadmap 误当成当前实现真值。
 
 ## 完成矩阵
 
@@ -173,7 +174,8 @@ truth-sync 的 release train 都已落地。
 | v2.9.46 | 已完成 | `docs/roadmap-v16x.md`、`docs/roadmap-v17x.md`、`docs/roadmap-v23.md`、`tools/session-distill/SKILL.md`、`tests/test_historical_archive_pointer_truth.py`、OpenSpec `v2946-historical-roadmap-and-skill-archive-pointer-truth-sync` | 历史 roadmap / skill 现在也统一回指 archive 真路径与当前 `metabolism` 主 spec：不再把 `v161`、`v170`–`v173`、`v231` 写成 active-change 路径，也不再引用不存在的 `memory-metabolism` spec 目录。 |
 | v2.9.47 | 已完成 | `docs/README.md`、`tests/test_docs_readme_openspec_layout_truth.py`、OpenSpec `v2947-docs-readme-openspec-layout-truth-sync` | `docs/README.md` 现在明确区分 `openspec/specs/`、`openspec/changes/` 和 `openspec/changes/archive/` 三层职责，不再把主 spec 和 change 目录混成同一种“设计规格”口径。 |
 | v2.9.48 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_contract_source_truth.py`、OpenSpec `v2948-user-test-packet-openspec-source-hierarchy-sync` | `v2-user-test-packet` 现在明确默认先看 `openspec/specs/...` 作为主 spec 真值；只有确有 active change proposal 时，才下钻 `openspec/changes/<change>/specs/...`。 |
-| v2.9.49 | 当前版本 | `README.md`、`AGENTS.md`、`tests/test_repo_openspec_layout_truth.py`、OpenSpec `v2949-root-readme-and-agents-openspec-layout-truth-sync` | repo 根说明面现在也明确区分 `openspec/specs/`、`openspec/changes/` 和 `openspec/changes/archive/`；不再把 OpenSpec 写成一个笼统 `openspec/` 目录桶。 |
+| v2.9.49 | 已完成 | `README.md`、`AGENTS.md`、`tests/test_repo_openspec_layout_truth.py`、OpenSpec `v2949-root-readme-and-agents-openspec-layout-truth-sync` | repo 根说明面现在也明确区分 `openspec/specs/`、`openspec/changes/` 和 `openspec/changes/archive/`；不再把 OpenSpec 写成一个笼统 `openspec/` 目录桶。 |
+| v2.9.50 | 当前版本 | `README.md`、`AGENTS.md`、`tests/test_root_truth_authority_sync.py`、OpenSpec `v2950-root-truth-authority-sync` | repo 根入口现在明确把当前发版状态、已完成切片和未做边界 authority 指向 `docs/roadmap-status.md` 与 `CHANGELOG.md`；各版本 roadmap 只作为设计与历史决策链，不单独充当当前实现真值。 |
 
 ## 未完成 / 不做项
 
