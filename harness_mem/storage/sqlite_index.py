@@ -7,11 +7,23 @@ Each entity type gets its own table + FTS virtual table.
 from __future__ import annotations
 import builtins
 import json
+import logging
 import re
 import sqlite3
 import threading
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# Write-path embeddings are optional. If the first encode blocks on a cold
+# model download or a broken torch install, MCP write tools must still return
+# promptly and leave vec row recovery to rebuild-vector-index / FTS fallback.
+# Cold-but-healthy local loads on this machine can take ~8s; keep the write
+# path fail-fast against broken / fresh-download hangs, but do not cut off a
+# normal cached model initialization.
+EMBEDDING_WRITE_TIMEOUT_SECONDS = 20.0
+_EMBEDDING_WRITE_TIMED_OUT_MODELS: set[str] = set()
 
 _TABLE_SCHEMAS = {
     "observations": """
@@ -477,8 +489,44 @@ class SQLiteIndex:
             # stack can still persist entries without a vector row.
             return
 
+        if model_id in _EMBEDDING_WRITE_TIMED_OUT_MODELS:
+            return
+
         loader = get_model_loader(model_id)
-        embedding = loader.encode(text)
+        embedding: Any | None = None
+        encode_error: BaseException | None = None
+        done = threading.Event()
+
+        def _encode_worker() -> None:
+            nonlocal embedding, encode_error
+            try:
+                embedding = loader.encode(text)
+            except BaseException as exc:  # pragma: no cover - re-raised below
+                encode_error = exc
+            finally:
+                done.set()
+
+        threading.Thread(
+            target=_encode_worker,
+            name=f"harness-mem-embed-{model_id}",
+            daemon=True,
+        ).start()
+
+        if not done.wait(EMBEDDING_WRITE_TIMEOUT_SECONDS):
+            _EMBEDDING_WRITE_TIMED_OUT_MODELS.add(model_id)
+            logger.warning(
+                "Embedding encode timed out after %.1fs for model %s; "
+                "skipping vec write and disabling write-path embeddings for this "
+                "model until process restart.",
+                EMBEDDING_WRITE_TIMEOUT_SECONDS,
+                model_id,
+            )
+            return
+
+        if encode_error is not None:
+            raise encode_error
+        if embedding is None:
+            return
 
         embedding_array = np.asarray(embedding, dtype=np.float32).ravel()
         embedding_blob = embedding_array.tobytes()

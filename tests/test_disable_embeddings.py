@@ -15,6 +15,8 @@ All writes target ``tmp_path`` (project rule P1: data-path isolation).
 from __future__ import annotations
 
 import tempfile
+import time
+import threading
 from pathlib import Path
 
 import pytest
@@ -120,3 +122,164 @@ def test_save_succeeds_with_no_vec_row_when_disabled(
         assert row is None, "no vec row should be written when embeddings disabled"
 
     run(_test())
+
+
+def test_persist_embedding_times_out_and_skips_vec_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hung encode must not block the write path forever."""
+
+    class _HangingLoader:
+        model_id = "all-MiniLM-L6-v2"
+        model_version = "test"
+
+        def __init__(self) -> None:
+            self.calls = 0
+            self.release = threading.Event()
+
+        def encode(self, _text: str):
+            self.calls += 1
+            self.release.wait(5)
+            return [0.1, 0.2, 0.3]
+
+    loader = _HangingLoader()
+
+    monkeypatch.delenv(_DISABLE_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        "harness_mem.storage.sqlite_index.EMBEDDING_WRITE_TIMEOUT_SECONDS", 0.01
+    )
+    monkeypatch.setattr(
+        "harness_mem.storage.sqlite_index._EMBEDDING_WRITE_TIMED_OUT_MODELS", set()
+    )
+    monkeypatch.setattr(
+        "harness_mem.embedding.get_model_loader",
+        lambda _model_id: loader,
+    )
+
+    from harness_mem.storage.sqlite_index import SQLiteIndex
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        index = SQLiteIndex(Path(tmpdir) / "index.db")
+        index.init_db()
+        start = time.perf_counter()
+        try:
+            index.persist_embedding("entry-timeout-1", "some text", "all-MiniLM-L6-v2")
+        finally:
+            elapsed = time.perf_counter() - start
+            conn = index._conn_write()
+            row = conn.execute(
+                "SELECT entry_id FROM vec_embeddings WHERE entry_id = ?",
+                ("entry-timeout-1",),
+            ).fetchone()
+            loader.release.set()
+            index.close()
+
+    assert elapsed < 0.5, "persist_embedding should fail fast on hung encode"
+    assert row is None, "timed-out encode should not write a vec row"
+    assert loader.calls == 1
+
+
+def test_timeout_circuit_breaker_skips_second_model_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After the first timeout, later writes should skip the same model fast."""
+
+    class _HangingLoader:
+        model_id = "all-MiniLM-L6-v2"
+        model_version = "test"
+
+        def __init__(self) -> None:
+            self.calls = 0
+            self.release = threading.Event()
+
+        def encode(self, _text: str):
+            self.calls += 1
+            self.release.wait(5)
+            return [0.1, 0.2, 0.3]
+
+    loader = _HangingLoader()
+
+    monkeypatch.delenv(_DISABLE_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        "harness_mem.storage.sqlite_index.EMBEDDING_WRITE_TIMEOUT_SECONDS", 0.01
+    )
+    monkeypatch.setattr(
+        "harness_mem.storage.sqlite_index._EMBEDDING_WRITE_TIMED_OUT_MODELS", set()
+    )
+    monkeypatch.setattr(
+        "harness_mem.embedding.get_model_loader",
+        lambda _model_id: loader,
+    )
+
+    from harness_mem.storage.sqlite_index import SQLiteIndex
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        index = SQLiteIndex(Path(tmpdir) / "index.db")
+        index.init_db()
+        try:
+            index.persist_embedding("entry-timeout-1", "some text", "all-MiniLM-L6-v2")
+            start = time.perf_counter()
+            index.persist_embedding("entry-timeout-2", "some text", "all-MiniLM-L6-v2")
+            elapsed = time.perf_counter() - start
+        finally:
+            loader.release.set()
+            index.close()
+
+    assert loader.calls == 1, "second write should skip without re-entering encode"
+    assert elapsed < 0.1, "circuit breaker should make later writes return immediately"
+
+
+def test_save_succeeds_with_no_vec_row_when_encode_times_out(
+    temp_backend: LocalMemoryBackend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Structured save should still succeed when write-path embeddings hang."""
+
+    class _HangingLoader:
+        model_id = "all-MiniLM-L6-v2"
+        model_version = "test"
+
+        def __init__(self) -> None:
+            self.release = threading.Event()
+
+        def encode(self, _text: str):
+            self.release.wait(5)
+            return [0.1, 0.2, 0.3]
+
+    loader = _HangingLoader()
+
+    monkeypatch.delenv(_DISABLE_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        "harness_mem.storage.sqlite_index.EMBEDDING_WRITE_TIMEOUT_SECONDS", 0.01
+    )
+    monkeypatch.setattr(
+        "harness_mem.storage.sqlite_index._EMBEDDING_WRITE_TIMED_OUT_MODELS", set()
+    )
+    monkeypatch.setattr(
+        "harness_mem.embedding.get_model_loader",
+        lambda _model_id: loader,
+    )
+
+    async def _test() -> None:
+        await temp_backend.init()
+        entry_id = "timeout-entry-1"
+        await temp_backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                id=entry_id,
+                project_name="test-project",
+                category="decision",
+                content="A test memory entry saved while the embedding encode hangs.",
+                source="observation:timeout-entry-1",
+                memory_type="semantic",
+            )
+        )
+        conn = temp_backend.structured_store._index._conn_write()
+        row = conn.execute(
+            "SELECT entry_id FROM vec_embeddings WHERE entry_id = ?",
+            (entry_id,),
+        ).fetchone()
+        assert row is None, "timed-out encode should still leave vec row empty"
+
+    try:
+        run(_test())
+    finally:
+        loader.release.set()
