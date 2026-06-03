@@ -10,18 +10,18 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.31` |
-| `harness_mem/__init__.py` | `2.9.31` |
-| `CHANGELOG.md` | 已有 `2.9.31` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.32` |
+| `harness_mem/__init__.py` | `2.9.32` |
+| `CHANGELOG.md` | 已有 `2.9.32` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.31：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.32：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
 boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力、v2.8.0–v2.8.2
 的 session-distill maintenance surfaces，以及 v2.9.0–v2.9.27 这一整条从
 `/hm:prd-sync` 起步、随后扩成 maintenance / triage / truth-sync 的 release
 train 都已落地。
 
-> **v2.9.31 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.31`。v2.9 在保持
+> **v2.9.32 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.32`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -129,7 +129,8 @@ train 都已落地。
 | v2.9.28 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_baseline_truth.py`、OpenSpec `v2928-roadmap-status-baseline-truth-sync` | `roadmap-status` 顶部“当前收口基线”摘要现在也同步到当前真值：不再只枚举到 `v2.9.11`，而是明确把 `v2.9.0–v2.9.27` 视作同一条已完成的 release train。 |
 | v2.9.29 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_matrix_truth.py`、OpenSpec `v2929-roadmap-status-matrix-truth-sync` | `roadmap-status` 完成矩阵现在不会再把历史版本行标成“当前收口基线”；只有当前版本保留 `当前版本` 状态。 |
 | v2.9.30 | 已完成 | `docs/roadmap-v25.md`、`tests/test_roadmap_v25_status_truth.py`、OpenSpec `v2930-roadmap-v25-status-truth-sync` | `roadmap-v25` 头部状态与 v2.5.2 小节现在都同步到当前真值：不再把 v2.5 写成进行中，也不再把 `file_context` 写成“待发版”。 |
-| v2.9.31 | 当前版本 | `docs/roadmap-v22x.md`、`tests/test_roadmap_v22x_status_truth.py`、OpenSpec `v2931-roadmap-v22x-status-truth-sync` | `roadmap-v22x` 头部状态现在也同步到当前真值：不再把 v2.2 写成“规划中”，而是明确登记为已完成版本线。 |
+| v2.9.31 | 已完成 | `docs/roadmap-v22x.md`、`tests/test_roadmap_v22x_status_truth.py`、OpenSpec `v2931-roadmap-v22x-status-truth-sync` | `roadmap-v22x` 头部状态现在也同步到当前真值：不再把 v2.2 写成“规划中”，而是明确登记为已完成版本线。 |
+| v2.9.32 | 当前版本 | `docs/roadmap/dream-mechanism-absorption-v151-v17.md`、`docs/README.md`、`tests/test_historical_draft_status_truth.py`、OpenSpec `v2932-historical-draft-status-truth-sync` | `docs/roadmap/` 下的历史设计稿不再只标裸 `draft`；它现在明确写成历史草稿归档，并指向 `roadmap-status` / `CHANGELOG` 作为当前真值来源。 |
 
 ## 未完成 / 不做项
 

@@ -8,6 +8,30 @@
 
 ---
 
+## [2.9.32] — 2026-06-03
+
+**主题：Historical Draft Status Truth Sync**
+
+v2.9.32 收的是 `docs/roadmap/dream-mechanism-absorption-v151-v17.md` 头部状态的残留旧口径。
+相关 `v1.5.1` - `v1.7` 版本线早已完成，但这份历史设计稿仍只写着裸 `draft`，容易让人误以为
+它还是当前活跃 roadmap。 这一版不改 runtime，只把历史草稿定位写回当前真值，并补 focused guard。
+
+### Changed
+
+- **historical draft header sync**：`docs/roadmap/dream-mechanism-absorption-v151-v17.md`
+  头部状态现在明确写成历史设计稿（draft archive），并指向 `roadmap-status` /
+  `CHANGELOG` 作为当前真值来源。
+- **docs index sync**：`docs/README.md` 现在把 `docs/roadmap/` 标成历史 roadmap
+  proposal / design drafts，而不是当前版本规划。
+- **focused regression coverage**：新增 `tests/test_historical_draft_status_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.32`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步历史设计稿的状态口径，并防止该文档回流到裸 `draft` 的旧表述。
+
 ## [2.9.31] — 2026-06-03
 
 **主题：Roadmap-v22x Status Truth Sync**

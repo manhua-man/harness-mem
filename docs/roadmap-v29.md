@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 / v2.9.30 / v2.9.31 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 / v2.9.30 / v2.9.31 / v2.9.32 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -746,3 +746,25 @@ release slices。
   - `v2.2.0` 已完成
   - 不再把该版本线写成“规划中”
 - 已补 focused regression test：`tests/test_roadmap_v22x_status_truth.py`
+
+## v2.9.32：Historical Draft Status Truth Sync
+
+**用户故事**：当维护者打开 `docs/roadmap/dream-mechanism-absorption-v151-v17.md`
+这类历史设计稿时，不应该只看到一个裸 `draft` 状态，因为相关版本线早已完成，
+真正需要传达的是“这是历史草稿，不是当前 roadmap 承诺”。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | historical draft header sync | 该历史设计稿头部状态明确写成“历史设计稿（draft archive）”，并指向当前真值来源 |
+| P0 | docs index sync | `docs/README.md` 把 `docs/roadmap/` 描述为历史 proposal / design drafts，而不是当前版本规划 |
+| P1 | focused regression guard | 如果该文档回流到裸 `> 状态：draft`，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2932-historical-draft-status-truth-sync/`。
+- `docs/roadmap/dream-mechanism-absorption-v151-v17.md` 现在明确：
+  - 这是历史设计稿（draft archive）
+  - 不是当前版本路线图
+  - 当前版本状态应以 `docs/roadmap-status.md` 与 `CHANGELOG.md` 为准
+- `docs/README.md` 现在也把 `docs/roadmap/` 标成历史 proposal / design drafts。
+- 已补 focused regression test：`tests/test_historical_draft_status_truth.py`

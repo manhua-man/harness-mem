@@ -1,6 +1,7 @@
 # 设计稿：吸收 Claude Dream 机制，而不照搬产品形态
 
-> 状态：draft
+> 状态：历史设计稿（draft archive），不是当前版本路线图。相关 `v1.5.1` - `v1.7`
+> 已完成；当前版本状态以 `docs/roadmap-status.md` 与 `CHANGELOG.md` 为准。
 >
 > 适用范围：`harness-mem` v1.5.1 / v1.6 / v1.7 设计收敛
 >
