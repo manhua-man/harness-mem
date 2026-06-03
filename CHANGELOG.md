@@ -8,6 +8,28 @@
 
 ---
 
+## [2.9.34] — 2026-06-03
+
+**主题：Roadmap-Status v2.9 Baseline Tail Sync**
+
+v2.9.34 收的是 `docs/roadmap-status.md` 顶部“当前收口基线”摘要的尾号漂移。当前
+`v2.9` 已连续发到 `2.9.33`，但这段高可见摘要仍把 release train 截在 `v2.9.27`。
+这一版不改 runtime，只把顶层摘要回写到当前真值，并把 focused guard 改成跟随
+`harness_mem.__version__` 校验。
+
+### Changed
+
+- **roadmap-status tail sync**：`docs/roadmap-status.md` 顶部摘要现在把 `v2.9`
+  release train 明确写到当前版本尾号，不再停在 `v2.9.27`。
+- **focused regression coverage**：`tests/test_roadmap_status_baseline_truth.py`
+  现在改为跟随 `harness_mem.__version__` 校验，不再写死旧尾号。
+- **release writeback**：`docs/roadmap-v29.md`、版本号与本 changelog 已同步到 `2.9.34`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 `roadmap-status` 顶部 baseline 摘要尾号，并防止该摘要再次回流到过时的 `v2.9.27`。
+
 ## [2.9.33] — 2026-06-03
 
 **主题：Vision Authority Truth Sync**

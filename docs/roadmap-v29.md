@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 / v2.9.30 / v2.9.31 / v2.9.32 / v2.9.33 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 / v2.9.30 / v2.9.31 / v2.9.32 / v2.9.33 / v2.9.34 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -793,3 +793,22 @@ release slices。
   - 当前版本状态以 `roadmap-status.md` 与 `CHANGELOG.md` 为准
   - `roadmap-v15x` / `v16x` / `v17x` / `vision` 只作为历史路线设计参考
 - 已补 focused regression test：`tests/test_vision_authority_truth.py`
+
+## v2.9.34：Roadmap-Status v2.9 Baseline Tail Sync
+
+**用户故事**：当维护者只看 `docs/roadmap-status.md` 顶部“当前收口基线”摘要时，
+不应该再看到 `v2.9` release train 被截在 `v2.9.27`，因为后续 `v2.9.28` 到当前版本
+也已经是同一条连续收口线。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | roadmap-status tail sync | 顶部摘要把 `v2.9` release train 尾号同步到当前版本 |
+| P1 | focused regression guard | baseline test 改为跟随 `__version__` 校验，不再写死旧尾号 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2934-roadmap-status-v29-baseline-tail-sync/`。
+- `docs/roadmap-status.md` 的顶部“当前收口基线”摘要现在明确：
+  - `v2.9.0–v2.9.34` 是当前完整的 v2.9 release train
+  - 不再把该摘要停在 `v2.9.27`
+- `tests/test_roadmap_status_baseline_truth.py` 现在会跟随 `harness_mem.__version__` 校验。
