@@ -4,7 +4,7 @@
 >
 > 初次收录：2026-05-18。中文化与本地深读修订：2026-05-19。
 >
-> 本文记录对 `harness-mem` 设计有参考价值的外部项目。它不是路线图本身；路线图承诺仍以 `roadmap-v15x.md`、`roadmap-v16x.md` 和 `roadmap-vision-v16-v18.md` 为准。
+> 本文记录对 `harness-mem` 设计有参考价值的外部项目。它不是路线图本身；当前版本状态以 [`roadmap-status.md`](./roadmap-status.md) 与 `CHANGELOG.md` 为准。若需回看当时的历史路线设计，再参考 `roadmap-v15x.md`、`roadmap-v16x.md`、`roadmap-v17x.md` 与 `roadmap-vision-v16-v18.md`。
 
 ## 文档定位
 

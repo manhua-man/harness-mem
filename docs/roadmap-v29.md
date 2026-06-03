@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 / v2.9.30 / v2.9.31 / v2.9.32 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 / v2.9.30 / v2.9.31 / v2.9.32 / v2.9.33 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -768,3 +768,28 @@ release slices。
   - 当前版本状态应以 `docs/roadmap-status.md` 与 `CHANGELOG.md` 为准
 - `docs/README.md` 现在也把 `docs/roadmap/` 标成历史 proposal / design drafts。
 - 已补 focused regression test：`tests/test_historical_draft_status_truth.py`
+
+## v2.9.33：Vision Authority Truth Sync
+
+**用户故事**：当维护者打开 `docs/roadmap-vision-v16-v18.md` 和
+`docs/reference-projects.md` 时，不应该再把这类历史 vision 文档误读成当前版本承诺依据。
+相关 `v1.6` - `v1.8` 早已完成，当前真值来源应该明确回到 `roadmap-status` 与 `CHANGELOG`。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | vision header sync | `roadmap-vision-v16-v18.md` 头部明确写成历史远景文档，并指向当前真值来源 |
+| P0 | reference authority sync | `reference-projects.md` 不再把 `roadmap-vision-v16-v18.md` 写成当前路线承诺依据 |
+| P1 | docs index sync | `docs/README.md` 把 `roadmap-vision-v16-v18.md` 描述成历史远景方向 |
+| P1 | focused regression guard | 如果 vision 文档回流到旧 authority 口径，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2933-vision-authority-truth-sync/`。
+- `docs/roadmap-vision-v16-v18.md` 现在明确：
+  - 这是历史远景文档（vision archive）
+  - 不是当前版本承诺路线图
+  - 当前版本状态应以 `roadmap-status.md` 与 `CHANGELOG.md` 为准
+- `docs/reference-projects.md` 现在也回写为：
+  - 当前版本状态以 `roadmap-status.md` 与 `CHANGELOG.md` 为准
+  - `roadmap-v15x` / `v16x` / `v17x` / `vision` 只作为历史路线设计参考
+- 已补 focused regression test：`tests/test_vision_authority_truth.py`

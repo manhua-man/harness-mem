@@ -1,6 +1,7 @@
 # harness-mem v1.6 - v1.8 远景路线
 
-> 状态：远景文档（vision），不是承诺路线图。每个版本的落地形态会在前一版本收尾时再细化。
+> 状态：历史远景文档（vision archive），不是当前版本承诺路线图。相关 `v1.6` - `v1.8`
+> 已完成；当前版本状态以 [`roadmap-status.md`](./roadmap-status.md) 与 `CHANGELOG.md` 为准。
 >
 > 本文档配合 [`roadmap-v15x.md`](./roadmap-v15x.md) 阅读：v1.5.x 是把当前架构做扎实，v1.6 - v1.8 是架构跃迁。
 

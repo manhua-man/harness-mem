@@ -8,6 +8,32 @@
 
 ---
 
+## [2.9.33] — 2026-06-03
+
+**主题：Vision Authority Truth Sync**
+
+v2.9.33 收的是 `docs/roadmap-vision-v16-v18.md` 与 `docs/reference-projects.md`
+里的 authority 口径残留。相关 `v1.6` - `v1.8` 版本线早已完成，但这些文档还容易让人
+把历史 vision 当成当前版本承诺依据。 这一版不改 runtime，只把 authority 写回当前真值，
+并补 focused guard。
+
+### Changed
+
+- **vision header sync**：`docs/roadmap-vision-v16-v18.md` 头部状态现在明确写成
+  历史远景文档（vision archive），并指向 `roadmap-status` / `CHANGELOG`。
+- **reference authority sync**：`docs/reference-projects.md` 不再把 `roadmap-vision-v16-v18.md`
+  写成当前路线承诺依据，而是把 `roadmap-status` / `CHANGELOG` 标成当前真值来源。
+- **docs index sync**：`docs/README.md` 现在把 `roadmap-vision-v16-v18.md` 标成
+  “历史远景方向，不等同于当前版本承诺路线图”。
+- **focused regression coverage**：新增 `tests/test_vision_authority_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.33`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步历史 vision / reference 文档的 authority 口径，并防止这些文档回流到旧表述。
+
 ## [2.9.32] — 2026-06-03
 
 **主题：Historical Draft Status Truth Sync**
