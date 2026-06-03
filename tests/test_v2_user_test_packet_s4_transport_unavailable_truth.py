@@ -20,5 +20,5 @@ def test_v2_user_test_packet_records_generic_mcp_transport_unavailable_repro() -
     assert "它仍**不等于** packet 单元格要求的完整 client-facing 行为" in packet
     assert "`harness-mem doctor`" in packet
 
-    assert "generic MCP 的底层 S4 repro" in roadmap_status
-    assert "真实 `cmd_wake_up` 读端的 S10 readback" in roadmap_status
+    assert "S4 lower-layer repro" in roadmap_status
+    assert "S10 wake-renderer 读端近邻证据" in roadmap_status

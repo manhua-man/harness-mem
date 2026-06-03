@@ -569,6 +569,42 @@ Boundary:
   `harness_mem/integration` 工作区里的 Cursor packet run log。
 - 它也**不等于** full matrix 已补齐：`S4 / S5 / S7 / S11` 仍缺直接 client-facing transcript。
 
+## 2026-06-04 — Cursor / user-mcp-router wake packet transcript (user-supplied run log)
+
+Clients: Cursor-side frontend via `user-mcp-router`
+harness-mem repo version: 2.9.61
+Project: `harness-mem`
+Environment: user-supplied packet transcript, `wake(project_name="harness-mem", no_auto_ingest=true)`
+
+Pass: real Cursor-side wake transcript exists
+Not yet proven by this snippet alone: strict `harness_mem/integration` workspace provenance
+
+Evidence:
+- the only recorded harness-mem tool call was:
+  - `wake(project_name="harness-mem", no_auto_ingest=true)`
+- no `set_active_project`, `search_memory`, or `ingest_sessions` call was reported in that run
+- raw routed MCP result returned:
+  - `success = true`
+  - `exit_code = 0`
+  - old-format sections such as `# Project Profile`, `# Recent Tasks`, `# Confirmed Rules`, `# Memory Entries`
+  - truncated output marker: `[...truncated]`
+  - visible memory lines including:
+    - `Hermes cross-client sentinel fact.`
+    - `S10 cross-client manual sentinel 2026-06-04 01.`
+- side-by-side repo-local comparison with the same `project_name` / `no_auto_ingest=true` parameters produced
+  the newer layered wake output with:
+  - `# Essential Truth  (L1 · confirmed current)`
+  - `S10 cross-client manual sentinel 2026-06-04 01.`
+
+Boundary:
+- 这条 entry 证明 **当前机器上已经有一条真实的 Cursor / router wake transcript**，不再只是
+  tools cache、runtime log 或 hooks 旁证。
+- 它同时暴露出一个新的 integration 关注点：`user-mcp-router` 返回的 wake 版式仍是旧分段
+  （`# Memory Entries / # Confirmed Rules`）且会截断 output，与本地 repo 的 L0/L1/L2 分层渲染不一致。
+- 它仍**不等于** strict `harness_mem/integration` workspace gap 已完全关闭，因为这段摘录本身没有把
+  workspace path 一起带出来；当前更准确的说法是：已有真实 Cursor-side packet transcript，但还需要
+  一条自带工作区路径的 transcript 才能把 integration-workspace provenance 也钉死。
+
 ## 2026-06-04 — Generic MCP distill summary stays repair-only (Windows, isolated temp home)
 
 Clients: Generic MCP client (raw JSON-RPC over stdio contract)
@@ -742,6 +778,8 @@ Boundary:
 - 它仍**不等于** v2.2 packet 已经在 Cursor 上补齐：这些 run log 来自 `bazi-apps` 项目，不是
   `harness_mem/integration` 工作区，也还没有覆盖 packet 定义的 full 12-scenario matrix。
 - 当前已新增一条直接对应 packet 单元格的 UI 级 `S10` pair：`Codex app → Claude Code`
+- 当前还已有一条真实 `Cursor / user-mcp-router` wake transcript，但它暴露的是 router 版式/截断问题，
+  还没有把 `harness_mem/integration` 工作区 provenance 自带出来
 - 当前明确仍缺的强证据有四类：
   - Cursor 侧的 `S10` 扩展证据（如 `Cursor→Claude` 或 integration-workspace Cursor pair）
   - full matrix 里尚未补齐的 `S4 / S5 / S7 / S11`

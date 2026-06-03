@@ -1360,12 +1360,18 @@ wake renderer 读端 readback，或者 Cursor runtime/cache/transcript 旁证误
     - read-side = `Claude Code`
     - write-side confirmed `S10 cross-client manual sentinel 2026-06-04 01.`
     - read-side wake returned the exact same truth line
+  - real Cursor / router wake transcript：
+    - actual routed tool call only used `wake(project_name="harness-mem", no_auto_ingest=true)`
+    - routed output returned success but still used the old `# Memory Entries / # Confirmed Rules` shape
+    - routed output was truncated with `[...truncated]`
+    - the same parameters against repo-local wake still produced the newer layered `# Essential Truth` output
 - 当前已补的 focused guards：
   - `tests/test_v2_user_test_packet_remaining_matrix_truth.py`
   - `tests/test_v2_user_test_packet_s4_transport_unavailable_truth.py`
   - `tests/test_v2_user_test_packet_wake_renderer_truth.py`
   - `tests/test_v2_user_test_packet_hermes_oneshot_truth.py`
   - `tests/test_v2_user_test_packet_ui_cross_client_truth.py`
+  - `tests/test_v2_user_test_packet_cursor_router_wake_truth.py`
   - `tests/integration/test_v2_user_test_packet_wake_renderer_truth.py`
   - `tests/mcp/test_smoke.py` 中错误 launch target 的握手前失败测试
 
@@ -1373,6 +1379,7 @@ wake renderer 读端 readback，或者 Cursor runtime/cache/transcript 旁证误
 
 - 这版现在已经有一条 `Codex app -> Claude Code` 的 UI 级 `S10` pair transcript，
   但仍**不是** Cursor 侧 `S10` 扩展证据完成。
-- 这版仍**不是** `harness_mem/integration` 工作区上的 Cursor packet run log。
+- 这版现在已有一条真实 Cursor / router wake transcript，但仍**不是**自带工作区路径的
+  `harness_mem/integration` packet run log。
 - 这版也没有补齐 `S5` 或 `S7` 的真实 client transcript。
 - `claude -p` 当前仍未成为稳定可用的自动化读端，所以 Hermes 这条不是跨客户端 transcript。

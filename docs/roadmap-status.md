@@ -28,9 +28,11 @@ truth-sync 的 release train 都已落地。
 > repo-truth、S4 lower-layer repro、S10 wake-renderer 读端近邻证据收进 packet 以外，还新增了一条
 > Hermes oneshot 的真实 non-Claude write/read smoke，以及一条 `Codex app -> Claude Code`
 > 的真实 UI 级 `S10` pair transcript。也就是说，当前仓库不只是在 generic MCP 这条线补近邻证据，
-> 还已经拿到了一条直接对应 packet `S10` 单元格的跨客户端 client transcript。剩下没补齐的仍是更强的
-> live client scenarios，尤其是 `S5/S7`、`S4/S11` 的 client-facing transcript，以及
-> `harness_mem/integration` 工作区上的真实 Cursor packet scenario run log。
+> 还已经拿到了一条直接对应 packet `S10` 单元格的跨客户端 client transcript。此外，当前还出现了一条
+> 真实 `Cursor / user-mcp-router` wake transcript，但它暴露的是 router 输出版式仍旧、且 transcript
+> 片段本身不自带工作区路径。剩下没补齐的仍是更强的 live client scenarios，尤其是 `S5/S7`、
+> `S4/S11` 的 client-facing transcript，以及自带 workspace provenance 的
+> `harness_mem/integration` Cursor packet run log。
 
 ## 完成矩阵
 
@@ -125,7 +127,7 @@ truth-sync 的 release train 都已落地。
 | v2.9.58 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_cross_session_truth.py`、OpenSpec `v2958-generic-mcp-cross-session-s10-evidence` | `v2-user-test-packet` 现在又补了一条 generic MCP 的 live S10 近邻证据：两个独立 stdio MCP 会话共用同一 temp home 时，writer 会话确认的 memory entry，reader 会话随后 `wake(no_auto_ingest=true)` 已能在 `# Essential Truth (L1 · confirmed current)` 中读回。这把 generic MCP coverage 从单会话 smoke 再推进到了跨会话 truth visibility，但还不是更强的 UI 级 cross-client pair。 |
 | v2.9.59 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_review_only_truth.py`、OpenSpec `v2959-generic-mcp-s12-repair-only-summary` | `v2-user-test-packet` 现在又补了一条 generic MCP 的 live S12 近邻证据：successful `auto_review_candidates(..., apply=true)` summary payload 已经不再含 `/hm:review`，而是直接给出 deferred candidates 的自然语言 follow-up。这把 generic MCP coverage 从“能成功 auto-review”进一步推进到了“summary 仍保持 repair-only boundary”。 |
 | v2.9.60 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_stale_cli_truth.py`、OpenSpec `v2960-packet-s11-stale-cli-surface-evidence` | `v2-user-test-packet` 把 S11 stale-CLI string-scan 从“表格里的期望”推进成了当前 repo 可复核真值。 |
-| v2.9.61 | 当前版本 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_remaining_matrix_truth.py`、`tests/test_v2_user_test_packet_s4_transport_unavailable_truth.py`、`tests/test_v2_user_test_packet_wake_renderer_truth.py`、`tests/test_v2_user_test_packet_hermes_oneshot_truth.py`、`tests/test_v2_user_test_packet_ui_cross_client_truth.py`、`tests/integration/test_v2_user_test_packet_wake_renderer_truth.py`、`tests/mcp/test_smoke.py` | `v2-user-test-packet` 现在显式锁定了当前仍缺的强证据边界，并新增了三条更强的近邻证据以及一条直接 transcript：generic MCP 的底层 S4 repro、真实 `cmd_wake_up` 读端的 S10 readback、Hermes oneshot 的真实 non-Claude write/read smoke、以及 `Codex app -> Claude Code` 的 UI 级 `S10` pair transcript。当前机器上，packet `S10` 单元格已经有直接跨客户端证据；但这仍不等于 `S4/S5/S7/S11`、Claude 自动化读端、或 integration-workspace Cursor packet run log 已完成。 |
+| v2.9.61 | 当前版本 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_remaining_matrix_truth.py`、`tests/test_v2_user_test_packet_s4_transport_unavailable_truth.py`、`tests/test_v2_user_test_packet_wake_renderer_truth.py`、`tests/test_v2_user_test_packet_hermes_oneshot_truth.py`、`tests/test_v2_user_test_packet_ui_cross_client_truth.py`、`tests/test_v2_user_test_packet_cursor_router_wake_truth.py`、`tests/integration/test_v2_user_test_packet_wake_renderer_truth.py`、`tests/mcp/test_smoke.py` | `v2-user-test-packet` 现在显式锁定了当前仍缺的强证据边界，并新增了三条更强的近邻证据、一条直接 `Codex app -> Claude Code` transcript，以及一条真实 `Cursor / user-mcp-router` wake transcript。当前机器上，packet `S10` 单元格已经有直接跨客户端证据，Cursor 侧也不再只有 runtime/cache 旁证；但这仍不等于 `S4/S5/S7/S11`、Claude 自动化读端、或自带 workspace provenance 的 integration-workspace Cursor packet run log 已完成。 |
 
 ## 未完成 / 不做项
 
