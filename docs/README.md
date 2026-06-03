@@ -33,6 +33,7 @@
 | `roadmap-v27.md` | v2.7 roadmap：cross-project skills、controlled activation、skill improvement suggestions |
 | `roadmap-v28.md` | v2.8 roadmap：session-distill maintenance、knowledge-base review/prune/verify surfaces |
 | `roadmap-v29.md` | v2.9 roadmap：PRD sync + maintenance/truth-sync release train |
+| `roadmap-v31.md` | v3.1 planning：Auto Dream Memory Maintenance，自动做梦、自动解析、自动处理全部梦境结果，单入口 `/hm:dream` |
 | `roadmap-vision-v16-v18.md` | v1.6 - v1.8 历史远景方向，不等同于当前版本承诺路线图 |
 
 OpenSpec 布局：

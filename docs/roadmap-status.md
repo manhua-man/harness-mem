@@ -114,7 +114,7 @@ truth-sync 的 release train 都已落地。
 | v1.8.0 | 已完成保守闭环 | `ProceduralCandidate`、confirmed `Skill`、`search_skills`、`record_skill_result`、MCP skill tools、procedural tests/fixtures | 不是 autonomous learning：Skill 不进默认 wake、不自动确认、不跨项目共享，也没有 daemon。 |
 | v2.0.0 | 已完成 | heuristic `distill` CLI 与 MCP `distill_sessions` 已移除；distill 只走 LLM agent | `/hm:distill` 仍是用户工作流，背后走 `prepare_session_distill` + `suggest_*`。 |
 | v2.1.0 | 已完成 | CLI parser 只暴露 maintenance 命令；REST package/tests 删除；README/AGENTS/OpenSpec 已围绕 Slash/Skill/Agent workflow 重写 | breaking surface cleanup；MCP tool signatures 与 data schema 保持稳定。 |
-| v2.2.0 | runtime 已完成；手工 gate 未闭 | `plugins/harness-mem/commands/hm/*.md`、`plugins/harness-mem/skills/harness-mem/SKILL.md`、`docs/v2-user-test-packet.md`、loop harness tests | 用户入口稳定为 Slash / Skill / 自然语言；loop harness 已覆盖 non-Claude parity，且 packet 现在已有 Codex + generic MCP 两条 non-Claude smoke entry；Cursor hook install 也已在当前机器验证可生成，但 Cursor agent run log 与 full 12-scenario cross-client matrix 仍未补齐，所以 release gate 仍未闭环；CLI 仍是 maintenance console；无后台 daemon。 |
+| v2.2.0 | runtime 已完成；手工 gate 未闭 | `plugins/harness-mem/commands/hm/*.md`、`plugins/harness-mem/skills/harness-mem/SKILL.md`、`docs/v2-user-test-packet.md`、loop harness tests | 用户入口稳定为 Slash / Skill / 自然语言；loop harness 已覆盖 non-Claude parity，且 packet 现在已有 Codex + generic MCP 两条 non-Claude smoke entry；Cursor hook install 可生成，且本地 Cursor logs 已出现 harness-mem integration 的 hooks runtime 痕迹；但 Cursor agent run log 与 full 12-scenario cross-client matrix 仍未补齐，所以 release gate 仍未闭环；CLI 仍是 maintenance console；无后台 daemon。 |
 | v2.3.0 | 已完成 | `RetrievalSignal`、`MetabolismRun`、replay window selector、`metabolism_preview` MCP tool、OpenSpec `metabolism` spec | 只读 preview / signal 地基；不写 suggestion、不改 truth。 |
 | v2.3.1 | 已完成 | `MergeSuggestionCandidate`、`StaleTruthSuggestionCandidate`、`metabolism_run` MCP tool、weak-link signal opt-in、token trim、calibration tests | 生成 reviewable suggestions；默认不改变 wake/search 行为，`weak_link_signals` 需 opt-in。 |
 | v2.4.0 | 已完成（v2.4.3 收口发版） | `ReflectionJob` schema / 状态机、processing lease、provenance（`user\|agent\|ide_hook\|scheduler`）、retry policy、job list/read MCP helper、`test_reflection_*.py`（121）、`test_mcp_reflection_jobs.py`（10） | host-triggered reflection 的 job 生命周期地基；不引入常驻 worker；不暴露 `harness-mem reflection` 业务子命令。 |
@@ -208,6 +208,14 @@ truth-sync 的 release train 都已落地。
 | CLI 日常工作流（`wake`、`search`、`timeline`、candidate review） | v2.1 已从 CLI surface 移除。日常使用走 IDE command / Skill / Agent workflow，背后由 MCP 支撑。 | 不规划恢复。 |
 | v1.9 Memory Metabolism / Dream | 旧 vision 已删除，不再作为独立路线。 | 已拆成 v2.3 signals/replay、v2.4 reflection queue、v2.6 contradiction/metabolism suggestions。 |
 
+## 规划中
+
+这些条目是未来版本设计，不要冒充已发布：
+
+| 切片 | 状态 | 目标 | 文档 |
+|---|---|---|---|
+| v3.1.x Auto Dream Memory Maintenance | 规划中，未实现 | 用户显式开启后自动做梦、自动解析所有梦境结果、自动处理全部结果；不产生待确认队列；用户只通过 `/hm:dream` 查看梦境账本或撤销处理。 | `docs/roadmap-v31.md` |
+
 ## 版本索引
 
 | 切片 | 主题 | 文档 |
@@ -226,6 +234,7 @@ truth-sync 的 release train 都已落地。
 | v2.7.x | Cross-Project Skills + Controlled Activation：shared skills、skill hints、skill improvement suggestions | `docs/roadmap-v27.md` |
 | v2.8.x | Session-Distill Maintenance Surfaces：`/hm:mark`、`/hm:prune`、`/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry` 的正式版本线 | `docs/roadmap-v28.md` |
 | v2.9.x | PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train：`/hm:prd-sync`、`/hm:status`、plugin doctor helper、maintenance CLI collateral、reflection/config truth sync、wake/distill/status 入口真值收口 | `docs/roadmap-v29.md` |
+| v3.1.x | Auto Dream Memory Maintenance：自动做梦、自动解析、自动处理全部结果，单入口 `/hm:dream` 梦境账本 | `docs/roadmap-v31.md` |
 
 ## 短结论
 
@@ -248,4 +257,6 @@ MCP stdout 纯净性继续保持，shared skill 也仍然坚持显式消费。
 
 优先级依据是：没有 signals 就无法 replay；没有 queue health 就无法安全 reflection；
 没有 context assembly，更多 memory / skill 只会变成可搜索对象而不是真正可控的 agent memory。
+
+下一条规划线是 v3.1 Auto Dream Memory Maintenance：在默认关闭、用户显式开启的前提下，把 signals / metabolism / reflection queue 组合成自动维护循环。v3.1 的设计目标是自动解析并处理全部梦境结果，不产生待确认队列；但每个处理都必须保留 DreamRun 审计、evidence、policy reason 和 undo path，且不 hard delete confirmed truth。
 

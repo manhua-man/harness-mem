@@ -121,6 +121,7 @@ v2.2 发布前必须满足：
 - `docs/v2-user-test-packet.md` 现在已补 `2026-06-03` 的 Codex MCP smoke
   entry 与 generic MCP JSON-RPC smoke entry，证明至少两条 non-Claude 路径在当前机器上可跑。
 - 同时，Cursor 的 `integration install-cursor-hook` 生成也已在当前机器验证通过，说明接入资产本身可产出。
+- 此外，Cursor 本地日志里也已能看到 harness-mem integration 工作区的 hooks runtime 痕迹。
 - 但 packet 定义的 full 12-scenario cross-client matrix 仍未补齐，Cursor 仍没有真正的 agent run log。
 - 因此，v2.2 的 runtime / contract 已落地，但这条手工 cross-client release gate
   仍不能算闭环。

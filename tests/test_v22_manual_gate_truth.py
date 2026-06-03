@@ -13,10 +13,14 @@ def test_v22_docs_keep_manual_gate_open_while_packet_has_non_claude_gap() -> Non
 
     assert "## 2026-06-03 — Codex MCP smoke" in packet
     assert "## 2026-06-03 — Generic MCP JSON-RPC smoke" in packet
+    assert "## 2026-06-03 — Cursor hooks runtime evidence" in packet
     assert "generic MCP client 路径" in packet
+    assert "Cursor hooks runtime" in packet
     assert "full 12-scenario matrix 已补齐" not in packet
     assert "cross-client release gate" in roadmap_v22x
     assert "仍不能算闭环" in roadmap_v22x
+    assert "hooks runtime 痕迹" in roadmap_v22x
     assert "v2.2 runtime / contract 已完成" in roadmap_v22x
     assert "v2.2.0 | runtime 已完成；手工 gate 未闭" in roadmap_status
     assert "已有 Codex + generic MCP 两条 non-Claude smoke" in roadmap_status
+    assert "hooks runtime 痕迹" in roadmap_status
