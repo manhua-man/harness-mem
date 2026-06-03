@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.53 已完成。
+> 状态：v2.9.0–v2.9.54 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1168,3 +1168,24 @@ authority 指向 `roadmap-status.md` 与 `CHANGELOG.md`。
   - `docs/cli/v2.4.md`、`docs/error-codes.md`、`docs/cli-design-expert.md` 的当前发版状态与边界都看 `roadmap-status.md` 与 `CHANGELOG.md`
   - 这些文档聚焦 operator reference、错误码和设计原则，不单独充当当前实现真值
 - 已补 focused regression test：`tests/test_reference_docs_truth_authority_sync.py`
+
+## v2.9.54：v2.2 Manual Gate Truth Sync
+
+**用户故事**：当维护者回看 `docs/roadmap-v22x.md`、`docs/roadmap-status.md` 和
+`docs/v2-user-test-packet.md` 时，不应该同时看到 “v2.2 已完成” 和 “非 Claude client
+未跑” 这两种互相冲突的说法。当前真值应明确区分：runtime / contract 已落地，但手工
+cross-client release gate 仍缺非 Claude client 的 Run log entry。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | v2.2 status truth sync | `roadmap-v22x` 与 `roadmap-status` 明确区分 runtime completion 和未闭的 manual cross-client gate |
+| P1 | focused regression guard | 如果 packet 仍写 non-Claude 未跑，而 roadmap 却重新写成“v2.2 已完成”，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2954-v22-manual-gate-truth-sync/`。
+- `v2.2` 的完成性表述现在已收回到当前真值：
+  - runtime / contract 已落地
+  - loop harness 已提供 automated non-Claude parity evidence
+  - 但 `docs/v2-user-test-packet.md` 的 Run log 仍缺 release gate 要求的非 Claude client entry
+- 已补 focused regression test：`tests/test_v22_manual_gate_truth.py`

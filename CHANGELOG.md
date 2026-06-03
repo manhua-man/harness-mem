@@ -8,6 +8,29 @@
 
 ---
 
+## [2.9.54] — 2026-06-03
+
+**主题：v2.2 Manual Gate Truth Sync**
+
+v2.9.54 收的是一个直接的完成性矛盾：`docs/roadmap-v22x.md` 和
+`docs/roadmap-status.md` 还把 `v2.2` 写成“已完成”，但
+`docs/v2-user-test-packet.md` 的 Run log 仍只有 Claude Code entry，并明确写着
+`Known gap: 非 Claude client ... 未跑`。这一版不改 runtime，只把 `v2.2` 的状态收成
+当前真值，并补 focused guard，防止以后再次把手工 gate 当成已经闭环。
+
+### Changed
+
+- **v2.2 status truth sync**：`docs/roadmap-v22x.md` 与 `docs/roadmap-status.md` 现在都明确区分：
+  runtime / contract 已落地，但 `v2-user-test-packet` 要求的手工 non-Claude client
+  Run log 仍未补齐。
+- **focused regression coverage**：新增 `tests/test_v22_manual_gate_truth.py`。
+- **release writeback**：`docs/roadmap-v29.md`、版本号与本 changelog 已同步到 `2.9.54`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或用户入口。
+- 它只修正 `v2.2` 的完成性表述，使 roadmap / packet / automated evidence 重新一致。
+
 ## [2.9.53] — 2026-06-03
 
 **主题：Reference Docs Truth Authority Sync**
