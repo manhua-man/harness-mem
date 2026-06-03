@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.42 已完成。
+> 状态：v2.9.0–v2.9.43 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -936,13 +936,35 @@ truth 已经明确：新 session 先走一等 MCP `wake`，低层读工具只在
 
 | 优先级 | 任务 | 验收 |
 |---|---|---|
-| P0 | roadmap-v29 status range sync | 顶部状态行改成 `v2.9.0–v2.9.42 已完成` 这类范围式摘要，并和当前版本真值对齐 |
+| P0 | roadmap-v29 status range sync | 顶部状态行改成 `v2.9.0–v2.9.43 已完成` 这类范围式摘要，并和当前版本真值对齐 |
 | P1 | focused regression guard | 如果顶部状态行回流到旧的逐 patch 枚举尾号写法，测试失败 |
 
 ### 当前状态（2026-06-03）
 
 - 已完成 `openspec/changes/archive/2026-06-03-v2942-roadmap-v29-status-range-truth-sync/`。
 - `docs/roadmap-v29.md` 顶部状态行现在明确：
-  - 用 `v2.9.0–v2.9.42 已完成` 这类范围式摘要对齐当前版本真值
+  - 用 `v2.9.0–v2.9.43 已完成` 这类范围式摘要对齐当前版本真值
   - 不再继续维护逐 patch 枚举、且易于立刻过时的头部状态行
 - 已补 focused regression test：`tests/test_roadmap_v29_status_tail_truth.py`
+
+## v2.9.43：User-Test-Packet Contract Source Truth Sync
+
+**用户故事**：当维护者查看 `docs/v2-user-test-packet.md` 时，不应该再被指向一个已归档
+的 `openspec/changes/v220...` 路径，也不应该依赖“Codex CLI 当前版本所支持的写法”
+这种外部客户端时态。当前 packet 应直接回指主 `daily-workflow` spec，并只描述 repo 自己
+维护和验证的 MCP stdio 契约。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | user-test-packet contract-source sync | packet 的契约真值源改成 `openspec/specs/daily-workflow/spec.md` |
+| P0 | Codex MCP wording sync | Codex 接入说明改成 repo 当前维护并验证的 stdio 契约，不再写“当前版本客户端支持写法” |
+| P1 | focused regression guard | 如果 packet 再回流到 archived change 路径或外部客户端时态，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2943-user-test-packet-contract-source-truth-sync/`。
+- `docs/v2-user-test-packet.md` 现在明确：
+  - 契约真值源是 `openspec/specs/daily-workflow/spec.md`
+  - Codex MCP 接入说明只描述 repo 当前维护并验证的 stdio 契约
+  - 不再依赖 archived change 路径或“当前版本客户端支持写法”这种外部漂移口径
+- 已补 focused regression test：`tests/test_v2_user_test_packet_contract_source_truth.py`

@@ -8,6 +8,30 @@
 
 ---
 
+## [2.9.43] — 2026-06-03
+
+**主题：User-Test-Packet Contract Source Truth Sync**
+
+v2.9.43 收的是 `docs/v2-user-test-packet.md` 的契约源与 Codex MCP 接入口径。当前 packet
+仍引用已归档的 `openspec/changes/v220...` 路径，并写着“Codex CLI 当前版本所支持的
+MCP 配置写法”，这两处都不是 repo 自己能稳定承诺的当前真值。 这一版不改 runtime，只
+把 packet 回指主 spec，并把 Codex 接入说明收成 repo 自己维护并验证的 stdio 契约。
+
+### Changed
+
+- **user-test-packet contract-source sync**：`docs/v2-user-test-packet.md` 现在直接引用
+  `openspec/specs/daily-workflow/spec.md` 作为契约真值源，不再指向 archived change 路径。
+- **Codex MCP wording sync**：packet 里的 Codex 接入说明现在只描述 repo 当前维护并验证的
+  stdio 契约，不再依赖“当前版本客户端支持写法”这种外部时态。
+- **focused regression coverage**：新增 `tests/test_v2_user_test_packet_contract_source_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.43`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 `v2-user-test-packet` 的契约源与 Codex 接入口径，使之回到 repo 可验证的主 spec 真值。
+
 ## [2.9.42] — 2026-06-03
 
 **主题：Roadmap-v29 Status Range Truth Sync**
@@ -20,7 +44,7 @@ guard 跟随 `__version__` 校验。
 ### Changed
 
 - **roadmap-v29 status range sync**：`docs/roadmap-v29.md` 顶部状态行现在写成
-  `v2.9.0–v2.9.42 已完成` 这种范围式摘要，不再继续维护不断变长的 patch 枚举。
+  `v2.9.0–v<current> 已完成` 这种范围式摘要，不再继续维护不断变长的 patch 枚举。
 - **focused regression coverage**：`tests/test_roadmap_v29_status_tail_truth.py` 现在改成
   读取 `harness_mem.__version__` 校验头部状态范围。
 - **release writeback**：`docs/roadmap-status.md`、版本号与本 changelog 已同步到

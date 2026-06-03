@@ -6,7 +6,7 @@
 >
 > 由 `.claude/skills/multi-client-field-test/` 拥有。下次需要新版 packet（v2.3 / v3 等）请直接调用同一个 skill 重生成；不要在本文件做侵入式改写。
 >
-> 契约真值源：`openspec/changes/v220-ai-ide-entry-loop/specs/daily-workflow/spec.md`。本 packet 中所有 "Expected behavior" 都引用该 spec 的 Requirement。
+> 契约真值源：`openspec/specs/daily-workflow/spec.md`。本 packet 中所有 "Expected behavior" 都引用该 spec 的 Requirement。
 
 ---
 
@@ -56,7 +56,7 @@ slash 命令安装走 plugin 安装脚本：
 
 Codex 原生没有 slash 命令，靠自然语言驱动 agent。LLM agent 执行 distill 主链时的 prompt 模板真值源是 [`tools/session-distill/SKILL.md`](../tools/session-distill/SKILL.md)。Codex agent 应被指引到该文件作为 prompt 参照。
 
-接入 MCP server（Codex CLI 当前版本所支持的 MCP 配置写法）：
+接入 MCP server（repo 当前维护并验证的 stdio 契约）：
 
 - server name：`harness_mem`（无横线）
 - 启动命令：`python -m harness_mem.mcp.server`
