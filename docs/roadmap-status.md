@@ -1,6 +1,6 @@
 # Roadmap Status
 
-> 最后核对：2026-06-03，基于当前 repo 文件、实现模块、OpenSpec 状态与测试状态。
+> 最后核对：2026-06-04，基于当前 repo 文件、实现模块、OpenSpec 状态与测试状态。
 > 版本真值以 `pyproject.toml` + `harness_mem.__version__` 为准。
 
 本文回答一个问题：哪些 roadmap 切片真的完成了，哪些只是 vision，哪些明确不做。
@@ -10,97 +10,30 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.55` |
-| `harness_mem/__init__.py` | `2.9.55` |
-| `CHANGELOG.md` | 已有 `2.9.55` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.56` |
+| `harness_mem/__init__.py` | `2.9.56` |
+| `CHANGELOG.md` | 已有 `2.9.56` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.55：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v2.9.56：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环（runtime 已落地；OpenSpec `5.5`
 手工 gate 已过，但 full matrix coverage 仍可继续扩展）、v2.3 signals/replay、v2.4
 reflection queue、v2.5 context assembly / wake renderer / file_context、
 v2.6 knowledge cache / wiki bridge / contradiction、v2.7 cross-project
 procedural skill、v2.8 session-distill maintenance surfaces，以及
-v2.9.0–v2.9.55 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
+v2.9.0–v2.9.56 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
 truth-sync 的 release train 都已落地。
 
-> **v2.9.55 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.55`。v2.9 在保持
-> slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
-> 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
-> 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
-> stale-surface guardrail、shell completion、MCP/user-test collateral 与
-> README/telemetry collateral guard 一起对齐到已经 shipped 的 `config` /
-> `integration` 命名空间；同时把 `reflection_once(project_root=None)` 的缺省解析
-> 收紧成 known-root-first、cwd-final-fallback，并清掉 `worker.mode` 的旧 daemon
-> 这一类会误导当前 config loader 的旧口径；`triggers.scheduler` 也已同步收成
-> shipped `off|on` gate，而不再保留 `off|cron` 的旧写法；`distill.mode` 也已同步收成
-> shipped `defer_to_agent | inline | worker`，不再保留更早期设计阶段的额外枚举值；同时
-> `roadmap-v24` 的 host-trigger 示例也已收束到 shipped 的
-> `python -m harness_mem.host_entry --project-root ... --source ide_hook` 形式，
-> 不再保留 `<host_entry>` 占位符、`harness_mem.host` 旧模块名或伪 `reflection_once`
-> 子命令；同时，`roadmap-v24` 的 config merge 与 queue model 段也已收束到 shipped
-> truth：`load_merged_config()` 只认四个 config key，不解析 `project_name` /
-> `active_project.txt`，而 queue model 只有 `ReflectionJob`，`review` 只是其 phase；
-> 此外，repo-local `/hm:wake` 命令和 `harness-mem` skill 现在也已同步到一等 MCP
-> `wake` surface，不再默认手工拼 `get_project_profile` / `get_task_handoffs` /
-> `get_confirmed_rules` / `timeline`；而 `docs/best-practices.md` 现在也已把 `wake`
-> 收成一等读取工具，并把 compact renderer / skill hints 明确成 opt-in 路径。
-> 此外，`/hm:distill` 命令文档、repo-local `harness-mem` skill 与 MCP 主 spec 示例
-> 现在也已统一到 shipped 的 `auto_review_candidates(project_name=<project>, apply=true)`
-> review surface，不再把手工 `list_candidates` + `confirm_*` / `reject_*` 写成默认
-> distill 真路径；同时，`/hm:status` 命令文档与 MCP 主 spec 的 status 示例也已统一到
-> shipped 的 `get_project_status(project_name=<project>)` triage surface，不再默认
-> 手工拼 `get_project_profile` / `list_candidates` / `timeline` 才给下一步建议；此外，
-> `docs/best-practices.md` 的候选层与工具表也已同步到 shipped 的
-> `auto_review_candidates(project_name=<project>, apply=true)` review surface，不再把
-> per-item `list_candidates` + `confirm_*` / `reject_*` 写成默认 distill 路径；同时，
-> `README.md` 的 workflow 图也已同步到 `auto_review_candidates(apply=true)`，不再保留
-> `list_candidates -> auto-review / confirm / reject` 的旧主链画法；同时，
-> `docs/v2-user-test-packet.md` 的 generic MCP distill 流也已同步到
-> `prepare_session_distill -> suggest_* -> auto_review_candidates`，不再保留
-> `list_candidates -> auto_review_candidates` 的旧测试主链；同时，
-> `tools/session-distill/SKILL.md` 与 plugin README 的 `/hm:distill` 摘要也已统一到
-> `auto_review_candidates(project_name=<project>, apply=true)` 这条 shipped review surface；
-> 同时，根 `AGENTS.md` 里的 distill 主链与 repair 边界也已同步到这条 shipped surface，
-> 不再把 `list_candidates` 加逐条 confirm/reject 写成默认主路径；同时，
-> `docs/roadmap-v22x.md` 这类仍会描述 active distill contract 的历史版本线文档也已同步
-> 到 `auto_review_candidates(apply=true)`，不再保留旧主链表述。此外，`docs/README.md`
-> 与本页的 v2.9 索引摘要现在也已同步到当前真值：v2.9 不再只被描述成单一
-> `PRD sync candidate surface`，而是从 `/hm:prd-sync` 起步、随后持续扩展为一串
-> maintenance / triage / current-truth sync release slices；同时，
-> `docs/best-practices.md` 的 runtime 工具表也已进一步收束到当前 wake truth：
-> `wake` 作为默认 read surface 覆盖新 session 常见的 profile/rules/handoff 读取，
-> 而 `get_task_handoffs` / `get_confirmed_rules` 只保留给显式 drilldown，不再摆成
-> 默认 wake-up 起点；同时，`docs/roadmap-v29.md` 的顶部状态行也已同步到当前 release
-> tail，不再把这条版本线头部摘要截在更旧的尾号；同时，该头部摘要也已从逐 patch 枚举
-> 收束为跟当前版本真值对齐的范围式写法，避免每发一版就立即再次过时；此外，
-> `docs/v2-user-test-packet.md` 现在也已回指主 `openspec/specs/daily-workflow/spec.md`
-> 而不是归档 change 路径，并把 Codex MCP 接入说明收束成 repo 自己维护的 stdio 契约，
-> 不再依赖“当前版本客户端支持写法”这种外部漂移口径；同时，
-> `docs/roadmap-v29.md` 里最早一批已完成的 `v290`–`v2912` 切片现在也统一回指 archive
-> 路径，不再把已归档变更写成仍在 `openspec/changes/v29xx...` 的 active-change 口径；同样，
-> `docs/roadmap-v27.md` 与 `docs/roadmap-v28.md` 的已完成切片也已同步到 archive 真路径，
-> 不再把 `v270`–`v272` / `v280`–`v282` 写成 active-change 目录；同时，
-> `docs/roadmap-v16x.md`、`docs/roadmap-v17x.md`、`docs/roadmap-v23.md` 与
-> `tools/session-distill/SKILL.md` 这组历史高可见资料也已同步到 archive 真路径与当前主
-> `openspec/specs/metabolism/spec.md`，不再把已归档切片写成 active-change 路径，也不再引用
-> 不存在的 `memory-metabolism` spec 目录；同时，`docs/README.md` 里的 OpenSpec 索引也已
-> 收束到当前真值：主 spec、active changes、archive 三层职责分开描述，不再把
-> `openspec/specs/` 和 `openspec/changes/` 混成一个模糊口径；同时，
-> `docs/v2-user-test-packet.md` 的落地路径说明也已收束到当前层级真值：默认先看
-> `openspec/specs/...`，只有确有 active change proposal 时才下钻
-> `openspec/changes/<change>/specs/...`；同时，repo 根 `README.md` 与 `AGENTS.md`
-> 里的 `openspec/` 说明也已收束到同一层级真值，不再把主 spec、active changes、archive
-> 混成一个笼统目录桶；同时，repo 根入口现在也已直接把当前发版状态与边界 authority 指向
-> `docs/roadmap-status.md` 和 `CHANGELOG.md`，避免把历史 roadmap 误当成当前实现真值；同时，
-> `docs/README.md` 作为文档索引入口也已同步到同一 authority chain，不再只列文件名而缺失
-> 当前 shipped truth 的直接指针；同时，plugin README 与 `docs/best-practices.md` 这类高可见
-> 使用文档也已同步到同一 authority chain，不再只讲安装/使用习惯而缺失当前发版状态与边界的真值入口；
-> 同时，`docs/cli/v2.4.md`、`docs/error-codes.md` 和 `docs/cli-design-expert.md` 这类高可见参考文档
-> 也已同步到同一 authority chain，不再把操作说明、错误码表或设计准则误当成当前实现真值；同时，
-> `v2.2` 的完成性表述现在也已收回到当前真值：runtime / contract 与 loop-harness parity 已落地，
-> `docs/v2-user-test-packet.md` 也已补 Codex + generic MCP 两条 non-Claude smoke
-> entry；但 full cross-client matrix 仍未补齐，因此手工 release gate 还不能算闭环。
+> **v2.9.56 发版状态（2026-06-04）**：版本号已 bump 到 `2.9.56`。当前版本线延续
+> v2.9 的 maintenance / triage / truth-sync 收口方向，这一版补的是一个真实 runtime
+> 缺口：fresh isolated home 下，交互式 `suggest_memory_entry` 不再因为 write-path
+> embedding 触发首次 Hugging Face 下载而卡住。现在如果本地没有 cached model snapshot，
+> write-path 会直接跳过 vec 写入并记 warning，把 embedding 构建留给后续缓存就绪或显式重建。
+> `docs/v2-user-test-packet.md` 也已补上一条 `2026-06-04` 的 generic MCP fresh-home
+> smoke，证明 embeddings enabled、empty cache 条件下，real stdio MCP 的
+> `suggest_memory_entry` 与 `list_candidates` 已能在当前机器上快速返回。v2.2 的
+> OpenSpec `5.5` 手工 gate 仍然已经闭环；剩下没补齐的是 full 12-scenario matrix 覆盖面，
+> 不是当前 release blocker。
 
 ## 完成矩阵
 
@@ -189,7 +122,8 @@ truth-sync 的 release train 都已落地。
 | v2.9.52 | 已完成 | `plugins/harness-mem/README.md`、`docs/best-practices.md`、`tests/test_usage_docs_truth_authority_sync.py`、OpenSpec `v2952-usage-docs-truth-authority-sync` | 高可见使用文档现在也明确把当前发版状态、已完成切片和未做边界 authority 指向 `roadmap-status.md` 与 `CHANGELOG.md`；它们聚焦安装、集成和使用建议，不单独充当当前实现真值。 |
 | v2.9.53 | 已完成 | `docs/cli/v2.4.md`、`docs/error-codes.md`、`docs/cli-design-expert.md`、`tests/test_reference_docs_truth_authority_sync.py`、OpenSpec `v2953-reference-docs-truth-authority-sync` | 高可见参考文档现在也明确把当前发版状态、已完成切片和未做边界 authority 指向 `roadmap-status.md` 与 `CHANGELOG.md`；它们聚焦 operator reference、错误码和设计原则，不单独充当当前实现真值。 |
 | v2.9.54 | 已完成 | `docs/roadmap-v22x.md`、`docs/roadmap-status.md`、`tests/test_v22_manual_gate_truth.py`、OpenSpec `v2954-v22-manual-gate-truth-sync` | 该版本当时把 `v2.2` 的完成性表述收回到彼时真值：runtime / contract 与 automated non-Claude parity 已落地，但手工 gate 仍未闭环；这个缺口后来已由 `v2-user-test-packet` 的 additional non-Claude Run log entries 补齐。 |
-| v2.9.55 | 当前版本 | `docs/v2-user-test-packet.md`、`docs/roadmap-v22x.md`、`docs/roadmap-status.md`、`tests/test_v22_manual_gate_truth.py`、OpenSpec `v2955-v22-non-claude-smoke-log-sync` | `v2-user-test-packet` 已有 `2026-05-25` Claude Code gate entry 与 `2026-06-03` Codex + generic MCP 两条 non-Claude entry，因此 OpenSpec archive `5.5` 手工 gate 现已满足；但 full 12-scenario cross-client matrix 仍未补齐，这部分转为后续覆盖面扩展，而不再是 v2.2 release blocker。 |
+| v2.9.55 | 已完成 | `docs/v2-user-test-packet.md`、`docs/roadmap-v22x.md`、`docs/roadmap-status.md`、`tests/test_v22_manual_gate_truth.py`、OpenSpec `v2955-v22-non-claude-smoke-log-sync` | `v2-user-test-packet` 已有 `2026-05-25` Claude Code gate entry 与 `2026-06-03` Codex + generic MCP 两条 non-Claude entry，因此 OpenSpec archive `5.5` 手工 gate 现已满足；但 full 12-scenario cross-client matrix 仍未补齐，这部分转为后续覆盖面扩展，而不再是 v2.2 release blocker。 |
+| v2.9.56 | 当前版本 | `harness_mem/embedding/model_loader.py`、`harness_mem/storage/sqlite_index.py`、`tests/test_disable_embeddings.py`、`docs/v2-user-test-packet.md`、OpenSpec `v2956-fresh-home-write-path-embedding-failfast` | fresh isolated home 下，interactive write path 现在不会再因为首次 Hugging Face 模型下载而卡住：cold cache 时直接跳过 vec 写入并记 warning；现有 timeout/circuit-breaker 继续覆盖 cached-but-hung encode/import。packet 现在也已有 `2026-06-04` generic MCP fresh-home smoke，证明 embeddings enabled、empty cache 条件下的 real stdio `suggest_memory_entry` 已能快速返回。 |
 
 ## 未完成 / 不做项
 

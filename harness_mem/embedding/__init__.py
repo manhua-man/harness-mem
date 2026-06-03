@@ -9,6 +9,7 @@ from harness_mem.embedding.model_loader import (
     EmbeddingModelLoader,
     embeddings_disabled,
     get_model_loader,
+    has_local_model_snapshot,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "EmbeddingModelLoader",
     "embeddings_disabled",
     "get_model_loader",
+    "has_local_model_snapshot",
 ]

@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # normal cached model initialization.
 EMBEDDING_WRITE_TIMEOUT_SECONDS = 20.0
 _EMBEDDING_WRITE_TIMED_OUT_MODELS: set[str] = set()
+_EMBEDDING_WRITE_UNCACHED_MODELS: set[str] = set()
 
 _TABLE_SCHEMAS = {
     "observations": """
@@ -477,7 +478,11 @@ class SQLiteIndex:
                 loader's version is recorded after the first encode.
         """
         try:
-            from harness_mem.embedding import embeddings_disabled, get_model_loader
+            from harness_mem.embedding import (
+                embeddings_disabled,
+                get_model_loader,
+                has_local_model_snapshot,
+            )
             import numpy as np
         except ImportError:
             # Embedding dependencies not installed, skip silently
@@ -490,6 +495,19 @@ class SQLiteIndex:
             return
 
         if model_id in _EMBEDDING_WRITE_TIMED_OUT_MODELS:
+            return
+
+        if model_id in _EMBEDDING_WRITE_UNCACHED_MODELS:
+            return
+
+        if not has_local_model_snapshot(model_id):
+            _EMBEDDING_WRITE_UNCACHED_MODELS.add(model_id)
+            logger.warning(
+                "Embedding model %s is not cached locally; skipping write-path "
+                "vec generation until process restart instead of triggering a "
+                "cold download on the interactive write path.",
+                model_id,
+            )
             return
 
         loader = get_model_loader(model_id)

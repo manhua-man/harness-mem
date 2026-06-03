@@ -8,6 +8,38 @@
 
 ---
 
+## [2.9.56] — 2026-06-04
+
+**主题：Fresh-Home Write-Path Embedding Fail-Fast**
+
+v2.9.56 收的是一个真实 runtime 缺口：在 fresh isolated home 下，generic MCP 的
+`suggest_memory_entry` 仍可能因为 write-path embedding 触发首次 Hugging Face 模型下载而
+卡住，导致交互式写入面超时。上一刀只给已经进入 `encode(...)` 的挂死加了超时熔断，但当前机器
+上的 live stdio MCP 复跑表明，fresh-home 慢点更早出现在 cold-cache model load/download。
+这一版把 write-path embedding 再收紧一层：如果本地没有缓存快照，就直接跳过 vec 写入并记
+warning，而不是在候选写入这条交互路径上触发首次下载。
+
+### Changed
+
+- **cold-cache write-path skip**：`harness_mem.embedding.has_local_model_snapshot(...)`
+  现在会先判断 embedding model 是否已在本地缓存；`persist_embedding(...)` 在 cold cache
+  下直接跳过 vec 写入，不再触发首次下载。
+- **existing timeout guard retained**：已有的 write-path timeout / circuit-breaker 仍保留，用于
+  已缓存模型但 encode/import 挂住的另一类故障。
+- **focused regression coverage**：`tests/test_disable_embeddings.py` 新增 cold-cache skip
+  guard，防止 write path 再次在没有本地模型缓存时尝试 `get_model_loader(...)`。
+- **packet/runtime evidence writeback**：`docs/v2-user-test-packet.md` 新增一条
+  `2026-06-04` generic MCP fresh-home write-path smoke，证明不开
+  `HARNESS_MEM_DISABLE_EMBEDDINGS` 时，isolated temp home 下的 real stdio
+  `suggest_memory_entry` 已能快速返回。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.56`。
+
+### Boundaries
+
+- 本版本不宣称 full `12-scenario` cross-client matrix 已补齐。
+- 它也不宣称 cold cache 下已经拿到了 vec row；当前保证的是交互式写路径不再被首次模型下载拖死。
+
 ## [2.9.55] — 2026-06-03
 
 **主题：v2.2 Non-Claude Smoke Log Sync**

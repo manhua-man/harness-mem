@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.55 已完成。
+> 状态：v2.9.0–v2.9.56 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1216,3 +1216,27 @@ client 完全未跑” 这种已经被当前机器上的 Codex MCP smoke 证据�
 - 后续 `2026-06-03` 的额外 Run log 已把 OpenSpec `5.5` 手工 gate 彻底补齐；该节保留的是
   当时 `v2.9.55` 发版瞬间的状态。
 - 已补 focused regression test：`tests/test_v22_manual_gate_truth.py`
+
+## v2.9.56：Fresh-Home Write-Path Embedding Fail-Fast
+
+**用户故事**：当维护者在 fresh isolated home 下用 generic MCP 或其它交互式 client
+直接跑 `suggest_memory_entry` 时，不应该因为 write-path embedding 触发首次 Hugging Face
+模型下载而把整条写入路径拖到超时。cold cache 下，候选写入应先成功返回；vec row 可以留给后续
+重建或缓存就绪后再补。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | cold-cache write-path skip | 没有本地 model snapshot 时，`persist_embedding` 直接跳过 vec 写入，不触发 cold download |
+| P0 | live fresh-home packet evidence | `docs/v2-user-test-packet.md` 追加 real stdio MCP run，证明 embeddings enabled 的 fresh-home 写路径快速返回 |
+| P1 | focused regression guard | cold-cache 条件下 write path 不得再尝试 `get_model_loader(...)` |
+
+### 当前状态（2026-06-04）
+
+- 已完成 `openspec/changes/archive/2026-06-04-v2956-fresh-home-write-path-embedding-failfast/`。
+- write-path embedding 现在明确分成两类 best-effort fail-fast：
+  - **cold cache**：本地没有 cached model snapshot 时，直接跳过 vec 写入并记 warning
+  - **cached-but-hung encode/import**：沿用已有 timeout / circuit-breaker
+- `docs/v2-user-test-packet.md` 现在已追加一条 `2026-06-04` generic MCP fresh-home
+  smoke：在 isolated temp home、不开 `HARNESS_MEM_DISABLE_EMBEDDINGS` 的条件下，
+  `suggest_memory_entry` 已在当前机器上快速返回，并且 `list_candidates` 能读回同一条 pending entry。
+- 已补 focused regression coverage：`tests/test_disable_embeddings.py`

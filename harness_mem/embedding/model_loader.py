@@ -8,6 +8,7 @@ from harness_mem.embedding.model_registry import get_model_spec, ModelSpec
 
 _DISABLE_ENV_VAR = "HARNESS_MEM_DISABLE_EMBEDDINGS"
 _TRUTHY = {"1", "true", "yes", "on"}
+_LOCAL_SNAPSHOT_AVAILABILITY: dict[tuple[str, str, str], bool] = {}
 
 
 def embeddings_disabled() -> bool:
@@ -21,6 +22,43 @@ def embeddings_disabled() -> bool:
     and search-time embedding are skipped instead of loading the model.
     """
     return os.environ.get(_DISABLE_ENV_VAR, "").strip().lower() in _TRUTHY
+
+
+def has_local_model_snapshot(model_id: str) -> bool:
+    """Return True when the embedding model is already cached locally.
+
+    Write-path embedding persistence is best-effort. Interactive write tools
+    should not trigger a first-time Hugging Face download just to add a vec row,
+    because that can stall MCP writes for tens of seconds on a fresh home.
+    """
+
+    cache_key = (
+        model_id,
+        os.environ.get("HF_HOME", ""),
+        os.environ.get("SENTENCE_TRANSFORMERS_HOME", ""),
+    )
+    cached = _LOCAL_SNAPSHOT_AVAILABILITY.get(cache_key)
+    if cached is not None:
+        return cached
+
+    spec = get_model_spec(model_id)
+
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        # If the hub helper is unavailable, do not block write-path embeddings
+        # on a cache probe we cannot perform.
+        _LOCAL_SNAPSHOT_AVAILABILITY[cache_key] = True
+        return True
+
+    try:
+        snapshot_download(spec.hf_model_name, local_files_only=True)
+    except Exception:
+        _LOCAL_SNAPSHOT_AVAILABILITY[cache_key] = False
+        return False
+
+    _LOCAL_SNAPSHOT_AVAILABILITY[cache_key] = True
+    return True
 
 
 class EmbeddingModelLoader:

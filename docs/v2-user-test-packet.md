@@ -390,6 +390,31 @@ Boundary:
 - 它仍**不等于** full matrix 全补齐：这里只把 generic MCP 进一步推进到了 S8 / S9，没有覆盖
   S4 / S5 / S6 / S7 / S10 / S11 / S12，也不是自然语言 distill 的完整 happy path。
 
+## 2026-06-04 — Generic MCP fresh-home write-path smoke (Windows, isolated temp home, embeddings enabled)
+
+Clients: Generic MCP client (raw JSON-RPC over stdio contract)
+harness-mem version: 2.9.56
+Project: `v2956-fresh-home`
+Environment: isolated temp home, embeddings enabled, empty local HF cache
+
+Pass: partial S2 (`suggest_memory_entry` + `list_candidates` with fresh-home cold cache)
+Not run: full 12-scenario matrix, S4/S5/S6/S7/S8/S9/S10/S11/S12
+
+Evidence:
+- raw JSON-RPC `initialize` returned the MCP handshake successfully
+- raw JSON-RPC `tools/call` to `set_active_project(project_name="v2956-fresh-home")` returned success
+- raw JSON-RPC `tools/call` to `suggest_memory_entry(...)` returned success in `0.357s` with pending entry id `8f73af91-2913-499b-92c9-cbcd1abded09`
+- raw JSON-RPC `tools/call` to `list_candidates(status="pending")` returned that same pending memory entry
+- MCP stderr emitted:
+  `Embedding model all-MiniLM-L6-v2 is not cached locally; skipping write-path vec generation until process restart instead of triggering a cold download on the interactive write path.`
+
+Boundary:
+- 这条 entry 证明 **fresh isolated home + embeddings enabled** 的最小 generic MCP 写路径现在也能快速返回，
+  不再需要先设 `HARNESS_MEM_DISABLE_EMBEDDINGS=1` 才能避免 cold-cache download stall。
+- 它**不等于** cold cache 下已经拿到了 vec row；当前保证的是交互式 write path 不被首次模型下载拖死。
+- 它也**不等于** full matrix 已完成：这里只补的是 fresh-home 的最小 candidate-write/readback smoke，
+  不是 S8 / S9 的深一层 workflow，也不是 Cursor / Codex 的完整 packet run。
+
 ## 2026-06-03 — Cursor hook install smoke (Windows, temp project)
 
 Clients: Cursor integration asset only (not a full Cursor agent run)

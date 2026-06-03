@@ -124,6 +124,43 @@ def test_save_succeeds_with_no_vec_row_when_disabled(
     run(_test())
 
 
+def test_persist_embedding_skips_cold_download_when_model_not_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Interactive writes must not trigger a first-time model download."""
+
+    monkeypatch.delenv(_DISABLE_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        "harness_mem.storage.sqlite_index._EMBEDDING_WRITE_UNCACHED_MODELS", set()
+    )
+    monkeypatch.setattr(
+        "harness_mem.embedding.has_local_model_snapshot",
+        lambda _model_id: False,
+    )
+
+    def _boom(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("get_model_loader must not run on a cold cache")
+
+    monkeypatch.setattr("harness_mem.embedding.get_model_loader", _boom)
+
+    from harness_mem.storage.sqlite_index import SQLiteIndex
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        index = SQLiteIndex(Path(tmpdir) / "index.db")
+        index.init_db()
+        try:
+            index.persist_embedding("entry-cold-cache-1", "some text", "all-MiniLM-L6-v2")
+            conn = index._conn_write()
+            row = conn.execute(
+                "SELECT entry_id FROM vec_embeddings WHERE entry_id = ?",
+                ("entry-cold-cache-1",),
+            ).fetchone()
+        finally:
+            index.close()
+
+    assert row is None, "cold-cache write skip should leave vec row empty"
+
+
 def test_persist_embedding_times_out_and_skips_vec_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
