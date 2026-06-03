@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.56 已完成。
+> 状态：v2.9.0–v2.9.57 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1240,3 +1240,26 @@ client 完全未跑” 这种已经被当前机器上的 Codex MCP smoke 证据�
   smoke：在 isolated temp home、不开 `HARNESS_MEM_DISABLE_EMBEDDINGS` 的条件下，
   `suggest_memory_entry` 已在当前机器上快速返回，并且 `list_candidates` 能读回同一条 pending entry。
 - 已补 focused regression coverage：`tests/test_disable_embeddings.py`
+
+## v2.9.57：Generic MCP Empty-Packet S6 Evidence
+
+**用户故事**：当维护者回看 `docs/v2-user-test-packet.md` 的 generic MCP coverage 时，
+不应该只看到最小 read/write smoke、S8/S9 deeper workflow 和 fresh-home write-path fix，
+却仍缺一条真正对应 packet `S6 Empty evidence packet` 的实跑证据。至少要有一条 live stdio
+`prepare_session_distill` 空包 entry，证明 empty-project 场景已经在当前机器上跑过。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | generic MCP S6 evidence | `v2-user-test-packet` 追加一条 live stdio `prepare_session_distill(run_ingest=false)` 空包 entry |
+| P1 | focused regression guard | 如果这条 empty-packet evidence 再次消失，测试失败 |
+
+### 当前状态（2026-06-04）
+
+- 已完成 `openspec/changes/archive/2026-06-04-v2957-generic-mcp-empty-packet-s6-evidence/`。
+- `docs/v2-user-test-packet.md` 现在新增一条 `2026-06-04` generic MCP empty-packet entry，记录：
+  - isolated temp home
+  - `prepare_session_distill(run_ingest=false)`
+  - `observation_count = 0`
+  - 零 status counters
+  - `observations = []`
+- 已补 focused regression coverage：`tests/test_v2_user_test_packet_empty_evidence_truth.py`

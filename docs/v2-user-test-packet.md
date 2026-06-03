@@ -415,6 +415,38 @@ Boundary:
 - 它也**不等于** full matrix 已完成：这里只补的是 fresh-home 的最小 candidate-write/readback smoke，
   不是 S8 / S9 的深一层 workflow，也不是 Cursor / Codex 的完整 packet run。
 
+## 2026-06-04 — Generic MCP empty evidence packet (Windows, isolated temp home)
+
+Clients: Generic MCP client (raw JSON-RPC over stdio contract)
+harness-mem version: 2.9.57
+Project: `v2957-empty-packet`
+Environment: isolated temp home, empty project, `run_ingest=false`
+
+Pass: S6 (empty evidence packet via raw `prepare_session_distill`)
+Not run: full 12-scenario matrix, S4/S5/S7/S10/S11/S12, natural-language distill happy path
+
+Evidence:
+- raw JSON-RPC `initialize` returned the MCP handshake successfully
+- raw JSON-RPC `tools/call` to
+  `prepare_session_distill(project_name="v2957-empty-packet", run_ingest=false, observation_limit=5, max_chars_per_observation=2000)`
+  returned success
+- returned packet fields were:
+  - `ingest.reason = "run_ingest=false"`
+  - `status.observation_count = 0`
+  - `status.memory_entry_count = 0`
+  - `status.task_handoff_count = 0`
+  - `status.confirmed_rule_count = 0`
+  - `status.pending_candidate_count = 0`
+  - `observation_count = 0`
+  - `observations = []`
+
+Boundary:
+- 这条 entry 证明 **generic MCP 的空 evidence packet 场景** 现在已经有 real stdio evidence，
+  而不只是 packet 表里的预期描述。
+- 它仍**不等于**用户可见 agent 总结文案已经在每个 client 上都收成 “no recent session evidence”；
+  这里验证的是底层 `prepare_session_distill` 空包返回。
+- 它也**不等于** full matrix 已完成：S4 / S5 / S7 / S10 / S11 / S12 仍未在 generic MCP 上补齐。
+
 ## 2026-06-03 — Cursor hook install smoke (Windows, temp project)
 
 Clients: Cursor integration asset only (not a full Cursor agent run)

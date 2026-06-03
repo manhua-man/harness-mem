@@ -8,6 +8,31 @@
 
 ---
 
+## [2.9.57] — 2026-06-04
+
+**主题：Generic MCP Empty-Packet S6 Evidence**
+
+v2.9.57 收的是 `v2-user-test-packet` 的一条真实 coverage 扩展：generic MCP 现在不仅有
+最小 read/write smoke、S8/S9 deeper workflow、fresh-home write-path smoke，还补上了
+`S6 Empty evidence packet` 的 live stdio 证据。当前机器上，在 isolated temp home 下对一个
+空项目直接调用 `prepare_session_distill(run_ingest=false)`，已经能稳定返回
+`observation_count = 0`、零 status counters 和空 `observations` 包。这还不是 full matrix
+闭环，但它确实把 packet 从“最小 smoke”往正式 scenario 覆盖推进了一步。
+
+### Changed
+
+- **packet S6 evidence**：`docs/v2-user-test-packet.md` 新增一条 `2026-06-04` generic MCP
+  empty-packet entry，记录 live stdio `prepare_session_distill(run_ingest=false)` 的空包结果。
+- **focused regression coverage**：新增
+  `tests/test_v2_user_test_packet_empty_evidence_truth.py`，防止这条 S6 evidence 再次漂移消失。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.57`。
+
+### Boundaries
+
+- 本版本不宣称 full `12-scenario` cross-client matrix 已补齐。
+- 它只新增了 generic MCP 在 `S6 Empty evidence packet` 这一条 scenario 上的 live evidence。
+
 ## [2.9.56] — 2026-06-04
 
 **主题：Fresh-Home Write-Path Embedding Fail-Fast**

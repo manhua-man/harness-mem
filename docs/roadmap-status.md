@@ -10,30 +10,27 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.56` |
-| `harness_mem/__init__.py` | `2.9.56` |
-| `CHANGELOG.md` | 已有 `2.9.56` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.57` |
+| `harness_mem/__init__.py` | `2.9.57` |
+| `CHANGELOG.md` | 已有 `2.9.57` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.56：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v2.9.57：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环（runtime 已落地；OpenSpec `5.5`
 手工 gate 已过，但 full matrix coverage 仍可继续扩展）、v2.3 signals/replay、v2.4
 reflection queue、v2.5 context assembly / wake renderer / file_context、
 v2.6 knowledge cache / wiki bridge / contradiction、v2.7 cross-project
 procedural skill、v2.8 session-distill maintenance surfaces，以及
-v2.9.0–v2.9.56 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
+v2.9.0–v2.9.57 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
 truth-sync 的 release train 都已落地。
 
-> **v2.9.56 发版状态（2026-06-04）**：版本号已 bump 到 `2.9.56`。当前版本线延续
-> v2.9 的 maintenance / triage / truth-sync 收口方向，这一版补的是一个真实 runtime
-> 缺口：fresh isolated home 下，交互式 `suggest_memory_entry` 不再因为 write-path
-> embedding 触发首次 Hugging Face 下载而卡住。现在如果本地没有 cached model snapshot，
-> write-path 会直接跳过 vec 写入并记 warning，把 embedding 构建留给后续缓存就绪或显式重建。
-> `docs/v2-user-test-packet.md` 也已补上一条 `2026-06-04` 的 generic MCP fresh-home
-> smoke，证明 embeddings enabled、empty cache 条件下，real stdio MCP 的
-> `suggest_memory_entry` 与 `list_candidates` 已能在当前机器上快速返回。v2.2 的
-> OpenSpec `5.5` 手工 gate 仍然已经闭环；剩下没补齐的是 full 12-scenario matrix 覆盖面，
-> 不是当前 release blocker。
+> **v2.9.57 发版状态（2026-06-04）**：版本号已 bump 到 `2.9.57`。这一版不改 runtime，
+> 而是继续把 `v2-user-test-packet` 的 generic MCP coverage 从“最小 smoke + deeper workflow”
+> 往正式 scenario 推进：现在 `S6 Empty evidence packet` 也已经有了 live stdio evidence。
+> 当前机器上，对 isolated temp home 的空项目直接调用
+> `prepare_session_distill(run_ingest=false)`，已经能稳定返回零 observations、零 status
+> counters 和空 evidence packet。v2.2 的 OpenSpec `5.5` 手工 gate 仍然已经闭环；剩下没补齐的
+> 还是 full 12-scenario matrix 的覆盖面，而不是 release blocker。
 
 ## 完成矩阵
 
@@ -123,7 +120,8 @@ truth-sync 的 release train 都已落地。
 | v2.9.53 | 已完成 | `docs/cli/v2.4.md`、`docs/error-codes.md`、`docs/cli-design-expert.md`、`tests/test_reference_docs_truth_authority_sync.py`、OpenSpec `v2953-reference-docs-truth-authority-sync` | 高可见参考文档现在也明确把当前发版状态、已完成切片和未做边界 authority 指向 `roadmap-status.md` 与 `CHANGELOG.md`；它们聚焦 operator reference、错误码和设计原则，不单独充当当前实现真值。 |
 | v2.9.54 | 已完成 | `docs/roadmap-v22x.md`、`docs/roadmap-status.md`、`tests/test_v22_manual_gate_truth.py`、OpenSpec `v2954-v22-manual-gate-truth-sync` | 该版本当时把 `v2.2` 的完成性表述收回到彼时真值：runtime / contract 与 automated non-Claude parity 已落地，但手工 gate 仍未闭环；这个缺口后来已由 `v2-user-test-packet` 的 additional non-Claude Run log entries 补齐。 |
 | v2.9.55 | 已完成 | `docs/v2-user-test-packet.md`、`docs/roadmap-v22x.md`、`docs/roadmap-status.md`、`tests/test_v22_manual_gate_truth.py`、OpenSpec `v2955-v22-non-claude-smoke-log-sync` | `v2-user-test-packet` 已有 `2026-05-25` Claude Code gate entry 与 `2026-06-03` Codex + generic MCP 两条 non-Claude entry，因此 OpenSpec archive `5.5` 手工 gate 现已满足；但 full 12-scenario cross-client matrix 仍未补齐，这部分转为后续覆盖面扩展，而不再是 v2.2 release blocker。 |
-| v2.9.56 | 当前版本 | `harness_mem/embedding/model_loader.py`、`harness_mem/storage/sqlite_index.py`、`tests/test_disable_embeddings.py`、`docs/v2-user-test-packet.md`、OpenSpec `v2956-fresh-home-write-path-embedding-failfast` | fresh isolated home 下，interactive write path 现在不会再因为首次 Hugging Face 模型下载而卡住：cold cache 时直接跳过 vec 写入并记 warning；现有 timeout/circuit-breaker 继续覆盖 cached-but-hung encode/import。packet 现在也已有 `2026-06-04` generic MCP fresh-home smoke，证明 embeddings enabled、empty cache 条件下的 real stdio `suggest_memory_entry` 已能快速返回。 |
+| v2.9.56 | 已完成 | `harness_mem/embedding/model_loader.py`、`harness_mem/storage/sqlite_index.py`、`tests/test_disable_embeddings.py`、`docs/v2-user-test-packet.md`、OpenSpec `v2956-fresh-home-write-path-embedding-failfast` | fresh isolated home 下，interactive write path 现在不会再因为首次 Hugging Face 模型下载而卡住：cold cache 时直接跳过 vec 写入并记 warning；现有 timeout/circuit-breaker 继续覆盖 cached-but-hung encode/import。packet 现在也已有 `2026-06-04` generic MCP fresh-home smoke，证明 embeddings enabled、empty cache 条件下的 real stdio `suggest_memory_entry` 已能快速返回。 |
+| v2.9.57 | 当前版本 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_empty_evidence_truth.py`、OpenSpec `v2957-generic-mcp-empty-packet-s6-evidence` | `v2-user-test-packet` 现在又补了一条 generic MCP 的正式 scenario evidence：isolated temp home 下，`prepare_session_distill(run_ingest=false)` 已在当前机器上实跑并返回 `observation_count = 0`、零 status counters 和空 `observations` 包。这把 generic MCP coverage 从最小 smoke / S8 / S9 / fresh-home write-path 再向 packet `S6 Empty evidence packet` 推进了一步，但 full 12-scenario matrix 仍未补齐。 |
 
 ## 未完成 / 不做项
 
