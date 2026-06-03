@@ -10,20 +10,20 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.39` |
-| `harness_mem/__init__.py` | `2.9.39` |
-| `CHANGELOG.md` | 已有 `2.9.39` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.40` |
+| `harness_mem/__init__.py` | `2.9.40` |
+| `CHANGELOG.md` | 已有 `2.9.40` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.39：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v2.9.40：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环、v2.3 signals/replay、v2.4
 reflection queue、v2.5 context assembly / wake renderer / file_context、
 v2.6 knowledge cache / wiki bridge / contradiction、v2.7 cross-project
 procedural skill、v2.8 session-distill maintenance surfaces，以及
-v2.9.0–v2.9.39 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
+v2.9.0–v2.9.40 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
 truth-sync 的 release train 都已落地。
 
-> **v2.9.39 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.39`。v2.9 在保持
+> **v2.9.40 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.40`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -66,7 +66,11 @@ truth-sync 的 release train 都已落地。
 > 到 `auto_review_candidates(apply=true)`，不再保留旧主链表述。此外，`docs/README.md`
 > 与本页的 v2.9 索引摘要现在也已同步到当前真值：v2.9 不再只被描述成单一
 > `PRD sync candidate surface`，而是从 `/hm:prd-sync` 起步、随后持续扩展为一串
-> maintenance / triage / current-truth sync release slices。
+> maintenance / triage / current-truth sync release slices；同时，
+> `docs/best-practices.md` 的 runtime 工具表也已进一步收束到当前 wake truth：
+> `wake` 作为默认 read surface 覆盖新 session 常见的 profile/rules/handoff 读取，
+> 而 `get_task_handoffs` / `get_confirmed_rules` 只保留给显式 drilldown，不再摆成
+> 默认 wake-up 起点。
 
 ## 完成矩阵
 
@@ -139,7 +143,8 @@ truth-sync 的 release train 都已落地。
 | v2.9.36 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_summary_truth.py`、OpenSpec `v2936-roadmap-status-short-summary-scope-sync` | `roadmap-status` 的短结论现在不再只从 `v2.2` 起讲，而是明确把 `v1.5` 到 `v2.9` 的已完成主线作为连续历史范围来总结。 |
 | v2.9.37 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_version_index_truth.py`、OpenSpec `v2937-roadmap-status-version-index-truth-sync` | `roadmap-status` 的高可见版本索引现在从 `v1.5.x` 连续覆盖到 `v2.9.x`；不再以“后续 Roadmap”名义只从 `v2.2.x` 起列。 |
 | v2.9.38 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_baseline_truth.py`、OpenSpec `v2938-roadmap-status-baseline-scope-sync` | `roadmap-status` 顶部 baseline 摘要现在不再只从 `v2.5` 起讲，而是明确覆盖 `v1.5` 到 `v2.9` 的连续已完成主线。 |
-| v2.9.39 | 当前版本 | `README.md`、`AGENTS.md`、`tests/test_opt_in_hook_truth.py`、OpenSpec `v2939-opt-in-hook-truth-sync` | README 和 AGENTS 现在都不再把“没有 IDE hook”写成绝对句，而是明确：没有默认自动随手记，但已存在默认 off 的 opt-in host hook / scheduler trigger。 |
+| v2.9.39 | 已完成 | `README.md`、`AGENTS.md`、`tests/test_opt_in_hook_truth.py`、OpenSpec `v2939-opt-in-hook-truth-sync` | README 和 AGENTS 现在都不再把“没有 IDE hook”写成绝对句，而是明确：没有默认自动随手记，但已存在默认 off 的 opt-in host hook / scheduler trigger。 |
+| v2.9.40 | 当前版本 | `docs/best-practices.md`、`tests/test_best_practices_wake_drilldown_truth.py`、OpenSpec `v2940-best-practices-wake-drilldown-truth-sync` | `best-practices` 现在把 `wake` 明确写成默认 read surface，并把 `get_task_handoffs` / `get_confirmed_rules` 收成显式 drilldown；不再把它们摆成默认 wake-up 起点。 |
 
 ## 未完成 / 不做项
 

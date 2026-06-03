@@ -906,3 +906,23 @@ release slices。
   - 已存在 opt-in host hook / scheduler trigger
   - `triggers.*` 默认仍是 `off`
 - 已补 focused regression test：`tests/test_opt_in_hook_truth.py`
+
+## v2.9.40：Best-Practices Wake Drilldown Truth Sync
+
+**用户故事**：当维护者查看 `docs/best-practices.md` 的 runtime 工具表时，不应该把
+`get_task_handoffs` / `get_confirmed_rules` 误解成默认 wake-up 起点，因为当前 shipped
+truth 已经明确：新 session 先走一等 MCP `wake`，低层读工具只在显式 drilldown 时再用。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | best-practices wake drilldown sync | `wake` 行明确覆盖新 session 常见的 profile/rules/handoff 读取需求；`get_task_handoffs` / `get_confirmed_rules` 只描述为显式 drilldown |
+| P1 | focused regression guard | 如果 `best-practices` 回流到把这两个低层读工具摆成默认 wake-up 起点，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2940-best-practices-wake-drilldown-truth-sync/`。
+- `docs/best-practices.md` 现在明确：
+  - `wake` 是默认 read surface，并覆盖新 session 常见的 profile/rules/handoff 读取
+  - `get_task_handoffs` / `get_confirmed_rules` 只在显式 drilldown provenance 或原始细节时再读取
+  - 不再把这些低层读工具摆成默认 wake-up 主路径
+- 已补 focused regression test：`tests/test_best_practices_wake_drilldown_truth.py`

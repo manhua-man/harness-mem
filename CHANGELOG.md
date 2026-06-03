@@ -8,6 +8,30 @@
 
 ---
 
+## [2.9.40] — 2026-06-03
+
+**主题：Best-Practices Wake Drilldown Truth Sync**
+
+v2.9.40 收的是 `docs/best-practices.md` 里 wake 读面颗粒度的漂移。当前 shipped truth
+已经把 MCP `wake(project_name=<project>)` 固定成默认 wake-up surface，但这份高可见
+最佳实践文档的 runtime 工具表仍把 `get_task_handoffs` / `get_confirmed_rules` 摆成像是
+默认起点。 这一版不改 runtime，只把工具表和 wake 小节回写到当前真值，并补 focused
+guard。
+
+### Changed
+
+- **best-practices wake drilldown sync**：`docs/best-practices.md` 现在明确写成：
+  `wake` 覆盖新 session 常见的 profile/rules/handoff 读取需求，而
+  `get_task_handoffs` / `get_confirmed_rules` 只保留给显式 drilldown。
+- **focused regression coverage**：新增 `tests/test_best_practices_wake_drilldown_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.40`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 `best-practices` 的 wake 读面颗粒度，并防止文档再次回流到把低层读工具写成默认 wake-up 起点的旧口径。
+
 ## [2.9.39] — 2026-06-03
 
 **主题：Opt-In Hook Truth Sync**
