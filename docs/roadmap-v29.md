@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.57 已完成。
+> 状态：v2.9.0–v2.9.58 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1263,3 +1263,24 @@ client 完全未跑” 这种已经被当前机器上的 Codex MCP smoke 证据�
   - 零 status counters
   - `observations = []`
 - 已补 focused regression coverage：`tests/test_v2_user_test_packet_empty_evidence_truth.py`
+
+## v2.9.58：Generic MCP Cross-Session S10 Evidence
+
+**用户故事**：当维护者回看 packet 的 generic MCP coverage 时，不应该只看到单会话 smoke、
+S6 empty packet、S8/S9 workflow 和 fresh-home write-path，而还缺一条“确认过的 truth
+能不能被下一次会话读回”的 live evidence。至少要有两个独立 MCP 会话之间的 confirmed-truth
+visibility 记录，证明 writer 会话确认的事实，reader 会话的 `wake` 已能读回。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | generic MCP cross-session S10 evidence | `v2-user-test-packet` 追加 writer/reader 两个独立 stdio MCP 会话间的 confirmed-truth visibility entry |
+| P1 | focused regression guard | 如果这条 cross-session truth evidence 再次消失，测试失败 |
+
+### 当前状态（2026-06-04）
+
+- 已完成 `openspec/changes/archive/2026-06-04-v2958-generic-mcp-cross-session-s10-evidence/`。
+- `docs/v2-user-test-packet.md` 现在新增一条 `2026-06-04` generic MCP cross-session entry，记录：
+  - writer 会话 `suggest_memory_entry` -> `confirm_memory_entry`
+  - reader 会话 `wake(no_auto_ingest=true)`
+  - confirmed truth 出现在 `# Essential Truth (L1 · confirmed current)`
+- 已补 focused regression coverage：`tests/test_v2_user_test_packet_cross_session_truth.py`

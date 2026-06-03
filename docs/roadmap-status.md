@@ -10,27 +10,28 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.57` |
-| `harness_mem/__init__.py` | `2.9.57` |
-| `CHANGELOG.md` | 已有 `2.9.57` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.58` |
+| `harness_mem/__init__.py` | `2.9.58` |
+| `CHANGELOG.md` | 已有 `2.9.58` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.57：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v2.9.58：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环（runtime 已落地；OpenSpec `5.5`
 手工 gate 已过，但 full matrix coverage 仍可继续扩展）、v2.3 signals/replay、v2.4
 reflection queue、v2.5 context assembly / wake renderer / file_context、
 v2.6 knowledge cache / wiki bridge / contradiction、v2.7 cross-project
 procedural skill、v2.8 session-distill maintenance surfaces，以及
-v2.9.0–v2.9.57 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
+v2.9.0–v2.9.58 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
 truth-sync 的 release train 都已落地。
 
-> **v2.9.57 发版状态（2026-06-04）**：版本号已 bump 到 `2.9.57`。这一版不改 runtime，
-> 而是继续把 `v2-user-test-packet` 的 generic MCP coverage 从“最小 smoke + deeper workflow”
-> 往正式 scenario 推进：现在 `S6 Empty evidence packet` 也已经有了 live stdio evidence。
-> 当前机器上，对 isolated temp home 的空项目直接调用
-> `prepare_session_distill(run_ingest=false)`，已经能稳定返回零 observations、零 status
-> counters 和空 evidence packet。v2.2 的 OpenSpec `5.5` 手工 gate 仍然已经闭环；剩下没补齐的
-> 还是 full 12-scenario matrix 的覆盖面，而不是 release blocker。
+> **v2.9.58 发版状态（2026-06-04）**：版本号已 bump 到 `2.9.58`。这一版继续扩展
+> `v2-user-test-packet` 的 generic MCP 正式 scenario evidence：在已有最小 smoke、S6、S8/S9
+> 和 fresh-home write-path 基础上，现在又补了一条 **跨会话 confirmed-truth visibility**
+> run。当前机器上，writer 会话确认的一条 memory entry，reader 会话随后调用
+> `wake(no_auto_ingest=true)` 已能在 `# Essential Truth (L1 · confirmed current)` 中读回。
+> 这还不是 Codex/Claude/Cursor 的 UI 级 cross-client pair，但已经把 S10 从“只有表格定义”
+> 推到了 live generic MCP evidence。剩下没补齐的仍是 full 12-scenario matrix 尤其是更强的
+> 跨客户端 pair、以及 `S4/S5/S7/S11/S12`。
 
 ## 完成矩阵
 
@@ -121,7 +122,8 @@ truth-sync 的 release train 都已落地。
 | v2.9.54 | 已完成 | `docs/roadmap-v22x.md`、`docs/roadmap-status.md`、`tests/test_v22_manual_gate_truth.py`、OpenSpec `v2954-v22-manual-gate-truth-sync` | 该版本当时把 `v2.2` 的完成性表述收回到彼时真值：runtime / contract 与 automated non-Claude parity 已落地，但手工 gate 仍未闭环；这个缺口后来已由 `v2-user-test-packet` 的 additional non-Claude Run log entries 补齐。 |
 | v2.9.55 | 已完成 | `docs/v2-user-test-packet.md`、`docs/roadmap-v22x.md`、`docs/roadmap-status.md`、`tests/test_v22_manual_gate_truth.py`、OpenSpec `v2955-v22-non-claude-smoke-log-sync` | `v2-user-test-packet` 已有 `2026-05-25` Claude Code gate entry 与 `2026-06-03` Codex + generic MCP 两条 non-Claude entry，因此 OpenSpec archive `5.5` 手工 gate 现已满足；但 full 12-scenario cross-client matrix 仍未补齐，这部分转为后续覆盖面扩展，而不再是 v2.2 release blocker。 |
 | v2.9.56 | 已完成 | `harness_mem/embedding/model_loader.py`、`harness_mem/storage/sqlite_index.py`、`tests/test_disable_embeddings.py`、`docs/v2-user-test-packet.md`、OpenSpec `v2956-fresh-home-write-path-embedding-failfast` | fresh isolated home 下，interactive write path 现在不会再因为首次 Hugging Face 模型下载而卡住：cold cache 时直接跳过 vec 写入并记 warning；现有 timeout/circuit-breaker 继续覆盖 cached-but-hung encode/import。packet 现在也已有 `2026-06-04` generic MCP fresh-home smoke，证明 embeddings enabled、empty cache 条件下的 real stdio `suggest_memory_entry` 已能快速返回。 |
-| v2.9.57 | 当前版本 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_empty_evidence_truth.py`、OpenSpec `v2957-generic-mcp-empty-packet-s6-evidence` | `v2-user-test-packet` 现在又补了一条 generic MCP 的正式 scenario evidence：isolated temp home 下，`prepare_session_distill(run_ingest=false)` 已在当前机器上实跑并返回 `observation_count = 0`、零 status counters 和空 `observations` 包。这把 generic MCP coverage 从最小 smoke / S8 / S9 / fresh-home write-path 再向 packet `S6 Empty evidence packet` 推进了一步，但 full 12-scenario matrix 仍未补齐。 |
+| v2.9.57 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_empty_evidence_truth.py`、OpenSpec `v2957-generic-mcp-empty-packet-s6-evidence` | `v2-user-test-packet` 现在又补了一条 generic MCP 的正式 scenario evidence：isolated temp home 下，`prepare_session_distill(run_ingest=false)` 已在当前机器上实跑并返回 `observation_count = 0`、零 status counters 和空 `observations` 包。这把 generic MCP coverage 从最小 smoke / S8 / S9 / fresh-home write-path 再向 packet `S6 Empty evidence packet` 推进了一步，但 full 12-scenario matrix 仍未补齐。 |
+| v2.9.58 | 当前版本 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_cross_session_truth.py`、OpenSpec `v2958-generic-mcp-cross-session-s10-evidence` | `v2-user-test-packet` 现在又补了一条 generic MCP 的 live S10 近邻证据：两个独立 stdio MCP 会话共用同一 temp home 时，writer 会话确认的 memory entry，reader 会话随后 `wake(no_auto_ingest=true)` 已能在 `# Essential Truth (L1 · confirmed current)` 中读回。这把 generic MCP coverage 从单会话 smoke 再推进到了跨会话 truth visibility，但还不是更强的 UI 级 cross-client pair。 |
 
 ## 未完成 / 不做项
 

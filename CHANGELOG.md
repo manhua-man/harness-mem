@@ -8,6 +8,33 @@
 
 ---
 
+## [2.9.58] — 2026-06-04
+
+**主题：Generic MCP Cross-Session S10 Evidence**
+
+v2.9.58 继续补 `v2-user-test-packet` 的正式 scenario evidence。这一版新增的是
+`S10 Cross-client confirmed truth visibility` 的一条 live 近邻证据：当前机器上已经实跑了
+两个独立 generic MCP stdio 会话，共用同一个 temp home。writer 会话创建并确认一条
+memory entry，reader 会话随后调用 `wake(no_auto_ingest=true)`，已经能在 L1
+`Essential Truth` 里读回同一条 confirmed truth。它还不是 Codex/Claude/Cursor 这种 UI 级
+跨客户端 pair，但确实把 packet 从“单会话 smoke”推进到了“跨会话 truth visibility”。
+
+### Changed
+
+- **packet S10 near-neighbor evidence**：`docs/v2-user-test-packet.md` 新增一条
+  `2026-06-04` generic MCP cross-session entry，记录 writer/reader 两个独立 stdio MCP
+  会话间的 confirmed truth visibility。
+- **focused regression coverage**：新增
+  `tests/test_v2_user_test_packet_cross_session_truth.py`，防止这条 S10 evidence 再漂掉。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.58`。
+
+### Boundaries
+
+- 本版本不宣称 full `12-scenario` cross-client matrix 已补齐。
+- 它也不宣称已经拿到真正的 Codex→Claude 或 Cursor→Claude UI 级 cross-client S10 pair；
+  当前只证明了 **两个独立 generic MCP 会话** 之间的 confirmed truth visibility。
+
 ## [2.9.57] — 2026-06-04
 
 **主题：Generic MCP Empty-Packet S6 Evidence**

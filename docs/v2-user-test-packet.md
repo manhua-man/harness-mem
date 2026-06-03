@@ -447,6 +447,33 @@ Boundary:
   这里验证的是底层 `prepare_session_distill` 空包返回。
 - 它也**不等于** full matrix 已完成：S4 / S5 / S7 / S10 / S11 / S12 仍未在 generic MCP 上补齐。
 
+## 2026-06-04 — Generic MCP cross-session confirmed truth visibility (Windows, isolated temp home)
+
+Clients: Generic MCP client (writer session + reader session, raw JSON-RPC over stdio contract)
+harness-mem version: 2.9.58
+Project: `v2958-cross-session`
+Environment: isolated temp home, two independent MCP server processes, `HARNESS_MEM_DISABLE_EMBEDDINGS=1`
+
+Pass: near-neighbor S10 (confirmed truth written in one MCP session and surfaced by `wake` in a second MCP session)
+Not run: full 12-scenario matrix, UI-level Codex/Claude/Cursor cross-client pair, S4/S5/S7/S11/S12
+
+Evidence:
+- writer session `initialize` returned the MCP handshake successfully
+- reader session `initialize` returned the MCP handshake successfully
+- writer session `set_active_project(project_name="v2958-cross-session")` returned success
+- writer session `suggest_memory_entry(...)` returned pending entry id `09775849-a946-4d38-87a5-aab036a2f19b`
+- writer session `confirm_memory_entry(entry_id=...)` returned `status = "accepted"`
+- reader session `wake(project_name="v2958-cross-session", no_auto_ingest=true)` returned success
+- returned wake output included the confirmed truth under `# Essential Truth (L1 · confirmed current)`:
+  `Cross-session confirmed truth should surface in wake output.`
+
+Boundary:
+- 这条 entry 证明 **两个独立 generic MCP 会话** 之间已经有 live confirmed-truth visibility：
+  writer 会话确认的事实，reader 会话随后 `wake` 能读回。
+- 它仍**不等于** packet 表里更强的 UI 级 cross-client pair 已完成；当前还没有
+  Codex→Claude、Cursor→Claude 或 integration-workspace Cursor pair 的对应 run log。
+- 它也**不等于** full matrix 已完成：这里只把 generic MCP 从单会话 smoke 再推进到了跨会话 truth visibility。
+
 ## 2026-06-03 — Cursor hook install smoke (Windows, temp project)
 
 Clients: Cursor integration asset only (not a full Cursor agent run)
