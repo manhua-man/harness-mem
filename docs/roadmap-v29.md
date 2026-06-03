@@ -1173,8 +1173,9 @@ authority 指向 `roadmap-status.md` 与 `CHANGELOG.md`。
 
 **用户故事**：当维护者回看 `docs/roadmap-v22x.md`、`docs/roadmap-status.md` 和
 `docs/v2-user-test-packet.md` 时，不应该同时看到 “v2.2 已完成” 和 “非 Claude client
-未跑” 这两种互相冲突的说法。当前真值应明确区分：runtime / contract 已落地，但手工
-cross-client release gate 仍缺非 Claude client 的 Run log entry。
+未跑” 这两种互相冲突的说法。这个切片当时的真值是：runtime / contract 已落地，但手工
+cross-client release gate 仍缺非 Claude client 的 Run log entry；该缺口后来已被
+`2026-06-03` 的 non-Claude entries 补齐。
 
 | 优先级 | 任务 | 验收 |
 |---|---|---|
@@ -1187,7 +1188,7 @@ cross-client release gate 仍缺非 Claude client 的 Run log entry。
 - `v2.2` 的完成性表述现在已收回到当前真值：
   - runtime / contract 已落地
   - loop harness 已提供 automated non-Claude parity evidence
-  - 但 `docs/v2-user-test-packet.md` 的 Run log 仍缺 release gate 要求的非 Claude client entry
+  - 当时 `docs/v2-user-test-packet.md` 的 Run log 仍缺 release gate 要求的非 Claude client entry
 - 已补 focused regression test：`tests/test_v22_manual_gate_truth.py`
 
 ## v2.9.55：v2.2 Non-Claude Smoke Log Sync
@@ -1212,4 +1213,6 @@ client 完全未跑” 这种已经被当前机器上的 Codex MCP smoke 证据�
 - `v2.2` 的手工 gate 口径也同步到更精确的当前真值：
   - 已有 1 条 non-Claude smoke
   - 但 full 12-scenario matrix 与 Cursor / generic MCP run log 仍未补齐
+- 后续 `2026-06-03` 的额外 Run log 已把 OpenSpec `5.5` 手工 gate 彻底补齐；该节保留的是
+  当时 `v2.9.55` 发版瞬间的状态。
 - 已补 focused regression test：`tests/test_v22_manual_gate_truth.py`

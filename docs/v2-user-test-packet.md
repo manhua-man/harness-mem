@@ -258,6 +258,14 @@ Cursor 不需要单独的 `.cursor/commands` 模板。两条接入路径，二�
 
 按时间倒序追加。每次 entry 包含：日期、tester、跑了哪些 client、scenario 通过情况、客户端特异失败矩阵填充。
 
+当前 gate 真值（2026-06-03）：
+- OpenSpec archive `2026-05-25-v220-ai-ide-entry-loop/tasks.md` 的 `5.5` 手工 gate
+  只要求 **1 个 Claude Code client + 至少 1 个 non-Claude client** 的手工 run 写回本节。
+- 该门槛现在已经满足：`2026-05-25` 的 Claude Code entry 已存在，且 `2026-06-03` 已补
+  Codex CLI 与 generic MCP 两条 non-Claude entry。
+- 这**不等于** full 12-scenario matrix 已经在四个 client 上全部补齐；后者仍是可继续扩展的覆盖面工作，
+  但不再构成 v2.2 release gate 的阻塞条件。
+
 > 例：
 >
 > ```text

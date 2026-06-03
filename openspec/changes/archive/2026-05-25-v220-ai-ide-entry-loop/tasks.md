@@ -36,5 +36,4 @@
 - [x] 5.2 `python -m ruff check .` — All checks passed
 - [x] 5.3 `python -m mypy harness_mem` — Success: no issues found in 73 source files
 - [x] 5.4 `openspec validate --all --strict` — 20 passed, 0 failed
-- [ ] 5.5 Manual v2.2 client test packet run with Claude Code plus at least one non-Claude client (manual gate; tester logs result into `docs/v2-user-test-packet.md` "Run log" section).
-
+- [x] 5.5 Manual v2.2 client test packet run with Claude Code plus at least one non-Claude client (manual gate; satisfied by the `2026-05-25` Claude Code run log entry plus the `2026-06-03` Codex CLI / generic MCP non-Claude entries in `docs/v2-user-test-packet.md`).
