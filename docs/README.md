@@ -2,6 +2,9 @@
 
 `harness-mem` 的产品文档入口。
 
+当前发版状态、已完成切片和未做边界以 [`roadmap-status.md`](./roadmap-status.md) 与
+`CHANGELOG.md` 为准；各版本 roadmap 主要保留切片设计、验收口径和历史决策链，不单独充当当前实现真值。
+
 | 目录 | 内容 |
 |---|---|
 | `benchmark/` | benchmark 系统设计与各版本基线，例如 `v160-baseline.md`、`v161-bucket-budget-impact.md`、`longmemeval-five-dimensions.md` |

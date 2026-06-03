@@ -8,6 +8,28 @@
 
 ---
 
+## [2.9.51] — 2026-06-03
+
+**主题：Docs README Truth Authority Sync**
+
+v2.9.51 收的是 `docs/README.md` 对“当前发版真值看哪里”的 authority 说明。此前 docs 索引页
+只列出了 `roadmap-status.md` 和各版本 roadmap，但没有像根入口与 `reference-projects.md` 那样
+直接说明当前 shipped 状态、已完成切片和未做边界应以 `roadmap-status.md` 与 `CHANGELOG.md`
+为准。 这一版不改 runtime，只把 docs 入口 authority chain 写清楚，并补 focused guard。
+
+### Changed
+
+- **docs README truth-authority sync**：`docs/README.md` 现在明确把当前发版状态、已完成切片和
+  未做边界指向 `roadmap-status.md` 与 `CHANGELOG.md`。
+- **focused regression coverage**：新增 `tests/test_docs_readme_truth_authority_sync.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.51`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 docs 文档索引入口对当前 release truth authority 的说明。
+
 ## [2.9.50] — 2026-06-03
 
 **主题：Root Truth Authority Sync**
