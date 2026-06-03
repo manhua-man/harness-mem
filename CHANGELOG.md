@@ -8,6 +8,27 @@
 
 ---
 
+## [2.9.36] — 2026-06-03
+
+**主题：Roadmap-Status Short Summary Scope Sync**
+
+v2.9.36 收的是 `docs/roadmap-status.md` 底部“短结论”的范围漂移。当前状态页与完成矩阵
+已经覆盖 `v1.5` 到 `v2.9`，但这段高可见总结仍只从 `v2.2` 起讲。 这一版不改 runtime，
+只把短结论回写到当前真值，并补 focused guard。
+
+### Changed
+
+- **roadmap-status short summary sync**：`docs/roadmap-status.md` 的“短结论”
+  现在明确从 `v1.5` baseline 到 `v2.9` release train 总结已完成主线。
+- **focused regression coverage**：`tests/test_roadmap_status_summary_truth.py`
+  现在拒绝回流到只从 `v2.2` 起讲的旧口径。
+- **release writeback**：`docs/roadmap-v29.md`、版本号与本 changelog 已同步到 `2.9.36`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 `roadmap-status` 的短结论范围，并防止该总结再次回流到过窄的 `v2.2` 起点。
+
 ## [2.9.35] — 2026-06-03
 
 **主题：Docs README Status Range Truth Sync**
