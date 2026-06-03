@@ -8,6 +8,28 @@
 
 ---
 
+## [2.9.26] — 2026-06-03
+
+**主题：Roadmap-Status Summary Truth Sync**
+
+v2.9.26 收的是 `docs/roadmap-status.md` 底部短结论的残留旧口径。当前 shipped
+版本线已经连续发到 `v2.9.26`，但总结段还停在“完成到 v2.8”。这一版不改 runtime，
+只把高可见总结段写回当前真值，并补 focused guard。
+
+### Changed
+
+- **roadmap-status short-summary sync**：`docs/roadmap-status.md` 的短结论现在明确写出
+  路线已连续收口到 `v2.9`，并点名 `v2.9` 已扩成 PRD sync / maintenance /
+  triage / truth-sync release train。
+- **focused regression coverage**：新增 `tests/test_roadmap_status_summary_truth.py`。
+- **release writeback**：`docs/roadmap-v29.md`、版本号与本 changelog 已同步到 `2.9.26`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 release slice。
+- 它只同步 `roadmap-status` 的高可见总结段，并防止该总结回流到 “完成到 v2.8”
+  的旧写法。
+
 ## [2.9.25] — 2026-06-03
 
 **主题：v2.9 Index Truth Sync**

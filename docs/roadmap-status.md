@@ -10,18 +10,18 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.25` |
-| `harness_mem/__init__.py` | `2.9.25` |
-| `CHANGELOG.md` | 已有 `2.9.25` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.26` |
+| `harness_mem/__init__.py` | `2.9.26` |
+| `CHANGELOG.md` | 已有 `2.9.26` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.25：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.26：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
 boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力，以及
 v2.8.0–v2.8.2 的 session-distill maintenance surfaces、v2.9.0 的 PRD sync
 candidate surface、v2.9.1 的 status triage surface、v2.9.2 的 plugin
 doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 stale CLI surface guard sync、v2.9.5 的 shell completion maintenance truth、v2.9.6 的 maintenance surface collateral sync、v2.9.7 的 README and telemetry maintenance truth、v2.9.8 的 maintenance surface collateral guard、v2.9.9 的 reflection project-root resolution、v2.9.10 的 worker-mode truth sync，以及 v2.9.11 的 scheduler-trigger truth sync 都已落地。
 
-> **v2.9.25 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.25`。v2.9 在保持
+> **v2.9.26 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.26`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -123,7 +123,8 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 | v2.9.22 | 已完成 | `tools/session-distill/SKILL.md`、`plugins/harness-mem/README.md`、`tests/test_session_distill_skill_truth.py`、OpenSpec `v2922-session-distill-skill-truth-sync` | session-distill skill 与 plugin distill 摘要现在默认走 `auto_review_candidates(project_name=<project>, apply=true)`；`list_candidates` / `confirm_*` / `reject_*` 只保留给 drilldown 或 repair。 |
 | v2.9.23 | 已完成 | `AGENTS.md`、`tests/test_agents_distill_truth.py`、OpenSpec `v2923-agents-distill-truth-sync` | 根 AGENTS 现在把 distill 主链直接写成 `prepare_session_distill -> suggest_* -> auto_review_candidates(project_name=<project>, apply=true)`；旧的 `list_candidates + confirm/reject` 只保留给 repair/drilldown。 |
 | v2.9.24 | 已完成 | `docs/roadmap-v22x.md`、`tests/test_roadmap_v22x_distill_truth.py`、OpenSpec `v2924-roadmap-v22x-distill-truth-sync` | 历史 v2.2 roadmap 里仍会描述 active distill contract 的那一行，现在已直接指向 `auto_review_candidates(apply=true)`；不再保留 `list_candidates -> auto-review/confirm/reject` 的旧写法。 |
-| v2.9.25 | 当前版本 | `docs/README.md`、`docs/roadmap-status.md`、`tests/test_v29_index_truth.py`、OpenSpec `v2925-v29-index-truth-sync` | 高可见文档索引现在把 v2.9 正确描述成从 `/hm:prd-sync` 起步、随后延伸成 maintenance / truth-sync release train；不再把整个版本线缩成单一 `PRD sync candidate surface`。 |
+| v2.9.25 | 已完成 | `docs/README.md`、`docs/roadmap-status.md`、`tests/test_v29_index_truth.py`、OpenSpec `v2925-v29-index-truth-sync` | 高可见文档索引现在把 v2.9 正确描述成从 `/hm:prd-sync` 起步、随后延伸成 maintenance / truth-sync release train；不再把整个版本线缩成单一 `PRD sync candidate surface`。 |
+| v2.9.26 | 当前版本 | `docs/roadmap-status.md`、`tests/test_roadmap_status_summary_truth.py`、OpenSpec `v2926-roadmap-status-summary-truth-sync` | `roadmap-status` 的短结论现在也同步到当前真值：版本线已连续收口到 v2.9，而不再停留在“完成到 v2.8”的旧总结。 |
 
 ## 未完成 / 不做项
 
@@ -158,15 +159,18 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 ## 短结论
 
 v2.2 已完成用户入口闭环，但当前产品仍不是后台自学习或自动随手记。
-路线已经按一个版本一个文档重切并完成到 v2.8：v2.3 signals/replay、
+路线已经按一个版本一个文档重切并连续收口到 v2.9：v2.3 signals/replay、
 v2.4 reflection queue、v2.5 context assembly、v2.6 wiki/contradiction、
-v2.7 cross-project skill，以及 v2.8 session-distill maintenance 都已落地。
+v2.7 cross-project skill、v2.8 session-distill maintenance，以及 v2.9 的
+PRD sync / maintenance / triage / truth-sync release train 都已落地。
 
 v2.4 reflection queue 四个切片（v2.4.0–v2.4.3）已实现、验证并发版。
 v2.5 context assembly 与 file context、v2.6 knowledge cache / wiki /
 candidate-only contradiction boundary、v2.7 shared skill / controlled
-activation / reviewed improvement suggestions，以及 v2.8 session-distill
-maintenance surfaces 都已并入正式版本线。当前仍未启用 always-on daemon，
+activation / reviewed improvement suggestions、v2.8 session-distill
+maintenance surfaces，以及 v2.9 的 `/hm:prd-sync`、`/hm:status`、maintenance
+CLI collateral truth、reflection/config truth sync、wake/distill/status
+entrypoint truth sync 都已并入正式版本线。当前仍未启用 always-on daemon，
 MCP stdout 纯净性继续保持，shared skill 也仍然坚持显式消费。
 
 优先级依据是：没有 signals 就无法 replay；没有 queue health 就无法安全 reflection；
