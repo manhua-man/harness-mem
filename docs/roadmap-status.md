@@ -99,8 +99,8 @@ truth-sync 的 release train 都已落地。
 > 同时，`docs/cli/v2.4.md`、`docs/error-codes.md` 和 `docs/cli-design-expert.md` 这类高可见参考文档
 > 也已同步到同一 authority chain，不再把操作说明、错误码表或设计准则误当成当前实现真值；同时，
 > `v2.2` 的完成性表述现在也已收回到当前真值：runtime / contract 与 loop-harness parity 已落地，
-> `docs/v2-user-test-packet.md` 也已补 1 条 Codex non-Claude smoke entry；但 full
-> cross-client matrix 仍未补齐，因此手工 release gate 还不能算闭环。
+> `docs/v2-user-test-packet.md` 也已补 Codex + generic MCP 两条 non-Claude smoke
+> entry；但 full cross-client matrix 仍未补齐，因此手工 release gate 还不能算闭环。
 
 ## 完成矩阵
 
@@ -114,7 +114,7 @@ truth-sync 的 release train 都已落地。
 | v1.8.0 | 已完成保守闭环 | `ProceduralCandidate`、confirmed `Skill`、`search_skills`、`record_skill_result`、MCP skill tools、procedural tests/fixtures | 不是 autonomous learning：Skill 不进默认 wake、不自动确认、不跨项目共享，也没有 daemon。 |
 | v2.0.0 | 已完成 | heuristic `distill` CLI 与 MCP `distill_sessions` 已移除；distill 只走 LLM agent | `/hm:distill` 仍是用户工作流，背后走 `prepare_session_distill` + `suggest_*`。 |
 | v2.1.0 | 已完成 | CLI parser 只暴露 maintenance 命令；REST package/tests 删除；README/AGENTS/OpenSpec 已围绕 Slash/Skill/Agent workflow 重写 | breaking surface cleanup；MCP tool signatures 与 data schema 保持稳定。 |
-| v2.2.0 | runtime 已完成；手工 gate 未闭 | `plugins/harness-mem/commands/hm/*.md`、`plugins/harness-mem/skills/harness-mem/SKILL.md`、`docs/v2-user-test-packet.md`、loop harness tests | 用户入口稳定为 Slash / Skill / 自然语言；loop harness 已覆盖 non-Claude parity，且 packet 现在已有 1 条 Codex non-Claude smoke entry；但 full 12-scenario cross-client matrix 与 Cursor / generic MCP run log 仍未补齐，所以 release gate 仍未闭环；CLI 仍是 maintenance console；无后台 daemon。 |
+| v2.2.0 | runtime 已完成；手工 gate 未闭 | `plugins/harness-mem/commands/hm/*.md`、`plugins/harness-mem/skills/harness-mem/SKILL.md`、`docs/v2-user-test-packet.md`、loop harness tests | 用户入口稳定为 Slash / Skill / 自然语言；loop harness 已覆盖 non-Claude parity，且 packet 现在已有 Codex + generic MCP 两条 non-Claude smoke entry；但 full 12-scenario cross-client matrix 与 Cursor run log 仍未补齐，所以 release gate 仍未闭环；CLI 仍是 maintenance console；无后台 daemon。 |
 | v2.3.0 | 已完成 | `RetrievalSignal`、`MetabolismRun`、replay window selector、`metabolism_preview` MCP tool、OpenSpec `metabolism` spec | 只读 preview / signal 地基；不写 suggestion、不改 truth。 |
 | v2.3.1 | 已完成 | `MergeSuggestionCandidate`、`StaleTruthSuggestionCandidate`、`metabolism_run` MCP tool、weak-link signal opt-in、token trim、calibration tests | 生成 reviewable suggestions；默认不改变 wake/search 行为，`weak_link_signals` 需 opt-in。 |
 | v2.4.0 | 已完成（v2.4.3 收口发版） | `ReflectionJob` schema / 状态机、processing lease、provenance（`user\|agent\|ide_hook\|scheduler`）、retry policy、job list/read MCP helper、`test_reflection_*.py`（121）、`test_mcp_reflection_jobs.py`（10） | host-triggered reflection 的 job 生命周期地基；不引入常驻 worker；不暴露 `harness-mem reflection` 业务子命令。 |
@@ -189,7 +189,7 @@ truth-sync 的 release train 都已落地。
 | v2.9.52 | 已完成 | `plugins/harness-mem/README.md`、`docs/best-practices.md`、`tests/test_usage_docs_truth_authority_sync.py`、OpenSpec `v2952-usage-docs-truth-authority-sync` | 高可见使用文档现在也明确把当前发版状态、已完成切片和未做边界 authority 指向 `roadmap-status.md` 与 `CHANGELOG.md`；它们聚焦安装、集成和使用建议，不单独充当当前实现真值。 |
 | v2.9.53 | 已完成 | `docs/cli/v2.4.md`、`docs/error-codes.md`、`docs/cli-design-expert.md`、`tests/test_reference_docs_truth_authority_sync.py`、OpenSpec `v2953-reference-docs-truth-authority-sync` | 高可见参考文档现在也明确把当前发版状态、已完成切片和未做边界 authority 指向 `roadmap-status.md` 与 `CHANGELOG.md`；它们聚焦 operator reference、错误码和设计原则，不单独充当当前实现真值。 |
 | v2.9.54 | 已完成 | `docs/roadmap-v22x.md`、`docs/roadmap-status.md`、`tests/test_v22_manual_gate_truth.py`、OpenSpec `v2954-v22-manual-gate-truth-sync` | `v2.2` 的完成性表述已收回到当前真值：runtime / contract 与 automated non-Claude parity 已落地，但手工 gate 仍未闭环。 |
-| v2.9.55 | 当前版本 | `docs/v2-user-test-packet.md`、`docs/roadmap-v22x.md`、`docs/roadmap-status.md`、`tests/test_v22_manual_gate_truth.py`、OpenSpec `v2955-v22-non-claude-smoke-log-sync` | `v2-user-test-packet` 现在已补 1 条 Codex non-Claude smoke entry，不再把 non-Claude client 写成“完全未跑”；但 full 12-scenario cross-client matrix 仍未补齐，所以 v2.2 的手工 release gate 仍保持未闭状态。 |
+| v2.9.55 | 当前版本 | `docs/v2-user-test-packet.md`、`docs/roadmap-v22x.md`、`docs/roadmap-status.md`、`tests/test_v22_manual_gate_truth.py`、OpenSpec `v2955-v22-non-claude-smoke-log-sync` | `v2-user-test-packet` 现在已补 Codex + generic MCP 两条 non-Claude smoke entry，不再把 non-Claude client 写成“完全未跑”；但 full 12-scenario cross-client matrix 仍未补齐，所以 v2.2 的手工 release gate 仍保持未闭状态。 |
 
 ## 未完成 / 不做项
 
@@ -232,7 +232,7 @@ truth-sync 的 release train 都已落地。
 从 v1.5 baseline 到 v2.9 release train，主实现路线已经按一个版本一个文档重切并连续收口。
 v1.5 baseline、v1.6 persistent vectors / bucket budget、v1.7 temporal truth、
 v1.8 procedural skill、v2.0 heuristic distill 移除、v2.1 maintenance-only CLI、
-v2.2 用户入口闭环（runtime / contract 已落地，且已有 1 条 Codex non-Claude smoke entry，但手工 full matrix gate 未闭）、
+v2.2 用户入口闭环（runtime / contract 已落地，且已有 Codex + generic MCP 两条 non-Claude smoke entry，但手工 full matrix gate 未闭）、
 v2.3 signals/replay、v2.4 reflection queue、v2.5 context assembly、v2.6
 wiki/contradiction、v2.7 cross-project skill、v2.8 session-distill maintenance，
 以及 v2.9 的 PRD sync / maintenance / triage / truth-sync release train 都已落地。

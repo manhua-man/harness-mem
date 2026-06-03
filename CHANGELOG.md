@@ -12,18 +12,21 @@
 
 **主题：v2.2 Non-Claude Smoke Log Sync**
 
-v2.9.55 收的是 `v2-user-test-packet` 的一条直接事实更新。上一版已经把 `v2.2`
+v2.9.55 收的是 `v2-user-test-packet` 的 non-Claude run-log 事实更新。上一版已经把 `v2.2`
 从“完全闭环”收回成“runtime 已完成、手工 gate 未闭”，但 packet 本身仍写着
 `Known gap: 非 Claude client ... 未跑`。当前机器上已经能跑通一条 Codex MCP 最小
-smoke：`set_active_project`、empty-project `wake`、`suggest_memory_entry` 都成功。
-这一版把这条 non-Claude 证据补进 Run log，同时明确这还不等于 full matrix 已跑完。
+smoke；继续补跑后，generic MCP raw JSON-RPC 最小 smoke 也已通过：`wake`、
+`set_active_project`、`suggest_memory_entry`、`list_candidates` 都成功。这一版把这两条
+non-Claude 证据补进 Run log，同时明确这还不等于 full matrix 已跑完。
 
 ### Changed
 
-- **packet run-log truth sync**：`docs/v2-user-test-packet.md` 新增一条
-  `2026-06-03` Codex MCP smoke entry，不再把 non-Claude client 写成“完全未跑”。
+- **packet run-log truth sync**：`docs/v2-user-test-packet.md` 新增
+  `2026-06-03` Codex MCP smoke entry 与 generic MCP JSON-RPC smoke entry，不再把
+  non-Claude client 写成“完全未跑”。
 - **status wording sync**：`docs/roadmap-v22x.md` 与 `docs/roadmap-status.md`
-  现在明确：已有 1 条 non-Claude smoke，但 full 12-scenario matrix 仍未闭环。
+  现在明确：已有 Codex + generic MCP 两条 non-Claude smoke，但 full 12-scenario
+  matrix 仍未闭环。
 - **release writeback**：`docs/roadmap-v29.md`、版本号与本 changelog 已同步到 `2.9.55`。
 
 ### Boundaries

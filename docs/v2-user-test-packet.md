@@ -300,7 +300,7 @@ Fixes filed:
 ## 2026-06-03 — Codex MCP smoke (Windows, F:\memory-lab\harness-mem)
 
 Clients: Codex CLI (natural-language + MCP stdio)
-harness-mem version: 2.9.54
+harness-mem version: 2.9.55
 Project: F--memory-lab--harness-mem
 
 Pass: S1 (cold wake on empty project, MCP `wake` path), S3 (project resolution via `set_active_project`), partial S2 (candidate write path via `suggest_memory_entry`)
@@ -317,3 +317,24 @@ Boundary:
 - 它**不等于** v2.2 full cross-client matrix 已补齐：目前只覆盖了 Codex 的最小 wake /
   project-resolution / candidate-write 可用性，还没有补完 packet 里定义的完整 12-scenario
   run，也没有补 Cursor / generic MCP 的对应 run log。
+
+## 2026-06-03 — Generic MCP JSON-RPC smoke (Windows, F:\memory-lab\harness-mem)
+
+Clients: Generic MCP client (raw JSON-RPC over stdio contract)
+harness-mem version: 2.9.55
+Project: F--memory-lab--harness-mem
+
+Pass: S1 (empty-project `wake` via raw MCP), S3 (`set_active_project`), partial S2 (`suggest_memory_entry` + `list_candidates`)
+Not run: full 12-scenario matrix, S4/S5/S6/S7/S8/S9/S10/S11/S12
+
+Evidence:
+- raw JSON-RPC `tools/call` to `wake(project_name="v22-generic-mcp", no_auto_ingest=true)` returned empty L0/L1/L2 summary
+- raw JSON-RPC `tools/call` to `set_active_project(project_name="v22-generic-mcp")` returned success
+- raw JSON-RPC `tools/call` to `suggest_memory_entry(...)` returned success with pending entry id `3926f003-1bcc-485e-89dc-63aa432dccd0`
+- raw JSON-RPC `tools/call` to `list_candidates(status="pending")` returned that same pending memory entry
+
+Boundary:
+- 这条 entry 证明 **generic MCP client 路径** 也已经在当前机器上跑通最小 read/write smoke，
+  不再只是理论上的 setup note。
+- 它仍**不等于** full matrix 已完成：这里只覆盖了 raw MCP 下的 empty wake、project activation、
+  candidate write/readback，还没有补完 packet 定义的其余 scenario，也没有 Cursor 端 run log。
