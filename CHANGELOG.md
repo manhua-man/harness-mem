@@ -30,10 +30,13 @@ Cursor packet run log 仍未补齐，还额外补上了两条更强的近邻证�
 - **wake renderer S10 read-side evidence**：packet 新增一条 `cmd_wake_up(...)` 读端 readback
   entry，证明 accepted current-truth entry 已能通过真实 wake renderer 回显到
   `# Essential Truth  (L1 · confirmed current)`。
+- **Hermes oneshot runtime evidence**：packet 新增一条 Hermes 原生命令 `-z/--oneshot` 的真实
+  non-Claude write/read smoke，证明 Hermes frontend 已能在当前机器上驱动 harness-mem 写入并由真实 wake 读回。
 - **focused regression coverage**：新增
   `tests/test_v2_user_test_packet_remaining_matrix_truth.py`、
   `tests/test_v2_user_test_packet_s4_transport_unavailable_truth.py`、
-  `tests/test_v2_user_test_packet_wake_renderer_truth.py`，并在
+  `tests/test_v2_user_test_packet_wake_renderer_truth.py`、
+  `tests/test_v2_user_test_packet_hermes_oneshot_truth.py`，并在
   `tests/mcp/test_smoke.py` 增加错误 launch target 的 handshake-failure guard，同时新增
   `tests/integration/test_v2_user_test_packet_wake_renderer_truth.py` 锁定真实 wake renderer
   读端行为。
@@ -43,6 +46,7 @@ Cursor packet run log 仍未补齐，还额外补上了两条更强的近邻证�
 - 本版本仍不宣称 full `12-scenario` cross-client matrix 已补齐。
 - 它没有产出 `Codex -> Claude` / `Cursor -> Claude` 的 UI 级 `S10` transcript。
 - 它也没有产出 `harness_mem/integration` 工作区上的真实 Cursor packet scenario run log。
+- `claude -p` 在这台机器上的自动化读端仍然会卡住，因此 Hermes 这条证据还不是跨客户端 transcript。
 
 ## [2.9.60] — 2026-06-04
 

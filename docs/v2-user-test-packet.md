@@ -507,6 +507,38 @@ Boundary:
   Claude/Cursor 读端的真实 transcript，只是把读端推进到了真正的 `cmd_wake_up` renderer。
 - 它也**不等于** Cursor integration 工作区上的 packet run log 已存在。
 
+## 2026-06-04 — Hermes oneshot write/read smoke (Windows, F:\memory-lab\harness-mem)
+
+Clients: Hermes CLI (`hermes -z/--oneshot`) as a real non-Claude frontend
+harness-mem version: 2.9.61
+Project: `harness-mem`
+Environment: current machine, Hermes direct oneshot mode (`--yolo`)
+
+Pass: real non-Claude client write/read smoke; near-neighbor S10 evidence via Hermes write-side
+Not run: UI-level Codex→Claude / Cursor→Claude pair, integration-workspace Cursor transcript
+
+Evidence:
+- `hermes -z "reply with the single word ok" --yolo` returned `ok`
+- an explicit Hermes wake prompt using `wake(project_name="harness-mem", no_auto_ingest=true)` returned `PASS`
+- a second explicit Hermes wake prompt using the same `project_name` returned the exact wake line for
+  `Hermes cross-client sentinel fact.`
+- a stronger Hermes oneshot task reported:
+  - `SECTION A`: wrote and confirmed `Hermes cross-client sentinel fact.`
+  - `SECTION B`: wake output readback completed
+  - `SECTION C`: `Test complete.`
+- repo-side verification after the Hermes run confirmed:
+  - accepted entry exists for project `harness-mem`
+  - content = `Hermes cross-client sentinel fact.`
+  - `cmd_wake_up("harness-mem", no_auto_ingest=true)` rendered that fact under
+    `# Essential Truth  (L1 · confirmed current)`
+
+Boundary:
+- 这条 entry 证明 **Hermes 原生命令的无头 oneshot 面** 在当前机器上可用，而且确实能驱动
+  harness-mem 的真实写入与读回，不只是理论支持列表里的一个名字。
+- 它仍**不等于** packet 目标里的 UI 级 cross-client pair：这里是 Hermes 自己完成写端动作，
+  后续由 repo-side wake 验证读回，不是另一个真实 client 的 transcript。
+- 它也**不等于** Claude 的自动化读端已经打通；当前 `claude -p` 在这台机器上仍然会卡住。
+
 ## 2026-06-04 — Generic MCP distill summary stays repair-only (Windows, isolated temp home)
 
 Clients: Generic MCP client (raw JSON-RPC over stdio contract)

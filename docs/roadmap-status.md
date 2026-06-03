@@ -10,26 +10,25 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.60` |
-| `harness_mem/__init__.py` | `2.9.60` |
-| `CHANGELOG.md` | 已有 `2.9.60` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.61` |
+| `harness_mem/__init__.py` | `2.9.61` |
+| `CHANGELOG.md` | 已有 `2.9.61` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.60：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v2.9.61：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环（runtime 已落地；OpenSpec `5.5`
 手工 gate 已过，但 full matrix coverage 仍可继续扩展）、v2.3 signals/replay、v2.4
 reflection queue、v2.5 context assembly / wake renderer / file_context、
 v2.6 knowledge cache / wiki bridge / contradiction、v2.7 cross-project
 procedural skill、v2.8 session-distill maintenance surfaces，以及
-v2.9.0–v2.9.60 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
+v2.9.0–v2.9.61 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
 truth-sync 的 release train 都已落地。
 
-> **v2.9.60 发版状态（2026-06-04）**：版本号已 bump 到 `2.9.60`。这一版继续补
-> `v2-user-test-packet` 的正式 scenario evidence，但这次落在 repo-truth 可复核面：packet
-> 定义的 `S11` 字符串扫描范围里，旧的 daily CLI 面现在只剩“已删除/不要求手动跑”的反例说明，
-> 不再作为当前用户 path 被教学。也就是说，`README.md`、plugin README、`plugins/harness-mem/commands/hm/*.md`
-> 这些高可见入口上，stale CLI surface 已经按 packet 定义范围收干净。剩下没补齐的仍是更强的
-> live client scenarios，尤其是 `S4/S5/S7`、UI 级 cross-client pair，以及
+> **v2.9.61 发版状态（2026-06-04）**：版本号已 bump 到 `2.9.61`。这一版除了把 S11 stale-CLI
+> repo-truth、S4 lower-layer repro、S10 wake-renderer 读端近邻证据收进 packet 以外，还新增了一条
+> Hermes oneshot 的真实 non-Claude write/read smoke。也就是说，当前仓库已经不只是在 generic MCP
+> 这条线补近邻证据，Hermes 这个实际 frontend 也已经在当前机器上证明了可驱动 harness-mem 的写入与读回。
+> 剩下没补齐的仍是更强的 live client scenarios，尤其是 `S5/S7`、UI 级 cross-client pair，以及
 > `harness_mem/integration` 工作区上的真实 Cursor packet scenario run log。
 
 ## 完成矩阵
@@ -124,7 +123,8 @@ truth-sync 的 release train 都已落地。
 | v2.9.57 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_empty_evidence_truth.py`、OpenSpec `v2957-generic-mcp-empty-packet-s6-evidence` | `v2-user-test-packet` 现在又补了一条 generic MCP 的正式 scenario evidence：isolated temp home 下，`prepare_session_distill(run_ingest=false)` 已在当前机器上实跑并返回 `observation_count = 0`、零 status counters 和空 `observations` 包。这把 generic MCP coverage 从最小 smoke / S8 / S9 / fresh-home write-path 再向 packet `S6 Empty evidence packet` 推进了一步，但 full 12-scenario matrix 仍未补齐。 |
 | v2.9.58 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_cross_session_truth.py`、OpenSpec `v2958-generic-mcp-cross-session-s10-evidence` | `v2-user-test-packet` 现在又补了一条 generic MCP 的 live S10 近邻证据：两个独立 stdio MCP 会话共用同一 temp home 时，writer 会话确认的 memory entry，reader 会话随后 `wake(no_auto_ingest=true)` 已能在 `# Essential Truth (L1 · confirmed current)` 中读回。这把 generic MCP coverage 从单会话 smoke 再推进到了跨会话 truth visibility，但还不是更强的 UI 级 cross-client pair。 |
 | v2.9.59 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_review_only_truth.py`、OpenSpec `v2959-generic-mcp-s12-repair-only-summary` | `v2-user-test-packet` 现在又补了一条 generic MCP 的 live S12 近邻证据：successful `auto_review_candidates(..., apply=true)` summary payload 已经不再含 `/hm:review`，而是直接给出 deferred candidates 的自然语言 follow-up。这把 generic MCP coverage 从“能成功 auto-review”进一步推进到了“summary 仍保持 repair-only boundary”。 |
-| v2.9.60 | 当前版本 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_stale_cli_truth.py`、`tests/test_v2_user_test_packet_remaining_matrix_truth.py`、OpenSpec `v2960-packet-s11-stale-cli-surface-evidence` | `v2-user-test-packet` 现在除了 S11 repo-truth evidence 以外，还显式锁定了当前仍缺的强证据边界：UI 级 `S10` cross-client pair、full matrix 的 `S4/S5/S7/S11`、以及 `harness_mem/integration` 工作区上的真实 Cursor packet run log。目前又新增了一条 generic MCP 的底层 S4 repro：错误启动目标会让 server 在握手前直接失败；但这仍不等于 full matrix 的 `S4/S5/S7/S11` 或 UI 级 `S10` cross-client pair 已全部补齐。 |
+| v2.9.60 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_stale_cli_truth.py`、OpenSpec `v2960-packet-s11-stale-cli-surface-evidence` | `v2-user-test-packet` 把 S11 stale-CLI string-scan 从“表格里的期望”推进成了当前 repo 可复核真值。 |
+| v2.9.61 | 当前版本 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_remaining_matrix_truth.py`、`tests/test_v2_user_test_packet_s4_transport_unavailable_truth.py`、`tests/test_v2_user_test_packet_wake_renderer_truth.py`、`tests/test_v2_user_test_packet_hermes_oneshot_truth.py`、`tests/integration/test_v2_user_test_packet_wake_renderer_truth.py`、`tests/mcp/test_smoke.py` | `v2-user-test-packet` 现在显式锁定了当前仍缺的强证据边界，并新增了三条更强的近邻证据：generic MCP 的底层 S4 repro、真实 `cmd_wake_up` 读端的 S10 readback、以及 Hermes oneshot 的真实 non-Claude write/read smoke。当前机器上，Hermes 已能在本仓库里写入并确认 sentinel fact，随后被真实 wake 读回；但这仍不等于 UI 级 cross-client pair、Claude 自动化读端、或 integration-workspace Cursor packet run log 已完成。 |
 
 ## 未完成 / 不做项
 
