@@ -348,6 +348,48 @@ Boundary:
   candidate write/readback，还没有补完 packet 定义的其余 scenario，也没有 `integration` 工作区的
   Cursor packet run log。
 
+## 2026-06-03 — Generic MCP deeper workflow scenarios (Windows, isolated temp home)
+
+Clients: Generic MCP client (raw JSON-RPC over stdio contract)
+harness-mem version: 2.9.55
+Project: `v22-generic-expanded`
+Environment: isolated temp home + `HARNESS_MEM_DISABLE_EMBEDDINGS=1`
+
+Pass: S8 (`auto_review_candidates` preview/apply path), S9 (`suggest_correction` one-shot supersede path)
+Not run: full 12-scenario matrix, S4/S5/S6/S7/S10/S11/S12, natural-language distill happy path
+
+Evidence:
+- three pending memory entries were created via real stdio MCP `suggest_memory_entry` calls:
+  - one noisy `decision`
+  - one low-risk confirmable `decision`
+  - one `bug` entry that should stay pending
+- `auto_review_candidates(project_name=\"v22-generic-expanded\", apply=false)` returned:
+  - `auto_confirmed = 1`
+  - `auto_rejected = 1`
+  - `kept_pending = 1`
+  - `needs_user_confirmation = 0`
+  - `applied_decisions = []`
+- `auto_review_candidates(..., apply=true)` then applied exactly:
+  - one `auto_confirm` with evidence id `observation:v22-generic-s8-confirm`
+  - one `auto_reject` with reason `matches noise pattern (chatty / commit-message-like)`
+- post-apply `list_candidates` confirmed the resulting split:
+  - `pending = 1`
+  - `accepted = 1`
+  - `rejected = 1`
+- `create_rule_candidate -> confirm_rule -> suggest_correction` returned success with:
+  - `confirmed_rule_id = f761e645-ae6c-424d-8053-dcc478633361`
+  - `new_rule_id = 1209315d-3c0a-4585-b71b-3bfb23e81a29`
+  - `supersede_candidate_id = ab368115-9e54-47cf-94ca-6a92fdec5a5d`
+  - non-empty `old_rule_valid_to`
+
+Boundary:
+- 这条 entry 证明 **generic MCP write/review/supersede surfaces** 已经在 live stdio contract 下跑过，
+  不只是最小 wake / set-active / candidate-write smoke。
+- 这次使用了 `HARNESS_MEM_DISABLE_EMBEDDINGS=1`，目的是让隔离临时 home 下的手工 packet run
+  避免依赖 embedding cache / model 下载，保证结果只反映 MCP workflow 本身。
+- 它仍**不等于** full matrix 全补齐：这里只把 generic MCP 进一步推进到了 S8 / S9，没有覆盖
+  S4 / S5 / S6 / S7 / S10 / S11 / S12，也不是自然语言 distill 的完整 happy path。
+
 ## 2026-06-03 — Cursor hook install smoke (Windows, temp project)
 
 Clients: Cursor integration asset only (not a full Cursor agent run)

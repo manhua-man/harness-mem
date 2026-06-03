@@ -122,6 +122,9 @@ v2.2 发布前必须满足：
   entry 与 generic MCP JSON-RPC smoke entry，证明至少两条 non-Claude 路径在当前机器上可跑。
 - 结合 `2026-05-25` 的 Claude Code release-gate entry，OpenSpec archive `5.5`
   “Claude Code + at least one non-Claude client” 这一手工 gate 现在已经满足。
+- generic MCP 也已不只停在最小 smoke：`v2-user-test-packet` 现在还有 live stdio 的
+  S8 / S9 evidence，覆盖 `auto_review_candidates` preview/apply 与 `suggest_correction`
+  one-shot supersede path。
 - 同时，Cursor 的 `integration install-cursor-hook` 生成也已在当前机器验证通过，说明接入资产本身可产出。
 - 此外，Cursor 本地证据现在已覆盖 hooks runtime、agent exec startup、`mcp-router` 连通，以及项目级 MCP cache 里出现 `wake` / `set_active_project` / `suggest_memory_entry` 等 harness-mem 工具描述。
 - 此外，当前机器上的 Cursor 项目转录也已经出现真实的 harness-mem MCP 调用 run log，例如 `search_memory`、`timeline`、`get_project_profile`、`get_task_handoffs` 与 `get_confirmed_rules`。
