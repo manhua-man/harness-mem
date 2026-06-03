@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.5
 
-> 状态：进行中。v2.5.0 (Context Assembly Plan) + v2.5.1 (Wake Renderer Hardening) 已完成；v2.5.2 (File Context) 已实现，待版本收口 / 发版。
+> 状态：v2.5.0 / v2.5.1 / v2.5.2 已完成。
 >
 > 主题：Context Assembly + File Context。把已有记忆材料组装成可解释、可预算、可展开的上下文。
 
@@ -65,9 +65,9 @@ v2.5 不再把 wake 看成“塞更多记忆”，而是把 raw observations、c
 
 **实现说明**：cold-start `wake`（无 query）只渲染 L0/L1/L2，固定顺序。被取代的旧扁平格式（`# Confirmed Rules` / `# Relation Facts` / `# Memory Entries` / bucket-quota 块 / weak-link 子标题 / 使用徽章）改为分层渲染——confirmed rules 与 accepted current-truth entries 在 L1 出现，relation facts 与 skill hints 属 L3 查询驱动层。既有 `wake_surfaced` 信号 + 使用计数 touch、MCP stdout 纯净性完好保留。
 
-## v2.5.2：File Context ✅（实现完成，待发版）
+## v2.5.2：File Context ✅
 
-> 状态：代码已实现（2026-05-31），版本号 / 发布说明尚未收口。交付物：`harness_mem/core/schemas/file_context.py`、`harness_mem/file_context.py`、MCP `file_context` tool、focused tests（`tests/test_file_context.py`、`tests/test_file_context_readonly.py`、`tests/mcp/test_file_context_stdout.py` + `tests/mcp/test_smoke.py` 更新）。
+> 状态：已完成并并入正式版本线（2026-05-31 实现，后续已正式发版）。交付物：`harness_mem/core/schemas/file_context.py`、`harness_mem/file_context.py`、MCP `file_context` tool、focused tests（`tests/test_file_context.py`、`tests/test_file_context_readonly.py`、`tests/mcp/test_file_context_stdout.py` + `tests/mcp/test_smoke.py` 更新）。
 
 **用户故事**：读大文件前，Agent 可以先问“这个文件历史上有什么重要记忆”，但读取行为不被强行阻断。
 
