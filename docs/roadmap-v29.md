@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -671,3 +671,22 @@ release slices。
   - 路线已连续收口到 `v2.9`
   - `v2.9` 包含 PRD sync / maintenance / triage / truth-sync release train
 - 已补 focused regression test：`tests/test_roadmap_status_summary_truth.py`
+
+## v2.9.28：Roadmap-Status Baseline Truth Sync
+
+**用户故事**：当维护者只看 `docs/roadmap-status.md` 顶部“当前收口基线”摘要时，
+不应该再看到一段只枚举到 `v2.9.11` 的旧摘要，因为当前 shipped 版本线已经连续发到
+`v2.9.27`。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | roadmap-status baseline sync | 顶部“当前收口基线”摘要明确把 `v2.9.0–v2.9.27` 视作已完成 release train |
+| P1 | focused regression guard | 顶部摘要回流到只写到 `v2.9.11` 的旧口径时测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2928-roadmap-status-baseline-truth-sync/`。
+- `docs/roadmap-status.md` 的顶部“当前收口基线”摘要现在明确：
+  - `v2.9.0–v2.9.27` 是一整条已完成的 release train
+  - 不再把这段高可见摘要停在 `v2.9.11`
+- 已补 focused regression test：`tests/test_roadmap_status_baseline_truth.py`

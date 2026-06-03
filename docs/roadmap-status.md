@@ -10,18 +10,18 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.27` |
-| `harness_mem/__init__.py` | `2.9.27` |
-| `CHANGELOG.md` | 已有 `2.9.27` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.28` |
+| `harness_mem/__init__.py` | `2.9.28` |
+| `CHANGELOG.md` | 已有 `2.9.28` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.27：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.28：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
-boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力，以及
-v2.8.0–v2.8.2 的 session-distill maintenance surfaces、v2.9.0 的 PRD sync
-candidate surface、v2.9.1 的 status triage surface、v2.9.2 的 plugin
-doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 stale CLI surface guard sync、v2.9.5 的 shell completion maintenance truth、v2.9.6 的 maintenance surface collateral sync、v2.9.7 的 README and telemetry maintenance truth、v2.9.8 的 maintenance surface collateral guard、v2.9.9 的 reflection project-root resolution、v2.9.10 的 worker-mode truth sync，以及 v2.9.11 的 scheduler-trigger truth sync 都已落地。
+boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力、v2.8.0–v2.8.2
+的 session-distill maintenance surfaces，以及 v2.9.0–v2.9.27 这一整条从
+`/hm:prd-sync` 起步、随后扩成 maintenance / triage / truth-sync 的 release
+train 都已落地。
 
-> **v2.9.27 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.27`。v2.9 在保持
+> **v2.9.28 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.28`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -125,7 +125,8 @@ doctor helper integrity、v2.9.3 的 CLI maintenance surface truth、v2.9.4 的 
 | v2.9.24 | 已完成 | `docs/roadmap-v22x.md`、`tests/test_roadmap_v22x_distill_truth.py`、OpenSpec `v2924-roadmap-v22x-distill-truth-sync` | 历史 v2.2 roadmap 里仍会描述 active distill contract 的那一行，现在已直接指向 `auto_review_candidates(apply=true)`；不再保留 `list_candidates -> auto-review/confirm/reject` 的旧写法。 |
 | v2.9.25 | 已完成 | `docs/README.md`、`docs/roadmap-status.md`、`tests/test_v29_index_truth.py`、OpenSpec `v2925-v29-index-truth-sync` | 高可见文档索引现在把 v2.9 正确描述成从 `/hm:prd-sync` 起步、随后延伸成 maintenance / truth-sync release train；不再把整个版本线缩成单一 `PRD sync candidate surface`。 |
 | v2.9.26 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_summary_truth.py`、OpenSpec `v2926-roadmap-status-summary-truth-sync` | `roadmap-status` 的短结论现在也同步到当前真值：版本线已连续收口到 v2.9，而不再停留在“完成到 v2.8”的旧总结。 |
-| v2.9.27 | 当前版本 | `docs/roadmap-v29.md`、`tests/test_roadmap_v29_theme_truth.py`、OpenSpec `v2927-roadmap-v29-theme-truth-sync` | `roadmap-v29` 顶部主题与目标摘要现在也同步到当前真值：v2.9 不再只被定义成单一 `PRD sync candidate surface`，而是从该切片起步、随后扩成 maintenance / triage / truth-sync release train。 |
+| v2.9.27 | 已完成 | `docs/roadmap-v29.md`、`tests/test_roadmap_v29_theme_truth.py`、OpenSpec `v2927-roadmap-v29-theme-truth-sync` | `roadmap-v29` 顶部主题与目标摘要现在也同步到当前真值：v2.9 不再只被定义成单一 `PRD sync candidate surface`，而是从该切片起步、随后扩成 maintenance / triage / truth-sync release train。 |
+| v2.9.28 | 当前版本 | `docs/roadmap-status.md`、`tests/test_roadmap_status_baseline_truth.py`、OpenSpec `v2928-roadmap-status-baseline-truth-sync` | `roadmap-status` 顶部“当前收口基线”摘要现在也同步到当前真值：不再只枚举到 `v2.9.11`，而是明确把 `v2.9.0–v2.9.27` 视作同一条已完成的 release train。 |
 
 ## 未完成 / 不做项
 

@@ -8,6 +8,26 @@
 
 ---
 
+## [2.9.28] — 2026-06-03
+
+**主题：Roadmap-Status Baseline Truth Sync**
+
+v2.9.28 收的是 `docs/roadmap-status.md` 顶部“当前收口基线”摘要的残留旧口径。当前
+shipped 版本线已经连续发到 `v2.9.27`，但那一段高可见摘要还只枚举到 `v2.9.11`。
+这一版不改 runtime，只把顶部基线摘要写回当前真值，并补 focused guard。
+
+### Changed
+
+- **roadmap-status baseline sync**：`docs/roadmap-status.md` 顶部“当前收口基线”摘要
+  现在明确把 `v2.9.0–v2.9.27` 视作同一条已完成的 release train。
+- **focused regression coverage**：新增 `tests/test_roadmap_status_baseline_truth.py`。
+- **release writeback**：`docs/roadmap-v29.md`、版本号与本 changelog 已同步到 `2.9.28`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、maintenance command 或 roadmap slice。
+- 它只同步 `roadmap-status` 顶部基线摘要到当前 shipped truth，并防止这段摘要回流到只写到 `v2.9.11` 的旧口径。
+
 ## [2.9.27] — 2026-06-03
 
 **主题：Roadmap-v29 Theme Truth Sync**
