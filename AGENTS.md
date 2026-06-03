@@ -19,7 +19,7 @@ alwaysApply: true
 
 关键原则：**用户看到 Slash / command / Skill；Agent 背后调 MCP 或 repo-local 实现层；CLI 只做安装、自检、排障和维护实现，不作为产品入口叙事。** AI 提炼或显式记录的内容应先进入候选区；`/hm:distill` 同一轮应由 AI 自动确认低风险事实、拒绝噪声，把高风险或证据不足项留给人类最终复核。只有 confirmed 记忆会进入 `search_memory` / `wake` 可消费的稳定层。
 
-当前实现没有后台 daemon、IDE hook 或 turn-end 自检来让 Agent 在普通编码任务中自动“随手记”。`suggest_*` 是显式 agent 流程中的候选写入接口，不代表 autonomous learning 已经存在。
+当前实现仍没有默认后台 daemon、默认自动 IDE hook 路径或 turn-end 自检来让 Agent 在普通编码任务中自动“随手记”。v2.4 已交付 opt-in host hook / scheduler trigger，但 `triggers.*` 默认仍是 `off`，而且 `suggest_*` 只是显式 agent 流程中的候选写入接口，不代表 autonomous learning 已经存在。
 
 ---
 

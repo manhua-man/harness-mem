@@ -8,6 +8,28 @@
 
 ---
 
+## [2.9.39] — 2026-06-03
+
+**主题：Opt-In Hook Truth Sync**
+
+v2.9.39 收的是根 README 和 AGENTS 里的 hook 能力口径漂移。当前 v2.4 已经交付
+默认 `off` 的 opt-in host hook / scheduler trigger，但这两份高可见文档仍把
+“没有 IDE hook”写成绝对句。 这一版不改 runtime，只把产品叙事回写到当前真值，并补
+focused guard。
+
+### Changed
+
+- **README/AGENTS hook truth sync**：两份高可见文档现在都明确写成：
+  没有默认自动随手记，但已存在默认 `off` 的 opt-in host hook / scheduler trigger。
+- **focused regression coverage**：新增 `tests/test_opt_in_hook_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.39`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 README / AGENTS 的 hook 能力叙事，并防止它们再次回流到“没有 IDE hook”的绝对口径。
+
 ## [2.9.38] — 2026-06-03
 
 **主题：Roadmap-Status Baseline Scope Sync**
