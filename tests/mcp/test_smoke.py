@@ -105,6 +105,32 @@ def test_stdio_initialize_writes_json_rpc_to_stdout():
     assert response["result"]["serverInfo"]["name"] == "harness-mem"
 
 
+def test_stdio_initialize_fails_before_handshake_when_launch_target_is_invalid():
+    request = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "pytest", "version": "0"},
+        },
+    }
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "harness_mem.mcp.server_missing"],
+        input=json.dumps(request) + "\n",
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert proc.returncode != 0
+    assert proc.stdout.strip() == ""
+    assert "No module named harness_mem.mcp.server_missing" in proc.stderr
+
+
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]

@@ -29,7 +29,8 @@ truth-sync 的 release train 都已落地。
 > 定义的 `S11` 字符串扫描范围里，旧的 daily CLI 面现在只剩“已删除/不要求手动跑”的反例说明，
 > 不再作为当前用户 path 被教学。也就是说，`README.md`、plugin README、`plugins/harness-mem/commands/hm/*.md`
 > 这些高可见入口上，stale CLI surface 已经按 packet 定义范围收干净。剩下没补齐的仍是更强的
-> live client scenarios，尤其是 `S4/S5/S7` 和 UI 级 cross-client pair。
+> live client scenarios，尤其是 `S4/S5/S7`、UI 级 cross-client pair，以及
+> `harness_mem/integration` 工作区上的真实 Cursor packet scenario run log。
 
 ## 完成矩阵
 
@@ -123,7 +124,7 @@ truth-sync 的 release train 都已落地。
 | v2.9.57 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_empty_evidence_truth.py`、OpenSpec `v2957-generic-mcp-empty-packet-s6-evidence` | `v2-user-test-packet` 现在又补了一条 generic MCP 的正式 scenario evidence：isolated temp home 下，`prepare_session_distill(run_ingest=false)` 已在当前机器上实跑并返回 `observation_count = 0`、零 status counters 和空 `observations` 包。这把 generic MCP coverage 从最小 smoke / S8 / S9 / fresh-home write-path 再向 packet `S6 Empty evidence packet` 推进了一步，但 full 12-scenario matrix 仍未补齐。 |
 | v2.9.58 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_cross_session_truth.py`、OpenSpec `v2958-generic-mcp-cross-session-s10-evidence` | `v2-user-test-packet` 现在又补了一条 generic MCP 的 live S10 近邻证据：两个独立 stdio MCP 会话共用同一 temp home 时，writer 会话确认的 memory entry，reader 会话随后 `wake(no_auto_ingest=true)` 已能在 `# Essential Truth (L1 · confirmed current)` 中读回。这把 generic MCP coverage 从单会话 smoke 再推进到了跨会话 truth visibility，但还不是更强的 UI 级 cross-client pair。 |
 | v2.9.59 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_review_only_truth.py`、OpenSpec `v2959-generic-mcp-s12-repair-only-summary` | `v2-user-test-packet` 现在又补了一条 generic MCP 的 live S12 近邻证据：successful `auto_review_candidates(..., apply=true)` summary payload 已经不再含 `/hm:review`，而是直接给出 deferred candidates 的自然语言 follow-up。这把 generic MCP coverage 从“能成功 auto-review”进一步推进到了“summary 仍保持 repair-only boundary”。 |
-| v2.9.60 | 当前版本 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_stale_cli_truth.py`、OpenSpec `v2960-packet-s11-stale-cli-surface-evidence` | `v2-user-test-packet` 现在又补了一条 S11 repo-truth evidence：packet 规定扫描范围内，`harness-mem wake/search/timeline/candidates/distill` 已不再作为当前用户 path 教学出现，grep 命中只剩“这些 CLI 面已经删除/不要求手动跑”的反例说明。这把 packet 从“定义了扫描命令”推进到了“记录了当前扫描结果”。 |
+| v2.9.60 | 当前版本 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_stale_cli_truth.py`、`tests/test_v2_user_test_packet_remaining_matrix_truth.py`、OpenSpec `v2960-packet-s11-stale-cli-surface-evidence` | `v2-user-test-packet` 现在除了 S11 repo-truth evidence 以外，还显式锁定了当前仍缺的强证据边界：UI 级 `S10` cross-client pair、full matrix 的 `S4/S5/S7/S11`、以及 `harness_mem/integration` 工作区上的真实 Cursor packet run log。目前又新增了一条 generic MCP 的底层 S4 repro：错误启动目标会让 server 在握手前直接失败；但这仍不等于 full matrix 的 `S4/S5/S7/S11` 或 UI 级 `S10` cross-client pair 已全部补齐。 |
 
 ## 未完成 / 不做项
 

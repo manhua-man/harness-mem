@@ -148,6 +148,15 @@ Cursor 不需要单独的 `.cursor/commands` 模板。两条接入路径，二�
 - **Pass criterion**：错误信息可读、含 doctor 指引；事后 grep 当轮 transcript 不到 `harness-mem distill` / `harness-mem wake` / `harness-mem search` / `harness-mem timeline` / `harness-mem candidates` 这五个被 v2.1 砍掉的日常子命令。
 - **Common failure mode**：agent 看到 MCP 失败后建议"那你直接终端跑 `harness-mem distill`"——直接 P0 修文档/prompt。
 
+Current evidence status:
+
+- `2026-06-04` 已补一条 generic MCP 的底层 transport-unavailable repro：
+  启动命令被故意改成不存在的 `python -m harness_mem.mcp.server_missing` 后，子进程在握手前直接退出，
+  `stderr` 返回 `No module named harness_mem.mcp.server_missing`，因此当前机器上已经有一条
+  “MCP server 根本起不来” 的真实失败证据。
+- 这条证据仍**不是** Codex / Cursor / Claude 的 client-facing transcript，也还没有覆盖
+  “错误文案里显式指向 `harness-mem doctor` 且不推荐旧 daily CLI” 这一层 UI 表述验证。
+
 ### S5 No LLM agent (Codex / Cursor without the right model)
 
 - **Intent**：distill 是 LLM-driven。没 LLM 时报 unavailable，不退回启发式抽取。
@@ -474,6 +483,30 @@ Boundary:
   Codex→Claude、Cursor→Claude 或 integration-workspace Cursor pair 的对应 run log。
 - 它也**不等于** full matrix 已完成：这里只把 generic MCP 从单会话 smoke 再推进到了跨会话 truth visibility。
 
+## 2026-06-04 — Wake renderer confirmed-truth readback (Windows, isolated temp home)
+
+Clients: repo-owned wake renderer read path (`cmd_wake_up`), not a client transcript
+harness-mem version: 2.9.60
+Project: `v2961-wake-renderer-truth`
+Environment: isolated temp home, confirmed current-truth entry already stored
+
+Pass: near-neighbor S10 read-side evidence (accepted truth is rendered back through the real wake command)
+Not run: Codex→Claude / Cursor→Claude UI pair, client transcript, write-side natural-language flow
+
+Evidence:
+- temp backend stored one accepted current-truth `MemoryEntry`
+- `cmd_wake_up(project_name="v2961-wake-renderer-truth", no_auto_ingest=true)` returned success
+- rendered output included `# Essential Truth  (L1 · confirmed current)`
+- rendered output included:
+  `Wake renderer should surface confirmed truth written earlier.`
+
+Boundary:
+- 这条 entry 证明 **repo 自己的真实 wake 读端** 已经会把已确认事实渲染回 L1，
+  所以 S10 不再只有 raw MCP `wake(...)` 的 payload 近邻证据。
+- 它仍**不等于** packet 单元格要求的 UI 级 cross-client pair：这里没有 Codex 写端 +
+  Claude/Cursor 读端的真实 transcript，只是把读端推进到了真正的 `cmd_wake_up` renderer。
+- 它也**不等于** Cursor integration 工作区上的 packet run log 已存在。
+
 ## 2026-06-04 — Generic MCP distill summary stays repair-only (Windows, isolated temp home)
 
 Clients: Generic MCP client (raw JSON-RPC over stdio contract)
@@ -530,6 +563,39 @@ Boundary:
 - 这条 entry 证明 **packet 定义范围内的 stale daily CLI surface** 现在已经只剩反例说明或删除说明，
   不再作为当前用户 workflow 教学出现。
 - 它仍**不等于**整个仓库所有历史文档都绝对零命中；这里只验证 packet S11 明确定义的扫描范围。
+
+## 2026-06-04 — Generic MCP transport unavailable repro (Windows, isolated broken launch command)
+
+Clients: Generic MCP client (raw subprocess/stdin/stdout repro, not a full IDE transcript)
+harness-mem version: 2.9.60
+Project: n/a
+Environment: current machine, intentionally broken MCP launch command
+
+Pass: lower-layer S4 evidence (MCP server process cannot be reached when the launch target is invalid)
+Not run: Codex / Cursor / Claude client-facing error wording, doctor pointer wording, stale-CLI fallback wording
+
+Repro command shape:
+
+```text
+python -m harness_mem.mcp.server_missing
+```
+
+Observed result:
+
+- subprocess exited before any JSON-RPC handshake
+- return code: `1`
+- stdout: empty
+- stderr:
+  `C:\Users\ManHua\.local\python313\python.exe: No module named harness_mem.mcp.server_missing`
+
+Boundary:
+- 这条 entry 证明 **当前机器上已经能真实复现一种 S4 根因**：client 指向了错误的 MCP 启动目标时，
+  server 进程会在握手前失败，transport 实际不可达。
+- 它仍**不等于** packet 单元格要求的完整 client-facing 行为：这里还没有看到 Codex / Cursor /
+  Claude 在 UI 中如何把这类失败翻译成“harness-mem MCP runtime unavailable”并指向
+  `harness-mem doctor`。
+- 它也**不等于**旧 daily CLI fallback 已在真实 client transcript 里被逐字排除；这条只补了
+  S4 的底层 runtime repro，不是最终用户表述验证。
 
 ## 2026-06-03 — Cursor hook install smoke (Windows, temp project)
 
@@ -613,3 +679,8 @@ Boundary:
 - 这条 entry 证明 **当前机器上已经存在真实的 Cursor agent run log**，而且不是只停留在工具发现或 hooks/runtime stack 层。
 - 它仍**不等于** v2.2 packet 已经在 Cursor 上补齐：这些 run log 来自 `bazi-apps` 项目，不是
   `harness_mem/integration` 工作区，也还没有覆盖 packet 定义的 full 12-scenario matrix。
+- 当前明确仍缺的强证据有四类：
+  - UI 级 `S10` cross-client pair（如 Codex→Claude、Cursor→Claude）
+  - full matrix 里尚未补齐的 `S4 / S5 / S7 / S11`
+  - `harness_mem/integration` 工作区上的真实 Cursor packet scenario run log
+  - 能直接对应 packet 单元格的 client-facing transcript，而不只是 runtime / cache / transcript 旁证
