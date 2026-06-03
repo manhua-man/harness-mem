@@ -10,18 +10,18 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.28` |
-| `harness_mem/__init__.py` | `2.9.28` |
-| `CHANGELOG.md` | 已有 `2.9.28` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.29` |
+| `harness_mem/__init__.py` | `2.9.29` |
+| `CHANGELOG.md` | 已有 `2.9.29` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.28：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.29：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
 boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力、v2.8.0–v2.8.2
 的 session-distill maintenance surfaces，以及 v2.9.0–v2.9.27 这一整条从
 `/hm:prd-sync` 起步、随后扩成 maintenance / triage / truth-sync 的 release
 train 都已落地。
 
-> **v2.9.28 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.28`。v2.9 在保持
+> **v2.9.29 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.29`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -97,7 +97,7 @@ train 都已落地。
 | v2.7.2 | 已完成 | `skill_revision_suggestion` / `skill_deprecation_suggestion` candidates、`detect_skill_improvements` / `confirm_skill_revision` / `reject_skill_revision`、`detect_skill_deprecations` / `confirm_skill_deprecation` / `reject_skill_deprecation`、OpenSpec `v272-skill-improvement-suggestions` | 改进与退役都走 review；confirmed skill 不自动改写，shared skill 不静默退役。 |
 | v2.8.0 | 已完成 | `/hm:mark` closure guardrails、`validate_distilled_guardrails(...)`、`/hm:prune --statuses distilled,skipped --source-missing` boundary、OpenSpec `v280-session-distill-maintenance-surfaces` | session closure 和 manifest cleanup 正式进入版本线；不碰 canonical truth。 |
 | v2.8.1 | 已完成 | `/hm:review-kb` baseline state（`reviewed_at` / `total_entries` / `summary`）、`stable/needs-review/stale/superseded` status model、`/hm:prune-kb` backup-first and stale/superseded confinement、OpenSpec `v281-knowledge-base-review-and-prune` | knowledge-base audit 与 cleanup 正式进入版本线；dry-run 不写 backup、不改文件。 |
-| v2.8.2 | 当前收口基线 | `/hm:verify-entry` targeted recheck、KB growth reminder、packet overlap reminder、note overlap reminder、OpenSpec `v282-targeted-verification-and-reminder-surfaces` | targeted review 与 reminder 只做 summary-level nudges；不会自动 prune、auto-supersede 或阻断 distill。 |
+| v2.8.2 | 已完成 | `/hm:verify-entry` targeted recheck、KB growth reminder、packet overlap reminder、note overlap reminder、OpenSpec `v282-targeted-verification-and-reminder-surfaces` | targeted review 与 reminder 只做 summary-level nudges；不会自动 prune、auto-supersede 或阻断 distill。 |
 | v2.9.0 | 已完成 | `/hm:prd-sync [--apply]`、projectless maintenance boundary、`prd-distilled/*.md` candidate output、OpenSpec `v290-prd-sync-candidate-surface`、`test_prd_sync_*` | PRD sync 只读 bundled packets，默认 dry-run；`--apply` 只写 candidate markdown，不直改 PRD/roadmap 或 confirmed truth。 |
 | v2.9.1 | 已完成 | `/hm:status` triage contract、MCP `get_project_status` `phase/suggested_slash/reason/repair_hint`、OpenSpec `v291-status-triage-surface`、`test_get_project_status_*` | status 是 read-only triage 入口；pending candidates 只作为 repair-only `/hm:review` hint，不升格成主 happy path。 |
 | v2.9.2 | 已完成 | `plugins/harness-mem/scripts/doctor.ps1` repair、hint-only `-Wake`、OpenSpec `v292-plugin-doctor-helper-integrity`、script smoke test | repo-local plugin doctor helper 只调用维护 CLI surface；不再触发 `invalid choice: 'status'`。 |
@@ -106,7 +106,7 @@ train 都已落地。
 | v2.9.5 | 已完成 | `harness_mem/shell_completion.py` sync、OpenSpec `v295-shell-completion-maintenance-truth`、`tests/test_shell_completion.py` | shell completion 现在与当前 maintenance surface 一致，不再漏掉 `config` / `integration` / `qs`。 |
 | v2.9.6 | 已完成 | `openspec/specs/mcp/spec.md` sync、`docs/v2-user-test-packet.md` sync、OpenSpec `v296-maintenance-surface-collateral-sync` | MCP 主 spec 与用户测试包现在都承认 `config` / `integration` 属于当前维护 CLI surface。 |
 | v2.9.7 | 已完成 | `README.md` maintenance summary sync、`openspec/specs/telemetry/spec.md` sync、OpenSpec `v297-maintenance-surface-readme-and-telemetry-sync` | README 与 telemetry 主 spec 现在都承认 `config` / `integration` 属于当前维护 CLI surface。 |
-| v2.9.8 | 当前收口基线 | `tests/test_maintenance_surface_collateral.py`、OpenSpec `v298-maintenance-surface-collateral-guard` | maintenance-surface collateral 现在有 focused regression guard，不再只靠人工回读。 |
+| v2.9.8 | 已完成 | `tests/test_maintenance_surface_collateral.py`、OpenSpec `v298-maintenance-surface-collateral-guard` | maintenance-surface collateral 现在有 focused regression guard，不再只靠人工回读。 |
 | v2.9.9 | 已完成 | `harness_mem/commands/reflection_jobs.py` known-root-first resolution、`tests/test_reflection_once_integration.py` 两个缺省 root 覆盖、OpenSpec `v299-reflection-project-root-resolution` | 只收紧共享 reflection business command 的缺省 `project_root` 解析；`host_entry` 仍优先传显式 `--project-root`。 |
 | v2.9.10 | 已完成 | `docs/roadmap-v24.md` / `docs/cli/v2.4.md` / `docs/roadmap-status.md` worker-mode truth sync、`tests/test_worker_mode_truth.py`、OpenSpec `v2910-worker-mode-truth-sync` | `worker.mode` 当前真值已锁定为 `off/on` gate；不代表 shipped always-on daemon。 |
 | v2.9.11 | 已完成 | `docs/roadmap-v24.md` / `docs/cli/v2.4.md` scheduler truth sync、`tests/test_worker_mode_truth.py` 扩展覆盖 scheduler、OpenSpec `v2911-scheduler-trigger-truth-sync` | `triggers.scheduler` 当前真值已锁定为 `off/on` gate；不代表 shipped cron expression schema。 |
@@ -126,7 +126,8 @@ train 都已落地。
 | v2.9.25 | 已完成 | `docs/README.md`、`docs/roadmap-status.md`、`tests/test_v29_index_truth.py`、OpenSpec `v2925-v29-index-truth-sync` | 高可见文档索引现在把 v2.9 正确描述成从 `/hm:prd-sync` 起步、随后延伸成 maintenance / truth-sync release train；不再把整个版本线缩成单一 `PRD sync candidate surface`。 |
 | v2.9.26 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_summary_truth.py`、OpenSpec `v2926-roadmap-status-summary-truth-sync` | `roadmap-status` 的短结论现在也同步到当前真值：版本线已连续收口到 v2.9，而不再停留在“完成到 v2.8”的旧总结。 |
 | v2.9.27 | 已完成 | `docs/roadmap-v29.md`、`tests/test_roadmap_v29_theme_truth.py`、OpenSpec `v2927-roadmap-v29-theme-truth-sync` | `roadmap-v29` 顶部主题与目标摘要现在也同步到当前真值：v2.9 不再只被定义成单一 `PRD sync candidate surface`，而是从该切片起步、随后扩成 maintenance / triage / truth-sync release train。 |
-| v2.9.28 | 当前版本 | `docs/roadmap-status.md`、`tests/test_roadmap_status_baseline_truth.py`、OpenSpec `v2928-roadmap-status-baseline-truth-sync` | `roadmap-status` 顶部“当前收口基线”摘要现在也同步到当前真值：不再只枚举到 `v2.9.11`，而是明确把 `v2.9.0–v2.9.27` 视作同一条已完成的 release train。 |
+| v2.9.28 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_baseline_truth.py`、OpenSpec `v2928-roadmap-status-baseline-truth-sync` | `roadmap-status` 顶部“当前收口基线”摘要现在也同步到当前真值：不再只枚举到 `v2.9.11`，而是明确把 `v2.9.0–v2.9.27` 视作同一条已完成的 release train。 |
+| v2.9.29 | 当前版本 | `docs/roadmap-status.md`、`tests/test_roadmap_status_matrix_truth.py`、OpenSpec `v2929-roadmap-status-matrix-truth-sync` | `roadmap-status` 完成矩阵现在不会再把历史版本行标成“当前收口基线”；只有当前版本保留 `当前版本` 状态。 |
 
 ## 未完成 / 不做项
 

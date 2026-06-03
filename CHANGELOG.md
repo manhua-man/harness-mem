@@ -8,6 +8,27 @@
 
 ---
 
+## [2.9.29] — 2026-06-03
+
+**主题：Roadmap-Status Matrix Truth Sync**
+
+v2.9.29 收的是 `docs/roadmap-status.md` 完成矩阵里的残留历史状态。当前矩阵里，
+`v2.8.2` 和 `v2.9.8` 这类早已完成的历史切片仍被标成“当前收口基线”，但这只在它们各自
+发版时成立，对当前 repo 真值已经过期。这一版不改 runtime，只把状态矩阵写回当前真值，
+并补 focused guard。
+
+### Changed
+
+- **roadmap-status matrix sync**：`docs/roadmap-status.md` 里历史版本行不再保留
+  “当前收口基线”状态，统一回写为 `已完成`。
+- **focused regression coverage**：新增 `tests/test_roadmap_status_matrix_truth.py`。
+- **release writeback**：`docs/roadmap-v29.md`、版本号与本 changelog 已同步到 `2.9.29`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、maintenance command 或 roadmap slice。
+- 它只同步 `roadmap-status` 的完成矩阵状态口径，并防止历史版本行再次回流到“当前收口基线”。
+
 ## [2.9.28] — 2026-06-03
 
 **主题：Roadmap-Status Baseline Truth Sync**

@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -690,3 +690,21 @@ release slices。
   - `v2.9.0–v2.9.27` 是一整条已完成的 release train
   - 不再把这段高可见摘要停在 `v2.9.11`
 - 已补 focused regression test：`tests/test_roadmap_status_baseline_truth.py`
+
+## v2.9.29：Roadmap-Status Matrix Truth Sync
+
+**用户故事**：当维护者查看 `docs/roadmap-status.md` 的完成矩阵时，不应该再看到历史版本
+行仍被标成“当前收口基线”，因为这些状态只在当时发版瞬间成立，对当前 repo 真值已经过期。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | roadmap-status matrix sync | 历史版本行不再保留“当前收口基线”状态；当前版本单独保留 `当前版本` |
+| P1 | focused regression guard | 矩阵回流到历史版本仍显示“当前收口基线”时测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2929-roadmap-status-matrix-truth-sync/`。
+- `docs/roadmap-status.md` 的完成矩阵现在明确：
+  - `v2.8.2`、`v2.9.8` 等历史行回写为 `已完成`
+  - 只有当前版本行保留 `当前版本`
+- 已补 focused regression test：`tests/test_roadmap_status_matrix_truth.py`
