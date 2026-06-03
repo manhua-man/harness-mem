@@ -2,6 +2,9 @@
 
 Repo-local plugin wrapper for the `harness-mem` local-first AI memory runtime.
 
+当前发版状态、已完成切片和未做边界以 [F:\memory-lab\harness-mem\docs\roadmap-status.md](F:\memory-lab\harness-mem\docs\roadmap-status.md)
+与 [F:\memory-lab\harness-mem\CHANGELOG.md](F:\memory-lab\harness-mem\CHANGELOG.md) 为准；本文聚焦 plugin 安装、集成与日常 IDE 使用方式，不单独充当当前实现真值。
+
 It packages four layers:
 
 - **Skill**: tells an agent when to use memory commands.

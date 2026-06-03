@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.51 已完成。
+> 状态：v2.9.0–v2.9.52 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -1129,3 +1129,22 @@ proposal 时才下钻到 `openspec/changes/<change>/specs/...`。
   - 当前发版状态、已完成切片和未做边界看 `roadmap-status.md` 与 `CHANGELOG.md`
   - 各版本 roadmap 主要保留切片设计、验收口径和历史决策链，不单独充当当前实现真值
 - 已补 focused regression test：`tests/test_docs_readme_truth_authority_sync.py`
+
+## v2.9.52：Usage Docs Truth Authority Sync
+
+**用户故事**：维护者或使用者从 plugin README 和 best-practices 这类高可见使用文档进入时，
+不应该只看到安装和操作建议，却不知道当前 shipped 状态和边界要看哪里。使用文档也应明确把
+authority 指向 `roadmap-status.md` 与 `CHANGELOG.md`。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | usage-doc authority sync | `plugins/harness-mem/README.md` 与 `docs/best-practices.md` 明确把当前发版状态与边界指向 `roadmap-status.md` + `CHANGELOG.md` |
+| P1 | focused regression guard | 如果这些高可见使用文档再缺失 authority 指针，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2952-usage-docs-truth-authority-sync/`。
+- 高可见使用文档现在明确：
+  - plugin README 与 best-practices 的当前发版状态、已完成切片和未做边界都看 `roadmap-status.md` 与 `CHANGELOG.md`
+  - 它们聚焦安装、集成和使用建议，不单独充当当前实现真值
+- 已补 focused regression test：`tests/test_usage_docs_truth_authority_sync.py`

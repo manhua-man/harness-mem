@@ -8,6 +8,28 @@
 
 ---
 
+## [2.9.52] — 2026-06-03
+
+**主题：Usage Docs Truth Authority Sync**
+
+v2.9.52 收的是两份高可见使用文档：`plugins/harness-mem/README.md` 和
+`docs/best-practices.md`。此前它们会告诉用户怎么安装、怎么用，但没有直接说明当前 shipped
+状态、已完成切片和未做边界应以 `roadmap-status.md` 与 `CHANGELOG.md` 为准。 这一版不改
+runtime，只把这些使用文档接到同一条 authority chain 上，并补 focused guard。
+
+### Changed
+
+- **usage-doc authority sync**：`plugins/harness-mem/README.md` 与 `docs/best-practices.md`
+  现在都明确把当前发版状态、已完成切片和未做边界指向 `roadmap-status.md` 与 `CHANGELOG.md`。
+- **focused regression coverage**：新增 `tests/test_usage_docs_truth_authority_sync.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.52`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步高可见使用文档对当前 release truth authority 的说明。
+
 ## [2.9.51] — 2026-06-03
 
 **主题：Docs README Truth Authority Sync**
