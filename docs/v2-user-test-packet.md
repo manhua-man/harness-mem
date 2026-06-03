@@ -539,6 +539,36 @@ Boundary:
   后续由 repo-side wake 验证读回，不是另一个真实 client 的 transcript。
 - 它也**不等于** Claude 的自动化读端已经打通；当前 `claude -p` 在这台机器上仍然会卡住。
 
+## 2026-06-04 — Codex app -> Claude Code cross-client confirmed truth visibility (Windows, F:\memory-lab\harness-mem)
+
+Clients: Codex app (write-side) + Claude Code (read-side)
+harness-mem version: 2.9.61
+Project: `harness-mem`
+Environment: current machine, real client transcripts, shared project/data truth
+
+Pass: S10 UI-level cross-client pair (`Codex app -> Claude Code`)
+Not run: `Cursor -> Claude` pair, `harness_mem/integration` workspace Cursor packet transcript
+
+Evidence:
+- write-side Codex app first confirmed repo context, then used:
+  - `set_active_project`
+  - `suggest_memory_entry`
+  - `confirm_memory_entry`
+- confirmed content:
+  - `S10 cross-client manual sentinel 2026-06-04 01.`
+- read-side Claude Code then ran wake for project `harness-mem` with auto-ingest disabled
+- read-side final output returned the exact truth line:
+  - `S10 cross-client manual sentinel 2026-06-04 01.`
+- observed `PostToolUse:ToolSearch` and `PostToolUse:mcp__harness_mem__wake` hook errors were non-blocking;
+  the final wake result still returned the expected confirmed truth
+
+Boundary:
+- 这条 entry 是一条**直接对应 packet `S10` 单元格**的真实 client transcript，不再只是 generic MCP
+  payload、repo-side wake renderer、或 Hermes oneshot 这类近邻证据。
+- 它仍**不等于** Cursor 侧的对应 transcript 已有；当前还没有 `Cursor -> Claude` 或
+  `harness_mem/integration` 工作区里的 Cursor packet run log。
+- 它也**不等于** full matrix 已补齐：`S4 / S5 / S7 / S11` 仍缺直接 client-facing transcript。
+
 ## 2026-06-04 — Generic MCP distill summary stays repair-only (Windows, isolated temp home)
 
 Clients: Generic MCP client (raw JSON-RPC over stdio contract)
@@ -711,8 +741,9 @@ Boundary:
 - 这条 entry 证明 **当前机器上已经存在真实的 Cursor agent run log**，而且不是只停留在工具发现或 hooks/runtime stack 层。
 - 它仍**不等于** v2.2 packet 已经在 Cursor 上补齐：这些 run log 来自 `bazi-apps` 项目，不是
   `harness_mem/integration` 工作区，也还没有覆盖 packet 定义的 full 12-scenario matrix。
+- 当前已新增一条直接对应 packet 单元格的 UI 级 `S10` pair：`Codex app → Claude Code`
 - 当前明确仍缺的强证据有四类：
-  - UI 级 `S10` cross-client pair（如 Codex→Claude、Cursor→Claude）
+  - Cursor 侧的 `S10` 扩展证据（如 `Cursor→Claude` 或 integration-workspace Cursor pair）
   - full matrix 里尚未补齐的 `S4 / S5 / S7 / S11`
   - `harness_mem/integration` 工作区上的真实 Cursor packet scenario run log
   - 能直接对应 packet 单元格的 client-facing transcript，而不只是 runtime / cache / transcript 旁证

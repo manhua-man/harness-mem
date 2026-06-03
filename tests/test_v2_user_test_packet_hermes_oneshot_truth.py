@@ -22,4 +22,4 @@ def test_v2_user_test_packet_records_hermes_oneshot_write_read_smoke() -> None:
     assert "当前 `claude -p` 在这台机器上仍然会卡住" in packet
 
     assert "Hermes oneshot 的真实 non-Claude write/read smoke" in roadmap_status
-    assert "Hermes 这个实际 frontend 也已经在当前机器上证明了可驱动 harness-mem 的写入与读回" in roadmap_status
+    assert "当前仓库不只是在 generic MCP 这条线补近邻证据" in roadmap_status

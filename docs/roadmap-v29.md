@@ -1355,17 +1355,24 @@ wake renderer 读端 readback，或者 Cursor runtime/cache/transcript 旁证误
     - `hermes -z "reply with the single word ok" --yolo` 正常返回 `ok`
     - Hermes 已能在本仓库里写入并确认 `Hermes cross-client sentinel fact.`
     - 随后被真实 `cmd_wake_up("harness-mem", no_auto_ingest=true)` 读回
+  - direct UI-level `S10` pair transcript：
+    - write-side = `Codex app`
+    - read-side = `Claude Code`
+    - write-side confirmed `S10 cross-client manual sentinel 2026-06-04 01.`
+    - read-side wake returned the exact same truth line
 - 当前已补的 focused guards：
   - `tests/test_v2_user_test_packet_remaining_matrix_truth.py`
   - `tests/test_v2_user_test_packet_s4_transport_unavailable_truth.py`
   - `tests/test_v2_user_test_packet_wake_renderer_truth.py`
   - `tests/test_v2_user_test_packet_hermes_oneshot_truth.py`
+  - `tests/test_v2_user_test_packet_ui_cross_client_truth.py`
   - `tests/integration/test_v2_user_test_packet_wake_renderer_truth.py`
   - `tests/mcp/test_smoke.py` 中错误 launch target 的握手前失败测试
 
 ### Boundaries
 
-- 这版仍**不是** UI 级 `S10` cross-client pair 完成。
+- 这版现在已经有一条 `Codex app -> Claude Code` 的 UI 级 `S10` pair transcript，
+  但仍**不是** Cursor 侧 `S10` 扩展证据完成。
 - 这版仍**不是** `harness_mem/integration` 工作区上的 Cursor packet run log。
 - 这版也没有补齐 `S5` 或 `S7` 的真实 client transcript。
 - `claude -p` 当前仍未成为稳定可用的自动化读端，所以 Hermes 这条不是跨客户端 transcript。
