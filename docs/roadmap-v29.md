@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.44 已完成。
+> 状态：v2.9.0–v2.9.45 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -987,3 +987,23 @@ truth 已经明确：新 session 先走一等 MCP `wake`，低层读工具只在
   - `v290`–`v2912` 的已完成条目统一回指 archive 真路径
   - 不再把这些已归档切片写成仍在 `openspec/changes/v29xx...` 的 active-change 口径
 - 已补 focused regression test：`tests/test_roadmap_v29_archive_pointer_truth.py`
+
+## v2.9.45：Roadmap-v27-v28 Archive Pointer Truth Sync
+
+**用户故事**：当维护者回读 `docs/roadmap-v27.md` 和 `docs/roadmap-v28.md` 时，不应该再看到
+已完成切片仍指向 `openspec/changes/v27x...` / `v28x...` 这种 active change 路径，因为这些
+变更都已经归档。当前 roadmap 应直接回指 archive 真路径。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | roadmap-v27 archive-pointer sync | `v270`–`v272` 已完成条目统一回指 archive 路径 |
+| P0 | roadmap-v28 archive-pointer sync | `v280`–`v282` 已完成条目统一回指 archive 路径 |
+| P1 | focused regression guard | 如果这两份 roadmap 再回流到早期已归档切片的 active-change 路径，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2945-roadmap-v27-v28-archive-pointer-truth-sync/`。
+- `docs/roadmap-v27.md` 与 `docs/roadmap-v28.md` 现在明确：
+  - `v270`–`v272` 和 `v280`–`v282` 的已完成条目统一回指 archive 真路径
+  - 不再把这些已归档切片写成仍在 `openspec/changes/v27x...` / `v28x...` 的 active-change 口径
+- 已补 focused regression test：`tests/test_roadmap_v27_v28_archive_pointer_truth.py`

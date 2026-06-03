@@ -49,7 +49,7 @@ v2.7 处理原先放在 v2.4 的跨项目 Skill 方向。它被后移的原因�
 
 ### 当前状态（2026-06-02）
 
-- 已创建 `openspec/changes/v270-cross-project-skill-library/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v270-cross-project-skill-library/`。
 - 已定义 scope model、promotion candidate、explicit shared search、
   project-specific precedence 与 provenance 边界。
 - 已实现第一片 scope model：confirmed Skill 支持
@@ -89,7 +89,7 @@ v2.7 处理原先放在 v2.4 的跨项目 Skill 方向。它被后移的原因�
 
 ### 当前状态（2026-06-02）
 
-- 已创建 `openspec/changes/v271-controlled-skill-activation/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v271-controlled-skill-activation/`。
 - 已实现 opt-in compact skill hints：MCP `wake` 支持
   `include_skill_hints` / `skill_hint_limit`，默认 wake 不变。
 - hint 输出只包含 id/title/reason，不会内联 procedural steps。
@@ -109,7 +109,7 @@ v2.7 处理原先放在 v2.4 的跨项目 Skill 方向。它被后移的原因�
 
 ### 当前状态（2026-06-02）
 
-- 已创建 `openspec/changes/v272-skill-improvement-suggestions/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v272-skill-improvement-suggestions/`。
 - 已实现第一片 low-success detector：
   `detect_skill_improvements(project_name)` 会基于现有 replay-window 阈值
   为低成功率 skill 创建 reviewed `skill_revision_suggestion` candidate。

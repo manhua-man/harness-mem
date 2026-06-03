@@ -69,7 +69,7 @@ v2.8 的目的就是把这些维护能力从“工具存在 + 文档提到”升
 
 ### 当前状态（2026-06-02）
 
-- 已完成 `openspec/changes/v280-session-distill-maintenance-surfaces/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v280-session-distill-maintenance-surfaces/`。
 - 已把 `/hm:mark ... distilled [--keep-raw]` 和 `/hm:prune --statuses distilled,skipped --source-missing`
   收进主 OpenSpec workflow contract。
 - 现有 `session-distill.py` 已收紧 boundary：
@@ -95,7 +95,7 @@ v2.8 的目的就是把这些维护能力从“工具存在 + 文档提到”升
 
 ### 当前状态（2026-06-02）
 
-- 已完成 `openspec/changes/v281-knowledge-base-review-and-prune/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v281-knowledge-base-review-and-prune/`。
 - 当前实现和命令说明已经存在于 `tools/session-distill/bin/session-distill.py` 与
   `plugins/harness-mem/commands/hm/review-kb.md` / `prune-kb.md`。
 - 已把 `/hm:review-kb --next <n>` 与 `/hm:prune-kb --statuses stale,superseded`
@@ -119,7 +119,7 @@ v2.8 的目的就是把这些维护能力从“工具存在 + 文档提到”升
 
 ### 当前状态（2026-06-02）
 
-- 已完成 `openspec/changes/v282-targeted-verification-and-reminder-surfaces/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v282-targeted-verification-and-reminder-surfaces/`。
 - 当前 repo 已经有 `/hm:verify-entry`、KB growth reminder、packet overlap reminder、
   note overlap reminder 的实现与说明。
 - 已把 targeted review 和 reminder-only boundary 提升成主 OpenSpec contract。

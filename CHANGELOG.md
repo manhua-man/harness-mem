@@ -8,6 +8,31 @@
 
 ---
 
+## [2.9.45] — 2026-06-03
+
+**主题：Roadmap-v27-v28 Archive Pointer Truth Sync**
+
+v2.9.45 收的是 `docs/roadmap-v27.md` 与 `docs/roadmap-v28.md` 里已完成切片的 OpenSpec
+指针口径。这两份 roadmap 仍把 `v270`–`v272` / `v280`–`v282` 写成
+`openspec/changes/v27x...` / `v28x...`，看起来像还在 active change 目录里，但这些
+变更实际上早已归档。 这一版不改 runtime，只把这些已完成条目回指 archive 真路径，并补
+focused guard。
+
+### Changed
+
+- **roadmap-v27 archive-pointer sync**：`docs/roadmap-v27.md` 里 `v270`–`v272`
+  的已完成条目现在统一回指 `openspec/changes/archive/...` 真路径。
+- **roadmap-v28 archive-pointer sync**：`docs/roadmap-v28.md` 里 `v280`–`v282`
+  的已完成条目现在统一回指 `openspec/changes/archive/...` 真路径。
+- **focused regression coverage**：新增 `tests/test_roadmap_v27_v28_archive_pointer_truth.py`。
+- **release writeback**：`docs/roadmap-status.md`、`docs/roadmap-v29.md`、版本号与本
+  changelog 已同步到 `2.9.45`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 `roadmap-v27` / `roadmap-v28` 对已归档 OpenSpec change 的指针真值。
+
 ## [2.9.44] — 2026-06-03
 
 **主题：Roadmap-v29 Archive Pointer Truth Sync**
