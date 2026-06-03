@@ -10,20 +10,20 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.43` |
-| `harness_mem/__init__.py` | `2.9.43` |
-| `CHANGELOG.md` | 已有 `2.9.43` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.44` |
+| `harness_mem/__init__.py` | `2.9.44` |
+| `CHANGELOG.md` | 已有 `2.9.44` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.43：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v2.9.44：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环、v2.3 signals/replay、v2.4
 reflection queue、v2.5 context assembly / wake renderer / file_context、
 v2.6 knowledge cache / wiki bridge / contradiction、v2.7 cross-project
 procedural skill、v2.8 session-distill maintenance surfaces，以及
-v2.9.0–v2.9.43 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
+v2.9.0–v2.9.44 这一整条从 `/hm:prd-sync` 起步、随后扩成 maintenance / triage /
 truth-sync 的 release train 都已落地。
 
-> **v2.9.43 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.43`。v2.9 在保持
+> **v2.9.44 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.44`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -75,7 +75,9 @@ truth-sync 的 release train 都已落地。
 > 收束为跟当前版本真值对齐的范围式写法，避免每发一版就立即再次过时；此外，
 > `docs/v2-user-test-packet.md` 现在也已回指主 `openspec/specs/daily-workflow/spec.md`
 > 而不是归档 change 路径，并把 Codex MCP 接入说明收束成 repo 自己维护的 stdio 契约，
-> 不再依赖“当前版本客户端支持写法”这种外部漂移口径。
+> 不再依赖“当前版本客户端支持写法”这种外部漂移口径；同时，
+> `docs/roadmap-v29.md` 里最早一批已完成的 `v290`–`v2912` 切片现在也统一回指 archive
+> 路径，不再把已归档变更写成仍在 `openspec/changes/v29xx...` 的 active-change 口径。
 
 ## 完成矩阵
 
@@ -152,7 +154,8 @@ truth-sync 的 release train 都已落地。
 | v2.9.40 | 已完成 | `docs/best-practices.md`、`tests/test_best_practices_wake_drilldown_truth.py`、OpenSpec `v2940-best-practices-wake-drilldown-truth-sync` | `best-practices` 现在把 `wake` 明确写成默认 read surface，并把 `get_task_handoffs` / `get_confirmed_rules` 收成显式 drilldown；不再把它们摆成默认 wake-up 起点。 |
 | v2.9.41 | 已完成 | `docs/roadmap-v29.md`、`tests/test_roadmap_v29_status_tail_truth.py`、OpenSpec `v2941-roadmap-v29-status-tail-truth-sync` | `roadmap-v29` 顶部状态行此前已从 `v2.9.39` 推进到 `v2.9.40`，不再把这条 release train 的头部摘要截在更旧尾号。 |
 | v2.9.42 | 已完成 | `docs/roadmap-v29.md`、`tests/test_roadmap_v29_status_tail_truth.py`、OpenSpec `v2942-roadmap-v29-status-range-truth-sync` | `roadmap-v29` 顶部状态行现在进一步收束成范围式摘要：直接写成 `v2.9.0–v<current> 已完成`，并由 test 跟随 `__version__` 校验，不再每发一版就因手工 patch 枚举而立刻过时。 |
-| v2.9.43 | 当前版本 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_contract_source_truth.py`、OpenSpec `v2943-user-test-packet-contract-source-truth-sync` | `v2-user-test-packet` 现在回指主 `openspec/specs/daily-workflow/spec.md` 作为契约真值源，并把 Codex MCP 接入说明写成 repo 当前维护并验证的 stdio 契约，不再依赖归档 change 路径或“当前版本客户端支持写法”。 |
+| v2.9.43 | 已完成 | `docs/v2-user-test-packet.md`、`tests/test_v2_user_test_packet_contract_source_truth.py`、OpenSpec `v2943-user-test-packet-contract-source-truth-sync` | `v2-user-test-packet` 现在回指主 `openspec/specs/daily-workflow/spec.md` 作为契约真值源，并把 Codex MCP 接入说明写成 repo 当前维护并验证的 stdio 契约，不再依赖归档 change 路径或“当前版本客户端支持写法”。 |
+| v2.9.44 | 当前版本 | `docs/roadmap-v29.md`、`tests/test_roadmap_v29_archive_pointer_truth.py`、OpenSpec `v2944-roadmap-v29-archive-pointer-truth-sync` | `roadmap-v29` 里最早一批已完成切片现在统一回指 archive 真路径：`v290`–`v2912` 不再写成仍在 `openspec/changes/v29xx...` 的 active-change 路径。 |
 
 ## 未完成 / 不做项
 

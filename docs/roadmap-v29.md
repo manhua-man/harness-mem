@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.43 已完成。
+> 状态：v2.9.0–v2.9.44 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -83,7 +83,7 @@ candidate surface。
 
 ### 当前状态（2026-06-02）
 
-- 已完成 `openspec/changes/v290-prd-sync-candidate-surface/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v290-prd-sync-candidate-surface/`。
 - `/hm:prd-sync [--apply]` 已进入 README、plugin command、session-distill
   references 与 OpenSpec 主 contract。
 - `prd-sync` 现在明确是 projectless maintenance entry：
@@ -109,7 +109,7 @@ candidate surface。
 
 ### 当前状态（2026-06-02）
 
-- 已完成 `openspec/changes/v291-status-triage-surface/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v291-status-triage-surface/`。
 - `/hm:status` 现在正式收束成 read-only triage surface。
 - MCP `get_project_status` 现在会返回：
   - `phase`
@@ -133,7 +133,7 @@ candidate surface。
 
 ### 当前状态（2026-06-02）
 
-- 已完成 `openspec/changes/v292-plugin-doctor-helper-integrity/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v292-plugin-doctor-helper-integrity/`。
 - `doctor.ps1` 不再调用不存在的 `python -m harness_mem.cli status`。
 - `-Wake` 现在是 hint-only：会在 doctor 之后输出 `/hm:wake` 的 IDE 用法。
 - 已补脚本级 smoke，覆盖：
@@ -155,7 +155,7 @@ candidate surface。
 
 ### 当前状态（2026-06-02）
 
-- 已完成 `openspec/changes/v293-cli-maintenance-surface-truth/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v293-cli-maintenance-surface-truth/`。
 - 主 `openspec/specs/cli/spec.md` 现在与真实 `harness-mem --help` 对齐：
   - top-level command set 包含 `config` 与 `integration`
   - `config` 明确是 TOML 配置维护命名空间
@@ -198,7 +198,7 @@ v2.9 是对 session-distill maintenance family 的补片：从 bundled packet �
 
 ### 当前状态（2026-06-02）
 
-- 已完成 `openspec/changes/v294-stale-cli-surface-guard-sync/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v294-stale-cli-surface-guard-sync/`。
 - `tests/test_stale_cli_surface.py` 现在与当前 maintenance-only CLI truth 对齐：
   - 注释里的 command set 已包含 `config` / `integration`
   - `ALLOWED_MAINTENANCE` 已包含 `config` / `integration`
@@ -217,7 +217,7 @@ v2.9 是对 session-distill maintenance family 的补片：从 bundled packet �
 
 ### 当前状态（2026-06-02）
 
-- 已完成 `openspec/changes/v295-shell-completion-maintenance-truth/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v295-shell-completion-maintenance-truth/`。
 - `harness_mem.shell_completion` 现在和当前 maintenance-only CLI truth 对齐：
   - top-level completion 已包含 `config` / `integration` / `qs`
   - `config` action completion 已包含 `get` / `set` / `list` / `validate`
@@ -238,7 +238,7 @@ v2.9 是对 session-distill maintenance family 的补片：从 bundled packet �
 
 ### 当前状态（2026-06-02）
 
-- 已完成 `openspec/changes/v296-maintenance-surface-collateral-sync/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v296-maintenance-surface-collateral-sync/`。
 - 剩余高可见 collateral 已对齐当前 maintenance CLI truth：
   - `openspec/specs/mcp/spec.md` 现在包含 `qs` / `config` / `integration`
   - `docs/v2-user-test-packet.md` 现在把 `config` / `integration` 视为允许的维护类 CLI 命令
@@ -256,7 +256,7 @@ v2.9 是对 session-distill maintenance family 的补片：从 bundled packet �
 
 ### 当前状态（2026-06-02）
 
-- 已完成 `openspec/changes/v297-maintenance-surface-readme-and-telemetry-sync/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v297-maintenance-surface-readme-and-telemetry-sync/`。
 - 剩余高可见 maintenance collateral 已对齐当前 truth：
   - README 的 maintenance-console summary 已包含 `config` / `integration`
   - telemetry 主 spec 已包含 `qs` / `config` / `integration`
@@ -274,7 +274,7 @@ v2.9 是对 session-distill maintenance family 的补片：从 bundled packet �
 
 ### 当前状态（2026-06-02）
 
-- 已完成 `openspec/changes/v298-maintenance-surface-collateral-guard/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v298-maintenance-surface-collateral-guard/`。
 - 新增 `tests/test_maintenance_surface_collateral.py`，覆盖：
   - README maintenance-console summary
   - MCP spec maintenance surface summary
@@ -296,7 +296,7 @@ job 记录里就不应该退化成调用方 cwd；只有在确实找不到已知
 
 ### 当前状态（2026-06-02）
 
-- 已完成 `openspec/changes/v299-reflection-project-root-resolution/`。
+- 已完成 `openspec/changes/archive/2026-06-02-v299-reflection-project-root-resolution/`。
 - `harness_mem.commands.reflection_jobs.reflection_once(...)` 现在会：
   - 优先使用 commands-layer 的已知 project root lookup
   - 仅在 lookup 失败时回退到 cwd
@@ -318,7 +318,7 @@ reflection 时，不应该再被旧文档误导去写 `worker.mode = "daemon"`�
 
 ### 当前状态（2026-06-03）
 
-- 已完成 `openspec/changes/v2910-worker-mode-truth-sync/`。
+- 已完成 `openspec/changes/archive/2026-06-03-v2910-worker-mode-truth-sync/`。
 - `worker.mode` 当前真值已收束成：
   - 允许值只有 `off` / `on`
   - `on` 只是 non-default config gate
@@ -338,7 +338,7 @@ reflection 时，不应该再被旧文档误导去写 `worker.mode = "daemon"`�
 
 ### 当前状态（2026-06-03）
 
-- 已完成 `openspec/changes/v2911-scheduler-trigger-truth-sync/`。
+- 已完成 `openspec/changes/archive/2026-06-03-v2911-scheduler-trigger-truth-sync/`。
 - `triggers.scheduler` 当前真值已收束成：
   - 允许值只有 `off` / `on`
   - `on` 只是 scheduler/cron host trigger gate
@@ -359,7 +359,7 @@ reflection 时，不应该再被旧文档误导去写 `worker.mode = "daemon"`�
 
 ### 当前状态（2026-06-03）
 
-- 已完成 `openspec/changes/v2912-distill-mode-truth-sync/`。
+- 已完成 `openspec/changes/archive/2026-06-03-v2912-distill-mode-truth-sync/`。
 - `distill.mode` 当前真值已收束成：
   - 允许值只有 `defer_to_agent` / `inline` / `worker`
   - `defer_to_agent` 仍是默认 shipped path
@@ -968,3 +968,22 @@ truth 已经明确：新 session 先走一等 MCP `wake`，低层读工具只在
   - Codex MCP 接入说明只描述 repo 当前维护并验证的 stdio 契约
   - 不再依赖 archived change 路径或“当前版本客户端支持写法”这种外部漂移口径
 - 已补 focused regression test：`tests/test_v2_user_test_packet_contract_source_truth.py`
+
+## v2.9.44：Roadmap-v29 Archive Pointer Truth Sync
+
+**用户故事**：当维护者回读 `docs/roadmap-v29.md` 的前半段已完成切片时，不应该再看到
+`openspec/changes/v29xx...` 这种像 active change 一样的路径，因为这些变更早就归档了。
+当前 roadmap 应直接回指 archive 真路径，而不是保留过时的 change 目录口径。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | completed-slice pointer sync | `v290`–`v2912` 已完成条目统一回指 archive 路径 |
+| P1 | focused regression guard | 如果 `roadmap-v29` 再回流到这些早期 v29 切片的 active-change 路径，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2944-roadmap-v29-archive-pointer-truth-sync/`。
+- `docs/roadmap-v29.md` 现在明确：
+  - `v290`–`v2912` 的已完成条目统一回指 archive 真路径
+  - 不再把这些已归档切片写成仍在 `openspec/changes/v29xx...` 的 active-change 口径
+- 已补 focused regression test：`tests/test_roadmap_v29_archive_pointer_truth.py`
