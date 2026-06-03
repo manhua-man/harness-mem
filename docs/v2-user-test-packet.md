@@ -357,24 +357,34 @@ Boundary:
 - 这条 entry 只证明 **Cursor 接入资产** 在当前机器上可生成，且生成内容符合 shipped host-entry contract。
 - 它**不是** Cursor agent run log，不证明 Cursor 已经跑通 `wake` / `distill` / `search` 场景。
 
-## 2026-06-03 — Cursor hooks runtime evidence (Windows, local Cursor logs)
+## 2026-06-03 — Cursor runtime stack evidence (Windows, local Cursor logs + project MCP cache)
 
-Clients: Cursor runtime evidence only (not a full Cursor agent memory run)
+Clients: Cursor runtime stack evidence only (not a full Cursor agent memory run)
 harness-mem version: 2.9.55
 Project: `f:\memory-lab\harness-mem\harness_mem\integration`
 
-Pass: Cursor hooks subsystem seen on this machine for the harness-mem integration workspace
+Pass: Cursor workspace observed with hooks runtime, agent exec startup, MCP router connection, and harness-mem tool discovery cache
 Not run: Cursor agent memory workflow scenarios
 
 Evidence:
 - local Cursor log file:
   `C:\Users\ManHua\AppData\Roaming\Cursor\logs\20260601T022248\window6\output_20260603T201000\cursor.hooks.workspaceId-2b592b96a83127a0fa3ca09b800709f8.log`
+- local Cursor agent log file:
+  `C:\Users\ManHua\AppData\Roaming\Cursor\logs\20260601T022248\window6\exthost\anysphere.cursor-agent-exec\Cursor Agent Exec.log`
+- local Cursor MCP log file:
+  `C:\Users\ManHua\AppData\Roaming\Cursor\logs\20260601T022248\window6\mcp-server-user-mcp-router.workbench.log`
+- local Cursor project MCP cache:
+  `C:\Users\ManHua\.cursor\projects\f-memory-lab-harness-mem-harness-mem-integration\mcps\user-mcp-router\tools\`
 - that log mentions:
   - `Project config path (integration): f:\memory-lab\harness-mem\harness_mem\integration\.cursor\hooks.json`
   - `Claude project config path (integration): f:\memory-lab\harness-mem\harness_mem\integration\.claude\settings.json`
   - `Claude project local config path (integration): f:\memory-lab\harness-mem\harness_mem\integration\.claude\settings.local.json`
+  - `cursor_agent_exec.startup.workspace_paths {"workspacePathCount":1,"workspacePaths":["f:\\memory-lab\\harness-mem\\harness_mem\\integration"]}`
+  - `createClient completed for server: user-mcp-router, connected=true, statusType=connected`
+  - MCP cache files exist for harness-mem tools including `wake.json`, `set_active_project.json`, and `suggest_memory_entry.json`
 
 Boundary:
-- 这条 entry 证明 **Cursor hooks runtime** 确实在当前机器上看到过 harness-mem integration 工作区，而不只是静态文件存在。
-- 它仍**不是** Cursor agent memory run log：没有直接证据表明 Cursor agent 已调用 `wake`、`prepare_session_distill`、
+- 这条 entry 证明 **Cursor runtime stack** 在当前机器上已经看到了 harness-mem integration 工作区：
+  hooks service 初始化了该工作区，agent exec 在该工作区启动，`mcp-router` 在该窗口连通，且项目级 MCP cache 已落出 harness-mem 工具描述。
+- 它仍**不是** Cursor agent memory run log：没有直接证据表明 Cursor agent 已实际调用 `wake`、`prepare_session_distill`、
   `suggest_memory_entry` 或其它 harness-mem MCP tools。
