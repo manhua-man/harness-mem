@@ -10,18 +10,18 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `2.9.36` |
-| `harness_mem/__init__.py` | `2.9.36` |
-| `CHANGELOG.md` | 已有 `2.9.36` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `2.9.37` |
+| `harness_mem/__init__.py` | `2.9.37` |
+| `CHANGELOG.md` | 已有 `2.9.37` 段；`Unreleased` 当前为空 |
 
-当前收口基线是 v2.9.36：v2.5.0–v2.5.2 的 context assembly / wake renderer /
+当前收口基线是 v2.9.37：v2.5.0–v2.5.2 的 context assembly / wake renderer /
 file_context、v2.6.0–v2.6.3 的 knowledge cache / wiki bridge / contradiction
 boundary、v2.7.0–v2.7.2 的 cross-project procedural skill 能力、v2.8.0–v2.8.2
-的 session-distill maintenance surfaces，以及 v2.9.0–v2.9.36 这一整条从
+的 session-distill maintenance surfaces，以及 v2.9.0–v2.9.37 这一整条从
 `/hm:prd-sync` 起步、随后扩成 maintenance / triage / truth-sync 的 release
 train 都已落地。
 
-> **v2.9.36 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.36`。v2.9 在保持
+> **v2.9.37 发版状态（2026-06-03）**：版本号已 bump 到 `2.9.37`。v2.9 在保持
 > slash-first、candidate-before-truth、maintenance-only CLI 边界的前提下，
 > 把 `/hm:prd-sync [--apply]`、`/hm:status` 与 repo-local plugin doctor helper
 > 一起收束成显式、可验证的 maintenance / triage surfaces，并把主 CLI spec、
@@ -134,7 +134,8 @@ train 都已落地。
 | v2.9.33 | 已完成 | `docs/roadmap-vision-v16-v18.md`、`docs/reference-projects.md`、`docs/README.md`、`tests/test_vision_authority_truth.py`、OpenSpec `v2933-vision-authority-truth-sync` | `vision` 与 reference 文档现在都明确回写到当前真值：相关 `v1.6` - `v1.8` 已是历史已完成版本线，当前状态应以 `roadmap-status` / `CHANGELOG` 为准。 |
 | v2.9.34 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_baseline_truth.py`、OpenSpec `v2934-roadmap-status-v29-baseline-tail-sync` | `roadmap-status` 顶部“当前收口基线”摘要现在不再把 `v2.9` release train 截在 `v2.9.27`；它已同步到当前版本尾号，并由 focused guard 跟随 `__version__` 校验。 |
 | v2.9.35 | 已完成 | `docs/README.md`、`tests/test_docs_readme_status_range_truth.py`、OpenSpec `v2935-docs-readme-status-range-truth-sync` | `docs/README.md` 里的 `roadmap-status.md` 索引说明现在与当前矩阵真值一致：不再把覆盖范围缩成 `v1.6–v2.9`，而是明确包括 `v1.5.x`。 |
-| v2.9.36 | 当前版本 | `docs/roadmap-status.md`、`tests/test_roadmap_status_summary_truth.py`、OpenSpec `v2936-roadmap-status-short-summary-scope-sync` | `roadmap-status` 的短结论现在不再只从 `v2.2` 起讲，而是明确把 `v1.5` 到 `v2.9` 的已完成主线作为连续历史范围来总结。 |
+| v2.9.36 | 已完成 | `docs/roadmap-status.md`、`tests/test_roadmap_status_summary_truth.py`、OpenSpec `v2936-roadmap-status-short-summary-scope-sync` | `roadmap-status` 的短结论现在不再只从 `v2.2` 起讲，而是明确把 `v1.5` 到 `v2.9` 的已完成主线作为连续历史范围来总结。 |
+| v2.9.37 | 当前版本 | `docs/roadmap-status.md`、`tests/test_roadmap_status_version_index_truth.py`、OpenSpec `v2937-roadmap-status-version-index-truth-sync` | `roadmap-status` 的高可见版本索引现在从 `v1.5.x` 连续覆盖到 `v2.9.x`；不再以“后续 Roadmap”名义只从 `v2.2.x` 起列。 |
 
 ## 未完成 / 不做项
 
@@ -153,10 +154,16 @@ train 都已落地。
 | CLI 日常工作流（`wake`、`search`、`timeline`、candidate review） | v2.1 已从 CLI surface 移除。日常使用走 IDE command / Skill / Agent workflow，背后由 MCP 支撑。 | 不规划恢复。 |
 | v1.9 Memory Metabolism / Dream | 旧 vision 已删除，不再作为独立路线。 | 已拆成 v2.3 signals/replay、v2.4 reflection queue、v2.6 contradiction/metabolism suggestions。 |
 
-## 后续 Roadmap
+## 版本索引
 
 | 切片 | 主题 | 文档 |
 |---|---|---|
+| v1.5.x | Retrieval baseline + ingest/onboarding 基础：自动 ingest、跨项目搜索、doctor/安装闭环 | `docs/roadmap-v15x.md` |
+| v1.6.x | Persistent vectors + memory typing + bucket budget：measurement foundation、typing、persistent vectors | `docs/roadmap-v16x.md` |
+| v1.7.x | Temporal truth + supersede + bounded relation graph：temporal schema、supersede、verbatim exact evidence search | `docs/roadmap-v17x.md` |
+| v1.8.x | Procedural memory 保守闭环：`ProceduralCandidate`、confirmed `Skill`、`search_skills`、`record_skill_result` | `docs/roadmap-vision-v16-v18.md` |
+| v2.0.x | Heuristic distill 移除：distill 从 heuristic runtime 收束成 LLM agent 流程 | `docs/roadmap-status.md` |
+| v2.1.x | Maintenance-only CLI + Slash/Skill/Agent workflow 重写：daily-memory surface 退出 CLI | `docs/roadmap-status.md` |
 | v2.2.x | AI IDE 入口闭环：`/hm:distill`、`/hm:wake`、`/hm:search`、跨客户端测试、auto-review UX | `docs/roadmap-v22x.md` |
 | v2.3.x | Signals / Replay 地基：`RetrievalSignal`、`MetabolismRun`、replay window、`metabolism_preview` | `docs/roadmap-v23.md` |
 | v2.4.x | Host-triggered Reflection + Queue Health：job lifecycle、config toml、维护子命令管配置、hook 仅业务命令、doctor | `docs/roadmap-v24.md` |

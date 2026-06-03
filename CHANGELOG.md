@@ -8,6 +8,29 @@
 
 ---
 
+## [2.9.37] — 2026-06-03
+
+**主题：Roadmap-Status Version Index Truth Sync**
+
+v2.9.37 收的是 `docs/roadmap-status.md` 版本索引表的范围漂移。当前状态页、README 索引和
+短结论都已经覆盖 `v1.5` 到 `v2.9`，但这张高可见索引表仍只从 `v2.2.x` 起列，而且节名
+还保留“后续 Roadmap”的旧说法。 这一版不改 runtime，只把版本索引回写到当前真值，并补
+focused guard。
+
+### Changed
+
+- **roadmap-status version-index sync**：`docs/roadmap-status.md` 的高可见版本索引
+  现在从 `v1.5.x` 连续覆盖到 `v2.9.x`。
+- **section label sync**：同一节标题现在改成 `版本索引`，不再写成会误导时间感的
+  “后续 Roadmap”。
+- **focused regression coverage**：新增 `tests/test_roadmap_status_version_index_truth.py`。
+- **release writeback**：`docs/roadmap-v29.md`、版本号与本 changelog 已同步到 `2.9.37`。
+
+### Boundaries
+
+- 本版本不新增新的 runtime 行为、MCP tool、maintenance command 或 roadmap slice。
+- 它只同步 `roadmap-status` 的版本索引范围与标题，并防止该索引再次回流到只从 `v2.2` 起列的旧口径。
+
 ## [2.9.36] — 2026-06-03
 
 **主题：Roadmap-Status Short Summary Scope Sync**

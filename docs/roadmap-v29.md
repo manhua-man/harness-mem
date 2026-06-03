@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 / v2.9.30 / v2.9.31 / v2.9.32 / v2.9.33 / v2.9.34 / v2.9.35 / v2.9.36 已完成。
+> 状态：v2.9.0 / v2.9.1 / v2.9.2 / v2.9.3 / v2.9.4 / v2.9.5 / v2.9.6 / v2.9.7 / v2.9.8 / v2.9.9 / v2.9.10 / v2.9.11 / v2.9.12 / v2.9.13 / v2.9.14 / v2.9.15 / v2.9.16 / v2.9.17 / v2.9.18 / v2.9.19 / v2.9.20 / v2.9.21 / v2.9.22 / v2.9.23 / v2.9.24 / v2.9.25 / v2.9.26 / v2.9.27 / v2.9.28 / v2.9.29 / v2.9.30 / v2.9.31 / v2.9.32 / v2.9.33 / v2.9.34 / v2.9.35 / v2.9.36 / v2.9.37 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步
@@ -850,3 +850,22 @@ release slices。
   - 从 `v1.5` baseline 到 `v2.9` release train 都属于连续已完成主线
   - 不再只从 `v2.2` 用户入口闭环开始概括
 - 已补 focused regression test：`tests/test_roadmap_status_summary_truth.py`
+
+## v2.9.37：Roadmap-Status Version Index Truth Sync
+
+**用户故事**：当维护者查看 `docs/roadmap-status.md` 的版本索引表时，不应该再只看到
+`v2.2.x` 之后的条目，因为当前状态页和短结论都已经明确覆盖 `v1.5` 到 `v2.9` 的连续历史范围。
+
+| 优先级 | 任务 | 验收 |
+|---|---|---|
+| P0 | roadmap-status version-index sync | 高可见版本索引表从 `v1.5.x` 连续覆盖到 `v2.9.x` |
+| P0 | section label sync | 节名不再写“后续 Roadmap”，而是写成当前真值导向的“版本索引” |
+| P1 | focused regression guard | 如果索引表回流到只从 `v2.2.x` 起列，测试失败 |
+
+### 当前状态（2026-06-03）
+
+- 已完成 `openspec/changes/archive/2026-06-03-v2937-roadmap-status-version-index-truth-sync/`。
+- `docs/roadmap-status.md` 的高可见版本索引现在明确：
+  - 从 `v1.5.x` 到 `v2.9.x` 连续列出对应 roadmap / status 文档
+  - 不再以“后续 Roadmap”名义只从 `v2.2.x` 开始
+- 已补 focused regression test：`tests/test_roadmap_status_version_index_truth.py`
