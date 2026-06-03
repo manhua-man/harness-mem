@@ -338,3 +338,21 @@ Boundary:
   不再只是理论上的 setup note。
 - 它仍**不等于** full matrix 已完成：这里只覆盖了 raw MCP 下的 empty wake、project activation、
   candidate write/readback，还没有补完 packet 定义的其余 scenario，也没有 Cursor 端 run log。
+
+## 2026-06-03 — Cursor hook install smoke (Windows, temp project)
+
+Clients: Cursor integration asset only (not a full Cursor agent run)
+harness-mem version: 2.9.55
+Project: temp `hm-cursor-hook-smoke`
+
+Pass: installation asset generation for Cursor after-agent hook
+Not run: Cursor agent conversation / MCP tool invocation / packet scenarios
+
+Evidence:
+- `python -m harness_mem.cli integration install-cursor-hook --project-root <temp>` returned success
+- generated file path: `C:\Users\ManHua\AppData\Local\Temp\hm-cursor-hook-smoke\.cursor\hooks\after-agent.sh`
+- generated hook embeds shipped `python -m harness_mem.host_entry --project-root ... --source ide_hook` invocation
+
+Boundary:
+- 这条 entry 只证明 **Cursor 接入资产** 在当前机器上可生成，且生成内容符合 shipped host-entry contract。
+- 它**不是** Cursor agent run log，不证明 Cursor 已经跑通 `wake` / `distill` / `search` 场景。
