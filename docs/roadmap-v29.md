@@ -1363,7 +1363,9 @@ wake renderer 读端 readback，或者 Cursor runtime/cache/transcript 旁证误
   - real Cursor / router wake transcript：
     - actual routed tool call only used `wake(project_name="harness-mem", no_auto_ingest=true)`
     - routed output returned success but still used the old `# Memory Entries / # Confirmed Rules` shape
-    - routed output was truncated with `[...truncated]`
+    - an earlier routed output was truncated with `[...truncated]`
+    - after cache refresh, routed wake now returns `wake_sections` / `essential_truth` /
+      `active_task` / `disclosure` plus the layered L0/L1/L2 text
     - the same parameters against repo-local wake still produced the newer layered `# Essential Truth` output
 - 当前已补的 focused guards：
   - `tests/test_v2_user_test_packet_remaining_matrix_truth.py`
@@ -1381,5 +1383,5 @@ wake renderer 读端 readback，或者 Cursor runtime/cache/transcript 旁证误
   但仍**不是** Cursor 侧 `S10` 扩展证据完成。
 - 这版现在已有一条真实 Cursor / router wake transcript，但仍**不是**自带工作区路径的
   `harness_mem/integration` packet run log。
-- 这版也没有补齐 `S5` 或 `S7` 的真实 client transcript。
+- 这版后来又补上了 `S7` 与 `S11` 的真实 client-facing transcript；当前剩余的 packet 级直接 client transcript 缺口主要是 `S4`。
 - `claude -p` 当前仍未成为稳定可用的自动化读端，所以 Hermes 这条不是跨客户端 transcript。

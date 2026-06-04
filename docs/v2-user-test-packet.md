@@ -20,7 +20,6 @@
 | S2 Distill closed loop produces canonical summary | Pass: 摘要含六计数器 / `/hm:distill` | Pass: 摘要含六计数器 / "用 harness-mem 整理最近 10 个 session" | Pass: 摘要含六计数器 / "用 harness-mem 整理最近 10 个 session" | Pass: 完整链 + 摘要 / 顺序调 `prepare_session_distill` → `suggest_*` → `auto_review_candidates` |
 | S3 Project resolution | Pass: 不让用户跑 `harness-mem use` / `/hm:wake` | Pass: 同左 / "唤醒当前项目" | Pass: 同左 / "唤醒当前项目" | Pass: agent 解析项目 / 注入 `project_root` 参数 |
 | S4 MCP unavailable | Pass: 报 unavailable + 指 doctor / `/hm:distill` | Pass: 同左 / "整理最近 session" | Pass: 同左 / "整理最近 session" | Pass: 同左 / 任意 MCP 调用 |
-| S5 No LLM agent (distill) | N/A（Claude Code 总有 LLM） | Pass: 报 unavailable，不启发式回退 / "整理最近 session"（用 weak/无模型） | Pass: 同左 / 同左 | Pass: 同左 / 模拟无 LLM agent |
 | S6 Empty evidence packet | Pass: 报 "no recent session evidence" / `/hm:distill` | Pass: 同左 / 自然语言指令 | Pass: 同左 / 自然语言指令 | Pass: 同左 / 直接调 `prepare_session_distill` |
 | S7 Project mismatch | Pass: 一句反问 / `/hm:distill <错项目>` | Pass: 同左 / "整理项目 X 的 session"（X 与 cwd 不符） | Pass: 同左 / 同左 | Pass: 同左 / 注入冲突 `project_name` |
 | S8 Auto-review confirms low-risk + defers high-risk | Pass: ≥1 低风险自动 confirm + ≥1 高风险残留 / `/hm:distill`（带 fixture） | Pass: 同左 / NL 指令 | Pass: 同左 / NL 指令 | Pass: 同左 / `auto_review_candidates` |
@@ -157,15 +156,6 @@ Current evidence status:
 - 这条证据仍**不是** Codex / Cursor / Claude 的 client-facing transcript，也还没有覆盖
   “错误文案里显式指向 `harness-mem doctor` 且不推荐旧 daily CLI” 这一层 UI 表述验证。
 
-### S5 No LLM agent (Codex / Cursor without the right model)
-
-- **Intent**：distill 是 LLM-driven。没 LLM 时报 unavailable，不退回启发式抽取。
-- **Pre-condition**：在 Codex CLI 或 Cursor 里把模型显式选成不可用 / 占位 / 极弱模型；或 mock 一个 LLM agent failure。
-- **Per-client input**：`用 harness-mem 整理最近 10 个 session`。
-- **Expected**：参见 spec _Failure states are explicit / No LLM agent is available_。报告 distill unavailable，并把开发者指向 `tools/session-distill/SKILL.md` 作为 LLM-agent 集成参考；不调 `prepare_session_distill` 之外的 `suggest_*` 接口造候选。
-- **Pass criterion**：摘要里说"distill unavailable"或同义表达；`list_candidates(status="pending")` 在测试前后差值为 0（没有静默写入候选）。
-- **Common failure mode**：agent 看 LLM 不可用后，自己用 regex / git log / 文件名启发式抽规则塞进候选——这正是 v2.0 砍掉的 heuristic 路径，绝对不可复活。
-
 ### S6 Empty evidence packet
 
 - **Intent**：项目下没有可用 session 时，不发明候选。
@@ -293,7 +283,7 @@ harness-mem version: 2.2.0
 Project: F--TFT
 
 Pass: S1 S2 S3 S6 S7 S8 S9 S11 S12
-Skipped: S4 (无法运行时模拟 MCP 断连), S5 (无法运行时切换模型)
+Skipped: S4 (无法运行时模拟 MCP 断连)
 N/A: S10 (单 client run)
 Known gap: 非 Claude client (Codex / Cursor / generic MCP) 未跑；待后续 entry 补全。
 
@@ -321,7 +311,7 @@ harness-mem version: 2.9.55
 Project: F--memory-lab--harness-mem
 
 Pass: S1 (cold wake on empty project, MCP `wake` path), S3 (project resolution via `set_active_project`), partial S2 (candidate write path via `suggest_memory_entry`)
-Not run: full 12-scenario matrix, S4/S5/S6/S7/S8/S9/S10/S11/S12
+Not run: full 11-scenario matrix, S4/S6/S7/S8/S9/S10/S11/S12
 
 Evidence:
 - `set_active_project(project_name="v22-codex-smoke")` returned success
@@ -342,7 +332,7 @@ harness-mem version: 2.9.55
 Project: F--memory-lab--harness-mem
 
 Pass: S1 (empty-project `wake` via raw MCP), S3 (`set_active_project`), partial S2 (`suggest_memory_entry` + `list_candidates`)
-Not run: full 12-scenario matrix, S4/S5/S6/S7/S8/S9/S10/S11/S12
+Not run: full 11-scenario matrix, S4/S6/S7/S8/S9/S10/S11/S12
 
 Evidence:
 - raw JSON-RPC `tools/call` to `wake(project_name="v22-generic-mcp", no_auto_ingest=true)` returned empty L0/L1/L2 summary
@@ -365,7 +355,7 @@ Project: `v22-generic-expanded`
 Environment: isolated temp home + `HARNESS_MEM_DISABLE_EMBEDDINGS=1`
 
 Pass: S8 (`auto_review_candidates` preview/apply path), S9 (`suggest_correction` one-shot supersede path)
-Not run: full 12-scenario matrix, S4/S5/S6/S7/S10/S11/S12, natural-language distill happy path
+Not run: full 11-scenario matrix, S4/S6/S7/S10/S11/S12, natural-language distill happy path
 
 Evidence:
 - three pending memory entries were created via real stdio MCP `suggest_memory_entry` calls:
@@ -397,7 +387,7 @@ Boundary:
 - 这次使用了 `HARNESS_MEM_DISABLE_EMBEDDINGS=1`，目的是让隔离临时 home 下的手工 packet run
   避免依赖 embedding cache / model 下载，保证结果只反映 MCP workflow 本身。
 - 它仍**不等于** full matrix 全补齐：这里只把 generic MCP 进一步推进到了 S8 / S9，没有覆盖
-  S4 / S5 / S6 / S7 / S10 / S11 / S12，也不是自然语言 distill 的完整 happy path。
+  S4 / S6 / S7 / S10 / S11 / S12，也不是自然语言 distill 的完整 happy path。
 
 ## 2026-06-04 — Generic MCP fresh-home write-path smoke (Windows, isolated temp home, embeddings enabled)
 
@@ -407,7 +397,7 @@ Project: `v2956-fresh-home`
 Environment: isolated temp home, embeddings enabled, empty local HF cache
 
 Pass: partial S2 (`suggest_memory_entry` + `list_candidates` with fresh-home cold cache)
-Not run: full 12-scenario matrix, S4/S5/S6/S7/S8/S9/S10/S11/S12
+Not run: full 11-scenario matrix, S4/S6/S7/S8/S9/S10/S11/S12
 
 Evidence:
 - raw JSON-RPC `initialize` returned the MCP handshake successfully
@@ -432,7 +422,7 @@ Project: `v2957-empty-packet`
 Environment: isolated temp home, empty project, `run_ingest=false`
 
 Pass: S6 (empty evidence packet via raw `prepare_session_distill`)
-Not run: full 12-scenario matrix, S4/S5/S7/S10/S11/S12, natural-language distill happy path
+Not run: full 11-scenario matrix, S4/S7/S10/S11/S12, natural-language distill happy path
 
 Evidence:
 - raw JSON-RPC `initialize` returned the MCP handshake successfully
@@ -454,7 +444,7 @@ Boundary:
   而不只是 packet 表里的预期描述。
 - 它仍**不等于**用户可见 agent 总结文案已经在每个 client 上都收成 “no recent session evidence”；
   这里验证的是底层 `prepare_session_distill` 空包返回。
-- 它也**不等于** full matrix 已完成：S4 / S5 / S7 / S10 / S11 / S12 仍未在 generic MCP 上补齐。
+- 它也**不等于** full matrix 已完成：S4 / S7 / S10 / S11 / S12 仍未在 generic MCP 上补齐。
 
 ## 2026-06-04 — Generic MCP cross-session confirmed truth visibility (Windows, isolated temp home)
 
@@ -464,7 +454,7 @@ Project: `v2958-cross-session`
 Environment: isolated temp home, two independent MCP server processes, `HARNESS_MEM_DISABLE_EMBEDDINGS=1`
 
 Pass: near-neighbor S10 (confirmed truth written in one MCP session and surfaced by `wake` in a second MCP session)
-Not run: full 12-scenario matrix, UI-level Codex/Claude/Cursor cross-client pair, S4/S5/S7/S11/S12
+Not run: full 11-scenario matrix, UI-level Codex/Claude/Cursor cross-client pair, S4/S7/S11/S12
 
 Evidence:
 - writer session `initialize` returned the MCP handshake successfully
@@ -567,7 +557,7 @@ Boundary:
   payload、repo-side wake renderer、或 Hermes oneshot 这类近邻证据。
 - 它仍**不等于** Cursor 侧的对应 transcript 已有；当前还没有 `Cursor -> Claude` 或
   `harness_mem/integration` 工作区里的 Cursor packet run log。
-- 它也**不等于** full matrix 已补齐：`S4 / S5 / S7 / S11` 仍缺直接 client-facing transcript。
+- 它也**不等于** full matrix 已补齐：`S4 / S7 / S11` 仍缺直接 client-facing transcript。
 
 ## 2026-06-04 — Cursor / user-mcp-router wake packet transcript (user-supplied run log)
 
@@ -576,34 +566,44 @@ harness-mem repo version: 2.9.61
 Project: `harness-mem`
 Environment: user-supplied packet transcript, `wake(project_name="harness-mem", no_auto_ingest=true)`
 
-Pass: real Cursor-side wake transcript exists
-Not yet proven by this snippet alone: strict `harness_mem/integration` workspace provenance
+Pass: real Cursor-side wake transcript exists, and refreshed router cache now returns the new layered + structured wake shape
+Not yet proven by this snippet alone: `Cursor -> Claude` pair or other matrix cells beyond this wake packet run
 
 Evidence:
-- the only recorded harness-mem tool call was:
+- an earlier Cursor / router wake run existed with:
   - `wake(project_name="harness-mem", no_auto_ingest=true)`
-- no `set_active_project`, `search_memory`, or `ingest_sessions` call was reported in that run
-- raw routed MCP result returned:
-  - `success = true`
-  - `exit_code = 0`
   - old-format sections such as `# Project Profile`, `# Recent Tasks`, `# Confirmed Rules`, `# Memory Entries`
   - truncated output marker: `[...truncated]`
-  - visible memory lines including:
-    - `Hermes cross-client sentinel fact.`
+- after refreshing the `user-mcp-router` tool cache, the same Cursor-side wake path returned:
+  - `project_name = "harness-mem"`
+  - `renderer = "default"`
+  - `success = true`
+  - `exit_code = 0`
+  - top-level structured fields:
+    - `wake_sections`
+    - `essential_truth`
+    - `active_task`
+    - `disclosure`
+  - layered wake text in `output`:
+    - `# Project Profile  (L0 · identity)`
+    - `# Essential Truth  (L1 · confirmed current)`
+    - `# Active Task  (L2)`
+  - `essential_truth` included:
     - `S10 cross-client manual sentinel 2026-06-04 01.`
-- side-by-side repo-local comparison with the same `project_name` / `no_auto_ingest=true` parameters produced
-  the newer layered wake output with:
-  - `# Essential Truth  (L1 · confirmed current)`
-  - `S10 cross-client manual sentinel 2026-06-04 01.`
+    - `Hermes cross-client sentinel fact.`
+- Cursor-side tool discovery now also matches the live server shape:
+  - cached `wake.json` under
+    `C:\Users\ManHua\.cursor\projects\f-memory-lab-harness-mem-harness-mem-integration\mcps\user-mcp-router\tools\`
+    includes `project_name`, `no_auto_ingest`, `renderer`, `include_skill_hints`, `skill_hint_limit`
+  - live `initialize` / `tools/list` reported `serverInfo.version = "2.9.61"`
 
 Boundary:
 - 这条 entry 证明 **当前机器上已经有一条真实的 Cursor / router wake transcript**，不再只是
   tools cache、runtime log 或 hooks 旁证。
-- 它同时暴露出一个新的 integration 关注点：`user-mcp-router` 返回的 wake 版式仍是旧分段
-  （`# Memory Entries / # Confirmed Rules`）且会截断 output，与本地 repo 的 L0/L1/L2 分层渲染不一致。
-- 它仍**不等于** strict `harness_mem/integration` workspace gap 已完全关闭，因为这段摘录本身没有把
-  workspace path 一起带出来；当前更准确的说法是：已有真实 Cursor-side packet transcript，但还需要
-  一条自带工作区路径的 transcript 才能把 integration-workspace provenance 也钉死。
+- 它现在还进一步证明 **user-mcp-router 刷新后已经能返回当前 repo 的新 wake shape**：
+  不仅有新的 L0/L1/L2 分层文本，还把 `essential_truth` / `wake_sections` 等结构化字段一起返回。
+- 它仍**不等于** `Cursor -> Claude` 的 UI 级 cross-client pair 已有，也不等于 `S4 / S7 / S11`
+  的 client-facing transcript 已补齐。
 
 ## 2026-06-04 — Generic MCP distill summary stays repair-only (Windows, isolated temp home)
 
@@ -613,7 +613,7 @@ Project: `v2959-review-only`
 Environment: isolated temp home, `HARNESS_MEM_DISABLE_EMBEDDINGS=1`
 
 Pass: near-neighbor S12 (successful auto-review summary does not tell the user to run `/hm:review`)
-Not run: full natural-language distill happy path, UI-level slash/client summary wording, S4/S5/S7/S11
+Not run: full natural-language distill happy path, UI-level slash/client summary wording, S4/S7/S11
 
 Evidence:
 - raw JSON-RPC `initialize` returned the MCP handshake successfully
@@ -662,6 +662,41 @@ Boundary:
   不再作为当前用户 workflow 教学出现。
 - 它仍**不等于**整个仓库所有历史文档都绝对零命中；这里只验证 packet S11 明确定义的扫描范围。
 
+## 2026-06-04 — Client-facing S11 transcript (natural user help, no stale daily CLI)
+
+Clients: client-facing assistant transcript (user-facing help answer)
+harness-mem version: 2.9.61
+Project: `harness-mem`
+Environment: current machine, real user-facing help wording
+
+Pass: S11 client-facing transcript (user is not taught stale daily CLI)
+Not run: broader historical doc sweep outside packet-defined scan scope
+
+Evidence:
+- user asked how to:
+  - restore current-project context
+  - distill recent sessions
+- returned user-facing guidance recommended:
+  - `/hm:wake`
+  - `/hm:status`
+  - `/hm:distill`
+  - natural-language entries such as:
+    - `用 harness-mem 唤醒当前项目`
+    - `用 harness-mem 整理最近 10 个 session，并自动审核候选`
+- returned explanation described MCP / slash / natural-language paths, not old daily CLI
+- returned text explicitly said the user generally does not need to open a terminal for maintenance
+- returned text did **not** teach:
+  - `harness-mem wake`
+  - `harness-mem search`
+  - `harness-mem distill`
+  - `harness-mem timeline`
+  - `harness-mem candidates`
+
+Boundary:
+- 这条 entry 证明 **真实 client-facing 帮助话术** 也已经遵守 S11 边界：
+  用户被引导到 slash / 自然语言 / MCP 语义入口，而不是旧 daily CLI。
+- 它不是 repo 全文档零命中的替代；字符串扫描场景仍由 packet S11 的 repo-truth scan 单独覆盖。
+
 ## 2026-06-04 — Generic MCP transport unavailable repro (Windows, isolated broken launch command)
 
 Clients: Generic MCP client (raw subprocess/stdin/stdout repro, not a full IDE transcript)
@@ -694,6 +729,34 @@ Boundary:
   `harness-mem doctor`。
 - 它也**不等于**旧 daily CLI fallback 已在真实 client transcript 里被逐字排除；这条只补了
   S4 的底层 runtime repro，不是最终用户表述验证。
+
+## 2026-06-04 — Client-facing S7 transcript (project mismatch clarification)
+
+Clients: client-facing assistant transcript
+harness-mem version: 2.9.61
+Projects observed: `harness-mem` (active project / current workspace) vs `unity-side-job` (user-requested target)
+Environment: current machine, real user-facing clarification turn
+
+Pass: S7 client-facing transcript (project mismatch is surfaced explicitly and clarified once)
+Not run: full distill path after the clarification is answered
+
+Evidence:
+- user requested:
+  - `用 harness-mem 整理项目 unity-side-job 最近 5 个 session 的记忆`
+- assistant explicitly surfaced both detected project names:
+  - `harness-mem`
+  - `unity-side-job`
+- assistant stated that, before clarification, it would not:
+  - call distill
+  - write any candidate
+  - pretend work had already started
+- assistant then asked exactly one clarification question:
+  - `本次 session 提炼与后续候选/确认记忆的归属项目，是否一律使用 unity-side-job（即：以 unity-side-job 为 project_name / 活动项目执行 prepare_session_distill 与 suggest_*），而不是写入 harness-mem 项目？`
+
+Boundary:
+- 这条 entry 证明 **S7 的 client-facing mismatch behavior** 现在已有直接 transcript：
+  两个冲突项目名会被同时点出，而且只问一次澄清，不会静默选一个继续跑。
+- 它不证明后续 distill happy path 在该冲突解决后一定成功；这里只覆盖 mismatch detection 与单次澄清边界。
 
 ## 2026-06-03 — Cursor hook install smoke (Windows, temp project)
 
@@ -778,10 +841,10 @@ Boundary:
 - 它仍**不等于** v2.2 packet 已经在 Cursor 上补齐：这些 run log 来自 `bazi-apps` 项目，不是
   `harness_mem/integration` 工作区，也还没有覆盖 packet 定义的 full 12-scenario matrix。
 - 当前已新增一条直接对应 packet 单元格的 UI 级 `S10` pair：`Codex app → Claude Code`
-- 当前还已有一条真实 `Cursor / user-mcp-router` wake transcript，但它暴露的是 router 版式/截断问题，
-  还没有把 `harness_mem/integration` 工作区 provenance 自带出来
+- 当前还已有一条真实 `Cursor / user-mcp-router` wake transcript，且 `user-mcp-router` 刷新后已经能返回当前 repo 的新 wake shape；
+  但它还没有把 `harness_mem/integration` 工作区 provenance 自带出来
 - 当前明确仍缺的强证据有四类：
   - Cursor 侧的 `S10` 扩展证据（如 `Cursor→Claude` 或 integration-workspace Cursor pair）
-  - full matrix 里尚未补齐的 `S4 / S5 / S7 / S11`
+  - full matrix 里尚未补齐的 `S4`
   - `harness_mem/integration` 工作区上的真实 Cursor packet scenario run log
   - 能直接对应 packet 单元格的 client-facing transcript，而不只是 runtime / cache / transcript 旁证
