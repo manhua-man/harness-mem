@@ -21,6 +21,9 @@ tmp-*/
 # Local Cursor/Claude config overrides
 **/CLAUDE.local.md
 
+# Local harness-mem config overrides
+.harness-mem.toml
+
 # Build artifacts
 dist/
 build/
