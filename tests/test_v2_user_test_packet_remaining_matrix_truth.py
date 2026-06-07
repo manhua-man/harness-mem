@@ -8,9 +8,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def test_v2_user_test_packet_explicitly_records_remaining_strong_evidence_gaps() -> None:
     packet = (REPO_ROOT / "docs" / "v2-user-test-packet.md").read_text(encoding="utf-8")
-    roadmap_status = " ".join(
-        (REPO_ROOT / "docs" / "roadmap-status.md").read_text(encoding="utf-8").split()
-    )
 
     assert "当前已新增一条直接对应 packet 单元格的 UI 级 `S10` pair：`Codex app → Claude Code`" in packet
     assert "当前还已有一条真实 `Cursor / user-mcp-router` wake transcript" in packet
@@ -24,13 +21,3 @@ def test_v2_user_test_packet_explicitly_records_remaining_strong_evidence_gaps()
     assert "Current evidence status:" in packet
     assert "这条证据仍**不是** Codex / Cursor / Claude 的 client-facing transcript" in packet
     assert "还没有 `Cursor -> Claude`" in packet
-
-    assert "还已经拿到了一条直接对应 packet `S10` 单元格的跨客户端 client transcript" in roadmap_status
-    assert "真实 `Cursor / user-mcp-router` wake transcript" in roadmap_status
-    assert "新的 layered + structured wake shape" in roadmap_status
-    assert "`S7 project mismatch` 与 `S11 stale-CLI help surface`" in roadmap_status
-    assert "`S4`" in roadmap_status
-    assert "workspace provenance" in roadmap_status
-    assert "`harness_mem/integration` Cursor packet run log" in roadmap_status
-    assert "Claude 自动化读端" in roadmap_status
-    assert "Cursor packet run log" in roadmap_status

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
+
 from harness_mem.commands.doctor import cmd_doctor
 from harness_mem.core.schemas import MemoryEntry
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.commands.support import set_active_project
-from tests.helpers import requires_embeddings, run
+from tests.helpers import patch_fake_write_embedding_loader, requires_embeddings, run
 
 
 def test_doctor_detects_missing_vec_table(data_dir, capsys):
@@ -51,9 +53,14 @@ def test_doctor_detects_missing_vec_table(data_dir, capsys):
     run(_test())
 
 
-def test_doctor_detects_model_id_mismatch(data_dir, capsys):
+def test_doctor_detects_model_id_mismatch(
+    data_dir,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Task 9.8: doctor detects HM-201 (model_id mismatch)."""
     async def _test():
+        patch_fake_write_embedding_loader(monkeypatch)
         # Setup: create backend with vectors using different model_id
         backend = LocalMemoryBackend(data_dir)
         await backend.init()
@@ -136,9 +143,14 @@ def test_doctor_detects_empty_vec_table(data_dir, capsys):
 
 
 @requires_embeddings
-def test_doctor_detects_vector_dimension_mismatch(data_dir, capsys):
+def test_doctor_detects_vector_dimension_mismatch(
+    data_dir,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Doctor detects vectors whose dimensions do not match the current model."""
     async def _test():
+        patch_fake_write_embedding_loader(monkeypatch)
         backend = LocalMemoryBackend(data_dir)
         await backend.init()
 

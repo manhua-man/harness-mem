@@ -55,6 +55,8 @@ def test_doctor_reports_knowledge_cache_boundary_visibility(
     assert "boundary:" in output
     assert "sources: 2 tracked (1 curated docs)" in output
     assert "generated:" in output
+    assert "compiler:" in output
+    assert "freshness:" in output
     assert "sync map:" in output
 
 
@@ -135,5 +137,11 @@ def test_rebuild_wiki_bridge_command_writes_counts(
     output = capsys.readouterr().out
     assert "Rebuilt wiki bridge: demo" in output
     assert "Claims:" in output
+    assert "Invalid claims:" in output
     assert "Topics:" in output
     assert "Entities:" in output
+    assert "Sources:" in output
+    assert "Cache hit ratio:" in output
+    assert "Output token estimate:" in output
+    assert "Claim diff:" in output
+    assert "Source map:" in output

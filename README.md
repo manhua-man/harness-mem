@@ -171,46 +171,25 @@ AI IDE 用户不需要学习 CLI 命令清单。候选复核、确认、拒绝�
 - `tests/`: 自动化测试
 - `docs/`: 文档和设计说明
 - `benchmarks/`: benchmark 结果与评测相关内容
-- `.claude/` / `.codex/` / `.cursor/`: 多 Agent 协作配置
+- `.claude/` / `.codex/` / `.cursor/`: 可选的多 Agent 协作配置（非安装必需）
 - `openspec/specs/`: 当前主 spec 真值
 - `openspec/changes/`: 仍在进行中的 active changes
 - `openspec/changes/archive/`: 已完成 change 的归档记录
-- `tools/session-distill/`: 用户主动蒸馏入口；由 runtime 自动识别 Codex / Claude Code / Cursor / Antigravity / opencode / Hermes / generic agent 来源，统一走 evidence packet -> candidate layer
-- `tools/mem-distill/`: 既有 memory / observations 整理入口
-- `tools/grill-me/` / `tools/answer-me/` / `tools/ask-me/`: review 阶段可选协作者，不是默认主链依赖
+- `tools/`: 可选 skill 与 session 整理入口（默认主链仍是 `/hm:distill`）
 
-文档入口和实际文件列表见 [docs/README.md](./docs/README.md)。
+文档入口见 [docs/README.md](./docs/README.md)。发版审计与跨客户端测试材料在维护者文档区，不面向终端用户。
 
-### Workflow Skill Boundary
-
-用户只有一条默认主链：`/hm:distill` / 自然语言等价入口。Agent 不要求用户区分 Codex、Claude Code、Cursor、Antigravity、opencode、Hermes 或 generic agent 历史；入口统一调 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根>)`，由 runtime 自动识别可用来源并返回 evidence packet。
+**默认主链**（用户只需记住这一条）：
 
 ```text
-prepare_session_distill
--> auto-detect client/source and project-scoped sessions
--> session-distill reads evidence
--> suggest_memory_entry / suggest_rule / suggest_relation_fact
--> auto_review_candidates(apply=true)
--> final summary
+/hm:distill  ->  ingest + LLM 提炼 + 写候选 -> auto_review_candidates(apply=true) -> 摘要给你复核
+/hm:wake     →  只注入已确认记忆
+/hm:search   →  先摘要与来源，需要时再展开证据
 ```
 
-`grill-me`、`answer-me`、`ask-me` 和 `mem-distill` 只在已安装且场景匹配时接入 review 或整理阶段。任何一个外置协作者不可用时，主链仍应继续运行。
+Session 来源由 runtime 自动识别，无需手动指定客户端类型。高级维护（标记已蒸馏 session、清理 KB、`/hm:prd-sync` 等）见 `plugins/harness-mem/commands/hm/` 与 [docs/roadmap-v28.md](./docs/roadmap-v28.md)。
 
-维护类能力同样走 `/hm:*` 入口，而不是让用户记底层 CLI：
-
-| Slash | 用途 |
-|-------|------|
-| `/hm:mark <session-id> distilled [--keep-raw]` | 通过 session note / raw review / promotion / draft / KB guardrail 后关闭单个 session。 |
-| `/hm:prune --statuses distilled,skipped --source-missing` | 清理 raw 已不存在的 manifest 占位。 |
-| `/hm:review-kb --next 20` | 巡检 knowledge-base 条目稳定性。 |
-| `/hm:prune-kb --statuses stale,superseded` | 先备份，再清理 stale / superseded knowledge 条目。 |
-| `/hm:verify-entry <session-id|keyword>` | 定向复查命中知识条目。 |
-| `/hm:prd-sync [--apply]` | 扫描 bundled packets，预览或生成 candidate PRD sync note。 |
-
-系统会做轻提醒：`/hm:mark ... distilled` 后，如果 knowledge-base 相比上次 `/hm:review-kb` 新增达到 5 条，会提示巡检；新 packet 或新 note 与旧 knowledge 关键词重合时，会提示 `/hm:verify-entry`。提醒只进摘要，不会自动清理或打断主链。
-`/hm:prd-sync` 属于 maintenance / review bridge：默认 dry-run，只预览命中的 packets 和 topic；只有显式 `--apply` 才会写 `prd-distilled/*.md` candidate 文件，而且不会直接改正式 PRD、roadmap 或 confirmed truth。
-
-如果根目录里又冒出 `.pytest_cache/`、`.mypy_cache/`、`.ruff_cache/`、`.gstack/`、`.coverage` 或 `tmp-*`，可以把它们当成本地运行产物，不算项目主结构。
+本地测试缓存目录（`.pytest_cache/`、`.mypy_cache/` 等）可忽略，不属于产品结构。
 
 ---
 
@@ -229,6 +208,20 @@ harness-mem purge -p my-project --before 2026-01-01 --category all --dry-run
 ```
 
 `quickstart` / `doctor` 可以帮助确认本机安装、数据目录、项目上下文、索引健康和 cleanup 建议。它们不替代 `/hm:distill`、`/hm:wake`、`/hm:search`。
+
+维护者测试不要默认全量跑。日常先跑 touched tests；不确定影响面时用：
+
+```powershell
+.\scripts\test-fast.ps1
+```
+
+发版、OpenSpec 收口、大重构或广泛状态判断再跑 full gate：
+
+```powershell
+.\scripts\test-full.ps1
+```
+
+完整分层规则见 [docs/testing.md](./docs/testing.md)。
 
 面向命令/Skill 作者的 MCP server 启动命令是：
 
@@ -277,7 +270,7 @@ Agent 编排层
   ~/.harness-mem/data/
 
 适配器
-  auto-detected agent sessions: Codex, Claude Code, Cursor, Antigravity, opencode, Hermes, generic agent, future adapters
+  各 AI IDE / CLI 的 session 来源（自动识别）
 ```
 
 REST API 不属于当前产品主路径，也不作为默认接入层维护。

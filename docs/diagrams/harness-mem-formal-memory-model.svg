@@ -1,0 +1,167 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1220" viewBox="0 0 1600 1220" role="img" aria-labelledby="title desc">
+  <title id="title">Harness-Mem 记忆模型核心结构</title>
+  <desc id="desc">以图模型方式展示 Harness-Mem 的 Observation、Candidate、Truth、Relation、Signal 和 Context Plan 分层结构。</desc>
+  <defs>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e8f2fb" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f6fbf"/>
+      <stop offset="58%" stop-color="#11a7b5"/>
+      <stop offset="100%" stop-color="#45bd92"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1677b9"/>
+    </marker>
+    <marker id="greenArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1f9f7a"/>
+    </marker>
+    <marker id="orangeArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#d9791f"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfdff; }
+      .grid { fill: url(#grid); opacity: .72; }
+      .title { font: 700 44px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .subtitle { font: 400 19px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #4d657d; }
+      .formula { font: 700 24px "Cambria Math", "Times New Roman", "Microsoft YaHei", serif; fill: #0e3a5a; }
+      .panel { fill: #ffffff; stroke: #c6dcee; stroke-width: 1.5; rx: 18; }
+      .blue { fill: #eaf5ff; stroke: #9ccfe0; stroke-width: 1.6; rx: 18; }
+      .green { fill: #effbf5; stroke: #92d7b6; stroke-width: 1.6; rx: 18; }
+      .orange { fill: #fff7ed; stroke: #f1b979; stroke-width: 1.6; rx: 18; }
+      .violet { fill: #f4f2ff; stroke: #b9b4e8; stroke-width: 1.6; rx: 18; }
+      .chip { fill: url(#brand); rx: 16; }
+      .chipText { font: 700 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #fff; }
+      .label { font: 700 24px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .mid { font: 700 18px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .body { font: 400 14px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #425c72; }
+      .small { font: 400 12px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #60788e; }
+      .code { font: 700 13px "Cascadia Mono", Consolas, monospace; fill: #0f6fbf; }
+      .arrow { fill: none; stroke: #1677b9; stroke-width: 2.8; marker-end: url(#arrow); }
+      .arrowGreen { fill: none; stroke: #1f9f7a; stroke-width: 2.8; marker-end: url(#greenArrow); }
+      .arrowOrange { fill: none; stroke: #d9791f; stroke-width: 2.8; marker-end: url(#orangeArrow); }
+      .dash { fill: none; stroke: #8ca5bb; stroke-width: 2.1; stroke-dasharray: 8 8; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1600" height="1220"/>
+  <rect class="grid" width="1600" height="1220"/>
+  <rect x="0" y="0" width="1600" height="13" fill="url(#brand)"/>
+
+  <text class="title" x="70" y="72">Harness-Mem 记忆模型核心结构</text>
+  <text class="subtitle" x="72" y="108">不是单一知识图，而是证据层、候选层、真值层、关系层、信号层、上下文计划层共同组成的可审计图模型。</text>
+  <text class="formula" x="70" y="154">G_hm = (O, C, T, R, S, P, Φ)</text>
+  <text class="body" x="350" y="153">O=raw observations, C=pending candidates, T=confirmed truth, R=typed relations, S=retrieval signals, P=context plan, Φ=review/retrieve/metabolism functions</text>
+
+  <g transform="translate(70 210)">
+    <rect class="blue" width="390" height="240"/>
+    <rect class="chip" x="24" y="22" width="138" height="32"/>
+    <text class="chipText" x="42" y="44">O: Evidence</text>
+    <text class="label" x="24" y="86">证据子图 Gₒ</text>
+    <text class="mid" x="24" y="122">Observation 节点</text>
+    <text class="code" x="24" y="152">id, session_id, client</text>
+    <text class="code" x="24" y="176">raw_content, content_type</text>
+    <text class="code" x="24" y="200">timestamp, metadata, tags</text>
+    <text class="body" x="24" y="226">作用：保留原始 transcript / event / command / output。</text>
+  </g>
+
+  <g transform="translate(560 210)">
+    <rect class="orange" width="450" height="290"/>
+    <rect class="chip" x="24" y="22" width="148" height="32"/>
+    <text class="chipText" x="42" y="44">C: Candidate</text>
+    <text class="label" x="24" y="86">候选子图 Gc</text>
+    <text class="mid" x="24" y="122">候选节点类型</text>
+    <text class="code" x="24" y="152">MemoryEntry(status=pending)</text>
+    <text class="code" x="24" y="176">RuleCandidate(pattern, trigger)</text>
+    <text class="code" x="24" y="200">RelationFact(status=pending)</text>
+    <text class="code" x="24" y="224">ProceduralCandidate / SupersedeCandidate</text>
+    <text class="code" x="24" y="248">MergeSuggestion / StaleTruthSuggestion</text>
+    <text class="body" x="24" y="274">作用：AI 只能提出候选，不能直接进入长期真值。</text>
+  </g>
+
+  <g transform="translate(1110 210)">
+    <rect class="green" width="420" height="290"/>
+    <rect class="chip" x="24" y="22" width="120" height="32"/>
+    <text class="chipText" x="42" y="44">T: Truth</text>
+    <text class="label" x="24" y="86">真值子图 Gt</text>
+    <text class="mid" x="24" y="122">Confirmed / Current 节点</text>
+    <text class="code" x="24" y="152">MemoryEntry(status=accepted)</text>
+    <text class="code" x="24" y="176">ConfirmedRule(source_candidate_id)</text>
+    <text class="code" x="24" y="200">Skill(status=active)</text>
+    <text class="code" x="24" y="224">valid_from, valid_to, recorded_at</text>
+    <text class="code" x="24" y="248">usage_count, last_accessed/surfaced</text>
+    <text class="body" x="24" y="274">作用：唯一可默认进入 wake/search 的稳定记忆。</text>
+  </g>
+
+  <g transform="translate(70 560)">
+    <rect class="violet" width="390" height="240"/>
+    <rect class="chip" x="24" y="22" width="130" height="32"/>
+    <text class="chipText" x="42" y="44">R: Relation</text>
+    <text class="label" x="24" y="86">关系子图 Gr</text>
+    <text class="mid" x="24" y="122">Typed Edge</text>
+    <text class="code" x="24" y="152">source_entity -> target_entity</text>
+    <text class="code" x="24" y="176">relation_type, confidence</text>
+    <text class="code" x="24" y="200">evidence, source, provenance</text>
+    <text class="body" x="24" y="226">作用：表达模块/文档/版本/决策之间的证据关系。</text>
+  </g>
+
+  <g transform="translate(560 560)">
+    <rect class="blue" width="450" height="240"/>
+    <rect class="chip" x="24" y="22" width="120" height="32"/>
+    <text class="chipText" x="42" y="44">S: Signal</text>
+    <text class="label" x="24" y="86">信号子图 Gs</text>
+    <text class="mid" x="24" y="122">RetrievalSignal</text>
+    <text class="code" x="24" y="152">signal_type: wake_surfaced | search_hit</text>
+    <text class="code" x="24" y="176">confirmed | rejected | skill_result_*</text>
+    <text class="code" x="24" y="200">target_kind, target_id, value, context</text>
+    <text class="body" x="24" y="226">作用：记录记忆如何被使用，作为 metabolism 的 replay 证据。</text>
+  </g>
+
+  <g transform="translate(1110 560)">
+    <rect class="green" width="420" height="240"/>
+    <rect class="chip" x="24" y="22" width="132" height="32"/>
+    <text class="chipText" x="42" y="44">P: Context</text>
+    <text class="label" x="24" y="86">上下文计划 Gp</text>
+    <text class="mid" x="24" y="122">ContextAssemblyPlan</text>
+    <text class="code" x="24" y="152">L0 profile / L1 rules-handoff</text>
+    <text class="code" x="24" y="176">L2 memory / L3 query drilldown</text>
+    <text class="code" x="24" y="200">L4 raw evidence pointers</text>
+    <text class="body" x="24" y="226">作用：预算化、可解释地决定什么进入本轮上下文。</text>
+  </g>
+
+  <path class="arrow" d="M 460 330 L 558 330"/>
+  <text class="code" x="478" y="316">φ_extract</text>
+  <path class="arrowGreen" d="M 1010 354 L 1108 354"/>
+  <text class="code" x="1028" y="340">φ_review</text>
+  <path class="arrow" d="M 1250 500 L 1250 558"/>
+  <text class="code" x="1268" y="536">φ_wake</text>
+  <path class="arrow" d="M 1010 680 L 1108 680"/>
+  <text class="code" x="1024" y="666">φ_rank</text>
+  <path class="dash" d="M 760 560 C 760 520 750 506 740 502"/>
+  <text class="code" x="780" y="536">φ_metabolism</text>
+  <path class="dash" d="M 462 680 C 510 648 534 628 558 628"/>
+  <text class="code" x="480" y="642">relation evidence</text>
+  <path class="dash" d="M 1110 416 C 990 454 930 508 860 558"/>
+  <text class="code" x="950" y="494">usage signals</text>
+
+  <g transform="translate(70 880)">
+    <rect class="panel" width="1460" height="190"/>
+    <rect class="chip" x="24" y="22" width="112" height="32"/>
+    <text class="chipText" x="42" y="44">Φ 函数</text>
+    <text class="label" x="24" y="88">核心函数族</text>
+    <g transform="translate(230 30)">
+      <text class="code" x="0" y="22">φ_extract(O) -> C</text>
+      <text class="body" x="0" y="48">从 evidence packet 构造多维候选，保留 source/provenance。</text>
+      <text class="code" x="0" y="82">φ_review(C, policy, human) -> T | rejected | pending</text>
+      <text class="body" x="0" y="108">自动审核低风险，人工复核高风险。</text>
+    </g>
+    <g transform="translate(790 30)">
+      <text class="code" x="0" y="22">φ_retrieve(query, T, R, O) -> ranked source ids</text>
+      <text class="body" x="0" y="48">FTS5 + optional vector + RRF，命中后可 drilldown 到 raw evidence。</text>
+      <text class="code" x="0" y="82">φ_metabolism(S, T, C) -> suggestion candidates</text>
+      <text class="body" x="0" y="108">基于使用信号生成合并、过期、替换建议，但仍回到候选层。</text>
+    </g>
+  </g>
+
+  <text class="small" x="70" y="1160">区别于 Zep 的三层知识图：Harness-Mem 的核心不是直接构图成 truth，而是把 evidence、candidate、truth、signal 分离，通过 Φ 函数控制晋升和消费。</text>
+</svg>

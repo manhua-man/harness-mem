@@ -1,8 +1,10 @@
 # v1.5.2 Recall Failure Analysis
 
+> Maintainer / benchmark artifact — paths below are from the machine that generated this report.
+
 - Generated: 2026-05-16T16:20:35.691124+00:00
-- Dataset: `C:\Users\ManHua\AppData\Local\Temp\longmemeval_s_cleaned.json`
-- Baseline: `F:\memory-lab\harness-mem\benchmarks\results\results_harness_hybrid_temporal_compare_top5_20260512_fixed_baseline.json`
+- Dataset: `<local-temp>/longmemeval_s_cleaned.json`
+- Baseline: `benchmarks/results/results_harness_hybrid_temporal_compare_top5_20260512_fixed_baseline.json`
 - Failed hybrid cases analyzed: 57
 
 ## Bucket Summary

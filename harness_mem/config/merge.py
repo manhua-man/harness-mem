@@ -47,6 +47,25 @@ class MergedConfig:
     triggers_scheduler: Literal["off", "on"] = "off"
     distill_mode: Literal["defer_to_agent", "inline", "worker"] = "defer_to_agent"
     worker_mode: Literal["off", "on"] = "off"
+    autopilot_enabled: bool = True
+    dream_auto_enabled: bool = False
+    dream_auto_trigger: Literal["idle_or_interval", "interval", "idle"] = "idle_or_interval"
+    dream_auto_min_interval_hours: int = 24
+    dream_auto_idle_seconds: int = 900
+    dream_auto_max_runtime_seconds: int = 120
+    dream_parse_parse_all: bool = True
+    dream_parse_require_evidence: bool = True
+    dream_handle_handle_all: bool = True
+    dream_handle_auto_apply: bool = True
+    dream_handle_auto_reject_uncertain: bool = True
+    dream_handle_auto_archive_unclassifiable: bool = True
+    dream_handle_allow_supersede: bool = True
+    dream_handle_allow_merge: bool = True
+    dream_handle_allow_mark_stale: bool = True
+    dream_handle_allow_retire_skill: bool = True
+    dream_handle_allow_delete_truth: bool = False
+    dream_handle_preserve_audit: bool = True
+    dream_handle_undo_window_days: int = 30
     extras: dict[str, Any] = field(default_factory=dict)
 
     def to_reflection_config(self) -> dict[str, Any]:
@@ -61,6 +80,10 @@ class MergedConfig:
         """
         out: dict[str, Any] = copy.deepcopy(self.extras)
         for key_path, attr, _allowed, _default in _RECOGNIZED_KEYS:
+            _set_dotted(out, key_path, getattr(self, attr))
+        for key_path, attr, _kind, _default in _AUTOPILOT_KEYS:
+            _set_dotted(out, key_path, getattr(self, attr))
+        for key_path, attr, _kind, _default in _DREAM_KEYS:
             _set_dotted(out, key_path, getattr(self, attr))
         return out
 
@@ -78,6 +101,36 @@ _RECOGNIZED_KEYS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
         "defer_to_agent",
     ),
     ("worker.mode", "worker_mode", ("off", "on"), "off"),
+)
+
+_AUTOPILOT_KEYS: tuple[tuple[str, str, str, Any], ...] = (
+    ("autopilot.enabled", "autopilot_enabled", "bool", True),
+)
+
+_DREAM_KEYS: tuple[tuple[str, str, str, Any], ...] = (
+    ("dream.auto.enabled", "dream_auto_enabled", "bool", False),
+    (
+        "dream.auto.trigger",
+        "dream_auto_trigger",
+        "enum:idle_or_interval,interval,idle",
+        "idle_or_interval",
+    ),
+    ("dream.auto.min_interval_hours", "dream_auto_min_interval_hours", "int:min=1", 24),
+    ("dream.auto.idle_seconds", "dream_auto_idle_seconds", "int:min=0", 900),
+    ("dream.auto.max_runtime_seconds", "dream_auto_max_runtime_seconds", "int:min=1", 120),
+    ("dream.parse.parse_all", "dream_parse_parse_all", "const:true", True),
+    ("dream.parse.require_evidence", "dream_parse_require_evidence", "bool", True),
+    ("dream.handle.handle_all", "dream_handle_handle_all", "const:true", True),
+    ("dream.handle.auto_apply", "dream_handle_auto_apply", "bool", True),
+    ("dream.handle.auto_reject_uncertain", "dream_handle_auto_reject_uncertain", "bool", True),
+    ("dream.handle.auto_archive_unclassifiable", "dream_handle_auto_archive_unclassifiable", "bool", True),
+    ("dream.handle.allow_supersede", "dream_handle_allow_supersede", "bool", True),
+    ("dream.handle.allow_merge", "dream_handle_allow_merge", "bool", True),
+    ("dream.handle.allow_mark_stale", "dream_handle_allow_mark_stale", "bool", True),
+    ("dream.handle.allow_retire_skill", "dream_handle_allow_retire_skill", "bool", True),
+    ("dream.handle.allow_delete_truth", "dream_handle_allow_delete_truth", "const:false", False),
+    ("dream.handle.preserve_audit", "dream_handle_preserve_audit", "const:true", True),
+    ("dream.handle.undo_window_days", "dream_handle_undo_window_days", "int:min=1", 30),
 )
 
 
@@ -147,6 +200,142 @@ def _remove_dotted(d: dict[str, Any], dotted: str) -> None:
             del parent[key]
 
 
+def _source_for_key(
+    key_path: str,
+    *,
+    project_dict: dict[str, Any],
+    user_dict: dict[str, Any],
+    project_path: Path,
+    user_path: Path,
+) -> str:
+    in_project, _ = _get_dotted(project_dict, key_path)
+    return str(project_path if in_project else user_path)
+
+
+def _coerce_bool(value: Any, *, key_path: str, source_path: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    raise ConfigValidationError(key_path=key_path, value=value, source_path=source_path)
+
+
+def _coerce_int(
+    value: Any,
+    *,
+    key_path: str,
+    source_path: str,
+    minimum: int,
+) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise ConfigValidationError(key_path=key_path, value=value, source_path=source_path)
+    return value
+
+
+def _coerce_typed_value(
+    *,
+    key_path: str,
+    kind: str,
+    value: Any,
+    source_path: str,
+) -> Any:
+    if kind == "bool":
+        return _coerce_bool(value, key_path=key_path, source_path=source_path)
+    if kind == "const:true":
+        coerced = _coerce_bool(value, key_path=key_path, source_path=source_path)
+        if coerced is not True:
+            raise ConfigValidationError(key_path=key_path, value=value, source_path=source_path)
+        return coerced
+    if kind == "const:false":
+        coerced = _coerce_bool(value, key_path=key_path, source_path=source_path)
+        if coerced is not False:
+            raise ConfigValidationError(key_path=key_path, value=value, source_path=source_path)
+        return coerced
+    if kind.startswith("int:min="):
+        minimum = int(kind.removeprefix("int:min="))
+        return _coerce_int(value, key_path=key_path, source_path=source_path, minimum=minimum)
+    if kind.startswith("enum:"):
+        allowed = tuple(kind.removeprefix("enum:").split(","))
+        if value not in allowed:
+            raise ConfigValidationError(key_path=key_path, value=value, source_path=source_path)
+        return value
+    raise ConfigValidationError(key_path=key_path, value=value, source_path=source_path)
+
+
+def _coerce_dream_value(
+    *,
+    key_path: str,
+    kind: str,
+    value: Any,
+    source_path: str,
+) -> Any:
+    return _coerce_typed_value(
+        key_path=key_path,
+        kind=kind,
+        value=value,
+        source_path=source_path,
+    )
+
+
+def _coerce_key_group(
+    *,
+    merged: dict[str, Any],
+    keys: tuple[tuple[str, str, str, Any], ...],
+    project_dict: dict[str, Any],
+    user_dict: dict[str, Any],
+    project_path: Path,
+    user_path: Path,
+) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    for key_path, attr, kind, default in keys:
+        found, value = _get_dotted(merged, key_path)
+        if not found:
+            values[attr] = default
+            continue
+        source_path = _source_for_key(
+            key_path,
+            project_dict=project_dict,
+            user_dict=user_dict,
+            project_path=project_path,
+            user_path=user_path,
+        )
+        values[attr] = _coerce_typed_value(
+            key_path=key_path,
+            kind=kind,
+            value=value,
+            source_path=source_path,
+        )
+    return values
+
+
+def _reject_unknown_autopilot_keys(
+    *,
+    merged: dict[str, Any],
+    project_dict: dict[str, Any],
+    user_dict: dict[str, Any],
+    project_path: Path,
+    user_path: Path,
+) -> None:
+    autopilot = merged.get("autopilot")
+    if not isinstance(autopilot, dict):
+        return
+    allowed = {key_path.split(".", 1)[1] for key_path, *_rest in _AUTOPILOT_KEYS}
+    for key in autopilot:
+        if key in allowed:
+            continue
+        key_path = f"autopilot.{key}"
+        source_path = _source_for_key(
+            key_path,
+            project_dict=project_dict,
+            user_dict=user_dict,
+            project_path=project_path,
+            user_path=user_path,
+        )
+        raise ConfigValidationError(
+            key_path=key_path,
+            value=autopilot[key],
+            source_path=source_path,
+        )
+
+
 def _user_config_path() -> Path:
     """Resolve the user-level config path (``~/.harness-mem/config.toml``).
 
@@ -214,9 +403,37 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
                 key_path=key_path, value=value, source_path=source_path
             )
 
+    autopilot_values = _coerce_key_group(
+        merged=merged,
+        keys=_AUTOPILOT_KEYS,
+        project_dict=project_dict,
+        user_dict=user_dict,
+        project_path=project_path,
+        user_path=user_path,
+    )
+    _reject_unknown_autopilot_keys(
+        merged=merged,
+        project_dict=project_dict,
+        user_dict=user_dict,
+        project_path=project_path,
+        user_path=user_path,
+    )
+    dream_values = _coerce_key_group(
+        merged=merged,
+        keys=_DREAM_KEYS,
+        project_dict=project_dict,
+        user_dict=user_dict,
+        project_path=project_path,
+        user_path=user_path,
+    )
+
     # ---- 6. default-fill + extras collection (Req 3.6) ------------------
     extras = copy.deepcopy(merged)
     for key_path, _attr, _allowed, _default in _RECOGNIZED_KEYS:
+        _remove_dotted(extras, key_path)
+    for key_path, _attr, _kind, _default in _AUTOPILOT_KEYS:
+        _remove_dotted(extras, key_path)
+    for key_path, _attr, _kind, _default in _DREAM_KEYS:
         _remove_dotted(extras, key_path)
 
     def _resolve(key_path: str, default: str) -> Any:
@@ -229,5 +446,7 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
         triggers_scheduler=_resolve("triggers.scheduler", "off"),
         distill_mode=_resolve("distill.mode", "defer_to_agent"),
         worker_mode=_resolve("worker.mode", "off"),
+        **autopilot_values,
+        **dream_values,
         extras=extras,
     )

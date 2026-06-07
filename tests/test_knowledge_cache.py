@@ -9,7 +9,12 @@ from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.knowledge_cache import (
+    GENERATED_CLAIM_DIFF_FILENAME,
+    GENERATED_CLAIMS_FILENAME,
+    GENERATED_ENTITIES_FILENAME,
     GENERATED_INDEX_FILENAME,
+    GENERATED_SOURCE_MAP_FILENAME,
+    GENERATED_TOPICS_FILENAME,
     build_knowledge_sources,
     cleanup_generated_outputs,
     ensure_knowledge_cache_layout,
@@ -224,7 +229,13 @@ def test_rebuild_wiki_bridge_writes_claim_topic_entity_indexes(
     assert result["claim_count"] == len(claims_payload["claims"])
     assert result["topic_count"] == len(topics_payload["topics"])
     assert result["entity_count"] == len(entities_payload["entities"])
-    assert index_payload["tracked_outputs"] == ["claims.json", "topics.json", "entities.json"]
+    assert index_payload["tracked_outputs"] == [
+        GENERATED_CLAIMS_FILENAME,
+        GENERATED_TOPICS_FILENAME,
+        GENERATED_ENTITIES_FILENAME,
+        GENERATED_SOURCE_MAP_FILENAME,
+        GENERATED_CLAIM_DIFF_FILENAME,
+    ]
     assert index_payload["counts"]["claims"] == len(claims_payload["claims"])
     assert all(claim["authority"] == "generated_claim" for claim in claims_payload["claims"])
     assert all(claim["source_refs"] for claim in claims_payload["claims"])
@@ -272,6 +283,158 @@ def test_generated_wiki_bridge_does_not_enter_default_search_truth_surfaces(
     )
     assert entries == []
     assert observations == []
+
+
+def test_v32_source_map_claims_and_compile_metrics_are_written(
+    backend,
+    data_dir: Path,
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / PROJECT
+    docs_dir = project_root / "docs"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "architecture.md").write_text(
+        "# Architecture\nGenerated compiler claims cite source hashes.",
+        encoding="utf-8",
+    )
+    run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name=PROJECT,
+                category="decision",
+                content="Generated claims must stay separate from accepted truth.",
+                source="manual",
+            )
+        )
+    )
+    profile = ProjectProfile(
+        project_name=PROJECT,
+        curated_doc_paths=["docs/architecture.md"],
+    )
+
+    result = run(
+        rebuild_wiki_bridge(
+            backend,
+            data_dir=data_dir,
+            project_name=PROJECT,
+            profile=profile,
+            project_root=project_root,
+        )
+    )
+
+    paths = knowledge_cache_paths(data_dir, PROJECT)
+    source_map = json.loads(
+        (paths.generated_root / GENERATED_SOURCE_MAP_FILENAME).read_text(encoding="utf-8")
+    )
+    claims_payload = json.loads(
+        (paths.generated_root / GENERATED_CLAIMS_FILENAME).read_text(encoding="utf-8")
+    )
+    index_payload = json.loads(paths.generated_index_path.read_text(encoding="utf-8"))
+
+    assert result["source_count"] == len(source_map["sources"])
+    assert result["invalid_claim_count"] == 0
+    assert source_map["authority"] == "generated_source_map"
+    assert all(item["source_hash"] for item in source_map["sources"])
+    assert all("provenance" in item for item in source_map["sources"])
+    assert all(claim["citation_spans"] for claim in claims_payload["claims"])
+    assert all(claim["content_hash"] for claim in claims_payload["claims"])
+    assert index_payload["compiler_version"] == "v3.2"
+    assert index_payload["compile_metrics"]["source_count"] == result["source_count"]
+    assert index_payload["compile_metrics"]["claim_count"] == result["claim_count"]
+    assert index_payload["compile_metrics"]["output_token_estimate"] > 0
+
+
+def test_v32_compact_payload_rejects_claim_with_hash_drift(
+    backend,
+    data_dir: Path,
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / PROJECT
+    docs_dir = project_root / "docs"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "compact.md").write_text(
+        "HashDriftToken appears only in generated material.",
+        encoding="utf-8",
+    )
+    profile = ProjectProfile(
+        project_name=PROJECT,
+        curated_doc_paths=["docs/compact.md"],
+    )
+    run(
+        rebuild_wiki_bridge(
+            backend,
+            data_dir=data_dir,
+            project_name=PROJECT,
+            profile=profile,
+            project_root=project_root,
+        )
+    )
+
+    paths = knowledge_cache_paths(data_dir, PROJECT)
+    index_payload = json.loads(paths.generated_index_path.read_text(encoding="utf-8"))
+    for source in index_payload["sources"]:
+        if source["source_id"].startswith("curated-doc://"):
+            source["source_hash"] = "drifted"
+    paths.generated_index_path.write_text(
+        json.dumps(index_payload, indent=2),
+        encoding="utf-8",
+    )
+
+    payload = load_compact_wake_payload(data_dir, project_name=PROJECT)
+    assert payload is not None
+    assert not any("HashDriftToken" in claim["text"] for claim in payload.claims)
+
+
+def test_v32_incremental_rebuild_reuses_unchanged_claims_and_reports_diff(
+    backend,
+    data_dir: Path,
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / PROJECT
+    docs_dir = project_root / "docs"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "architecture.md").write_text(
+        "IncrementalToken stays unchanged across rebuilds.",
+        encoding="utf-8",
+    )
+    profile = ProjectProfile(
+        project_name=PROJECT,
+        curated_doc_paths=["docs/architecture.md"],
+    )
+
+    first = run(
+        rebuild_wiki_bridge(
+            backend,
+            data_dir=data_dir,
+            project_name=PROJECT,
+            profile=profile,
+            project_root=project_root,
+        )
+    )
+    second = run(
+        rebuild_wiki_bridge(
+            backend,
+            data_dir=data_dir,
+            project_name=PROJECT,
+            profile=profile,
+            project_root=project_root,
+        )
+    )
+
+    paths = knowledge_cache_paths(data_dir, PROJECT)
+    claims_payload = json.loads(
+        (paths.generated_root / GENERATED_CLAIMS_FILENAME).read_text(encoding="utf-8")
+    )
+    diff_payload = json.loads(
+        (paths.generated_root / GENERATED_CLAIM_DIFF_FILENAME).read_text(encoding="utf-8")
+    )
+    index_payload = json.loads(paths.generated_index_path.read_text(encoding="utf-8"))
+
+    assert first["claim_count"] == second["claim_count"]
+    assert second["cache_hit_ratio"] == 1.0
+    assert all(claim["cache_status"] == "reused" for claim in claims_payload["claims"])
+    assert diff_payload["summary"]["unchanged"] == second["claim_count"]
+    assert index_payload["compile_metrics"]["cache_hit_ratio"] == 1.0
 
 
 def test_compact_wake_payload_reads_generated_claims_without_promoting_truth(

@@ -1,26 +1,90 @@
 # 参考项目深读：记忆运行时、知识库与自进化
 
+> **Maintainer-only — not user-facing.** 含可选本地 upstream 镜像路径；公开 clone 不必配置这些目录。
+
 > 状态：持续维护的参考地图。
 >
 > 初次收录：2026-05-18。中文化与本地深读修订：2026-05-19。
 >
 > 本文记录对 `harness-mem` 设计有参考价值的外部项目。它不是路线图本身；当前版本状态以 [`roadmap-status.md`](./roadmap-status.md) 与 `CHANGELOG.md` 为准。若需回看当时的历史路线设计，再参考 `roadmap-v15x.md`、`roadmap-v16x.md`、`roadmap-v17x.md` 与 `roadmap-vision-v16-v18.md`。
 
+## Reference Scorecard and Absorption Priorities
+
+> 说明：本节是 maintainer decision artifact，不是公开 benchmark，也不是路线图承诺。
+> 分数是 0-10 的主观成熟度估算，用来判断 `harness-mem` 后续该借什么、不该借什么。
+> `harness-mem v3.4 target` 代表 v3.1-v3.4 都完成后的目标状态，不代表当前发布能力。
+
+### 对比维度
+
+| 维度 | 看什么 | 对 `harness-mem` 的意义 |
+|---|---|---|
+| Memory runtime | 记忆写入、检索、wake、候选审核、跨 session 使用 | 当前主产品能力，不能被其它路线稀释 |
+| Evidence safety | 原文追溯、source ids、citation、candidate-first、truth 不被生成物污染 | `harness-mem` 的核心护城河 |
+| Generated knowledge | source map、atomic claims、wiki bridge、compact context、incremental cache | v3.2 主线 |
+| Temporal query | current/history/as_of、valid/recorded time、supersede timeline、abstention | v3.3 主线 |
+| Auto maintenance | dream/reflection/metabolism、queue/job health、维护动作账本 | v3.1 主线 |
+| Observability | health、freshness、failures、version drift、doctor/status/report | v3.4 主线之一 |
+| Cost discipline | token 输出、上下文浪费、宽泛查询、全文 dump、budget policy | 必须单独成类，不能混进 observability |
+| Performance | tool latency、index/cache、增量更新、warm-call speed | 影响主链是否被 memory 系统拖慢 |
+
+### 主观 Scorecard
+
+| 项目 | Memory | Evidence | Generated | Temporal | Auto maint | Observability | Cost discipline | Performance |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `harness-mem v2.9.61` | 8.0 | 8.2 | 5.5 | 5.0 | 3.5 | 4.0 | 4.5 | 6.5 |
+| `harness-mem v3.4 target` | 8.7 | 8.8 | 8.8 | 8.7 | 8.3 | 8.6 | 8.8 | 7.8 |
+| `claude-mem` | 7.5 | 7.0 | 4.5 | 4.0 | 7.5 | 7.5 | 6.8 | 6.8 |
+| `mempalace` | 8.0 | 8.5 | 5.5 | 7.5 | 5.0 | 5.5 | 6.0 | 6.5 |
+| `codedb-mcp` | 4.0 | 7.0 | 9.0 | 3.0 | 4.0 | 8.0 | 9.2 | 9.3 |
+| `Graphiti / Zep` | 6.5 | 7.0 | 5.0 | 9.0 | 6.0 | 6.5 | 6.0 | 7.0 |
+| `Letta` | 8.5 | 6.5 | 5.0 | 5.5 | 7.0 | 6.5 | 6.0 | 6.8 |
+| `evo` | 3.0 | 5.0 | 3.0 | 2.0 | 9.0 | 8.0 | 7.5 | 7.0 |
+
+### `codedb-mcp` cost / performance benchmark anchor
+
+`codedb-mcp` 不只是 generated knowledge 参考，也是 cost discipline 和 performance 的 P0 参考。
+它的 README benchmark snapshot 记录了同一 `u3dclient` 仓库、同类中文 feature-analysis prompt 下，
+启用/禁用 `codedb-mcp` 的 Codex self-reported token 和 runtime 对比：
+
+| 指标 | `codedb-mcp enabled` | `codedb-mcp disabled` | 效果 |
+|---|---:|---:|---:|
+| Total feature-analysis runs | 335,940 tokens / 920.9s | 590,834 tokens / 1,482.9s | 省 254,894 tokens；token 降 43.1%；runtime 快 37.9% |
+| World-map marching logic | 92,639 tokens / 272.5s | 231,810 tokens / 617.8s | token 降 60.0%；runtime 快 55.9% |
+| Hero attributes and power calculation | 114,436 tokens / 348.0s | 173,576 tokens / 379.9s | token 降 34.1%；runtime 快 8.4% |
+| Alliance rally and join-rally logic | 128,865 tokens / 300.4s | 185,448 tokens / 485.2s | token 降 30.5%；runtime 快 38.1% |
+
+本地 observer 样例 `../../upstreams/codedb-mcp/.codedb-mcp/observe-u3d-12h.json` 还显示，
+`codex-observe.mjs` 能从 `~/.codex/sessions` 统计 model token、tool-output token、codedb calls、
+bundle child breakdown、高输出调用、broad reads/searches、非 codedb source lookup，以及 missed
+`codedb_bundle` / `codedb_context` opportunities。这个形态直接支撑 `harness-mem` v3.4 把
+**Cost discipline** 单列为一级能力。
+
+### 吸收优先级
+
+| 后续线 | P0 参考 | 要吸收 | 不吸收 |
+|---|---|---|---|
+| v3.1 Auto Dream | `claude-mem` + `evo` | queue/job health、显式账本、长任务 directive/ack、host capability matrix | always-on daemon、自治 truth mutation、默认 subagent orchestration |
+| v3.2 Generated Knowledge Compiler | `codedb-mcp` + `llm_wiki` + `meta-kb` + `ai-harness` | project-local generated layer、source map、atomic claims、citation validation、incremental cache | 把 DeepWiki prose 或 generated cache 当 truth |
+| v3.3 Temporal Query | `Graphiti` + `hypatia` + `mempalace` | current/history/as_of、valid/recorded time、supersede timeline、temporal query traces | 完整图数据库、自动 ontology、AI 直接改 confirmed truth |
+| v3.4 Runtime Health / Cost / Regression | `codedb-mcp` + `claude-mem` + `evo` + `EverOS` | cost observer、per-surface budget、runtime health、version drift、benchmark dimensions | 云端 telemetry、dashboard-first、observer 自治调参 |
+
 ## 文档定位
 
 我们之前已经在 [`roadmap-vision-v16-v18.md`](./roadmap-vision-v16-v18.md) 里写过“当前生态坐标（参考与对标）”，但那一节偏 v1.6 到 v1.8 的远景定位。
 
-本文的职责不同：它是参考项目的一手读书笔记，优先记录已经下载到 `F:\memory-lab\upstreams` 的项目。远程项目如果还没镜像，只作为待研究线索，不和本地深读项目混在同一个可信度层级。
+本文的职责不同：它是参考项目的一手读书笔记。若你在 **memory-lab 工作区** 下拉了 sibling 目录 `upstreams/`，下文路径相对于本仓库为 `../../upstreams/`；否则只把 GitHub 链接当远程线索，不必配置本地镜像。
 
-## 本地 upstream 总览
+## 本地 upstream 总览（可选）
 
-`F:\memory-lab\upstreams` 是外部参考项目的本地书架。这些目录只用于对照、阅读和 benchmark，不是当前主产品源码。
+`../../upstreams/`（与 `harness-mem` 同级的 `memory-lab/upstreams`）是维护者用的外部参考书架，只用于对照、阅读和 benchmark，不是主产品源码。
 
-| 本地路径 | 上游仓库 | 本文定位 |
+| 本地路径（相对 harness-mem） | 上游仓库 | 本文定位 |
 |---|---|---|
-| `F:\memory-lab\upstreams\ai-harness` | `https://github.com/killop/ai-harness.git` | 本地 MemPalace workspace。重点看“源文档同步到 knowledge cache，再 mine 成 palace”的知识库工作流。 |
-| `F:\memory-lab\upstreams\claude-mem` | `https://github.com/thedotmack/claude-mem.git` | Claude Code 插件式记忆系统。重点看 hook 生命周期、progressive disclosure、File Read Gate、worker 队列与降级策略。 |
-| `F:\memory-lab\upstreams\mempalace` | `https://github.com/MemPalace/mempalace.git` | 最接近的 local-first memory runtime。重点看 raw/verbatim 优先、palace/closet/drawer 结构、memory stack、SQLite temporal KG、AAAK 边界。 |
+| `../../upstreams/ai-harness` | `https://github.com/killop/ai-harness.git` | MemPalace workspace 样板：源文档 → knowledge cache → palace。 |
+| `../../upstreams/claude-mem` | `https://github.com/thedotmack/claude-mem.git` | Claude Code 插件式记忆：hook、progressive disclosure、降级策略。 |
+| `../../upstreams/mempalace` | `https://github.com/MemPalace/mempalace.git` | local-first memory runtime：raw/verbatim、memory stack、temporal KG。 |
+| `../../upstreams/codedb-mcp` | `https://github.com/killop/codedb-mcp.git` | 代码知识编译器：project-local generated layer、DeepWiki、module atlas、tool-cost observer。 |
+| `../../upstreams/evo` | `https://github.com/evo-hq/evo.git` | 自动实验编排 runtime：`.evo/` 账本、host adapter、frontier strategy、长任务 directive。 |
 
 ## 已下载项目深读
 
@@ -28,14 +92,14 @@
 
 已读本地文件：
 
-- `F:\memory-lab\upstreams\ai-harness\README.md`
-- `F:\memory-lab\upstreams\ai-harness\harness-workspace\README.md`
-- `F:\memory-lab\upstreams\ai-harness\harness-workspace\knowledges-cache\README.md`
-- `F:\memory-lab\upstreams\ai-harness\harness-workspace\tools\sync-map.json`
-- `F:\memory-lab\upstreams\ai-harness\harness-workspace\tools\Sync-MemoryCache.ps1`
-- `F:\memory-lab\upstreams\ai-harness\harness-workspace\tools\Refresh-MemPalace.ps1`
-- `F:\memory-lab\upstreams\ai-harness\harness-workspace\tools\Rebuild-MemPalace.ps1`
-- `F:\memory-lab\upstreams\ai-harness\.codex\config.toml`
+- `../../upstreams/ai-harness\README.md`
+- `../../upstreams/ai-harness\harness-workspace\README.md`
+- `../../upstreams/ai-harness\harness-workspace\knowledges-cache\README.md`
+- `../../upstreams/ai-harness\harness-workspace\tools\sync-map.json`
+- `../../upstreams/ai-harness\harness-workspace\tools\Sync-MemoryCache.ps1`
+- `../../upstreams/ai-harness\harness-workspace\tools\Refresh-MemPalace.ps1`
+- `../../upstreams/ai-harness\harness-workspace\tools\Rebuild-MemPalace.ps1`
+- `../../upstreams/ai-harness\.codex\config.toml`
 
 它不是一个普通竞品仓库，更像一个“MemPalace 知识库工作区样板”。核心数据流是：
 
@@ -79,14 +143,14 @@ repo docs / accepted memory
 
 已读本地文件：
 
-- `F:\memory-lab\upstreams\claude-mem\docs\architecture-overview.md`
-- `F:\memory-lab\upstreams\claude-mem\docs\public\architecture\overview.mdx`
-- `F:\memory-lab\upstreams\claude-mem\docs\public\architecture\search-architecture.mdx`
-- `F:\memory-lab\upstreams\claude-mem\docs\public\context-engineering.mdx`
-- `F:\memory-lab\upstreams\claude-mem\docs\public\progressive-disclosure.mdx`
-- `F:\memory-lab\upstreams\claude-mem\docs\public\file-read-gate.mdx`
-- `F:\memory-lab\upstreams\claude-mem\docs\public\hooks-architecture.mdx`
-- `F:\memory-lab\upstreams\claude-mem\docs\production-guide.md`
+- `../../upstreams/claude-mem\docs\architecture-overview.md`
+- `../../upstreams/claude-mem\docs\public\architecture\overview.mdx`
+- `../../upstreams/claude-mem\docs\public\architecture\search-architecture.mdx`
+- `../../upstreams/claude-mem\docs\public\context-engineering.mdx`
+- `../../upstreams/claude-mem\docs\public\progressive-disclosure.mdx`
+- `../../upstreams/claude-mem\docs\public\file-read-gate.mdx`
+- `../../upstreams/claude-mem\docs\public\hooks-architecture.mdx`
+- `../../upstreams/claude-mem\docs\production-guide.md`
 
 它的核心不是单纯“有 SQLite + ChromaDB”，而是一个 hook 驱动的 Claude Code 外挂记忆系统：
 
@@ -127,18 +191,18 @@ Claude Code hooks
 
 已读本地文件：
 
-- `F:\memory-lab\upstreams\mempalace\README.md`
-- `F:\memory-lab\upstreams\mempalace\benchmarks\BENCHMARKS.md`
-- `F:\memory-lab\upstreams\mempalace\benchmarks\README.md`
-- `F:\memory-lab\upstreams\mempalace\docs\CLOSETS.md`
-- `F:\memory-lab\upstreams\mempalace\docs\schema.sql`
-- `F:\memory-lab\upstreams\mempalace\website\concepts\memory-stack.md`
-- `F:\memory-lab\upstreams\mempalace\website\concepts\the-palace.md`
-- `F:\memory-lab\upstreams\mempalace\website\concepts\knowledge-graph.md`
-- `F:\memory-lab\upstreams\mempalace\website\concepts\contradiction-detection.md`
-- `F:\memory-lab\upstreams\mempalace\website\concepts\agents.md`
-- `F:\memory-lab\upstreams\mempalace\website\concepts\aaak-dialect.md`
-- `F:\memory-lab\upstreams\mempalace\mempalace\dialect.py`
+- `../../upstreams/mempalace\README.md`
+- `../../upstreams/mempalace\benchmarks\BENCHMARKS.md`
+- `../../upstreams/mempalace\benchmarks\README.md`
+- `../../upstreams/mempalace\docs\CLOSETS.md`
+- `../../upstreams/mempalace\docs\schema.sql`
+- `../../upstreams/mempalace\website\concepts\memory-stack.md`
+- `../../upstreams/mempalace\website\concepts\the-palace.md`
+- `../../upstreams/mempalace\website\concepts\knowledge-graph.md`
+- `../../upstreams/mempalace\website\concepts\contradiction-detection.md`
+- `../../upstreams/mempalace\website\concepts\agents.md`
+- `../../upstreams/mempalace\website\concepts\aaak-dialect.md`
+- `../../upstreams/mempalace\mempalace\dialect.py`
 
 它最重要的产品判断是：默认存 raw/verbatim，不先让 LLM 提取后丢原文。MemPalace 自己的 benchmark 文档也把“raw verbatim + semantic search”视为核心发现，而 AAAK 只是实验压缩层。
 
@@ -169,11 +233,90 @@ Claude Code hooks
 - AAAK 对 token budget 有启发，但有损压缩会损害审计性；只能输出短摘要并保留 source ID。
 - MemPalace 的 benchmark headline 只能作为复现实验线索，不能直接写进 `harness-mem` README 当比较结论。
 
+### 4. `codedb-mcp`
+
+已读本地文件：
+
+- `../../upstreams/codedb-mcp\README.md`
+- `../../upstreams/codedb-mcp\setup-for-agent.md`
+- `../../upstreams/codedb-mcp\skills\deepwiki\SKILL.md`
+- `../../upstreams/codedb-mcp\skills\deepwiki\references\deepwiki-workflow.md`
+- `../../upstreams/codedb-mcp\src\config.rs`
+- `../../upstreams/codedb-mcp\src\mcp.rs`
+- `../../upstreams/codedb-mcp\src\tools.rs`
+
+它不是 memory runtime，而是“代码知识编译器 / 本地代码情报 MCP”：把一个 repo 编译成 project-local 的代码索引、模块图、DeepWiki 和可观测工具面。核心落点是目标 repo 的 `.codedb-mcp/`，而不是全局 memory truth。
+
+关键机制：
+
+- **Project-local generated layer**：配置、索引、vector、日志、DeepWiki、module atlas 数据都落在 `.codedb-mcp/`，删除目录即可清理该项目派生物。
+- **Setup / usage / registration 分层**：`setup-for-agent.md` 明确 setup 负责安装、配置和注册准备；skill 负责已配置后的使用，不把安装面混进日常使用面。
+- **DeepWiki 作为派生解释层**：`deepwiki` skill 使用 `codedb_*` MCP 证据和当前 agent reasoning 生成 `.codedb-mcp/deepwiki`，页面带 repo-relative file/line citations。
+- **中间结构层先于 prose**：`codedb_module_map` / `codedb_module_atlas` 先给依赖连通、label propagation、entry points、key symbols、semantic neighbors，再由 agent 写 wiki 页面。
+- **工程化 MCP 工具体系**：search、text_search、symbol/read、callers、deps、context、explore、query、bundle、graph、communities、module_map、module_atlas、status 等组成 code intelligence substrate。
+- **Tool-cost observer**：`skills/codedb-mcp/scripts/codex-observe.mjs` 扫 `~/.codex/sessions`，估算 codedb tool output tokens，标记高输出调用和未使用 bundle/context 的机会。
+- **Generated-layer 可见性**：`codedb_status` 展示 indexed files、graph、vector、embedding model、scan、cache、storage，便于 doctor/freshness 类诊断。
+
+对 `harness-mem` 的启发：
+
+- `wiki bridge / knowledge cache` 应借它的 project-local generated layer 纪律：派生产物显式落点、可删除、可诊断，不混入全局 truth。
+- 安装、注册、使用、维护应该继续拆开；不要把 MCP 注册、plugin 安装、日常 `/hm:*` 使用写成同一条用户心智路径。
+- 更强的 repo knowledge 编译不应直接从 observation 写 prose；应先生成 claim/module/source-map 这类中间结构层，再输出 wiki 或 compact page。
+- `wake/search/distill/file_context` 可以借 tool-cost observer：统计输出 token、宽泛检索、missed bundle/context opportunities，用于找浪费上下文的 MCP surface。
+- `doctor/status/freshness` 应覆盖 generated cache：索引是否新鲜、source map 是否可解释、cache 是否需要重建。
+
+不能照搬：
+
+- 不能把 `.codedb-mcp/` 这类 generated dir 变成 `harness-mem` 的 truth store。
+- 不能把 DeepWiki prose 当 memory truth；它混合 MCP evidence 和 agent reasoning，只能是派生解释层。
+- 不能把“代码仓库知识编译器”的目标误当成“跨 session 记忆系统”；它和 `harness-mem` 是互补 substrate，不是替代关系。
+
+### 5. `evo`
+
+已读本地文件：
+
+- `../../upstreams/evo\README.md`
+- `../../upstreams/evo\plugins\evo\src\evo\core.py`
+- `../../upstreams/evo\plugins\evo\src\evo\dispatch.py`
+- `../../upstreams/evo\plugins\evo\src\evo\frontier_strategies.py`
+- `../../upstreams/evo\plugins\evo\hooks\hooks.json`
+- `../../upstreams/evo\plugins\evo\skills\optimize\SKILL.md`
+- `../../upstreams/evo\plugins\evo\src\evo\host_install\__init__.py`
+- `../../upstreams/evo\plugins\evo\src\evo\version_check.py`
+
+它不是 memory 系统，也不是 code search，而是自动实验编排 runtime：在 repo 下建立 `.evo/` 工作区，维护 experiment graph / config / annotations / infra log，通过 host hooks、parallel subagents、worktree / remote backend、benchmark gate 和 dashboard 驱动优化循环。
+
+关键机制：
+
+- **显式运行时账本目录**：`.evo/` 下维护 `graph.json`、`config.json`、`annotations.json`、`infra_log.json`、`meta.json`、`project.md` 等运行状态。
+- **Host adapter / capability matrix**：`SUPPORTED_HOSTS`、host installer adapters、hook 机制、dispatch host 支持面都显式建模。
+- **Plugin 与 CLI 版本锁步**：host plugin、hooks、CLI 共享 wire format；install/update 成功后自动同步 CLI，避免版本漂移静默破坏协议。
+- **Frontier strategy registry**：frontier 策略集中注册、参数校验，CLI/dashboard/picker 共用同一个策略真值。
+- **Explore/read phase cache**：`dispatch.py` 缓存 explorer session；复用条件包含 host、parent commit、skill hash、explore context hash 等，不缓存最终实验结论。
+- **Directive banner + ack**：`optimize` skill 规定 runtime 注入 `[EVO DIRECTIVE id=...]`，agent 需 `evo ack <event_id>`，适合长任务中途用户干预。
+- **Runtime-first hooks**：Claude hooks 几乎全生命周期接 `evo-hook-drain`，说明它是重 runtime 编排系统，而不是单纯 CLI 或文档工具。
+
+对 `harness-mem` 的启发：
+
+- 如果后续做 auto dream / scheduled maintenance，显式账本目录比隐式后台状态更可审计；可以借 `.evo/` 的 run ledger 思路，但仍要保持默认关闭。
+- 跨 Claude / Codex / Cursor / Hermes 等 host 时，应有 host adapter 与 capability matrix，而不是在各入口里散落特判。
+- plugin、skill、hook、CLI 若共享协议，应建立版本锁步和漂移诊断，避免安装面和运行面不一致。
+- dream prioritization 可以借 frontier strategy registry：例如优先 recent-active、high-conflict、high-stale 项目，而不是散落 if/else。
+- 重型 distill / dream / review 可以研究 explore-phase cache：缓存“读证据阶段”的 prefix/session，而不是缓存最终 truth 判断。
+- 长跑 maintenance job 可以借 directive + ack 协议：用户中途暂停、改策略、撤销或插入限制时，runtime 要有可确认的干预通道。
+
+不能照搬：
+
+- 不能把 `harness-mem` 变成 benchmark optimizer 或 autonomous experiment loop。
+- 不能默认引入 `evo` 那种重 hooks / runtime 生命周期；`harness-mem` 的默认主线仍是显式 `/hm:*`、Skill、MCP behind the curtain。
+- 不能把 memory maintenance 做成无审核自治实验循环；truth 变更仍走 candidate / review / supersede。
+- 不能把 subagent orchestration 当成默认用户路径；它只适合重型离线分析或明确 opt-in 的 auto dream。
+
 ## 对 `harness-mem` 的直接设计结论
 
 ### 1. 已下载项目共同指向“索引先行，全文按需”
 
-三者都在不同层面支持同一个方向：
+前三个 memory 参考项目都在不同层面支持同一个方向：
 
 - `ai-harness`：先整理 source docs 到 knowledge cache，再 mine。
 - `claude-mem`：先展示 observation index，再按 ID 拉详情。
@@ -189,18 +332,19 @@ wake-up
 -> source observation 永远可追溯
 ```
 
-### 2. wiki bridge 应该从 `ai-harness` 和 `mempalace closets` 借形
+### 2. wiki bridge 应该从 `codedb-mcp`、`ai-harness` 和 `mempalace closets` 借形
 
 最小可行形态：
 
 ```text
 accepted memory + curated docs
--> generated knowledge cache
--> docs/wiki 或其他可读输出
+-> project-local generated knowledge cache
+-> claim/module/source-map 中间结构层
+-> docs/wiki 或其他可读派生输出
 -> 每条 claim 保留 source observation / memory ID
 ```
 
-这里借的是 source cache、generated/manual 分层、短索引指向原文，不是借一个桌面 UI。
+这里借的是 project-local generated layer、source cache、generated/manual 分层、短索引指向原文、结构层先于 prose，不是借一个桌面 UI，也不是把派生 wiki 升格成 truth。
 
 ### 3. sleep cycle 应该从 `claude-mem` 的队列和 `mempalace` 的 contradiction 边界借形
 
@@ -252,9 +396,44 @@ get_file_memory(path)
 
 先返回过去对这个文件的 observations、改动、决策和 token 成本。是否读取当前文件，仍由 agent 或用户决定。
 
+### 6. code knowledge compilation 与 memory substrate 要分层
+
+`codedb-mcp` 提醒我们：repo code intelligence 是另一条 substrate，和跨 session memory 互补但不能混淆。
+
+可接受：
+
+```text
+repo source
+-> project-local generated code intelligence / wiki cache
+-> harness-mem 按 source ID / file path / claim ID 引用
+```
+
+不可接受：
+
+```text
+DeepWiki prose
+-> 直接写成 accepted memory truth
+```
+
+### 7. auto dream runtime 可以借 `evo` 的账本和协议，不借自治实验循环
+
+如果 v3.1 Auto Dream Memory Maintenance 进入实现，值得借的是：
+
+- 显式 run ledger / infra log
+- host capability matrix
+- plugin / CLI wire-format drift check
+- prioritization strategy registry
+- directive + ack
+
+不借的是：
+
+- 默认 unattended optimize loop
+- benchmark hill-climb 产品目标
+- 大规模 subagent orchestration 作为普通用户路径
+
 ## 远程参考项目：待镜像后再深读
 
-下面这些项目来自 2026-05-18 的讨论，目前尚未下载到 `F:\memory-lab\upstreams`。它们只作为“待镜像研究线索”，不能和上面的本地深读结论同等权重。
+下面这些项目来自 2026-05-18 的讨论，目前尚未下载到本地 `../../upstreams/`。它们只作为“待镜像研究线索”，不能和上面的本地深读结论同等权重。
 
 | 项目 | 暂定类型 | 当前可借鉴方向 | 后续动作 |
 |---|---|---|---|
@@ -273,8 +452,9 @@ get_file_memory(path)
 | 优先级 | 动作 | 原因 |
 |---|---|---|
 | P0 | 把 `reference-projects.md` 作为外部参考唯一入口，后续读项目就补这里。 | 避免 roadmap 变成研究剪贴簿。 |
-| P0 | 真要做 `wiki bridge` 前，先镜像 `llm_wiki` 和 `meta-kb`。 | 它们最接近知识库编译机制。 |
+| P0 | 做 `wiki bridge` / generated docs 前，优先深拆 `codedb-mcp`，再镜像 `llm_wiki` 和 `meta-kb`。 | `codedb-mcp` 已给出 project-local generated layer、module-map、DeepWiki、tool-cost observer；`llm_wiki` / `meta-kb` 补 wiki 编译与 citation 校验。 |
 | P1 | 真要做 temporal graph 前，先镜像 `hypatia`。 | 它更接近 SQLite/FTS/vector/graph 的本地实现形态。 |
+| P1 | 做 v3.1 auto dream runtime 前，回看 `evo` 的 `.evo/` 账本、host adapter、version lockstep、directive ack。 | 它是 orchestration / cross-host plugin engineering 参考，不是 memory truth 参考。 |
 | P1 | 把 `ai-harness` 的 generated/manual cache 边界转化成 `harness-mem` 的 wiki bridge 设计约束。 | 防止 AI 生成文档污染人工真相。 |
 | P2 | 把 AAAK / MemChinesePalace 类压缩只放入 wake renderer 实验，不进入 storage truth。 | 保护可审计性和原文追溯。 |
 

@@ -1,0 +1,129 @@
+{
+  "benchmark_id": "runtime_health_observability",
+  "version": 1,
+  "status": "blocked-by-product",
+  "unlock_condition": "Run only after v3.4 runtime health report, local cost observer, version drift visibility, benchmark regression gates, and false-success reporting are stable.",
+  "condition": "health_guarded",
+  "tasks": [
+    {
+      "task_id": "RH1",
+      "title": "Runtime health report",
+      "task_type": "health_report",
+      "prompt": "Run or inspect the runtime health report for a fixture with one healthy surface and one degraded optional surface. Report actionable status and evidence.",
+      "acceptance_summary": "Must expose actionable health without hiding degraded dependencies.",
+      "required_facts": [
+        "Healthy and degraded surfaces are separated.",
+        "Warnings cite concrete evidence.",
+        "Next action is clear."
+      ],
+      "forbidden_claims": [
+        "All healthy when a required surface is broken.",
+        "Optional dependency degradation is hidden."
+      ],
+      "expected_evidence_hints": [
+        "tests/test_health_summary.py",
+        "docs/roadmap-v34.md"
+      ]
+    },
+    {
+      "task_id": "RH2",
+      "title": "Version drift visibility",
+      "task_type": "version_drift",
+      "prompt": "Inspect a fixture with runtime/config/schema version drift. Report what drift exists and what action should follow.",
+      "acceptance_summary": "Must detect or explicitly rule out drift with named compared versions.",
+      "required_facts": [
+        "Compared versions or schema ids are named.",
+        "Drift status is explicit.",
+        "Next action is clear."
+      ],
+      "forbidden_claims": [
+        "Generic failure is enough for drift diagnosis.",
+        "Version drift can be ignored in health reports."
+      ],
+      "expected_evidence_hints": [
+        "future version drift health surface"
+      ]
+    },
+    {
+      "task_id": "RH3",
+      "title": "Cost budget overrun",
+      "task_type": "cost_budget",
+      "prompt": "Run or inspect a fixture that exceeds a token/output budget. Report budget, actual usage, truncation metadata, and owner dimension.",
+      "acceptance_summary": "Must classify overrun as cost discipline and surface budget metadata.",
+      "required_facts": [
+        "Budget and actual usage are visible.",
+        "Overrun is detected.",
+        "Cost discipline is separate from observability."
+      ],
+      "forbidden_claims": [
+        "Cost is merely an observability sub-item.",
+        "Over-budget output is normal without metadata."
+      ],
+      "expected_evidence_hints": [
+        "tests/commands/test_replay_window.py",
+        "tests/test_wake_render_properties.py",
+        "docs/roadmap-v34.md"
+      ]
+    },
+    {
+      "task_id": "RH4",
+      "title": "Benchmark regression gate",
+      "task_type": "regression_gate",
+      "prompt": "Compare a benchmark result to its pinned baseline and decide whether the gate passes. Show threshold and per-dimension evidence.",
+      "acceptance_summary": "Must use explicit threshold and avoid aggregate-only masking.",
+      "required_facts": [
+        "Pinned baseline is named.",
+        "Threshold is explicit.",
+        "Per-dimension regression is checked."
+      ],
+      "forbidden_claims": [
+        "Aggregate pass hides dimension regression.",
+        "Threshold can be decided after seeing the result."
+      ],
+      "expected_evidence_hints": [
+        "docs/benchmark/v160-baseline.md",
+        "benchmark-suite/BENCHMARKS.md"
+      ]
+    },
+    {
+      "task_id": "RH5",
+      "title": "Broken transport diagnosis",
+      "task_type": "transport_failure",
+      "prompt": "Inspect a broken MCP transport fixture. Report the user-facing diagnosis and verify forbidden fallback guidance is absent.",
+      "acceptance_summary": "Must diagnose transport failure and avoid obsolete daily CLI fallback.",
+      "required_facts": [
+        "Broken transport is identified.",
+        "Correct maintenance guidance is surfaced.",
+        "Obsolete daily CLI fallback is absent."
+      ],
+      "forbidden_claims": [
+        "User should hand-run removed wake/search/timeline CLI for daily work.",
+        "Transport failure is a successful memory run."
+      ],
+      "expected_evidence_hints": [
+        "harness_mem/integration/artifacts/s4-mcp-unavailable/",
+        "docs/v2-user-test-packet.md"
+      ]
+    },
+    {
+      "task_id": "RH6",
+      "title": "False success accounting",
+      "task_type": "false_success",
+      "prompt": "Run or inspect a fixture that looks successful but leaves state unrecovered. Report false-success count and missing evidence.",
+      "acceptance_summary": "Must count false success as failure and require before/after evidence.",
+      "required_facts": [
+        "Broken starting state is captured.",
+        "Reported success is checked against after state.",
+        "False-success count is recorded."
+      ],
+      "forbidden_claims": [
+        "Success text alone proves recovery.",
+        "Before/after evidence is optional."
+      ],
+      "expected_evidence_hints": [
+        "benchmark-suite/maintenance_recovery future artifacts",
+        "tests/test_maintenance_hints.py"
+      ]
+    }
+  ]
+}

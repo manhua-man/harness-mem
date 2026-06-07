@@ -1,0 +1,128 @@
+{
+  "benchmark_id": "auto_maintenance_effectiveness",
+  "version": 1,
+  "status": "ready-to-run",
+  "unlock_condition": "Unlocked by v3.1 Auto Dream Memory Maintenance exposing trigger, ledger, apply/reject/undo, and audit trail surfaces; still requires completed artifacts before any effectiveness claim.",
+  "condition": "maintenance_guarded",
+  "tasks": [
+    {
+      "task_id": "AM1",
+      "title": "Duplicate merge suggestion",
+      "task_type": "merge",
+      "prompt": "Run the opt-in maintenance loop on a fixture with duplicate memories. Report the merge suggestion and whether provenance is preserved.",
+      "acceptance_summary": "Must detect duplicate memory and preserve source provenance in a reviewable merge.",
+      "required_facts": [
+        "Duplicate candidates are identified.",
+        "Provenance is preserved.",
+        "Merge is reviewable and audited."
+      ],
+      "forbidden_claims": [
+        "Merge can drop source evidence.",
+        "Silent merge is acceptable."
+      ],
+      "expected_evidence_hints": [
+        "tests/commands/test_metabolism_pass.py",
+        "/hm:dream ledger"
+      ]
+    },
+    {
+      "task_id": "AM2",
+      "title": "Stale truth suggestion",
+      "task_type": "stale",
+      "prompt": "Run the opt-in maintenance loop on a fixture with stale truth. Explain the stale suggestion and user-visible rationale.",
+      "acceptance_summary": "Must suggest staleness without silently deleting current truth.",
+      "required_facts": [
+        "Stale truth candidate is identified.",
+        "Rationale is visible.",
+        "Confirmed truth is not silently removed."
+      ],
+      "forbidden_claims": [
+        "Stale suggestion equals automatic deletion.",
+        "No audit trail is needed for stale truth."
+      ],
+      "expected_evidence_hints": [
+        "tests/commands/test_metabolism_pass.py",
+        "future maintenance ledger"
+      ]
+    },
+    {
+      "task_id": "AM3",
+      "title": "Supersede suggestion",
+      "task_type": "supersede",
+      "prompt": "Run the opt-in maintenance loop on a fixture with old truth and a newer replacement. Report supersede direction and history retention.",
+      "acceptance_summary": "Must mark old truth historical and keep audit history.",
+      "required_facts": [
+        "Old truth and new truth are identified.",
+        "New truth supersedes old truth.",
+        "Historical truth remains inspectable."
+      ],
+      "forbidden_claims": [
+        "Old truth supersedes new truth when evidence says otherwise.",
+        "Supersede deletes audit history."
+      ],
+      "expected_evidence_hints": [
+        "tests/temporal/test_current_history_reads.py",
+        "/hm:dream ledger"
+      ]
+    },
+    {
+      "task_id": "AM4",
+      "title": "False positive rejection",
+      "task_type": "reject",
+      "prompt": "Run the opt-in maintenance loop on a fixture containing a tempting but incorrect suggestion. Reject it and verify truth is unchanged.",
+      "acceptance_summary": "Must preserve truth after rejecting a false positive.",
+      "required_facts": [
+        "False positive suggestion is identified.",
+        "Rejection is recorded.",
+        "Confirmed truth remains unchanged."
+      ],
+      "forbidden_claims": [
+        "Rejected suggestion mutates truth.",
+        "False positives can be hidden from the report."
+      ],
+      "expected_evidence_hints": [
+        "future maintenance reject path"
+      ]
+    },
+    {
+      "task_id": "AM5",
+      "title": "Undo applied maintenance",
+      "task_type": "undo",
+      "prompt": "Apply a maintenance action, then undo it. Report before state, after apply state, after undo state, and ledger entries.",
+      "acceptance_summary": "Must prove undo changes store state back or clearly report unsupported rollback.",
+      "required_facts": [
+        "Before/apply/undo states are captured.",
+        "Ledger records apply and undo.",
+        "Rollback result is verified."
+      ],
+      "forbidden_claims": [
+        "Undo succeeded without state verification.",
+        "Rollback failure is reported as success."
+      ],
+      "expected_evidence_hints": [
+        "future maintenance undo path"
+      ]
+    },
+    {
+      "task_id": "AM6",
+      "title": "Ledger explainability",
+      "task_type": "ledger",
+      "prompt": "Inspect a completed maintenance run ledger. Summarize every action, target, rationale, outcome, and failure.",
+      "acceptance_summary": "Must make maintenance actions user-auditable.",
+      "required_facts": [
+        "Action type is visible.",
+        "Target id is visible.",
+        "Rationale and outcome are visible.",
+        "Failures are not hidden."
+      ],
+      "forbidden_claims": [
+        "Run success can hide failed actions.",
+        "Ledger only needs aggregate counts."
+      ],
+      "expected_evidence_hints": [
+        "dream run ledger",
+        "docs/roadmap-v31.md"
+      ]
+    }
+  ]
+}

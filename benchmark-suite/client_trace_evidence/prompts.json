@@ -1,0 +1,87 @@
+{
+  "benchmark_id": "client_trace_evidence",
+  "version": 1,
+  "condition": "trace",
+  "tasks": [
+    {
+      "task_id": "CTE1",
+      "title": "Cross-client write/read trace",
+      "task_type": "write_read_trace",
+      "prompt": "In the target client, perform a minimal harness-mem write/read trace. Store the transcript, visible tool calls, final output, and exact scope of the claim.",
+      "acceptance_summary": "Must prove user-visible write/read behavior from transcript evidence.",
+      "required_facts": [
+        "Candidate write path is visible.",
+        "Review or confirmation path is visible.",
+        "Readback path is visible.",
+        "Client and workspace path are recorded."
+      ],
+      "forbidden_claims": [
+        "Internal cache evidence is a full client transcript.",
+        "One client trace proves all clients."
+      ],
+      "expected_evidence_hints": [
+        "docs/v2-user-test-packet.md",
+        "harness_mem/integration/artifacts/"
+      ]
+    },
+    {
+      "task_id": "CTE2",
+      "title": "Workspace-path-visible packet run",
+      "task_type": "workspace_trace",
+      "prompt": "Run or inspect a packet scenario where the workspace path is visible. Report the exact workspace, client, scenario id, and supported claim.",
+      "acceptance_summary": "Must scope the claim to the observed workspace and client.",
+      "required_facts": [
+        "Workspace path is visible.",
+        "Client is recorded.",
+        "Scenario id or prompt is named.",
+        "Claim scope is bounded."
+      ],
+      "forbidden_claims": [
+        "Workspace path is inferred but reported as visible.",
+        "Scenario evidence proves unrelated clients."
+      ],
+      "expected_evidence_hints": [
+        "docs/v2-user-test-packet.md"
+      ]
+    },
+    {
+      "task_id": "CTE3",
+      "title": "Transport failure transcript",
+      "task_type": "failure_trace",
+      "prompt": "Capture or inspect a user-visible transcript for MCP transport unavailable. Verify the diagnosis and forbidden fallback guidance.",
+      "acceptance_summary": "Must surface transport failure correctly and avoid obsolete daily CLI fallback.",
+      "required_facts": [
+        "Transport failure is visible.",
+        "Current maintenance guidance is visible.",
+        "Forbidden fallback guidance is absent."
+      ],
+      "forbidden_claims": [
+        "Transport failure is a successful memory run.",
+        "User should hand-run removed daily wake/search/timeline CLI."
+      ],
+      "expected_evidence_hints": [
+        "harness_mem/integration/artifacts/s4-mcp-unavailable/",
+        "docs/v2-user-test-packet.md"
+      ]
+    },
+    {
+      "task_id": "CTE4",
+      "title": "Project mismatch clarification",
+      "task_type": "clarification_trace",
+      "prompt": "Capture or inspect a user-visible project mismatch transcript. Verify that the agent surfaces the mismatch and asks for clarification.",
+      "acceptance_summary": "Must ask for clarification instead of guessing the active project.",
+      "required_facts": [
+        "Mismatch is detected.",
+        "Detected project names or roots are surfaced when available.",
+        "Clarification is requested."
+      ],
+      "forbidden_claims": [
+        "Agent silently chooses one project.",
+        "Mismatch is ignored."
+      ],
+      "expected_evidence_hints": [
+        "docs/v2-user-test-packet.md"
+      ]
+    }
+  ]
+}

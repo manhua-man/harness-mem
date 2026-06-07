@@ -1,5 +1,7 @@
 # Roadmap: harness-mem v2.2.x
 
+> **Maintainer / design archive — not user-facing.** 对外能力摘要见 [`roadmap-status.md`](./roadmap-status.md)。
+
 > 状态：v2.2 runtime / contract 与 OpenSpec `5.5` 手工 release gate 已完成；
 > `docs/v2-user-test-packet.md` 现已同时包含 Claude Code entry 与 non-Claude entry。
 > full 12-scenario cross-client matrix 仍可继续扩展，但不再阻塞 v2.2 闭环。

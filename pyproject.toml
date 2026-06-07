@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "2.9.61"
+version = "3.2.0"
 description = "Local-first, pluggable AI memory runtime"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -54,4 +54,9 @@ include = [
     "docs/error-codes.md",
     "harness_mem",
     "harness_mem/integration/templates/*.template",
+]
+# Defensive: never ship maintainer-only docs in PyPI sdist even if include list grows.
+exclude = [
+    "docs/v2-user-test-packet.md",
+    "harness_mem/integration/artifacts",
 ]

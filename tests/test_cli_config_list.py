@@ -69,6 +69,7 @@ def test_both_absent_prints_header_note_and_defaults(
     assert "triggers.scheduler = off  (default)" in body
     assert "distill.mode = defer_to_agent  (default)" in body
     assert "worker.mode = off  (default)" in body
+    assert "autopilot.enabled = true  (default)" in body
 
 
 # ---- Req 3.2: source labels for default / user / project -----------------

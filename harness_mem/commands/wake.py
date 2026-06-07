@@ -8,6 +8,7 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from harness_mem.adapters import AdapterRegistry
 from harness_mem.commands.retrieval_signals import record_retrieval_signal
@@ -25,13 +26,14 @@ from harness_mem.commands.support import (
 )
 from harness_mem.commands.ingest import _select_claude_candidate_sessions
 from harness_mem.commands.wake_render import (
+    LAYER_HEADERS,
     SURFACED_LAYERS,
     render_wake_plan,
     select_rendered_entries,
 )
 from harness_mem.context_assembly import assemble_context_plan
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
-from harness_mem.core.schemas.context_assembly_plan import ContextAssemblyPlan
+from harness_mem.core.schemas.context_assembly_plan import ContextAssemblyPlan, PlanEntry
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.event_log import EventType, get_event_logger
@@ -572,6 +574,76 @@ def _disclosure_level_for_plan(plan: ContextAssemblyPlan) -> tuple[int, str]:
     )
     total_tokens = chars_to_tokens(total_chars)
     return total_tokens, disclosure_level(total_tokens)
+
+
+def _serialize_plan_entry(entry: PlanEntry) -> dict[str, Any]:
+    return {
+        "summary": entry.summary,
+        "source_ids": list(entry.source_ids),
+        "truth_status": entry.truth_status,
+        "why_included": entry.why_included,
+    }
+
+
+async def build_wake_snapshot(
+    backend: LocalMemoryBackend,
+    project_name: str,
+    *,
+    include_skill_hints: bool = False,
+    skill_hint_limit: int = DEFAULT_SKILL_HINT_LIMIT,
+) -> dict[str, Any]:
+    """Return structured wake data that does not depend on long text rendering.
+
+    MCP clients and router layers may truncate a large ``output`` string. This
+    helper mirrors the plan-backed wake state into compact structured fields so
+    callers can still read L0/L1/L2 content even when UI layers abbreviate the
+    rendered text block.
+    """
+    plan = await assemble_context_plan(backend, project_name=project_name)
+    total_tokens, level = _disclosure_level_for_plan(plan)
+
+    entries_by_layer: dict[str, list[dict[str, Any]]] = {}
+    sections: list[dict[str, Any]] = []
+    for layer_id in SURFACED_LAYERS:
+        layer = plan.layer(layer_id)
+        serialized_entries = [
+            _serialize_plan_entry(entry) for entry in select_rendered_entries(layer)
+        ]
+        entries_by_layer[layer_id] = serialized_entries
+        sections.append(
+            {
+                "layer": layer_id,
+                "title": LAYER_HEADERS[layer_id],
+                "entries": serialized_entries,
+                "truncation": layer.truncation.to_dict(),
+            }
+        )
+
+    payload: dict[str, Any] = {
+        "wake_sections": sections,
+        "project_profile_entries": entries_by_layer["L0"],
+        "essential_truth": entries_by_layer["L1"],
+        "active_task": entries_by_layer["L2"],
+        "disclosure": {
+            "approx_tokens": total_tokens,
+            "level": level,
+        },
+    }
+    if include_skill_hints:
+        skills = await _select_wake_skill_hints(
+            backend,
+            project_name,
+            limit=max(0, skill_hint_limit),
+        )
+        payload["skill_hints"] = [
+            {
+                "id": skill.id,
+                "name": skill.name,
+                "activation_condition": skill.activation_condition,
+            }
+            for skill in skills
+        ]
+    return payload
 
 
 async def cmd_wake_up(

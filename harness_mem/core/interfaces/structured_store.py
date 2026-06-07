@@ -24,6 +24,7 @@ from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.core.schemas.metabolism_run import MetabolismRun
+from harness_mem.core.schemas.dream_run import DreamRun
 from harness_mem.core.schemas.retrieval_signal import RetrievalSignal
 
 
@@ -467,6 +468,21 @@ class StructuredStore(Protocol):
         the read path is exposed on the Protocol, mirroring how
         ``touch_*`` and other write helpers are handled.
         """
+        ...
+
+    # ---- DreamRun (read-side) ----
+
+    async def get_dream_run(self, id: str) -> DreamRun | None:
+        """Get a single dream run by id."""
+        ...
+
+    async def list_dream_runs(
+        self,
+        project_name: str,
+        *,
+        limit: int = 20,
+    ) -> list[DreamRun]:
+        """List dream runs for a project, newest first."""
         ...
 
     # ---- RetrievalSignal (read-side) ----

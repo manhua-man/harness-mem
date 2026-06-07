@@ -31,7 +31,7 @@ from harness_mem.mcp.server import (
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_structured_store import LocalStructuredStore
-from tests.helpers import run
+from tests.helpers import patch_fake_embedding_loader, run, seed_persisted_embedding
 
 pytestmark = pytest.mark.mcp
 
@@ -59,6 +59,8 @@ def _seed_merge_pair(backend: LocalMemoryBackend, project_name: str) -> tuple[st
     assert isinstance(structured_store, LocalStructuredStore)
     run(structured_store.save_memory_entry(duplicate_a))
     run(structured_store.save_memory_entry(duplicate_b))
+    seed_persisted_embedding(backend, duplicate_a.id, (1.0, 0.0))
+    seed_persisted_embedding(backend, duplicate_b.id, (1.0, 0.0))
 
     for entry_id in (duplicate_a.id, duplicate_b.id):
         for offset in range(2):
@@ -99,7 +101,10 @@ def _seed_supersede_pair(backend: LocalMemoryBackend, project_name: str) -> tupl
     return historical.id, current.id
 
 
-def test_metabolism_run_success_persists_run_and_candidates(tmp_path: Path) -> None:
+def test_metabolism_run_success_persists_run_and_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Success path: run record is metabolism/completed, candidates carry
     the new run id, ``output_counts`` has three explicit per-type keys.
 
@@ -109,6 +114,7 @@ def test_metabolism_run_success_persists_run_and_candidates(tmp_path: Path) -> N
     project_name = "v231-5-2-success"
     backend = LocalMemoryBackend(tmp_path)
     run(backend.init())
+    patch_fake_embedding_loader(monkeypatch)
     set_backend_override(backend)
     try:
         entry_a_id, entry_b_id = _seed_merge_pair(backend, project_name)

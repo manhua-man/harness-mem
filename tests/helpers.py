@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -157,6 +158,83 @@ def patch_cli_adapters(
 
 def fake_embed_texts(self, texts: list[str]) -> list[list[float]]:
     return [[1.0, float(len(text))] for text in texts]
+
+
+class FakeEmbeddingLoader:
+    dimensions = 2
+    model_version = "test"
+
+
+def patch_fake_embedding_loader(monkeypatch) -> None:
+    import harness_mem.embedding as embedding
+
+    monkeypatch.setattr(embedding, "get_model_loader", lambda _model_id: FakeEmbeddingLoader())
+
+
+class FakeWriteEmbeddingLoader:
+    dimensions = 384
+    model_version = "test"
+
+    def encode(self, texts):
+        import hashlib
+        import re
+
+        import numpy as np
+
+        one_text = isinstance(texts, str)
+        items = [texts] if one_text else list(texts)
+        vectors: list[np.ndarray] = []
+        for text in items:
+            vector = np.zeros(self.dimensions, dtype=np.float32)
+            tokens = re.findall(r"[a-z0-9]+", str(text).lower())
+            for token in tokens:
+                key = token[:-1] if len(token) > 4 and token.endswith("s") else token
+                digest = hashlib.sha256(key.encode("utf-8")).digest()
+                vector[int.from_bytes(digest[:4], "little") % self.dimensions] += 1.0
+            if not np.any(vector):
+                vector[0] = 1.0
+            vectors.append(vector)
+        arr = np.vstack(vectors)
+        return arr[0] if one_text else arr
+
+
+def patch_fake_write_embedding_loader(monkeypatch) -> None:
+    import harness_mem.embedding as embedding
+    from harness_mem.storage import sqlite_index
+
+    sqlite_index._EMBEDDING_WRITE_TIMED_OUT_MODELS.clear()
+    sqlite_index._EMBEDDING_WRITE_UNCACHED_MODELS.clear()
+    monkeypatch.setattr(embedding, "embeddings_disabled", lambda: False)
+    monkeypatch.setattr(embedding, "has_local_model_snapshot", lambda _model_id: True)
+    monkeypatch.setattr(
+        embedding,
+        "get_model_loader",
+        lambda _model_id: FakeWriteEmbeddingLoader(),
+    )
+
+
+def seed_persisted_embedding(backend, entry_id: str, values: tuple[float, float] = (1.0, 1.0)) -> None:
+    import numpy as np
+
+    from harness_mem.commands.support import get_embedding_model_id
+
+    conn = backend.structured_store._index._conn_write()
+    embedding = np.asarray(values, dtype=np.float32)
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO vec_embeddings
+            (entry_id, model_id, model_version, embedding, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            entry_id,
+            get_embedding_model_id(),
+            "test",
+            embedding.tobytes(),
+            int(time.time()),
+        ),
+    )
+    conn.commit()
 
 
 def no_embed_texts(self, texts: list[str]) -> None:

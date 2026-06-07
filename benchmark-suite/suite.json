@@ -1,0 +1,211 @@
+{
+  "version": 1,
+  "collections": [
+    {
+      "id": "retrieval_quality_longmemeval",
+      "title": "Retrieval Quality",
+      "artifact_requirements": [
+        "run_manifest.json",
+        "report.md",
+        "results"
+      ],
+      "required_result_fields": [
+        "task_id",
+        "condition",
+        "accepted",
+        "runtime_seconds"
+      ]
+    },
+    {
+      "id": "retrieval_diagnostics",
+      "title": "Retrieval Diagnostics",
+      "artifact_requirements": [
+        "run_manifest.json",
+        "report.md",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "task_id",
+        "condition",
+        "accepted",
+        "runtime_seconds"
+      ]
+    },
+    {
+      "id": "latency_warm_path",
+      "title": "Warm Path Latency",
+      "artifact_requirements": [
+        "run_manifest.json",
+        "report.md",
+        "results"
+      ],
+      "required_result_fields": [
+        "task_id",
+        "condition",
+        "runtime_seconds",
+        "accepted"
+      ]
+    },
+    {
+      "id": "client_enabled_vs_disabled",
+      "title": "Client Continuation Value",
+      "artifact_requirements": [
+        "run_manifest.json",
+        "report.md",
+        "results",
+        "transcripts"
+      ],
+      "required_result_fields": [
+        "task_id",
+        "condition",
+        "client",
+        "model",
+        "workspace_path",
+        "runtime_seconds",
+        "prompt_turns",
+        "followup_count",
+        "token_total",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "client_trace_evidence",
+      "title": "Client Trace Evidence",
+      "artifact_requirements": [
+        "run_manifest.json",
+        "report.md",
+        "results",
+        "transcripts"
+      ],
+      "required_result_fields": [
+        "task_id",
+        "condition",
+        "client",
+        "workspace_path",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "maintenance_recovery",
+      "title": "Maintenance Recovery",
+      "artifact_requirements": [
+        "run_manifest.json",
+        "report.md",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "task_id",
+        "condition",
+        "runtime_seconds",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "evidence_safety",
+      "title": "Evidence Safety",
+      "artifact_requirements": [
+        "run_manifest.json",
+        "report.md",
+        "results",
+        "transcripts"
+      ],
+      "required_result_fields": [
+        "task_id",
+        "condition",
+        "client",
+        "model",
+        "workspace_path",
+        "runtime_seconds",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "temporal_product_query",
+      "title": "Temporal Product Query",
+      "artifact_requirements": [
+        "run_manifest.json",
+        "report.md",
+        "results",
+        "transcripts"
+      ],
+      "required_result_fields": [
+        "task_id",
+        "condition",
+        "client",
+        "model",
+        "workspace_path",
+        "runtime_seconds",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "generated_knowledge_freshness",
+      "title": "Generated Knowledge Freshness",
+      "artifact_requirements": [
+        "run_manifest.json",
+        "report.md",
+        "results",
+        "transcripts"
+      ],
+      "required_result_fields": [
+        "task_id",
+        "condition",
+        "client",
+        "model",
+        "workspace_path",
+        "runtime_seconds",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "auto_maintenance_effectiveness",
+      "title": "Auto Maintenance Effectiveness",
+      "artifact_requirements": [
+        "run_manifest.json",
+        "report.md",
+        "results",
+        "transcripts",
+        "notes"
+      ],
+      "required_result_fields": [
+        "task_id",
+        "condition",
+        "client",
+        "model",
+        "workspace_path",
+        "runtime_seconds",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "runtime_health_observability",
+      "title": "Runtime Health Observability",
+      "artifact_requirements": [
+        "run_manifest.json",
+        "report.md",
+        "results",
+        "transcripts",
+        "notes"
+      ],
+      "required_result_fields": [
+        "task_id",
+        "condition",
+        "client",
+        "model",
+        "workspace_path",
+        "runtime_seconds",
+        "accepted",
+        "acceptance_notes"
+      ]
+    }
+  ]
+}

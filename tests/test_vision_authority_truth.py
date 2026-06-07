@@ -14,5 +14,11 @@ def test_vision_and_reference_docs_now_point_to_current_truth_sources() -> None:
     assert "当前版本状态以 [`roadmap-status.md`](./roadmap-status.md) 与 `CHANGELOG.md` 为准。" in reference_doc
     assert "路线图承诺仍以 `roadmap-v15x.md`、`roadmap-v16x.md` 和 `roadmap-vision-v16-v18.md` 为准。" not in reference_doc
     assert "历史路线设计" in reference_doc
+    assert "Reference Scorecard and Absorption Priorities" in reference_doc
+    assert "maintainer decision artifact" in reference_doc
+    assert "必须单独成类，不能混进 observability" in reference_doc
+    assert "token 降 43.1%" in reference_doc
+    assert "`harness-mem v3.4 target` 代表 v3.1-v3.4 都完成后的目标状态" in reference_doc
 
-    assert "| `roadmap-vision-v16-v18.md` | v1.6 - v1.8 历史远景方向，不等同于当前版本承诺路线图 |" in docs_readme
+    assert "roadmap-vision-v16-v18.md" in docs_readme
+    assert "历史远景" in docs_readme

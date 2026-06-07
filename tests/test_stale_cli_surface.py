@@ -57,8 +57,10 @@ SCAN_TARGETS: tuple[str, ...] = (
     "plugins/harness-mem/commands/hm/review.md",
     "plugins/harness-mem/commands/hm/search.md",
     "plugins/harness-mem/commands/hm/status.md",
+    "plugins/harness-mem/commands/hm/dream.md",
     "plugins/harness-mem/commands/hm/wake.md",
     "plugins/harness-mem/skills/harness-mem/SKILL.md",
+    "plugins/harness-mem/skills/harness-mem-autopilot/SKILL.md",
     "tools/session-distill/SKILL.md",
 )
 

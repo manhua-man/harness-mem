@@ -8,9 +8,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def test_v2_user_test_packet_records_cursor_router_wake_transcript_boundary() -> None:
     packet = (REPO_ROOT / "docs" / "v2-user-test-packet.md").read_text(encoding="utf-8")
-    roadmap_status = " ".join(
-        (REPO_ROOT / "docs" / "roadmap-status.md").read_text(encoding="utf-8").split()
-    )
     roadmap_v29 = " ".join(
         (REPO_ROOT / "docs" / "roadmap-v29.md").read_text(encoding="utf-8").split()
     )
@@ -24,10 +21,6 @@ def test_v2_user_test_packet_records_cursor_router_wake_transcript_boundary() ->
     assert "`wake_sections`" in packet
     assert "`essential_truth`" in packet
     assert "serverInfo.version = \"2.9.61\"" in packet
-
-    assert "真实 `Cursor / user-mcp-router` wake transcript" in roadmap_status
-    assert "新的 layered + structured wake shape" in roadmap_status
-    assert "不是 wake shape 本身" in roadmap_status
 
     assert "real Cursor / router wake transcript" in roadmap_v29
     assert "routed wake now returns `wake_sections` / `essential_truth`" in roadmap_v29

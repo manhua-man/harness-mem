@@ -26,3 +26,7 @@
 # SQLite databases (binary)
 *.db binary
 *.sqlite binary
+
+# Public release source archives (git archive) — see release/public-source-excludes.txt
+docs/v2-user-test-packet.md export-ignore
+harness_mem/integration/artifacts/** export-ignore

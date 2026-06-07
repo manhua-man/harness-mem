@@ -19,6 +19,7 @@ from harness_mem.commands.search import (
     cmd_trace_relations,
 )
 from harness_mem.commands.status import cmd_status
+from harness_mem.commands.dream import cmd_dream
 from harness_mem.commands.wake import cmd_wake_up
 from harness_mem.commands.candidates import (
     cmd_correct,
@@ -68,6 +69,7 @@ __all__ = [
     "cmd_search",
     "cmd_search_raw",
     "cmd_status",
+    "cmd_dream",
     "cmd_wake_up",
     "cmd_correct",
     "cmd_confirm_rule",

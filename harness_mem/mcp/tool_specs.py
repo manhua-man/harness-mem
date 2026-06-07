@@ -1005,8 +1005,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "kind": {
                     "type": "string",
-                    "enum": ["reflection"],
-                    "description": "Filter by job kind (optional, v2.4.0 only allows 'reflection')",
+                    "enum": ["reflection", "dream"],
+                    "description": "Filter by job kind (optional). v3.1 adds 'dream'.",
                 },
                 "limit": {
                     "type": "integer",
@@ -1125,6 +1125,105 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "additionalProperties": False,
                 },
             },
+        },
+    },
+    "dream_ledger": {
+        "description": (
+            "Return the latest v3.1 DreamRun ledger for a project, or one "
+            "DreamRun by id. This is the backing MCP surface for /hm:dream: "
+            "it reads the audit ledger and never mutates truth."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (defaults to the active project when omitted).",
+                },
+                "run_id": {
+                    "type": "string",
+                    "description": "Optional DreamRun id for drilldown.",
+                },
+            },
+        },
+    },
+    "dream_run": {
+        "description": (
+            "Run one v3.1 dream maintenance pass now. It parses and handles "
+            "every selected dream result to a terminal state and writes a "
+            "DreamRun ledger with audit and undo metadata."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (defaults to the active project when omitted).",
+                },
+                "project_root": {
+                    "type": "string",
+                    "description": "Project directory used to load .harness-mem.toml (defaults to cwd).",
+                },
+                "budget": {
+                    "type": "object",
+                    "description": "Optional replay-window caps. Missing fields fall back to ReplayBudget defaults.",
+                    "properties": {
+                        "max_observations": {"type": "integer", "minimum": 0},
+                        "max_pending_candidates": {"type": "integer", "minimum": 0},
+                        "max_historical_truths": {"type": "integer", "minimum": 0},
+                        "max_low_success_skills": {"type": "integer", "minimum": 0},
+                        "max_repeat_search_hits": {"type": "integer", "minimum": 0},
+                        "max_total_tokens": {"type": "integer", "minimum": 0},
+                        "signal_lookback_days": {"type": "integer", "minimum": 1},
+                    },
+                    "additionalProperties": False,
+                },
+            },
+        },
+    },
+    "dream_auto_tick": {
+        "description": (
+            "Run one host/client scheduler tick for v3.1 auto dream. The tick "
+            "is default-off and only enqueues ReflectionJob(kind='dream') when "
+            "dream.auto.enabled and scheduler gates allow it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (defaults to the active project when omitted).",
+                },
+                "project_root": {
+                    "type": "string",
+                    "description": "Project directory used to load .harness-mem.toml (defaults to cwd).",
+                },
+            },
+        },
+    },
+    "undo_dream_item": {
+        "description": (
+            "Undo one applied DreamItem by replaying the undo metadata stored "
+            "in its DreamRun ledger. Truth is restored or soft-deleted; "
+            "confirmed records are not hard-deleted."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (defaults to the active project when omitted).",
+                },
+                "run_id": {
+                    "type": "string",
+                    "description": "DreamRun id containing the item to undo.",
+                },
+                "item_id": {
+                    "type": "string",
+                    "description": "DreamItem id to undo.",
+                },
+            },
+            "required": ["run_id", "item_id"],
         },
     },
 }

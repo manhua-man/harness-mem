@@ -1,0 +1,102 @@
+{
+  "benchmark_id": "retrieval_diagnostics",
+  "version": 1,
+  "condition": "diagnostic",
+  "tasks": [
+    {
+      "task_id": "RD1",
+      "title": "Fusion ablation",
+      "task_type": "ablation",
+      "prompt": "Diagnose a retrieval delta by comparing fusion behavior between baseline and candidate runs. Record changed rankings and representative queries.",
+      "acceptance_summary": "Must tie fusion claims to changed per-query ranking behavior.",
+      "required_facts": [
+        "Baseline and candidate fusion settings are named.",
+        "Changed rankings are recorded.",
+        "Representative queries are included."
+      ],
+      "forbidden_claims": [
+        "Fusion caused the delta without ranking evidence."
+      ],
+      "expected_evidence_hints": [
+        "docs/benchmark/v152-recall-failure-analysis.md",
+        "benchmark-suite/artifacts/"
+      ]
+    },
+    {
+      "task_id": "RD2",
+      "title": "Stem fallback impact",
+      "task_type": "fallback_analysis",
+      "prompt": "Compare retrieval behavior with stem fallback enabled and disabled. Identify helped queries, hurt queries, and latency impact.",
+      "acceptance_summary": "Must show query-level evidence for fallback impact.",
+      "required_facts": [
+        "Fallback on/off condition is recorded.",
+        "Helped and hurt queries are identified.",
+        "Latency impact is recorded if available."
+      ],
+      "forbidden_claims": [
+        "Fallback helps all queries.",
+        "Fallback hurts all queries without evidence."
+      ],
+      "expected_evidence_hints": [
+        "docs/benchmark/v152-recall-failure-analysis-stemfallback.md"
+      ]
+    },
+    {
+      "task_id": "RD3",
+      "title": "Temporal failure bucket",
+      "task_type": "failure_bucket",
+      "prompt": "Bucket temporal retrieval failures. Separate lexical miss, current/history confusion, as_of ambiguity, and ranking-order failures.",
+      "acceptance_summary": "Must separate temporal failure types instead of treating them as one class.",
+      "required_facts": [
+        "Failure buckets are named.",
+        "Representative misses are included.",
+        "Current/history/as_of issues are separated."
+      ],
+      "forbidden_claims": [
+        "All temporal failures have the same cause."
+      ],
+      "expected_evidence_hints": [
+        "docs/benchmark/v160-baseline.md",
+        "benchmark-suite/temporal_product_query/prompts.json"
+      ]
+    },
+    {
+      "task_id": "RD4",
+      "title": "Candidate ordering",
+      "task_type": "ranking_diagnostic",
+      "prompt": "Compare candidate ordering for representative queries before and after a retrieval change. Report where the correct answer appears.",
+      "acceptance_summary": "Must include rank evidence, not only aggregate recall.",
+      "required_facts": [
+        "Before and after ranking are compared.",
+        "Correct answer location is recorded.",
+        "Top-k sensitivity is stated when relevant."
+      ],
+      "forbidden_claims": [
+        "Recall changed for unknown ranking reasons."
+      ],
+      "expected_evidence_hints": [
+        "benchmark-suite/artifacts/"
+      ]
+    },
+    {
+      "task_id": "RD5",
+      "title": "Scenario validity",
+      "task_type": "benchmark_quality",
+      "prompt": "Audit a retrieval replay scenario whose delta is weak or zero. Decide whether the candidate behavior, benchmark scenario, or reporting threshold is the blocker.",
+      "acceptance_summary": "Must check benchmark quality before recommending runtime changes.",
+      "required_facts": [
+        "Pass/fail and delta computation are described.",
+        "Candidate and baseline decisions are compared.",
+        "Scenario validity is assessed.",
+        "Threshold/reporting blockers are named when relevant."
+      ],
+      "forbidden_claims": [
+        "Need more data before checking scenario validity.",
+        "Delta=0 proves candidate has no value."
+      ],
+      "expected_evidence_hints": [
+        "benchmark-suite/BENCHMARKS.md"
+      ]
+    }
+  ]
+}

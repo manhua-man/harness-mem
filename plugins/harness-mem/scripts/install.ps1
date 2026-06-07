@@ -38,6 +38,20 @@ if (-not $NoSlashCommands) {
     } else {
         Write-Warning "Slash command source not found at $slashSrc; skipping."
     }
+
+    $skillSrc = Join-Path $pluginRoot "skills"
+    $skillDst = Join-Path $env:USERPROFILE ".claude\skills"
+    if (Test-Path $skillSrc) {
+        if (-not (Test-Path $skillDst)) {
+            New-Item -ItemType Directory -Path $skillDst -Force | Out-Null
+        }
+        Copy-Item -Path (Join-Path $skillSrc "*") -Destination $skillDst -Recurse -Force
+        $skillCount = (Get-ChildItem $skillSrc -Directory).Count
+        Write-Host "Installed $skillCount Claude Code skills to $skillDst"
+        Write-Host "  Available: harness-mem / harness-mem-autopilot"
+    } else {
+        Write-Warning "Skill source not found at $skillSrc; skipping."
+    }
 }
 
 if ($RegisterClaude) {

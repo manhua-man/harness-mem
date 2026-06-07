@@ -22,6 +22,7 @@ from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.core.schemas.metabolism_run import MetabolismRun
+from harness_mem.core.schemas.dream_run import DreamItem, DreamRun
 from harness_mem.core.schemas.reflection_job import (
     ALLOWED_TRANSITIONS,
     ReflectionJob,
@@ -72,6 +73,8 @@ __all__ = [
     "ProjectProfile",
     "RelationFact",
     "MetabolismRun",
+    "DreamItem",
+    "DreamRun",
     "ReflectionJob",
     "ALLOWED_TRANSITIONS",
     "new_pending_job",

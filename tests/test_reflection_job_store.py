@@ -179,18 +179,16 @@ def test_list_filters_by_status(store: ReflectionJobStore) -> None:
 
 
 def test_list_filters_by_kind(store: ReflectionJobStore) -> None:
-    """Validates: Requirements 2.6 (kind filter).
+    """Validates: Requirements 2.6 (kind filter)."""
+    reflection = _make_job(kind="reflection")
+    dream = _make_job(kind="dream", phase="metabolism", source="scheduler")
+    store.save(reflection)
+    store.save(dream)
 
-    Only one ``kind`` is currently legal in the schema (``reflection``)
-    so we just confirm the filter passes through to SQL — selecting an
-    unrelated kind returns no rows.
-    """
-    job = _make_job(kind="reflection")
-    store.save(job)
-
-    assert store.list(kind="reflection") == [job] or [
+    assert [
         j.id for j in store.list(kind="reflection")
-    ] == [job.id]
+    ] == [reflection.id]
+    assert [j.id for j in store.list(kind="dream")] == [dream.id]
     assert store.list(kind="something-else") == []
 
 
@@ -224,6 +222,82 @@ def test_list_orders_by_created_at_desc(store: ReflectionJobStore) -> None:
 def test_list_no_matches_returns_empty(store: ReflectionJobStore) -> None:
     """Validates: Requirements 2.6 (empty result is a list, not an error)."""
     assert store.list(project_name="never-saved") == []
+
+
+# ---- active processing gate ----------------------------------------------
+
+
+def test_save_if_no_active_processing_blocks_fresh_processing_job(
+    store: ReflectionJobStore,
+) -> None:
+    active = _make_job(
+        project_name="dream-project",
+        kind="dream",
+        phase="metabolism",
+        status="processing",
+        source="scheduler",
+    )
+    incoming = _make_job(
+        project_name="dream-project",
+        kind="dream",
+        phase="metabolism",
+        status="processing",
+        source="scheduler",
+    )
+    store.save(active)
+
+    blocked_by = store.save_if_no_active_processing(
+        incoming,
+        stale_before=datetime.now(timezone.utc) - timedelta(minutes=1),
+    )
+
+    assert blocked_by is not None
+    assert blocked_by.id == active.id
+    assert store.get(incoming.id) is None
+
+
+def test_save_if_no_active_processing_ignores_stale_processing_job(
+    store: ReflectionJobStore,
+) -> None:
+    stale_time = datetime.now(timezone.utc) - timedelta(hours=2)
+    stale = _make_job(
+        project_name="dream-project",
+        kind="dream",
+        phase="metabolism",
+        status="processing",
+        source="scheduler",
+        created_at=stale_time,
+    )
+    incoming = _make_job(
+        project_name="dream-project",
+        kind="dream",
+        phase="metabolism",
+        status="processing",
+        source="scheduler",
+    )
+    store.save(stale)
+    conn = store._index._conn_write()
+    with store._index._lock:
+        row = conn.execute(
+            "SELECT data FROM reflection_jobs WHERE id = ?",
+            (stale.id,),
+        ).fetchone()
+        assert row is not None
+        data = json.loads(row["data"])
+        data["updated_at"] = stale_time.isoformat()
+        conn.execute(
+            "UPDATE reflection_jobs SET updated_at = ?, data = ? WHERE id = ?",
+            (stale_time.isoformat(), json.dumps(data), stale.id),
+        )
+        conn.commit()
+
+    blocked_by = store.save_if_no_active_processing(
+        incoming,
+        stale_before=datetime.now(timezone.utc) - timedelta(minutes=1),
+    )
+
+    assert blocked_by is None
+    assert store.get(incoming.id) is not None
 
 
 # ---- compare_and_set -----------------------------------------------------

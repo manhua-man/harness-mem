@@ -1,0 +1,199 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000" viewBox="0 0 1440 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Harness-Mem Agent Memory Runtime 工作闭环</title>
+  <desc id="desc">显式入口触发的 AI memory runtime 流程图：从 Slash 或自然语言入口到 evidence packet、候选层、自动审核、人类复核、confirmed truth，再由 wake 和 search 消费。</desc>
+  <defs>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e8f2fb" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="headerGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f6fbf"/>
+      <stop offset="58%" stop-color="#11a7b5"/>
+      <stop offset="100%" stop-color="#55c7a5"/>
+    </linearGradient>
+    <linearGradient id="candidateGradient" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#eaf5ff"/>
+      <stop offset="100%" stop-color="#e9fbf4"/>
+    </linearGradient>
+    <filter id="softShadow" x="-15%" y="-20%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#0b3558" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1677b9"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1f9f7a"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#d9791f"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfdff; }
+      .grid { fill: url(#grid); opacity: .75; }
+      .title { font: 700 40px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; letter-spacing: 0; }
+      .subtitle { font: 400 18px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #4d657d; }
+      .caption { font: 500 15px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #476275; }
+      .box { fill: #ffffff; stroke: #c6dcee; stroke-width: 1.6; rx: 18; }
+      .boxSoft { fill: url(#candidateGradient); stroke: #9ccfe0; stroke-width: 1.8; rx: 18; }
+      .boxWarn { fill: #fff7ed; stroke: #f1b979; stroke-width: 1.8; rx: 18; }
+      .boxDone { fill: #f0fbf6; stroke: #8bd6b4; stroke-width: 1.8; rx: 18; }
+      .nodeTitle { font: 700 20px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .nodeBody { font: 400 14px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #425c72; }
+      .code { font: 700 14px "Cascadia Mono", Consolas, monospace; fill: #0f6fbf; }
+      .chipText { font: 700 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #ffffff; }
+      .chip { rx: 15; fill: url(#headerGradient); }
+      .num { font: 700 16px "Segoe UI", Arial, sans-serif; fill: #ffffff; }
+      .arrow { fill: none; stroke: #1677b9; stroke-width: 3; marker-end: url(#arrowBlue); }
+      .arrowGreen { fill: none; stroke: #1f9f7a; stroke-width: 3; marker-end: url(#arrowGreen); }
+      .arrowOrange { fill: none; stroke: #d9791f; stroke-width: 3; marker-end: url(#arrowOrange); }
+      .dash { fill: none; stroke: #90a4b8; stroke-width: 2; stroke-dasharray: 8 8; marker-end: url(#arrowBlue); }
+      .small { font: 400 12px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #60788e; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1440" height="1000"/>
+  <rect class="grid" width="1440" height="1000"/>
+  <rect x="0" y="0" width="1440" height="13" fill="url(#headerGradient)"/>
+
+  <text class="title" x="72" y="72">Harness-Mem：Agent Memory Runtime 工作闭环</text>
+  <text class="subtitle" x="74" y="105">显式入口触发，AI 提炼先进候选层；只有 confirmed/current truth 才进入 wake 与 search。</text>
+
+  <g transform="translate(72 128)">
+    <rect class="chip" width="154" height="32"/>
+    <text class="chipText" x="18" y="22">Local-first</text>
+  </g>
+  <g transform="translate(242 128)">
+    <rect class="chip" width="226" height="32"/>
+    <text class="chipText" x="18" y="22">Candidate before truth</text>
+  </g>
+  <g transform="translate(484 128)">
+    <rect class="chip" width="214" height="32"/>
+    <text class="chipText" x="18" y="22">MCP behind curtain</text>
+  </g>
+  <g transform="translate(714 128)">
+    <rect class="chip" width="232" height="32"/>
+    <text class="chipText" x="18" y="22">Human final review</text>
+  </g>
+
+  <g transform="translate(62 205)">
+    <rect class="box" width="232" height="138"/>
+    <circle cx="28" cy="28" r="17" fill="#0f6fbf"/>
+    <text class="num" x="23" y="34">1</text>
+    <text class="nodeTitle" x="56" y="34">用户可见入口</text>
+    <text class="code" x="24" y="70">/hm:distill</text>
+    <text class="code" x="24" y="94">/hm:wake  /hm:search</text>
+    <text class="nodeBody" x="24" y="121">或一句自然语言指令</text>
+  </g>
+
+  <g transform="translate(328 205)">
+    <rect class="box" width="232" height="138"/>
+    <circle cx="28" cy="28" r="17" fill="#0f6fbf"/>
+    <text class="num" x="23" y="34">2</text>
+    <text class="nodeTitle" x="56" y="34">Agent 编排</text>
+    <text class="nodeBody" x="24" y="68">统一识别客户端来源</text>
+    <text class="code" x="24" y="94">client="auto"</text>
+    <text class="nodeBody" x="24" y="121">Codex / Claude / Cursor 等</text>
+  </g>
+
+  <g transform="translate(594 205)">
+    <rect class="box" width="232" height="138"/>
+    <circle cx="28" cy="28" r="17" fill="#0f6fbf"/>
+    <text class="num" x="23" y="34">3</text>
+    <text class="nodeTitle" x="56" y="34">Evidence Packet</text>
+    <text class="nodeBody" x="24" y="68">项目范围 session ingest</text>
+    <text class="nodeBody" x="24" y="94">保留 raw observations</text>
+    <text class="nodeBody" x="24" y="121">source ids 可追溯</text>
+  </g>
+
+  <g transform="translate(860 205)">
+    <rect class="box" width="232" height="138"/>
+    <circle cx="28" cy="28" r="17" fill="#0f6fbf"/>
+    <text class="num" x="23" y="34">4</text>
+    <text class="nodeTitle" x="56" y="34">LLM 提炼</text>
+    <text class="nodeBody" x="24" y="68">session-distill / Skill</text>
+    <text class="nodeBody" x="24" y="94">提取规则、事实、关系</text>
+    <text class="nodeBody" x="24" y="121">不再使用低质正则启发式</text>
+  </g>
+
+  <g transform="translate(1126 205)">
+    <rect class="boxSoft" width="252" height="138"/>
+    <circle cx="28" cy="28" r="17" fill="#11a7b5"/>
+    <text class="num" x="23" y="34">5</text>
+    <text class="nodeTitle" x="56" y="34">候选写入层</text>
+    <text class="code" x="24" y="70">suggest_memory_entry</text>
+    <text class="code" x="24" y="94">suggest_rule / relation</text>
+    <text class="nodeBody" x="24" y="121">pending，不是真值</text>
+  </g>
+
+  <path class="arrow" d="M 294 274 L 326 274"/>
+  <path class="arrow" d="M 560 274 L 592 274"/>
+  <path class="arrow" d="M 826 274 L 858 274"/>
+  <path class="arrow" d="M 1092 274 L 1124 274"/>
+
+  <g transform="translate(958 438)">
+    <rect class="boxSoft" width="300" height="154"/>
+    <circle cx="30" cy="30" r="18" fill="#11a7b5"/>
+    <text class="num" x="25" y="36">6</text>
+    <text class="nodeTitle" x="62" y="36">自动审核</text>
+    <text class="code" x="28" y="76">auto_review_candidates</text>
+    <text class="code" x="28" y="100">(project, apply=true)</text>
+    <text class="nodeBody" x="28" y="128">低风险自动确认 / 噪声自动拒绝</text>
+  </g>
+
+  <g transform="translate(1022 668)">
+    <rect class="boxWarn" width="294" height="132"/>
+    <circle cx="30" cy="30" r="18" fill="#d9791f"/>
+    <text class="num" x="25" y="36">7</text>
+    <text class="nodeTitle" x="62" y="36">人类最终复核</text>
+    <text class="nodeBody" x="28" y="72">只处理高风险、证据不足</text>
+    <text class="nodeBody" x="28" y="96">或跨项目边界不清的残留项</text>
+  </g>
+
+  <g transform="translate(658 668)">
+    <rect class="boxDone" width="300" height="132"/>
+    <circle cx="30" cy="30" r="18" fill="#1f9f7a"/>
+    <text class="num" x="25" y="36">8</text>
+    <text class="nodeTitle" x="62" y="36">Confirmed Truth</text>
+    <text class="nodeBody" x="28" y="72">accepted/current memory</text>
+    <text class="nodeBody" x="28" y="96">confirmed rules / skills</text>
+  </g>
+
+  <g transform="translate(296 668)">
+    <rect class="boxDone" width="300" height="132"/>
+    <circle cx="30" cy="30" r="18" fill="#1f9f7a"/>
+    <text class="num" x="25" y="36">9</text>
+    <text class="nodeTitle" x="62" y="36">运行时消费</text>
+    <text class="code" x="28" y="72">wake / search_memory</text>
+    <text class="nodeBody" x="28" y="96">分层上下文 + source ids</text>
+  </g>
+
+  <g transform="translate(76 668)">
+    <rect class="box" width="188" height="132"/>
+    <text class="nodeTitle" x="24" y="38">新任务上下文</text>
+    <text class="nodeBody" x="24" y="72">只注入稳定记忆</text>
+    <text class="nodeBody" x="24" y="96">pending 不污染 wake</text>
+  </g>
+
+  <path class="arrowGreen" d="M 1254 344 C 1254 392 1214 410 1164 438"/>
+  <path class="arrowOrange" d="M 1122 592 C 1122 618 1142 640 1162 666"/>
+  <path class="arrowGreen" d="M 1022 735 L 960 735"/>
+  <path class="arrowGreen" d="M 658 735 L 596 735"/>
+  <path class="arrowGreen" d="M 296 735 L 264 735"/>
+  <path class="dash" d="M 136 668 C 120 545 180 454 328 396 C 442 351 710 357 958 445"/>
+
+  <g transform="translate(82 424)">
+    <rect class="boxWarn" width="360" height="126"/>
+    <text class="nodeTitle" x="24" y="36">关键边界</text>
+    <text class="nodeBody" x="24" y="70">没有默认后台 daemon / turn-end 自动随手记</text>
+    <text class="nodeBody" x="24" y="96">opt-in hook / scheduler 默认 off，不改主链</text>
+  </g>
+
+  <g transform="translate(486 420)">
+    <rect class="box" width="340" height="126"/>
+    <text class="nodeTitle" x="24" y="36">CLI 的位置</text>
+    <text class="nodeBody" x="24" y="70">安装、自检、doctor、purge、maintenance</text>
+    <text class="nodeBody" x="24" y="96">不承担 wake/search/review 日常产品入口</text>
+  </g>
+
+  <text class="caption" x="74" y="910">机制摘要：用户用 Slash / Skill / 自然语言触发；Agent 背后通过 MCP 读写；AI 只能先写候选，routine review 可自动处理低风险，truth 变化保留审计路径。</text>
+  <text class="small" x="74" y="942">风格参考：白底综述图、蓝青主色、模块框与箭头；图形为原创，内容依据 harness-mem README / AGENTS / roadmap-status 当前真值。</text>
+</svg>

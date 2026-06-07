@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import pytest
+
 from harness_mem.commands.maintenance import cmd_rebuild_vector_index
 from harness_mem.core.schemas import MemoryEntry
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from tests.helpers import requires_embeddings, run
+from tests.helpers import patch_fake_write_embedding_loader, requires_embeddings, run
 
 
 @requires_embeddings
-def test_rebuild_vector_index_drops_and_recreates(data_dir):
+def test_rebuild_vector_index_drops_and_recreates(
+    data_dir,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Task 9.7: rebuild-vector-index drops and recreates table."""
     async def _test():
+        patch_fake_write_embedding_loader(monkeypatch)
         # Setup: create backend with some memory entries
         backend = LocalMemoryBackend(data_dir)
         await backend.init()

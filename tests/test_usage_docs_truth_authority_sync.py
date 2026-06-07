@@ -9,8 +9,9 @@ def test_plugin_readme_points_to_release_truth_authorities() -> None:
         REPO_ROOT / "plugins" / "harness-mem" / "README.md"
     ).read_text(encoding="utf-8")
 
-    assert "当前发版状态、已完成切片和未做边界以 [F:\\memory-lab\\harness-mem\\docs\\roadmap-status.md]" in plugin_readme
-    assert "[F:\\memory-lab\\harness-mem\\CHANGELOG.md]" in plugin_readme
+    assert "当前发版状态、已完成切片和未做边界以 [docs/roadmap-status.md](../../docs/roadmap-status.md)" in plugin_readme
+    assert "[CHANGELOG.md](../../CHANGELOG.md)" in plugin_readme
+    assert "公开状态页" in plugin_readme
     assert "本文聚焦 plugin 安装、集成与日常 IDE 使用方式，不单独充当当前实现真值" in plugin_readme
 
 

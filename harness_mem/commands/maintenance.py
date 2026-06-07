@@ -328,16 +328,31 @@ async def cmd_rebuild_wiki_bridge(project_name: str | None = None) -> int:
         )
         print(f"Rebuilt wiki bridge: {resolved_project}")
         print(f"Claims: {result['claim_count']}")
+        print(f"Invalid claims: {result['invalid_claim_count']}")
         print(f"Topics: {result['topic_count']}")
         print(f"Entities: {result['entity_count']}")
+        print(f"Sources: {result['source_count']}")
+        print(f"Cache hit ratio: {result['cache_hit_ratio']:.2f}")
+        print(f"Compile duration: {result['compile_duration_ms']} ms")
+        print(f"Output token estimate: {result['output_token_estimate']}")
+        print(
+            "Claim diff: "
+            f"+{result['claim_diff']['added']} "
+            f"-{result['claim_diff']['removed']} "
+            f"~{result['claim_diff']['changed']} "
+            f"={result['claim_diff']['unchanged']}"
+        )
+        print(f"Source map: {result['source_map_path']}")
         print(f"Index: {result['index_path']}")
         log_command_invoked(
             "maintenance.rebuild-wiki-bridge",
             project_name=resolved_project,
             extra={
                 "claim_count": result["claim_count"],
+                "invalid_claim_count": result["invalid_claim_count"],
                 "topic_count": result["topic_count"],
                 "entity_count": result["entity_count"],
+                "cache_hit_ratio": result["cache_hit_ratio"],
             },
         )
         return 0

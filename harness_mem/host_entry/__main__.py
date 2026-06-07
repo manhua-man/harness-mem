@@ -54,6 +54,42 @@ _OVERRIDE_KEYS = {
 }
 
 
+def _dream_tick_host_result(payload: dict[str, Any]) -> HostEntryResult:
+    """Adapt a v3.1 dream auto-tick payload to the stable host JSON shape."""
+    if payload.get("success") is False:
+        return HostEntryResult(
+            phase="metabolism",
+            status="failed",
+            next_step="failed: dream auto tick failed",
+            job_id=payload.get("job_id"),
+            candidates_written=0,
+            observations_written=0,
+            error={
+                "stage": "dream",
+                "reason": str(payload.get("error") or payload.get("reason") or ""),
+            },
+        )
+
+    summary_value = payload.get("summary")
+    summary: dict[str, Any] = summary_value if isinstance(summary_value, dict) else {}
+    processed = int(summary.get("processed") or 0)
+    status = str(payload.get("status") or "")
+    next_step = (
+        "completed: dream auto tick skipped"
+        if status == "skipped"
+        else "completed: dream auto tick completed"
+    )
+    return HostEntryResult(
+        phase="metabolism",
+        status="completed",
+        next_step=next_step,
+        job_id=payload.get("job_id"),
+        candidates_written=processed,
+        observations_written=0,
+        error=None,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argparse parser for the host entry (Req 2.2-2.6)."""
     parser = argparse.ArgumentParser(
@@ -157,20 +193,27 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
         logger.error("%s", exc)
         return (ExitCode.ARG_VALIDATION_ERROR, None)
 
+    reflection_enabled = (
+        merged.triggers_after_agent == "on" or merged.triggers_scheduler == "on"
+    )
+    dream_enabled = merged.dream_auto_enabled
+
     # ---- 4. default-off short-circuit (Req 4.1, 4.2, 4.3, 5.8) ---------
     # Evaluated strictly before any business command is imported or called.
-    if merged.triggers_after_agent == "off" and merged.triggers_scheduler == "off":
+    if not reflection_enabled and not dream_enabled:
         return (ExitCode.SUCCESS, HostEntryResult.skipped_default_off().to_json())
 
-    # ---- 5. lazy import of reflection_once (Req 1.7) -------------------
-    # Imported lazily so the default-off path never touches the business
-    # command, and so an import failure surfaces as a config-load error
-    # (design: exit 3) rather than crashing the process.
-    try:
-        from harness_mem.commands.reflection_jobs import reflection_once
-    except ImportError as exc:
-        logger.error("reflection_once import failed: %s", exc)
-        return (ExitCode.CONFIG_LOAD_ERROR, None)
+    reflection_once_func: Any | None = None
+    if reflection_enabled:
+        # ---- 5. lazy import of reflection_once (Req 1.7) ---------------
+        # Imported lazily so the default-off path never touches the business
+        # command, and so an import failure surfaces as a config-load error
+        # (design: exit 3) rather than crashing the process.
+        try:
+            from harness_mem.commands.reflection_jobs import reflection_once as reflection_once_func
+        except ImportError as exc:
+            logger.error("reflection_once import failed: %s", exc)
+            return (ExitCode.CONFIG_LOAD_ERROR, None)
 
     # ---- 6. build backend + job store (Req 1.1) ------------------------
     from harness_mem.storage.local_memory_backend import (
@@ -188,41 +231,77 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
 
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
+    result = None
+    dream_payload: dict[str, Any] | None = None
     try:
-        job_store = backend.reflection_job_store
-        # ---- 7. single reflection_once call (Req 2.8, 1.1) -------------
-        try:
-            result = await reflection_once(
-                project_name=project_name,
-                config=merged.to_reflection_config(),
-                source=args.source,
-                session_ids=args.session_ids or None,
-                trigger_id=args.trigger_id,
-                project_root=args.project_root,
-                job_store=job_store,
-            )
-        except Exception as exc:
-            # v2.4.0 Req 10.5 says reflection_once never raises; if it does,
-            # we surface it rather than swallow it (Req 5.9).
-            logger.exception("host_entry caught unhandled exception")
-            failure = HostEntryResult(
-                phase=None,
-                status="failed",
-                next_step="failed: host_entry caught unhandled exception",
-                job_id=None,
-                candidates_written=0,
-                observations_written=0,
-                error={
-                    "stage": "host_entry",
-                    "reason": f"{type(exc).__name__}: {exc}"[:512],
-                },
-            )
-            return (ExitCode.REFLECTION_FAILED, failure.to_json())
+        if reflection_enabled and reflection_once_func is not None:
+            job_store = backend.reflection_job_store
+            # ---- 7. single reflection_once call (Req 2.8, 1.1) ---------
+            try:
+                result = await reflection_once_func(
+                    project_name=project_name,
+                    config=merged.to_reflection_config(),
+                    source=args.source,
+                    session_ids=args.session_ids or None,
+                    trigger_id=args.trigger_id,
+                    project_root=args.project_root,
+                    job_store=job_store,
+                )
+            except Exception as exc:
+                # v2.4.0 Req 10.5 says reflection_once never raises; if it does,
+                # we surface it rather than swallow it (Req 5.9).
+                logger.exception("host_entry caught unhandled exception")
+                failure = HostEntryResult(
+                    phase=None,
+                    status="failed",
+                    next_step="failed: host_entry caught unhandled exception",
+                    job_id=None,
+                    candidates_written=0,
+                    observations_written=0,
+                    error={
+                        "stage": "host_entry",
+                        "reason": f"{type(exc).__name__}: {exc}"[:512],
+                    },
+                )
+                return (ExitCode.REFLECTION_FAILED, failure.to_json())
+
+        if dream_enabled:
+            try:
+                from harness_mem.commands.dream import dream_auto_tick
+
+                dream_payload = await dream_auto_tick(
+                    backend,
+                    project_name=project_name,
+                    project_root=args.project_root,
+                    config=merged,
+                    source=args.source,
+                )
+            except Exception as exc:  # noqa: BLE001 - host entry is total.
+                logger.exception("host_entry caught unhandled dream exception")
+                dream_payload = {
+                    "success": False,
+                    "status": "failed",
+                    "project_name": project_name,
+                    "error": f"{type(exc).__name__}: {exc}"[:512],
+                }
     finally:
         # Req: async resources always closed (project rule "异步资源清理").
         await backend.close()
 
+    if not reflection_enabled:
+        host_result = _dream_tick_host_result(dream_payload or {})
+        exit_code = (
+            ExitCode.SUCCESS
+            if host_result.status == "completed"
+            else ExitCode.REFLECTION_FAILED
+        )
+        return (exit_code, host_result.to_json())
+
+    if dream_payload and dream_payload.get("success") is False:
+        logger.warning("dream auto tick failed: %s", dream_payload.get("error"))
+
     # ---- 8. map result -> HostEntryResult + exit code (Req 5.1-5.5) ----
+    assert result is not None
     host_result = HostEntryResult.from_reflection_result(result)
     if result.status in ("needs_distill", "completed"):
         exit_code = ExitCode.SUCCESS

@@ -26,6 +26,7 @@ from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.core.schemas.metabolism_run import MetabolismRun
+from harness_mem.core.schemas.dream_run import DreamRun
 from harness_mem.core.schemas.retrieval_signal import RetrievalSignal
 from harness_mem.search.hybrid_search import HybridSearchLayer
 from harness_mem.storage.sqlite_index import SQLiteIndex
@@ -59,6 +60,7 @@ class LocalStructuredStore:
             "confirmed_rules": self.blob_dir / "confirmed_rules",
             "relation_facts": self.blob_dir / "relation_facts",
             "metabolism_runs": self.blob_dir / "metabolism_runs",
+            "dream_runs": self.blob_dir / "dream_runs",
             "retrieval_signals": self.blob_dir / "retrieval_signals",
             "merge_suggestion_candidates": self.blob_dir / "merge_suggestion_candidates",
             "stale_truth_suggestion_candidates": (
@@ -1934,6 +1936,58 @@ class LocalStructuredStore:
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
                 results.append(MetabolismRun.from_dict(data))
+        return results
+
+    # ---- DreamRun ----
+
+    async def save_dream_run(self, run: DreamRun) -> str:
+        """Persist a dream run ledger record. Returns run id."""
+        blob_path = self._blob_path("dream_runs", run.id)
+        blob_path.write_text(json.dumps(run.to_dict(), indent=2, default=str))
+        row = {
+            "id": run.id,
+            "project_name": run.project_name,
+            "started_at": run.started_at,
+            "completed_at": run.completed_at,
+            "status": run.status,
+            "trigger_source": run.trigger_source,
+            "reflection_job_id": run.reflection_job_id,
+            "policy_version": run.policy_version,
+            "duration_ms": run.duration_ms,
+        }
+        if self._index.get("dream_runs", run.id) is None:
+            await asyncio.to_thread(self._index.insert, "dream_runs", row)
+        else:
+            await asyncio.to_thread(self._index.update, "dream_runs", run.id, row)
+        return run.id
+
+    async def get_dream_run(self, id: str) -> DreamRun | None:
+        blob_path = self._blob_path("dream_runs", id)
+        if not blob_path.exists():
+            return None
+        data = json.loads(blob_path.read_text())
+        return DreamRun.from_dict(data)
+
+    async def list_dream_runs(
+        self,
+        project_name: str,
+        *,
+        limit: int = 20,
+    ) -> list[DreamRun]:
+        rows = await asyncio.to_thread(
+            self._index.list,
+            "dream_runs",
+            "project_name = ?",
+            (project_name,),
+            order_by="started_at DESC",
+            limit=limit,
+        )
+        results: list[DreamRun] = []
+        for row in rows:
+            blob_path = self._blob_path("dream_runs", row["id"])
+            if blob_path.exists():
+                data = json.loads(blob_path.read_text())
+                results.append(DreamRun.from_dict(data))
         return results
 
     # ---- RetrievalSignal ----

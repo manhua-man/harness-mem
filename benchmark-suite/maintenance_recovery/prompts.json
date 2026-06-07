@@ -1,0 +1,104 @@
+{
+  "benchmark_id": "maintenance_recovery",
+  "version": 1,
+  "condition": "recovery",
+  "tasks": [
+    {
+      "task_id": "MR1",
+      "title": "Doctor diagnosis",
+      "task_type": "doctor",
+      "prompt": "Run or inspect a fixture where doctor/health should diagnose a seeded local issue. Report the diagnosis, evidence, and next action.",
+      "acceptance_summary": "Must surface actionable diagnosis for the seeded issue.",
+      "required_facts": [
+        "Seeded issue is described.",
+        "Diagnosis is actionable.",
+        "Evidence is visible."
+      ],
+      "forbidden_claims": [
+        "Broken state is healthy.",
+        "Generic OK is enough for seeded issue."
+      ],
+      "expected_evidence_hints": [
+        "tests/test_maintenance_hints.py",
+        "tests/test_health_summary.py"
+      ]
+    },
+    {
+      "task_id": "MR2",
+      "title": "Rebuild vector index",
+      "task_type": "vector_rebuild",
+      "prompt": "Run or inspect a vector-index recovery fixture. Record missing/stale index diagnosis, rebuild action, and after-state evidence.",
+      "acceptance_summary": "Must prove vector rebuild recovery with after-state evidence.",
+      "required_facts": [
+        "Missing or stale vector index is detected.",
+        "Rebuild action is recorded.",
+        "After state proves recovery or failure."
+      ],
+      "forbidden_claims": [
+        "Rebuild succeeded without after-state evidence."
+      ],
+      "expected_evidence_hints": [
+        "tests/cli/test_doctor_vector_health.py",
+        "tests/test_maintenance_hints.py"
+      ]
+    },
+    {
+      "task_id": "MR3",
+      "title": "Vector mismatch detection",
+      "task_type": "vector_mismatch",
+      "prompt": "Run or inspect a vector mismatch fixture. Report expected state, actual state, diagnosis, and next action.",
+      "acceptance_summary": "Must detect mismatch instead of treating it as normal empty result.",
+      "required_facts": [
+        "Expected state is named.",
+        "Actual state is named.",
+        "Mismatch diagnosis is visible.",
+        "Next action is clear."
+      ],
+      "forbidden_claims": [
+        "Mismatch is a successful empty result."
+      ],
+      "expected_evidence_hints": [
+        "tests/cli/test_doctor_vector_health.py"
+      ]
+    },
+    {
+      "task_id": "MR4",
+      "title": "Missing cache or transport",
+      "task_type": "missing_cache_transport",
+      "prompt": "Run or inspect a missing cache or transport failure fixture. Report diagnosis, current guidance, and any forbidden obsolete fallback guidance.",
+      "acceptance_summary": "Must diagnose missing cache/transport and avoid obsolete daily CLI fallback.",
+      "required_facts": [
+        "Failure mode is identified.",
+        "Current guidance is visible.",
+        "Forbidden fallback guidance is absent."
+      ],
+      "forbidden_claims": [
+        "Use removed daily wake/search/timeline CLI as fallback.",
+        "Transport failure is successful runtime behavior."
+      ],
+      "expected_evidence_hints": [
+        "harness_mem/integration/artifacts/s4-mcp-unavailable/",
+        "docs/v2-user-test-packet.md"
+      ]
+    },
+    {
+      "task_id": "MR5",
+      "title": "False success recovery guard",
+      "task_type": "false_success",
+      "prompt": "Inspect a fixture where recovery text appears successful but the after state is still broken. Report false-success count and missing proof.",
+      "acceptance_summary": "Must count false success as failure.",
+      "required_facts": [
+        "Broken before state is recorded.",
+        "After state is checked.",
+        "False-success count is recorded."
+      ],
+      "forbidden_claims": [
+        "Success text alone proves recovery.",
+        "Before/after evidence is optional."
+      ],
+      "expected_evidence_hints": [
+        "benchmark-suite/artifacts/"
+      ]
+    }
+  ]
+}

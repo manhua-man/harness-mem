@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1120" viewBox="0 0 1440 1120" role="img" aria-labelledby="title desc">
+  <title id="title">Harness-Mem 存储与索引 Schema 图</title>
+  <desc id="desc">展示 harness-mem 的 JSON blob、SQLiteIndex 表、FTS/向量检索、候选/真值/信号/反射任务的主要 schema 分组。</desc>
+  <defs>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e8f2fb" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f6fbf"/>
+      <stop offset="58%" stop-color="#11a7b5"/>
+      <stop offset="100%" stop-color="#45bd92"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1677b9"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfdff; }
+      .grid { fill: url(#grid); opacity: .72; }
+      .title { font: 700 40px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .subtitle { font: 400 18px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #4d657d; }
+      .panel { fill: #eef7ff; stroke: #bdd8ea; stroke-width: 1.5; rx: 18; }
+      .panelGreen { fill: #effcf6; stroke: #99d8b8; stroke-width: 1.5; rx: 18; }
+      .panelWarn { fill: #fff7ed; stroke: #f1b979; stroke-width: 1.5; rx: 18; }
+      .card { fill: #fff; stroke: #c7ddeb; stroke-width: 1.2; rx: 12; }
+      .chip { fill: url(#brand); rx: 16; }
+      .chipText { font: 700 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #fff; }
+      .label { font: 700 22px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .cardTitle { font: 700 16px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .body { font: 400 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #425c72; }
+      .code { font: 700 12px "Cascadia Mono", Consolas, monospace; fill: #0f6fbf; }
+      .arrow { fill: none; stroke: #1677b9; stroke-width: 2.5; marker-end: url(#arrow); }
+      .small { font: 400 12px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #60788e; }
+    </style>
+  </defs>
+  <rect class="bg" width="1440" height="1120"/>
+  <rect class="grid" width="1440" height="1120"/>
+  <rect x="0" y="0" width="1440" height="13" fill="url(#brand)"/>
+
+  <text class="title" x="70" y="72">Harness-Mem：存储与索引 Schema</text>
+  <text class="subtitle" x="72" y="106">每类实体以 JSON blob 保留完整 payload，同时写入 SQLiteIndex 供过滤、FTS、向量与治理查询。</text>
+
+  <g transform="translate(70 154)">
+    <rect class="panel" width="620" height="300"/>
+    <rect class="chip" x="22" y="22" width="132" height="32"/>
+    <text class="chipText" x="42" y="44">Verbatim</text>
+    <text class="label" x="24" y="88">原始证据层</text>
+    <g transform="translate(24 120)">
+      <rect class="card" width="250" height="84"/>
+      <text class="cardTitle" x="16" y="30">JSON blob</text>
+      <text class="code" x="16" y="54">verbatim/{observation_id}.json</text>
+    </g>
+    <g transform="translate(304 120)">
+      <rect class="card" width="250" height="84"/>
+      <text class="cardTitle" x="16" y="30">observations table</text>
+      <text class="body" x="16" y="54">id, session_id, client, raw_content</text>
+    </g>
+    <g transform="translate(24 224)">
+      <rect class="card" width="250" height="58"/>
+      <text class="cardTitle" x="16" y="26">trigram pruning</text>
+      <text class="body" x="16" y="46">regex search 候选裁剪</text>
+    </g>
+    <g transform="translate(304 224)">
+      <rect class="card" width="250" height="58"/>
+      <text class="cardTitle" x="16" y="26">verbatim_index.sqlite</text>
+      <text class="body" x="16" y="46">FTS + metadata</text>
+    </g>
+  </g>
+
+  <g transform="translate(750 154)">
+    <rect class="panelGreen" width="620" height="300"/>
+    <rect class="chip" x="22" y="22" width="142" height="32"/>
+    <text class="chipText" x="42" y="44">Structured</text>
+    <text class="label" x="24" y="88">结构化记忆层</text>
+    <g transform="translate(24 120)">
+      <rect class="card" width="250" height="84"/>
+      <text class="cardTitle" x="16" y="30">JSON blob dirs</text>
+      <text class="code" x="16" y="54">structured/{type}/{id}.json</text>
+    </g>
+    <g transform="translate(304 120)">
+      <rect class="card" width="250" height="84"/>
+      <text class="cardTitle" x="16" y="30">structured_index.sqlite</text>
+      <text class="body" x="16" y="54">metadata + FTS + vec table</text>
+    </g>
+    <g transform="translate(24 224)">
+      <rect class="card" width="250" height="58"/>
+      <text class="cardTitle" x="16" y="26">HybridSearchLayer</text>
+      <text class="body" x="16" y="46">FTS + vector RRF</text>
+    </g>
+    <g transform="translate(304 224)">
+      <rect class="card" width="250" height="58"/>
+      <text class="cardTitle" x="16" y="26">ReflectionJobStore</text>
+      <text class="body" x="16" y="46">复用同一个 SQLiteIndex</text>
+    </g>
+  </g>
+
+  <g transform="translate(70 506)">
+    <rect class="panelGreen" width="410" height="350"/>
+    <rect class="chip" x="22" y="22" width="128" height="32"/>
+    <text class="chipText" x="42" y="44">Truth</text>
+    <text class="label" x="24" y="88">可消费真值实体</text>
+    <g transform="translate(24 118)"><rect class="card" width="340" height="58"/><text class="cardTitle" x="16" y="25">memory_entries</text><text class="body" x="16" y="45">category, content, status, memory_type, valid_from/to</text></g>
+    <g transform="translate(24 190)"><rect class="card" width="340" height="58"/><text class="cardTitle" x="16" y="25">confirmed_rules</text><text class="body" x="16" y="45">pattern, trigger, source_candidate_id, usage_count</text></g>
+    <g transform="translate(24 262)"><rect class="card" width="340" height="58"/><text class="cardTitle" x="16" y="25">relation_facts / skills</text><text class="body" x="16" y="45">entity relation + procedural activation</text></g>
+  </g>
+
+  <g transform="translate(520 506)">
+    <rect class="panelWarn" width="410" height="350"/>
+    <rect class="chip" x="22" y="22" width="142" height="32"/>
+    <text class="chipText" x="42" y="44">Candidates</text>
+    <text class="label" x="24" y="88">候选与治理实体</text>
+    <g transform="translate(24 118)"><rect class="card" width="340" height="58"/><text class="cardTitle" x="16" y="25">rule_candidates / pending entries</text><text class="body" x="16" y="45">status=pending, confidence, source evidence</text></g>
+    <g transform="translate(24 190)"><rect class="card" width="340" height="58"/><text class="cardTitle" x="16" y="25">supersede / merge / stale candidates</text><text class="body" x="16" y="45">reviewable suggestions, no auto truth mutation</text></g>
+    <g transform="translate(24 262)"><rect class="card" width="340" height="58"/><text class="cardTitle" x="16" y="25">skill promotion / revision / deprecation</text><text class="body" x="16" y="45">shared skill 也走显式 review</text></g>
+  </g>
+
+  <g transform="translate(970 506)">
+    <rect class="panel" width="400" height="350"/>
+    <rect class="chip" x="22" y="22" width="132" height="32"/>
+    <text class="chipText" x="42" y="44">Signals</text>
+    <text class="label" x="24" y="88">审计与反射实体</text>
+    <g transform="translate(24 118)"><rect class="card" width="330" height="58"/><text class="cardTitle" x="16" y="25">retrieval_signals</text><text class="body" x="16" y="45">wake_surfaced, search_hit, confirmed, rejected</text></g>
+    <g transform="translate(24 190)"><rect class="card" width="330" height="58"/><text class="cardTitle" x="16" y="25">metabolism_runs</text><text class="body" x="16" y="45">preview / metabolism suggestion pass audit</text></g>
+    <g transform="translate(24 262)"><rect class="card" width="330" height="58"/><text class="cardTitle" x="16" y="25">reflection_jobs</text><text class="body" x="16" y="45">kind, phase, status, lease, provenance, output candidates</text></g>
+  </g>
+
+  <g transform="translate(70 906)">
+    <rect class="panel" width="1320" height="82"/>
+    <text class="label" x="24" y="36">检索路径</text>
+    <text class="code" x="190" y="36">query -> SQLiteIndex.search(FTS5) -> optional vector candidates -> weighted RRF -> source ids -> progressive disclosure</text>
+    <text class="body" x="190" y="62">embedding 不可用时自动退回 FTS；raw regex search 先用 trigram candidate pruning，再读原始 blob 验证。</text>
+  </g>
+
+  <path class="arrow" d="M 690 304 L 748 304"/>
+  <path class="arrow" d="M 750 656 L 930 656"/>
+  <path class="arrow" d="M 480 656 L 518 656"/>
+
+  <text class="small" x="72" y="1042">设计含义：blob 保留完整 payload 和 provenance；SQLiteIndex 提供筛选/FTS/vector/signal 统计；candidate 表与 truth 表分离，防止 AI 生成内容直接污染 wake/search。</text>
+</svg>

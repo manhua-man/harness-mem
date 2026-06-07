@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v3.1
 
-> 状态：规划中，未实现。
+> 状态：已发布，当前版本 3.1.0。
 >
 > 主题：Auto Dream Memory Maintenance。把 v2.3 signals / metabolism、
 > v2.4 reflection job、v2.6 contradiction suggestions 组合成可配置的自动梦境维护机制。
@@ -124,6 +124,12 @@ undo_window_days = 30
 ## v3.1.1：Auto Dream Scheduler
 
 **用户故事**：用户开启后，系统在空闲或到达间隔时自动排队一次 dream job。
+
+优先运行载体：
+
+- 首选 Claude / Cursor / Codex 等客户端或 host 的定时触发能力来调用 `harness_mem`。
+- 第一阶段不要求独立后台 dream daemon；调度可以只是 opt-in client task / host scheduler。
+- 如果宿主侧没有合适的定时能力，再退回外部 scheduler 或后续服务化评估。
 
 | 优先级 | 任务 | 验收 |
 |---|---|---|

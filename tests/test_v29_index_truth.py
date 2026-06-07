@@ -10,10 +10,8 @@ def _read(relative_path: str) -> str:
 def test_docs_readme_describes_v29_as_release_train() -> None:
     docs_readme = _read("docs/README.md")
 
-    assert (
-        "| `roadmap-v29.md` | v2.9 roadmap：PRD sync + maintenance/truth-sync release train |"
-        in docs_readme
-    )
+    assert "roadmap-v29.md" in docs_readme
+    assert "PRD sync + maintenance/truth-sync release train" in docs_readme
     assert "| `roadmap-v29.md` | v2.9 roadmap：PRD sync candidate surface |" not in docs_readme
 
 

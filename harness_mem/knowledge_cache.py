@@ -1,9 +1,7 @@
-"""Knowledge-cache boundary helpers for v2.6.0.
+"""Knowledge-cache boundary helpers.
 
 This module defines the boundary between canonical truth sources
-(``accepted memory`` + curated docs) and the future generated knowledge cache.
-v2.6.0 intentionally stops at layout, visibility, source hashing, and cleanup;
-it does not compile wiki claims yet.
+(``accepted memory`` + curated docs) and the generated knowledge cache.
 """
 
 from __future__ import annotations
@@ -12,7 +10,8 @@ import hashlib
 import json
 import os
 import re
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,6 +29,8 @@ KEEP_FILENAME = ".keep"
 GENERATED_CLAIMS_FILENAME = "claims.json"
 GENERATED_TOPICS_FILENAME = "topics.json"
 GENERATED_ENTITIES_FILENAME = "entities.json"
+GENERATED_SOURCE_MAP_FILENAME = "source-map.json"
+GENERATED_CLAIM_DIFF_FILENAME = "claim-diff.json"
 COMPILED_AUTHORITY = "generated_claim"
 COMPACT_RENDERER_NAME = "compact"
 
@@ -46,6 +47,8 @@ class KnowledgeSourceEntry:
     target_path: str
     source_hash: str
     exists: bool
+    mtime: str | None = None
+    provenance: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +60,8 @@ class KnowledgeSourceEntry:
             "target_path": self.target_path,
             "source_hash": self.source_hash,
             "exists": self.exists,
+            "mtime": self.mtime,
+            "provenance": dict(self.provenance or {}),
         }
 
 
@@ -83,6 +88,11 @@ class GeneratedClaim:
     topics: tuple[str, ...]
     entities: tuple[str, ...]
     source_refs: tuple[dict[str, Any], ...]
+    citation_spans: tuple[dict[str, Any], ...] = ()
+    confidence: float = 0.7
+    staleness: dict[str, Any] | None = None
+    content_hash: str = ""
+    cache_status: str = "compiled"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -93,6 +103,11 @@ class GeneratedClaim:
             "topics": list(self.topics),
             "entities": list(self.entities),
             "source_refs": [dict(item) for item in self.source_refs],
+            "citation_spans": [dict(item) for item in self.citation_spans],
+            "confidence": self.confidence,
+            "staleness": dict(self.staleness or {}),
+            "content_hash": self.content_hash,
+            "cache_status": self.cache_status,
         }
 
 
@@ -174,17 +189,23 @@ def load_compact_wake_payload(
     claims_payload = _load_json(paths.generated_root / GENERATED_CLAIMS_FILENAME)
     topics_payload = _load_json(paths.generated_root / GENERATED_TOPICS_FILENAME)
     entities_payload = _load_json(paths.generated_root / GENERATED_ENTITIES_FILENAME)
+    index_payload = _load_json(paths.generated_index_path)
 
     claims_raw = claims_payload.get("claims")
     topics_raw = topics_payload.get("topics")
     entities_raw = entities_payload.get("entities")
     if not isinstance(claims_raw, list) or not isinstance(topics_raw, list) or not isinstance(entities_raw, list):
         return None
+    valid_source_hashes = _index_sources_by_id(index_payload.get("sources", []))
+    readable_claims = [
+        claim
+        for claim in claims_raw
+        if isinstance(claim, dict) and _claim_payload_has_valid_citations(claim, valid_source_hashes)
+    ]
 
     claims = tuple(
         item
-        for item in claims_raw[:max(0, max_claims)]
-        if isinstance(item, dict)
+        for item in readable_claims[:max(0, max_claims)]
     )
     topics = tuple(
         item
@@ -201,7 +222,7 @@ def load_compact_wake_payload(
     return CompactWakePayload(
         project_name=project_name,
         authority=str(claims_payload.get("authority") or COMPILED_AUTHORITY),
-        claim_count=len(claims_raw),
+        claim_count=len(readable_claims),
         topic_count=len(topics_raw),
         entity_count=len(entities_raw),
         claims=claims,
@@ -232,12 +253,17 @@ async def build_knowledge_sources(
             target_path="generated/accepted-memory",
             source_hash=accepted_hash,
             exists=True,
+            provenance={
+                "project_name": project_name,
+                "producer": "harness-mem structured_store",
+            },
         )
     )
 
     for curated_path in (profile.curated_doc_paths if profile else []):
         resolved = _resolve_curated_path(curated_path, project_root)
         exists = resolved.exists()
+        source_mtime = _path_mtime(resolved) if exists else None
         sources.append(
             KnowledgeSourceEntry(
                 source_id=f"curated-doc://{_normalize_source_label(curated_path)}",
@@ -248,6 +274,12 @@ async def build_knowledge_sources(
                 target_path=f"generated/curated-docs/{_target_slug(curated_path)}",
                 source_hash=_hash_path(resolved) if exists else "missing",
                 exists=exists,
+                mtime=source_mtime,
+                provenance={
+                    "project_name": project_name,
+                    "profile_field": "curated_doc_paths",
+                    "project_root": str(project_root) if project_root else None,
+                },
             )
         )
 
@@ -340,6 +372,16 @@ async def knowledge_cache_health(
     generated_counts = generated_index.get("counts", {})
     if not isinstance(generated_counts, dict):
         generated_counts = {}
+    compile_metrics = generated_index.get("compile_metrics", {})
+    if not isinstance(compile_metrics, dict):
+        compile_metrics = {}
+    freshness = generated_index.get("freshness", {})
+    if not isinstance(freshness, dict):
+        freshness = {}
+    source_map_payload = _load_json(paths.generated_root / GENERATED_SOURCE_MAP_FILENAME)
+    source_map_entries = source_map_payload.get("sources", [])
+    if not isinstance(source_map_entries, list):
+        source_map_entries = []
 
     return {
         "project_name": project_name,
@@ -357,11 +399,20 @@ async def knowledge_cache_health(
         "generated_claim_count": int(generated_counts.get("claims", 0) or 0),
         "generated_topic_count": int(generated_counts.get("topics", 0) or 0),
         "generated_entity_count": int(generated_counts.get("entities", 0) or 0),
+        "compiled_claim_count": int(generated_counts.get("compiled_claims", generated_counts.get("claims", 0)) or 0),
+        "invalid_claim_count": int(generated_counts.get("invalid_claims", 0) or 0),
+        "source_map_count": len(source_map_entries),
+        "hash_drift_count": int(freshness.get("hash_drift_count", len(stale_sources)) or 0),
+        "cache_hit_ratio": float(compile_metrics.get("cache_hit_ratio", 0.0) or 0.0),
+        "compile_duration_ms": int(compile_metrics.get("duration_ms", 0) or 0),
+        "output_token_estimate": int(compile_metrics.get("output_token_estimate", 0) or 0),
         "orphaned_output_count": len(orphaned_outputs),
         "sources": [source.to_dict() for source in current_sources],
         "stale_sources": stale_sources,
         "missing_sources": missing_sources,
         "orphaned_outputs": orphaned_outputs,
+        "compile_metrics": compile_metrics,
+        "freshness": freshness,
     }
 
 
@@ -408,8 +459,13 @@ async def rebuild_wiki_bridge(
     project_root: Path | None,
 ) -> dict[str, Any]:
     """Compile accepted truth + curated docs into generated wiki-bridge artifacts."""
+    started = time.perf_counter()
     paths = knowledge_cache_paths(data_dir, project_name)
     ensure_knowledge_cache_layout(paths)
+    previous_index = _load_json(paths.generated_index_path)
+    previous_sources = _index_sources_by_id(previous_index.get("sources", []))
+    previous_claims_payload = _load_json(paths.generated_root / GENERATED_CLAIMS_FILENAME)
+    previous_claims = _index_claims_by_id(previous_claims_payload.get("claims", []))
     sources = await build_knowledge_sources(
         backend,
         project_name=project_name,
@@ -433,19 +489,36 @@ async def rebuild_wiki_bridge(
     )
 
     claims: list[GeneratedClaim] = []
-    claims.extend(_claims_from_memory_entries(memory_entries))
-    claims.extend(_claims_from_confirmed_rules(confirmed_rules))
-    claims.extend(_claims_from_relation_facts(relation_facts))
-    claims.extend(_claims_from_curated_docs(profile, project_root))
+    claims.extend(_claims_from_memory_entries(memory_entries, sources=sources))
+    claims.extend(_claims_from_confirmed_rules(confirmed_rules, sources=sources))
+    claims.extend(_claims_from_relation_facts(relation_facts, sources=sources))
+    claims.extend(_claims_from_curated_docs(profile, project_root, sources=sources))
+    claims = [_finalize_claim(claim) for claim in claims]
+    valid_claims, invalid_claims = _validate_claims(claims, sources=sources)
+    valid_claims = _mark_incremental_claims(
+        valid_claims,
+        previous_claims=previous_claims,
+        previous_sources=previous_sources,
+        current_sources=sources,
+    )
+    claim_diff = _build_claim_diff(previous_claims, valid_claims)
 
-    topics = _build_topic_index(claims)
-    entities = _build_entity_index(claims)
+    topics = _build_topic_index(valid_claims)
+    entities = _build_entity_index(valid_claims)
+    source_map = _build_source_map(
+        project_name=project_name,
+        sources=sources,
+        claims=valid_claims,
+        invalid_claims=invalid_claims,
+    )
 
     claims_payload = {
         "project_name": project_name,
         "authority": COMPILED_AUTHORITY,
         "updated_at": _utc_now().isoformat(),
-        "claims": [claim.to_dict() for claim in claims],
+        "compiler_version": "v3.2",
+        "claims": [claim.to_dict() for claim in valid_claims],
+        "invalid_claims": [claim.to_dict() for claim in invalid_claims],
     }
     topics_payload = {
         "project_name": project_name,
@@ -463,31 +536,67 @@ async def rebuild_wiki_bridge(
     claims_path = paths.generated_root / GENERATED_CLAIMS_FILENAME
     topics_path = paths.generated_root / GENERATED_TOPICS_FILENAME
     entities_path = paths.generated_root / GENERATED_ENTITIES_FILENAME
+    source_map_path = paths.generated_root / GENERATED_SOURCE_MAP_FILENAME
+    claim_diff_path = paths.generated_root / GENERATED_CLAIM_DIFF_FILENAME
     claims_path.write_text(json.dumps(claims_payload, indent=2), encoding="utf-8")
     topics_path.write_text(json.dumps(topics_payload, indent=2), encoding="utf-8")
     entities_path.write_text(json.dumps(entities_payload, indent=2), encoding="utf-8")
+    source_map_path.write_text(json.dumps(source_map, indent=2), encoding="utf-8")
+    claim_diff_path.write_text(json.dumps(claim_diff, indent=2), encoding="utf-8")
 
     tracked_outputs = [
         GENERATED_CLAIMS_FILENAME,
         GENERATED_TOPICS_FILENAME,
         GENERATED_ENTITIES_FILENAME,
+        GENERATED_SOURCE_MAP_FILENAME,
+        GENERATED_CLAIM_DIFF_FILENAME,
     ]
+    cache_hit_count = sum(1 for claim in valid_claims if claim.cache_status == "reused")
+    compile_metrics = {
+        "duration_ms": int((time.perf_counter() - started) * 1000),
+        "source_count": len(sources),
+        "claim_count": len(valid_claims),
+        "invalid_claim_count": len(invalid_claims),
+        "cache_hit_count": cache_hit_count,
+        "cache_miss_count": max(0, len(valid_claims) - cache_hit_count),
+        "cache_hit_ratio": (cache_hit_count / len(valid_claims)) if valid_claims else 0.0,
+        "output_token_estimate": _estimate_compact_output_tokens(valid_claims, topics, entities),
+    }
+    freshness = {
+        "stale_source_count": 0,
+        "missing_source_count": sum(1 for source in sources if not source.exists),
+        "hash_drift_count": _hash_drift_count(previous_sources, sources),
+        "orphaned_output_count": len([
+            path
+            for path in _generated_files(paths.generated_root)
+            if _normalize_relative_generated_path(path, paths.generated_root) not in set(tracked_outputs)
+        ]),
+    }
     generated_index_payload = {
         "project_name": project_name,
         "authority": COMPILED_AUTHORITY,
         "updated_at": _utc_now().isoformat(),
+        "compiler_version": "v3.2",
         "tracked_outputs": tracked_outputs,
         "counts": {
-            "claims": len(claims),
+            "claims": len(valid_claims),
+            "compiled_claims": len(valid_claims),
+            "invalid_claims": len(invalid_claims),
             "topics": len(topics),
             "entities": len(entities),
+            "sources": len(sources),
         },
+        "compile_metrics": compile_metrics,
+        "freshness": freshness,
+        "claim_diff": claim_diff["summary"],
         "sources": [
             {
                 "source_id": source.source_id,
                 "source_hash": source.source_hash,
+                "source_kind": source.source_kind,
                 "authority": source.authority,
                 "exists": source.exists,
+                "mtime": source.mtime,
             }
             for source in sources
         ],
@@ -501,10 +610,18 @@ async def rebuild_wiki_bridge(
         "claims_path": str(claims_path),
         "topics_path": str(topics_path),
         "entities_path": str(entities_path),
+        "source_map_path": str(source_map_path),
+        "claim_diff_path": str(claim_diff_path),
         "index_path": str(paths.generated_index_path),
-        "claim_count": len(claims),
+        "claim_count": len(valid_claims),
+        "invalid_claim_count": len(invalid_claims),
         "topic_count": len(topics),
         "entity_count": len(entities),
+        "source_count": len(sources),
+        "cache_hit_ratio": compile_metrics["cache_hit_ratio"],
+        "compile_duration_ms": compile_metrics["duration_ms"],
+        "output_token_estimate": compile_metrics["output_token_estimate"],
+        "claim_diff": claim_diff["summary"],
         "tracked_outputs": tracked_outputs,
     }
 
@@ -651,18 +768,69 @@ def _target_slug(value: str) -> str:
     return collapsed or "curated-doc"
 
 
-def _claims_from_memory_entries(entries: list[MemoryEntry]) -> list[GeneratedClaim]:
+def _path_mtime(path: Path) -> str | None:
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+    except OSError:
+        return None
+
+
+def _source_by_id(
+    sources: list[KnowledgeSourceEntry],
+    source_id: str,
+) -> KnowledgeSourceEntry | None:
+    for source in sources:
+        if source.source_id == source_id:
+            return source
+    return None
+
+
+def _accepted_memory_source_ref(sources: list[KnowledgeSourceEntry]) -> dict[str, str]:
+    for source in sources:
+        if source.source_kind == "accepted_memory":
+            return {
+                "source_id": source.source_id,
+                "source_hash": source.source_hash,
+            }
+    return {"source_id": "accepted-memory://unknown", "source_hash": "missing"}
+
+
+def _record_citation_span(source_ref: dict[str, Any], *, record_id: str) -> dict[str, Any]:
+    return {
+        "source_id": str(source_ref.get("source_id") or ""),
+        "source_hash": str(source_ref.get("source_hash") or ""),
+        "record_id": record_id,
+        "quote_hash": _hash_bytes(record_id.encode("utf-8")),
+    }
+
+
+def _truth_staleness(valid_to: datetime | None) -> dict[str, Any]:
+    return {
+        "status": "historical" if valid_to else "current",
+        "valid_to": valid_to.isoformat() if valid_to else None,
+    }
+
+
+def _claims_from_memory_entries(
+    entries: list[MemoryEntry],
+    *,
+    sources: list[KnowledgeSourceEntry],
+) -> list[GeneratedClaim]:
     claims: list[GeneratedClaim] = []
     for entry in entries:
         text = entry.content.strip()
         if not text:
             continue
+        snapshot_ref = _accepted_memory_source_ref(sources)
         source_ref = {
             "source_kind": "memory_entry",
-            "source_id": entry.id,
+            "source_id": snapshot_ref["source_id"],
+            "record_id": entry.id,
             "label": entry.category,
+            "source_hash": snapshot_ref["source_hash"],
             "drilldown": {"memory_entry_id": entry.id},
         }
+        citation = _record_citation_span(source_ref, record_id=entry.id)
         claims.append(
             GeneratedClaim(
                 claim_id=f"memory-entry:{entry.id}",
@@ -672,12 +840,19 @@ def _claims_from_memory_entries(entries: list[MemoryEntry]) -> list[GeneratedCla
                 topics=tuple(_topics_for_memory_entry(entry)),
                 entities=tuple(_extract_entities(text)),
                 source_refs=(source_ref,),
+                citation_spans=(citation,),
+                confidence=entry.confidence,
+                staleness=_truth_staleness(entry.valid_to),
             )
         )
     return claims
 
 
-def _claims_from_confirmed_rules(rules: list[ConfirmedRule]) -> list[GeneratedClaim]:
+def _claims_from_confirmed_rules(
+    rules: list[ConfirmedRule],
+    *,
+    sources: list[KnowledgeSourceEntry],
+) -> list[GeneratedClaim]:
     claims: list[GeneratedClaim] = []
     for rule in rules:
         pattern = rule.pattern.strip()
@@ -685,12 +860,16 @@ def _claims_from_confirmed_rules(rules: list[ConfirmedRule]) -> list[GeneratedCl
         if not pattern and not trigger:
             continue
         text = f"When {trigger}, {pattern}".strip(", ")
+        snapshot_ref = _accepted_memory_source_ref(sources)
         source_ref = {
             "source_kind": "confirmed_rule",
-            "source_id": rule.id,
+            "source_id": snapshot_ref["source_id"],
+            "record_id": rule.id,
             "label": trigger or "confirmed rule",
+            "source_hash": snapshot_ref["source_hash"],
             "drilldown": {"confirmed_rule_id": rule.id},
         }
+        citation = _record_citation_span(source_ref, record_id=rule.id)
         claims.append(
             GeneratedClaim(
                 claim_id=f"confirmed-rule:{rule.id}",
@@ -700,21 +879,32 @@ def _claims_from_confirmed_rules(rules: list[ConfirmedRule]) -> list[GeneratedCl
                 topics=tuple(_topics_for_rule(rule)),
                 entities=tuple(_extract_entities(text)),
                 source_refs=(source_ref,),
+                citation_spans=(citation,),
+                confidence=0.9,
+                staleness=_truth_staleness(rule.valid_to),
             )
         )
     return claims
 
 
-def _claims_from_relation_facts(facts: list[RelationFact]) -> list[GeneratedClaim]:
+def _claims_from_relation_facts(
+    facts: list[RelationFact],
+    *,
+    sources: list[KnowledgeSourceEntry],
+) -> list[GeneratedClaim]:
     claims: list[GeneratedClaim] = []
     for fact in facts:
         text = f"{fact.source_entity} {fact.relation_type} {fact.target_entity}. {fact.evidence}".strip()
+        snapshot_ref = _accepted_memory_source_ref(sources)
         source_ref = {
             "source_kind": "relation_fact",
-            "source_id": fact.id,
+            "source_id": snapshot_ref["source_id"],
+            "record_id": fact.id,
             "label": fact.relation_type,
+            "source_hash": snapshot_ref["source_hash"],
             "drilldown": {"relation_fact_id": fact.id},
         }
+        citation = _record_citation_span(source_ref, record_id=fact.id)
         claims.append(
             GeneratedClaim(
                 claim_id=f"relation-fact:{fact.id}",
@@ -724,6 +914,9 @@ def _claims_from_relation_facts(facts: list[RelationFact]) -> list[GeneratedClai
                 topics=(fact.relation_type.lower(), "relation"),
                 entities=(fact.source_entity, fact.target_entity),
                 source_refs=(source_ref,),
+                citation_spans=(citation,),
+                confidence=fact.confidence,
+                staleness=_truth_staleness(fact.valid_to),
             )
         )
     return claims
@@ -732,6 +925,8 @@ def _claims_from_relation_facts(facts: list[RelationFact]) -> list[GeneratedClai
 def _claims_from_curated_docs(
     profile: ProjectProfile | None,
     project_root: Path | None,
+    *,
+    sources: list[KnowledgeSourceEntry],
 ) -> list[GeneratedClaim]:
     claims: list[GeneratedClaim] = []
     for curated_path in (profile.curated_doc_paths if profile else []):
@@ -743,11 +938,23 @@ def _claims_from_curated_docs(
         summary = " ".join(lines[:3]).strip()
         if not summary:
             continue
+        source = _source_by_id(
+            sources,
+            f"curated-doc://{_normalize_source_label(curated_path)}",
+        )
         source_ref = {
             "source_kind": "curated_doc",
             "source_id": f"curated-doc://{_normalize_source_label(curated_path)}",
             "label": curated_path,
+            "source_hash": source.source_hash if source else _hash_path(resolved),
             "drilldown": {"curated_doc_path": str(resolved)},
+        }
+        citation = {
+            "source_id": source_ref["source_id"],
+            "source_hash": source_ref["source_hash"],
+            "line_start": 1,
+            "line_end": min(3, len(lines)),
+            "quote_hash": _hash_bytes(summary.encode("utf-8")),
         }
         claims.append(
             GeneratedClaim(
@@ -758,6 +965,9 @@ def _claims_from_curated_docs(
                 topics=tuple(_topics_for_curated_doc(curated_path, summary)),
                 entities=tuple(_extract_entities(summary)),
                 source_refs=(source_ref,),
+                citation_spans=(citation,),
+                confidence=0.65,
+                staleness={"status": "current"},
             )
         )
     return claims
@@ -870,6 +1080,235 @@ def _build_entity_index(claims: list[GeneratedClaim]) -> list[dict[str, Any]]:
         {"entity": entity, "claim_ids": sorted(claim_ids)}
         for entity, claim_ids in sorted(entity_map.items())
     ]
+
+
+def _finalize_claim(claim: GeneratedClaim) -> GeneratedClaim:
+    payload = {
+        "claim_id": claim.claim_id,
+        "claim_kind": claim.claim_kind,
+        "text": claim.text,
+        "source_refs": claim.source_refs,
+        "citation_spans": claim.citation_spans,
+    }
+    return replace(
+        claim,
+        content_hash=_hash_bytes(json.dumps(payload, sort_keys=True).encode("utf-8")),
+    )
+
+
+def _validate_claims(
+    claims: list[GeneratedClaim],
+    *,
+    sources: list[KnowledgeSourceEntry],
+) -> tuple[list[GeneratedClaim], list[GeneratedClaim]]:
+    source_hashes = {source.source_id: source.source_hash for source in sources if source.exists}
+    valid: list[GeneratedClaim] = []
+    invalid: list[GeneratedClaim] = []
+    for claim in claims:
+        if _claim_has_valid_citations(claim, source_hashes):
+            valid.append(replace(claim, staleness=_merge_staleness(claim.staleness, "current")))
+        else:
+            invalid.append(replace(claim, staleness=_merge_staleness(claim.staleness, "invalid_citation")))
+    return valid, invalid
+
+
+def _claim_has_valid_citations(
+    claim: GeneratedClaim,
+    source_hashes: dict[str, str],
+) -> bool:
+    if not claim.source_refs or not claim.citation_spans:
+        return False
+    ref_ids = {str(ref.get("source_id") or "") for ref in claim.source_refs}
+    for source_id in ref_ids:
+        if not source_id or source_id not in source_hashes:
+            return False
+    for citation in claim.citation_spans:
+        source_id = str(citation.get("source_id") or "")
+        source_hash = str(citation.get("source_hash") or "")
+        if not source_id or source_id not in ref_ids:
+            return False
+        if source_hashes.get(source_id) != source_hash:
+            return False
+    return True
+
+
+def _claim_payload_has_valid_citations(
+    claim: dict[str, Any],
+    source_hashes: dict[str, dict[str, Any]],
+) -> bool:
+    refs = claim.get("source_refs")
+    citations = claim.get("citation_spans")
+    if not isinstance(refs, list) or not refs:
+        return False
+    if not isinstance(citations, list) or not citations:
+        return False
+    ref_ids = {
+        str(ref.get("source_id") or "")
+        for ref in refs
+        if isinstance(ref, dict)
+    }
+    if not ref_ids:
+        return False
+    for citation in citations:
+        if not isinstance(citation, dict):
+            return False
+        source_id = str(citation.get("source_id") or "")
+        source_hash = str(citation.get("source_hash") or "")
+        indexed = source_hashes.get(source_id)
+        if not indexed or indexed.get("source_hash") != source_hash:
+            return False
+    return True
+
+
+def _merge_staleness(
+    staleness: dict[str, Any] | None,
+    citation_status: str,
+) -> dict[str, Any]:
+    merged = dict(staleness or {})
+    merged["citation_status"] = citation_status
+    return merged
+
+
+def _index_sources_by_id(raw_sources: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw_sources, list):
+        return {}
+    indexed: dict[str, dict[str, Any]] = {}
+    for item in raw_sources:
+        if not isinstance(item, dict):
+            continue
+        source_id = str(item.get("source_id") or "")
+        if not source_id:
+            continue
+        indexed[source_id] = item
+    return indexed
+
+
+def _index_claims_by_id(raw_claims: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw_claims, list):
+        return {}
+    indexed: dict[str, dict[str, Any]] = {}
+    for item in raw_claims:
+        if not isinstance(item, dict):
+            continue
+        claim_id = str(item.get("claim_id") or "")
+        if not claim_id:
+            continue
+        indexed[claim_id] = item
+    return indexed
+
+
+def _mark_incremental_claims(
+    claims: list[GeneratedClaim],
+    *,
+    previous_claims: dict[str, dict[str, Any]],
+    previous_sources: dict[str, dict[str, Any]],
+    current_sources: list[KnowledgeSourceEntry],
+) -> list[GeneratedClaim]:
+    current_source_hashes = {source.source_id: source.source_hash for source in current_sources}
+    marked: list[GeneratedClaim] = []
+    for claim in claims:
+        previous = previous_claims.get(claim.claim_id)
+        reusable = previous is not None and previous.get("content_hash") == claim.content_hash
+        if reusable:
+            for ref in claim.source_refs:
+                source_id = str(ref.get("source_id") or "")
+                if not source_id:
+                    reusable = False
+                    break
+                if previous_sources.get(source_id, {}).get("source_hash") != current_source_hashes.get(source_id):
+                    reusable = False
+                    break
+        marked.append(replace(claim, cache_status="reused" if reusable else "compiled"))
+    return marked
+
+
+def _build_claim_diff(
+    previous_claims: dict[str, dict[str, Any]],
+    current_claims: list[GeneratedClaim],
+) -> dict[str, Any]:
+    current_by_id = {claim.claim_id: claim for claim in current_claims}
+    previous_ids = set(previous_claims)
+    current_ids = set(current_by_id)
+    added = sorted(current_ids - previous_ids)
+    removed = sorted(previous_ids - current_ids)
+    changed = sorted(
+        claim_id
+        for claim_id in previous_ids & current_ids
+        if previous_claims[claim_id].get("content_hash") != current_by_id[claim_id].content_hash
+    )
+    unchanged = sorted((previous_ids & current_ids) - set(changed))
+    return {
+        "summary": {
+            "added": len(added),
+            "removed": len(removed),
+            "changed": len(changed),
+            "unchanged": len(unchanged),
+        },
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+        "unchanged": unchanged,
+    }
+
+
+def _build_source_map(
+    *,
+    project_name: str,
+    sources: list[KnowledgeSourceEntry],
+    claims: list[GeneratedClaim],
+    invalid_claims: list[GeneratedClaim],
+) -> dict[str, Any]:
+    claims_by_source: dict[str, list[str]] = {}
+    invalid_by_source: dict[str, list[str]] = {}
+    for claim in claims:
+        for ref in claim.source_refs:
+            source_id = str(ref.get("source_id") or "")
+            if source_id:
+                claims_by_source.setdefault(source_id, []).append(claim.claim_id)
+    for claim in invalid_claims:
+        for ref in claim.source_refs:
+            source_id = str(ref.get("source_id") or "")
+            if source_id:
+                invalid_by_source.setdefault(source_id, []).append(claim.claim_id)
+    return {
+        "project_name": project_name,
+        "authority": "generated_source_map",
+        "updated_at": _utc_now().isoformat(),
+        "manual_root_note": "manual sources and accepted truth remain canonical; generated outputs are derived.",
+        "sources": [
+            {
+                **source.to_dict(),
+                "claim_ids": sorted(set(claims_by_source.get(source.source_id, []))),
+                "invalid_claim_ids": sorted(set(invalid_by_source.get(source.source_id, []))),
+            }
+            for source in sources
+        ],
+    }
+
+
+def _hash_drift_count(
+    previous_sources: dict[str, dict[str, Any]],
+    current_sources: list[KnowledgeSourceEntry],
+) -> int:
+    drift = 0
+    for source in current_sources:
+        previous = previous_sources.get(source.source_id)
+        if previous is not None and previous.get("source_hash") != source.source_hash:
+            drift += 1
+    return drift
+
+
+def _estimate_compact_output_tokens(
+    claims: list[GeneratedClaim],
+    topics: list[dict[str, Any]],
+    entities: list[dict[str, Any]],
+) -> int:
+    text = "\n".join(
+        [claim.text for claim in claims]
+        + [str(topic.get("topic") or "") for topic in topics]
+        + [str(entity.get("entity") or "") for entity in entities]
+    )
+    return max(0, round(len(text) / 4))
 
 
 def _extract_entities(text: str) -> list[str]:

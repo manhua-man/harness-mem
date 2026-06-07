@@ -1,0 +1,210 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1120" viewBox="0 0 1440 1120" role="img" aria-labelledby="title desc">
+  <title id="title">Harness-Mem 技术架构总图</title>
+  <desc id="desc">展示 harness-mem 从 IDE/Slash 到 MCP server、command helpers、LocalMemoryBackend、stores、SQLite/JSON 存储与配置/host entry 的工程架构。</desc>
+  <defs>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e8f2fb" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f6fbf"/>
+      <stop offset="56%" stop-color="#11a7b5"/>
+      <stop offset="100%" stop-color="#45bd92"/>
+    </linearGradient>
+    <linearGradient id="soft" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#eef7ff"/>
+      <stop offset="100%" stop-color="#eefcf6"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1677b9"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfdff; }
+      .grid { fill: url(#grid); opacity: .72; }
+      .title { font: 700 40px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .subtitle { font: 400 18px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #4d657d; }
+      .section { fill: url(#soft); stroke: #bdd8ea; stroke-width: 1.7; rx: 18; }
+      .side { fill: #fff7ed; stroke: #f1b979; stroke-width: 1.6; rx: 18; }
+      .card { fill: #ffffff; stroke: #c7ddeb; stroke-width: 1.3; rx: 13; }
+      .cardBlue { fill: #eaf5ff; stroke: #9ccfe0; stroke-width: 1.3; rx: 13; }
+      .cardGreen { fill: #effbf5; stroke: #94d8b6; stroke-width: 1.3; rx: 13; }
+      .cardWarn { fill: #fff7ed; stroke: #f1b979; stroke-width: 1.3; rx: 13; }
+      .chip { fill: url(#brand); rx: 16; }
+      .chipText { font: 700 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #fff; }
+      .label { font: 700 23px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .cardTitle { font: 700 17px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .body { font: 400 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #425c72; }
+      .code { font: 700 13px "Cascadia Mono", Consolas, monospace; fill: #0f6fbf; }
+      .arrow { fill: none; stroke: #1677b9; stroke-width: 2.8; marker-end: url(#arrow); }
+      .dash { fill: none; stroke: #8ca5bb; stroke-width: 2.1; stroke-dasharray: 8 8; marker-end: url(#arrow); }
+      .small { font: 400 12px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #60788e; }
+    </style>
+  </defs>
+  <rect class="bg" width="1440" height="1120"/>
+  <rect class="grid" width="1440" height="1120"/>
+  <rect x="0" y="0" width="1440" height="13" fill="url(#brand)"/>
+
+  <text class="title" x="70" y="72">Harness-Mem：技术架构总图</text>
+  <text class="subtitle" x="72" y="106">Python runtime + MCP stdio server + JSON blobs / SQLite FTS5 / optional vector hybrid，入口由 Slash / Skill / Agent 持有。</text>
+
+  <g transform="translate(60 152)">
+    <rect class="section" width="1320" height="120"/>
+    <rect class="chip" x="24" y="22" width="120" height="32"/>
+    <text class="chipText" x="42" y="44">Clients</text>
+    <text class="label" x="24" y="88">用户/Agent 入口</text>
+    <g transform="translate(260 22)">
+      <rect class="cardBlue" width="190" height="76"/>
+      <text class="cardTitle" x="16" y="30">Slash Commands</text>
+      <text class="code" x="16" y="54">/hm:distill / wake</text>
+    </g>
+    <g transform="translate(480 22)">
+      <rect class="cardBlue" width="190" height="76"/>
+      <text class="cardTitle" x="16" y="30">Repo Skill</text>
+      <text class="body" x="16" y="54">tools/session-distill</text>
+    </g>
+    <g transform="translate(700 22)">
+      <rect class="cardBlue" width="190" height="76"/>
+      <text class="cardTitle" x="16" y="30">AI IDE Agent</text>
+      <text class="body" x="16" y="54">Codex / Claude / Cursor</text>
+    </g>
+    <g transform="translate(920 22)">
+      <rect class="cardWarn" width="220" height="76"/>
+      <text class="cardTitle" x="16" y="30">CLI Maintenance</text>
+      <text class="body" x="16" y="54">doctor / purge / config</text>
+    </g>
+  </g>
+
+  <g transform="translate(60 318)">
+    <rect class="section" width="1320" height="156"/>
+    <rect class="chip" x="24" y="22" width="140" height="32"/>
+    <text class="chipText" x="42" y="44">MCP Server</text>
+    <text class="label" x="24" y="88">协议层</text>
+    <g transform="translate(260 22)">
+      <rect class="cardBlue" width="240" height="106"/>
+      <text class="cardTitle" x="16" y="30">mcp/server.py</text>
+      <text class="body" x="16" y="54">JSON-RPC stdio plumbing</text>
+      <text class="body" x="16" y="78">tool handlers + backend singleton</text>
+    </g>
+    <g transform="translate(530 22)">
+      <rect class="cardBlue" width="240" height="106"/>
+      <text class="cardTitle" x="16" y="30">mcp/tool_specs.py</text>
+      <text class="body" x="16" y="54">ToolSpec schema registry</text>
+      <text class="body" x="16" y="78">build_tools validates handlers</text>
+    </g>
+    <g transform="translate(800 22)">
+      <rect class="card" width="270" height="106"/>
+      <text class="cardTitle" x="16" y="30">主要工具簇</text>
+      <text class="code" x="16" y="54">wake / search_memory / file_context</text>
+      <text class="code" x="16" y="78">suggest_* / auto_review / status</text>
+    </g>
+    <g transform="translate(1100 22)">
+      <rect class="cardWarn" width="250" height="106"/>
+      <text class="cardTitle" x="16" y="30">拆分边界</text>
+      <text class="body" x="16" y="54">server 仍是 handler 主体</text>
+      <text class="body" x="16" y="78">schema 已独立到 tool_specs</text>
+    </g>
+  </g>
+
+  <g transform="translate(60 520)">
+    <rect class="section" width="1320" height="158"/>
+    <rect class="chip" x="24" y="22" width="152" height="32"/>
+    <text class="chipText" x="42" y="44">Commands</text>
+    <text class="label" x="24" y="88">业务命令层</text>
+    <g transform="translate(260 22)">
+      <rect class="card" width="172" height="106"/>
+      <text class="cardTitle" x="16" y="30">Read</text>
+      <text class="code" x="16" y="54">wake.py</text>
+      <text class="code" x="16" y="78">search.py</text>
+    </g>
+    <g transform="translate(456 22)">
+      <rect class="card" width="198" height="106"/>
+      <text class="cardTitle" x="16" y="30">Distill / Review</text>
+      <text class="code" x="16" y="54">ingest.py</text>
+      <text class="code" x="16" y="78">auto_review.py</text>
+    </g>
+    <g transform="translate(678 22)">
+      <rect class="card" width="198" height="106"/>
+      <text class="cardTitle" x="16" y="30">Governance</text>
+      <text class="code" x="16" y="54">candidates.py</text>
+      <text class="code" x="16" y="78">metabolism_pass.py</text>
+    </g>
+    <g transform="translate(900 22)">
+      <rect class="card" width="198" height="106"/>
+      <text class="cardTitle" x="16" y="30">Context</text>
+      <text class="code" x="16" y="54">wake_render.py</text>
+      <text class="code" x="16" y="78">context_assembly.py</text>
+    </g>
+    <g transform="translate(1122 22)">
+      <rect class="card" width="250" height="106"/>
+      <text class="cardTitle" x="16" y="30">Host / Ops</text>
+      <text class="code" x="16" y="54">reflection_jobs.py / doctor.py</text>
+      <text class="code" x="16" y="78">config_cmds.py / integration</text>
+    </g>
+  </g>
+
+  <g transform="translate(60 724)">
+    <rect class="section" width="1320" height="156"/>
+    <rect class="chip" x="24" y="22" width="132" height="32"/>
+    <text class="chipText" x="42" y="44">Backend</text>
+    <text class="label" x="24" y="88">本地后端</text>
+    <g transform="translate(260 22)">
+      <rect class="cardGreen" width="250" height="106"/>
+      <text class="cardTitle" x="16" y="30">LocalMemoryBackend</text>
+      <text class="body" x="16" y="54">组合两个 store</text>
+      <text class="body" x="16" y="78">lazy ReflectionJobStore</text>
+    </g>
+    <g transform="translate(540 22)">
+      <rect class="cardGreen" width="250" height="106"/>
+      <text class="cardTitle" x="16" y="30">LocalVerbatimStore</text>
+      <text class="body" x="16" y="54">raw Observation blob</text>
+      <text class="body" x="16" y="78">verbatim_index.sqlite</text>
+    </g>
+    <g transform="translate(820 22)">
+      <rect class="cardGreen" width="250" height="106"/>
+      <text class="cardTitle" x="16" y="30">LocalStructuredStore</text>
+      <text class="body" x="16" y="54">MemoryEntry / Rule / Skill</text>
+      <text class="body" x="16" y="78">structured_index.sqlite</text>
+    </g>
+    <g transform="translate(1100 22)">
+      <rect class="cardGreen" width="250" height="106"/>
+      <text class="cardTitle" x="16" y="30">ReflectionJobStore</text>
+      <text class="body" x="16" y="54">复用 structured SQLiteIndex</text>
+      <text class="body" x="16" y="78">lease / retry / status</text>
+    </g>
+  </g>
+
+  <g transform="translate(60 926)">
+    <rect class="section" width="1320" height="118"/>
+    <rect class="chip" x="24" y="22" width="122" height="32"/>
+    <text class="chipText" x="42" y="44">Storage</text>
+    <text class="label" x="24" y="88">本地数据层</text>
+    <g transform="translate(260 22)">
+      <rect class="cardGreen" width="250" height="74"/>
+      <text class="cardTitle" x="16" y="30">JSON Blobs</text>
+      <text class="body" x="16" y="54">~/.harness-mem/data/structured/*</text>
+    </g>
+    <g transform="translate(540 22)">
+      <rect class="cardGreen" width="250" height="74"/>
+      <text class="cardTitle" x="16" y="30">SQLite FTS5</text>
+      <text class="body" x="16" y="54">metadata + virtual FTS tables</text>
+    </g>
+    <g transform="translate(820 22)">
+      <rect class="cardGreen" width="250" height="74"/>
+      <text class="cardTitle" x="16" y="30">Vector Cache</text>
+      <text class="body" x="16" y="54">vec_embeddings, optional hybrid</text>
+    </g>
+    <g transform="translate(1100 22)">
+      <rect class="cardGreen" width="250" height="74"/>
+      <text class="cardTitle" x="16" y="30">Profiles / Events</text>
+      <text class="body" x="16" y="54">active_project + event log</text>
+    </g>
+  </g>
+
+  <path class="arrow" d="M 720 272 L 720 316"/>
+  <path class="arrow" d="M 720 474 L 720 518"/>
+  <path class="arrow" d="M 720 678 L 720 722"/>
+  <path class="arrow" d="M 720 880 L 720 924"/>
+  <path class="dash" d="M 1160 272 C 1260 286 1308 340 1308 418"/>
+  <path class="dash" d="M 1308 474 C 1308 610 1268 650 1240 724"/>
+
+  <text class="small" x="70" y="1084">实现口径：MCP 是用户入口背后的协议层；业务逻辑尽量在 commands/helpers 和 stores；CLI 保留 maintenance-only；所有长期 truth 变化通过 candidate/review 边界。</text>
+</svg>

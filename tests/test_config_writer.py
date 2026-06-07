@@ -117,6 +117,22 @@ def test_set_value_then_load_merged_config_reads_it_back(
     assert cfg.distill_mode == "worker"
 
 
+def test_set_dream_auto_enabled_then_load_merged_config_reads_it_back(
+    home_dir: Path, project_dir: Path
+) -> None:
+    target = set_value(
+        scope="project",
+        project_root=project_dir,
+        key_path="dream.auto.enabled",
+        value="true",
+    )
+
+    data = _read_toml(target)
+    assert data["dream"]["auto"]["enabled"] is True
+    cfg = load_merged_config(str(project_dir))
+    assert cfg.dream_auto_enabled is True
+
+
 # ---- preserve pre-existing keys (Req 2.6) --------------------------------
 
 
@@ -202,6 +218,33 @@ def test_invalid_recognized_value_raises_and_does_not_write(
     assert err.value == "sometimes"
     assert err.source_path == str(target)
     # Req 2.5: the file must not be created when validation fails.
+    assert not target.exists()
+
+
+@pytest.mark.parametrize(
+    ("key_path", "value"),
+    [
+        ("dream.parse.parse_all", "false"),
+        ("dream.handle.handle_all", "false"),
+        ("dream.handle.allow_delete_truth", "true"),
+        ("dream.handle.preserve_audit", "false"),
+    ],
+)
+def test_invalid_dream_contract_values_raise_and_do_not_write(
+    home_dir: Path, project_dir: Path, key_path: str, value: str
+) -> None:
+    target = project_dir / ".harness-mem.toml"
+
+    with pytest.raises(ConfigValidationError) as excinfo:
+        set_value(
+            scope="project",
+            project_root=project_dir,
+            key_path=key_path,
+            value=value,
+        )
+
+    assert excinfo.value.key_path == key_path
+    assert excinfo.value.value == value
     assert not target.exists()
 
 

@@ -15,9 +15,11 @@ from tests.helpers import (
     fake_embed_texts,
     no_embed_texts,
     patch_cli_adapters,
+    patch_fake_embedding_loader,
     read_events,
     requires_embeddings,
     run,
+    seed_persisted_embedding,
     write_claude_session,
 )
 
@@ -251,6 +253,7 @@ def test_status_with_active_project_reports_healthy_state(
     assert run(cli.cmd_status()) == 0
     captured = capsys.readouterr().out
     assert "Project: demo" in captured
+    assert "Generated cache:" in captured
     assert "📍 Phase: Healthy" in captured
     assert 'MCP wake(project_name="demo")' in captured
 
@@ -390,12 +393,14 @@ def test_cmd_search_reports_hybrid_mode(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ):
+    entry_id = "entry-hybrid-cli"
     backend = LocalMemoryBackend(data_dir)
     run(backend.init())
     try:
         run(
             backend.structured_store.save_memory_entry(
                 MemoryEntry(
+                    id=entry_id,
                     project_name="demo",
                     category="architecture",
                     content="SQLite FTS5 powers local search.",
@@ -403,9 +408,11 @@ def test_cmd_search_reports_hybrid_mode(
                 )
             )
         )
+        seed_persisted_embedding(backend, entry_id, (1.0, 3.0))
     finally:
         run(backend.close())
 
+    patch_fake_embedding_loader(monkeypatch)
     monkeypatch.setattr(HybridSearchLayer, "_embed_texts", fake_embed_texts)
 
     assert run(cli.cmd_search("demo", "SQLite", "hybrid")) == 0

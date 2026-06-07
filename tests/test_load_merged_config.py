@@ -167,7 +167,133 @@ def test_defaults_are_correct() -> None:
     assert cfg.triggers_scheduler == "off"
     assert cfg.distill_mode == "defer_to_agent"
     assert cfg.worker_mode == "off"
+    assert cfg.autopilot_enabled is True
+    assert cfg.dream_auto_enabled is False
+    assert cfg.dream_parse_parse_all is True
+    assert cfg.dream_handle_handle_all is True
+    assert cfg.dream_handle_allow_delete_truth is False
+    assert cfg.dream_handle_preserve_audit is True
     assert cfg.extras == {}
+
+
+def test_dream_config_project_values_load_and_round_trip(
+    home_dir: Path, project_dir: Path
+) -> None:
+    _write_project_config(
+        project_dir,
+        "[dream.auto]\n"
+        "enabled = true\n"
+        'trigger = "idle"\n'
+        "min_interval_hours = 2\n"
+        "idle_seconds = 30\n"
+        "max_runtime_seconds = 45\n"
+        "[dream.parse]\n"
+        "parse_all = true\n"
+        "require_evidence = false\n"
+        "[dream.handle]\n"
+        "handle_all = true\n"
+        "allow_mark_stale = false\n"
+        "allow_delete_truth = false\n"
+        "preserve_audit = true\n"
+        "undo_window_days = 7\n",
+    )
+
+    cfg = load_merged_config(str(project_dir))
+
+    assert cfg.dream_auto_enabled is True
+    assert cfg.dream_auto_trigger == "idle"
+    assert cfg.dream_auto_min_interval_hours == 2
+    assert cfg.dream_auto_idle_seconds == 30
+    assert cfg.dream_auto_max_runtime_seconds == 45
+    assert cfg.dream_parse_require_evidence is False
+    assert cfg.dream_handle_allow_mark_stale is False
+    assert cfg.dream_handle_undo_window_days == 7
+    rc = cfg.to_reflection_config()
+    assert rc["dream"]["auto"]["enabled"] is True
+    assert rc["dream"]["parse"]["parse_all"] is True
+    assert rc["dream"]["handle"]["allow_delete_truth"] is False
+
+
+def test_autopilot_config_project_values_load_and_round_trip(
+    home_dir: Path, project_dir: Path
+) -> None:
+    _write_project_config(
+        project_dir,
+        "[autopilot]\n"
+        "enabled = false\n",
+    )
+
+    cfg = load_merged_config(str(project_dir))
+
+    assert cfg.autopilot_enabled is False
+    rc = cfg.to_reflection_config()
+    assert rc["autopilot"]["enabled"] is False
+
+
+@pytest.mark.parametrize(
+    "body,key_path",
+    [
+        ('[autopilot]\nwrite_candidates = "ask"\n', "autopilot.write_candidates"),
+        ("[autopilot]\nauto_wake = true\n", "autopilot.auto_wake"),
+        ("[autopilot]\nauto_search = true\n", "autopilot.auto_search"),
+        (
+            "[autopilot]\nsuggest_on_stable_result = true\n",
+            "autopilot.suggest_on_stable_result",
+        ),
+        (
+            "[autopilot]\nauto_confirm_low_risk = true\n",
+            "autopilot.auto_confirm_low_risk",
+        ),
+        ('[autopilot]\nenabled = "yes"\n', "autopilot.enabled"),
+    ],
+)
+def test_autopilot_config_rejects_invalid_values(
+    home_dir: Path,
+    project_dir: Path,
+    body: str,
+    key_path: str,
+) -> None:
+    proj_path = _write_project_config(project_dir, body)
+
+    with pytest.raises(ConfigValidationError) as excinfo:
+        load_merged_config(str(project_dir))
+
+    assert excinfo.value.key_path == key_path
+    assert excinfo.value.source_path == str(proj_path)
+
+
+@pytest.mark.parametrize(
+    "body,key_path",
+    [
+        ("[dream.parse]\nparse_all = false\n", "dream.parse.parse_all"),
+        ("[dream.handle]\nhandle_all = false\n", "dream.handle.handle_all"),
+        (
+            "[dream.handle]\nallow_delete_truth = true\n",
+            "dream.handle.allow_delete_truth",
+        ),
+        (
+            "[dream.handle]\npreserve_audit = false\n",
+            "dream.handle.preserve_audit",
+        ),
+        (
+            "[dream.auto]\nmin_interval_hours = 0\n",
+            "dream.auto.min_interval_hours",
+        ),
+    ],
+)
+def test_dream_config_rejects_values_that_break_v31_contract(
+    home_dir: Path,
+    project_dir: Path,
+    body: str,
+    key_path: str,
+) -> None:
+    proj_path = _write_project_config(project_dir, body)
+
+    with pytest.raises(ConfigValidationError) as excinfo:
+        load_merged_config(str(project_dir))
+
+    assert excinfo.value.key_path == key_path
+    assert excinfo.value.source_path == str(proj_path)
 
 
 # ---- Req 3.7: invalid recognized value -----------------------------------

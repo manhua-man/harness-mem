@@ -1,5 +1,7 @@
 # harness-mem v2.2 跨客户端测试矩阵
 
+> **Maintainer-only / release audit — not user-facing.** 勿在 README 或公开状态页引用本文件中的 scenario 编号、客户端日志或本机路径。
+
 > v2.2 cross-client test matrix。证明同一份用户可见契约（`/hm:wake` / `/hm:distill` / `/hm:search` / `/hm:review` 与对应自然语言入口）在 **Claude Code、Codex CLI、Cursor、generic MCP client** 上行为一致。
 >
 > **取代** `docs/v2-user-test-packet.md` v2.0 的三 persona 脚本。原来的 林安宁 / 张子轩 / 周明远 仍可作为 scenario 内的 flavor 出现，但不再是测试结构的脊椎；脊椎是「同一行为跨客户端并排跑」。

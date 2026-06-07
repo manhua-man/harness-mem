@@ -8,9 +8,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def test_v2_user_test_packet_records_s7_and_s11_client_facing_transcripts() -> None:
     packet = (REPO_ROOT / "docs" / "v2-user-test-packet.md").read_text(encoding="utf-8")
-    roadmap_status = " ".join(
-        (REPO_ROOT / "docs" / "roadmap-status.md").read_text(encoding="utf-8").split()
-    )
     roadmap_v29 = " ".join(
         (REPO_ROOT / "docs" / "roadmap-v29.md").read_text(encoding="utf-8").split()
     )
@@ -28,8 +25,5 @@ def test_v2_user_test_packet_records_s7_and_s11_client_facing_transcripts() -> N
     assert "`harness-mem`" in packet
     assert "`unity-side-job`" in packet
     assert "只问一次澄清" in packet
-
-    assert "`S7 project mismatch` 与 `S11 stale-CLI help surface`" in roadmap_status
-    assert "仍未完成的是 `S4`" in roadmap_status
 
     assert "补上了 `S7` 与 `S11` 的真实 client-facing transcript" in roadmap_v29

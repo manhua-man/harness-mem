@@ -1,0 +1,16 @@
+{
+  "task_id": "T1",
+  "condition": "enabled",
+  "client": "codex",
+  "model": "gpt-5",
+  "workspace_path": "F:\\memory-lab\\harness-mem",
+  "runtime_seconds": 0,
+  "prompt_turns": 0,
+  "followup_count": 0,
+  "token_total": "unavailable",
+  "accepted": "no",
+  "acceptance_notes": "Explain why the task passed or failed.",
+  "memory_calls": [],
+  "repo_calls": [],
+  "notes": []
+}

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "harness_mem_s4_broken": {
+      "command": "python",
+      "args": ["-m", "harness_mem.mcp.server_missing"]
+    }
+  }
+}

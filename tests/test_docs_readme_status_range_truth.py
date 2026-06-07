@@ -6,5 +6,6 @@ def test_docs_readme_status_index_includes_v15_range() -> None:
         encoding="utf-8"
     )
 
-    assert "| `roadmap-status.md` | 当前 roadmap 完成情况：从 v1.5 到 v2.9 的已完成项、边界和未做项 |" in docs_readme
-    assert "| `roadmap-status.md` | 当前 roadmap 完成情况：从 v1.6 到 v2.9 的已完成项、边界和未做项 |" not in docs_readme
+    assert "roadmap-status.md" in docs_readme
+    assert "公开状态页" in docs_readme
+    assert "当前版本、已交付能力、non-goals" in docs_readme

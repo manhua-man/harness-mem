@@ -8,9 +8,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def test_v2_user_test_packet_records_codex_to_claude_ui_s10_pair() -> None:
     packet = (REPO_ROOT / "docs" / "v2-user-test-packet.md").read_text(encoding="utf-8")
-    roadmap_status = " ".join(
-        (REPO_ROOT / "docs" / "roadmap-status.md").read_text(encoding="utf-8").split()
-    )
     roadmap_v29 = " ".join(
         (REPO_ROOT / "docs" / "roadmap-v29.md").read_text(encoding="utf-8").split()
     )
@@ -25,10 +22,6 @@ def test_v2_user_test_packet_records_codex_to_claude_ui_s10_pair() -> None:
     assert "read-side final output returned the exact truth line" in packet
     assert "PostToolUse:mcp__harness_mem__wake" in packet
     assert "这条 entry 是一条**直接对应 packet `S10` 单元格**的真实 client transcript" in packet
-
-    assert "`Codex app -> Claude Code`" in roadmap_status
-    assert "真实 UI 级 `S10` pair transcript" in roadmap_status
-    assert "packet `S10` 单元格已经有直接跨客户端证据" in roadmap_status
 
     assert "direct UI-level `S10` pair transcript" in roadmap_v29
     assert "write-side = `Codex app`" in roadmap_v29

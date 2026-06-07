@@ -8,6 +8,99 @@
 
 ---
 
+## [3.2.0] — 2026-06-07
+
+**主题：Generated Knowledge Compiler + Basic Freshness**
+
+v3.2.0 把 v2.6 wiki bridge 从“可用 generated cache”升级成可追溯、可诊断、
+可增量的 generated knowledge compiler。generated layer 仍然不是 truth；它只从
+accepted memory 与 curated docs 编译 source map、atomic claims、compact wake material
+和基础 freshness / metrics。
+
+### Added
+
+- **source map artifact**：新增 `knowledge-cache/generated/source-map.json`，
+  每个 source 记录 kind、path/id、content hash、mtime、provenance，以及 claim 映射。
+- **atomic claim metadata**：`claims.json` 中的 generated claim 现在带
+  `citation_spans`、`confidence`、`staleness`、`content_hash` 和 `cache_status`。
+- **citation validation**：compact wake loader 会校验 claim 的 source id 与 source hash；
+  无 citation、source 缺失或 hash drift 的 claim 不进入 compact wake material。
+- **incremental compile metadata**：rebuild 会写 `claim-diff.json`，并在 `index.json`
+  中记录 added / removed / changed / unchanged、cache hit ratio、duration、source count、
+  claim count 和 compact output token estimate。
+- **freshness visibility**：`doctor`、`status` 和 MCP `get_project_status` 会显示 generated
+  cache 的 stale source、missing source、orphaned output、invalid claim 与 cache metrics。
+
+### Changed
+
+- `maintenance rebuild-wiki-bridge` 现在输出 source count、invalid claims、claim diff、
+  cache hit ratio、compile duration、output token estimate 和 source map 路径。
+- generated `index.json` 的 tracked outputs 新增 `source-map.json` 与 `claim-diff.json`；
+  cleanup 仍只处理 generated root 下未被 index 跟踪的派生产物。
+- `docs/roadmap-status.md` 与 `docs/roadmap-v32.md` 现在把 v3.2.0 标为当前已发布切片。
+
+### Boundaries
+
+- generated wiki / compact output 不进入默认 wake 或 search truth surface。
+- 不把 generated prose 反写 accepted memory。
+- 不引入 full module atlas、cloud wiki、团队 UI 或默认外部 code-intelligence hook。
+- cleanup 只删 generated artifacts，不触碰 observations、confirmed truth 或 curated docs。
+
+---
+
+## [3.1.0] — 2026-06-07
+
+**主题：Auto Dream Memory Maintenance**
+
+v3.1.0 把此前 v2.3 signals / metabolism、v2.4 reflection job、v2.6 contradiction
+suggestions 组合成默认关闭、显式 opt-in 的自动梦境维护机制。它不是新增一个人工 review 队列，
+而是把可安全处理的 dream items 自动解析、自动处理到终态，并通过 DreamRun 账本保留审计、
+原因和 undo metadata。
+
+### Added
+
+- **Dream ledger runtime**：新增 `DreamRun` / `DreamItem` schema 与持久化表，
+  记录 input window、selected signals、处理明细、policy version、duration 和
+  handling summary；终态只允许 `applied` / `rejected` / `archived` / `failed`，
+  不产生 `pending_review`。
+- **auto dream business command**：新增 `harness_mem.commands.dream`，支持
+  `dream_once`、`dream_auto_tick`、`latest_dream_ledger`、`dream_status_snapshot`
+  和 `undo_dream_item`。
+- **scheduler integration**：`dream_auto_tick` 复用 `ReflectionJob(kind="dream")`，
+  遵守 `dream.auto.enabled`、idle / interval gate、max runtime 和 active-job
+  gate；默认关闭，不引入 always-on daemon。
+- **MCP / Slash surface**：新增 MCP `dream_ledger`、`dream_run`、`dream_auto_tick`
+  和 `undo_dream_item` 工具，并新增 `/hm:dream` 单入口文档。
+- **status / doctor visibility**：`status` 与 `doctor` 能显示 Dream auto enabled
+  状态、最近 run、失败数和 scheduler eligibility。
+- **undo safety**：applied action 记录 undo path；stale / supersede / merge /
+  skill retire 都保留 source chain，不 hard delete confirmed truth。
+
+### Changed
+
+- **config merge**：新增 `[dream.auto]`、`[dream.parse]`、`[dream.handle]`
+  配置读取；`parse_all` / `handle_all` 保持 v3.1 UX 约束。
+- **reflection job store**：新增原子 `save_if_no_active_processing(...)`，避免同一
+  project/kind 的新 dream tick 与已有 processing job 竞争；超过 runtime window 的 stale
+  processing job 不再永久阻塞。
+- **vector write timeout**：写入路径 embedding timeout 从 `20s` 调整到 `60s`，避免
+  Windows 上健康但较慢的本地 `all-MiniLM-L6-v2` 冷启动误触发 vec row 跳过；原有卡死保护
+  与 `HARNESS_MEM_DISABLE_EMBEDDINGS` opt-out 仍保留。
+- **roadmap truth**：`docs/roadmap-status.md`、`docs/README.md`、`docs/roadmap-v31.md`
+  现在把 v3.1 标为当前已发布版本，并把 v3.2-v3.4 保持为规划中。
+
+### Boundaries
+
+- 默认 `dream.auto.enabled=false`；安装后不会自动跑。
+- 不引入独立后台 daemon；优先复用 host / client tick。
+- 不 hard delete confirmed truth / observations；冲突通过 supersede / historical
+  记录保留历史。
+- Dream summary / archived dream-only records 不进入默认 wake/search truth。
+- v3.2 generated knowledge、v3.3 temporal query、v3.4 runtime health 仍是后续规划，
+  不属于本次发布能力。
+
+---
+
 ## [2.9.61] — 2026-06-04
 
 **主题：Packet Remaining-Evidence Guardrails + Stronger S4/S10 Near-Neighbor Evidence**
@@ -2291,4 +2384,3 @@ v1.6.x 三切片路线的第一刀。本切片只动 schema 与测量层，不�
 - **双层记忆底座**：Verbatim (Observation) + Structured (Entry/Rule/Handoff)。
 - **Adapter**：Claude Code + Codex。
 - **MCP Server**：完整读取/写入工具链。
-

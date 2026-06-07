@@ -145,7 +145,7 @@ def test_from_dict_applies_defaults_for_missing_optional_fields() -> None:
 @pytest.mark.parametrize(
     "field,bad_value",
     [
-        ("kind", "metabolism"),  # only "reflection" is allowed in v2.4.0
+        ("kind", "metabolism"),  # v3.1 adds "dream"; other kinds stay invalid.
         ("phase", "bogus_phase"),
         ("status", "in_progress"),
         ("source", "cron"),
@@ -199,3 +199,18 @@ def test_from_dict_preserves_unknown_keys_via_extra_allow() -> None:
     )
 
     assert job.future_field == "something"  # type: ignore[attr-defined]
+
+
+def test_from_dict_accepts_dream_kind_for_v31_scheduler_jobs() -> None:
+    job = ReflectionJob.from_dict(
+        {
+            "project_name": "demo",
+            "project_root": "/tmp/demo",
+            "kind": "dream",
+            "phase": "metabolism",
+            "source": "scheduler",
+        }
+    )
+
+    assert job.kind == "dream"
+    assert job.phase == "metabolism"

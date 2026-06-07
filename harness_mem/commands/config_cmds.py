@@ -25,6 +25,8 @@ from harness_mem.config.errors import (
     ConfigValidationError,
 )
 from harness_mem.config.merge import (
+    _AUTOPILOT_KEYS,
+    _DREAM_KEYS,
     _RECOGNIZED_KEYS,
     _get_dotted,
     _user_config_path,
@@ -68,7 +70,33 @@ def _allowed_for(key: str) -> tuple[str, ...] | None:
     for recognized_path, _attr, allowed, _default in _RECOGNIZED_KEYS:
         if recognized_path == key:
             return allowed
+    for recognized_path, _attr, kind, _default in _AUTOPILOT_KEYS:
+        if recognized_path != key:
+            continue
+        if kind == "bool":
+            return ("true", "false")
+        if kind.startswith("enum:"):
+            return tuple(kind.removeprefix("enum:").split(","))
+    for recognized_path, _attr, kind, _default in _DREAM_KEYS:
+        if recognized_path != key:
+            continue
+        if kind == "bool":
+            return ("true", "false")
+        if kind == "const:true":
+            return ("true",)
+        if kind == "const:false":
+            return ("false",)
+        if kind.startswith("enum:"):
+            return tuple(kind.removeprefix("enum:").split(","))
+        if kind.startswith("int:min="):
+            return (f"integer >= {kind.removeprefix('int:min=')}",)
     return None
+
+
+def _format_config_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
 
 
 def _flatten(table: dict[str, Any], prefix: str = "") -> list[tuple[str, Any]]:
@@ -112,7 +140,7 @@ def cmd_config_get(key: str, project_root: str | None) -> int:
     if not found:
         print(f"key not found: {key}", file=sys.stderr)
         return 1
-    print(value)
+    print(_format_config_value(value))
     return 0
 
 
@@ -175,7 +203,17 @@ def cmd_config_list(project_root: str | None) -> int:
     for key_path, _attr, _allowed, _default in _RECOGNIZED_KEYS:
         _, value = _get_dotted(reflection, key_path)
         source = _source_label(key_path, project_dict, user_dict)
-        print(f"{key_path} = {value}  ({source})")
+        print(f"{key_path} = {_format_config_value(value)}  ({source})")
+
+    for key_path, _attr, _kind, _default in _AUTOPILOT_KEYS:
+        _, value = _get_dotted(reflection, key_path)
+        source = _source_label(key_path, project_dict, user_dict)
+        print(f"{key_path} = {_format_config_value(value)}  ({source})")
+
+    for key_path, _attr, _kind, _default in _DREAM_KEYS:
+        _, value = _get_dotted(reflection, key_path)
+        source = _source_label(key_path, project_dict, user_dict)
+        print(f"{key_path} = {_format_config_value(value)}  ({source})")
 
     for key_path, value in _flatten(merged.extras):
         source = _source_label(key_path, project_dict, user_dict)

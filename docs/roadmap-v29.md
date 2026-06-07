@@ -1,6 +1,8 @@
 # Roadmap: harness-mem v2.9
 
-> 状态：v2.9.0–v2.9.60 已完成。
+> **Maintainer / release-engineering — not user-facing.** 含切片验收、OpenSpec 归档路径与 packet 证据叙事；对外状态见 [`roadmap-status.md`](./roadmap-status.md)。
+
+> 状态：v2.9.0–v2.9.61 已完成。
 >
 > 主题：PRD sync 起步，随后扩成 maintenance / triage / truth-sync release train。
 > v2.9 从 `/hm:prd-sync` 这一条 candidate-only maintenance surface 开始，随后逐步

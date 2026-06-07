@@ -19,6 +19,7 @@ from harness_mem.commands.doctor_thresholds import (
     STALE_THRESHOLDS,
     WAL_SIZE_THRESHOLD_BYTES,
 )
+from harness_mem.commands.dream import dream_status_snapshot
 from harness_mem.commands.error_codes import doctor_error, format_error_summary
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
@@ -38,6 +39,8 @@ from harness_mem.commands.support import (
     wake_bucket_quotas,
     wake_budget,
 )
+from harness_mem.config.errors import ConfigError
+from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.knowledge_cache import knowledge_cache_health
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -205,6 +208,13 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             print()
             await _doctor_weak_link_block(backend, resolved_project)
             await _doctor_queue_health_block(backend.reflection_job_store)
+            dream_config = _load_project_dream_config(resolved_project)
+            dream_report = await dream_status_snapshot(
+                backend,
+                project_name=resolved_project,
+                config=dream_config,
+            )
+            _doctor_dream_status_block(dream_report)
             # Compose the v2.4.0 + v2.4.2 health payload in a single pass and
             # render each slice through its block helper (Req 6.6 — one
             # detection pass, two surfaces). Note: _doctor_queue_health_block
@@ -1302,8 +1312,43 @@ def _doctor_maintenance_block(maintenance_report: dict[str, Any]) -> None:
         print(f"Fix: {hint['fix_command']}")
 
 
+def _load_project_dream_config(project_name: str) -> MergedConfig | None:
+    root = find_project_root(project_name)
+    if root is None:
+        return None
+    try:
+        return load_merged_config(str(root))
+    except ConfigError:
+        return None
+
+
+def _doctor_dream_status_block(dream_report: dict[str, Any]) -> None:
+    """Render read-only v3.1 dream status without creating a review queue."""
+    state = "enabled" if dream_report.get("enabled") else "off"
+    print("Dream auto maintenance:")
+    print(f"  enabled: {state}")
+    if dream_report.get("last_run_id"):
+        print(
+            "  last run: "
+            f"{dream_report.get('last_status')} "
+            f"(processed {dream_report.get('last_processed', 0)}, "
+            f"failed {dream_report.get('last_failed', 0)})"
+        )
+    else:
+        print("  last run: none")
+    if dream_report.get("enabled"):
+        print(
+            "  scheduler: "
+            f"{'eligible' if dream_report.get('scheduler_eligible') else 'not eligible'} "
+            f"({dream_report.get('scheduler_reason')})"
+        )
+        next_at = dream_report.get("next_eligible_at")
+        if next_at:
+            print(f"  next eligible: {next_at}")
+
+
 def _doctor_knowledge_cache_block(knowledge_report: dict[str, Any]) -> None:
-    """Render the v2.6.1 knowledge-cache boundary and generated bridge visibility."""
+    """Render knowledge-cache boundary, generated bridge, and v3.2 freshness."""
     print("Knowledge cache:")
     print(
         "  boundary: "
@@ -1320,6 +1365,19 @@ def _doctor_knowledge_cache_block(knowledge_report: dict[str, Any]) -> None:
         f"{knowledge_report['generated_claim_count']} claims, "
         f"{knowledge_report['generated_topic_count']} topics, "
         f"{knowledge_report['generated_entity_count']} entities"
+    )
+    print(
+        "  compiler: "
+        f"{knowledge_report['source_map_count']} source-map rows, "
+        f"{knowledge_report['invalid_claim_count']} invalid claims, "
+        f"cache hit ratio {knowledge_report['cache_hit_ratio']:.2f}, "
+        f"compile {knowledge_report['compile_duration_ms']} ms"
+    )
+    print(
+        "  freshness: "
+        f"{knowledge_report['stale_source_count']} stale sources, "
+        f"{knowledge_report['missing_source_count']} missing sources, "
+        f"{knowledge_report['orphaned_output_count']} orphaned outputs"
     )
     if knowledge_report["prepared"]:
         print(f"  sync map: {knowledge_report['sync_map_path']}")

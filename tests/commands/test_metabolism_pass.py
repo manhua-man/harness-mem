@@ -31,10 +31,14 @@ from harness_mem.core.schemas import (
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_structured_store import LocalStructuredStore
+from tests.helpers import patch_fake_embedding_loader, seed_persisted_embedding
 
 
 @pytest.mark.anyio
-async def test_propose_merges_isolated_pair(backend: LocalMemoryBackend) -> None:
+async def test_propose_merges_isolated_pair(
+    backend: LocalMemoryBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Two near-duplicate entries surface as one merge candidate.
 
     Validates the merge leg in isolation:
@@ -75,6 +79,10 @@ async def test_propose_merges_isolated_pair(backend: LocalMemoryBackend) -> None
     await structured_store.save_memory_entry(duplicate_a)
     await structured_store.save_memory_entry(duplicate_b)
     await structured_store.save_memory_entry(unrelated)
+    patch_fake_embedding_loader(monkeypatch)
+    seed_persisted_embedding(backend, duplicate_a.id, (1.0, 0.0))
+    seed_persisted_embedding(backend, duplicate_b.id, (1.0, 0.0))
+    seed_persisted_embedding(backend, unrelated.id, (0.0, 1.0))
 
     # Two search_hit signals per duplicate so each entry's count >= 2 and
     # both land in window.repeat_search_hits — that's the gate that lets
@@ -254,6 +262,7 @@ async def test_propose_supersedes_returns_candidate_for_historical_replacement(
 @pytest.mark.anyio
 async def test_select_metabolism_pass_integration_merge_and_stale(
     backend: LocalMemoryBackend,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """One window, three proposer legs.
 
@@ -319,6 +328,12 @@ async def test_select_metabolism_pass_integration_merge_and_stale(
     await structured_store.save_memory_entry(historical_entry)
     await structured_store.save_memory_entry(replacement_entry)
     await structured_store.save_confirmed_rule(stale_rule)
+    patch_fake_embedding_loader(monkeypatch)
+    seed_persisted_embedding(backend, duplicate_a.id, (1.0, 0.0))
+    seed_persisted_embedding(backend, duplicate_b.id, (1.0, 0.0))
+    seed_persisted_embedding(backend, stale_entry.id, (0.0, 1.0))
+    seed_persisted_embedding(backend, historical_entry.id, (0.0, 1.0))
+    seed_persisted_embedding(backend, replacement_entry.id, (0.0, 1.0))
 
     # Two search_hit signals per duplicate → each lands in
     # repeat_search_hits and supplies merge evidence.

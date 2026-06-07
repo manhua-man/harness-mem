@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-mem.local/benchmark-suite/latency_warm_path/result.schema.json",
+  "title": "Warm Path Latency Task Result",
+  "type": "object",
+  "required": [
+    "task_id",
+    "condition",
+    "runtime_seconds",
+    "accepted",
+    "acceptance_notes",
+    "operation",
+    "sample_count",
+    "warmup_count",
+    "p50_ms",
+    "p95_ms",
+    "p99_ms",
+    "max_ms",
+    "min_ms",
+    "mean_ms",
+    "error_count",
+    "environment",
+    "parameters"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "enum": [
+        "wake_synthetic",
+        "search_fts",
+        "search_hybrid"
+      ]
+    },
+    "condition": {
+      "type": "string",
+      "const": "warm"
+    },
+    "runtime_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "accepted": {
+      "type": "string",
+      "enum": [
+        "yes",
+        "no"
+      ]
+    },
+    "acceptance_notes": {
+      "type": "string"
+    },
+    "operation": {
+      "type": "string"
+    },
+    "sample_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "warmup_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "p50_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "p95_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "p99_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "max_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "min_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "mean_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "error_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "requested_mode": {
+      "type": "string"
+    },
+    "effective_mode": {
+      "type": "string"
+    },
+    "fallback_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "result_count_last_sample": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "environment": {
+      "type": "object",
+      "required": [
+        "python_version",
+        "platform",
+        "workspace_path",
+        "data_dir",
+        "harness_mem_version"
+      ],
+      "properties": {
+        "python_version": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "workspace_path": {
+          "type": "string"
+        },
+        "data_dir": {
+          "type": "string"
+        },
+        "harness_mem_version": {
+          "type": "string"
+        },
+        "embedding_disabled": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "parameters": {
+      "type": "object",
+      "required": [
+        "project_name",
+        "memory_entry_count",
+        "observation_count",
+        "query",
+        "limit"
+      ],
+      "additionalProperties": true
+    },
+    "latencies_ms": {
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": 0
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true
+}

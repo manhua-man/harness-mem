@@ -1,0 +1,107 @@
+{
+  "benchmark_id": "temporal_product_query",
+  "version": 1,
+  "condition": "temporal_guarded",
+  "tasks": [
+    {
+      "task_id": "TQ1",
+      "title": "Default current-only read",
+      "task_type": "current_default",
+      "prompt": "Using current repo truth, answer a temporal memory question where both current and superseded historical truth exist. What should the default answer return?",
+      "acceptance_summary": "Must return current truth by default and exclude superseded history unless requested.",
+      "required_facts": [
+        "Default read returns current truth.",
+        "Superseded truth is not current.",
+        "History can be offered as drilldown."
+      ],
+      "forbidden_claims": [
+        "Historical truth is current by default.",
+        "Superseded truth should be hidden from explicit history queries."
+      ],
+      "expected_evidence_hints": [
+        "tests/temporal/test_current_history_reads.py",
+        "tests/test_context_assembly_boundary.py"
+      ]
+    },
+    {
+      "task_id": "TQ2",
+      "title": "Explicit history request",
+      "task_type": "history_request",
+      "prompt": "When a user explicitly asks for memory history, how should harness-mem surface historical/superseded truth without confusing it with current truth?",
+      "acceptance_summary": "Must surface history with labels and keep current truth separate.",
+      "required_facts": [
+        "Historical truth is available on explicit history paths.",
+        "Historical truth is labeled as historical or superseded.",
+        "Current truth remains distinct."
+      ],
+      "forbidden_claims": [
+        "Explicit history requests should only return current truth.",
+        "History should be unlabeled."
+      ],
+      "expected_evidence_hints": [
+        "tests/temporal/test_current_history_reads.py",
+        "tests/loop_harness/README.md"
+      ]
+    },
+    {
+      "task_id": "TQ3",
+      "title": "As-of query boundary",
+      "task_type": "as_of_boundary",
+      "prompt": "Can the current product answer an as_of temporal query for a past point in time? Give the safest answer from current repo truth and identify any missing product surface.",
+      "acceptance_summary": "Must not invent as_of behavior when product support is planning-only or incomplete.",
+      "required_facts": [
+        "Uses available timestamp/version evidence if present.",
+        "States missing stable as_of product surface when relevant.",
+        "Qualifies the answer when exact as_of resolution is unavailable."
+      ],
+      "forbidden_claims": [
+        "Full as_of temporal query is already benchmark-proven without evidence.",
+        "Timestamp-free history is enough for exact as_of answers."
+      ],
+      "expected_evidence_hints": [
+        "docs/roadmap-v33.md",
+        "tests/temporal/test_current_history_reads.py"
+      ]
+    },
+    {
+      "task_id": "TQ4",
+      "title": "Supersede timeline explanation",
+      "task_type": "supersede_timeline",
+      "prompt": "Given a supersede candidate or confirmed supersede test fixture, explain the old truth, new truth, and direction of replacement.",
+      "acceptance_summary": "Must identify old/new truth and explain supersede direction correctly.",
+      "required_facts": [
+        "Old truth is marked historical or superseded.",
+        "New truth supersedes old truth.",
+        "Default reads prefer the new truth."
+      ],
+      "forbidden_claims": [
+        "Old truth supersedes new truth when evidence says the opposite.",
+        "Supersede confirmation deletes all audit history."
+      ],
+      "expected_evidence_hints": [
+        "tests/temporal/test_current_history_reads.py",
+        "tests/mcp/test_smoke.py"
+      ]
+    },
+    {
+      "task_id": "TQ5",
+      "title": "Ambiguous temporal scope",
+      "task_type": "temporal_abstention",
+      "prompt": "A user asks 'what did we decide about this?' but the repo contains both current and historical decisions. Give the safest temporal answer and state whether clarification is needed.",
+      "acceptance_summary": "Must ask for scope or qualify the answer when temporal scope is ambiguous.",
+      "required_facts": [
+        "Ambiguous temporal scope is identified.",
+        "Current answer is separated from historical context.",
+        "Clarification is requested when needed."
+      ],
+      "forbidden_claims": [
+        "Ambiguous temporal query has one unqualified answer.",
+        "Current and historical decisions can be merged without labels."
+      ],
+      "expected_evidence_hints": [
+        "benchmark-suite/evidence_safety/acceptance_checklist.md",
+        "docs/roadmap-v33.md"
+      ]
+    }
+  ]
+}

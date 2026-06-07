@@ -95,12 +95,21 @@ from typing import Any, cast  # noqa: E402
 from harness_mem import __version__ as _HARNESS_MEM_VERSION  # noqa: E402
 from harness_mem.commands.auto_review import auto_review_candidates  # noqa: E402
 from harness_mem.commands.doctor import health_summary  # noqa: E402
+from harness_mem.commands.dream import (  # noqa: E402
+    dream_auto_tick,
+    dream_once,
+    latest_dream_ledger,
+    undo_dream_item,
+)
 from harness_mem.file_context import build_file_context  # noqa: E402
+from harness_mem.config.errors import ConfigError  # noqa: E402
+from harness_mem.config.merge import load_merged_config  # noqa: E402
 from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
 from harness_mem.commands.metabolism_pass import select_metabolism_pass  # noqa: E402
 from harness_mem.commands.retrieval_signals import record_retrieval_signal  # noqa: E402
 from harness_mem.commands.support import (  # noqa: E402
     SUPPORTED_INGEST_CLIENTS,
+    find_project_root,
     get_active_project,
     normalize_client_name,
     resolve_ingest_client,
@@ -111,7 +120,11 @@ from harness_mem.commands.replay_window import (  # noqa: E402
     ReplayWindow,
     select_replay_window,
 )
-from harness_mem.commands.wake import cmd_wake_up  # noqa: E402
+from harness_mem.commands.wake import (  # noqa: E402
+    DEFAULT_SKILL_HINT_LIMIT,
+    build_wake_snapshot,
+    cmd_wake_up,
+)
 from harness_mem.core.schemas import (  # noqa: E402
     ProceduralCandidate,
     SkillPromotionCandidate,
@@ -130,6 +143,7 @@ from harness_mem.core.schemas.skill_deprecation_suggestion_candidate import (  #
 )
 from harness_mem.knowledge_cache import (  # noqa: E402
     COMPACT_RENDERER_NAME,
+    knowledge_cache_health,
     load_compact_wake_payload,
     render_compact_wake_payload,
 )
@@ -630,12 +644,32 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
         status="pending",
         limit=100000,
     )
+    profile = await LocalProjectProfileStore(DEFAULT_DATA_DIR).get(project_name)
+    knowledge_report = await knowledge_cache_health(
+        backend,
+        data_dir=DEFAULT_DATA_DIR,
+        project_name=project_name,
+        profile=profile,
+        project_root=find_project_root(project_name),
+    )
     return {
         "observation_count": len(project_observations),
         "memory_entry_count": len(memory_entries),
         "task_handoff_count": len(handoffs),
         "confirmed_rule_count": len(confirmed_rules),
         "pending_candidate_count": len(pending_rules) + len(pending_entries) + len(pending_facts),
+        "generated_cache": {
+            "prepared": knowledge_report["prepared"],
+            "generated_claim_count": knowledge_report["generated_claim_count"],
+            "source_map_count": knowledge_report["source_map_count"],
+            "stale_source_count": knowledge_report["stale_source_count"],
+            "missing_source_count": knowledge_report["missing_source_count"],
+            "orphaned_output_count": knowledge_report["orphaned_output_count"],
+            "invalid_claim_count": knowledge_report["invalid_claim_count"],
+            "cache_hit_ratio": knowledge_report["cache_hit_ratio"],
+            "compile_duration_ms": knowledge_report["compile_duration_ms"],
+            "output_token_estimate": knowledge_report["output_token_estimate"],
+        },
     }
 
 
@@ -665,7 +699,7 @@ def tool_get_project_status(project_name: str | None = None) -> dict:
     }
 
 
-def _status_triage_hints(counts: dict[str, int]) -> dict[str, Any]:
+def _status_triage_hints(counts: dict[str, Any]) -> dict[str, Any]:
     if counts["observation_count"] == 0:
         return {
             "phase": "needs-distill",
@@ -899,9 +933,23 @@ def tool_wake(
             skill_hint_limit=skill_hint_limit,
         )
     )
+    snapshot_payload: dict[str, Any] = {}
+    if command_payload.get("success"):
+        effective_skill_hint_limit = (
+            DEFAULT_SKILL_HINT_LIMIT if skill_hint_limit is None else skill_hint_limit
+        )
+        snapshot_payload = asyncio.run(
+            build_wake_snapshot(
+                _get_backend(),
+                resolved,
+                include_skill_hints=bool(include_skill_hints),
+                skill_hint_limit=effective_skill_hint_limit,
+            )
+        )
     return {
         "project_name": resolved,
         "renderer": normalized_renderer,
+        **snapshot_payload,
         "include_skill_hints": include_skill_hints,
         "skill_hint_limit": skill_hint_limit,
         **command_payload,
@@ -1229,6 +1277,142 @@ def tool_metabolism_run(
         "signals_used": len(window.signal_ids),
         "output_counts": output_counts,
     }
+
+
+def _resolve_project_for_dream(project_name: str | None) -> str | None:
+    return (project_name or "").strip() or get_active_project()
+
+
+def _dream_budget_from_payload(budget: dict | None) -> ReplayBudget | None:
+    if not budget:
+        return None
+    budget_kwargs: dict[str, int] = {}
+    for key in (
+        "max_observations",
+        "max_pending_candidates",
+        "max_historical_truths",
+        "max_low_success_skills",
+        "max_repeat_search_hits",
+        "max_total_tokens",
+        "signal_lookback_days",
+    ):
+        if key in budget and budget[key] is not None:
+            budget_kwargs[key] = budget[key]
+    return ReplayBudget(**budget_kwargs)
+
+
+def _resolve_project_root_for_dream(project_root: str | None) -> str:
+    return str(Path(project_root).resolve() if project_root else Path.cwd().resolve())
+
+
+def tool_dream_ledger(
+    project_name: str | None = None,
+    run_id: str | None = None,
+) -> dict:
+    """Return the latest v3.1 DreamRun ledger, or one run by id."""
+    resolved = _resolve_project_for_dream(project_name)
+    if not resolved:
+        return {
+            "success": False,
+            "error": "project_name is required when no active project is set",
+        }
+    backend = _get_backend()
+    return asyncio.run(
+        latest_dream_ledger(
+            backend,
+            project_name=resolved,
+            run_id=run_id,
+        )
+    )
+
+
+def tool_dream_run(
+    project_name: str | None = None,
+    project_root: str | None = None,
+    budget: dict | None = None,
+) -> dict:
+    """Run one v3.1 dream maintenance pass and return its ledger payload."""
+    resolved = _resolve_project_for_dream(project_name)
+    if not resolved:
+        return {
+            "success": False,
+            "error": "project_name is required when no active project is set",
+        }
+    root = _resolve_project_root_for_dream(project_root)
+    try:
+        config = load_merged_config(root)
+    except ConfigError as exc:
+        return {"success": False, "error": str(exc)}
+    backend = _get_backend()
+    try:
+        run = asyncio.run(
+            dream_once(
+                backend,
+                project_name=resolved,
+                config=config,
+                source="agent",
+                budget=_dream_budget_from_payload(budget),
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - MCP tool should not crash JSON-RPC.
+        return {
+            "success": False,
+            "error": str(exc) or exc.__class__.__name__,
+        }
+    return {"success": True, "project_name": resolved, "run": run.to_dict()}
+
+
+def tool_dream_auto_tick(
+    project_name: str | None = None,
+    project_root: str | None = None,
+) -> dict:
+    """Host/client scheduler tick for default-off v3.1 auto dream."""
+    resolved = _resolve_project_for_dream(project_name)
+    if not resolved:
+        return {
+            "success": False,
+            "error": "project_name is required when no active project is set",
+        }
+    root = _resolve_project_root_for_dream(project_root)
+    try:
+        config = load_merged_config(root)
+    except ConfigError as exc:
+        return {"success": False, "error": str(exc)}
+    backend = _get_backend()
+    return asyncio.run(
+        dream_auto_tick(
+            backend,
+            project_name=resolved,
+            project_root=root,
+            config=config,
+            source="scheduler",
+        )
+    )
+
+
+def tool_undo_dream_item(
+    project_name: str | None = None,
+    run_id: str | None = None,
+    item_id: str | None = None,
+) -> dict:
+    """Undo one applied DreamItem by replaying its stored undo metadata."""
+    resolved = _resolve_project_for_dream(project_name)
+    if not resolved:
+        return {
+            "success": False,
+            "error": "project_name is required when no active project is set",
+        }
+    if not run_id or not item_id:
+        return {"success": False, "error": "run_id and item_id are required"}
+    backend = _get_backend()
+    return asyncio.run(
+        undo_dream_item(
+            backend,
+            project_name=resolved,
+            run_id=run_id,
+            item_id=item_id,
+        )
+    )
 
 
 def tool_ingest_sessions(
@@ -2438,7 +2622,7 @@ def tool_create_task_handoff(
 _VALID_REFLECTION_JOB_STATUSES: frozenset[str] = frozenset(
     {"pending", "processing", "completed", "failed", "retryable", "needs_distill"}
 )
-_VALID_REFLECTION_JOB_KINDS: frozenset[str] = frozenset({"reflection"})
+_VALID_REFLECTION_JOB_KINDS: frozenset[str] = frozenset({"reflection", "dream"})
 
 # Caller-facing limit window per Req 7.1 — default 50, hard ceiling 200.
 _REFLECTION_JOB_LIST_DEFAULT_LIMIT = 50
@@ -2568,6 +2752,10 @@ TOOLS: dict[str, ToolSpec] = build_tools({
     "prepare_session_distill": tool_prepare_session_distill,
     "metabolism_preview": tool_metabolism_preview,
     "metabolism_run": tool_metabolism_run,
+    "dream_ledger": tool_dream_ledger,
+    "dream_run": tool_dream_run,
+    "dream_auto_tick": tool_dream_auto_tick,
+    "undo_dream_item": tool_undo_dream_item,
     "list_candidates": tool_list_candidates,
     "auto_review_candidates": tool_auto_review_candidates,
     "suggest_supersede": tool_suggest_supersede,

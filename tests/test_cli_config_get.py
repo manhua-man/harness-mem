@@ -87,6 +87,13 @@ def test_recognized_key_after_agent_default_off(
     assert capsys.readouterr().out.strip() == "off"
 
 
+def test_recognized_key_autopilot_defaults(
+    home_dir: Path, project_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cmd_config_get("autopilot.enabled", str(project_dir)) == 0
+    assert capsys.readouterr().out.strip() == "true"
+
+
 # ---- extras: user-defined key present resolves --------------------------
 
 

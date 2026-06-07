@@ -48,11 +48,7 @@ def test_v22_docs_keep_manual_gate_open_while_packet_has_non_claude_gap() -> Non
     assert "真实的 harness-mem MCP 调用 run log" in roadmap_v22x
     assert "S8 / S9 evidence" in roadmap_v22x
     assert "v2.2 runtime / contract 与 OpenSpec `5.5` 手工 release gate 已完成" in roadmap_v22x
-    assert "v2.2.0 | 已完成（OpenSpec `5.5` gate 已过）" in roadmap_status
-    assert "Claude Code gate entry" in roadmap_status
-    assert "手工 release gate 已闭环" in roadmap_status
-    assert "live stdio 的 S8 / S9 evidence" in roadmap_status
-    assert "agent exec startup" in roadmap_status
-    assert "工具 cache" in roadmap_status
-    assert "真实的 Cursor agent run log" in roadmap_status
+    assert "v2.2 用户入口闭环" in roadmap_status
+    assert "维护者测试包" in roadmap_status
+    assert "Claude Code gate entry" not in roadmap_status
     assert "[x] 5.5 Manual v2.2 client test packet run with Claude Code plus at least one non-Claude client" in archived_tasks

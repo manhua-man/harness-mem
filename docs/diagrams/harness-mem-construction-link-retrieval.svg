@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1220" viewBox="0 0 1600 1220" role="img" aria-labelledby="title desc">
+  <title id="title">Harness-Mem 构建、链接、检索机制</title>
+  <desc id="desc">展示 Harness-Mem 的候选构建、证据链接、检索展开、真值治理四个细节流程。</desc>
+  <defs>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e8f2fb" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f6fbf"/>
+      <stop offset="58%" stop-color="#11a7b5"/>
+      <stop offset="100%" stop-color="#45bd92"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1677b9"/>
+    </marker>
+    <marker id="greenArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1f9f7a"/>
+    </marker>
+    <marker id="orangeArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#d9791f"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfdff; }
+      .grid { fill: url(#grid); opacity: .72; }
+      .title { font: 700 44px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .subtitle { font: 400 19px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #4d657d; }
+      .panel { fill: #ffffff; stroke: #c6dcee; stroke-width: 1.5; rx: 18; }
+      .blue { fill: #eaf5ff; stroke: #9ccfe0; stroke-width: 1.6; rx: 18; }
+      .green { fill: #effbf5; stroke: #92d7b6; stroke-width: 1.6; rx: 18; }
+      .orange { fill: #fff7ed; stroke: #f1b979; stroke-width: 1.6; rx: 18; }
+      .chip { fill: url(#brand); rx: 16; }
+      .chipText { font: 700 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #fff; }
+      .label { font: 700 24px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .mid { font: 700 18px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .body { font: 400 14px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #425c72; }
+      .small { font: 400 12px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #60788e; }
+      .code { font: 700 13px "Cascadia Mono", Consolas, monospace; fill: #0f6fbf; }
+      .arrow { fill: none; stroke: #1677b9; stroke-width: 2.6; marker-end: url(#arrow); }
+      .arrowGreen { fill: none; stroke: #1f9f7a; stroke-width: 2.6; marker-end: url(#greenArrow); }
+      .arrowOrange { fill: none; stroke: #d9791f; stroke-width: 2.6; marker-end: url(#orangeArrow); }
+      .dash { fill: none; stroke: #8ca5bb; stroke-width: 2; stroke-dasharray: 8 8; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1600" height="1220"/>
+  <rect class="grid" width="1600" height="1220"/>
+  <rect x="0" y="0" width="1600" height="13" fill="url(#brand)"/>
+  <text class="title" x="70" y="72">Harness-Mem 构建、链接、检索机制</text>
+  <text class="subtitle" x="72" y="108">对应“笔记构建 / 链接生成 / 记忆检索”那类机制描述，但加入 candidate gate、source ids 和 truth status。</text>
+
+  <g transform="translate(70 160)">
+    <rect class="blue" width="700" height="330"/>
+    <rect class="chip" x="24" y="22" width="150" height="32"/>
+    <text class="chipText" x="42" y="44">1. 构建过程</text>
+    <text class="label" x="24" y="86">Observation -> 结构化候选</text>
+    <text class="body" x="24" y="116">新增交互记忆时，系统不直接写长期记忆，而是从 raw evidence 生成带字段的候选节点。</text>
+    <g transform="translate(24 150)">
+      <rect class="panel" width="188" height="76"/>
+      <text class="mid" x="16" y="30">Raw Observation</text>
+      <text class="code" x="16" y="54">session_id, client</text>
+    </g>
+    <g transform="translate(258 150)">
+      <rect class="panel" width="188" height="76"/>
+      <text class="mid" x="16" y="30">Evidence Packet</text>
+      <text class="code" x="16" y="54">source ids, metadata</text>
+    </g>
+    <g transform="translate(492 150)">
+      <rect class="panel" width="188" height="76"/>
+      <text class="mid" x="16" y="30">Candidate</text>
+      <text class="code" x="16" y="54">status=pending</text>
+    </g>
+    <path class="arrow" d="M 212 188 L 256 188"/><path class="arrow" d="M 446 188 L 490 188"/>
+    <text class="code" x="24" y="268">candidate fields:</text>
+    <text class="body" x="24" y="294">category / content / confidence / tags / provenance / source / valid_from / recorded_at</text>
+  </g>
+
+  <g transform="translate(830 160)">
+    <rect class="orange" width="700" height="330"/>
+    <rect class="chip" x="24" y="22" width="150" height="32"/>
+    <text class="chipText" x="42" y="44">2. 链接过程</text>
+    <text class="label" x="24" y="86">Source 链接 + Relation 链接 + Supersede 链接</text>
+    <text class="body" x="24" y="116">Harness-Mem 的链接不是“自动同盒子扩展”，而是保留三类可审计边：证据边、关系边、时态替换边。</text>
+    <g transform="translate(24 150)">
+      <rect class="panel" width="188" height="76"/>
+      <text class="mid" x="16" y="30">Evidence Edge</text>
+      <text class="code" x="16" y="54">candidate.source -> O</text>
+    </g>
+    <g transform="translate(258 150)">
+      <rect class="panel" width="188" height="76"/>
+      <text class="mid" x="16" y="30">RelationFact</text>
+      <text class="code" x="16" y="54">source_entity -> target</text>
+    </g>
+    <g transform="translate(492 150)">
+      <rect class="panel" width="188" height="76"/>
+      <text class="mid" x="16" y="30">Temporal Edge</text>
+      <text class="code" x="16" y="54">supersedes/by</text>
+    </g>
+    <path class="arrowOrange" d="M 212 188 L 256 188"/><path class="arrowOrange" d="M 446 188 L 490 188"/>
+    <text class="code" x="24" y="268">relation fields:</text>
+    <text class="body" x="24" y="294">source_entity / target_entity / relation_type / evidence / confidence / valid_from / valid_to</text>
+  </g>
+
+  <g transform="translate(70 560)">
+    <rect class="green" width="700" height="350"/>
+    <rect class="chip" x="24" y="22" width="150" height="32"/>
+    <text class="chipText" x="42" y="44">3. 检索过程</text>
+    <text class="label" x="24" y="86">Query -> Rank -> Context Plan -> Drilldown</text>
+    <text class="body" x="24" y="116">检索默认只消费 confirmed/current truth。命中后不一次性展开全文，而是给 source ids 和 L4 drilldown pointer。</text>
+    <g transform="translate(24 150)">
+      <rect class="panel" width="150" height="64"/>
+      <text class="code" x="16" y="38">SQLite FTS5</text>
+    </g>
+    <g transform="translate(214 150)">
+      <rect class="panel" width="150" height="64"/>
+      <text class="code" x="16" y="38">Vector Cache</text>
+    </g>
+    <g transform="translate(404 150)">
+      <rect class="panel" width="150" height="64"/>
+      <text class="code" x="16" y="38">RRF Rank</text>
+    </g>
+    <g transform="translate(594 150)">
+      <rect class="panel" width="76" height="64"/>
+      <text class="code" x="14" y="38">IDs</text>
+    </g>
+    <path class="arrowGreen" d="M 174 182 L 212 182"/><path class="arrowGreen" d="M 364 182 L 402 182"/><path class="arrowGreen" d="M 554 182 L 592 182"/>
+    <text class="code" x="24" y="260">ContextAssemblyPlan:</text>
+    <text class="body" x="24" y="286">L0 profile, L1 rules/handoff, L2 memory entries, L3 query-driven relations/skills, L4 raw evidence pointer。</text>
+    <text class="body" x="24" y="314">每个 PlanEntry 带 source_ids、why_included、truth_status，避免 pending/historical 被伪装成 current truth。</text>
+  </g>
+
+  <g transform="translate(830 560)">
+    <rect class="blue" width="700" height="350"/>
+    <rect class="chip" x="24" y="22" width="150" height="32"/>
+    <text class="chipText" x="42" y="44">4. 治理过程</text>
+    <text class="label" x="24" y="86">Signals -> Replay Window -> Suggestion Candidates</text>
+    <text class="body" x="24" y="116">使用信号不会直接改写记忆，只作为下一轮治理的输入，输出仍然是候选。</text>
+    <g transform="translate(24 150)">
+      <rect class="panel" width="188" height="76"/>
+      <text class="mid" x="16" y="30">RetrievalSignal</text>
+      <text class="code" x="16" y="54">wake/search/confirm</text>
+    </g>
+    <g transform="translate(258 150)">
+      <rect class="panel" width="188" height="76"/>
+      <text class="mid" x="16" y="30">MetabolismRun</text>
+      <text class="code" x="16" y="54">preview/metabolism</text>
+    </g>
+    <g transform="translate(492 150)">
+      <rect class="panel" width="188" height="76"/>
+      <text class="mid" x="16" y="30">Suggestion</text>
+      <text class="code" x="16" y="54">merge/stale/supersede</text>
+    </g>
+    <path class="arrow" d="M 212 188 L 256 188"/><path class="arrow" d="M 446 188 L 490 188"/>
+    <text class="code" x="24" y="260">ReflectionJob:</text>
+    <text class="body" x="24" y="286">kind=reflection；phase=ingest/prepare/distill/review/metabolism/done。</text>
+    <text class="body" x="24" y="314">status=pending/processing/needs_distill/completed；source=user/agent/ide_hook/scheduler。</text>
+  </g>
+
+  <g transform="translate(70 980)">
+    <rect class="orange" width="1460" height="110"/>
+    <text class="label" x="24" y="42">关键机制红线</text>
+    <text class="body" x="24" y="74">A-MEM 的链接会把命中记忆联动到同盒子；Harness-Mem 的联动必须经过 truth_status、source_ids、candidate gate。检索可以展开证据，但不能把未审核候选当成长期事实。</text>
+  </g>
+
+  <text class="small" x="70" y="1154">图中字段来自当前 schema：Observation, MemoryEntry, RelationFact, RuleCandidate, ConfirmedRule, RetrievalSignal, ReflectionJob, ContextAssemblyPlan。</text>
+</svg>

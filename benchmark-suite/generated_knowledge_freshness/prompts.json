@@ -1,0 +1,106 @@
+{
+  "benchmark_id": "generated_knowledge_freshness",
+  "version": 1,
+  "status": "blocked-by-product",
+  "unlock_condition": "Run only after v3.2 generated knowledge compiler, source maps, atomic claims, freshness metadata, and generated context read surface are stable.",
+  "condition": "generated_guarded",
+  "tasks": [
+    {
+      "task_id": "GK1",
+      "title": "Source-map completeness",
+      "task_type": "source_map",
+      "prompt": "Given a generated knowledge page, list its atomic claims and verify that each claim has source-map evidence.",
+      "acceptance_summary": "Must fail or mark incomplete when generated claims lack source-map evidence.",
+      "required_facts": [
+        "Atomic claims are enumerated.",
+        "Each supported claim has source-map evidence.",
+        "Missing source maps are explicitly reported."
+      ],
+      "forbidden_claims": [
+        "Generated prose is self-evidencing.",
+        "A generated section is complete even when claim-level source maps are missing."
+      ],
+      "expected_evidence_hints": [
+        "docs/roadmap-v32.md",
+        "future generated knowledge artifact"
+      ]
+    },
+    {
+      "task_id": "GK2",
+      "title": "Generated-only claim boundary",
+      "task_type": "generated_boundary",
+      "prompt": "Find a claim that appears only in generated context. Decide whether it can be used as confirmed memory truth.",
+      "acceptance_summary": "Must keep generated-only claims out of confirmed truth unless source evidence exists.",
+      "required_facts": [
+        "Generated-only claim is identified.",
+        "Underlying confirmed truth or raw observation is required.",
+        "Unsupported generated claims are labeled unsupported."
+      ],
+      "forbidden_claims": [
+        "Generated-only claim is confirmed truth.",
+        "Generated cache can replace raw evidence."
+      ],
+      "expected_evidence_hints": [
+        "tests/test_knowledge_cache.py",
+        "future generated context read surface"
+      ]
+    },
+    {
+      "task_id": "GK3",
+      "title": "Freshness detection",
+      "task_type": "freshness",
+      "prompt": "After underlying source truth changes, determine whether generated knowledge is still fresh and safe to cite.",
+      "acceptance_summary": "Must detect stale generated cache and avoid citing it as current evidence.",
+      "required_facts": [
+        "Source truth changed after generation.",
+        "Generated cache is marked stale or needing recompile.",
+        "Current answer uses fresh source truth."
+      ],
+      "forbidden_claims": [
+        "Stale generated cache is current truth.",
+        "Freshness is irrelevant when source maps exist."
+      ],
+      "expected_evidence_hints": [
+        "docs/roadmap-v32.md"
+      ]
+    },
+    {
+      "task_id": "GK4",
+      "title": "Incremental invalidation",
+      "task_type": "incremental_cache",
+      "prompt": "Given one changed source claim, identify the smallest generated knowledge unit that should be invalidated.",
+      "acceptance_summary": "Must invalidate affected generated content without overstating unrelated cache damage.",
+      "required_facts": [
+        "Changed source claim is identified.",
+        "Affected generated claim or section is identified.",
+        "Unaffected sections remain valid unless policy says otherwise."
+      ],
+      "forbidden_claims": [
+        "All generated content must always be discarded after any source change.",
+        "No generated content needs invalidation after a source change."
+      ],
+      "expected_evidence_hints": [
+        "future incremental generated cache metadata"
+      ]
+    },
+    {
+      "task_id": "GK5",
+      "title": "Citation validation",
+      "task_type": "citation_support",
+      "prompt": "Validate whether a generated claim's cited source actually supports that claim.",
+      "acceptance_summary": "Must reject citation laundering and distinguish missing from unsupported citations.",
+      "required_facts": [
+        "Citation target is inspected.",
+        "Support relationship is judged.",
+        "Unsupported citation is reported as a benchmark failure."
+      ],
+      "forbidden_claims": [
+        "Any citation is enough regardless of support.",
+        "Unsupported citations count as evidence."
+      ],
+      "expected_evidence_hints": [
+        "future source-map and citation metadata"
+      ]
+    }
+  ]
+}

@@ -19,10 +19,11 @@ logger = logging.getLogger(__name__)
 # Write-path embeddings are optional. If the first encode blocks on a cold
 # model download or a broken torch install, MCP write tools must still return
 # promptly and leave vec row recovery to rebuild-vector-index / FTS fallback.
-# Cold-but-healthy local loads on this machine can take ~8s; keep the write
-# path fail-fast against broken / fresh-download hangs, but do not cut off a
-# normal cached model initialization.
-EMBEDDING_WRITE_TIMEOUT_SECONDS = 20.0
+# Cold-but-healthy local loads on Windows can spend tens of seconds importing
+# and initializing sentence-transformers even when the model snapshot is already
+# cached. Keep the write path finite against broken / fresh-download hangs, but
+# do not cut off a normal cached model initialization.
+EMBEDDING_WRITE_TIMEOUT_SECONDS = 60.0
 _EMBEDDING_WRITE_TIMED_OUT_MODELS: set[str] = set()
 _EMBEDDING_WRITE_UNCACHED_MODELS: set[str] = set()
 
@@ -190,6 +191,17 @@ _TABLE_SCHEMAS = {
         started_at TEXT NOT NULL,
         completed_at TEXT,
         status TEXT NOT NULL DEFAULT 'preview',
+        duration_ms INTEGER NOT NULL DEFAULT 0
+    """,
+    "dream_runs": """
+        id TEXT PRIMARY KEY,
+        project_name TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        status TEXT NOT NULL DEFAULT 'completed',
+        trigger_source TEXT NOT NULL DEFAULT 'agent',
+        reflection_job_id TEXT,
+        policy_version TEXT NOT NULL DEFAULT 'v3.1',
         duration_ms INTEGER NOT NULL DEFAULT 0
     """,
     "retrieval_signals": """
@@ -369,9 +381,9 @@ class SQLiteIndex:
             # Skip FTS for vec_embeddings (vector table doesn't need full-text search)
             if table_name == "vec_embeddings":
                 continue
-            # Skip FTS for metabolism_runs / retrieval_signals / reflection_jobs —
+            # Skip FTS for metabolism_runs / dream_runs / retrieval_signals / reflection_jobs —
             # they index structured rows, not full-text content.
-            if table_name in ("metabolism_runs", "retrieval_signals", "reflection_jobs"):
+            if table_name in ("metabolism_runs", "dream_runs", "retrieval_signals", "reflection_jobs"):
                 # structured signal rows, queried by (project, time, type) not by
                 # free text. Avoids a no-op FTS table and unused triggers.
                 continue
@@ -438,7 +450,7 @@ class SQLiteIndex:
             try:
                 self._conn.enable_load_extension(True)
                 try:
-                    import sqlite_vec  # type: ignore[import-not-found]
+                    import sqlite_vec  # type: ignore[import-not-found, import-untyped]
                     sqlite_vec.load(self._conn)
                 except ImportError:
                     # sqlite-vec not installed, skip (will fallback to FTS in hybrid search)
@@ -944,6 +956,18 @@ class SQLiteIndex:
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_stale_truth_suggestion_candidates_target
             ON stale_truth_suggestion_candidates(target_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_dream_runs_project
+            ON dream_runs(project_name)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_dream_runs_started_at
+            ON dream_runs(started_at)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_dream_runs_status
+            ON dream_runs(status)
         """)
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_skill_promotion_candidates_project

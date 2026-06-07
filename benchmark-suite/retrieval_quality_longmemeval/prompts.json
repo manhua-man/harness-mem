@@ -1,0 +1,88 @@
+{
+  "benchmark_id": "retrieval_quality_longmemeval",
+  "version": 1,
+  "condition": "dataset_replay",
+  "tasks": [
+    {
+      "task_id": "LME1",
+      "title": "Hybrid real baseline",
+      "task_type": "retrieval_quality",
+      "prompt": "Run the LongMemEval-style retrieval benchmark in production-like hybrid real mode. Record exact dataset, command, mode, top-k, embedding model, average R@5, per-type R@5, runtime, and fallback state.",
+      "acceptance_summary": "Must produce mode/split/top-k-specific R@5 and runtime without hiding fallback.",
+      "required_facts": [
+        "Dataset path is recorded.",
+        "Mode is hybrid real or fallback is explicit.",
+        "Average R@5 and per-type R@5 are recorded.",
+        "Runtime and per-question runtime are recorded."
+      ],
+      "forbidden_claims": [
+        "Fallback FTS is true hybrid performance.",
+        "Different splits or modes are directly comparable without caveats."
+      ],
+      "expected_evidence_hints": [
+        "docs/benchmark/v160-baseline.md",
+        "benchmarks/results/"
+      ]
+    },
+    {
+      "task_id": "LME2",
+      "title": "FTS baseline",
+      "task_type": "retrieval_quality",
+      "prompt": "Run the LongMemEval-style retrieval benchmark in raw FTS mode. Record exact dataset, command, top-k, average R@5, per-type R@5, runtime, and per-question runtime.",
+      "acceptance_summary": "Must keep raw FTS results separate from hybrid/vector results.",
+      "required_facts": [
+        "Mode is raw FTS.",
+        "Average R@5 and per-type R@5 are recorded.",
+        "Runtime and per-question runtime are recorded."
+      ],
+      "forbidden_claims": [
+        "FTS result is vector result.",
+        "FTS result is hybrid result."
+      ],
+      "expected_evidence_hints": [
+        "docs/benchmark/v160-baseline.md"
+      ]
+    },
+    {
+      "task_id": "LME3",
+      "title": "Per-type regression gate",
+      "task_type": "regression_gate",
+      "prompt": "Compare a new LongMemEval retrieval result against the pinned baseline. Report aggregate delta, per-type deltas, threshold, and gate outcome.",
+      "acceptance_summary": "Must detect per-type regression instead of only checking aggregate recall.",
+      "required_facts": [
+        "Pinned baseline is named.",
+        "Threshold is explicit.",
+        "Aggregate and per-type deltas are reported.",
+        "Gate outcome is stated."
+      ],
+      "forbidden_claims": [
+        "Aggregate pass hides weak per-type regression.",
+        "Threshold is invented after seeing result."
+      ],
+      "expected_evidence_hints": [
+        "docs/benchmark/v160-baseline.md",
+        "benchmark-suite/BENCHMARKS.md"
+      ]
+    },
+    {
+      "task_id": "LME4",
+      "title": "Environment reproducibility",
+      "task_type": "reproducibility",
+      "prompt": "Audit a LongMemEval retrieval run bundle for reproducibility. Report missing environment, dataset, command, mode, top-k, embedding, or fallback metadata.",
+      "acceptance_summary": "Must separate deterministic retrieval metrics from environment-sensitive runtime.",
+      "required_facts": [
+        "Environment metadata is checked.",
+        "Dataset and command metadata are checked.",
+        "Fallback state is checked.",
+        "Missing metadata is reported."
+      ],
+      "forbidden_claims": [
+        "Runtime is comparable without environment details.",
+        "Missing dataset path is acceptable for a publishable run."
+      ],
+      "expected_evidence_hints": [
+        "benchmark-suite/artifacts/"
+      ]
+    }
+  ]
+}

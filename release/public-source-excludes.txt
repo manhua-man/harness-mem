@@ -1,0 +1,7 @@
+# Paths omitted from public source archives (git archive export-ignore).
+# Full git clone still contains these files for maintainers.
+#
+# Keep in sync with .gitattributes "export-ignore" lines.
+
+docs/v2-user-test-packet.md
+harness_mem/integration/artifacts/

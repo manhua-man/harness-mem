@@ -26,9 +26,11 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from tests.helpers import (
     fake_embed_texts,
+    patch_fake_embedding_loader,
     patch_cli_adapters,
     requires_embeddings,
     run,
+    seed_persisted_embedding,
     seed_search_backend,
     write_codex_archive_session,
 )
@@ -134,7 +136,7 @@ def test_stdio_initialize_fails_before_handshake_when_launch_target_is_invalid()
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 52
+    assert len(tools) == 56
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
@@ -155,6 +157,7 @@ def test_tools_list():
         "suggest_relation_fact", "confirm_relation_fact", "reject_relation_fact",
         "create_task_handoff",
         "metabolism_preview", "metabolism_run",
+        "dream_ledger", "dream_run", "dream_auto_tick", "undo_dream_item",
         "list_reflection_jobs", "get_reflection_job",
         "health_summary",
     }
@@ -1208,6 +1211,9 @@ def test_get_project_status_returns_counts_without_cli(mcp_backend: LocalMemoryB
     assert data["memory_entry_count"] >= 1
     assert data["phase"] == "ready"
     assert data["suggested_slash"] == "/hm:wake"
+    assert data["generated_cache"]["generated_claim_count"] >= 0
+    assert "stale_source_count" in data["generated_cache"]
+    assert "cache_hit_ratio" in data["generated_cache"]
 
 
 def test_get_project_status_empty_project_suggests_distill(mcp_backend: LocalMemoryBackend):
@@ -1396,6 +1402,9 @@ def test_search_memory_reports_effective_mode(
     mcp_backend: LocalMemoryBackend,
     monkeypatch: pytest.MonkeyPatch,
 ):
+    entries = run(mcp_backend.structured_store.list_memory_entries("test-project", limit=10))
+    seed_persisted_embedding(mcp_backend, entries[0].id, (1.0, 3.0))
+    patch_fake_embedding_loader(monkeypatch)
     monkeypatch.setattr(HybridSearchLayer, "_embed_texts", fake_embed_texts)
 
     resp = rpc("tools/call", {

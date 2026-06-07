@@ -1,0 +1,67 @@
+{
+  "benchmark_id": "latency_warm_path",
+  "version": 1,
+  "condition": "warm",
+  "tasks": [
+    {
+      "task_id": "wake_synthetic",
+      "title": "Wake synthetic latency",
+      "task_type": "latency",
+      "prompt": "Run the latency_warm_path driver for wake_synthetic. Record sample count, warmup count, seeded data size, p50/p95/p99/max/min/mean, errors, and synthetic/warm status.",
+      "acceptance_summary": "Must produce warm synthetic wake latency with explicit sample and environment notes.",
+      "required_facts": [
+        "Condition is warm.",
+        "Result is synthetic.",
+        "p50 and p95 are recorded.",
+        "Sample count and warmup count are recorded."
+      ],
+      "forbidden_claims": [
+        "Synthetic wake latency is real client latency."
+      ],
+      "expected_evidence_hints": [
+        "benchmark-suite/latency_warm_path/driver.py",
+        "benchmark-suite/latency_warm_path/result.schema.json"
+      ]
+    },
+    {
+      "task_id": "search_fts",
+      "title": "Search FTS latency",
+      "task_type": "latency",
+      "prompt": "Run the latency_warm_path driver for search_fts. Record latency distribution, result count, error count, corpus size, and warm status.",
+      "acceptance_summary": "Must produce warm FTS search latency with error and corpus notes.",
+      "required_facts": [
+        "Requested mode is FTS.",
+        "Effective mode is FTS.",
+        "Latency distribution is recorded.",
+        "Result count is recorded."
+      ],
+      "forbidden_claims": [
+        "FTS result is hybrid result."
+      ],
+      "expected_evidence_hints": [
+        "benchmark-suite/latency_warm_path/driver.py"
+      ]
+    },
+    {
+      "task_id": "search_hybrid",
+      "title": "Search hybrid latency",
+      "task_type": "latency",
+      "prompt": "Run the latency_warm_path driver for search_hybrid. Record requested mode, effective mode, fallback reason, latency distribution, corpus size, and warm status.",
+      "acceptance_summary": "Must distinguish true hybrid latency from fallback latency.",
+      "required_facts": [
+        "Requested mode is hybrid.",
+        "Effective mode is recorded.",
+        "Fallback reason is recorded when applicable.",
+        "Latency distribution is recorded."
+      ],
+      "forbidden_claims": [
+        "FTS fallback is true hybrid performance.",
+        "Missing embeddings are ignored in the report."
+      ],
+      "expected_evidence_hints": [
+        "benchmark-suite/latency_warm_path/driver.py",
+        "benchmark-suite/artifacts/"
+      ]
+    }
+  ]
+}

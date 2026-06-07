@@ -1,0 +1,231 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000" viewBox="0 0 1440 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Harness-Mem Runtime 分层架构图</title>
+  <desc id="desc">从用户入口、Agent 编排、MCP 传输、运行时命令、数据索引到真值边界的分层架构。</desc>
+  <defs>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e8f2fb" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="blueGreen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f6fbf"/>
+      <stop offset="58%" stop-color="#11a7b5"/>
+      <stop offset="100%" stop-color="#45bd92"/>
+    </linearGradient>
+    <linearGradient id="layerFill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f0f7ff"/>
+      <stop offset="100%" stop-color="#effcf6"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-20%" width="125%" height="155%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0b3558" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1677b9"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfdff; }
+      .grid { fill: url(#grid); opacity: .72; }
+      .title { font: 700 40px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .subtitle { font: 400 18px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #4d657d; }
+      .layer { fill: url(#layerFill); stroke: #bdd8ea; stroke-width: 1.6; rx: 18; }
+      .side { fill: #ffffff; stroke: #bdd8ea; stroke-width: 1.6; rx: 18; }
+      .label { font: 700 21px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #0e3a5a; }
+      .tag { font: 700 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #ffffff; }
+      .card { fill: #ffffff; stroke: #cbdfee; stroke-width: 1.2; rx: 14; }
+      .cardBlue { fill: #eaf5ff; stroke: #9ccfe0; stroke-width: 1.2; rx: 14; }
+      .cardGreen { fill: #eefbf5; stroke: #9ad8bb; stroke-width: 1.2; rx: 14; }
+      .cardOrange { fill: #fff7ed; stroke: #f1b979; stroke-width: 1.2; rx: 14; }
+      .cardTitle { font: 700 17px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .body { font: 400 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #445f76; }
+      .code { font: 700 13px "Cascadia Mono", Consolas, monospace; fill: #0f6fbf; }
+      .arrow { fill: none; stroke: #1677b9; stroke-width: 2.8; marker-end: url(#arrow); }
+      .small { font: 400 12px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #60788e; }
+      .rule { font: 700 14px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #173b57; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1440" height="1000"/>
+  <rect class="grid" width="1440" height="1000"/>
+  <rect x="0" y="0" width="1440" height="13" fill="url(#blueGreen)"/>
+
+  <text class="title" x="70" y="72">Harness-Mem：Local-first Memory Runtime 分层架构</text>
+  <text class="subtitle" x="72" y="106">用户入口保持简单；Agent 背后通过 MCP 调度 runtime；CLI 退回维护控制台。</text>
+
+  <g transform="translate(68 152)">
+    <rect class="layer" width="1080" height="128"/>
+    <rect x="24" y="24" width="142" height="32" rx="16" fill="url(#blueGreen)"/>
+    <text class="tag" x="42" y="46">User Surface</text>
+    <text class="label" x="28" y="92">用户可见入口</text>
+    <g transform="translate(230 24)">
+      <rect class="cardBlue" width="190" height="80"/>
+      <text class="cardTitle" x="18" y="30">Slash 命令</text>
+      <text class="code" x="18" y="56">/hm:distill / wake</text>
+    </g>
+    <g transform="translate(450 24)">
+      <rect class="cardBlue" width="190" height="80"/>
+      <text class="cardTitle" x="18" y="30">自然语言</text>
+      <text class="body" x="18" y="56">让 Agent 整理记忆</text>
+    </g>
+    <g transform="translate(670 24)">
+      <rect class="cardBlue" width="190" height="80"/>
+      <text class="cardTitle" x="18" y="30">Repo-local Skill</text>
+      <text class="body" x="18" y="56">harness-mem skill</text>
+    </g>
+    <g transform="translate(890 24)">
+      <rect class="cardOrange" width="190" height="80"/>
+      <text class="cardTitle" x="18" y="30">CLI?</text>
+      <text class="body" x="18" y="56">只在维护/排障</text>
+    </g>
+  </g>
+
+  <g transform="translate(68 312)">
+    <rect class="layer" width="1080" height="128"/>
+    <rect x="24" y="24" width="148" height="32" rx="16" fill="url(#blueGreen)"/>
+    <text class="tag" x="42" y="46">Agent Layer</text>
+    <text class="label" x="28" y="92">Agent 编排层</text>
+    <g transform="translate(230 24)">
+      <rect class="card" width="190" height="80"/>
+      <text class="cardTitle" x="18" y="30">session-distill</text>
+      <text class="body" x="18" y="56">读 packet 并提炼</text>
+    </g>
+    <g transform="translate(450 24)">
+      <rect class="card" width="190" height="80"/>
+      <text class="cardTitle" x="18" y="30">auto-review</text>
+      <text class="body" x="18" y="56">低风险自动处理</text>
+    </g>
+    <g transform="translate(670 24)">
+      <rect class="card" width="190" height="80"/>
+      <text class="cardTitle" x="18" y="30">可选协作者</text>
+      <text class="body" x="18" y="56">mem / grill / answer</text>
+    </g>
+    <g transform="translate(890 24)">
+      <rect class="cardGreen" width="190" height="80"/>
+      <text class="cardTitle" x="18" y="30">最终摘要</text>
+      <text class="body" x="18" y="56">只暴露残留风险</text>
+    </g>
+  </g>
+
+  <g transform="translate(68 472)">
+    <rect class="layer" width="1080" height="128"/>
+    <rect x="24" y="24" width="150" height="32" rx="16" fill="url(#blueGreen)"/>
+    <text class="tag" x="42" y="46">Transport</text>
+    <text class="label" x="28" y="92">传输与工具面</text>
+    <g transform="translate(230 24)">
+      <rect class="cardBlue" width="210" height="80"/>
+      <text class="cardTitle" x="18" y="30">MCP Server</text>
+      <text class="body" x="18" y="56">隐藏在 IDE / Agent 后</text>
+    </g>
+    <g transform="translate(470 24)">
+      <rect class="cardBlue" width="210" height="80"/>
+      <text class="cardTitle" x="18" y="30">一等 read surface</text>
+      <text class="code" x="18" y="56">wake / search_memory</text>
+    </g>
+    <g transform="translate(710 24)">
+      <rect class="cardBlue" width="210" height="80"/>
+      <text class="cardTitle" x="18" y="30">候选写入工具</text>
+      <text class="code" x="18" y="56">suggest_* / review</text>
+    </g>
+    <g transform="translate(950 24)">
+      <rect class="cardOrange" width="80" height="80"/>
+      <text class="cardTitle" x="18" y="30">CLI</text>
+      <text class="body" x="18" y="56">维护</text>
+    </g>
+  </g>
+
+  <g transform="translate(68 632)">
+    <rect class="layer" width="1080" height="128"/>
+    <rect x="24" y="24" width="160" height="32" rx="16" fill="url(#blueGreen)"/>
+    <text class="tag" x="42" y="46">Runtime</text>
+    <text class="label" x="28" y="92">命令与运行时编排</text>
+    <g transform="translate(230 24)">
+      <rect class="card" width="170" height="80"/>
+      <text class="cardTitle" x="18" y="30">commands/</text>
+      <text class="body" x="18" y="56">wake ingest search</text>
+    </g>
+    <g transform="translate(430 24)">
+      <rect class="card" width="170" height="80"/>
+      <text class="cardTitle" x="18" y="30">candidates</text>
+      <text class="body" x="18" y="56">confirm reject hold</text>
+    </g>
+    <g transform="translate(630 24)">
+      <rect class="card" width="170" height="80"/>
+      <text class="cardTitle" x="18" y="30">context plan</text>
+      <text class="body" x="18" y="56">L0-L4 分层组装</text>
+    </g>
+    <g transform="translate(830 24)">
+      <rect class="card" width="190" height="80"/>
+      <text class="cardTitle" x="18" y="30">reflection jobs</text>
+      <text class="body" x="18" y="56">opt-in host trigger</text>
+    </g>
+  </g>
+
+  <g transform="translate(68 792)">
+    <rect class="layer" width="1080" height="128"/>
+    <rect x="24" y="24" width="156" height="32" rx="16" fill="url(#blueGreen)"/>
+    <text class="tag" x="42" y="46">Storage</text>
+    <text class="label" x="28" y="92">数据与索引层</text>
+    <g transform="translate(230 24)">
+      <rect class="cardGreen" width="190" height="80"/>
+      <text class="cardTitle" x="18" y="30">Structured Store</text>
+      <text class="body" x="18" y="56">JSON blobs / profiles</text>
+    </g>
+    <g transform="translate(450 24)">
+      <rect class="cardGreen" width="190" height="80"/>
+      <text class="cardTitle" x="18" y="30">Verbatim Store</text>
+      <text class="body" x="18" y="56">SQLite FTS5 raw evidence</text>
+    </g>
+    <g transform="translate(670 24)">
+      <rect class="cardGreen" width="190" height="80"/>
+      <text class="cardTitle" x="18" y="30">Vector Cache</text>
+      <text class="body" x="18" y="56">optional hybrid retrieval</text>
+    </g>
+    <g transform="translate(890 24)">
+      <rect class="cardGreen" width="190" height="80"/>
+      <text class="cardTitle" x="18" y="30">Signals / Events</text>
+      <text class="body" x="18" y="56">审计和 metabolism 证据</text>
+    </g>
+  </g>
+
+  <path class="arrow" d="M 608 280 L 608 310"/>
+  <path class="arrow" d="M 608 440 L 608 470"/>
+  <path class="arrow" d="M 608 600 L 608 630"/>
+  <path class="arrow" d="M 608 760 L 608 790"/>
+
+  <g transform="translate(1180 152)">
+    <rect class="side" width="302" height="768"/>
+    <rect x="22" y="22" width="180" height="34" rx="17" fill="url(#blueGreen)"/>
+    <text class="tag" x="42" y="45">Truth Boundary</text>
+    <text class="label" x="24" y="94">真值边界</text>
+
+    <g transform="translate(24 126)">
+      <rect class="cardOrange" width="254" height="104"/>
+      <text class="rule" x="18" y="30">Pending 不进 wake</text>
+      <text class="body" x="18" y="58">RuleCandidate / MemoryEntry</text>
+      <text class="body" x="18" y="80">必须先经 review</text>
+    </g>
+    <g transform="translate(24 252)">
+      <rect class="cardGreen" width="254" height="104"/>
+      <text class="rule" x="18" y="30">Confirmed 才能消费</text>
+      <text class="body" x="18" y="58">accepted/current truth</text>
+      <text class="body" x="18" y="80">进入 wake / search</text>
+    </g>
+    <g transform="translate(24 378)">
+      <rect class="cardBlue" width="254" height="104"/>
+      <text class="rule" x="18" y="30">Generated cache 只辅助</text>
+      <text class="body" x="18" y="58">wiki bridge / compact index</text>
+      <text class="body" x="18" y="80">默认不变成 truth</text>
+    </g>
+    <g transform="translate(24 504)">
+      <rect class="cardBlue" width="254" height="104"/>
+      <text class="rule" x="18" y="30">Signals 不改主行为</text>
+      <text class="body" x="18" y="58">search_hit / wake_surfaced</text>
+      <text class="body" x="18" y="80">作为 replay 证据</text>
+    </g>
+    <g transform="translate(24 630)">
+      <rect class="cardOrange" width="254" height="104"/>
+      <text class="rule" x="18" y="30">无默认自学习</text>
+      <text class="body" x="18" y="58">host hook / scheduler 默认 off</text>
+      <text class="body" x="18" y="80">worker 不是 always-on daemon</text>
+    </g>
+  </g>
+
+  <text class="small" x="72" y="962">当前真值来源：README、AGENTS、docs/roadmap-status；版本状态 v2.9.53。图中 CLI 被刻意画成维护侧车，避免误导为日常产品入口。</text>
+</svg>

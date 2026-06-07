@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from harness_mem.commands.dream import dream_status_snapshot
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
+    find_project_root,
     get_active_project,
     log_next_step_shown,
     resolve_project_name,
 )
+from harness_mem.config.errors import ConfigError
+from harness_mem.config.merge import MergedConfig, load_merged_config
+from harness_mem.core.schemas.project_profile import ProjectProfile
+from harness_mem.knowledge_cache import knowledge_cache_health
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
@@ -58,6 +64,8 @@ async def _status_project_async(backend: LocalMemoryBackend, project_name: str) 
     print(f"  Memory entries: {len(entries)} (limited to 5 latest in wake-up)")
     print(f"  Task handoffs: {len(handoffs)} (limited to 3 latest in wake-up)")
     print(f"  Confirmed rules: {len(rules)}")
+    await _print_dream_status(backend, project_name)
+    await _print_knowledge_cache_status(backend, project_name, profile)
 
     profile_text = ""
     if profile:
@@ -95,6 +103,59 @@ async def _status_project_async(backend: LocalMemoryBackend, project_name: str) 
 def _suggested_purge_command(project_name: str | None) -> str:
     project_flag = f" -p {project_name}" if project_name else ""
     return f"harness-mem purge{project_flag} --before <DATE> --category all --dry-run"
+
+
+def _load_project_config(project_name: str) -> MergedConfig | None:
+    root = find_project_root(project_name)
+    if root is None:
+        return None
+    try:
+        return load_merged_config(str(root))
+    except ConfigError:
+        return None
+
+
+async def _print_dream_status(
+    backend: LocalMemoryBackend,
+    project_name: str,
+) -> None:
+    config = _load_project_config(project_name)
+    snapshot = await dream_status_snapshot(
+        backend,
+        project_name=project_name,
+        config=config,
+    )
+    state = "enabled" if snapshot["enabled"] else "off"
+    print(f"  Dream auto: {state}")
+    if snapshot["last_run_id"]:
+        print(
+            "  Last dream: "
+            f"{snapshot['last_status']} "
+            f"(processed {snapshot['last_processed']}, failed {snapshot['last_failed']})"
+        )
+    else:
+        print("  Last dream: none")
+
+
+async def _print_knowledge_cache_status(
+    backend: LocalMemoryBackend,
+    project_name: str,
+    profile: ProjectProfile | None,
+) -> None:
+    report = await knowledge_cache_health(
+        backend,
+        data_dir=DEFAULT_DATA_DIR,
+        project_name=project_name,
+        profile=profile,
+        project_root=find_project_root(project_name),
+    )
+    print(
+        "  Generated cache: "
+        f"{report['generated_claim_count']} claims, "
+        f"{report['stale_source_count']} stale source(s), "
+        f"{report['orphaned_output_count']} orphaned output(s), "
+        f"cache hit ratio {report['cache_hit_ratio']:.2f}"
+    )
 
 
 def _disclosure_level(tokens: int) -> str:

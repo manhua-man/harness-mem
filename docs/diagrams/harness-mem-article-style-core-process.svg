@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1120" viewBox="0 0 1440 1120" role="img" aria-labelledby="title desc">
+  <title id="title">Harness-Mem 核心过程</title>
+  <desc id="desc">文章式 Harness-Mem 核心过程图，按笔记构建、候选治理、检索消费、代谢维护四个过程解释系统机制。</desc>
+  <defs>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e8f2fb" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f6fbf"/>
+      <stop offset="58%" stop-color="#11a7b5"/>
+      <stop offset="100%" stop-color="#45bd92"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1677b9"/>
+    </marker>
+    <marker id="greenArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1f9f7a"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfdff; }
+      .grid { fill: url(#grid); opacity: .72; }
+      .title { font: 700 42px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .subtitle { font: 400 18px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #4d657d; }
+      .panel { fill: #ffffff; stroke: #c6dcee; stroke-width: 1.5; rx: 18; }
+      .blue { fill: #eaf5ff; stroke: #9ccfe0; stroke-width: 1.6; rx: 18; }
+      .green { fill: #effbf5; stroke: #92d7b6; stroke-width: 1.6; rx: 18; }
+      .orange { fill: #fff7ed; stroke: #f1b979; stroke-width: 1.6; rx: 18; }
+      .chip { fill: url(#brand); rx: 16; }
+      .chipText { font: 700 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #ffffff; }
+      .label { font: 700 24px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .mid { font: 700 18px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .body { font: 400 14px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #425c72; }
+      .code { font: 700 13px "Cascadia Mono", Consolas, monospace; fill: #0f6fbf; }
+      .num { font: 700 18px "Segoe UI", Arial, sans-serif; fill: #ffffff; }
+      .arrow { fill: none; stroke: #1677b9; stroke-width: 2.8; marker-end: url(#arrow); }
+      .arrowGreen { fill: none; stroke: #1f9f7a; stroke-width: 2.8; marker-end: url(#greenArrow); }
+      .small { font: 400 12px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #60788e; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1440" height="1120"/>
+  <rect class="grid" width="1440" height="1120"/>
+  <rect x="0" y="0" width="1440" height="13" fill="url(#brand)"/>
+  <text class="title" x="70" y="72">Harness-Mem 核心过程</text>
+  <text class="subtitle" x="72" y="106">对应 A-MEM / MemGPT 那类文章结构：构建、治理、检索、维护；但核心红线是 candidate-before-truth。</text>
+
+  <g transform="translate(74 160)">
+    <rect class="blue" width="1292" height="190"/>
+    <circle cx="44" cy="42" r="22" fill="#0f6fbf"/>
+    <text class="num" x="38" y="49">1</text>
+    <text class="label" x="82" y="50">记忆构建过程：Raw Session -> Evidence Packet -> 多维候选</text>
+    <text class="body" x="82" y="88">新增交互或阶段结束时，Agent 通过 `prepare_session_distill(client=auto)` 读取项目范围历史，保留 source ids、raw observations 和上下文描述。</text>
+    <g transform="translate(82 118)"><rect class="panel" width="210" height="50"/><text class="code" x="16" y="31">raw observations</text></g>
+    <g transform="translate(350 118)"><rect class="panel" width="210" height="50"/><text class="code" x="16" y="31">evidence packet</text></g>
+    <g transform="translate(618 118)"><rect class="panel" width="210" height="50"/><text class="code" x="16" y="31">LLM distillation</text></g>
+    <g transform="translate(886 118)"><rect class="panel" width="250" height="50"/><text class="code" x="16" y="31">Memory / Rule / Relation</text></g>
+    <path class="arrow" d="M 292 143 L 348 143"/><path class="arrow" d="M 560 143 L 616 143"/><path class="arrow" d="M 828 143 L 884 143"/>
+  </g>
+
+  <g transform="translate(74 390)">
+    <rect class="orange" width="1292" height="190"/>
+    <circle cx="44" cy="42" r="22" fill="#d9791f"/>
+    <text class="num" x="38" y="49">2</text>
+    <text class="label" x="82" y="50">候选治理过程：AI 可以提出，不能直接成为长期真值</text>
+    <text class="body" x="82" y="88">所有 AI 生成内容先进入 pending candidate。系统自动确认低风险事实、拒绝噪声；高风险项留给人类最终复核。</text>
+    <g transform="translate(82 118)"><rect class="panel" width="260" height="50"/><text class="code" x="16" y="31">suggest_* -> pending</text></g>
+    <g transform="translate(400 118)"><rect class="panel" width="300" height="50"/><text class="code" x="16" y="31">auto_review_candidates(apply=true)</text></g>
+    <g transform="translate(758 118)"><rect class="panel" width="210" height="50"/><text class="code" x="16" y="31">human final review</text></g>
+    <g transform="translate(1026 118)"><rect class="panel" width="210" height="50"/><text class="code" x="16" y="31">confirmed truth</text></g>
+    <path class="arrow" d="M 342 143 L 398 143"/><path class="arrow" d="M 700 143 L 756 143"/><path class="arrowGreen" d="M 968 143 L 1024 143"/>
+  </g>
+
+  <g transform="translate(74 620)">
+    <rect class="green" width="1292" height="190"/>
+    <circle cx="44" cy="42" r="22" fill="#1f9f7a"/>
+    <text class="num" x="38" y="49">3</text>
+    <text class="label" x="82" y="50">记忆检索过程：FTS + 向量融合 + 渐进展开</text>
+    <text class="body" x="82" y="88">`search_memory` 先返回摘要和 source ids；需要时再展开 timeline、raw observation 或 detail。Embedding 不可用时自动退回 FTS。</text>
+    <g transform="translate(82 118)"><rect class="panel" width="210" height="50"/><text class="code" x="16" y="31">SQLite FTS5</text></g>
+    <g transform="translate(350 118)"><rect class="panel" width="210" height="50"/><text class="code" x="16" y="31">optional vector</text></g>
+    <g transform="translate(618 118)"><rect class="panel" width="210" height="50"/><text class="code" x="16" y="31">weighted RRF</text></g>
+    <g transform="translate(886 118)"><rect class="panel" width="250" height="50"/><text class="code" x="16" y="31">source ids + drilldown</text></g>
+    <path class="arrowGreen" d="M 292 143 L 348 143"/><path class="arrowGreen" d="M 560 143 L 616 143"/><path class="arrowGreen" d="M 828 143 L 884 143"/>
+  </g>
+
+  <g transform="translate(74 850)">
+    <rect class="blue" width="1292" height="190"/>
+    <circle cx="44" cy="42" r="22" fill="#0f6fbf"/>
+    <text class="num" x="38" y="49">4</text>
+    <text class="label" x="82" y="50">记忆维护过程：Signals / Metabolism / Reflection Job</text>
+    <text class="body" x="82" y="88">`wake_surfaced`、`search_hit`、`confirmed`、`rejected` 等信号只作为治理证据；metabolism 生成建议候选，reflection job 由 opt-in trigger 触发。</text>
+    <g transform="translate(82 118)"><rect class="panel" width="210" height="50"/><text class="code" x="16" y="31">RetrievalSignal</text></g>
+    <g transform="translate(350 118)"><rect class="panel" width="210" height="50"/><text class="code" x="16" y="31">metabolism_preview</text></g>
+    <g transform="translate(618 118)"><rect class="panel" width="210" height="50"/><text class="code" x="16" y="31">suggestion candidates</text></g>
+    <g transform="translate(886 118)"><rect class="panel" width="250" height="50"/><text class="code" x="16" y="31">ReflectionJob (opt-in)</text></g>
+    <path class="arrow" d="M 292 143 L 348 143"/><path class="arrow" d="M 560 143 L 616 143"/><path class="arrow" d="M 828 143 L 884 143"/>
+  </g>
+
+  <text class="small" x="74" y="1086">核心差异：A-MEM 重点是动态笔记与链接；MemGPT 重点是虚拟上下文调度；Harness-Mem 重点是候选治理、证据追溯和 confirmed truth 消费边界。</text>
+</svg>

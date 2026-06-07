@@ -1,0 +1,147 @@
+{
+  "benchmark_id": "client_enabled_vs_disabled",
+  "version": 1,
+  "workspace_path": "F:\\memory-lab\\harness-mem",
+  "conditions": {
+    "enabled": {
+      "allowed_memory_surfaces": [
+        "wake",
+        "search_memory",
+        "timeline",
+        "get_observations",
+        "get_confirmed_rules",
+        "get_project_status"
+      ],
+      "instruction": "You may use harness-mem read surfaces when they help recover prior project truth. Record which memory calls you used."
+    },
+    "disabled": {
+      "forbidden_memory_surfaces": [
+        "wake",
+        "search_memory",
+        "timeline",
+        "get_observations",
+        "get_confirmed_rules",
+        "get_project_status",
+        "suggest_rule",
+        "suggest_memory_entry"
+      ],
+      "instruction": "Do not use harness-mem reads or writes. Use normal repo/file search, tests, and local evidence only."
+    }
+  },
+  "tasks": [
+    {
+      "task_id": "T1",
+      "title": "Embedding baseline truth recovery",
+      "task_type": "repo_truth_recovery",
+      "prompt": "In this repository, what embedding model is currently the default baseline for LongMemEval / benchmark docs, and how should bge-small-en-v1.5 and nomic-embed-text-v1.5 be described? Answer with the exact current truth and cite the evidence you used.",
+      "acceptance_summary": "Must identify all-MiniLM-L6-v2 as the default baseline and describe bge-small-en-v1.5 / nomic-embed-text-v1.5 as configurable shootout candidates, not the default.",
+      "required_facts": [
+        "Default baseline is all-MiniLM-L6-v2.",
+        "bge-small-en-v1.5 is a configurable shootout candidate unless later evidence changes it.",
+        "nomic-embed-text-v1.5 is a configurable shootout candidate unless later evidence changes it.",
+        "The answer cites concrete repo or memory evidence."
+      ],
+      "forbidden_claims": [
+        "bge-small-en-v1.5 is the default baseline without later shootout evidence.",
+        "nomic-embed-text-v1.5 is the default baseline without later shootout evidence.",
+        "The embedding default is unknown when repo evidence is available."
+      ],
+      "expected_evidence_hints": [
+        "AGENTS.md Key Technologies",
+        "benchmark docs or embedding shootout references if present"
+      ]
+    },
+    {
+      "task_id": "T2",
+      "title": "Release or packet status recovery",
+      "task_type": "status_recovery",
+      "prompt": "Recover the current status of the v2 user-test packet / release evidence work. What evidence is already present, what remains missing or not yet claimable, and what should the next verification step be? Keep the answer scoped to current repo truth.",
+      "acceptance_summary": "Must separate completed evidence from missing/not-claimable evidence and avoid overstating near-neighbor artifacts.",
+      "required_facts": [
+        "Names at least three concrete packet/release evidence items by file, scenario id, or artifact path.",
+        "Separates completed evidence from missing or not-yet-claimable evidence.",
+        "States a next verification step.",
+        "Does not route daily wake/search/timeline work to obsolete user CLI commands."
+      ],
+      "forbidden_claims": [
+        "Near-neighbor evidence proves a stronger scenario than it actually covers.",
+        "Docs-only truth is equivalent to a real client transcript.",
+        "The first publishable result already exists when only methodology or partial artifacts exist."
+      ],
+      "expected_evidence_hints": [
+        "docs/v2-user-test-packet.md",
+        "tests/test_v2_user_test_packet_*",
+        "harness_mem/integration/artifacts/"
+      ]
+    },
+    {
+      "task_id": "T3",
+      "title": "Scheduling and daemon boundary recovery",
+      "task_type": "constraint_recovery",
+      "prompt": "Should harness-mem rely on a background daemon, IDE hook, or turn-end autonomous learning path for ordinary coding tasks right now? Recover the current architecture truth, distinguish shipped behavior from proposed behavior, and recommend the safest next step.",
+      "acceptance_summary": "Must say autonomous background learning is not currently implemented for ordinary coding tasks and that suggest_* writes are explicit agent flows.",
+      "required_facts": [
+        "No background daemon, IDE hook, or turn-end self-check currently makes agents automatically remember ordinary coding tasks.",
+        "suggest_rule / suggest_memory_entry are explicit candidate-write interfaces in agent workflows.",
+        "User review remains part of the candidate lifecycle.",
+        "Recommendation keeps experiments isolated until the runtime contract is proven."
+      ],
+      "forbidden_claims": [
+        "Autonomous learning is already shipped for normal coding turns.",
+        "A daemon is the current runtime entry point.",
+        "Candidate writes happen implicitly at every turn."
+      ],
+      "expected_evidence_hints": [
+        "AGENTS.md AI-led Memory Candidate Loop",
+        "CLAUDE.md Memory Consolidation workflow",
+        "openspec specs for learning-loop or host entry if needed"
+      ]
+    },
+    {
+      "task_id": "T4",
+      "title": "Daily workflow and CLI boundary recovery",
+      "task_type": "workflow_recovery",
+      "prompt": "A user asks how to recover project context and how to distill recent sessions in harness-mem. Recover the current intended workflow. Which entry points should the agent use, and what is the CLI still for?",
+      "acceptance_summary": "Must route daily wake/search/timeline/candidate review through Slash/MCP/Skills and describe CLI as local ops/troubleshooting.",
+      "required_facts": [
+        "Daily user entry points are Slash, MCP, and Skills.",
+        "wake/search/timeline/candidate review are agent/MCP or Slash workflows.",
+        "session distill uses MCP prepare_session_distill plus the session-distill skill or agent candidate writes.",
+        "CLI is for install, doctor, purge, maintenance, API server, and file import operations."
+      ],
+      "forbidden_claims": [
+        "User should hand-run harness-mem wake/search/timeline/candidates for daily work.",
+        "CLI heuristic distill is the primary current path.",
+        "MCP is optional for the normal agent workflow."
+      ],
+      "expected_evidence_hints": [
+        "AGENTS.md Runtime Entry Truth",
+        "CLAUDE.md Tool Integration Workflows",
+        "plugins/harness-mem/commands/hm/"
+      ]
+    },
+    {
+      "task_id": "T5",
+      "title": "Negative control: fresh local syntax error",
+      "task_type": "negative_control",
+      "prompt": "Negative-control task: inspect the current workspace for a newly added local syntax error or minimal failing test fixture, fix only that fresh local issue, and report the exact file and verification command. Do not rely on historical project memory unless the task cannot be solved from current files.",
+      "acceptance_summary": "Must solve from fresh local repo evidence and show little or no memory advantage.",
+      "required_facts": [
+        "Uses current file/test evidence to identify the issue.",
+        "Reports the exact file changed or inspected.",
+        "Reports the verification command.",
+        "States whether memory was unnecessary for this task."
+      ],
+      "forbidden_claims": [
+        "Historical memory is required for a brand-new syntax error when local evidence is enough.",
+        "The task proves memory improves all task categories.",
+        "A fix was verified without a command or concrete evidence."
+      ],
+      "expected_evidence_hints": [
+        "Current failing test output",
+        "Current edited file",
+        "No memory evidence expected"
+      ]
+    }
+  ]
+}

@@ -9,7 +9,7 @@ import pytest
 
 from harness_mem.core.schemas import MemoryEntry
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from tests.helpers import requires_embeddings, run
+from tests.helpers import patch_fake_write_embedding_loader, requires_embeddings, run
 
 
 @pytest.fixture
@@ -24,9 +24,10 @@ def temp_backend():
 
 
 @requires_embeddings
-def test_write_embedding_creates_vec_row(temp_backend):
+def test_write_embedding_creates_vec_row(temp_backend, monkeypatch: pytest.MonkeyPatch):
     """Task 9.1: Write embedding, verify row exists with correct model_id/model_version."""
     async def _test():
+        patch_fake_write_embedding_loader(monkeypatch)
         await temp_backend.init()
 
         # Save a memory entry (should trigger embedding persistence)
@@ -155,9 +156,10 @@ def test_model_id_filter(temp_backend):
 
 
 @requires_embeddings
-def test_switch_model_excludes_old_vectors(temp_backend):
+def test_switch_model_excludes_old_vectors(temp_backend, monkeypatch: pytest.MonkeyPatch):
     """Task 9.4: Switch model_id, verify old vectors are excluded from search."""
     async def _test():
+        patch_fake_write_embedding_loader(monkeypatch)
         await temp_backend.init()
 
         # Save entry with default model
@@ -242,9 +244,14 @@ def test_missing_vec_table_fallback_fts(temp_backend):
 
 
 @requires_embeddings
-def test_dimension_mismatch_triggers_warning(temp_backend, caplog):
+def test_dimension_mismatch_triggers_warning(
+    temp_backend,
+    caplog,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Task 9.6: Dimension mismatch triggers warning and fallback."""
     async def _test():
+        patch_fake_write_embedding_loader(monkeypatch)
         await temp_backend.init()
 
         # Save entry with correct dimensions

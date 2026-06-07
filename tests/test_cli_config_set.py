@@ -83,6 +83,42 @@ def test_set_success_confirmation_shape(
     assert out.err == ""
 
 
+def test_set_dream_auto_enabled_round_trips_through_get(
+    home_dir: Path, project_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rc_set = cmd_config_set(
+        "dream.auto.enabled",
+        "true",
+        "project",
+        str(project_dir),
+    )
+    assert rc_set == 0
+    capsys.readouterr()
+
+    rc_get = cmd_config_get("dream.auto.enabled", str(project_dir))
+
+    assert rc_get == 0
+    assert capsys.readouterr().out.strip() == "true"
+
+
+def test_set_unknown_autopilot_key_is_rejected(
+    home_dir: Path, project_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rc = cmd_config_set(
+        "autopilot.write_candidates",
+        "on",
+        "project",
+        str(project_dir),
+    )
+
+    assert rc == 1
+    out = capsys.readouterr()
+    assert out.out == ""
+    assert "invalid value: autopilot.write_candidates = on" in out.err
+    assert "allowed: {}" in out.err
+    assert not (project_dir / ".harness-mem.toml").exists()
+
+
 # ---- Req 2.5: allowed-value validation rejection -------------------------
 
 
@@ -98,6 +134,33 @@ def test_invalid_recognized_value_rejected(
     assert "invalid value: triggers.after_agent = sometimes" in out.err
     assert "allowed: {off, on}" in out.err
     # Req 2.5: the file must not be created when validation fails.
+    assert not (project_dir / ".harness-mem.toml").exists()
+
+
+@pytest.mark.parametrize(
+    ("key_path", "value", "allowed"),
+    [
+        ("dream.parse.parse_all", "false", "{true}"),
+        ("dream.handle.handle_all", "false", "{true}"),
+        ("dream.handle.allow_delete_truth", "true", "{false}"),
+        ("dream.handle.preserve_audit", "false", "{true}"),
+    ],
+)
+def test_invalid_dream_contract_value_rejected(
+    home_dir: Path,
+    project_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+    key_path: str,
+    value: str,
+    allowed: str,
+) -> None:
+    rc = cmd_config_set(key_path, value, "project", str(project_dir))
+
+    assert rc == 1
+    out = capsys.readouterr()
+    assert out.out == ""
+    assert f"invalid value: {key_path} = {value}" in out.err
+    assert f"allowed: {allowed}" in out.err
     assert not (project_dir / ".harness-mem.toml").exists()
 
 

@@ -20,7 +20,7 @@ class ReflectionJob(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     project_name: str
     project_root: str
-    kind: Literal["reflection"] = Field(default="reflection")
+    kind: Literal["reflection", "dream"] = Field(default="reflection")
     phase: Literal[
         "ingest",
         "prepare",

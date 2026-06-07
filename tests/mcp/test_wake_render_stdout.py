@@ -113,6 +113,13 @@ def test_tool_wake_render_stdout_stays_clean(
         assert "# Project Profile" in output
         assert "# Essential Truth" in output
         assert "# Active Task" in output
+        assert payload["wake_sections"][1]["title"] == "# Essential Truth  (L1 · confirmed current)"
+        assert payload["essential_truth"]
+        assert any(
+            "Redirect MCP server stdout to stderr" in entry["summary"]
+            for entry in payload["essential_truth"]
+        )
+        assert payload["disclosure"]["level"] in {"L0", "L1", "L2", "L3", "L4+"}
         # Seeded plan-backed content actually surfaced in the rendered L1 text.
         assert "Redirect MCP server stdout to stderr" in output
 
@@ -125,6 +132,7 @@ def test_tool_wake_render_stdout_stays_clean(
         serialized = json.dumps(payload)
         assert isinstance(serialized, str)
         assert json.loads(serialized)["output"] == output
+        assert serialized.index('"essential_truth"') < serialized.index('"output"')
     finally:
         set_backend_override(None)
         run(backend.close())
@@ -204,6 +212,7 @@ def test_tool_wake_opt_in_skill_hints_are_compact_and_default_stays_unchanged(
         assert "Run focused tests" not in hinted_payload["output"]
         assert "Run full pytest" not in hinted_payload["output"]
         assert "Approx skill-hint tokens:" in hinted_payload["output"]
+        assert hinted_payload["skill_hints"][0]["name"] == "Release verification workflow"
     finally:
         set_backend_override(None)
         run(backend.close())
