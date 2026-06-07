@@ -16,7 +16,7 @@ def test_v31_docs_are_implemented_and_indexed() -> None:
     assert "已发布的 v3.1-v3.3 与规划中的 v3.4" in docs_readme
     assert "| v3.1.0 | 已发布：Auto Dream Memory Maintenance |" in roadmap_status
     assert "| v3.1.x | 已发布：Auto Dream Memory Maintenance |" in roadmap_status
-    assert "当前版本 v3.3.2 已发布 Temporal Query and Supersede Explainability" in roadmap_status
+    assert "当前版本 v3.3.3 已发布 Temporal Query and Supersede Explainability" in roadmap_status
     assert "| Auto Dream | `/hm:dream` 读取 DreamRun 账本" in roadmap_status
     assert "| v3.1.x Auto Dream Memory Maintenance | 规划中，未实现 |" not in roadmap_status
     assert "| v3.1.x | Auto Dream Memory Maintenance" in roadmap_status

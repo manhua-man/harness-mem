@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +13,13 @@ pytestmark = pytest.mark.cli
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCTOR_SCRIPT = REPO_ROOT / "plugins" / "harness-mem" / "scripts" / "doctor.ps1"
+
+
+def _powershell_executable() -> str:
+    executable = shutil.which("powershell") or shutil.which("pwsh")
+    if executable is None:
+        pytest.skip("PowerShell is not available on this runner")
+    return executable
 
 
 def _isolated_env(home: Path) -> dict[str, str]:
@@ -34,7 +42,7 @@ def test_plugin_doctor_script_succeeds_without_removed_status_call(tmp_path: Pat
     assert quickstart.returncode == 0
 
     result = subprocess.run(
-        ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(DOCTOR_SCRIPT)],
+        [_powershell_executable(), "-ExecutionPolicy", "Bypass", "-File", str(DOCTOR_SCRIPT)],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -62,7 +70,14 @@ def test_plugin_doctor_script_wake_switch_prints_ide_hint(tmp_path: Path):
     assert quickstart.returncode == 0
 
     result = subprocess.run(
-        ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(DOCTOR_SCRIPT), "-Wake"],
+        [
+            _powershell_executable(),
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(DOCTOR_SCRIPT),
+            "-Wake",
+        ],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,

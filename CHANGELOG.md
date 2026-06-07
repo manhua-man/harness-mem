@@ -8,6 +8,29 @@
 
 ---
 
+## [3.3.3] — 2026-06-07
+
+**主题：Plugin Script CI Compatibility**
+
+v3.3.3 修复 v3.3.2 远端 matrix 暴露的 repo-local plugin PowerShell 测试问题。
+
+### Fixed
+
+- **plugin PowerShell runner detection**：`.ps1` plugin tests 现在自动寻找
+  `powershell` / `pwsh`，没有 PowerShell 的 Linux/macOS runner 会跳过这些
+  Windows 脚本执行测试，而不是因找不到 shell 红掉。
+- **Windows PowerShell 5.1 script parsing**：`plugins/harness-mem/scripts/doctor.ps1`
+  改为 ASCII wake hint，避免无 BOM `.ps1` 在 Windows PowerShell 5.1 下按旧编码
+  读取非 ASCII 字符时触发 parser error。
+
+### Validation
+
+- `python -m pytest -q`
+- `python -m ruff check .`
+- `python -m mypy harness_mem`
+
+---
+
 ## [3.3.2] — 2026-06-07
 
 **主题：Cross-Platform CI Compatibility**
