@@ -8,6 +8,36 @@
 
 ---
 
+## [3.3.1] — 2026-06-07
+
+**主题：Release CI Dependency Fix**
+
+v3.3.1 修复 v3.3.0 发布后 GitHub Actions fresh install 暴露的测试环境漂移：
+本地完整 gate 已通过，但远端 matrix 只安装 `.[dev,benchmark]`，缺少实际测试与
+类型检查所需的开发依赖和一个 profile detector fixture。
+
+### Fixed
+
+- **CI dev dependency closure**：`dev` extra 现在包含 async pytest 插件、vector
+  fixture 所需的 `numpy`、token estimator 测试所需的 `tiktoken`，避免 fresh
+  matrix 环境因为本机缓存包缺失而失败。
+- **optional import mypy guard**：对 hybrid / MCP optional modules 配置
+  `mypy` missing-import override，保持这些集成 optional，而不是强迫默认 CI 安装
+  重量级可选 runtime。
+- **profile detector fixture**：补入 `php-ts-monorepo` fixture，确保 Laravel +
+  TypeScript / Next monorepo 探测测试不依赖本机残留目录。
+
+### Validation
+
+- `python -m pytest -q`：1167 passed, 1 skipped
+- `python -m ruff check .`
+- `python -m mypy harness_mem`
+- `openspec validate --all --strict`：21 passed, 0 failed
+- fresh venv with `pip install -e ".[dev,benchmark]"` representative CI repro:
+  29 passed, plus `mypy` / `ruff` passed
+
+---
+
 ## [3.3.0] — 2026-06-07
 
 **主题：Temporal Query and Supersede Explainability**

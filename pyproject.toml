@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "3.3.0"
+version = "3.3.1"
 description = "Local-first, pluggable AI memory runtime"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,11 +12,15 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "anyio>=4.0.0",
     "build>=1.2.2",
     "hypothesis>=6.0",
     "mypy>=1.11.0",
+    "numpy>=1.26.0",
     "pytest>=8.3.0",
+    "pytest-asyncio>=0.23.0",
     "ruff>=0.6.0",
+    "tiktoken>=0.7.0",
     "twine>=5.1.1",
 ]
 hybrid = [
@@ -60,3 +64,12 @@ exclude = [
     "docs/v2-user-test-packet.md",
     "harness_mem/integration/artifacts",
 ]
+
+[[tool.mypy.overrides]]
+module = [
+    "huggingface_hub",
+    "mcp",
+    "mcp.client.stdio",
+    "sentence_transformers",
+]
+ignore_missing_imports = true

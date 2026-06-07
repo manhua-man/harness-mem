@@ -1,6 +1,8 @@
 # Roadmap: harness-mem v3.3
 
-> 状态：已发布，当前版本 3.3.0。
+> 状态：已发布，当前版本 3.3.1。
+> 下方 `v3.3.1` 等小节是早期切片规划名；最终 temporal 能力已合并到
+> v3.3.0 发布，公开 patch v3.3.1 用于 release CI dependency fix。
 >
 > 主题：Temporal Query and Supersede Explainability。把 v1.7 temporal truth
 > 从 schema 和 supersede 推进到可查询、可解释、可评测的时间事实读模型；多跳图只做后置验证，不作为主线门槛。

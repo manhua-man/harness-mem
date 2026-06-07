@@ -10,13 +10,13 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `3.3.0` |
-| `harness_mem/__init__.py` | `3.3.0` |
-| `CHANGELOG.md` | 已有 `3.3.0` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `3.3.1` |
+| `harness_mem/__init__.py` | `3.3.1` |
+| `CHANGELOG.md` | 已有 `3.3.1` 段；`Unreleased` 当前为空 |
 
 ## 产品基线
 
-当前收口基线是 v3.3.0：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v3.3.1：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环、v2.3 signals/replay、v2.4
 reflection queue（默认关闭的 opt-in host 触发）、v2.5 context assembly /
@@ -33,7 +33,7 @@ atomic claim metadata、citation validation、claim diff、incremental compile m
 freshness/status 可见性和 compact context drilldown 已落地；generated wiki / compact
 output 仍不替代 confirmed truth。
 
-当前版本 v3.3.0 已发布 Temporal Query and Supersede Explainability：MCP
+当前版本 v3.3.1 已发布 Temporal Query and Supersede Explainability：MCP
 `temporal_query` 可按 current/history/as_of 查询 confirmed truth 的 temporal read
 model，返回 valid/recorded time、source provenance、supersede chain、timeline、
 explanation 和 abstention metadata；它是 read-side projection，不改写 truth。
@@ -70,7 +70,8 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 | v3.1.x | 已发布：Auto Dream Memory Maintenance |
 | v3.2.0 | 已发布：Generated Knowledge Compiler + Basic Freshness |
 | v3.2.x | 已发布：Generated Knowledge Compiler + Basic Freshness |
-| v3.3.0 | 当前版本 |
+| v3.3.0 | 已发布：Temporal Query and Supersede Explainability |
+| v3.3.1 | 当前版本 |
 | v3.3.x | 已发布：Temporal Query and Supersede Explainability |
 
 ## 未完成 / 不做项

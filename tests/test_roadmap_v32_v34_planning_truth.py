@@ -27,7 +27,8 @@ def test_v32_v33_are_implemented_and_v34_remains_planning() -> None:
     )
     assert "| v3.2.0 | 已发布：Generated Knowledge Compiler + Basic Freshness |" in roadmap_status
     assert "| v3.2.x | 已发布：Generated Knowledge Compiler + Basic Freshness |" in roadmap_status
-    assert "| v3.3.0 | 当前版本 |" in roadmap_status
+    assert "| v3.3.0 | 已发布：Temporal Query and Supersede Explainability |" in roadmap_status
+    assert "| v3.3.1 | 当前版本 |" in roadmap_status
     assert "| v3.3.x | 已发布：Temporal Query and Supersede Explainability |" in roadmap_status
     assert "| v3.2.x | Generated Knowledge Compiler + Basic Freshness" in roadmap_status
     assert "| v3.3.x | 已发布：Temporal Query and Supersede Explainability" in roadmap_status
@@ -38,7 +39,7 @@ def test_v32_v33_are_implemented_and_v34_remains_planning() -> None:
     assert "> 状态：已发布，当前版本 3.2.0。" in roadmap_v32
     assert "### 当前实现（2026-06-07）" in roadmap_v32
     assert "citation validation" in roadmap_status
-    assert "> 状态：已发布，当前版本 3.3.0。" in roadmap_v33
+    assert "> 状态：已发布，当前版本 3.3.1。" in roadmap_v33
     assert "### 当前实现（2026-06-07）" in roadmap_v33
     assert "> 状态：规划中，未实现。" in roadmap_v34
     assert "generated wiki / compact page 不是 truth" in roadmap_v32
