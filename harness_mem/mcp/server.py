@@ -150,6 +150,7 @@ from harness_mem.knowledge_cache import (  # noqa: E402
 from harness_mem.read_api import (  # noqa: E402
     build_search_project_context_map,
     parse_relative_time_window,
+    query_temporal_truth,
     regex_search_observations,
     search_memory,
     search_relation_facts,
@@ -161,6 +162,7 @@ from harness_mem.read_api import (  # noqa: E402
     serialize_regex_observation_match,
     serialize_relation_fact_search_result,
     serialize_skill,
+    serialize_temporal_query_result,
     serialize_timeline_observation,
     timeline_observations,
     trace_relation_paths,
@@ -407,6 +409,99 @@ def tool_trace_relations(
         "paths": [serialize_relation_path(path) for path in paths],
         "path_count": len(paths),
     }
+
+
+def tool_temporal_query(
+    project_name: str,
+    query: str | None = None,
+    subject: str | None = None,
+    predicate: str | None = None,
+    truth_type: str | None = None,
+    mode: str = "current",
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    recorded_from: str | None = None,
+    recorded_to: str | None = None,
+    limit: int = 20,
+    require_unique_current: bool = False,
+) -> dict:
+    """Query the v3.3 temporal read model without mutating truth."""
+    if mode not in {"current", "history", "as_of"}:
+        return {"success": False, "error": "mode must be one of: current, history, as_of"}
+    if truth_type not in {None, "memory_entry", "relation_fact", "confirmed_rule"}:
+        return {
+            "success": False,
+            "error": "truth_type must be one of: memory_entry, relation_fact, confirmed_rule",
+        }
+    parsed_as_of, error = _parse_optional_iso_datetime(as_of, "as_of")
+    if error:
+        return {"success": False, "error": error}
+    if mode == "as_of" and parsed_as_of is None:
+        return {"success": False, "error": "as_of is required when mode=as_of"}
+    parsed_valid_from, error = _parse_optional_iso_datetime(valid_from, "valid_from")
+    if error:
+        return {"success": False, "error": error}
+    parsed_valid_to, error = _parse_optional_iso_datetime(valid_to, "valid_to")
+    if error:
+        return {"success": False, "error": error}
+    parsed_recorded_from, error = _parse_optional_iso_datetime(recorded_from, "recorded_from")
+    if error:
+        return {"success": False, "error": error}
+    parsed_recorded_to, error = _parse_optional_iso_datetime(recorded_to, "recorded_to")
+    if error:
+        return {"success": False, "error": error}
+
+    backend = _get_backend()
+    result = asyncio.run(
+        query_temporal_truth(
+            backend,
+            project_name=project_name,
+            query=query,
+            subject=subject,
+            predicate=predicate,
+            truth_type=truth_type,
+            mode=mode,
+            as_of=parsed_as_of,
+            valid_range=(parsed_valid_from, parsed_valid_to),
+            recorded_range=(parsed_recorded_from, parsed_recorded_to),
+            limit=limit,
+            require_unique_current=require_unique_current,
+        )
+    )
+    payload = serialize_temporal_query_result(result)
+    payload.update(
+        {
+            "project_name": project_name,
+            "query": query,
+            "subject": subject,
+            "predicate": predicate,
+            "truth_type": truth_type,
+            "mode": mode,
+            "as_of": parsed_as_of.isoformat() if parsed_as_of else None,
+            "valid_range": {
+                "start": parsed_valid_from.isoformat() if parsed_valid_from else None,
+                "end": parsed_valid_to.isoformat() if parsed_valid_to else None,
+            },
+            "recorded_range": {
+                "start": parsed_recorded_from.isoformat() if parsed_recorded_from else None,
+                "end": parsed_recorded_to.isoformat() if parsed_recorded_to else None,
+            },
+        }
+    )
+    return payload
+
+
+def _parse_optional_iso_datetime(value: str | None, field_name: str) -> tuple[datetime | None, str | None]:
+    if not value:
+        return None, None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None, f"{field_name} must be an ISO datetime"
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed, None
 
 
 def tool_search_raw(
@@ -2736,6 +2831,7 @@ TOOLS: dict[str, ToolSpec] = build_tools({
     "search_memory": tool_search_memory,
     "timeline": tool_timeline,
     "trace_relations": tool_trace_relations,
+    "temporal_query": tool_temporal_query,
     "search_raw": tool_search_raw,
     "search_skills": tool_search_skills,
     "get_skill": tool_get_skill,

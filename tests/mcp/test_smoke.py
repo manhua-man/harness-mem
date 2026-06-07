@@ -136,11 +136,12 @@ def test_stdio_initialize_fails_before_handshake_when_launch_target_is_invalid()
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 56
+    assert len(tools) == 57
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
         "search_raw", "search_skills", "get_skill",
+        "temporal_query",
         "get_task_handoffs", "get_confirmed_rules", "get_project_profile",
         "file_context",
         "get_project_status", "set_active_project", "update_project_profile", "wake",
@@ -1190,6 +1191,155 @@ def test_get_confirmed_rules_include_history(mcp_backend: LocalMemoryBackend):
     )
     assert history_data["include_history"] is True
     assert old_rule["is_historical"] is True
+
+
+def test_temporal_query_current_history_as_of_and_supersede_explanation(
+    mcp_backend: LocalMemoryBackend,
+):
+    old_valid_from = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    old_valid_to = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    new_valid_from = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    recorded_at = datetime(2026, 3, 2, tzinfo=timezone.utc)
+    run(
+        mcp_backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                id="temporal-old-entry",
+                project_name="temporal-project",
+                category="decision",
+                content="Temporal sentinel route used HTTP polling.",
+                source="obs-old",
+                valid_from=old_valid_from,
+                valid_to=old_valid_to,
+                recorded_at=old_valid_from,
+                superseded_by=["temporal-new-entry"],
+            )
+        )
+    )
+    run(
+        mcp_backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                id="temporal-new-entry",
+                project_name="temporal-project",
+                category="decision",
+                content="Temporal sentinel route uses WebSocket streaming.",
+                source="obs-new",
+                valid_from=new_valid_from,
+                recorded_at=recorded_at,
+                supersedes=["temporal-old-entry"],
+            )
+        )
+    )
+
+    current = call_tool(
+        "temporal_query",
+        {
+            "project_name": "temporal-project",
+            "query": "Temporal sentinel route",
+            "mode": "current",
+        },
+    )
+    assert current["success"] is True
+    assert current["abstain"] is False
+    assert [record["id"] for record in current["records"]] == ["temporal-new-entry"]
+    assert current["records"][0]["valid_from"] == new_valid_from.isoformat()
+    assert current["records"][0]["recorded_at"] == recorded_at.isoformat()
+    assert [record["id"] for record in current["supersede_chain"]] == [
+        "temporal-old-entry"
+    ]
+    assert current["timeline_count"] == 2
+    assert current["explanations"][0]["old"][0]["id"] == "temporal-old-entry"
+    assert current["explanations"][0]["policy_reason"].startswith("confirmed truth")
+
+    history = call_tool(
+        "temporal_query",
+        {
+            "project_name": "temporal-project",
+            "query": "Temporal sentinel route",
+            "mode": "history",
+        },
+    )
+    assert [record["id"] for record in history["records"]] == ["temporal-old-entry"]
+    assert history["records"][0]["valid_to"] == old_valid_to.isoformat()
+
+    as_of = call_tool(
+        "temporal_query",
+        {
+            "project_name": "temporal-project",
+            "query": "Temporal sentinel route",
+            "mode": "as_of",
+            "as_of": "2026-02-01T00:00:00+00:00",
+        },
+    )
+    assert [record["id"] for record in as_of["records"]] == ["temporal-old-entry"]
+
+    as_of_recorded_out = call_tool(
+        "temporal_query",
+        {
+            "project_name": "temporal-project",
+            "query": "Temporal sentinel route",
+            "mode": "as_of",
+            "as_of": "2026-02-01T00:00:00+00:00",
+            "recorded_from": "2026-02-15T00:00:00+00:00",
+        },
+    )
+    assert as_of_recorded_out["abstain"] is True
+    assert as_of_recorded_out["abstention_reason"] == "no_evidence"
+
+    missing_as_of = call_tool(
+        "temporal_query",
+        {
+            "project_name": "temporal-project",
+            "query": "Temporal sentinel route",
+            "mode": "as_of",
+        },
+    )
+    assert missing_as_of["success"] is False
+    assert missing_as_of["error"] == "as_of is required when mode=as_of"
+
+
+def test_temporal_query_abstains_for_no_evidence_and_current_conflict(
+    mcp_backend: LocalMemoryBackend,
+):
+    missing = call_tool(
+        "temporal_query",
+        {
+            "project_name": "temporal-project",
+            "query": "no such temporal sentinel",
+        },
+    )
+    assert missing["abstain"] is True
+    assert missing["abstention_reason"] == "no_evidence"
+
+    for entry_id, content in (
+        ("conflict-a", "Conflict sentinel current value A."),
+        ("conflict-b", "Conflict sentinel current value B."),
+    ):
+        run(
+            mcp_backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    id=entry_id,
+                    project_name="temporal-conflict-project",
+                    category="decision",
+                    content=content,
+                    source="manual",
+                )
+            )
+        )
+
+    conflict = call_tool(
+        "temporal_query",
+        {
+            "project_name": "temporal-conflict-project",
+            "subject": "decision",
+            "predicate": "memory_entry",
+            "mode": "current",
+            "limit": 1,
+            "require_unique_current": True,
+        },
+    )
+    assert conflict["record_count"] == 1
+    assert conflict["abstain"] is True
+    assert conflict["abstention_reason"] == "temporal_conflict"
 
 
 def test_get_project_profile(mcp_backend: LocalMemoryBackend):

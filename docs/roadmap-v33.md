@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v3.3
 
-> 状态：规划中，未实现。
+> 状态：已发布，当前版本 3.3.0。
 >
 > 主题：Temporal Query and Supersede Explainability。把 v1.7 temporal truth
 > 从 schema 和 supersede 推进到可查询、可解释、可评测的时间事实读模型；多跳图只做后置验证，不作为主线门槛。
@@ -25,6 +25,20 @@ confirmed truth + relation facts + supersede history
 - `hypatia`：本地 triples、temporal ranges、FTS/vector hybrid。
 - `Graphiti`：bi-temporal KG 和 update 语义。
 - `mempalace`：SQLite temporal KG primitives。
+
+### 当前实现（2026-06-07）
+
+- MCP 新增 `temporal_query`：支持 `current`、`history`、`as_of`、valid-time /
+  recorded-time range、truth_type、subject、predicate 和 substring query 过滤。
+- `read_api` 新增 temporal read model：按需从 MemoryEntry、RelationFact、
+  ConfirmedRule 重建统一 records，输出 valid_from、valid_to、recorded_at、
+  source_ids、provenance、supersedes / superseded_by。
+- current query 默认只返回当前有效 records；history query 返回 expired truth；
+  as_of query 使用 `valid_from <= as_of < valid_to(or infinity)`。
+- 查询结果返回同一 subject/predicate 的 timeline、supersede_chain 和
+  explanation；无证据或调用方要求唯一当前事实但存在冲突时返回 abstention。
+- Minimal relationship recall proof 继续复用 `trace_relations` 的 bounded depth
+  语义；完整多跳图和完整 temporal LongMemEval 报告仍后置。
 
 ## 边界
 

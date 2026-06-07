@@ -6,10 +6,11 @@ def test_roadmap_status_short_summary_mentions_full_completed_range() -> None:
         Path(__file__).resolve().parents[1] / "docs" / "roadmap-status.md"
     ).read_text(encoding="utf-8")
 
-    assert "从 v1.5 baseline 到 v3.2 Generated Knowledge Compiler，主实现路线已经按一个版本一个文档重切并连续收口。" in roadmap_status
+    assert "从 v1.5 baseline 到 v3.3 Temporal Query，主实现路线已经按一个版本一个文档重切并连续收口。" in roadmap_status
     assert "以及 v2.9 的 PRD sync / maintenance / triage / truth-sync release" in roadmap_status
     assert "v3.1 的默认关闭 Auto Dream / DreamRun 账本 / handle-all / undo 面、v3.2 的" in roadmap_status
-    assert "source map / atomic claim / citation validation / incremental metrics 都已落地。" in roadmap_status
+    assert "source map / atomic claim / citation validation / incremental metrics，以及 v3.3 的" in roadmap_status
+    assert "current/history/as_of temporal query / supersede timeline / abstention 都已落地。" in roadmap_status
     assert "v1.5 baseline、v1.6 persistent vectors" in roadmap_status
     assert "v2.2 用户入口闭环（Slash/Skill/自然语言 + Agent 背后 MCP；跨客户端能力已交付，细节见维护者测试包）" in roadmap_status
     assert "路线已经按一个版本一个文档重切并完成到 v2.8" not in roadmap_status

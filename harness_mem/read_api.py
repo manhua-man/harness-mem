@@ -72,6 +72,54 @@ class RelationPath:
         return min(fact.confidence for fact in self.facts)
 
 
+@dataclass(frozen=True)
+class TemporalRecord:
+    """Uniform read-model projection for confirmed temporal truth."""
+
+    id: str
+    truth_type: str
+    project_name: str
+    subject: str
+    predicate: str
+    object: str
+    confidence: float | None
+    valid_from: datetime | None
+    valid_to: datetime | None
+    recorded_at: datetime | None
+    source_ids: tuple[str, ...]
+    supersedes: tuple[str, ...]
+    superseded_by: tuple[str, ...]
+    provenance: dict | None
+    tags: tuple[str, ...]
+    payload: dict[str, Any]
+
+    @property
+    def is_current(self) -> bool:
+        valid_to = _normalize_datetime(self.valid_to)
+        return valid_to is None or valid_to > datetime.now(timezone.utc)
+
+    def valid_at(self, as_of: datetime) -> bool:
+        valid_from = _normalize_datetime(self.valid_from)
+        valid_to = _normalize_datetime(self.valid_to)
+        if valid_from is not None and valid_from > as_of:
+            return False
+        return valid_to is None or valid_to > as_of
+
+
+@dataclass(frozen=True)
+class TemporalQueryResult:
+    """Temporal query response with explainability and abstention metadata."""
+
+    records: tuple[TemporalRecord, ...]
+    timeline: tuple[TemporalRecord, ...]
+    supersede_chain: tuple[TemporalRecord, ...]
+    explanations: tuple[dict[str, Any], ...]
+    abstain: bool
+    abstention_reason: str | None
+    truncated: bool
+    read_model_count: int
+
+
 async def search_memory(
     backend: LocalMemoryBackend,
     *,
@@ -264,6 +312,128 @@ async def search_relation_facts(
         include_history=include_history,
         time_window=time_window,
     )
+
+
+async def query_temporal_truth(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    query: str | None = None,
+    subject: str | None = None,
+    predicate: str | None = None,
+    truth_type: str | None = None,
+    mode: str = "current",
+    as_of: datetime | None = None,
+    valid_range: tuple[datetime | None, datetime | None] | None = None,
+    recorded_range: tuple[datetime | None, datetime | None] | None = None,
+    limit: int = 20,
+    require_unique_current: bool = False,
+) -> TemporalQueryResult:
+    """Project confirmed truth into a temporal read model and query it.
+
+    This is intentionally read-only: it rebuilds the projection from
+    MemoryEntry / RelationFact / ConfirmedRule blobs on every call and never
+    persists derived state.
+    """
+    effective_limit = max(1, min(limit, 100))
+    normalized_as_of = _normalize_datetime(as_of)
+    normalized_valid_range = _normalize_optional_range(valid_range)
+    normalized_recorded_range = _normalize_optional_range(recorded_range)
+    records = await build_temporal_read_model(
+        backend,
+        project_name=project_name,
+        include_history=True,
+    )
+    filtered = [
+        record for record in records
+        if _record_matches_temporal_filters(
+            record,
+            query=query,
+            subject=subject,
+            predicate=predicate,
+            truth_type=truth_type,
+            mode=mode,
+            as_of=normalized_as_of,
+            valid_range=normalized_valid_range,
+            recorded_range=normalized_recorded_range,
+        )
+    ]
+    filtered.sort(key=_temporal_sort_key, reverse=True)
+    truncated = len(filtered) > effective_limit
+    selected = tuple(filtered[:effective_limit])
+
+    timeline_subject, timeline_predicate = _timeline_key(selected, subject, predicate)
+    timeline = tuple(
+        sorted(
+            (
+                record for record in records
+                if _same_optional(record.subject, timeline_subject)
+                and _same_optional(record.predicate, timeline_predicate)
+            ),
+            key=_temporal_sort_key,
+            reverse=True,
+        )
+    )
+    chain = tuple(_supersede_chain(records, selected))
+    explanations = tuple(
+        _temporal_explanation(record, records)
+        for record in selected
+    )
+
+    conflict = (
+        require_unique_current
+        and mode == "current"
+        and len([
+            record for record in filtered
+            if record.is_current
+        ]) > 1
+    )
+    abstain = not selected or conflict
+    reason = None
+    if not selected:
+        reason = "no_evidence"
+    elif conflict:
+        reason = "temporal_conflict"
+
+    return TemporalQueryResult(
+        records=selected,
+        timeline=timeline,
+        supersede_chain=chain,
+        explanations=explanations,
+        abstain=abstain,
+        abstention_reason=reason,
+        truncated=truncated,
+        read_model_count=len(records),
+    )
+
+
+async def build_temporal_read_model(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    include_history: bool = True,
+) -> tuple[TemporalRecord, ...]:
+    """Rebuild the temporal read model from source-of-truth collections."""
+    entries = await backend.structured_store.list_memory_entries(
+        project_name,
+        limit=10000,
+        include_history=include_history,
+    )
+    rules = await backend.structured_store.list_confirmed_rules(
+        project_name,
+        include_history=include_history,
+    )
+    facts = await backend.structured_store.list_relation_facts(
+        project_name,
+        limit=10000,
+        include_history=include_history,
+    )
+    records = [
+        *(_record_from_memory_entry(entry) for entry in entries),
+        *(_record_from_confirmed_rule(rule) for rule in rules),
+        *(_record_from_relation_fact(fact) for fact in facts),
+    ]
+    return tuple(sorted(records, key=_temporal_sort_key, reverse=True))
 
 
 async def search_skills(
@@ -621,6 +791,49 @@ def serialize_relation_path(path: RelationPath) -> dict[str, Any]:
     }
 
 
+def serialize_temporal_query_result(result: TemporalQueryResult) -> dict[str, Any]:
+    """Serialize a temporal read-model query for MCP/API clients."""
+    return {
+        "success": True,
+        "abstain": result.abstain,
+        "abstention_reason": result.abstention_reason,
+        "records": [serialize_temporal_record(record) for record in result.records],
+        "record_count": len(result.records),
+        "timeline": [serialize_temporal_record(record) for record in result.timeline],
+        "timeline_count": len(result.timeline),
+        "supersede_chain": [
+            serialize_temporal_record(record) for record in result.supersede_chain
+        ],
+        "supersede_chain_count": len(result.supersede_chain),
+        "explanations": list(result.explanations),
+        "truncated": result.truncated,
+        "read_model_count": result.read_model_count,
+    }
+
+
+def serialize_temporal_record(record: TemporalRecord) -> dict[str, Any]:
+    """Serialize one projected temporal truth record."""
+    return {
+        "id": record.id,
+        "truth_type": record.truth_type,
+        "project_name": record.project_name,
+        "subject": record.subject,
+        "predicate": record.predicate,
+        "object": record.object,
+        "confidence": record.confidence,
+        "valid_from": record.valid_from.isoformat() if record.valid_from else None,
+        "valid_to": record.valid_to.isoformat() if record.valid_to else None,
+        "recorded_at": record.recorded_at.isoformat() if record.recorded_at else None,
+        "source_ids": list(record.source_ids),
+        "supersedes": list(record.supersedes),
+        "superseded_by": list(record.superseded_by),
+        "is_current": record.is_current,
+        "provenance": record.provenance,
+        "tags": list(record.tags),
+        "payload": record.payload,
+    }
+
+
 def serialize_skill(skill: Skill) -> dict[str, Any]:
     """Serialize a confirmed procedural skill for CLI/MCP/API clients."""
     activation_warnings: list[str] = []
@@ -708,6 +921,258 @@ def _raw_search_score(result: object) -> float | None:
     if score is None:
         score = getattr(result, "_fts_score", None)
     return score if isinstance(score, (int, float)) else None
+
+
+def _record_from_memory_entry(entry: MemoryEntry) -> TemporalRecord:
+    return TemporalRecord(
+        id=entry.id,
+        truth_type="memory_entry",
+        project_name=entry.project_name,
+        subject=entry.category,
+        predicate="memory_entry",
+        object=entry.content,
+        confidence=entry.confidence,
+        valid_from=_normalize_datetime(entry.valid_from),
+        valid_to=_normalize_datetime(entry.valid_to),
+        recorded_at=_normalize_datetime(entry.recorded_at),
+        source_ids=tuple(_source_ids(entry.source, entry.provenance, entry.id)),
+        supersedes=tuple(entry.supersedes),
+        superseded_by=tuple(entry.superseded_by),
+        provenance=entry.provenance,
+        tags=tuple(entry.tags),
+        payload={
+            "category": entry.category,
+            "content": entry.content,
+            "memory_type": entry.memory_type,
+            "status": entry.status,
+        },
+    )
+
+
+def _record_from_confirmed_rule(rule: Any) -> TemporalRecord:
+    return TemporalRecord(
+        id=rule.id,
+        truth_type="confirmed_rule",
+        project_name=rule.project_name,
+        subject=rule.trigger,
+        predicate="confirmed_rule",
+        object=rule.pattern,
+        confidence=None,
+        valid_from=_normalize_datetime(rule.valid_from),
+        valid_to=_normalize_datetime(rule.valid_to),
+        recorded_at=_normalize_datetime(rule.recorded_at),
+        source_ids=tuple(
+            _source_ids(
+                rule.source_candidate_id,
+                rule.provenance,
+                rule.id,
+                rule.source_session_id,
+            )
+        ),
+        supersedes=tuple(rule.supersedes),
+        superseded_by=tuple(rule.superseded_by),
+        provenance=rule.provenance,
+        tags=tuple(rule.tags),
+        payload={
+            "pattern": rule.pattern,
+            "trigger": rule.trigger,
+            "examples": list(rule.examples),
+            "source_candidate_id": rule.source_candidate_id,
+            "source_session_id": rule.source_session_id,
+        },
+    )
+
+
+def _record_from_relation_fact(fact: RelationFact) -> TemporalRecord:
+    return TemporalRecord(
+        id=fact.id,
+        truth_type="relation_fact",
+        project_name=fact.project_name,
+        subject=fact.source_entity,
+        predicate=fact.relation_type,
+        object=fact.target_entity,
+        confidence=fact.confidence,
+        valid_from=_normalize_datetime(fact.valid_from),
+        valid_to=_normalize_datetime(fact.valid_to),
+        recorded_at=_normalize_datetime(fact.recorded_at),
+        source_ids=tuple(_source_ids(fact.source, fact.provenance, fact.id)),
+        supersedes=tuple(fact.supersedes),
+        superseded_by=tuple(fact.superseded_by),
+        provenance=fact.provenance,
+        tags=tuple(fact.tags),
+        payload={
+            "source_entity": fact.source_entity,
+            "target_entity": fact.target_entity,
+            "relation_type": fact.relation_type,
+            "evidence": fact.evidence,
+            "status": fact.status,
+        },
+    )
+
+
+def _source_ids(*values: object) -> list[str]:
+    deduped: list[str] = []
+    for value in values:
+        if isinstance(value, dict):
+            for nested in value.values():
+                if isinstance(nested, list):
+                    for item in nested:
+                        _append_source_id(deduped, item)
+                else:
+                    _append_source_id(deduped, nested)
+        else:
+            _append_source_id(deduped, value)
+    return deduped
+
+
+def _append_source_id(target: list[str], value: object) -> None:
+    cleaned = str(value).strip() if value is not None else ""
+    if cleaned and cleaned not in target:
+        target.append(cleaned)
+
+
+def _record_matches_temporal_filters(
+    record: TemporalRecord,
+    *,
+    query: str | None,
+    subject: str | None,
+    predicate: str | None,
+    truth_type: str | None,
+    mode: str,
+    as_of: datetime | None,
+    valid_range: tuple[datetime | None, datetime | None] | None,
+    recorded_range: tuple[datetime | None, datetime | None] | None,
+) -> bool:
+    if truth_type and record.truth_type != truth_type:
+        return False
+    if subject and subject.lower() not in record.subject.lower():
+        return False
+    if predicate and predicate.lower() not in record.predicate.lower():
+        return False
+    if query:
+        haystack = " ".join((record.subject, record.predicate, record.object)).lower()
+        if query.lower() not in haystack:
+            return False
+    if as_of is not None and not record.valid_at(as_of):
+        return False
+    if mode == "current" and not record.is_current:
+        return False
+    if mode == "history" and record.is_current:
+        return False
+    if valid_range and not _time_range_overlaps(record.valid_from, record.valid_to, valid_range):
+        return False
+    if recorded_range and not _point_in_range(record.recorded_at, recorded_range):
+        return False
+    return True
+
+
+def _normalize_optional_range(
+    value: tuple[datetime | None, datetime | None] | None,
+) -> tuple[datetime | None, datetime | None] | None:
+    if value is None:
+        return None
+    return _normalize_datetime(value[0]), _normalize_datetime(value[1])
+
+
+def _time_range_overlaps(
+    valid_from: datetime | None,
+    valid_to: datetime | None,
+    requested: tuple[datetime | None, datetime | None],
+) -> bool:
+    start, end = requested
+    current_start = _normalize_datetime(valid_from) or datetime.min.replace(tzinfo=timezone.utc)
+    current_end = _normalize_datetime(valid_to) or datetime.max.replace(tzinfo=timezone.utc)
+    requested_start = start or datetime.min.replace(tzinfo=timezone.utc)
+    requested_end = end or datetime.max.replace(tzinfo=timezone.utc)
+    return current_start < requested_end and requested_start < current_end
+
+
+def _point_in_range(
+    point: datetime | None,
+    requested: tuple[datetime | None, datetime | None],
+) -> bool:
+    normalized = _normalize_datetime(point)
+    if normalized is None:
+        return False
+    start, end = requested
+    if start is not None and normalized < start:
+        return False
+    return end is None or normalized < end
+
+
+def _temporal_sort_key(record: TemporalRecord) -> tuple[datetime, datetime, str]:
+    valid_from = record.valid_from or datetime.min.replace(tzinfo=timezone.utc)
+    recorded_at = record.recorded_at or datetime.min.replace(tzinfo=timezone.utc)
+    return valid_from, recorded_at, record.id
+
+
+def _timeline_key(
+    records: Sequence[TemporalRecord],
+    subject: str | None,
+    predicate: str | None,
+) -> tuple[str | None, str | None]:
+    if subject and predicate:
+        return subject, predicate
+    if records:
+        return records[0].subject, records[0].predicate
+    return subject, predicate
+
+
+def _same_optional(value: str, requested: str | None) -> bool:
+    return requested is None or value.lower() == requested.lower()
+
+
+def _supersede_chain(
+    all_records: Sequence[TemporalRecord],
+    selected: Sequence[TemporalRecord],
+) -> list[TemporalRecord]:
+    by_id = {record.id: record for record in all_records}
+    selected_ids = {record.id for record in selected}
+    chain: list[TemporalRecord] = []
+    seen: set[str] = set()
+    queue = [
+        linked_id
+        for record in selected
+        for linked_id in (*record.supersedes, *record.superseded_by)
+    ]
+    while queue:
+        next_id = queue.pop(0)
+        if next_id in seen:
+            continue
+        seen.add(next_id)
+        if next_id in selected_ids:
+            continue
+        linked = by_id.get(next_id)
+        if linked is None:
+            continue
+        chain.append(linked)
+        queue.extend([
+            linked_id
+            for linked_id in (*linked.supersedes, *linked.superseded_by)
+            if linked_id not in seen
+        ])
+    chain.sort(key=_temporal_sort_key, reverse=True)
+    return chain
+
+
+def _temporal_explanation(
+    record: TemporalRecord,
+    all_records: Sequence[TemporalRecord],
+) -> dict[str, Any]:
+    by_id = {item.id: item for item in all_records}
+    old_records = [by_id[item_id] for item_id in record.supersedes if item_id in by_id]
+    new_records = [by_id[item_id] for item_id in record.superseded_by if item_id in by_id]
+    return {
+        "record_id": record.id,
+        "truth_type": record.truth_type,
+        "current": record.is_current,
+        "old": [serialize_temporal_record(item) for item in old_records],
+        "newer": [serialize_temporal_record(item) for item in new_records],
+        "evidence": list(record.source_ids),
+        "policy_reason": (
+            "confirmed truth is current until valid_to is set; supersede links explain replacements"
+        ),
+    }
 
 
 def _serialize_validity_fields(result: object) -> dict[str, Any]:

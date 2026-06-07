@@ -8,6 +8,49 @@
 
 ---
 
+## [3.3.0] — 2026-06-07
+
+**主题：Temporal Query and Supersede Explainability**
+
+v3.3.0 把 v1.7 temporal truth 从 schema / supersede 字段推进到可查询、
+可解释的 read-side 能力。confirmed truth 仍是唯一事实来源；temporal read model
+按需从 MemoryEntry、RelationFact 和 ConfirmedRule 重建，不引入后台 daemon，
+也不让 AI 自动改写 confirmed truth。
+
+### Added
+
+- **temporal read model**：新增 `query_temporal_truth` / `build_temporal_read_model`
+  读端投影，把 MemoryEntry、RelationFact、ConfirmedRule 统一成带
+  `subject` / `predicate` / `object` / `valid_from` / `valid_to` /
+  `recorded_at` / provenance / supersede links 的 temporal records。
+- **MCP `temporal_query`**：支持 `current`、`history`、`as_of` 查询，以及
+  `valid_from` / `valid_to`、`recorded_from` / `recorded_to`、`truth_type`、
+  `subject`、`predicate` 和 substring query 过滤。
+- **supersede explainability**：temporal 查询返回 `timeline`、`supersede_chain`
+  和 per-record `explanations`，说明 old/current/newer 关系、source ids 和
+  policy reason。
+- **abstention metadata**：无证据返回 `abstain=true, abstention_reason=no_evidence`；
+  调用方要求唯一当前事实时，多条 current truth 返回
+  `abstention_reason=temporal_conflict`。
+- **focused MCP regression tests**：覆盖 current/history/as_of、valid/recorded
+  字段、supersede chain、timeline、explanation 和 abstention。
+
+### Changed
+
+- `search_memory` 继续保持默认 current-only，`include_history=true` 仍用于历史
+  structured truth；`temporal_query` 成为时间事实查询与解释的专用 MCP surface。
+- `docs/roadmap-status.md`、`docs/roadmap-v33.md` 和文档索引现在把 v3.3.0
+  标为当前已发布切片，v3.4 仍保持规划中。
+
+### Boundaries
+
+- 不引入 Neo4j、完整图数据库、自动 ontology 或后台 read-model 表。
+- 不让 AI 自动改写 confirmed truth；冲突仍走候选 / review / supersede。
+- 多跳关系召回仍是 bounded proof，不是 v3.3 主发布门槛。
+- temporal evaluation 的 LongMemEval 维度报告仍留给后续 benchmark 线深化。
+
+---
+
 ## [3.2.0] — 2026-06-07
 
 **主题：Generated Knowledge Compiler + Basic Freshness**

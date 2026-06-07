@@ -13,7 +13,7 @@
 | [`../plugins/harness-mem/README.md`](../plugins/harness-mem/README.md) | Claude Code 插件与 slash 安装 |
 | `best-practices.md` | 日常使用建议 |
 | `error-codes.md` | `doctor` 的 `HM-xxx` 错误码与修复提示 |
-| `roadmap-status.md` | 当前版本、已交付能力、non-goals、已发布的 v3.1-v3.2 与规划中的 v3.3-v3.4 |
+| `roadmap-status.md` | 当前版本、已交付能力、non-goals、已发布的 v3.1-v3.3 与规划中的 v3.4 |
 | `testing.md` | 维护者测试分层：日常 focused / fast gate / full release gate |
 
 | 目录 | 内容 |
@@ -52,7 +52,7 @@ LongMemEval / embedding 相关 benchmark 文档默认以 `all-MiniLM-L6-v2` 为�
 | `roadmap-v29.md` | v2.9：PRD sync + maintenance/truth-sync release train |
 | `roadmap-v31.md` | v3.1：Auto Dream Memory Maintenance |
 | `roadmap-v32.md` | v3.2：Generated Knowledge Compiler + Basic Freshness |
-| `roadmap-v33.md` | v3.3 规划：Temporal Query and Supersede Explainability |
+| `roadmap-v33.md` | v3.3：Temporal Query and Supersede Explainability |
 | `roadmap-v34.md` | v3.4 规划：Runtime Health, Cost Discipline, and Regression Gates |
 | `roadmap-vision-v16-v18.md` | v1.6–v1.8 历史远景（非当前承诺） |
 
