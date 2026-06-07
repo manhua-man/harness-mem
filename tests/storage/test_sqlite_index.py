@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -50,6 +52,50 @@ def idx_with_data(idx: SQLiteIndex):
         "tags": json.dumps(["architecture"]),
     })
     return idx
+
+
+class FakeConnectionWithoutLoadExtension:
+    row_factory = None
+
+    def __init__(self) -> None:
+        self.executed: list[str] = []
+
+    def execute(self, sql: str, *args: object, **kwargs: object) -> None:
+        self.executed.append(sql)
+
+
+def test_conn_write_skips_extension_api_when_sqlite_vec_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_conn = FakeConnectionWithoutLoadExtension()
+    monkeypatch.setattr(
+        "harness_mem.storage.sqlite_index.sqlite3.connect",
+        lambda *_args, **_kwargs: fake_conn,
+    )
+    monkeypatch.setitem(sys.modules, "sqlite_vec", None)
+
+    idx = SQLiteIndex(tmp_path / "no-sqlite-vec.db")
+
+    assert idx._conn_write() is fake_conn
+    assert fake_conn.executed == ["PRAGMA journal_mode=WAL"]
+
+
+def test_conn_write_raises_hm202_when_sqlite_vec_needs_unavailable_extension_api(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_conn = FakeConnectionWithoutLoadExtension()
+    monkeypatch.setattr(
+        "harness_mem.storage.sqlite_index.sqlite3.connect",
+        lambda *_args, **_kwargs: fake_conn,
+    )
+    monkeypatch.setitem(sys.modules, "sqlite_vec", SimpleNamespace(load=lambda _conn: None))
+
+    idx = SQLiteIndex(tmp_path / "sqlite-vec-no-extension-api.db")
+
+    with pytest.raises(RuntimeError, match="HM-202"):
+        idx._conn_write()
 
 
 def test_insert_and_get(idx: SQLiteIndex):

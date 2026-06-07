@@ -22,24 +22,30 @@ from harness_mem.commands import token_estimator
 from harness_mem.commands.token_estimator import count_tokens, reset_for_tests
 
 
-def test_count_tokens_tiktoken_matches_hand_computed() -> None:
-    """tiktoken cl100k_base path returns the same count as a direct encode."""
+class FakeEncoder:
+    def encode(self, text: str) -> list[str]:
+        return text.split()
+
+
+def test_count_tokens_tiktoken_path_uses_loaded_encoder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tiktoken path returns the loaded encoder's token count."""
     reset_for_tests()
 
-    # Hand-compute via tiktoken so the assertion is invariant to any
-    # future cl100k_base vocabulary tweaks. The two short fixtures keep
-    # the test fast and the encode round-trip cheap.
+    # Patch the loader instead of reaching for the real cl100k_base
+    # vocabulary. Fresh tiktoken installs may download that file on first
+    # use, which makes this unit test depend on network/cache state.
     tiktoken = pytest.importorskip("tiktoken")
-    encoder = tiktoken.get_encoding("cl100k_base")
+    encoder = FakeEncoder()
+    monkeypatch.setattr(tiktoken, "get_encoding", lambda _name: encoder)
 
     short = "Hello, world!"
-    expected_short = len(encoder.encode(short))
-    assert count_tokens(short) == expected_short
+    assert count_tokens(short) == len(encoder.encode(short))
     assert token_estimator.tokenizer_kind == "tiktoken"
 
     longer = "Hello, world! This is a test sentence."
-    expected_longer = len(encoder.encode(longer))
-    assert count_tokens(longer) == expected_longer
+    assert count_tokens(longer) == len(encoder.encode(longer))
     assert token_estimator.tokenizer_kind == "tiktoken"
 
     # Empty input returns 0 without changing tokenizer_kind to a

@@ -168,6 +168,7 @@ class FakeEmbeddingLoader:
 def patch_fake_embedding_loader(monkeypatch) -> None:
     import harness_mem.embedding as embedding
 
+    monkeypatch.setattr(embedding, "embeddings_disabled", lambda: False)
     monkeypatch.setattr(embedding, "get_model_loader", lambda _model_id: FakeEmbeddingLoader())
 
 

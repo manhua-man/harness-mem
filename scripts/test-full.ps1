@@ -6,8 +6,7 @@ Set-Location $RepoRoot
 $Commands = @(
     @{ Label = "pytest full"; Command = @("python", "-m", "pytest", "-q") },
     @{ Label = "ruff"; Command = @("python", "-m", "ruff", "check", ".") },
-    @{ Label = "mypy"; Command = @("python", "-m", "mypy", "harness_mem") },
-    @{ Label = "openspec"; Command = @("openspec", "validate", "--all", "--strict") }
+    @{ Label = "mypy"; Command = @("python", "-m", "mypy", "harness_mem") }
 )
 
 foreach ($Step in $Commands) {

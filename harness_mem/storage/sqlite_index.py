@@ -448,14 +448,26 @@ class SQLiteIndex:
             self._conn.row_factory = sqlite3.Row
             # Load sqlite-vec extension for vector storage (Windows-compatible)
             try:
-                self._conn.enable_load_extension(True)
+                import sqlite_vec  # type: ignore[import-not-found, import-untyped]
+            except ImportError:
+                # sqlite-vec not installed, skip (will fallback to FTS in hybrid search)
+                return self._conn
+
+            enable_load_extension = getattr(self._conn, "enable_load_extension", None)
+            if enable_load_extension is None:
+                raise RuntimeError(
+                    "HM-202: SQLite extension loading disabled. "
+                    "This SQLite build does not expose loadable extension support. "
+                    "Either recompile sqlite with loadable extensions enabled, "
+                    "or use FTS mode (set mode=fts in search commands)."
+                )
+
+            try:
+                enable_load_extension(True)
                 try:
-                    import sqlite_vec  # type: ignore[import-not-found, import-untyped]
                     sqlite_vec.load(self._conn)
-                except ImportError:
-                    # sqlite-vec not installed, skip (will fallback to FTS in hybrid search)
-                    pass
-                self._conn.enable_load_extension(False)
+                finally:
+                    enable_load_extension(False)
             except sqlite3.OperationalError as e:
                 # Extension loading disabled in this SQLite build
                 # Raise HM-202 error with clear guidance

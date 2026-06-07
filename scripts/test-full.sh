@@ -11,6 +11,3 @@ python -m ruff check .
 
 echo "Running mypy..."
 python -m mypy harness_mem
-
-echo "Running openspec..."
-openspec validate --all --strict

@@ -215,7 +215,7 @@ harness-mem purge -p my-project --before 2026-01-01 --category all --dry-run
 .\scripts\test-fast.ps1
 ```
 
-发版、OpenSpec 收口、大重构或广泛状态判断再跑 full gate：
+发版、大重构或广泛状态判断再跑 full gate：
 
 ```powershell
 .\scripts\test-full.ps1

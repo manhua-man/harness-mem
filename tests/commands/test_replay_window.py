@@ -80,8 +80,17 @@ async def test_select_replay_window_empty_backend(backend: LocalMemoryBackend) -
 @pytest.mark.anyio
 async def test_select_replay_window_one_per_dimension(
     backend: LocalMemoryBackend,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """One row per dimension + three search-hit signals on the same target."""
+    monkeypatch.setattr(
+        "harness_mem.commands.replay_window.count_tokens",
+        lambda text: max(1, len(text.split())),
+    )
+    monkeypatch.setattr(
+        "harness_mem.commands.replay_window.token_estimator.tokenizer_kind",
+        "tiktoken",
+    )
     project_name = "replay-dim-smoke"
     now = datetime.now(timezone.utc)
 

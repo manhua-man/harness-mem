@@ -8,6 +8,33 @@
 
 ---
 
+## [3.3.2] — 2026-06-07
+
+**主题：Cross-Platform CI Compatibility**
+
+v3.3.2 修复 v3.3.1 远端 matrix 继续暴露的跨平台环境差异。
+
+### Fixed
+
+- **macOS sqlite extension fallback**：默认 `dev` install 不带 `sqlite-vec` 时，
+  SQLite 初始化不再先调用 `enable_load_extension`；只有实际安装 `sqlite-vec`
+  后才尝试加载扩展。这样 macOS 官方 Python 缺少 load-extension API 时仍可走
+  FTS fallback。
+- **Windows CI Unicode stdout**：Test Matrix 设置 `PYTHONUTF8=1`，避免
+  Windows subprocess 在 cp1252 stdout 下打印 `📍` 等 CLI UI 标记时报
+  `UnicodeEncodeError`。
+- **offline test isolation**：默认测试 fixture 禁用 embedding 自动写入；tokenizer
+  和向量相关测试改用显式 fake loader / fake encoder，避免 release gate 依赖
+  本机 tiktoken / Hugging Face 缓存或沙箱网络。
+
+### Validation
+
+- `python -m pytest -q`：1169 passed, 1 skipped
+- `python -m ruff check .`
+- `python -m mypy harness_mem`
+
+---
+
 ## [3.3.1] — 2026-06-07
 
 **主题：Release CI Dependency Fix**

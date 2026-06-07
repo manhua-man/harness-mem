@@ -26,6 +26,7 @@ def anyio_backend() -> str:
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     data_dir = tmp_path / "data"
+    monkeypatch.setenv("HARNESS_MEM_DISABLE_EMBEDDINGS", "1")
     monkeypatch.setattr(cli, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(command_support, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(doctor, "DEFAULT_DATA_DIR", data_dir)

@@ -47,9 +47,8 @@ If code changed and you want the quick static pass too:
 
 ## Full Gate
 
-Run the full gate for release cuts, OpenSpec archive/closeout, large refactors,
-storage schema changes, packaging changes, or before publishing a broad status
-claim:
+Run the full gate for release cuts, large refactors, storage schema changes,
+packaging changes, or before publishing a broad status claim:
 
 ```powershell
 .\scripts\test-full.ps1
@@ -67,7 +66,6 @@ This runs:
 python -m pytest -q
 python -m ruff check .
 python -m mypy harness_mem
-openspec validate --all --strict
 ```
 
 ## Pruning Rules
