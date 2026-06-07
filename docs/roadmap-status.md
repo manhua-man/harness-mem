@@ -1,6 +1,6 @@
 # Roadmap Status（公开状态页）
 
-> 最后核对：2026-06-07。版本号以 `pyproject.toml` 与 `harness_mem.__version__` 为准；发版记录见 `CHANGELOG.md`。
+> 最后核对：2026-06-08。版本号以 `pyproject.toml` 与 `harness_mem.__version__` 为准；发版记录见 `CHANGELOG.md`。
 >
 > 本文面向**使用者与贡献者**：说明当前版本、已交付能力、明确不做项，以及规划中的方向。
 > 逐版本设计稿见 `docs/roadmap-v*.md`；**不**在此复述客户端联调矩阵、运行日志或本机路径。
@@ -10,13 +10,13 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `3.3.3` |
-| `harness_mem/__init__.py` | `3.3.3` |
-| `CHANGELOG.md` | 已有 `3.3.3` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `3.4.4` |
+| `harness_mem/__init__.py` | `3.4.4` |
+| `CHANGELOG.md` | 已有 `3.4.4` 段；`Unreleased` 当前为空 |
 
 ## 产品基线
 
-当前收口基线是 v3.3.3：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v3.4.4：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环、v2.3 signals/replay、v2.4
 reflection queue（默认关闭的 opt-in host 触发）、v2.5 context assembly /
@@ -25,18 +25,27 @@ contradiction 候选面、v2.7 cross-project procedural skill、v2.8
 session-distill maintenance surfaces，v2.9.0–v2.9.61 这一整条从 `/hm:prd-sync`
 起步、随后扩成 maintenance / triage /
 truth-sync 的 release train、v3.1 Auto Dream Memory Maintenance、v3.2
-Generated Knowledge Compiler + Basic Freshness，以及 v3.3 Temporal Query and
-Supersede Explainability 都已落地。
+Generated Knowledge Compiler + Basic Freshness、v3.3 Temporal Query and
+Supersede Explainability，以及 v3.4.x Runtime Health, Cost Discipline, and
+Regression Gates 都已落地。
 
 v3.2.0 已发布 Generated Knowledge Compiler + Basic Freshness：source map、
 atomic claim metadata、citation validation、claim diff、incremental compile metrics、
 freshness/status 可见性和 compact context drilldown 已落地；generated wiki / compact
 output 仍不替代 confirmed truth。
 
-当前版本 v3.3.3 已发布 Temporal Query and Supersede Explainability：MCP
+v3.3.3 已发布 Temporal Query and Supersede Explainability：MCP
 `temporal_query` 可按 current/history/as_of 查询 confirmed truth 的 temporal read
 model，返回 valid/recorded time、source provenance、supersede chain、timeline、
 explanation 和 abstention metadata；它是 read-side projection，不改写 truth。
+
+当前版本 v3.4.4 已发布完整 v3.4.x：MCP tool 成功调用后会在本地
+`events.log` 记录 surface cost 元数据，估算 wake/search/distill/file_context/dream
+等输出 token，标记 high-output，并通过 MCP `surface_cost_report` 汇总最近高成本调用
+和 drilldown 机会；runtime health report 汇总 job/cache/retrieval health；
+benchmark matrix report 显示 per-surface regression gate；version drift report 检查
+plugin/skill/slash/MCP wire-format；cost budget policy 记录预算、截断和 drilldown 元数据。
+observer 不保存 raw query、raw path 或 response content；失败不阻断主调用。
 
 日常用法：`/hm:distill`、`/hm:wake`、`/hm:search`（或自然语言等价指令）；默认启用的
 `harness-mem-autopilot` skill 提供 conversation-level 自动学习：在清晰任务边界主动
@@ -57,6 +66,7 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 | Auto Dream | `/hm:dream` 读取 DreamRun 账本；MCP `dream_ledger` / `dream_run` / `dream_auto_tick` / `undo_dream_item` 支撑 opt-in 自动维护 | 默认关闭；没有 `pending_review`；不 hard delete confirmed truth |
 | Generated Knowledge | `maintenance rebuild-wiki-bridge` 产出 source map、atomic claims、claim diff、freshness / compile metrics；compact wake 显式 opt-in 消费可校验 claim | generated layer 不是 truth；hash drift / citation invalid 的 claim 不进 compact wake |
 | Temporal Query | MCP `temporal_query` 读取 temporal read model，支持 current/history/as_of、valid/recorded range、supersede timeline、explanation、abstention | read-side projection；不自动改写 confirmed truth |
+| Runtime Health / Cost | MCP `health_summary`、`get_project_status`、`surface_cost_report`、`benchmark_matrix_report` 汇总 job health、generated cache、retrieval latency/result/truncation、surface token、budget overrun、version drift 和 regression gates | 不采集云端、不保存 raw content；observer 失败不阻断主路径；cost discipline 单独成类 |
 | 可选触发 | `host_entry` + IDE hook 模板（`triggers.*` 默认 `off`） | 无 always-on daemon；`worker.mode` 仅为配置门控 |
 | 跨项目 Skill | 显式 shared `search_skills`、审核后 promotion | 不进默认 wake、不静默跨项目注入 |
 
@@ -73,8 +83,14 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 | v3.3.0 | 已发布：Temporal Query and Supersede Explainability |
 | v3.3.1 | 已发布：Release CI dependency fix |
 | v3.3.2 | 已发布：Cross-platform CI compatibility |
-| v3.3.3 | 当前版本 |
+| v3.3.3 | 已发布：Plugin Script CI Compatibility |
 | v3.3.x | 已发布：Temporal Query and Supersede Explainability |
+| v3.4.0 | 已发布：MCP Surface Cost Observer |
+| v3.4.1 | 已发布：Runtime Health Report |
+| v3.4.2 | 已发布：Benchmark Matrix and Regression Gates |
+| v3.4.3 | 已发布：Version and Install Drift Visibility |
+| v3.4.4 | 当前版本：Cost Budget Policy |
+| v3.4.x | 已发布：Runtime Health, Cost Discipline, and Regression Gates |
 
 ## 未完成 / 不做项
 
@@ -96,7 +112,7 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 
 | 切片 | 状态 | 目标 | 文档 |
 |---|---|---|---|
-| v3.4.x Runtime Health, Cost Discipline, and Regression Gates | 规划中，未实现 | 本地 cost observer、per-surface token budget、runtime health report、benchmark regression gates、version drift visibility | `docs/roadmap-v34.md` |
+| v3.4.x Runtime Health, Cost Discipline, and Regression Gates | 已发布 | 已落地本地 cost observer、token estimate、high-output detection、missed-opportunity hints、per-surface token budget、runtime health report、benchmark regression gates、version drift visibility | `docs/roadmap-v34.md` |
 
 ## 版本索引
 
@@ -119,11 +135,11 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 | v3.1.x | Auto Dream Memory Maintenance：自动做梦、自动解析、自动处理全部结果，单入口 `/hm:dream` 梦境账本 | `docs/roadmap-v31.md` |
 | v3.2.x | Generated Knowledge Compiler + Basic Freshness：source map、atomic claim、incremental cache、基础 freshness / compile metrics、generated context UX | `docs/roadmap-v32.md` |
 | v3.3.x | 已发布：Temporal Query and Supersede Explainability：current/history/as_of 查询、supersede timeline、explanation、abstention；多跳图后置 | `docs/roadmap-v33.md` |
-| v3.4.x | Runtime Health, Cost Discipline, and Regression Gates：cost observer、token budget、runtime health report、benchmark regression、version drift | `docs/roadmap-v34.md` |
+| v3.4.x | 已发布：Runtime Health, Cost Discipline, and Regression Gates：token budget、runtime health report、benchmark regression、version drift | `docs/roadmap-v34.md` |
 
 ## 短结论
 
-从 v1.5 baseline 到 v3.3 Temporal Query，主实现路线已经按一个版本一个文档重切并连续收口。
+从 v1.5 baseline 到 v3.4.4 Runtime Health, Cost Discipline, and Regression Gates，主实现路线已经按一个版本一个文档重切并连续收口。
 v1.5 baseline、v1.6 persistent vectors / bucket budget、v1.7 temporal truth、
 v1.8 procedural skill、v2.0 heuristic distill 移除、v2.1 maintenance-only CLI、
 v2.2 用户入口闭环（Slash/Skill/自然语言 + Agent 背后 MCP；跨客户端能力已交付，细节见维护者测试包）、
@@ -131,14 +147,17 @@ v2.3 signals/replay、v2.4 reflection queue、v2.5 context assembly、v2.6
 wiki/contradiction、v2.7 cross-project skill、v2.8 session-distill maintenance，
 以及 v2.9 的 PRD sync / maintenance / triage / truth-sync release train、
 v3.1 的默认关闭 Auto Dream / DreamRun 账本 / handle-all / undo 面、v3.2 的
-source map / atomic claim / citation validation / incremental metrics，以及 v3.3 的
-current/history/as_of temporal query / supersede timeline / abstention 都已落地。
+source map / atomic claim / citation validation / incremental metrics、v3.3 的
+current/history/as_of temporal query / supersede timeline / abstention，以及 v3.4.x 的
+MCP surface cost observer / high-output detection / `surface_cost_report` / runtime health /
+benchmark matrix / version drift / cost budget policy 都已落地。
 
 当前仍未启用 always-on daemon；shared skill 坚持显式消费；truth 变更只走候选与人工复核。
 
 v3.1 Auto Dream Memory Maintenance 默认关闭、用户显式开启；在保留审计与撤销的前提下组合 signals / metabolism / reflection，并优先复用客户端/host 的定时触发能力，而不是引入独立后台进程。
 
-后续 v3.4 规划 runtime health / cost discipline / regression gates；它是 v3.3 后的设计方向，不代表已发布能力。
+v3.4 已收口 runtime health report / regression gates / version drift / budget policy；
+后续只保留 artifact-backed benchmark 扩展与 dashboard 等非必要后置项。
 
 ## 维护者材料（非用户文档）
 

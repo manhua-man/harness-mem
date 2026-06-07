@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v3.4
 
-> 状态：规划中，未实现。
+> 状态：已发布，当前版本 3.4.4。
 >
 > 主题：Runtime Health, Cost Discipline, and Regression Gates。让 memory runtime
 > 能看见自己的 job health、MCP surface 成本、上下文浪费、版本漂移和跨版本质量变化；
@@ -41,16 +41,28 @@ wake/search/distill/file_context/dream/wiki
 
 ## v3.4.0：MCP Surface Cost Observer
 
+> 状态：已发布，当前版本 3.4.0。
+
 **用户故事**：维护者能知道哪些 MCP / Slash surface 正在浪费上下文。
 
 | 优先级 | 任务 | 验收 |
 |---|---|---|
-| P0 | local transcript observer | 可读取本地 Codex/Claude/Cursor 近似 transcript 或 runtime event log |
-| P0 | token estimate | 估算 wake/search/distill/file_context/dream/wiki 输出 token |
-| P0 | high-output detection | 标出宽泛 search、过大 wake、未 drilldown 直接全文输出 |
-| P1 | missed-opportunity hints | 提示可改用 timeline、bundle、compact context 或 narrower query |
+| P0 | local transcript observer | 已完成：MCP `tools/call` 成功返回后 best-effort 写入本地 `events.log` 的 `mcp_surface_cost` 元数据事件 |
+| P0 | token estimate | 已完成：估算 wake/search/distill/file_context/dream/wiki-like compact 输出 token，并记录 tokenizer path |
+| P0 | high-output detection | 已完成：按 surface 默认阈值标出宽泛 search、过大 wake、过大 distill packet 等高输出调用 |
+| P1 | missed-opportunity hints | 已完成：提示可改用 timeline drilldown、compact context、source drilldown、narrower query 或更小 distill packet |
+
+### 当前实现（2026-06-08）
+
+- `harness_mem.runtime_cost` 负责纯本地 cost analysis、`events.log` 写入和聚合报告。
+- MCP server 在 `tools/call` handler 成功返回后调用 observer；observer 异常只写 stderr log，不改变 tool result。
+- 新增 MCP `surface_cost_report`，按 project / days / limit 聚合 recent surface cost。
+- 事件只保存 surface、tool name、duration、输出 token / char 计数、argument shape、result shape 和提示类型；
+  不保存 raw query、raw path、原始 transcript 或 response content。
 
 ## v3.4.1：Runtime Health Report
+
+> 状态：已发布。
 
 **用户故事**：`/hm:status` / doctor 能显示 memory runtime 的健康，而不是只显示安装是否成功。
 
@@ -61,7 +73,19 @@ wake/search/distill/file_context/dream/wiki
 | P0 | retrieval health | wake/search latency、result count、truncation frequency |
 | P1 | graceful degradation report | 失败时解释降级路径，不阻断主任务 |
 
+### 当前实现（2026-06-08）
+
+- `harness_mem.runtime_health.runtime_health_report` 汇总 reflection / dream / metabolism
+  job last run、failures、retryable 状态。
+- `health_summary`、doctor、`/hm:status` 背后的 MCP `get_project_status` 均暴露 runtime health。
+- generated cache rollup 复用 v3.2 `knowledge_cache_health`，不重新定义 compiler。
+- retrieval health 由本地 `mcp_surface_cost` 事件汇总 wake/search/file_context/timeline/
+  temporal_query 的 latency、result count 和 truncation/high-output frequency。
+- 每个切片失败都会落到 `graceful_degradation.warnings`，不阻断 wake/search 主链。
+
 ## v3.4.2：Benchmark Matrix and Regression Gates
+
+> 状态：已发布。
 
 **用户故事**：改 memory runtime 时，能看出哪类能力退化，而不是只看总分。
 
@@ -72,7 +96,19 @@ wake/search/distill/file_context/dream/wiki
 | P0 | dimension score | LongMemEval 按 knowledge-update、temporal-reasoning、multi-session 等维度报告 |
 | P1 | release snapshot | 每次 release 可生成简短 benchmark snapshot |
 
+### 当前实现（2026-06-08）
+
+- 新增 `harness_mem.benchmark_matrix.benchmark_matrix_report`，按 use cases / methods /
+  datasets / dimensions 输出 taxonomy。
+- MCP `benchmark_matrix_report` 暴露 wake、search、file_context、wiki compact、
+  temporal query 的 per-surface smoke/regression coverage。
+- LongMemEval 五个维度以 dimension row 形式进入报告，避免用单一总分替代分维度质量。
+- release snapshot 读取 `benchmark-suite/artifacts/*/run_manifest.json`，报告最新 artifact、
+  accepted/failed run 计数和 gate 状态。
+
 ## v3.4.3：Version and Install Drift Visibility
+
+> 状态：已发布。
 
 **用户故事**：多 host plugin / skill / CLI 组合出现漂移时，doctor 能尽早发现。
 
@@ -83,7 +119,19 @@ wake/search/distill/file_context/dream/wiki
 | P0 | no silent stale install | `/hm:status` 能显示 stale registration 或旧 slash command |
 | P1 | install/update guidance | 给出 host-specific 更新建议，但不擅自改全局配置 |
 
+### 当前实现（2026-06-08）
+
+- 新增 `harness_mem.version`，CLI/MCP/plugin/skill 共用 `hm-wire-v3.4` wire-format 常量。
+- MCP `initialize.serverInfo`、`get_project_status.runtime_versions` 和 doctor/status 输出
+  runtime + wire-format 版本。
+- `harness_mem.version_drift.version_drift_report` 检查 repo-local plugin manifest、
+  skill、`/hm:status` slash asset 是否 stale，并给出 host-specific 更新建议。
+- plugin manifest、skill frontmatter、`/hm:status` frontmatter 均声明 `hm-wire-v3.4`；
+  报告只提示，不擅自改全局 host config。
+
 ## v3.4.4：Cost Budget Policy
+
+> 状态：已发布。
 
 **用户故事**：系统有可解释的 token budget 策略，并能指出哪些调用违反了预算纪律。
 
@@ -93,6 +141,17 @@ wake/search/distill/file_context/dream/wiki
 | P0 | truncation metadata | 输出包含 truncated-by、remaining-drilldown、source ids |
 | P0 | status summary | status 显示最近高成本调用和建议 |
 | P1 | policy versioning | budget policy 有版本，便于 dream/observer/report 引用 |
+
+### 当前实现（2026-06-08）
+
+- `harness_mem.runtime_cost` 引入 `cost-budget-v3.4.4` policy version 和
+  wake/search/file_context/wiki/dream/distill 默认 per-surface budget。
+- `.harness-mem.toml` 支持 `cost_budget.*_tokens` typed config，预算仍是 advisory-only，
+  不让 observer 自动改写输出。
+- cost event 记录 `budget_tokens`、`budget_exceeded`、`truncation.truncated_by`、
+  `remaining_drilldown` 和 privacy-preserving `source_id_count/source_ids`。
+- MCP `surface_cost_report`、`get_project_status.cost_budget` 和 CLI status 显示最近高成本
+  调用、top opportunities 与 drilldown 建议。
 
 ## 后置项
 

@@ -1,21 +1,21 @@
 """Tests for the v2.4.2 ``health_summary`` orchestrator, CLI blocks, and MCP tool (Req 6).
 
-``health_summary(backend, project_name)`` composes the five detection
+``health_summary(backend, project_name)`` composes the six detection
 surfaces — v2.4.0 ``queue_health`` plus the four v2.4.2 helpers
 (``candidate_health``, ``signal_freshness``, ``chronic_failures``,
-``maintenance_hints``) — into one read-only payload with a fixed top-level
-key order. Both the CLI ``cmd_doctor`` blocks and the MCP ``health_summary``
+``maintenance_hints``) plus the v3.4 ``runtime_health`` report — into one
+read-only payload with a fixed top-level key order. Both the CLI ``cmd_doctor`` blocks and the MCP ``health_summary``
 tool consume that payload, so the two surfaces never disagree (Req 6.6).
 
 Coverage:
 
-- Property 3 (shape stability): top-level keys are exactly the five
+- Property 3 (shape stability): top-level keys are exactly the six
   documented keys, in order, across empty / mixed / populated states.
 - Property 4 (graceful degradation): when a composed helper raises, the
   orchestrator still returns and the failed category becomes
   ``{"warnings": [...]}`` while the others stay normal (Req 6.7).
 - MCP round-trip via ``handle_request`` with ``set_backend_override``.
-- Zero-state symmetry across all five categories.
+- Zero-state symmetry across all categories.
 - CLI block-helper rendering (Task 6.13) — see the module-level note on the
   approach taken.
 
@@ -60,6 +60,7 @@ _EXPECTED_KEYS = [
     "signal_freshness",
     "chronic_failures",
     "maintenance_hints",
+    "runtime_health",
 ]
 
 

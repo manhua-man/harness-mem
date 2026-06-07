@@ -1,6 +1,7 @@
 ---
 name: harness-mem
 description: Use harness-mem as a local-first memory runtime for the current project. Trigger when the user asks to remember prior work, resume a project, search old agent sessions, ingest recent agent sessions, create durable project rules, or explain what the project currently knows.
+wireFormatVersion: hm-wire-v3.4
 ---
 
 # harness-mem

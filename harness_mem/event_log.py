@@ -23,6 +23,7 @@ class EventType(StrEnum):
     RULE_CONFIRMED = "rule_confirmed"
     RULE_REJECTED = "rule_rejected"
     LEARNING_LOOP_COMPLETE = "learning_loop_complete"
+    MCP_SURFACE_COST = "mcp_surface_cost"
 
 
 class EventLogger:

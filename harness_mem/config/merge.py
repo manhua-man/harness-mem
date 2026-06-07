@@ -66,6 +66,12 @@ class MergedConfig:
     dream_handle_allow_delete_truth: bool = False
     dream_handle_preserve_audit: bool = True
     dream_handle_undo_window_days: int = 30
+    cost_budget_wake_tokens: int = 2000
+    cost_budget_search_tokens: int = 1200
+    cost_budget_file_context_tokens: int = 900
+    cost_budget_wiki_tokens: int = 1200
+    cost_budget_dream_tokens: int = 2000
+    cost_budget_distill_tokens: int = 3000
     extras: dict[str, Any] = field(default_factory=dict)
 
     def to_reflection_config(self) -> dict[str, Any]:
@@ -84,6 +90,8 @@ class MergedConfig:
         for key_path, attr, _kind, _default in _AUTOPILOT_KEYS:
             _set_dotted(out, key_path, getattr(self, attr))
         for key_path, attr, _kind, _default in _DREAM_KEYS:
+            _set_dotted(out, key_path, getattr(self, attr))
+        for key_path, attr, _kind, _default in _COST_BUDGET_KEYS:
             _set_dotted(out, key_path, getattr(self, attr))
         return out
 
@@ -131,6 +139,20 @@ _DREAM_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     ("dream.handle.allow_delete_truth", "dream_handle_allow_delete_truth", "const:false", False),
     ("dream.handle.preserve_audit", "dream_handle_preserve_audit", "const:true", True),
     ("dream.handle.undo_window_days", "dream_handle_undo_window_days", "int:min=1", 30),
+)
+
+_COST_BUDGET_KEYS: tuple[tuple[str, str, str, Any], ...] = (
+    ("cost_budget.wake_tokens", "cost_budget_wake_tokens", "int:min=1", 2000),
+    ("cost_budget.search_tokens", "cost_budget_search_tokens", "int:min=1", 1200),
+    (
+        "cost_budget.file_context_tokens",
+        "cost_budget_file_context_tokens",
+        "int:min=1",
+        900,
+    ),
+    ("cost_budget.wiki_tokens", "cost_budget_wiki_tokens", "int:min=1", 1200),
+    ("cost_budget.dream_tokens", "cost_budget_dream_tokens", "int:min=1", 2000),
+    ("cost_budget.distill_tokens", "cost_budget_distill_tokens", "int:min=1", 3000),
 )
 
 
@@ -426,6 +448,14 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
         project_path=project_path,
         user_path=user_path,
     )
+    cost_budget_values = _coerce_key_group(
+        merged=merged,
+        keys=_COST_BUDGET_KEYS,
+        project_dict=project_dict,
+        user_dict=user_dict,
+        project_path=project_path,
+        user_path=user_path,
+    )
 
     # ---- 6. default-fill + extras collection (Req 3.6) ------------------
     extras = copy.deepcopy(merged)
@@ -434,6 +464,8 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
     for key_path, _attr, _kind, _default in _AUTOPILOT_KEYS:
         _remove_dotted(extras, key_path)
     for key_path, _attr, _kind, _default in _DREAM_KEYS:
+        _remove_dotted(extras, key_path)
+    for key_path, _attr, _kind, _default in _COST_BUDGET_KEYS:
         _remove_dotted(extras, key_path)
 
     def _resolve(key_path: str, default: str) -> Any:
@@ -448,5 +480,6 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
         worker_mode=_resolve("worker.mode", "off"),
         **autopilot_values,
         **dream_values,
+        **cost_budget_values,
         extras=extras,
     )

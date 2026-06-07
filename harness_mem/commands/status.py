@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from harness_mem.commands.dream import dream_status_snapshot
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
@@ -14,8 +16,11 @@ from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.knowledge_cache import knowledge_cache_health
+from harness_mem.runtime_cost import cost_budget_policy, surface_cost_report
+from harness_mem.runtime_health import runtime_health_report
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
+from harness_mem.version import runtime_version_payload
 
 
 async def cmd_status(project_name: str | None = None) -> int:
@@ -66,6 +71,7 @@ async def _status_project_async(backend: LocalMemoryBackend, project_name: str) 
     print(f"  Confirmed rules: {len(rules)}")
     await _print_dream_status(backend, project_name)
     await _print_knowledge_cache_status(backend, project_name, profile)
+    await _print_runtime_health_status(backend, project_name, profile)
 
     profile_text = ""
     if profile:
@@ -156,6 +162,73 @@ async def _print_knowledge_cache_status(
         f"{report['orphaned_output_count']} orphaned output(s), "
         f"cache hit ratio {report['cache_hit_ratio']:.2f}"
     )
+
+
+async def _print_runtime_health_status(
+    backend: LocalMemoryBackend,
+    project_name: str,
+    profile: ProjectProfile | None,
+) -> None:
+    report = await runtime_health_report(
+        backend,
+        data_dir=DEFAULT_DATA_DIR,
+        project_name=project_name,
+        profile=profile,
+        project_root=find_project_root(project_name),
+        repo_root=Path.cwd(),
+    )
+    versions = runtime_version_payload()
+    print(
+        "  Runtime wire: "
+        f"{versions['wire_format_version']} (runtime {versions['runtime_version']})"
+    )
+    jobs = report.get("job_health", {})
+    dream = jobs.get("dream", {})
+    metabolism = jobs.get("metabolism", {})
+    reflection = jobs.get("reflection", {})
+    print(
+        "  Job health: "
+        f"reflection={reflection.get('last_status') or 'none'}, "
+        f"dream={dream.get('last_status') or 'none'}, "
+        f"metabolism={metabolism.get('last_status') or 'none'}"
+    )
+    surface_budgets = _surface_budgets_from_config(_load_project_config(project_name))
+    cost = surface_cost_report(
+        DEFAULT_DATA_DIR,
+        project_name=project_name,
+        days=7,
+        limit=100,
+        surface_budgets=surface_budgets,
+    )
+    high = cost.get("recent_high_output_calls", [])
+    print(
+        "  Cost budget: "
+        f"{cost_budget_policy(surface_budgets).get('policy_version')} | "
+        f"{cost.get('summary', {}).get('high_output_calls', 0)} high-cost call(s)"
+    )
+    for call in high[:2]:
+        hints = call.get("hints") or []
+        hint = hints[0] if hints else "Use a narrower drilldown before repeating."
+        print(
+            "    high-cost: "
+            f"{call.get('surface')} {call.get('output_tokens')} tokens. {hint}"
+        )
+    drift = report.get("version_drift", {})
+    if drift.get("has_drift"):
+        print(f"  Install drift: {len(drift.get('issues', []))} issue(s)")
+
+
+def _surface_budgets_from_config(config: MergedConfig | None) -> dict[str, int] | None:
+    if config is None:
+        return None
+    return {
+        "wake": config.cost_budget_wake_tokens,
+        "search": config.cost_budget_search_tokens,
+        "file_context": config.cost_budget_file_context_tokens,
+        "wiki": config.cost_budget_wiki_tokens,
+        "dream": config.cost_budget_dream_tokens,
+        "distill": config.cost_budget_distill_tokens,
+    }
 
 
 def _disclosure_level(tokens: int) -> str:

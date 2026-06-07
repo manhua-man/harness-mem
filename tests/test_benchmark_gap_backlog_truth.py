@@ -47,10 +47,8 @@ def test_benchmark_gap_backlog_preserves_no_overclaim_boundaries() -> None:
     assert "v3.1 Auto Dream Memory Maintenance now exposes `/hm:dream`" in gaps
     assert "No completed artifact bundle measures automatic maintenance effectiveness" in gaps
     assert "v3.1 Auto Dream Memory Maintenance is planning-only" not in gaps
-    assert (
-        "v3.4 Runtime Health, Cost Discipline, and Regression Gates is planning-only"
-        in gaps
-    )
+    assert "v3.4.4 ships the local MCP surface cost observer" in gaps
+    assert "token budget visibility" in gaps
     assert "Cost discipline is tracked as its own class, not folded into observability." in gaps
 
 
@@ -89,7 +87,6 @@ def test_benchmark_design_packs_are_registered_and_complete() -> None:
 def test_blocked_benchmark_design_packs_keep_unlock_conditions() -> None:
     blocked_ids = [
         "generated_knowledge_freshness",
-        "runtime_health_observability",
     ]
 
     for benchmark_id in blocked_ids:
@@ -101,6 +98,20 @@ def test_blocked_benchmark_design_packs_keep_unlock_conditions() -> None:
         assert "Unlock Conditions" in readme
         assert prompts["status"] == "blocked-by-product"
         assert prompts["unlock_condition"]
+
+    runtime_readme = (
+        REPO_ROOT / "benchmark-suite" / "runtime_health_observability" / "README.md"
+    ).read_text(encoding="utf-8")
+    runtime_prompts = json.loads(
+        (
+            REPO_ROOT
+            / "benchmark-suite"
+            / "runtime_health_observability"
+            / "prompts.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert "Status: ready-to-run" in runtime_readme
+    assert runtime_prompts["status"] == "ready-to-run"
 
 
 def test_auto_maintenance_benchmark_is_ready_after_v31_surface_ships() -> None:

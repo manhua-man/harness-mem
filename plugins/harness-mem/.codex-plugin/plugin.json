@@ -1,6 +1,7 @@
 {
   "name": "harness-mem",
-  "version": "0.1.0",
+  "version": "3.4.4",
+  "wireFormatVersion": "hm-wire-v3.4",
   "description": "Local-first AI memory runtime wrapper for Codex and Claude-style agent workflows.",
   "author": {
     "name": "harness-mem maintainers"

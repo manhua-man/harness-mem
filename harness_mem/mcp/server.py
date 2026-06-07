@@ -88,11 +88,13 @@ import io  # noqa: E402
 import json  # noqa: E402
 import logging  # noqa: E402
 import re  # noqa: E402
+import time  # noqa: E402
 from datetime import datetime, timedelta, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any, cast  # noqa: E402
 
 from harness_mem import __version__ as _HARNESS_MEM_VERSION  # noqa: E402
+from harness_mem.benchmark_matrix import benchmark_matrix_report  # noqa: E402
 from harness_mem.commands.auto_review import auto_review_candidates  # noqa: E402
 from harness_mem.commands.doctor import health_summary  # noqa: E402
 from harness_mem.commands.dream import (  # noqa: E402
@@ -167,11 +169,18 @@ from harness_mem.read_api import (  # noqa: E402
     timeline_observations,
     trace_relation_paths,
 )
+from harness_mem.runtime_cost import (  # noqa: E402
+    cost_budget_policy,
+    observe_mcp_surface_cost,
+    surface_cost_report,
+)
+from harness_mem.runtime_health import runtime_health_report  # noqa: E402
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend  # noqa: E402
 from harness_mem.storage.local_project_profile_store import (  # noqa: E402
     LocalProjectProfileStore,
 )
 from harness_mem.storage.local_structured_store import LocalStructuredStore  # noqa: E402
+from harness_mem.version import runtime_version_payload  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
 logger = logging.getLogger("harness_mem_mcp")
@@ -200,6 +209,48 @@ def set_backend_override(backend: LocalMemoryBackend | None) -> None:
     """Override the singleton backend (used by tests to inject tmp_path backend)."""
     global _backend
     _backend = backend
+
+
+def _observer_data_dir() -> Path:
+    """Return the data dir cost observer should use without forcing backend init."""
+    if _backend is not None:
+        return _backend.data_dir
+    return DEFAULT_DATA_DIR
+
+
+def _cost_surface_budgets(project_name: str | None) -> dict[str, int] | None:
+    """Load project cost budgets when a project root/config can be resolved."""
+    if not project_name:
+        return None
+    root = find_project_root(project_name)
+    if root is None:
+        return None
+    try:
+        cfg = load_merged_config(str(root))
+    except ConfigError:
+        return None
+    return {
+        "wake": cfg.cost_budget_wake_tokens,
+        "search": cfg.cost_budget_search_tokens,
+        "file_context": cfg.cost_budget_file_context_tokens,
+        "wiki": cfg.cost_budget_wiki_tokens,
+        "dream": cfg.cost_budget_dream_tokens,
+        "distill": cfg.cost_budget_distill_tokens,
+    }
+
+
+def _project_name_for_cost(
+    arguments: dict[str, Any],
+    result: dict[str, Any] | Any,
+) -> str | None:
+    value = arguments.get("project_name")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(result, dict):
+        result_value = result.get("project_name")
+        if isinstance(result_value, str) and result_value.strip():
+            return result_value.strip()
+    return None
 
 
 # =============================================================================
@@ -747,6 +798,21 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
         profile=profile,
         project_root=find_project_root(project_name),
     )
+    runtime_report = await runtime_health_report(
+        backend,
+        data_dir=_observer_data_dir(),
+        project_name=project_name,
+        profile=profile,
+        project_root=find_project_root(project_name),
+        repo_root=Path(__file__).resolve().parents[2],
+    )
+    cost_report = surface_cost_report(
+        _observer_data_dir(),
+        project_name=project_name,
+        days=7,
+        limit=100,
+        surface_budgets=_cost_surface_budgets(project_name),
+    )
     return {
         "observation_count": len(project_observations),
         "memory_entry_count": len(memory_entries),
@@ -765,6 +831,16 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
             "compile_duration_ms": knowledge_report["compile_duration_ms"],
             "output_token_estimate": knowledge_report["output_token_estimate"],
         },
+        "runtime_versions": runtime_version_payload(),
+        "job_health": runtime_report.get("job_health", {}),
+        "retrieval_health": runtime_report.get("retrieval_health", {}),
+        "cost_budget": {
+            "policy": cost_budget_policy(_cost_surface_budgets(project_name)),
+            "summary": cost_report.get("summary", {}),
+            "recent_high_output_calls": cost_report.get("recent_high_output_calls", [])[:5],
+            "top_opportunities": cost_report.get("top_opportunities", [])[:5],
+        },
+        "install_drift": runtime_report.get("version_drift", {}),
     }
 
 
@@ -2815,6 +2891,29 @@ def tool_health_summary(project_name: str | None = None) -> dict:
     return {"success": True, "project_name": resolved, **payload}
 
 
+def tool_surface_cost_report(
+    project_name: str | None = None,
+    days: int = 7,
+    limit: int = 200,
+) -> dict:
+    """Return local v3.4.0 MCP surface cost observer aggregates."""
+    return {
+        "success": True,
+        **surface_cost_report(
+            _observer_data_dir(),
+            project_name=project_name,
+            days=days,
+            limit=limit,
+            surface_budgets=_cost_surface_budgets(project_name),
+        ),
+    }
+
+
+def tool_benchmark_matrix_report() -> dict:
+    """Return v3.4.2 benchmark taxonomy, surface gates, and release snapshot."""
+    return benchmark_matrix_report(Path(__file__).resolve().parents[2] / "benchmark-suite")
+
+
 # =============================================================================
 # MCP TOOL REGISTRY
 # =============================================================================
@@ -2885,6 +2984,8 @@ TOOLS: dict[str, ToolSpec] = build_tools({
     "list_reflection_jobs": tool_list_reflection_jobs,
     "get_reflection_job": tool_get_reflection_job,
     "health_summary": tool_health_summary,
+    "surface_cost_report": tool_surface_cost_report,
+    "benchmark_matrix_report": tool_benchmark_matrix_report,
 })
 
 
@@ -2918,7 +3019,11 @@ def handle_request(request: dict) -> dict | None:
             "result": {
                 "protocolVersion": negotiated,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "harness-mem", "version": _HARNESS_MEM_VERSION},
+                "serverInfo": {
+                    "name": "harness-mem",
+                    "version": _HARNESS_MEM_VERSION,
+                    **runtime_version_payload(),
+                },
             },
         }
 
@@ -2989,7 +3094,22 @@ def handle_request(request: dict) -> dict | None:
                 }
 
         try:
+            started_at = time.perf_counter()
             result = TOOLS[tool_name]["handler"](**tool_args)
+            duration_ms = int((time.perf_counter() - started_at) * 1000)
+            try:
+                observe_mcp_surface_cost(
+                    data_dir=_observer_data_dir(),
+                    tool_name=tool_name,
+                    arguments=tool_args,
+                    result=result,
+                    duration_ms=duration_ms,
+                    surface_budgets=_cost_surface_budgets(
+                        _project_name_for_cost(tool_args, result)
+                    ),
+                )
+            except Exception:
+                logger.exception("MCP surface cost observer failed for %s", tool_name)
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,

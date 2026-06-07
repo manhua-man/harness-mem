@@ -77,6 +77,7 @@ def test_initialize():
     # Pin serverInfo.version to the package's single source of truth so the
     # MCP handshake never drifts behind harness_mem.__version__ again.
     assert result["serverInfo"]["version"] == __version__
+    assert result["serverInfo"]["wire_format_version"] == "hm-wire-v3.4"
 
 
 def test_stdio_initialize_writes_json_rpc_to_stdout():
@@ -136,7 +137,7 @@ def test_stdio_initialize_fails_before_handshake_when_launch_target_is_invalid()
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 57
+    assert len(tools) == 59
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
@@ -160,7 +161,7 @@ def test_tools_list():
         "metabolism_preview", "metabolism_run",
         "dream_ledger", "dream_run", "dream_auto_tick", "undo_dream_item",
         "list_reflection_jobs", "get_reflection_job",
-        "health_summary",
+        "health_summary", "surface_cost_report", "benchmark_matrix_report",
     }
     assert expected.issubset(names)
 
@@ -223,6 +224,83 @@ def test_search_memory(mcp_backend: LocalMemoryBackend):
     entries = run(mcp_backend.structured_store.list_memory_entries("test-project", limit=10))
     assert entries[0].usage_count == 1
     assert entries[0].last_accessed_at is not None
+
+
+def test_mcp_surface_cost_observer_logs_local_metadata_without_content(
+    mcp_backend: LocalMemoryBackend,
+):
+    data = call_tool(
+        "search_memory",
+        {"project_name": "test-project", "query": "SQLite FTS5"},
+    )
+    assert data["memory_entry_count"] >= 1
+
+    events_path = mcp_backend.data_dir / "events.log"
+    lines = events_path.read_text(encoding="utf-8").splitlines()
+    events = [json.loads(line) for line in lines if line.strip()]
+    cost_events = [event for event in events if event["type"] == "mcp_surface_cost"]
+    assert cost_events, "MCP tools/call should record a best-effort local cost event"
+    latest = cost_events[-1]
+    assert latest["project_name"] == "test-project"
+    assert latest["command"] == "mcp.search_memory"
+    assert latest["extra"]["tool_name"] == "search_memory"
+    assert latest["extra"]["surface"] == "search"
+    assert latest["extra"]["output_tokens"] > 0
+    assert "query_chars" in latest["extra"]["argument_shape"]
+
+    serialized_event = json.dumps(latest, ensure_ascii=False)
+    assert "SQLite FTS5" not in serialized_event
+    assert "Use SQLite FTS5 for full-text search indexing" not in serialized_event
+
+
+def test_surface_cost_report_aggregates_recent_high_output_calls(
+    mcp_backend: LocalMemoryBackend,
+):
+    from harness_mem.runtime_cost import analyze_mcp_surface_cost
+    from harness_mem.runtime_cost import observe_mcp_surface_cost
+
+    high_output = " ".join(f"wake-cost-token-{idx}" for idx in range(5000))
+    assert analyze_mcp_surface_cost(
+        "wake",
+        {"project_name": "test-project", "renderer": "default"},
+        {"success": True, "output": high_output},
+        duration_ms=42,
+    )["high_output"] is True
+
+    observe_mcp_surface_cost(
+        data_dir=mcp_backend.data_dir,
+        tool_name="wake",
+        arguments={"project_name": "test-project", "renderer": "default"},
+        result={"success": True, "output": high_output},
+        duration_ms=42,
+    )
+    observe_mcp_surface_cost(
+        data_dir=mcp_backend.data_dir,
+        tool_name="search_memory",
+        arguments={"project_name": "other-project", "query": "all", "scope": "all"},
+        result={"success": True, "memory_entry_count": 20, "observations": []},
+        duration_ms=5,
+    )
+
+    data = call_tool(
+        "surface_cost_report",
+        {"project_name": "test-project", "days": 30},
+    )
+
+    assert data["success"] is True
+    assert data["project_name"] == "test-project"
+    assert data["summary"]["total_calls"] >= 1
+    assert data["summary"]["high_output_calls"] >= 1
+    wake_surface = next(surface for surface in data["surfaces"] if surface["surface"] == "wake")
+    assert wake_surface["high_output_calls"] >= 1
+    assert any(
+        item["kind"] == "compact_context"
+        for item in data["top_opportunities"]
+    )
+    assert all(
+        call["project_name"] == "test-project"
+        for call in data["recent_high_output_calls"]
+    )
 
 
 def test_search_memory_returns_relation_facts(mcp_backend: LocalMemoryBackend):
@@ -1364,6 +1442,42 @@ def test_get_project_status_returns_counts_without_cli(mcp_backend: LocalMemoryB
     assert data["generated_cache"]["generated_claim_count"] >= 0
     assert "stale_source_count" in data["generated_cache"]
     assert "cache_hit_ratio" in data["generated_cache"]
+    assert data["runtime_versions"]["wire_format_version"] == "hm-wire-v3.4"
+    assert "job_health" in data
+    assert data["cost_budget"]["policy"]["policy_version"] == "cost-budget-v3.4.4"
+
+
+def test_get_project_status_uses_project_cost_budget_config(
+    mcp_backend: LocalMemoryBackend,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    project_root = tmp_path / "budget-project"
+    project_root.mkdir()
+    (project_root / ".harness-mem.toml").write_text(
+        "[cost_budget]\nsearch_tokens = 7\nwake_tokens = 11\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_root)
+
+    data = call_tool("get_project_status", {"project_name": "budget-project"})
+
+    budgets = data["cost_budget"]["policy"]["budgets"]
+    assert budgets["search"] == 7
+    assert budgets["wake"] == 11
+
+
+def test_benchmark_matrix_report_exposes_surface_gates():
+    data = call_tool("benchmark_matrix_report", {})
+
+    assert data["success"] is True
+    assert data["matrix_version"] == "v3.4.2"
+    surfaces = {row["surface"]: row for row in data["surfaces"]}
+    assert {"wake", "search", "file_context", "wiki_compact", "temporal_query"}.issubset(
+        surfaces
+    )
+    assert "knowledge-update" in data["taxonomy"]["dimensions"]
+    assert "release_snapshot" in data
 
 
 def test_get_project_status_empty_project_suggests_distill(mcp_backend: LocalMemoryBackend):

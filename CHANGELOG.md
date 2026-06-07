@@ -8,6 +8,68 @@
 
 ---
 
+## [3.4.4] — 2026-06-08
+
+**主题：Runtime Health, Cost Discipline, and Regression Gates**
+
+v3.4.4 收口整个 v3.4.x：在 v3.4.0 cost observer 基础上补齐 runtime health、
+benchmark gates、version drift visibility 和 cost budget policy。
+
+### Added
+
+- **Runtime Health Report**：`health_summary`、doctor、`/hm:status` 背后的
+  `get_project_status` 汇总 reflection / dream / metabolism job health、generated cache、
+  retrieval latency/result/truncation frequency 和 graceful degradation warnings。
+- **Benchmark Matrix Report**：新增 MCP `benchmark_matrix_report`，按 use cases /
+  methods / datasets / LongMemEval dimensions 输出 taxonomy、per-surface regression
+  coverage 和 release snapshot。
+- **Version Drift Visibility**：MCP handshake、status、doctor 暴露 `hm-wire-v3.4`；
+  repo-local plugin / skill / slash assets 声明 wire-format，并提供 drift report 与
+  host-specific 更新建议。
+- **Cost Budget Policy**：新增 `cost-budget-v3.4.4`，按 surface 记录预算、超限、
+  truncation metadata、remaining drilldown 和 source id metadata；`surface_cost_report`
+  与 status 显示最近高成本调用和建议。
+- **Config**：`.harness-mem.toml` 支持 `cost_budget.*_tokens` typed config，预算策略
+  保持 advisory-only，不自动改写输出。
+
+### Validation
+
+- `python -m pytest tests\test_runtime_v34.py tests\mcp\test_smoke.py::test_initialize tests\mcp\test_smoke.py::test_tools_list tests\mcp\test_smoke.py::test_get_project_status_returns_counts_without_cli tests\mcp\test_smoke.py::test_benchmark_matrix_report_exposes_surface_gates tests\test_load_merged_config.py -q -o cache_dir=.tmp\pytest_cache`
+
+---
+
+## [3.4.0] — 2026-06-08
+
+**主题：MCP Surface Cost Observer**
+
+v3.4.0 开始落地 Runtime Health, Cost Discipline, and Regression Gates 的第一片：
+本地 MCP surface cost observer。它只记录本地元数据，不保存原始查询、文件路径或返回内容。
+
+### Added
+
+- **local MCP cost observer**：MCP `tools/call` 成功返回后会 best-effort 写入
+  `events.log`，记录 surface、tool、duration、输出 token 估算、结果形状和提示类型。
+- **high-output detection**：wake、search、timeline、file_context、distill、dream
+  等 surface 有默认高输出阈值，超过时标记 `high_output=true`。
+- **missed-opportunity hints**：宽泛 search、过大 wake、过大 distill packet 等会给出
+  compact context、timeline drilldown、narrower query、source drilldown 等提示。
+- **MCP `surface_cost_report`**：新增只读报告工具，按 project / lookback window 聚合
+  最近本地成本事件、surface token 总量、高输出调用和 top opportunities。
+
+### Boundaries
+
+- observer 不采集用户内容到云端，也不写入 raw query、raw path 或完整 response content。
+- observer 失败不会阻断 wake/search/distill 等主路径。
+- v3.4.1 runtime health report、v3.4.2 benchmark gates、v3.4.3 version drift、
+  v3.4.4 budget policy 已在 3.4.4 收口。
+
+### Validation
+
+- `python -m pytest tests\mcp\test_smoke.py -q`
+- `python -m pytest tests\commands\test_token_estimator.py -q`
+
+---
+
 ## [3.3.3] — 2026-06-07
 
 **主题：Plugin Script CI Compatibility**

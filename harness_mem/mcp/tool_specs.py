@@ -1119,6 +1119,44 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             },
         },
     },
+    "surface_cost_report": {
+        "description": (
+            "Read-only v3.4.0 local MCP surface cost observer report. "
+            "Aggregates recent tool output token estimates, high-output calls, "
+            "and drilldown hints from the local event log without storing raw "
+            "tool arguments or response content."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "description": "Optional project filter.",
+                },
+                "days": {
+                    "type": "integer",
+                    "description": "Lookback window in days (default 7).",
+                    "default": 7,
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum recent cost events to inspect (default 200, max 1000).",
+                    "default": 200,
+                },
+            },
+        },
+    },
+    "benchmark_matrix_report": {
+        "description": (
+            "Read-only v3.4.2 benchmark taxonomy, per-surface regression "
+            "coverage, LongMemEval dimension tracking, and release snapshot."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
     "metabolism_preview": {
         "description": (
             "Preview the next metabolism run's input window without writing "

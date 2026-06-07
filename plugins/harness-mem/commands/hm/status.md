@@ -3,6 +3,7 @@ name: "HM: Status"
 description: 通过 MCP 查看当前项目的健康度和下一步建议
 category: Memory
 tags: [harness-mem, status]
+wireFormatVersion: hm-wire-v3.4
 ---
 
 通过 MCP 显示当前项目的记忆状态，并给出 slash-first 下一步建议。
@@ -17,6 +18,9 @@ tags: [harness-mem, status]
    - Pending candidates 数量
    - `phase` / `suggested_slash` / `reason`
    - 可选 `repair_hint` / `repair_reason`
+   - `runtime_versions` / `job_health` / `retrieval_health`
+   - `cost_budget` 最近高成本调用与建议
+   - `install_drift` stale registration / 旧 slash command 风险
 3. 用自然语言总结给用户，并给出具体可点的 slash 建议：
    - `phase=needs-distill` → 建议用户跑 `/hm:distill`
    - `phase=ready` → 建议 `/hm:wake`

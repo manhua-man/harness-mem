@@ -13,5 +13,5 @@ def test_roadmap_status_baseline_mentions_full_v29_release_train() -> None:
     assert "v2.0 heuristic distill 移除、v2.1 maintenance-only CLI" in roadmap_status
     assert "v2.9.0–v2.9.61 这一整条从" in roadmap_status
     assert "truth-sync 的 release train、v3.1 Auto Dream Memory Maintenance、v3.2" in roadmap_status
-    assert "以及 v3.3 Temporal Query and" in roadmap_status
+    assert "以及 v3.4.x Runtime Health, Cost Discipline, and" in roadmap_status
     assert "以及 v2.9.11 的 scheduler-trigger truth sync 都已落地。" not in roadmap_status

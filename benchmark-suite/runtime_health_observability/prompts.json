@@ -1,8 +1,8 @@
 {
   "benchmark_id": "runtime_health_observability",
   "version": 1,
-  "status": "blocked-by-product",
-  "unlock_condition": "Run only after v3.4 runtime health report, local cost observer, version drift visibility, benchmark regression gates, and false-success reporting are stable.",
+  "status": "ready-to-run",
+  "unlock_condition": "Unlocked by v3.4.4 runtime health report, version drift visibility, benchmark regression gates, cost budget policy, and false-success reporting surfaces.",
   "condition": "health_guarded",
   "tasks": [
     {
@@ -41,7 +41,7 @@
         "Version drift can be ignored in health reports."
       ],
       "expected_evidence_hints": [
-        "future version drift health surface"
+        "harness_mem/version_drift.py"
       ]
     },
     {
@@ -60,8 +60,8 @@
         "Over-budget output is normal without metadata."
       ],
       "expected_evidence_hints": [
-        "tests/commands/test_replay_window.py",
-        "tests/test_wake_render_properties.py",
+        "tests/test_runtime_v34.py",
+        "harness_mem/runtime_cost.py",
         "docs/roadmap-v34.md"
       ]
     },

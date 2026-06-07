@@ -6,7 +6,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_v32_v33_are_implemented_and_v34_remains_planning() -> None:
+def test_v32_v33_are_implemented_and_v34_started_with_cost_observer() -> None:
     docs_readme = (REPO_ROOT / "docs" / "README.md").read_text(encoding="utf-8")
     roadmap_status = (REPO_ROOT / "docs" / "roadmap-status.md").read_text(encoding="utf-8")
     roadmap_v32 = (REPO_ROOT / "docs" / "roadmap-v32.md").read_text(encoding="utf-8")
@@ -21,29 +21,30 @@ def test_v32_v33_are_implemented_and_v34_remains_planning() -> None:
     assert "Runtime Health, Cost Discipline, and Regression Gates" in docs_readme
 
     assert "| v3.3.x | 已发布：Temporal Query and Supersede Explainability |" in roadmap_status
-    assert (
-        "| v3.4.x Runtime Health, Cost Discipline, and Regression Gates | 规划中，未实现 |"
-        in roadmap_status
-    )
+    assert "| v3.4.4 | 当前版本：Cost Budget Policy |" in roadmap_status
+    assert "| v3.4.x | 已发布：Runtime Health, Cost Discipline, and Regression Gates |" in roadmap_status
     assert "| v3.2.0 | 已发布：Generated Knowledge Compiler + Basic Freshness |" in roadmap_status
     assert "| v3.2.x | 已发布：Generated Knowledge Compiler + Basic Freshness |" in roadmap_status
     assert "| v3.3.0 | 已发布：Temporal Query and Supersede Explainability |" in roadmap_status
     assert "| v3.3.1 | 已发布：Release CI dependency fix |" in roadmap_status
     assert "| v3.3.2 | 已发布：Cross-platform CI compatibility |" in roadmap_status
-    assert "| v3.3.3 | 当前版本 |" in roadmap_status
+    assert "| v3.3.3 | 当前版本 |" not in roadmap_status
     assert "| v3.3.x | 已发布：Temporal Query and Supersede Explainability |" in roadmap_status
     assert "| v3.2.x | Generated Knowledge Compiler + Basic Freshness" in roadmap_status
     assert "| v3.3.x | 已发布：Temporal Query and Supersede Explainability" in roadmap_status
-    assert "| v3.4.x | Runtime Health, Cost Discipline, and Regression Gates" in roadmap_status
+    assert "| v3.4.x | 已发布：Runtime Health, Cost Discipline, and Regression Gates" in roadmap_status
     assert "Temporal Query and Supersede Explainability" in roadmap_status
-    assert "runtime health / cost discipline / regression gates" in roadmap_status
+    assert "token budget、runtime health report、benchmark regression、version drift" in roadmap_status
 
     assert "> 状态：已发布，当前版本 3.2.0。" in roadmap_v32
     assert "### 当前实现（2026-06-07）" in roadmap_v32
     assert "citation validation" in roadmap_status
     assert "> 状态：已发布，当前版本 3.3.3。" in roadmap_v33
     assert "### 当前实现（2026-06-07）" in roadmap_v33
-    assert "> 状态：规划中，未实现。" in roadmap_v34
+    assert "> 状态：已发布，当前版本 3.4.4。" in roadmap_v34
+    assert "## v3.4.0：MCP Surface Cost Observer" in roadmap_v34
+    assert "### 当前实现（2026-06-08）" in roadmap_v34
+    assert "## v3.4.4：Cost Budget Policy" in roadmap_v34
     assert "generated wiki / compact page 不是 truth" in roadmap_v32
     assert "不把 `reference-projects.md` maintainer 总表当 v3.2 产品切片" in roadmap_v32
     assert "不让 AI 自动改写 confirmed truth" in roadmap_v33

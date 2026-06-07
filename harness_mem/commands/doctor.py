@@ -42,11 +42,13 @@ from harness_mem.commands.support import (
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.knowledge_cache import knowledge_cache_health
+from harness_mem.runtime_health import runtime_health_report
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 from harness_mem.storage.reflection_job_store import ReflectionJobStore
+from harness_mem.version import runtime_version_payload
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +230,7 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             _doctor_signal_freshness_block(report["signal_freshness"], resolved_project)
             _doctor_chronic_failures_block(report["chronic_failures"])
             _doctor_maintenance_block(report["maintenance_hints"])
+            _doctor_runtime_health_block(report.get("runtime_health", {}))
             knowledge_report = await knowledge_cache_health(
                 backend,
                 data_dir=DEFAULT_DATA_DIR,
@@ -1174,6 +1177,21 @@ async def health_summary(backend: LocalMemoryBackend, project_name: str) -> dict
         logger.warning("health_summary: maintenance_hints failed: %s", exc)
         report["maintenance_hints"] = {"warnings": [str(exc)]}
 
+    try:
+        data_dir = backend.data_dir
+        profile = await LocalProjectProfileStore(data_dir).get(project_name)
+        report["runtime_health"] = await runtime_health_report(
+            backend,
+            data_dir=data_dir,
+            project_name=project_name,
+            profile=profile,
+            project_root=find_project_root(project_name),
+            repo_root=Path(__file__).resolve().parents[2],
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("health_summary: runtime_health failed: %s", exc)
+        report["runtime_health"] = {"warnings": [str(exc)]}
+
     return report
 
 
@@ -1310,6 +1328,39 @@ def _doctor_maintenance_block(maintenance_report: dict[str, Any]) -> None:
     for hint in hints:
         print(f"⚠️  {hint['message']}")
         print(f"Fix: {hint['fix_command']}")
+
+
+def _doctor_runtime_health_block(runtime_report: dict[str, Any]) -> None:
+    if not runtime_report:
+        return
+    if "warnings" in runtime_report:
+        for warning in runtime_report["warnings"]:
+            print(f"⚠️  Runtime health unavailable: {warning}")
+        return
+    print("Runtime health:")
+    versions = runtime_version_payload()
+    print(
+        "  versions: "
+        f"runtime={versions['runtime_version']} | wire={versions['wire_format_version']}"
+    )
+    jobs = runtime_report.get("job_health", {})
+    for name in ("reflection", "dream", "metabolism"):
+        summary = jobs.get(name, {})
+        print(
+            f"  {name}: last={summary.get('last_status') or 'none'}, "
+            f"failures={summary.get('failure_count', 0)}, "
+            f"retryable={summary.get('retryable_count', 0)}"
+        )
+    retrieval = runtime_report.get("retrieval_health", {})
+    surfaces = retrieval.get("surfaces", [])
+    if surfaces:
+        high = sum(int(row.get("high_output_calls") or 0) for row in surfaces)
+        print(f"  retrieval: {len(surfaces)} active surface(s), {high} high-cost call(s)")
+    drift = runtime_report.get("version_drift", {})
+    if drift.get("has_drift"):
+        print(f"⚠️  version/install drift: {len(drift.get('issues', []))} issue(s)")
+        for issue in drift.get("issues", [])[:3]:
+            print(f"    {issue.get('surface')}: {issue.get('message')}")
 
 
 def _load_project_dream_config(project_name: str) -> MergedConfig | None:

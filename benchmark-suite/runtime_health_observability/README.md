@@ -3,8 +3,8 @@
 Benchmark design for runtime health, observability, cost discipline, and
 regression gates.
 
-Status: blocked-by-product. This design is complete enough to run after v3.4
-runtime health and cost surfaces ship.
+Status: ready-to-run. v3.4.4 ships the local MCP surface cost observer,
+runtime health, drift, budget policy, and regression gate report surfaces.
 
 ## Goal
 
@@ -14,10 +14,10 @@ false success.
 
 ## Unlock Conditions
 
-Run this benchmark only after the product exposes stable versions of:
+Run this benchmark against the stable v3.4.4 surfaces:
 
 - runtime health report
-- local cost observer or token budget report
+- local cost observer and token budget report
 - version drift visibility
 - benchmark regression gate report
 - failure or false-success reporting

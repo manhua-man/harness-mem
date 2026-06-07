@@ -191,19 +191,23 @@ Current status: `ready-to-run`
 Current evidence:
 
 - Design pack: `benchmark-suite/generated_knowledge_freshness/`
-- v3.2 generated knowledge compiler is planning-only.
+- v3.2 generated knowledge compiler has shipped source maps, atomic claims,
+  citation validation, incremental compile metrics, and freshness/status
+  visibility.
 - Current tests mainly verify generated material does not contaminate truth or
   default search.
 
 Why this remains open:
 
-- Source maps, atomic claims, incremental generated cache, and freshness metrics
-  are not yet shipped as stable benchmark targets.
+- No completed artifact bundle measures source-map completeness, freshness
+  detection, generated-cache invalidation, or citation validation under
+  realistic agent pressure.
 
 Required work:
 
-- Wait until v3.2 product surfaces exist.
-- Then benchmark source-map completeness, freshness detection, generated-cache
+- Run the `generated_knowledge_freshness` design pack against the shipped v3.2
+  generated compiler surfaces.
+- Benchmark source-map completeness, freshness detection, generated-cache
   invalidation, and citation validation.
 
 Close criteria:
@@ -219,7 +223,7 @@ Dimension:
 - Observability
 - Evidence safety
 
-Current status: `blocked-by-product`
+Current status: `ready-to-run`
 
 Current evidence:
 
@@ -263,7 +267,9 @@ Current evidence:
 - Design pack: `benchmark-suite/runtime_health_observability/`
 - `health_summary`, `doctor`, `candidate_health`, and maintenance hints are
   tested.
-- v3.4 Runtime Health, Cost Discipline, and Regression Gates is planning-only.
+- v3.4.4 ships the local MCP surface cost observer, `surface_cost_report`,
+  runtime health report, version drift visibility, benchmark regression gates,
+  and cost budget policy.
 
 Why this remains open:
 
@@ -272,7 +278,7 @@ Why this remains open:
 
 Required work:
 
-- Wait until v3.4 health surfaces are stable.
+- Use the shipped v3.4.4 health / drift / regression gate / budget surfaces.
 - Benchmark version drift, stale index diagnosis, missing transport diagnosis,
   budget overrun detection, and regression gate reporting.
 
@@ -294,4 +300,5 @@ Deferred until product surfaces stabilize:
 
 1. `GAP-BENCH-005`: generated knowledge cache and freshness.
 2. `GAP-BENCH-006`: auto maintenance effectiveness.
-3. `GAP-BENCH-007`: runtime health and observability.
+3. `GAP-BENCH-007`: runtime health and observability is now ready-to-run; collect
+   artifact-backed results before closing it.
