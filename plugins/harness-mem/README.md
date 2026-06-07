@@ -81,6 +81,14 @@ behaviors. When `dream.auto.enabled` is explicitly enabled, runtime dream
 maintenance may process eligible candidates created through autopilot-controlled
 flows.
 
+Boundary shorthand:
+
+- confirmed truth can be maintained automatically, but it must not be silently
+  overwritten; durable changes go through candidate / review / supersede /
+  ledger.
+- cross-project skills can be reused across projects, but they must not pollute
+  default wake; shared skills are searched, hinted, and expanded explicitly.
+
 ### Claude Code
 
 | Slash | What it does |

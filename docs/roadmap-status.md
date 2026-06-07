@@ -50,16 +50,17 @@ observer 不保存 raw query、raw path 或 response content；失败不阻断�
 日常用法：`/hm:distill`、`/hm:wake`、`/hm:search`（或自然语言等价指令）；默认启用的
 `harness-mem-autopilot` skill 提供 conversation-level 自动学习：在清晰任务边界主动
 wake/search、创建有证据的候选或建议 distill。学习结果仍走 candidate/review loop；
-没有后台 daemon / hook、无条件 turn-end 写入或静默 durable truth 写入。
+受控自动化已做：autopilot、opt-in host hook / scheduler、默认关闭 Auto Dream。默认
+常驻后台不做；truth 不静默改。
 
 ## 已交付能力（按主题）
 
 | 主题 | 你能用到什么 | 说明 |
 |---|---|---|
 | 检索与证据 | 渐进式 search → timeline → 原始 observation；可选 hybrid 向量 | 默认 embedding 基线 `all-MiniLM-L6-v2` |
-| 真理与候选 | MemoryEntry、Rule、Relation、Handoff、Supersede/Skill 等候选层；`auto_review` 处理低风险项 | 高风险与证据不足仍交给人 |
+| 真理与候选 | MemoryEntry、Rule、Relation、Handoff、Supersede/Skill 等候选层；`auto_review` 处理低风险项 | 可以自动维护，但不能静默覆盖 confirmed truth；必须走 candidate / review / supersede / ledger |
 | 用户入口 | `/hm:*`、repo-local Skill、自然语言；MCP 在 Agent 背后 | CLI 仅安装、doctor、purge、maintenance |
-| Conversation Autopilot | `harness-mem-autopilot` skill 默认启用，可在明确任务边界主动 wake/search、创建证据候选或建议 distill | conversation-level 自动学习；`autopilot.enabled=false` 是显式关闭；不启用 daemon、hook、无条件 per-turn 写入或 silent confirmed truth |
+| Conversation Autopilot | `harness-mem-autopilot` skill 默认启用，可在明确任务边界主动 wake/search、创建证据候选或建议 distill | conversation-level 自动学习；`autopilot.enabled=false` 是显式关闭；不会默认启用 daemon / IDE hook、无条件 per-turn 写入或 silent confirmed truth |
 | Distill | `prepare_session_distill` + LLM `suggest_*`；多客户端 session 自动识别 | v2.0 起已移除启发式 distill |
 | Wake | 分层 wake（L0–L2 已确认真理）；可选 compact renderer、skill hints | 默认不注入 pending 或完整 Skill body |
 | 维护面 | `/hm:mark`、`/hm:prune`、`/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry`、`/hm:prd-sync`、`/hm:status` | PRD sync 默认 dry-run |
@@ -68,7 +69,7 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 | Temporal Query | MCP `temporal_query` 读取 temporal read model，支持 current/history/as_of、valid/recorded range、supersede timeline、explanation、abstention | read-side projection；不自动改写 confirmed truth |
 | Runtime Health / Cost | MCP `health_summary`、`get_project_status`、`surface_cost_report`、`benchmark_matrix_report` 汇总 job health、generated cache、retrieval latency/result/truncation、surface token、budget overrun、version drift 和 regression gates | 不采集云端、不保存 raw content；observer 失败不阻断主路径；cost discipline 单独成类 |
 | 可选触发 | `host_entry` + IDE hook 模板（`triggers.*` 默认 `off`） | 无 always-on daemon；`worker.mode` 仅为配置门控 |
-| 跨项目 Skill | 显式 shared `search_skills`、审核后 promotion | 不进默认 wake、不静默跨项目注入 |
+| 跨项目 Skill | 显式 shared `search_skills`、审核后 promotion | 可以跨项目复用，但不能默认污染 wake；必须显式搜索、提示、展开 |
 
 ## 发版锚点
 
@@ -102,8 +103,8 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 | Context Assembly / File Context | 已完成 | 见 `docs/roadmap-v25.md` |
 | Wiki Bridge / Compact Index | 已完成到 v3.2.0；compact wake 为 opt-in，generated compiler 有 source map / citation / freshness / metrics | 见 `docs/roadmap-v26.md` 与 `docs/roadmap-v32.md` |
 | Temporal Query / Supersede Explainability | 已完成到 v3.3.0；`temporal_query` 提供 read-side current/history/as_of 与 supersede timeline | 见 `docs/roadmap-v33.md` |
-| 自动改写 confirmed truth | 不做 | 仅 candidate / review / supersede |
-| 跨项目 Skill 默认注入 wake | 不做 | v2.7.x non-goal |
+| 自动改写 confirmed truth | 不做 | 可以自动维护，但不能静默覆盖；confirmed truth 变更必须走 candidate / review / supersede / ledger |
+| 跨项目 Skill 默认注入 wake | 不做 | 可以跨项目复用，但不能默认污染 wake；shared skill 必须显式搜索、提示、展开 |
 | REST API 作为产品入口 | 已移除 | 不恢复 |
 | CLI 日常 `wake` / `search` / 候选复核 | 已移除 | IDE / Agent + MCP |
 | v1.9「Dream」旧 vision | 已拆分 | v2.3–v2.4、v2.6；v3.1 为新的可选自动维护设计 |
@@ -152,7 +153,9 @@ current/history/as_of temporal query / supersede timeline / abstention，以及 
 MCP surface cost observer / high-output detection / `surface_cost_report` / runtime health /
 benchmark matrix / version drift / cost budget policy 都已落地。
 
-当前仍未启用 always-on daemon；shared skill 坚持显式消费；truth 变更只走候选与人工复核。
+受控自动化已做；默认常驻后台不做。confirmed truth 可以自动维护，但不能静默覆盖；
+必须走 candidate / review / supersede / ledger。cross-project skill 可以跨项目复用，
+但不能默认污染 wake；必须显式搜索、提示、展开。
 
 v3.1 Auto Dream Memory Maintenance 默认关闭、用户显式开启；在保留审计与撤销的前提下组合 signals / metabolism / reflection，并优先复用客户端/host 的定时触发能力，而不是引入独立后台进程。
 

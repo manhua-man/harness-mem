@@ -6,7 +6,10 @@ Local-first, pluggable **AI memory runtime** for Claude Code, Codex, and Gemini 
 
 > **v2.0**：distill 路径只接受 LLM agent。低质量正则启发式已在 v2.0 移除——它产出的 0.7 confidence 候选既无法触发 auto-review 自动确认、也几乎抓不到自然 prose 里的关系事实，违反"AI memory runtime"承诺。任意 LLM agent（Claude Code skill、Codex agent、Cursor、Gemini、自定义）都可以在背后调用同一套 runtime 写候选；harness-mem 不绑特定客户端。
 
-候选写入只发生在显式 agent 流程里：例如 `/hm:distill`、repo-local skill，或用户明确要求“记下这条规则”。当前产品仍没有默认后台 daemon、默认自动 IDE hook 路径或 turn-end 自检来自动产生“日常随手记”；v2.4 已提供 opt-in host hook / scheduler trigger，但 `triggers.*` 默认仍是 `off`，而且它们不会把候选写入变成 autonomous learning。
+候选写入只发生在受控 agent/runtime 流程里：`/hm:distill`、repo-local skill、
+conversation-level autopilot，或用户明确要求“记下这条规则”。受控自动化已做：
+autopilot、opt-in host hook / scheduler、默认关闭 Auto Dream。默认常驻后台不做；
+truth 不静默改。
 
 Agent 协作真值见 [AGENTS.md](./AGENTS.md)。
 当前发版状态与已落地边界以 [docs/roadmap-status.md](./docs/roadmap-status.md) 和

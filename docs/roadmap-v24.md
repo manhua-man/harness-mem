@@ -17,7 +17,7 @@ v2.4 让 reflection、distill、metabolism 这类较重任务有清晰的 job �
 - v2.4 的业务命令共享实现位于 `harness_mem.commands.reflection_jobs`；hook/host 入口走 `python -m harness_mem.host_entry`，不走 `harness-mem reflection` 这类 CLI 业务子命令。
 - 下文保留的是 v2.4 规划与边界说明，作为已实现版本的设计记录。
 
-这一版不追求「默认自动随手记」，而是：
+这一版的边界：受控自动化已做；默认常驻后台不做；truth 不静默改。具体是：
 
 1. 定义安全的 **host-triggered reflection**：由 user、Agent workflow、IDE hook、外部 scheduler **在配置允许时**触发；未启用时零副作用。
 2. 人用 **CLI 维护子命令** 管配置、生成 hook；hook/cron 只触发 **业务命令**（`python -m` 或 MCP，见下），**不跑 `harness-mem` CLI**。
@@ -115,7 +115,7 @@ preserve unrecognized tables in extras
 
 - `claude-mem`：CLAIM-CONFIRM queue、worker health、graceful degradation。
 - harness-mem v2.3：`RetrievalSignal`、`MetabolismRun`。
-- 候选先进 review，不允许静默写 confirmed truth。
+- 候选先进 review；truth 不静默改。
 
 ---
 
@@ -193,7 +193,7 @@ preserve unrecognized tables in extras
 - 不默认启用 IDE hook（`triggers.after_agent=off`）。
 - 不恢复 v2.0 日常 CLI 工作流（`wake/search/timeline` 等）作为**产品主入口**。
 - hook/cron **不得**调用 CLI（`harness-mem`）；记忆动作只通过 **业务命令**（`python -m` host 或 MCP）。
-- 不静默写 confirmed truth。
+- truth 不静默改；confirmed truth 变更必须走 candidate / review / supersede / ledger。
 - 不把 File Read Gate 做成默认阻断。
 - 不做 cross-project skill（v2.7）。
 
