@@ -21,8 +21,11 @@ def test_v32_v33_are_implemented_and_v34_started_with_cost_observer() -> None:
     assert "Runtime Health, Cost Discipline, and Regression Gates" in docs_readme
 
     assert "| v3.3.x | 已发布：Temporal Query and Supersede Explainability |" in roadmap_status
-    assert "| v3.4.4 | 当前版本：Cost Budget Policy |" in roadmap_status
+    assert "| v3.4.4 | 已发布：Cost Budget Policy |" in roadmap_status
+    assert "| v3.8.0 | 当前版本：True Hybrid Retrieval Shootout |" in roadmap_status
     assert "| v3.4.x | 已发布：Runtime Health, Cost Discipline, and Regression Gates |" in roadmap_status
+    assert "regression gates、true-hybrid shootout summary 和 public-claim readiness" in roadmap_status
+    assert "当前 token/cost saving 仍未 ready；true-hybrid latency / retrieval recall 只限本地 synthetic / smoke artifact" in roadmap_status
     assert "| v3.2.0 | 已发布：Generated Knowledge Compiler + Basic Freshness |" in roadmap_status
     assert "| v3.2.x | 已发布：Generated Knowledge Compiler + Basic Freshness |" in roadmap_status
     assert "| v3.3.0 | 已发布：Temporal Query and Supersede Explainability |" in roadmap_status
@@ -45,6 +48,11 @@ def test_v32_v33_are_implemented_and_v34_started_with_cost_observer() -> None:
     assert "## v3.4.0：MCP Surface Cost Observer" in roadmap_v34
     assert "### 当前实现（2026-06-08）" in roadmap_v34
     assert "## v3.4.4：Cost Budget Policy" in roadmap_v34
+    assert "tracked `release-snapshot.json`" in roadmap_v34
+    assert "7 accepted、0 failed、0 unknown" in roadmap_v34
+    assert "benchmark gate passed" in roadmap_v34
+    assert '`benchmark_matrix_report()["claim_readiness"]`' in roadmap_v34
+    assert "token/cost saving 与 true vector-hybrid latency 都是 `ready=false`" in roadmap_v34
     assert "generated wiki / compact page 不是 truth" in roadmap_v32
     assert "不把 `reference-projects.md` maintainer 总表当 v3.2 产品切片" in roadmap_v32
     assert "不让 AI 自动改写 confirmed truth" in roadmap_v33

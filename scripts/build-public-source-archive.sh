@@ -18,7 +18,7 @@ OUT="$DIST/harness-mem-${VERSION}-public-source.tar.gz"
 git archive --format=tar.gz -o "$OUT" --prefix="$PREFIX" HEAD
 python "$ROOT/scripts/filter_public_archive.py" "$OUT"
 
-if tar -tzf "$OUT" | grep -qE 'docs/v2-user-test-packet\.md|harness_mem/integration/artifacts/'; then
+if tar -tzf "$OUT" | grep -qE 'docs/v2-user-test-packet\.md|harness_mem/integration/artifacts/|benchmark-suite/artifacts/'; then
   echo "Public archive still contains excluded maintainer paths." >&2
   exit 1
 fi

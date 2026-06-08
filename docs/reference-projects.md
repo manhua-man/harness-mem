@@ -11,8 +11,12 @@
 ## Reference Scorecard and Absorption Priorities
 
 > 说明：本节是 maintainer decision artifact，不是公开 benchmark，也不是路线图承诺。
-> 分数是 0-10 的主观成熟度估算，用来判断 `harness-mem` 后续该借什么、不该借什么。
-> `harness-mem v3.4 target` 代表 v3.1-v3.4 都完成后的目标状态，不代表当前发布能力。
+> 分数是 0-10 的主观成熟度估算，用来判断 `harness-mem` 该借什么、不该借什么。
+> `harness-mem v3.4 shipped` 代表 v3.1-v3.4 完成后的当前基线；具体已发布能力仍以
+> [`roadmap-status.md`](./roadmap-status.md) 与 `CHANGELOG.md` 为准。
+> 对外硬指标必须再看 `benchmark_matrix_report()["claim_readiness"]`：
+> 当前 token/cost saving 不是 ready 状态；true vector-hybrid latency / retrieval
+> recall 只对本地 synthetic / smoke artifact ready。
 
 ### 对比维度
 
@@ -32,13 +36,72 @@
 | 项目 | Memory | Evidence | Generated | Temporal | Auto maint | Observability | Cost discipline | Performance |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | `harness-mem v2.9.61` | 8.0 | 8.2 | 5.5 | 5.0 | 3.5 | 4.0 | 4.5 | 6.5 |
-| `harness-mem v3.4 target` | 8.7 | 8.8 | 8.8 | 8.7 | 8.3 | 8.6 | 8.8 | 7.8 |
+| `harness-mem v3.4 shipped` | 8.7 | 8.8 | 8.8 | 8.7 | 8.3 | 8.6 | 8.8 | 7.8 |
 | `claude-mem` | 7.5 | 7.0 | 4.5 | 4.0 | 7.5 | 7.5 | 6.8 | 6.8 |
 | `mempalace` | 8.0 | 8.5 | 5.5 | 7.5 | 5.0 | 5.5 | 6.0 | 6.5 |
 | `codedb-mcp` | 4.0 | 7.0 | 9.0 | 3.0 | 4.0 | 8.0 | 9.2 | 9.3 |
 | `Graphiti / Zep` | 6.5 | 7.0 | 5.0 | 9.0 | 6.0 | 6.5 | 6.0 | 7.0 |
 | `Letta` | 8.5 | 6.5 | 5.0 | 5.5 | 7.0 | 6.5 | 6.0 | 6.8 |
 | `evo` | 3.0 | 5.0 | 3.0 | 2.0 | 9.0 | 8.0 | 7.5 | 7.0 |
+| `OpenSpace` | 5.5 | 5.8 | 4.0 | 3.0 | 9.0 | 8.5 | 8.5 | 7.5 |
+| `Memento-Skills` | 6.8 | 5.8 | 4.0 | 4.0 | 8.5 | 7.5 | 6.5 | 6.5 |
+| `llm_wiki` | 5.0 | 8.0 | 9.0 | 4.0 | 6.5 | 7.5 | 7.5 | 7.0 |
+| `meta-kb` | 4.0 | 9.0 | 9.2 | 6.0 | 7.0 | 8.0 | 8.0 | 7.0 |
+| `hypatia` | 8.0 | 7.5 | 3.5 | 8.5 | 4.0 | 6.0 | 6.0 | 8.0 |
+| `EverOS` | 8.5 | 7.0 | 6.0 | 7.0 | 7.5 | 7.5 | 6.8 | 7.2 |
+| `hindsight` | 8.8 | 6.5 | 5.0 | 8.0 | 7.5 | 7.5 | 6.5 | 8.0 |
+| `MemChinesePalace` | 7.0 | 7.5 | 4.0 | 7.0 | 5.0 | 5.0 | 8.5 | 7.0 |
+
+### 数值图口径
+
+这些条形图是 maintainer 估算，不是 benchmark。它们回答“产品能力成熟度大概在哪”，
+不回答“对外可发布的 token / latency 硬指标是否成立”。
+
+```text
+整体成熟度（主观，加权）
+
+harness-mem v2.9.61      ██████▋     6.6
+harness-mem v3.4 shipped ████████▋   8.6
+claude-mem               ██████▊     6.8
+mempalace                ███████     7.0
+codedb-mcp               ██████▊     6.8
+Graphiti / Zep           ███████▌    7.5
+Letta                    ███████     7.0
+evo                      ██████▏     6.2
+```
+
+`harness-mem v3.4 shipped` 的能力提升主要来自 v3.1 Auto Dream、v3.2 Generated
+Knowledge、v3.3 Temporal Query、v3.4 Runtime Health / Cost / Regression，而不是基础
+search 从低分突然变满分：
+
+```text
+能力维度变化（主观）
+
+Memory runtime       8.0 -> 8.7  ████████▋
+Evidence safety      8.2 -> 8.8  ████████▊
+Generated knowledge  5.5 -> 8.8  ████████▊
+Temporal query       5.0 -> 8.7  ████████▋
+Auto maintenance     3.5 -> 8.3  ████████▎
+Observability        4.0 -> 8.6  ████████▋
+Cost discipline      4.5 -> 8.8  ████████▊
+Performance          6.5 -> 7.8  ███████▊
+```
+
+### 硬指标 Claim Gate
+
+主观分数不能替代 artifact。当前 v3.8 benchmark matrix 的真实发布门槛是：
+
+| Claim | Matrix field | Current value | 对外口径 |
+|---|---|---:|---|
+| Benchmark artifact gate | `gate.passed` | `true` | 可以说当前 11 个 BENCH artifact 内部通过 |
+| Token/cost saving | `claim_readiness.token_cost_saving.ready` | `false` | 不能说 token/cost saving 已被证明 |
+| True vector-hybrid latency | `claim_readiness.true_vector_hybrid_latency.ready` | `true` | 只能说本地 synthetic true-hybrid probe 无 fallback；不能外推生产延迟 |
+| Retrieval recall | `claim_readiness.retrieval_recall.ready` | `true` | 只能说本地 smoke source-hit recall；不能外推端到端回答正确率 |
+
+因此 `codedb-mcp` 在 cost/performance 上仍是更强的 code-intel 参考；`harness-mem`
+当前只能讲本地 cost discipline surface、预算/截断可观测、synthetic warm-path FTS/wake
+latency、local true-hybrid probe 和 local smoke source-hit recall，不能把这些说成
+code-intel 级 token/runtime benchmark。
 
 ### `codedb-mcp` cost / performance benchmark anchor
 
@@ -59,14 +122,21 @@ bundle child breakdown、高输出调用、broad reads/searches、非 codedb sou
 `codedb_bundle` / `codedb_context` opportunities。这个形态直接支撑 `harness-mem` v3.4 把
 **Cost discipline** 单列为一级能力。
 
+边界：这组 benchmark 证明的是 `codedb-mcp` 作为 code-intel substrate 的 token/runtime
+优势，不能外推成 `harness-mem` 的 memory-runtime 硬分。`harness-mem` 对外讲 token/cost
+节省前，必须使用自己的 `client_enabled_vs_disabled` artifact，并且两侧都有可见
+`token_usage` 来源以及正向 saving delta；对外讲 true vector-hybrid latency 时，
+`benchmark_matrix_report()` 的 `claim_readiness.true_vector_hybrid_latency.ready`
+必须为 `true`，且文案必须保留 local synthetic fixture 边界。
+
 ### 吸收优先级
 
-| 后续线 | P0 参考 | 要吸收 | 不吸收 |
+| 已落地线 | P0 参考 | 已吸收 | 不吸收 |
 |---|---|---|---|
-| v3.1 Auto Dream | `claude-mem` + `evo` | queue/job health、显式账本、长任务 directive/ack、host capability matrix | always-on daemon、自治 truth mutation、默认 subagent orchestration |
-| v3.2 Generated Knowledge Compiler | `codedb-mcp` + `llm_wiki` + `meta-kb` + `ai-harness` | project-local generated layer、source map、atomic claims、citation validation、incremental cache | 把 DeepWiki prose 或 generated cache 当 truth |
-| v3.3 Temporal Query | `Graphiti` + `hypatia` + `mempalace` | current/history/as_of、valid/recorded time、supersede timeline、temporal query traces | 完整图数据库、自动 ontology、AI 直接改 confirmed truth |
-| v3.4 Runtime Health / Cost / Regression | `codedb-mcp` + `claude-mem` + `evo` + `EverOS` | cost observer、per-surface budget、runtime health、version drift、benchmark dimensions | 云端 telemetry、dashboard-first、observer 自治调参 |
+| v3.1 Auto Dream | `claude-mem` + `evo` + `OpenSpace` + `Memento-Skills` | queue/job health、显式 DreamRun 账本、apply/reject/undo、host/scheduler 触发、skill/dream 健康信号 | always-on daemon、自治 truth mutation、默认 subagent orchestration、skill 自改后直接替换 confirmed truth |
+| v3.2 Generated Knowledge Compiler | `codedb-mcp` + `llm_wiki` + `meta-kb` + `ai-harness` | project-local generated layer、source map、atomic claims、citation validation、incremental cache、freshness/status 可见性 | 把 DeepWiki/wiki prose 或 generated cache 当 truth |
+| v3.3 Temporal Query | `Graphiti` + `hypatia` + `mempalace` + `hindsight` | current/history/as_of、valid/recorded time、supersede timeline、temporal query traces、abstention metadata | 完整图数据库、自动 ontology、AI 直接改 confirmed truth |
+| v3.4 Runtime Health / Cost / Regression | `codedb-mcp` + `claude-mem` + `evo` + `EverOS` + `OpenSpace` | cost observer、per-surface budget、runtime health、version drift、benchmark dimensions、false-success accounting | 云端 telemetry、dashboard-first、observer 自治调参 |
 
 ## 文档定位
 
@@ -85,6 +155,14 @@ bundle child breakdown、高输出调用、broad reads/searches、非 codedb sou
 | `../../upstreams/mempalace` | `https://github.com/MemPalace/mempalace.git` | local-first memory runtime：raw/verbatim、memory stack、temporal KG。 |
 | `../../upstreams/codedb-mcp` | `https://github.com/killop/codedb-mcp.git` | 代码知识编译器：project-local generated layer、DeepWiki、module atlas、tool-cost observer。 |
 | `../../upstreams/evo` | `https://github.com/evo-hq/evo.git` | 自动实验编排 runtime：`.evo/` 账本、host adapter、frontier strategy、长任务 directive。 |
+| `../../upstreams/OpenSpace` | `https://github.com/HKUDS/OpenSpace.git` | skill self-evolution：FIX / DERIVED / CAPTURED、quality monitoring、skill lineage、GDPVal token/economic benchmark。 |
+| `../../upstreams/Memento-Skills` | `https://github.com/Memento-Teams/Memento-Skills.git` | deployment-time skill learning：Read -> Execute -> Reflect -> Write、skill market、agent profile、dream daemon。 |
+| `../../upstreams/llm_wiki` | `https://github.com/nashsu/llm_wiki.git` | generated wiki app：two-step ingest、source traceability、incremental cache、knowledge graph、review queue。 |
+| `../../upstreams/meta-kb` | `https://github.com/chappyasel/meta-kb.git` | self-improving knowledge compiler：raw sources -> claims/articles、citation verification、incremental compile、self-eval。 |
+| `../../upstreams/hypatia` | `https://github.com/MarchLiu/hypatia.git` | SQLite/DuckDB graph memory：Knowledge/Statement triples、JSE query、FTS/vector, LoCoMo/LongMemEval benchmark artifacts。 |
+| `../../upstreams/EverOS` | `https://github.com/EverMind-AI/EverOS.git` | local memory OS：Markdown + SQLite + LanceDB、user/agent scopes、multimodal ingestion、EverMem benchmark ecosystem。 |
+| `../../upstreams/hindsight` | `https://github.com/vectorize-io/hindsight.git` | retain/recall/reflect memory API：world/experience/mental-model pathways、parallel retrieval strategies、enterprise/cloud boundary reference。 |
+| `../../upstreams/MemChinesePalace` | `https://github.com/Chandler-Sun/MemChinesePalace.git` | Chinese compression experiment：文简/简牍、palace hierarchy、KG contradiction, compact renderer research only。 |
 
 ## 已下载项目深读
 
@@ -120,11 +198,11 @@ source docs
 - `Refresh-MemPalace.ps1` 先同步 cache，再对每个带 `mempalace.yaml` 的 wing 执行 `python -m mempalace.cli --palace ... mine ...`。
 - `.mempalace_local/palace` 是运行产物，不是共享源。
 
-对 `harness-mem` 的启发：
+对 `harness-mem` 的启发与已吸收形态：
 
-- 如果做 `wiki bridge`，第一版不应该直接写入 runtime truth；更合理的是先有一个显式的 source cache / generated cache 分层。
+- v3.2 Generated Knowledge Compiler 已吸收 source cache / generated cache 分层，generated output 不直接写入 runtime truth。
 - “人工维护内容”和“脚本生成内容”必须分目录，避免 AI 把生成物当成权威源。
-- 后续如果引入文档知识库，可以参考这个工作流：
+- 当前已落地的知识编译链路遵循这个工作流：
 
 ```text
 repo docs / accepted memory
@@ -296,14 +374,12 @@ Claude Code hooks
 - **Directive banner + ack**：`optimize` skill 规定 runtime 注入 `[EVO DIRECTIVE id=...]`，agent 需 `evo ack <event_id>`，适合长任务中途用户干预。
 - **Runtime-first hooks**：Claude hooks 几乎全生命周期接 `evo-hook-drain`，说明它是重 runtime 编排系统，而不是单纯 CLI 或文档工具。
 
-对 `harness-mem` 的启发：
+对 `harness-mem` 的启发与已吸收形态：
 
-- 如果后续做 auto dream / scheduled maintenance，显式账本目录比隐式后台状态更可审计；可以借 `.evo/` 的 run ledger 思路，但仍要保持默认关闭。
+- v3.1 Auto Dream 已吸收显式 DreamRun / DreamItem 账本；它比隐式后台状态更可审计，且仍保持默认关闭。
 - 跨 Claude / Codex / Cursor / Hermes 等 host 时，应有 host adapter 与 capability matrix，而不是在各入口里散落特判。
-- plugin、skill、hook、CLI 若共享协议，应建立版本锁步和漂移诊断，避免安装面和运行面不一致。
-- dream prioritization 可以借 frontier strategy registry：例如优先 recent-active、high-conflict、high-stale 项目，而不是散落 if/else。
-- 重型 distill / dream / review 可以研究 explore-phase cache：缓存“读证据阶段”的 prefix/session，而不是缓存最终 truth 判断。
-- 长跑 maintenance job 可以借 directive + ack 协议：用户中途暂停、改策略、撤销或插入限制时，runtime 要有可确认的干预通道。
+- v3.4 已吸收 plugin / skill / slash / MCP wire-format drift 诊断，避免安装面和运行面不一致。
+- dream prioritization / directive ack / explore-phase cache 仍是后置增强，只能服务 opt-in maintenance，不能变成默认自治循环。
 
 不能照搬：
 
@@ -415,48 +491,55 @@ DeepWiki prose
 -> 直接写成 accepted memory truth
 ```
 
-### 7. auto dream runtime 可以借 `evo` 的账本和协议，不借自治实验循环
+### 7. Auto Dream 已借 `evo` 的账本和协议，不借自治实验循环
 
-如果 v3.1 Auto Dream Memory Maintenance 进入实现，值得借的是：
+v3.1 Auto Dream Memory Maintenance 已吸收：
 
 - 显式 run ledger / infra log
 - host capability matrix
 - plugin / CLI wire-format drift check
+- opt-in host / scheduler trigger
+
+仍只作为后置增强的是：
+
 - prioritization strategy registry
 - directive + ack
+- explore/read phase cache
 
-不借的是：
+明确不借的是：
 
 - 默认 unattended optimize loop
 - benchmark hill-climb 产品目标
 - 大规模 subagent orchestration 作为普通用户路径
 
-## 远程参考项目：待镜像后再深读
+## 新增镜像项目快速深读（2026-06-08）
 
-下面这些项目来自 2026-05-18 的讨论，目前尚未下载到本地 `../../upstreams/`。它们只作为“待镜像研究线索”，不能和上面的本地深读结论同等权重。
+下面这些项目已经下载到本地 `../../upstreams/` 并完成 README / 核心入口快速深读。
+它们补强了参考图谱，但没有推翻当前产品边界：默认常驻后台、静默改 truth、cloud-first
+telemetry、dashboard-first 和 generated prose as truth 仍不进入 `harness-mem` 主线。
 
-| 项目 | 暂定类型 | 当前可借鉴方向 | 后续动作 |
+| 项目 | 已读入口 | 新增可吸收点 | 当前处理 |
 |---|---|---|---|
-| [HKUDS/OpenSpace](https://github.com/HKUDS/OpenSpace) | Agent skill self-evolution | skill 候选生命周期、质量监控、成功工作流变成 reusable skill。 | 若进入 procedural memory 设计，先镜像后读 `openspace` 的 skill/evolution 数据模型。 |
-| [Memento-Skills](https://github.com/Memento-Teams/Memento-Skills) | Deployment-time skill learning | Read-write-reflective learning，执行后反思并更新 skill library。 | 等 v1.8 procedural memory 启动前再镜像。 |
-| [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) | 自动维护 wiki | Two-step ingest、source traceability、incremental cache、knowledge graph signals。 | `wiki bridge` 设计前优先镜像。 |
-| [chappyasel/meta-kb](https://github.com/chappyasel/meta-kb) | 自改进知识编译器 | raw sources 编译 wiki，atomic claims 对 citation 校验，content hash 增量编译。 | `wiki bridge` 设计前优先镜像。 |
-| [MarchLiu/hypatia](https://github.com/MarchLiu/hypatia) | 本地图记忆 | Knowledge entries、statement triples、temporal ranges、JSE 查询、FTS + vector。 | v1.7 temporal graph 设计前优先镜像。 |
-| [EverMind-AI/EverOS](https://github.com/EverMind-AI/EverOS) | 长期记忆 OS 与 benchmark 套件 | use cases / methods / benchmarks 分层，LoCoMo/LongMemEval/PersonaMem 评估。 | 只在 benchmark 口径扩展时镜像。 |
-| [vectorize-io/hindsight](https://github.com/vectorize-io/hindsight) | Agent memory that learns | “learn, not just recall” 的定位，API/CLI/client 分层。 | 若要复现其公开 benchmark，再镜像。 |
-| [Chandler-Sun/MemChinesePalace](https://github.com/Chandler-Sun/MemChinesePalace) | 压缩实验 | “简/牍”双层表达、压缩快读摘要、原文可追溯。 | compact renderer 研究时镜像。 |
+| `OpenSpace` | `README.md`、framework / benchmark sections | skill evolution 的 FIX / DERIVED / CAPTURED 生命周期、quality monitoring、anti-loop / safety gate、GDPVal token/cost benchmark 叙事。 | v3.1/v3.4 已吸收账本、health、cost 方向；不吸收 cloud skill community 或默认自治 skill rewrite。 |
+| `Memento-Skills` | `README.md`、v0.3 architecture sections | Read -> Execute -> Reflect -> Write、skill routing/retrieval、agent profile、dream daemon、config migration。 | skill 只能走 candidate/review；agent profile / dream daemon 不成为默认后台主路径。 |
+| `llm_wiki` | `README.md`、API/MCP sections | two-step ingest、source traceability、incremental queue、graph relevance、review queue、local API/MCP。 | v3.2 已吸收 source-map / freshness / generated boundary；不吸收 desktop app 或 wiki prose as truth。 |
+| `meta-kb` | `README.md`、stats / roadmap sections | raw -> claims/articles、citation verification、自评迭代、incremental compile、claims-first 迁移方向。 | 强化 v3.2 的 atomic claims / citation validation；claims-first 可作为后置编译器增强。 |
+| `hypatia` | `README.md`、benchmark sections | Knowledge / Statement triples、JSE 查询、DuckDB + SQLite FTS5、BGE-M3 LoCoMo/LongMemEval 数据。 | v3.3 已吸收 bounded temporal query；其 embedding benchmark 可作为下一轮真实 hybrid/vector 性能参考。 |
+| `EverOS` | `README.md`、storage / use-case sections | Markdown + SQLite + LanceDB、user/agent 双轨、multimodal ingestion、benchmark ecosystem。 | 只吸收 use-case/benchmark 分类启发；不把 Markdown directory 变成 truth store，不走 cloud/dashboard-first。 |
+| `hindsight` | `README.md`、retain/recall/reflect sections | retain / recall / reflect 三入口、world/experience/mental-model pathway、parallel semantic/keyword/graph/temporal retrieval。 | 支撑“learn not just recall”的产品叙事；不吸收 cloud/enterprise API 作为默认入口。 |
+| `MemChinesePalace` | `README.md`、文简规范 / MCP sections | 简/牍双层、中文文简压缩、palace hierarchy、KG contradiction。 | 只作为 compact renderer / 中文压缩实验；不进入 canonical storage truth。 |
 | [Jason Zuo X thread](https://x.com/xxxjzuo/status/2038086450013495554) | 想法线索 | “execution -> memory” 的 agent harness 叙事。 | 只有可访问、可引用后才正式摘录。 |
 
 ## 后续优先级
 
 | 优先级 | 动作 | 原因 |
 |---|---|---|
-| P0 | 把 `reference-projects.md` 作为外部参考唯一入口，后续读项目就补这里。 | 避免 roadmap 变成研究剪贴簿。 |
-| P0 | 做 `wiki bridge` / generated docs 前，优先深拆 `codedb-mcp`，再镜像 `llm_wiki` 和 `meta-kb`。 | `codedb-mcp` 已给出 project-local generated layer、module-map、DeepWiki、tool-cost observer；`llm_wiki` / `meta-kb` 补 wiki 编译与 citation 校验。 |
-| P1 | 真要做 temporal graph 前，先镜像 `hypatia`。 | 它更接近 SQLite/FTS/vector/graph 的本地实现形态。 |
-| P1 | 做 v3.1 auto dream runtime 前，回看 `evo` 的 `.evo/` 账本、host adapter、version lockstep、directive ack。 | 它是 orchestration / cross-host plugin engineering 参考，不是 memory truth 参考。 |
-| P1 | 把 `ai-harness` 的 generated/manual cache 边界转化成 `harness-mem` 的 wiki bridge 设计约束。 | 防止 AI 生成文档污染人工真相。 |
-| P2 | 把 AAAK / MemChinesePalace 类压缩只放入 wake renderer 实验，不进入 storage truth。 | 保护可审计性和原文追溯。 |
+| P0 | 保持 `reference-projects.md` 作为外部参考唯一入口，后续读项目只补这里。 | 避免 roadmap 变成研究剪贴簿。 |
+| P0 | 补强 BENCH-001：用可见 token/cost counter 重跑 enabled/disabled。 | `codedb-mcp` / OpenSpace 的公开叙事都有 token/cost delta；当前 BENCH-001 token unavailable，不能宣传省钱。 |
+| P0 | 补强 BENCH-004：在 embedding 可用时重跑真实 vector/hybrid latency。 | `hypatia` 等参考项目给了 embedding latency/quality 表；当前 BENCH-004 hybrid fallback 到 FTS。 |
+| P1 | claims-first generated compiler 实验。 | `meta-kb` 显示 claims-first 更适合 attribution accuracy 和增量重编译；只作为 generated layer，不改 truth。 |
+| P1 | skill evolution health 只做候选与审计增强。 | `OpenSpace` / `Memento-Skills` 证明 skill evolution 有价值，但不能绕过 `ProceduralCandidate` / review。 |
+| P2 | 文简 / AAAK 类压缩只放入 wake renderer 实验。 | 保护可审计性和原文追溯。 |
 
 ## 明确不做
 
@@ -465,4 +548,4 @@ DeepWiki prose
 - 不在 runtime 和 docs compiler 有价值前先做 desktop UI。
 - 不用 Markdown directory 替代 memory source of truth。
 - 不允许 skill auto-rewrite 绕过 candidate review。
-- 不把还没本地镜像、还没读源码的远程项目写成已验证结论。
+- 不把 README 级 benchmark headline 直接写成 `harness-mem` 产品收益；本仓只引用自己 artifact-backed 结果。

@@ -78,23 +78,27 @@
       "task_id": "T3",
       "title": "Scheduling and daemon boundary recovery",
       "task_type": "constraint_recovery",
-      "prompt": "Should harness-mem rely on a background daemon, IDE hook, or turn-end autonomous learning path for ordinary coding tasks right now? Recover the current architecture truth, distinguish shipped behavior from proposed behavior, and recommend the safest next step.",
-      "acceptance_summary": "Must say autonomous background learning is not currently implemented for ordinary coding tasks and that suggest_* writes are explicit agent flows.",
+      "prompt": "Should harness-mem rely on a background daemon, IDE hook, scheduler, Auto Dream, or turn-end autonomous learning path for ordinary coding tasks right now? Recover the current architecture truth, distinguish shipped controlled automation from default behavior, and recommend the safest next step.",
+      "acceptance_summary": "Must say controlled automation exists, default always-on background learning is not the current default, and truth changes cannot silently bypass candidate/review/supersede/ledger.",
       "required_facts": [
-        "No background daemon, IDE hook, or turn-end self-check currently makes agents automatically remember ordinary coding tasks.",
-        "suggest_rule / suggest_memory_entry are explicit candidate-write interfaces in agent workflows.",
-        "User review remains part of the candidate lifecycle.",
-        "Recommendation keeps experiments isolated until the runtime contract is proven."
+        "Controlled automation exists: conversation-level autopilot, opt-in host hook / scheduler trigger, and default-off Auto Dream.",
+        "No installed-by-default always-on daemon, default IDE every-turn memory path, or unconditional turn-end self-check is the current default.",
+        "suggest_rule / suggest_memory_entry are controlled candidate-write interfaces in agent/runtime workflows.",
+        "Confirmed truth changes cannot silently bypass candidate / review / supersede / ledger.",
+        "Recommendation keeps any scheduler or daemon-style expansion opt-in and auditable."
       ],
       "forbidden_claims": [
-        "Autonomous learning is already shipped for normal coding turns.",
-        "A daemon is the current runtime entry point.",
-        "Candidate writes happen implicitly at every turn."
+        "There is no controlled automation at all.",
+        "Autonomous every-turn learning is already shipped as the default for normal coding turns.",
+        "A daemon is the current default runtime entry point.",
+        "Candidate writes happen implicitly at every turn.",
+        "Confirmed truth may be silently overwritten by automation."
       ],
       "expected_evidence_hints": [
         "AGENTS.md AI-led Memory Candidate Loop",
-        "CLAUDE.md Memory Consolidation workflow",
-        "openspec specs for learning-loop or host entry if needed"
+        "docs/roadmap-status.md product baseline and not-done boundaries",
+        "docs/roadmap-v24.md host-triggered reflection boundary",
+        "plugins/harness-mem/skills/harness-mem-autopilot/SKILL.md"
       ]
     },
     {

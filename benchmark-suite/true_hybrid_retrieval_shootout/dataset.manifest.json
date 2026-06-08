@@ -1,0 +1,26 @@
+{
+  "manifest_version": 1,
+  "collection_id": "true_hybrid_retrieval_shootout",
+  "dataset": "local-fixture",
+  "split": "smoke",
+  "sample_count": 3,
+  "license_note": "Repository-local synthetic fixture; no private user corpus.",
+  "query_types": [
+    "knowledge-update",
+    "temporal",
+    "multi-session"
+  ],
+  "answer_oracle": "Each query lists expected_source_ids; recall is source-hit recall.",
+  "runner_reproducibility": {
+    "cache_policy": "Report cold/warm cache state explicitly.",
+    "default_embedding_baseline": "all-MiniLM-L6-v2",
+    "model_candidates": [
+      "all-MiniLM-L6-v2",
+      "bge-small-en-v1.5",
+      "nomic-embed-text-v1.5"
+    ],
+    "hardware_note_required": true,
+    "no_silent_download": true
+  },
+  "public_claim_boundary": "Fixture smoke does not make retrieval recall or true vector-hybrid latency public-claim ready."
+}

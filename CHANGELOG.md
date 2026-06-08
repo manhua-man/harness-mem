@@ -8,6 +8,67 @@
 
 ---
 
+## [3.8.0] — 2026-06-08
+
+**主题：Benchmark Evidence, Generated Claim Hardening, Skill Governance, and True Hybrid Retrieval Shootout**
+
+v3.8.0 连续收口 v3.5–v3.8：把 benchmark 做成可复现证据账本，强化 generated
+claim 的来源/新鲜度边界，记录 skill evolution 的结果证据，并新增 true-hybrid
+retrieval shootout 合同。公开声明仍受 gate 保护：token/cost saving 仍未 ready；
+true vector-hybrid latency 与 retrieval recall 只对本地 synthetic / smoke artifact ready。
+
+### Added
+
+- **Benchmark evidence layer**：新增 `benchmark-suite/RESULTS.md`、
+  `release-snapshot.json`、artifact state taxonomy 和 BENCH purpose map，让每个
+  benchmark 说明测什么、结果多少、限制在哪。
+- **Benchmark release artifact check**：新增 `benchmark-suite/tools/check_release_artifacts.py`、
+  `build_release_snapshot.py` 和 `validate_release_snapshot.py`，将 BENCH artifact、
+  `release-snapshot.json` 与 `claim_readiness` gate 串成可生成、可校验、可 CI
+  复用的发布检查链。full gate 与 GitHub Actions 均运行该检查；clean checkout
+  无 raw artifacts 时走 snapshot-only 校验。
+- **Packaged benchmark fallback**：`benchmark_matrix_report` 在安装包环境没有顶层
+  `benchmark-suite/` 时，会从 `harness_mem/resources/benchmark_suite/` 读取 packaged
+  `suite.json` 与 `release-snapshot.json`，保证 MCP 仍能返回 release snapshot 和
+  `claim_readiness`。
+- **Generated claim hardening**：compact wake payload 新增 freshness summary、
+  generated review queue、Trust 和 Drilldown 区块，避免 generated-only prose 被当成
+  confirmed truth。
+- **Skill result governance evidence**：`record_skill_result` 支持记录 surface、
+  source ids 和 reason，skill 成败可以进入 retrieval signal context 作为后续治理证据。
+- **True hybrid retrieval shootout contract**：新增
+  `true_hybrid_retrieval_shootout` 设计包、fixture artifact、summary/report renderer，
+  对 FTS / vector / hybrid 的 source-hit recall、latency、fallback 和 token/cost
+  estimate 建立统一合同。
+
+### Changed
+
+- **Benchmark matrix v3.8**：`benchmark_matrix_report` 升级到 `v3.8.0`，返回
+  artifact-state taxonomy、purpose map、release snapshot counts、retrieval shootout
+  summary 和 machine-readable public-claim gates。
+- **Benchmark snapshot trust boundary**：`benchmark_matrix_report` 的 snapshot fallback
+  现在要求 `release-snapshot.json` 满足完整 v2 合约（counts、`gate_passed`、
+  `claim_readiness`、每个 run 的 `claim_boundary`）。弱 snapshot 不再能让 MCP
+  regression gate 误报通过。
+- **Scripted pytest isolation**：`scripts/test-fast.*` 与 `scripts/test-full.*` 现在
+  使用 repo-local `.tmp/` pytest basetemp，并关闭 pytest cache provider，避免受限
+  Windows 环境访问系统 `%TEMP%` 或 `.pytest_cache` 失败。
+- **Public claim readiness**：token/cost saving 保持 `ready=false`，因为
+  token-observed paired run 是负向 saving delta；true vector-hybrid latency 与 retrieval
+  recall 为 bounded local artifact claim，不自动升级成生产性能或端到端正确率声明。
+
+### Validation
+
+- `python -m pytest tests/test_knowledge_cache.py tests/mcp/test_smoke.py tests/test_runtime_v34.py tests/test_roadmap_v35_v38_planning_truth.py tests/test_roadmap_status_version_index_truth.py tests/test_roadmap_status_summary_truth.py tests/test_benchmark_gap_backlog_truth.py -q`
+- `python -m pytest tests/test_benchmark_gap_backlog_truth.py tests/test_runtime_v34.py tests/test_roadmap_v35_v38_planning_truth.py -q`
+- `python -m pytest -q -p no:cacheprovider --basetemp .tmp/pytest-fast-health-<timestamp> <fast gate targets>`
+- `python -m ruff check .`
+- `python -m mypy harness_mem`
+- `python benchmark-suite/tools/check_release_artifacts.py`
+- `python benchmark-suite/tools/build_release_snapshot.py --output benchmark-suite/release-snapshot.json --check`
+
+---
+
 ## [3.4.4] — 2026-06-08
 
 **主题：Runtime Health, Cost Discipline, and Regression Gates**

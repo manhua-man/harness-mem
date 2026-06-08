@@ -2354,7 +2354,13 @@ def tool_reject_skill_promotion(candidate_id: str) -> dict:
     }
 
 
-def tool_record_skill_result(skill_id: str, success: bool) -> dict:
+def tool_record_skill_result(
+    skill_id: str,
+    success: bool,
+    surface: str | None = None,
+    source_ids: list[str] | None = None,
+    reason: str | None = None,
+) -> dict:
     """Record one execution result for a confirmed skill."""
     backend = _get_backend()
     skill = asyncio.run(
@@ -2375,6 +2381,15 @@ def tool_record_skill_result(skill_id: str, success: bool) -> dict:
             target_kind="skill",
             target_id=skill.id,
             value=skill.success_rate,
+            context={
+                "surface": (surface or "unspecified").strip() or "unspecified",
+                "source_ids": [
+                    item.strip()
+                    for item in (source_ids or [])
+                    if isinstance(item, str) and item.strip()
+                ],
+                "reason": (reason or "").strip(),
+            },
         )
     )
     return {
@@ -2910,7 +2925,7 @@ def tool_surface_cost_report(
 
 
 def tool_benchmark_matrix_report() -> dict:
-    """Return v3.4.2 benchmark taxonomy, surface gates, and release snapshot."""
+    """Return v3.8 benchmark taxonomy, surface gates, shootout, and claim readiness."""
     return benchmark_matrix_report(Path(__file__).resolve().parents[2] / "benchmark-suite")
 
 

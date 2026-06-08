@@ -1,0 +1,131 @@
+{
+  "snapshot_version": 2,
+  "generated_at": "2026-06-09T01:30:00Z",
+  "source": "validated local benchmark artifacts",
+  "artifact_run_count": 11,
+  "accepted_runs": 11,
+  "failed_runs": 0,
+  "unknown_runs": 0,
+  "gate_passed": true,
+  "claim_readiness": {
+    "token_cost_saving": {
+      "ready": false,
+      "dimension": "cost_discipline",
+      "source": "artifact-results",
+      "blocking": [
+        "T1/token_delta_not_saving=-597494",
+        "T3/token_delta_not_saving=-1065175"
+      ]
+    },
+    "true_vector_hybrid_latency": {
+      "ready": true,
+      "dimension": "performance",
+      "source": "artifact-results",
+      "blocking": []
+    },
+    "retrieval_recall": {
+      "ready": true,
+      "dimension": "retrieval_recall",
+      "source": "artifact-results",
+      "blocking": []
+    }
+  },
+  "retrieval_shootout": {
+    "source": "artifact-results",
+    "ready": true,
+    "query_count": 3,
+    "modes": [
+      "fts",
+      "hybrid",
+      "vector"
+    ],
+    "fallback_count": 0,
+    "default_embedding_baseline": "all-MiniLM-L6-v2",
+    "embedding_candidates": [
+      "all-MiniLM-L6-v2",
+      "bge-small-en-v1.5",
+      "nomic-embed-text-v1.5"
+    ],
+    "blocking": []
+  },
+  "runs": [
+    {
+      "run_id": "2026-06-08-auto_maintenance_effectiveness-codex-maintenance-am1-am6-01",
+      "collection_id": "auto_maintenance_effectiveness",
+      "accepted": true,
+      "result_count": 6,
+      "claim_boundary": "audited maintenance behavior; not production long-run precision/recall"
+    },
+    {
+      "run_id": "2026-06-08-client_enabled_vs_disabled-codex-paired-t1-t3-01",
+      "collection_id": "client_enabled_vs_disabled",
+      "accepted": true,
+      "result_count": 6,
+      "claim_boundary": "paired correctness and memory-call gating; no token-saving or speedup claim"
+    },
+    {
+      "run_id": "2026-06-08-evidence_safety-codex-guarded-e1-e5-01",
+      "collection_id": "evidence_safety",
+      "accepted": true,
+      "result_count": 5,
+      "claim_boundary": "guarded evidence-safety task set only"
+    },
+    {
+      "run_id": "2026-06-08-generated_knowledge_freshness-codex-generated-gk1-gk5-01",
+      "collection_id": "generated_knowledge_freshness",
+      "accepted": true,
+      "result_count": 5,
+      "claim_boundary": "generated boundary and freshness checks; no perfect source-map coverage claim"
+    },
+    {
+      "run_id": "2026-06-08-latency_warm_path-local-nonsmoke-offline-01",
+      "collection_id": "latency_warm_path",
+      "accepted": true,
+      "result_count": 3,
+      "claim_boundary": "synthetic warm-path FTS/wake latency; not true vector-hybrid latency"
+    },
+    {
+      "run_id": "2026-06-08-runtime_health_observability-codex-health-rh1-rh6-01",
+      "collection_id": "runtime_health_observability",
+      "accepted": true,
+      "result_count": 6,
+      "claim_boundary": "local health/cost/gate/false-success evidence; not real billing telemetry"
+    },
+    {
+      "run_id": "2026-06-08-temporal_product_query-codex-temporal-tq1-tq5-01",
+      "collection_id": "temporal_product_query",
+      "accepted": true,
+      "result_count": 5,
+      "claim_boundary": "product temporal boundaries; not LongMemEval retrieval score"
+    },
+    {
+      "run_id": "2026-06-09-client_enabled_vs_disabled-real-token-01",
+      "collection_id": "client_enabled_vs_disabled",
+      "accepted": true,
+      "result_count": 6,
+      "claim_boundary": "paired token-observed local task; measured delta is not a token-saving claim"
+    },
+    {
+      "run_id": "2026-06-09-latency_warm_path-true-hybrid-probe-01",
+      "collection_id": "latency_warm_path",
+      "accepted": true,
+      "result_count": 3,
+      "claim_boundary": "local synthetic true-hybrid warm-path probe; not broad production latency"
+    },
+    {
+      "run_id": "2026-06-09-true_hybrid_retrieval_shootout-fixture-contract-01",
+      "collection_id": "true_hybrid_retrieval_shootout",
+      "accepted": true,
+      "result_count": 3,
+      "claim_boundary": "fixture contract and governance only; not public retrieval recall or true vector-hybrid latency",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-09-true_hybrid_retrieval_shootout-real-local-01",
+      "collection_id": "true_hybrid_retrieval_shootout",
+      "accepted": true,
+      "result_count": 9,
+      "claim_boundary": "local smoke source-hit retrieval recall across fts/vector/hybrid; not end-to-end answer correctness or broad corpus quality"
+    }
+  ]
+}

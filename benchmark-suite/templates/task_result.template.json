@@ -8,6 +8,26 @@
   "prompt_turns": 0,
   "followup_count": 0,
   "token_total": "unavailable",
+  "token_input": null,
+  "token_cached_input": null,
+  "token_output": null,
+  "token_reasoning": null,
+  "token_cost_usd": null,
+  "token_source": "unavailable",
+  "token_counter_available": false,
+  "token_usage": {
+    "available": false,
+    "source": "unavailable",
+    "total": null,
+    "input": null,
+    "cached_input": null,
+    "output": null,
+    "reasoning": null,
+    "cost_usd": null,
+    "notes": [
+      "Use a real token/cost source or keep this explicitly unavailable."
+    ]
+  },
   "accepted": "no",
   "acceptance_notes": "Explain why the task passed or failed.",
   "memory_calls": [],

@@ -5,3 +5,4 @@
 
 docs/v2-user-test-packet.md
 harness_mem/integration/artifacts/
+benchmark-suite/artifacts/

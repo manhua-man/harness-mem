@@ -38,3 +38,6 @@ jobs:
 
       - name: Lint
         run: python -m ruff check .
+
+      - name: Benchmark release artifact check
+        run: python benchmark-suite/tools/check_release_artifacts.py

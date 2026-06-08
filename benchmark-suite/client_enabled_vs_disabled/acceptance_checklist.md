@@ -9,8 +9,15 @@ answer is backed by visible evidence from the allowed condition.
 - [ ] `task_id` is one of `T1`, `T2`, `T3`, `T4`, `T5`.
 - [ ] `condition` is exactly `enabled` or `disabled`.
 - [ ] Client, model, workspace path, and repo state match the paired run.
-- [ ] Runtime, turn count, follow-up count, and token total are recorded; token
-      total is `"unavailable"` if the client does not expose it.
+- [ ] Runtime, turn count, follow-up count, `token_total`, and `token_usage` are
+      recorded.
+- [ ] `token_usage.available=false` and `token_total="unavailable"` are used
+      when the client does not expose a stable token counter; unavailable must
+      not be treated as zero.
+- [ ] If a token/cost number is reported, `token_usage.source` identifies the
+      evidence source (`codex-json-events`, `sidecar`, `manual`, or equivalent).
+- [ ] If `token_usage.available=true`, at least one token/cost numeric field is
+      non-null; a named source with no numbers is not accepted.
 - [ ] Transcript exists for this task/condition.
 - [ ] Enabled condition records every harness-mem read call in `memory_calls`.
 - [ ] Disabled condition records an empty `memory_calls` list.
@@ -59,17 +66,24 @@ Primary failure signals:
 
 Pass requires all of:
 
-- [ ] States that current implementation has no background daemon, IDE hook, or
-      turn-end autonomous learning path for ordinary coding tasks.
-- [ ] States that `suggest_*` writes are explicit agent-flow candidate writes.
-- [ ] Recommends keeping benchmark or scheduling experiments isolated until the
-      runtime contract is proven.
-- [ ] Does not describe autonomous learning as already shipped.
+- [ ] States that controlled automation exists: conversation-level autopilot,
+      opt-in host hook / scheduler trigger, and default-off Auto Dream.
+- [ ] States that installed-by-default always-on daemon, default IDE every-turn
+      memory, and unconditional turn-end self-check are not the current default.
+- [ ] States that `suggest_*` writes are controlled candidate writes in
+      agent/runtime workflows.
+- [ ] States that confirmed truth changes cannot silently bypass candidate /
+      review / supersede / ledger.
+- [ ] Recommends keeping scheduler or daemon-style expansion opt-in and
+      auditable.
 
 Primary failure signals:
 
-- Recommends a daemon as if it exists today.
-- Equates Slash/MCP explicit workflows with automatic background learning.
+- Claims there is no controlled automation at all.
+- Recommends a daemon as if it is the default runtime entry point today.
+- Equates Slash/MCP/host-triggered workflows with silent every-turn background
+  learning.
+- Allows automation to silently overwrite confirmed truth.
 
 ## T4: User Workflow Recovery
 
@@ -112,7 +126,8 @@ After both conditions for a task finish:
 - [ ] Both results were judged independently before computing deltas.
 - [ ] Runtime delta is `disabled - enabled`.
 - [ ] Turn delta is `disabled - enabled`.
-- [ ] Token delta is `disabled - enabled` or `"unavailable"`.
+- [ ] Token delta is `disabled - enabled` only when both sides have available
+      token totals; otherwise it is `"unavailable"`.
 - [ ] Outcome is recorded as one of:
       `enabled_only_passed`, `disabled_only_passed`, `both_passed`,
       `both_failed`.

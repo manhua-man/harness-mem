@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "3.4.4"
+version = "3.8.0"
 description = "Local-first, pluggable AI memory runtime"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -39,13 +39,14 @@ harness-mem = "harness_mem.cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# Force-include the IDE hook templates so they ship inside the wheel/sdist.
-# They live under the harness_mem package directory, so hatchling already packs
-# them as package data; ``artifacts`` makes that explicit and survives any
+# Force-include runtime package data so it ships inside the wheel/sdist.
+# These files live under the harness_mem package directory, so hatchling already
+# packs them as package data; ``artifacts`` makes that explicit and survives any
 # future VCS-exclusion rule that might otherwise filter non-.py files.
 [tool.hatch.build]
 artifacts = [
     "harness_mem/integration/templates/*.template",
+    "harness_mem/resources/benchmark_suite/*.json",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -59,6 +60,7 @@ include = [
     "docs/error-codes.md",
     "harness_mem",
     "harness_mem/integration/templates/*.template",
+    "harness_mem/resources/benchmark_suite/*.json",
 ]
 # Defensive: never ship maintainer-only docs in PyPI sdist even if include list grows.
 exclude = [

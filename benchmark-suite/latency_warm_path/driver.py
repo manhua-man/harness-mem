@@ -244,8 +244,15 @@ def build_report(results: list[dict[str, Any]], args: argparse.Namespace) -> str
                 fallback_reason=result.get("fallback_reason") or "",
             )
         )
+    readiness = vector_hybrid_claim_readiness(results)
     lines.extend(
         [
+            "",
+            "## Vector Hybrid Claim Readiness",
+            "",
+            f"- True vector-hybrid claim ready: {readiness['ready']}",
+            "- Rule: claim true vector-hybrid latency only when requested hybrid runs with `effective_mode=hybrid`, `accepted=yes`, and no `fallback_reason`.",
+            f"- Blocking rows: {readiness['blocking']}",
             "",
             "## Notes",
             "",
@@ -254,6 +261,38 @@ def build_report(results: list[dict[str, Any]], args: argparse.Namespace) -> str
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def is_hybrid_claim_row(row: dict[str, Any]) -> bool:
+    return row.get("requested_mode") == "hybrid" or row.get("task_id") == "search_hybrid"
+
+
+def vector_hybrid_claim_readiness(results: list[dict[str, Any]]) -> dict[str, str]:
+    hybrid_rows = [row for row in results if is_hybrid_claim_row(row)]
+    if not hybrid_rows:
+        return {
+            "ready": "no",
+            "blocking": "search_hybrid/missing",
+        }
+
+    blockers: list[str] = []
+    for row in hybrid_rows:
+        task_id = row.get("task_id") or "unknown"
+        accepted = row.get("accepted")
+        effective_mode = row.get("effective_mode") or "missing"
+        fallback_reason = row.get("fallback_reason") or "none"
+
+        if accepted != "yes":
+            blockers.append(f"{task_id}/accepted={accepted or 'missing'}")
+        if effective_mode != "hybrid" or fallback_reason != "none":
+            blockers.append(
+                f"{task_id}/effective_mode={effective_mode}/fallback_reason={fallback_reason}"
+            )
+
+    return {
+        "ready": "no" if blockers else "yes",
+        "blocking": ", ".join(blockers) if blockers else "none",
+    }
 
 
 async def run_driver(args: argparse.Namespace, data_dir: Path, run_dir: Path) -> list[dict[str, Any]]:

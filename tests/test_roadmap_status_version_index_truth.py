@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-def test_roadmap_status_version_index_covers_v15_through_v29() -> None:
+def test_roadmap_status_version_index_covers_v15_through_v38() -> None:
     roadmap_status = (
         Path(__file__).resolve().parents[1] / "docs" / "roadmap-status.md"
     ).read_text(encoding="utf-8")
@@ -15,3 +15,8 @@ def test_roadmap_status_version_index_covers_v15_through_v29() -> None:
     assert "| v2.0.x | Heuristic distill 移除：" in roadmap_status
     assert "| v2.1.x | Maintenance-only CLI + Slash/Skill/Agent workflow 重写：" in roadmap_status
     assert "| v2.2.x | AI IDE 入口闭环：" in roadmap_status
+    assert "| v3.4.x | 已发布：Runtime Health, Cost Discipline, and Regression Gates：" in roadmap_status
+    assert "| v3.5.x | 已完成：Benchmark Evidence and Public Claim Readiness：" in roadmap_status
+    assert "| v3.6.x | 已完成：Generated Claim Hardening：" in roadmap_status
+    assert "| v3.7.x | 已完成：Skill Evolution Governance：" in roadmap_status
+    assert "| v3.8.x | 当前版本：True Hybrid Retrieval Shootout：" in roadmap_status

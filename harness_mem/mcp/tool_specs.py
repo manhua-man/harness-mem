@@ -809,12 +809,29 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         },
     },
     "record_skill_result": {
-        "description": "Record one execution outcome for a confirmed skill.",
+        "description": (
+            "Record one execution outcome for a confirmed skill. v3.7 stores "
+            "surface/source_ids/reason as local outcome-ledger context; it "
+            "never rewrites the skill body."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "skill_id": {"type": "string", "description": "Confirmed skill ID"},
                 "success": {"type": "boolean", "description": "Whether the execution succeeded"},
+                "surface": {
+                    "type": "string",
+                    "description": "Optional activation surface, e.g. wake_hint, search_skills, get_skill, manual.",
+                },
+                "source_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional evidence ids supporting the result event.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Optional short failure or success note. Raw task content should not be stored.",
+                },
             },
             "required": ["skill_id", "success"],
         },
@@ -1148,8 +1165,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "benchmark_matrix_report": {
         "description": (
-            "Read-only v3.4.2 benchmark taxonomy, per-surface regression "
-            "coverage, LongMemEval dimension tracking, and release snapshot."
+            "Read-only v3.8 benchmark taxonomy, artifact-state hygiene, per-surface regression "
+            "coverage, LongMemEval dimension tracking, release snapshot, "
+            "true-hybrid retrieval shootout summary, and public-claim readiness "
+            "gates for token/cost saving, true vector-hybrid latency, and retrieval recall."
         ),
         "input_schema": {
             "type": "object",

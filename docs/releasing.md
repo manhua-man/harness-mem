@@ -20,6 +20,33 @@
 
 - `docs/v2-user-test-packet.md` — v2 跨客户端 release 测试包（含 scenario / transcript）
 - `harness_mem/integration/artifacts/**` — 集成联调 transcript 与 repro 附件
+- `benchmark-suite/artifacts/**` — raw BENCH artifact bundles（可能含 transcript / notes）；
+  对外只保留 `benchmark-suite/release-snapshot.json` 这类 privacy-preserving summary
+
+## 发版前检查
+
+发版、打 tag、或发布 broad status / benchmark claim 前先跑 full gate：
+
+```powershell
+.\scripts\test-full.ps1
+```
+
+或（Linux / macOS / Git Bash）：
+
+```bash
+bash scripts/test-full.sh
+```
+
+full gate 会额外运行：
+
+```bash
+python benchmark-suite/tools/check_release_artifacts.py
+```
+
+这一步校验 accepted BENCH artifact bundle、tracked `release-snapshot.json` 和
+`claim_readiness` gates。完整 clone 有 raw artifacts 时会检查 artifacts 与 snapshot
+一致；公开/CI clean checkout 没有 raw artifacts 时会走 `snapshot-only`，至少保证
+tracked snapshot 仍是 v2 且 public-claim gate 没丢。
 
 ## 生成公开源码包
 

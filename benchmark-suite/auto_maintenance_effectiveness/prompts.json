@@ -42,7 +42,8 @@
       ],
       "expected_evidence_hints": [
         "tests/commands/test_metabolism_pass.py",
-        "future maintenance ledger"
+        "tests/test_dream_v31.py",
+        "docs/roadmap-v31.md"
       ]
     },
     {
@@ -81,7 +82,8 @@
         "False positives can be hidden from the report."
       ],
       "expected_evidence_hints": [
-        "future maintenance reject path"
+        "tests/test_dream_v31.py",
+        "docs/roadmap-v31.md"
       ]
     },
     {
@@ -100,7 +102,8 @@
         "Rollback failure is reported as success."
       ],
       "expected_evidence_hints": [
-        "future maintenance undo path"
+        "tests/test_dream_v31.py",
+        "docs/roadmap-v31.md"
       ]
     },
     {

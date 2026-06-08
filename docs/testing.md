@@ -63,10 +63,22 @@ On bash-compatible shells:
 This runs:
 
 ```text
-python -m pytest -q
+python -m pytest -q -p no:cacheprovider --basetemp .tmp/pytest-full
 python -m ruff check .
 python -m mypy harness_mem
+python benchmark-suite/tools/check_release_artifacts.py
 ```
+
+The checked-in scripts set pytest temp/cache behavior to repo-local `.tmp/`
+paths. That keeps Windows sandboxed environments from touching an inaccessible
+system `%TEMP%` or `.pytest_cache` while preserving the same test selection.
+
+The benchmark artifact check verifies accepted BENCH run bundles, the tracked
+`release-snapshot.json`, and its `claim_readiness` gates. It is intentionally in
+the full gate, not the fast gate, because it protects release/status claims
+rather than the normal edit-test loop.
+In clean checkouts where raw `benchmark-suite/artifacts/*` bundles are absent,
+the same command validates the tracked snapshot in `snapshot-only` mode.
 
 ## Pruning Rules
 

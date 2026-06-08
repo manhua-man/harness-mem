@@ -23,23 +23,34 @@ dimension.
 
 | Dimension | Current benchmark coverage | Current status | Next benchmark action |
 |---|---|---|---|
-| Memory runtime | `retrieval_quality_longmemeval`, `retrieval_diagnostics`, `client_enabled_vs_disabled` | Retrieval quality has durable historical coverage; client value is methodology / smoke only until paired runs exist. | Finish `client_enabled_vs_disabled` paired runs before claiming user-visible memory value. |
-| Evidence safety | `evidence_safety`, `client_trace_evidence` | Design is ready to run; current repo evidence is mostly tests and packet transcripts until artifact bundles exist. | Run the evidence-safety pack before claiming agents avoid evidence overclaiming. |
-| Generated knowledge | `generated_knowledge_freshness` | Design pack exists but is blocked by v3.2 product surfaces; existing checks are anti-contamination tests, not benchmark results. | Run only after source maps, freshness, atomic claims, and generated context surfaces are stable. |
-| Temporal query | `temporal_product_query`, `retrieval_quality_longmemeval`, `retrieval_diagnostics` | Product-query design is ready to run; LongMemEval already covers temporal-reasoning retrieval. | Run the product temporal pack before claiming `current` / `history` / `as_of` / supersede explainability beyond retrieval quality. |
-| Auto maintenance | `auto_maintenance_effectiveness`, `maintenance_recovery` | v3.1 `/hm:dream` ledger/apply/reject/undo surfaces exist; no completed effectiveness artifact yet. | Run `auto_maintenance_effectiveness` before claiming automatic maintenance quality. |
-| Observability | `runtime_health_observability`, `maintenance_recovery`, `client_trace_evidence` | Design pack exists but is blocked by v3.4 runtime-health/cost/regression surfaces. | Run after runtime health report, local cost observer, drift visibility, and regression gates ship. |
-| Cost discipline | `client_enabled_vs_disabled` | Methodology and smoke exist; no completed enabled-vs-disabled token/runtime result yet. | This is the first benchmark to complete before public token, cost, or time-savings claims. |
-| Performance | `latency_warm_path`, `retrieval_quality_longmemeval` | Historical v1.5/v1.6 docs cover synthetic latency and per-question runtime; current suite has warm-path smoke only. | Run a non-smoke warm-path pass with enough samples and explicit fallback notes. |
+| Memory runtime | `retrieval_quality_longmemeval`, `retrieval_diagnostics`, `client_enabled_vs_disabled` | `client_enabled_vs_disabled` has a completed 3-task paired artifact; it proves task correctness and memory-call gating, not memory-retrieval uplift. | Re-run with `token_usage.available=true` on both sides before public token/cost/time-savings claims. |
+| Evidence safety | `evidence_safety`, `client_trace_evidence` | `evidence_safety` has a completed E1-E5 guarded artifact with overclaim and abstention pressure. | Expand only if a new evidence boundary is added; do not generalize beyond the exact task set. |
+| Generated knowledge | `generated_knowledge_freshness` | v3.2 surfaces shipped and GK1-GK5 completed with source-map, freshness, generated-only, invalidation, and citation-laundering checks. | Keep generated prose out of confirmed truth; use future runs for claims-first/source-map coverage improvements. |
+| Temporal query | `temporal_product_query`, `retrieval_quality_longmemeval`, `retrieval_diagnostics` | TQ1-TQ5 completed for current/history/as_of/supersede/ambiguity behavior; LongMemEval remains retrieval-quality evidence. | Use product temporal artifacts for product claims; use LongMemEval for retrieval claims. |
+| Auto maintenance | `auto_maintenance_effectiveness`, `maintenance_recovery` | v3.1 `/hm:dream` surfaces shipped and AM1-AM6 completed for merge/stale/supersede/reject/undo/ledger behavior. | Do not claim production long-run precision/recall without a live maintenance benchmark. |
+| Observability | `runtime_health_observability`, `maintenance_recovery`, `client_trace_evidence` | v3.4.4 runtime health/cost/regression surfaces shipped and RH1-RH6 completed, including false-success accounting. | Cloud telemetry and real billing are out of scope unless a separate benchmark is added. |
+| Cost discipline | `client_enabled_vs_disabled`, `runtime_health_observability` | Cost surfaces and budget-overrun detection are covered; the 2026-06-09 token-observed pair has named token totals but a negative saving delta. | No public token-saving claim until a paired run reports a positive disabled-minus-enabled token/cost delta from a named source. |
+| Performance | `latency_warm_path`, `true_hybrid_retrieval_shootout`, `retrieval_quality_longmemeval` | Non-smoke warm-path FTS/wake run completed; the 2026-06-09 true-hybrid probe ran with `effective_mode=hybrid` and no fallback. | Keep true-hybrid latency claims scoped to the local synthetic fixture unless a broader dataset/hardware run is added. |
+| Retrieval recall | `true_hybrid_retrieval_shootout`, `retrieval_quality_longmemeval`, `retrieval_diagnostics` | v3.8 has fixture-contract rows plus a local smoke source-hit recall artifact across FTS/vector/hybrid. `claim_readiness.retrieval_recall.ready` is true for that bounded local split. | Do not present source-hit recall as end-to-end answer correctness or broad corpus quality. |
 
 Coverage levels:
 
 - **Result**: completed run artifacts exist and can support a bounded claim.
 - **Smoke**: scaffold or driver proved shape only; do not cite as a product
   result.
-- **Methodology**: benchmark design exists, but no completed paired result.
+- **Methodology**: benchmark design exists; do not cite it as a product result
+  until artifact-backed outputs exist.
 - **Test / planning only**: regression tests or roadmap docs exist, but no
   benchmark claim is supported.
+
+Completed result summary:
+
+- See [RESULTS.md](./RESULTS.md) for artifact-backed metrics and bounded claims.
+- See [GAPS.md](./GAPS.md) for closure evidence for BENCH-001 through
+  BENCH-007.
+- BENCH-008 is tracked in [RESULTS.md](./RESULTS.md) as a v3.8 fixture
+  contract for true-hybrid retrieval evidence shape; it is not a public recall
+  claim.
 
 ## B1. Retrieval Quality
 
@@ -147,6 +158,9 @@ Artifacts:
 Publish rule:
 
 - any public latency statement must say whether it is synthetic, cold, or warm
+- any vector-hybrid latency statement must come from a rendered report whose
+  `Vector Hybrid Claim Readiness` section says `True vector-hybrid claim ready:
+  yes`
 
 ## B4. Client Continuation Value
 
@@ -169,7 +183,7 @@ Metrics:
 - total runtime
 - total turns
 - follow-up count
-- token total if visible
+- token total and `token_usage` source if visible
 - accepted pass/fail
 - delta between enabled and disabled conditions
 
@@ -366,8 +380,8 @@ Artifacts:
 
 Publish rule:
 
-- blocked until v3.2 generated knowledge surfaces ship; generated prose must
-  never be reported as confirmed truth
+- completed artifacts may be cited only as generated-knowledge boundary
+  evidence; generated prose must never be reported as confirmed truth
 
 ## B10. Auto Maintenance Effectiveness
 
@@ -446,27 +460,70 @@ Artifacts:
 
 Publish rule:
 
-- blocked until v3.4 runtime health/cost/regression surfaces ship; cost
-  discipline remains its own dimension, not an observability sub-item
+- completed artifacts may be cited as local runtime-health and false-success
+  accounting evidence; cost discipline remains its own dimension, not an
+  observability sub-item
 
-## Recommended initial priority
+## B12. True Hybrid Retrieval Shootout
 
-Run these first:
+Benchmark id: `true_hybrid_retrieval_shootout`
 
-1. `client_enabled_vs_disabled`
-2. `evidence_safety`
-3. `temporal_product_query`
-4. `latency_warm_path`
-5. `retrieval_quality_longmemeval`
+Goal:
 
-Run after product surfaces stabilize:
+- compare FTS, vector, and hybrid retrieval on source-hit recall
+- keep retrieval recall, latency, fallback, and token/cost estimate evidence in
+  one contract
+- preserve embedding baseline governance without silently changing the default
+  baseline
 
-1. `generated_knowledge_freshness`
-2. `auto_maintenance_effectiveness`
-3. `runtime_health_observability`
+Core tasks:
 
-Defer these until the first five are stable:
+- knowledge-update source-hit recall
+- temporal source-hit recall
+- multi-session release-boundary recall
+- per-mode fallback and latency accounting
 
-1. `client_trace_evidence`
-2. `maintenance_recovery`
-3. `retrieval_diagnostics`
+Metrics:
+
+- `recall_at_1`
+- `recall_at_5`
+- `recall_at_10`
+- `p50_ms`
+- `p95_ms`
+- `fallback_reason`
+- `token_cost_estimate`
+- `fixture_only`
+
+Artifacts:
+
+- dataset manifest with dataset, split, oracle, and public boundary
+- query list with expected source ids
+- one result JSON per mode or per query/mode row
+- rendered retrieval recall readiness section
+
+Publish rule:
+
+- fixture-only rows may validate the runner contract, but may not be cited as
+  public retrieval recall
+- source-hit recall must not be described as end-to-end answer correctness
+- true vector-hybrid latency still requires a non-fallback hybrid row
+
+## Current Follow-Up Priority
+
+All executable BENCH gaps are closed as of 2026-06-08. BENCH-008 adds a v3.8
+fixture contract plus a bounded local smoke source-hit recall run; it does not
+reopen the closed backlog and it does not prove answer correctness or broad
+corpus quality.
+The next work is not to claim more from the current artifacts, but to improve
+signal where the current results are intentionally bounded:
+
+1. Re-run `client_enabled_vs_disabled` until named token/cost counters show a
+   positive saving delta before any saving claim.
+2. Broaden true-hybrid latency beyond the local synthetic fixture only when a
+   larger dataset/hardware run exists.
+3. Add optional live long-run maintenance coverage before claiming production
+   auto-maintenance precision/recall.
+4. Broaden `true_hybrid_retrieval_shootout` beyond local smoke source-hit recall
+   before any broad retrieval-quality claim.
+5. Keep `client_trace_evidence`, `maintenance_recovery`, and
+   `retrieval_diagnostics` as maintainer-facing expansion suites.

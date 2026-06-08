@@ -8,8 +8,7 @@ Local-first, pluggable **AI memory runtime** for Claude Code, Codex, and Gemini 
 
 候选写入只发生在受控 agent/runtime 流程里：`/hm:distill`、repo-local skill、
 conversation-level autopilot，或用户明确要求“记下这条规则”。受控自动化已做：
-autopilot、opt-in host hook / scheduler、默认关闭 Auto Dream。默认常驻后台不做；
-truth 不静默改。
+autopilot、opt-in host hook / scheduler trigger、默认关闭 Auto Dream。`triggers.*` 默认仍是 `off`。默认常驻后台不做；truth 不静默改。
 
 Agent 协作真值见 [AGENTS.md](./AGENTS.md)。
 当前发版状态与已落地边界以 [docs/roadmap-status.md](./docs/roadmap-status.md) 和

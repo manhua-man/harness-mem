@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "condition",
+    "final_answer",
+    "maintenance_actions",
+    "before_state",
+    "after_state",
+    "ledger_evidence",
+    "undo_or_recovery",
+    "truth_mutation_check",
+    "forbidden_claim_check",
+    "memory_calls",
+    "repo_calls",
+    "acceptance_self_check",
+    "notes"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string"
+    },
+    "condition": {
+      "type": "string",
+      "enum": ["maintenance_guarded"]
+    },
+    "final_answer": {
+      "type": "string"
+    },
+    "maintenance_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "before_state": {
+      "type": "string"
+    },
+    "after_state": {
+      "type": "string"
+    },
+    "ledger_evidence": {
+      "type": "string"
+    },
+    "undo_or_recovery": {
+      "type": "string"
+    },
+    "truth_mutation_check": {
+      "type": "string"
+    },
+    "forbidden_claim_check": {
+      "type": "string"
+    },
+    "memory_calls": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "repo_calls": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "acceptance_self_check": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

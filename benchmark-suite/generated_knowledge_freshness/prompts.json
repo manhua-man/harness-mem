@@ -1,8 +1,8 @@
 {
   "benchmark_id": "generated_knowledge_freshness",
   "version": 1,
-  "status": "blocked-by-product",
-  "unlock_condition": "Run only after v3.2 generated knowledge compiler, source maps, atomic claims, freshness metadata, and generated context read surface are stable.",
+  "status": "ready-to-run",
+  "unlock_condition": "Unlocked by v3.2 generated knowledge compiler, source maps, atomic claims, freshness metadata, and compact generated context read surface.",
   "condition": "generated_guarded",
   "tasks": [
     {
@@ -22,7 +22,7 @@
       ],
       "expected_evidence_hints": [
         "docs/roadmap-v32.md",
-        "future generated knowledge artifact"
+        "tests/test_knowledge_cache.py"
       ]
     },
     {
@@ -42,7 +42,7 @@
       ],
       "expected_evidence_hints": [
         "tests/test_knowledge_cache.py",
-        "future generated context read surface"
+        "tests/test_knowledge_cache.py"
       ]
     },
     {
@@ -80,7 +80,8 @@
         "No generated content needs invalidation after a source change."
       ],
       "expected_evidence_hints": [
-        "future incremental generated cache metadata"
+        "tests/test_knowledge_cache.py",
+        "docs/roadmap-v32.md"
       ]
     },
     {
@@ -99,7 +100,8 @@
         "Unsupported citations count as evidence."
       ],
       "expected_evidence_hints": [
-        "future source-map and citation metadata"
+        "tests/test_knowledge_cache.py",
+        "docs/roadmap-v32.md"
       ]
     }
   ]

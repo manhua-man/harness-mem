@@ -121,7 +121,7 @@
         "Before/after evidence is optional."
       ],
       "expected_evidence_hints": [
-        "benchmark-suite/maintenance_recovery future artifacts",
+        "benchmark-suite/maintenance_recovery/",
         "tests/test_maintenance_hints.py"
       ]
     }

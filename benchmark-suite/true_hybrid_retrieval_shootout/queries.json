@@ -1,0 +1,26 @@
+[
+  {
+    "query_id": "rhq-knowledge-01",
+    "query_type": "knowledge-update",
+    "query": "Which retrieval baseline is the default embedding anchor?",
+    "expected_source_ids": [
+      "docs/benchmark/v162-embedding-shootout.md"
+    ]
+  },
+  {
+    "query_id": "rhq-temporal-01",
+    "query_type": "temporal",
+    "query": "What changed after a previous memory fact was superseded?",
+    "expected_source_ids": [
+      "tests/temporal/test_current_history_reads.py"
+    ]
+  },
+  {
+    "query_id": "rhq-multisession-01",
+    "query_type": "multi-session",
+    "query": "Which prior session evidence supports the release claim boundary?",
+    "expected_source_ids": [
+      "benchmark-suite/release-snapshot.json"
+    ]
+  }
+]

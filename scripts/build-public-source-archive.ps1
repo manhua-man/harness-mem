@@ -29,4 +29,7 @@ if ($Listing -match "v2-user-test-packet\.md") {
 if ($Listing -match "integration/artifacts/") {
     throw "Public archive still contains harness_mem/integration/artifacts/"
 }
+if ($Listing -match "benchmark-suite/artifacts/") {
+    throw "Public archive still contains benchmark-suite/artifacts/"
+}
 Write-Host "Wrote $Out (maintainer-only paths removed per release/public-source-excludes.txt)"

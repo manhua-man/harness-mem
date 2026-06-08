@@ -52,6 +52,26 @@ python benchmark-suite/tools/render_report.py ^
   --run-dir <run-dir>
 ```
 
+### 5. Validate the release snapshot
+
+When updating `benchmark-suite/release-snapshot.json`, validate the tracked
+clean-checkout summary too:
+
+```bash
+python benchmark-suite/tools/check_release_artifacts.py
+```
+
+For lower-level diagnosis, rebuild and validate the snapshot directly:
+
+```bash
+python benchmark-suite/tools/build_release_snapshot.py ^
+  --output benchmark-suite/release-snapshot.json ^
+  --sync-package-resources
+
+python benchmark-suite/tools/validate_release_snapshot.py ^
+  --path benchmark-suite/release-snapshot.json
+```
+
 ## Per-collection guidance
 
 Before starting a new collection, check `benchmark-suite/GAPS.md` and confirm
@@ -96,6 +116,31 @@ Minimum bundle:
 - representative query/ranking evidence
 - notes for changed decisions or malformed scenarios
 
+## `true_hybrid_retrieval_shootout`
+
+Use when:
+
+- comparing FTS, vector, and hybrid retrieval source-hit recall
+- checking embedding baseline/candidate governance
+- deciding whether retrieval recall or true hybrid latency claims are public
+  claim ready
+
+Prompt and acceptance source:
+
+- `benchmark-suite/true_hybrid_retrieval_shootout/prompts.json`
+- `benchmark-suite/true_hybrid_retrieval_shootout/acceptance_checklist.md`
+
+Minimum bundle:
+
+- `dataset.manifest.json` with dataset, split, oracle, and public boundary
+- `queries.json` with expected source ids
+- one result row per claimed mode
+- rendered `Retrieval Recall Claim Readiness` section
+
+Fixture rows may validate the v3.8 contract, but public retrieval recall claims
+require `fixture_only=false` accepted rows for every claimed mode. True
+vector-hybrid latency still requires an actual hybrid row with no fallback.
+
 ## `latency_warm_path`
 
 Use when:
@@ -119,11 +164,17 @@ Minimum bundle:
 - corpus size
 - warm-up note
 - p50/p95/max results
+- rendered `Vector Hybrid Claim Readiness` section
 
 Prompt and acceptance source:
 
 - `benchmark-suite/latency_warm_path/prompts.json`
 - `benchmark-suite/latency_warm_path/acceptance_checklist.md`
+
+Only claim true vector-hybrid latency when the rendered report says
+`True vector-hybrid claim ready: yes`. If `search_hybrid` falls back to FTS,
+publish only the bounded synthetic warm-path result and preserve the
+`effective_mode` / `fallback_reason` fields in any summary.
 
 ## `client_enabled_vs_disabled`
 
@@ -147,6 +198,38 @@ Minimum bundle:
 - one `task_result` JSON per task/condition
 - transcripts for every task/condition
 - acceptance notes
+
+Token-visible rerun flow:
+
+1. Run paired tasks with fixed client, model, workspace, prompt text, and repo
+   state.
+2. Extract numeric token usage from client logs when available:
+
+   ```bash
+   python benchmark-suite/tools/extract_codex_token_usage.py ^
+     --input C:\\path\\to\\codex-session.jsonl ^
+     --output <run-dir>\\notes\\T1-enabled-token-usage.json
+   ```
+
+3. Apply sidecars to the run:
+
+   ```bash
+   python benchmark-suite/tools/apply_token_usage_sidecars.py ^
+     --run-dir <run-dir>
+   ```
+
+4. Render and validate:
+
+   ```bash
+   python benchmark-suite/tools/render_report.py --run-dir <run-dir>
+   python benchmark-suite/tools/validate_run.py --run-dir <run-dir>
+   ```
+
+Only claim token/cost deltas when every enabled and disabled result in the
+claimed pair set has `token_usage.available=true` from a named source. Missing
+token data remains `unavailable`; it is never treated as zero. The rendered
+report includes a `Token Claim Readiness` section; do not publish token-saving
+claims when it says `Token-saving claim ready: no`.
 
 ## `client_trace_evidence`
 
