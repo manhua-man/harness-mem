@@ -1,0 +1,35 @@
+{
+  "benchmark_id": "claim_promotion_pack",
+  "tasks": [
+    {
+      "task_id": "CPP-001",
+      "claim_id": "token_cost_saving",
+      "prompt": "Verify token/cost saving remains blocked until named paired token totals show a positive saving delta."
+    },
+    {
+      "task_id": "CPP-002",
+      "claim_id": "true_vector_hybrid_latency",
+      "prompt": "Verify true-vector hybrid latency is phrased only as a bounded local synthetic claim."
+    },
+    {
+      "task_id": "CPP-003",
+      "claim_id": "retrieval_recall",
+      "prompt": "Verify retrieval recall is phrased only as bounded local source-hit recall."
+    },
+    {
+      "task_id": "CPP-004",
+      "claim_id": "storage_v2_speedup",
+      "prompt": "Verify Storage v2 speedup remains blocked without 10k/100k/1m profile artifacts."
+    },
+    {
+      "task_id": "CPP-005",
+      "claim_id": "default_reranker_hyde",
+      "prompt": "Verify reranker and HyDE remain optional/experimental unless component gates justify changing defaults."
+    },
+    {
+      "task_id": "CPP-006",
+      "claim_id": "code_memory_token_runtime",
+      "prompt": "Verify code-memory federation is not promoted into code-intel token/runtime proof."
+    }
+  ]
+}

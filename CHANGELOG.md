@@ -8,6 +8,106 @@
 
 ---
 
+## [4.5.0] — 2026-06-13
+
+**主题：Claim Promotion Pack and Release Evidence Pack**
+
+v4.5.0 收口 v4.4 和 v4.5：benchmark matrix 从“能看到 claim readiness”
+升级到“能机器化阻止不该 promotion 的 public claim”，同时把 clean-checkout
+release evidence 和 packaged benchmark resources 纳入同一个可验证 dashboard。
+
+### Added
+
+- **v4.4 Claim Promotion Pack**：新增 `claim_promotion_pack` benchmark
+  collection、dataset manifest、prompts、acceptance checklist、validator、
+  report renderer 和 accepted artifact。它明确把 token/cost saving、
+  Storage v2 speedup、默认 reranker/HyDE、code-memory token/runtime 等
+  未 ready claim 保持 blocked；true vector-hybrid latency 与 retrieval recall
+  只能以 bounded local scope promotion。
+- **v4.5 Release Evidence Pack**：新增 `release_evidence_pack` benchmark
+  collection 和 accepted artifact，用于检查 release snapshot、packaged
+  benchmark resources、claim-promotion policy visibility 与 clean-checkout
+  fallback 是否一致。
+- **Benchmark matrix v4.5.0**：`benchmark_matrix_report` 新增
+  `claim_promotion_gate` 与 `release_evidence_pack` blocks，并把 surface
+  coverage 扩展到 `claim_promotion` 与 `release_evidence_pack`。
+
+### Benchmark / Eval Evidence
+
+- 新增 accepted artifacts：
+  `2026-06-13-claim_promotion_pack-v440-contract` 与
+  `2026-06-13-release_evidence_pack-v450-contract`。
+- release snapshot 从 `16` 个 accepted runs 扩展到 `18` 个 accepted runs；
+  gate 仍要求 failed / unknown runs 为 `0`，且 packaged suite / snapshot 与
+  repo source 保持一致。
+
+### Boundaries
+
+- v4.4/v4.5 不证明 token/cost saving、Storage v2 performance speedup、
+  native Rust speedup、默认 reranker/HyDE 启用、code-intel token/runtime
+  或 broad answer quality。
+- `claim_readiness.token_cost_saving.ready` 仍为 `false`；true-hybrid
+  latency 与 retrieval recall 仍只限本地 synthetic / smoke artifact。
+
+---
+
+## [4.3.0] — 2026-06-12
+
+**主题：Memory Eval Matrix, Retrieval Quality Pack, and Code-Memory Federation**
+
+v4.3.0 收口 v4.1.x、v4.2.x 与 v4.3.x：context sufficiency 的 slot gate
+和 deterministic query rewrite 更严格，retrieval quality 有独立的 runtime helper
+和 benchmark pack，file context 可以把当前源码 fingerprint / symbol / stale code
+evidence 与长期记忆联邦起来。默认 truth governance 不变：confirmed truth 仍必须走
+candidate / review / supersede / ledger；generated code/wiki/module atlas 仍只是派生解释层。
+
+### Added
+
+- **v4.1.x context quality gates**：`RetrievalPlan` 新增 `query_rewrites` 与
+  `quality_gates`；`SufficiencyReport` 现在按 token 覆盖 required slots，并输出
+  `missing_required_slots`；task-aware wake 会在 insufficiency 后记录 bounded
+  retrieval quality trace。
+- **Retrieval Quality Pack**：新增 `harness_mem.search.retrieval_quality`，
+  提供 no-op 默认 reranker、fanout-capped query variants、duplicate-rate metrics
+  和 opt-in quality profiles。简单查询默认仍走轻路径；multi-hop 或 insufficiency
+  后才启用 deterministic rewrite / multi-query fanout。
+- **Optional reranker dependency profile**：新增 `harness-mem[rerank]` extra，
+  仅声明 optional `sentence-transformers` 依赖，不改变默认安装路径。
+- **Benchmark suite v4.2/v4.3 collections**：新增 `memory_eval_matrix`、
+  `retrieval_quality_pack`、`code_memory_federation` 三个 collection，配套 dataset
+  manifest、prompts、acceptance checklist、validator、report renderer 和 accepted
+  contract artifacts。
+- **Code-memory federation**：`file_context` 支持 `project_root`，返回当前
+  `file_fingerprint`、Python `code_symbols` 和 `code_evidence`；当 memory entry
+  provenance 引用代码证据时，会检查 fingerprint mismatch、missing reference、
+  missing current file 和 line-range out-of-bounds。
+- **MCP file_context surface**：`file_context` tool spec 新增 optional
+  `project_root`，并在返回值中暴露 v4.3 code-evidence fields。
+
+### Benchmark / Eval Evidence
+
+- `BENCHMARK_MATRIX_VERSION` 升级为 `v4.3.0`，新增
+  `memory_eval_matrix`、`retrieval_quality_pack`、`code_memory_federation`
+  surface coverage。
+- 新增 accepted contract artifacts：
+  `2026-06-12-memory_eval_matrix-v420-contract`、
+  `2026-06-12-retrieval_quality_pack-v420-contract`、
+  `2026-06-12-code_memory_federation-v430-contract`。
+- `benchmark-suite/release-snapshot.json` 与 packaged benchmark resources
+  更新到 `16` accepted runs、`0` failed、`0` unknown。token/cost saving gate
+  仍为 `ready=false`；true-hybrid latency 与 retrieval recall 仍只限本地
+  synthetic / smoke artifact。
+
+### Validation
+
+- `python -m pytest -q tests/test_context_sufficiency.py tests/test_v42_retrieval_quality_pack.py tests/test_file_context.py tests/mcp/test_context_sufficiency_surfaces.py tests/mcp/test_smoke.py tests/test_runtime_v34.py tests/test_v42_v43_benchmark_contract.py`
+- `python benchmark-suite/tools/validate_run.py --run-dir benchmark-suite/artifacts/2026-06-12-memory_eval_matrix-v420-contract`
+- `python benchmark-suite/tools/validate_run.py --run-dir benchmark-suite/artifacts/2026-06-12-retrieval_quality_pack-v420-contract`
+- `python benchmark-suite/tools/validate_run.py --run-dir benchmark-suite/artifacts/2026-06-12-code_memory_federation-v430-contract`
+- `python benchmark-suite/tools/build_release_snapshot.py --output benchmark-suite/release-snapshot.json --sync-package-resources`
+
+---
+
 ## [4.1.0] — 2026-06-12
 
 **主题：v4.0.x Runtime Foundation and Context Sufficiency**
@@ -73,7 +173,7 @@ v4.0.0 开始 v4.x，但只收当前第一片：建立 Storage v2 的可逆迁�
 deterministic synthetic corpus、三类 benchmark collection 和 smoke artifact evidence。
 默认 runtime 仍是 v3 JSON + SQLite；canonical SQLite 只是 side-by-side contract artifact，
 不参与 wake/search 默认读写。v4.0.0 发布时，v4.0.1+ 的 canonical store、
-Rust core、index fabric 运行时实现尚未开始；当前状态见 4.1.0 段。
+Rust core、index fabric 运行时实现尚未开始；当前状态见 4.3.0 段。
 
 ### Added
 

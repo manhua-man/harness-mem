@@ -96,6 +96,11 @@ def _assert_release_snapshot_claims(snapshot: dict[str, object]) -> None:
     assert isinstance(retrieval_shootout, dict)
     assert retrieval_shootout["default_embedding_baseline"] == "all-MiniLM-L6-v2"
     assert retrieval_shootout["ready"] is True
+    runs = snapshot["runs"]
+    assert isinstance(runs, list)
+    collection_ids = {run["collection_id"] for run in runs if isinstance(run, dict)}
+    assert "claim_promotion_pack" in collection_ids
+    assert "release_evidence_pack" in collection_ids
 
 
 
@@ -114,15 +119,15 @@ def test_release_snapshot_validates_claim_readiness_contract() -> None:
     )
 
     assert result.returncode == 0
-    assert "OK: validated release snapshot v2 with 13 runs" in result.stdout
+    assert "OK: validated release snapshot v2 with 18 runs" in result.stdout
 
 
 def test_build_release_snapshot_matches_tracked_snapshot() -> None:
     snapshot_path = REPO_ROOT / "benchmark-suite" / "release-snapshot.json"
     current = json.loads(snapshot_path.read_text(encoding="utf-8"))
     if not _local_release_artifact_dirs():
-        assert current["artifact_run_count"] == 13
-        assert current["accepted_runs"] == 13
+        assert current["artifact_run_count"] == 18
+        assert current["accepted_runs"] == 18
         assert current["gate_passed"] is True
         _assert_release_snapshot_claims(current)
         return
@@ -151,11 +156,11 @@ def test_check_release_artifacts_accepts_current_benchmark_set() -> None:
     assert result.returncode == 0
     assert "release snapshot v2" in result.stdout
     if _local_release_artifact_dirs():
-        assert "OK: checked 13 benchmark runs" in result.stdout
-        assert "(artifacts, snapshot runs=13)" in result.stdout
+        assert "OK: checked 18 benchmark runs" in result.stdout
+        assert "(artifacts, snapshot runs=18)" in result.stdout
     else:
         assert "OK: checked 0 benchmark runs" in result.stdout
-        assert "(snapshot-only, snapshot runs=13)" in result.stdout
+        assert "(snapshot-only, snapshot runs=18)" in result.stdout
 
 
 def test_check_release_artifacts_accepts_snapshot_only_checkout(
@@ -185,7 +190,7 @@ def test_check_release_artifacts_accepts_snapshot_only_checkout(
 
     assert result.returncode == 0
     assert "OK: checked 0 benchmark runs" in result.stdout
-    assert "(snapshot-only, snapshot runs=13)" in result.stdout
+    assert "(snapshot-only, snapshot runs=18)" in result.stdout
 
 
 def test_full_gate_runs_benchmark_release_artifact_check() -> None:
@@ -360,11 +365,17 @@ def test_benchmark_gap_backlog_is_indexed_and_actionable() -> None:
     assert "`claim_readiness.token_cost_saving.ready` | `false`" in benchmark_readme
     assert "`claim_readiness.true_vector_hybrid_latency.ready` | `true`" in benchmark_readme
     assert "`claim_readiness.retrieval_recall.ready` | `true`" in benchmark_readme
+    assert "`claim_promotion_gate.policy_enforced` | `true`" in benchmark_readme
+    assert "`release_evidence_pack.passed` | `true`" in benchmark_readme
     assert "codedb-mcp` has a stronger" in benchmark_readme
     assert "GAPS.md" in benchmark_catalog
     assert "Coverage dimensions" in benchmark_catalog
     assert "Retrieval recall" in benchmark_catalog
     assert "true_hybrid_retrieval_shootout" in benchmark_catalog
+    assert "Claim promotion governance" in benchmark_catalog
+    assert "Release evidence packaging" in benchmark_catalog
+    assert "Benchmark id: `claim_promotion_pack`" in benchmark_catalog
+    assert "Benchmark id: `release_evidence_pack`" in benchmark_catalog
 
     for gap_id in [
         "GAP-BENCH-001: Client Continuation Value",
@@ -413,7 +424,7 @@ def test_benchmark_results_report_artifact_backed_metrics_not_pass_only() -> Non
     assert "False-success count total | 2" in results
     assert "`budget_tokens=1`, `budget_exceeded=True`" in results
     assert "aggregate delta is `0`" in results
-    assert "11` accepted runs, `0` failed runs, `0` unknown runs" in results
+    assert "18` accepted runs, `0` failed runs, `0` unknown runs" in results
     assert "falls back to the tracked" in results
     assert "`benchmark-suite/release-snapshot.json` summary" in results
     assert "| Gate passed | true |" in results
@@ -423,6 +434,8 @@ def test_benchmark_results_report_artifact_backed_metrics_not_pass_only() -> Non
     assert "not a real billing benchmark" in results
     assert "Vector Hybrid Claim Readiness" in results
     assert "True vector-hybrid claim ready: yes" in results
+    assert "claim_promotion_pack" in results
+    assert "release_evidence_pack" in results
 
 
 def test_benchmark_gap_backlog_preserves_no_overclaim_boundaries() -> None:
@@ -530,6 +543,8 @@ def test_benchmark_design_packs_are_registered_and_complete() -> None:
     assert "Vector Hybrid Claim Readiness" in benchmark_runbook
     assert "True vector-hybrid claim ready: yes" in benchmark_runbook
     assert "Retrieval Recall Claim Readiness" in benchmark_runbook
+    assert "claim_promotion_pack" in benchmark_runbook
+    assert "release_evidence_pack" in benchmark_runbook
 
 
 def test_generated_knowledge_benchmark_is_ready_after_v32_surface_ships() -> None:

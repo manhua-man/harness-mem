@@ -898,12 +898,21 @@ def tool_get_project_profile(project_name: str) -> dict:
     }
 
 
-def tool_file_context(path: str, project_name: str | None = None) -> dict:
+def tool_file_context(
+    path: str,
+    project_name: str | None = None,
+    project_root: str | None = None,
+) -> dict:
     """Return compact, source-attributed memory already associated with a path."""
     backend = _get_backend()
     try:
         result = asyncio.run(
-            build_file_context(backend, project_name=project_name, path=path)
+            build_file_context(
+                backend,
+                project_name=project_name,
+                path=path,
+                project_root=project_root,
+            )
         )
     except ValueError as exc:
         return {"success": False, "error": str(exc)}

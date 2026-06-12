@@ -519,10 +519,115 @@ python benchmark-suite/local_index_fabric_smoke/driver.py ^
   --run-name local-index-fabric-smoke
 ```
 
+## `memory_eval_matrix`
+
+Use when:
+
+- checking the v4.2 memory-runtime behavior matrix
+- adding or changing task-aware wake, sufficiency, candidate-noise, or
+  multi-client compatibility gates
+
+Prompt and acceptance source:
+
+- `benchmark-suite/memory_eval_matrix/prompts.json`
+- `benchmark-suite/memory_eval_matrix/acceptance_checklist.md`
+
+Minimum bundle:
+
+- one accepted result row per declared memory eval dimension
+- source ids for evidence-backed rows
+- claim boundary saying this is not a global answer-quality benchmark
+
+## `retrieval_quality_pack`
+
+Use when:
+
+- changing reranker, query rewriting, multi-query/HyDE, embedding shootout, or
+  retrieval drift behavior
+- deciding whether any retrieval-quality component can move from optional or
+  experimental to default
+
+Prompt and acceptance source:
+
+- `benchmark-suite/retrieval_quality_pack/prompts.json`
+- `benchmark-suite/retrieval_quality_pack/acceptance_checklist.md`
+
+Minimum bundle:
+
+- one accepted result row per retrieval-quality capability
+- recall/precision, false-positive, fanout, duplicate, latency, size, and
+  install-friction fields where applicable
+- claim boundary preserving default light-path behavior
+
+## `code_memory_federation`
+
+Use when:
+
+- changing `file_context` code evidence, fingerprint, symbol, or project-root
+  resolution behavior
+- checking that generated code/wiki/module atlas layers do not become canonical
+  truth
+
+Prompt and acceptance source:
+
+- `benchmark-suite/code_memory_federation/prompts.json`
+- `benchmark-suite/code_memory_federation/acceptance_checklist.md`
+
+Minimum bundle:
+
+- code evidence rows with file path, source id, fingerprint, and line range
+- stale-check status for current, stale, missing, and out-of-bounds cases
+- claim boundary saying this is not a code-intel token/runtime benchmark
+
 Boundary:
 
-- this is a smoke contract only; runtime SearchBackend and real sidecar loading
-  belong to later v4.0.x slices.
+- this is code-evidence federation contract only; it is not a code-intel
+  token/runtime benchmark and generated code/wiki/module atlas prose remains
+  outside canonical truth.
+
+## `claim_promotion_pack`
+
+Use when:
+
+- adding a public claim class
+- changing `benchmark_matrix_report()["claim_readiness"]`
+- editing README/CHANGELOG/benchmark wording that could promote a bounded or
+  blocked claim
+
+Prompt and acceptance source:
+
+- `benchmark-suite/claim_promotion_pack/prompts.json`
+- `benchmark-suite/claim_promotion_pack/acceptance_checklist.md`
+
+Minimum bundle:
+
+- one accepted result row per declared claim policy
+- `promotion_status`, `claim_ready`, `public_claim_allowed`, and
+  `blocked_reason` fields for every row
+- report text that keeps token/cost saving, Storage v2 speedup, default
+  reranker/HyDE, and code-memory token/runtime claims blocked unless their
+  specific upstream gate changes
+
+## `release_evidence_pack`
+
+Use when:
+
+- rebuilding `benchmark-suite/release-snapshot.json`
+- syncing `harness_mem/resources/benchmark_suite/*`
+- checking clean-checkout behavior after adding or removing benchmark
+  collections/artifacts
+
+Prompt and acceptance source:
+
+- `benchmark-suite/release_evidence_pack/prompts.json`
+- `benchmark-suite/release_evidence_pack/acceptance_checklist.md`
+
+Minimum bundle:
+
+- one accepted release-evidence result row
+- `snapshot_run_count`, `accepted_runs`, `failed_runs`, `unknown_runs`,
+  `packaged_resource_match`, and `claim_promotion_policy_enforced`
+- report text saying the pack does not upgrade blocked public claims
 
 ## `canonical_store_runtime_baseline`
 

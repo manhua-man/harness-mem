@@ -1,12 +1,14 @@
 # Roadmap: harness-mem v4.0
 
-> 状态：v4.0.0-v4.0.5 已完成；v4.1.0 已完成第一版。
+> 状态：v4.0.0-v4.0.5、v4.1.x、v4.2.x、v4.3.0、v4.4 与 v4.5 已完成。
 >
 > 主题：Storage v2 + Rust Core + Local Memory Index Fabric。把 harness-mem 从
 > "Python 编排 + JSON blob truth + SQLite index" 升级为 "DB-first canonical
 > store + Rust hot path + 本地可审计索引织物 + Python/Agent orchestration"。
-> v4.0 只打存储、索引、热路径和 benchmark 地基；v4.1 已进入 context
-> sufficiency、task-aware wake 和 local routing；v4.2 再把 memory evals 产品化。
+> v4.0 只打存储、索引、热路径和 benchmark 地基；v4.1 收口 context
+> sufficiency、task-aware wake 和 local routing；v4.2 已把 memory evals 产品化；
+> v4.3 已把 code-memory federation 接入 file_context；v4.4/v4.5 把
+> public-claim promotion 与 release evidence packaging 机器化。
 
 ---
 
@@ -58,6 +60,8 @@ Python MCP / CLI / Skills
 | v4.1 | Context Sufficiency + Task-Aware Wake | 在 v4.0 的 corpus / metadata / index contract 上做证据充分性检查、wake packet budget、local routing 和可审计 context plan。 |
 | v4.2 | Memory Evals + Retrieval Quality Pack | 把 LongMemEval / memory eval matrix 产品化，再做 reranker、query rewriting、HyDE/multi-query、embedding shootout、recall drift suite。 |
 | v4.3 | Code-Memory Federation | 把 repo code-intel substrate 与 memory runtime 联邦起来，引用代码证据，但不把 generated prose 写成 truth。 |
+| v4.4 | Claim Promotion Pack | 把 public claim promotion 做成机器可验证 gate，防止 blocked claim 被文案或报告升级。 |
+| v4.5 | Release Evidence Pack | 把 release snapshot、packaged benchmark resources 和 claim-promotion visibility 做成 clean-checkout 可消费证据包。 |
 
 核心判断：**Agentic 是检索编排能力，不是自治改记忆能力。** 智能路由、补查、说明证据不足可以做；
 confirmed truth 变更仍必须走 candidate / review / supersede / ledger。
@@ -467,6 +471,15 @@ runtime surface：
 验证：`tests/test_context_sufficiency.py` 与
 `tests/mcp/test_context_sufficiency_surfaces.py`。
 
+v4.1.x 后续补齐：
+
+- `RetrievalPlan` 记录 deterministic query rewrites 与 required-slot quality
+  gates。
+- `SufficiencyReport` 按 token 覆盖 required slots，并暴露
+  `missing_required_slots`。
+- task-aware context assembly 在 insufficiency 后记录 bounded retrieval quality
+  trace，第二轮补查使用 deterministic query variants。
+
 ## v4.2：Memory Evals + Retrieval Quality Pack
 
 v4.2 只在 v4.1 pipeline 可解释之后做质量增强，避免先上模型再找理由。它的第一优先级是把
@@ -494,6 +507,25 @@ memory_eval_matrix:
 | Embedding shootout | 继续以 `all-MiniLM-L6-v2` 为 baseline，候选模型走 artifact gate | recall、latency、disk/cache、install friction 全部过线才换默认 |
 | Retrieval drift suite | 固定 query pack + source-hit + negative queries | 每次索引或模型变更都跑 smoke gate |
 
+### 当前实现（2026-06-12）
+
+v4.2.x 已完成 release-gated contract surface：
+
+- `harness_mem/search/retrieval_quality.py` 提供 no-op reranker、quality profile、
+  deterministic query variants、fanout cap 和 duplicate-rate metrics。默认 simple
+  query 仍是轻路径；multi-hop 或 insufficiency 后才启用 rewrite / multi-query。
+- `harness-mem[rerank]` 仅声明 optional `sentence-transformers` profile，不改变
+  默认安装或默认检索路径。
+- `benchmark-suite/memory_eval_matrix/` 和
+  `benchmark-suite/retrieval_quality_pack/` 提供 dataset manifest、prompts、
+  acceptance checklist、validator 与 report renderer。
+- `benchmark_matrix_report` 暴露 `memory_eval_matrix`、`memory_eval_gate` 和
+  `retrieval_quality_pack` 摘要；gate 证明 component coverage 和 artifact hygiene，
+  不证明 broad answer quality，也不默认启用 reranker / HyDE。
+- accepted contract artifacts：
+  `2026-06-12-memory_eval_matrix-v420-contract` 与
+  `2026-06-12-retrieval_quality_pack-v420-contract`。
+
 ## v4.3：Code-Memory Federation
 
 v4.3 把 `codedb-mcp` 类 code-intel substrate 与 harness-mem 的 long-term memory 联邦起来。
@@ -516,12 +548,108 @@ harness-mem memory runtime
 - memory entry 引用代码证据时必须有 source id、file path、fingerprint 或 line range 的 stale 检查。
 - benchmark 要比较 broad file reads/searches 是否减少，但不能把 `codedb-mcp` 的 token/runtime 直接写成 harness-mem 收益。
 
+### 当前实现（2026-06-12）
+
+v4.3.0 已完成第一版 code-memory federation contract：
+
+- `harness_mem/core/schemas/file_context.py` 新增 `FileFingerprint`、
+  `CodeSymbol` 与 `CodeEvidence`，并在 `FileContextResult` 返回 current file
+  fingerprint、Python symbols 和 code-evidence stale status。
+- `harness_mem/file_context.py` 支持 `project_root` 优先解析相对路径，读取当前
+  file fingerprint，用 Python AST 抽取 class/function/async/import symbols，并解析
+  memory provenance 中的 code evidence。
+- stale checks 覆盖 fingerprint mismatch、missing reference、missing current file
+  与 line-range missing/out-of-bounds；普通路径 mention 不会被误当成 stale code
+  evidence，除非 provenance 显式声明 code evidence / fingerprint。
+- MCP `file_context` tool spec 新增 optional `project_root`，并返回 v4.3 fields。
+- `benchmark-suite/code_memory_federation/` 和 accepted artifact
+  `2026-06-12-code_memory_federation-v430-contract` 锁定 generated layer 不是
+  truth store 的边界。
+
+## v4.4：Claim Promotion Pack
+
+v4.4 不新增默认检索行为，也不把既有 benchmark 的 bounded readiness 外推成
+public performance claim。它只把“什么能说、什么不能说”从文档约定升级为
+machine-readable release gate。
+
+### 当前实现（2026-06-13）
+
+v4.4 已完成第一版 claim-promotion contract：
+
+- `benchmark-suite/claim_promotion_pack/` 提供 dataset manifest、prompts 和
+  acceptance checklist，覆盖 token/cost saving、true vector-hybrid latency、
+  retrieval recall、Storage v2 speedup、默认 reranker/HyDE 与 code-memory
+  token/runtime 六类 claim。
+- `benchmark-suite/tools/validate_run.py` 校验每个 claim 的 promotion status；
+  token/cost saving、Storage v2 speedup、默认 reranker/HyDE 和 code-memory
+  token/runtime 必须保持 blocked，true vector-hybrid latency 与 retrieval recall
+  只能是 bounded local readiness。
+- `benchmark_matrix_report` 暴露 `claim_promotion_gate`，把 blocked /
+  bounded / public-ready claim policy 作为 runtime 可读结果。
+- accepted artifact：
+  `2026-06-13-claim_promotion_pack-v440-contract`。
+
+明确边界：v4.4 不证明 token/cost saving、Storage v2 speedup、默认 reranker/HyDE
+启用、code-intel token/runtime 或 broad answer quality。
+
+## v4.5：Release Evidence Pack
+
+v4.5 把 release evidence 变成干净 checkout 也能消费的证据包：没有 raw
+artifact bundles 时，runtime 仍能从 packaged suite / release snapshot 读取
+artifact state、claim readiness、claim-promotion policy 和 release evidence gate。
+
+### 当前实现（2026-06-13）
+
+v4.5 已完成第一版 release-evidence contract：
+
+- `benchmark-suite/release_evidence_pack/` 提供 dataset manifest、prompts 和
+  acceptance checklist，覆盖 clean-checkout snapshot、packaged resource sync、
+  artifact count、claim-promotion visibility 与 no-overclaim boundary。
+- `benchmark_matrix_report` 暴露 `release_evidence_pack` block，检查 release
+  snapshot gate、packaged resources 是否与 repo source 一致，以及
+  `claim_promotion_gate.policy_enforced` 是否为 true。
+- `benchmark-suite/tools/build_release_snapshot.py --sync-package-resources`
+  会同步 `benchmark-suite/release-snapshot.json` 与
+  `harness_mem/resources/benchmark_suite/*`。
+- accepted artifact：
+  `2026-06-13-release_evidence_pack-v450-contract`。
+
+明确边界：v4.5 只是 release evidence packaging，不把 blocked claims 升级成
+public performance 或 token-saving claims。
+
+## v4.6-v5.0：Evidence Hardening Track（规划中）
+
+v4.6 之后的主线不是继续堆新功能，而是把 v4 地基变成可发布的
+cost / performance / storage-index 硬证据链。参考 `codedb-mcp` 的方向是
+index discipline、benchmark discipline 和 cost observer discipline，不是把
+`harness-mem` 改成 code-intel 产品。
+
+| 切片 | 目标 | 必须产出的 artifact | 不允许升级的 claim |
+|---|---|---|---|
+| v4.6 Cost / Token Evidence | 跑通长源恢复 paired benchmark，证明 memory shortcut 在特定任务上少读、少塞、少花 | `memory_shortcut_vs_source_recovery`：enabled/disabled paired rows、named token sidecars、source_read_count、negative controls、bounded report | 不发布全局 token/cost saving；只允许长源恢复任务 bounded wording |
+| v4.7 Storage v2 Scale Evidence | 把 Storage v2 从 smoke/contract 推到 10k / 100k / 1M scale evidence | `storage_v2_baseline` + `migration_roundtrip`：固定 seed/hash/hardware、v3 JSON vs canonical SQLite、cold/warm、RSS、disk、file count、rollback checksum | 不切默认 canonical store；不写 Storage v2 speedup |
+| v4.8 Index Fabric Runtime Evidence | 证明 exact/word/trigram/graph sidecars 真的减少宽检索、大输出或 warm-path latency | `index_fabric_runtime_conformance`：SearchBackend conformance、first lazy load vs warm path、fallback metadata、fingerprint drift/lazy rebuild | 不宣称 Tantivy/LanceDB/ANN readiness；不把 manifest smoke 当 runtime evidence |
+| v4.9 Rust Native Hot Path Evidence | 证明 native Rust hot path 快于 Python fallback，而不是只证明 fallback 可用 | `rust_core_hot_path`：JSONL scan、bulk index、RRF/ranking、tokenize 的 native vs fallback 对照和 platform/wheel mode | 没有 native wheel artifact 不说 Rust speedup |
+| v5.0 Default Change Decision Gate | 只在 v4.6-v4.9 evidence 达标后讨论默认项变化 | claim gate 汇总：token/cost、Storage v2、Index Fabric、Rust native、retrieval quality 全部有可复核 artifact | 不因单个 smoke 或局部结果改变默认 storage/index/reranker/HyDE |
+
+优先级：
+
+1. 先做 v4.6，因为 `claim_readiness.token_cost_saving.ready=false` 是当前最大对外短板。
+2. 再做 v4.7 / v4.8，因为它们决定 canonical store 和 index fabric 是否有资格进入默认路径。
+3. v4.9 只在 native build / wheel 形态足够稳定时推进；没有 native artifact 就继续保持 fallback-only 叙事。
+4. v5.0 是决策门，不是功能堆叠版本。它只回答“哪些默认项终于可以改”，不能绕过 claim gate。
+
+这条线的验收标准：每个 public-facing claim 都必须能从 artifact 追到
+dataset hash、command、hardware、冷/热路径、fallback status、token/cost source
+和 no-overclaim boundary。否则只能写成 maintainer diagnostic。
+
 ## 测试矩阵
 
 ```text
 Roadmap truth tests
   docs index includes v4.0
-  v4.0/v4.1/v4.2/v4.3 boundaries are explicit
+  v4.0/v4.1/v4.2/v4.3/v4.4/v4.5 boundaries are explicit
+  v4.6-v5.0 evidence-hardening plan is future-only
   benchmark gate and no-silent-truth-mutation boundary stay present
 
 Contract tests

@@ -1,0 +1,6 @@
+{
+  "dataset": "claim_promotion_pack",
+  "version": 1,
+  "dataset_hash": "claim-promotion-v440-contract",
+  "claim_boundary": "machine-readable claim promotion policy; not proof of blocked claims"
+}

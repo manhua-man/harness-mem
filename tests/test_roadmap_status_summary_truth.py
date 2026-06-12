@@ -7,7 +7,7 @@ def test_roadmap_status_short_summary_mentions_full_completed_range() -> None:
     ).read_text(encoding="utf-8")
 
     assert (
-        "从 v1.5 baseline 到 v4.1.0 Context Sufficiency + Task-Aware Wake，"
+        "从 v1.5 baseline 到 v4.5.0 Release Evidence Pack，"
         "主实现路线已经按一个版本一个文档重切并连续收口。"
         in roadmap_status
     )
@@ -18,10 +18,13 @@ def test_roadmap_status_short_summary_mentions_full_completed_range() -> None:
     assert "MCP surface cost observer / high-output detection / `surface_cost_report` / runtime health /" in roadmap_status
     assert "benchmark matrix / version drift / cost budget policy、v3.5 的 benchmark evidence /" in roadmap_status
     assert "v4.0.1-v4.0.5 的 canonical store / Rust facade / index fabric / lifecycle /" in roadmap_status
-    assert "distribution gate，以及 v4.1.0 的 context sufficiency / task-aware wake 都已落地" in roadmap_status
+    assert "distribution gate、v4.1.0 的 context sufficiency / task-aware wake、v4.2.x 的" in roadmap_status
+    assert "memory eval matrix / retrieval quality pack、v4.3.0 的 code-memory federation、" in roadmap_status
+    assert "v4.4 的 claim-promotion gate，以及 v4.5.0 的 release-evidence pack 都已落地" in roadmap_status
     assert "v3.8 已收口 benchmark evidence、generated claim hardening、skill evolution governance" in roadmap_status
     assert "未 ready 的 token/cost saving 不能写成已证明的公开节省事实" in roadmap_status
     assert "true-hybrid latency / retrieval recall 也必须限定在本地 synthetic / smoke artifact" in roadmap_status
+    assert "默认 reranker/HyDE 启用、code-intel token/runtime 或端到端回答质量" in roadmap_status
     assert "v1.5 baseline、v1.6 persistent vectors" in roadmap_status
     assert "v2.2 用户入口闭环（Slash/Skill/自然语言 + Agent 背后 MCP；跨客户端能力已交付，细节见维护者测试包）" in roadmap_status
     assert "路线已经按一个版本一个文档重切并完成到 v2.8" not in roadmap_status

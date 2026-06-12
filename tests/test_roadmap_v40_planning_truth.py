@@ -26,7 +26,11 @@ def test_v40_docs_are_indexed_with_index_fabric_scope() -> None:
         "| v4.0.x | 已完成：Storage v2 + Rust Core + Local Memory Index Fabric"
         in roadmap_status
     )
-    assert "| v4.1.0 | 当前版本：Context Sufficiency + Task-Aware Wake |" in roadmap_status
+    assert "| v4.1.0 | 已完成：Context Sufficiency + Task-Aware Wake |" in roadmap_status
+    assert "| v4.2.x | 已完成：Memory Eval Matrix + Retrieval Quality Pack |" in roadmap_status
+    assert "| v4.3.0 | 已完成：Code-Memory Federation |" in roadmap_status
+    assert "| v4.4.0 | 已完成：Claim Promotion Pack |" in roadmap_status
+    assert "| v4.5.0 | 当前版本：Release Evidence Pack |" in roadmap_status
     assert "v4.0.1+ 未开始" not in roadmap_status
     assert "context sufficiency / task-aware wake" in roadmap_status
     assert "docs/roadmap-v40.md" in roadmap_status
@@ -41,8 +45,10 @@ def test_v40_scope_separates_storage_index_fabric_from_agentic_rag() -> None:
     assert "| v4.1 | Context Sufficiency + Task-Aware Wake |" in roadmap
     assert "| v4.2 | Memory Evals + Retrieval Quality Pack |" in roadmap
     assert "| v4.3 | Code-Memory Federation |" in roadmap
+    assert "| v4.4 | Claim Promotion Pack |" in roadmap
+    assert "| v4.5 | Release Evidence Pack |" in roadmap
     assert "默认 Planning Agent / SCA loop" in roadmap
-    assert "v4.1 已进入 context" in roadmap
+    assert "v4.1 收口 context" in roadmap
     assert "不是把 harness-mem 变成本地通用 Agent 平台" in roadmap
 
 
@@ -78,7 +84,7 @@ def test_v40_benchmark_and_regression_gates_are_first_class() -> None:
 def test_v400_current_implementation_is_contract_only() -> None:
     roadmap = _doc("roadmap-v40.md")
 
-    assert "> 状态：v4.0.0-v4.0.5 已完成；v4.1.0 已完成第一版。" in roadmap
+    assert "> 状态：v4.0.0-v4.0.5、v4.1.x、v4.2.x、v4.3.0、v4.4 与 v4.5 已完成。" in roadmap
     assert "### 当前实现（2026-06-12）" in roadmap
     assert "`harness_mem/storage/store_v2_migration.py`" in roadmap
     assert "`harness-mem maintenance migrate-store-v2 --dry-run`" in roadmap
@@ -93,6 +99,10 @@ def test_v400_current_implementation_is_contract_only() -> None:
     assert "v4.0.4 已完成 lifecycle tiering 的 read-path 和 candidate contract" in roadmap
     assert "v4.0.5 已完成 distribution gate 的诊断与文档地基" in roadmap
     assert "v4.1.0 已完成 Context Sufficiency + Task-Aware Wake" in roadmap
+    assert "v4.2.x 已完成 release-gated contract surface" in roadmap
+    assert "v4.3.0 已完成第一版 code-memory federation contract" in roadmap
+    assert "v4.4 已完成第一版 claim-promotion contract" in roadmap
+    assert "v4.5 已完成第一版 release-evidence contract" in roadmap
 
 
 def test_v41_memory_quality_gates_are_local_and_auditable() -> None:

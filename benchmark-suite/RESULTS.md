@@ -1,6 +1,7 @@
 # Benchmark Results
 
-Artifact-backed result summary for the completed BENCH gap run on 2026-06-09.
+Artifact-backed result summary for the completed BENCH gap run and v4 contract
+artifacts through 2026-06-13.
 
 This file reports measurable benchmark outcomes, not just artifact existence.
 It follows the same evidence discipline as the reference benchmark anchors:
@@ -10,11 +11,14 @@ state the task set, metrics, deltas, and unsupported claims.
 
 All seven original BENCH gaps plus the v3.8 token-visible / true-hybrid /
 retrieval-shootout follow-up artifacts are closed with validated artifact
-bundles. v4.0.0 adds diagnostic Storage v2 smoke artifacts, but they are not
-release-snapshot performance evidence. The supported claims are bounded:
+bundles. v4.0.x adds diagnostic Storage v2 / canonical store / context
+sufficiency smoke artifacts; v4.2/v4.3 add memory-eval, retrieval-quality, and
+code-memory federation contract artifacts; v4.4/v4.5 add claim-promotion and
+release-evidence contract artifacts. These are release-snapshot contract
+evidence, not public performance evidence. The supported claims are bounded:
 
-- v4.0 `benchmark_matrix_report` still reads the completed release artifact results as
-  `11` accepted runs, `0` failed runs, `0` unknown runs, with the benchmark gate
+- v4.5 `benchmark_matrix_report` reads the completed release artifact results as
+  `18` accepted runs, `0` failed runs, `0` unknown runs, with the benchmark gate
   passing for the current artifact set.
 - The same matrix exposes machine-readable `claim_readiness` for public claim
   gates. Current readiness is negative for token/cost savings because the
@@ -48,6 +52,18 @@ release-snapshot performance evidence. The supported claims are bounded:
 - True-hybrid retrieval reports now include a `Retrieval Recall Claim Readiness`
   section. Fixture-only rows remain blocked; the 2026-06-09 local smoke run is
   ready only as source-hit recall, not answer correctness.
+- v4.2 `memory_eval_matrix` covers eight memory-runtime behavior dimensions as
+  a release gate contract, not a global answer-quality benchmark.
+- v4.2 `retrieval_quality_pack` covers five retrieval-quality components and
+  keeps reranker, query rewriting, and HyDE/multi-query behind opt-in gates.
+- v4.3 `code_memory_federation` verifies file fingerprint, code symbol, and
+  stale code-evidence contract shape; generated code/wiki layers are still not
+  canonical truth.
+- v4.4 `claim_promotion_pack` keeps token/cost saving, Storage v2 speedup,
+  default reranker/HyDE, and code-memory token/runtime claims blocked while
+  preserving bounded local true-hybrid latency and retrieval recall wording.
+- v4.5 `release_evidence_pack` verifies release snapshot/package-resource
+  consistency and claim-promotion visibility for clean checkouts.
 
 ## Result Scorecard
 
@@ -71,19 +87,40 @@ present. In a clean checkout without raw artifacts, it falls back to the tracked
 
 | Metric | Value |
 |---|---:|
-| Artifact runs | 11 |
-| Accepted runs | 11 |
+| Artifact runs | 18 |
+| Accepted runs | 18 |
 | Failed runs | 0 |
 | Unknown runs | 0 |
 | Gate passed | true |
 | Token/cost saving claim ready | false |
 | True vector-hybrid latency claim ready | true |
 | Retrieval recall claim ready | true |
+| Claim promotion policy enforced | true |
+| Release evidence pack passed | true |
 
 This proves the local benchmark artifact set is internally validated and
 accepted by the matrix gate. It still does not create token-saving,
 real-billing, production-latency, broad retrieval-quality, or long-run
 production-maintenance claims.
+
+## v4.4 / v4.5 Claim and Release Evidence
+
+Artifacts:
+
+- `benchmark-suite/artifacts/2026-06-13-claim_promotion_pack-v440-contract/`
+- `benchmark-suite/artifacts/2026-06-13-release_evidence_pack-v450-contract/`
+
+Interpretation:
+
+- `claim_promotion_pack` is a policy gate. It keeps token/cost saving, Storage
+  v2 speedup, default reranker/HyDE, and code-memory token/runtime claims
+  blocked; it permits only bounded local wording for true vector-hybrid latency
+  and retrieval recall.
+- `release_evidence_pack` is a packaging gate. It verifies the tracked release
+  snapshot, packaged benchmark resources, accepted-run counts, and
+  claim-promotion visibility for clean checkouts.
+- Neither artifact changes `claim_readiness.token_cost_saving.ready=false` or
+  upgrades any bounded local claim into a public performance claim.
 
 ## BENCH-001 Client Continuation Value
 

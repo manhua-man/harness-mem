@@ -18,7 +18,7 @@ def test_vision_and_reference_docs_now_point_to_current_truth_sources() -> None:
     assert "maintainer decision artifact" in reference_doc
     assert "本文不再维护跨项目总分榜" in reference_doc
     assert "### 评分规则" in reference_doc
-    assert "### v4.1.0 证据分析" in reference_doc
+    assert "### v4.5.0 证据分析" in reference_doc
     assert "能力维度" in reference_doc
     assert "证据分" in reference_doc
     assert "Memory runtime / wake / search" in reference_doc
@@ -26,12 +26,18 @@ def test_vision_and_reference_docs_now_point_to_current_truth_sources() -> None:
     assert "Cost discipline | 7.4" in reference_doc
     assert "Storage v2 / canonical runtime foundation | 7.6" in reference_doc
     assert "Context sufficiency / task-aware wake | 7.5" in reference_doc
+    assert "Memory eval / retrieval quality gates | 7.5" in reference_doc
+    assert "Code-memory federation | 7.4" in reference_doc
+    assert "Claim promotion governance | 7.8" in reference_doc
+    assert "Release evidence packaging | 7.8" in reference_doc
     assert "### 参考项目锚点，不做排行榜" in reference_doc
     assert "### 快照更新规则" in reference_doc
     assert "证据变差时要降分" in reference_doc
     assert "### 硬指标 Claim Gate" in reference_doc
     assert "claim_readiness.token_cost_saving.ready" in reference_doc
     assert "claim_readiness.true_vector_hybrid_latency.ready" in reference_doc
+    assert "claim_promotion_gate.policy_enforced" in reference_doc
+    assert "release_evidence_pack.passed" in reference_doc
     assert "不能说 token/cost saving 已被证明" in reference_doc
     assert "token-visible paired run 的 saving delta 为负" in reference_doc
     assert "只能说本地 synthetic true-hybrid probe 无 fallback" in reference_doc

@@ -324,8 +324,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     "file_context": {
         "description": (
             "Return compact, source-attributed memory already associated with a "
-            "file path before reading the file itself. Advisory only; never "
-            "blocks file reads."
+            "file path before reading the file itself. v4.3 also returns current "
+            "file fingerprints, Python code symbols/imports, code evidence source "
+            "ids, and stale checks for memory references to code. Advisory only; "
+            "never blocks file reads."
         ),
         "input_schema": {
             "type": "object",
@@ -337,6 +339,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "path": {
                     "type": "string",
                     "description": "File path to look up in memory",
+                },
+                "project_root": {
+                    "type": "string",
+                    "description": "Optional project root used to resolve relative paths for v4.3 code evidence.",
                 },
             },
             "required": ["path"],

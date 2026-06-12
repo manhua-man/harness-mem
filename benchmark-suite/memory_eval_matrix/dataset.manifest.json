@@ -1,0 +1,8 @@
+{
+  "dataset": "memory_eval_matrix",
+  "version": 1,
+  "split": "contract",
+  "sample_count": 8,
+  "dataset_hash": "contract-memory-eval-matrix-v1",
+  "claim_boundary": "release gate coverage only; not global answer quality"
+}

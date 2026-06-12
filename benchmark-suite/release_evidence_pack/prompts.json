@@ -1,0 +1,13 @@
+{
+  "benchmark_id": "release_evidence_pack",
+  "tasks": [
+    {
+      "task_id": "REP-001",
+      "prompt": "Verify release snapshot counts match accepted artifact state and packaged benchmark resources are synchronized."
+    },
+    {
+      "task_id": "REP-002",
+      "prompt": "Verify blocked and bounded claim counts are visible to clean-checkout/runtime consumers."
+    }
+  ]
+}

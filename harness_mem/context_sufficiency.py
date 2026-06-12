@@ -12,6 +12,7 @@ from harness_mem.core.schemas.context_sufficiency import (
     retrieval_round_from_response,
 )
 from harness_mem.search.backend import SearchFilters, SQLiteSearchBackend
+from harness_mem.search.retrieval_quality import build_quality_trace, build_query_variants
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -74,13 +75,27 @@ async def assemble_task_aware_context_plan(
     estimated = int(first.budget.get("estimated_tokens") or 0)
     budget_remaining = max(0, budget_tokens - estimated)
 
+    quality_trace = build_quality_trace(
+        query=effective_query,
+        classifier=retrieval_plan.classifier,
+        source_ids=[result.source_id for result in first.results],
+        insufficient=not first_report.safe_to_answer,
+        insufficiency_queries=first_report.next_queries,
+    )
+
     if (
         not first_report.safe_to_answer
         and first_report.next_queries
         and budget_remaining > 0
         and retrieval_plan.max_rounds > 1
     ):
-        second_query = first_report.next_queries[0]
+        variants = build_query_variants(
+            effective_query,
+            classifier=retrieval_plan.classifier,
+            insufficiency_queries=first_report.next_queries,
+            profile=quality_trace.profile,
+        )
+        second_query = variants[1] if len(variants) > 1 else first_report.next_queries[0]
         second = await backend_search.search(
             second_query,
             filters=filters,
@@ -128,12 +143,20 @@ async def assemble_task_aware_context_plan(
             0,
             budget_tokens - int(final_response.budget.get("estimated_tokens") or 0),
         )
+        quality_trace = build_quality_trace(
+            query=effective_query,
+            classifier=retrieval_plan.classifier,
+            source_ids=[result.source_id for result in final_response.results],
+            insufficient=not final_report.safe_to_answer,
+            insufficiency_queries=first_report.next_queries,
+        )
 
     trace = IterativeRetrievalTrace(
         rounds=rounds,
         max_rounds=retrieval_plan.max_rounds,
         stopped_reason=stopped_reason,
         budget_remaining=budget_remaining,
+        retrieval_quality=quality_trace.to_dict(),
     )
     return context_plan_from_response(
         project_name=project_name,

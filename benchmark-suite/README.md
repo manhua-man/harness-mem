@@ -91,6 +91,31 @@ benchmark-suite/
     prompts.json
     acceptance_checklist.md
     driver.py
+  memory_eval_matrix/
+    README.md
+    dataset.manifest.json
+    prompts.json
+    acceptance_checklist.md
+  retrieval_quality_pack/
+    README.md
+    dataset.manifest.json
+    prompts.json
+    acceptance_checklist.md
+  code_memory_federation/
+    README.md
+    dataset.manifest.json
+    prompts.json
+    acceptance_checklist.md
+  claim_promotion_pack/
+    README.md
+    dataset.manifest.json
+    prompts.json
+    acceptance_checklist.md
+  release_evidence_pack/
+    README.md
+    dataset.manifest.json
+    prompts.json
+    acceptance_checklist.md
   templates/
     run_manifest.template.json
     task_result.template.json
@@ -133,6 +158,14 @@ v4.0.0 adds `storage_v2_baseline`, `migration_roundtrip`, and
 `local_index_fabric_smoke` as diagnostic Storage v2 contract collections. They
 establish corpus, migration, rollback, and manifest-last sidecar evidence
 shape; they do not prove public Storage v2 performance gains.
+v4.2 adds `memory_eval_matrix` and `retrieval_quality_pack` as release-gated
+contract collections for memory behavior and retrieval-quality component gates.
+v4.3 adds `code_memory_federation` for file fingerprint, symbol, and stale
+code-evidence checks. These prove coverage and boundary shape, not broad answer
+quality, token saving, default reranker/HyDE enablement, or code-intel speedups.
+v4.4 adds `claim_promotion_pack` so blocked public claims cannot be promoted by
+accident. v4.5 adds `release_evidence_pack` so clean-checkout/package evidence
+stays synchronized with the repo snapshot.
 
 ## Current benchmark results
 
@@ -146,10 +179,12 @@ The current matrix separates artifact acceptance from public-claim readiness:
 
 | Gate | Current value | Meaning |
 |---|---:|---|
-| `gate.passed` | `true` | The eleven accepted BENCH bundles are internally valid. |
+| `gate.passed` | `true` | The eighteen accepted BENCH bundles are internally valid. |
 | `claim_readiness.token_cost_saving.ready` | `false` | The token-observed paired run had a negative saving delta; do not publish token/cost saving claims. |
 | `claim_readiness.true_vector_hybrid_latency.ready` | `true` | A local synthetic true-hybrid probe ran without fallback; keep the claim scoped to that fixture. |
 | `claim_readiness.retrieval_recall.ready` | `true` | A local smoke source-hit recall shootout ran across FTS/vector/hybrid; do not present it as answer correctness or broad corpus quality. |
+| `claim_promotion_gate.policy_enforced` | `true` | v4.4 keeps blocked, bounded, and public-ready claim states machine-readable. |
+| `release_evidence_pack.passed` | `true` | v4.5 verifies release snapshot/package-resource consistency for clean checkouts. |
 
 This distinction matters for reference comparisons: `codedb-mcp` has a stronger
 code-intel token/runtime benchmark, while this suite currently supports bounded

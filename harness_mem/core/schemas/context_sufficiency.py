@@ -60,6 +60,8 @@ class RetrievalPlan(BaseModel):
     mode: str = "auto"
     max_rounds: int = 2
     reasons: list[str] = Field(default_factory=list)
+    query_rewrites: list[str] = Field(default_factory=list)
+    quality_gates: list[str] = Field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         data = self.model_dump()
@@ -120,6 +122,7 @@ class IterativeRetrievalTrace(BaseModel):
     max_rounds: int = 2
     stopped_reason: str = "not_started"
     budget_remaining: int | None = None
+    retrieval_quality: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -127,6 +130,7 @@ class IterativeRetrievalTrace(BaseModel):
             "max_rounds": self.max_rounds,
             "stopped_reason": self.stopped_reason,
             "budget_remaining": self.budget_remaining,
+            "retrieval_quality": dict(self.retrieval_quality),
         }
 
     @classmethod
@@ -230,16 +234,43 @@ def build_retrieval_plan(
         budget_tokens=budget_tokens,
         mode=mode,
         reasons=reasons,
+        query_rewrites=deterministic_query_rewrites(query, classifier=classifier),
+        quality_gates=[
+            "entity_coverage",
+            "source_diversity",
+            "truth_status",
+            "top_k_cliff",
+            "required_slots",
+        ],
     )
 
 
 def classify_query(query: str) -> str:
     lowered = query.lower()
+    if any(marker in lowered for marker in (" latest ", " current ", " changed ", " after ", " before ")):
+        return "temporal"
     if any(marker in lowered for marker in (" across ", " compare ", " versus ", " vs ")):
         return "cross_corpus"
     if any(marker in lowered for marker in (" and ", " then ", " why ", " root cause")):
         return "multi_hop"
     return "simple"
+
+
+def deterministic_query_rewrites(query: str, *, classifier: str | None = None) -> list[str]:
+    """Return bounded local rewrites used for audit, not silent truth mutation."""
+    normalized = " ".join(query.split())
+    kind = classifier or classify_query(normalized)
+    rewrites = [normalized]
+    if kind in {"multi_hop", "cross_corpus"}:
+        parts = re.split(r"\b(?:and|then|versus|vs|compare|across)\b", normalized, flags=re.I)
+        rewrites.extend(part.strip(" ,;:") for part in parts if len(part.strip()) >= 3)
+    if kind == "temporal" and "current" not in normalized.lower():
+        rewrites.append(f"current {normalized}")
+    deduped: list[str] = []
+    for item in rewrites:
+        if item and item not in deduped:
+            deduped.append(item)
+    return deduped[:4]
 
 
 def evaluate_sufficiency(
@@ -267,14 +298,11 @@ def evaluate_sufficiency(
                 "conflict_count": 0,
             },
         )
-    coverage = _coverage(tokens, results)
+    covered_tokens = _covered_tokens(tokens, results)
+    coverage = _coverage(tokens, covered_tokens)
     source_kinds = {result.source_kind for result in results}
     conflicts = _conflicts(results)
-    missing = [
-        slot
-        for slot in required
-        if slot.lower() not in " ".join(result.preview.lower() for result in results)
-    ]
+    missing = _missing_required_slots(required, results)
     if conflicts:
         status: SufficiencyStatus = "partial"
         support: SupportLevel = "weak"
@@ -299,7 +327,7 @@ def evaluate_sufficiency(
         missing_evidence=missing,
         safe_to_answer=safe,
         recommended_action=actions,
-        covered=sorted(tokens),
+        covered=sorted(covered_tokens),
         conflicting=conflicts,
         confidence=round(min(1.0, coverage), 3),
         next_queries=[] if safe else [_next_query(query, missing)],
@@ -309,6 +337,7 @@ def evaluate_sufficiency(
             "top_k_cliff": _top_k_cliff(results),
             "conflict_count": len(conflicts),
             "required_slots": required,
+            "missing_required_slots": missing,
         },
     )
 
@@ -403,12 +432,35 @@ def _query_tokens(query: str) -> set[str]:
     }
 
 
-def _coverage(tokens: set[str], results: list[BackendSearchResult]) -> float:
+def _covered_tokens(
+    tokens: set[str],
+    results: list[BackendSearchResult],
+) -> set[str]:
     if not tokens:
-        return 1.0 if results else 0.0
+        return set()
     haystack = " ".join(result.preview.lower() for result in results)
-    covered = {token for token in tokens if token in haystack}
-    return len(covered) / len(tokens)
+    return {token for token in tokens if token in haystack}
+
+
+def _coverage(tokens: set[str], covered_tokens: set[str]) -> float:
+    if not tokens:
+        return 1.0
+    return len(covered_tokens) / len(tokens)
+
+
+def _missing_required_slots(
+    required: list[str],
+    results: list[BackendSearchResult],
+) -> list[str]:
+    missing: list[str] = []
+    for slot in required:
+        slot_tokens = _query_tokens(slot)
+        if not slot_tokens:
+            continue
+        covered = _covered_tokens(slot_tokens, results)
+        if len(covered) / len(slot_tokens) < 0.6:
+            missing.append(slot)
+    return missing
 
 
 def _conflicts(results: list[BackendSearchResult]) -> list[str]:
@@ -463,6 +515,7 @@ __all__ = [
     "build_retrieval_plan",
     "classify_query",
     "context_plan_from_response",
+    "deterministic_query_rewrites",
     "evaluate_sufficiency",
     "retrieval_round_from_response",
 ]

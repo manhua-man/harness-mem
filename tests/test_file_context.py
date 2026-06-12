@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 from pathlib import Path
 
 from harness_mem.core.schemas import ConfirmedRule, MemoryEntry, Observation, ProjectProfile, Skill, TaskHandoff
+from harness_mem.core.schemas.file_context import FileContextResult
 from harness_mem.file_context import build_file_context
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -179,3 +181,145 @@ def test_build_file_context_marks_historical_path_queries_without_current_truth(
     assert all(item.truth_status != "confirmed_current" for item in result.items)
     assert any(item.truth_status == "historical" for item in result.items)
     assert result.stale_file_signal.state == "historical_path_match"
+
+
+def test_build_file_context_includes_current_code_evidence_and_fingerprint_staleness(
+    backend: LocalMemoryBackend,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_name = "file-context-code-federation"
+    module_path = tmp_path / "pkg" / "module.py"
+    module_path.parent.mkdir()
+    module_source = "\n".join(
+        [
+            "import json",
+            "from pathlib import Path",
+            "",
+            "class ModuleAtlas:",
+            "    def build(self) -> str:",
+            "        return Path('x').name",
+            "",
+            "async def refresh_index() -> None:",
+            "    return None",
+        ]
+    )
+    module_path.write_text(module_source, encoding="utf-8")
+    current_sha = hashlib.sha256(module_path.read_bytes()).hexdigest()
+    relative_path = "pkg/module.py"
+    monkeypatch.chdir(tmp_path.parent)
+
+    _seed_profile(backend, project_name=project_name, key_files=[relative_path])
+    entry = MemoryEntry(
+        project_name=project_name,
+        category="architecture",
+        content="pkg/module.py owns the module atlas and refresh_index flow.",
+        source="manual",
+        confidence=0.95,
+        provenance={"file_fingerprint": "old-" + current_sha[4:]},
+    )
+    run(backend.structured_store.save_memory_entry(entry))
+
+    result = run(
+        build_file_context(
+            backend,
+            project_name=project_name,
+            path=relative_path,
+            project_root=str(tmp_path),
+        )
+    )
+    restored = FileContextResult.from_dict(result.to_dict())
+
+    assert restored.file_fingerprint is not None
+    assert restored.file_fingerprint.sha256 == current_sha
+    assert restored.file_fingerprint.source_id.startswith("code-file:")
+    assert restored.code_evidence[0].source_id == restored.file_fingerprint.source_id
+    assert restored.stale_file_signal.state == "possibly_stale"
+
+    symbols = {(symbol.kind, symbol.name) for symbol in restored.code_symbols}
+    assert ("class", "ModuleAtlas") in symbols
+    assert ("function", "build") in symbols
+    assert ("async_function", "refresh_index") in symbols
+    assert ("import", "json") in symbols
+    assert ("import", "pathlib") in symbols
+
+    kinds = {item.kind for item in restored.items}
+    assert "code_fingerprint" in kinds
+    assert "code_symbol" in kinds
+    assert "module_dependency" in kinds
+    memory_item = next(item for item in restored.items if item.kind == "memory_entry")
+    assert memory_item.why_included.endswith("fingerprint_mismatch")
+    stale_reference = next(
+        item
+        for item in restored.code_evidence
+        if item.kind == "memory_reference"
+    )
+    assert stale_reference.stale_status == "stale"
+    assert stale_reference.line_range_status == "missing"
+    assert stale_reference.current_fingerprint == current_sha
+
+
+def test_build_file_context_uses_project_root_for_matching_code_reference(
+    backend: LocalMemoryBackend,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project_name = "file-context-code-root"
+    module_path = tmp_path / "src" / "rooted.py"
+    module_path.parent.mkdir()
+    module_path.write_text(
+        "\n".join(
+            [
+                "def current_contract() -> str:",
+                "    return 'ok'",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    current_sha = hashlib.sha256(module_path.read_bytes()).hexdigest()
+    relative_path = "src/rooted.py"
+    monkeypatch.chdir(tmp_path.parent)
+
+    _seed_profile(backend, project_name=project_name, key_files=[relative_path])
+    run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name=project_name,
+                category="architecture",
+                content="src/rooted.py current_contract is the active code contract.",
+                source="manual",
+                confidence=0.95,
+                provenance={
+                    "code_evidence": [
+                        {
+                            "source_id": "code-ref-current-contract",
+                            "path": relative_path,
+                            "fingerprint": current_sha,
+                            "line_range": [1, 2],
+                            "symbol": "current_contract",
+                        }
+                    ]
+                },
+            )
+        )
+    )
+
+    result = run(
+        build_file_context(
+            backend,
+            project_name=project_name,
+            path=relative_path,
+            project_root=str(tmp_path),
+        )
+    )
+
+    assert result.file_fingerprint is not None
+    assert result.file_fingerprint.sha256 == current_sha
+    assert result.stale_file_signal.state == "none"
+    reference = next(
+        item
+        for item in result.code_evidence
+        if item.source_id == "code-ref-current-contract"
+    )
+    assert reference.stale_status == "current"
+    assert reference.line_range_status == "valid"

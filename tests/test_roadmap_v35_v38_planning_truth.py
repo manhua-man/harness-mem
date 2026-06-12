@@ -18,7 +18,7 @@ def test_v35_v38_completed_docs_are_indexed_as_shipped_work() -> None:
     assert "| v3.6.x | 已完成：Generated Claim Hardening |" in roadmap_status
     assert "| v3.7.x | 已完成：Skill Evolution Governance |" in roadmap_status
     assert "| v3.8.x | 已完成：True Hybrid Retrieval Shootout |" in roadmap_status
-    assert "| v4.1.0 | 当前版本：Context Sufficiency + Task-Aware Wake |" in roadmap_status
+    assert "| v4.5.0 | 当前版本：Release Evidence Pack |" in roadmap_status
 
     for roadmap_name in [
         "roadmap-v35.md",

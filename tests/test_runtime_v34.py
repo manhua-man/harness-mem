@@ -35,8 +35,14 @@ REQUIRED_COLLECTION_IDS = [
     "canonical_store_runtime_baseline",
     "rust_core_hot_path",
     "index_fabric_runtime_conformance",
+    "true_hybrid_retrieval_shootout",
     "context_sufficiency_gate",
     "task_aware_wake_precision",
+    "memory_eval_matrix",
+    "retrieval_quality_pack",
+    "code_memory_federation",
+    "claim_promotion_pack",
+    "release_evidence_pack",
 ]
 
 
@@ -115,7 +121,7 @@ def test_benchmark_matrix_report_tracks_required_surfaces(tmp_path: Path):
 
     assert report["gate"]["passed"] is True
     assert report["gate"]["missing_surface_coverage"] == []
-    assert report["matrix_version"] == "v4.1.0"
+    assert report["matrix_version"] == "v4.5.0"
     assert report["taxonomy"]["artifact_states"] == [
         "accepted",
         "partial",
@@ -139,7 +145,16 @@ def test_benchmark_matrix_report_tracks_required_surfaces(tmp_path: Path):
         "lifecycle_tiering",
         "context_sufficiency",
         "task_aware_wake",
+        "memory_eval_matrix",
+        "retrieval_quality_pack",
+        "code_memory_federation",
+        "claim_promotion",
+        "release_evidence_pack",
     }
+    assert report["memory_eval_gate"]["passed"] is True
+    assert report["retrieval_quality_pack"]["passed"] is True
+    assert report["claim_promotion_gate"]["passed"] is True
+    assert report["claim_promotion_gate"]["policy_enforced"] is True
 
 
 def test_benchmark_matrix_report_does_not_pass_without_accepted_artifacts(tmp_path: Path):
@@ -661,7 +676,7 @@ def test_benchmark_matrix_report_uses_packaged_snapshot_when_repo_suite_missing(
 
     report = benchmark_matrix_report(missing_suite)
 
-    assert report["release_snapshot"]["accepted_runs"] == 13
+    assert report["release_snapshot"]["accepted_runs"] == 18
     assert report["release_snapshot"]["unknown_runs"] == 0
     assert report["gate"]["passed"] is True
     assert report["claim_readiness"]["token_cost_saving"]["ready"] is False
@@ -669,6 +684,8 @@ def test_benchmark_matrix_report_uses_packaged_snapshot_when_repo_suite_missing(
     assert report["claim_readiness"]["retrieval_recall"]["ready"] is True
     assert report["retrieval_shootout"]["default_embedding_baseline"] == "all-MiniLM-L6-v2"
     assert "client_enabled_vs_disabled" in report["taxonomy"]["use_cases"]
+    assert report["claim_promotion_gate"]["policy_enforced"] is True
+    assert report["release_evidence_pack"]["collection_present"] is True
 
 
 def test_packaged_benchmark_resources_match_repo_sources() -> None:

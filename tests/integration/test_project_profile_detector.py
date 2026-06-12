@@ -8,6 +8,7 @@ from harness_mem.adapters.claude_code.project_profile_detector import build_proj
 
 pytestmark = pytest.mark.integration
 
+
 def _fixture_path(name: str) -> Path:
     test_file = Path(__file__).resolve()
     for parent in test_file.parents:
@@ -58,3 +59,35 @@ def test_build_project_profile_detects_unity_from_assets_cwd(tmp_path: Path):
     assert "node" not in profile.stacks
     assert "ProjectSettings/ProjectVersion.txt" in profile.key_files
     assert "Packages/manifest.json" in profile.key_files
+
+
+def test_build_project_profile_ignores_generated_and_fixture_dirs(tmp_path: Path):
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname = 'real-python-project'\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "tests" / "fixtures" / "php-ts-monorepo").mkdir(parents=True)
+    (tmp_path / "tests" / "fixtures" / "php-ts-monorepo" / "composer.json").write_text(
+        '{"require": {"laravel/framework": "^11.0"}}',
+        encoding="utf-8",
+    )
+    (tmp_path / ".tmp" / "old-run" / "demo").mkdir(parents=True)
+    (tmp_path / ".tmp" / "old-run" / "demo" / "package.json").write_text(
+        '{"dependencies": {"next": "15.0.0", "react": "19.0.0"}}',
+        encoding="utf-8",
+    )
+    (tmp_path / "target" / "debug" / "nested").mkdir(parents=True)
+    (tmp_path / "target" / "debug" / "nested" / "go.mod").write_text(
+        "module ignored.example\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "package.json").write_text(
+        '{"dependencies": {"typescript": "5.0.0"}}',
+        encoding="utf-8",
+    )
+
+    profile = build_project_profile(tmp_path, project_name="real-python-project")
+
+    assert profile.stacks == ["python"]
+    assert profile.key_files == ["pyproject.toml"]

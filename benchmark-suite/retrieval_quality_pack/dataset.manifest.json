@@ -1,0 +1,8 @@
+{
+  "dataset": "retrieval_quality_pack",
+  "version": 1,
+  "split": "contract",
+  "sample_count": 5,
+  "dataset_hash": "contract-retrieval-quality-pack-v1",
+  "claim_boundary": "quality component gates only; not default enablement"
+}

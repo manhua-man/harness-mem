@@ -33,6 +33,11 @@ dimension.
 | Performance | `latency_warm_path`, `true_hybrid_retrieval_shootout`, `retrieval_quality_longmemeval` | Non-smoke warm-path FTS/wake run completed; the 2026-06-09 true-hybrid probe ran with `effective_mode=hybrid` and no fallback. | Keep true-hybrid latency claims scoped to the local synthetic fixture unless a broader dataset/hardware run is added. |
 | Retrieval recall | `true_hybrid_retrieval_shootout`, `retrieval_quality_longmemeval`, `retrieval_diagnostics` | v3.8 has fixture-contract rows plus a local smoke source-hit recall artifact across FTS/vector/hybrid. `claim_readiness.retrieval_recall.ready` is true for that bounded local split. | Do not present source-hit recall as end-to-end answer correctness or broad corpus quality. |
 | Storage v2 / Index fabric | `storage_v2_baseline`, `migration_roundtrip`, `local_index_fabric_smoke` | v4.0.0 has diagnostic smoke artifacts for deterministic synthetic corpus generation, migration dry-run/apply/export checksums, and manifest-last sidecar contract shape. These are contract/schema evidence only. | Run 10k / 100k / 1M release artifacts before any Storage v2 speedup claim; v4.0.1+ must add runtime canonical-store/index-fabric evidence before changing defaults. |
+| Memory eval matrix | `memory_eval_matrix`, `context_sufficiency_gate`, `task_aware_wake_precision` | v4.2 has an accepted contract artifact covering eight memory-runtime behavior dimensions. This is a release gate shape, not a global answer-quality benchmark. | Expand with real replay/eval rows before any broad memory-quality claim. |
+| Retrieval quality pack | `retrieval_quality_pack`, `true_hybrid_retrieval_shootout`, `retrieval_diagnostics` | v4.2 has an accepted contract artifact for reranker, query rewriting, multi-query/HyDE, embedding shootout, and retrieval drift gates. Defaults remain conservative. | Do not enable reranker/HyDE or change the embedding baseline without component artifacts that pass recall, latency, disk/cache, and install-friction gates. |
+| Code-memory federation | `code_memory_federation` | v4.3 has an accepted contract artifact for file fingerprints, symbols, stale code-evidence checks, and generated-layer truth boundary. | Do not translate this into code-intel token/runtime savings or treat generated module atlas/wiki prose as truth. |
+| Claim promotion governance | `claim_promotion_pack` | v4.4 has an accepted contract artifact that keeps blocked, bounded, and public-ready claim states machine-readable. | Do not convert governance coverage into token/cost saving, Storage v2 speedup, default reranker/HyDE, or code-intel runtime claims. |
+| Release evidence packaging | `release_evidence_pack` | v4.5 has an accepted contract artifact for clean-checkout snapshot/package-resource consistency and claim-promotion visibility. | Do not treat evidence packaging as an upgrade to blocked claim readiness. |
 
 Coverage levels:
 
@@ -52,8 +57,10 @@ Completed result summary:
 - BENCH-008 is tracked in [RESULTS.md](./RESULTS.md) as a v3.8 fixture
   contract for true-hybrid retrieval evidence shape; it is not a public recall
   claim.
-- v4.0.0 Storage v2 smoke artifacts are diagnostic contract evidence and are
-  excluded from release snapshots until promoted by larger runs.
+- v4.0.x-v4.5 smoke and contract artifacts are included in the release snapshot
+  as bounded contract evidence. They do not prove public performance gains,
+  token/cost savings, default reranker/HyDE enablement, broad retrieval quality,
+  or end-to-end answer correctness.
 
 ## B1. Retrieval Quality
 
@@ -91,6 +98,181 @@ Artifacts:
 Publish rule:
 
 - may be cited publicly only with the exact mode and exact split used
+
+## B1b. Memory Eval Matrix
+
+Benchmark id: `memory_eval_matrix`
+
+Goal:
+
+- keep the v4.2 memory-runtime behavior dimensions release-gated
+- cover cross-session resume, stale truth rejection, raw evidence recovery,
+  candidate noise rejection, task-aware wake precision, multi-client
+  consistency, wire-format compatibility, and context sufficiency accuracy
+
+Core tasks:
+
+- one row per memory eval dimension
+- source-backed safe-to-answer / false-positive checks
+
+Metrics:
+
+- dimension coverage
+- retrieved source ids
+- false-positive count
+- safe-to-answer status
+
+Artifacts:
+
+- result JSON per dimension
+- dataset manifest
+- markdown report
+
+Publish rule:
+
+- may be cited as release-gate coverage only, not as broad answer-quality proof
+
+## B1c. Retrieval Quality Pack
+
+Benchmark id: `retrieval_quality_pack`
+
+Goal:
+
+- gate retrieval-quality components before changing defaults
+- keep reranker, query rewriting, multi-query/HyDE, embedding shootout, and
+  drift-suite behavior separately accountable
+
+Core tasks:
+
+- one row per retrieval-quality capability
+- compare recall uplift, false-positive drift, fanout, duplicate rate,
+  sufficiency delta, latency, size, and install friction where relevant
+
+Metrics:
+
+- precision / recall deltas
+- false-positive delta
+- fanout cost and duplicate rate
+- model size and cold start
+
+Artifacts:
+
+- result JSON per capability
+- dataset manifest
+- markdown report
+
+Publish rule:
+
+- may be cited as component-gate coverage only; it does not enable reranker,
+  HyDE, or embedding baseline changes by default
+
+## B1d. Code-Memory Federation
+
+Benchmark id: `code_memory_federation`
+
+Goal:
+
+- gate v4.3 file fingerprint, code symbol, and stale code-evidence behavior
+- preserve the boundary that generated code/wiki/module-atlas prose is not
+  canonical truth
+
+Core tasks:
+
+- current code evidence
+- stale fingerprint evidence
+- generated-layer truth-boundary evidence
+
+Metrics:
+
+- stale status
+- line-range status
+- current symbols present
+- generated layer truth-boundary flag
+
+Artifacts:
+
+- result JSON per task
+- dataset manifest
+- markdown report
+
+Publish rule:
+
+- may be cited as code-evidence federation contract coverage only, not as
+  code-intel token/runtime or answer-quality proof
+
+## B1e. Claim Promotion Pack
+
+Benchmark id: `claim_promotion_pack`
+
+Goal:
+
+- gate public-claim promotion with machine-readable policy
+- keep blocked claims blocked even when neighboring bounded-local claims are
+  ready
+- prevent documentation/reporting drift around token/cost saving, Storage v2
+  speedup, default reranker/HyDE, and code-memory token/runtime claims
+
+Core tasks:
+
+- one row per claim policy
+- blocked / bounded / public-ready status checks
+- evidence reference and promotion boundary checks
+
+Metrics:
+
+- `promotion_status`
+- `claim_ready`
+- `public_claim_allowed`
+- `bounded_scope`
+- `blocked_reason`
+
+Artifacts:
+
+- result JSON per claim
+- dataset manifest
+- markdown report
+
+Publish rule:
+
+- may be cited as claim-governance coverage only; it does not prove the
+  underlying performance, token, default-behavior, or answer-quality claims
+
+## B1f. Release Evidence Pack
+
+Benchmark id: `release_evidence_pack`
+
+Goal:
+
+- gate clean-checkout release evidence packaging
+- verify tracked release snapshot and packaged benchmark resources stay in sync
+- ensure claim-promotion policy is visible to runtime consumers
+
+Core tasks:
+
+- release snapshot consistency
+- packaged suite / snapshot resource sync
+- accepted-run count and failed/unknown count checks
+- no-overclaim boundary check
+
+Metrics:
+
+- `snapshot_run_count`
+- `accepted_runs`
+- `failed_runs`
+- `unknown_runs`
+- `packaged_resource_match`
+- `claim_promotion_policy_enforced`
+
+Artifacts:
+
+- one release-evidence result JSON
+- dataset manifest
+- markdown report
+
+Publish rule:
+
+- may be cited as release-evidence packaging coverage only; it does not upgrade
+  blocked claims or prove new performance/token-saving behavior
 
 ## B2. Retrieval Diagnostics
 
@@ -758,7 +940,23 @@ Publish rule:
 - must not be used as runtime index-fabric, Tantivy, LanceDB, or broad search
   performance evidence
 
-## Current Follow-Up Priority
+## Current Follow-Up Priority: Evidence Hardening Track
+
+The next track is evidence hardening, not feature accumulation. The current
+blocking question is whether the existing v4 foundations can support durable
+cost, performance, and storage-index claims.
+
+| Slice | Benchmark focus | Required evidence | Claim boundary |
+|---|---|---|---|
+| v4.6 Cost / Token Evidence | `memory_shortcut_vs_source_recovery` plus `functional_token_economics` | named token/cost sidecars, paired enabled/disabled rows, source_read_count, negative controls, bounded report | no global token/cost saving claim |
+| v4.7 Storage v2 Scale Evidence | `storage_v2_baseline`, `migration_roundtrip`, `canonical_store_runtime_baseline` | 10k / 100k / 1M corpus, v3 JSON vs canonical SQLite, cold/warm path, RSS, disk, file count, rollback checksum | no default canonical store or Storage v2 speedup claim |
+| v4.8 Index Fabric Runtime Evidence | `index_fabric_runtime_conformance`, `local_index_fabric_smoke` | exact/word/trigram/graph sidecar runtime rows, first lazy load vs warm path, fallback metadata, fingerprint drift/lazy rebuild | no Tantivy/LanceDB/ANN readiness claim |
+| v4.9 Rust Native Hot Path Evidence | `rust_core_hot_path` | native vs Python fallback rows for JSONL scan, bulk index, RRF/ranking, tokenize, plus wheel/platform mode | no Rust speedup claim without native artifact |
+| v5.0 Default Change Decision Gate | claim-gate rollup across the above | all relevant claim gates ready with artifact-backed evidence | no default storage/index/reranker/HyDE change from smoke alone |
+
+This track borrows `codedb-mcp`'s index discipline, benchmark discipline, and
+cost-observer discipline, but keeps `harness-mem` scoped to a local-first memory
+runtime rather than a code-intel product.
 
 ## B16. Canonical Store Runtime Baseline
 
@@ -806,9 +1004,11 @@ fixture contract plus a bounded local smoke source-hit recall run; it does not
 reopen the closed backlog and it does not prove answer correctness or broad
 corpus quality. v4.0.0 adds Storage v2 diagnostic contract smokes; those remain
 excluded from public performance claims until larger release artifacts exist.
-v4.0.1-v4.1 add contract/eval packs for canonical store, Rust fallback, runtime
-index fabric, context sufficiency, and task-aware wake; those packs are also
-artifact-bounded and do not create public speedup or answer-quality claims.
+v4.0.1-v4.5 add contract/eval packs for canonical store, Rust fallback, runtime
+index fabric, context sufficiency, task-aware wake, memory eval, retrieval
+quality, code-memory federation, claim promotion, and release evidence; those
+packs are also artifact-bounded and do not create public speedup, token-saving,
+default-behavior, code-intel runtime, or answer-quality claims.
 The next work is not to claim more from the current artifacts, but to improve
 signal where the current results are intentionally bounded:
 

@@ -712,6 +712,205 @@
         "accepted",
         "acceptance_notes"
       ]
+    },
+    {
+      "id": "memory_eval_matrix",
+      "title": "Memory Eval Matrix",
+      "purpose": "Gate v4.2 memory-runtime behavior across resume, stale-truth rejection, raw evidence recovery, candidate noise, task-aware wake, client consistency, wire format, and sufficiency accuracy.",
+      "proves": [
+        "all eight v4.2 memory eval dimensions are represented in one release bundle",
+        "accepted rows carry explicit artifact-state and claim-boundary metadata",
+        "memory evals are release gates rather than ad hoc operator notes"
+      ],
+      "does_not_prove": [
+        "global answer quality",
+        "broad production corpus quality",
+        "token/cost savings"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "dataset.manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "benchmark_id",
+        "dimension",
+        "task_id",
+        "dataset_id",
+        "dataset_hash",
+        "expected_source_ids",
+        "retrieved_source_ids",
+        "safe_to_answer",
+        "false_positive_count",
+        "artifact_state",
+        "claim_boundary",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "retrieval_quality_pack",
+      "title": "Retrieval Quality Pack",
+      "purpose": "Gate optional v4.2 retrieval quality components without changing the default lightweight path.",
+      "proves": [
+        "reranker/query-rewrite/multi-query/embedding/drift components have explicit readiness rows",
+        "query rewriting uplift is checked against false-positive drift",
+        "fanout, duplicate rate, cold start, and install friction are visible"
+      ],
+      "does_not_prove": [
+        "reranker is enabled by default",
+        "HyDE is part of the default runtime",
+        "a new embedding model is the default baseline"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "dataset.manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "benchmark_id",
+        "capability",
+        "task_id",
+        "dataset_id",
+        "dataset_hash",
+        "default_enabled",
+        "precision_at_k",
+        "recall_delta",
+        "false_positive_delta",
+        "fanout_cost",
+        "duplicate_rate",
+        "sufficiency_delta",
+        "model_size_mb",
+        "cold_start_ms",
+        "install_friction",
+        "claim_readiness",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "code_memory_federation",
+      "title": "Code-Memory Federation",
+      "purpose": "Gate v4.3 file-context federation between long-term memory and current code evidence.",
+      "proves": [
+        "file_context returns current file fingerprints and code evidence source ids",
+        "memory references to code evidence can detect fingerprint staleness",
+        "module atlas/code wiki style outputs remain derived evidence, not accepted memory"
+      ],
+      "does_not_prove": [
+        "harness-mem is a full code search engine",
+        "codedb-mcp token/runtime gains are harness-mem gains",
+        "generated code wiki prose is canonical truth"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "dataset.manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "benchmark_id",
+        "task_id",
+        "dataset_id",
+        "dataset_hash",
+        "file_path",
+        "source_id",
+        "fingerprint",
+        "line_range",
+        "stale_check",
+        "current_code_symbols",
+        "generated_layer_is_truth",
+        "claim_boundary",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "claim_promotion_pack",
+      "title": "Claim Promotion Pack",
+      "purpose": "Gate v4.4 public-claim promotion so bounded local readiness cannot be mistaken for token saving, broad performance, default reranker/HyDE enablement, or code-intel runtime proof.",
+      "proves": [
+        "every public-facing claim class has a machine-readable promotion policy",
+        "blocked claims stay blocked even when related contract artifacts exist",
+        "bounded local claims are kept separate from broad public claims"
+      ],
+      "does_not_prove": [
+        "token/cost savings",
+        "Storage v2 or Rust speedups",
+        "default reranker or HyDE enablement",
+        "code-intel token/runtime gains"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "dataset.manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "benchmark_id",
+        "claim_id",
+        "status",
+        "ready",
+        "source_gate",
+        "public_scope",
+        "claim_type",
+        "blocking",
+        "claim_boundary",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "release_evidence_pack",
+      "title": "Release Evidence Pack",
+      "purpose": "Gate v4.5 clean-checkout release evidence packaging, snapshot consistency, packaged-resource sync, and claim-promotion visibility.",
+      "proves": [
+        "release snapshot and packaged benchmark resources are synchronized",
+        "accepted-run counts and blocked/bounded claim counts are visible",
+        "runtime/package consumers can inspect release evidence without raw artifacts"
+      ],
+      "does_not_prove": [
+        "blocked claims are now public-ready",
+        "production performance",
+        "real billing savings",
+        "end-to-end answer correctness"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "dataset.manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "benchmark_id",
+        "pack_id",
+        "snapshot_id",
+        "snapshot_run_count",
+        "accepted_runs",
+        "failed_runs",
+        "unknown_runs",
+        "blocked_claim_count",
+        "bounded_claim_count",
+        "packaged_suite_match",
+        "packaged_snapshot_match",
+        "claim_promotion_policy_enforced",
+        "gate_passed",
+        "claim_boundary",
+        "accepted",
+        "acceptance_notes"
+      ]
     }
   ]
 }

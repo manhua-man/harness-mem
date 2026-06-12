@@ -19,15 +19,23 @@ local-first memory
 
 ## Current Release
 
-Current package version is v4.1.0. The v4.0.x line adds the canonical SQLite
+Current package version is v4.5.0. The v4.0.x line adds the canonical SQLite
 store contract, Rust hot-path facade with pure-Python fallback, local index
 fabric/SearchBackend contract, lifecycle tiering, and distribution diagnostics.
 v4.1 adds deterministic context sufficiency reports and task-aware wake packets
-to MCP `search_memory` / `wake`.
+to MCP `search_memory` / `wake`; v4.2 adds the memory eval matrix, retrieval
+quality pack, deterministic query rewrites, and optional reranker dependency
+profile; v4.3 adds code-memory federation so file context can report current
+file fingerprints, Python symbols, and stale code-evidence status. v4.4 adds a
+machine-readable claim-promotion gate, and v4.5 packages release evidence for
+clean-checkout/runtime consumers without upgrading blocked public claims.
 
-The 2026-06-12 v4 smoke artifacts prove contract shape, migration safety, and
-surface availability. They do not claim broad performance speedups, token
-savings, or end-to-end answer-quality gains.
+The 2026-06-13 v4 smoke and contract artifacts prove contract shape, migration
+safety, benchmark surface availability, memory-eval coverage, retrieval-quality
+component gates, code-evidence federation shape, claim-promotion policy, and
+release-evidence packaging. They do not claim broad performance speedups, token
+savings, default reranker/HyDE enablement, code-intel token/runtime parity, or
+end-to-end answer-quality gains.
 
 ## Why It Exists
 

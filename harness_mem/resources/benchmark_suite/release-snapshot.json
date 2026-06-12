@@ -2,8 +2,8 @@
   "snapshot_version": 2,
   "generated_at": "2026-06-09T01:30:00Z",
   "source": "validated local benchmark artifacts",
-  "artifact_run_count": 13,
-  "accepted_runs": 13,
+  "artifact_run_count": 18,
+  "accepted_runs": 18,
   "failed_runs": 0,
   "unknown_runs": 0,
   "gate_passed": true,
@@ -136,11 +136,51 @@
       "artifact_state": "accepted"
     },
     {
+      "run_id": "2026-06-12-code_memory_federation-v430-contract",
+      "collection_id": "code_memory_federation",
+      "accepted": true,
+      "result_count": 3,
+      "claim_boundary": "v4.3 code-memory federation contract; not full code search or generated truth",
+      "artifact_state": "accepted"
+    },
+    {
       "run_id": "2026-06-12-context_sufficiency_gate-v410-smoke",
       "collection_id": "context_sufficiency_gate",
       "accepted": true,
       "result_count": 1,
       "claim_boundary": "deterministic context sufficiency smoke; not end-to-end answer quality",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-12-memory_eval_matrix-v420-contract",
+      "collection_id": "memory_eval_matrix",
+      "accepted": true,
+      "result_count": 8,
+      "claim_boundary": "v4.2 memory eval matrix contract; not global answer quality",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-12-retrieval_quality_pack-v420-contract",
+      "collection_id": "retrieval_quality_pack",
+      "accepted": true,
+      "result_count": 5,
+      "claim_boundary": "v4.2 retrieval quality component gates; not default reranker/HyDE enablement",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-13-claim_promotion_pack-v440-contract",
+      "collection_id": "claim_promotion_pack",
+      "accepted": true,
+      "result_count": 6,
+      "claim_boundary": "v4.4 claim promotion policy; bounded readiness is not public performance or token-saving proof",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-13-release_evidence_pack-v450-contract",
+      "collection_id": "release_evidence_pack",
+      "accepted": true,
+      "result_count": 1,
+      "claim_boundary": "v4.5 release evidence packaging; not an upgrade of blocked claims",
       "artifact_state": "accepted"
     }
   ]

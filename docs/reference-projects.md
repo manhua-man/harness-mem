@@ -35,13 +35,14 @@
 
 ### 当前版本结论
 
-`harness-mem` v4.1.0 已经不是单纯的 session memory MVP。它的当前形态是一个
+`harness-mem` v4.5.0 已经不是单纯的 session memory MVP。它的当前形态是一个
 local-first、candidate-first、MCP/Skill/Slash 驱动的记忆运行时：默认用户入口是
 `/hm:*` 或自然语言，Agent 背后走 MCP；confirmed truth 通过候选、复核、supersede
 和 ledger 保持可审计；generated knowledge、temporal read model、Auto Dream、skill
 governance、benchmark matrix、Storage v2 canonical store / Rust facade / index
-fabric / lifecycle / distribution diagnostics，以及 context sufficiency /
-task-aware wake 都已形成产品面。
+fabric / lifecycle / distribution diagnostics、context sufficiency /
+task-aware wake、memory eval matrix、retrieval quality pack，以及 code-memory
+federation、claim-promotion gate 和 release-evidence packaging 都已形成产品面。
 
 当前强项集中在 evidence safety、truth/review 边界、generated boundary、temporal
 query、runtime health 和参考项目吸收纪律。当前短板也很清楚：token/cost saving
@@ -51,7 +52,7 @@ maintenance 没有生产长期 false-positive 证据，Storage v2 还没有 10k 
 也还不是端到端回答正确率 benchmark；`harness-mem` 仍不是 `codedb-mcp`
 那种专门 code-intel 性能系统。
 
-### v4.1.0 证据分析
+### v4.5.0 证据分析
 
 | 能力维度 | 证据分 | 当前状态 | 主要证据 | 仍不能说什么 |
 |---|---:|---|---|---|
@@ -66,6 +67,10 @@ maintenance 没有生产长期 false-positive 证据，Storage v2 还没有 10k 
 | Performance / retrieval quality | 7.7 | Synthetic warm-path FTS/wake latency可测；v3.8 true-hybrid shootout 有 FTS/vector/hybrid contract、fallback accounting 和 local smoke recall。 | BENCH-004：FTS p95 9.901ms、wake p95 9.86ms；true-hybrid probe p95 286.799ms no fallback；BENCH-008 local smoke source-hit recall R@5=1.0。 | 不能外推生产延迟、广语料质量或端到端回答正确率。 |
 | Storage v2 / canonical runtime foundation | 7.6 | v4.0.x 建立 deterministic corpus、side-by-side migration、canonical entity store、Rust facade/fallback、index fabric/SearchBackend contract、lifecycle tiering 和 distribution diagnostics。 | `maintenance migrate-store-v2` / `maintenance export-json-snapshot`；v4.0.0 三条 Storage v2 diagnostic smoke；`canonical_store_runtime_baseline` 2026-06-12 smoke；相关 Python contract tests。 | 不能说默认 canonical store 已启用、native Rust wheel speedup 已证明、Storage v2 10k/100k/1M 性能收益已证明。 |
 | Context sufficiency / task-aware wake | 7.5 | v4.1.0 给 search/wake 增加 deterministic sufficiency report、retrieval plan、context plan、iterative trace 和 wake packet budgeter。 | `context_sufficiency_gate` 2026-06-12 smoke；`tests/test_context_sufficiency.py`；`tests/mcp/test_context_sufficiency_surfaces.py`。 | 不能把 deterministic sufficiency smoke 说成端到端回答正确率、LLM judge 精度或 broad corpus quality。 |
+| Memory eval / retrieval quality gates | 7.5 | v4.2.x 把 memory eval matrix 和 retrieval quality pack 纳入 benchmark matrix；simple query 默认轻路径，rewrite/multi-query/reranker 仍是 bounded 或 optional profile。 | `memory_eval_matrix` 2026-06-12 contract、`retrieval_quality_pack` 2026-06-12 contract；`tests/test_v42_retrieval_quality_pack.py`；`tests/test_v42_v43_benchmark_contract.py`。 | 不能说默认启用 reranker/HyDE、已证明 broad retrieval quality 或端到端回答正确率。 |
+| Code-memory federation | 7.4 | v4.3.0 让 `file_context` 返回 current file fingerprint、Python symbols 与 code evidence stale status，并支持 project-root-aware path resolution。 | `code_memory_federation` 2026-06-12 contract；`tests/test_file_context.py`；`tests/mcp/test_smoke.py`。 | 不能说已达到 `codedb-mcp` code-intel token/runtime 水平，也不能把 generated code/wiki/module atlas 当 truth。 |
+| Claim promotion governance | 7.8 | v4.4 把 public-claim promotion 做成 machine-readable gate，区分 blocked、bounded local 和 public-ready claim。 | `claim_promotion_pack` 2026-06-13 contract；`benchmark_matrix_report()["claim_promotion_gate"]`；`benchmark-suite/tools/validate_run.py`。 | 不能把治理 gate 当成 token/cost saving、Storage v2 speedup、默认 reranker/HyDE 或 code-intel runtime 证据。 |
+| Release evidence packaging | 7.8 | v4.5 把 release snapshot、packaged benchmark resources 和 claim-promotion visibility 做成 clean-checkout 可消费证据包。 | `release_evidence_pack` 2026-06-13 contract；`benchmark_matrix_report()["release_evidence_pack"]`；`check_release_artifacts.py`。 | 不能把 evidence packaging 当成 blocked claims 的升级依据。 |
 | 用户负担与入口闭环 | 8.3 | 日常入口收敛到 `/hm:*`、Skill、自然语言；CLI 退到安装、doctor、purge、maintenance；autopilot 可在清晰任务边界辅助学习。 | `roadmap-status.md` 用户入口与已交付能力；v2.8/v2.9 维护面和 status/doctor 收口。 | 不能默认启用 IDE 随手记、per-turn 无条件写入或 silent learning。 |
 
 ### 参考项目锚点，不做排行榜
@@ -91,14 +96,16 @@ maintenance 没有生产长期 false-positive 证据，Storage v2 还没有 10k 
 
 ### 硬指标 Claim Gate
 
-内部评分不能替代 artifact。当前 v4.1 benchmark matrix 的真实发布门槛是：
+内部评分不能替代 artifact。当前 v4.5 benchmark matrix 的真实发布门槛是：
 
 | Claim | Matrix field | Current value | 对外口径 |
 |---|---|---:|---|
-| Benchmark artifact gate | `gate.passed` | `true` | 可以说当前 accepted BENCH artifact 内部通过，但 v4 smoke 仍是 contract/surface evidence |
+| Benchmark artifact gate | `gate.passed` | `true` | 可以说当前 18 个 accepted BENCH artifact 内部通过，但 v4 smoke/contract 仍是 contract/surface/gate-shape evidence |
 | Token/cost saving | `claim_readiness.token_cost_saving.ready` | `false` | 不能说 token/cost saving 已被证明；token-visible paired run 的 saving delta 为负 |
 | True vector-hybrid latency | `claim_readiness.true_vector_hybrid_latency.ready` | `true` | 只能说本地 synthetic true-hybrid probe 无 fallback；不能外推生产延迟 |
 | Retrieval recall | `claim_readiness.retrieval_recall.ready` | `true` | 只能说本地 smoke source-hit recall；不能外推端到端回答正确率或 broad corpus quality |
+| Claim promotion | `claim_promotion_gate.policy_enforced` | `true` | blocked claim 仍 blocked；bounded local claim 不升级成 public performance claim |
+| Release evidence pack | `release_evidence_pack.passed` | `true` | clean-checkout/package evidence 可消费；不改变任何 claim readiness |
 
 因此 `codedb-mcp` 在 cost/performance 上仍是更强的 code-intel 参考；`harness-mem`
 当前只能讲本地 cost discipline surface、预算/截断可观测、synthetic warm-path FTS/wake
@@ -146,6 +153,10 @@ saving delta。对外讲 true vector-hybrid latency 时，
 | v3.8 True Hybrid Retrieval Shootout | `hypatia` + `mempalace` + `codedb-mcp` | FTS/vector/hybrid source-hit contract、latency/fallback/token-cost fields、embedding candidate governance | 用 retrieval recall 冒充端到端 answer correctness，或因单次 shootout 静默替换默认 embedding |
 | v4.0.x Storage / Index / Rust Foundation | `codedb-mcp` + `mempalace` | deterministic corpus、migration checksum、canonical store、Rust facade/fallback、manifest-last sidecar discipline、SearchBackend contract、rollback/export evidence | 默认切 canonical store、宣传 native Rust / Storage v2 speedup、把 smoke 当 production performance |
 | v4.1 Context Sufficiency | `Graphiti / Zep` + `codedb-mcp` + `hindsight` | deterministic sufficiency report、retrieval plan、context plan、iterative trace、wake packet budgeter | 用 sufficiency smoke 冒充端到端 answer correctness 或 LLM judge benchmark |
+| v4.2 Memory Eval / Retrieval Quality Pack | `LongMemEval` + `hypatia` + `codedb-mcp` | memory eval dimensions、retrieval-quality component gates、optional reranker profile、bounded rewrite/multi-query trace | 默认启用 reranker/HyDE、把 source-hit/rewrite smoke 冒充 answer correctness |
+| v4.3 Code-Memory Federation | `codedb-mcp` + `llm_wiki` | file fingerprint、symbols、code-evidence stale checks、generated layer boundary | 把 generated module atlas/wiki 当 truth，或宣称达到 code-intel token/runtime benchmark |
+| v4.4 Claim Promotion Pack | `codedb-mcp` + `OpenSpace` + `claude-mem` | claim promotion policy、blocked/bounded claim taxonomy、machine-readable no-overclaim gate | 用 governance artifact 冒充性能、token saving 或默认行为变更证据 |
+| v4.5 Release Evidence Pack | `claude-mem` + `evo` | clean-checkout evidence fallback、packaged resource sync、release dashboard visibility | 把 evidence packaging 当作 blocked claim 的升级依据 |
 
 ## 文档定位
 

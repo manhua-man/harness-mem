@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from importlib import resources
 from datetime import datetime, timezone
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
-BENCHMARK_MATRIX_VERSION = "v4.1.0"
+BENCHMARK_MATRIX_VERSION = "v4.5.0"
 
 ARTIFACT_STATES = ["accepted", "partial", "failed", "quarantined"]
 
@@ -34,6 +34,11 @@ SURFACE_REGRESSION_TARGETS = {
     "lifecycle_tiering": ["canonical_store_runtime_baseline"],
     "context_sufficiency": ["context_sufficiency_gate"],
     "task_aware_wake": ["task_aware_wake_precision"],
+    "memory_eval_matrix": ["memory_eval_matrix"],
+    "retrieval_quality_pack": ["retrieval_quality_pack", "true_hybrid_retrieval_shootout"],
+    "code_memory_federation": ["code_memory_federation"],
+    "claim_promotion": ["claim_promotion_pack"],
+    "release_evidence_pack": ["release_evidence_pack"],
 }
 
 LONGMEMEVAL_DIMENSIONS = [
@@ -42,6 +47,89 @@ LONGMEMEVAL_DIMENSIONS = [
     "multi-session",
     "single-session-user",
     "single-session-assistant",
+]
+
+MEMORY_EVAL_MATRIX = {
+    "cross_session_resume": ["client_enabled_vs_disabled", "memory_shortcut_vs_source_recovery"],
+    "stale_truth_rejection": ["temporal_product_query", "evidence_safety"],
+    "raw_evidence_recovery": ["retrieval_diagnostics", "evidence_safety"],
+    "candidate_noise_rejection": ["evidence_safety", "auto_maintenance_effectiveness"],
+    "task_aware_wake_precision": ["task_aware_wake_precision"],
+    "multi_client_consistency": ["client_trace_evidence"],
+    "wire_format_backward_compat": ["runtime_health_observability"],
+    "context_sufficiency_accuracy": ["context_sufficiency_gate"],
+}
+
+RETRIEVAL_QUALITY_COMPONENTS: list[dict[str, Any]] = [
+    {
+        "component": "reranker",
+        "default_enabled": False,
+        "gate": "precision@k + latency + RSS + model size + cold start",
+        "collections": ["retrieval_quality_pack"],
+    },
+    {
+        "component": "query_rewriting",
+        "default_enabled": False,
+        "gate": "recall uplift must exceed false-positive drift",
+        "collections": ["retrieval_quality_pack", "context_sufficiency_gate"],
+    },
+    {
+        "component": "multi_query_hyde",
+        "default_enabled": False,
+        "gate": "fanout cost + duplicate rate + sufficiency delta",
+        "collections": ["retrieval_quality_pack"],
+    },
+    {
+        "component": "embedding_shootout",
+        "default_enabled": False,
+        "gate": "recall + latency + disk/cache + install friction",
+        "collections": ["true_hybrid_retrieval_shootout"],
+    },
+    {
+        "component": "retrieval_drift_suite",
+        "default_enabled": True,
+        "gate": "fixed query pack + source-hit + negative queries",
+        "collections": ["retrieval_diagnostics", "retrieval_quality_pack"],
+    },
+]
+
+CLAIM_PROMOTION_POLICIES = [
+    {
+        "claim_id": "token_cost_saving",
+        "source_gate": "claim_readiness.token_cost_saving",
+        "public_scope": "blocked until paired token/cost delta is positive from a named source",
+        "claim_type": "public_saving",
+    },
+    {
+        "claim_id": "true_vector_hybrid_latency",
+        "source_gate": "claim_readiness.true_vector_hybrid_latency",
+        "public_scope": "bounded local synthetic probe only",
+        "claim_type": "bounded_performance",
+    },
+    {
+        "claim_id": "retrieval_recall",
+        "source_gate": "claim_readiness.retrieval_recall",
+        "public_scope": "bounded local source-hit recall only",
+        "claim_type": "bounded_retrieval",
+    },
+    {
+        "claim_id": "storage_v2_speedup",
+        "source_gate": "storage profile artifacts",
+        "public_scope": "blocked until 10k/100k/1m profile artifacts pass",
+        "claim_type": "public_performance",
+    },
+    {
+        "claim_id": "default_reranker_hyde",
+        "source_gate": "retrieval quality component gates",
+        "public_scope": "blocked; reranker and HyDE remain optional/experimental",
+        "claim_type": "default_behavior_change",
+    },
+    {
+        "claim_id": "code_memory_token_runtime",
+        "source_gate": "code-memory federation artifacts",
+        "public_scope": "blocked; federation contract is not code-intel token/runtime evidence",
+        "claim_type": "public_performance",
+    },
 ]
 
 _RESOURCE_PACKAGE = "harness_mem.resources.benchmark_suite"
@@ -78,25 +166,31 @@ def benchmark_matrix_report(suite_root: Path | None = None) -> dict[str, Any]:
 
     artifacts_path = root / "artifacts"
     snapshot_path = root / "release-snapshot.json"
-    artifact_runs = _artifact_runs(artifacts_path)
-    has_raw_artifacts = bool(artifact_runs)
+    raw_artifact_runs = _artifact_runs(artifacts_path)
+    has_raw_artifacts = bool(raw_artifact_runs)
     claim_readiness = (
         _artifact_claim_readiness(artifacts_path)
         if has_raw_artifacts
         else _snapshot_claim_readiness(snapshot_path)
     )
-    if not artifact_runs:
-        artifact_runs = _snapshot_runs(snapshot_path)
-    latest_run = artifact_runs[0] if artifact_runs else None
-    accepted = sum(1 for run in artifact_runs if run.get("artifact_state") == "accepted")
-    failed = sum(1 for run in artifact_runs if run.get("artifact_state") in {"failed", "quarantined"})
-    unknown = sum(1 for run in artifact_runs if run.get("artifact_state") == "partial")
+    allow_packaged_snapshot = not suite_path.exists() and not has_raw_artifacts
+    snapshot_runs = (
+        _snapshot_runs(snapshot_path)
+        if snapshot_path.exists() or allow_packaged_snapshot
+        else []
+    )
+    release_runs = snapshot_runs or raw_artifact_runs
+    latest_run = release_runs[0] if release_runs else None
+    accepted = sum(1 for run in release_runs if run.get("artifact_state") == "accepted")
+    failed = sum(1 for run in release_runs if run.get("artifact_state") in {"failed", "quarantined"})
+    unknown = sum(1 for run in release_runs if run.get("artifact_state") == "partial")
     gate_passed = (
         not missing_surface_coverage
-        and bool(artifact_runs)
+        and bool(release_runs)
         and failed == 0
         and unknown == 0
     )
+    claim_promotion_gate = _claim_promotion_gate(collection_ids, claim_readiness)
 
     return {
         "success": True,
@@ -111,14 +205,31 @@ def benchmark_matrix_report(suite_root: Path | None = None) -> dict[str, Any]:
             "artifact_states": ARTIFACT_STATES,
             "embedding_baseline": EMBEDDING_BASELINE,
             "embedding_candidates": EMBEDDING_SHOOTOUT_CANDIDATES,
+            "memory_eval_dimensions": list(MEMORY_EVAL_MATRIX),
         },
         "surfaces": surface_rows,
         "dimension_scores": [
             {"dimension": dimension, "status": "tracked"}
             for dimension in LONGMEMEVAL_DIMENSIONS
         ],
+        "memory_eval_matrix": _memory_eval_matrix(collection_ids),
+        "memory_eval_gate": _memory_eval_gate(collection_ids),
+        "retrieval_quality_pack": _retrieval_quality_pack(
+            collection_ids,
+            claim_readiness=claim_readiness,
+        ),
+        "claim_promotion_gate": claim_promotion_gate,
+        "release_evidence_pack": _release_evidence_pack(
+            root=root,
+            suite_path=suite_path,
+            snapshot_path=snapshot_path,
+            artifact_runs=release_runs,
+            collection_ids=collection_ids,
+            gate_passed=gate_passed,
+            claim_promotion_gate=claim_promotion_gate,
+        ),
         "release_snapshot": {
-            "artifact_run_count": len(artifact_runs),
+            "artifact_run_count": len(release_runs),
             "accepted_runs": accepted,
             "failed_runs": failed,
             "unknown_runs": unknown,
@@ -131,7 +242,7 @@ def benchmark_matrix_report(suite_root: Path | None = None) -> dict[str, Any]:
                 else []
             ),
             snapshot_path=snapshot_path,
-            allow_packaged_snapshot=not suite_path.exists() and not has_raw_artifacts,
+            allow_packaged_snapshot=allow_packaged_snapshot,
         ),
         "claim_readiness": claim_readiness,
         "gate": {
@@ -139,7 +250,7 @@ def benchmark_matrix_report(suite_root: Path | None = None) -> dict[str, Any]:
             "missing_surface_coverage": missing_surface_coverage,
             "failed_artifact_runs": failed,
             "unknown_artifact_runs": unknown,
-            "has_artifacts": bool(artifact_runs),
+            "has_artifacts": bool(release_runs),
         },
     }
 
@@ -172,6 +283,234 @@ def _purpose_map(collections: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def _memory_eval_matrix(collection_ids: set[str]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for dimension, targets in MEMORY_EVAL_MATRIX.items():
+        if "memory_eval_matrix" in collection_ids:
+            covered = ["memory_eval_matrix"]
+            missing: list[str] = []
+        else:
+            covered = [target for target in targets if target in collection_ids]
+            missing = [target for target in targets if target not in collection_ids]
+        rows.append(
+            {
+                "dimension": dimension,
+                "status": "tracked" if not missing else "missing_collection",
+                "collections": covered,
+                "missing_collections": missing,
+            }
+        )
+    return rows
+
+
+def _memory_eval_gate(collection_ids: set[str]) -> dict[str, Any]:
+    rows = _memory_eval_matrix(collection_ids)
+    missing = [
+        row["dimension"]
+        for row in rows
+        if row["status"] != "tracked"
+    ]
+    return {
+        "passed": not missing,
+        "dimensions": len(rows),
+        "missing_dimensions": missing,
+        "claim_boundary": (
+            "release gate for memory-runtime behavior; not a global answer-quality "
+            "or token-saving claim"
+        ),
+    }
+
+
+def _retrieval_quality_pack(
+    collection_ids: set[str],
+    *,
+    claim_readiness: dict[str, Any],
+) -> dict[str, Any]:
+    components = []
+    missing_components: list[str] = []
+    for component in RETRIEVAL_QUALITY_COMPONENTS:
+        targets = list(component["collections"])
+        covered = [target for target in targets if target in collection_ids]
+        missing = [target for target in targets if target not in collection_ids]
+        if missing:
+            missing_components.append(str(component["component"]))
+        components.append(
+            {
+                **component,
+                "collections": covered,
+                "missing_collections": missing,
+                "status": "tracked" if not missing else "missing_collection",
+            }
+        )
+    return {
+        "passed": not missing_components,
+        "components": components,
+        "missing_components": missing_components,
+        "embedding_baseline": EMBEDDING_BASELINE,
+        "embedding_candidates": EMBEDDING_SHOOTOUT_CANDIDATES,
+        "claim_readiness": {
+            "retrieval_recall": claim_readiness.get("retrieval_recall"),
+            "true_vector_hybrid_latency": claim_readiness.get(
+                "true_vector_hybrid_latency"
+            ),
+        },
+        "claim_boundary": (
+            "quality-pack gates retrieval behavior and artifact hygiene; reranker, "
+            "query rewriting, and HyDE remain opt-in/experimental unless their "
+            "component gates pass"
+        ),
+    }
+
+
+def _claim_promotion_gate(
+    collection_ids: set[str],
+    claim_readiness: dict[str, Any],
+) -> dict[str, Any]:
+    readiness_by_claim = {
+        "token_cost_saving": claim_readiness.get("token_cost_saving"),
+        "true_vector_hybrid_latency": claim_readiness.get("true_vector_hybrid_latency"),
+        "retrieval_recall": claim_readiness.get("retrieval_recall"),
+    }
+    rows: list[dict[str, Any]] = []
+    blocked_claims: list[str] = []
+    bounded_claims: list[str] = []
+    unsafe_promotions: list[str] = []
+
+    for policy in CLAIM_PROMOTION_POLICIES:
+        claim_id = str(policy["claim_id"])
+        readiness = readiness_by_claim.get(claim_id)
+        ready = bool(isinstance(readiness, dict) and readiness.get("ready") is True)
+        if claim_id in {"true_vector_hybrid_latency", "retrieval_recall"} and ready:
+            status = "bounded_ready"
+            bounded_claims.append(claim_id)
+        elif ready:
+            status = "public_ready"
+        else:
+            status = "blocked"
+            blocked_claims.append(claim_id)
+
+        if claim_id in {
+            "storage_v2_speedup",
+            "default_reranker_hyde",
+            "code_memory_token_runtime",
+        } and status == "public_ready":
+            unsafe_promotions.append(claim_id)
+
+        rows.append(
+            {
+                **policy,
+                "status": status,
+                "ready": ready,
+                "blocking": (
+                    list(readiness.get("blocking") or [])
+                    if isinstance(readiness, dict)
+                    else [f"{claim_id}/no_public_promotion_artifact"]
+                ),
+            }
+        )
+
+    return {
+        "passed": "claim_promotion_pack" in collection_ids and not unsafe_promotions,
+        "policy_enforced": "claim_promotion_pack" in collection_ids,
+        "claims": rows,
+        "blocked_claims": blocked_claims,
+        "bounded_claims": bounded_claims,
+        "unsafe_promotions": unsafe_promotions,
+        "claim_boundary": (
+            "v4.4 promotes only machine-gated claims; bounded local readiness is "
+            "kept separate from public performance, token-saving, default-behavior, "
+            "and code-intel runtime claims"
+        ),
+    }
+
+
+def _release_evidence_pack(
+    *,
+    root: Path,
+    suite_path: Path,
+    snapshot_path: Path,
+    artifact_runs: list[dict[str, Any]],
+    collection_ids: set[str],
+    gate_passed: bool,
+    claim_promotion_gate: dict[str, Any],
+) -> dict[str, Any]:
+    package_match = _packaged_resource_match(
+        root=root,
+        suite_path=suite_path,
+        snapshot_path=snapshot_path,
+    )
+    accepted = sum(1 for run in artifact_runs if run.get("artifact_state") == "accepted")
+    failed = sum(1 for run in artifact_runs if run.get("artifact_state") in {"failed", "quarantined"})
+    unknown = sum(1 for run in artifact_runs if run.get("artifact_state") == "partial")
+    present = "release_evidence_pack" in collection_ids
+    return {
+        "passed": (
+            present
+            and gate_passed
+            and failed == 0
+            and unknown == 0
+            and package_match["matches"] is True
+            and claim_promotion_gate.get("policy_enforced") is True
+        ),
+        "collection_present": present,
+        "snapshot_run_count": len(artifact_runs),
+        "accepted_runs": accepted,
+        "failed_runs": failed,
+        "unknown_runs": unknown,
+        "packaged_resource_match": package_match,
+        "claim_promotion_policy_enforced": claim_promotion_gate.get("policy_enforced") is True,
+        "claim_boundary": (
+            "v4.5 packages release evidence for clean-checkout/runtime consumers; "
+            "it does not upgrade blocked claims into public performance claims"
+        ),
+    }
+
+
+def _packaged_resource_match(
+    *,
+    root: Path,
+    suite_path: Path,
+    snapshot_path: Path,
+) -> dict[str, Any]:
+    package_suite = _read_resource_json("suite.json")
+    package_snapshot = _read_resource_json("release-snapshot.json")
+    if not suite_path.exists() and not snapshot_path.exists():
+        return {
+            "source": "packaged",
+            "available": package_suite is not None and package_snapshot is not None,
+            "matches": package_suite is not None and package_snapshot is not None,
+            "blocking": [],
+        }
+
+    blocking: list[str] = []
+    if package_suite is None:
+        blocking.append("packaged_suite_json/missing_or_invalid")
+    elif suite_path.exists():
+        try:
+            repo_suite = json.loads(suite_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            repo_suite = None
+        if repo_suite != package_suite:
+            blocking.append("packaged_suite_json/stale")
+
+    if package_snapshot is None:
+        blocking.append("packaged_release_snapshot_json/missing_or_invalid")
+    elif snapshot_path.exists():
+        try:
+            repo_snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            repo_snapshot = None
+        if repo_snapshot != package_snapshot:
+            blocking.append("packaged_release_snapshot_json/stale")
+
+    return {
+        "source": str(root),
+        "available": package_suite is not None and package_snapshot is not None,
+        "matches": not blocking,
+        "blocking": blocking,
+    }
 
 
 def _artifact_runs(path: Path) -> list[dict[str, Any]]:

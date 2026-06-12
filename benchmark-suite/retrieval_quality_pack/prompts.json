@@ -1,0 +1,30 @@
+{
+  "benchmark_id": "retrieval_quality_pack",
+  "tasks": [
+    {
+      "capability": "reranker",
+      "task_id": "RQP-001",
+      "prompt": "Measure reranker precision@k, latency, RSS, model size, and cold start without enabling it by default."
+    },
+    {
+      "capability": "query_rewriting",
+      "task_id": "RQP-002",
+      "prompt": "Measure deterministic query rewriting recall uplift against false-positive drift."
+    },
+    {
+      "capability": "multi_query_hyde",
+      "task_id": "RQP-003",
+      "prompt": "Measure fanout cost, duplicate rate, and sufficiency delta for experimental multi-query/HyDE."
+    },
+    {
+      "capability": "embedding_shootout",
+      "task_id": "RQP-004",
+      "prompt": "Compare candidate embeddings without changing the default baseline."
+    },
+    {
+      "capability": "retrieval_drift_suite",
+      "task_id": "RQP-005",
+      "prompt": "Run fixed positive and negative queries with source-hit and forbidden-source accounting."
+    }
+  ]
+}

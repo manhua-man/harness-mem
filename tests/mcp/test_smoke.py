@@ -207,6 +207,7 @@ def test_file_context_tool(mcp_backend: LocalMemoryBackend):
         {
             "project_name": "test-project",
             "path": "harness_mem/mcp/server.py",
+            "project_root": str(Path(__file__).resolve().parents[2]),
         },
     )
 
@@ -214,6 +215,10 @@ def test_file_context_tool(mcp_backend: LocalMemoryBackend):
     assert data["item_count"] >= 2
     assert data["normalized_path"] == "harness_mem/mcp/server.py"
     assert any(item["kind"] == "observation" for item in data["items"])
+    assert data["file_fingerprint"]["source_id"].startswith("code-file:")
+    assert data["file_fingerprint"]["sha256"]
+    assert data["code_symbols"]
+    assert any(item["stale_status"] == "current" for item in data["code_evidence"])
 
 
 def test_search_memory(mcp_backend: LocalMemoryBackend):
@@ -1492,7 +1497,7 @@ def test_benchmark_matrix_report_exposes_surface_gates():
     data = call_tool("benchmark_matrix_report", {})
 
     assert data["success"] is True
-    assert data["matrix_version"] == "v4.1.0"
+    assert data["matrix_version"] == "v4.5.0"
     surfaces = {row["surface"]: row for row in data["surfaces"]}
     assert {
         "wake",
@@ -1507,6 +1512,11 @@ def test_benchmark_matrix_report_exposes_surface_gates():
         "lifecycle_tiering",
         "context_sufficiency",
         "task_aware_wake",
+        "memory_eval_matrix",
+        "retrieval_quality_pack",
+        "code_memory_federation",
+        "claim_promotion",
+        "release_evidence_pack",
     }.issubset(
         surfaces
     )
@@ -1515,6 +1525,12 @@ def test_benchmark_matrix_report_exposes_surface_gates():
     assert "release_snapshot" in data
     assert "retrieval_shootout" in data
     assert "claim_readiness" in data
+    assert "claim_promotion_gate" in data
+    assert "release_evidence_pack" in data
+    assert data["memory_eval_gate"]["passed"] is True
+    assert data["retrieval_quality_pack"]["passed"] is True
+    assert data["claim_promotion_gate"]["policy_enforced"] is True
+    assert data["release_evidence_pack"]["collection_present"] is True
     for claim in (
         "token_cost_saving",
         "true_vector_hybrid_latency",

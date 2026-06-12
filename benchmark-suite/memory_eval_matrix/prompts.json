@@ -1,0 +1,45 @@
+{
+  "benchmark_id": "memory_eval_matrix",
+  "tasks": [
+    {
+      "dimension": "cross_session_resume",
+      "task_id": "MEM-EVAL-001",
+      "prompt": "Resume a prior task using only confirmed memory plus cited source ids."
+    },
+    {
+      "dimension": "stale_truth_rejection",
+      "task_id": "MEM-EVAL-002",
+      "prompt": "Reject historical truth when a current replacement exists."
+    },
+    {
+      "dimension": "raw_evidence_recovery",
+      "task_id": "MEM-EVAL-003",
+      "prompt": "Recover raw observation evidence for a compact memory claim."
+    },
+    {
+      "dimension": "candidate_noise_rejection",
+      "task_id": "MEM-EVAL-004",
+      "prompt": "Keep pending/noisy candidates out of default wake/search truth."
+    },
+    {
+      "dimension": "task_aware_wake_precision",
+      "task_id": "MEM-EVAL-005",
+      "prompt": "Build a task-aware wake packet with inclusion and omission reasons."
+    },
+    {
+      "dimension": "multi_client_consistency",
+      "task_id": "MEM-EVAL-006",
+      "prompt": "Verify Codex, Claude Code, Cursor, and generic-agent session evidence share the same candidate path."
+    },
+    {
+      "dimension": "wire_format_backward_compat",
+      "task_id": "MEM-EVAL-007",
+      "prompt": "Verify MCP/skill/slash version payloads remain backward compatible."
+    },
+    {
+      "dimension": "context_sufficiency_accuracy",
+      "task_id": "MEM-EVAL-008",
+      "prompt": "Return safe_to_answer=false when required evidence is missing."
+    }
+  ]
+}

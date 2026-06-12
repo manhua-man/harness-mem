@@ -18,6 +18,31 @@ STORAGE_V2_BENCHMARKS = {
     "context_sufficiency_gate",
     "task_aware_wake_precision",
 }
+MEMORY_EVAL_DIMENSIONS = {
+    "cross_session_resume",
+    "stale_truth_rejection",
+    "raw_evidence_recovery",
+    "candidate_noise_rejection",
+    "task_aware_wake_precision",
+    "multi_client_consistency",
+    "wire_format_backward_compat",
+    "context_sufficiency_accuracy",
+}
+RETRIEVAL_QUALITY_CAPABILITIES = {
+    "reranker",
+    "query_rewriting",
+    "multi_query_hyde",
+    "embedding_shootout",
+    "retrieval_drift_suite",
+}
+CLAIM_PROMOTION_CLAIMS = {
+    "token_cost_saving",
+    "true_vector_hybrid_latency",
+    "retrieval_recall",
+    "storage_v2_speedup",
+    "default_reranker_hyde",
+    "code_memory_token_runtime",
+}
 
 
 def load_suite(path: Path = SUITE_PATH) -> dict:
@@ -26,6 +51,10 @@ def load_suite(path: Path = SUITE_PATH) -> dict:
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool) and value >= 0
+
+
+def _is_real_number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
 
 
 def validate_token_usage(path: Path, payload: dict) -> None:
@@ -254,6 +283,166 @@ def validate_storage_v2_result(path: Path, benchmark_id: str, payload: dict) -> 
             raise SystemExit(f"{path.name}: safe_to_answer must be boolean")
 
 
+def validate_memory_eval_matrix_result(path: Path, payload: dict) -> None:
+    if payload.get("dimension") not in MEMORY_EVAL_DIMENSIONS:
+        raise SystemExit(f"{path.name}: dimension has invalid value")
+    for field in ["expected_source_ids", "retrieved_source_ids"]:
+        if not isinstance(payload.get(field), list) or not all(
+            isinstance(item, str) for item in payload[field]
+        ):
+            raise SystemExit(f"{path.name}: {field} must be a string array")
+    if not isinstance(payload.get("safe_to_answer"), bool):
+        raise SystemExit(f"{path.name}: safe_to_answer must be boolean")
+    if not isinstance(payload.get("false_positive_count"), int) or payload["false_positive_count"] < 0:
+        raise SystemExit(f"{path.name}: false_positive_count must be non-negative integer")
+    if payload.get("artifact_state") not in {"accepted", "partial", "failed", "quarantined"}:
+        raise SystemExit(f"{path.name}: artifact_state has invalid value")
+    if payload.get("accepted") not in {"yes", "no"}:
+        raise SystemExit(f"{path.name}: accepted must be 'yes' or 'no'")
+    if payload.get("accepted") == "yes" and payload.get("artifact_state") != "accepted":
+        raise SystemExit(f"{path.name}: accepted=yes requires artifact_state=accepted")
+
+
+def validate_retrieval_quality_pack_result(path: Path, payload: dict) -> None:
+    capability = payload.get("capability")
+    if capability not in RETRIEVAL_QUALITY_CAPABILITIES:
+        raise SystemExit(f"{path.name}: capability has invalid value")
+    if not isinstance(payload.get("default_enabled"), bool):
+        raise SystemExit(f"{path.name}: default_enabled must be boolean")
+    for field in [
+        "precision_at_k",
+        "recall_delta",
+        "false_positive_delta",
+        "fanout_cost",
+        "duplicate_rate",
+        "sufficiency_delta",
+        "model_size_mb",
+        "cold_start_ms",
+    ]:
+        if not _is_real_number(payload.get(field)):
+            raise SystemExit(f"{path.name}: {field} must be a number")
+    if not isinstance(payload.get("install_friction"), str) or not payload["install_friction"]:
+        raise SystemExit(f"{path.name}: install_friction must be a non-empty string")
+    readiness = payload.get("claim_readiness")
+    if not isinstance(readiness, dict) or not isinstance(readiness.get("ready"), bool):
+        raise SystemExit(f"{path.name}: claim_readiness.ready must be boolean")
+    if payload.get("accepted") not in {"yes", "no"}:
+        raise SystemExit(f"{path.name}: accepted must be 'yes' or 'no'")
+    if (
+        capability == "query_rewriting"
+        and payload.get("accepted") == "yes"
+        and float(payload["recall_delta"]) <= float(payload["false_positive_delta"])
+    ):
+        raise SystemExit(
+            f"{path.name}: accepted query_rewriting requires recall_delta > false_positive_delta"
+        )
+
+
+def validate_code_memory_federation_result(path: Path, payload: dict) -> None:
+    for field in ["file_path", "source_id", "fingerprint", "claim_boundary"]:
+        if not isinstance(payload.get(field), str) or not payload[field]:
+            raise SystemExit(f"{path.name}: {field} must be a non-empty string")
+    line_range = payload.get("line_range")
+    if line_range is not None and (
+        not isinstance(line_range, list)
+        or len(line_range) != 2
+        or not all(isinstance(item, int) for item in line_range)
+    ):
+        raise SystemExit(f"{path.name}: line_range must be null or [start, end]")
+    stale_check = payload.get("stale_check")
+    if not isinstance(stale_check, dict) or not isinstance(stale_check.get("status"), str):
+        raise SystemExit(f"{path.name}: stale_check.status must be present")
+    if not isinstance(payload.get("current_code_symbols"), list):
+        raise SystemExit(f"{path.name}: current_code_symbols must be an array")
+    if not isinstance(payload.get("generated_layer_is_truth"), bool):
+        raise SystemExit(f"{path.name}: generated_layer_is_truth must be boolean")
+    if payload.get("accepted") not in {"yes", "no"}:
+        raise SystemExit(f"{path.name}: accepted must be 'yes' or 'no'")
+    if payload.get("accepted") == "yes" and payload.get("generated_layer_is_truth") is not False:
+        raise SystemExit(f"{path.name}: accepted=yes requires generated_layer_is_truth=false")
+
+
+def validate_claim_promotion_pack_result(path: Path, payload: dict) -> None:
+    if payload.get("claim_id") not in CLAIM_PROMOTION_CLAIMS:
+        raise SystemExit(f"{path.name}: claim_id has invalid value")
+    if payload.get("status") not in {"blocked", "bounded_ready", "public_ready"}:
+        raise SystemExit(f"{path.name}: status has invalid value")
+    for field in ["source_gate", "public_scope", "claim_type", "claim_boundary"]:
+        if not isinstance(payload.get(field), str) or not payload[field]:
+            raise SystemExit(f"{path.name}: {field} must be a non-empty string")
+    if not isinstance(payload.get("ready"), bool):
+        raise SystemExit(f"{path.name}: ready must be boolean")
+    blocking = payload.get("blocking")
+    if not isinstance(blocking, list) or not all(isinstance(item, str) for item in blocking):
+        raise SystemExit(f"{path.name}: blocking must be a string array")
+    if payload.get("accepted") not in {"yes", "no"}:
+        raise SystemExit(f"{path.name}: accepted must be 'yes' or 'no'")
+    if payload.get("claim_id") in {
+        "storage_v2_speedup",
+        "default_reranker_hyde",
+        "code_memory_token_runtime",
+    } and payload.get("status") != "blocked":
+        raise SystemExit(f"{path.name}: unsafe promotion claims must stay blocked")
+
+
+def validate_release_evidence_pack_result(path: Path, payload: dict) -> None:
+    for field in ["pack_id", "snapshot_id", "claim_boundary"]:
+        if not isinstance(payload.get(field), str) or not payload[field]:
+            raise SystemExit(f"{path.name}: {field} must be a non-empty string")
+    for field in [
+        "snapshot_run_count",
+        "accepted_runs",
+        "failed_runs",
+        "unknown_runs",
+        "blocked_claim_count",
+        "bounded_claim_count",
+    ]:
+        if not isinstance(payload.get(field), int) or isinstance(payload[field], bool) or payload[field] < 0:
+            raise SystemExit(f"{path.name}: {field} must be a non-negative integer")
+    for field in [
+        "packaged_suite_match",
+        "packaged_snapshot_match",
+        "claim_promotion_policy_enforced",
+        "gate_passed",
+    ]:
+        if not isinstance(payload.get(field), bool):
+            raise SystemExit(f"{path.name}: {field} must be boolean")
+    if payload.get("accepted") not in {"yes", "no"}:
+        raise SystemExit(f"{path.name}: accepted must be 'yes' or 'no'")
+    if payload.get("accepted") == "yes" and not (
+        payload["packaged_suite_match"]
+        and payload["packaged_snapshot_match"]
+        and payload["claim_promotion_policy_enforced"]
+        and payload["gate_passed"]
+        and payload["failed_runs"] == 0
+        and payload["unknown_runs"] == 0
+    ):
+        raise SystemExit(
+            f"{path.name}: accepted=yes requires package match, policy enforcement, gate pass, and no failed/unknown runs"
+        )
+
+
+def validate_memory_eval_matrix_bundle(payloads: list[dict]) -> None:
+    covered = {payload.get("dimension") for payload in payloads}
+    missing = sorted(MEMORY_EVAL_DIMENSIONS - covered)
+    if missing:
+        raise SystemExit(f"memory_eval_matrix missing dimensions: {', '.join(missing)}")
+
+
+def validate_retrieval_quality_pack_bundle(payloads: list[dict]) -> None:
+    covered = {payload.get("capability") for payload in payloads}
+    missing = sorted(RETRIEVAL_QUALITY_CAPABILITIES - covered)
+    if missing:
+        raise SystemExit(f"retrieval_quality_pack missing capabilities: {', '.join(missing)}")
+
+
+def validate_claim_promotion_pack_bundle(payloads: list[dict]) -> None:
+    covered = {payload.get("claim_id") for payload in payloads}
+    missing = sorted(CLAIM_PROMOTION_CLAIMS - covered)
+    if missing:
+        raise SystemExit(f"claim_promotion_pack missing claims: {', '.join(missing)}")
+
+
 def validate_run(run_dir: Path, suite_path: Path = SUITE_PATH) -> dict[str, Any]:
     run_dir = Path(run_dir)
     manifest_path = run_dir / "run_manifest.json"
@@ -291,8 +480,10 @@ def validate_run(run_dir: Path, suite_path: Path = SUITE_PATH) -> dict[str, Any]
         required_fields = [*required_fields, "token_usage"]
         requires_token_usage = True
     checked = 0
+    payloads: list[dict] = []
     for path in result_files:
         payload = json.loads(path.read_text(encoding="utf-8"))
+        payloads.append(payload)
         for field in required_fields:
             if field not in payload:
                 raise SystemExit(f"{path.name}: missing field '{field}'")
@@ -304,7 +495,24 @@ def validate_run(run_dir: Path, suite_path: Path = SUITE_PATH) -> dict[str, Any]
             validate_functional_token_economics_result(path, payload)
         if benchmark_id in STORAGE_V2_BENCHMARKS:
             validate_storage_v2_result(path, benchmark_id, payload)
+        if benchmark_id == "memory_eval_matrix":
+            validate_memory_eval_matrix_result(path, payload)
+        if benchmark_id == "retrieval_quality_pack":
+            validate_retrieval_quality_pack_result(path, payload)
+        if benchmark_id == "code_memory_federation":
+            validate_code_memory_federation_result(path, payload)
+        if benchmark_id == "claim_promotion_pack":
+            validate_claim_promotion_pack_result(path, payload)
+        if benchmark_id == "release_evidence_pack":
+            validate_release_evidence_pack_result(path, payload)
         checked += 1
+
+    if benchmark_id == "memory_eval_matrix":
+        validate_memory_eval_matrix_bundle(payloads)
+    if benchmark_id == "retrieval_quality_pack":
+        validate_retrieval_quality_pack_bundle(payloads)
+    if benchmark_id == "claim_promotion_pack":
+        validate_claim_promotion_pack_bundle(payloads)
 
     return {
         "benchmark_id": benchmark_id,

@@ -1,0 +1,17 @@
+{
+  "benchmark_id": "code_memory_federation",
+  "tasks": [
+    {
+      "task_id": "CMF-001",
+      "prompt": "Return file_context for a current Python file and verify source id, fingerprint, and symbols."
+    },
+    {
+      "task_id": "CMF-002",
+      "prompt": "Detect stale memory when a stored code fingerprint differs from the current file fingerprint."
+    },
+    {
+      "task_id": "CMF-003",
+      "prompt": "Verify generated module-atlas prose is marked as derived evidence, not accepted truth."
+    }
+  ]
+}

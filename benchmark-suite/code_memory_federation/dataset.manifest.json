@@ -1,0 +1,8 @@
+{
+  "dataset": "code_memory_federation",
+  "version": 1,
+  "split": "contract",
+  "sample_count": 3,
+  "dataset_hash": "contract-code-memory-federation-v1",
+  "claim_boundary": "code evidence federation only; not full code search"
+}

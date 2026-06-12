@@ -49,6 +49,15 @@ def write_summary_csv(run_dir: Path, rows: list[dict], benchmark_id: str) -> Non
     if benchmark_id in STORAGE_V2_BENCHMARKS:
         write_storage_v2_summary_csv(run_dir, rows)
         return
+    if benchmark_id in {
+        "memory_eval_matrix",
+        "retrieval_quality_pack",
+        "code_memory_federation",
+        "claim_promotion_pack",
+        "release_evidence_pack",
+    }:
+        write_v42_v45_summary_csv(run_dir, rows, benchmark_id)
+        return
     write_client_summary_csv(run_dir, rows)
 
 
@@ -248,6 +257,80 @@ def write_storage_v2_summary_csv(run_dir: Path, rows: list[dict]) -> None:
             )
 
 
+def write_v42_v45_summary_csv(run_dir: Path, rows: list[dict], benchmark_id: str) -> None:
+    path = run_dir / "summary.csv"
+    if benchmark_id == "memory_eval_matrix":
+        fieldnames = [
+            "dimension",
+            "task_id",
+            "safe_to_answer",
+            "false_positive_count",
+            "artifact_state",
+            "accepted",
+            "claim_boundary",
+        ]
+    elif benchmark_id == "retrieval_quality_pack":
+        fieldnames = [
+            "capability",
+            "task_id",
+            "default_enabled",
+            "precision_at_k",
+            "recall_delta",
+            "false_positive_delta",
+            "fanout_cost",
+            "duplicate_rate",
+            "sufficiency_delta",
+            "accepted",
+            "acceptance_notes",
+        ]
+    elif benchmark_id == "code_memory_federation":
+        fieldnames = [
+            "task_id",
+            "file_path",
+            "source_id",
+            "stale_status",
+            "generated_layer_is_truth",
+            "accepted",
+            "claim_boundary",
+        ]
+    elif benchmark_id == "claim_promotion_pack":
+        fieldnames = [
+            "claim_id",
+            "status",
+            "ready",
+            "source_gate",
+            "claim_type",
+            "accepted",
+            "claim_boundary",
+        ]
+    else:
+        fieldnames = [
+            "pack_id",
+            "snapshot_run_count",
+            "accepted_runs",
+            "failed_runs",
+            "unknown_runs",
+            "blocked_claim_count",
+            "bounded_claim_count",
+            "packaged_suite_match",
+            "packaged_snapshot_match",
+            "claim_promotion_policy_enforced",
+            "gate_passed",
+            "accepted",
+        ]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            stale_check = row.get("stale_check") if isinstance(row.get("stale_check"), dict) else {}
+            writer.writerow(
+                {
+                    **{key: _csv_cell(row.get(key, "")) for key in fieldnames},
+                    "stale_status": stale_check.get("status", ""),
+                }
+            )
+
+
 def build_report(rows: list[dict], benchmark_id: str) -> str:
     if benchmark_id == "latency_warm_path":
         return build_latency_report(rows)
@@ -259,6 +342,16 @@ def build_report(rows: list[dict], benchmark_id: str) -> str:
         return build_functional_token_economics_report(rows)
     if benchmark_id in STORAGE_V2_BENCHMARKS:
         return build_storage_v2_report(rows, benchmark_id)
+    if benchmark_id == "memory_eval_matrix":
+        return build_memory_eval_matrix_report(rows)
+    if benchmark_id == "retrieval_quality_pack":
+        return build_retrieval_quality_pack_report(rows)
+    if benchmark_id == "code_memory_federation":
+        return build_code_memory_federation_report(rows)
+    if benchmark_id == "claim_promotion_pack":
+        return build_claim_promotion_pack_report(rows)
+    if benchmark_id == "release_evidence_pack":
+        return build_release_evidence_pack_report(rows)
     return build_client_report(rows)
 
 
@@ -627,6 +720,156 @@ def build_storage_v2_report(rows: list[dict], benchmark_id: str) -> str:
             "",
             "- v4.0.0 establishes migration and benchmark contracts; it does not switch the default storage backend.",
             "- Diagnostic smoke rows are not 10k / 100k / 1M release evidence and must not be used as public speedup claims.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def build_memory_eval_matrix_report(rows: list[dict]) -> str:
+    lines = ["# Memory Eval Matrix Report", "", "## Dimensions", ""]
+    lines.append("| Dimension | Task | Accepted | Safe To Answer | False Positives | Artifact |")
+    lines.append("|---|---|---|---|---:|---|")
+    for row in rows:
+        lines.append(
+            "| {dimension} | {task_id} | {accepted} | {safe_to_answer} | {false_positive_count} | {artifact_state} |".format(
+                dimension=row.get("dimension", ""),
+                task_id=row.get("task_id", ""),
+                accepted=row.get("accepted", ""),
+                safe_to_answer=row.get("safe_to_answer", ""),
+                false_positive_count=row.get("false_positive_count", ""),
+                artifact_state=row.get("artifact_state", ""),
+            )
+        )
+    covered = {str(row.get("dimension") or "") for row in rows}
+    lines.extend(
+        [
+            "",
+            "## Claim Boundary",
+            "",
+            f"- Covered dimensions: {len(covered)}",
+            "- This is a release gate for memory-runtime behavior, not a global answer-quality or token-saving claim.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def build_retrieval_quality_pack_report(rows: list[dict]) -> str:
+    lines = ["# Retrieval Quality Pack Report", "", "## Components", ""]
+    lines.append(
+        "| Capability | Default | Accepted | Precision@k | Recall Delta | FP Delta | Fanout | Duplicate Rate |"
+    )
+    lines.append("|---|---|---|---:|---:|---:|---:|---:|")
+    for row in rows:
+        lines.append(
+            "| {capability} | {default_enabled} | {accepted} | {precision_at_k} | {recall_delta} | {false_positive_delta} | {fanout_cost} | {duplicate_rate} |".format(
+                capability=row.get("capability", ""),
+                default_enabled=row.get("default_enabled", ""),
+                accepted=row.get("accepted", ""),
+                precision_at_k=row.get("precision_at_k", ""),
+                recall_delta=row.get("recall_delta", ""),
+                false_positive_delta=row.get("false_positive_delta", ""),
+                fanout_cost=row.get("fanout_cost", ""),
+                duplicate_rate=row.get("duplicate_rate", ""),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Claim Boundary",
+            "",
+            "- Reranker, query rewriting, and HyDE remain opt-in unless component gates pass.",
+            "- Query rewriting must show recall uplift greater than false-positive drift.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def build_code_memory_federation_report(rows: list[dict]) -> str:
+    lines = ["# Code-Memory Federation Report", "", "## Evidence Rows", ""]
+    lines.append("| Task | File | Source | Stale Status | Generated Is Truth | Accepted |")
+    lines.append("|---|---|---|---|---|---|")
+    for row in rows:
+        stale_check = row.get("stale_check") if isinstance(row.get("stale_check"), dict) else {}
+        lines.append(
+            "| {task_id} | {file_path} | {source_id} | {stale_status} | {generated_layer_is_truth} | {accepted} |".format(
+                task_id=row.get("task_id", ""),
+                file_path=row.get("file_path", ""),
+                source_id=row.get("source_id", ""),
+                stale_status=stale_check.get("status", ""),
+                generated_layer_is_truth=row.get("generated_layer_is_truth", ""),
+                accepted=row.get("accepted", ""),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Claim Boundary",
+            "",
+            "- file_context federates current code evidence with memory; it is not a full code search engine.",
+            "- Generated code wiki or module-atlas prose remains derived evidence, not canonical truth.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def build_claim_promotion_pack_report(rows: list[dict]) -> str:
+    lines = ["# Claim Promotion Pack Report", "", "## Promotion Policy Rows", ""]
+    lines.append("| Claim | Status | Ready | Source Gate | Type | Accepted |")
+    lines.append("|---|---|---|---|---|---|")
+    for row in rows:
+        lines.append(
+            "| {claim_id} | {status} | {ready} | {source_gate} | {claim_type} | {accepted} |".format(
+                claim_id=row.get("claim_id", ""),
+                status=row.get("status", ""),
+                ready=row.get("ready", ""),
+                source_gate=row.get("source_gate", ""),
+                claim_type=row.get("claim_type", ""),
+                accepted=row.get("accepted", ""),
+            )
+        )
+    blocked = sorted(str(row.get("claim_id")) for row in rows if row.get("status") == "blocked")
+    bounded = sorted(str(row.get("claim_id")) for row in rows if row.get("status") == "bounded_ready")
+    lines.extend(
+        [
+            "",
+            "## Claim Promotion Gate",
+            "",
+            f"- Blocked claims: {', '.join(blocked) if blocked else 'none'}",
+            f"- Bounded local claims: {', '.join(bounded) if bounded else 'none'}",
+            "- Public promotion requires machine-readable gates; bounded local readiness is not a broad performance or token-saving claim.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def build_release_evidence_pack_report(rows: list[dict]) -> str:
+    lines = ["# Release Evidence Pack Report", "", "## Evidence Packs", ""]
+    lines.append(
+        "| Pack | Snapshot Runs | Accepted | Failed | Unknown | Blocked Claims | Bounded Claims | Package Match | Gate |"
+    )
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---|---|")
+    for row in rows:
+        package_match = bool(row.get("packaged_suite_match")) and bool(row.get("packaged_snapshot_match"))
+        lines.append(
+            "| {pack_id} | {snapshot_run_count} | {accepted_runs} | {failed_runs} | {unknown_runs} | {blocked_claim_count} | {bounded_claim_count} | {package_match} | {gate_passed} |".format(
+                pack_id=row.get("pack_id", ""),
+                snapshot_run_count=row.get("snapshot_run_count", ""),
+                accepted_runs=row.get("accepted_runs", ""),
+                failed_runs=row.get("failed_runs", ""),
+                unknown_runs=row.get("unknown_runs", ""),
+                blocked_claim_count=row.get("blocked_claim_count", ""),
+                bounded_claim_count=row.get("bounded_claim_count", ""),
+                package_match=package_match,
+                gate_passed=row.get("gate_passed", ""),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Claim Boundary",
+            "",
+            "- The release evidence pack proves clean-checkout evidence packaging and claim-gate visibility.",
+            "- It does not turn blocked claims into public performance, token-saving, or default-behavior claims.",
         ]
     )
     return "\n".join(lines) + "\n"

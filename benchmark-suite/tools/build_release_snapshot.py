@@ -48,8 +48,23 @@ CLAIM_BOUNDARIES = {
     "latency_warm_path": (
         "synthetic warm-path FTS/wake latency; not true vector-hybrid latency"
     ),
+    "memory_eval_matrix": (
+        "v4.2 memory eval matrix contract; not global answer quality"
+    ),
     "migration_roundtrip": (
         "dry-run/apply/export checksum smoke; not default canonical-store enablement"
+    ),
+    "retrieval_quality_pack": (
+        "v4.2 retrieval quality component gates; not default reranker/HyDE enablement"
+    ),
+    "code_memory_federation": (
+        "v4.3 code-memory federation contract; not full code search or generated truth"
+    ),
+    "claim_promotion_pack": (
+        "v4.4 claim promotion policy; bounded readiness is not public performance or token-saving proof"
+    ),
+    "release_evidence_pack": (
+        "v4.5 release evidence packaging; not an upgrade of blocked claims"
     ),
     "runtime_health_observability": (
         "local health/cost/gate/false-success evidence; not real billing telemetry"

@@ -8,6 +8,7 @@ from harness_mem.core.schemas.context_sufficiency import (
     CorpusProfile,
     MetadataFilter,
     build_retrieval_plan,
+    deterministic_query_rewrites,
     evaluate_sufficiency,
 )
 from harness_mem.core.schemas.memory_entry import MemoryEntry
@@ -62,6 +63,43 @@ def test_sufficiency_reports_missing_and_direct_support() -> None:
     assert direct.status == "sufficient"
     assert direct.support_level == "direct"
     assert direct.safe_to_answer is True
+
+
+def test_v41x_retrieval_plan_records_rewrites_and_slot_gate() -> None:
+    plan = build_retrieval_plan(
+        query="compare storage v2 and rust core current behavior",
+        project_name="demo",
+    )
+
+    assert plan.classifier in {"cross_corpus", "multi_hop", "temporal"}
+    assert plan.query_rewrites
+    assert "required_slots" in plan.quality_gates
+    assert deterministic_query_rewrites(
+        "why storage v2 then rust core",
+        classifier="multi_hop",
+    )[:2] == [
+        "why storage v2 then rust core",
+        "why storage v2",
+    ]
+
+    report = evaluate_sufficiency(
+        query="storage v2 rust core",
+        required_slots=["accepted decision ledger"],
+        results=[
+            BackendSearchResult(
+                source_id="mem-slot",
+                source_kind="memory_entry",
+                score=1.0,
+                preview="storage v2 checksum migration evidence",
+                metadata={"truth_status": "accepted"},
+            )
+        ],
+    )
+
+    assert report.status == "insufficient"
+    assert report.safe_to_answer is False
+    assert report.missing_evidence == ["accepted decision ledger"]
+    assert report.checks["missing_required_slots"] == ["accepted decision ledger"]
 
 
 async def _seed(backend: LocalMemoryBackend) -> None:
