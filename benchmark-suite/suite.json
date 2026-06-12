@@ -71,6 +71,91 @@
       ]
     },
     {
+      "id": "memory_shortcut_vs_source_recovery",
+      "title": "Memory Shortcut vs Source Recovery",
+      "purpose": "Measure whether accepted memory packets reduce token/source-reading cost on long-source recovery tasks while preserving answer correctness.",
+      "proves": [
+        "bounded token/source-reading shortcut evidence when long-source tasks pass in both conditions",
+        "memory packet usefulness only when source verification still succeeds",
+        "negative controls where memory should not show a meaningful advantage"
+      ],
+      "does_not_prove": [
+        "global token/cost savings",
+        "real billing savings",
+        "answer quality improvements on fresh local debugging tasks",
+        "savings when memory tools are unavailable or stale"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "report.md",
+        "results",
+        "transcripts",
+        "notes"
+      ],
+      "required_result_fields": [
+        "task_id",
+        "condition",
+        "client",
+        "model",
+        "workspace_path",
+        "runtime_seconds",
+        "prompt_turns",
+        "followup_count",
+        "token_total",
+        "token_usage",
+        "source_read_count",
+        "cited_sources",
+        "memory_calls",
+        "repo_calls",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "functional_token_economics",
+      "title": "Functional Token Economics",
+      "purpose": "Measure feature-level fixture context-token economics for progressive recall, file-context preflight, compact wake, and wiki compact index workflows.",
+      "proves": [
+        "bounded fixture payload token reductions for declared progressive-disclosure workflows",
+        "which feature-level token-economics claims are safe to phrase",
+        "that global token/cost savings remain a separate claim gate"
+      ],
+      "does_not_prove": [
+        "global harness-mem token/cost savings",
+        "real billing savings",
+        "live-agent behavior in every client",
+        "code-intelligence performance comparable to Smart Explore or codedb-mcp"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "scenario_id",
+        "workflow",
+        "baseline_label",
+        "optimized_label",
+        "baseline_tokens",
+        "optimized_tokens",
+        "token_delta",
+        "saving_ratio",
+        "minimum_saving_ratio",
+        "baseline_source_count",
+        "optimized_source_count",
+        "baseline_sources",
+        "optimized_sources",
+        "tokenizer",
+        "token_source",
+        "fixture_only",
+        "claim_scope",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
       "id": "client_trace_evidence",
       "title": "Client Trace Evidence",
       "artifact_requirements": [
@@ -241,6 +326,389 @@
         "p95_ms",
         "fallback_reason",
         "token_cost_estimate",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "storage_v2_baseline",
+      "title": "Storage v2 Baseline",
+      "purpose": "Establish deterministic synthetic corpus generation and legacy v3 backend baseline artifact fields before Storage v2 changes defaults.",
+      "proves": [
+        "fixed synthetic corpus seed, entry mix, payload size, project count, and dataset hash",
+        "artifact schema for ingest/search/wake/storage baseline measurements",
+        "that v4.0.0 benchmark smoke does not switch the default storage backend"
+      ],
+      "does_not_prove": [
+        "public Storage v2 speedup",
+        "production million-row performance",
+        "Rust hot-path readiness"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "dataset.manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "benchmark_id",
+        "operation",
+        "dataset_id",
+        "dataset_hash",
+        "query_pack_id",
+        "command",
+        "hardware",
+        "commit",
+        "entry_count",
+        "json_file_count",
+        "p50_ms",
+        "p95_ms",
+        "rss_peak_mb",
+        "disk_bytes",
+        "db_size_bytes",
+        "sidecar_size_bytes",
+        "fallback_reason",
+        "claim_readiness",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "migration_roundtrip",
+      "title": "Migration Roundtrip",
+      "purpose": "Validate dry-run, side-by-side canonical SQLite apply, and v3-compatible JSON rollback checksum contracts.",
+      "proves": [
+        "dry-run logical checksum is reproducible",
+        "explicit Storage v2 apply writes side-by-side canonical rows without changing default storage",
+        "rollback export preserves logical checksum"
+      ],
+      "does_not_prove": [
+        "default canonical store enablement",
+        "v4.0.1 canonical schema completeness",
+        "production migration speed"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "dataset.manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "benchmark_id",
+        "operation",
+        "dataset_id",
+        "dataset_hash",
+        "query_pack_id",
+        "command",
+        "hardware",
+        "commit",
+        "entry_count",
+        "json_file_count",
+        "dry_run_checksum",
+        "canonical_checksum",
+        "rollback_checksum",
+        "apply_checksum_match",
+        "rollback_checksum_match",
+        "p50_ms",
+        "p95_ms",
+        "rss_peak_mb",
+        "disk_bytes",
+        "db_size_bytes",
+        "sidecar_size_bytes",
+        "fallback_reason",
+        "claim_readiness",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "local_index_fabric_smoke",
+      "title": "Local Index Fabric Smoke",
+      "purpose": "Establish manifest-last sidecar artifact shape for later Local Memory Index Fabric implementation.",
+      "proves": [
+        "manifest-last generation commit smoke",
+        "interrupted generation sidecars are not active",
+        "source fingerprint drift can be represented in benchmark artifacts"
+      ],
+      "does_not_prove": [
+        "runtime SearchBackend implementation",
+        "Tantivy or LanceDB readiness",
+        "production index rebuild performance"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "dataset.manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "benchmark_id",
+        "operation",
+        "dataset_id",
+        "dataset_hash",
+        "query_pack_id",
+        "command",
+        "hardware",
+        "commit",
+        "entry_count",
+        "json_file_count",
+        "manifest_commit",
+        "interrupted_generation_visible",
+        "source_fingerprint_drift_detected",
+        "p50_ms",
+        "p95_ms",
+        "rss_peak_mb",
+        "disk_bytes",
+        "db_size_bytes",
+        "sidecar_size_bytes",
+        "fallback_reason",
+        "claim_readiness",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "canonical_store_runtime_baseline",
+      "title": "Canonical Store Runtime Baseline",
+      "purpose": "Validate v4.0.1 canonical entity tables, metadata filters, compatibility reader, dual-write gate, doctor health, and JSON snapshot export.",
+      "proves": [
+        "canonical entity-table metadata can be built and filtered",
+        "legacy JSON remains readable until migration",
+        "snapshot export and doctor health are checksum-backed"
+      ],
+      "does_not_prove": [
+        "public Storage v2 speedup",
+        "default canonical-store enablement",
+        "million-row production performance"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "dataset.manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "benchmark_id",
+        "operation",
+        "dataset_id",
+        "dataset_hash",
+        "query_pack_id",
+        "command",
+        "hardware",
+        "commit",
+        "entry_count",
+        "json_file_count",
+        "canonical_row_count",
+        "checksum_match",
+        "p50_ms",
+        "p95_ms",
+        "rss_peak_mb",
+        "disk_bytes",
+        "db_size_bytes",
+        "sidecar_size_bytes",
+        "fallback_reason",
+        "claim_readiness",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "rust_core_hot_path",
+      "title": "Rust Core Hot Path",
+      "purpose": "Validate the v4.0.2 Rust-core facade contract, deterministic ranking primitives, tolerant JSONL scanning, error mapping, and pure-Python fallback reporting.",
+      "proves": [
+        "native wheel absence degrades to explicit pure-Python fallback",
+        "JSONL scanner and ranking primitives are deterministic",
+        "Rust crate source shape is present for local build testing"
+      ],
+      "does_not_prove": [
+        "native Rust wheel performance",
+        "cross-platform wheel availability",
+        "PyO3 extension import on every target"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "dataset.manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "benchmark_id",
+        "operation",
+        "dataset_id",
+        "dataset_hash",
+        "query_pack_id",
+        "command",
+        "hardware",
+        "commit",
+        "entry_count",
+        "json_file_count",
+        "rust_mode",
+        "native_available",
+        "p50_ms",
+        "p95_ms",
+        "rss_peak_mb",
+        "disk_bytes",
+        "db_size_bytes",
+        "sidecar_size_bytes",
+        "fallback_reason",
+        "claim_readiness",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "index_fabric_runtime_conformance",
+      "title": "Index Fabric Runtime Conformance",
+      "purpose": "Validate v4.0.3 SearchBackend conformance, manifest-last runtime sidecars, lazy rebuild, source-fingerprint drift, and context-budget metadata.",
+      "proves": [
+        "SearchBackend returns unified source/fallback/budget metadata",
+        "manifest-last commits ignore interrupted generations",
+        "lazy rebuild detects source fingerprint drift"
+      ],
+      "does_not_prove": [
+        "Tantivy or LanceDB readiness",
+        "production rebuild throughput",
+        "ANN/vector backend superiority"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "dataset.manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "benchmark_id",
+        "operation",
+        "dataset_id",
+        "dataset_hash",
+        "query_pack_id",
+        "command",
+        "hardware",
+        "commit",
+        "entry_count",
+        "json_file_count",
+        "manifest_commit",
+        "interrupted_generation_visible",
+        "source_fingerprint_drift_detected",
+        "search_backend_conformance",
+        "p50_ms",
+        "p95_ms",
+        "rss_peak_mb",
+        "disk_bytes",
+        "db_size_bytes",
+        "sidecar_size_bytes",
+        "fallback_reason",
+        "claim_readiness",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "context_sufficiency_gate",
+      "title": "Context Sufficiency Gate",
+      "purpose": "Evaluate v4.1 deterministic sufficiency checks for direct support, missing evidence, conflicts, source diversity, and bounded iterative retrieval.",
+      "proves": [
+        "SufficiencyReport exposes safe_to_answer and missing evidence",
+        "insufficient queries produce abstention/next-action metadata",
+        "iterative retrieval trace stays bounded"
+      ],
+      "does_not_prove": [
+        "LLM judge accuracy",
+        "end-to-end answer correctness",
+        "broad corpus retrieval quality"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "dataset.manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "benchmark_id",
+        "operation",
+        "dataset_id",
+        "dataset_hash",
+        "query_pack_id",
+        "command",
+        "hardware",
+        "commit",
+        "entry_count",
+        "json_file_count",
+        "sufficiency_status",
+        "safe_to_answer",
+        "missing_evidence_count",
+        "p50_ms",
+        "p95_ms",
+        "rss_peak_mb",
+        "disk_bytes",
+        "db_size_bytes",
+        "sidecar_size_bytes",
+        "fallback_reason",
+        "claim_readiness",
+        "accepted",
+        "acceptance_notes"
+      ]
+    },
+    {
+      "id": "task_aware_wake_precision",
+      "title": "Task-Aware Wake Precision",
+      "purpose": "Evaluate v4.1 task-aware wake packet budgeting, hard/soft include reasons, why_omitted, and budget trace behavior.",
+      "proves": [
+        "wake returns a task-aware ContextPlan without changing legacy output text",
+        "wake_packet carries budget trace and inclusion/omission rationale",
+        "default wake excludes cold/archive unless deep recall is explicit"
+      ],
+      "does_not_prove": [
+        "universal wake precision",
+        "agent answer quality improvements",
+        "global token/cost savings"
+      ],
+      "artifact_requirements": [
+        "run_manifest.json",
+        "dataset.manifest.json",
+        "report.md",
+        "summary.csv",
+        "results",
+        "notes"
+      ],
+      "required_result_fields": [
+        "benchmark_id",
+        "operation",
+        "dataset_id",
+        "dataset_hash",
+        "query_pack_id",
+        "command",
+        "hardware",
+        "commit",
+        "entry_count",
+        "json_file_count",
+        "precision_at_k",
+        "budget_tokens",
+        "budget_used_tokens",
+        "safe_to_answer",
+        "p50_ms",
+        "p95_ms",
+        "rss_peak_mb",
+        "disk_bytes",
+        "db_size_bytes",
+        "sidecar_size_bytes",
+        "fallback_reason",
+        "claim_readiness",
         "accepted",
         "acceptance_notes"
       ]

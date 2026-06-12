@@ -1,0 +1,12 @@
+{
+  "benchmark_id": "local_index_fabric_smoke",
+  "version": 1,
+  "description": "Manifest-last sidecar contract smoke for later Local Memory Index Fabric work.",
+  "tasks": [
+    {
+      "task_id": "SV2I1",
+      "prompt": "Write an interrupted generation, commit a later active generation through manifest-last semantics, and report whether the interrupted generation is invisible.",
+      "acceptance": "Active manifest points at the committed generation, interrupted generation is not visible, and source fingerprint drift is represented."
+    }
+  ]
+}

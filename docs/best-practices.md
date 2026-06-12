@@ -1,7 +1,6 @@
 # harness-mem 最佳实践 (v1.4+)
 
-当前发版状态、已完成切片和未做边界以 [roadmap-status.md](./roadmap-status.md) 与
-`CHANGELOG.md` 为准；本文聚焦使用建议与操作习惯，不单独充当当前实现真值。
+版本说明见 `CHANGELOG.md`。本文聚焦使用建议与操作习惯。
 
 ## 1. 核心架构：AI-led Candidate Loop
 

@@ -6,6 +6,8 @@ from harness_mem.commands.import_bridge import cmd_import
 from harness_mem.commands.maintenance import (
     cmd_assign_memory_types,
     cmd_cleanup_generated_cache,
+    cmd_export_json_snapshot,
+    cmd_migrate_store_v2,
     cmd_prepare_knowledge_cache,
     cmd_rebuild_wiki_bridge,
 )
@@ -52,6 +54,8 @@ from harness_mem.commands.integration_cmds import (
 __all__ = [
     "cmd_assign_memory_types",
     "cmd_cleanup_generated_cache",
+    "cmd_export_json_snapshot",
+    "cmd_migrate_store_v2",
     "cmd_config_get",
     "cmd_config_set",
     "cmd_config_list",

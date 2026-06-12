@@ -2,8 +2,8 @@
   "snapshot_version": 2,
   "generated_at": "2026-06-09T01:30:00Z",
   "source": "validated local benchmark artifacts",
-  "artifact_run_count": 11,
-  "accepted_runs": 11,
+  "artifact_run_count": 13,
+  "accepted_runs": 13,
   "failed_runs": 0,
   "unknown_runs": 0,
   "gate_passed": true,
@@ -126,6 +126,22 @@
       "accepted": true,
       "result_count": 9,
       "claim_boundary": "local smoke source-hit retrieval recall across fts/vector/hybrid; not end-to-end answer correctness or broad corpus quality"
+    },
+    {
+      "run_id": "2026-06-12-canonical_store_runtime_baseline-v401-smoke",
+      "collection_id": "canonical_store_runtime_baseline",
+      "accepted": true,
+      "result_count": 1,
+      "claim_boundary": "canonical-store contract smoke; not default canonical-store enablement or speedup",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-12-context_sufficiency_gate-v410-smoke",
+      "collection_id": "context_sufficiency_gate",
+      "accepted": true,
+      "result_count": 1,
+      "claim_boundary": "deterministic context sufficiency smoke; not end-to-end answer quality",
+      "artifact_state": "accepted"
     }
   ]
 }

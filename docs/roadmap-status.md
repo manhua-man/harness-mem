@@ -1,6 +1,6 @@
 # Roadmap Status（公开状态页）
 
-> 最后核对：2026-06-09。版本号以 `pyproject.toml` 与 `harness_mem.__version__` 为准；发版记录见 `CHANGELOG.md`。
+> 最后核对：2026-06-12。版本号以 `pyproject.toml` 与 `harness_mem.__version__` 为准；发版记录见 `CHANGELOG.md`。
 >
 > 本文面向**使用者与贡献者**：说明当前版本、已交付能力、明确不做项，以及规划中的方向。
 > 逐版本设计稿见 `docs/roadmap-v*.md`；**不**在此复述客户端联调矩阵、运行日志或本机路径。
@@ -10,13 +10,13 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `3.8.0` |
-| `harness_mem/__init__.py` | `3.8.0` |
-| `CHANGELOG.md` | 已有 `3.8.0` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `4.1.0` |
+| `harness_mem/__init__.py` | `4.1.0` |
+| `CHANGELOG.md` | 已有 `4.1.0` 段；`Unreleased` 当前为空 |
 
 ## 产品基线
 
-当前收口基线是 v3.8.0：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v4.1.0：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环、v2.3 signals/replay、v2.4
 reflection queue（默认关闭的 opt-in host 触发）、v2.5 context assembly /
@@ -28,8 +28,10 @@ truth-sync 的 release train、v3.1 Auto Dream Memory Maintenance、v3.2
 Generated Knowledge Compiler + Basic Freshness、v3.3 Temporal Query and
 Supersede Explainability、v3.4.x Runtime Health / Cost Discipline / Regression Gates、
 v3.5 Benchmark Evidence and Public Claim Readiness、v3.6 Generated Claim Hardening、
-v3.7 Skill Evolution Governance，以及 v3.8 True Hybrid Retrieval Shootout contract
-都已落地。
+v3.7 Skill Evolution Governance、v3.8 True Hybrid Retrieval Shootout contract，
+v4.0.0 Storage v2 Baseline / Benchmark / Migration Contract、v4.0.1-v4.0.5
+canonical store / Rust facade / index fabric / lifecycle / distribution gate，
+以及 v4.1.0 Context Sufficiency + Task-Aware Wake 都已落地。
 
 v3.2.0 已发布 Generated Knowledge Compiler + Basic Freshness：source map、
 atomic claim metadata、citation validation、claim diff、incremental compile metrics、
@@ -49,7 +51,7 @@ benchmark matrix report 显示 per-surface regression gate；version drift repor
 plugin/skill/slash/MCP wire-format；cost budget policy 记录预算、截断和 drilldown 元数据。
 observer 不保存 raw query、raw path 或 response content；失败不阻断主调用。
 
-当前版本 v3.8.0 已完成 v3.5–v3.8 收口：benchmark matrix 升级到 artifact-state
+v3.8.0 已完成 v3.5–v3.8 收口：benchmark matrix 升级到 artifact-state
 taxonomy、BENCH purpose map、`RESULTS.md` / release snapshot / public-claim gates；
 generated compact 输出携带 Trust / Drilldown，hash drift 或 invalid citation 进入
 generated review queue；skill result outcome ledger 记录 success/failure、surface、
@@ -58,6 +60,21 @@ manifest、dataset/query contract、report renderer、retrieval recall gate 与 
 候选治理。当前 token/cost saving 仍为 `ready=false`；true vector-hybrid latency 与
 retrieval recall 只对 2026-06-09 本地 synthetic / smoke artifact ready，不能写成
 生产延迟、端到端回答正确率或 broad corpus quality。
+
+当前版本 v4.1.0 已完成剩余 v4.0.x 和 v4.1 runtime foundation：v4.0.0
+保留 Storage v2 dry-run / apply / rollback contract；v4.0.1 新增 canonical
+SQLite store、JSON snapshot export 与 storage doctor report；v4.0.2 新增
+Rust core facade / crate skeleton 与 pure-Python fallback；v4.0.3 新增 Local
+Memory Index Fabric 和 SearchBackend contract；v4.0.4 新增 hot/warm/cold/archive
+lifecycle tiering 与 `deep_recall`；v4.0.5 新增 distribution report；v4.1.0
+新增 deterministic `context_sufficiency`、`retrieval_plan`、`context_plan`、
+`iterative_retrieval_trace` 和 task-aware `wake_packet`。
+
+v4.0.x/v4.1 的 benchmark suite 已新增 `canonical_store_runtime_baseline`、
+`rust_core_hot_path`、`index_fabric_runtime_conformance`、`context_sufficiency_gate`
+和 `task_aware_wake_precision`。2026-06-12 的 canonical-store 与
+context-sufficiency smoke artifacts 证明 contract / surface availability；
+它们不构成公开性能收益、token saving 或端到端回答质量 claim。
 
 日常用法：`/hm:distill`、`/hm:wake`、`/hm:search`（或自然语言等价指令）；默认启用的
 `harness-mem-autopilot` skill 提供 conversation-level 自动学习：在清晰任务边界主动
@@ -75,11 +92,12 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 | Conversation Autopilot | `harness-mem-autopilot` skill 默认启用，可在明确任务边界主动 wake/search、创建证据候选或建议 distill | conversation-level 自动学习；`autopilot.enabled=false` 是显式关闭；不会默认启用 daemon / IDE hook、无条件 per-turn 写入或 silent confirmed truth |
 | Distill | `prepare_session_distill` + LLM `suggest_*`；多客户端 session 自动识别 | v2.0 起已移除启发式 distill |
 | Wake | 分层 wake（L0–L2 已确认真理）；可选 compact renderer、skill hints | 默认不注入 pending 或完整 Skill body |
+| Context Sufficiency / Task-Aware Wake | `search_memory` / `wake` 返回 deterministic sufficiency report、retrieval plan、context plan、iterative trace；`wake` 可按当前任务和 token budget 组包 | 质量门是本地 deterministic check；证据不足时可建议补查或带 caveat，不自动改写 truth |
 | 维护面 | `/hm:mark`、`/hm:prune`、`/hm:review-kb`、`/hm:prune-kb`、`/hm:verify-entry`、`/hm:prd-sync`、`/hm:status` | PRD sync 默认 dry-run |
 | Auto Dream | `/hm:dream` 读取 DreamRun 账本；MCP `dream_ledger` / `dream_run` / `dream_auto_tick` / `undo_dream_item` 支撑 opt-in 自动维护 | 默认关闭；没有 `pending_review`；不 hard delete confirmed truth |
 | Generated Knowledge | `maintenance rebuild-wiki-bridge` 产出 source map、atomic claims、claim diff、freshness / compile metrics；compact wake 显式 opt-in 消费可校验 claim | generated layer 不是 truth；hash drift / citation invalid 的 claim 不进 compact wake |
 | Temporal Query | MCP `temporal_query` 读取 temporal read model，支持 current/history/as_of、valid/recorded range、supersede timeline、explanation、abstention | read-side projection；不自动改写 confirmed truth |
-| Runtime Health / Cost / Benchmark Evidence | MCP `health_summary`、`get_project_status`、`surface_cost_report`、`benchmark_matrix_report` 汇总 job health、generated cache、retrieval latency/result/truncation、surface token、budget overrun、version drift、artifact-state taxonomy、BENCH purpose map、regression gates、true-hybrid shootout summary 和 public-claim readiness | 不采集云端、不保存 raw content；observer 失败不阻断主路径；cost discipline 单独成类；当前 token/cost saving 仍未 ready；true-hybrid latency / retrieval recall 只限本地 synthetic / smoke artifact |
+| Runtime Health / Cost / Benchmark Evidence | MCP `health_summary`、`get_project_status`、`surface_cost_report`、`benchmark_matrix_report` 汇总 job health、generated cache、retrieval latency/result/truncation、surface token、budget overrun、version drift、artifact-state taxonomy、BENCH purpose map、regression gates、true-hybrid shootout summary、v4.0.x/v4.1 surface coverage 和 public-claim readiness | 不采集云端、不保存 raw content；observer 失败不阻断主路径；cost discipline 单独成类；当前 token/cost saving 仍未 ready；true-hybrid latency / retrieval recall 只限本地 synthetic / smoke artifact；v4 新 smoke 不外推性能或回答质量 |
 | 可选触发 | `host_entry` + IDE hook 模板（`triggers.*` 默认 `off`） | 无 always-on daemon；`worker.mode` 仅为配置门控 |
 | 跨项目 Skill | 显式 shared `search_skills`、审核后 promotion | 可以跨项目复用，但不能默认污染 wake；必须显式搜索、提示、展开 |
 
@@ -107,8 +125,16 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 | v3.5.x | 已完成：Benchmark Evidence and Public Claim Readiness |
 | v3.6.x | 已完成：Generated Claim Hardening |
 | v3.7.x | 已完成：Skill Evolution Governance |
-| v3.8.0 | 当前版本：True Hybrid Retrieval Shootout |
-| v3.8.x | 当前版本：True Hybrid Retrieval Shootout |
+| v3.8.0 | 已完成：True Hybrid Retrieval Shootout |
+| v3.8.x | 已完成：True Hybrid Retrieval Shootout |
+| v4.0.0 | 已完成：Baseline, Benchmark, and Migration Contract |
+| v4.0.1 | 已完成：Canonical SQLite Store |
+| v4.0.2 | 已完成：Rust Core MVP facade + fallback |
+| v4.0.3 | 已完成：Local Memory Index Fabric + SearchBackend contract |
+| v4.0.4 | 已完成：Lifecycle Tiering and deep recall |
+| v4.0.5 | 已完成：Distribution and Release Gate diagnostics |
+| v4.0.x | 已完成：Storage v2 + Rust Core + Local Memory Index Fabric runtime foundation |
+| v4.1.0 | 当前版本：Context Sufficiency + Task-Aware Wake |
 
 ## 未完成 / 不做项
 
@@ -160,11 +186,14 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 | v3.5.x | 已完成：Benchmark Evidence and Public Claim Readiness：BENCH artifact hygiene、RESULTS、public-claim gate | `docs/roadmap-v35.md` |
 | v3.6.x | 已完成：Generated Claim Hardening：claim-first、citation verification、freshness / review queue | `docs/roadmap-v36.md` |
 | v3.7.x | 已完成：Skill Evolution Governance：skill outcome ledger、revision/deprecation/promotion candidate、显式 activation | `docs/roadmap-v37.md` |
-| v3.8.x | 当前版本：True Hybrid Retrieval Shootout：FTS / vector / hybrid recall、latency、cost、fallback 对照 | `docs/roadmap-v38.md` |
+| v3.8.x | 已完成：True Hybrid Retrieval Shootout：FTS / vector / hybrid recall、latency、cost、fallback 对照 | `docs/roadmap-v38.md` |
+| v4.0.0 | 已完成：Baseline, Benchmark, and Migration Contract：synthetic corpus、storage-v2 baseline、migration roundtrip、local index fabric smoke artifact schema | `docs/roadmap-v40.md` |
+| v4.0.x | 已完成：Storage v2 + Rust Core + Local Memory Index Fabric：canonical store、Rust facade、index fabric/SearchBackend、lifecycle tiering、distribution gate | `docs/roadmap-v40.md` |
+| v4.1.0 | 当前版本：Context Sufficiency + Task-Aware Wake：sufficiency report、retrieval plan、context plan、iterative trace、wake packet budgeter | `docs/roadmap-v40.md` |
 
 ## 短结论
 
-从 v1.5 baseline 到 v3.8.0 True Hybrid Retrieval Shootout，主实现路线已经按一个版本一个文档重切并连续收口。
+从 v1.5 baseline 到 v4.1.0 Context Sufficiency + Task-Aware Wake，主实现路线已经按一个版本一个文档重切并连续收口。
 v1.5 baseline、v1.6 persistent vectors / bucket budget、v1.7 temporal truth、
 v1.8 procedural skill、v2.0 heuristic distill 移除、v2.1 maintenance-only CLI、
 v2.2 用户入口闭环（Slash/Skill/自然语言 + Agent 背后 MCP；跨客户端能力已交付，细节见维护者测试包）、
@@ -177,7 +206,10 @@ current/history/as_of temporal query / supersede timeline / abstention、v3.4.x 
 MCP surface cost observer / high-output detection / `surface_cost_report` / runtime health /
 benchmark matrix / version drift / cost budget policy、v3.5 的 benchmark evidence /
 public claim gate、v3.6 的 generated claim hardening、v3.7 的 skill evolution
-governance，以及 v3.8 的 true hybrid retrieval shootout contract 都已落地。
+governance、v3.8 的 true hybrid retrieval shootout contract、v4.0.0 的
+storage-v2 baseline / migration roundtrip / local-index-fabric smoke contract、
+v4.0.1-v4.0.5 的 canonical store / Rust facade / index fabric / lifecycle /
+distribution gate，以及 v4.1.0 的 context sufficiency / task-aware wake 都已落地。
 
 受控自动化已做；默认常驻后台不做。confirmed truth 可以自动维护，但不能静默覆盖；
 必须走 candidate / review / supersede / ledger。cross-project skill 可以跨项目复用，
@@ -189,6 +221,12 @@ v3.8 已收口 benchmark evidence、generated claim hardening、skill evolution 
 和 true hybrid retrieval shootout contract。后续规划不补默认 daemon，也不放松 truth /
 skill 边界；未 ready 的 token/cost saving 不能写成已证明的公开节省事实，已 ready 的
 true-hybrid latency / retrieval recall 也必须限定在本地 synthetic / smoke artifact。
+
+v4.0.x 已把 Storage v2、canonical SQLite、Rust facade、Local Memory Index Fabric、
+SearchBackend contract、lifecycle tiering 和 distribution diagnostics 做成可测试地基；
+v4.1.0 在这个地基上加入 context sufficiency 与 task-aware wake。默认 truth
+governance 不变：confirmed truth 仍必须走 candidate / review / supersede / ledger；
+v4 smoke artifacts 仍只证明 contract / surface availability，不证明公开性能收益。
 
 ## 维护者材料（非用户文档）
 

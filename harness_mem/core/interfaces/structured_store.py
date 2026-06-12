@@ -53,6 +53,7 @@ class StructuredStore(Protocol):
         limit: int = 100,
         status: str = "accepted",
         include_history: bool = False,
+        deep_recall: bool = False,
     ) -> list[MemoryEntry]:
         """List memory entries for a project.
 
@@ -69,6 +70,7 @@ class StructuredStore(Protocol):
         status: str = "accepted",
         memory_type: list[str] | None = None,
         include_history: bool = False,
+        deep_recall: bool = False,
         time_window: tuple[datetime | None, datetime | None] | None = None,
     ) -> list[MemoryEntry]:
         """Full-text search memory entries with status filtering.

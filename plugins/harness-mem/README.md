@@ -2,8 +2,7 @@
 
 Repo-local plugin wrapper for the `harness-mem` local-first AI memory runtime.
 
-当前发版状态、已完成切片和未做边界以 [docs/roadmap-status.md](../../docs/roadmap-status.md)（公开状态页）
-与 [CHANGELOG.md](../../CHANGELOG.md) 为准；本文聚焦 plugin 安装、集成与日常 IDE 使用方式，不单独充当当前实现真值。
+版本说明见 [CHANGELOG.md](../../CHANGELOG.md)。本文聚焦 plugin 安装、集成与日常 IDE 使用方式。
 
 It packages four layers:
 

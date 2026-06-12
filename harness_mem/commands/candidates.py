@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from harness_mem.commands import support as command_support
-from harness_mem.commands.retrieval_signals import record_retrieval_signal
+from harness_mem.retrieval_signals import record_retrieval_signal
 from harness_mem.core.schemas import (
     ConfirmedRule,
     ProceduralCandidate,

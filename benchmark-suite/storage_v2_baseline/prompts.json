@@ -1,0 +1,12 @@
+{
+  "benchmark_id": "storage_v2_baseline",
+  "version": 1,
+  "description": "Deterministic Storage v2 synthetic corpus and baseline artifact schema smoke.",
+  "tasks": [
+    {
+      "task_id": "SV2B1",
+      "prompt": "Generate the configured synthetic v3 corpus, run the Storage v2 dry-run scan, and report dataset hash, p50/p95, memory, disk, fallback, and claim readiness.",
+      "acceptance": "Result validates with benchmark-suite/tools/validate_run.py and keeps public performance claim readiness false unless promoted by larger release artifacts."
+    }
+  ]
+}

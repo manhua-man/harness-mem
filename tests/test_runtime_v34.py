@@ -21,6 +21,29 @@ from tests.helpers import run
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+REQUIRED_COLLECTION_IDS = [
+    "latency_warm_path",
+    "retrieval_diagnostics",
+    "generated_knowledge_freshness",
+    "temporal_product_query",
+    "retrieval_quality_longmemeval",
+    "client_enabled_vs_disabled",
+    "evidence_safety",
+    "storage_v2_baseline",
+    "migration_roundtrip",
+    "local_index_fabric_smoke",
+    "canonical_store_runtime_baseline",
+    "rust_core_hot_path",
+    "index_fabric_runtime_conformance",
+    "context_sufficiency_gate",
+    "task_aware_wake_precision",
+]
+
+
+def _suite_collections(*extra: str) -> list[dict[str, str]]:
+    collection_ids = [*REQUIRED_COLLECTION_IDS, *extra]
+    return [{"id": collection_id} for collection_id in collection_ids]
+
 
 def test_cost_budget_policy_marks_budget_exceeded_and_drilldown_metadata():
     result = {
@@ -76,15 +99,7 @@ def test_benchmark_matrix_report_tracks_required_surfaces(tmp_path: Path):
     (suite / "suite.json").write_text(
         json.dumps(
             {
-                "collections": [
-                    {"id": "latency_warm_path"},
-                    {"id": "retrieval_diagnostics"},
-                    {"id": "generated_knowledge_freshness"},
-                    {"id": "temporal_product_query"},
-                    {"id": "retrieval_quality_longmemeval"},
-                    {"id": "client_enabled_vs_disabled"},
-                    {"id": "evidence_safety"},
-                ]
+                "collections": _suite_collections()
             }
         ),
         encoding="utf-8",
@@ -100,7 +115,7 @@ def test_benchmark_matrix_report_tracks_required_surfaces(tmp_path: Path):
 
     assert report["gate"]["passed"] is True
     assert report["gate"]["missing_surface_coverage"] == []
-    assert report["matrix_version"] == "v3.8.0"
+    assert report["matrix_version"] == "v4.1.0"
     assert report["taxonomy"]["artifact_states"] == [
         "accepted",
         "partial",
@@ -117,6 +132,13 @@ def test_benchmark_matrix_report_tracks_required_surfaces(tmp_path: Path):
         "file_context",
         "wiki_compact",
         "temporal_query",
+        "storage_v2",
+        "canonical_store",
+        "rust_core",
+        "index_fabric",
+        "lifecycle_tiering",
+        "context_sufficiency",
+        "task_aware_wake",
     }
 
 
@@ -127,15 +149,7 @@ def test_benchmark_matrix_report_does_not_pass_without_accepted_artifacts(tmp_pa
     (suite / "suite.json").write_text(
         json.dumps(
             {
-                "collections": [
-                    {"id": "latency_warm_path"},
-                    {"id": "retrieval_diagnostics"},
-                    {"id": "generated_knowledge_freshness"},
-                    {"id": "temporal_product_query"},
-                    {"id": "retrieval_quality_longmemeval"},
-                    {"id": "client_enabled_vs_disabled"},
-                    {"id": "evidence_safety"},
-                ]
+                "collections": _suite_collections()
             }
         ),
         encoding="utf-8",
@@ -159,15 +173,7 @@ def test_benchmark_matrix_report_infers_accepted_artifact_from_results(tmp_path:
     (suite / "suite.json").write_text(
         json.dumps(
             {
-                "collections": [
-                    {"id": "latency_warm_path"},
-                    {"id": "retrieval_diagnostics"},
-                    {"id": "generated_knowledge_freshness"},
-                    {"id": "temporal_product_query"},
-                    {"id": "retrieval_quality_longmemeval"},
-                    {"id": "client_enabled_vs_disabled"},
-                    {"id": "evidence_safety"},
-                ]
+                "collections": _suite_collections()
             }
         ),
         encoding="utf-8",
@@ -203,15 +209,7 @@ def test_benchmark_matrix_report_exposes_claim_readiness_from_artifacts(tmp_path
     (suite / "suite.json").write_text(
         json.dumps(
             {
-                "collections": [
-                    {"id": "latency_warm_path"},
-                    {"id": "retrieval_diagnostics"},
-                    {"id": "generated_knowledge_freshness"},
-                    {"id": "temporal_product_query"},
-                    {"id": "retrieval_quality_longmemeval"},
-                    {"id": "client_enabled_vs_disabled"},
-                    {"id": "evidence_safety"},
-                ]
+                "collections": _suite_collections()
             }
         ),
         encoding="utf-8",
@@ -283,15 +281,7 @@ def test_benchmark_matrix_report_marks_claims_ready_when_artifacts_have_required
     (suite / "suite.json").write_text(
         json.dumps(
             {
-                "collections": [
-                    {"id": "latency_warm_path"},
-                    {"id": "retrieval_diagnostics"},
-                    {"id": "generated_knowledge_freshness"},
-                    {"id": "temporal_product_query"},
-                    {"id": "retrieval_quality_longmemeval"},
-                    {"id": "client_enabled_vs_disabled"},
-                    {"id": "evidence_safety"},
-                ]
+                "collections": _suite_collections()
             }
         ),
         encoding="utf-8",
@@ -353,15 +343,7 @@ def test_benchmark_matrix_report_uses_latest_accepted_claim_artifact(tmp_path: P
     (suite / "suite.json").write_text(
         json.dumps(
             {
-                "collections": [
-                    {"id": "latency_warm_path"},
-                    {"id": "retrieval_diagnostics"},
-                    {"id": "generated_knowledge_freshness"},
-                    {"id": "temporal_product_query"},
-                    {"id": "retrieval_quality_longmemeval"},
-                    {"id": "client_enabled_vs_disabled"},
-                    {"id": "evidence_safety"},
-                ]
+                "collections": _suite_collections()
             }
         ),
         encoding="utf-8",
@@ -491,16 +473,7 @@ def test_benchmark_matrix_report_marks_retrieval_recall_ready_from_true_hybrid_a
     (suite / "suite.json").write_text(
         json.dumps(
             {
-                "collections": [
-                    {"id": "latency_warm_path"},
-                    {"id": "retrieval_diagnostics"},
-                    {"id": "generated_knowledge_freshness"},
-                    {"id": "temporal_product_query"},
-                    {"id": "retrieval_quality_longmemeval"},
-                    {"id": "client_enabled_vs_disabled"},
-                    {"id": "evidence_safety"},
-                    {"id": "true_hybrid_retrieval_shootout"},
-                ]
+                "collections": _suite_collections("true_hybrid_retrieval_shootout")
             }
         ),
         encoding="utf-8",
@@ -553,15 +526,7 @@ def test_benchmark_matrix_report_uses_tracked_release_snapshot_without_raw_artif
     (suite / "suite.json").write_text(
         json.dumps(
             {
-                "collections": [
-                    {"id": "latency_warm_path"},
-                    {"id": "retrieval_diagnostics"},
-                    {"id": "generated_knowledge_freshness"},
-                    {"id": "temporal_product_query"},
-                    {"id": "retrieval_quality_longmemeval"},
-                    {"id": "client_enabled_vs_disabled"},
-                    {"id": "evidence_safety"},
-                ]
+                "collections": _suite_collections()
             }
         ),
         encoding="utf-8",
@@ -644,15 +609,7 @@ def test_benchmark_matrix_report_rejects_invalid_snapshot_fallback(tmp_path: Pat
     (suite / "suite.json").write_text(
         json.dumps(
             {
-                "collections": [
-                    {"id": "latency_warm_path"},
-                    {"id": "retrieval_diagnostics"},
-                    {"id": "generated_knowledge_freshness"},
-                    {"id": "temporal_product_query"},
-                    {"id": "retrieval_quality_longmemeval"},
-                    {"id": "client_enabled_vs_disabled"},
-                    {"id": "evidence_safety"},
-                ]
+                "collections": _suite_collections()
             }
         ),
         encoding="utf-8",
@@ -704,7 +661,7 @@ def test_benchmark_matrix_report_uses_packaged_snapshot_when_repo_suite_missing(
 
     report = benchmark_matrix_report(missing_suite)
 
-    assert report["release_snapshot"]["accepted_runs"] == 11
+    assert report["release_snapshot"]["accepted_runs"] == 13
     assert report["release_snapshot"]["unknown_runs"] == 0
     assert report["gate"]["passed"] is True
     assert report["claim_readiness"]["token_cost_saving"]["ready"] is False

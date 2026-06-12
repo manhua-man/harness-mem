@@ -114,15 +114,15 @@ def test_release_snapshot_validates_claim_readiness_contract() -> None:
     )
 
     assert result.returncode == 0
-    assert "OK: validated release snapshot v2 with 11 runs" in result.stdout
+    assert "OK: validated release snapshot v2 with 13 runs" in result.stdout
 
 
 def test_build_release_snapshot_matches_tracked_snapshot() -> None:
     snapshot_path = REPO_ROOT / "benchmark-suite" / "release-snapshot.json"
     current = json.loads(snapshot_path.read_text(encoding="utf-8"))
     if not _local_release_artifact_dirs():
-        assert current["artifact_run_count"] == 11
-        assert current["accepted_runs"] == 11
+        assert current["artifact_run_count"] == 13
+        assert current["accepted_runs"] == 13
         assert current["gate_passed"] is True
         _assert_release_snapshot_claims(current)
         return
@@ -151,11 +151,11 @@ def test_check_release_artifacts_accepts_current_benchmark_set() -> None:
     assert result.returncode == 0
     assert "release snapshot v2" in result.stdout
     if _local_release_artifact_dirs():
-        assert "OK: checked 11 benchmark runs" in result.stdout
-        assert "(artifacts, snapshot runs=11)" in result.stdout
+        assert "OK: checked 13 benchmark runs" in result.stdout
+        assert "(artifacts, snapshot runs=13)" in result.stdout
     else:
         assert "OK: checked 0 benchmark runs" in result.stdout
-        assert "(snapshot-only, snapshot runs=11)" in result.stdout
+        assert "(snapshot-only, snapshot runs=13)" in result.stdout
 
 
 def test_check_release_artifacts_accepts_snapshot_only_checkout(
@@ -185,7 +185,7 @@ def test_check_release_artifacts_accepts_snapshot_only_checkout(
 
     assert result.returncode == 0
     assert "OK: checked 0 benchmark runs" in result.stdout
-    assert "(snapshot-only, snapshot runs=11)" in result.stdout
+    assert "(snapshot-only, snapshot runs=13)" in result.stdout
 
 
 def test_full_gate_runs_benchmark_release_artifact_check() -> None:
@@ -225,7 +225,7 @@ def test_full_gate_runs_benchmark_release_artifact_check() -> None:
     assert "`snapshot-only`" in releasing_doc
 
 
-def test_public_source_archive_excludes_raw_benchmark_artifacts() -> None:
+def test_public_source_archive_excludes_benchmark_suite_and_internal_planning() -> None:
     gitattributes = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8")
     excludes = (REPO_ROOT / "release" / "public-source-excludes.txt").read_text(
         encoding="utf-8"
@@ -238,22 +238,33 @@ def test_public_source_archive_excludes_raw_benchmark_artifacts() -> None:
     )
     releasing_doc = (REPO_ROOT / "docs" / "releasing.md").read_text(encoding="utf-8")
 
-    assert "benchmark-suite/artifacts/** export-ignore" in gitattributes
-    assert "benchmark-suite/artifacts/" in excludes
-    assert "benchmark-suite/artifacts/" in ps_archive
-    assert "benchmark-suite/artifacts/" in sh_archive
-    assert "`benchmark-suite/release-snapshot.json`" in releasing_doc
-    assert "raw BENCH artifact bundles" in releasing_doc
+    assert "benchmark-suite/** export-ignore" in gitattributes
+    assert "docs/roadmap*.md export-ignore" in gitattributes
+    assert "openspec/** export-ignore" in gitattributes
+    assert "tests/** export-ignore" in gitattributes
+    assert "benchmark-suite/" in excludes
+    assert "docs/roadmap*.md" in excludes
+    assert "openspec/" in excludes
+    assert "tests/" in excludes
+    assert "--check-only" in ps_archive
+    assert "--check-only" in sh_archive
+    assert "`benchmark-suite/**`" in releasing_doc
+    assert "公开源码包不携带 benchmark-suite" in releasing_doc
 
 
-def test_public_archive_filter_drops_raw_benchmark_artifacts_but_keeps_snapshot(
+def test_public_archive_filter_drops_benchmark_suite_and_internal_planning(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "harness-mem-3.4.4"
     files = {
         "README.md": "public readme",
+        "docs/error-codes.md": "public error docs",
         "benchmark-suite/release-snapshot.json": "{}",
         "benchmark-suite/artifacts/run/results/T1.json": "{}",
+        "docs/roadmap-v40.md": "internal roadmap",
+        "docs/reference-projects.md": "internal references",
+        "openspec/specs/memory.md": "internal spec",
+        "tests/test_roadmap.py": "internal test",
         "docs/v2-user-test-packet.md": "maintainer packet",
         "harness_mem/integration/artifacts/transcript.jsonl": "{}",
     }
@@ -274,10 +285,14 @@ def test_public_archive_filter_drops_raw_benchmark_artifacts_but_keeps_snapshot(
     with tarfile.open(archive, "r:gz") as handle:
         names = set(handle.getnames())
 
-    assert dropped >= 3
+    assert dropped >= 8
     assert "harness-mem-3.4.4/README.md" in names
-    assert "harness-mem-3.4.4/benchmark-suite/release-snapshot.json" in names
-    assert not any("benchmark-suite/artifacts/" in name for name in names)
+    assert "harness-mem-3.4.4/docs/error-codes.md" in names
+    assert not any("benchmark-suite/" in name for name in names)
+    assert not any("docs/roadmap" in name for name in names)
+    assert not any("reference-projects.md" in name for name in names)
+    assert not any("openspec/" in name for name in names)
+    assert not any("/tests/" in name for name in names)
     assert not any("docs/v2-user-test-packet.md" in name for name in names)
     assert not any("harness_mem/integration/artifacts/" in name for name in names)
 
@@ -371,9 +386,10 @@ def test_benchmark_gap_backlog_is_indexed_and_actionable() -> None:
     assert "fixture contract plus a bounded local smoke source-hit recall run" in benchmark_catalog
     assert "does not prove answer correctness or broad" in benchmark_catalog
     assert (
-        "No public token-saving claim until a paired run reports a positive "
+        "No global token-saving claim until a paired run reports a positive "
         "disabled-minus-enabled token/cost delta from a named source."
     ) in benchmark_catalog
+    assert "`functional_token_economics` is the separate feature-level fixture benchmark" in benchmark_catalog
     assert "Keep true-hybrid latency claims scoped to the local synthetic fixture" in benchmark_catalog
     assert "blocked until v3.2 generated knowledge surfaces ship" not in benchmark_catalog
     assert "blocked until v3.4 runtime health/cost/regression surfaces ship" not in benchmark_catalog
@@ -1190,3 +1206,382 @@ def test_latency_report_requires_a_hybrid_row_for_claim_readiness() -> None:
 
     assert "- True vector-hybrid claim ready: no" in report
     assert "- Blocking rows: search_hybrid/missing" in report
+
+
+def _memory_shortcut_row(
+    task_id: str,
+    task_type: str,
+    condition: str,
+    *,
+    tokens: int,
+    source_reads: int,
+    repo_calls: int,
+    input_tokens: int | None = None,
+    cached_input: int | None = None,
+    output_tokens: int | None = None,
+    reasoning_tokens: int | None = None,
+) -> dict:
+    token_usage = {
+        "available": True,
+        "source": "unit-test",
+        "total": tokens,
+    }
+    if input_tokens is not None:
+        token_usage["input"] = input_tokens
+    if cached_input is not None:
+        token_usage["cached_input"] = cached_input
+    if output_tokens is not None:
+        token_usage["output"] = output_tokens
+    if reasoning_tokens is not None:
+        token_usage["reasoning"] = reasoning_tokens
+
+    return {
+        "task_id": task_id,
+        "task_type": task_type,
+        "condition": condition,
+        "accepted": "yes",
+        "runtime_seconds": 1.0,
+        "token_usage": token_usage,
+        "source_read_count": source_reads,
+        "repo_calls": [f"call-{index}" for index in range(repo_calls)],
+        "memory_calls": ["provided_memory_packet:test"] if condition == "enabled" else [],
+        "acceptance_notes": "unit test row",
+    }
+
+
+def test_memory_shortcut_report_blocks_source_budget_violations() -> None:
+    rows = []
+    for index in range(1, 9):
+        enabled_reads = 3 if index == 8 else 1
+        rows.extend(
+            [
+                _memory_shortcut_row(
+                    f"MS{index}",
+                    "long_source_recovery",
+                    "enabled",
+                    tokens=50,
+                    source_reads=enabled_reads,
+                    repo_calls=1,
+                ),
+                _memory_shortcut_row(
+                    f"MS{index}",
+                    "long_source_recovery",
+                    "disabled",
+                    tokens=100,
+                    source_reads=4,
+                    repo_calls=4,
+                ),
+            ]
+        )
+    for index in range(1, 3):
+        rows.extend(
+            [
+                _memory_shortcut_row(
+                    f"NC{index}",
+                    "negative_control",
+                    "enabled",
+                    tokens=50,
+                    source_reads=1,
+                    repo_calls=1,
+                ),
+                _memory_shortcut_row(
+                    f"NC{index}",
+                    "negative_control",
+                    "disabled",
+                    tokens=50,
+                    source_reads=1,
+                    repo_calls=1,
+                ),
+            ]
+        )
+
+    report = RENDER_REPORT.build_memory_shortcut_report(rows)
+
+    assert "MS8/budget=enabled_source_reads>2" in report
+    assert "- Memory-shortcut saving claim ready: no" in report
+
+
+def test_memory_shortcut_report_blocks_negative_control_budget_violations() -> None:
+    rows = []
+    for index in range(1, 9):
+        rows.extend(
+            [
+                _memory_shortcut_row(
+                    f"MS{index}",
+                    "long_source_recovery",
+                    "enabled",
+                    tokens=50,
+                    source_reads=1,
+                    repo_calls=1,
+                ),
+                _memory_shortcut_row(
+                    f"MS{index}",
+                    "long_source_recovery",
+                    "disabled",
+                    tokens=100,
+                    source_reads=4,
+                    repo_calls=4,
+                ),
+            ]
+        )
+    rows.extend(
+        [
+            _memory_shortcut_row(
+                "NC1",
+                "negative_control",
+                "enabled",
+                tokens=50,
+                source_reads=1,
+                repo_calls=4,
+            ),
+            _memory_shortcut_row(
+                "NC1",
+                "negative_control",
+                "disabled",
+                tokens=50,
+                source_reads=1,
+                repo_calls=1,
+            ),
+            _memory_shortcut_row(
+                "NC2",
+                "negative_control",
+                "enabled",
+                tokens=50,
+                source_reads=1,
+                repo_calls=1,
+            ),
+            _memory_shortcut_row(
+                "NC2",
+                "negative_control",
+                "disabled",
+                tokens=50,
+                source_reads=1,
+                repo_calls=1,
+            ),
+        ]
+    )
+
+    report = RENDER_REPORT.build_memory_shortcut_report(rows)
+
+    assert "NC1/budget=enabled:negative_control_repo_calls>3" in report
+    assert "negative_control_budget_ok_pairs=1/2" in report
+    assert "- Memory-shortcut saving claim ready: no" in report
+
+
+def test_memory_shortcut_report_keeps_cache_adjusted_proxy_diagnostic_only() -> None:
+    rows = [
+        _memory_shortcut_row(
+            "MS1",
+            "long_source_recovery",
+            "enabled",
+            tokens=300,
+            source_reads=1,
+            repo_calls=1,
+            input_tokens=280,
+            cached_input=240,
+            output_tokens=20,
+            reasoning_tokens=0,
+        ),
+        _memory_shortcut_row(
+            "MS1",
+            "long_source_recovery",
+            "disabled",
+            tokens=200,
+            source_reads=4,
+            repo_calls=4,
+            input_tokens=170,
+            cached_input=0,
+            output_tokens=30,
+            reasoning_tokens=0,
+        ),
+    ]
+
+    report = RENDER_REPORT.build_memory_shortcut_report(rows)
+
+    assert "| MS1 | long_source_recovery | -100 | -0.500 | 140 | 0.700 |" in report
+    assert "- Median cache-adjusted saving ratio: 0.700" in report
+    assert "- Memory-shortcut saving claim ready: no" in report
+    assert "MS1/token_delta_not_saving=-100" in report
+    assert "This proxy is diagnostic only" in report
+
+
+def _functional_token_economics_row(
+    scenario_id: str = "FTE1",
+    *,
+    baseline_tokens: int = 1000,
+    optimized_tokens: int = 250,
+    accepted: str = "yes",
+    fixture_only: bool = True,
+) -> dict:
+    token_delta = baseline_tokens - optimized_tokens
+    saving_ratio = token_delta / baseline_tokens if baseline_tokens > 0 else 0.0
+    return {
+        "scenario_id": scenario_id,
+        "workflow": "progressive_recall",
+        "title": "Progressive recall vs broad source recovery",
+        "baseline_label": "read broad source docs before answering",
+        "optimized_label": "search index -> timeline -> selected details",
+        "baseline_tokens": baseline_tokens,
+        "optimized_tokens": optimized_tokens,
+        "token_delta": token_delta,
+        "saving_ratio": round(saving_ratio, 4),
+        "minimum_saving_ratio": 0.5,
+        "baseline_source_count": 1,
+        "optimized_source_count": 1,
+        "baseline_sources": [
+            {
+                "kind": "file",
+                "path": "docs/reference-projects.md",
+                "chars": 10000,
+            }
+        ],
+        "optimized_sources": [
+            {
+                "kind": "text",
+                "label": "compact progressive recall packet",
+                "chars": 1000,
+            }
+        ],
+        "tokenizer": "tiktoken",
+        "token_source": "harness_mem.commands.token_estimator",
+        "fixture_only": fixture_only,
+        "claim_scope": "fixture progressive recall payload",
+        "accepted": accepted,
+        "acceptance_notes": "unit test row",
+    }
+
+
+def _write_functional_token_economics_run(
+    run_dir: Path,
+    row: dict | None = None,
+) -> None:
+    (run_dir / "results").mkdir(parents=True)
+    (run_dir / "notes").mkdir()
+    payload = row or _functional_token_economics_row()
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "benchmark_id": "functional_token_economics",
+                "run_name": "unit",
+                "artifact_state": "diagnostic",
+                "release_snapshot": False,
+                "result_schema_version": 1,
+                "created_at": "2026-06-10T00:00:00+08:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "report.md").write_text("# report\n", encoding="utf-8")
+    (run_dir / "summary.csv").write_text("scenario_id\nFTE1\n", encoding="utf-8")
+    (run_dir / "notes" / "scenarios.json").write_text(
+        json.dumps({"benchmark_id": "functional_token_economics", "scenarios": []}),
+        encoding="utf-8",
+    )
+    (run_dir / "results" / f"{payload['scenario_id']}.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+
+def test_functional_token_economics_report_keeps_global_claim_locked() -> None:
+    report = RENDER_REPORT.build_functional_token_economics_report(
+        [
+            _functional_token_economics_row("FTE1", baseline_tokens=1000, optimized_tokens=250),
+            _functional_token_economics_row("FTE2", baseline_tokens=900, optimized_tokens=300),
+        ]
+    )
+
+    assert "## Feature-Level Claim Readiness" in report
+    assert "- Functional fixture token-economics ready: yes" in report
+    assert "- Median saving ratio: 0.708" in report
+    assert "## Global Claim Boundary" in report
+    assert "- Global token/cost saving ready: no" in report
+    assert "does not prove real billing" in report
+
+
+def test_functional_token_economics_summary_csv(tmp_path: Path) -> None:
+    rows = [_functional_token_economics_row("FTE1")]
+
+    RENDER_REPORT.write_functional_token_economics_summary_csv(tmp_path, rows)
+
+    csv_rows = list(csv.DictReader((tmp_path / "summary.csv").open(encoding="utf-8")))
+    assert csv_rows[0]["scenario_id"] == "FTE1"
+    assert csv_rows[0]["baseline_tokens"] == "1000"
+    assert csv_rows[0]["optimized_tokens"] == "250"
+    assert csv_rows[0]["saving_ratio"] == "0.75"
+    assert csv_rows[0]["fixture_only"] == "True"
+
+
+def test_validate_run_accepts_functional_token_economics_bundle(tmp_path: Path) -> None:
+    run_dir = tmp_path / "functional-token-economics"
+    _write_functional_token_economics_run(run_dir)
+
+    result = subprocess.run(
+        [
+            "python",
+            "benchmark-suite/tools/validate_run.py",
+            "--run-dir",
+            str(run_dir),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "OK: validated 1 result files for functional_token_economics" in result.stdout
+
+
+def test_validate_run_rejects_functional_token_economics_negative_delta(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "functional-token-economics-negative"
+    row = _functional_token_economics_row(
+        baseline_tokens=100,
+        optimized_tokens=150,
+        accepted="no",
+    )
+    _write_functional_token_economics_run(run_dir, row)
+
+    result = subprocess.run(
+        [
+            "python",
+            "benchmark-suite/tools/validate_run.py",
+            "--run-dir",
+            str(run_dir),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "token_delta must be a non-negative number" in result.stderr
+
+
+def test_validate_run_rejects_functional_token_economics_non_fixture(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "functional-token-economics-non-fixture"
+    _write_functional_token_economics_run(
+        run_dir,
+        _functional_token_economics_row(fixture_only=False),
+    )
+
+    result = subprocess.run(
+        [
+            "python",
+            "benchmark-suite/tools/validate_run.py",
+            "--run-dir",
+            str(run_dir),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "fixture_only must be true for this fixture collection" in result.stderr

@@ -21,8 +21,19 @@ from validate_release_snapshot import validate_release_snapshot  # noqa: E402
 from validate_run import validate_run  # noqa: E402
 
 
+NON_RELEASE_ARTIFACT_STATES = {"diagnostic", "partial", "quarantined"}
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _include_in_release_snapshot(manifest_path: Path) -> bool:
+    manifest = _load_json(manifest_path)
+    if manifest.get("release_snapshot") is False:
+        return False
+    state = str(manifest.get("artifact_state") or "").strip().lower()
+    return state not in NON_RELEASE_ARTIFACT_STATES
 
 
 def _check_packaged_resources(suite_root: Path) -> None:
@@ -53,7 +64,9 @@ def check_release_artifacts(suite_root: Path = ROOT) -> dict[str, Any]:
         sorted(
             path
             for path in artifact_root.iterdir()
-            if path.is_dir() and (path / "run_manifest.json").exists()
+            if path.is_dir()
+            and (path / "run_manifest.json").exists()
+            and _include_in_release_snapshot(path / "run_manifest.json")
         )
         if artifact_root.exists()
         else []

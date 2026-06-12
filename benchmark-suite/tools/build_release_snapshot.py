@@ -26,18 +26,36 @@ CLAIM_BOUNDARIES = {
     "auto_maintenance_effectiveness": (
         "audited maintenance behavior; not production long-run precision/recall"
     ),
+    "canonical_store_runtime_baseline": (
+        "canonical-store contract smoke; not default canonical-store enablement or speedup"
+    ),
     "client_enabled_vs_disabled": (
         "paired correctness and memory-call gating; no token-saving or speedup claim"
     ),
     "evidence_safety": "guarded evidence-safety task set only",
+    "functional_token_economics": (
+        "feature-level fixture payload economics; not global token/cost or real billing savings"
+    ),
+    "context_sufficiency_gate": (
+        "deterministic context sufficiency smoke; not end-to-end answer quality"
+    ),
     "generated_knowledge_freshness": (
         "generated boundary and freshness checks; no perfect source-map coverage claim"
+    ),
+    "local_index_fabric_smoke": (
+        "manifest-last sidecar contract smoke; not runtime SearchBackend readiness"
     ),
     "latency_warm_path": (
         "synthetic warm-path FTS/wake latency; not true vector-hybrid latency"
     ),
+    "migration_roundtrip": (
+        "dry-run/apply/export checksum smoke; not default canonical-store enablement"
+    ),
     "runtime_health_observability": (
         "local health/cost/gate/false-success evidence; not real billing telemetry"
+    ),
+    "storage_v2_baseline": (
+        "deterministic Storage v2 corpus and baseline schema smoke; not public speedup"
     ),
     "temporal_product_query": (
         "product temporal boundaries; not LongMemEval retrieval score"
@@ -46,6 +64,16 @@ CLAIM_BOUNDARIES = {
         "fixture contract and governance only; not public retrieval recall or true vector-hybrid latency"
     ),
 }
+
+
+NON_RELEASE_ARTIFACT_STATES = {"diagnostic", "partial", "quarantined"}
+
+
+def _include_in_release_snapshot(manifest: dict[str, Any]) -> bool:
+    if manifest.get("release_snapshot") is False:
+        return False
+    state = str(manifest.get("artifact_state") or "").strip().lower()
+    return state not in NON_RELEASE_ARTIFACT_STATES
 
 
 def _normal_bool(value: Any) -> bool | None:
@@ -134,10 +162,12 @@ def build_release_snapshot(
     *,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
-    runs = [
-        _run_summary(manifest_path)
-        for manifest_path in sorted((suite_root / "artifacts").glob("*/run_manifest.json"))
-    ]
+    runs = []
+    for manifest_path in sorted((suite_root / "artifacts").glob("*/run_manifest.json")):
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not _include_in_release_snapshot(manifest):
+            continue
+        runs.append(_run_summary(manifest_path))
     accepted_runs = sum(1 for run in runs if run["accepted"] is True)
     failed_runs = sum(1 for run in runs if run["accepted"] is False)
     unknown_runs = sum(1 for run in runs if run["accepted"] is None)

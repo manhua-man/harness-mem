@@ -17,6 +17,7 @@ benchmarks/results/**/*.json
 # Local scratch directories
 .tmp/
 .tmp*/
+tmp_pytest_codex/
 tmp-review-a/
 tmp-*/
 
@@ -29,4 +30,5 @@ tmp-*/
 # Build artifacts
 dist/
 build/
+target/
 *.egg-info/

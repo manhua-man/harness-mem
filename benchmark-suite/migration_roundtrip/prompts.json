@@ -1,0 +1,12 @@
+{
+  "benchmark_id": "migration_roundtrip",
+  "version": 1,
+  "description": "Storage v2 dry-run/apply/export rollback checksum smoke.",
+  "tasks": [
+    {
+      "task_id": "SV2M1",
+      "prompt": "Generate the configured synthetic v3 corpus, run dry-run, apply side-by-side canonical SQLite, export v3-compatible rollback JSON, and compare logical checksums.",
+      "acceptance": "Dry-run, canonical, and rollback checksums match; default runtime storage remains unchanged."
+    }
+  ]
+}

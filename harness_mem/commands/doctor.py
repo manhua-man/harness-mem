@@ -41,12 +41,14 @@ from harness_mem.commands.support import (
 )
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import MergedConfig, load_merged_config
+from harness_mem.distribution import distribution_report
 from harness_mem.knowledge_cache import knowledge_cache_health
 from harness_mem.runtime_health import runtime_health_report
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
+from harness_mem.storage.canonical_store import canonical_store_health
 from harness_mem.storage.reflection_job_store import ReflectionJobStore
 from harness_mem.version import runtime_version_payload
 
@@ -231,6 +233,19 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             _doctor_chronic_failures_block(report["chronic_failures"])
             _doctor_maintenance_block(report["maintenance_hints"])
             _doctor_runtime_health_block(report.get("runtime_health", {}))
+            _doctor_storage_v2_block(
+                canonical_store_health(
+                    backend.data_dir,
+                    project_name=resolved_project,
+                    wal_size_warning_bytes=WAL_SIZE_THRESHOLD_BYTES,
+                )
+            )
+            _doctor_distribution_block(
+                distribution_report(
+                    repo_root=Path(__file__).resolve().parents[2],
+                    data_dir=backend.data_dir,
+                )
+            )
             knowledge_report = await knowledge_cache_health(
                 backend,
                 data_dir=DEFAULT_DATA_DIR,
@@ -491,7 +506,7 @@ async def _doctor_weak_link_block(
     # Lazy import: signal_influence pulls in the v2.3.1 weak-link helper
     # that we only need when the flag is on. Keeping it lazy means doctor
     # on the v2.2-default-off path doesn't pay any import cost.
-    from harness_mem.commands.signal_influence import pull_recent_signals
+    from harness_mem.signal_influence import pull_recent_signals
 
     now = datetime.now(timezone.utc)
 
@@ -1361,6 +1376,65 @@ def _doctor_runtime_health_block(runtime_report: dict[str, Any]) -> None:
         print(f"⚠️  version/install drift: {len(drift.get('issues', []))} issue(s)")
         for issue in drift.get("issues", [])[:3]:
             print(f"    {issue.get('surface')}: {issue.get('message')}")
+
+
+def _doctor_storage_v2_block(storage_report: dict[str, Any]) -> None:
+    if not storage_report:
+        return
+    if "warnings" in storage_report:
+        for warning in storage_report["warnings"]:
+            print(f"⚠️  Storage v2 health unavailable: {warning}")
+        return
+    status = storage_report.get("status") or "unknown"
+    print("Storage v2:")
+    print(
+        "  canonical: "
+        f"{status} | rows={storage_report.get('canonical_row_count', 0)} | "
+        f"legacy={storage_report.get('legacy_json_file_count', 0)}"
+    )
+    print(
+        "  checksum: "
+        f"{'match' if storage_report.get('checksum_match') else 'not matched'} | "
+        f"wal={storage_report.get('wal_size_bytes', 0)} bytes"
+    )
+    gate = storage_report.get("dual_write_gate") or {}
+    if gate:
+        print(
+            "  dual-write: "
+            f"{'enabled' if gate.get('enabled') else 'off'} ({gate.get('env')})"
+        )
+    if status != "healthy" and storage_report.get("fix_command"):
+        print(f"⚠️  Storage v2: {status}")
+        print(f"Fix: {storage_report['fix_command']}")
+    drift = storage_report.get("index_drift") or []
+    if drift:
+        print(f"⚠️  Storage v2 index drift: {len(drift)} missing index(es)")
+
+
+def _doctor_distribution_block(distribution: dict[str, Any]) -> None:
+    if not distribution:
+        return
+    if "warnings" in distribution:
+        for warning in distribution["warnings"]:
+            print(f"⚠️  Distribution report unavailable: {warning}")
+        return
+    rust = distribution.get("rust_core") or {}
+    fallback = distribution.get("fallback") or {}
+    wheel = distribution.get("wheel_matrix") or {}
+    index = distribution.get("index_fabric") or {}
+    print("Distribution:")
+    print(
+        "  rust core: "
+        f"{rust.get('mode', 'unknown')} | native={str(rust.get('available')).lower()}"
+    )
+    print(
+        "  platform: "
+        f"{wheel.get('current_target', 'unknown')} | fallback={fallback.get('mode')}"
+    )
+    print(
+        "  index fabric: "
+        f"{index.get('freshness', 'unknown')} | sidecars={index.get('sidecar_count', 0)}"
+    )
 
 
 def _load_project_dream_config(project_name: str) -> MergedConfig | None:

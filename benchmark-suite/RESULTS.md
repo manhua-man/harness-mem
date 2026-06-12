@@ -10,9 +10,10 @@ state the task set, metrics, deltas, and unsupported claims.
 
 All seven original BENCH gaps plus the v3.8 token-visible / true-hybrid /
 retrieval-shootout follow-up artifacts are closed with validated artifact
-bundles, but the supported claims are bounded:
+bundles. v4.0.0 adds diagnostic Storage v2 smoke artifacts, but they are not
+release-snapshot performance evidence. The supported claims are bounded:
 
-- v3.8 `benchmark_matrix_report` now reads the completed artifact results as
+- v4.0 `benchmark_matrix_report` still reads the completed release artifact results as
   `11` accepted runs, `0` failed runs, `0` unknown runs, with the benchmark gate
   passing for the current artifact set.
 - The same matrix exposes machine-readable `claim_readiness` for public claim
@@ -63,7 +64,7 @@ bundles, but the supported claims are bounded:
 
 ## Release Snapshot Gate
 
-The current v3.8 benchmark matrix reads the accepted artifact state from
+The current benchmark matrix reads the accepted artifact state from
 `benchmark-suite/artifacts/*/results/*.json` when raw artifact bundles are
 present. In a clean checkout without raw artifacts, it falls back to the tracked
 `benchmark-suite/release-snapshot.json` summary.
@@ -80,7 +81,7 @@ present. In a clean checkout without raw artifacts, it falls back to the tracked
 | Retrieval recall claim ready | true |
 
 This proves the local benchmark artifact set is internally validated and
-accepted by the v3.8 matrix gate. It still does not create token-saving,
+accepted by the matrix gate. It still does not create token-saving,
 real-billing, production-latency, broad retrieval-quality, or long-run
 production-maintenance claims.
 

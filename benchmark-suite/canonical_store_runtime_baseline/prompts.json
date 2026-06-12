@@ -1,0 +1,9 @@
+{
+  "benchmark_id": "canonical_store_runtime_baseline",
+  "tasks": [
+    {
+      "task_id": "CSR1",
+      "prompt": "Build canonical store from the fixture and verify entity table metadata filters plus checksum health."
+    }
+  ]
+}

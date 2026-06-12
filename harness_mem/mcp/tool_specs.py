@@ -61,6 +61,20 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "v1.7.0: include historical structured truth. Default false returns current truth only.",
                     "default": False,
                 },
+                "deep_recall": {
+                    "type": "boolean",
+                    "description": "v4.0.4: include cold/archive lifecycle tiers. Default false searches hot/warm only.",
+                    "default": False,
+                },
+                "task": {
+                    "type": "string",
+                    "description": "v4.1: optional current task used by context sufficiency checks.",
+                },
+                "budget_tokens": {
+                    "type": "integer",
+                    "description": "v4.1: advisory context budget for ContextPlan / wake packet traces.",
+                    "default": 6000,
+                },
             },
             "required": ["query"],
         },
@@ -462,6 +476,20 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "skill_hint_limit": {
                     "type": "integer",
                     "description": "Maximum compact skill hints to append when include_skill_hints is enabled.",
+                },
+                "current_task": {
+                    "type": "string",
+                    "description": "v4.1: optional current task used to build a task-aware wake packet.",
+                },
+                "budget_tokens": {
+                    "type": "integer",
+                    "description": "v4.1: advisory wake packet budget.",
+                    "default": 6000,
+                },
+                "deep_recall": {
+                    "type": "boolean",
+                    "description": "v4.1: include cold/archive memory in task-aware wake planning.",
+                    "default": False,
                 },
             },
         },
@@ -1165,7 +1193,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "benchmark_matrix_report": {
         "description": (
-            "Read-only v3.8 benchmark taxonomy, artifact-state hygiene, per-surface regression "
+            "Read-only v4.0 benchmark taxonomy, artifact-state hygiene, per-surface regression "
             "coverage, LongMemEval dimension tracking, release snapshot, "
             "true-hybrid retrieval shootout summary, and public-claim readiness "
             "gates for token/cost saving, true vector-hybrid latency, and retrieval recall."

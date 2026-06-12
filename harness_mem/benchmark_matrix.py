@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-BENCHMARK_MATRIX_VERSION = "v3.8.0"
+BENCHMARK_MATRIX_VERSION = "v4.1.0"
 
 ARTIFACT_STATES = ["accepted", "partial", "failed", "quarantined"]
 
@@ -27,6 +27,13 @@ SURFACE_REGRESSION_TARGETS = {
     "file_context": ["retrieval_diagnostics", "evidence_safety"],
     "wiki_compact": ["generated_knowledge_freshness"],
     "temporal_query": ["temporal_product_query"],
+    "storage_v2": ["storage_v2_baseline", "migration_roundtrip"],
+    "canonical_store": ["canonical_store_runtime_baseline"],
+    "rust_core": ["rust_core_hot_path"],
+    "index_fabric": ["local_index_fabric_smoke", "index_fabric_runtime_conformance"],
+    "lifecycle_tiering": ["canonical_store_runtime_baseline"],
+    "context_sufficiency": ["context_sufficiency_gate"],
+    "task_aware_wake": ["task_aware_wake_precision"],
 }
 
 LONGMEMEVAL_DIMENSIONS = [

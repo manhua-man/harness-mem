@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "3.8.0"
+version = "4.1.0"
 description = "Local-first, pluggable AI memory runtime"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -54,9 +54,10 @@ packages = ["harness_mem"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "AGENTS.md",
     "CHANGELOG.md",
+    "Cargo.toml",
     "README.md",
+    "crates",
     "docs/error-codes.md",
     "harness_mem",
     "harness_mem/integration/templates/*.template",
@@ -64,8 +65,25 @@ include = [
 ]
 # Defensive: never ship maintainer-only docs in PyPI sdist even if include list grows.
 exclude = [
+    "AGENTS.md",
+    "benchmark-suite",
+    "docs/README.md",
+    "docs/roadmap*.md",
+    "docs/roadmap",
+    "docs/reference-projects.md",
+    "docs/releasing.md",
+    "docs/testing.md",
+    "docs/retrospective-v13-v14.md",
+    "docs/harness-mem-mechanism-article-style.md",
+    "docs/benchmark",
+    "docs/cli",
+    "docs/diagrams",
+    "docs/cli-design-expert.md",
     "docs/v2-user-test-packet.md",
     "harness_mem/integration/artifacts",
+    "openspec",
+    "release",
+    "tests",
 ]
 
 [[tool.mypy.overrides]]

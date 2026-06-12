@@ -7,8 +7,8 @@ from datetime import datetime, timedelta, timezone
 import re
 from typing import Any, Sequence
 
-from harness_mem.commands.retrieval_signals import record_retrieval_signal
-from harness_mem.commands.signal_influence import pull_recent_signals
+from harness_mem.retrieval_signals import record_retrieval_signal
+from harness_mem.signal_influence import pull_recent_signals
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
@@ -131,6 +131,7 @@ async def search_memory(
     observation_limit: int = 20,
     memory_type: list[str] | None = None,
     include_history: bool = False,
+    deep_recall: bool = False,
     time_window: tuple[datetime | None, datetime | None] | None = None,
     record_signals: bool = True,
 ) -> tuple[list[MemoryEntry], list[Observation]]:
@@ -149,6 +150,7 @@ async def search_memory(
             mode=mode,
             memory_type=memory_type,
             include_history=include_history,
+            deep_recall=deep_recall,
             time_window=time_window,
         )
         observations = await backend.verbatim_store.search(
@@ -170,6 +172,7 @@ async def search_memory(
         mode=mode,
         memory_type=memory_type,
         include_history=include_history,
+        deep_recall=deep_recall,
         time_window=time_window,
     )
     observations = await backend.verbatim_store.search(

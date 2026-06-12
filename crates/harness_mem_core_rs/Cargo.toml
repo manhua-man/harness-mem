@@ -1,0 +1,10 @@
+[package]
+name = "harness_mem_core_rs"
+version = "4.0.2"
+edition = "2021"
+description = "Deterministic hot-path helpers for harness-mem Storage v2"
+license = "MIT"
+
+[lib]
+name = "harness_mem_core_rs"
+path = "src/lib.rs"

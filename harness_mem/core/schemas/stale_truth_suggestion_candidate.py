@@ -24,6 +24,7 @@ section "StaleTruthSuggestionCandidate" for:
 """
 
 from datetime import datetime, timezone
+from typing import Any
 from typing import Literal
 from uuid import uuid4
 
@@ -57,7 +58,7 @@ class StaleTruthSuggestionCandidate(BaseModel):
     model_config = {"extra": "allow"}
 
     def to_dict(self) -> dict:
-        return {
+        data: dict[str, Any] = {
             "id": self.id,
             "project_name": self.project_name,
             "target_id": self.target_id,
@@ -71,6 +72,10 @@ class StaleTruthSuggestionCandidate(BaseModel):
             "metabolism_run_id": self.metabolism_run_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+        for key, value in (self.model_extra or {}).items():
+            if key not in data:
+                data[key] = value.isoformat() if isinstance(value, datetime) else value
+        return data
 
     @classmethod
     def from_dict(cls, data: dict) -> "StaleTruthSuggestionCandidate":

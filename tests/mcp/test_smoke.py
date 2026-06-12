@@ -1492,9 +1492,22 @@ def test_benchmark_matrix_report_exposes_surface_gates():
     data = call_tool("benchmark_matrix_report", {})
 
     assert data["success"] is True
-    assert data["matrix_version"] == "v3.8.0"
+    assert data["matrix_version"] == "v4.1.0"
     surfaces = {row["surface"]: row for row in data["surfaces"]}
-    assert {"wake", "search", "file_context", "wiki_compact", "temporal_query"}.issubset(
+    assert {
+        "wake",
+        "search",
+        "file_context",
+        "wiki_compact",
+        "temporal_query",
+        "storage_v2",
+        "canonical_store",
+        "rust_core",
+        "index_fabric",
+        "lifecycle_tiering",
+        "context_sufficiency",
+        "task_aware_wake",
+    }.issubset(
         surfaces
     )
     assert "knowledge-update" in data["taxonomy"]["dimensions"]

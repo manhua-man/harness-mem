@@ -108,7 +108,7 @@ from harness_mem.config.errors import ConfigError  # noqa: E402
 from harness_mem.config.merge import load_merged_config  # noqa: E402
 from harness_mem.commands.ingest import cmd_ingest  # noqa: E402
 from harness_mem.commands.metabolism_pass import select_metabolism_pass  # noqa: E402
-from harness_mem.commands.retrieval_signals import record_retrieval_signal  # noqa: E402
+from harness_mem.retrieval_signals import record_retrieval_signal  # noqa: E402
 from harness_mem.commands.support import (  # noqa: E402
     SUPPORTED_INGEST_CLIENTS,
     find_project_root,
@@ -126,6 +126,12 @@ from harness_mem.commands.wake import (  # noqa: E402
     DEFAULT_SKILL_HINT_LIMIT,
     build_wake_snapshot,
     cmd_wake_up,
+)
+from harness_mem.context_sufficiency import assemble_task_aware_context_plan  # noqa: E402
+from harness_mem.core.schemas.context_sufficiency import (  # noqa: E402
+    build_retrieval_plan,
+    context_plan_from_response,
+    evaluate_sufficiency,
 )
 from harness_mem.core.schemas import (  # noqa: E402
     ProceduralCandidate,
@@ -175,6 +181,7 @@ from harness_mem.runtime_cost import (  # noqa: E402
     surface_cost_report,
 )
 from harness_mem.runtime_health import runtime_health_report  # noqa: E402
+from harness_mem.search.backend import BackendSearchResult, SearchBackendResponse  # noqa: E402
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend  # noqa: E402
 from harness_mem.storage.local_project_profile_store import (  # noqa: E402
     LocalProjectProfileStore,
@@ -268,6 +275,9 @@ def tool_search_memory(
     mode: str = "auto",
     memory_type: list[str] | None = None,
     include_history: bool = False,
+    deep_recall: bool = False,
+    task: str | None = None,
+    budget_tokens: int = 6000,
 ) -> dict:
     """Search structured memory entries + verbatim observations.
 
@@ -307,6 +317,7 @@ def tool_search_memory(
             mode=mode,
             memory_type=memory_type,
             include_history=include_history,
+            deep_recall=deep_recall,
             time_window=parsed_time.time_window,
         )
     )
@@ -314,6 +325,18 @@ def tool_search_memory(
     combined_results = entries or relation_facts or obs_list
     effective_mode = getattr(combined_results[0], "_search_mode", mode) if combined_results else mode
     fallback_reason = getattr(combined_results[0], "_search_fallback_reason", None) if combined_results else None
+    context_payload = _search_context_plan_payload(
+        project_name=project_name,
+        query=parsed_time.query,
+        task=task,
+        mode=mode,
+        effective_mode=effective_mode,
+        fallback_reason=fallback_reason,
+        entries=entries,
+        observations=obs_list,
+        budget_tokens=budget_tokens,
+        deep_recall=deep_recall,
+    )
 
     return {
         "project_name": project_name,
@@ -324,6 +347,7 @@ def tool_search_memory(
         "effective_mode": effective_mode,
         "fallback_reason": fallback_reason,
         "include_history": include_history,
+        "deep_recall": deep_recall,
         "time_window": (
             {
                 "start": parsed_time.start.isoformat() if parsed_time.start else None,
@@ -352,7 +376,130 @@ def tool_search_memory(
         "memory_entry_count": len(entries),
         "relation_fact_count": len(relation_facts),
         "observation_count": len(obs_list),
+        **context_payload,
     }
+
+
+def _search_context_plan_payload(
+    *,
+    project_name: str | None,
+    query: str,
+    task: str | None,
+    mode: str,
+    effective_mode: str,
+    fallback_reason: str | None,
+    entries: list[Any],
+    observations: list[Any],
+    budget_tokens: int,
+    deep_recall: bool,
+) -> dict[str, Any]:
+    effective_query = f"{query} {task.strip()}".strip() if task and task.strip() else query
+    results: list[BackendSearchResult] = []
+    for entry in entries:
+        results.append(
+            BackendSearchResult(
+                source_id=entry.id,
+                source_kind="memory_entry",
+                score=_mcp_result_score(entry),
+                preview=str(entry.content),
+                metadata={
+                    "project_name": entry.project_name,
+                    "truth_status": "historical" if entry.valid_to else entry.status,
+                    "tier": getattr(entry, "tier", "hot"),
+                    "memory_type": getattr(entry, "memory_type", None),
+                },
+            )
+        )
+    for observation in observations:
+        results.append(
+            BackendSearchResult(
+                source_id=observation.id,
+                source_kind="observation",
+                score=_mcp_result_score(observation),
+                preview=str(observation.raw_content),
+                metadata={
+                    "project_name": observation.metadata.get("project_name"),
+                    "truth_status": "raw",
+                    "tier": "hot",
+                    "corpus_id": observation.metadata.get("corpus_id"),
+                },
+            )
+        )
+    retrieval_plan = build_retrieval_plan(
+        query=effective_query,
+        project_name=project_name,
+        budget_tokens=budget_tokens,
+        mode=mode,
+        deep_recall=deep_recall,
+    )
+    response = SearchBackendResponse(
+        query=effective_query,
+        requested_mode=mode,
+        effective_mode=effective_mode,
+        results=results,
+        fallback_metadata={
+            "backend": "sqlite",
+            "requested_mode": mode,
+            "effective_mode": effective_mode,
+            "fallback_reason": fallback_reason,
+        },
+        budget={
+            "requested_tokens": budget_tokens,
+            "estimated_tokens": max(0, sum(len(r.preview) for r in results) // 4),
+            "result_limit": len(results),
+        },
+        truncation={
+            "available": len(results),
+            "included": len(results),
+            "dropped": 0,
+            "truncated": False,
+        },
+        source_coverage=_mcp_source_coverage(results),
+        drilldown_hints=[
+            {
+                "source_id": result.source_id,
+                "source_kind": result.source_kind,
+                "read_surface": (
+                    "read_api.get_observations"
+                    if result.source_kind == "observation"
+                    else "read_api.get_memory_entry"
+                ),
+            }
+            for result in results
+        ],
+    )
+    sufficiency = evaluate_sufficiency(
+        query=effective_query,
+        results=results,
+        required_slots=[task] if task else None,
+    )
+    context_plan = context_plan_from_response(
+        project_name=project_name or "",
+        response=response,
+        retrieval_plan=retrieval_plan,
+        sufficiency=sufficiency,
+    )
+    return {
+        "context_sufficiency": sufficiency.to_dict(),
+        "retrieval_plan": retrieval_plan.to_dict(),
+        "context_plan": context_plan.to_dict(),
+        "iterative_retrieval_trace": context_plan.iterative_retrieval_trace.to_dict(),
+    }
+
+
+def _mcp_result_score(result: object) -> float | None:
+    for attr in ("_score", "_hybrid_score", "_fts_score"):
+        score = getattr(result, attr, None)
+        if isinstance(score, (int, float)):
+            return float(score)
+    return None
+
+
+def _mcp_source_coverage(results: list[BackendSearchResult]) -> dict[str, int]:
+    coverage: dict[str, int] = {}
+    for result in results:
+        coverage[result.source_kind] = coverage.get(result.source_kind, 0) + 1
+    return coverage
 
 
 async def _gather_search_payload(
@@ -364,6 +511,7 @@ async def _gather_search_payload(
     mode: str,
     memory_type: list[str] | None = None,
     include_history: bool = False,
+    deep_recall: bool = False,
     time_window: tuple[datetime | None, datetime | None] | None = None,
 ) -> tuple[
     list[Any],
@@ -387,6 +535,7 @@ async def _gather_search_payload(
         observation_limit=20,
         memory_type=memory_type,
         include_history=include_history,
+        deep_recall=deep_recall,
         time_window=time_window,
     )
     relation_facts = await search_relation_facts(
@@ -1051,6 +1200,9 @@ def tool_wake(
     renderer: str = "default",
     include_skill_hints: bool | None = None,
     skill_hint_limit: int | None = None,
+    current_task: str | None = None,
+    budget_tokens: int = 6000,
+    deep_recall: bool = False,
 ) -> dict:
     """Generate the wake-up context (project profile + recent rules / handoffs).
 
@@ -1117,12 +1269,37 @@ def tool_wake(
                 skill_hint_limit=effective_skill_hint_limit,
             )
         )
+        context_plan = asyncio.run(
+            assemble_task_aware_context_plan(
+                _get_backend(),
+                project_name=resolved,
+                query=current_task or "wake context",
+                current_task=current_task,
+                budget_tokens=budget_tokens,
+                deep_recall=deep_recall,
+                limit=10,
+            )
+        )
+        snapshot_payload.update(
+            {
+                "context_sufficiency": context_plan.context_sufficiency.to_dict(),
+                "retrieval_plan": context_plan.retrieval_plan.to_dict(),
+                "iterative_retrieval_trace": (
+                    context_plan.iterative_retrieval_trace.to_dict()
+                ),
+                "context_plan": context_plan.to_dict(),
+                "wake_packet": context_plan.wake_packet.to_dict(),
+            }
+        )
     return {
         "project_name": resolved,
         "renderer": normalized_renderer,
         **snapshot_payload,
         "include_skill_hints": include_skill_hints,
         "skill_hint_limit": skill_hint_limit,
+        "current_task": current_task,
+        "budget_tokens": budget_tokens,
+        "deep_recall": deep_recall,
         **command_payload,
     }
 
@@ -2925,7 +3102,7 @@ def tool_surface_cost_report(
 
 
 def tool_benchmark_matrix_report() -> dict:
-    """Return v3.8 benchmark taxonomy, surface gates, shootout, and claim readiness."""
+    """Return v4.0 benchmark taxonomy, surface gates, shootout, and claim readiness."""
     return benchmark_matrix_report(Path(__file__).resolve().parents[2] / "benchmark-suite")
 
 

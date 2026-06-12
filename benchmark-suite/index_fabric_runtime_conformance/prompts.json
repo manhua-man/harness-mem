@@ -1,0 +1,9 @@
+{
+  "benchmark_id": "index_fabric_runtime_conformance",
+  "tasks": [
+    {
+      "task_id": "IFC1",
+      "prompt": "Build a manifest-last index generation, simulate an interrupted generation, and verify SearchBackend metadata."
+    }
+  ]
+}

@@ -9,15 +9,15 @@ def test_plugin_readme_points_to_release_truth_authorities() -> None:
         REPO_ROOT / "plugins" / "harness-mem" / "README.md"
     ).read_text(encoding="utf-8")
 
-    assert "当前发版状态、已完成切片和未做边界以 [docs/roadmap-status.md](../../docs/roadmap-status.md)" in plugin_readme
-    assert "[CHANGELOG.md](../../CHANGELOG.md)" in plugin_readme
-    assert "公开状态页" in plugin_readme
-    assert "本文聚焦 plugin 安装、集成与日常 IDE 使用方式，不单独充当当前实现真值" in plugin_readme
+    assert "版本说明见 [CHANGELOG.md](../../CHANGELOG.md)" in plugin_readme
+    assert "本文聚焦 plugin 安装、集成与日常 IDE 使用方式" in plugin_readme
+    assert "docs/roadmap-status.md" not in plugin_readme
+    assert "公开状态页" not in plugin_readme
 
 
 def test_best_practices_points_to_release_truth_authorities() -> None:
     best_practices = (REPO_ROOT / "docs" / "best-practices.md").read_text(encoding="utf-8")
 
-    assert "当前发版状态、已完成切片和未做边界以 [roadmap-status.md](./roadmap-status.md) 与" in best_practices
-    assert "`CHANGELOG.md` 为准" in best_practices
-    assert "本文聚焦使用建议与操作习惯，不单独充当当前实现真值" in best_practices
+    assert "版本说明见 `CHANGELOG.md`" in best_practices
+    assert "本文聚焦使用建议与操作习惯" in best_practices
+    assert "roadmap-status.md" not in best_practices
