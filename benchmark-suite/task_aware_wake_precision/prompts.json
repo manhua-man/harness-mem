@@ -1,0 +1,9 @@
+{
+  "benchmark_id": "task_aware_wake_precision",
+  "tasks": [
+    {
+      "task_id": "TAW1",
+      "prompt": "Build a task-aware wake packet and verify inclusion precision plus budget trace."
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "benchmark_id": "functional_token_economics",
+  "version": 1,
+  "status": "ready-to-run",
+  "tokenizer": "harness_mem.commands.token_estimator",
+  "claim_boundary": "Feature-level fixture context-token economics only; not global product savings or real billing.",
+  "scenarios": [
+    {
+      "scenario_id": "FTE1",
+      "workflow": "progressive_recall",
+      "title": "Progressive recall vs broad source recovery",
+      "baseline_label": "read broad source docs before answering",
+      "optimized_label": "search index -> timeline -> selected details",
+      "minimum_saving_ratio": 0.5,
+      "claim_scope": "fixture progressive recall payload",
+      "baseline_sources": [
+        {"kind": "file", "path": "docs/reference-projects.md"},
+        {"kind": "file", "path": "benchmark-suite/RESULTS.md"},
+        {"kind": "file", "path": "docs/roadmap-status.md"}
+      ],
+      "optimized_sources": [
+        {
+          "kind": "text",
+          "label": "compact progressive recall packet",
+          "text": "search(query='public claim boundary reference projects') -> ids: ref:codedb-mcp, ref:evo, bench:claim_readiness, status:v3.8.\ntimeline(ref:codedb-mcp): codedb-mcp is code knowledge compiler reference; borrow generated layer discipline, setup/use split, intermediate structure, tool-cost observer; do not promote DeepWiki prose to truth.\ntimeline(ref:evo): evo is orchestration/runtime reference; borrow host adapter, ledger, version lockstep, directive/ack; do not turn harness-mem into autonomous benchmark optimizer.\ndetails(bench:claim_readiness): token_cost_saving.ready=false; true_vector_hybrid_latency and retrieval_recall are bounded local artifact claims only.\nsource paths: docs/reference-projects.md, benchmark-suite/RESULTS.md, docs/roadmap-status.md."
+        }
+      ]
+    },
+    {
+      "scenario_id": "FTE2",
+      "workflow": "file_context_preflight",
+      "title": "File context preflight vs full target file read",
+      "baseline_label": "read full target file",
+      "optimized_label": "file_context compact path-associated memory",
+      "minimum_saving_ratio": 0.5,
+      "claim_scope": "fixture file-context preflight payload",
+      "baseline_sources": [
+        {"kind": "file", "path": "harness_mem/mcp/tool_specs.py"}
+      ],
+      "optimized_sources": [
+        {
+          "kind": "text",
+          "label": "compact file_context payload",
+          "text": "file_context(path='harness_mem/mcp/tool_specs.py')\nitems:\n- confirmed_rule: tool schemas live in tool_specs.py; handlers stay in mcp/server.py; update OpenSpec when schemas change. source=rule:tool-spec-boundary\n- memory_entry: keep schema order grouped by read/ingest/review/suggest, and add new tools at the bottom of their cluster. source=mem:tool-registry-order\n- task_handoff: benchmark_matrix_report and surface_cost_report are read-only status/cost tools; do not persist raw arguments or response content. source=handoff:v34-cost\ncost_hint: estimated_tokens<900, disclosure=L1\ndrilldown: get_confirmed_rules(project), search_raw(pattern='benchmark_matrix_report'), read source file only if editing schema bodies."
+        }
+      ]
+    },
+    {
+      "scenario_id": "FTE3",
+      "workflow": "wake_compact",
+      "title": "Compact wake vs broad status/session context",
+      "baseline_label": "read broad status and user-test packet",
+      "optimized_label": "compact wake packet with drilldown pointers",
+      "minimum_saving_ratio": 0.5,
+      "claim_scope": "fixture compact wake payload",
+      "baseline_sources": [
+        {"kind": "file", "path": "docs/roadmap-status.md"},
+        {"kind": "file", "path": "docs/v2-user-test-packet.md"}
+      ],
+      "optimized_sources": [
+        {
+          "kind": "text",
+          "label": "compact wake payload",
+          "text": "wake(renderer='compact')\nproject: harness-mem\ncurrent truth:\n- local-first memory runtime; daily entry is Slash/MCP/Skills, not user hand-run CLI.\n- controlled automation exists; Auto Dream remains opt-in/default-off; no silent truth mutation.\n- generated cache/wiki is derived cache with source-map/freshness; not authority.\n- v3.8 benchmark matrix: token/cost saving not ready; true-hybrid latency and retrieval recall bounded to local artifacts.\nactive drilldowns:\n- docs/roadmap-status.md for current product status\n- docs/v2-user-test-packet.md for cross-client evidence matrix\n- benchmark-suite/RESULTS.md for benchmark claim boundaries\ncost_hint: compact wake first; use search/timeline/details for follow-up."
+        }
+      ]
+    },
+    {
+      "scenario_id": "FTE4",
+      "workflow": "wiki_compact_index",
+      "title": "Wiki compact index vs direct multi-doc reading",
+      "baseline_label": "read reference and roadmap docs directly",
+      "optimized_label": "generated compact wiki index with source map",
+      "minimum_saving_ratio": 0.5,
+      "claim_scope": "fixture wiki compact index payload",
+      "baseline_sources": [
+        {"kind": "file", "path": "docs/reference-projects.md"},
+        {"kind": "file", "path": "docs/roadmap-v38.md"},
+        {"kind": "file", "path": "benchmark-suite/BENCHMARKS.md"}
+      ],
+      "optimized_sources": [
+        {
+          "kind": "text",
+          "label": "compact wiki index payload",
+          "text": "wiki_compact_index(topic='benchmark and reference boundaries')\nsections:\n1. Reference projects: codedb-mcp=P0 code knowledge compiler reference; evo=P1 orchestration runtime reference; claude-mem=progressive disclosure/queue health reference.\n2. Performance/cost boundary: cost discipline is separate from observability; codedb-mcp benchmark numbers are external reference, not harness-mem scores.\n3. v3.8 retrieval: FTS/vector/hybrid source-hit recall and true-hybrid latency are local bounded artifacts; all-MiniLM-L6-v2 remains default baseline.\n4. Token claims: no global token/cost saving claim until feature-level or paired claim gates pass.\nsource_map: docs/reference-projects.md, docs/roadmap-v38.md, benchmark-suite/BENCHMARKS.md\nfreshness: local generated fixture, must verify source before publication."
+        }
+      ]
+    }
+  ]
+}

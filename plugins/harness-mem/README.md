@@ -2,8 +2,7 @@
 
 Repo-local plugin wrapper for the `harness-mem` local-first AI memory runtime.
 
-当前发版状态、已完成切片和未做边界以 [docs/roadmap-status.md](../../docs/roadmap-status.md)（公开状态页）
-与 [CHANGELOG.md](../../CHANGELOG.md) 为准；本文聚焦 plugin 安装、集成与日常 IDE 使用方式，不单独充当当前实现真值。
+版本说明见 [CHANGELOG.md](../../CHANGELOG.md)。本文聚焦 plugin 安装、集成与日常 IDE 使用方式。
 
 It packages four layers:
 
@@ -80,6 +79,14 @@ or unconditional per-turn memory writes. Those remain explicit opt-in runtime
 behaviors. When `dream.auto.enabled` is explicitly enabled, runtime dream
 maintenance may process eligible candidates created through autopilot-controlled
 flows.
+
+Boundary shorthand:
+
+- confirmed truth can be maintained automatically, but it must not be silently
+  overwritten; durable changes go through candidate / review / supersede /
+  ledger.
+- cross-project skills can be reused across projects, but they must not pollute
+  default wake; shared skills are searched, hinted, and expanded explicitly.
 
 ### Claude Code
 

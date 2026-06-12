@@ -164,6 +164,10 @@ def test_tools_list():
         "health_summary", "surface_cost_report", "benchmark_matrix_report",
     }
     assert expected.issubset(names)
+    benchmark_tool = next(tool for tool in tools if tool["name"] == "benchmark_matrix_report")
+    assert "public-claim readiness gates" in benchmark_tool["description"]
+    assert "token/cost saving" in benchmark_tool["description"]
+    assert "true vector-hybrid latency" in benchmark_tool["description"]
 
 
 def test_file_context_tool(mcp_backend: LocalMemoryBackend):
@@ -894,6 +898,9 @@ def test_detect_skill_improvements_creates_review_candidates_without_rewriting_s
             {
                 "skill_id": skill_id,
                 "success": False,
+                "surface": "search_skills",
+                "source_ids": ["obs-skill-failure"],
+                "reason": "missed release checklist precondition",
             },
         )
         assert payload["success"] is True
@@ -928,6 +935,20 @@ def test_detect_skill_improvements_creates_review_candidates_without_rewriting_s
     assert candidate["failure_count"] == 5
     assert candidate["success_count"] == 0
     assert len(candidate["recent_failure_signal_ids"]) == 5
+    failure_signals = run(
+        mcp_backend.structured_store.query_retrieval_signals(
+            "test-project",
+            signal_type="skill_result_failure",
+            target_kind="skill",
+            target_id=skill_id,
+        )
+    )
+    assert failure_signals
+    assert failure_signals[0].context == {
+        "surface": "search_skills",
+        "source_ids": ["obs-skill-failure"],
+        "reason": "missed release checklist precondition",
+    }
     assert candidate["confirm_tool"] == "confirm_skill_revision"
     assert candidate["reject_tool"] == "reject_skill_revision"
 
@@ -1471,13 +1492,39 @@ def test_benchmark_matrix_report_exposes_surface_gates():
     data = call_tool("benchmark_matrix_report", {})
 
     assert data["success"] is True
-    assert data["matrix_version"] == "v3.4.2"
+    assert data["matrix_version"] == "v4.1.0"
     surfaces = {row["surface"]: row for row in data["surfaces"]}
-    assert {"wake", "search", "file_context", "wiki_compact", "temporal_query"}.issubset(
+    assert {
+        "wake",
+        "search",
+        "file_context",
+        "wiki_compact",
+        "temporal_query",
+        "storage_v2",
+        "canonical_store",
+        "rust_core",
+        "index_fabric",
+        "lifecycle_tiering",
+        "context_sufficiency",
+        "task_aware_wake",
+    }.issubset(
         surfaces
     )
     assert "knowledge-update" in data["taxonomy"]["dimensions"]
+    assert data["taxonomy"]["embedding_baseline"] == "all-MiniLM-L6-v2"
     assert "release_snapshot" in data
+    assert "retrieval_shootout" in data
+    assert "claim_readiness" in data
+    for claim in (
+        "token_cost_saving",
+        "true_vector_hybrid_latency",
+        "retrieval_recall",
+    ):
+        claim_data = data["claim_readiness"][claim]
+        assert isinstance(claim_data["ready"], bool)
+        assert isinstance(claim_data["blocking"], list)
+        assert claim_data["dimension"]
+        assert claim_data["source"]
 
 
 def test_get_project_status_empty_project_suggests_distill(mcp_backend: LocalMemoryBackend):

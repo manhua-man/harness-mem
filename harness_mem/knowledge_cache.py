@@ -124,6 +124,8 @@ class CompactWakePayload:
     topics: tuple[dict[str, Any], ...]
     entities: tuple[dict[str, Any], ...]
     source_ids: tuple[str, ...]
+    freshness_summary: dict[str, Any]
+    drilldown_pointers: tuple[dict[str, Any], ...]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -136,6 +138,8 @@ class CompactWakePayload:
             "topics": [dict(item) for item in self.topics],
             "entities": [dict(item) for item in self.entities],
             "source_ids": list(self.source_ids),
+            "freshness_summary": dict(self.freshness_summary),
+            "drilldown_pointers": [dict(item) for item in self.drilldown_pointers],
         }
 
 
@@ -202,6 +206,11 @@ def load_compact_wake_payload(
         for claim in claims_raw
         if isinstance(claim, dict) and _claim_payload_has_valid_citations(claim, valid_source_hashes)
     ]
+    invalid_claims = [
+        claim
+        for claim in claims_raw
+        if isinstance(claim, dict) and not _claim_payload_has_valid_citations(claim, valid_source_hashes)
+    ]
 
     claims = tuple(
         item
@@ -219,6 +228,12 @@ def load_compact_wake_payload(
     )
 
     source_ids = _collect_compact_source_ids(claims)
+    compile_metrics = index_payload.get("compile_metrics", {})
+    if not isinstance(compile_metrics, dict):
+        compile_metrics = {}
+    freshness = index_payload.get("freshness", {})
+    if not isinstance(freshness, dict):
+        freshness = {}
     return CompactWakePayload(
         project_name=project_name,
         authority=str(claims_payload.get("authority") or COMPILED_AUTHORITY),
@@ -229,6 +244,14 @@ def load_compact_wake_payload(
         topics=topics,
         entities=entities,
         source_ids=source_ids,
+        freshness_summary={
+            "citation_valid_claim_count": len(readable_claims),
+            "invalid_claim_count": len(invalid_claims),
+            "hash_drift_count": int(freshness.get("hash_drift_count", 0) or 0),
+            "cache_hit_ratio": float(compile_metrics.get("cache_hit_ratio", 0.0) or 0.0),
+            "updated_at": index_payload.get("updated_at"),
+        },
+        drilldown_pointers=_collect_compact_drilldown_pointers(claims),
     )
 
 
@@ -382,6 +405,11 @@ async def knowledge_cache_health(
     source_map_entries = source_map_payload.get("sources", [])
     if not isinstance(source_map_entries, list):
         source_map_entries = []
+    generated_review_queue = _generated_review_queue(
+        paths,
+        stale_sources=stale_sources,
+        missing_sources=missing_sources,
+    )
 
     return {
         "project_name": project_name,
@@ -407,9 +435,11 @@ async def knowledge_cache_health(
         "compile_duration_ms": int(compile_metrics.get("duration_ms", 0) or 0),
         "output_token_estimate": int(compile_metrics.get("output_token_estimate", 0) or 0),
         "orphaned_output_count": len(orphaned_outputs),
+        "generated_review_queue_count": len(generated_review_queue),
         "sources": [source.to_dict() for source in current_sources],
         "stale_sources": stale_sources,
         "missing_sources": missing_sources,
+        "generated_review_queue": generated_review_queue,
         "orphaned_outputs": orphaned_outputs,
         "compile_metrics": compile_metrics,
         "freshness": freshness,
@@ -981,6 +1011,13 @@ def render_compact_wake_payload(payload: CompactWakePayload) -> str:
             f"# authority: {payload.authority}  "
             f"claims={payload.claim_count} topics={payload.topic_count} entities={payload.entity_count}"
         ),
+        "# Trust",
+        (
+            "- generated summary; "
+            f"valid_claims={payload.freshness_summary.get('citation_valid_claim_count', payload.claim_count)} "
+            f"invalid_claims={payload.freshness_summary.get('invalid_claim_count', 0)} "
+            f"hash_drift={payload.freshness_summary.get('hash_drift_count', 0)}"
+        ),
     ]
 
     if payload.claims:
@@ -1016,6 +1053,14 @@ def render_compact_wake_payload(payload: CompactWakePayload) -> str:
         lines.append("# Source IDs")
         lines.append("- " + ", ".join(payload.source_ids))
 
+    if payload.drilldown_pointers:
+        lines.append("# Drilldown")
+        for pointer in payload.drilldown_pointers[:5]:
+            source_id = str(pointer.get("source_id") or "")
+            claim_id = str(pointer.get("claim_id") or "")
+            reason = str(pointer.get("reason") or "source")
+            lines.append(f"- {claim_id} -> {source_id} ({reason})".rstrip())
+
     lines.append(
         "Note: compact wake is generated from wiki bridge artifacts and does not replace confirmed truth."
     )
@@ -1044,6 +1089,109 @@ def _collect_compact_source_ids(claims: tuple[dict[str, Any], ...]) -> tuple[str
             seen.add(source_id)
             source_ids.append(source_id)
     return tuple(source_ids)
+
+
+def _collect_compact_drilldown_pointers(
+    claims: tuple[dict[str, Any], ...],
+) -> tuple[dict[str, Any], ...]:
+    pointers: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for claim in claims:
+        claim_id = str(claim.get("claim_id") or "").strip()
+        refs = claim.get("source_refs") or []
+        if not isinstance(refs, list):
+            continue
+        for ref in refs:
+            if not isinstance(ref, dict):
+                continue
+            source_id = str(ref.get("source_id") or "").strip()
+            if not claim_id or not source_id or (claim_id, source_id) in seen:
+                continue
+            seen.add((claim_id, source_id))
+            pointers.append(
+                {
+                    "claim_id": claim_id,
+                    "source_id": source_id,
+                    "reason": str(ref.get("source_kind") or "source"),
+                    "drilldown": dict(ref.get("drilldown") or {}),
+                }
+            )
+    return tuple(pointers)
+
+
+def _generated_review_queue(
+    paths: KnowledgeCachePaths,
+    *,
+    stale_sources: list[dict[str, Any]],
+    missing_sources: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    queue: list[dict[str, Any]] = []
+    missing_ids = {
+        str(source.get("source_id") or "")
+        for source in missing_sources
+        if source.get("source_id")
+    }
+    for source in stale_sources:
+        source_id = str(source.get("source_id") or "")
+        if not source_id:
+            continue
+        queue.append(
+            {
+                "kind": "source",
+                "reason": "source_missing" if source_id in missing_ids else "hash_drift",
+                "source_id": source_id,
+                "label": source.get("label"),
+                "source_path": source.get("source_path"),
+            }
+        )
+
+    claims_payload = _load_json(paths.generated_root / GENERATED_CLAIMS_FILENAME)
+    index_payload = _load_json(paths.generated_index_path)
+    indexed_sources = _index_sources_by_id(index_payload.get("sources", []))
+    claims_raw = claims_payload.get("claims", [])
+    if isinstance(claims_raw, list):
+        for claim in claims_raw:
+            if not isinstance(claim, dict):
+                continue
+            if _claim_payload_has_valid_citations(claim, indexed_sources):
+                continue
+            queue.append(
+                {
+                    "kind": "claim",
+                    "reason": "invalid_citation",
+                    "claim_id": claim.get("claim_id"),
+                    "source_ids": _claim_source_ids(claim),
+                }
+            )
+
+    invalid_claims = claims_payload.get("invalid_claims", [])
+    if isinstance(invalid_claims, list):
+        for claim in invalid_claims:
+            if not isinstance(claim, dict):
+                continue
+            queue.append(
+                {
+                    "kind": "claim",
+                    "reason": "invalid_citation",
+                    "claim_id": claim.get("claim_id"),
+                    "source_ids": _claim_source_ids(claim),
+                }
+            )
+    return queue
+
+
+def _claim_source_ids(claim: dict[str, Any]) -> list[str]:
+    refs = claim.get("source_refs") or []
+    if not isinstance(refs, list):
+        return []
+    source_ids: list[str] = []
+    for ref in refs:
+        if not isinstance(ref, dict):
+            continue
+        source_id = str(ref.get("source_id") or "").strip()
+        if source_id and source_id not in source_ids:
+            source_ids.append(source_id)
+    return source_ids
 
 
 def _topics_for_rule(rule: ConfirmedRule) -> list[str]:

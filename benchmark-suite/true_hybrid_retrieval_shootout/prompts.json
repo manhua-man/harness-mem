@@ -1,0 +1,72 @@
+{
+  "benchmark_id": "true_hybrid_retrieval_shootout",
+  "version": 1,
+  "status": "fixture-contract",
+  "unlock_condition": "v3.8 registers the FTS/vector/hybrid retrieval evidence contract; public claims require non-fixture accepted artifacts across all claimed modes.",
+  "condition": "retrieval_shootout",
+  "tasks": [
+    {
+      "task_id": "RHQ1",
+      "title": "Knowledge update source-hit recall",
+      "task_type": "knowledge_update_recall",
+      "prompt": "Run the knowledge-update query across fts, vector, and hybrid modes. Report expected source ids, retrieved source ids, recall_at_1, recall_at_5, recall_at_10, latency, fallback, and token/cost estimate.",
+      "acceptance_summary": "Must report per-mode source-hit recall without turning fixture evidence into a public retrieval claim.",
+      "required_facts": [
+        "Expected source ids are named.",
+        "Retrieved source ids are named.",
+        "Recall metrics are reported per mode.",
+        "Fixture-only status is explicit."
+      ],
+      "forbidden_claims": [
+        "Fixture rows prove public retrieval recall.",
+        "Source-hit recall proves final answer correctness.",
+        "Hybrid latency is ready when hybrid fell back to FTS."
+      ],
+      "expected_evidence_hints": [
+        "benchmark-suite/true_hybrid_retrieval_shootout/queries.json",
+        "benchmark-suite/true_hybrid_retrieval_shootout/dataset.manifest.json"
+      ]
+    },
+    {
+      "task_id": "RHQ2",
+      "title": "Temporal source-hit recall",
+      "task_type": "temporal_recall",
+      "prompt": "Run the temporal query across fts, vector, and hybrid modes. Keep current/history/source-hit evidence separate and report fallback status for every mode.",
+      "acceptance_summary": "Must preserve temporal scope and per-mode fallback evidence.",
+      "required_facts": [
+        "Temporal query type is recorded.",
+        "Expected source ids are compared to retrieved source ids.",
+        "Fallback status is visible per mode."
+      ],
+      "forbidden_claims": [
+        "Temporal product correctness is inferred from source-hit recall alone.",
+        "A fallback row is counted as true hybrid evidence."
+      ],
+      "expected_evidence_hints": [
+        "benchmark-suite/true_hybrid_retrieval_shootout/queries.json",
+        "tests/temporal/test_current_history_reads.py"
+      ]
+    },
+    {
+      "task_id": "RHQ3",
+      "title": "Multi-session release boundary recall",
+      "task_type": "multi_session_recall",
+      "prompt": "Run the multi-session release-boundary query across fts, vector, and hybrid modes. Report whether the retrieved sources support only bounded public claims.",
+      "acceptance_summary": "Must keep release claim boundaries and retrieval recall readiness separate.",
+      "required_facts": [
+        "Release-boundary source ids are named.",
+        "Recall readiness is separated from artifact acceptance.",
+        "Embedding baseline and candidates remain governed metadata."
+      ],
+      "forbidden_claims": [
+        "Accepted artifacts automatically make public claims ready.",
+        "The fixture changes the default embedding baseline.",
+        "Token/cost estimate is treated as real billing evidence."
+      ],
+      "expected_evidence_hints": [
+        "benchmark-suite/release-snapshot.json",
+        "harness_mem/benchmark_matrix.py"
+      ]
+    }
+  ]
+}

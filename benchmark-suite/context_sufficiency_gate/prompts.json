@@ -1,0 +1,9 @@
+{
+  "benchmark_id": "context_sufficiency_gate",
+  "tasks": [
+    {
+      "task_id": "CSG1",
+      "prompt": "Run deterministic sufficiency cases for sufficient, partial, and insufficient evidence."
+    }
+  ]
+}

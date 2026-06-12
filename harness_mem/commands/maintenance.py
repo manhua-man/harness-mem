@@ -30,6 +30,16 @@ from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
+from harness_mem.storage.store_v2_migration import (
+    StorageV2MigrationError,
+    apply_store_v2_migration,
+    build_migration_plan,
+    export_store_v2_json_snapshot,
+)
+from harness_mem.storage.canonical_store import (
+    build_canonical_store,
+    export_json_snapshot,
+)
 
 
 _BLOB_GLOB = "*.json"
@@ -303,6 +313,150 @@ async def cmd_cleanup_generated_cache(
         },
     )
     return 0
+
+
+async def cmd_migrate_store_v2(
+    project_name: str | None,
+    *,
+    apply: bool,
+    export_rollback: str | None = None,
+) -> int:
+    """Run the explicit v4.0.0 Storage v2 migration contract."""
+    resolved_project = resolve_project_name(
+        project_name,
+        required=True,
+        action_label="maintenance migrate-store-v2",
+    )
+    if not resolved_project:
+        return 1
+
+    try:
+        if export_rollback:
+            result = export_store_v2_json_snapshot(
+                DEFAULT_DATA_DIR,
+                Path(export_rollback),
+                project_name=resolved_project,
+                apply=apply,
+            )
+            if apply:
+                print(f"Exported Storage v2 rollback snapshot: {resolved_project}")
+            else:
+                print(f"Storage v2 rollback export dry run: {resolved_project}")
+            print(f"Export dir: {result['export_dir']}")
+            print(f"Would export JSON files: {result['would_export_json_file_count']}")
+            print(f"Exported JSON files: {result['exported_json_file_count']}")
+            print(f"Rollback checksum match: {str(result['rollback_checksum_match']).lower()}")
+            if not apply:
+                print("No changes written. Use --apply to write the rollback snapshot.")
+            print(json.dumps(result, indent=2, sort_keys=True))
+            log_command_invoked(
+                "maintenance.migrate-store-v2",
+                project_name=resolved_project,
+                extra={
+                    "action": "export_rollback",
+                    "apply": apply,
+                    "would_export_json_file_count": result[
+                        "would_export_json_file_count"
+                    ],
+                    "exported_json_file_count": result["exported_json_file_count"],
+                    "rollback_checksum_match": result["rollback_checksum_match"],
+                },
+            )
+            return 0 if result["rollback_checksum_match"] else 1
+
+        if not apply:
+            plan = build_migration_plan(DEFAULT_DATA_DIR, project_name=resolved_project)
+            print(f"Storage v2 migration dry run: {resolved_project}")
+            print(f"Legacy JSON files: {plan['legacy_json_file_count']}")
+            print(f"Invalid JSON files: {plan['invalid_json_count']}")
+            print(f"Logical checksum: {plan['logical_checksum']}")
+            print("Default storage changed: false")
+            print("No changes written. Use --apply to write the side-by-side canonical DB.")
+            print(json.dumps(plan, indent=2, sort_keys=True))
+            log_command_invoked(
+                "maintenance.migrate-store-v2",
+                project_name=resolved_project,
+                extra={
+                    "action": "dry_run",
+                    "legacy_json_file_count": plan["legacy_json_file_count"],
+                    "invalid_json_count": plan["invalid_json_count"],
+                },
+            )
+            return 0 if plan["invalid_json_count"] == 0 else 1
+
+        result = apply_store_v2_migration(DEFAULT_DATA_DIR, project_name=resolved_project)
+        canonical = build_canonical_store(DEFAULT_DATA_DIR, project_name=resolved_project)
+        print(f"Applied Storage v2 side-by-side migration: {resolved_project}")
+        print(f"Canonical DB: {result['canonical_db_path']}")
+        print(f"Migrated rows: {result['migrated_row_count']}")
+        print(f"Checksum match: {str(result['checksum_match']).lower()}")
+        print(f"Canonical entity rows: {canonical['canonical_row_count']}")
+        print("Default storage changed: false")
+        print(json.dumps({**result, "canonical_store": canonical}, indent=2, sort_keys=True))
+        log_command_invoked(
+            "maintenance.migrate-store-v2",
+            project_name=resolved_project,
+            extra={
+                "action": "apply",
+                "migrated_row_count": result["migrated_row_count"],
+                "checksum_match": result["checksum_match"],
+                "canonical_row_count": canonical["canonical_row_count"],
+            },
+        )
+        return 0 if result["checksum_match"] and canonical["checksum_match"] else 1
+    except StorageV2MigrationError as exc:
+        print(f"Error: {exc}")
+        return 1
+
+
+async def cmd_export_json_snapshot(
+    project_name: str | None,
+    export_dir: str,
+    *,
+    apply: bool,
+) -> int:
+    """Export the v4.0.1 canonical store to a human-readable JSON snapshot."""
+    resolved_project = resolve_project_name(
+        project_name,
+        required=True,
+        action_label="maintenance export-json-snapshot",
+    )
+    if not resolved_project:
+        return 1
+
+    try:
+        result = export_json_snapshot(
+            DEFAULT_DATA_DIR,
+            Path(export_dir),
+            project_name=resolved_project,
+            apply=apply,
+        )
+    except StorageV2MigrationError as exc:
+        print(f"Error: {exc}")
+        return 1
+
+    if apply:
+        print(f"Exported Storage v2 JSON snapshot: {resolved_project}")
+    else:
+        print(f"Storage v2 JSON snapshot dry run: {resolved_project}")
+    print(f"Export dir: {result['export_dir']}")
+    print(f"Would export JSON files: {result['would_export_json_file_count']}")
+    print(f"Exported JSON files: {result['exported_json_file_count']}")
+    print(f"Snapshot checksum match: {str(result['snapshot_checksum_match']).lower()}")
+    if not apply:
+        print("No changes written. Use --apply to write the JSON snapshot.")
+    print(json.dumps(result, indent=2, sort_keys=True))
+    log_command_invoked(
+        "maintenance.export-json-snapshot",
+        project_name=resolved_project,
+        extra={
+            "apply": apply,
+            "would_export_json_file_count": result["would_export_json_file_count"],
+            "exported_json_file_count": result["exported_json_file_count"],
+            "snapshot_checksum_match": result["snapshot_checksum_match"],
+        },
+    )
+    return 0 if result["snapshot_checksum_match"] else 1
 
 
 async def cmd_rebuild_wiki_bridge(project_name: str | None = None) -> int:

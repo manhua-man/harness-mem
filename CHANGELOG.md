@@ -8,6 +8,168 @@
 
 ---
 
+## [4.1.0] — 2026-06-12
+
+**主题：v4.0.x Runtime Foundation and Context Sufficiency**
+
+v4.1.0 收口剩余 v4.0.x 与 v4.1：canonical SQLite store、Rust core facade、
+Local Memory Index Fabric/SearchBackend contract、lifecycle tiering、distribution
+diagnostics，以及 context sufficiency / task-aware wake 的第一版确定性质量门。
+默认 truth governance 不变：confirmed truth 仍必须走 candidate / review /
+supersede / ledger；新 smoke artifacts 只证明 contract / surface availability，
+不构成公开性能、token saving 或端到端回答质量 claim。
+
+### Added
+
+- **Canonical SQLite store**：新增 canonical entity tables、indexed metadata、
+  compatibility reader、experimental dual-write gate、doctor storage report 和
+  `maintenance export-json-snapshot`。
+- **Rust core facade**：新增 `harness_mem.rust_core` 与
+  `harness_mem_core_rs` crate skeleton；JSONL scan、bulk index rows、RRF/ranking
+  primitives 和 HM error mapping 均有 Python fallback。
+- **Local index fabric/SearchBackend**：新增 manifest-last generation sidecars、
+  exact/word/trigram/graph sidecars、lazy rebuild/fingerprint drift 检测，以及
+  SQLite SearchBackend conformance response contract。
+- **Lifecycle tiering**：`MemoryEntry` 增加 `tier` / `decay_score`；默认 search/wake
+  只读 hot/warm，`deep_recall` 显式包含 cold/archive；lifecycle selector 只产候选，
+  不静默改 truth。
+- **Distribution report**：doctor 展示 platform、Rust mode/fallback、index fabric
+  manifest freshness；release gate 文档纳入 Python/Rust/benchmark smoke。
+- **Context sufficiency and task-aware wake**：MCP `search_memory` 和 `wake`
+  返回 `context_sufficiency`、`retrieval_plan`、`context_plan` 与
+  `iterative_retrieval_trace`；`wake` 支持 `current_task`、`budget_tokens`、
+  `deep_recall` 并输出 `wake_packet`。
+
+### Benchmark / Eval Evidence
+
+- 新增 benchmark collections：`canonical_store_runtime_baseline`、
+  `rust_core_hot_path`、`index_fabric_runtime_conformance`、
+  `context_sufficiency_gate`、`task_aware_wake_precision`。
+- 本地 accepted smoke artifacts：
+  `2026-06-12-canonical_store_runtime_baseline-v401-smoke` 与
+  `2026-06-12-context_sufficiency_gate-v410-smoke`，均通过
+  `benchmark-suite/tools/validate_run.py`。
+- `BENCHMARK_MATRIX_VERSION` 升级为 `v4.1.0`，新增 canonical store、Rust core、
+  lifecycle tiering、context sufficiency 和 task-aware wake surface coverage。
+
+### Validation
+
+- `python -m pytest -q tests/storage/test_canonical_store.py tests/cli/test_export_json_snapshot.py tests/cli/test_store_v2_migration.py`
+- `python -m pytest -q tests/test_rust_core_facade.py`
+- `python -m pytest -q tests/search/test_search_backend_contract.py tests/test_index_fabric_manifest.py tests/test_lifecycle_tiering.py`
+- `python -m pytest -q tests/test_distribution_report.py tests/test_health_summary.py tests/cli/test_doctor_vector_health.py`
+- `python -m pytest -q tests/test_context_sufficiency.py tests/mcp/test_context_sufficiency_surfaces.py tests/test_lifecycle_tiering.py tests/search/test_search_backend_contract.py`
+- `python -m pytest -q tests/test_benchmark_gap_backlog_truth.py::test_benchmark_design_packs_are_registered_and_complete tests/test_storage_v2_benchmark_contract.py`
+- `python benchmark-suite/tools/validate_run.py --run-dir benchmark-suite/artifacts/2026-06-12-canonical_store_runtime_baseline-v401-smoke`
+- `python benchmark-suite/tools/validate_run.py --run-dir benchmark-suite/artifacts/2026-06-12-context_sufficiency_gate-v410-smoke`
+
+---
+
+## [4.0.0] — 2026-06-12
+
+**主题：Storage v2 Baseline, Benchmark, and Migration Contract**
+
+v4.0.0 开始 v4.x，但只收当前第一片：建立 Storage v2 的可逆迁移合同、
+deterministic synthetic corpus、三类 benchmark collection 和 smoke artifact evidence。
+默认 runtime 仍是 v3 JSON + SQLite；canonical SQLite 只是 side-by-side contract artifact，
+不参与 wake/search 默认读写。v4.0.0 发布时，v4.0.1+ 的 canonical store、
+Rust core、index fabric 运行时实现尚未开始；当前状态见 4.1.0 段。
+
+### Added
+
+- **Storage v2 migration contract**：`maintenance migrate-store-v2` 支持 dry-run
+  摘要、side-by-side `store_v2/canonical.sqlite` apply、logical checksum 校验，
+  以及 `--export-rollback` 导出回 v3-compatible JSON blobs。
+- **Storage v2 benchmark collections**：新增 `storage_v2_baseline`、
+  `migration_roundtrip`、`local_index_fabric_smoke` 三类 collection、driver、
+  acceptance checklist 与 suite schema。synthetic corpus 固定 generator、seed、
+  entry mix、payload size、project count，并暴露 `--profile 10k|100k|1m`。
+- **Benchmark smoke artifacts**：本地生成并验证
+  `2026-06-12-storage-v2-baseline-smoke-v400`、
+  `2026-06-12-migration-roundtrip-smoke-v400`、
+  `2026-06-12-local-index-fabric-smoke-v400`。这些是 diagnostic smoke，
+  不是公开性能收益 claim。
+
+### Changed
+
+- **Rollback dry-run safety**：`migrate-store-v2 --export-rollback` 现在遵守默认
+  dry-run；只有带 `--apply` 才写出 rollback snapshot。
+- **Roadmap truth**：`docs/roadmap-v40.md` 与 `docs/roadmap-status.md`
+  在 v4.0.0 发布时标明 v4.0.0 已完成、后续 v4.0.x/v4.1 不属于本 slice。
+
+### Validation
+
+- `python -m pytest tests/cli/test_store_v2_migration.py tests/test_storage_v2_migration_contract.py tests/test_storage_v2_benchmark_contract.py -q`
+- `python benchmark-suite/storage_v2_baseline/driver.py --run-name 2026-06-12-storage-v2-baseline-smoke-v400 --entry-count 120 --samples 5`
+- `python benchmark-suite/migration_roundtrip/driver.py --run-name 2026-06-12-migration-roundtrip-smoke-v400 --entry-count 120`
+- `python benchmark-suite/local_index_fabric_smoke/driver.py --run-name 2026-06-12-local-index-fabric-smoke-v400 --entry-count 120`
+- `python benchmark-suite/tools/validate_run.py --run-dir benchmark-suite/artifacts/2026-06-12-storage-v2-baseline-smoke-v400`
+- `python benchmark-suite/tools/validate_run.py --run-dir benchmark-suite/artifacts/2026-06-12-migration-roundtrip-smoke-v400`
+- `python benchmark-suite/tools/validate_run.py --run-dir benchmark-suite/artifacts/2026-06-12-local-index-fabric-smoke-v400`
+
+---
+
+## [3.8.0] — 2026-06-08
+
+**主题：Benchmark Evidence, Generated Claim Hardening, Skill Governance, and True Hybrid Retrieval Shootout**
+
+v3.8.0 连续收口 v3.5–v3.8：把 benchmark 做成可复现证据账本，强化 generated
+claim 的来源/新鲜度边界，记录 skill evolution 的结果证据，并新增 true-hybrid
+retrieval shootout 合同。公开声明仍受 gate 保护：token/cost saving 仍未 ready；
+true vector-hybrid latency 与 retrieval recall 只对本地 synthetic / smoke artifact ready。
+
+### Added
+
+- **Benchmark evidence layer**：新增 `benchmark-suite/RESULTS.md`、
+  `release-snapshot.json`、artifact state taxonomy 和 BENCH purpose map，让每个
+  benchmark 说明测什么、结果多少、限制在哪。
+- **Benchmark release artifact check**：新增 `benchmark-suite/tools/check_release_artifacts.py`、
+  `build_release_snapshot.py` 和 `validate_release_snapshot.py`，将 BENCH artifact、
+  `release-snapshot.json` 与 `claim_readiness` gate 串成可生成、可校验、可 CI
+  复用的发布检查链。full gate 与 GitHub Actions 均运行该检查；clean checkout
+  无 raw artifacts 时走 snapshot-only 校验。
+- **Packaged benchmark fallback**：`benchmark_matrix_report` 在安装包环境没有顶层
+  `benchmark-suite/` 时，会从 `harness_mem/resources/benchmark_suite/` 读取 packaged
+  `suite.json` 与 `release-snapshot.json`，保证 MCP 仍能返回 release snapshot 和
+  `claim_readiness`。
+- **Generated claim hardening**：compact wake payload 新增 freshness summary、
+  generated review queue、Trust 和 Drilldown 区块，避免 generated-only prose 被当成
+  confirmed truth。
+- **Skill result governance evidence**：`record_skill_result` 支持记录 surface、
+  source ids 和 reason，skill 成败可以进入 retrieval signal context 作为后续治理证据。
+- **True hybrid retrieval shootout contract**：新增
+  `true_hybrid_retrieval_shootout` 设计包、fixture artifact、summary/report renderer，
+  对 FTS / vector / hybrid 的 source-hit recall、latency、fallback 和 token/cost
+  estimate 建立统一合同。
+
+### Changed
+
+- **Benchmark matrix v3.8**：`benchmark_matrix_report` 升级到 `v3.8.0`，返回
+  artifact-state taxonomy、purpose map、release snapshot counts、retrieval shootout
+  summary 和 machine-readable public-claim gates。
+- **Benchmark snapshot trust boundary**：`benchmark_matrix_report` 的 snapshot fallback
+  现在要求 `release-snapshot.json` 满足完整 v2 合约（counts、`gate_passed`、
+  `claim_readiness`、每个 run 的 `claim_boundary`）。弱 snapshot 不再能让 MCP
+  regression gate 误报通过。
+- **Scripted pytest isolation**：`scripts/test-fast.*` 与 `scripts/test-full.*` 现在
+  使用 repo-local `.tmp/` pytest basetemp，并关闭 pytest cache provider，避免受限
+  Windows 环境访问系统 `%TEMP%` 或 `.pytest_cache` 失败。
+- **Public claim readiness**：token/cost saving 保持 `ready=false`，因为
+  token-observed paired run 是负向 saving delta；true vector-hybrid latency 与 retrieval
+  recall 为 bounded local artifact claim，不自动升级成生产性能或端到端正确率声明。
+
+### Validation
+
+- `python -m pytest tests/test_knowledge_cache.py tests/mcp/test_smoke.py tests/test_runtime_v34.py tests/test_roadmap_v35_v38_planning_truth.py tests/test_roadmap_status_version_index_truth.py tests/test_roadmap_status_summary_truth.py tests/test_benchmark_gap_backlog_truth.py -q`
+- `python -m pytest tests/test_benchmark_gap_backlog_truth.py tests/test_runtime_v34.py tests/test_roadmap_v35_v38_planning_truth.py -q`
+- `python -m pytest -q -p no:cacheprovider --basetemp .tmp/pytest-fast-health-<timestamp> <fast gate targets>`
+- `python -m ruff check .`
+- `python -m mypy harness_mem`
+- `python benchmark-suite/tools/check_release_artifacts.py`
+- `python benchmark-suite/tools/build_release_snapshot.py --output benchmark-suite/release-snapshot.json --check`
+
+---
+
 ## [3.4.4] — 2026-06-08
 
 **主题：Runtime Health, Cost Discipline, and Regression Gates**

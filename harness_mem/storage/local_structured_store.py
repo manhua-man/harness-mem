@@ -133,6 +133,12 @@ class LocalStructuredStore:
             return False
         return True
 
+    def _tier_visible(self, data: dict, *, deep_recall: bool) -> bool:
+        if deep_recall:
+            return True
+        tier = str(data.get("tier") or "hot")
+        return tier in {"hot", "warm"}
+
     def _backfill_confirmed_rule_source_sessions(self) -> None:
         """Backfill source_session_id for confirmed rules created before v1.1.1."""
         confirmed_rules_dir = self._subdirs["confirmed_rules"]
@@ -406,6 +412,7 @@ class LocalStructuredStore:
         limit: int = 100,
         status: str = "accepted",
         include_history: bool = False,
+        deep_recall: bool = False,
     ) -> list[MemoryEntry]:
         where_parts = [
             "project_name = ?",
@@ -441,6 +448,8 @@ class LocalStructuredStore:
                     continue
                 if not include_history and not self._is_current_data(data):
                     continue
+                if not self._tier_visible(data, deep_recall=deep_recall):
+                    continue
                 results.append(MemoryEntry.from_dict(data))
         return results
 
@@ -453,6 +462,7 @@ class LocalStructuredStore:
         status: str = "accepted",
         memory_type: list[str] | None = None,
         include_history: bool = False,
+        deep_recall: bool = False,
         time_window: tuple[datetime | None, datetime | None] | None = None,
     ) -> list[MemoryEntry]:
         extra_where_parts = [
@@ -498,6 +508,8 @@ class LocalStructuredStore:
                 if memory_type and data.get("memory_type", "semantic") not in memory_type:
                     continue
                 if not include_history and not self._is_current_data(data):
+                    continue
+                if not self._tier_visible(data, deep_recall=deep_recall):
                     continue
                 if not self._truth_in_time_window(data, time_window):
                     continue

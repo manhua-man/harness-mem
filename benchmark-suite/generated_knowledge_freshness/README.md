@@ -2,9 +2,9 @@
 
 Benchmark design for generated knowledge cache, source maps, and freshness.
 
-Status: blocked-by-product. This design is complete enough to run after v3.2
-generated knowledge surfaces ship. It must not be used to claim current product
-coverage before those surfaces exist.
+Status: ready-to-run. v3.2 generated knowledge compiler, source-map, atomic
+claim, freshness, and compact context surfaces have shipped; benchmark claims
+still require artifact-backed results under `benchmark-suite/artifacts/`.
 
 ## Goal
 
@@ -13,7 +13,7 @@ and clearly separated from confirmed truth.
 
 ## Unlock Conditions
 
-Run this benchmark only after the product exposes stable versions of:
+This benchmark is unlocked because the product exposes stable versions of:
 
 - generated knowledge compiler
 - source map for generated claims

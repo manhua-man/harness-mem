@@ -1,0 +1,117 @@
+{
+  "MS1": {
+    "packet_id": "MS1-release-claim-boundary",
+    "summary": "Current public claim boundary: token/cost saving is not ready; true vector-hybrid latency is ready only for a bounded local synthetic probe; retrieval recall is ready only for local smoke source-hit recall.",
+    "facts": [
+      "claim_readiness.token_cost_saving.ready is false because the token-visible paired run has negative saving deltas for T1 and T3.",
+      "claim_readiness.true_vector_hybrid_latency.ready is true, but only for the local synthetic true-hybrid probe with no fallback.",
+      "claim_readiness.retrieval_recall.ready is true, but only for local smoke source-hit recall across FTS/vector/hybrid.",
+      "Source-hit recall is not end-to-end answer correctness, and local synthetic latency is not production latency."
+    ],
+    "source_pointers": [
+      "benchmark-suite/release-snapshot.json",
+      "benchmark-suite/RESULTS.md",
+      "harness_mem/benchmark_matrix.py"
+    ]
+  },
+  "MS2": {
+    "packet_id": "MS2-reference-boundary",
+    "summary": "codedb-mcp is a code-knowledge compiler reference; evo is an orchestration runtime reference. Neither should be treated as a harness-mem memory runtime competitor.",
+    "facts": [
+      "Borrow codedb-mcp's project-local generated layer, setup/use separation, intermediate structure before prose, and tool-cost observer ideas.",
+      "Do not promote codedb-mcp generated DeepWiki prose into confirmed truth or borrow its code-intel benchmark results as harness-mem savings.",
+      "Borrow evo's explicit runtime ledger, host adapter matrix, version lockstep, directive/ack protocol, and prioritization registry ideas.",
+      "Do not turn harness-mem into a default autonomous experiment runtime or benchmark optimizer."
+    ],
+    "source_pointers": [
+      "docs/reference-projects.md",
+      "benchmark-suite/README.md"
+    ]
+  },
+  "MS3": {
+    "packet_id": "MS3-auto-dream-boundary",
+    "summary": "Controlled automation exists, but ordinary coding tasks still do not use installed-by-default always-on memory learning or silent truth mutation.",
+    "facts": [
+      "Conversation-level autopilot, opt-in host hook / scheduler trigger, and default-off Auto Dream are controlled automation paths.",
+      "No installed-by-default always-on daemon or unconditional turn-end self-check is the current ordinary coding path.",
+      "suggest_rule and suggest_memory_entry are candidate-write interfaces, not silent truth mutation.",
+      "Confirmed truth changes must preserve candidate, review, supersede, and ledger boundaries."
+    ],
+    "source_pointers": [
+      "AGENTS.md",
+      "docs/roadmap-status.md",
+      "benchmark-suite/RESULTS.md"
+    ]
+  },
+  "MS4": {
+    "packet_id": "MS4-generated-knowledge-boundary",
+    "summary": "Generated compact/wiki artifacts are derived cache. They may summarize and navigate evidence, but they are not authority and cannot replace source truth.",
+    "facts": [
+      "Generated knowledge requires source-map and freshness metadata for publishable claims.",
+      "Generated prose cannot launder citations or contaminate confirmed truth.",
+      "Freshness and invalidation state must be visible.",
+      "Generated cache remains separate from source/truth stores."
+    ],
+    "source_pointers": [
+      "benchmark-suite/generated_knowledge_freshness/README.md",
+      "benchmark-suite/RESULTS.md",
+      "harness_mem/knowledge_cache.py"
+    ]
+  },
+  "MS5": {
+    "packet_id": "MS5-temporal-truth",
+    "summary": "Temporal truth separates current and historical reads, valid time and recorded time, and supersede explanation without deleting history.",
+    "facts": [
+      "valid_from, valid_to, and recorded_at are separate temporal dimensions.",
+      "Supersede explains replacement and keeps historical truth available.",
+      "Current/history/as_of behavior must not be collapsed.",
+      "Ambiguous temporal scope should be surfaced instead of guessed."
+    ],
+    "source_pointers": [
+      "benchmark-suite/temporal_product_query/prompts.json",
+      "benchmark-suite/RESULTS.md",
+      "tests/temporal"
+    ]
+  },
+  "MS6": {
+    "packet_id": "MS6-health-cost-boundary",
+    "summary": "Cost/token public claims are gated separately from observability, and diagnostic benchmark artifacts are excluded from release snapshots unless explicitly promoted.",
+    "facts": [
+      "Cost discipline is a separate benchmark class.",
+      "False-success accounting, budget overrun evidence, and truncation evidence are tracked before public claims.",
+      "Diagnostic, partial, quarantined, or release_snapshot=false artifacts are excluded from release snapshots.",
+      "Cloud telemetry and real billing remain out of scope unless a separate benchmark is added."
+    ],
+    "source_pointers": [
+      "benchmark-suite/BENCHMARKS.md",
+      "benchmark-suite/tools/build_release_snapshot.py"
+    ]
+  },
+  "MS7": {
+    "packet_id": "MS7-daily-workflow-boundary",
+    "summary": "Daily workflow goes through Slash, MCP, and Skills. CLI remains local operations and troubleshooting.",
+    "facts": [
+      "wake/search/timeline/candidate review are agent/MCP or Slash workflows.",
+      "session distill uses MCP prepare_session_distill plus the session-distill skill or agent candidate writes.",
+      "CLI is for install, doctor, purge, maintenance, API server, and file import operations.",
+      "Users should not be routed to hand-run daily wake/search/timeline CLI commands."
+    ],
+    "source_pointers": [
+      "AGENTS.md",
+      "plugins/harness-mem/README.md"
+    ]
+  },
+  "MS8": {
+    "packet_id": "MS8-embedding-baseline",
+    "summary": "all-MiniLM-L6-v2 remains the default embedding baseline. bge-small-en-v1.5 and nomic-embed-text-v1.5 are configurable shootout candidates.",
+    "facts": [
+      "Changing the default requires recall, latency, cache/disk, and install-friction evidence.",
+      "A local smoke source-hit recall run is not enough to change the default.",
+      "The retrieval shootout preserves embedding candidate governance without silently changing the default."
+    ],
+    "source_pointers": [
+      "AGENTS.md",
+      "benchmark-suite/true_hybrid_retrieval_shootout/README.md"
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "benchmark_id": "rust_core_hot_path",
+  "tasks": [
+    {
+      "task_id": "RCH1",
+      "prompt": "Run the Rust-core facade scanner and ranking primitives, then record native/fallback mode."
+    }
+  ]
+}

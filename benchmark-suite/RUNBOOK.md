@@ -14,6 +14,8 @@ suite.
    `"unavailable"` instead.
 5. Use `GAPS.md` as the executable backlog when deciding which missing
    benchmark to run or design next.
+6. Keep feature-level fixture token-economics separate from global token/cost
+   saving claims.
 
 ## Standard workflow
 
@@ -50,6 +52,26 @@ python benchmark-suite/tools/validate_run.py ^
 ```bash
 python benchmark-suite/tools/render_report.py ^
   --run-dir <run-dir>
+```
+
+### 5. Validate the release snapshot
+
+When updating `benchmark-suite/release-snapshot.json`, validate the tracked
+clean-checkout summary too:
+
+```bash
+python benchmark-suite/tools/check_release_artifacts.py
+```
+
+For lower-level diagnosis, rebuild and validate the snapshot directly:
+
+```bash
+python benchmark-suite/tools/build_release_snapshot.py ^
+  --output benchmark-suite/release-snapshot.json ^
+  --sync-package-resources
+
+python benchmark-suite/tools/validate_release_snapshot.py ^
+  --path benchmark-suite/release-snapshot.json
 ```
 
 ## Per-collection guidance
@@ -96,6 +118,31 @@ Minimum bundle:
 - representative query/ranking evidence
 - notes for changed decisions or malformed scenarios
 
+## `true_hybrid_retrieval_shootout`
+
+Use when:
+
+- comparing FTS, vector, and hybrid retrieval source-hit recall
+- checking embedding baseline/candidate governance
+- deciding whether retrieval recall or true hybrid latency claims are public
+  claim ready
+
+Prompt and acceptance source:
+
+- `benchmark-suite/true_hybrid_retrieval_shootout/prompts.json`
+- `benchmark-suite/true_hybrid_retrieval_shootout/acceptance_checklist.md`
+
+Minimum bundle:
+
+- `dataset.manifest.json` with dataset, split, oracle, and public boundary
+- `queries.json` with expected source ids
+- one result row per claimed mode
+- rendered `Retrieval Recall Claim Readiness` section
+
+Fixture rows may validate the v3.8 contract, but public retrieval recall claims
+require `fixture_only=false` accepted rows for every claimed mode. True
+vector-hybrid latency still requires an actual hybrid row with no fallback.
+
 ## `latency_warm_path`
 
 Use when:
@@ -119,11 +166,17 @@ Minimum bundle:
 - corpus size
 - warm-up note
 - p50/p95/max results
+- rendered `Vector Hybrid Claim Readiness` section
 
 Prompt and acceptance source:
 
 - `benchmark-suite/latency_warm_path/prompts.json`
 - `benchmark-suite/latency_warm_path/acceptance_checklist.md`
+
+Only claim true vector-hybrid latency when the rendered report says
+`True vector-hybrid claim ready: yes`. If `search_hybrid` falls back to FTS,
+publish only the bounded synthetic warm-path result and preserve the
+`effective_mode` / `fallback_reason` fields in any summary.
 
 ## `client_enabled_vs_disabled`
 
@@ -147,6 +200,150 @@ Minimum bundle:
 - one `task_result` JSON per task/condition
 - transcripts for every task/condition
 - acceptance notes
+
+Token-visible rerun flow:
+
+1. Run paired tasks with fixed client, model, workspace, prompt text, and repo
+   state.
+2. Extract numeric token usage from client logs when available:
+
+   ```bash
+   python benchmark-suite/tools/extract_codex_token_usage.py ^
+     --input C:\\path\\to\\codex-session.jsonl ^
+     --output <run-dir>\\notes\\T1-enabled-token-usage.json
+   ```
+
+3. Apply sidecars to the run:
+
+   ```bash
+   python benchmark-suite/tools/apply_token_usage_sidecars.py ^
+     --run-dir <run-dir>
+   ```
+
+4. Render and validate:
+
+   ```bash
+   python benchmark-suite/tools/render_report.py --run-dir <run-dir>
+   python benchmark-suite/tools/validate_run.py --run-dir <run-dir>
+   ```
+
+Only claim token/cost deltas when every enabled and disabled result in the
+claimed pair set has `token_usage.available=true` from a named source. Missing
+token data remains `unavailable`; it is never treated as zero. The rendered
+report includes a `Token Claim Readiness` section; do not publish token-saving
+claims when it says `Token-saving claim ready: no`.
+
+## `memory_shortcut_vs_source_recovery`
+
+Use when:
+
+- testing whether memory acts as a real shortcut on long-source recovery tasks
+- investigating a positive token/source-reading saving claim after
+  `client_enabled_vs_disabled` produced a neutral or negative broad-continuation
+  result
+
+Do not use when:
+
+- the task is a tiny current-file lookup
+- memory tools are unavailable in the client environment
+- the source corpus is too small for disabled mode to incur real recovery cost
+
+Prompt and acceptance source:
+
+- `benchmark-suite/memory_shortcut_vs_source_recovery/prompts.json`
+- `benchmark-suite/memory_shortcut_vs_source_recovery/acceptance_checklist.md`
+
+Required task design rules:
+
+1. Prepare an accepted memory packet before the run. It must summarize prior
+   decisions but preserve source pointers.
+2. Keep enabled and disabled prompt text identical except for the condition
+   instruction.
+3. Enabled mode must call memory first, then verify with minimal source reads.
+4. Disabled mode must not call harness-mem read or write surfaces.
+5. Both modes must cite source evidence; memory prose alone is not authority.
+6. Record `source_read_count`, `cited_sources`, `memory_calls`, token usage, and
+   runtime for every result.
+
+Minimum bundle:
+
+- one result JSON per task/condition
+- transcripts for every task/condition
+- notes describing the source corpus and memory packet seed
+- rendered report with token delta and source-read delta tables
+
+Positive-claim threshold:
+
+- at least `6` of `8` long-source pairs pass in both conditions
+- at least `6` passed long-source pairs stay within the enabled
+  source-verification budget
+- budget-ok median `disabled - enabled` total-token delta is at least `20%`
+  positive
+- at least `6` budget-ok passed long-source pairs reduce source reads in enabled
+  mode
+- negative controls stay within budget and do not show a meaningful memory
+  advantage
+- every token total comes from a named source
+
+The rendered report also includes a cache-adjusted local token proxy:
+`max(input - cached_input, 0) + output + reasoning`. Use it to diagnose Codex
+cache pollution or execution-order artifacts. Do not use this proxy by itself to
+flip `claim_readiness.token_cost_saving.ready=true`; public saving claims still
+need the total-token/cost gate above, and real billing remains out of scope
+without a separate telemetry benchmark.
+
+If these thresholds fail, keep the run as diagnostic evidence. Do not fold the
+result into `claim_readiness.token_cost_saving.ready=true`.
+
+## `functional_token_economics`
+
+Use when:
+
+- preparing bounded claude-mem-style wording for progressive-disclosure token
+  economics
+- comparing compact wake/search/file-context/wiki payloads against declared
+  source-reading baselines
+- checking whether a feature-level token claim has deterministic fixture
+  evidence
+
+Do not use when:
+
+- claiming global `harness-mem` token/cost savings
+- claiming real billing savings
+- benchmarking code-intelligence performance against `codedb-mcp` or Smart
+  Explore
+- proving that live agents always choose the compact path
+
+Prompt and acceptance source:
+
+- `benchmark-suite/functional_token_economics/prompts.json`
+- `benchmark-suite/functional_token_economics/scenarios.json`
+- `benchmark-suite/functional_token_economics/acceptance_checklist.md`
+
+Run:
+
+```bash
+python benchmark-suite/functional_token_economics/driver.py ^
+  --run-name local-01 ^
+  --workspace F:\\memory-lab\\harness-mem
+python benchmark-suite/tools/render_report.py --run-dir <run-dir>
+python benchmark-suite/tools/validate_run.py --run-dir <run-dir>
+```
+
+Minimum bundle:
+
+- `run_manifest.json`
+- `notes/scenarios.json`
+- one result JSON per scenario
+- `summary.csv`
+- rendered report with `Feature-Level Claim Readiness`
+- rendered `Global Claim Boundary` that says global token/cost saving is not
+  ready
+
+Public wording is allowed only at the feature/fixture level, for example:
+"compact progressive-disclosure payloads reduced estimated context tokens by
+X% in the functional token-economics fixture benchmark." Do not fold this into
+`claim_readiness.token_cost_saving.ready=true`.
 
 ## `client_trace_evidence`
 
@@ -261,6 +458,103 @@ Prompt and acceptance source:
 
 - `benchmark-suite/runtime_health_observability/prompts.json`
 - `benchmark-suite/runtime_health_observability/acceptance_checklist.md`
+
+## `storage_v2_baseline`
+
+Use when:
+
+- establishing the v4.0.0 deterministic Storage v2 corpus and baseline artifact
+  schema
+- running 10k / 100k / 1M profile evidence before any Storage v2 performance
+  claim
+
+Run:
+
+```bash
+python benchmark-suite/storage_v2_baseline/driver.py ^
+  --run-name storage-v2-baseline-smoke
+
+python benchmark-suite/storage_v2_baseline/driver.py ^
+  --run-name storage-v2-baseline-10k ^
+  --profile 10k
+```
+
+Validate:
+
+```bash
+python benchmark-suite/tools/validate_run.py --run-dir <run-dir>
+```
+
+## `migration_roundtrip`
+
+Use when:
+
+- proving dry-run, explicit side-by-side canonical apply, and rollback export
+  checksums match
+- validating that v4.0.0 migration evidence does not switch the default runtime
+  backend
+
+Run:
+
+```bash
+python benchmark-suite/migration_roundtrip/driver.py ^
+  --run-name migration-roundtrip-smoke
+```
+
+Acceptance source:
+
+- `benchmark-suite/migration_roundtrip/acceptance_checklist.md`
+
+## `local_index_fabric_smoke`
+
+Use when:
+
+- checking the manifest-last sidecar evidence shape for Local Memory Index Fabric
+- proving interrupted generations are not active before a manifest commit
+
+Run:
+
+```bash
+python benchmark-suite/local_index_fabric_smoke/driver.py ^
+  --run-name local-index-fabric-smoke
+```
+
+Boundary:
+
+- this is a smoke contract only; runtime SearchBackend and real sidecar loading
+  belong to later v4.0.x slices.
+
+## `canonical_store_runtime_baseline`
+
+Use when validating v4.0.1 canonical entity tables, metadata filters,
+compatibility reader, snapshot export, dual-write gate, and Storage v2 doctor
+health. Acceptance source:
+`benchmark-suite/canonical_store_runtime_baseline/acceptance_checklist.md`.
+
+## `rust_core_hot_path`
+
+Use when validating the v4.0.2 Rust-core facade, fallback reporting, tolerant
+JSONL scanner, ranking primitives, and local crate shape. Acceptance source:
+`benchmark-suite/rust_core_hot_path/acceptance_checklist.md`.
+
+## `index_fabric_runtime_conformance`
+
+Use when validating v4.0.3 SearchBackend conformance, manifest-last sidecars,
+interrupted-generation invisibility, lazy rebuild, and source fingerprint drift.
+Acceptance source:
+`benchmark-suite/index_fabric_runtime_conformance/acceptance_checklist.md`.
+
+## `context_sufficiency_gate`
+
+Use when evaluating v4.1 deterministic sufficiency checks and bounded
+iterative retrieval. Acceptance source:
+`benchmark-suite/context_sufficiency_gate/acceptance_checklist.md`.
+
+## `task_aware_wake_precision`
+
+Use when evaluating v4.1 task-aware wake packet budget traces, include/omit
+reasons, and fixture precision. Acceptance source:
+`benchmark-suite/task_aware_wake_precision/acceptance_checklist.md`.
 
 ## Result quality checklist
 

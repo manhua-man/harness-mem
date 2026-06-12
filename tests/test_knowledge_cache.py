@@ -383,6 +383,23 @@ def test_v32_compact_payload_rejects_claim_with_hash_drift(
     payload = load_compact_wake_payload(data_dir, project_name=PROJECT)
     assert payload is not None
     assert not any("HashDriftToken" in claim["text"] for claim in payload.claims)
+    assert payload.freshness_summary["invalid_claim_count"] >= 1
+    assert payload.freshness_summary["citation_valid_claim_count"] == payload.claim_count
+
+    health = run(
+        knowledge_cache_health(
+            backend,
+            data_dir=data_dir,
+            project_name=PROJECT,
+            profile=profile,
+            project_root=project_root,
+        )
+    )
+    assert health["generated_review_queue_count"] >= 1
+    assert any(
+        item["reason"] in {"hash_drift", "invalid_citation"}
+        for item in health["generated_review_queue"]
+    )
 
 
 def test_v32_incremental_rebuild_reuses_unchanged_claims_and_reports_diff(
@@ -471,7 +488,9 @@ def test_compact_wake_payload_reads_generated_claims_without_promoting_truth(
 
     rendered = render_compact_wake_payload(payload)
     assert "# Compact Wake  (generated summary, not confirmed truth)" in rendered
+    assert "# Trust" in rendered
     assert "CompactOnlyToken" in rendered
+    assert "# Drilldown" in rendered
     assert "# Source IDs" in rendered
     assert "does not replace confirmed truth" in rendered
 

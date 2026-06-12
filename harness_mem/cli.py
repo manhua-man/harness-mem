@@ -25,12 +25,14 @@ from harness_mem.commands import (
     cmd_confirm_supersede,
     cmd_confirmed_rules,
     cmd_doctor,
+    cmd_export_json_snapshot,
     cmd_handoff,
     cmd_import,
     cmd_ingest,
     cmd_install_claude_hook,
     cmd_install_cursor_hook,
     cmd_list_candidates,
+    cmd_migrate_store_v2,
     cmd_profile,
     cmd_profile_edit,
     cmd_prepare_knowledge_cache,
@@ -72,12 +74,14 @@ __all__ = [
     "cmd_confirm_supersede",
     "cmd_confirmed_rules",
     "cmd_doctor",
+    "cmd_export_json_snapshot",
     "cmd_handoff",
     "cmd_import",
     "cmd_ingest",
     "cmd_install_cursor_hook",
     "cmd_install_claude_hook",
     "cmd_list_candidates",
+    "cmd_migrate_store_v2",
     "cmd_profile",
     "cmd_profile_edit",
     "cmd_prepare_knowledge_cache",
@@ -180,10 +184,23 @@ def main():
             "prepare-knowledge-cache",
             "rebuild-wiki-bridge",
             "cleanup-generated-cache",
+            "migrate-store-v2",
+            "export-json-snapshot",
         ],
         help="Maintenance action to run",
     )
     maintenance.add_argument("-p", "--project", help="Project name")
+    maintenance.add_argument(
+        "--export-rollback",
+        help=(
+            "For migrate-store-v2, export the side-by-side canonical DB back "
+            "to v3-compatible JSON blobs under this directory"
+        ),
+    )
+    maintenance.add_argument(
+        "--export-dir",
+        help="For export-json-snapshot, write human-readable JSON blobs here",
+    )
     apply_group = maintenance.add_mutually_exclusive_group()
     apply_group.add_argument(
         "--dry-run",
@@ -335,6 +352,24 @@ def main():
             return asyncio.run(cmd_rebuild_wiki_bridge(args.project))
         if args.action == "cleanup-generated-cache":
             return asyncio.run(cmd_cleanup_generated_cache(args.project, apply=not args.dry_run))
+        if args.action == "migrate-store-v2":
+            return asyncio.run(
+                cmd_migrate_store_v2(
+                    args.project,
+                    apply=not args.dry_run,
+                    export_rollback=args.export_rollback,
+                )
+            )
+        if args.action == "export-json-snapshot":
+            if not args.export_dir:
+                parser.error("maintenance export-json-snapshot requires --export-dir")
+            return asyncio.run(
+                cmd_export_json_snapshot(
+                    args.project,
+                    args.export_dir,
+                    apply=not args.dry_run,
+                )
+            )
         parser.error(f"Unknown maintenance action: {args.action}")
 
     if command == "config":

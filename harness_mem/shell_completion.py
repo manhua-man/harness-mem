@@ -25,6 +25,7 @@ MAINTENANCE_ACTIONS = [
     "prepare-knowledge-cache",
     "rebuild-wiki-bridge",
     "cleanup-generated-cache",
+    "migrate-store-v2",
 ]
 CONFIG_ACTIONS = ["get", "set", "list", "validate"]
 INTEGRATION_ACTIONS = ["install-cursor-hook", "install-claude-hook"]
@@ -126,6 +127,7 @@ _harness_mem() {{
         '--dry-run[preview only]' \\
         '--stale-only[only stale entries]' \\
         '--apply[write maintenance changes]' \\
+        '--export-rollback[export Storage v2 canonical rows as v3 JSON]:export_dir:' \\
         '--project-root[project directory]:project_root:' \\
         '--scope[config scope]:(user project)' \\
         '--force[overwrite existing hook]' \\
@@ -187,10 +189,11 @@ complete -c harness-mem -n '__fish_seen_subcommand_from purge' -l dry-run -d "Pr
 complete -c harness-mem -n '__fish_seen_subcommand_from purge' -l stale-only -d "Only stale entries"
 
 # maintenance
-complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -a "assign-memory-types rebuild-vector-index rebuild-verbatim-index prepare-knowledge-cache rebuild-wiki-bridge cleanup-generated-cache" -d "Action"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -a "assign-memory-types rebuild-vector-index rebuild-verbatim-index prepare-knowledge-cache rebuild-wiki-bridge cleanup-generated-cache migrate-store-v2" -d "Action"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l project -r -d "Project name"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l dry-run -d "Preview only"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l apply -d "Write changes"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l export-rollback -r -d "Export Storage v2 canonical rows as v3 JSON"
 
 # config
 complete -c harness-mem -n '__fish_seen_subcommand_from config' -a "get set list validate" -d "Action"

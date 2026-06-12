@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "available",
+    "source",
+    "total",
+    "input",
+    "cached_input",
+    "output",
+    "reasoning",
+    "cost_usd",
+    "notes"
+  ],
+  "properties": {
+    "available": {
+      "type": "boolean"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "codex-json-events",
+        "codex-session-observer",
+        "sidecar",
+        "manual",
+        "legacy-token_total",
+        "unavailable"
+      ]
+    },
+    "total": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "input": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "cached_input": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "output": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "reasoning": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "cost_usd": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

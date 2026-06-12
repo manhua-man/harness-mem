@@ -85,6 +85,15 @@ class MemoryEntry(BaseModel):
     compacted: bool = Field(default=False, description="Soft-delete marker for purge")
     usage_count: int = Field(default=0, ge=0, description="Number of times this entry was surfaced")
     last_accessed_at: datetime | None = Field(default=None, description="Last time this entry was surfaced")
+    tier: Literal["hot", "warm", "cold", "archive"] = Field(
+        default="hot",
+        description="Lifecycle tier. Default reads include hot/warm; deep recall includes cold/archive.",
+    )
+    decay_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Lifecycle scorer output used for downgrade/archive candidates.",
+    )
     provenance: dict | None = Field(
         default=None,
         description="来源线索: {session_id, observation_ids, agent_type, tool_name}"
@@ -141,6 +150,8 @@ class MemoryEntry(BaseModel):
             "compacted": self.compacted,
             "usage_count": self.usage_count,
             "last_accessed_at": self.last_accessed_at.isoformat() if self.last_accessed_at else None,
+            "tier": self.tier,
+            "decay_score": self.decay_score,
             "provenance": self.provenance,
             "memory_type": self.memory_type,
             "valid_from": self.valid_from.isoformat() if self.valid_from else None,
@@ -170,6 +181,10 @@ class MemoryEntry(BaseModel):
             data["usage_count"] = 0
         if "last_accessed_at" not in data:
             data["last_accessed_at"] = None
+        if "tier" not in data or data["tier"] is None:
+            data["tier"] = "hot"
+        if "decay_score" not in data or data["decay_score"] is None:
+            data["decay_score"] = 0.0
         if "provenance" not in data:
             data["provenance"] = None
         if "memory_type" not in data or data["memory_type"] is None:

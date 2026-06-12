@@ -6,6 +6,12 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $RepoRoot
+$RunStamp = Get-Date -Format "yyyyMMddHHmmss"
+$PytestTempRoot = Join-Path $RepoRoot ".tmp\pytest-tmp"
+$PytestBaseTemp = Join-Path $RepoRoot ".tmp\pytest-fast-$RunStamp"
+New-Item -ItemType Directory -Force -Path $PytestTempRoot | Out-Null
+$env:TMP = $PytestTempRoot
+$env:TEMP = $PytestTempRoot
 
 $PytestTargets = @(
     "tests/cli/test_cli_entrypoint.py",
@@ -35,7 +41,7 @@ $PytestTargets = @(
 )
 
 Write-Host "Running fast pytest gate..."
-& python -m pytest -q $PytestTargets
+& python -m pytest -q -p no:cacheprovider --basetemp $PytestBaseTemp $PytestTargets
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

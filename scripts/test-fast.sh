@@ -3,6 +3,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+: "${TMPDIR:=$PWD/.tmp/pytest-tmp}"
+export TMPDIR
+mkdir -p "$TMPDIR"
+pytest_base_temp="$PWD/.tmp/pytest-fast-$(date +%Y%m%d%H%M%S)"
+
 with_static="false"
 if [[ "${1:-}" == "--with-static" ]]; then
   with_static="true"
@@ -36,7 +41,7 @@ pytest_targets=(
 )
 
 echo "Running fast pytest gate..."
-python -m pytest -q "${pytest_targets[@]}"
+python -m pytest -q -p no:cacheprovider --basetemp "$pytest_base_temp" "${pytest_targets[@]}"
 
 if [[ "$with_static" == "true" ]]; then
   echo "Running static checks..."

@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "3.4.4"
+version = "4.1.0"
 description = "Local-first, pluggable AI memory runtime"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -39,13 +39,14 @@ harness-mem = "harness_mem.cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# Force-include the IDE hook templates so they ship inside the wheel/sdist.
-# They live under the harness_mem package directory, so hatchling already packs
-# them as package data; ``artifacts`` makes that explicit and survives any
+# Force-include runtime package data so it ships inside the wheel/sdist.
+# These files live under the harness_mem package directory, so hatchling already
+# packs them as package data; ``artifacts`` makes that explicit and survives any
 # future VCS-exclusion rule that might otherwise filter non-.py files.
 [tool.hatch.build]
 artifacts = [
     "harness_mem/integration/templates/*.template",
+    "harness_mem/resources/benchmark_suite/*.json",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -53,17 +54,36 @@ packages = ["harness_mem"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "AGENTS.md",
     "CHANGELOG.md",
+    "Cargo.toml",
     "README.md",
+    "crates",
     "docs/error-codes.md",
     "harness_mem",
     "harness_mem/integration/templates/*.template",
+    "harness_mem/resources/benchmark_suite/*.json",
 ]
 # Defensive: never ship maintainer-only docs in PyPI sdist even if include list grows.
 exclude = [
+    "AGENTS.md",
+    "benchmark-suite",
+    "docs/README.md",
+    "docs/roadmap*.md",
+    "docs/roadmap",
+    "docs/reference-projects.md",
+    "docs/releasing.md",
+    "docs/testing.md",
+    "docs/retrospective-v13-v14.md",
+    "docs/harness-mem-mechanism-article-style.md",
+    "docs/benchmark",
+    "docs/cli",
+    "docs/diagrams",
+    "docs/cli-design-expert.md",
     "docs/v2-user-test-packet.md",
     "harness_mem/integration/artifacts",
+    "openspec",
+    "release",
+    "tests",
 ]
 
 [[tool.mypy.overrides]]

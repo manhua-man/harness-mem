@@ -105,6 +105,12 @@ wake/search/distill/file_context/dream/wiki
 - LongMemEval 五个维度以 dimension row 形式进入报告，避免用单一总分替代分维度质量。
 - release snapshot 读取 `benchmark-suite/artifacts/*/run_manifest.json`，报告最新 artifact、
   accepted/failed run 计数和 gate 状态。
+- 当前 artifact set 有 7 个 validated runs；`benchmark_matrix_report` 可从
+  `results/*.json` 或 tracked `release-snapshot.json` 推断 accepted 状态，报告
+  7 accepted、0 failed、0 unknown，当前 benchmark gate passed。
+- `benchmark_matrix_report()["claim_readiness"]` 额外暴露 public-claim gate：当前
+  token/cost saving 与 true vector-hybrid latency 都是 `ready=false`，防止把
+  accepted artifact 误读成 token 节省或 true hybrid 性能证明。
 
 ## v3.4.3：Version and Install Drift Visibility
 

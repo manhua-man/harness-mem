@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from harness_mem.adapters import AdapterRegistry
-from harness_mem.commands.retrieval_signals import record_retrieval_signal
-from harness_mem.commands.signal_influence import pull_recent_signals
+from harness_mem.retrieval_signals import record_retrieval_signal
+from harness_mem.signal_influence import pull_recent_signals
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     chars_to_tokens,

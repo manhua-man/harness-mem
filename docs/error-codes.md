@@ -2,10 +2,9 @@
 
 `harness-mem doctor` now emits stable `HM-xxx` codes for actionable setup and maintenance problems. Each code maps to one primary repair action so the output stays short and the docs stay auditable.
 
-Current shipped-state truth and version closure still live in
-[roadmap-status.md](./roadmap-status.md) and `CHANGELOG.md`; this page only
-documents the stable doctor/error-code surface and does not replace the current
-release ledger.
+Current release status is governed by [roadmap-status.md](./roadmap-status.md) and `CHANGELOG.md`; this page does not replace the current release ledger.
+Current version notes live in `CHANGELOG.md`; this page only documents the stable
+doctor/error-code surface.
 
 | Code | Level | When it appears | Fix command | Notes |
 |------|-------|-----------------|-------------|-------|

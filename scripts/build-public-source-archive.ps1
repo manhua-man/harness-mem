@@ -18,15 +18,5 @@ $Out = Join-Path $Dist "harness-mem-$Version-public-source.tar.gz"
 
 git archive --format=tar.gz -o $Out --prefix=$Prefix HEAD
 python (Join-Path $Root "scripts\filter_public_archive.py") $Out
-
-$Listing = tar -tzf $Out 2>$null
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not list archive (is tar available?)."
-}
-if ($Listing -match "v2-user-test-packet\.md") {
-    throw "Public archive still contains docs/v2-user-test-packet.md"
-}
-if ($Listing -match "integration/artifacts/") {
-    throw "Public archive still contains harness_mem/integration/artifacts/"
-}
+python (Join-Path $Root "scripts\filter_public_archive.py") $Out --check-only
 Write-Host "Wrote $Out (maintainer-only paths removed per release/public-source-excludes.txt)"

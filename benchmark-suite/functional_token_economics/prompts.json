@@ -1,0 +1,28 @@
+{
+  "benchmark_id": "functional_token_economics",
+  "status": "ready-to-run",
+  "version": 1,
+  "claim_boundary": "Feature-level fixture context-token economics only; not global product savings or real billing.",
+  "tasks": [
+    {
+      "task_id": "FTE1",
+      "workflow": "progressive_recall",
+      "goal": "Compare compact search -> timeline -> details payload against broad source-document reading."
+    },
+    {
+      "task_id": "FTE2",
+      "workflow": "file_context_preflight",
+      "goal": "Compare file_context path-associated memory preflight against reading the full target file."
+    },
+    {
+      "task_id": "FTE3",
+      "workflow": "wake_compact",
+      "goal": "Compare compact wake payload against broad status and user-test context."
+    },
+    {
+      "task_id": "FTE4",
+      "workflow": "wiki_compact_index",
+      "goal": "Compare generated compact wiki index payload against direct multi-document reading."
+    }
+  ]
+}

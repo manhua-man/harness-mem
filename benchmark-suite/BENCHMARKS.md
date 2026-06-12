@@ -23,23 +23,37 @@ dimension.
 
 | Dimension | Current benchmark coverage | Current status | Next benchmark action |
 |---|---|---|---|
-| Memory runtime | `retrieval_quality_longmemeval`, `retrieval_diagnostics`, `client_enabled_vs_disabled` | Retrieval quality has durable historical coverage; client value is methodology / smoke only until paired runs exist. | Finish `client_enabled_vs_disabled` paired runs before claiming user-visible memory value. |
-| Evidence safety | `evidence_safety`, `client_trace_evidence` | Design is ready to run; current repo evidence is mostly tests and packet transcripts until artifact bundles exist. | Run the evidence-safety pack before claiming agents avoid evidence overclaiming. |
-| Generated knowledge | `generated_knowledge_freshness` | Design pack exists but is blocked by v3.2 product surfaces; existing checks are anti-contamination tests, not benchmark results. | Run only after source maps, freshness, atomic claims, and generated context surfaces are stable. |
-| Temporal query | `temporal_product_query`, `retrieval_quality_longmemeval`, `retrieval_diagnostics` | Product-query design is ready to run; LongMemEval already covers temporal-reasoning retrieval. | Run the product temporal pack before claiming `current` / `history` / `as_of` / supersede explainability beyond retrieval quality. |
-| Auto maintenance | `auto_maintenance_effectiveness`, `maintenance_recovery` | v3.1 `/hm:dream` ledger/apply/reject/undo surfaces exist; no completed effectiveness artifact yet. | Run `auto_maintenance_effectiveness` before claiming automatic maintenance quality. |
-| Observability | `runtime_health_observability`, `maintenance_recovery`, `client_trace_evidence` | Design pack exists but is blocked by v3.4 runtime-health/cost/regression surfaces. | Run after runtime health report, local cost observer, drift visibility, and regression gates ship. |
-| Cost discipline | `client_enabled_vs_disabled` | Methodology and smoke exist; no completed enabled-vs-disabled token/runtime result yet. | This is the first benchmark to complete before public token, cost, or time-savings claims. |
-| Performance | `latency_warm_path`, `retrieval_quality_longmemeval` | Historical v1.5/v1.6 docs cover synthetic latency and per-question runtime; current suite has warm-path smoke only. | Run a non-smoke warm-path pass with enough samples and explicit fallback notes. |
+| Memory runtime | `retrieval_quality_longmemeval`, `retrieval_diagnostics`, `client_enabled_vs_disabled`, `memory_shortcut_vs_source_recovery` | `client_enabled_vs_disabled` has completed paired artifacts; the token-visible run proves task correctness and memory-call gating, but T1/T3 have negative saving deltas. `memory_shortcut_vs_source_recovery` is the follow-up design pack for discriminative long-source memory-shortcut evidence. | Run the memory-shortcut suite before any positive token/source-reading saving claim. |
+| Evidence safety | `evidence_safety`, `client_trace_evidence` | `evidence_safety` has a completed E1-E5 guarded artifact with overclaim and abstention pressure. | Expand only if a new evidence boundary is added; do not generalize beyond the exact task set. |
+| Generated knowledge | `generated_knowledge_freshness` | v3.2 surfaces shipped and GK1-GK5 completed with source-map, freshness, generated-only, invalidation, and citation-laundering checks. | Keep generated prose out of confirmed truth; use future runs for claims-first/source-map coverage improvements. |
+| Temporal query | `temporal_product_query`, `retrieval_quality_longmemeval`, `retrieval_diagnostics` | TQ1-TQ5 completed for current/history/as_of/supersede/ambiguity behavior; LongMemEval remains retrieval-quality evidence. | Use product temporal artifacts for product claims; use LongMemEval for retrieval claims. |
+| Auto maintenance | `auto_maintenance_effectiveness`, `maintenance_recovery` | v3.1 `/hm:dream` surfaces shipped and AM1-AM6 completed for merge/stale/supersede/reject/undo/ledger behavior. | Do not claim production long-run precision/recall without a live maintenance benchmark. |
+| Observability | `runtime_health_observability`, `maintenance_recovery`, `client_trace_evidence` | v3.4.4 runtime health/cost/regression surfaces shipped and RH1-RH6 completed, including false-success accounting. | Cloud telemetry and real billing are out of scope unless a separate benchmark is added. |
+| Cost discipline | `client_enabled_vs_disabled`, `memory_shortcut_vs_source_recovery`, `functional_token_economics`, `runtime_health_observability` | Cost surfaces and budget-overrun detection are covered; the 2026-06-09 token-observed pair has named token totals but a negative saving delta. `memory_shortcut_vs_source_recovery` also reports a cache-adjusted local token proxy for diagnosis, but that proxy is not a public cost claim gate. `functional_token_economics` is the separate feature-level fixture benchmark for claude-mem-style progressive-disclosure token claims. | Use `functional_token_economics` only for bounded fixture payload claims. No global token/cost saving claim until a paired long-source shortcut run reports a positive disabled-minus-enabled total-token/cost delta from a named source. |
+| Performance | `latency_warm_path`, `true_hybrid_retrieval_shootout`, `retrieval_quality_longmemeval` | Non-smoke warm-path FTS/wake run completed; the 2026-06-09 true-hybrid probe ran with `effective_mode=hybrid` and no fallback. | Keep true-hybrid latency claims scoped to the local synthetic fixture unless a broader dataset/hardware run is added. |
+| Retrieval recall | `true_hybrid_retrieval_shootout`, `retrieval_quality_longmemeval`, `retrieval_diagnostics` | v3.8 has fixture-contract rows plus a local smoke source-hit recall artifact across FTS/vector/hybrid. `claim_readiness.retrieval_recall.ready` is true for that bounded local split. | Do not present source-hit recall as end-to-end answer correctness or broad corpus quality. |
+| Storage v2 / Index fabric | `storage_v2_baseline`, `migration_roundtrip`, `local_index_fabric_smoke` | v4.0.0 has diagnostic smoke artifacts for deterministic synthetic corpus generation, migration dry-run/apply/export checksums, and manifest-last sidecar contract shape. These are contract/schema evidence only. | Run 10k / 100k / 1M release artifacts before any Storage v2 speedup claim; v4.0.1+ must add runtime canonical-store/index-fabric evidence before changing defaults. |
 
 Coverage levels:
 
 - **Result**: completed run artifacts exist and can support a bounded claim.
 - **Smoke**: scaffold or driver proved shape only; do not cite as a product
   result.
-- **Methodology**: benchmark design exists, but no completed paired result.
+- **Methodology**: benchmark design exists; do not cite it as a product result
+  until artifact-backed outputs exist.
 - **Test / planning only**: regression tests or roadmap docs exist, but no
   benchmark claim is supported.
+
+Completed result summary:
+
+- See [RESULTS.md](./RESULTS.md) for artifact-backed metrics and bounded claims.
+- See [GAPS.md](./GAPS.md) for closure evidence for BENCH-001 through
+  BENCH-007.
+- BENCH-008 is tracked in [RESULTS.md](./RESULTS.md) as a v3.8 fixture
+  contract for true-hybrid retrieval evidence shape; it is not a public recall
+  claim.
+- v4.0.0 Storage v2 smoke artifacts are diagnostic contract evidence and are
+  excluded from release snapshots until promoted by larger runs.
 
 ## B1. Retrieval Quality
 
@@ -147,6 +161,9 @@ Artifacts:
 Publish rule:
 
 - any public latency statement must say whether it is synthetic, cold, or warm
+- any vector-hybrid latency statement must come from a rendered report whose
+  `Vector Hybrid Claim Readiness` section says `True vector-hybrid claim ready:
+  yes`
 
 ## B4. Client Continuation Value
 
@@ -169,7 +186,7 @@ Metrics:
 - total runtime
 - total turns
 - follow-up count
-- token total if visible
+- token total and `token_usage` source if visible
 - accepted pass/fail
 - delta between enabled and disabled conditions
 
@@ -185,6 +202,132 @@ Artifacts:
 Publish rule:
 
 - this is the primary benchmark required before public token/cost savings claims
+- its current token-visible result is diagnostic/anti-overclaim evidence, not a
+  positive saving result
+
+## B4a. Memory Shortcut vs Source Recovery
+
+Benchmark id: `memory_shortcut_vs_source_recovery`
+
+Goal:
+
+- measure whether accepted memory packets reduce token and source-reading cost
+  on long-source recovery tasks where disabled mode must recover truth from
+  docs, archived packets, release snapshots, or benchmark artifacts
+
+Why this exists:
+
+- `client_enabled_vs_disabled` is intentionally broad and realistic; easy repo
+  truth tasks can make disabled mode cheaper than enabled mode
+- this suite creates discriminative tasks where memory and source-only recovery
+  should follow different paths
+
+Core tasks:
+
+- release claim boundary recovery
+- reference-project absorption boundary
+- Auto Dream / maintenance boundary
+- generated knowledge authority boundary
+- temporal truth / supersede explanation
+- runtime health vs cost discipline separation
+- cross-client daily workflow boundary
+- embedding baseline governance
+- negative controls for tiny current CI and obvious repo facts
+
+Metrics:
+
+- token total and `token_usage` source
+- cache-adjusted local token proxy when `input` / `cached_input` / `output` /
+  `reasoning` counters are available
+- runtime
+- prompt turns and follow-up count
+- `source_read_count`
+- cited source paths
+- memory call list
+- accepted pass/fail
+- disabled-minus-enabled token delta
+- disabled-minus-enabled cache-adjusted token proxy delta
+- disabled-minus-enabled source-read delta
+
+Artifacts:
+
+- prompt text
+- transcripts for both conditions
+- memory call and source-read records
+- cited source list
+- paired result JSON
+- rendered token/source-read delta report
+
+Publish rule:
+
+- do not publish a positive memory-shortcut token/cost claim unless at least `6`
+  of `8` long-source pairs pass in both conditions, at least `6` passed pairs
+  stay within the enabled source-verification budget, the budget-ok median token
+  delta from total tokens is at least `20%` positive, at least `6` budget-ok
+  passed pairs reduce source reads, and negative controls stay within budget
+  without showing a meaningful memory advantage
+- even then, the claim is limited to long-source recovery tasks; it does not
+  prove global or real-billing savings
+
+Cost-claim evidence boundary:
+
+- cost discipline is its own claim class, not an observability subcategory
+- false-success accounting, budget overrun evidence, and truncation evidence are
+  required before public token/cost claims
+- diagnostic, partial, quarantined, or `release_snapshot=false` artifacts are
+  excluded from release snapshots unless explicitly promoted
+- cache-adjusted local token proxy is calculated as
+  `max(input - cached_input, 0) + output + reasoning`; it helps diagnose cache
+  pollution in Codex runs but does not unlock a public saving claim when total
+  tokens or real billing evidence are negative or unavailable
+- local token counters can support bounded local benchmark evidence, but they do
+  not prove cloud telemetry or real billing savings
+
+## B4b. Functional Token Economics
+
+Benchmark id: `functional_token_economics`
+
+Goal:
+
+- measure feature-level fixture context-token economics for progressive
+  disclosure workflows
+- give maintainers a safe claude-mem-style claim shape without pretending that
+  it proves whole-product token savings
+- keep cost/performance claims separate from runtime observability
+
+Core tasks:
+
+- progressive recall compact packet versus broad source recovery
+- file-context preflight versus reading the full target file
+- compact wake versus broad status/session context
+- wiki compact index versus direct multi-document reading
+
+Metrics:
+
+- `baseline_tokens`
+- `optimized_tokens`
+- `token_delta`
+- `saving_ratio`
+- `minimum_saving_ratio`
+- tokenizer/source metadata
+- `fixture_only`
+
+Artifacts:
+
+- `scenarios.json`
+- one result JSON per scenario
+- `summary.csv`
+- rendered report with `Feature-Level Claim Readiness`
+- global non-claim boundary
+
+Publish rule:
+
+- may support bounded wording such as "in the functional token-economics
+  fixture benchmark, compact progressive-disclosure payloads reduced estimated
+  context tokens by X%"
+- must not be used as a global `harness-mem` token/cost saving claim
+- must not be described as real billing savings, live-agent behavior, answer
+  quality, or code-intelligence performance
 
 ## B5. Client Trace Evidence
 
@@ -366,8 +509,8 @@ Artifacts:
 
 Publish rule:
 
-- blocked until v3.2 generated knowledge surfaces ship; generated prose must
-  never be reported as confirmed truth
+- completed artifacts may be cited only as generated-knowledge boundary
+  evidence; generated prose must never be reported as confirmed truth
 
 ## B10. Auto Maintenance Effectiveness
 
@@ -446,27 +589,243 @@ Artifacts:
 
 Publish rule:
 
-- blocked until v3.4 runtime health/cost/regression surfaces ship; cost
-  discipline remains its own dimension, not an observability sub-item
+- completed artifacts may be cited as local runtime-health and false-success
+  accounting evidence; cost discipline remains its own dimension, not an
+  observability sub-item
 
-## Recommended initial priority
+## B12. True Hybrid Retrieval Shootout
 
-Run these first:
+Benchmark id: `true_hybrid_retrieval_shootout`
 
-1. `client_enabled_vs_disabled`
-2. `evidence_safety`
-3. `temporal_product_query`
-4. `latency_warm_path`
-5. `retrieval_quality_longmemeval`
+Goal:
 
-Run after product surfaces stabilize:
+- compare FTS, vector, and hybrid retrieval on source-hit recall
+- keep retrieval recall, latency, fallback, and token/cost estimate evidence in
+  one contract
+- preserve embedding baseline governance without silently changing the default
+  baseline
 
-1. `generated_knowledge_freshness`
-2. `auto_maintenance_effectiveness`
-3. `runtime_health_observability`
+Core tasks:
 
-Defer these until the first five are stable:
+- knowledge-update source-hit recall
+- temporal source-hit recall
+- multi-session release-boundary recall
+- per-mode fallback and latency accounting
 
-1. `client_trace_evidence`
-2. `maintenance_recovery`
-3. `retrieval_diagnostics`
+Metrics:
+
+- `recall_at_1`
+- `recall_at_5`
+- `recall_at_10`
+- `p50_ms`
+- `p95_ms`
+- `fallback_reason`
+- `token_cost_estimate`
+- `fixture_only`
+
+Artifacts:
+
+- dataset manifest with dataset, split, oracle, and public boundary
+- query list with expected source ids
+- one result JSON per mode or per query/mode row
+- rendered retrieval recall readiness section
+
+Publish rule:
+
+- fixture-only rows may validate the runner contract, but may not be cited as
+  public retrieval recall
+- source-hit recall must not be described as end-to-end answer correctness
+- true vector-hybrid latency still requires a non-fallback hybrid row
+
+## B13. Storage v2 Baseline
+
+Benchmark id: `storage_v2_baseline`
+
+Goal:
+
+- establish deterministic v4.0 corpus generation before changing storage
+- measure legacy JSON scan/baseline artifact fields with fixed seed, entry mix,
+  payload size, and project count
+- keep Storage v2 performance claims locked until larger release artifacts exist
+
+Core tasks:
+
+- generate 10k / 100k / 1M synthetic corpus profiles
+- record dataset hash, command, hardware, commit, p50/p95, memory, disk, DB
+  size, and fallback fields
+- render claim readiness as diagnostic smoke unless promoted
+
+Metrics:
+
+- `entry_count`
+- `json_file_count`
+- `p50_ms`
+- `p95_ms`
+- `rss_peak_mb`
+- `disk_bytes`
+- `db_size_bytes`
+- `claim_readiness`
+
+Artifacts:
+
+- `dataset.manifest.json`
+- one result JSON per run
+- `summary.csv`
+- rendered report
+- dry-run notes when available
+
+Publish rule:
+
+- diagnostic smoke rows do not support public speedup claims
+- any Storage v2 performance wording requires 10k / 100k / 1M artifact-backed
+  runs and explicit claim readiness
+
+## B14. Migration Roundtrip
+
+Benchmark id: `migration_roundtrip`
+
+Goal:
+
+- prove the v4.0.0 migration contract is reversible on a deterministic corpus
+- verify dry-run checksum, side-by-side canonical SQLite apply, and rollback
+  export back to v3-compatible JSON blobs
+
+Core tasks:
+
+- run Storage v2 dry-run without writing
+- explicitly apply to `store_v2/canonical.sqlite`
+- export rollback snapshot and compare logical checksums
+
+Metrics:
+
+- `dry_run_checksum`
+- `canonical_checksum`
+- `rollback_checksum`
+- `apply_checksum_match`
+- `rollback_checksum_match`
+- `db_size_bytes`
+- `p50_ms`
+- `p95_ms`
+
+Artifacts:
+
+- dry-run plan JSON
+- canonical DB size measurement
+- rollback checksum result
+- rendered roundtrip report
+
+Publish rule:
+
+- may support "migration contract is reversible on the measured corpus"
+- must not be phrased as default canonical-store enablement or production
+  migration performance
+
+## B15. Local Index Fabric Smoke
+
+Benchmark id: `local_index_fabric_smoke`
+
+Goal:
+
+- establish the manifest-last sidecar artifact shape for Local Memory Index
+  Fabric without claiming runtime SearchBackend implementation
+- verify interrupted generation sidecars do not become the active manifest
+
+Core tasks:
+
+- write an interrupted generation
+- write an active generation and commit `manifest.json` last
+- record source fingerprint drift detection and sidecar size
+
+Metrics:
+
+- `manifest_commit`
+- `interrupted_generation_visible`
+- `source_fingerprint_drift_detected`
+- `sidecar_size_bytes`
+- `fallback_reason`
+- `claim_readiness`
+
+Artifacts:
+
+- `dataset.manifest.json`
+- sidecar manifest note
+- one result JSON
+- rendered manifest-last report
+
+Publish rule:
+
+- may support "manifest-last sidecar contract smoke exists"
+- must not be used as runtime index-fabric, Tantivy, LanceDB, or broad search
+  performance evidence
+
+## Current Follow-Up Priority
+
+## B16. Canonical Store Runtime Baseline
+
+Benchmark id: `canonical_store_runtime_baseline`
+
+Goal: validate v4.0.1 canonical entity tables, metadata filters, compatibility
+reader, snapshot export, dual-write gate, and doctor health. Publish rule: this
+is contract evidence only, not public Storage v2 speedup evidence.
+
+## B17. Rust Core Hot Path
+
+Benchmark id: `rust_core_hot_path`
+
+Goal: validate the v4.0.2 Rust-core facade, tolerant JSONL scanner, ranking
+primitives, error mapping, and explicit pure-Python fallback. Publish rule:
+native Rust speed is not claimed unless a platform wheel artifact proves it.
+
+## B18. Index Fabric Runtime Conformance
+
+Benchmark id: `index_fabric_runtime_conformance`
+
+Goal: validate SearchBackend conformance, manifest-last sidecar publication,
+interrupted-generation invisibility, lazy rebuild, and source-fingerprint drift.
+Publish rule: this is not Tantivy, LanceDB, or ANN readiness evidence.
+
+## B19. Context Sufficiency Gate
+
+Benchmark id: `context_sufficiency_gate`
+
+Goal: evaluate v4.1 deterministic sufficiency checks: direct support, missing
+evidence, conflicts, source diversity, safe-to-answer, and bounded iterative
+retrieval. Publish rule: this is not LLM judge or end-to-end answer-quality
+evidence.
+
+## B20. Task-Aware Wake Precision
+
+Benchmark id: `task_aware_wake_precision`
+
+Goal: evaluate v4.1 wake packet budgeting, hard/soft include reasons,
+why_omitted, precision-at-k fixture behavior, and default hot/warm tier
+semantics. Publish rule: this is not a global token/cost saving claim.
+
+All executable BENCH gaps are closed as of 2026-06-08. BENCH-008 adds a v3.8
+fixture contract plus a bounded local smoke source-hit recall run; it does not
+reopen the closed backlog and it does not prove answer correctness or broad
+corpus quality. v4.0.0 adds Storage v2 diagnostic contract smokes; those remain
+excluded from public performance claims until larger release artifacts exist.
+v4.0.1-v4.1 add contract/eval packs for canonical store, Rust fallback, runtime
+index fabric, context sufficiency, and task-aware wake; those packs are also
+artifact-bounded and do not create public speedup or answer-quality claims.
+The next work is not to claim more from the current artifacts, but to improve
+signal where the current results are intentionally bounded:
+
+No global token-saving claim until a paired run reports a positive disabled-minus-enabled token/cost delta from a named source.
+
+1. Run `functional_token_economics` for bounded feature-level fixture wording
+   around compact progressive-disclosure payloads.
+2. Run `memory_shortcut_vs_source_recovery` with named token/cost counters before
+   any positive memory-shortcut saving claim; keep `client_enabled_vs_disabled`
+   as the broad anti-overclaim continuation gate.
+3. Broaden true-hybrid latency beyond the local synthetic fixture only when a
+   larger dataset/hardware run exists.
+4. Add optional live long-run maintenance coverage before claiming production
+   auto-maintenance precision/recall.
+5. Broaden `true_hybrid_retrieval_shootout` beyond local smoke source-hit recall
+   before any broad retrieval-quality claim.
+6. Keep `client_trace_evidence`, `maintenance_recovery`, and
+   `retrieval_diagnostics` as maintainer-facing expansion suites.
+7. Run `storage_v2_baseline` and `migration_roundtrip` on 10k / 100k / 1M
+   profiles before claiming Storage v2 migration or performance readiness.

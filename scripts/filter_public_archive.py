@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import io
 import tarfile
 from pathlib import Path
@@ -26,9 +27,15 @@ def _rel_member_path(name: str, archive_prefix: str) -> str:
     return name
 
 
+def _matches_exclude(rel: str, ex: str) -> bool:
+    if any(ch in ex for ch in "*?["):
+        return fnmatch.fnmatch(rel, ex)
+    return rel == ex or rel.startswith(ex + "/")
+
+
 def _drop_member(rel: str, excludes: list[str]) -> bool:
     for ex in excludes:
-        if rel == ex or rel.startswith(ex + "/"):
+        if _matches_exclude(rel, ex):
             return True
     return False
 
@@ -56,6 +63,23 @@ def filter_archive(archive: Path, manifest: Path) -> int:
     return dropped
 
 
+def check_archive(archive: Path, manifest: Path) -> list[str]:
+    excludes = _load_excludes(manifest)
+    offenders: list[str] = []
+    with tarfile.open(archive, mode="r:gz") as src:
+        prefix = ""
+        names = src.getnames()
+        if names:
+            first = names[0].split("/")[0]
+            if first and all(n.startswith(first + "/") or n == first for n in names):
+                prefix = first + "/"
+        for name in names:
+            rel = _rel_member_path(name, prefix)
+            if _drop_member(rel, excludes):
+                offenders.append(rel)
+    return offenders
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("archive", type=Path)
@@ -64,7 +88,17 @@ def main() -> None:
         type=Path,
         default=Path(__file__).resolve().parents[1] / "release" / "public-source-excludes.txt",
     )
+    parser.add_argument("--check-only", action="store_true")
     args = parser.parse_args()
+    if args.check_only:
+        offenders = check_archive(args.archive, args.manifest)
+        if offenders:
+            print("Public archive still contains excluded maintainer paths:")
+            for offender in offenders:
+                print(f"- {offender}")
+            raise SystemExit(1)
+        print(f"Public archive excludes all paths from {args.manifest}")
+        return
     n = filter_archive(args.archive, args.manifest)
     print(f"Filtered {n} path(s) from {args.archive}")
 

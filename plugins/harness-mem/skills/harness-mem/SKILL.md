@@ -17,6 +17,8 @@ Treat the project as real production context:
 - Use repo-local `tools/session-distill` for user-triggered distillation; do not use the removed heuristic distill path.
 - Distilled memory is a draft signal. Review it before treating it as durable truth.
 - Use `suggest_*`, `list_candidates`, and `confirm_*` / `reject_*` for stable rules the user explicitly wants remembered.
+- Confirmed truth can be maintained automatically, but it must not be silently overwritten; durable changes go through candidate / review / supersede / ledger.
+- Cross-project skills can be reused, but they must not pollute default wake; shared skills are searched, hinted, and expanded explicitly.
 - Use `/hm:mark`, `/hm:prune`, `/hm:review-kb`, `/hm:prune-kb`, `/hm:verify-entry`, and `/hm:prd-sync` for distillation maintenance. These are user-facing Slash entries; the repo-local script is only the implementation layer.
 - Do not delete raw agent session files unless the user explicitly asks for raw-file cleanup through a maintenance entry.
 

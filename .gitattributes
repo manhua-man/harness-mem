@@ -28,5 +28,22 @@
 *.sqlite binary
 
 # Public release source archives (git archive) — see release/public-source-excludes.txt
+AGENTS.md export-ignore
 docs/v2-user-test-packet.md export-ignore
+docs/README.md export-ignore
+docs/roadmap*.md export-ignore
+docs/roadmap/** export-ignore
+docs/reference-projects.md export-ignore
+docs/releasing.md export-ignore
+docs/testing.md export-ignore
+docs/retrospective-v13-v14.md export-ignore
+docs/harness-mem-mechanism-article-style.md export-ignore
+docs/benchmark/** export-ignore
+docs/cli/** export-ignore
+docs/diagrams/** export-ignore
+docs/cli-design-expert.md export-ignore
+openspec/** export-ignore
+benchmark-suite/** export-ignore
+tests/** export-ignore
 harness_mem/integration/artifacts/** export-ignore
+release/** export-ignore

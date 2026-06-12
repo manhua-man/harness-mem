@@ -1,0 +1,274 @@
+{
+  "benchmark_id": "memory_shortcut_vs_source_recovery",
+  "version": 1,
+  "workspace_path": "F:\\memory-lab\\harness-mem",
+  "conditions": {
+    "enabled": {
+      "allowed_memory_surfaces": [
+        "wake",
+        "search_memory",
+        "timeline",
+        "get_observations",
+        "get_confirmed_rules",
+        "get_project_status"
+      ],
+      "instruction": "For long-source tasks, use the provided accepted memory shortcut packet first, then verify the answer with the smallest necessary source reads. Record memory_calls, repo_calls, source_read_count, and cited_sources. For negative-control tasks, use current local evidence and do not use memory unless local evidence is unavailable."
+    },
+    "disabled": {
+      "forbidden_memory_surfaces": [
+        "wake",
+        "search_memory",
+        "timeline",
+        "get_observations",
+        "get_confirmed_rules",
+        "get_project_status",
+        "suggest_rule",
+        "suggest_memory_entry"
+      ],
+      "instruction": "Do not use harness-mem reads or writes. Recover the answer from source docs, archived session packets, benchmark artifacts, and local files only. Record memory_calls as an empty list, plus repo_calls, source_read_count, and cited_sources."
+    }
+  },
+  "claim_gate": {
+    "long_source_task_count": 8,
+    "negative_control_task_count": 2,
+    "minimum_both_passed_long_source_tasks": 6,
+    "minimum_median_token_saving_ratio": 0.2,
+    "minimum_read_reduction_pairs": 6,
+    "minimum_enabled_source_budget_ok_pairs": 6,
+    "minimum_negative_control_budget_ok_pairs": 2,
+    "enabled_source_read_budget": 2,
+    "negative_control_source_read_budget": 1,
+    "negative_control_repo_call_budget": 3,
+    "delta_formula": "disabled - enabled",
+    "claim_boundary": "Memory-shortcut token/source-reading savings on long-source recovery tasks only."
+  },
+  "tasks": [
+    {
+      "task_id": "MS1",
+      "title": "Release claim boundary recovery from long benchmark evidence",
+      "task_type": "long_source_recovery",
+      "prompt": "Recover the current public-claim boundary for token/cost saving, true vector-hybrid latency, and retrieval recall. Explain which claims are ready, which are not, and cite the artifact-backed evidence. In enabled mode, use memory first and then verify the minimum source spans. In disabled mode, recover from source files only.",
+      "acceptance_summary": "Must state token/cost saving is not ready, true vector-hybrid latency is locally ready, retrieval recall is locally ready, and all claims are bounded by benchmark artifacts.",
+      "required_facts": [
+        "token/cost saving is not ready.",
+        "true vector-hybrid latency is ready only for the bounded local synthetic probe.",
+        "retrieval recall is ready only for local smoke source-hit recall.",
+        "The answer cites release-snapshot or benchmark matrix evidence."
+      ],
+      "forbidden_claims": [
+        "token/cost saving is proven.",
+        "local true-hybrid latency is production latency.",
+        "source-hit recall is end-to-end answer correctness."
+      ],
+      "expected_source_classes": [
+        "benchmark-suite/release-snapshot.json",
+        "benchmark-suite/RESULTS.md",
+        "harness_mem/benchmark_matrix.py"
+      ]
+    },
+    {
+      "task_id": "MS2",
+      "title": "Reference project absorption boundary",
+      "task_type": "long_source_recovery",
+      "prompt": "Recover how codedb-mcp and evo should be used as references for harness-mem, including what to borrow and what not to borrow. Keep the answer scoped to maintainer reference truth.",
+      "acceptance_summary": "Must separate codedb-mcp as generated code-knowledge reference from evo as orchestration runtime reference, and preserve memory-layer boundaries.",
+      "required_facts": [
+        "codedb-mcp is a code knowledge compiler / local code-intel reference, not a memory competitor.",
+        "evo is an orchestration / auto-experiment runtime reference, not a memory reference.",
+        "Do not promote generated DeepWiki-style prose into truth.",
+        "Do not default harness-mem into a heavy autonomous runtime."
+      ],
+      "forbidden_claims": [
+        "codedb-mcp proves harness-mem token savings.",
+        "evo should become the default harness-mem runtime path.",
+        "Generated wiki prose can bypass truth review."
+      ],
+      "expected_source_classes": [
+        "docs/reference-projects.md",
+        "benchmark-suite/README.md"
+      ]
+    },
+    {
+      "task_id": "MS3",
+      "title": "Auto Dream maintenance boundary",
+      "task_type": "long_source_recovery",
+      "prompt": "Recover the current Auto Dream / maintenance boundary: what automation exists, what is default-off, what cannot silently change confirmed truth, and what evidence gates remain bounded.",
+      "acceptance_summary": "Must distinguish controlled automation from always-on learning and preserve candidate/review/supersede/ledger rules.",
+      "required_facts": [
+        "Controlled automation exists but default always-on background learning is not the current ordinary coding path.",
+        "Auto Dream or scheduler-style expansion must remain opt-in and auditable.",
+        "Confirmed truth cannot silently bypass candidate, review, supersede, or ledger.",
+        "Production long-run maintenance precision/recall is not proven by local guarded benchmarks."
+      ],
+      "forbidden_claims": [
+        "A daemon is the default memory runtime.",
+        "Automation may silently overwrite confirmed truth.",
+        "Local guarded tests prove production maintenance precision."
+      ],
+      "expected_source_classes": [
+        "AGENTS.md",
+        "docs/roadmap-status.md",
+        "benchmark-suite/RESULTS.md"
+      ]
+    },
+    {
+      "task_id": "MS4",
+      "title": "Generated knowledge cache authority boundary",
+      "task_type": "long_source_recovery",
+      "prompt": "Recover the generated knowledge / wiki bridge authority boundary. Explain what generated compact/wiki artifacts may do, what they may not do, and what source-map/freshness evidence is required.",
+      "acceptance_summary": "Must keep generated knowledge separate from confirmed truth and require traceability/freshness.",
+      "required_facts": [
+        "Generated compact/wiki artifacts are derived cache, not authority.",
+        "Source-map and freshness metadata are required for publishable generated knowledge claims.",
+        "Generated prose cannot launder citations or contaminate truth.",
+        "Freshness or invalidation state must be visible."
+      ],
+      "forbidden_claims": [
+        "Generated cache is the truth store.",
+        "A generated page can replace source evidence.",
+        "Citation laundering is acceptable."
+      ],
+      "expected_source_classes": [
+        "benchmark-suite/generated_knowledge_freshness/README.md",
+        "benchmark-suite/RESULTS.md",
+        "harness_mem/knowledge_cache.py"
+      ]
+    },
+    {
+      "task_id": "MS5",
+      "title": "Temporal truth and supersede explanation",
+      "task_type": "long_source_recovery",
+      "prompt": "Recover the temporal truth model: current vs historical reads, valid time vs recorded time, supersede explanation, and ambiguity handling.",
+      "acceptance_summary": "Must distinguish current/history/as_of behavior and preserve supersede explainability.",
+      "required_facts": [
+        "Temporal truth distinguishes current and historical truth.",
+        "valid_from, valid_to, and recorded_at are separate evidence dimensions.",
+        "Supersede explains replacement without deleting history.",
+        "Ambiguous temporal scope should be surfaced rather than guessed."
+      ],
+      "forbidden_claims": [
+        "Superseded truth is deleted.",
+        "Recorded time and valid time are the same thing.",
+        "Ambiguous as_of scope may be silently guessed."
+      ],
+      "expected_source_classes": [
+        "benchmark-suite/temporal_product_query/prompts.json",
+        "benchmark-suite/RESULTS.md",
+        "tests/temporal"
+      ]
+    },
+    {
+      "task_id": "MS6",
+      "title": "Cost claim gate and release-snapshot exclusion boundary",
+      "task_type": "long_source_recovery",
+      "prompt": "Recover the maintainer rule for cost/token public claims: how cost is separated from observability, how false-success/budget/truncation evidence is accounted for, what release-snapshot exclusion rule protects diagnostic artifacts, and why local token counters still do not prove real billing savings. In enabled mode, verify only against BENCHMARKS.md and build_release_snapshot.py.",
+      "acceptance_summary": "Must treat cost as its own class, include false-success/budget evidence, explain diagnostic artifact exclusion, and keep real billing out of scope.",
+      "required_facts": [
+        "Cost discipline is separate from observability.",
+        "False-success accounting and budget overrun / truncation evidence are tracked.",
+        "Diagnostic, partial, quarantined, or release_snapshot=false artifacts are excluded from release snapshots.",
+        "Cloud telemetry and real billing remain out of scope unless a separate benchmark is added."
+      ],
+      "forbidden_claims": [
+        "Cost is just an observability subcategory.",
+        "False-success failures are ignored.",
+        "Diagnostic artifacts may be promoted into release snapshots by default.",
+        "Local token counters prove real billing savings."
+      ],
+      "expected_source_classes": [
+        "benchmark-suite/BENCHMARKS.md",
+        "benchmark-suite/tools/build_release_snapshot.py"
+      ]
+    },
+    {
+      "task_id": "MS7",
+      "title": "Cross-client daily workflow boundary",
+      "task_type": "long_source_recovery",
+      "prompt": "Recover the intended daily workflow for context recovery and session distill across clients. Explain what should go through Slash/MCP/Skills and what CLI remains for. In enabled mode, verify only against AGENTS.md and, if needed, plugins/harness-mem/README.md.",
+      "acceptance_summary": "Must route daily wake/search/timeline/review to Slash/MCP/Skills and keep CLI as local ops/troubleshooting.",
+      "required_facts": [
+        "Daily user entry points are Slash, MCP, and Skills.",
+        "wake/search/timeline/candidate review are agent/MCP or Slash workflows.",
+        "session distill uses MCP prepare_session_distill plus the session-distill skill or agent candidate writes.",
+        "CLI is for install, doctor, purge, maintenance, API server, and file import operations."
+      ],
+      "forbidden_claims": [
+        "Users should hand-run wake/search/timeline CLI for normal daily work.",
+        "CLI heuristic distill is the primary current path.",
+        "MCP is optional for the normal agent workflow."
+      ],
+      "expected_source_classes": [
+        "AGENTS.md",
+        "plugins/harness-mem/README.md"
+      ]
+    },
+    {
+      "task_id": "MS8",
+      "title": "Embedding baseline governance recovery",
+      "task_type": "long_source_recovery",
+      "prompt": "Recover the embedding baseline governance rule: current default, candidate models, and what evidence is required before changing the default. In enabled mode, verify only against AGENTS.md and, if needed, the true_hybrid_retrieval_shootout README.",
+      "acceptance_summary": "Must identify all-MiniLM-L6-v2 as current default and candidate models as configurable shootout candidates.",
+      "required_facts": [
+        "all-MiniLM-L6-v2 remains the current default baseline.",
+        "bge-small-en-v1.5 and nomic-embed-text-v1.5 are configurable shootout candidates.",
+        "Changing the default requires recall, latency, cache/disk, and install-friction evidence.",
+        "A local smoke source-hit recall run is not enough to change the default."
+      ],
+      "forbidden_claims": [
+        "bge-small-en-v1.5 is already the default.",
+        "nomic-embed-text-v1.5 is already the default.",
+        "One recall run alone changes the default."
+      ],
+      "expected_source_classes": [
+        "AGENTS.md",
+        "benchmark-suite/true_hybrid_retrieval_shootout/README.md"
+      ]
+    },
+    {
+      "task_id": "NC1",
+      "title": "Negative control: tiny current CI matrix fact",
+      "task_type": "negative_control",
+      "prompt": "Negative-control task: read the current local CI workflow file and answer which Python versions the test matrix runs. Do not run commands and do not use memory unless the file is unavailable.",
+      "acceptance_summary": "Memory should provide little or no advantage; one local workflow file should solve it.",
+      "required_facts": [
+        "Uses the current local CI workflow file as evidence.",
+        "Reports the exact file path inspected.",
+        "States memory was unnecessary."
+      ],
+      "forbidden_claims": [
+        "Historical memory is required for a current single-file CI matrix fact.",
+        "A full repo lint, type-check, test, or broad search is needed.",
+        "This task proves memory improves all task categories."
+      ],
+      "expected_source_classes": [
+        ".github/workflows/test-matrix.yml"
+      ],
+      "source_read_budget": 1,
+      "repo_call_budget": 2,
+      "budget_instruction": "Hard budget: inspect only .github/workflows/test-matrix.yml. Do not run commands, full-repo lint, mypy, pytest, or broad recursive searches."
+    },
+    {
+      "task_id": "NC2",
+      "title": "Negative control: tiny obvious repo fact",
+      "task_type": "negative_control",
+      "prompt": "Negative-control task: answer a tiny obvious repo fact from a single visible file, such as the package version or project name. Do not use memory unless the local file is unavailable.",
+      "acceptance_summary": "Memory should not show a meaningful token/source-reading advantage on tiny obvious facts.",
+      "required_facts": [
+        "Uses a single current local file as evidence.",
+        "Reports the file path.",
+        "States memory was unnecessary."
+      ],
+      "forbidden_claims": [
+        "Memory is needed for single-file obvious facts.",
+        "A tiny fact lookup supports a global memory-saving claim."
+      ],
+      "expected_source_classes": [
+        "pyproject.toml",
+        "harness_mem/__init__.py"
+      ],
+      "source_read_budget": 1,
+      "repo_call_budget": 2,
+      "budget_instruction": "Hard budget: inspect exactly one obvious local file; do not search the repository."
+    }
+  ]
+}

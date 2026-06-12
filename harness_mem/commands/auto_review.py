@@ -81,7 +81,7 @@ from typing import Any, Literal
 
 from harness_mem.core.schemas import MemoryEntry, RuleCandidate
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from harness_mem.commands.retrieval_signals import record_retrieval_signal
+from harness_mem.retrieval_signals import record_retrieval_signal
 
 
 AutoReviewAction = Literal["auto_confirm", "auto_reject", "defer"]
