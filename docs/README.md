@@ -13,7 +13,7 @@
 | [`../plugins/harness-mem/README.md`](../plugins/harness-mem/README.md) | Claude Code 插件与 slash 安装 |
 | `best-practices.md` | 日常使用建议 |
 | `error-codes.md` | `doctor` 的 `HM-xxx` 错误码与修复提示 |
-| `roadmap-status.md` | 当前版本、已交付能力、non-goals、已发布的 v3.1-v4.5.0 |
+| `roadmap-status.md` | 当前版本、已交付能力、non-goals、已发布的 v3.1-v5.0.0 |
 | `testing.md` | 维护者测试分层：日常 focused / fast gate / full release gate |
 
 | 目录 | 内容 |

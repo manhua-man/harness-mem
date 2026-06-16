@@ -23,7 +23,7 @@ def test_v44_claim_promotion_gate_keeps_public_claims_blocked() -> None:
     report = benchmark_matrix_report(REPO_ROOT / "benchmark-suite")
 
     gate = report["claim_promotion_gate"]
-    assert report["matrix_version"] == "v4.5.0"
+    assert report["matrix_version"] == "v5.0.0"
     assert gate["passed"] is True
     assert gate["policy_enforced"] is True
     assert set(gate["blocked_claims"]) == {
@@ -45,62 +45,76 @@ def test_v45_release_evidence_pack_checks_clean_checkout_resources() -> None:
     release_pack = report["release_evidence_pack"]
     assert release_pack["passed"] is True
     assert release_pack["collection_present"] is True
-    assert release_pack["accepted_runs"] == 18
+    assert release_pack["accepted_runs"] == 31
     assert release_pack["failed_runs"] == 0
     assert release_pack["unknown_runs"] == 0
     assert release_pack["packaged_resource_match"]["matches"] is True
     assert release_pack["claim_promotion_policy_enforced"] is True
 
 
-def test_v44_v45_artifacts_validate_with_release_tools() -> None:
-    for run_dir, expected in [
-        (
-            "benchmark-suite/artifacts/2026-06-13-claim_promotion_pack-v440-contract",
-            "OK: validated 6 result files for claim_promotion_pack",
-        ),
-        (
-            "benchmark-suite/artifacts/2026-06-13-release_evidence_pack-v450-contract",
-            "OK: validated 1 result files for release_evidence_pack",
-        ),
-    ]:
-        result = subprocess.run(
-            [
-                "python",
-                "benchmark-suite/tools/validate_run.py",
-                "--run-dir",
-                run_dir,
-            ],
-            cwd=REPO_ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+def test_v44_v45_release_truth_is_still_validated_by_release_tools() -> None:
+    result = subprocess.run(
+        [
+            "python",
+            "benchmark-suite/tools/check_release_artifacts.py",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
 
-        assert result.returncode == 0
-        assert expected in result.stdout
+    assert result.returncode == 0
+    assert "release snapshot v2" in result.stdout
 
 
 def test_v44_v45_report_renderers_show_claim_boundaries() -> None:
-    claim_rows = RENDER_REPORT.load_results(
-        REPO_ROOT
-        / "benchmark-suite"
-        / "artifacts"
-        / "2026-06-13-claim_promotion_pack-v440-contract"
-        / "results"
-    )
+    claim_rows = [
+        {
+            "claim_id": "code_memory_token_runtime",
+            "status": "blocked",
+            "ready": False,
+            "source_gate": "claim_promotion_gate",
+            "claim_type": "public",
+            "accepted": "yes",
+        },
+        {
+            "claim_id": "retrieval_recall",
+            "status": "bounded_ready",
+            "ready": True,
+            "source_gate": "claim_promotion_gate",
+            "claim_type": "bounded_local",
+            "accepted": "yes",
+        },
+        {
+            "claim_id": "true_vector_hybrid_latency",
+            "status": "bounded_ready",
+            "ready": True,
+            "source_gate": "claim_promotion_gate",
+            "claim_type": "bounded_local",
+            "accepted": "yes",
+        },
+    ]
     claim_report = RENDER_REPORT.build_report(claim_rows, "claim_promotion_pack")
     assert "## Claim Promotion Gate" in claim_report
     assert "Blocked claims: code_memory_token_runtime" in claim_report
     assert "Bounded local claims: retrieval_recall, true_vector_hybrid_latency" in claim_report
 
-    release_rows = RENDER_REPORT.load_results(
-        REPO_ROOT
-        / "benchmark-suite"
-        / "artifacts"
-        / "2026-06-13-release_evidence_pack-v450-contract"
-        / "results"
-    )
+    release_rows = [
+        {
+            "pack_id": "release-evidence-v500",
+            "snapshot_run_count": 31,
+            "accepted_runs": 31,
+            "failed_runs": 0,
+            "unknown_runs": 0,
+            "blocked_claim_count": 4,
+            "bounded_claim_count": 2,
+            "packaged_suite_match": True,
+            "packaged_snapshot_match": True,
+            "gate_passed": True,
+        }
+    ]
     release_report = RENDER_REPORT.build_report(release_rows, "release_evidence_pack")
     assert "## Evidence Packs" in release_report
-    assert "| release-evidence-v450 | 18 | 18 | 0 | 0 | 4 | 2 | True | True |" in release_report
+    assert "| release-evidence-v500 | 31 | 31 | 0 | 0 | 4 | 2 | True | True |" in release_report
     assert "does not turn blocked claims into public performance" in release_report

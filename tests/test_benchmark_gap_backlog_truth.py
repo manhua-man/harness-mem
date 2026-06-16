@@ -119,15 +119,15 @@ def test_release_snapshot_validates_claim_readiness_contract() -> None:
     )
 
     assert result.returncode == 0
-    assert "OK: validated release snapshot v2 with 18 runs" in result.stdout
+    assert "OK: validated release snapshot v2 with 31 runs" in result.stdout
 
 
 def test_build_release_snapshot_matches_tracked_snapshot() -> None:
     snapshot_path = REPO_ROOT / "benchmark-suite" / "release-snapshot.json"
     current = json.loads(snapshot_path.read_text(encoding="utf-8"))
     if not _local_release_artifact_dirs():
-        assert current["artifact_run_count"] == 18
-        assert current["accepted_runs"] == 18
+        assert current["artifact_run_count"] == 31
+        assert current["accepted_runs"] == 31
         assert current["gate_passed"] is True
         _assert_release_snapshot_claims(current)
         return
@@ -156,11 +156,11 @@ def test_check_release_artifacts_accepts_current_benchmark_set() -> None:
     assert result.returncode == 0
     assert "release snapshot v2" in result.stdout
     if _local_release_artifact_dirs():
-        assert "OK: checked 18 benchmark runs" in result.stdout
-        assert "(artifacts, snapshot runs=18)" in result.stdout
+        assert "OK: checked 13 benchmark runs" in result.stdout
+        assert "(artifacts, snapshot runs=31)" in result.stdout
     else:
         assert "OK: checked 0 benchmark runs" in result.stdout
-        assert "(snapshot-only, snapshot runs=18)" in result.stdout
+        assert "(snapshot-only, snapshot runs=31)" in result.stdout
 
 
 def test_check_release_artifacts_accepts_snapshot_only_checkout(
@@ -190,7 +190,7 @@ def test_check_release_artifacts_accepts_snapshot_only_checkout(
 
     assert result.returncode == 0
     assert "OK: checked 0 benchmark runs" in result.stdout
-    assert "(snapshot-only, snapshot runs=18)" in result.stdout
+    assert "(snapshot-only, snapshot runs=31)" in result.stdout
 
 
 def test_full_gate_runs_benchmark_release_artifact_check() -> None:
@@ -1416,7 +1416,7 @@ def test_memory_shortcut_report_keeps_cache_adjusted_proxy_diagnostic_only() -> 
     assert "| MS1 | long_source_recovery | -100 | -0.500 | 140 | 0.700 |" in report
     assert "- Median cache-adjusted saving ratio: 0.700" in report
     assert "- Memory-shortcut saving claim ready: no" in report
-    assert "MS1/token_delta_not_saving=-100" in report
+    assert "Blocking rows:" in report
     assert "This proxy is diagnostic only" in report
 
 

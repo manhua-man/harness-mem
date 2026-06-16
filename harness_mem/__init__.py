@@ -1,3 +1,3 @@
 """harness-mem: Local-first, pluggable AI memory runtime."""
 
-__version__ = "4.5.0"
+__version__ = "5.0.0"

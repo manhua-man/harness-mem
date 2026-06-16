@@ -8,7 +8,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-BENCHMARK_MATRIX_VERSION = "v4.5.0"
+BENCHMARK_MATRIX_VERSION = "v5.0.0"
 
 ARTIFACT_STATES = ["accepted", "partial", "failed", "quarantined"]
 NON_RELEASE_ARTIFACT_STATE_ALIASES = {

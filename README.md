@@ -19,23 +19,20 @@ local-first memory
 
 ## Current Release
 
-Current package version is v4.5.0. The v4.0.x line adds the canonical SQLite
-store contract, Rust hot-path facade with pure-Python fallback, local index
-fabric/SearchBackend contract, lifecycle tiering, and distribution diagnostics.
-v4.1 adds deterministic context sufficiency reports and task-aware wake packets
-to MCP `search_memory` / `wake`; v4.2 adds the memory eval matrix, retrieval
-quality pack, deterministic query rewrites, and optional reranker dependency
-profile; v4.3 adds code-memory federation so file context can report current
-file fingerprints, Python symbols, and stale code-evidence status. v4.4 adds a
-machine-readable claim-promotion gate, and v4.5 packages release evidence for
-clean-checkout/runtime consumers without upgrading blocked public claims.
+Current package version is v5.0.0. v4.6-v5.0 closes the Evidence Hardening
+Track on top of the v4.0.x-v4.5 foundation: artifact-backed cost/token
+evidence, Storage v2 `10k/100k/1m` scale evidence, index-fabric runtime
+conformance, native Rust hot-path evidence, and a machine-readable
+default-change decision gate. The earlier v4.0.x-v4.5 slices still provide the
+canonical SQLite store contract, Rust facade/fallback, index
+fabric/SearchBackend contract, context sufficiency, memory evals, code-memory
+federation, claim-promotion policy, and release-evidence packaging.
 
-The 2026-06-13 v4 smoke and contract artifacts prove contract shape, migration
-safety, benchmark surface availability, memory-eval coverage, retrieval-quality
-component gates, code-evidence federation shape, claim-promotion policy, and
-release-evidence packaging. They do not claim broad performance speedups, token
-savings, default reranker/HyDE enablement, code-intel token/runtime parity, or
-end-to-end answer-quality gains.
+The 2026-06-16 release snapshot carries 31 accepted runs and keeps blocked
+claim boundaries intact. It does not claim broad token/cost savings, public
+Storage v2 speedups, ANN/Tantivy/LanceDB readiness, default reranker/HyDE
+enablement, generalized Rust performance wins, or end-to-end answer-quality
+gains.
 
 ## Why It Exists
 

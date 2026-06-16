@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+---
+
+## [5.0.0] — 2026-06-16
+
+**主题：Evidence Hardening Track**
+
 ### Added
 
 - **Evidence Hardening track completed**: `benchmark-suite/release-snapshot.json`

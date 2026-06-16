@@ -121,7 +121,7 @@ def test_benchmark_matrix_report_tracks_required_surfaces(tmp_path: Path):
 
     assert report["gate"]["passed"] is True
     assert report["gate"]["missing_surface_coverage"] == []
-    assert report["matrix_version"] == "v4.5.0"
+    assert report["matrix_version"] == "v5.0.0"
     assert report["taxonomy"]["artifact_states"] == [
         "accepted",
         "partial",

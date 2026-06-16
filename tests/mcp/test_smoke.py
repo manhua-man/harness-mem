@@ -1497,7 +1497,7 @@ def test_benchmark_matrix_report_exposes_surface_gates():
     data = call_tool("benchmark_matrix_report", {})
 
     assert data["success"] is True
-    assert data["matrix_version"] == "v4.5.0"
+    assert data["matrix_version"] == "v5.0.0"
     surfaces = {row["surface"]: row for row in data["surfaces"]}
     assert {
         "wake",

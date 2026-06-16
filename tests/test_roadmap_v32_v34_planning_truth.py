@@ -23,10 +23,11 @@ def test_v32_v33_are_implemented_and_v34_started_with_cost_observer() -> None:
     assert "| v3.3.x | 已发布：Temporal Query and Supersede Explainability |" in roadmap_status
     assert "| v3.4.4 | 已发布：Cost Budget Policy |" in roadmap_status
     assert "| v3.8.0 | 已完成：True Hybrid Retrieval Shootout |" in roadmap_status
-    assert "| v4.5.0 | 当前版本：Release Evidence Pack |" in roadmap_status
+    assert "| v4.5.0 | 已完成：Release Evidence Pack |" in roadmap_status
+    assert "| v5.0.0 | 当前版本：Evidence Hardening Track |" in roadmap_status
     assert "| v3.4.x | 已发布：Runtime Health, Cost Discipline, and Regression Gates |" in roadmap_status
-    assert "regression gates、true-hybrid shootout summary、v4.0.x-v4.5 surface coverage、public-claim readiness" in roadmap_status
-    assert "claim-promotion gate 和 release-evidence pack" in roadmap_status
+    assert "regression gates、true-hybrid shootout summary、v4.0.x-v5.0 surface coverage、public-claim readiness" in roadmap_status
+    assert "claim-promotion gate、release-evidence pack、evidence-hardening track 和 default-change decision gate" in roadmap_status
     assert "当前 token/cost saving 仍未 ready；true-hybrid latency / retrieval recall 只限本地 synthetic / smoke artifact" in roadmap_status
     assert "| v3.2.0 | 已发布：Generated Knowledge Compiler + Basic Freshness |" in roadmap_status
     assert "| v3.2.x | 已发布：Generated Knowledge Compiler + Basic Freshness |" in roadmap_status

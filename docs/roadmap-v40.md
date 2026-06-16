@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v4.0
 
-> 状态：v4.0.0-v4.0.5、v4.1.x、v4.2.x、v4.3.0、v4.4 与 v4.5 已完成。
+> 状态：v4.0.0-v4.0.5、v4.1.x、v4.2.x、v4.3.0、v4.4、v4.5 与 v4.6-v5.0 已完成。
 >
 > 主题：Storage v2 + Rust Core + Local Memory Index Fabric。把 harness-mem 从
 > "Python 编排 + JSON blob truth + SQLite index" 升级为 "DB-first canonical
@@ -8,7 +8,9 @@
 > v4.0 只打存储、索引、热路径和 benchmark 地基；v4.1 收口 context
 > sufficiency、task-aware wake 和 local routing；v4.2 已把 memory evals 产品化；
 > v4.3 已把 code-memory federation 接入 file_context；v4.4/v4.5 把
-> public-claim promotion 与 release evidence packaging 机器化。
+> public-claim promotion 与 release evidence packaging 机器化；v4.6-v5.0 已把
+> Evidence Hardening 与 default-change decision gate 收口成 artifact-backed
+> release truth。
 
 ---
 
@@ -62,6 +64,7 @@ Python MCP / CLI / Skills
 | v4.3 | Code-Memory Federation | 把 repo code-intel substrate 与 memory runtime 联邦起来，引用代码证据，但不把 generated prose 写成 truth。 |
 | v4.4 | Claim Promotion Pack | 把 public claim promotion 做成机器可验证 gate，防止 blocked claim 被文案或报告升级。 |
 | v4.5 | Release Evidence Pack | 把 release snapshot、packaged benchmark resources 和 claim-promotion visibility 做成 clean-checkout 可消费证据包。 |
+| v4.6-v5.0 | Evidence Hardening Track | 把 cost/token、Storage v2 scale、Index Fabric runtime、Rust native hot path 与默认项决策门做成 artifact-backed release truth。 |
 
 核心判断：**Agentic 是检索编排能力，不是自治改记忆能力。** 智能路由、补查、说明证据不足可以做；
 confirmed truth 变更仍必须走 candidate / review / supersede / ledger。
@@ -617,27 +620,41 @@ v4.5 已完成第一版 release-evidence contract：
 明确边界：v4.5 只是 release evidence packaging，不把 blocked claims 升级成
 public performance 或 token-saving claims。
 
-## v4.6-v5.0：Evidence Hardening Track（规划中）
+## v4.6-v5.0：Evidence Hardening Track
 
-v4.6 之后的主线不是继续堆新功能，而是把 v4 地基变成可发布的
+这条线现已完成：它不是继续堆新功能，而是把 v4 地基收口成可发布的
 cost / performance / storage-index 硬证据链。参考 `codedb-mcp` 的方向是
 index discipline、benchmark discipline 和 cost observer discipline，不是把
 `harness-mem` 改成 code-intel 产品。
 
-| 切片 | 目标 | 必须产出的 artifact | 不允许升级的 claim |
+| 切片 | 已完成内容 | 对应 artifact / gate | 仍不允许升级的 claim |
 |---|---|---|---|
-| v4.6 Cost / Token Evidence | 跑通长源恢复 paired benchmark，证明 memory shortcut 在特定任务上少读、少塞、少花 | `memory_shortcut_vs_source_recovery`：enabled/disabled paired rows、named token sidecars、source_read_count、negative controls、bounded report | 不发布全局 token/cost saving；只允许长源恢复任务 bounded wording |
-| v4.7 Storage v2 Scale Evidence | 把 Storage v2 从 smoke/contract 推到 10k / 100k / 1M scale evidence | `storage_v2_baseline` + `migration_roundtrip`：固定 seed/hash/hardware、v3 JSON vs canonical SQLite、cold/warm、RSS、disk、file count、rollback checksum | 不切默认 canonical store；不写 Storage v2 speedup |
-| v4.8 Index Fabric Runtime Evidence | 证明 exact/word/trigram/graph sidecars 真的减少宽检索、大输出或 warm-path latency | `index_fabric_runtime_conformance`：SearchBackend conformance、first lazy load vs warm path、fallback metadata、fingerprint drift/lazy rebuild | 不宣称 Tantivy/LanceDB/ANN readiness；不把 manifest smoke 当 runtime evidence |
-| v4.9 Rust Native Hot Path Evidence | 证明 native Rust hot path 快于 Python fallback，而不是只证明 fallback 可用 | `rust_core_hot_path`：JSONL scan、bulk index、RRF/ranking、tokenize 的 native vs fallback 对照和 platform/wheel mode | 没有 native wheel artifact 不说 Rust speedup |
-| v5.0 Default Change Decision Gate | 只在 v4.6-v4.9 evidence 达标后讨论默认项变化 | claim gate 汇总：token/cost、Storage v2、Index Fabric、Rust native、retrieval quality 全部有可复核 artifact | 不因单个 smoke 或局部结果改变默认 storage/index/reranker/HyDE |
+| v4.6 Cost / Token Evidence | 长源恢复 paired benchmark 已进入 accepted release truth，named token sidecars、`source_read_count` 和 negative controls 全部进入 artifact | `memory_shortcut_vs_source_recovery` + `functional_token_economics`，`cost_token_evidence.passed=true` | 不发布全局 token/cost saving；只允许长源恢复任务 bounded wording |
+| v4.7 Storage v2 Scale Evidence | Storage v2 baseline、migration roundtrip 和 canonical store runtime 都已补齐 accepted `10k/100k/1m` evidence | `storage_v2_baseline` + `migration_roundtrip` + `canonical_store_runtime_baseline`，`storage_v2_scale_evidence.passed=true` | 不切默认 canonical store；不写 Storage v2 speedup |
+| v4.8 Index Fabric Runtime Evidence | runtime conformance 已覆盖 exact/word/trigram/graph、lazy load、manifest commit 与 drift/fallback metadata | `index_fabric_runtime_conformance`，`index_fabric_runtime_evidence.passed=true` | 不宣称 Tantivy/LanceDB/ANN readiness；不把 manifest smoke 当 runtime evidence |
+| v4.9 Rust Native Hot Path Evidence | PyO3 native module 已可导入，JSONL scan、bulk index、RRF/ranking、tokenize 均有 accepted native artifact | `rust_core_hot_path` + `harness_mem_core_rs`，`rust_native_hot_path_evidence.passed=true` | 不把本地 bounded native artifact 夸大成广义 Rust speedup |
+| v5.0 Default Change Decision Gate | 证据线已汇总到 machine-readable 默认项决策门，release snapshot 与 packaged resources 都可消费 | `default_change_decision_gate.ready=true` | 不因单个 smoke 或局部结果改变默认 storage/index/reranker/HyDE |
 
-优先级：
+### 当前实现（2026-06-16）
 
-1. 先做 v4.6，因为 `claim_readiness.token_cost_saving.ready=false` 是当前最大对外短板。
-2. 再做 v4.7 / v4.8，因为它们决定 canonical store 和 index fabric 是否有资格进入默认路径。
-3. v4.9 只在 native build / wheel 形态足够稳定时推进；没有 native artifact 就继续保持 fallback-only 叙事。
-4. v5.0 是决策门，不是功能堆叠版本。它只回答“哪些默认项终于可以改”，不能绕过 claim gate。
+v4.6-v5.0 已完成为一条 release-truth 收口线：
+
+- `benchmark-suite/release-snapshot.json` 与
+  `harness_mem/resources/benchmark_suite/release-snapshot.json` 现保留 31 个
+  accepted runs，并同步暴露 `evidence_hardening_track` 与
+  `default_change_decision_gate`。
+- `benchmark-suite/tools/build_release_snapshot.py` 会合并历史 accepted snapshot
+  truth 与本地新 accepted artifacts；`release_snapshot=false` 或 partial /
+  diagnostic run 不再伪装成 release evidence。
+- `harness_mem/benchmark_matrix.py` 会跨多个 accepted runs 聚合 Storage v2 的
+  `10k/100k/1m` evidence，并把 cost/token、Storage v2、Index Fabric、Rust
+  native 与 default-change gate 统一成 machine-readable runtime output。
+- `crates/harness_mem_core_rs/` 不再只是 crate skeleton：native module 现在通过
+  PyO3 暴露 `api_version`、`scan_jsonl`、`build_bulk_index_rows`、
+  `reciprocal_rank_fusion`、`rank_candidates` 与 `tokens`；`harness_mem.rust_core`
+  在 native module 可用时优先走 native 路径。
+- 这条线完成后，默认项变更终于具备证据资格，但 truth / claim boundary 不变：
+  blocked public claims 仍不能因为 gate ready 或 snapshot 更完整而自动升级。
 
 这条线的验收标准：每个 public-facing claim 都必须能从 artifact 追到
 dataset hash、command、hardware、冷/热路径、fallback status、token/cost source
@@ -649,7 +666,7 @@ dataset hash、command、hardware、冷/热路径、fallback status、token/cost
 Roadmap truth tests
   docs index includes v4.0
   v4.0/v4.1/v4.2/v4.3/v4.4/v4.5 boundaries are explicit
-  v4.6-v5.0 evidence-hardening plan is future-only
+  v4.6-v5.0 evidence-hardening track is shipped truth
   benchmark gate and no-silent-truth-mutation boundary stay present
 
 Contract tests
