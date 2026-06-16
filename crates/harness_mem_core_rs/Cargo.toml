@@ -8,3 +8,8 @@ license = "MIT"
 [lib]
 name = "harness_mem_core_rs"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.23.3", features = ["abi3-py39", "extension-module"] }
+serde_json = "1.0"

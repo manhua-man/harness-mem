@@ -6,6 +6,59 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Evidence Hardening track completed**: `benchmark-suite/release-snapshot.json`
+  现在合并历史 accepted runs 与本地新产物，携带 `31` 个 accepted runs；
+  `evidence_hardening_track.cost_token_evidence`、
+  `storage_v2_scale_evidence`、`index_fabric_runtime_evidence`、
+  `rust_native_hot_path_evidence` 均已通过，`default_change_decision_gate.ready`
+  为 `true`。
+- **Artifact-backed v4.7/v4.8 evidence**: 新增 accepted release artifacts：
+  `storage_v2_baseline`、`migration_roundtrip`、
+  `canonical_store_runtime_baseline` 的 `10k/100k/1m` 三档 run，以及
+  `index_fabric_runtime_conformance` 的 runtime conformance run。
+- **Native Rust module path**: `crates/harness_mem_core_rs` 不再只是 skeleton；
+  现在通过 PyO3 暴露 `api_version`、`scan_jsonl`、
+  `build_bulk_index_rows`、`reciprocal_rank_fusion`、`rank_candidates`、
+  `tokens`，`harness_mem.rust_core` 在 native module 可用时会优先走 native
+  路径，并产出 accepted `rust_core_hot_path` release artifact。
+- **Release truth preservation**: `build_release_snapshot.py` 与
+  `benchmark_matrix_report` 现在会保留历史 snapshot 真值并叠加本地新 artifacts，
+  避免在 gitignored artifact 目录不完整时把既有 retrieval / latency evidence
+  错误抹掉；Storage v2 scale gate 也会跨多个 accepted runs 聚合
+  `10k/100k/1m` profile，而不是只看最新单次 run。
+- **Evidence Hardening visibility gates**: `benchmark_matrix_report` 现在额外暴露
+  `evidence_hardening_track` 和 `default_change_decision_gate`，把 v4.6 Cost /
+  Token Evidence、v4.7 Storage v2 Scale Evidence、v4.8 Index Fabric Runtime
+  Evidence、v4.9 Rust Native Hot Path Evidence，以及 v5.0 default-change
+  decision gate 变成 machine-readable runtime output。没有对应 artifact 时，
+  这些 gate 会明确保持 blocked，而不是把 planning prose 当成 readiness。
+- **Release snapshot carry-through**: `benchmark-suite/tools/build_release_snapshot.py`
+  生成的 snapshot 现在携带 `evidence_hardening_track` 和
+  `default_change_decision_gate`；`validate_release_snapshot.py` 会在这些字段存在时
+  校验它们的 shape。
+- **Evidence Hardening drivers**: 新增
+  `benchmark-suite/canonical_store_runtime_baseline/driver.py`、
+  `benchmark-suite/index_fabric_runtime_conformance/driver.py` 和
+  `benchmark-suite/rust_core_hot_path/driver.py`，让 v4.7-v4.9 相关 benchmark
+  pack 至少具备本地可复跑的 contract/runtime smoke 生产器，而不再只有 README /
+  acceptance checklist。
+- **Benchmark report sections**: `benchmark-suite/tools/render_report.py` 为
+  canonical store runtime、index-fabric runtime conformance、rust hot path
+  三类 bundle 补上专用标题和结果区块，避免统一落到模糊的通用 storage report。
+
+### Boundaries
+
+- v4.6-v5.0 的 artifact gate 已完成，但 public-claim boundary 不变：
+  仍然**不能**把这些 artifact 写成全局 token/cost saving、Storage v2
+  public speedup、ANN/Tantivy/LanceDB readiness，或广义 Rust performance
+  marketing claim。
+- `default_change_decision_gate.ready=true` 只表示“默认项变更终于具备证据资格”，
+  不是“默认 storage/index/reranker/HyDE 已自动切换”。默认行为仍需显式产品决策。
+- benchmark driver 默认仍允许产出 local diagnostic artifact；只有显式
+  `--release-snapshot` 且满足对应 guard 的 run 才会进入 tracked release truth。
+
 ---
 
 ## [4.5.0] — 2026-06-13

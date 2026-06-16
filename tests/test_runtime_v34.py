@@ -673,15 +673,33 @@ def test_benchmark_matrix_report_uses_packaged_snapshot_when_repo_suite_missing(
     tmp_path: Path,
 ):
     missing_suite = tmp_path / "missing-benchmark-suite"
+    packaged_snapshot = json.loads(
+        (
+            REPO_ROOT
+            / "harness_mem"
+            / "resources"
+            / "benchmark_suite"
+            / "release-snapshot.json"
+        ).read_text(encoding="utf-8")
+    )
 
     report = benchmark_matrix_report(missing_suite)
 
-    assert report["release_snapshot"]["accepted_runs"] == 18
+    assert report["release_snapshot"]["accepted_runs"] == packaged_snapshot["accepted_runs"]
     assert report["release_snapshot"]["unknown_runs"] == 0
     assert report["gate"]["passed"] is True
-    assert report["claim_readiness"]["token_cost_saving"]["ready"] is False
-    assert report["claim_readiness"]["true_vector_hybrid_latency"]["ready"] is True
-    assert report["claim_readiness"]["retrieval_recall"]["ready"] is True
+    assert (
+        report["claim_readiness"]["token_cost_saving"]["ready"]
+        == packaged_snapshot["claim_readiness"]["token_cost_saving"]["ready"]
+    )
+    assert (
+        report["claim_readiness"]["true_vector_hybrid_latency"]["ready"]
+        == packaged_snapshot["claim_readiness"]["true_vector_hybrid_latency"]["ready"]
+    )
+    assert (
+        report["claim_readiness"]["retrieval_recall"]["ready"]
+        == packaged_snapshot["claim_readiness"]["retrieval_recall"]["ready"]
+    )
     assert report["retrieval_shootout"]["default_embedding_baseline"] == "all-MiniLM-L6-v2"
     assert "client_enabled_vs_disabled" in report["taxonomy"]["use_cases"]
     assert report["claim_promotion_gate"]["policy_enforced"] is True

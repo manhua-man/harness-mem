@@ -177,12 +177,12 @@ def build_release_snapshot(
     *,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
-    runs = []
+    runs = _existing_snapshot_runs(suite_root)
     for manifest_path in sorted((suite_root / "artifacts").glob("*/run_manifest.json")):
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if not _include_in_release_snapshot(manifest):
             continue
-        runs.append(_run_summary(manifest_path))
+        runs = _merge_runs(runs, [_run_summary(manifest_path)])
     accepted_runs = sum(1 for run in runs if run["accepted"] is True)
     failed_runs = sum(1 for run in runs if run["accepted"] is False)
     unknown_runs = sum(1 for run in runs if run["accepted"] is None)
@@ -200,8 +200,57 @@ def build_release_snapshot(
         "gate_passed": failed_runs == 0 and unknown_runs == 0 and bool(runs),
         "claim_readiness": matrix["claim_readiness"],
         "retrieval_shootout": matrix["retrieval_shootout"],
+        "evidence_hardening_track": matrix["evidence_hardening_track"],
+        "default_change_decision_gate": matrix["default_change_decision_gate"],
         "runs": runs,
     }
+
+
+def _existing_snapshot_runs(suite_root: Path) -> list[dict[str, Any]]:
+    snapshot_path = suite_root / "release-snapshot.json"
+    if not snapshot_path.exists():
+        return []
+    try:
+        payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+    runs = payload.get("runs")
+    if not isinstance(runs, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        run_id = str(run.get("run_id") or "")
+        collection_id = str(run.get("collection_id") or "")
+        claim_boundary = str(run.get("claim_boundary") or "")
+        if not run_id or not collection_id or not claim_boundary:
+            continue
+        merged_run = {
+            "run_id": run_id,
+            "collection_id": collection_id,
+            "accepted": run.get("accepted"),
+            "result_count": run.get("result_count"),
+            "claim_boundary": claim_boundary,
+        }
+        if run.get("artifact_state"):
+            merged_run["artifact_state"] = str(run["artifact_state"])
+        out.append(merged_run)
+    return sorted(out, key=lambda item: str(item["run_id"]), reverse=True)
+
+
+def _merge_runs(
+    existing_runs: list[dict[str, Any]],
+    new_runs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged = {
+        str(run["run_id"]): dict(run)
+        for run in existing_runs
+        if isinstance(run, dict) and run.get("run_id")
+    }
+    for run in new_runs:
+        merged[str(run["run_id"])] = dict(run)
+    return sorted(merged.values(), key=lambda item: str(item["run_id"]), reverse=True)
 
 
 def sync_package_resources(suite_root: Path, rendered_snapshot: str) -> None:

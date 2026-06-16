@@ -3,14 +3,17 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from harness_mem.commands import token_estimator
-
-
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from harness_mem.commands import token_estimator  # noqa: E402
+
 SUITE_DIR = ROOT / "benchmark-suite"
 BENCHMARK_ID = "functional_token_economics"
 SCENARIOS_PATH = SUITE_DIR / BENCHMARK_ID / "scenarios.json"

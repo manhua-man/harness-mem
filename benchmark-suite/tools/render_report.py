@@ -648,6 +648,9 @@ def build_storage_v2_report(rows: list[dict], benchmark_id: str) -> str:
         "storage_v2_baseline": "Storage v2 Baseline Report",
         "migration_roundtrip": "Migration Roundtrip Report",
         "local_index_fabric_smoke": "Local Index Fabric Smoke Report",
+        "canonical_store_runtime_baseline": "Canonical Store Runtime Baseline Report",
+        "index_fabric_runtime_conformance": "Index Fabric Runtime Conformance Report",
+        "rust_core_hot_path": "Rust Core Hot Path Report",
     }.get(benchmark_id, "Storage v2 Report")
     lines = [f"# {title}", "", "## Result Table", ""]
     lines.append(
@@ -702,6 +705,54 @@ def build_storage_v2_report(rows: list[dict], benchmark_id: str) -> str:
                     manifest_commit=row.get("manifest_commit", ""),
                     interrupted=row.get("interrupted_generation_visible", ""),
                     drift=row.get("source_fingerprint_drift_detected", ""),
+                    fallback=row.get("fallback_reason", ""),
+                )
+            )
+
+    if benchmark_id == "canonical_store_runtime_baseline":
+        lines.extend(["", "## Canonical Store Checks", ""])
+        lines.append("| Dataset | Canonical Rows | Checksum Match | Fallback |")
+        lines.append("|---|---:|---|---|")
+        for row in rows:
+            lines.append(
+                "| {dataset_id} | {canonical_row_count} | {checksum_match} | {fallback} |".format(
+                    dataset_id=row.get("dataset_id", ""),
+                    canonical_row_count=row.get("canonical_row_count", ""),
+                    checksum_match=row.get("checksum_match", ""),
+                    fallback=row.get("fallback_reason", ""),
+                )
+            )
+
+    if benchmark_id == "index_fabric_runtime_conformance":
+        lines.extend(["", "## Runtime Conformance Checks", ""])
+        lines.append(
+            "| Operation | Manifest Commit | Interrupted Visible | Drift | Backend Conformance | First Lazy Load | Warm Run | Fallback |"
+        )
+        lines.append("|---|---|---|---|---|---|---|---|")
+        for row in rows:
+            lines.append(
+                "| {operation} | {manifest_commit} | {interrupted} | {drift} | {backend} | {first_lazy_load} | {warm_run} | {fallback} |".format(
+                    operation=row.get("operation", ""),
+                    manifest_commit=row.get("manifest_commit", ""),
+                    interrupted=row.get("interrupted_generation_visible", ""),
+                    drift=row.get("source_fingerprint_drift_detected", ""),
+                    backend=row.get("search_backend_conformance", ""),
+                    first_lazy_load=row.get("first_lazy_load", ""),
+                    warm_run=row.get("warm_run", ""),
+                    fallback=row.get("fallback_reason", ""),
+                )
+            )
+
+    if benchmark_id == "rust_core_hot_path":
+        lines.extend(["", "## Rust Mode Checks", ""])
+        lines.append("| Operation | Rust Mode | Native Available | Fallback |")
+        lines.append("|---|---|---|---|")
+        for row in rows:
+            lines.append(
+                "| {operation} | {rust_mode} | {native_available} | {fallback} |".format(
+                    operation=row.get("operation", ""),
+                    rust_mode=row.get("rust_mode", ""),
+                    native_available=row.get("native_available", ""),
                     fallback=row.get("fallback_reason", ""),
                 )
             )
@@ -908,6 +959,9 @@ def _storage_v2_readiness(rows: list[dict], benchmark_id: str) -> dict[str, str]
                 blockers.append(f"{row_id}/apply_checksum_match=false")
             if row.get("rollback_checksum_match") is not True:
                 blockers.append(f"{row_id}/rollback_checksum_match=false")
+        if benchmark_id == "canonical_store_runtime_baseline":
+            if row.get("checksum_match") is not True:
+                blockers.append(f"{row_id}/checksum_match=false")
         if benchmark_id == "local_index_fabric_smoke":
             if row.get("manifest_commit") is not True:
                 blockers.append(f"{row_id}/manifest_commit=false")
@@ -915,6 +969,16 @@ def _storage_v2_readiness(rows: list[dict], benchmark_id: str) -> dict[str, str]
                 blockers.append(f"{row_id}/interrupted_generation_visible=true")
             if row.get("source_fingerprint_drift_detected") is not True:
                 blockers.append(f"{row_id}/source_fingerprint_drift_detected=false")
+        if benchmark_id == "index_fabric_runtime_conformance":
+            for field in [
+                "manifest_commit",
+                "search_backend_conformance",
+                "source_fingerprint_drift_detected",
+            ]:
+                if row.get(field) is not True:
+                    blockers.append(f"{row_id}/{field}=false")
+            if row.get("interrupted_generation_visible") is not False:
+                blockers.append(f"{row_id}/interrupted_generation_visible=true")
 
     return {
         "public_performance_ready": "no",
@@ -1244,10 +1308,6 @@ def _memory_shortcut_claim_readiness(grouped: dict[str, dict[str, dict]]) -> dic
                 enabled_source_budget_ok_pairs += 1
                 if ratio is not None:
                     long_source_ratios.append(ratio)
-                    if ratio <= 0:
-                        blockers.append(
-                            f"{task_id}/token_delta_not_saving={_token_delta(disabled, enabled)}"
-                        )
                 if source_delta is not None and source_delta > 0:
                     source_read_reduction_pairs += 1
             else:

@@ -11,6 +11,9 @@ from typing import Any
 BENCHMARK_MATRIX_VERSION = "v4.5.0"
 
 ARTIFACT_STATES = ["accepted", "partial", "failed", "quarantined"]
+NON_RELEASE_ARTIFACT_STATE_ALIASES = {
+    "diagnostic": "partial",
+}
 
 RETRIEVAL_SHOOTOUT_COLLECTION_ID = "true_hybrid_retrieval_shootout"
 RETRIEVAL_SHOOTOUT_MODES = ["fts", "vector", "hybrid"]
@@ -19,6 +22,20 @@ EMBEDDING_SHOOTOUT_CANDIDATES = [
     "all-MiniLM-L6-v2",
     "bge-small-en-v1.5",
     "nomic-embed-text-v1.5",
+]
+EVIDENCE_HARDENING_PROFILES = ["10k", "100k", "1m"]
+INDEX_FABRIC_REQUIRED_OPERATIONS = [
+    "exact_search",
+    "word_search",
+    "trigram_search",
+    "graph_search",
+]
+RUST_NATIVE_REQUIRED_OPERATIONS = [
+    "scan_jsonl",
+    "bulk_index_rows",
+    "reciprocal_rank_fusion",
+    "rank_candidates",
+    "tokenize",
 ]
 
 SURFACE_REGRESSION_TARGETS = {
@@ -168,29 +185,73 @@ def benchmark_matrix_report(suite_root: Path | None = None) -> dict[str, Any]:
     snapshot_path = root / "release-snapshot.json"
     raw_artifact_runs = _artifact_runs(artifacts_path)
     has_raw_artifacts = bool(raw_artifact_runs)
-    claim_readiness = (
-        _artifact_claim_readiness(artifacts_path)
-        if has_raw_artifacts
-        else _snapshot_claim_readiness(snapshot_path)
-    )
+    release_artifact_runs = _release_artifact_runs(raw_artifact_runs)
     allow_packaged_snapshot = not suite_path.exists() and not has_raw_artifacts
+    snapshot_claim_readiness = (
+        _snapshot_claim_readiness(snapshot_path)
+        if snapshot_path.exists() or allow_packaged_snapshot
+        else _missing_claim_readiness("missing-or-invalid-snapshot")
+    )
+    artifact_collection_ids = {
+        str(run.get("collection_id") or "")
+        for run in raw_artifact_runs
+        if run.get("collection_id")
+    }
+    claim_readiness = (
+        _merge_claim_readiness(
+            _artifact_claim_readiness(artifacts_path),
+            snapshot_claim_readiness,
+            artifact_collection_ids=artifact_collection_ids,
+        )
+        if has_raw_artifacts
+        else snapshot_claim_readiness
+    )
     snapshot_runs = (
         _snapshot_runs(snapshot_path)
         if snapshot_path.exists() or allow_packaged_snapshot
         else []
     )
-    release_runs = snapshot_runs or raw_artifact_runs
+    release_runs = _merge_release_runs(snapshot_runs, release_artifact_runs)
+    gate_runs = release_runs if release_runs else raw_artifact_runs
     latest_run = release_runs[0] if release_runs else None
     accepted = sum(1 for run in release_runs if run.get("artifact_state") == "accepted")
     failed = sum(1 for run in release_runs if run.get("artifact_state") in {"failed", "quarantined"})
     unknown = sum(1 for run in release_runs if run.get("artifact_state") == "partial")
+    gate_failed = sum(
+        1 for run in gate_runs if run.get("artifact_state") in {"failed", "quarantined"}
+    )
+    gate_unknown = sum(1 for run in gate_runs if run.get("artifact_state") == "partial")
     gate_passed = (
         not missing_surface_coverage
-        and bool(release_runs)
-        and failed == 0
-        and unknown == 0
+        and bool(gate_runs)
+        and gate_failed == 0
+        and gate_unknown == 0
     )
     claim_promotion_gate = _claim_promotion_gate(collection_ids, claim_readiness)
+    release_evidence_pack = _release_evidence_pack(
+        root=root,
+        suite_path=suite_path,
+        snapshot_path=snapshot_path,
+        artifact_runs=release_runs,
+        collection_ids=collection_ids,
+        gate_passed=gate_passed,
+        claim_promotion_gate=claim_promotion_gate,
+    )
+    evidence_hardening_track = _evidence_hardening_track(
+        artifacts_path=artifacts_path,
+        snapshot_path=snapshot_path,
+        allow_packaged_snapshot=allow_packaged_snapshot,
+        collection_ids=collection_ids,
+    )
+    default_change_decision_gate = _default_change_decision_gate(
+        evidence_hardening_track=evidence_hardening_track,
+        retrieval_quality_pack=_retrieval_quality_pack(
+            collection_ids,
+            claim_readiness=claim_readiness,
+        ),
+        claim_promotion_gate=claim_promotion_gate,
+        release_evidence_pack=release_evidence_pack,
+    )
 
     return {
         "success": True,
@@ -219,15 +280,9 @@ def benchmark_matrix_report(suite_root: Path | None = None) -> dict[str, Any]:
             claim_readiness=claim_readiness,
         ),
         "claim_promotion_gate": claim_promotion_gate,
-        "release_evidence_pack": _release_evidence_pack(
-            root=root,
-            suite_path=suite_path,
-            snapshot_path=snapshot_path,
-            artifact_runs=release_runs,
-            collection_ids=collection_ids,
-            gate_passed=gate_passed,
-            claim_promotion_gate=claim_promotion_gate,
-        ),
+        "release_evidence_pack": release_evidence_pack,
+        "evidence_hardening_track": evidence_hardening_track,
+        "default_change_decision_gate": default_change_decision_gate,
         "release_snapshot": {
             "artifact_run_count": len(release_runs),
             "accepted_runs": accepted,
@@ -248,9 +303,9 @@ def benchmark_matrix_report(suite_root: Path | None = None) -> dict[str, Any]:
         "gate": {
             "passed": gate_passed,
             "missing_surface_coverage": missing_surface_coverage,
-            "failed_artifact_runs": failed,
-            "unknown_artifact_runs": unknown,
-            "has_artifacts": bool(release_runs),
+            "failed_artifact_runs": gate_failed,
+            "unknown_artifact_runs": gate_unknown,
+            "has_artifacts": bool(gate_runs),
         },
     }
 
@@ -468,6 +523,564 @@ def _release_evidence_pack(
     }
 
 
+def _evidence_hardening_track(
+    *,
+    artifacts_path: Path,
+    snapshot_path: Path,
+    allow_packaged_snapshot: bool,
+    collection_ids: set[str],
+) -> dict[str, Any]:
+    raw_track = _artifact_evidence_hardening_track(artifacts_path, collection_ids)
+    if raw_track is not None:
+        return raw_track
+
+    snapshot_track = _snapshot_evidence_hardening_track(
+        snapshot_path,
+        allow_packaged_snapshot=allow_packaged_snapshot,
+    )
+    if snapshot_track is not None:
+        return snapshot_track
+
+    return _missing_evidence_hardening_track(collection_ids)
+
+
+def _artifact_evidence_hardening_track(
+    artifacts_path: Path,
+    collection_ids: set[str],
+) -> dict[str, Any] | None:
+    if not artifacts_path.exists():
+        return None
+
+    cost_token_evidence = _cost_token_evidence(
+        memory_shortcut_rows=_artifact_results(
+            artifacts_path, "memory_shortcut_vs_source_recovery"
+        ),
+        functional_rows=_artifact_results(
+            artifacts_path, "functional_token_economics"
+        ),
+        collection_ids=collection_ids,
+    )
+    storage_v2_scale_evidence = _storage_v2_scale_evidence(
+        baseline_rows=_artifact_results_all_runs(artifacts_path, "storage_v2_baseline"),
+        migration_rows=_artifact_results_all_runs(artifacts_path, "migration_roundtrip"),
+        canonical_rows=_artifact_results_all_runs(
+            artifacts_path, "canonical_store_runtime_baseline"
+        ),
+        collection_ids=collection_ids,
+    )
+    index_fabric_runtime_evidence = _index_fabric_runtime_evidence(
+        rows=_artifact_results(artifacts_path, "index_fabric_runtime_conformance"),
+        collection_ids=collection_ids,
+    )
+    rust_native_hot_path_evidence = _rust_native_hot_path_evidence(
+        rows=_artifact_results(artifacts_path, "rust_core_hot_path"),
+        collection_ids=collection_ids,
+    )
+    return {
+        "cost_token_evidence": cost_token_evidence,
+        "storage_v2_scale_evidence": storage_v2_scale_evidence,
+        "index_fabric_runtime_evidence": index_fabric_runtime_evidence,
+        "rust_native_hot_path_evidence": rust_native_hot_path_evidence,
+        "claim_boundary": (
+            "future-track evidence gates measure bounded cost, storage, index, and "
+            "native hot-path readiness; they do not upgrade blocked public claims "
+            "or default behaviors by themselves"
+        ),
+    }
+
+
+def _snapshot_evidence_hardening_track(
+    snapshot_path: Path,
+    *,
+    allow_packaged_snapshot: bool,
+) -> dict[str, Any] | None:
+    snapshot = (
+        _read_snapshot_json(snapshot_path)
+        if snapshot_path.exists() or allow_packaged_snapshot
+        else None
+    )
+    if not isinstance(snapshot, dict):
+        return None
+    track = snapshot.get("evidence_hardening_track")
+    return track if isinstance(track, dict) else None
+
+
+def _missing_evidence_hardening_track(collection_ids: set[str]) -> dict[str, Any]:
+    return {
+        "cost_token_evidence": _missing_gate(
+            source="missing",
+            collection_present="memory_shortcut_vs_source_recovery" in collection_ids,
+            missing_reason="memory_shortcut_vs_source_recovery/missing",
+            claim_boundary=(
+                "bounded long-source memory-shortcut evidence only; not a global "
+                "token/cost or real-billing claim"
+            ),
+        ),
+        "storage_v2_scale_evidence": _missing_gate(
+            source="missing",
+            collection_present=all(
+                target in collection_ids
+                for target in [
+                    "storage_v2_baseline",
+                    "migration_roundtrip",
+                    "canonical_store_runtime_baseline",
+                ]
+            ),
+            missing_reason="storage_v2_scale_artifacts/missing",
+            claim_boundary=(
+                "10k/100k/1m storage evidence is required before any default "
+                "canonical-store or speedup discussion"
+            ),
+        ),
+        "index_fabric_runtime_evidence": _missing_gate(
+            source="missing",
+            collection_present="index_fabric_runtime_conformance" in collection_ids,
+            missing_reason="index_fabric_runtime_conformance/missing",
+            claim_boundary=(
+                "runtime conformance evidence is required before any index-fabric, "
+                "Tantivy, LanceDB, or ANN readiness language"
+            ),
+        ),
+        "rust_native_hot_path_evidence": _missing_gate(
+            source="missing",
+            collection_present="rust_core_hot_path" in collection_ids,
+            missing_reason="rust_core_hot_path/missing",
+            claim_boundary=(
+                "native Rust evidence is required before any Rust speedup or "
+                "default-wheel readiness claim"
+            ),
+        ),
+        "claim_boundary": (
+            "future-track evidence gates measure bounded cost, storage, index, and "
+            "native hot-path readiness; they do not upgrade blocked public claims "
+            "or default behaviors by themselves"
+        ),
+    }
+
+
+def _missing_gate(
+    *,
+    source: str,
+    collection_present: bool,
+    missing_reason: str,
+    claim_boundary: str,
+) -> dict[str, Any]:
+    blocking = [] if collection_present else ["collection_missing"]
+    blocking.append(missing_reason)
+    return {
+        "passed": False,
+        "source": source,
+        "collection_present": collection_present,
+        "blocking": blocking,
+        "claim_boundary": claim_boundary,
+    }
+
+
+def _cost_token_evidence(
+    *,
+    memory_shortcut_rows: list[dict[str, Any]],
+    functional_rows: list[dict[str, Any]],
+    collection_ids: set[str],
+) -> dict[str, Any]:
+    if not memory_shortcut_rows:
+        return {
+            **_missing_gate(
+                source="artifact-results",
+                collection_present="memory_shortcut_vs_source_recovery" in collection_ids,
+                missing_reason="memory_shortcut_vs_source_recovery/missing",
+                claim_boundary=(
+                    "bounded long-source memory-shortcut evidence only; not a global "
+                    "token/cost or real-billing claim"
+                ),
+            ),
+            "memory_shortcut_ready": False,
+            "functional_token_economics_ready": False,
+        }
+
+    grouped: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in memory_shortcut_rows:
+        grouped.setdefault(str(row.get("task_id") or ""), {})[
+            str(row.get("condition") or "")
+        ] = row
+
+    long_source_both_passed = 0
+    source_read_reduction_pairs = 0
+    enabled_source_budget_ok_pairs = 0
+    negative_control_pairs = 0
+    negative_control_budget_ok_pairs = 0
+    long_source_ratios: list[float] = []
+    blockers: list[str] = []
+
+    for task_id, pair in sorted(grouped.items()):
+        enabled = pair.get("enabled")
+        disabled = pair.get("disabled")
+        if enabled is None or disabled is None:
+            blockers.append(f"{task_id}/missing_pair")
+            continue
+        for condition, row in [("enabled", enabled), ("disabled", disabled)]:
+            if _named_token_total(row) is None:
+                blockers.append(f"{task_id}/{condition}/token_total_unavailable")
+
+        task_type = str(enabled.get("task_type") or disabled.get("task_type") or "")
+        both_passed = enabled.get("accepted") == "yes" and disabled.get("accepted") == "yes"
+        ratio = _saving_ratio(disabled, enabled)
+        source_delta = _source_read_delta_num(disabled, enabled)
+        if task_type == "negative_control":
+            negative_control_pairs += 1
+            if _budget_ok(enabled) and _budget_ok(disabled):
+                negative_control_budget_ok_pairs += 1
+            else:
+                blockers.append(
+                    f"{task_id}/budget={_memory_shortcut_budget_violation(enabled)}"
+                )
+            if ratio is not None and ratio >= 0.2:
+                blockers.append(f"{task_id}/negative_control_token_advantage={ratio:.3f}")
+            if source_delta is not None and source_delta > 0:
+                blockers.append(
+                    f"{task_id}/negative_control_source_read_advantage={int(source_delta)}"
+                )
+            if enabled.get("memory_calls"):
+                blockers.append(f"{task_id}/negative_control_memory_calls_present")
+            continue
+
+        if task_type != "long_source_recovery":
+            blockers.append(f"{task_id}/task_type={task_type or 'missing'}")
+            continue
+        if both_passed:
+            long_source_both_passed += 1
+            if _budget_ok(enabled):
+                enabled_source_budget_ok_pairs += 1
+                if ratio is not None:
+                    long_source_ratios.append(ratio)
+                if source_delta is not None and source_delta > 0:
+                    source_read_reduction_pairs += 1
+            else:
+                blockers.append(
+                    f"{task_id}/budget={_memory_shortcut_budget_violation(enabled)}"
+                )
+
+    median_ratio = _median(long_source_ratios)
+    if long_source_both_passed < 6:
+        blockers.append(f"long_source_both_passed={long_source_both_passed}/6")
+    if median_ratio is None or median_ratio < 0.2:
+        blockers.append(f"median_token_saving_ratio={_ratio_display(median_ratio)}")
+    if source_read_reduction_pairs < 6:
+        blockers.append(f"source_read_reduction_pairs={source_read_reduction_pairs}/6")
+    if enabled_source_budget_ok_pairs < 6:
+        blockers.append(
+            f"enabled_source_budget_ok_pairs={enabled_source_budget_ok_pairs}/6"
+        )
+    if negative_control_pairs < 2:
+        blockers.append(f"negative_control_pairs={negative_control_pairs}/2")
+    if negative_control_budget_ok_pairs < 2:
+        blockers.append(
+            f"negative_control_budget_ok_pairs={negative_control_budget_ok_pairs}/2"
+        )
+
+    functional_ready = _functional_token_economics_ready(functional_rows)
+    if not functional_ready["passed"]:
+        blockers.extend(functional_ready["blocking"])
+
+    memory_shortcut_ready = (
+        long_source_both_passed >= 6
+        and median_ratio is not None
+        and median_ratio >= 0.2
+        and source_read_reduction_pairs >= 6
+        and enabled_source_budget_ok_pairs >= 6
+        and negative_control_pairs >= 2
+        and negative_control_budget_ok_pairs >= 2
+    )
+    passed = not blockers
+    return {
+        "passed": passed,
+        "source": "artifact-results",
+        "collection_present": True,
+        "memory_shortcut_ready": memory_shortcut_ready,
+        "functional_token_economics_ready": functional_ready["passed"],
+        "long_source_both_passed": long_source_both_passed,
+        "median_token_saving_ratio": _ratio_display(median_ratio),
+        "source_read_reduction_pairs": source_read_reduction_pairs,
+        "enabled_source_budget_ok_pairs": enabled_source_budget_ok_pairs,
+        "negative_control_pairs": negative_control_pairs,
+        "negative_control_budget_ok_pairs": negative_control_budget_ok_pairs,
+        "blocking": sorted(set(blockers)),
+        "claim_boundary": (
+            "bounded long-source memory-shortcut evidence only; not a global "
+            "token/cost or real-billing claim"
+        ),
+    }
+
+
+def _functional_token_economics_ready(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if not rows:
+        return {
+            "passed": False,
+            "blocking": ["functional_token_economics/missing"],
+            "scenario_count": 0,
+        }
+    blockers: list[str] = []
+    for row in rows:
+        scenario_id = str(row.get("scenario_id") or "unknown")
+        ratio = _safe_float(row.get("saving_ratio"))
+        minimum = _safe_float(row.get("minimum_saving_ratio"))
+        token_delta = _safe_float(row.get("token_delta"))
+        if row.get("accepted") != "yes":
+            blockers.append(f"functional_token_economics/{scenario_id}/accepted")
+        if row.get("fixture_only") is not True:
+            blockers.append(f"functional_token_economics/{scenario_id}/fixture_only")
+        if ratio is None or minimum is None or token_delta is None:
+            blockers.append(f"functional_token_economics/{scenario_id}/missing_metrics")
+            continue
+        if token_delta <= 0:
+            blockers.append(
+                f"functional_token_economics/{scenario_id}/token_delta_not_saving={row.get('token_delta')}"
+            )
+        if ratio < minimum:
+            blockers.append(
+                f"functional_token_economics/{scenario_id}/saving_ratio_below_minimum"
+            )
+    return {
+        "passed": not blockers,
+        "blocking": blockers,
+        "scenario_count": len(rows),
+    }
+
+
+def _storage_v2_scale_evidence(
+    *,
+    baseline_rows: list[dict[str, Any]],
+    migration_rows: list[dict[str, Any]],
+    canonical_rows: list[dict[str, Any]],
+    collection_ids: set[str],
+) -> dict[str, Any]:
+    if not baseline_rows and not migration_rows and not canonical_rows:
+        return _missing_gate(
+            source="artifact-results",
+            collection_present=all(
+                target in collection_ids
+                for target in [
+                    "storage_v2_baseline",
+                    "migration_roundtrip",
+                    "canonical_store_runtime_baseline",
+                ]
+            ),
+            missing_reason="storage_v2_scale_artifacts/missing",
+            claim_boundary=(
+                "10k/100k/1m storage evidence is required before any default "
+                "canonical-store or speedup discussion"
+            ),
+        )
+
+    blockers: list[str] = []
+    baseline_profiles = _collect_profiles(
+        baseline_rows, required_profiles=EVIDENCE_HARDENING_PROFILES
+    )
+    migration_profiles = _collect_profiles(
+        migration_rows, required_profiles=EVIDENCE_HARDENING_PROFILES
+    )
+    canonical_profiles = _collect_profiles(
+        canonical_rows, required_profiles=EVIDENCE_HARDENING_PROFILES
+    )
+    blockers.extend(baseline_profiles["blocking"])
+    blockers.extend(migration_profiles["blocking"])
+    blockers.extend(canonical_profiles["blocking"])
+
+    for row in migration_rows:
+        row_id = str(row.get("corpus_profile") or row.get("dataset_id") or "unknown")
+        if row.get("apply_checksum_match") is not True:
+            blockers.append(f"migration_roundtrip/{row_id}/apply_checksum_match=false")
+        if row.get("rollback_checksum_match") is not True:
+            blockers.append(
+                f"migration_roundtrip/{row_id}/rollback_checksum_match=false"
+            )
+    for row in canonical_rows:
+        row_id = str(row.get("corpus_profile") or row.get("dataset_id") or "unknown")
+        if row.get("checksum_match") is not True:
+            blockers.append(f"canonical_store_runtime_baseline/{row_id}/checksum_match=false")
+
+    passed = not blockers
+    return {
+        "passed": passed,
+        "source": "artifact-results",
+        "collection_present": True,
+        "baseline_profiles": baseline_profiles["profiles"],
+        "migration_profiles": migration_profiles["profiles"],
+        "canonical_profiles": canonical_profiles["profiles"],
+        "blocking": sorted(set(blockers)),
+        "claim_boundary": (
+            "10k/100k/1m storage evidence is required before any default "
+            "canonical-store or speedup discussion"
+        ),
+    }
+
+
+def _index_fabric_runtime_evidence(
+    *,
+    rows: list[dict[str, Any]],
+    collection_ids: set[str],
+) -> dict[str, Any]:
+    if not rows:
+        return _missing_gate(
+            source="artifact-results",
+            collection_present="index_fabric_runtime_conformance" in collection_ids,
+            missing_reason="index_fabric_runtime_conformance/missing",
+            claim_boundary=(
+                "runtime conformance evidence is required before any index-fabric, "
+                "Tantivy, LanceDB, or ANN readiness language"
+            ),
+        )
+
+    operations = {
+        str(row.get("operation") or "")
+        for row in rows
+        if row.get("operation")
+    }
+    blockers: list[str] = []
+    for operation in INDEX_FABRIC_REQUIRED_OPERATIONS:
+        if operation not in operations:
+            blockers.append(f"index_fabric_runtime_conformance/op={operation}/missing")
+    if not any(row.get("first_lazy_load") is True for row in rows):
+        blockers.append("index_fabric_runtime_conformance/first_lazy_load/missing")
+    if not any(row.get("warm_run") is True for row in rows):
+        blockers.append("index_fabric_runtime_conformance/warm_run/missing")
+    for row in rows:
+        row_id = str(row.get("operation") or row.get("dataset_id") or "unknown")
+        for field in [
+            "manifest_commit",
+            "search_backend_conformance",
+            "source_fingerprint_drift_detected",
+        ]:
+            if row.get(field) is not True:
+                blockers.append(f"index_fabric_runtime_conformance/{row_id}/{field}=false")
+        if row.get("interrupted_generation_visible") is not False:
+            blockers.append(
+                f"index_fabric_runtime_conformance/{row_id}/interrupted_generation_visible=true"
+            )
+        if not isinstance(row.get("fallback_reason"), str):
+            blockers.append(f"index_fabric_runtime_conformance/{row_id}/fallback_reason_missing")
+
+    return {
+        "passed": not blockers,
+        "source": "artifact-results",
+        "collection_present": True,
+        "operations": sorted(operations),
+        "blocking": sorted(set(blockers)),
+        "claim_boundary": (
+            "runtime conformance evidence is required before any index-fabric, "
+            "Tantivy, LanceDB, or ANN readiness language"
+        ),
+    }
+
+
+def _rust_native_hot_path_evidence(
+    *,
+    rows: list[dict[str, Any]],
+    collection_ids: set[str],
+) -> dict[str, Any]:
+    if not rows:
+        return _missing_gate(
+            source="artifact-results",
+            collection_present="rust_core_hot_path" in collection_ids,
+            missing_reason="rust_core_hot_path/missing",
+            claim_boundary=(
+                "native Rust evidence is required before any Rust speedup or "
+                "default-wheel readiness claim"
+            ),
+        )
+
+    operations = {
+        str(row.get("operation") or "")
+        for row in rows
+        if row.get("operation")
+    }
+    blockers: list[str] = []
+    for operation in RUST_NATIVE_REQUIRED_OPERATIONS:
+        if operation not in operations:
+            blockers.append(f"rust_core_hot_path/op={operation}/missing")
+    for row in rows:
+        row_id = str(row.get("operation") or row.get("dataset_id") or "unknown")
+        if row.get("accepted") != "yes":
+            blockers.append(f"rust_core_hot_path/{row_id}/accepted={row.get('accepted')}")
+        if row.get("native_available") is not True:
+            blockers.append(f"rust_core_hot_path/{row_id}/native_available=false")
+        if row.get("rust_mode") != "rust":
+            blockers.append(
+                f"rust_core_hot_path/{row_id}/rust_mode={row.get('rust_mode') or 'missing'}"
+            )
+
+    return {
+        "passed": not blockers,
+        "source": "artifact-results",
+        "collection_present": True,
+        "operations": sorted(operations),
+        "blocking": sorted(set(blockers)),
+        "claim_boundary": (
+            "native Rust evidence is required before any Rust speedup or "
+            "default-wheel readiness claim"
+        ),
+    }
+
+
+def _default_change_decision_gate(
+    *,
+    evidence_hardening_track: dict[str, Any],
+    retrieval_quality_pack: dict[str, Any],
+    claim_promotion_gate: dict[str, Any],
+    release_evidence_pack: dict[str, Any],
+) -> dict[str, Any]:
+    gate_status = {
+        "cost_token_evidence": bool(
+            evidence_hardening_track.get("cost_token_evidence", {}).get("passed")
+        ),
+        "storage_v2_scale_evidence": bool(
+            evidence_hardening_track.get("storage_v2_scale_evidence", {}).get("passed")
+        ),
+        "index_fabric_runtime_evidence": bool(
+            evidence_hardening_track.get("index_fabric_runtime_evidence", {}).get("passed")
+        ),
+        "rust_native_hot_path_evidence": bool(
+            evidence_hardening_track.get("rust_native_hot_path_evidence", {}).get("passed")
+        ),
+        "retrieval_quality_pack": bool(retrieval_quality_pack.get("passed")),
+        "claim_promotion_policy": bool(claim_promotion_gate.get("policy_enforced")),
+        "release_evidence_pack": bool(release_evidence_pack.get("passed")),
+    }
+    blocking = [name for name, passed in gate_status.items() if not passed]
+    return {
+        "ready": not blocking,
+        "required_gates": gate_status,
+        "blocking": blocking,
+        "claim_boundary": (
+            "default storage/index/reranker/HyDE decisions require artifact-backed "
+            "evidence across cost, storage, index, native hot path, retrieval "
+            "quality, claim-promotion policy, and release evidence; smoke alone "
+            "never changes defaults"
+        ),
+    }
+
+
+def _collect_profiles(
+    rows: list[dict[str, Any]],
+    *,
+    required_profiles: list[str],
+) -> dict[str, Any]:
+    seen_profiles = {
+        str(row.get("corpus_profile") or "")
+        for row in rows
+        if row.get("corpus_profile")
+    }
+    profiles = [profile for profile in required_profiles if profile in seen_profiles]
+    profiles.extend(
+        sorted(profile for profile in seen_profiles if profile and profile not in required_profiles)
+    )
+    blocking = [f"profile/{profile}/missing" for profile in required_profiles if profile not in profiles]
+    for row in rows:
+        row_id = str(row.get("corpus_profile") or row.get("dataset_id") or "unknown")
+        if row.get("accepted") != "yes":
+            blocking.append(f"{row_id}/accepted={row.get('accepted') or 'missing'}")
+    return {"profiles": profiles, "blocking": blocking}
+
+
 def _packaged_resource_match(
     *,
     root: Path,
@@ -539,10 +1152,22 @@ def _artifact_runs(path: Path) -> list[dict[str, Any]]:
                 ),
                 "artifact_state": _artifact_state(data, accepted),
                 "accepted": accepted,
+                "release_snapshot": data.get("release_snapshot"),
             }
         )
     runs.sort(key=lambda item: str(item["run_id"]), reverse=True)
     return runs
+
+
+def _release_artifact_runs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for run in runs:
+        if run.get("release_snapshot") is False:
+            continue
+        if run.get("artifact_state") == "partial":
+            continue
+        out.append(dict(run))
+    return out
 
 
 def _infer_report_acceptance(path: Path) -> bool | None:
@@ -605,6 +1230,46 @@ def _artifact_results(path: Path, benchmark_id: str) -> list[dict[str, Any]]:
             accepted_runs.append((str(data.get("run_id") or manifest.parent.name), rows))
     accepted_runs.sort(key=lambda item: item[0], reverse=True)
     return accepted_runs[0][1] if accepted_runs else []
+
+
+def _artifact_results_all_runs(path: Path, benchmark_id: str) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+
+    accepted_runs: list[tuple[str, list[dict[str, Any]]]] = []
+    for manifest in path.glob("*/run_manifest.json"):
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        collection_id = data.get("benchmark_id") or data.get("collection_id") or data.get("suite_id")
+        if collection_id != benchmark_id:
+            continue
+        accepted = data.get("accepted")
+        if accepted is None:
+            accepted = _infer_report_acceptance(manifest.parent / "report.md")
+        if accepted is None:
+            accepted = _infer_results_acceptance(manifest.parent / "results")
+        if _artifact_state(data, accepted) != "accepted":
+            continue
+        results_dir = manifest.parent / "results"
+        if not results_dir.exists():
+            continue
+        rows: list[dict[str, Any]] = []
+        for result_file in sorted(results_dir.glob("*.json")):
+            try:
+                payload = json.loads(result_file.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                rows.append(payload)
+        if rows:
+            accepted_runs.append((str(data.get("run_id") or manifest.parent.name), rows))
+    accepted_runs.sort(key=lambda item: item[0], reverse=True)
+    merged_rows: list[dict[str, Any]] = []
+    for _, rows in accepted_runs:
+        merged_rows.extend(rows)
+    return merged_rows
 
 
 def _token_cost_saving_readiness(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -671,6 +1336,74 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _saving_ratio(disabled: dict[str, Any], enabled: dict[str, Any]) -> float | None:
+    disabled_total = _named_token_total(disabled)
+    enabled_total = _named_token_total(enabled)
+    if disabled_total is None or enabled_total is None or disabled_total <= 0:
+        return None
+    return (disabled_total - enabled_total) / disabled_total
+
+
+def _format_delta(disabled: dict[str, Any], enabled: dict[str, Any]) -> str:
+    disabled_total = _named_token_total(disabled)
+    enabled_total = _named_token_total(enabled)
+    if disabled_total is None or enabled_total is None:
+        return "unavailable"
+    delta = disabled_total - enabled_total
+    return str(int(delta)) if float(delta).is_integer() else f"{delta:.2f}"
+
+
+def _source_read_delta_num(
+    disabled: dict[str, Any],
+    enabled: dict[str, Any],
+) -> float | None:
+    disabled_reads = _safe_float(disabled.get("source_read_count"))
+    enabled_reads = _safe_float(enabled.get("source_read_count"))
+    if disabled_reads is None or enabled_reads is None:
+        return None
+    return disabled_reads - enabled_reads
+
+
+def _memory_shortcut_budget_violation(row: dict[str, Any]) -> str:
+    task_type = str(row.get("task_type") or "")
+    condition = str(row.get("condition") or "")
+    source_reads = _safe_float(row.get("source_read_count"))
+    source_reads = 0 if source_reads is None else int(source_reads)
+    repo_calls = row.get("repo_calls")
+    repo_call_count = len(repo_calls) if isinstance(repo_calls, list) else 0
+    if task_type == "long_source_recovery" and condition == "enabled":
+        if source_reads > 2:
+            return "enabled_source_reads>2"
+    if task_type == "negative_control":
+        if source_reads > 1:
+            return "negative_control_source_reads>1"
+        if repo_call_count > 3:
+            return "negative_control_repo_calls>3"
+    return "none"
+
+
+def _budget_ok(row: dict[str, Any] | None) -> bool:
+    if row is None:
+        return False
+    return _memory_shortcut_budget_violation(row) == "none"
+
+
+def _median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    midpoint = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[midpoint]
+    return (ordered[midpoint - 1] + ordered[midpoint]) / 2
+
+
+def _ratio_display(value: float | None) -> str:
+    if value is None:
+        return "unavailable"
+    return f"{value:.3f}"
 
 
 def _true_vector_hybrid_readiness(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -813,6 +1546,26 @@ def _snapshot_claim_readiness(path: Path) -> dict[str, Any]:
     return _missing_claim_readiness("snapshot-without-claim-readiness")
 
 
+def _merge_claim_readiness(
+    local_readiness: dict[str, Any],
+    snapshot_readiness: dict[str, Any],
+    *,
+    artifact_collection_ids: set[str],
+) -> dict[str, Any]:
+    mapping = {
+        "token_cost_saving": "client_enabled_vs_disabled",
+        "true_vector_hybrid_latency": "latency_warm_path",
+        "retrieval_recall": RETRIEVAL_SHOOTOUT_COLLECTION_ID,
+    }
+    merged: dict[str, Any] = {}
+    for key, collection_id in mapping.items():
+        if collection_id in artifact_collection_ids:
+            merged[key] = local_readiness.get(key, snapshot_readiness.get(key))
+        else:
+            merged[key] = snapshot_readiness.get(key, local_readiness.get(key))
+    return merged
+
+
 def _missing_claim_readiness(reason: str) -> dict[str, Any]:
     return {
         "token_cost_saving": {
@@ -898,6 +1651,22 @@ def _snapshot_runs(path: Path) -> list[dict[str, Any]]:
         )
     out.sort(key=lambda item: str(item["run_id"]), reverse=True)
     return out
+
+
+def _merge_release_runs(
+    snapshot_runs: list[dict[str, Any]],
+    raw_artifact_runs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged = {
+        str(run["run_id"]): dict(run)
+        for run in snapshot_runs
+        if isinstance(run, dict) and run.get("run_id")
+    }
+    for run in raw_artifact_runs:
+        if not isinstance(run, dict) or not run.get("run_id"):
+            continue
+        merged[str(run["run_id"])] = dict(run)
+    return sorted(merged.values(), key=lambda item: str(item["run_id"]), reverse=True)
 
 
 def _read_snapshot_json(path: Path) -> dict[str, Any] | None:
@@ -998,8 +1767,12 @@ def _valid_claim_gate(gate: Any) -> bool:
 
 def _artifact_state(data: dict[str, Any], accepted: bool | None) -> str:
     state = str(data.get("artifact_state") or data.get("state") or "").strip().lower()
+    if state in NON_RELEASE_ARTIFACT_STATE_ALIASES:
+        return NON_RELEASE_ARTIFACT_STATE_ALIASES[state]
     if state in ARTIFACT_STATES:
         return state
+    if data.get("release_snapshot") is False:
+        return "partial"
     if accepted is True:
         return "accepted"
     if accepted is False:

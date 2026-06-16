@@ -47,6 +47,54 @@ def _validate_claim_gate(payload: dict[str, Any], key: str) -> None:
         _require(blocking != [], f"claim_readiness.{key}.blocking must explain ready=false")
 
 
+def _validate_evidence_gate(payload: dict[str, Any], field: str) -> None:
+    gate = payload.get(field)
+    _require(isinstance(gate, dict), f"{field} must be an object")
+    _require(isinstance(gate.get("passed"), bool), f"{field}.passed must be boolean")
+    _require(
+        isinstance(gate.get("source"), str) and bool(gate["source"]),
+        f"{field}.source must be a non-empty string",
+    )
+    _require(
+        isinstance(gate.get("collection_present"), bool),
+        f"{field}.collection_present must be boolean",
+    )
+    blocking = gate.get("blocking")
+    _require(
+        isinstance(blocking, list) and all(isinstance(item, str) for item in blocking),
+        f"{field}.blocking must be a string array",
+    )
+    _require(
+        isinstance(gate.get("claim_boundary"), str) and bool(gate["claim_boundary"]),
+        f"{field}.claim_boundary must be a non-empty string",
+    )
+
+
+def _validate_default_change_decision_gate(payload: dict[str, Any]) -> None:
+    gate = payload.get("default_change_decision_gate")
+    _require(isinstance(gate, dict), "default_change_decision_gate must be an object")
+    _require(
+        isinstance(gate.get("ready"), bool),
+        "default_change_decision_gate.ready must be boolean",
+    )
+    required = gate.get("required_gates")
+    _require(
+        isinstance(required, dict)
+        and all(isinstance(key, str) for key in required)
+        and all(isinstance(value, bool) for value in required.values()),
+        "default_change_decision_gate.required_gates must be a string->bool object",
+    )
+    blocking = gate.get("blocking")
+    _require(
+        isinstance(blocking, list) and all(isinstance(item, str) for item in blocking),
+        "default_change_decision_gate.blocking must be a string array",
+    )
+    _require(
+        isinstance(gate.get("claim_boundary"), str) and bool(gate["claim_boundary"]),
+        "default_change_decision_gate.claim_boundary must be a non-empty string",
+    )
+
+
 def validate_release_snapshot(path: Path) -> dict[str, Any]:
     _require(path.exists(), f"Missing release snapshot: {path}")
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -116,6 +164,26 @@ def validate_release_snapshot(path: Path) -> dict[str, Any]:
         and all(isinstance(item, str) for item in shootout["embedding_candidates"]),
         "retrieval_shootout.embedding_candidates must be a string array",
     )
+    evidence_hardening = payload.get("evidence_hardening_track")
+    if evidence_hardening is not None:
+        _require(
+            isinstance(evidence_hardening, dict),
+            "evidence_hardening_track must be an object",
+        )
+        for field in [
+            "cost_token_evidence",
+            "storage_v2_scale_evidence",
+            "index_fabric_runtime_evidence",
+            "rust_native_hot_path_evidence",
+        ]:
+            _validate_evidence_gate(evidence_hardening, field)
+        _require(
+            isinstance(evidence_hardening.get("claim_boundary"), str)
+            and bool(evidence_hardening["claim_boundary"]),
+            "evidence_hardening_track.claim_boundary must be a non-empty string",
+        )
+    if payload.get("default_change_decision_gate") is not None:
+        _validate_default_change_decision_gate(payload)
     return payload
 
 

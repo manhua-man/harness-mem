@@ -940,11 +940,12 @@ Publish rule:
 - must not be used as runtime index-fabric, Tantivy, LanceDB, or broad search
   performance evidence
 
-## Current Follow-Up Priority: Evidence Hardening Track
+## Evidence Hardening Track Status
 
-The next track is evidence hardening, not feature accumulation. The current
-blocking question is whether the existing v4 foundations can support durable
-cost, performance, and storage-index claims.
+Status as of 2026-06-16: completed as a bounded evidence pack. The current
+release snapshot carries accepted runs for v4.6-v5.0 and
+`default_change_decision_gate.ready=true`; this still does **not** upgrade the
+public-claim boundaries below.
 
 | Slice | Benchmark focus | Required evidence | Claim boundary |
 |---|---|---|---|

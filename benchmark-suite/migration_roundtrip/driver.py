@@ -37,7 +37,10 @@ BENCHMARK_ID = "migration_roundtrip"
 
 
 def run_benchmark(args: argparse.Namespace) -> Path:
-    run_dir = ROOT / "artifacts" / args.run_name
+    if args.release_snapshot and not args.profile:
+        raise SystemExit("--release-snapshot requires --profile for migration_roundtrip")
+
+    run_dir = Path(args.artifacts_root) / args.run_name
     (run_dir / "results").mkdir(parents=True, exist_ok=True)
     (run_dir / "notes").mkdir(parents=True, exist_ok=True)
     entry_count = resolve_entry_count(args.entry_count, args.profile)
@@ -128,8 +131,8 @@ def run_benchmark(args: argparse.Namespace) -> Path:
         "benchmark_id": BENCHMARK_ID,
         "run_id": args.run_name,
         "run_name": args.run_name,
-        "artifact_state": "diagnostic",
-        "release_snapshot": False,
+        "artifact_state": "accepted" if args.release_snapshot else "diagnostic",
+        "release_snapshot": bool(args.release_snapshot),
         "result_schema_version": 1,
         "accepted": True,
     }
@@ -163,11 +166,13 @@ def _render(run_dir: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the Storage v2 migration roundtrip smoke benchmark.")
     parser.add_argument("--run-name", default="migration-roundtrip-smoke")
+    parser.add_argument("--artifacts-root", default=str(ROOT / "artifacts"))
     parser.add_argument("--profile", choices=["10k", "100k", "1m"])
     parser.add_argument("--entry-count", type=int, default=120)
     parser.add_argument("--project-count", type=int, default=3)
     parser.add_argument("--payload-size-bytes", type=int, default=512)
     parser.add_argument("--seed", type=int, default=4001)
+    parser.add_argument("--release-snapshot", action="store_true")
     args = parser.parse_args()
     run_dir = run_benchmark(args)
     print(f"Wrote {run_dir}")

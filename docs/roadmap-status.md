@@ -154,19 +154,21 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 | v4.3.0 | 已完成：Code-Memory Federation |
 | v4.4.0 | 已完成：Claim Promotion Pack |
 | v4.5.0 | 当前版本：Release Evidence Pack |
+| v4.6-v5.0 | 已完成：Evidence Hardening Track |
 
-## 规划中的后续：Evidence Hardening Track
+## 已完成：Evidence Hardening Track
 
-下一阶段不是新增默认功能，而是补齐 cost / performance / storage-index 的硬证据链。
-这些条目目前是规划中，不能写成已发布能力或 public claim：
+这条线已经完成 artifact-backed evidence 收口：release snapshot 现保留历史
+accepted runs，并叠加本轮新增的 v4.6-v5.0 evidence。完成不等于 public claim
+放开，边界仍受限：
 
-| 切片 | 规划目标 | 通过前不能说什么 |
+| 切片 | 当前状态 | 仍然不能说什么 |
 |---|---|---|
-| v4.6 Cost / Token Evidence | `memory_shortcut_vs_source_recovery` paired run，带 named token/cost sidecar、source_read_count 和 negative controls | 不能说全局 token/cost saving；只能在 artifact 通过后说 bounded 长源恢复任务收益 |
-| v4.7 Storage v2 Scale Evidence | 10k / 100k / 1M synthetic corpus，v3 JSON blob vs canonical SQLite，cold/warm、RSS、disk、file count、rollback checksum | 不能说 Storage v2 speedup，不能切默认 canonical store |
-| v4.8 Index Fabric Runtime Evidence | exact / word / trigram / graph sidecar runtime benchmark，SearchBackend conformance，fallback metadata，missed broad-search/broad-read opportunity | 不能说 Index Fabric runtime speedup、Tantivy/LanceDB/ANN readiness |
-| v4.9 Rust Native Hot Path Evidence | native Rust vs Python fallback hot-path benchmark，覆盖 JSONL scan、bulk index、ranking/tokenize 和 wheel mode | 没有 native wheel artifact 不说 Rust speedup |
-| v5.0 Default Change Decision Gate | 只在 v4.6-v4.9 artifact 达标后评估默认 storage/index/reranker/HyDE 是否可变 | 不因 smoke/contract 或单点结果改变默认行为 |
+| v4.6 Cost / Token Evidence | 已完成：`memory_shortcut_vs_source_recovery` accepted paired run + `functional_token_economics` accepted fixture run，`cost_token_evidence.passed=true` | 不能说全局 token/cost saving；只能说 bounded 长源恢复任务收益 |
+| v4.7 Storage v2 Scale Evidence | 已完成：`storage_v2_baseline`、`migration_roundtrip`、`canonical_store_runtime_baseline` 都有 accepted `10k/100k/1m` runs，`storage_v2_scale_evidence.passed=true` | 不能把 contract/scale evidence 直接写成 public Storage v2 speedup，不能自动切默认 canonical store |
+| v4.8 Index Fabric Runtime Evidence | 已完成：`index_fabric_runtime_conformance` accepted runtime artifact，`index_fabric_runtime_evidence.passed=true` | 不能说 Tantivy/LanceDB/ANN readiness 或 broad runtime superiority |
+| v4.9 Rust Native Hot Path Evidence | 已完成：`harness_mem_core_rs` 通过 PyO3 暴露 native module，accepted `rust_core_hot_path` artifact 已进入 snapshot，`rust_native_hot_path_evidence.passed=true` | 不能把本地 bounded artifact 夸大成跨平台普适 Rust performance claim |
+| v5.0 Default Change Decision Gate | 已完成：`default_change_decision_gate.ready=true` | 不因 gate ready 就自动改变默认 storage/index/reranker/HyDE；仍需显式产品决策 |
 
 这条线吸收 `codedb-mcp` 的 index discipline、benchmark discipline 和
 cost observer discipline；不把 `harness-mem` 变成 code-intel 产品，也不放松
@@ -230,7 +232,7 @@ candidate / review / supersede / ledger。
 | v4.3.0 | 已完成：Code-Memory Federation：file fingerprint、code symbols、code evidence stale checks、MCP `project_root` | `docs/roadmap-v40.md` |
 | v4.4.0 | 已完成：Claim Promotion Pack：机器化 blocked / bounded / public-ready claim policy | `docs/roadmap-v40.md` |
 | v4.5.0 | 当前版本：Release Evidence Pack：clean-checkout snapshot、packaged resources、claim-promotion visibility | `docs/roadmap-v40.md` |
-| v4.6-v5.0 | 规划中：Evidence Hardening Track：cost/token、Storage v2 scale、Index Fabric runtime、Rust native、default-change gate | `docs/roadmap-v40.md` |
+| v4.6-v5.0 | 已完成：Evidence Hardening Track：cost/token、Storage v2 scale、Index Fabric runtime、Rust native、default-change gate | `docs/roadmap-v40.md` |
 
 ## 短结论
 

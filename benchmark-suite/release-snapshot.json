@@ -2,8 +2,8 @@
   "snapshot_version": 2,
   "generated_at": "2026-06-09T01:30:00Z",
   "source": "validated local benchmark artifacts",
-  "artifact_run_count": 18,
-  "accepted_runs": 18,
+  "artifact_run_count": 31,
+  "accepted_runs": 31,
   "failed_runs": 0,
   "unknown_runs": 0,
   "gate_passed": true,
@@ -48,87 +48,170 @@
     ],
     "blocking": []
   },
+  "evidence_hardening_track": {
+    "cost_token_evidence": {
+      "passed": true,
+      "source": "artifact-results",
+      "collection_present": true,
+      "memory_shortcut_ready": true,
+      "functional_token_economics_ready": true,
+      "long_source_both_passed": 8,
+      "median_token_saving_ratio": "0.598",
+      "source_read_reduction_pairs": 7,
+      "enabled_source_budget_ok_pairs": 8,
+      "negative_control_pairs": 2,
+      "negative_control_budget_ok_pairs": 2,
+      "blocking": [],
+      "claim_boundary": "bounded long-source memory-shortcut evidence only; not a global token/cost or real-billing claim"
+    },
+    "storage_v2_scale_evidence": {
+      "passed": true,
+      "source": "artifact-results",
+      "collection_present": true,
+      "baseline_profiles": [
+        "10k",
+        "100k",
+        "1m"
+      ],
+      "migration_profiles": [
+        "10k",
+        "100k",
+        "1m"
+      ],
+      "canonical_profiles": [
+        "10k",
+        "100k",
+        "1m"
+      ],
+      "blocking": [],
+      "claim_boundary": "10k/100k/1m storage evidence is required before any default canonical-store or speedup discussion"
+    },
+    "index_fabric_runtime_evidence": {
+      "passed": true,
+      "source": "artifact-results",
+      "collection_present": true,
+      "operations": [
+        "exact_search",
+        "graph_search",
+        "trigram_search",
+        "word_search"
+      ],
+      "blocking": [],
+      "claim_boundary": "runtime conformance evidence is required before any index-fabric, Tantivy, LanceDB, or ANN readiness language"
+    },
+    "rust_native_hot_path_evidence": {
+      "passed": true,
+      "source": "artifact-results",
+      "collection_present": true,
+      "operations": [
+        "bulk_index_rows",
+        "rank_candidates",
+        "reciprocal_rank_fusion",
+        "scan_jsonl",
+        "tokenize"
+      ],
+      "blocking": [],
+      "claim_boundary": "native Rust evidence is required before any Rust speedup or default-wheel readiness claim"
+    },
+    "claim_boundary": "future-track evidence gates measure bounded cost, storage, index, and native hot-path readiness; they do not upgrade blocked public claims or default behaviors by themselves"
+  },
+  "default_change_decision_gate": {
+    "ready": true,
+    "required_gates": {
+      "cost_token_evidence": true,
+      "storage_v2_scale_evidence": true,
+      "index_fabric_runtime_evidence": true,
+      "rust_native_hot_path_evidence": true,
+      "retrieval_quality_pack": true,
+      "claim_promotion_policy": true,
+      "release_evidence_pack": true
+    },
+    "blocking": [],
+    "claim_boundary": "default storage/index/reranker/HyDE decisions require artifact-backed evidence across cost, storage, index, native hot path, retrieval quality, claim-promotion policy, and release evidence; smoke alone never changes defaults"
+  },
   "runs": [
     {
-      "run_id": "2026-06-08-auto_maintenance_effectiveness-codex-maintenance-am1-am6-01",
-      "collection_id": "auto_maintenance_effectiveness",
+      "run_id": "2026-06-16-storage_v2_baseline-1m-rs",
+      "collection_id": "storage_v2_baseline",
       "accepted": true,
-      "result_count": 6,
-      "claim_boundary": "audited maintenance behavior; not production long-run precision/recall"
-    },
-    {
-      "run_id": "2026-06-08-client_enabled_vs_disabled-codex-paired-t1-t3-01",
-      "collection_id": "client_enabled_vs_disabled",
-      "accepted": true,
-      "result_count": 6,
-      "claim_boundary": "paired correctness and memory-call gating; no token-saving or speedup claim"
-    },
-    {
-      "run_id": "2026-06-08-evidence_safety-codex-guarded-e1-e5-01",
-      "collection_id": "evidence_safety",
-      "accepted": true,
-      "result_count": 5,
-      "claim_boundary": "guarded evidence-safety task set only"
-    },
-    {
-      "run_id": "2026-06-08-generated_knowledge_freshness-codex-generated-gk1-gk5-01",
-      "collection_id": "generated_knowledge_freshness",
-      "accepted": true,
-      "result_count": 5,
-      "claim_boundary": "generated boundary and freshness checks; no perfect source-map coverage claim"
-    },
-    {
-      "run_id": "2026-06-08-latency_warm_path-local-nonsmoke-offline-01",
-      "collection_id": "latency_warm_path",
-      "accepted": true,
-      "result_count": 3,
-      "claim_boundary": "synthetic warm-path FTS/wake latency; not true vector-hybrid latency"
-    },
-    {
-      "run_id": "2026-06-08-runtime_health_observability-codex-health-rh1-rh6-01",
-      "collection_id": "runtime_health_observability",
-      "accepted": true,
-      "result_count": 6,
-      "claim_boundary": "local health/cost/gate/false-success evidence; not real billing telemetry"
-    },
-    {
-      "run_id": "2026-06-08-temporal_product_query-codex-temporal-tq1-tq5-01",
-      "collection_id": "temporal_product_query",
-      "accepted": true,
-      "result_count": 5,
-      "claim_boundary": "product temporal boundaries; not LongMemEval retrieval score"
-    },
-    {
-      "run_id": "2026-06-09-client_enabled_vs_disabled-real-token-01",
-      "collection_id": "client_enabled_vs_disabled",
-      "accepted": true,
-      "result_count": 6,
-      "claim_boundary": "paired token-observed local task; measured delta is not a token-saving claim"
-    },
-    {
-      "run_id": "2026-06-09-latency_warm_path-true-hybrid-probe-01",
-      "collection_id": "latency_warm_path",
-      "accepted": true,
-      "result_count": 3,
-      "claim_boundary": "local synthetic true-hybrid warm-path probe; not broad production latency"
-    },
-    {
-      "run_id": "2026-06-09-true_hybrid_retrieval_shootout-fixture-contract-01",
-      "collection_id": "true_hybrid_retrieval_shootout",
-      "accepted": true,
-      "result_count": 3,
-      "claim_boundary": "fixture contract and governance only; not public retrieval recall or true vector-hybrid latency",
+      "result_count": 1,
+      "claim_boundary": "deterministic Storage v2 corpus and baseline schema smoke; not public speedup",
       "artifact_state": "accepted"
     },
     {
-      "run_id": "2026-06-09-true_hybrid_retrieval_shootout-real-local-01",
-      "collection_id": "true_hybrid_retrieval_shootout",
+      "run_id": "2026-06-16-storage_v2_baseline-10k-rs",
+      "collection_id": "storage_v2_baseline",
       "accepted": true,
-      "result_count": 9,
-      "claim_boundary": "local smoke source-hit retrieval recall across fts/vector/hybrid; not end-to-end answer correctness or broad corpus quality"
+      "result_count": 1,
+      "claim_boundary": "deterministic Storage v2 corpus and baseline schema smoke; not public speedup",
+      "artifact_state": "accepted"
     },
     {
-      "run_id": "2026-06-12-canonical_store_runtime_baseline-v401-smoke",
+      "run_id": "2026-06-16-storage_v2_baseline-100k-rs",
+      "collection_id": "storage_v2_baseline",
+      "accepted": true,
+      "result_count": 1,
+      "claim_boundary": "deterministic Storage v2 corpus and baseline schema smoke; not public speedup",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-16-rust_core_hot_path-native-rs",
+      "collection_id": "rust_core_hot_path",
+      "accepted": true,
+      "result_count": 5,
+      "claim_boundary": "bounded artifact claim; inspect benchmark report before publishing",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-16-migration_roundtrip-1m-rs",
+      "collection_id": "migration_roundtrip",
+      "accepted": true,
+      "result_count": 1,
+      "claim_boundary": "dry-run/apply/export checksum smoke; not default canonical-store enablement",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-16-migration_roundtrip-10k-rs",
+      "collection_id": "migration_roundtrip",
+      "accepted": true,
+      "result_count": 1,
+      "claim_boundary": "dry-run/apply/export checksum smoke; not default canonical-store enablement",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-16-migration_roundtrip-100k-rs",
+      "collection_id": "migration_roundtrip",
+      "accepted": true,
+      "result_count": 1,
+      "claim_boundary": "dry-run/apply/export checksum smoke; not default canonical-store enablement",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-16-memory_shortcut_vs_source_recovery-full-v46",
+      "collection_id": "memory_shortcut_vs_source_recovery",
+      "accepted": true,
+      "result_count": 20,
+      "claim_boundary": "bounded artifact claim; inspect benchmark report before publishing",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-16-index_fabric_runtime_conformance-10k-rs",
+      "collection_id": "index_fabric_runtime_conformance",
+      "accepted": true,
+      "result_count": 4,
+      "claim_boundary": "bounded artifact claim; inspect benchmark report before publishing",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-16-functional_token_economics-full-v46-fte",
+      "collection_id": "functional_token_economics",
+      "accepted": true,
+      "result_count": 4,
+      "claim_boundary": "feature-level fixture payload economics; not global token/cost or real billing savings",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-16-canonical_store_runtime_baseline-1m-rs",
       "collection_id": "canonical_store_runtime_baseline",
       "accepted": true,
       "result_count": 1,
@@ -136,35 +219,27 @@
       "artifact_state": "accepted"
     },
     {
-      "run_id": "2026-06-12-code_memory_federation-v430-contract",
-      "collection_id": "code_memory_federation",
-      "accepted": true,
-      "result_count": 3,
-      "claim_boundary": "v4.3 code-memory federation contract; not full code search or generated truth",
-      "artifact_state": "accepted"
-    },
-    {
-      "run_id": "2026-06-12-context_sufficiency_gate-v410-smoke",
-      "collection_id": "context_sufficiency_gate",
+      "run_id": "2026-06-16-canonical_store_runtime_baseline-10k-rs",
+      "collection_id": "canonical_store_runtime_baseline",
       "accepted": true,
       "result_count": 1,
-      "claim_boundary": "deterministic context sufficiency smoke; not end-to-end answer quality",
+      "claim_boundary": "canonical-store contract smoke; not default canonical-store enablement or speedup",
       "artifact_state": "accepted"
     },
     {
-      "run_id": "2026-06-12-memory_eval_matrix-v420-contract",
-      "collection_id": "memory_eval_matrix",
+      "run_id": "2026-06-16-canonical_store_runtime_baseline-100k-rs",
+      "collection_id": "canonical_store_runtime_baseline",
       "accepted": true,
-      "result_count": 8,
-      "claim_boundary": "v4.2 memory eval matrix contract; not global answer quality",
+      "result_count": 1,
+      "claim_boundary": "canonical-store contract smoke; not default canonical-store enablement or speedup",
       "artifact_state": "accepted"
     },
     {
-      "run_id": "2026-06-12-retrieval_quality_pack-v420-contract",
-      "collection_id": "retrieval_quality_pack",
+      "run_id": "2026-06-13-release_evidence_pack-v450-contract",
+      "collection_id": "release_evidence_pack",
       "accepted": true,
-      "result_count": 5,
-      "claim_boundary": "v4.2 retrieval quality component gates; not default reranker/HyDE enablement",
+      "result_count": 1,
+      "claim_boundary": "v4.5 release evidence packaging; not an upgrade of blocked claims",
       "artifact_state": "accepted"
     },
     {
@@ -176,12 +251,122 @@
       "artifact_state": "accepted"
     },
     {
-      "run_id": "2026-06-13-release_evidence_pack-v450-contract",
-      "collection_id": "release_evidence_pack",
+      "run_id": "2026-06-12-retrieval_quality_pack-v420-contract",
+      "collection_id": "retrieval_quality_pack",
+      "accepted": true,
+      "result_count": 5,
+      "claim_boundary": "v4.2 retrieval quality component gates; not default reranker/HyDE enablement",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-12-memory_eval_matrix-v420-contract",
+      "collection_id": "memory_eval_matrix",
+      "accepted": true,
+      "result_count": 8,
+      "claim_boundary": "v4.2 memory eval matrix contract; not global answer quality",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-12-context_sufficiency_gate-v410-smoke",
+      "collection_id": "context_sufficiency_gate",
       "accepted": true,
       "result_count": 1,
-      "claim_boundary": "v4.5 release evidence packaging; not an upgrade of blocked claims",
+      "claim_boundary": "deterministic context sufficiency smoke; not end-to-end answer quality",
       "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-12-code_memory_federation-v430-contract",
+      "collection_id": "code_memory_federation",
+      "accepted": true,
+      "result_count": 3,
+      "claim_boundary": "v4.3 code-memory federation contract; not full code search or generated truth",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-12-canonical_store_runtime_baseline-v401-smoke",
+      "collection_id": "canonical_store_runtime_baseline",
+      "accepted": true,
+      "result_count": 1,
+      "claim_boundary": "canonical-store contract smoke; not default canonical-store enablement or speedup",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-09-true_hybrid_retrieval_shootout-real-local-01",
+      "collection_id": "true_hybrid_retrieval_shootout",
+      "accepted": true,
+      "result_count": 9,
+      "claim_boundary": "local smoke source-hit retrieval recall across fts/vector/hybrid; not end-to-end answer correctness or broad corpus quality"
+    },
+    {
+      "run_id": "2026-06-09-true_hybrid_retrieval_shootout-fixture-contract-01",
+      "collection_id": "true_hybrid_retrieval_shootout",
+      "accepted": true,
+      "result_count": 3,
+      "claim_boundary": "fixture contract and governance only; not public retrieval recall or true vector-hybrid latency",
+      "artifact_state": "accepted"
+    },
+    {
+      "run_id": "2026-06-09-latency_warm_path-true-hybrid-probe-01",
+      "collection_id": "latency_warm_path",
+      "accepted": true,
+      "result_count": 3,
+      "claim_boundary": "local synthetic true-hybrid warm-path probe; not broad production latency"
+    },
+    {
+      "run_id": "2026-06-09-client_enabled_vs_disabled-real-token-01",
+      "collection_id": "client_enabled_vs_disabled",
+      "accepted": true,
+      "result_count": 6,
+      "claim_boundary": "paired token-observed local task; measured delta is not a token-saving claim"
+    },
+    {
+      "run_id": "2026-06-08-temporal_product_query-codex-temporal-tq1-tq5-01",
+      "collection_id": "temporal_product_query",
+      "accepted": true,
+      "result_count": 5,
+      "claim_boundary": "product temporal boundaries; not LongMemEval retrieval score"
+    },
+    {
+      "run_id": "2026-06-08-runtime_health_observability-codex-health-rh1-rh6-01",
+      "collection_id": "runtime_health_observability",
+      "accepted": true,
+      "result_count": 6,
+      "claim_boundary": "local health/cost/gate/false-success evidence; not real billing telemetry"
+    },
+    {
+      "run_id": "2026-06-08-latency_warm_path-local-nonsmoke-offline-01",
+      "collection_id": "latency_warm_path",
+      "accepted": true,
+      "result_count": 3,
+      "claim_boundary": "synthetic warm-path FTS/wake latency; not true vector-hybrid latency"
+    },
+    {
+      "run_id": "2026-06-08-generated_knowledge_freshness-codex-generated-gk1-gk5-01",
+      "collection_id": "generated_knowledge_freshness",
+      "accepted": true,
+      "result_count": 5,
+      "claim_boundary": "generated boundary and freshness checks; no perfect source-map coverage claim"
+    },
+    {
+      "run_id": "2026-06-08-evidence_safety-codex-guarded-e1-e5-01",
+      "collection_id": "evidence_safety",
+      "accepted": true,
+      "result_count": 5,
+      "claim_boundary": "guarded evidence-safety task set only"
+    },
+    {
+      "run_id": "2026-06-08-client_enabled_vs_disabled-codex-paired-t1-t3-01",
+      "collection_id": "client_enabled_vs_disabled",
+      "accepted": true,
+      "result_count": 6,
+      "claim_boundary": "paired correctness and memory-call gating; no token-saving or speedup claim"
+    },
+    {
+      "run_id": "2026-06-08-auto_maintenance_effectiveness-codex-maintenance-am1-am6-01",
+      "collection_id": "auto_maintenance_effectiveness",
+      "accepted": true,
+      "result_count": 6,
+      "claim_boundary": "audited maintenance behavior; not production long-run precision/recall"
     }
   ]
 }

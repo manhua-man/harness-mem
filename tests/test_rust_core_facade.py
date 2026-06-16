@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from harness_mem.rust_core import (
@@ -34,6 +35,80 @@ def test_tolerant_jsonl_scanner_keeps_good_records_and_reports_errors() -> None:
     assert [row["type"] for row in result.records] == ["user", "assistant"]
     assert [error["code"] for error in result.errors] == ["HM-410", "HM-411"]
     assert result.to_dict()["record_count"] == 2
+
+
+def test_facade_prefers_native_module_when_available(monkeypatch) -> None:
+    class NativeStub:
+        @staticmethod
+        def api_version() -> str:
+            return "v4.0.2"
+
+        @staticmethod
+        def scan_jsonl(text: str) -> str:
+            return json.dumps(
+                {
+                    "records": [{"type": "native"}],
+                    "errors": [{"line": 2, "code": "HM-410", "message": "bad"}],
+                }
+            )
+
+        @staticmethod
+        def build_bulk_index_rows(payloads_json: str) -> str:
+            payloads = json.loads(payloads_json)
+            return json.dumps(
+                [
+                    {
+                        "id": payloads[0]["id"],
+                        "tokens": ["native"],
+                        "exact_terms": ["native"],
+                        "trigrams": ["nat"],
+                        "metadata": {
+                            "project_id": "demo",
+                            "truth_status": "accepted",
+                            "confidence": 0.9,
+                        },
+                    }
+                ]
+            )
+
+        @staticmethod
+        def reciprocal_rank_fusion(lists_json: str, k: float) -> str:
+            assert k == 60.0
+            assert json.loads(lists_json) == [["a", "b"], ["b", "c"]]
+            return json.dumps([["b", 2.0], ["a", 1.0]])
+
+        @staticmethod
+        def rank_candidates(rows_json: str, query: str, source_diversity_penalty: float) -> str:
+            assert query == "storage v2"
+            assert source_diversity_penalty == 0.05
+            rows = json.loads(rows_json)
+            return json.dumps([{**rows[0], "id": rows[0]["id"], "score": 9.0}])
+
+        @staticmethod
+        def tokens(text: str) -> list[str]:
+            return ["native", text.lower()]
+
+    import importlib
+
+    original_import_module = importlib.import_module
+
+    def fake_import_module(name: str):
+        if name == "harness_mem_core_rs":
+            return NativeStub
+        return original_import_module(name)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import_module)
+
+    status = rust_core_status()
+    assert status.mode == "rust"
+    assert status.available is True
+    assert scan_jsonl('{"id":"one"}').records == [{"type": "native"}]
+    assert build_bulk_index_rows([{"id": "mem-1"}])[0]["tokens"] == ["native"]
+    assert list(reciprocal_rank_fusion([["a", "b"], ["b", "c"]], k=60)) == ["b", "a"]
+    assert rank_candidates(
+        [{"id": "a", "tokens": ["storage"], "confidence": 0.8, "truth_status": "accepted"}],
+        query="storage v2",
+    )[0]["score"] == 9.0
 
 
 def test_bulk_index_builder_extracts_tokens_metadata_and_trigrams() -> None:

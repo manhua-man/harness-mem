@@ -121,8 +121,18 @@ def scan_jsonl(text: str) -> JsonlScanResult:
 def build_bulk_index_rows(payloads: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     """Build deterministic searchable rows from payload JSON objects."""
 
+    payload_list = [dict(payload) for payload in payloads]
+    native = _native()
+    if native is not None and hasattr(native, "build_bulk_index_rows"):
+        payload = native.build_bulk_index_rows(
+            json.dumps(payload_list, sort_keys=True, ensure_ascii=True)
+        )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        return [dict(row) for row in payload]
+
     rows: list[dict[str, Any]] = []
-    for payload in payloads:
+    for payload in payload_list:
         entity_id = str(payload.get("id") or "")
         text = _search_text(payload)
         rows.append(
@@ -151,8 +161,21 @@ def reciprocal_rank_fusion(
 ) -> dict[str, float]:
     """Return deterministic RRF scores for ranked source-id lists."""
 
+    native = _native()
+    ranked_lists_list = [list(ranked) for ranked in ranked_lists]
+    if native is not None and hasattr(native, "reciprocal_rank_fusion"):
+        payload = native.reciprocal_rank_fusion(
+            json.dumps(ranked_lists_list, ensure_ascii=True),
+            float(k),
+        )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if isinstance(payload, list):
+            return {str(item_id): float(score) for item_id, score in payload}
+        return {str(item_id): float(score) for item_id, score in dict(payload).items()}
+
     scores: dict[str, float] = {}
-    for ranked in ranked_lists:
+    for ranked in ranked_lists_list:
         for index, item_id in enumerate(ranked, 1):
             if not item_id:
                 continue
@@ -168,10 +191,22 @@ def rank_candidates(
 ) -> list[dict[str, Any]]:
     """Apply exact boost, metadata penalty, and source diversity tie-breaking."""
 
+    row_list = [dict(row) for row in rows]
+    native = _native()
+    if native is not None and hasattr(native, "rank_candidates"):
+        payload = native.rank_candidates(
+            json.dumps(row_list, sort_keys=True, ensure_ascii=True),
+            query,
+            float(source_diversity_penalty),
+        )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        return [dict(row) for row in payload]
+
     query_tokens = set(_tokens(query))
     ranked: list[dict[str, Any]] = []
     source_seen: dict[str, int] = {}
-    for row in rows:
+    for row in row_list:
         row_id = str(row.get("id") or "")
         tokens = set(str(token) for token in row.get("tokens") or [])
         exact_overlap = len(query_tokens & tokens)
@@ -224,6 +259,10 @@ def _search_text(payload: dict[str, Any]) -> str:
 
 
 def _tokens(text: str) -> list[str]:
+    native = _native()
+    if native is not None and hasattr(native, "tokens"):
+        return [str(token) for token in native.tokens(text)]
+
     seen: set[str] = set()
     tokens: list[str] = []
     for token in re.findall(r"[A-Za-z0-9_]+", text.lower()):
