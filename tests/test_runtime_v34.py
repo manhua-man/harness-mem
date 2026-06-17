@@ -43,6 +43,7 @@ REQUIRED_COLLECTION_IDS = [
     "code_memory_federation",
     "claim_promotion_pack",
     "release_evidence_pack",
+    "context_outcome_loop",
 ]
 
 
@@ -121,7 +122,7 @@ def test_benchmark_matrix_report_tracks_required_surfaces(tmp_path: Path):
 
     assert report["gate"]["passed"] is True
     assert report["gate"]["missing_surface_coverage"] == []
-    assert report["matrix_version"] == "v5.0.0"
+    assert report["matrix_version"] == "v5.6.0"
     assert report["taxonomy"]["artifact_states"] == [
         "accepted",
         "partial",
@@ -150,6 +151,7 @@ def test_benchmark_matrix_report_tracks_required_surfaces(tmp_path: Path):
         "code_memory_federation",
         "claim_promotion",
         "release_evidence_pack",
+        "context_outcome_loop",
     }
     assert report["memory_eval_gate"]["passed"] is True
     assert report["retrieval_quality_pack"]["passed"] is True

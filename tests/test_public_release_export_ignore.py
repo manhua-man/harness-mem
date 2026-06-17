@@ -16,6 +16,7 @@ def test_public_source_excludes_manifest_lists_maintainer_only_material() -> Non
     assert "docs/roadmap*.md" in manifest
     assert "docs/roadmap/" in manifest
     assert "docs/reference-projects.md" in manifest
+    assert "docs/reference-comparison-matrix.md" in manifest
     assert "openspec/" in manifest
     assert "tests/" in manifest
 
@@ -28,6 +29,7 @@ def test_gitattributes_marks_maintainer_only_material_export_ignore() -> None:
     assert "docs/roadmap*.md export-ignore" in attrs
     assert "docs/roadmap/** export-ignore" in attrs
     assert "docs/reference-projects.md export-ignore" in attrs
+    assert "docs/reference-comparison-matrix.md export-ignore" in attrs
     assert "openspec/** export-ignore" in attrs
     assert "tests/** export-ignore" in attrs
 
@@ -44,6 +46,7 @@ def test_filter_script_removes_test_packet_from_archive(tmp_path: Path) -> None:
             "harness-mem-0/docs/v2-user-test-packet.md",
             "harness-mem-0/docs/roadmap-v40.md",
             "harness-mem-0/docs/reference-projects.md",
+            "harness-mem-0/docs/reference-comparison-matrix.md",
             "harness-mem-0/benchmark-suite/README.md",
             "harness-mem-0/openspec/specs/memory.md",
             "harness-mem-0/tests/test_roadmap.py",
@@ -68,6 +71,7 @@ def test_filter_script_removes_test_packet_from_archive(tmp_path: Path) -> None:
     assert not any("integration/artifacts/" in n for n in names)
     assert not any("docs/roadmap" in n for n in names)
     assert not any("reference-projects.md" in n for n in names)
+    assert not any("reference-comparison-matrix.md" in n for n in names)
     assert not any("benchmark-suite/" in n for n in names)
     assert not any("openspec/" in n for n in names)
     assert not any("/tests/" in n for n in names)
@@ -86,6 +90,7 @@ def test_git_check_attr_export_ignore_on_test_packet() -> None:
             "--",
             "docs/v2-user-test-packet.md",
             "docs/roadmap-v40.md",
+            "docs/reference-comparison-matrix.md",
             "benchmark-suite/README.md",
             "openspec/specs/memory.md",
             "tests/test_roadmap.py",
@@ -99,6 +104,7 @@ def test_git_check_attr_export_ignore_on_test_packet() -> None:
     assert proc.returncode == 0, proc.stderr
     assert "docs/v2-user-test-packet.md: export-ignore: set" in proc.stdout
     assert "docs/roadmap-v40.md: export-ignore: set" in proc.stdout
+    assert "docs/reference-comparison-matrix.md: export-ignore: set" in proc.stdout
     assert "benchmark-suite/README.md: export-ignore: set" in proc.stdout
     assert "openspec/specs/memory.md: export-ignore: set" in proc.stdout
     assert "tests/test_roadmap.py: export-ignore: set" in proc.stdout

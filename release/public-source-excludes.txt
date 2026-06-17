@@ -9,9 +9,9 @@ docs/README.md
 docs/roadmap*.md
 docs/roadmap/
 docs/reference-projects.md
+docs/reference-comparison-matrix.md
 docs/releasing.md
 docs/testing.md
-docs/retrospective-v13-v14.md
 docs/harness-mem-mechanism-article-style.md
 docs/benchmark/
 docs/cli/

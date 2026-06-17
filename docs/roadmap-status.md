@@ -1,6 +1,6 @@
 # Roadmap Status（公开状态页）
 
-> 最后核对：2026-06-16。版本号以 `pyproject.toml` 与 `harness_mem.__version__` 为准；发版记录见 `CHANGELOG.md`。
+> 最后核对：2026-06-18。版本号以 `pyproject.toml` 与 `harness_mem.__version__` 为准；发版记录见 `CHANGELOG.md`。
 >
 > 本文面向**使用者与贡献者**：说明当前版本、已交付能力、明确不做项，以及规划中的方向。
 > 逐版本设计稿见 `docs/roadmap-v*.md`；**不**在此复述客户端联调矩阵、运行日志或本机路径。
@@ -10,13 +10,13 @@
 
 | 来源 | 值 |
 |---|---|
-| `pyproject.toml` | `5.0.0` |
-| `harness_mem/__init__.py` | `5.0.0` |
-| `CHANGELOG.md` | 已有 `5.0.0` 段；`Unreleased` 当前为空 |
+| `pyproject.toml` | `5.6.0` |
+| `harness_mem/__init__.py` | `5.6.0` |
+| `CHANGELOG.md` | 已有 `5.6.0` 段；`Unreleased` 暂无新增发布项 |
 
 ## 产品基线
 
-当前收口基线是 v5.0.0：v1.5 baseline、v1.6 persistent vectors / bucket budget、
+当前收口基线是 v5.6.0：v1.5 baseline、v1.6 persistent vectors / bucket budget、
 v1.7 temporal truth、v1.8 procedural skill、v2.0 heuristic distill 移除、
 v2.1 maintenance-only CLI、v2.2 用户入口闭环、v2.3 signals/replay、v2.4
 reflection queue（默认关闭的 opt-in host 触发）、v2.5 context assembly /
@@ -33,8 +33,9 @@ v4.0.0 Storage v2 Baseline / Benchmark / Migration Contract、v4.0.1-v4.0.5
 canonical store / Rust facade / index fabric / lifecycle / distribution gate，
 v4.1.0 Context Sufficiency + Task-Aware Wake、v4.2.x Memory Eval Matrix /
 Retrieval Quality Pack、v4.3.0 Code-Memory Federation、v4.4 Claim Promotion
-Pack、v4.5.0 Release Evidence Pack，以及 v4.6-v5.0 Evidence Hardening Track
-都已落地。
+Pack、v4.5.0 Release Evidence Pack、v4.6-v5.0 Evidence Hardening Track，以及
+v5.1-v5.2 Default Kernel Cutover，以及 v5.3-v5.6 Daily Flow DX / Guided Opt-in
+Maintenance / Outcome-Aware Context Loop / Multi-client Release Confidence 都已落地。
 
 v3.2.0 已发布 Generated Knowledge Compiler + Basic Freshness：source map、
 atomic claim metadata、citation validation、claim diff、incremental compile metrics、
@@ -80,20 +81,22 @@ claim-promotion policy gate，机器化区分 blocked public claims 与 bounded 
 claims；v4.5 新增 release-evidence pack，验证 clean-checkout snapshot、
 packaged benchmark resources 与 claim-promotion visibility。
 
-当前版本 v5.0.0 在此基础上完成 v4.6-v5.0 Evidence Hardening Track：v4.6
-补齐 cost/token evidence；v4.7 把 `storage_v2_baseline`、
-`migration_roundtrip` 和 `canonical_store_runtime_baseline` 推到 accepted
-`10k/100k/1m` scale runs；v4.8 补齐
-`index_fabric_runtime_conformance` runtime artifact；v4.9 通过 PyO3 暴露可导入的
-native `harness_mem_core_rs` 模块并让 `rust_core_hot_path` 进入 accepted
-release snapshot；v5.0 把 `evidence_hardening_track` 和
-`default_change_decision_gate` 机器化到 `benchmark_matrix_report` 与 release
-snapshot。
+当前版本 v5.6.0 在 v4.6-v5.0 Evidence Hardening Track 的证据地基上，完成了
+v5.1-v5.6 release train：v5.1 把 canonical SQLite 提升为 structured
+memory 和 observations 的默认 truth runtime，并在 backend / doctor / maintenance
+面显式暴露 `canonical`、`bootstrapped_from_legacy`、`degraded_fallback`
+运行状态；v5.2 把 MCP `search_memory`、query-aware `wake`、task-aware context
+plan，以及 `context_assembly` L3/L4 的 query-driven path 统一到
+`SearchBackendResponse` 主契约，`read_api.search_memory` 只保留兼容 facade；v5.3-v5.6
+把日常 status / wake / search / distill 入口补上下一步建议、结果解释、降级原因和
+drilldown hints，把 dream / metabolism / undo 维护面统一成可撤销摘要，并新增
+`record_context_outcome` 只写 signal 的 opt-in context loop 与跨客户端 field-test packet。
 
-v4.0.x-v5.0 的 benchmark suite 已新增 `canonical_store_runtime_baseline`、
+v4.0.x-v5.6 的 benchmark suite 已新增 `canonical_store_runtime_baseline`、
 `rust_core_hot_path`、`index_fabric_runtime_conformance`、`context_sufficiency_gate`
 和 `task_aware_wake_precision`、`memory_eval_matrix`、`retrieval_quality_pack`、
-`code_memory_federation`、`claim_promotion_pack`、`release_evidence_pack`。
+`code_memory_federation`、`claim_promotion_pack`、`release_evidence_pack` 和
+`context_outcome_loop`。
 2026-06-12/2026-06-13/2026-06-16 的 canonical-store、context-sufficiency、
 memory-eval、retrieval-quality、code-memory、claim-promotion、release-evidence
 和 evidence-hardening artifacts 证明 contract / surface availability、claim
@@ -111,7 +114,8 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 
 | 主题 | 你能用到什么 | 说明 |
 |---|---|---|
-| 检索与证据 | 渐进式 search → timeline → 原始 observation；可选 hybrid 向量 | 默认 embedding 基线 `all-MiniLM-L6-v2` |
+| Truth runtime | canonical SQLite 默认承载 structured truth 与 observations；JSON 仅迁移 / export / rollback | truth-store runtime state 可见：`canonical`、`bootstrapped_from_legacy`、`degraded_fallback` |
+| 检索与证据 | 渐进式 search → timeline → 原始 observation；可选 hybrid 向量 | query-driven path 走 `SearchBackend` 主链路；默认 embedding 基线 `all-MiniLM-L6-v2` |
 | 真理与候选 | MemoryEntry、Rule、Relation、Handoff、Supersede/Skill 等候选层；`auto_review` 处理低风险项 | 可以自动维护，但不能静默覆盖 confirmed truth；必须走 candidate / review / supersede / ledger |
 | 用户入口 | `/hm:*`、repo-local Skill、自然语言；MCP 在 Agent 背后 | CLI 仅安装、doctor、purge、maintenance |
 | Conversation Autopilot | `harness-mem-autopilot` skill 默认启用，可在明确任务边界主动 wake/search、创建证据候选或建议 distill | conversation-level 自动学习；`autopilot.enabled=false` 是显式关闭；不会默认启用 daemon / IDE hook、无条件 per-turn 写入或 silent confirmed truth |
@@ -124,7 +128,7 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 | Auto Dream | `/hm:dream` 读取 DreamRun 账本；MCP `dream_ledger` / `dream_run` / `dream_auto_tick` / `undo_dream_item` 支撑 opt-in 自动维护 | 默认关闭；没有 `pending_review`；不 hard delete confirmed truth |
 | Generated Knowledge | `maintenance rebuild-wiki-bridge` 产出 source map、atomic claims、claim diff、freshness / compile metrics；compact wake 显式 opt-in 消费可校验 claim | generated layer 不是 truth；hash drift / citation invalid 的 claim 不进 compact wake |
 | Temporal Query | MCP `temporal_query` 读取 temporal read model，支持 current/history/as_of、valid/recorded range、supersede timeline、explanation、abstention | read-side projection；不自动改写 confirmed truth |
-| Runtime Health / Cost / Benchmark Evidence | MCP `health_summary`、`get_project_status`、`surface_cost_report`、`benchmark_matrix_report` 汇总 job health、generated cache、retrieval latency/result/truncation、surface token、budget overrun、version drift、artifact-state taxonomy、BENCH purpose map、regression gates、true-hybrid shootout summary、v4.0.x-v5.0 surface coverage、public-claim readiness、claim-promotion gate、release-evidence pack、evidence-hardening track 和 default-change decision gate | 不采集云端、不保存 raw content；observer 失败不阻断主路径；cost discipline 单独成类；当前 token/cost saving 仍未 ready；true-hybrid latency / retrieval recall 只限本地 synthetic / smoke artifact；v4/v5 的 smoke/contract 不外推性能或回答质量；blocked claims 不因 release evidence 或 gate ready 自动升级成 public claims |
+| Runtime Health / Cost / Benchmark Evidence | MCP `health_summary`、`get_project_status`、`surface_cost_report`、`benchmark_matrix_report` 汇总 job health、generated cache、retrieval latency/result/truncation、surface token、budget overrun、version drift、artifact-state taxonomy、BENCH purpose map、regression gates、true-hybrid shootout summary、v4.0.x-v5.6 surface coverage、public-claim readiness、claim-promotion gate、release-evidence pack、evidence-hardening track、default-change decision gate 与 truth runtime state | 不采集云端、不保存 raw content；observer 失败不阻断主路径；cost discipline 单独成类；当前 token/cost saving 仍未 ready；true-hybrid latency / retrieval recall 只限本地 synthetic / smoke artifact；v4/v5 的 smoke/contract 不外推性能或回答质量；blocked claims 不因 release evidence 或 gate ready 自动升级成 public claims |
 | 可选触发 | `host_entry` + IDE hook 模板（`triggers.*` 默认 `off`） | 无 always-on daemon；`worker.mode` 仅为配置门控 |
 | 跨项目 Skill | 显式 shared `search_skills`、审核后 promotion | 可以跨项目复用，但不能默认污染 wake；必须显式搜索、提示、展开 |
 
@@ -167,7 +171,12 @@ wake/search、创建有证据的候选或建议 distill。学习结果仍走 can
 | v4.4.0 | 已完成：Claim Promotion Pack |
 | v4.5.0 | 已完成：Release Evidence Pack |
 | v4.6-v5.0 | 已完成：Evidence Hardening Track |
-| v5.0.0 | 当前版本：Evidence Hardening Track |
+| v5.1 | 已完成：Canonical SQLite Default Truth Runtime |
+| v5.2.0 | 已完成：Default Kernel Cutover（SearchBackend Mainline） |
+| v5.3 | 已完成：Daily Flow DX |
+| v5.4 | 已完成：Guided Opt-in Maintenance |
+| v5.5 | 已完成：Outcome-Aware Context Loop |
+| v5.6.0 | 当前版本：Multi-client Release Confidence |
 
 ## 已完成：Evidence Hardening Track
 
@@ -178,14 +187,41 @@ accepted runs，并叠加本轮新增的 v4.6-v5.0 evidence。完成不等于 pu
 | 切片 | 当前状态 | 仍然不能说什么 |
 |---|---|---|
 | v4.6 Cost / Token Evidence | 已完成：`memory_shortcut_vs_source_recovery` accepted paired run + `functional_token_economics` accepted fixture run，`cost_token_evidence.passed=true` | 不能说全局 token/cost saving；只能说 bounded 长源恢复任务收益 |
-| v4.7 Storage v2 Scale Evidence | 已完成：`storage_v2_baseline`、`migration_roundtrip`、`canonical_store_runtime_baseline` 都有 accepted `10k/100k/1m` runs，`storage_v2_scale_evidence.passed=true` | 不能把 contract/scale evidence 直接写成 public Storage v2 speedup，不能自动切默认 canonical store |
+| v4.7 Storage v2 Scale Evidence | 已完成：`storage_v2_baseline`、`migration_roundtrip`、`canonical_store_runtime_baseline` 都有 accepted `10k/100k/1m` runs，`storage_v2_scale_evidence.passed=true` | 不能把 contract/scale evidence 直接写成 public Storage v2 speedup；后续默认 canonical store 切换来自 v5.1 kernel cutover，不来自 v4.7 artifact 本身 |
 | v4.8 Index Fabric Runtime Evidence | 已完成：`index_fabric_runtime_conformance` accepted runtime artifact，`index_fabric_runtime_evidence.passed=true` | 不能说 Tantivy/LanceDB/ANN readiness 或 broad runtime superiority |
 | v4.9 Rust Native Hot Path Evidence | 已完成：`harness_mem_core_rs` 通过 PyO3 暴露 native module，accepted `rust_core_hot_path` artifact 已进入 snapshot，`rust_native_hot_path_evidence.passed=true` | 不能把本地 bounded artifact 夸大成跨平台普适 Rust performance claim |
-| v5.0 Default Change Decision Gate | 已完成：`default_change_decision_gate.ready=true` | 不因 gate ready 就自动改变默认 storage/index/reranker/HyDE；仍需显式产品决策 |
+| v5.0 Default Change Decision Gate | 已完成：`default_change_decision_gate.ready=true` | 证据资格不等于自动切换默认项；实际 storage/search 主链路切换在后续 v5.1-v5.2 完成 |
 
 这条线吸收 `codedb-mcp` 的 index discipline、benchmark discipline 和
 cost observer discipline；不把 `harness-mem` 变成 code-intel 产品，也不放松
 candidate / review / supersede / ledger。
+
+## 已完成：Default Kernel Cutover（v5.1-v5.2）
+
+这条线把“地基已齐但默认运行还没换心脏”的状态正式收掉：canonical SQLite 现在是
+唯一默认 truth runtime，`SearchBackend` 现在是 query-driven retrieval 的唯一主链路。
+
+| 切片 | 当前状态 | 已切换的默认面 | 本轮明确不做 |
+|---|---|---|---|
+| v5.1 Canonical SQLite Default Truth | 已完成：`LocalMemoryBackend.init()` canonical-first bootstrap；structured truth 和 observations 默认读写 canonical SQLite；legacy JSON 退到迁移 / export / rollback | `LocalStructuredStore`、`LocalVerbatimStore`、doctor/status/runtime state | 不保留长期 legacy read path；不把 dual-write 升级成产品 contract |
+| v5.2 SearchBackend Mainline | 已完成：`tool_search_memory`、query-aware `wake`、task-aware context plan、`context_assembly` L3/L4 共用 `SearchBackendResponse` 语义 | requested/effective mode、fallback、budget、truncation、source coverage | 不引入 Tantivy/LanceDB/ANN；不新增 `deep_memory_search`；不做 outcome-aware decay |
+
+当前边界：
+
+- `deep_recall` 仍是唯一冷层纳入开关。
+- `SearchBackend` 当前仍只有 SQLite 实现；这次是统一运行时入口，不是扩后端矩阵。
+- 当前 release 沿用 2026-06-16 的 31 个 accepted runs 作为 benchmark truth；v5.1/v5.2 不新增公开性能 claim。
+
+## 已完成：v5.3-v5.6 使用体验与 opt-in 自动维护
+
+本轮后续主线按“使用体验 + opt-in 自动维护”推进，证据仍作为 release gate，不作为用户叙事主角：
+
+| 切片 | 当前状态 | 已落地内容 | 边界 |
+|---|---|---|---|
+| v5.3 Daily Flow DX | 已完成 | MCP `get_project_status` / `wake` / `search_memory` 返回 `next_actions`、`why_this_result`、`degraded_reason` 和 drilldown hints；status 从状态列表升级为下一步建议 | 不新增 daily CLI；不改变 confirmed truth 写入规则 |
+| v5.4 Guided Opt-in Maintenance | 已完成 | metabolism / dream / undo surfaces 返回统一 `maintenance_summary`：`candidate_counts`、`risk_level`、`auto_applied`、`needs_human_review`、`undo_available`；no-op 明确输出 | scheduler / host hook 仍默认 off；truth 变化仍走 ledger / candidate / supersede |
+| v5.5 Outcome-Aware Context Loop | 已完成 | 新 MCP `record_context_outcome`；SearchBackend 在 `weak_link_signals=True` 时读取 outcome signal 作为小幅、可解释 ranking hint；新增 `context_outcome_loop` loop harness | 默认关闭；不做 truth decay / archive / delete；不包装成 answer-quality claim |
+| v5.6 Multi-client Release Confidence | 已完成 | 新增 `docs/v5.6-multi-client-field-test-packet.md` 覆盖 Codex、Claude Code、Cursor、Hermes / generic MCP；benchmark suite 登记 `context_outcome_loop` | field-test packet 是验收脚本，不是已跑完的外部用户证据 |
 
 ## 未完成 / 不做项
 
@@ -197,6 +233,9 @@ candidate / review / supersede / ledger。
 | Context Assembly / File Context | 已完成 | 见 `docs/roadmap-v25.md` |
 | Wiki Bridge / Compact Index | 已完成到 v3.2.0；compact wake 为 opt-in，generated compiler 有 source map / citation / freshness / metrics | 见 `docs/roadmap-v26.md` 与 `docs/roadmap-v32.md` |
 | Temporal Query / Supersede Explainability | 已完成到 v3.3.0；`temporal_query` 提供 read-side current/history/as_of 与 supersede timeline | 见 `docs/roadmap-v33.md` |
+| Tantivy / LanceDB / ANN | 未做；`SearchBackend` 仍只有 SQLite 实现 | 后续只有在真实规模/瓶颈下才进入实验线 |
+| `deep_memory_search` 新工具 | 不做 | `deep_recall` 继续作为唯一冷层开关 |
+| outcome-aware decay | 未做 | 等 truth/runtime/telemetry 更稳定后再评估 |
 | 自动改写 confirmed truth | 不做 | 可以自动维护，但不能静默覆盖；confirmed truth 变更必须走 candidate / review / supersede / ledger |
 | 跨项目 Skill 默认注入 wake | 不做 | 可以跨项目复用，但不能默认污染 wake；shared skill 必须显式搜索、提示、展开 |
 | REST API 作为产品入口 | 已移除 | 不恢复 |
@@ -219,7 +258,7 @@ candidate / review / supersede / ledger。
 | v1.5.x | Retrieval baseline + ingest/onboarding 基础：自动 ingest、跨项目搜索、doctor/安装闭环 | `docs/roadmap-v15x.md` |
 | v1.6.x | Persistent vectors + memory typing + bucket budget：measurement foundation、typing、persistent vectors | `docs/roadmap-v16x.md` |
 | v1.7.x | Temporal truth + supersede + bounded relation graph：temporal schema、supersede、verbatim exact evidence search | `docs/roadmap-v17x.md` |
-| v1.8.x | Procedural memory 保守闭环：`ProceduralCandidate`、confirmed `Skill`、`search_skills`、`record_skill_result` | `docs/roadmap-vision-v16-v18.md` |
+| v1.8.x | Procedural memory 保守闭环：`ProceduralCandidate`、confirmed `Skill`、`search_skills`、`record_skill_result` | `CHANGELOG.md` |
 | v2.0.x | Heuristic distill 移除：distill 从 heuristic runtime 收束成 LLM agent 流程 | `docs/roadmap-status.md` |
 | v2.1.x | Maintenance-only CLI + Slash/Skill/Agent workflow 重写：daily-memory surface 退出 CLI | `docs/roadmap-status.md` |
 | v2.2.x | AI IDE 入口闭环：`/hm:distill`、`/hm:wake`、`/hm:search`、跨客户端测试、auto-review UX | `docs/roadmap-v22x.md` |
@@ -246,11 +285,16 @@ candidate / review / supersede / ledger。
 | v4.4.0 | 已完成：Claim Promotion Pack：机器化 blocked / bounded / public-ready claim policy | `docs/roadmap-v40.md` |
 | v4.5.0 | 已完成：Release Evidence Pack：clean-checkout snapshot、packaged resources、claim-promotion visibility | `docs/roadmap-v40.md` |
 | v4.6-v5.0 | 已完成：Evidence Hardening Track：cost/token、Storage v2 scale、Index Fabric runtime、Rust native、default-change gate | `docs/roadmap-v40.md` |
-| v5.0.0 | 当前版本：Evidence Hardening Track：artifact-backed cost/token、Storage v2 scale、Index Fabric runtime、Rust native、default-change gate | `docs/roadmap-v40.md` |
+| v5.1 | 已完成：Canonical SQLite Default Truth Runtime：canonical-first bootstrap、truth-store runtime state、legacy JSON 退到迁移/导出语义 | `docs/roadmap-v40.md` |
+| v5.2.0 | 已完成：Default Kernel Cutover：SearchBackend mainline、MCP search/wake/query-driven context 统一走 backend contract | `docs/roadmap-v40.md` |
+| v5.3 | 已完成：Daily Flow DX：status/wake/search 返回下一步建议、结果解释、degraded reason 和 drilldown hints | `CHANGELOG.md` |
+| v5.4 | 已完成：Guided Opt-in Maintenance：metabolism/dream/undo 返回统一 maintenance summary 与 no-op 说明 | `CHANGELOG.md` |
+| v5.5 | 已完成：Outcome-Aware Context Loop：`record_context_outcome` + opt-in explainable ranking metadata + loop harness | `CHANGELOG.md` |
+| v5.6.0 | 当前版本：Multi-client Release Confidence：跨 Codex / Claude Code / Cursor / Hermes-generic MCP field-test packet | `docs/v5.6-multi-client-field-test-packet.md` |
 
 ## 短结论
 
-从 v1.5 baseline 到 v5.0.0 Evidence Hardening Track，主实现路线已经按一个版本一个文档重切并连续收口。
+从 v1.5 baseline 到 v5.6.0 Multi-client Release Confidence，主实现路线已经按一个版本一个文档重切并连续收口。
 v1.5 baseline、v1.6 persistent vectors / bucket budget、v1.7 temporal truth、
 v1.8 procedural skill、v2.0 heuristic distill 移除、v2.1 maintenance-only CLI、
 v2.2 用户入口闭环（Slash/Skill/自然语言 + Agent 背后 MCP；跨客户端能力已交付，细节见维护者测试包）、
@@ -268,8 +312,10 @@ storage-v2 baseline / migration roundtrip / local-index-fabric smoke contract、
 v4.0.1-v4.0.5 的 canonical store / Rust facade / index fabric / lifecycle /
 distribution gate、v4.1.0 的 context sufficiency / task-aware wake、v4.2.x 的
 memory eval matrix / retrieval quality pack、v4.3.0 的 code-memory federation、
-v4.4 的 claim-promotion gate、v4.5.0 的 release-evidence pack，以及 v5.0.0 的
-Evidence Hardening Track 都已落地。
+v4.4 的 claim-promotion gate、v4.5.0 的 release-evidence pack、v5.0 的
+Evidence Hardening Track、v5.1-v5.2 的 Default Kernel Cutover，以及
+v5.3-v5.6 的 Daily Flow DX / Guided Opt-in Maintenance / Outcome-Aware Context Loop /
+Multi-client Release Confidence 都已落地。
 
 受控自动化已做；默认常驻后台不做。confirmed truth 可以自动维护，但不能静默覆盖；
 必须走 candidate / review / supersede / ledger。cross-project skill 可以跨项目复用，
@@ -287,9 +333,11 @@ SearchBackend contract、lifecycle tiering 和 distribution diagnostics 做成�
 v4.1.0 在这个地基上加入 context sufficiency 与 task-aware wake；v4.2.x 把 memory eval
 matrix 与 retrieval quality pack 产品化；v4.3.0 加入 code-memory federation；v4.4
 把 public-claim promotion 机器化；v4.5.0 把 release evidence 打包成 clean-checkout
-可消费的 snapshot/resource gate；v5.0.0 再把 cost/token、Storage v2 scale、
+可消费的 snapshot/resource gate；v5.0 把 cost/token、Storage v2 scale、
 Index Fabric runtime、Rust native hot path 和 default-change decision gate
-收口成 artifact-backed release truth。默认
+收口成 artifact-backed release truth；v5.1-v5.2 再把 canonical SQLite 与
+SearchBackend 正式切成默认运行时内核；v5.3-v5.6 把日常入口解释、维护摘要、只写 signal
+的 outcome loop 和跨客户端发版验收包补齐。默认
 truth governance 不变：confirmed truth 仍必须走 candidate / review / supersede / ledger；
 v4/v5 smoke/contract artifacts 仍只证明 contract / surface availability 与门槛形状，
 不证明公开性能收益、默认 reranker/HyDE 启用、code-intel token/runtime 或端到端回答质量。
@@ -299,6 +347,7 @@ v4/v5 smoke/contract artifacts 仍只证明 contract / surface availability 与�
 | 材料 | 用途 |
 |---|---|
 | `docs/v2-user-test-packet.md` | 跨客户端 release 测试包（仅完整 clone；公开源码归档已排除，见 `docs/releasing.md`） |
+| `docs/v5.6-multi-client-field-test-packet.md` | v5.3-v5.6 跨 Codex / Claude Code / Cursor / Hermes-generic MCP field-test 脚本 |
 | `docs/roadmap-v29.md` 及 `openspec/changes/archive/` | 切片级验收与历史决策链 |
 
 请勿将上述文件中的场景编号、客户端日志或本机路径摘进对外 README。

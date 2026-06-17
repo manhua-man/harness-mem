@@ -773,21 +773,21 @@ release slices。
 
 ## v2.9.33：Vision Authority Truth Sync
 
-**用户故事**：当维护者打开 `docs/roadmap-vision-v16-v18.md` 和
+**用户故事**：当维护者打开当时的 v1.6-v1.8 历史 vision 文档和
 `docs/reference-projects.md` 时，不应该再把这类历史 vision 文档误读成当前版本承诺依据。
 相关 `v1.6` - `v1.8` 早已完成，当前真值来源应该明确回到 `roadmap-status` 与 `CHANGELOG`。
 
 | 优先级 | 任务 | 验收 |
 |---|---|---|
-| P0 | vision header sync | `roadmap-vision-v16-v18.md` 头部明确写成历史远景文档，并指向当前真值来源 |
-| P0 | reference authority sync | `reference-projects.md` 不再把 `roadmap-vision-v16-v18.md` 写成当前路线承诺依据 |
-| P1 | docs index sync | `docs/README.md` 把 `roadmap-vision-v16-v18.md` 描述成历史远景方向 |
+| P0 | vision header sync | 历史 vision 文档头部明确写成历史远景文档，并指向当前真值来源 |
+| P0 | reference authority sync | `reference-projects.md` 不再把历史 vision 文档写成当前路线承诺依据 |
+| P1 | docs index sync | `docs/README.md` 把这类历史 vision 材料描述成非当前承诺 |
 | P1 | focused regression guard | 如果 vision 文档回流到旧 authority 口径，测试失败 |
 
 ### 当前状态（2026-06-03）
 
 - 已完成 `openspec/changes/archive/2026-06-03-v2933-vision-authority-truth-sync/`。
-- `docs/roadmap-vision-v16-v18.md` 现在明确：
+- 历史 vision 文档当时已明确：
   - 这是历史远景文档（vision archive）
   - 不是当前版本承诺路线图
   - 当前版本状态应以 `roadmap-status.md` 与 `CHANGELOG.md` 为准

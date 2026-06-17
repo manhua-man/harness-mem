@@ -18,6 +18,7 @@ from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.knowledge_cache import knowledge_cache_health
 from harness_mem.runtime_cost import cost_budget_policy, surface_cost_report
 from harness_mem.runtime_health import runtime_health_report
+from harness_mem.storage.canonical_store import canonical_store_health
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from harness_mem.version import runtime_version_payload
@@ -28,6 +29,9 @@ async def cmd_status(project_name: str | None = None) -> int:
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
     try:
+        print(f"Truth runtime: {backend.runtime_state}")
+        if backend.runtime_state == "degraded_fallback" and backend.runtime_recovery_hint:
+            print(f"Recovery: {backend.runtime_recovery_hint}")
         resolved_project = resolve_project_name(project_name, required=False, action_label="status")
         if resolved_project:
             await _status_project_async(backend, resolved_project)
@@ -52,6 +56,7 @@ async def cmd_status(project_name: str | None = None) -> int:
 async def _status_project_async(backend: LocalMemoryBackend, project_name: str) -> None:
     """Show status for a specific project."""
     profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
+    storage_report = canonical_store_health(DEFAULT_DATA_DIR, project_name=project_name)
     all_obs = await backend.verbatim_store.list(limit=10000)
     project_obs = [
         observation
@@ -65,6 +70,11 @@ async def _status_project_async(backend: LocalMemoryBackend, project_name: str) 
     profile = await profile_store.get(project_name)
 
     print(f"Project: {project_name}")
+    print(
+        "  Truth store: "
+        f"{storage_report.get('runtime_state', backend.runtime_state)} "
+        f"({storage_report.get('status', 'unknown')})"
+    )
     print(f"  Observations: {len(project_obs)}")
     print(f"  Memory entries: {len(entries)} (limited to 5 latest in wake-up)")
     print(f"  Task handoffs: {len(handoffs)} (limited to 3 latest in wake-up)")

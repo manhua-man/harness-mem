@@ -870,6 +870,40 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["skill_id", "success"],
         },
     },
+    "record_context_outcome": {
+        "description": (
+            "Record whether returned wake/search context was used, ignored, "
+            "or misleading for the caller's task. This writes only a "
+            "RetrievalSignal(context_outcome) shadow record and never mutates "
+            "confirmed truth. Opt-in ranking may later use the signal as a "
+            "small explainable hint."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "surface": {
+                    "type": "string",
+                    "description": "Surface that returned the context, e.g. wake, search_memory, file_context.",
+                },
+                "source_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Returned source ids being rated.",
+                },
+                "outcome": {
+                    "type": "string",
+                    "enum": ["used", "ignored", "misleading"],
+                    "description": "Whether the surfaced context helped the task.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Optional short note. Avoid raw task content.",
+                },
+            },
+            "required": ["project_name", "surface", "source_ids", "outcome"],
+        },
+    },
     "detect_skill_improvements": {
         "description": "Create reviewed revision suggestions for low-success skills.",
         "input_schema": {

@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from harness_mem.commands.maintenance import cmd_migrate_store_v2
-from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
-from harness_mem.core.schemas.memory_entry import MemoryEntry
-from harness_mem.core.schemas.observation import Observation
-from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.store_v2_migration import (
     apply_store_v2_migration,
     build_migration_plan,
@@ -19,7 +16,6 @@ from harness_mem.storage.store_v2_migration import (
     logical_checksum,
     scan_legacy_payloads,
 )
-from tests.helpers import run
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -34,60 +30,64 @@ STORAGE_V2_FIXTURE = importlib.util.module_from_spec(FIXTURE_SPEC)
 FIXTURE_SPEC.loader.exec_module(STORAGE_V2_FIXTURE)
 
 
-def _seed_project(backend: LocalMemoryBackend, project_name: str) -> None:
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _seed_project(data_dir: Path, project_name: str) -> None:
     timestamp = datetime(2026, 6, 12, tzinfo=timezone.utc)
-    run(
-        backend.verbatim_store.save(
-            Observation(
-                id="obs-storage-v2-1",
-                session_id="session-storage-v2",
-                client="pytest",
-                raw_content="storage v2 migration observation",
-                content_type="transcript",
-                timestamp=timestamp,
-                metadata={"project_name": project_name},
-                tags=["storage-v2"],
-            )
-        )
+    _write_json(
+        data_dir / "verbatim" / "obs-storage-v2-1.json",
+        {
+            "id": "obs-storage-v2-1",
+            "session_id": "session-storage-v2",
+            "client": "pytest",
+            "raw_content": "storage v2 migration observation",
+            "content_type": "transcript",
+            "timestamp": timestamp.isoformat(),
+            "metadata": {"project_name": project_name},
+            "tags": ["storage-v2"],
+            "compacted": False,
+        },
     )
-    run(
-        backend.structured_store.save_memory_entry(
-            MemoryEntry(
-                id="mem-storage-v2-1",
-                project_name=project_name,
-                category="decision",
-                content="storage v2 keeps v3 JSON as default during v4.0.0",
-                confidence=0.91,
-                source="obs-storage-v2-1",
-                created_at=timestamp,
-                updated_at=timestamp,
-                tags=["storage-v2"],
-            )
-        )
+    _write_json(
+        data_dir / "structured" / "memory_entries" / "mem-storage-v2-1.json",
+        {
+            "id": "mem-storage-v2-1",
+            "project_name": project_name,
+            "category": "decision",
+            "content": "storage v2 keeps v3 JSON as default during v4.0.0",
+            "confidence": 0.91,
+            "source": "obs-storage-v2-1",
+            "status": "accepted",
+            "created_at": timestamp.isoformat(),
+            "updated_at": timestamp.isoformat(),
+            "tags": ["storage-v2"],
+        },
     )
-    run(
-        backend.structured_store.save_confirmed_rule(
-            ConfirmedRule(
-                id="rule-storage-v2-1",
-                project_name=project_name,
-                pattern="Storage v2 migration must be reversible.",
-                trigger="When running v4.0.0 migration checks.",
-                confirmed_at=timestamp,
-                source_candidate_id="candidate-storage-v2-1",
-                source_session_id="session-storage-v2",
-                tags=["storage-v2"],
-            )
-        )
+    _write_json(
+        data_dir / "structured" / "confirmed_rules" / "rule-storage-v2-1.json",
+        {
+            "id": "rule-storage-v2-1",
+            "project_name": project_name,
+            "pattern": "Storage v2 migration must be reversible.",
+            "trigger": "When running v4.0.0 migration checks.",
+            "examples": [],
+            "confirmed_at": timestamp.isoformat(),
+            "source_candidate_id": "candidate-storage-v2-1",
+            "source_session_id": "session-storage-v2",
+            "tags": ["storage-v2"],
+        },
     )
 
 
 def test_store_v2_dry_run_apply_and_rollback_checksum_contract(
     data_dir: Path,
-    backend: LocalMemoryBackend,
     tmp_path: Path,
 ) -> None:
     project_name = "storage-v2-contract"
-    _seed_project(backend, project_name)
+    _seed_project(data_dir, project_name)
 
     plan = build_migration_plan(data_dir, project_name=project_name)
 
@@ -136,12 +136,13 @@ def test_store_v2_dry_run_apply_and_rollback_checksum_contract(
 
 def test_migrate_store_v2_cli_export_rollback_respects_dry_run(
     data_dir: Path,
-    backend: LocalMemoryBackend,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     project_name = "storage-v2-cli"
-    _seed_project(backend, project_name)
+    _seed_project(data_dir, project_name)
+    from tests.helpers import run
+
     assert run(cmd_migrate_store_v2(project_name, apply=True)) == 0
     capsys.readouterr()
 

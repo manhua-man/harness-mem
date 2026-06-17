@@ -109,6 +109,9 @@ def test_tool_wake_render_stdout_stays_clean(
 
         # Req 8.1 — the rendered text is returned through the captured channel.
         assert payload["success"] is True
+        assert payload["why_this_result"].startswith("Generated default wake context")
+        assert payload["next_actions"]
+        assert "degraded_reason" in payload
         output = payload["output"]
         assert "# Project Profile" in output
         assert "# Essential Truth" in output

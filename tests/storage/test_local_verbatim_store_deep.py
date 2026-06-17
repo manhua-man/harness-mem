@@ -63,8 +63,8 @@ async def test_verbatim_store_soft_delete_lifecycle(store):
     results = await store.search("Content")
     assert len(results) == 0
     
-    # 6. Still exists in physical file (as truth)
-    blob_path = store.blob_dir / f"{obs_id}.json"
+    # 6. Still exists through the runtime truth blob path.
+    blob_path = store._blob_path(obs_id)
     assert blob_path.exists()
     
     # 7. Get by ID still works but status is compacted
@@ -107,9 +107,10 @@ async def test_verbatim_store_delete_physical(store):
     )
     await store.save(obs)
     
-    assert (store.blob_dir / f"{obs_id}.json").exists()
-    
+    blob_path = store._blob_path(obs_id)
+    assert blob_path.exists()
+
     await store.delete(obs_id)
-    
-    assert not (store.blob_dir / f"{obs_id}.json").exists()
+
+    assert not blob_path.exists()
     assert len(await store.list()) == 0

@@ -132,3 +132,42 @@ daily command.
 ```
 
 The result includes matching observation ids and snippets with provenance.
+
+### Requirement: search_memory backend contract is authoritative
+
+`search_memory` MCP 工具与 `read_api.search_memory(...)` MUST 通过同一个运行时
+`SearchBackend` 契约执行查询，并共享同一套 mode、fallback、budget、truncation
+和 source coverage 语义。
+
+#### Scenario: task-aware and shared search paths agree on retrieval metadata
+
+- **WHEN** the runtime uses the same query for MCP search, task-aware context assembly, and wake query-aware planning
+- **THEN** each path reports the same requested mode, effective mode, and fallback reason
+- **AND** budget and truncation metadata come from the authoritative backend response rather than a hand-built compatibility payload
+
+### Requirement: Context outcome signals are explainable opt-in ranking hints
+
+SearchBackend MAY read recent `RetrievalSignal(context_outcome)` records as a
+small ranking hint only when the project explicitly enables
+`ProjectProfile.weak_link_signals`. The hint SHALL be bounded, explainable in
+result metadata, and reversible by disabling the flag. It SHALL NOT decay,
+archive, delete, or otherwise mutate confirmed truth.
+
+#### Scenario: Outcome hint disabled by default
+
+- **GIVEN** a project has `context_outcome` signals
+- **AND** no profile enables `weak_link_signals`
+- **WHEN** `search_memory` runs
+- **THEN** ranking is unchanged by those signals
+- **AND** result metadata exposes no positive or negative outcome score
+
+#### Scenario: Outcome hint explains score delta
+
+- **GIVEN** a project has `weak_link_signals=true`
+- **AND** source `mem-a` has a recent `used` outcome
+- **AND** source `mem-b` has a recent `misleading` outcome
+- **WHEN** `search_memory` runs
+- **THEN** `mem-a` receives a bounded positive `context_outcome_score`
+- **AND** `mem-b` receives a bounded negative `context_outcome_score`
+- **AND** each affected row includes `ranking_explanation(kind="context_outcome")`
+- **AND** confirmed truth records remain unchanged

@@ -6,6 +6,81 @@
 
 ## [Unreleased]
 
+暂无。
+
+---
+
+## [5.6.0] — 2026-06-18
+
+**主题：v5.3-v5.6 Daily Flow DX, Guided Maintenance, Outcome Loop, and Release Confidence**
+
+### Added
+
+- **Daily Flow DX metadata**: MCP `get_project_status`、`wake`、`search_memory`
+  现在返回 additive guidance fields：`next_actions`、`why_this_result`、
+  `degraded_reason`，并继续暴露可复查的 `drilldown_hints`。这些字段只解释
+  下一步，不写 truth。
+- **Guided maintenance summaries**: `metabolism_preview`、`metabolism_run`、
+  `dream_ledger`、`dream_run`、`dream_auto_tick`、`undo_dream_item` 统一返回
+  `maintenance_summary`，包含 `candidate_counts`、`risk_level`、
+  `auto_applied`、`needs_human_review`、`undo_available`；no-op 项目也会明确说
+  没有选中维护项。
+- **Context outcome signal tool**: 新增 MCP `record_context_outcome`，记录
+  `used|ignored|misleading` 到 `RetrievalSignal(context_outcome)`，返回
+  `truth_mutated=false`，不改 confirmed truth。
+- **Outcome-aware opt-in ranking metadata**: 当项目显式启用
+  `ProjectProfile.weak_link_signals=True` 时，SearchBackend 会读取最近 outcome
+  signals 作为小幅 ranking hint，并在 memory entry 结果里返回
+  `context_outcome_counts`、`context_outcome_score` 和 `ranking_explanation`。
+- **Evaluation and field-test artifacts**: 新增 loop harness scenario
+  `context_outcome_loop`，登记 benchmark collection `context_outcome_loop`，并新增
+  `docs/v5.6-multi-client-field-test-packet.md` 覆盖 Codex、Claude Code、Cursor、
+  Hermes / generic MCP 的 release field-test 流程。
+
+### Boundaries
+
+- outcome signal 失败不影响后续 search / wake；ranking hint 默认关闭，且可通过
+  `weak_link_signals=False` 关闭。
+- 本轮不新增 `deep_memory_search`，不默认启用 daemon、reranker、HyDE、ANN、
+  Tantivy 或 LanceDB。
+- 不做 confirmed truth decay，不自动 archive，不默认删除或降权规则。
+- `token_cost_saving.ready=false` 仍保持 blocked；本轮不新增任何全局省钱、延迟、
+  broad answer-quality 或 production ranking claim。
+
+### Validation
+
+- `python -m pytest tests/search/test_search_backend_contract.py tests/commands/test_signal_influence.py tests/mcp/test_smoke.py tests/mcp/test_metabolism_preview.py tests/mcp/test_metabolism_run.py tests/mcp/test_wake_render_stdout.py tests/test_dream_v31.py -q`
+
+---
+
+## [5.2.0] — 2026-06-18
+
+**主题：Default Kernel Cutover（v5.1 / v5.2）**
+
+### Changed
+
+- **v5.1 canonical truth runtime**: `LocalMemoryBackend.init()` 现在采用
+  canonical-first bootstrap。空数据目录直接初始化 canonical schema；legacy-only
+  安装会在首启自动迁移到 `store_v2/canonical.sqlite`；structured memory 与
+  observations 默认都以 canonical SQLite 为 truth。JSON blob 退出日常运行时语义，
+  只保留为首启迁移输入，以及显式 `export-json-snapshot` / rollback 输出。
+- **Runtime state visibility**: doctor / status / maintenance surfaces 现在显式报告
+  `canonical`、`bootstrapped_from_legacy`、`degraded_fallback` truth-store
+  runtime state，并在 degraded 情况下给出恢复/rollback 指引。
+- **v5.2 SearchBackend mainline**: MCP `search_memory`、query-aware `wake`、
+  task-aware context plan，以及 `context_assembly` 的 query-driven L3/L4
+  现在共享同一份 `SearchBackendResponse` 语义。`read_api.search_memory` 收薄为
+  backend facade，不再独立维护另一套 mode/fallback/budget/truncation 解释。
+
+### Boundaries
+
+- 这次切换的是**默认 truth/runtime path**，不是新增检索后端：`SearchBackend`
+  仍只有 SQLite 实现。
+- 本次**没有**引入 Tantivy、LanceDB、ANN、`deep_memory_search` 或
+  outcome-aware decay。
+- release snapshot 仍沿用 2026-06-16 的 31 个 accepted runs；v5.2 不新增任何
+  public performance、token/cost 或 answer-quality claim。
+
 ---
 
 ## [5.0.0] — 2026-06-16

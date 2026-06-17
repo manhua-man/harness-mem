@@ -1,10 +1,9 @@
 """Canonical Storage v2 entity store helpers.
 
-v4.0.1 turns the v4.0.0 migration artifact into a real, queryable canonical
-SQLite shape while keeping the legacy JSON runtime path compatible.  The
-canonical store is explicit: callers opt in through migration/export/health or
-the experimental dual-write helper.  Generated indexes and sidecars remain
-rebuildable; payload rows here are the durable truth projection.
+v5.1 promotes canonical SQLite from a side-by-side artifact into the default
+runtime truth store. Legacy JSON stays available for first-run migration,
+explicit export, and rollback-compatible maintenance flows, but normal runtime
+reads and writes should now target this canonical layer.
 """
 
 from __future__ import annotations
@@ -27,9 +26,15 @@ from harness_mem.storage.store_v2_migration import (
 )
 
 
-CANONICAL_STORE_SCHEMA_VERSION = 2
-CANONICAL_STORE_CONTRACT_VERSION = "canonical-store-v4.0.1"
+CANONICAL_STORE_SCHEMA_VERSION = 3
+CANONICAL_STORE_CONTRACT_VERSION = "canonical-store-v5.1.0"
 DUAL_WRITE_ENV = "HARNESS_MEM_STORAGE_V2_DUAL_WRITE"
+RUNTIME_STATE_FILE_NAME = "runtime_state.json"
+RUNTIME_STATES: tuple[str, ...] = (
+    "canonical",
+    "bootstrapped_from_legacy",
+    "degraded_fallback",
+)
 
 CANONICAL_ENTITY_TABLES: tuple[str, ...] = (
     "observations",
@@ -40,6 +45,8 @@ CANONICAL_ENTITY_TABLES: tuple[str, ...] = (
     "candidates",
     "signals",
     "task_handoffs",
+    "metabolism_runs",
+    "dream_runs",
 )
 
 _COLLECTION_TO_TABLE: dict[str, str] = {
@@ -50,6 +57,16 @@ _COLLECTION_TO_TABLE: dict[str, str] = {
     "relation_facts": "relations",
     "retrieval_signals": "signals",
     "task_handoffs": "task_handoffs",
+    "rule_candidates": "candidates",
+    "supersede_candidates": "candidates",
+    "merge_suggestion_candidates": "candidates",
+    "stale_truth_suggestion_candidates": "candidates",
+    "procedural_candidates": "candidates",
+    "skill_promotion_candidates": "candidates",
+    "skill_revision_suggestion_candidates": "candidates",
+    "skill_deprecation_suggestion_candidates": "candidates",
+    "metabolism_runs": "metabolism_runs",
+    "dream_runs": "dream_runs",
 }
 
 _CANONICAL_COLUMNS = """
@@ -139,10 +156,339 @@ class CanonicalEntityRow:
         }
 
 
+@dataclass(frozen=True)
+class StorageRuntimeState:
+    """Persisted runtime-truth state for doctor/status/maintenance surfaces."""
+
+    mode: str
+    canonical_db_path: str
+    updated_at: str
+    legacy_payload_count: int = 0
+    error: str | None = None
+    recovery_hint: str | None = None
+    default_storage_changed: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "canonical_db_path": self.canonical_db_path,
+            "updated_at": self.updated_at,
+            "legacy_payload_count": self.legacy_payload_count,
+            "error": self.error,
+            "recovery_hint": self.recovery_hint,
+            "default_storage_changed": self.default_storage_changed,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "StorageRuntimeState":
+        return cls(
+            mode=str(payload.get("mode") or "canonical"),
+            canonical_db_path=str(payload.get("canonical_db_path") or ""),
+            updated_at=str(payload.get("updated_at") or _utc_now()),
+            legacy_payload_count=int(payload.get("legacy_payload_count") or 0),
+            error=_string_or_none(payload.get("error")),
+            recovery_hint=_string_or_none(payload.get("recovery_hint")),
+            default_storage_changed=bool(
+                payload.get("default_storage_changed", True)
+            ),
+        )
+
+
+class CanonicalStoreRuntime:
+    """Thin runtime CRUD helper over canonical SQLite payload rows."""
+
+    def __init__(self, data_dir: Path):
+        self.data_dir = Path(data_dir)
+        self.db_path = canonical_store_path(self.data_dir)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        initialize_canonical_schema(self._conn)
+        self._conn.commit()
+
+    def close(self) -> None:
+        self._conn.close()
+
+    def payload_exists(self, collection: str, entity_id: str) -> bool:
+        return self.get_row(collection, entity_id) is not None
+
+    def get_payload_json(self, collection: str, entity_id: str) -> str | None:
+        row = self.get_row(collection, entity_id)
+        return row.payload_json if row else None
+
+    def get_payload(self, collection: str, entity_id: str) -> dict[str, Any] | None:
+        payload_json = self.get_payload_json(collection, entity_id)
+        if payload_json is None:
+            return None
+        return json.loads(payload_json)
+
+    def get_row(self, collection: str, entity_id: str) -> CanonicalEntityRow | None:
+        table_name = canonical_table_for_collection(collection)
+        if not _table_exists(self._conn, table_name):
+            return None
+        row = self._conn.execute(
+            f"""
+            SELECT row_key, collection, entity_id, project_id, corpus_id, type,
+                   truth_status, confidence, created_at, valid_from, valid_to,
+                   tier, last_accessed_at, access_count, decay_score,
+                   source_relpath, payload_json, payload_sha256, size_bytes,
+                   migrated_at
+            FROM {table_name}
+            WHERE collection = ? AND entity_id = ?
+            ORDER BY COALESCE(project_id, ''), entity_id
+            LIMIT 1
+            """,
+            (collection, entity_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return CanonicalEntityRow(
+            row_key=str(row[0]),
+            table_name=table_name,
+            collection=str(row[1]),
+            entity_id=str(row[2]),
+            project_id=row[3],
+            corpus_id=str(row[4]),
+            type=str(row[5]),
+            truth_status=str(row[6]),
+            confidence=_float_or_none(row[7]),
+            created_at=row[8],
+            valid_from=row[9],
+            valid_to=row[10],
+            tier=str(row[11]),
+            last_accessed_at=row[12],
+            access_count=int(row[13] or 0),
+            decay_score=float(row[14] or 0.0),
+            source_relpath=str(row[15]),
+            payload_json=str(row[16]),
+            payload_sha256=str(row[17]),
+            size_bytes=int(row[18] or 0),
+            migrated_at=str(row[19]),
+        )
+
+    def list_rows(
+        self,
+        collection: str,
+        *,
+        project_name: str | None = None,
+    ) -> list[CanonicalEntityRow]:
+        table_name = canonical_table_for_collection(collection)
+        rows = list_canonical_rows(
+            self._conn,
+            project_name=project_name,
+            table_names=(table_name,),
+        )
+        return [row for row in rows if row.collection == collection]
+
+    def list_payloads(
+        self,
+        collection: str,
+        *,
+        project_name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return [
+            json.loads(row.payload_json)
+            for row in self.list_rows(collection, project_name=project_name)
+        ]
+
+    def count(
+        self,
+        collection: str,
+        *,
+        project_name: str | None = None,
+    ) -> int:
+        table_name = canonical_table_for_collection(collection)
+        sql = f"SELECT COUNT(*) FROM {table_name} WHERE collection = ?"
+        params: list[Any] = [collection]
+        if project_name is not None:
+            sql += " AND project_id = ?"
+            params.append(project_name)
+        row = self._conn.execute(sql, tuple(params)).fetchone()
+        return int(row[0] or 0) if row else 0
+
+    def upsert_payload(
+        self,
+        collection: str,
+        entity_id: str,
+        payload: dict[str, Any],
+        *,
+        source_relpath: str | None = None,
+    ) -> CanonicalEntityRow:
+        payload_json = _stable_json(payload)
+        payload_sha = _sha256_text(payload_json)
+        project_name = _payload_project_id(payload)
+        legacy = LegacyPayloadRow(
+            row_key=_row_key(collection, project_name, entity_id),
+            collection=collection,
+            entity_id=entity_id,
+            project_name=project_name,
+            source_relpath=source_relpath or _default_source_relpath(collection, entity_id),
+            payload_json=payload_json,
+            payload_sha256=payload_sha,
+            size_bytes=len(payload_json.encode("utf-8")),
+        )
+        canonical = canonical_row_from_legacy(
+            legacy,
+            payload,
+            migrated_at=_utc_now(),
+        )
+        _upsert_canonical_row(self._conn, canonical)
+        self._conn.commit()
+        stored = self.get_row(collection, entity_id)
+        if stored is None:
+            raise StorageV2MigrationError(
+                f"Canonical upsert failed for {collection}:{entity_id}"
+            )
+        return stored
+
+    def delete_payload(self, collection: str, entity_id: str) -> bool:
+        table_name = canonical_table_for_collection(collection)
+        with self._conn:
+            cursor = self._conn.execute(
+                f"DELETE FROM {table_name} WHERE collection = ? AND entity_id = ?",
+                (collection, entity_id),
+            )
+        return int(cursor.rowcount or 0) > 0
+
+
 def canonical_store_path(data_dir: Path) -> Path:
     """Return the Storage v2 canonical SQLite path."""
 
     return canonical_db_path(data_dir)
+
+
+def runtime_state_path(data_dir: Path) -> Path:
+    return Path(data_dir) / "store_v2" / RUNTIME_STATE_FILE_NAME
+
+
+def read_runtime_state(data_dir: Path) -> StorageRuntimeState | None:
+    path = runtime_state_path(Path(data_dir))
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return StorageRuntimeState.from_dict(payload)
+
+
+def write_runtime_state(
+    data_dir: Path,
+    state: StorageRuntimeState,
+) -> StorageRuntimeState:
+    path = runtime_state_path(Path(data_dir))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(state.to_dict(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return state
+
+
+def bootstrap_canonical_runtime(data_dir: Path) -> StorageRuntimeState:
+    """Bootstrap canonical runtime truth and persist the chosen runtime state."""
+
+    data_dir = Path(data_dir)
+    db_path = canonical_store_path(data_dir)
+    legacy_rows, invalid = scan_legacy_payloads(data_dir)
+    prior_state = read_runtime_state(data_dir)
+
+    if db_path.exists():
+        try:
+            conn = sqlite3.connect(db_path)
+            try:
+                initialize_canonical_schema(conn)
+                conn.commit()
+            finally:
+                conn.close()
+        except sqlite3.Error as exc:
+            return write_runtime_state(
+                data_dir,
+                StorageRuntimeState(
+                    mode="degraded_fallback",
+                    canonical_db_path=str(db_path),
+                    updated_at=_utc_now(),
+                    legacy_payload_count=len(legacy_rows),
+                    error=str(exc),
+                    recovery_hint=_runtime_recovery_hint("degraded_fallback"),
+                ),
+            )
+
+        mode = (
+            prior_state.mode
+            if prior_state and prior_state.mode in {"canonical", "bootstrapped_from_legacy"}
+            else "canonical"
+        )
+        return write_runtime_state(
+            data_dir,
+            StorageRuntimeState(
+                mode=mode,
+                canonical_db_path=str(db_path),
+                updated_at=_utc_now(),
+                legacy_payload_count=len(legacy_rows),
+                recovery_hint=_runtime_recovery_hint(mode),
+            ),
+        )
+
+    if invalid:
+        return write_runtime_state(
+            data_dir,
+            StorageRuntimeState(
+                mode="degraded_fallback",
+                canonical_db_path=str(db_path),
+                updated_at=_utc_now(),
+                legacy_payload_count=len(legacy_rows),
+                error=f"invalid legacy JSON files: {len(invalid)}",
+                recovery_hint=_runtime_recovery_hint("degraded_fallback"),
+            ),
+        )
+
+    if legacy_rows:
+        try:
+            result = build_canonical_store(data_dir)
+        except StorageV2MigrationError as exc:
+            return write_runtime_state(
+                data_dir,
+                StorageRuntimeState(
+                    mode="degraded_fallback",
+                    canonical_db_path=str(db_path),
+                    updated_at=_utc_now(),
+                    legacy_payload_count=len(legacy_rows),
+                    error=str(exc),
+                    recovery_hint=_runtime_recovery_hint("degraded_fallback"),
+                ),
+            )
+        mode = "bootstrapped_from_legacy" if result["checksum_match"] else "degraded_fallback"
+        return write_runtime_state(
+            data_dir,
+            StorageRuntimeState(
+                mode=mode,
+                canonical_db_path=str(db_path),
+                updated_at=_utc_now(),
+                legacy_payload_count=len(legacy_rows),
+                error=None if result["checksum_match"] else "canonical checksum mismatch",
+                recovery_hint=_runtime_recovery_hint(mode),
+            ),
+        )
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    try:
+        initialize_canonical_schema(conn)
+        conn.commit()
+    finally:
+        conn.close()
+    return write_runtime_state(
+        data_dir,
+        StorageRuntimeState(
+            mode="canonical",
+            canonical_db_path=str(db_path),
+            updated_at=_utc_now(),
+            legacy_payload_count=0,
+            recovery_hint=_runtime_recovery_hint("canonical"),
+        ),
+    )
 
 
 def storage_v2_dual_write_enabled(environ: dict[str, str] | None = None) -> bool:
@@ -207,7 +553,7 @@ def build_canonical_store(
     project_name: str | None = None,
     canonical_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Import legacy JSON blobs into v4.0.1 canonical entity tables."""
+    """Import legacy JSON blobs into canonical entity tables."""
 
     data_dir = Path(data_dir)
     db_path = canonical_path or canonical_store_path(data_dir)
@@ -220,12 +566,19 @@ def build_canonical_store(
     before_checksum = logical_checksum(rows)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     migrated_at = _utc_now()
+    rule_candidate_sessions = _rule_candidate_session_map(rows)
     conn = sqlite3.connect(db_path)
     try:
         initialize_canonical_schema(conn)
         _clear_project_rows(conn, project_name=project_name)
         for legacy in rows:
             payload = json.loads(legacy.payload_json)
+            if legacy.collection == "confirmed_rules":
+                source_candidate_id = str(payload.get("source_candidate_id") or "").strip()
+                if source_candidate_id and not str(payload.get("source_session_id") or "").strip():
+                    source_session_id = rule_candidate_sessions.get(source_candidate_id)
+                    if source_session_id:
+                        payload["source_session_id"] = source_session_id
             canonical = canonical_row_from_legacy(legacy, payload, migrated_at=migrated_at)
             _upsert_canonical_row(conn, canonical)
         conn.commit()
@@ -252,6 +605,7 @@ def build_canonical_store(
             for table in CANONICAL_ENTITY_TABLES
         },
         "metadata_indexes": sorted(_expected_index_names()),
+        "default_storage_changed": True,
         "dual_write_gate": {
             "env": DUAL_WRITE_ENV,
             "enabled": storage_v2_dual_write_enabled(),
@@ -479,22 +833,32 @@ def canonical_store_health(
 
     data_dir = Path(data_dir)
     db_path = canonical_path or canonical_store_path(data_dir)
+    runtime = read_runtime_state(data_dir)
     legacy_rows, invalid = scan_legacy_payloads(data_dir, project_name=project_name)
     legacy_checksum = logical_checksum(legacy_rows)
     if not db_path.exists():
         return {
-            "status": "not_migrated",
+            "status": "degraded" if runtime and runtime.mode == "degraded_fallback" else "not_migrated",
             "project_name": project_name,
             "canonical_db_path": str(db_path),
+            "runtime_state": runtime.mode if runtime else "degraded_fallback" if invalid else "canonical",
             "legacy_json_file_count": len(legacy_rows),
             "canonical_row_count": 0,
             "invalid_json_count": len(invalid),
+            "legacy_invalid_json_count": len(invalid),
             "checksum_match": False,
             "partial_migration": bool(legacy_rows),
             "checksum_drift": False,
             "wal_size_bytes": 0,
             "wal_warning": False,
             "index_drift": [],
+            "default_storage_changed": True,
+            "runtime_error": runtime.error if runtime else None,
+            "recovery_hint": (
+                runtime.recovery_hint
+                if runtime and runtime.recovery_hint
+                else _runtime_recovery_hint("degraded_fallback" if invalid else "canonical")
+            ),
             "fix_command": "harness-mem maintenance migrate-store-v2 --apply",
         }
 
@@ -511,11 +875,16 @@ def canonical_store_health(
 
     wal_path = Path(f"{db_path}-wal")
     wal_size = wal_path.stat().st_size if wal_path.exists() else 0
-    partial = len(canonical_rows) < len(legacy_rows)
-    drift = bool(legacy_rows) and canonical_checksum != legacy_checksum
+    partial = bool(legacy_rows) and len(canonical_rows) < len(legacy_rows)
+    runtime_mode = runtime.mode if runtime else "canonical"
+    drift = (
+        bool(legacy_rows)
+        and canonical_checksum != legacy_checksum
+        and runtime_mode == "bootstrapped_from_legacy"
+    )
     status = "healthy"
-    if invalid:
-        status = "invalid_legacy_json"
+    if runtime_mode == "degraded_fallback":
+        status = "degraded"
     elif partial:
         status = "partial_migration"
     elif drift:
@@ -526,9 +895,11 @@ def canonical_store_health(
         "status": status,
         "project_name": project_name,
         "canonical_db_path": str(db_path),
+        "runtime_state": runtime_mode,
         "legacy_json_file_count": len(legacy_rows),
         "canonical_row_count": len(canonical_rows),
         "invalid_json_count": len(invalid),
+        "legacy_invalid_json_count": len(invalid),
         "legacy_checksum": legacy_checksum,
         "canonical_checksum": canonical_checksum,
         "checksum_match": canonical_checksum == legacy_checksum,
@@ -541,13 +912,20 @@ def canonical_store_health(
             table: sum(1 for row in canonical_rows if row.table_name == table)
             for table in CANONICAL_ENTITY_TABLES
         },
+        "default_storage_changed": True,
+        "runtime_error": runtime.error if runtime else None,
+        "recovery_hint": (
+            runtime.recovery_hint
+            if runtime and runtime.recovery_hint
+            else _runtime_recovery_hint(runtime_mode)
+        ),
         "dual_write_gate": {
             "env": DUAL_WRITE_ENV,
             "enabled": storage_v2_dual_write_enabled(),
         },
         "fix_command": (
             "harness-mem maintenance migrate-store-v2 --apply"
-            if status != "healthy"
+            if status in {"degraded", "partial_migration", "checksum_drift"}
             else ""
         ),
     }
@@ -710,8 +1088,14 @@ def _entity_type(collection: str, payload: dict[str, Any]) -> str:
         return str(payload.get("relation_type") or "relation_fact")
     if collection == "skills":
         return "skill"
+    if collection == "task_handoffs":
+        return "task_handoff"
     if collection == "retrieval_signals":
         return str(payload.get("signal_type") or "retrieval_signal")
+    if collection == "metabolism_runs":
+        return str(payload.get("kind") or "metabolism_run")
+    if collection == "dream_runs":
+        return "dream_run"
     if "candidate" in collection:
         return collection
     return collection
@@ -728,9 +1112,49 @@ def _truth_status(collection: str, payload: dict[str, Any]) -> str:
         return status
     if collection in {"memory_entries", "confirmed_rules", "relation_facts", "skills"}:
         return "confirmed_current"
+    if collection in {"task_handoffs", "metabolism_runs", "dream_runs"}:
+        return str(payload.get("status") or "ledger")
     if "candidate" in collection:
         return "pending"
     return "raw"
+
+
+def _default_source_relpath(collection: str, entity_id: str) -> str:
+    if collection == "observations":
+        return f"verbatim/{entity_id}.json"
+    return f"structured/{collection}/{entity_id}.json"
+
+
+def _rule_candidate_session_map(rows: Iterable[LegacyPayloadRow]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for row in rows:
+        if row.collection != "rule_candidates":
+            continue
+        try:
+            payload = json.loads(row.payload_json)
+        except json.JSONDecodeError:
+            continue
+        session_id = str(payload.get("session_id") or "").strip()
+        if session_id:
+            mapping[row.entity_id] = session_id
+    return mapping
+
+
+def _runtime_recovery_hint(mode: str) -> str:
+    if mode == "bootstrapped_from_legacy":
+        return (
+            "Canonical SQLite is now the default truth store; use "
+            "`harness-mem maintenance export-json-snapshot --apply` to create "
+            "a rollback-compatible snapshot."
+        )
+    if mode == "degraded_fallback":
+        return (
+            "Canonical bootstrap is degraded. Retry with "
+            "`harness-mem maintenance migrate-store-v2 --apply`; once healthy, "
+            "use `harness-mem maintenance export-json-snapshot --apply` for a "
+            "rollback snapshot."
+        )
+    return "Canonical SQLite is the active truth runtime."
 
 
 def _payload_project_id(payload: dict[str, Any]) -> str | None:

@@ -8,7 +8,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-BENCHMARK_MATRIX_VERSION = "v5.0.0"
+BENCHMARK_MATRIX_VERSION = "v5.6.0"
 
 ARTIFACT_STATES = ["accepted", "partial", "failed", "quarantined"]
 NON_RELEASE_ARTIFACT_STATE_ALIASES = {
@@ -56,6 +56,7 @@ SURFACE_REGRESSION_TARGETS = {
     "code_memory_federation": ["code_memory_federation"],
     "claim_promotion": ["claim_promotion_pack"],
     "release_evidence_pack": ["release_evidence_pack"],
+    "context_outcome_loop": ["context_outcome_loop"],
 }
 
 LONGMEMEVAL_DIMENSIONS = [

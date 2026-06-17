@@ -20,7 +20,7 @@
 
 - `benchmark-suite/**` — benchmark 设计、运行脚本、结果和内部评估资产
 - `docs/roadmap*.md`、`docs/roadmap/**` — roadmap、历史切片设计和未来规划
-- `docs/reference-projects.md`、`openspec/**` — 竞品/参考项目深读和内部 spec 过程材料
+- `docs/reference-projects.md`、`openspec/**` — 维护者参考边界和内部 spec 过程材料
 - `docs/v2-user-test-packet.md`、`harness_mem/integration/artifacts/**` — 跨客户端测试包、transcript 和 repro 附件
 - `tests/**` — 维护者回归测试，不作为产品分发面
 - `release/**`、`AGENTS.md`、维护者 release / testing / CLI design 文档 — 本地维护材料

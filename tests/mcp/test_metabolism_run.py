@@ -136,6 +136,10 @@ def test_metabolism_run_success_persists_run_and_candidates(
         # Fresh entries don't trip the 60d silence threshold.
         assert output_counts["stale_suggestions"] == 0
         assert output_counts["supersede_suggestions"] == 1
+        assert result["maintenance_summary"]["auto_applied"] is False
+        assert result["maintenance_summary"]["needs_human_review"] is True
+        assert result["maintenance_summary"]["undo_available"] is False
+        assert result["candidate_counts"] == output_counts
 
         structured_store = backend.structured_store
         assert isinstance(structured_store, LocalStructuredStore)

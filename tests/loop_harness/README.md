@@ -1,6 +1,6 @@
 # Loop Evaluation Harness
 
-> **状态**: scenario 2/3/4/5/7/8 真跑（v2.0 砍除 1 和 6——见下表脚注）。
+> **状态**: scenario 2/3/4/5/7/8/9/10/11 真跑（v2.0 砍除 1 和 6——见下表脚注）。
 
 ## 这个 harness 解决什么问题
 
@@ -25,6 +25,7 @@
 | 8 | `test_correction_supersede_one_shot.py` | ✅ 真跑 | `old_rule_marked_historical` (bool), `supersede_chain_returned` (bool) |
 | 9 | `test_mcp_setup_without_cli.py` | ✅ 真跑 | `set_active_project_works`, `update_profile_idempotent`, `wake_surfaces_convention`, `hm_501_emitted` |
 | 10 | `test_wake_usage_badge.py` | ✅ 真跑 | `fresh_rule_marked_never_surfaced`, `veteran_rule_shows_count`, `veteran_rule_shows_recency` |
+| 11 | `test_context_outcome_loop.py` | ✅ 真跑 | `context_outcome_signals`, `used_score_positive`, `misleading_score_negative`, `explained_result_count`, `truth_mutation_count` |
 
 **Scenario 1 (distill precision/recall)** 和 **scenario 6 (relation graph data pipeline)** 在 v2.0 移除——它们测的是启发式 distill，已在 v2.0 砍除。LLM-driven distill 的输出非确定性，不能在 CI 中以静态 fixture 跑出 baseline；agent 端的评估应放在 skill prompt 测试或 manual eval 报告里，不挤进 loop_harness。
 
@@ -86,3 +87,10 @@ scenario 10 实证：v1.7.x 起 ConfirmedRule 已经记 usage_count + last_surfa
 或"never surfaced before"。徽章渲染的是 **pre-touch** 快照（这次 wake 之前的累
 计值），而 wake 完成后再 touch，所以下次 wake 看到的是已经 +1 的数字——这是徽
 章在连续 wake 之间保持诚实的关键。
+
+scenario 11 实证：v5.5 的 `record_context_outcome` 是一个 outcome-aware
+context loop，而不是 truth 写入捷径。测试先通过 MCP search 拿到 source id，
+再用 MCP `record_context_outcome` 写 `used` / `misleading` signal，随后在
+`weak_link_signals=True` 的 opt-in 项目里重新 search，验证两个结果都带
+`ranking_explanation(kind=context_outcome)`，且 confirmed memory entry 数量不变。
+这证明 outcome signal 能作为小幅、可解释、可关闭的排序提示，同时不静默修改 truth。

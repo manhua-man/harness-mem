@@ -5,6 +5,7 @@ from pathlib import Path
 
 from harness_mem.core.interfaces.verbatim_store import VerbatimStore
 from harness_mem.core.interfaces.structured_store import StructuredStore
+from harness_mem.storage.canonical_store import bootstrap_canonical_runtime
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.reflection_job_store import ReflectionJobStore
@@ -25,11 +26,28 @@ class LocalMemoryBackend:
         self._verbatim_store: LocalVerbatimStore | None = None
         self._structured_store: LocalStructuredStore | None = None
         self._reflection_job_store: ReflectionJobStore | None = None
+        self.runtime_state: str = "canonical"
+        self.runtime_error: str | None = None
+        self.runtime_recovery_hint: str | None = None
 
     async def init(self) -> None:
-        """Initialize both stores."""
-        self._verbatim_store = LocalVerbatimStore(self.data_dir)
-        self._structured_store = LocalStructuredStore(self.data_dir)
+        """Initialize the backend using canonical-first runtime bootstrap."""
+        runtime = bootstrap_canonical_runtime(self.data_dir)
+        self.runtime_state = runtime.mode
+        self.runtime_error = runtime.error
+        self.runtime_recovery_hint = runtime.recovery_hint
+        canonical_mode = runtime.mode != "degraded_fallback"
+
+        self._verbatim_store = LocalVerbatimStore(
+            self.data_dir,
+            canonical_mode=canonical_mode,
+        )
+        self._structured_store = LocalStructuredStore(
+            self.data_dir,
+            canonical_mode=canonical_mode,
+        )
+        await self._verbatim_store.init_runtime()
+        await self._structured_store.init_runtime()
 
     async def close(self) -> None:
         """Close both stores."""

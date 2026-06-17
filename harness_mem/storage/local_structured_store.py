@@ -5,6 +5,7 @@ import json
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, cast
 
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.task_handoff import TaskHandoff
@@ -29,7 +30,50 @@ from harness_mem.core.schemas.metabolism_run import MetabolismRun
 from harness_mem.core.schemas.dream_run import DreamRun
 from harness_mem.core.schemas.retrieval_signal import RetrievalSignal
 from harness_mem.search.hybrid_search import HybridSearchLayer
+from harness_mem.storage.canonical_store import CanonicalStoreRuntime
 from harness_mem.storage.sqlite_index import SQLiteIndex
+
+
+class _CanonicalStructuredBlobPath:
+    """Path-like shim that stores payload JSON in canonical SQLite truth."""
+
+    def __init__(self, store: "LocalStructuredStore", collection: str, entity_id: str):
+        self._store = store
+        self._collection = collection
+        self._entity_id = entity_id
+
+    def exists(self) -> bool:
+        canonical = self._store._canonical
+        return bool(canonical and canonical.payload_exists(self._collection, self._entity_id))
+
+    def read_text(self, *_args, **_kwargs) -> str:
+        canonical = self._store._canonical
+        if canonical is None:
+            raise FileNotFoundError(self._entity_id)
+        payload_json = canonical.get_payload_json(self._collection, self._entity_id)
+        if payload_json is None:
+            raise FileNotFoundError(self._entity_id)
+        return payload_json
+
+    def write_text(self, data: str, *_args, **_kwargs) -> int:
+        canonical = self._store._canonical
+        if canonical is None:
+            raise RuntimeError("canonical runtime is not enabled")
+        payload = json.loads(data)
+        canonical.upsert_payload(
+            self._collection,
+            self._entity_id,
+            payload,
+            source_relpath=self._store._canonical_source_relpath(self._collection, self._entity_id),
+        )
+        return len(data)
+
+    def unlink(self) -> None:
+        canonical = self._store._canonical
+        if canonical is None:
+            raise FileNotFoundError(self._entity_id)
+        if not canonical.delete_payload(self._collection, self._entity_id):
+            raise FileNotFoundError(self._entity_id)
 
 
 class LocalStructuredStore:
@@ -40,9 +84,11 @@ class LocalStructuredStore:
     - SQLite index: data_dir/structured_index.sqlite
     """
 
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, *, canonical_mode: bool = True):
         self.data_dir = Path(data_dir)
         self.blob_dir = self.data_dir / "structured"
+        self.canonical_mode = canonical_mode
+        self._canonical = CanonicalStoreRuntime(self.data_dir) if canonical_mode else None
         self._subdirs = {
             "memory_entries": self.blob_dir / "memory_entries",
             "task_handoffs": self.blob_dir / "task_handoffs",
@@ -72,10 +118,22 @@ class LocalStructuredStore:
         self._index = SQLiteIndex(self.data_dir / "structured_index.sqlite")
         self._index.init_db()
         self._search = HybridSearchLayer(self._index)
+        if not self.canonical_mode:
+            self._backfill_confirmed_rule_source_sessions()
+
+    async def init_runtime(self) -> None:
+        if self.canonical_mode:
+            await self._sync_missing_index_rows_from_canonical()
         self._backfill_confirmed_rule_source_sessions()
 
-    def _blob_path(self, entity_type: str, id: str) -> Path:
+    def _blob_path(self, entity_type: str, id: str) -> Path | _CanonicalStructuredBlobPath:
+        if self.canonical_mode:
+            return _CanonicalStructuredBlobPath(self, entity_type, id)
         return self._subdirs[entity_type] / f"{id}.json"
+
+    @staticmethod
+    def _canonical_source_relpath(entity_type: str, id: str) -> str:
+        return f"structured/{entity_type}/{id}.json"
 
     def _current_only_clause(self) -> tuple[str, tuple[str]]:
         now = datetime.now(timezone.utc).isoformat()
@@ -141,6 +199,35 @@ class LocalStructuredStore:
 
     def _backfill_confirmed_rule_source_sessions(self) -> None:
         """Backfill source_session_id for confirmed rules created before v1.1.1."""
+        if self.canonical_mode:
+            canonical = self._canonical
+            if canonical is None:
+                return
+            for data in canonical.list_payloads("confirmed_rules"):
+                rule_id = str(data.get("id") or "").strip()
+                source_session_id = str(data.get("source_session_id") or "").strip()
+                if source_session_id:
+                    self._sync_confirmed_rule_source_session(rule_id, source_session_id)
+                    continue
+                source_candidate_id = str(data.get("source_candidate_id") or "").strip()
+                if not source_candidate_id:
+                    continue
+                candidate_data = canonical.get_payload("rule_candidates", source_candidate_id)
+                if not isinstance(candidate_data, dict):
+                    continue
+                source_session_id = str(candidate_data.get("session_id") or "").strip()
+                if not source_session_id:
+                    continue
+                data["source_session_id"] = source_session_id
+                canonical.upsert_payload(
+                    "confirmed_rules",
+                    rule_id,
+                    data,
+                    source_relpath=self._canonical_source_relpath("confirmed_rules", rule_id),
+                )
+                self._sync_confirmed_rule_source_session(rule_id, source_session_id)
+            return
+
         confirmed_rules_dir = self._subdirs["confirmed_rules"]
         rule_candidates_dir = self._subdirs["rule_candidates"]
 
@@ -268,12 +355,17 @@ class LocalStructuredStore:
                 return Skill.from_dict(data)
         return None
 
-    def _load_truth_data(self, truth_type: str, truth_id: str) -> tuple[str, Path, dict] | None:
+    def _load_truth_data(
+        self,
+        truth_type: str,
+        truth_id: str,
+    ) -> tuple[str, Path | _CanonicalStructuredBlobPath, dict[str, Any]] | None:
         collection = self._truth_collection_for_type(truth_type)
         blob_path = self._blob_path(collection, truth_id)
         if not blob_path.exists():
             return None
-        return collection, blob_path, json.loads(blob_path.read_text())
+        payload = cast(dict[str, Any], json.loads(blob_path.read_text()))
+        return collection, blob_path, payload
 
     def _apply_truth_supersede_updates(
         self,
@@ -349,6 +441,112 @@ class LocalStructuredStore:
         if updates:
             await asyncio.to_thread(self._index.update, collection, truth_id, updates)
         return True
+
+    async def _sync_missing_index_rows_from_canonical(self) -> None:
+        canonical = self._canonical
+        if canonical is None:
+            return
+
+        collections = (
+            "memory_entries",
+            "task_handoffs",
+            "rule_candidates",
+            "supersede_candidates",
+            "merge_suggestion_candidates",
+            "stale_truth_suggestion_candidates",
+            "procedural_candidates",
+            "skills",
+            "skill_promotion_candidates",
+            "skill_revision_suggestion_candidates",
+            "skill_deprecation_suggestion_candidates",
+            "confirmed_rules",
+            "relation_facts",
+            "metabolism_runs",
+            "dream_runs",
+            "retrieval_signals",
+        )
+        for collection in collections:
+            canonical_count = canonical.count(collection)
+            if canonical_count <= 0:
+                continue
+            indexed_count = await asyncio.to_thread(self._index.count, collection)
+            if indexed_count >= canonical_count:
+                continue
+            for payload in canonical.list_payloads(collection):
+                entity_id = str(payload.get("id") or "")
+                if not entity_id:
+                    continue
+                if await asyncio.to_thread(self._index.get, collection, entity_id) is not None:
+                    continue
+                try:
+                    await self._replay_canonical_payload(collection, payload)
+                except Exception:
+                    # Canonical truth remains authoritative; malformed legacy-era
+                    # compatibility payloads should not prevent runtime bootstrap.
+                    continue
+
+    async def _replay_canonical_payload(
+        self,
+        collection: str,
+        payload: dict,
+    ) -> None:
+        if collection == "memory_entries":
+            await self.save_memory_entry(MemoryEntry.from_dict(payload))
+            return
+        if collection == "task_handoffs":
+            await self.save_task_handoff(TaskHandoff.from_dict(payload))
+            return
+        if collection == "rule_candidates":
+            await self.save_rule_candidate(RuleCandidate.from_dict(payload))
+            return
+        if collection == "supersede_candidates":
+            await self.save_supersede_candidate(SupersedeCandidate.from_dict(payload))
+            return
+        if collection == "merge_suggestion_candidates":
+            await self.save_merge_suggestion_candidate(
+                MergeSuggestionCandidate.from_dict(payload)
+            )
+            return
+        if collection == "stale_truth_suggestion_candidates":
+            await self.save_stale_truth_suggestion_candidate(
+                StaleTruthSuggestionCandidate.from_dict(payload)
+            )
+            return
+        if collection == "procedural_candidates":
+            await self.save_procedural_candidate(ProceduralCandidate.from_dict(payload))
+            return
+        if collection == "skills":
+            await self.save_skill(Skill.from_dict(payload))
+            return
+        if collection == "skill_promotion_candidates":
+            await self.save_skill_promotion_candidate(
+                SkillPromotionCandidate.from_dict(payload)
+            )
+            return
+        if collection == "skill_revision_suggestion_candidates":
+            await self.save_skill_revision_suggestion_candidate(
+                SkillRevisionSuggestionCandidate.from_dict(payload)
+            )
+            return
+        if collection == "skill_deprecation_suggestion_candidates":
+            await self.save_skill_deprecation_suggestion_candidate(
+                SkillDeprecationSuggestionCandidate.from_dict(payload)
+            )
+            return
+        if collection == "confirmed_rules":
+            await self.save_confirmed_rule(ConfirmedRule.from_dict(payload))
+            return
+        if collection == "relation_facts":
+            await self.save_relation_fact(RelationFact.from_dict(payload))
+            return
+        if collection == "metabolism_runs":
+            await self.save_metabolism_run(MetabolismRun.from_dict(payload))
+            return
+        if collection == "dream_runs":
+            await self.save_dream_run(DreamRun.from_dict(payload))
+            return
+        if collection == "retrieval_signals":
+            await self.save_retrieval_signal(RetrievalSignal.from_dict(payload))
 
     # ---- MemoryEntry ----
 
@@ -2070,6 +2268,8 @@ class LocalStructuredStore:
         return results
 
     def close(self) -> None:
+        if self._canonical is not None:
+            self._canonical.close()
         self._index.close()
 
 

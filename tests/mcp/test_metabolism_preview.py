@@ -117,6 +117,9 @@ def test_metabolism_preview_two_call_sequence_returns_different_windows(
         assert result1["dimensions"]["observations"]["total_seen"] == 2
         assert result1["dimensions"]["pending_candidates"]["total_seen"] == 1
         assert result1["dimensions"]["repeat_search_hits"]["selected_ids"] == []
+        assert result1["maintenance_summary"]["auto_applied"] is False
+        assert result1["maintenance_summary"]["undo_available"] is False
+        assert result1["candidate_counts"]["selected_pending_candidates"] == 1
 
         run_id_1 = result1["run_id"]
 
@@ -139,6 +142,7 @@ def test_metabolism_preview_two_call_sequence_returns_different_windows(
         # target_id_b is filtered out by the count >= 2 predicate and
         # does not appear in `signals_used`.
         assert result2["signals_used"] == 2
+        assert result2["maintenance_summary"]["risk_level"] == "low"
         repeats = result2["dimensions"]["repeat_search_hits"]
         assert repeats["selected_ids"] == [repeat_target_id]
         assert repeats["total_seen"] == 1

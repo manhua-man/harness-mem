@@ -23,7 +23,7 @@ def test_v44_claim_promotion_gate_keeps_public_claims_blocked() -> None:
     report = benchmark_matrix_report(REPO_ROOT / "benchmark-suite")
 
     gate = report["claim_promotion_gate"]
-    assert report["matrix_version"] == "v5.0.0"
+    assert report["matrix_version"] == "v5.6.0"
     assert gate["passed"] is True
     assert gate["policy_enforced"] is True
     assert set(gate["blocked_claims"]) == {

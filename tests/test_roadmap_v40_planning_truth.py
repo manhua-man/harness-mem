@@ -31,7 +31,9 @@ def test_v40_docs_are_indexed_with_index_fabric_scope() -> None:
     assert "| v4.3.0 | 已完成：Code-Memory Federation |" in roadmap_status
     assert "| v4.4.0 | 已完成：Claim Promotion Pack |" in roadmap_status
     assert "| v4.5.0 | 已完成：Release Evidence Pack |" in roadmap_status
-    assert "| v5.0.0 | 当前版本：Evidence Hardening Track |" in roadmap_status
+    assert "| v5.1 | 已完成：Canonical SQLite Default Truth Runtime |" in roadmap_status
+    assert "| v5.2.0 | 已完成：Default Kernel Cutover（SearchBackend Mainline） |" in roadmap_status
+    assert "| v5.6.0 | 当前版本：Multi-client Release Confidence |" in roadmap_status
     assert "v4.0.1+ 未开始" not in roadmap_status
     assert "context sufficiency / task-aware wake" in roadmap_status
     assert "docs/roadmap-v40.md" in roadmap_status
@@ -49,6 +51,7 @@ def test_v40_scope_separates_storage_index_fabric_from_agentic_rag() -> None:
     assert "| v4.4 | Claim Promotion Pack |" in roadmap
     assert "| v4.5 | Release Evidence Pack |" in roadmap
     assert "| v4.6-v5.0 | Evidence Hardening Track |" in roadmap
+    assert "| v5.1-v5.2 | Default Kernel Cutover |" in roadmap
     assert "默认 Planning Agent / SCA loop" in roadmap
     assert "v4.1 收口 context" in roadmap
     assert "不是把 harness-mem 变成本地通用 Agent 平台" in roadmap
@@ -86,7 +89,8 @@ def test_v40_benchmark_and_regression_gates_are_first_class() -> None:
 def test_v400_current_implementation_is_contract_only() -> None:
     roadmap = _doc("roadmap-v40.md")
 
-    assert "> 状态：v4.0.0-v4.0.5、v4.1.x、v4.2.x、v4.3.0、v4.4、v4.5 与 v4.6-v5.0 已完成。" in roadmap
+    assert "> 状态：v4.0.0-v4.0.5、v4.1.x、v4.2.x、v4.3.0、v4.4、v4.5、v4.6-v5.0 与 v5.1-v5.2 已完成。" in roadmap
+    assert "## v5.1-v5.2：Default Kernel Cutover" in roadmap
     assert "### 当前实现（2026-06-12）" in roadmap
     assert "`harness_mem/storage/store_v2_migration.py`" in roadmap
     assert "`harness-mem maintenance migrate-store-v2 --dry-run`" in roadmap

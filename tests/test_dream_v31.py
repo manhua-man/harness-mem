@@ -449,12 +449,16 @@ def test_mcp_dream_run_ledger_and_undo_item(
         dream_run = run_data["run"]
         assert dream_run["handling_summary"]["processed"] == 1
         assert dream_run["handling_summary"]["pending_review"] == 0
+        assert run_data["maintenance_summary"]["auto_applied"] is True
+        assert run_data["maintenance_summary"]["undo_available"] is True
+        assert run_data["candidate_counts"]["applied"] == 1
         item = dream_run["items"][0]
         assert item["final_action"] == "applied"
 
         ledger = _call_tool("dream_ledger", {"project_name": PROJECT})
         assert ledger["success"] is True
         assert ledger["run"]["id"] == dream_run["id"]
+        assert ledger["maintenance_summary"]["auto_applied"] is True
 
         undone = _call_tool(
             "undo_dream_item",
@@ -466,6 +470,7 @@ def test_mcp_dream_run_ledger_and_undo_item(
         )
         assert undone["success"] is True
         assert undone["status"] == "undone"
+        assert undone["maintenance_summary"]["undo_available"] is False
     finally:
         set_backend_override(None)
 

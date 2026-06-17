@@ -116,6 +116,10 @@ benchmark-suite/
     dataset.manifest.json
     prompts.json
     acceptance_checklist.md
+  context_outcome_loop/
+    README.md
+    prompts.json
+    acceptance_checklist.md
   templates/
     run_manifest.template.json
     task_result.template.json
@@ -165,7 +169,10 @@ code-evidence checks. These prove coverage and boundary shape, not broad answer
 quality, token saving, default reranker/HyDE enablement, or code-intel speedups.
 v4.4 adds `claim_promotion_pack` so blocked public claims cannot be promoted by
 accident. v4.5 adds `release_evidence_pack` so clean-checkout/package evidence
-stays synchronized with the repo snapshot.
+stays synchronized with the repo snapshot. v5.5 adds `context_outcome_loop` as
+a deterministic loop gate for truth-safe, opt-in context outcome signals; it
+does not prove broad answer quality, token/cost saving, or default ranking
+influence.
 
 ## Current benchmark results
 

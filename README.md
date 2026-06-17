@@ -19,20 +19,23 @@ local-first memory
 
 ## Current Release
 
-Current package version is v5.0.0. v4.6-v5.0 closes the Evidence Hardening
-Track on top of the v4.0.x-v4.5 foundation: artifact-backed cost/token
-evidence, Storage v2 `10k/100k/1m` scale evidence, index-fabric runtime
-conformance, native Rust hot-path evidence, and a machine-readable
-default-change decision gate. The earlier v4.0.x-v4.5 slices still provide the
-canonical SQLite store contract, Rust facade/fallback, index
-fabric/SearchBackend contract, context sufficiency, memory evals, code-memory
-federation, claim-promotion policy, and release-evidence packaging.
+Current package version is v5.6.0. On top of the v4.6-v5.0 Evidence Hardening
+Track, v5.1-v5.2 closes the default-kernel cutover: canonical SQLite is now
+the default truth runtime for structured memory and observations, and
+query-driven MCP retrieval now runs through the shared `SearchBackend`
+contract. v5.3-v5.6 adds daily-flow guidance, guided opt-in maintenance
+summaries, a signal-only `record_context_outcome` loop, and a multi-client
+field-test packet for Codex, Claude Code, Cursor, and generic MCP clients. The
+earlier v4.0.x-v5.0 slices still provide the benchmarked canonical store
+contract, Rust facade/fallback, index fabric, context sufficiency, memory evals,
+code-memory federation, claim-promotion policy, and release-evidence packaging.
 
 The 2026-06-16 release snapshot carries 31 accepted runs and keeps blocked
 claim boundaries intact. It does not claim broad token/cost savings, public
 Storage v2 speedups, ANN/Tantivy/LanceDB readiness, default reranker/HyDE
 enablement, generalized Rust performance wins, or end-to-end answer-quality
-gains.
+gains. v5.6 changes runtime defaults, user guidance, and opt-in maintenance
+signals; it does not add any new public performance claim.
 
 ## Why It Exists
 
@@ -89,6 +92,7 @@ Use slash commands when your client supports them:
 ```text
 /hm:wake
 /hm:search "release process"
+/hm:search-all "JWT refresh strategy"
 /hm:distill
 ```
 
@@ -97,6 +101,7 @@ Or ask naturally:
 ```text
 Use harness-mem to wake this project.
 Search harness-mem for our release process decisions.
+Search harness-mem across projects for JWT refresh strategy and group the results by project.
 Distill recent sessions and summarize what was learned.
 ```
 
@@ -131,6 +136,13 @@ Ask for a topic, then expand only when needed:
 /hm:search "authentication decision"
 ```
 
+When you explicitly want to borrow from other projects instead of only checking
+the current one, use:
+
+```text
+/hm:search-all "JWT refresh strategy"
+```
+
 The intended flow is:
 
 ```text
@@ -139,6 +151,8 @@ search -> timeline -> get_observations
 
 Search starts compact so the assistant sees what exists before pulling long
 source text into the context window.
+`/hm:search` stays project-scoped by default; `/hm:search-all` is the explicit
+cross-project path.
 
 ### Distill
 
