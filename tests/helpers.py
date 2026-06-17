@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import asyncio
 import json
 import os
@@ -16,8 +17,40 @@ from harness_mem.adapters.codex.adapter import CodexAdapter
 from harness_mem.core.schemas import MemoryEntry, Observation
 
 
+_TEST_LOOP: asyncio.AbstractEventLoop | None = None
+
+
+def _get_test_loop() -> asyncio.AbstractEventLoop:
+    global _TEST_LOOP
+    if _TEST_LOOP is None or _TEST_LOOP.is_closed():
+        _TEST_LOOP = asyncio.new_event_loop()
+        asyncio.set_event_loop(_TEST_LOOP)
+    return _TEST_LOOP
+
+
+def _close_test_loop() -> None:
+    if _TEST_LOOP is None or _TEST_LOOP.is_closed():
+        return
+    pending = [task for task in asyncio.all_tasks(_TEST_LOOP) if not task.done()]
+    for task in pending:
+        task.cancel()
+    if pending:
+        _TEST_LOOP.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+    _TEST_LOOP.run_until_complete(_TEST_LOOP.shutdown_asyncgens())
+    _TEST_LOOP.run_until_complete(_TEST_LOOP.shutdown_default_executor())
+    _TEST_LOOP.close()
+
+
+atexit.register(_close_test_loop)
+
+
 def run(coro):
-    return asyncio.run(coro)
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return _get_test_loop().run_until_complete(coro)
+    raise RuntimeError("tests.helpers.run() cannot be called while an event loop is running")
+
 
 
 def _embeddings_disabled() -> bool:
