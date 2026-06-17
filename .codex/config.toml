@@ -1,0 +1,5 @@
+[mcp_servers.harness_mem]
+command = "python"
+args = ["-m", "harness_mem.mcp.server"]
+cwd = ".."
+startup_timeout_sec = 120
