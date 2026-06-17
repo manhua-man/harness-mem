@@ -34,6 +34,7 @@ dimension.
 | Retrieval recall | `true_hybrid_retrieval_shootout`, `retrieval_quality_longmemeval`, `retrieval_diagnostics` | v3.8 has fixture-contract rows plus a local smoke source-hit recall artifact across FTS/vector/hybrid. `claim_readiness.retrieval_recall.ready` is true for that bounded local split. | Do not present source-hit recall as end-to-end answer correctness or broad corpus quality. |
 | Storage v2 / Index fabric | `storage_v2_baseline`, `migration_roundtrip`, `local_index_fabric_smoke` | v4.0.0 has diagnostic smoke artifacts for deterministic synthetic corpus generation, migration dry-run/apply/export checksums, and manifest-last sidecar contract shape. These are contract/schema evidence only. | Run 10k / 100k / 1M release artifacts before any Storage v2 speedup claim; v4.0.1+ must add runtime canonical-store/index-fabric evidence before changing defaults. |
 | Memory eval matrix | `memory_eval_matrix`, `context_sufficiency_gate`, `task_aware_wake_precision` | v4.2 has an accepted contract artifact covering eight memory-runtime behavior dimensions. This is a release gate shape, not a global answer-quality benchmark. | Expand with real replay/eval rows before any broad memory-quality claim. |
+| Outcome-aware context loop | `context_outcome_loop` | v5.5 adds a deterministic loop-harness scenario for `record_context_outcome -> RetrievalSignal(context_outcome) -> opt-in SearchBackend ranking metadata`, with truth mutation count pinned at zero. | Keep this as a release safety gate; do not claim answer-quality improvement without replay/user-task artifacts. |
 | Retrieval quality pack | `retrieval_quality_pack`, `true_hybrid_retrieval_shootout`, `retrieval_diagnostics` | v4.2 has an accepted contract artifact for reranker, query rewriting, multi-query/HyDE, embedding shootout, and retrieval drift gates. Defaults remain conservative. | Do not enable reranker/HyDE or change the embedding baseline without component artifacts that pass recall, latency, disk/cache, and install-friction gates. |
 | Code-memory federation | `code_memory_federation` | v4.3 has an accepted contract artifact for file fingerprints, symbols, stale code-evidence checks, and generated-layer truth boundary. | Do not translate this into code-intel token/runtime savings or treat generated module atlas/wiki prose as truth. |
 | Claim promotion governance | `claim_promotion_pack` | v4.4 has an accepted contract artifact that keeps blocked, bounded, and public-ready claim states machine-readable. | Do not convert governance coverage into token/cost saving, Storage v2 speedup, default reranker/HyDE, or code-intel runtime claims. |
@@ -132,7 +133,44 @@ Publish rule:
 
 - may be cited as release-gate coverage only, not as broad answer-quality proof
 
-## B1c. Retrieval Quality Pack
+## B1c. Context Outcome Loop
+
+Benchmark id: `context_outcome_loop`
+
+Goal:
+
+- verify the v5.5 feedback loop from returned source id to outcome signal to
+  explainable opt-in ranking metadata
+- prove outcome feedback is a signal-only path, not a confirmed-truth mutation
+
+Core tasks:
+
+- MCP search returns source ids for a deterministic fixture
+- `record_context_outcome` records `used` and `misleading` signals
+- opt-in search returns `context_outcome_score` and
+  `ranking_explanation(kind=context_outcome)`
+
+Metrics:
+
+- `context_outcome_signals`
+- `used_score_positive`
+- `misleading_score_negative`
+- `explained_result_count`
+- `truth_mutation_count`
+
+Artifacts:
+
+- `tests/loop_harness/test_context_outcome_loop.py`
+- pytest stdout line `[loop_harness:context_outcome_loop] ...`
+- loop harness README scenario entry
+
+Publish rule:
+
+- may be cited only as a release safety gate for explainable signal wiring
+- must not be phrased as broad answer-quality, token/cost, or production
+  ranking improvement evidence
+
+## B1d. Retrieval Quality Pack
 
 Benchmark id: `retrieval_quality_pack`
 
@@ -166,7 +204,7 @@ Publish rule:
 - may be cited as component-gate coverage only; it does not enable reranker,
   HyDE, or embedding baseline changes by default
 
-## B1d. Code-Memory Federation
+## B1e. Code-Memory Federation
 
 Benchmark id: `code_memory_federation`
 
@@ -200,7 +238,7 @@ Publish rule:
 - may be cited as code-evidence federation contract coverage only, not as
   code-intel token/runtime or answer-quality proof
 
-## B1e. Claim Promotion Pack
+## B1f. Claim Promotion Pack
 
 Benchmark id: `claim_promotion_pack`
 
@@ -237,7 +275,7 @@ Publish rule:
 - may be cited as claim-governance coverage only; it does not prove the
   underlying performance, token, default-behavior, or answer-quality claims
 
-## B1f. Release Evidence Pack
+## B1g. Release Evidence Pack
 
 Benchmark id: `release_evidence_pack`
 

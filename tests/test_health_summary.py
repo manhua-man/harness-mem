@@ -48,6 +48,7 @@ from harness_mem.commands.support import set_active_project
 from harness_mem.core.schemas import MemoryEntry, ReflectionJob, RuleCandidate
 from harness_mem.core.schemas.retrieval_signal import RetrievalSignal
 from harness_mem.mcp.server import handle_request, set_backend_override
+from harness_mem.storage.canonical_store import read_compatible_payloads
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from tests.helpers import run
 
@@ -580,25 +581,20 @@ def test_queue_health_block_renders_unchanged(
 #   - retrieval_signals         (signal_freshness)
 #   - vec_embeddings + the WAL  (maintenance_hints)
 #
-# Candidates and signals are persisted as JSON blobs under
-# ``data_dir/structured/``; reflection jobs live in the ``reflection_jobs``
-# SQLite table. We snapshot BOTH surfaces (every JSON blob's bytes + every
-# reflection_jobs row) before and after a health_summary call and assert
-# byte-equality, so any stray mutator anywhere in the composition would trip
-# the assertion (Property 1, Req 1.5/2.6/3.6/4.6/5.4/6.3).
+# Candidates and signals now live in canonical truth rows by default, while
+# reflection jobs still live in the ``reflection_jobs`` SQLite table. We
+# snapshot BOTH surfaces (every canonical payload JSON + every reflection_jobs
+# row) before and after a health_summary call and assert byte-equality, so any
+# stray mutator anywhere in the composition would trip the assertion (Property
+# 1, Req 1.5/2.6/3.6/4.6/5.4/6.3).
 
 
 def _snapshot_structured_blobs(backend: LocalMemoryBackend) -> dict[str, str]:
-    """Map of every JSON blob path -> content under the structured data dir.
-
-    Covers the five candidate tables and ``retrieval_signals`` (all of which
-    persist as ``structured/<table>/<id>.json``).
-    """
+    """Map canonical truth rows to payload JSON for read-only assertions."""
     snapshot: dict[str, str] = {}
-    structured_dir = backend.data_dir / "structured"
-    for path in sorted(structured_dir.rglob("*.json")):
-        if path.is_file():
-            snapshot[str(path.relative_to(structured_dir))] = path.read_text()
+    rows = read_compatible_payloads(backend.data_dir, project_name=PROJECT)
+    for row in rows:
+        snapshot[f"{row.collection}/{row.entity_id}"] = row.payload_json
     return snapshot
 
 
@@ -657,7 +653,7 @@ def test_health_summary_is_read_only_across_all_tables(
     blobs_before = _snapshot_structured_blobs(backend)
     jobs_before = _snapshot_reflection_jobs(backend)
     # Sanity: the seed is non-trivial, so we're actually guarding something.
-    assert blobs_before, "expected seeded candidate/signal blobs"
+    assert blobs_before, "expected seeded canonical truth rows"
     assert jobs_before, "expected seeded reflection jobs"
 
     report = run(health_summary(backend, PROJECT))

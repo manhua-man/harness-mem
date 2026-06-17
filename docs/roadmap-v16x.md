@@ -2,7 +2,7 @@
 
 > 状态：v1.6.0 - v1.6.2 已完成实现；完整当前状态见 [`roadmap-status.md`](./roadmap-status.md)。本文件保留切片设计、验收口径和历史决策链。
 >
-> 配合 [`roadmap-v15x.md`](./roadmap-v15x.md) 与 [`roadmap-vision-v16-v18.md`](./roadmap-vision-v16-v18.md) 阅读：v1.5.x 是把当前架构做扎实，v1.6.x 是把 vision 文档里 v1.6 那段"持久化向量 + 记忆分型 + 预算纪律 + distill 安全"翻译成可执行的三切片。
+> 配合 [`roadmap-v15x.md`](./roadmap-v15x.md) 阅读：v1.5.x 是把当前架构做扎实，v1.6.x 是把"持久化向量 + 记忆分型 + 预算纪律 + distill 安全"收口成可执行的三切片。
 >
 > 每条任务的验收都以源码、基线数字或现有 benchmark 为锚，不写无 baseline 的承诺。
 >
@@ -27,7 +27,7 @@
 
 ## 已决策（v1.6.0 启动前定齐）
 
-vision 文档中留白的 3 个品味决策，本 roadmap 启动前一次定齐，避免 v1.6.1 / v1.6.2 启动时再陷入循环讨论。
+这条版本线里原先留白的 3 个品味决策，本 roadmap 启动前一次定齐，避免 v1.6.1 / v1.6.2 启动时再陷入循环讨论。
 
 ### 决策 1：sqlite-vec 必选（v1.6.2）
 
@@ -92,7 +92,7 @@ vision 文档中留白的 3 个品味决策，本 roadmap 启动前一次定齐�
 **不列入此版本（防止 scope creep）**：
 - wake-up 按 `memory_type` 分桶——挪到 v1.6.1
 - distill 安全边界——挪到 v1.6.1
-- `procedural` 类型的实际生成路径——挪到 v1.8（vision 文档已经划清边界）
+- `procedural` 类型的实际生成路径——挪到 v1.8
 - 持久化向量索引——挪到 v1.6.2
 - embedding 模型升级——挪到 v1.6.2
 - search 按 `memory_type` filter——v1.6.0 只**暴露**字段，不**消费**字段；filter 是行为变化，留给 v1.6.1 与分桶预算一起做
@@ -121,12 +121,12 @@ vision 文档中留白的 3 个品味决策，本 roadmap 启动前一次定齐�
 | P2 | wake-up 输出对 bucket 截断标注（`[truncated within bucket: episodic 3/8]`），延续 v1.5.1 截断显式标注的精神 | wake 单测覆盖三种截断场景 |
 
 **不列入此版本**：
-- bi-temporal 字段（`valid_from / valid_to / supersedes`）—— vision 文档已划归 v1.7
+- bi-temporal 字段（`valid_from / valid_to / supersedes`）—— 挪到 v1.7
 - 自治删 truth —— vision 与 dream-absorption 文档都明确不做
 - 持久化向量索引 —— v1.6.2
 - 跨项目 bucket 共享配额 —— 没有用户场景
 
-**为什么 distill 安全边界要在 v1.6.1 提前做**：vision 文档里这条原本可以推到 v1.7 / v1.8，但一旦 v1.6.2 引入持久化向量后 distill 能"读全库 + 跑聚类"，写边界没锁死就会被诱惑去"顺手清理一下"。**安全边界必须先于能力增强落地**。
+**为什么 distill 安全边界要在 v1.6.1 提前做**：这条原本很容易被推到 v1.7 / v1.8，但一旦 v1.6.2 引入持久化向量后 distill 能"读全库 + 跑聚类"，写边界没锁死就会被诱惑去"顺手清理一下"。**安全边界必须先于能力增强落地**。
 
 ---
 
@@ -153,14 +153,14 @@ vision 文档中留白的 3 个品味决策，本 roadmap 启动前一次定齐�
 **不列入此版本**：
 - bi-temporal —— v1.7
 - procedural memory schema —— v1.8
-- bge-large / 1.3GB 级别模型 —— vision 文档明确划线"local-first 体积上限在 small/base"
+- bge-large / 1.3GB 级别模型 —— local-first 体积上限仍划在线 `small/base`
 - 远程 embedding API（OpenAI / Cohere）—— 违反 local-first
 
 ---
 
-## 与上游 vision 文档的关系
+## v1.6 范围收口
 
-| vision 文档条目（`roadmap-vision-v16-v18.md`） | 在 v1.6.x 的落点 |
+| 范围条目 | 在 v1.6.x 的落点 |
 |---|---|
 | 持久化向量索引（sqlite-vec） | v1.6.2 P0 |
 | 记忆三层分型 | v1.6.0 P0（schema）+ v1.6.1 P0（消费） |
@@ -169,7 +169,7 @@ vision 文档中留白的 3 个品味决策，本 roadmap 启动前一次定齐�
 | Embedding 模型升级 | v1.6.2 P0 |
 | LongMemEval 五维细分 | v1.6.0 P0 |
 
-vision 文档里"v1.6 待确定的品味决策"四条：
+v1.6 启动前一次定齐的四个品味决策：
 - 默认 embedding 模型 → **已决策**：v1.6.2 启动后 1 周内跑 shootout，按规则匹配；规则 3 触发时保持 all-MiniLM-L6-v2 不变（详见上文"已决策 3"）
 - sqlite-vec 必选 / optional → **已决策**：必选（详见上文"已决策 1"）
 - 一次切到三层还是两层 → **已决策**：v1.6.0 schema 上一次切到三层；`procedural` 在 v1.6.0/v1.6.1 quota 为 0 不被产生；v1.8 才真正 populate
@@ -182,7 +182,7 @@ vision 文档里"v1.6 待确定的品味决策"四条：
 1. **v1.6.0 不能动 wake-up / search 行为**——只加字段、加报告。任何"顺手优化"必须挪到 v1.6.1 / v1.6.2，否则失去隔离实验能力
 2. **v1.6.2 的 P95 latency 下降目标必须基于真实 baseline，不是估算**——v1.5.3 baseline 是 `625.17ms`，目标 `437ms`；如果 baseline 当时跑环境与 v1.6.2 不一致，先重新跑 baseline，再设目标
 3. **sqlite-vec schema 升级必须不阻塞老用户**——缺向量列时 fallback FTS，doctor 给一键 rebuild 提示；不能让用户升级后突然 search 报错
-4. **不引入 KAIROS / Proactive / 自治删记忆**——继续遵守 vision 文档与 dream-absorption 文档的边界
+4. **不引入 KAIROS / Proactive / 自治删记忆**——继续遵守本文件与 dream-absorption 文档的边界
 5. **不把 LongMemEval 单一总分当 KPI**——v1.6 起只看五维，避免重复 v1.5.2 那种"调一个数字一个月"的弯路
 6. **embedding 模型升级失败的退路**：如果 shootout 显示 bge-small / nomic-embed 都没显著优势（≤ +1 pp），保持 all-MiniLM-L6-v2 不动；v1.6.2 仍交付 sqlite-vec 持久化（这是延迟收益）；不强行换模型
 

@@ -11,6 +11,7 @@ from typing import NamedTuple
 
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.search.hybrid_search import HybridSearchLayer
+from harness_mem.storage.canonical_store import CanonicalStoreRuntime
 from harness_mem.storage.sqlite_index import SQLiteIndex
 
 _CJK_ASCII_LEFT_BOUNDARY = re.compile(r"([\u3400-\u9fff])([A-Za-z0-9_])")
@@ -26,6 +27,47 @@ class RegexObservationMatch(NamedTuple):
     candidate_count: int
 
 
+class _CanonicalVerbatimBlobPath:
+    """Path-like shim that stores observations in canonical SQLite truth."""
+
+    def __init__(self, store: "LocalVerbatimStore", observation_id: str):
+        self._store = store
+        self._observation_id = observation_id
+
+    def exists(self) -> bool:
+        canonical = self._store._canonical
+        return bool(canonical and canonical.payload_exists("observations", self._observation_id))
+
+    def read_text(self, *_args, **_kwargs) -> str:
+        canonical = self._store._canonical
+        if canonical is None:
+            raise FileNotFoundError(self._observation_id)
+        payload_json = canonical.get_payload_json("observations", self._observation_id)
+        if payload_json is None:
+            raise FileNotFoundError(self._observation_id)
+        return payload_json
+
+    def write_text(self, data: str, *_args, **_kwargs) -> int:
+        canonical = self._store._canonical
+        if canonical is None:
+            raise RuntimeError("canonical runtime is not enabled")
+        payload = json.loads(data)
+        canonical.upsert_payload(
+            "observations",
+            self._observation_id,
+            payload,
+            source_relpath=self._store._canonical_source_relpath(self._observation_id),
+        )
+        return len(data)
+
+    def unlink(self) -> None:
+        canonical = self._store._canonical
+        if canonical is None:
+            raise FileNotFoundError(self._observation_id)
+        if not canonical.delete_payload("observations", self._observation_id):
+            raise FileNotFoundError(self._observation_id)
+
+
 class LocalVerbatimStore:
     """Verbatim store backed by JSON blobs + SQLite FTS index.
 
@@ -33,18 +75,53 @@ class LocalVerbatimStore:
     Metadata and FTS index live in data_dir/verbatim_index.sqlite
     """
 
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, *, canonical_mode: bool = True):
         self.data_dir = Path(data_dir)
+        self.canonical_mode = canonical_mode
+        self._canonical = CanonicalStoreRuntime(self.data_dir) if canonical_mode else None
         self.blob_dir = self.data_dir / "verbatim"
         self.blob_dir.mkdir(parents=True, exist_ok=True)
         self._index = SQLiteIndex(self.data_dir / "verbatim_index.sqlite")
         self._index.init_db()
         self._search = HybridSearchLayer(self._index)
 
+    async def init_runtime(self) -> None:
+        if not self.canonical_mode or self._canonical is None:
+            return
+        canonical_count = self._canonical.count("observations")
+        if canonical_count <= 0:
+            return
+        indexed_count = await asyncio.to_thread(self._index.count, "observations")
+        if indexed_count < canonical_count:
+            for payload in self._canonical.list_payloads("observations"):
+                observation_id = str(payload.get("id") or "")
+                if not observation_id:
+                    continue
+                if await asyncio.to_thread(self._index.get, "observations", observation_id) is None:
+                    await self.save(Observation.from_dict(payload))
+        for payload in self._canonical.list_payloads("observations"):
+            observation_id = str(payload.get("id") or "")
+            raw_content = str(payload.get("raw_content") or "")
+            if observation_id and raw_content:
+                await asyncio.to_thread(
+                    self._index.replace_observation_trigrams,
+                    observation_id,
+                    raw_content,
+                )
+
+    def _blob_path(self, observation_id: str) -> Path | _CanonicalVerbatimBlobPath:
+        if self.canonical_mode:
+            return _CanonicalVerbatimBlobPath(self, observation_id)
+        return self.blob_dir / f"{observation_id}.json"
+
+    @staticmethod
+    def _canonical_source_relpath(observation_id: str) -> str:
+        return f"verbatim/{observation_id}.json"
+
     async def save(self, observation: Observation) -> str:
         """Save an observation — blob to JSON, metadata to SQLite."""
         # Write raw_content blob
-        blob_path = self.blob_dir / f"{observation.id}.json"
+        blob_path = self._blob_path(observation.id)
         blob_path.write_text(json.dumps(observation.to_dict(), indent=2, default=str))
 
         # Index metadata for search
@@ -88,7 +165,7 @@ class LocalVerbatimStore:
 
     async def get(self, id: str) -> Observation | None:
         """Get by id — read blob, then enrich with SQLite metadata."""
-        blob_path = self.blob_dir / f"{id}.json"
+        blob_path = self._blob_path(id)
         if not blob_path.exists():
             return None
         data = json.loads(blob_path.read_text())
@@ -115,7 +192,7 @@ class LocalVerbatimStore:
         )
         results = []
         for row in rows:
-            blob_path = self.blob_dir / f"{row['id']}.json"
+            blob_path = self._blob_path(row["id"])
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
                 if data.get("compacted", False):
@@ -166,7 +243,7 @@ class LocalVerbatimStore:
         )
         results = []
         for row in search_result.rows:
-            blob_path = self.blob_dir / f"{row['id']}.json"
+            blob_path = self._blob_path(row["id"])
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
                 if data.get("compacted", False):
@@ -246,7 +323,7 @@ class LocalVerbatimStore:
 
     async def delete(self, id: str) -> bool:
         """Delete observation blob and SQLite index entry."""
-        blob_path = self.blob_dir / f"{id}.json"
+        blob_path = self._blob_path(id)
         deleted_index = await asyncio.to_thread(self._index.delete, "observations", id)
         await asyncio.to_thread(self._index.delete_observation_trigrams, id)
         deleted_blob = False
@@ -257,7 +334,7 @@ class LocalVerbatimStore:
 
     async def soft_delete(self, id: str) -> bool:
         """Soft-delete an observation by setting compacted=True."""
-        blob_path = self.blob_dir / f"{id}.json"
+        blob_path = self._blob_path(id)
         if not blob_path.exists():
             return False
         data = json.loads(blob_path.read_text())
@@ -293,7 +370,7 @@ class LocalVerbatimStore:
         )
         results = []
         for row in rows:
-            blob_path = self.blob_dir / f"{row['id']}.json"
+            blob_path = self._blob_path(row["id"])
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
                 if data.get("compacted", False):
@@ -333,7 +410,7 @@ class LocalVerbatimStore:
         )
         results = []
         for row in rows:
-            blob_path = self.blob_dir / f"{row['id']}.json"
+            blob_path = self._blob_path(row["id"])
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
                 if data.get("compacted", False):
@@ -385,6 +462,8 @@ class LocalVerbatimStore:
         return self._index.observation_trigram_stats()
 
     def close(self) -> None:
+        if self._canonical is not None:
+            self._canonical.close()
         self._index.close()
 
     @staticmethod

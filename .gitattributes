@@ -34,9 +34,9 @@ docs/README.md export-ignore
 docs/roadmap*.md export-ignore
 docs/roadmap/** export-ignore
 docs/reference-projects.md export-ignore
+docs/reference-comparison-matrix.md export-ignore
 docs/releasing.md export-ignore
 docs/testing.md export-ignore
-docs/retrospective-v13-v14.md export-ignore
 docs/harness-mem-mechanism-article-style.md export-ignore
 docs/benchmark/** export-ignore
 docs/cli/** export-ignore

@@ -35,13 +35,13 @@ from harness_mem.core.schemas.context_assembly_plan import (
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.project_profile import ProjectProfile
-from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.task_handoff import TaskHandoff
-from harness_mem.read_api import (
-    search_memory,
-    search_relation_facts,
-    search_skills,
+from harness_mem.search.backend import (
+    SearchBackendResponse,
+    SearchFilters,
+    SQLiteSearchBackend,
+    hydrate_backend_results,
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -99,13 +99,47 @@ async def assemble_context_plan(
     l0 = await _build_l0(backend, resolved, budget_by_layer["L0"])
     l1 = await _build_l1(backend, resolved, budget_by_layer["L1"])
     l2 = await _build_l2(backend, resolved, budget_by_layer["L2"])
-    l3 = await _build_l3(backend, resolved, query, budget_by_layer["L3"])
-    l4 = await _build_l4(backend, resolved, query, budget_by_layer["L4"], l1.entries)
+    query_response = await _query_driven_backend_response(
+        backend,
+        project_name=resolved,
+        query=query,
+        limit=max(budget_by_layer["L3"].max_entries + budget_by_layer["L4"].max_entries, 30),
+    )
+    hydrated_results = (
+        await hydrate_backend_results(backend, query_response)
+        if query_response is not None
+        else None
+    )
+    l3 = await _build_l3(backend, resolved, query_response, budget_by_layer["L3"])
+    l4 = await _build_l4(
+        backend,
+        resolved,
+        query_response,
+        hydrated_results,
+        budget_by_layer["L4"],
+        l1.entries,
+    )
 
     return ContextAssemblyPlan(
         project_name=resolved,
         query=query,
         layers=[l0, l1, l2, l3, l4],
+    )
+
+
+async def _query_driven_backend_response(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    query: str | None,
+    limit: int,
+) -> SearchBackendResponse | None:
+    if query is None or not query.strip():
+        return None
+    return await SQLiteSearchBackend(backend).search(
+        query,
+        filters=SearchFilters(project_name=project_name, scope="project"),
+        limit=max(1, limit),
     )
 
 
@@ -386,7 +420,7 @@ async def _recently_surfaced_entries(
 async def _build_l3(
     backend: LocalMemoryBackend,
     project_name: str,
-    query: str | None,
+    query_response: SearchBackendResponse | None,
     budget: Budget,
 ) -> Layer:
     """L3 topic recall (Req 5.1-5.6).
@@ -422,69 +456,38 @@ async def _build_l3(
     """
     # Short-circuit on absent / blank query — no search surface is touched
     # (Req 5.5).
-    if query is None or not query.strip():
+    if query_response is None:
         return _apply_budget("L3", [], budget)
 
     candidates: list[PlanEntry] = []
-
-    # 1. Matched memory entries (read-only — record_signals=False, Req 5.6).
-    entries: list[MemoryEntry]
-    entries, _observations = await search_memory(
-        backend,
-        project_name=project_name,
-        query=query,
-        record_signals=False,
-    )
-    for entry in entries:
-        if not entry.id:
-            continue
-        candidates.append(
-            PlanEntry(
-                layer="L3",
-                source_ids=[entry.id],
-                why_included="topic_recall:search_memory",
-                summary=_truncate_summary(entry.content),
+    for result in query_response.results:
+        if result.source_kind == "memory_entry":
+            candidates.append(
+                PlanEntry(
+                    layer="L3",
+                    source_ids=[result.source_id],
+                    why_included="topic_recall:search_memory",
+                    summary=_truncate_summary(result.preview),
+                )
             )
-        )
-
-    # 2. Matched relation facts.
-    facts: list[RelationFact] = await search_relation_facts(
-        backend,
-        project_name=project_name,
-        query=query,
-    )
-    for fact in facts:
-        if not fact.id:
-            continue
-        candidates.append(
-            PlanEntry(
-                layer="L3",
-                source_ids=[fact.id],
-                why_included="topic_recall:relation_fact",
-                summary=_truncate_summary(
-                    f"{fact.source_entity} {fact.relation_type} {fact.target_entity}"
-                ),
+        elif result.source_kind == "relation_fact":
+            candidates.append(
+                PlanEntry(
+                    layer="L3",
+                    source_ids=[result.source_id],
+                    why_included="topic_recall:relation_fact",
+                    summary=_truncate_summary(result.preview),
+                )
             )
-        )
-
-    # 3. Matched skills — compact id/title/reason hints only, never the
-    #    procedural step content (Req 5.3).
-    skills: list[Skill] = await search_skills(
-        backend,
-        project_name=project_name,
-        query=query,
-    )
-    for skill in skills:
-        if not skill.id:
-            continue
-        candidates.append(
-            PlanEntry(
-                layer="L3",
-                source_ids=[skill.id],
-                why_included="topic_recall:skill",
-                summary=_skill_hint_summary(skill),
+        elif result.source_kind == "skill":
+            candidates.append(
+                PlanEntry(
+                    layer="L3",
+                    source_ids=[result.source_id],
+                    why_included="topic_recall:skill",
+                    summary=_truncate_summary(result.preview),
+                )
             )
-        )
 
     return _apply_budget("L3", candidates, budget)
 
@@ -505,7 +508,8 @@ def _skill_hint_summary(skill: Skill) -> str:
 async def _build_l4(
     backend: LocalMemoryBackend,
     project_name: str,
-    query: str | None,
+    query_response: SearchBackendResponse | None,
+    hydrated_results: dict[str, list[object]] | None,
     budget: Budget,
     l1_entries: list[PlanEntry],
 ) -> Layer:
@@ -564,14 +568,11 @@ async def _build_l4(
             )
 
     # 2. evidence:topic_match — observations matching the query (read-only).
-    if query is not None and query.strip():
-        _entries, observations = await search_memory(
-            backend,
-            project_name=project_name,
-            query=query,
-            record_signals=False,
-        )
-        for observation in observations:
+    if query_response is not None and hydrated_results is not None:
+        for observation_obj in hydrated_results["observation"]:
+            if not isinstance(observation_obj, Observation):
+                continue
+            observation = observation_obj
             if not observation.id or observation.id in seen_observation_ids:
                 continue
             seen_observation_ids.add(observation.id)

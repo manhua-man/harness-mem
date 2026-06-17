@@ -629,6 +629,34 @@ Minimum bundle:
   `packaged_resource_match`, and `claim_promotion_policy_enforced`
 - report text saying the pack does not upgrade blocked public claims
 
+## `context_outcome_loop`
+
+Use when:
+
+- changing `record_context_outcome`
+- changing context outcome signal storage or scoring
+- changing opt-in search/wake ranking explanation metadata
+
+Prompt and acceptance source:
+
+- `benchmark-suite/context_outcome_loop/prompts.json`
+- `benchmark-suite/context_outcome_loop/acceptance_checklist.md`
+
+Run:
+
+```bash
+python -m pytest tests/loop_harness/test_context_outcome_loop.py -q --capture=no
+```
+
+Minimum evidence:
+
+- loop harness stdout with `[loop_harness:context_outcome_loop]`
+- `context_outcome_signals`, `used_score_positive`,
+  `misleading_score_negative`, `explained_result_count`, and
+  `truth_mutation_count`
+- claim boundary saying outcome feedback is signal-only, opt-in, and not a
+  broad answer-quality or token/cost saving claim
+
 ## `canonical_store_runtime_baseline`
 
 Use when validating v4.0.1 canonical entity tables, metadata filters,

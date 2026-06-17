@@ -1,4 +1,4 @@
-"""v2.4.2 backward-compatibility guard for the Maintenance roll-up (Req 5.5).
+"""v2.4.2+ maintenance roll-up guard across legacy hints and canonical self-heal.
 
 v2.4.2 moved the v1.6.2 vector-index and v1.7.3 verbatim-exact-index hints out
 of their scattered inline ``cmd_doctor`` emissions and into a single
@@ -11,11 +11,14 @@ it.
 This file is a focused supplement to ``tests/cli/test_doctor_vector_health.py``
 (which the Task 6 work confirmed still passes post-removal). It drives the full
 ``cmd_doctor`` command end-to-end against a backend whose vector / exact index
-is broken and asserts the exact pre-v2.4.2 message strings (``HM-201`` +
-``rebuild-vector-index``, ``HM-301`` + ``rebuild-verbatim-index``) still reach
-stdout. It also pins the verbatim-equality contract directly: the hint
-``maintenance_hints`` produces carries the identical ``message`` /
-``fix_command`` returned by the underlying ``_check_*`` helper.
+is broken and asserts that operator-visible maintenance behavior remains
+correct under the canonical runtime:
+
+- ``HM-201`` still reaches stdout when the vector index is truly broken.
+- the verbatim exact-index hint remains byte-identical at the helper level.
+- a reopened backend may self-heal trigram drift from canonical truth before
+  ``cmd_doctor`` runs, so the full command should not emit a stale ``HM-301``
+  false positive in that case.
 
 ``cmd_doctor`` opens its own backend over ``DEFAULT_DATA_DIR`` (monkeypatched to
 ``tmp_path`` by the autouse ``data_dir`` fixture), so each test seeds + breaks
@@ -114,18 +117,20 @@ def test_cmd_doctor_still_emits_hm201_vector_hint(
     assert "rebuild-vector-index" in out
 
 
-# ---- test 2: v1.7.3 HM-301 still reaches cmd_doctor stdout ---------------
+# ---- test 2: canonical startup self-heals HM-301 drift before cmd_doctor ---
 
 
-def test_cmd_doctor_still_emits_hm301_exact_index_hint(
+def test_cmd_doctor_rebuilds_exact_index_before_rollup(
     data_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Validates: Requirements 5.5 — v1.7.3 verbatim-exact hint survives the roll-up.
+    """Validates: canonical runtime rebuild keeps cmd_doctor from surfacing stale HM-301.
 
     Seeds one observation (so the project has verbatim content) then empties the
     trigram exact index, which is the v1.7.3 ``indexed_observation_count == 0``
-    condition. The pre-v2.4.2 ``HM-301`` + ``rebuild-verbatim-index`` strings
-    must still appear in ``cmd_doctor`` output, now under the Maintenance block.
+    condition. Under the canonical runtime, reopening the backend rebuilds
+    derived trigram postings from canonical truth during bootstrap, so the full
+    ``cmd_doctor`` path should not emit a stale HM-301 false positive even
+    though the helper-level hint still exists for a live broken backend.
     """
 
     async def _drive() -> None:
@@ -146,9 +151,8 @@ def test_cmd_doctor_still_emits_hm301_exact_index_hint(
     run(_drive())
     out = capsys.readouterr().out
 
-    assert "Maintenance:" in out
-    assert "HM-301" in out
-    assert "rebuild-verbatim-index" in out
+    assert "HM-301" not in out
+    assert "rebuild-verbatim-index" not in out
 
 
 # ---- test 3: verbatim message/fix equality through the roll-up ----------

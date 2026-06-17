@@ -911,6 +911,34 @@
         "accepted",
         "acceptance_notes"
       ]
+    },
+    {
+      "id": "context_outcome_loop",
+      "title": "Context Outcome Loop",
+      "purpose": "Gate v5.5 outcome-aware context feedback so used/ignored/misleading signals remain truth-safe while becoming explainable opt-in ranking hints.",
+      "proves": [
+        "record_context_outcome writes RetrievalSignal(context_outcome) records",
+        "opt-in search metadata exposes context outcome score and explanation",
+        "outcome feedback does not mutate confirmed truth"
+      ],
+      "does_not_prove": [
+        "global answer-quality improvement",
+        "token/cost savings",
+        "production-long-run ranking gains",
+        "default signal influence for all projects"
+      ],
+      "artifact_requirements": [
+        "tests/loop_harness/test_context_outcome_loop.py",
+        "tests/loop_harness/README.md",
+        "pytest stdout loop metrics"
+      ],
+      "required_result_fields": [
+        "context_outcome_signals",
+        "used_score_positive",
+        "misleading_score_negative",
+        "explained_result_count",
+        "truth_mutation_count"
+      ]
     }
   ]
 }

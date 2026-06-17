@@ -137,7 +137,7 @@ def test_stdio_initialize_fails_before_handshake_when_launch_target_is_invalid()
 def test_tools_list():
     resp = rpc("tools/list")
     tools = resp["result"]["tools"]
-    assert len(tools) == 59
+    assert len(tools) == 60
     names = {tool["name"] for tool in tools}
     expected = {
         "search_memory", "timeline", "get_observations",
@@ -152,6 +152,7 @@ def test_tools_list():
         "create_rule_candidate", "confirm_rule", "reject_rule", "suggest_rule",
         "suggest_supersede", "confirm_supersede", "reject_supersede", "suggest_correction",
         "suggest_skill", "confirm_skill", "reject_skill", "record_skill_result",
+        "record_context_outcome",
         "suggest_skill_promotion", "confirm_skill_promotion", "reject_skill_promotion",
         "detect_skill_improvements", "confirm_skill_revision", "reject_skill_revision",
         "detect_skill_deprecations", "confirm_skill_deprecation", "reject_skill_deprecation",
@@ -230,9 +231,47 @@ def test_search_memory(mcp_backend: LocalMemoryBackend):
     data = json.loads(result)
     assert data["memory_entry_count"] >= 1
     assert data["observation_count"] >= 1
+    assert data["why_this_result"].startswith("Returned")
+    assert data["next_actions"]
+    assert "degraded_reason" in data
+    assert data["memory_entries"][0]["context_outcome_counts"] == {}
     entries = run(mcp_backend.structured_store.list_memory_entries("test-project", limit=10))
     assert entries[0].usage_count == 1
     assert entries[0].last_accessed_at is not None
+
+
+def test_record_context_outcome_writes_signal_without_truth_mutation(
+    mcp_backend: LocalMemoryBackend,
+):
+    data = call_tool(
+        "record_context_outcome",
+        {
+            "project_name": "test-project",
+            "surface": "search_memory",
+            "source_ids": ["memory-entry-1", "memory-entry-2"],
+            "outcome": "used",
+            "reason": "helped answer the task",
+        },
+    )
+
+    assert data["success"] is True
+    assert data["recorded_count"] == 2
+    assert data["failed_count"] == 0
+    assert data["truth_mutated"] is False
+    assert data["why_this_result"].startswith("Recorded 2")
+    signals = run(
+        mcp_backend.structured_store.query_retrieval_signals(
+            "test-project",
+            signal_type="context_outcome",
+            target_kind="context_source",
+        )
+    )
+    assert {signal.target_id for signal in signals} >= {
+        "memory-entry-1",
+        "memory-entry-2",
+    }
+    assert signals[0].context["outcome"] == "used"
+    assert signals[0].context["surface"] == "search_memory"
 
 
 def test_mcp_surface_cost_observer_logs_local_metadata_without_content(
@@ -1465,6 +1504,10 @@ def test_get_project_status_returns_counts_without_cli(mcp_backend: LocalMemoryB
     assert data["memory_entry_count"] >= 1
     assert data["phase"] == "ready"
     assert data["suggested_slash"] == "/hm:wake"
+    assert data["why_this_result"].startswith("Project is in phase ready")
+    assert data["next_actions"]
+    assert data["degraded_reason"] is None
+    assert data["drilldown_hints"]
     assert data["generated_cache"]["generated_claim_count"] >= 0
     assert "stale_source_count" in data["generated_cache"]
     assert "cache_hit_ratio" in data["generated_cache"]
@@ -1497,7 +1540,7 @@ def test_benchmark_matrix_report_exposes_surface_gates():
     data = call_tool("benchmark_matrix_report", {})
 
     assert data["success"] is True
-    assert data["matrix_version"] == "v5.0.0"
+    assert data["matrix_version"] == "v5.6.0"
     surfaces = {row["surface"]: row for row in data["surfaces"]}
     assert {
         "wake",
@@ -1517,6 +1560,7 @@ def test_benchmark_matrix_report_exposes_surface_gates():
         "code_memory_federation",
         "claim_promotion",
         "release_evidence_pack",
+        "context_outcome_loop",
     }.issubset(
         surfaces
     )

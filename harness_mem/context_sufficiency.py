@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
+
 from harness_mem.core.schemas.context_sufficiency import (
     ContextPlan,
     IterativeRetrievalTrace,
     MetadataFilter,
+    RetrievalPlan,
+    SufficiencyReport,
     build_retrieval_plan,
     context_plan_from_response,
     evaluate_sufficiency,
@@ -13,10 +18,21 @@ from harness_mem.core.schemas.context_sufficiency import (
 )
 from harness_mem.search.backend import SearchFilters, SQLiteSearchBackend
 from harness_mem.search.retrieval_quality import build_quality_trace, build_query_variants
+from harness_mem.search.backend import SearchBackendResponse
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
-async def assemble_task_aware_context_plan(
+@dataclass(frozen=True)
+class TaskAwareRetrievalRuntime:
+    effective_query: str
+    retrieval_plan: RetrievalPlan
+    response: SearchBackendResponse
+    sufficiency: SufficiencyReport
+    iterative_trace: IterativeRetrievalTrace
+    context_plan: ContextPlan
+
+
+async def build_task_aware_retrieval_runtime(
     backend: LocalMemoryBackend,
     *,
     project_name: str,
@@ -24,11 +40,15 @@ async def assemble_task_aware_context_plan(
     current_task: str | None = None,
     budget_tokens: int = 6000,
     mode: str = "auto",
+    scope: str = "project",
+    memory_type: list[str] | None = None,
+    include_history: bool = False,
+    time_window: tuple[datetime | None, datetime | None] | None = None,
     deep_recall: bool = False,
     metadata_filter: MetadataFilter | None = None,
     limit: int = 20,
-) -> ContextPlan:
-    """Build a read-only v4.1 context plan with bounded iterative retrieval."""
+) -> TaskAwareRetrievalRuntime:
+    """Run bounded retrieval once and return both response and plan state."""
 
     effective_query = _effective_query(query, current_task)
     retrieval_plan = build_retrieval_plan(
@@ -41,8 +61,10 @@ async def assemble_task_aware_context_plan(
     )
     filters = SearchFilters(
         project_name=project_name,
-        scope="project",
-        include_history=deep_recall,
+        scope=scope,
+        memory_type=memory_type,
+        include_history=include_history or deep_recall,
+        time_window=time_window,
         deep_recall=deep_recall,
         corpus_id=retrieval_plan.filters.corpus_id,
         tier=retrieval_plan.filters.tiers,
@@ -158,13 +180,57 @@ async def assemble_task_aware_context_plan(
         budget_remaining=budget_remaining,
         retrieval_quality=quality_trace.to_dict(),
     )
-    return context_plan_from_response(
+    context_plan = context_plan_from_response(
         project_name=project_name,
         response=final_response,
         retrieval_plan=retrieval_plan,
         sufficiency=final_report,
         iterative_trace=trace,
     )
+    return TaskAwareRetrievalRuntime(
+        effective_query=effective_query,
+        retrieval_plan=retrieval_plan,
+        response=final_response,
+        sufficiency=final_report,
+        iterative_trace=trace,
+        context_plan=context_plan,
+    )
+
+
+async def assemble_task_aware_context_plan(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    query: str,
+    current_task: str | None = None,
+    budget_tokens: int = 6000,
+    mode: str = "auto",
+    scope: str = "project",
+    memory_type: list[str] | None = None,
+    include_history: bool = False,
+    time_window: tuple[datetime | None, datetime | None] | None = None,
+    deep_recall: bool = False,
+    metadata_filter: MetadataFilter | None = None,
+    limit: int = 20,
+) -> ContextPlan:
+    """Build a read-only v4.1 context plan with bounded iterative retrieval."""
+
+    runtime = await build_task_aware_retrieval_runtime(
+        backend,
+        project_name=project_name,
+        query=query,
+        current_task=current_task,
+        budget_tokens=budget_tokens,
+        mode=mode,
+        scope=scope,
+        memory_type=memory_type,
+        include_history=include_history,
+        time_window=time_window,
+        deep_recall=deep_recall,
+        metadata_filter=metadata_filter,
+        limit=limit,
+    )
+    return runtime.context_plan
 
 
 def _effective_query(query: str, current_task: str | None) -> str:
@@ -185,4 +251,8 @@ def _merge_results(first, second):  # noqa: ANN001
     return merged
 
 
-__all__ = ["assemble_task_aware_context_plan"]
+__all__ = [
+    "TaskAwareRetrievalRuntime",
+    "assemble_task_aware_context_plan",
+    "build_task_aware_retrieval_runtime",
+]

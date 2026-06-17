@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
+from harness_mem.core.schemas.project_profile import ProjectProfile
+from harness_mem.core.schemas.retrieval_signal import RetrievalSignal
 from harness_mem.search.backend import SearchFilters, SQLiteSearchBackend
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from tests.helpers import run
 
 
@@ -87,3 +90,80 @@ def test_sqlite_search_backend_deep_recall_includes_archive_tier(
     )
 
     assert "mem-cold" in {result.source_id for result in response.results}
+
+
+def test_sqlite_search_backend_explains_context_outcome_ranking_hint(
+    backend: LocalMemoryBackend,
+) -> None:
+    run(_seed(backend))
+    now = datetime.now(timezone.utc)
+    run(
+        LocalProjectProfileStore(backend.data_dir).save(
+            ProjectProfile(project_name="demo", weak_link_signals=True)
+        )
+    )
+    run(
+        backend.structured_store.save_retrieval_signal(
+            RetrievalSignal(
+                project_name="demo",
+                signal_type="context_outcome",
+                target_kind="context_source",
+                target_id="mem-hot",
+                value=1.0,
+                context={
+                    "surface": "search_memory",
+                    "outcome": "used",
+                    "reason": "helped answer storage question",
+                },
+                recorded_at=now - timedelta(hours=1),
+            )
+        )
+    )
+
+    response = run(
+        SQLiteSearchBackend(backend).search(
+            "storage v2 SearchBackend",
+            filters=SearchFilters(project_name="demo"),
+            mode="fts",
+            limit=3,
+        )
+    )
+
+    result = next(item for item in response.results if item.source_id == "mem-hot")
+    assert result.metadata["context_outcome_counts"]["used"] == 1
+    assert result.metadata["context_outcome_score"] == 0.08
+    assert result.metadata["last_context_outcome_at"] is not None
+    assert result.metadata["ranking_explanation"][0]["kind"] == "context_outcome"
+
+
+def test_sqlite_search_backend_outcome_hint_disabled_by_default(
+    backend: LocalMemoryBackend,
+) -> None:
+    run(_seed(backend))
+    run(
+        backend.structured_store.save_retrieval_signal(
+            RetrievalSignal(
+                project_name="demo",
+                signal_type="context_outcome",
+                target_kind="context_source",
+                target_id="mem-hot",
+                value=1.0,
+                context={"surface": "search_memory", "outcome": "used"},
+                recorded_at=datetime.now(timezone.utc),
+            )
+        )
+    )
+
+    response = run(
+        SQLiteSearchBackend(backend).search(
+            "storage v2 SearchBackend",
+            filters=SearchFilters(project_name="demo"),
+            mode="fts",
+            limit=3,
+        )
+    )
+
+    result = next(item for item in response.results if item.source_id == "mem-hot")
+    assert result.metadata["context_outcome_counts"] == {}
+    assert result.metadata["context_outcome_score"] == 0.0
+    assert result.metadata["ranking_explanation"] == []

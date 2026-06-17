@@ -16,7 +16,7 @@ tags: [harness-mem, search]
    - `project_name=<project>`
    - `query=<用户输入>`
    - `mode=auto`（embedding 不可用时自动回退 FTS）
-   - `scope=project`（如果用户加 "across" 关键词改 scope=all）
+   - `scope=project`
 3. **呈现结果**：
    - memory entries 部分按 `[category/memory_type] content (score, mode)` 列
    - observations 部分按 `obs_id session_id preview (score)` 列
@@ -25,5 +25,6 @@ tags: [harness-mem, search]
 **Notes**
 
 - 不改任何状态，只读
+- 这个命令默认只查当前项目；如果用户明确想跨项目借鉴，改用 `/hm:search-all`
 - 如果结果为空，提示用户可以先跑 `/hm:distill` 灌历史
 - 不要求用户手动运行 CLI；CLI 只作为开发者排障兜底

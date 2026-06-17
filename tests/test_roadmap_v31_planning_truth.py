@@ -13,11 +13,11 @@ def test_v31_docs_are_implemented_and_indexed() -> None:
 
     assert "roadmap-v31.md" in docs_readme
     assert "Auto Dream Memory Maintenance" in docs_readme
-    assert "已发布的 v3.1-v5.0.0" in docs_readme
+    assert "已发布的 v3.1-v5.6.0" in docs_readme
     assert "| v3.1.0 | 已发布：Auto Dream Memory Maintenance |" in roadmap_status
     assert "| v3.1.x | 已发布：Auto Dream Memory Maintenance |" in roadmap_status
     assert "v3.4.4 已发布完整 v3.4.x" in roadmap_status
-    assert "当前版本 v5.0.0 在此基础上完成 v4.6-v5.0 Evidence Hardening Track" in roadmap_status
+    assert "当前版本 v5.6.0 在 v4.6-v5.0 Evidence Hardening Track 的证据地基上，完成了" in roadmap_status
     assert "| Auto Dream | `/hm:dream` 读取 DreamRun 账本" in roadmap_status
     assert "| v3.1.x Auto Dream Memory Maintenance | 规划中，未实现 |" not in roadmap_status
     assert "| v3.1.x | Auto Dream Memory Maintenance" in roadmap_status

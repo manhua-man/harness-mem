@@ -127,12 +127,7 @@ from harness_mem.commands.wake import (  # noqa: E402
     build_wake_snapshot,
     cmd_wake_up,
 )
-from harness_mem.context_sufficiency import assemble_task_aware_context_plan  # noqa: E402
-from harness_mem.core.schemas.context_sufficiency import (  # noqa: E402
-    build_retrieval_plan,
-    context_plan_from_response,
-    evaluate_sufficiency,
-)
+from harness_mem.task_context_runtime import orchestrate_task_context  # noqa: E402
 from harness_mem.core.schemas import (  # noqa: E402
     ProceduralCandidate,
     SkillPromotionCandidate,
@@ -156,12 +151,9 @@ from harness_mem.knowledge_cache import (  # noqa: E402
     render_compact_wake_payload,
 )
 from harness_mem.read_api import (  # noqa: E402
-    build_search_project_context_map,
     parse_relative_time_window,
     query_temporal_truth,
     regex_search_observations,
-    search_memory,
-    search_relation_facts,
     search_skills,
     serialize_memory_entry_search_result,
     serialize_observation,
@@ -181,7 +173,6 @@ from harness_mem.runtime_cost import (  # noqa: E402
     surface_cost_report,
 )
 from harness_mem.runtime_health import runtime_health_report  # noqa: E402
-from harness_mem.search.backend import BackendSearchResult, SearchBackendResponse  # noqa: E402
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend  # noqa: E402
 from harness_mem.storage.local_project_profile_store import (  # noqa: E402
     LocalProjectProfileStore,
@@ -266,6 +257,185 @@ def _project_name_for_cost(
 
 
 VALID_MEMORY_TYPES: frozenset[str] = frozenset({"episodic", "semantic", "procedural"})
+VALID_CONTEXT_OUTCOMES: frozenset[str] = frozenset(
+    {"used", "ignored", "misleading"}
+)
+CONTEXT_OUTCOME_VALUES: dict[str, float] = {
+    "used": 1.0,
+    "ignored": 0.0,
+    "misleading": -1.0,
+}
+
+
+def _action(label: str, surface: str, reason: str) -> dict[str, str]:
+    return {"label": label, "surface": surface, "reason": reason}
+
+
+def _search_dx_metadata(
+    *,
+    memory_entry_count: int,
+    relation_fact_count: int,
+    observation_count: int,
+    effective_mode: str,
+    fallback_reason: str | None,
+    project_name: str | None,
+    query: str,
+) -> dict[str, Any]:
+    total = memory_entry_count + relation_fact_count + observation_count
+    next_actions: list[dict[str, str]] = []
+    if total == 0:
+        next_actions.append(
+            _action(
+                "distill_recent_sessions",
+                "/hm:distill",
+                "No confirmed memory matched this query; ingest/distill before relying on search.",
+            )
+        )
+        next_actions.append(
+            _action(
+                "search_raw_evidence",
+                "search_raw",
+                "Use raw evidence search if you need exact transcript snippets before distill.",
+            )
+        )
+    else:
+        next_actions.append(
+            _action(
+                "inspect_sources",
+                "drilldown_hints",
+                "Use returned source ids and read surfaces when a result needs proof.",
+            )
+        )
+        next_actions.append(
+            _action(
+                "record_outcome",
+                "record_context_outcome",
+                "After the task, record used/ignored/misleading so future opt-in ranking is explainable.",
+            )
+        )
+    if fallback_reason:
+        next_actions.append(
+            _action(
+                "check_index_health",
+                "health_summary",
+                "Search degraded to a fallback path; inspect runtime health before claiming quality.",
+            )
+        )
+
+    project_fragment = f" for {project_name}" if project_name else ""
+    why = (
+        f"Returned {memory_entry_count} memory entries, {relation_fact_count} "
+        f"relation facts, and {observation_count} observations{project_fragment} "
+        f"using {effective_mode} mode for query {query!r}."
+    )
+    return {
+        "why_this_result": why,
+        "next_actions": next_actions,
+        "degraded_reason": fallback_reason,
+    }
+
+
+def _wake_dx_metadata(
+    *,
+    success: bool,
+    renderer: str,
+    fallback_reason: str | None,
+    source_coverage: dict[str, int] | None,
+) -> dict[str, Any]:
+    if not success:
+        return {
+            "why_this_result": "Wake did not complete, so no context packet was generated.",
+            "next_actions": [
+                _action(
+                    "check_status",
+                    "get_project_status",
+                    "Status explains whether the project is missing ingest, review, or local setup.",
+                )
+            ],
+            "degraded_reason": fallback_reason or "wake_failed",
+            "drilldown_hints": [],
+        }
+    coverage = source_coverage or {}
+    next_actions = [
+        _action(
+            "answer_with_sources",
+            "supporting_evidence",
+            "Use the returned evidence ids when the task needs proof.",
+        ),
+        _action(
+            "search_specific_gap",
+            "/hm:search",
+            "If the wake packet is too broad, search for the exact subsystem or decision.",
+        ),
+    ]
+    if fallback_reason:
+        next_actions.append(
+            _action(
+                "check_index_health",
+                "health_summary",
+                "Wake used a fallback search path; inspect health before release claims.",
+            )
+        )
+    return {
+        "why_this_result": (
+            f"Generated {renderer} wake context from project profile, rules, "
+            f"handoffs, and task-aware retrieval; source coverage: {coverage}."
+        ),
+        "next_actions": next_actions,
+        "degraded_reason": fallback_reason,
+    }
+
+
+def _status_dx_metadata(counts: dict[str, Any], triage: dict[str, Any]) -> dict[str, Any]:
+    phase = str(triage.get("phase") or "unknown")
+    pending = int(counts.get("pending_candidate_count", 0) or 0)
+    next_actions: list[dict[str, str]] = []
+    suggested = triage.get("suggested_slash")
+    if suggested:
+        next_actions.append(
+            _action(
+                "run_suggested_entry",
+                str(suggested),
+                str(triage.get("reason") or "Recommended next daily-flow step."),
+            )
+        )
+    if pending > 0:
+        next_actions.append(
+            _action(
+                "review_pending_when_needed",
+                "/hm:review",
+                "Pending candidates exist; review only when correcting or rechecking candidates.",
+            )
+        )
+    if counts.get("observation_count", 0) and counts.get("memory_entry_count", 0):
+        next_actions.append(
+            _action(
+                "search_before_task",
+                '/hm:search "<topic>"',
+                "Search narrows the wake context to the current task.",
+            )
+        )
+    degraded_reason = None
+    if phase == "needs-distill":
+        degraded_reason = "no_observations_ingested"
+    elif counts.get("retrieval_health", {}).get("degraded"):
+        degraded_reason = "retrieval_health_degraded"
+    return {
+        "why_this_result": (
+            f"Project is in phase {phase}: {counts.get('observation_count', 0)} "
+            f"observations, {counts.get('memory_entry_count', 0)} memory entries, "
+            f"{pending} pending candidates."
+        ),
+        "next_actions": next_actions,
+        "degraded_reason": degraded_reason,
+        "drilldown_hints": [
+            _action(
+                "status_counts",
+                "get_project_status",
+                "Use counts to decide between wake, search, distill, and review.",
+            )
+        ],
+    }
 
 
 def tool_search_memory(
@@ -308,8 +478,8 @@ def tool_search_memory(
         memory_type = None
 
     parsed_time = parse_relative_time_window(query)
-    entries, obs_list, relation_facts, tech_stack_by_project = asyncio.run(
-        _gather_search_payload(
+    runtime = asyncio.run(
+        orchestrate_task_context(
             backend,
             query=parsed_time.query,
             project_name=project_name,
@@ -317,25 +487,40 @@ def tool_search_memory(
             mode=mode,
             memory_type=memory_type,
             include_history=include_history,
-            deep_recall=deep_recall,
             time_window=parsed_time.time_window,
+            deep_recall=deep_recall,
+            current_task=task,
+            budget_tokens=budget_tokens,
+            auto_deep_recall=True,
         )
     )
-
-    combined_results = entries or relation_facts or obs_list
-    effective_mode = getattr(combined_results[0], "_search_mode", mode) if combined_results else mode
-    fallback_reason = getattr(combined_results[0], "_search_fallback_reason", None) if combined_results else None
-    context_payload = _search_context_plan_payload(
-        project_name=project_name,
-        query=parsed_time.query,
-        task=task,
-        mode=mode,
+    response = runtime.response
+    entries = runtime.entries
+    obs_list = runtime.observations
+    relation_facts = runtime.relation_facts
+    tech_stack_by_project = runtime.tech_stack_by_project
+    effective_mode = response.effective_mode
+    fallback_reason = response.fallback_metadata.get("fallback_reason")
+    context_payload: dict[str, Any] = {}
+    if runtime.context_plan is not None:
+        context_plan = runtime.context_plan
+        context_payload = {
+            "context_sufficiency": context_plan.context_sufficiency.to_dict(),
+            "retrieval_plan": context_plan.retrieval_plan.to_dict(),
+            "context_plan": context_plan.to_dict(),
+            "iterative_retrieval_trace": (
+                context_plan.iterative_retrieval_trace.to_dict()
+            ),
+            "wake_packet": context_plan.wake_packet.to_dict(),
+        }
+    dx_metadata = _search_dx_metadata(
+        memory_entry_count=len(entries),
+        relation_fact_count=len(relation_facts),
+        observation_count=len(obs_list),
         effective_mode=effective_mode,
         fallback_reason=fallback_reason,
-        entries=entries,
-        observations=obs_list,
-        budget_tokens=budget_tokens,
-        deep_recall=deep_recall,
+        project_name=project_name,
+        query=query,
     )
 
     return {
@@ -348,6 +533,8 @@ def tool_search_memory(
         "fallback_reason": fallback_reason,
         "include_history": include_history,
         "deep_recall": deep_recall,
+        "effective_deep_recall": runtime.effective_deep_recall,
+        "orchestration_actions": runtime.orchestration_actions,
         "time_window": (
             {
                 "start": parsed_time.start.isoformat() if parsed_time.start else None,
@@ -376,188 +563,106 @@ def tool_search_memory(
         "memory_entry_count": len(entries),
         "relation_fact_count": len(relation_facts),
         "observation_count": len(obs_list),
+        "backend_budget": response.budget,
+        "backend_truncation": response.truncation,
+        "source_coverage": response.source_coverage,
+        "drilldown_hints": response.drilldown_hints,
+        **dx_metadata,
+        "supporting_evidence": runtime.supporting_evidence,
+        "answer_ready_context": runtime.answer_ready_context,
         **context_payload,
     }
 
 
-def _search_context_plan_payload(
-    *,
-    project_name: str | None,
-    query: str,
-    task: str | None,
-    mode: str,
-    effective_mode: str,
-    fallback_reason: str | None,
-    entries: list[Any],
-    observations: list[Any],
-    budget_tokens: int,
-    deep_recall: bool,
-) -> dict[str, Any]:
-    effective_query = f"{query} {task.strip()}".strip() if task and task.strip() else query
-    results: list[BackendSearchResult] = []
-    for entry in entries:
-        results.append(
-            BackendSearchResult(
-                source_id=entry.id,
-                source_kind="memory_entry",
-                score=_mcp_result_score(entry),
-                preview=str(entry.content),
-                metadata={
-                    "project_name": entry.project_name,
-                    "truth_status": "historical" if entry.valid_to else entry.status,
-                    "tier": getattr(entry, "tier", "hot"),
-                    "memory_type": getattr(entry, "memory_type", None),
-                },
-            )
-        )
-    for observation in observations:
-        results.append(
-            BackendSearchResult(
-                source_id=observation.id,
-                source_kind="observation",
-                score=_mcp_result_score(observation),
-                preview=str(observation.raw_content),
-                metadata={
-                    "project_name": observation.metadata.get("project_name"),
-                    "truth_status": "raw",
-                    "tier": "hot",
-                    "corpus_id": observation.metadata.get("corpus_id"),
-                },
-            )
-        )
-    retrieval_plan = build_retrieval_plan(
-        query=effective_query,
-        project_name=project_name,
-        budget_tokens=budget_tokens,
-        mode=mode,
-        deep_recall=deep_recall,
-    )
-    response = SearchBackendResponse(
-        query=effective_query,
-        requested_mode=mode,
-        effective_mode=effective_mode,
-        results=results,
-        fallback_metadata={
-            "backend": "sqlite",
-            "requested_mode": mode,
-            "effective_mode": effective_mode,
-            "fallback_reason": fallback_reason,
-        },
-        budget={
-            "requested_tokens": budget_tokens,
-            "estimated_tokens": max(0, sum(len(r.preview) for r in results) // 4),
-            "result_limit": len(results),
-        },
-        truncation={
-            "available": len(results),
-            "included": len(results),
-            "dropped": 0,
-            "truncated": False,
-        },
-        source_coverage=_mcp_source_coverage(results),
-        drilldown_hints=[
-            {
-                "source_id": result.source_id,
-                "source_kind": result.source_kind,
-                "read_surface": (
-                    "read_api.get_observations"
-                    if result.source_kind == "observation"
-                    else "read_api.get_memory_entry"
-                ),
-            }
-            for result in results
-        ],
-    )
-    sufficiency = evaluate_sufficiency(
-        query=effective_query,
-        results=results,
-        required_slots=[task] if task else None,
-    )
-    context_plan = context_plan_from_response(
-        project_name=project_name or "",
-        response=response,
-        retrieval_plan=retrieval_plan,
-        sufficiency=sufficiency,
-    )
-    return {
-        "context_sufficiency": sufficiency.to_dict(),
-        "retrieval_plan": retrieval_plan.to_dict(),
-        "context_plan": context_plan.to_dict(),
-        "iterative_retrieval_trace": context_plan.iterative_retrieval_trace.to_dict(),
+def tool_record_context_outcome(
+    project_name: str,
+    surface: str,
+    source_ids: list[str],
+    outcome: str,
+    reason: str | None = None,
+) -> dict:
+    """Record whether surfaced context helped the task without mutating truth."""
+    resolved_project = (project_name or "").strip()
+    if not resolved_project:
+        return {
+            "success": False,
+            "error": "project_name must not be empty",
+            "truth_mutated": False,
+        }
+    normalized_surface = (surface or "").strip()
+    if not normalized_surface:
+        return {
+            "success": False,
+            "error": "surface must not be empty",
+            "truth_mutated": False,
+        }
+    normalized_outcome = (outcome or "").strip().lower()
+    if normalized_outcome not in VALID_CONTEXT_OUTCOMES:
+        return {
+            "success": False,
+            "error": "outcome must be one of: used, ignored, misleading",
+            "truth_mutated": False,
+        }
+    cleaned_source_ids = [
+        str(source_id).strip()
+        for source_id in (source_ids or [])
+        if str(source_id).strip()
+    ]
+    if not cleaned_source_ids:
+        return {
+            "success": False,
+            "error": "source_ids must contain at least one id",
+            "truth_mutated": False,
+        }
+
+    backend = _get_backend()
+    signal_ids: list[str] = []
+    failed_source_ids: list[str] = []
+    context = {
+        "surface": normalized_surface,
+        "outcome": normalized_outcome,
+        "reason": (reason or "").strip()[:500] or None,
     }
+    value = CONTEXT_OUTCOME_VALUES[normalized_outcome]
+    for source_id in cleaned_source_ids:
+        signal = asyncio.run(
+            record_retrieval_signal(
+                backend,
+                project_name=resolved_project,
+                signal_type="context_outcome",
+                target_kind="context_source",
+                target_id=source_id,
+                value=value,
+                context=context,
+            )
+        )
+        if signal is None:
+            failed_source_ids.append(source_id)
+        else:
+            signal_ids.append(signal.id)
 
-
-def _mcp_result_score(result: object) -> float | None:
-    for attr in ("_score", "_hybrid_score", "_fts_score"):
-        score = getattr(result, attr, None)
-        if isinstance(score, (int, float)):
-            return float(score)
-    return None
-
-
-def _mcp_source_coverage(results: list[BackendSearchResult]) -> dict[str, int]:
-    coverage: dict[str, int] = {}
-    for result in results:
-        coverage[result.source_kind] = coverage.get(result.source_kind, 0) + 1
-    return coverage
-
-
-async def _gather_search_payload(
-    backend: LocalMemoryBackend,
-    *,
-    query: str,
-    project_name: str | None,
-    scope: str,
-    mode: str,
-    memory_type: list[str] | None = None,
-    include_history: bool = False,
-    deep_recall: bool = False,
-    time_window: tuple[datetime | None, datetime | None] | None = None,
-) -> tuple[
-    list[Any],
-    list[Any],
-    list[Any],
-    dict[str, list[str]],
-]:
-    """Collect every async dependency for tool_search_memory in a single loop.
-
-    Previously each await spun up its own asyncio.run, which built and tore
-    down the event loop four times per request. Consolidating keeps
-    LocalMemoryBackend's connection pool warm for the duration of one call.
-    """
-    entries, obs_list = await search_memory(
-        backend,
-        project_name=project_name,
-        query=query,
-        scope=scope,
-        mode=mode,
-        memory_entry_limit=20,
-        observation_limit=20,
-        memory_type=memory_type,
-        include_history=include_history,
-        deep_recall=deep_recall,
-        time_window=time_window,
-    )
-    relation_facts = await search_relation_facts(
-        backend,
-        project_name=project_name,
-        query=query,
-        scope=scope,
-        limit=20,
-        include_history=include_history,
-        time_window=time_window,
-    )
-    for entry in entries:
-        await backend.structured_store.touch_memory_entry(entry.id)
-    tech_stack_by_project = await build_search_project_context_map(
-        backend,
-        entries=entries,
-        observations=obs_list,
-        relation_facts=relation_facts,
-    )
-    return entries, obs_list, relation_facts, tech_stack_by_project
-
-
+    return {
+        "success": not failed_source_ids,
+        "project_name": resolved_project,
+        "surface": normalized_surface,
+        "outcome": normalized_outcome,
+        "recorded_count": len(signal_ids),
+        "failed_count": len(failed_source_ids),
+        "signal_ids": signal_ids,
+        "failed_source_ids": failed_source_ids,
+        "truth_mutated": False,
+        "next_actions": [
+            _action(
+                "search_again",
+                "/hm:search",
+                "Opt-in projects can use outcome signals as a small explainable ranking hint.",
+            )
+        ],
+        "why_this_result": (
+            f"Recorded {len(signal_ids)} context outcome signals; confirmed truth was not changed."
+        ),
+        "degraded_reason": "signal_write_failed" if failed_source_ids else None,
+    }
 def tool_timeline(project_name: str, limit: int = 50) -> dict:
     """Return chronological observation timeline for a project."""
     backend = _get_backend()
@@ -1014,17 +1119,32 @@ def tool_get_project_status(project_name: str | None = None) -> dict:
             "suggested_slash": None,
             "reason": "Provide project_name or set an active project before status can resolve memory context.",
             "error": "project_name is required when no active project is set",
+            "why_this_result": "No project was supplied and no active project is configured.",
+            "next_actions": [
+                _action(
+                    "set_active_project",
+                    "set_active_project",
+                    "Set the active project once so wake/search/status can resolve project-scoped memory.",
+                )
+            ],
+            "degraded_reason": "missing_project",
+            "drilldown_hints": [],
         }
 
     backend = _get_backend()
     counts = asyncio.run(_gather_project_status(backend, resolved_project))
     triage = _status_triage_hints(counts)
+    dx_metadata = _status_dx_metadata(counts, triage)
     return {
         "success": True,
         "project_name": resolved_project,
         "active_project": active_project,
+        "truth_runtime_state": backend.runtime_state,
+        "truth_runtime_error": backend.runtime_error,
+        "truth_runtime_recovery_hint": backend.runtime_recovery_hint,
         **counts,
         **triage,
+        **dx_metadata,
     }
 
 
@@ -1223,6 +1343,16 @@ def tool_wake(
         return {
             "success": False,
             "error": "project_name is required when no active project is set",
+            "why_this_result": "Wake cannot resolve a project without project_name or an active project.",
+            "next_actions": [
+                _action(
+                    "set_active_project",
+                    "set_active_project",
+                    "Set the active project once before running the daily wake flow.",
+                )
+            ],
+            "degraded_reason": "missing_project",
+            "drilldown_hints": [],
         }
     normalized_renderer = str(renderer or "default").strip().lower()
     if normalized_renderer not in {"default", COMPACT_RENDERER_NAME}:
@@ -1237,6 +1367,12 @@ def tool_wake(
                 "project_name": resolved,
                 "renderer": normalized_renderer,
                 "error": "include_skill_hints is only supported with renderer=default",
+                **_wake_dx_metadata(
+                    success=False,
+                    renderer=normalized_renderer,
+                    fallback_reason="unsupported_compact_skill_hints",
+                    source_coverage=None,
+                ),
             }
         backend = _get_backend()
         payload = load_compact_wake_payload(backend.data_dir, project_name=resolved)
@@ -1249,13 +1385,26 @@ def tool_wake(
                     "compact wake is unavailable: generated wiki bridge artifacts "
                     "have not been built for this project"
                 ),
+                **_wake_dx_metadata(
+                    success=False,
+                    renderer=normalized_renderer,
+                    fallback_reason="compact_wake_artifacts_missing",
+                    source_coverage=None,
+                ),
             }
+        compact_dx = _wake_dx_metadata(
+            success=True,
+            renderer=normalized_renderer,
+            fallback_reason=None,
+            source_coverage={"compact_payload": 1},
+        )
         return {
             "success": True,
             "project_name": resolved,
             "renderer": normalized_renderer,
             "output": render_compact_wake_payload(payload),
             "compact_payload": payload.to_dict(),
+            **compact_dx,
         }
     command_payload = _run_command_to_payload(
         cmd_wake_up(
@@ -1270,6 +1419,22 @@ def tool_wake(
         effective_skill_hint_limit = (
             DEFAULT_SKILL_HINT_LIMIT if skill_hint_limit is None else skill_hint_limit
         )
+        runtime = asyncio.run(
+            orchestrate_task_context(
+                _get_backend(),
+                query=current_task or "wake context",
+                project_name=resolved,
+                scope="project",
+                mode="auto",
+                include_history=deep_recall,
+                deep_recall=deep_recall,
+                current_task=current_task,
+                budget_tokens=budget_tokens,
+                search_limit=10,
+                context_limit=10,
+                auto_deep_recall=True,
+            )
+        )
         snapshot_payload = asyncio.run(
             build_wake_snapshot(
                 _get_backend(),
@@ -1278,17 +1443,9 @@ def tool_wake(
                 skill_hint_limit=effective_skill_hint_limit,
             )
         )
-        context_plan = asyncio.run(
-            assemble_task_aware_context_plan(
-                _get_backend(),
-                project_name=resolved,
-                query=current_task or "wake context",
-                current_task=current_task,
-                budget_tokens=budget_tokens,
-                deep_recall=deep_recall,
-                limit=10,
-            )
-        )
+        context_plan = runtime.context_plan
+        if context_plan is None:
+            raise RuntimeError("project-scoped wake runtime returned no context plan")
         snapshot_payload.update(
             {
                 "context_sufficiency": context_plan.context_sufficiency.to_dict(),
@@ -1298,12 +1455,32 @@ def tool_wake(
                 ),
                 "context_plan": context_plan.to_dict(),
                 "wake_packet": context_plan.wake_packet.to_dict(),
+                "requested_mode": runtime.response.requested_mode,
+                "effective_mode": runtime.response.effective_mode,
+                "fallback_reason": runtime.response.fallback_metadata.get(
+                    "fallback_reason"
+                ),
+                "backend_budget": runtime.response.budget,
+                "backend_truncation": runtime.response.truncation,
+                "source_coverage": runtime.response.source_coverage,
+                "drilldown_hints": runtime.response.drilldown_hints,
+                "supporting_evidence": runtime.supporting_evidence,
+                "answer_ready_context": runtime.answer_ready_context,
+                "effective_deep_recall": runtime.effective_deep_recall,
+                "orchestration_actions": runtime.orchestration_actions,
             }
         )
+    wake_dx = _wake_dx_metadata(
+        success=bool(command_payload.get("success")),
+        renderer=normalized_renderer,
+        fallback_reason=snapshot_payload.get("fallback_reason"),
+        source_coverage=snapshot_payload.get("source_coverage"),
+    )
     return {
         "project_name": resolved,
         "renderer": normalized_renderer,
         **snapshot_payload,
+        **wake_dx,
         "include_skill_hints": include_skill_hints,
         "skill_hint_limit": skill_hint_limit,
         "current_task": current_task,
@@ -1350,6 +1527,130 @@ def _replay_window_to_input_window(window: ReplayWindow) -> dict[str, Any]:
         "signal_ids": list(window.signal_ids),
         "notes": list(window.notes),
     }
+
+
+_RISK_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3}
+
+
+def _highest_risk(values: list[str]) -> str:
+    if not values:
+        return "none"
+    return max(values, key=lambda value: _RISK_RANK.get(value, 0))
+
+
+def _maintenance_summary(
+    *,
+    candidate_counts: dict[str, int],
+    risk_level: str,
+    auto_applied: bool,
+    needs_human_review: bool,
+    undo_available: bool,
+    message: str,
+) -> dict[str, Any]:
+    summary = {
+        "candidate_counts": candidate_counts,
+        "risk_level": risk_level,
+        "auto_applied": auto_applied,
+        "needs_human_review": needs_human_review,
+        "undo_available": undo_available,
+        "message": message,
+    }
+    return {"maintenance_summary": dict(summary), **summary}
+
+
+def _metabolism_preview_summary(input_window: dict[str, Any]) -> dict[str, Any]:
+    dimensions = input_window.get("dimensions") or {}
+    pending_dim = dimensions.get("pending_candidates") or {}
+    selected_pending = len(pending_dim.get("selected_ids") or [])
+    candidate_counts = {
+        "selected_pending_candidates": selected_pending,
+        "merge_suggestions": 0,
+        "stale_suggestions": 0,
+        "supersede_suggestions": 0,
+    }
+    has_window = any(
+        len((dim or {}).get("selected_ids") or []) > 0
+        for dim in dimensions.values()
+        if isinstance(dim, dict)
+    )
+    return _maintenance_summary(
+        candidate_counts=candidate_counts,
+        risk_level="low" if has_window else "none",
+        auto_applied=False,
+        needs_human_review=selected_pending > 0,
+        undo_available=False,
+        message=(
+            "Preview only; no candidates were written and truth was not changed."
+            if has_window
+            else "No maintenance suggestions selected; project appears clean for this window."
+        ),
+    )
+
+
+def _metabolism_run_summary(output_counts: dict[str, int]) -> dict[str, Any]:
+    total = sum(int(value or 0) for value in output_counts.values())
+    return _maintenance_summary(
+        candidate_counts={key: int(value or 0) for key, value in output_counts.items()},
+        risk_level="medium" if total else "none",
+        auto_applied=False,
+        needs_human_review=total > 0,
+        undo_available=False,
+        message=(
+            "Metabolism wrote pending suggestion candidates for review; truth was not changed."
+            if total
+            else "No maintenance suggestions selected; project appears clean for this window."
+        ),
+    )
+
+
+def _dream_run_summary(run_payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not run_payload:
+        return _maintenance_summary(
+            candidate_counts={
+                "processed": 0,
+                "applied": 0,
+                "rejected": 0,
+                "archived": 0,
+                "failed": 0,
+                "pending_review": 0,
+            },
+            risk_level="none",
+            auto_applied=False,
+            needs_human_review=False,
+            undo_available=False,
+            message="No dream ledger exists yet; no maintenance has been applied.",
+        )
+    summary = {
+        key: int(value or 0)
+        for key, value in (run_payload.get("handling_summary") or {}).items()
+    }
+    items = run_payload.get("items") or []
+    risk_level = _highest_risk(
+        [str(item.get("risk") or "none") for item in items if isinstance(item, dict)]
+    )
+    undo_available = any(
+        isinstance(item, dict)
+        and item.get("final_action") == "applied"
+        and bool(item.get("undo"))
+        and not (item.get("result") or {}).get("undone_at")
+        for item in items
+    )
+    failed = int(summary.get("failed", 0) or 0)
+    archived = int(summary.get("archived", 0) or 0)
+    rejected = int(summary.get("rejected", 0) or 0)
+    applied = int(summary.get("applied", 0) or 0)
+    return _maintenance_summary(
+        candidate_counts=summary,
+        risk_level=risk_level,
+        auto_applied=applied > 0,
+        needs_human_review=failed > 0 or archived > 0 or rejected > 0,
+        undo_available=undo_available,
+        message=(
+            "Dream applied maintenance with undo metadata in the ledger."
+            if applied
+            else "No maintenance was applied in this dream run."
+        ),
+    )
 
 
 def tool_metabolism_preview(
@@ -1456,6 +1757,19 @@ def tool_metabolism_preview(
             "success": False,
             "error": error_message,
             "doctor_pointer": _METABOLISM_PREVIEW_DOCTOR_POINTER,
+            **_maintenance_summary(
+                candidate_counts={
+                    "selected_pending_candidates": 0,
+                    "merge_suggestions": 0,
+                    "stale_suggestions": 0,
+                    "supersede_suggestions": 0,
+                },
+                risk_level="none",
+                auto_applied=False,
+                needs_human_review=True,
+                undo_available=False,
+                message="Metabolism preview failed before selecting maintenance suggestions.",
+            ),
         }
 
     return {
@@ -1466,6 +1780,7 @@ def tool_metabolism_preview(
         "dimensions": input_window["dimensions"],
         "notes": list(window.notes),
         "signals_used": len(window.signal_ids),
+        **_metabolism_preview_summary(input_window),
     }
 
 
@@ -1622,6 +1937,18 @@ def tool_metabolism_run(
             "success": False,
             "error": error_message,
             "doctor_pointer": _METABOLISM_PREVIEW_DOCTOR_POINTER,
+            **_maintenance_summary(
+                candidate_counts={
+                    "merge_suggestions": 0,
+                    "stale_suggestions": 0,
+                    "supersede_suggestions": 0,
+                },
+                risk_level="none",
+                auto_applied=False,
+                needs_human_review=True,
+                undo_available=False,
+                message="Metabolism run failed before writing review candidates.",
+            ),
         }
 
     return {
@@ -1633,6 +1960,7 @@ def tool_metabolism_run(
         "notes": list(combined_notes),
         "signals_used": len(window.signal_ids),
         "output_counts": output_counts,
+        **_metabolism_run_summary(output_counts),
     }
 
 
@@ -1672,15 +2000,17 @@ def tool_dream_ledger(
         return {
             "success": False,
             "error": "project_name is required when no active project is set",
+            **_dream_run_summary(None),
         }
     backend = _get_backend()
-    return asyncio.run(
+    payload = asyncio.run(
         latest_dream_ledger(
             backend,
             project_name=resolved,
             run_id=run_id,
         )
     )
+    return {**payload, **_dream_run_summary(payload.get("run"))}
 
 
 def tool_dream_run(
@@ -1694,12 +2024,13 @@ def tool_dream_run(
         return {
             "success": False,
             "error": "project_name is required when no active project is set",
+            **_dream_run_summary(None),
         }
     root = _resolve_project_root_for_dream(project_root)
     try:
         config = load_merged_config(root)
     except ConfigError as exc:
-        return {"success": False, "error": str(exc)}
+        return {"success": False, "error": str(exc), **_dream_run_summary(None)}
     backend = _get_backend()
     try:
         run = asyncio.run(
@@ -1715,8 +2046,15 @@ def tool_dream_run(
         return {
             "success": False,
             "error": str(exc) or exc.__class__.__name__,
+            **_dream_run_summary(None),
         }
-    return {"success": True, "project_name": resolved, "run": run.to_dict()}
+    run_payload = run.to_dict()
+    return {
+        "success": True,
+        "project_name": resolved,
+        "run": run_payload,
+        **_dream_run_summary(run_payload),
+    }
 
 
 def tool_dream_auto_tick(
@@ -1729,14 +2067,15 @@ def tool_dream_auto_tick(
         return {
             "success": False,
             "error": "project_name is required when no active project is set",
+            **_dream_run_summary(None),
         }
     root = _resolve_project_root_for_dream(project_root)
     try:
         config = load_merged_config(root)
     except ConfigError as exc:
-        return {"success": False, "error": str(exc)}
+        return {"success": False, "error": str(exc), **_dream_run_summary(None)}
     backend = _get_backend()
-    return asyncio.run(
+    payload = asyncio.run(
         dream_auto_tick(
             backend,
             project_name=resolved,
@@ -1745,6 +2084,44 @@ def tool_dream_auto_tick(
             source="scheduler",
         )
     )
+    if payload.get("status") == "completed" and payload.get("summary"):
+        run_summary = {
+            "processed": int(payload["summary"].get("processed", 0) or 0),
+            "applied": int(payload["summary"].get("applied", 0) or 0),
+            "rejected": int(payload["summary"].get("rejected", 0) or 0),
+            "archived": int(payload["summary"].get("archived", 0) or 0),
+            "failed": int(payload["summary"].get("failed", 0) or 0),
+            "pending_review": int(payload["summary"].get("pending_review", 0) or 0),
+        }
+        return {
+            **payload,
+            **_maintenance_summary(
+                candidate_counts=run_summary,
+                risk_level="medium" if run_summary.get("processed", 0) else "none",
+                auto_applied=run_summary.get("applied", 0) > 0,
+                needs_human_review=run_summary.get("failed", 0) > 0,
+                undo_available=run_summary.get("applied", 0) > 0,
+                message="Scheduler completed one dream run and wrote a ledger.",
+            ),
+        }
+    return {
+        **payload,
+        **_maintenance_summary(
+            candidate_counts={
+                "processed": 0,
+                "applied": 0,
+                "rejected": 0,
+                "archived": 0,
+                "failed": 0,
+                "pending_review": 0,
+            },
+            risk_level="none",
+            auto_applied=False,
+            needs_human_review=False,
+            undo_available=False,
+            message=str(payload.get("reason") or "No dream maintenance ran."),
+        ),
+    }
 
 
 def tool_undo_dream_item(
@@ -1758,11 +2135,16 @@ def tool_undo_dream_item(
         return {
             "success": False,
             "error": "project_name is required when no active project is set",
+            **_dream_run_summary(None),
         }
     if not run_id or not item_id:
-        return {"success": False, "error": "run_id and item_id are required"}
+        return {
+            "success": False,
+            "error": "run_id and item_id are required",
+            **_dream_run_summary(None),
+        }
     backend = _get_backend()
-    return asyncio.run(
+    payload = asyncio.run(
         undo_dream_item(
             backend,
             project_name=resolved,
@@ -1770,6 +2152,28 @@ def tool_undo_dream_item(
             item_id=item_id,
         )
     )
+    return {
+        **payload,
+        **_maintenance_summary(
+            candidate_counts={
+                "processed": 1 if payload.get("item") else 0,
+                "applied": 0,
+                "rejected": 0,
+                "archived": 0,
+                "failed": 0 if payload.get("success") else 1,
+                "pending_review": 0,
+            },
+            risk_level="low" if payload.get("success") else "medium",
+            auto_applied=False,
+            needs_human_review=not bool(payload.get("success")),
+            undo_available=False,
+            message=(
+                "Undo completed; ledger item records undone_at."
+                if payload.get("success")
+                else "Undo failed; inspect the returned item and error."
+            ),
+        ),
+    }
 
 
 def tool_ingest_sessions(
@@ -3165,6 +3569,7 @@ TOOLS: dict[str, ToolSpec] = build_tools({
     "confirm_skill_promotion": tool_confirm_skill_promotion,
     "reject_skill_promotion": tool_reject_skill_promotion,
     "record_skill_result": tool_record_skill_result,
+    "record_context_outcome": tool_record_context_outcome,
     "detect_skill_improvements": tool_detect_skill_improvements,
     "confirm_skill_revision": tool_confirm_skill_revision,
     "reject_skill_revision": tool_reject_skill_revision,

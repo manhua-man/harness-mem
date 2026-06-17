@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "5.0.0"
+version = "5.6.0"
 description = "Local-first, pluggable AI memory runtime"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -76,7 +76,6 @@ exclude = [
     "docs/reference-projects.md",
     "docs/releasing.md",
     "docs/testing.md",
-    "docs/retrospective-v13-v14.md",
     "docs/harness-mem-mechanism-article-style.md",
     "docs/benchmark",
     "docs/cli",

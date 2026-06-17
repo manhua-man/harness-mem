@@ -1386,7 +1386,9 @@ def _doctor_storage_v2_block(storage_report: dict[str, Any]) -> None:
             print(f"⚠️  Storage v2 health unavailable: {warning}")
         return
     status = storage_report.get("status") or "unknown"
+    runtime_state = storage_report.get("runtime_state") or "canonical"
     print("Storage v2:")
+    print(f"  runtime truth: {runtime_state}")
     print(
         "  canonical: "
         f"{status} | rows={storage_report.get('canonical_row_count', 0)} | "
@@ -1404,8 +1406,11 @@ def _doctor_storage_v2_block(storage_report: dict[str, Any]) -> None:
             f"{'enabled' if gate.get('enabled') else 'off'} ({gate.get('env')})"
         )
     if status != "healthy" and storage_report.get("fix_command"):
-        print(f"⚠️  Storage v2: {status}")
+        print(f"⚠️  Storage v2: {status} ({runtime_state})")
         print(f"Fix: {storage_report['fix_command']}")
+    recovery_hint = storage_report.get("recovery_hint")
+    if isinstance(recovery_hint, str) and recovery_hint and runtime_state == "degraded_fallback":
+        print(f"  recovery: {recovery_hint}")
     drift = storage_report.get("index_drift") or []
     if drift:
         print(f"⚠️  Storage v2 index drift: {len(drift)} missing index(es)")

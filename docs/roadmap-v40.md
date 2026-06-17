@@ -1,6 +1,6 @@
 # Roadmap: harness-mem v4.0
 
-> 状态：v4.0.0-v4.0.5、v4.1.x、v4.2.x、v4.3.0、v4.4、v4.5 与 v4.6-v5.0 已完成。
+> 状态：v4.0.0-v4.0.5、v4.1.x、v4.2.x、v4.3.0、v4.4、v4.5、v4.6-v5.0 与 v5.1-v5.2 已完成。
 >
 > 主题：Storage v2 + Rust Core + Local Memory Index Fabric。把 harness-mem 从
 > "Python 编排 + JSON blob truth + SQLite index" 升级为 "DB-first canonical
@@ -10,7 +10,8 @@
 > v4.3 已把 code-memory federation 接入 file_context；v4.4/v4.5 把
 > public-claim promotion 与 release evidence packaging 机器化；v4.6-v5.0 已把
 > Evidence Hardening 与 default-change decision gate 收口成 artifact-backed
-> release truth。
+> release truth；v5.1-v5.2 再把 canonical SQLite 和 SearchBackend 正式切成
+> 默认运行时内核。
 
 ---
 
@@ -65,6 +66,7 @@ Python MCP / CLI / Skills
 | v4.4 | Claim Promotion Pack | 把 public claim promotion 做成机器可验证 gate，防止 blocked claim 被文案或报告升级。 |
 | v4.5 | Release Evidence Pack | 把 release snapshot、packaged benchmark resources 和 claim-promotion visibility 做成 clean-checkout 可消费证据包。 |
 | v4.6-v5.0 | Evidence Hardening Track | 把 cost/token、Storage v2 scale、Index Fabric runtime、Rust native hot path 与默认项决策门做成 artifact-backed release truth。 |
+| v5.1-v5.2 | Default Kernel Cutover | 把 canonical SQLite 设为默认 truth store，并把 SearchBackend 接到 MCP search/wake/context assembly 主链路；不在同一轮引入新 backend。 |
 
 核心判断：**Agentic 是检索编排能力，不是自治改记忆能力。** 智能路由、补查、说明证据不足可以做；
 confirmed truth 变更仍必须走 candidate / review / supersede / ledger。
@@ -660,6 +662,31 @@ v4.6-v5.0 已完成为一条 release-truth 收口线：
 dataset hash、command、hardware、冷/热路径、fallback status、token/cost source
 和 no-overclaim boundary。否则只能写成 maintainer diagnostic。
 
+## v5.1-v5.2：Default Kernel Cutover
+
+这条线也已完成。它不再新增 benchmark 赛道，而是把 v4.0-v5.0 已经做出来的
+canonical store contract 和 SearchBackend contract 接到默认运行时主链路上。
+
+| 切片 | 已完成内容 | 主链路变化 | 本轮明确不做 |
+|---|---|---|---|
+| v5.1 Canonical SQLite Default Truth | `LocalMemoryBackend.init()` canonical-first bootstrap、首启 legacy 自动迁移、doctor/status/runtime state、rollback/export compatibility | structured truth 与 observations 默认读写 canonical SQLite；legacy JSON 退到迁移 / export / rollback | 不保留 routine legacy read path；不把 dual-write 变成长期产品 contract |
+| v5.2 SearchBackend Mainline | `tool_search_memory`、query-aware `wake`、task-aware context plan、`context_assembly` L3/L4 共用 `SearchBackendResponse` | mode / fallback / budget / truncation / source coverage 由 backend 统一解释 | 不引入 Tantivy/LanceDB/ANN；不新增 `deep_memory_search`；不做 outcome-aware decay |
+
+### 当前实现（2026-06-18）
+
+- `store_v2/canonical.sqlite` 现在是默认 truth source；`maintenance export-json-snapshot`
+  和 rollback 仍可显式导出 legacy-compatible JSON snapshot。
+- truth-store runtime state 已正式收口为 `canonical`、
+  `bootstrapped_from_legacy`、`degraded_fallback`，doctor 与 maintenance surface
+  会直接报告。
+- MCP `search_memory`、query-aware `wake`、task-aware context plan，以及
+  `context_assembly` 的 L3/L4 query-driven retrieval 都走同一份 backend
+  contract，不再手工拼另一套 compatibility payload。
+- `SearchBackend` 当前仍只有 SQLite 实现；本轮目标是统一默认入口，不是假装已完成
+  多后端可插拔矩阵。
+- 当前 release 沿用 2026-06-16 的 31 个 accepted runs 作为 benchmark truth；
+  这次切换默认内核，但不新增公开性能、token/cost 或 answer-quality claim。
+
 ## 测试矩阵
 
 ```text
@@ -667,6 +694,7 @@ Roadmap truth tests
   docs index includes v4.0
   v4.0/v4.1/v4.2/v4.3/v4.4/v4.5 boundaries are explicit
   v4.6-v5.0 evidence-hardening track is shipped truth
+  v5.1-v5.2 default-kernel cutover is shipped truth
   benchmark gate and no-silent-truth-mutation boundary stay present
 
 Contract tests

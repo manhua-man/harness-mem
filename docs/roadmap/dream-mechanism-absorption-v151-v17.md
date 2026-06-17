@@ -437,5 +437,5 @@ distill 的所有“写动作”都必须降级成建议层输出，例如：
 如果后续要把这份设计落实到 roadmap 文档本体，建议按顺序分三步回填：
 
 1. 在 `roadmap-v15x.md` 的 v1.5.1 段补充 lock / cursor / throttle 细化
-2. 在 `roadmap-vision-v16-v18.md` 的 v1.6 / v1.7 段补充 budget bucket 与 supersede 差异化
+2. 在 v1.6 / v1.7 的 roadmap 文档中补充 budget bucket 与 supersede 差异化
 3. 在“风险与不做的事”中明确排除 `KAIROS / Proactive / 自治删记忆`

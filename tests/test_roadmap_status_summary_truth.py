@@ -7,7 +7,7 @@ def test_roadmap_status_short_summary_mentions_full_completed_range() -> None:
     ).read_text(encoding="utf-8")
 
     assert (
-        "从 v1.5 baseline 到 v5.0.0 Evidence Hardening Track，"
+        "从 v1.5 baseline 到 v5.6.0 Multi-client Release Confidence，"
         "主实现路线已经按一个版本一个文档重切并连续收口。"
         in roadmap_status
     )
@@ -20,7 +20,10 @@ def test_roadmap_status_short_summary_mentions_full_completed_range() -> None:
     assert "v4.0.1-v4.0.5 的 canonical store / Rust facade / index fabric / lifecycle /" in roadmap_status
     assert "distribution gate、v4.1.0 的 context sufficiency / task-aware wake、v4.2.x 的" in roadmap_status
     assert "memory eval matrix / retrieval quality pack、v4.3.0 的 code-memory federation、" in roadmap_status
-    assert "v4.4 的 claim-promotion gate、v4.5.0 的 release-evidence pack，以及 v5.0.0 的" in roadmap_status
+    assert "v4.4 的 claim-promotion gate、v4.5.0 的 release-evidence pack、v5.0 的" in roadmap_status
+    assert "Evidence Hardening Track、v5.1-v5.2 的 Default Kernel Cutover，以及" in roadmap_status
+    assert "v5.3-v5.6 的 Daily Flow DX / Guided Opt-in Maintenance / Outcome-Aware Context Loop /" in roadmap_status
+    assert "Multi-client Release Confidence 都已落地。" in roadmap_status
     assert "v3.8 已收口 benchmark evidence、generated claim hardening、skill evolution governance" in roadmap_status
     assert "未 ready 的 token/cost saving 不能写成已证明的公开节省事实" in roadmap_status
     assert "true-hybrid latency / retrieval recall 也必须限定在本地 synthetic / smoke artifact" in roadmap_status

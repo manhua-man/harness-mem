@@ -14,6 +14,7 @@ VALID_SIGNAL_TYPES: frozenset[str] = frozenset(
         "rejected",
         "wake_surfaced",
         "search_hit",
+        "context_outcome",
         "skill_result_success",
         "skill_result_failure",
         "supersede_completed",
@@ -29,6 +30,7 @@ VALID_TARGET_KINDS: frozenset[str] = frozenset(
         "candidate",
         "observation",
         "supersede",
+        "context_source",
     }
 )
 

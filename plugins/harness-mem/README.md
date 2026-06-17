@@ -8,7 +8,7 @@ It packages four layers:
 
 - **Skills**: tells an agent when to use memory commands, plus an optional conversation autopilot that can proactively wake/search/suggest at task boundaries.
 - **MCP config**: exposes `python -m harness_mem.mcp.server` as hidden structured runtime tools for agents.
-- **IDE commands**: Claude Code slash commands (`/hm:status`, `/hm:distill`, `/hm:wake`, `/hm:search`, `/hm:dream`, optional `/hm:review`, plus `/hm:mark` / `/hm:prune` / `/hm:review-kb` / `/hm:prune-kb` / `/hm:verify-entry` / `/hm:prd-sync`) and reusable command instructions that Cursor/Codex-style agents can follow, so end users do not need to memorize CLI flags or MCP tool names.
+- **IDE commands**: Claude Code slash commands (`/hm:status`, `/hm:distill`, `/hm:wake`, `/hm:search`, `/hm:search-all`, `/hm:dream`, optional `/hm:review`, plus `/hm:mark` / `/hm:prune` / `/hm:review-kb` / `/hm:prune-kb` / `/hm:verify-entry` / `/hm:prd-sync`) and reusable command instructions that Cursor/Codex-style agents can follow, so end users do not need to memorize CLI flags or MCP tool names.
 - **Scripts**: install and doctor helpers for local validation.
 
 Install from the repository root:
@@ -96,7 +96,8 @@ Boundary shorthand:
 | `/hm:distill <project> <n>` | Call MCP `prepare_session_distill` once, run `tools/session-distill`, then apply `auto_review_candidates` as the default low-risk review surface before showing the final review summary. This is the normal closed-loop path. |
 | `/hm:review` | Optional repair/recheck command for pending candidates left over from old runs, high-risk suggestions, or user corrections. Not part of the daily happy path. |
 | `/hm:wake` | Read-only wake-up via MCP `wake`, with optional compact renderer and opt-in skill hints. |
-| `/hm:search "query"` | Hybrid memory search via MCP `search_memory`. |
+| `/hm:search "query"` | Search only the current project via MCP `search_memory`. |
+| `/hm:search-all "query"` | Explicit cross-project search via MCP `search_memory(scope="all")`, grouped by project so you can borrow patterns safely. |
 | `/hm:dream` | v3.1 DreamRun ledger: read the latest opt-in auto-maintenance run, explain item evidence/policy reasons, and undo selected applied items through MCP. |
 | `/hm:mark <session-id> distilled [--keep-raw]` | Mark a session distilled after session-note, raw-review, promotion, draft, and KB guardrails pass. |
 | `/hm:prune --statuses distilled,skipped --source-missing` | Remove source-missing distilled/skipped placeholders from the session-distill manifest. |
@@ -112,6 +113,7 @@ These clients do not need separate repo-local command templates. Reuse the exist
 ```text
 用 harness-mem 唤醒当前项目。
 用 harness-mem 搜索 "auth logic"。
+用 harness-mem 跨项目搜索 "JWT 刷新策略"，告诉我哪些项目做过类似方案。
 用 harness-mem 整理最近 10 个 session，自动审核低风险候选，最后只给我复核摘要。
 ```
 

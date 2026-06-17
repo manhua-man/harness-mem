@@ -1,0 +1,32 @@
+{
+  "benchmark_id": "context_outcome_loop",
+  "status": "ready-to-run",
+  "claim_boundary": "Outcome signals are truth-safe opt-in ranking hints only; this benchmark does not prove broad answer quality, token/cost saving, or default signal influence.",
+  "tasks": [
+    {
+      "capability": "used_outcome_signal",
+      "task_id": "COL-001",
+      "prompt": "Record a used context outcome for a surfaced source id and verify the opt-in search response exposes a positive bounded context_outcome_score with ranking_explanation metadata."
+    },
+    {
+      "capability": "ignored_outcome_signal",
+      "task_id": "COL-002",
+      "prompt": "Record an ignored context outcome for a surfaced source id and verify the signal is counted without mutating confirmed truth."
+    },
+    {
+      "capability": "misleading_outcome_signal",
+      "task_id": "COL-003",
+      "prompt": "Record a misleading context outcome for a surfaced source id and verify the opt-in ranking hint is negative, bounded, and explained."
+    },
+    {
+      "capability": "disabled_influence",
+      "task_id": "COL-004",
+      "prompt": "Search with weak_link_signals disabled and verify stored outcome signals do not affect ranking or imply default-on influence."
+    },
+    {
+      "capability": "truth_safety",
+      "task_id": "COL-005",
+      "prompt": "Compare confirmed truth counts before and after outcome recording to verify the loop writes retrieval signals only."
+    }
+  ]
+}

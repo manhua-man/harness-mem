@@ -64,6 +64,11 @@ When looking for prior work:
 
 Call MCP `search_memory(project_name=<project>, query=<query>, mode="auto")`, then use `timeline` or `get_observations` for provenance.
 
+If the user explicitly wants cross-project borrowing, call
+`search_memory(project_name=<project>, query=<query>, mode="auto", scope="all")`
+and present results grouped by `project_name`, keeping current-project hits
+separate from other projects worth borrowing from.
+
 For distillation maintenance:
 
 Use the matching `/hm:*` entry rather than presenting a terminal command:

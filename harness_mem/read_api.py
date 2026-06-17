@@ -7,28 +7,33 @@ from datetime import datetime, timedelta, timezone
 import re
 from typing import Any, Sequence
 
-from harness_mem.retrieval_signals import record_retrieval_signal
-from harness_mem.signal_influence import pull_recent_signals
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.core.schemas.skill import Skill
+from harness_mem.retrieval_signals import record_retrieval_signal
+from harness_mem.search import backend as search_backend
+from harness_mem.search.backend import (
+    SearchFilters,
+    SQLiteSearchBackend,
+    hydrate_backend_results,
+)
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from harness_mem.storage.local_verbatim_store import RegexObservationMatch
 
+REPEAT_BOOST_BASE = search_backend.REPEAT_BOOST_BASE
+REPEAT_BOOST_WINDOW_DAYS = search_backend.REPEAT_BOOST_WINDOW_DAYS
+REPEAT_BOOST_MIN_HITS = search_backend.REPEAT_BOOST_MIN_HITS
+
 RELATION_TRACE_DEFAULT_DEPTH = 2
 RELATION_TRACE_MAX_DEPTH = 3
 
-# v2.3.1 weak-link signal application — search ranker boost. Gated on
-# ``ProjectProfile.weak_link_signals`` (default off; same flag as the
-# wake re-grouping in ``cmd_wake_up``, so users have one switch instead
-# of two). Boost is additive on the hybrid score; the constant is a
-# heuristic — first deployments use 0.1; v2.3.2 revisits if calibration
-# data shows a need.
-REPEAT_BOOST_BASE = 0.1
-REPEAT_BOOST_WINDOW_DAYS = 7
-REPEAT_BOOST_MIN_HITS = 2  # "repeat" = at least 2 hits in the window
+
+def _optional_isoformat(value: Any) -> str | None:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return None
 
 
 @dataclass(frozen=True)
@@ -135,57 +140,25 @@ async def search_memory(
     time_window: tuple[datetime | None, datetime | None] | None = None,
     record_signals: bool = True,
 ) -> tuple[list[MemoryEntry], list[Observation]]:
-    """Return structured and verbatim search results with shared filtering.
+    """Compatibility facade over the runtime SearchBackend mainline."""
 
-    v1.6.1: ``memory_type`` is an optional list filter on
-    ``MemoryEntry.memory_type``. Multiple values are OR-ed; ``None`` / ``[]``
-    means no filtering. Filter only applies to memory entries — observations
-    have no memory_type concept.
-    """
-    if scope == "all":
-        entries = await backend.structured_store.search_memory_entries(
-            query,
-            project_name=None,
-            limit=memory_entry_limit,
-            mode=mode,
+    backend_limit = max(20, memory_entry_limit + observation_limit + 20)
+    response = await SQLiteSearchBackend(backend).search(
+        query,
+        filters=SearchFilters(
+            project_name=project_name,
+            scope=scope,
             memory_type=memory_type,
             include_history=include_history,
+            time_window=time_window,
             deep_recall=deep_recall,
-            time_window=time_window,
-        )
-        observations = await backend.verbatim_store.search(
-            query,
-            limit=observation_limit,
-            mode=mode,
-            time_window=time_window,
-        )
-        # Cross-project search has no single profile → flag is implicitly
-        # off, no boost. Keep the v2.2 ranking when ``scope == "all"``.
-        if record_signals:
-            await _emit_search_hit_signals(backend, entries, query)
-        return entries, observations
-
-    entries = await backend.structured_store.search_memory_entries(
-        query,
-        project_name,
-        limit=memory_entry_limit,
-        mode=mode,
-        memory_type=memory_type,
-        include_history=include_history,
-        deep_recall=deep_recall,
-        time_window=time_window,
+        ),
+        mode=mode,  # type: ignore[arg-type]
+        limit=backend_limit,
     )
-    observations = await backend.verbatim_store.search(
-        query,
-        project_name=project_name,
-        limit=observation_limit,
-        mode=mode,
-        time_window=time_window,
-    )
-    # v2.3.1: apply repeat-search-hit boost before recording this query's
-    # own search_hit signal so the current call doesn't double-count
-    # against itself.
-    entries = await _apply_repeat_boost(backend, entries, project_name)
+    hydrated = await hydrate_backend_results(backend, response)
+    entries = list(hydrated["memory_entry"])[:memory_entry_limit]
+    observations = list(hydrated["observation"])[:observation_limit]
     if record_signals:
         await _emit_search_hit_signals(backend, entries, query)
     return entries, observations
@@ -215,78 +188,6 @@ async def _emit_search_hit_signals(
             target_id=entry.id,
             context={"query": truncated_query},
         )
-
-
-def _boost_entry(entry: MemoryEntry, boost: float) -> None:
-    """Apply ``boost`` to whichever ranking score the entry carries.
-
-    Hybrid mode populates both ``_hybrid_score`` and ``_score`` on the
-    entry's ``model_extra``; vector-only mode populates ``_score``.
-    FTS-only mode populates ``_fts_score`` (lower-is-better, sign
-    inverted) which we deliberately leave alone — boosting it would
-    require a sign flip and would mix BM25 with a fused ranker.
-
-    Stashes the applied boost in ``_repeat_boost`` so doctor (task 4.4)
-    can report how many entries got boosted in any given run.
-    """
-    for attr in ("_hybrid_score", "_score"):
-        current = getattr(entry, attr, None)
-        if isinstance(current, (int, float)):
-            setattr(entry, attr, float(current) + boost)
-            break
-    setattr(entry, "_repeat_boost", boost)
-
-
-async def _apply_repeat_boost(
-    backend: LocalMemoryBackend,
-    entries: list[MemoryEntry],
-    project_name: str | None,
-) -> list[MemoryEntry]:
-    """Apply the v2.3.1 weak-link search boost to entries (in-place + reorder).
-
-    Skips when:
-    - ``entries`` is empty (nothing to do, no IO).
-    - ``project_name`` is None — cross-project search has no single
-      profile to read the flag from. ``scope == "all"`` callers in
-      :func:`search_memory` short-circuit before reaching this helper;
-      this guard is defense in depth for direct callers.
-    - The profile doesn't exist or ``weak_link_signals`` is False.
-
-    Returns the (possibly reordered) entries list. Re-sorts by the
-    boosted ranking score so a user-visible reorder happens. Doesn't
-    touch the observations list — this boost is entry-only by design.
-    """
-    if not entries or not project_name:
-        return entries
-
-    profile_store = LocalProjectProfileStore(backend.data_dir)
-    profile = await profile_store.get(project_name)
-    if profile is None or not profile.weak_link_signals:
-        return entries
-
-    now = datetime.now(timezone.utc)
-    summaries = await pull_recent_signals(
-        backend,
-        project_name=project_name,
-        target_ids=[entry.id for entry in entries],
-        since=now - timedelta(days=REPEAT_BOOST_WINDOW_DAYS),
-    )
-
-    for entry in entries:
-        summary = summaries.get(entry.id)
-        if summary and summary.search_hit_count >= REPEAT_BOOST_MIN_HITS:
-            _boost_entry(entry, REPEAT_BOOST_BASE)
-
-    # Re-sort by whichever ranking field the search mode populated. FTS-only
-    # mode (``_fts_score`` only, lower-is-better) doesn't get a boost above,
-    # so its order is preserved here.
-    if any(hasattr(e, "_hybrid_score") for e in entries):
-        entries.sort(key=lambda e: getattr(e, "_hybrid_score", 0.0), reverse=True)
-    elif any(hasattr(e, "_score") for e in entries):
-        entries.sort(key=lambda e: getattr(e, "_score", 0.0), reverse=True)
-
-    return entries
-
 
 async def search_relation_facts(
     backend: LocalMemoryBackend,
@@ -733,6 +634,14 @@ def serialize_memory_entry_search_result(
         "provenance": getattr(entry, "provenance"),
         "search_mode": getattr(entry, "_search_mode", requested_mode),
         "score": _raw_search_score(entry),
+        "repeat_boost": getattr(entry, "_repeat_boost", 0.0) or 0.0,
+        "context_outcome_counts": getattr(entry, "_context_outcome_counts", {}),
+        "context_outcome_score": getattr(entry, "_context_outcome_score", 0.0)
+        or 0.0,
+        "last_context_outcome_at": _optional_isoformat(
+            getattr(entry, "_last_context_outcome_at", None)
+        ),
+        "ranking_explanation": getattr(entry, "_ranking_explanation", []),
         **_serialize_validity_fields(entry),
     }
 

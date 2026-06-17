@@ -54,6 +54,7 @@ async def _save_signal(
     target_kind: str,
     target_id: str,
     recorded_at: datetime,
+    context: dict | None = None,
 ) -> None:
     """Persist a :class:`RetrievalSignal` via the concrete store.
 
@@ -69,6 +70,7 @@ async def _save_signal(
             target_kind=target_kind,
             target_id=target_id,
             recorded_at=recorded_at,
+            context=context,
         )
     )
 
@@ -155,7 +157,12 @@ async def test_pull_recent_signals_aggregates_two_types(
     assert b.search_hit_count == 1
     assert b.last_signal_at == b_recorded_at
 
-    assert summaries["target_c"] == TargetSignalSummary(0, 0, None)
+    assert summaries["target_c"] == TargetSignalSummary(
+        0,
+        0,
+        None,
+        {"used": 0, "ignored": 0, "misleading": 0},
+    )
 
     # Empty target_ids ⇒ empty dict, no IO. Documented short-circuit.
     assert (
@@ -167,6 +174,58 @@ async def test_pull_recent_signals_aggregates_two_types(
         )
         == {}
     )
+
+
+@pytest.mark.anyio
+async def test_pull_recent_signals_aggregates_context_outcomes(
+    backend: LocalMemoryBackend,
+) -> None:
+    project_name = "proj-context-outcomes"
+    now = datetime.now(timezone.utc)
+
+    await _save_signal(
+        backend,
+        project_name=project_name,
+        signal_type="context_outcome",
+        target_kind="context_source",
+        target_id="entry-a",
+        recorded_at=now - timedelta(hours=1),
+        context={"outcome": "used", "surface": "search_memory"},
+    )
+    await _save_signal(
+        backend,
+        project_name=project_name,
+        signal_type="context_outcome",
+        target_kind="context_source",
+        target_id="entry-a",
+        recorded_at=now - timedelta(hours=2),
+        context={"outcome": "misleading", "surface": "wake"},
+    )
+    await _save_signal(
+        backend,
+        project_name=project_name,
+        signal_type="context_outcome",
+        target_kind="context_source",
+        target_id="entry-a",
+        recorded_at=now - timedelta(hours=3),
+        context={"outcome": "ignored", "surface": "search_memory"},
+    )
+
+    summaries = await pull_recent_signals(
+        backend,
+        project_name=project_name,
+        target_ids=["entry-a"],
+        since=now - timedelta(days=1),
+    )
+
+    summary = summaries["entry-a"]
+    assert summary.context_outcome_counts == {
+        "used": 1,
+        "ignored": 1,
+        "misleading": 1,
+    }
+    assert summary.context_outcome_score == pytest.approx(-0.08)
+    assert summary.last_context_outcome_at == now - timedelta(hours=1)
 
 
 # ---------------------------------------------------------------------------

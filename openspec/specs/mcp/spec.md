@@ -98,6 +98,29 @@ Response: {
 }
 ```
 
+### Requirement: Daily flow tools expose guidance metadata
+
+`get_project_status`, `wake`, and `search_memory` SHALL return additive DX
+metadata so an agent can explain the next step without reading source:
+`next_actions`, `why_this_result`, `degraded_reason`, and `drilldown_hints`
+where source drilldown applies. These fields SHALL be non-destructive and SHALL
+NOT change confirmed truth, candidate status, or retrieval signal counters.
+
+#### Scenario: search_memory explains result and next action
+
+- **WHEN** `search_memory(project_name="demo", query="auth")` returns results
+- **THEN** the response includes `why_this_result`
+- **AND** includes `next_actions` such as source drilldown or outcome recording
+- **AND** includes `degraded_reason=null` or the backend fallback reason
+
+#### Scenario: status suggests distill for empty project
+
+- **GIVEN** a project has zero observations
+- **WHEN** `get_project_status(project_name="demo")` runs
+- **THEN** the response includes `phase="needs-distill"`
+- **AND** `next_actions` points to the distill entry
+- **AND** `degraded_reason="no_observations_ingested"`
+
 ### Requirement: list_candidates 审核入口
 
 MCP MUST 提供 `list_candidates` 工具，用于按项目和状态列出待审结构化记忆候选，覆盖 rule candidate、memory entry、relation fact、supersede candidate、procedural candidate 五类。`search_memory` 仍 MUST 默认只返回 accepted 记忆，不得被用作 pending 审核列表来源。
@@ -256,6 +279,69 @@ Response: { "results": [...], "project_count": 1 }
   "fallback_reason": null
 }
 ```
+
+### Requirement: MCP search and query-aware wake share backend retrieval semantics
+
+The MCP server SHALL use the authoritative runtime `SearchBackendResponse` for
+`search_memory` and for query-aware wake support payloads, while preserving the
+existing MCP input and output schema.
+
+#### Scenario: search_memory consumes authoritative backend response
+
+- **WHEN** `search_memory(project_name="demo", query="storage v2")` runs
+- **THEN** the server returns memory entries and observations derived from the runtime backend response
+- **AND** the response exposes requested mode, effective mode, fallback reason, budget, and truncation metadata from that backend response
+
+#### Scenario: wake packet retrieval semantics match MCP search
+
+- **WHEN** `wake(project_name="demo", current_task="storage v2")` runs
+- **THEN** the query-aware wake packet is assembled from the same backend retrieval contract used by `search_memory`
+- **AND** the public wake output format remains unchanged
+- **AND** the query-aware packet does not synthesize a second independent retrieval interpretation
+
+### Requirement: MCP records context outcome signals without mutating truth
+
+The MCP server SHALL expose `record_context_outcome(project_name, surface,
+source_ids, outcome, reason)` for recording whether returned context was
+`used`, `ignored`, or `misleading`. The tool SHALL write only
+`RetrievalSignal(signal_type="context_outcome", target_kind="context_source")`
+records and SHALL return `truth_mutated=false`.
+
+#### Scenario: Context outcome is signal-only
+
+- **WHEN** `record_context_outcome` is called with two source ids and `outcome="used"`
+- **THEN** the response reports `recorded_count=2`
+- **AND** each signal context includes `surface`, `outcome`, and optional `reason`
+- **AND** no MemoryEntry, ConfirmedRule, RelationFact, or candidate status is changed
+
+#### Scenario: Invalid outcome is rejected
+
+- **WHEN** `record_context_outcome` is called with `outcome="helpful"`
+- **THEN** the response returns `success=false`
+- **AND** the error lists `used`, `ignored`, and `misleading`
+
+### Requirement: Maintenance tools expose guided summaries
+
+`metabolism_preview`, `metabolism_run`, `dream_ledger`, `dream_run`,
+`dream_auto_tick`, and `undo_dream_item` SHALL include a unified maintenance
+summary with `candidate_counts`, `risk_level`, `auto_applied`,
+`needs_human_review`, and `undo_available`. No-op maintenance SHALL return an
+explicit message rather than an empty output.
+
+#### Scenario: Metabolism run writes candidates, not truth
+
+- **WHEN** `metabolism_run(project_name="demo")` creates suggestion candidates
+- **THEN** the response includes `candidate_counts`
+- **AND** `auto_applied=false`
+- **AND** `needs_human_review=true`
+- **AND** `undo_available=false`
+
+#### Scenario: Dream run exposes undo availability
+
+- **WHEN** `dream_run(project_name="demo")` applies a maintenance item
+- **THEN** the response includes `auto_applied=true`
+- **AND** `undo_available=true` when the ledger item carries undo metadata
+- **AND** the ledger remains the source of rollback evidence
 
 ### Requirement: MCP supersede review tools
 

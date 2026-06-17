@@ -49,7 +49,8 @@ class ProjectProfile(BaseModel):
             "Opt-in flag for v2.3.1 weak-link signal application: when True, "
             "wake re-groups confirmed rules into Recent active / Stable / "
             "quiet using RetrievalSignal history, and search_memory boosts "
-            "results with repeat search hits. Default off; flip on after "
+            "results with repeat search hits plus bounded context outcome "
+            "hints. Default off; flip on after "
             "the project has accumulated enough signal history (typically "
             "after a week of normal usage)."
         ),
