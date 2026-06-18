@@ -2,7 +2,7 @@
 
 > **Maintainer working note — subjective matrix.**
 >
-> 核对日期：2026-06-18 · harness-mem **v5.6.0**（v5.3-v5.6 已加入 DX / maintenance / outcome-loop / field-test artifacts，评分仍按 artifact-backed 保守口径）
+> 核对日期：2026-06-18 · harness-mem **v5.8.0**（v5.7-v5.8 已加入 temporal retrieval / generated claim drilldown / guided maintenance profiles / MCP tool profile，评分仍按 artifact-backed 保守口径）
 >
 > 本文是**能力雷达**，不是跨项目「总分榜」；若用于对外材料，应先转化为有本仓 artifact 支撑的具体 claim。
 > 参考边界与「该借什么 / 不该借什么」仍以 [`reference-projects.md`](./reference-projects.md) 为准；
@@ -74,11 +74,12 @@
 
 | 维度 | harness-mem | 参考项目峰值 | 读法 |
 |------|------------:|-------------:|------|
-| ① Wake | 90 | claude-mem **92** | 披露略逊峰值 2 分 |
-| ③ 检索 | 86 | mempalace **93** | 检索 recall 仍低于 mempalace 自报 |
-| ④ Truth | **94** | （无更高） | hm 在该维为参考中最强档 |
-| ⑦ Wiki | 76 | meta-kb **97** | 刻意不做 wiki-as-truth，差距预期内 |
-| ⑧ 成本 | 68 | OpenSpace **87** | 有观测；全局 saving claim 仍 blocked |
+| ① Wake | 91 | claude-mem **92** | 披露仍略逊峰值 1 分 |
+| ③ 检索 | 86 | hindsight **94** | 检索 recall 仍低于 hindsight / mempalace 自报 |
+| ④ Truth | **94** | （无更高 live runtime） | hm 在该维为参考中最强档 |
+| ⑤ MCP | 92 | hindsight **93** | v5.8 `minimal|full` profile 缩小暴露面差距 |
+| ⑦ Wiki | 80 | meta-kb **97** | 刻意不做 wiki-as-truth |
+| ⑧ 成本 | 69 | OpenSpace **87** | 有观测；全局 saving claim 仍 blocked |
 
 下图「参考项目峰值」节点即上表这类**分维天花板**标签，避免误读为 harness-mem 得分。
 
@@ -88,7 +89,7 @@
 
 | 项目 | 定位 | ① | ② | ③ | ④ | ⑤ | ⑥ | ⑦ | ⑧ | ⑨ | ⑩ | **均分** |
 |------|------|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|---------:|
-| **harness-mem** v5.6 | 跨会话 memory runtime + truth gate | **90** | 87 | 86 | **94** | 88 | 83 | 76 | 68 | 74 | **95** | **84.1** |
+| **harness-mem** v5.8 | 跨会话 memory runtime + truth gate | **91** | 87 | 86 | **94** | **92** | 87 | 80 | 69 | **84** | **96** | **86.6** |
 | hindsight | 生产级 memory OS | 88 | **93** | **94** | 80 | **93** | **91** | 52 | 75 | 90 | 78 | 83.4 |
 | mempalace | memory 引擎 | 88 | 90 | **93** | 74 | 90 | 84 | 76 | 52 | 78 | 94 | 81.9 |
 | claude-mem | hook 压缩 + 渐进检索 | **92** | 86 | 78 | 20 | 90 | 32 | 52 | 72 | 38 | 48 | 60.8 |
@@ -109,39 +110,37 @@
 
 | 维 | 峰值项目 | 峰值分 | harness-mem | 差值 |
 |----|----------|-------:|------------:|-----:|
-| ① Wake | claude-mem | 92 | 90 | −2 |
+| ① Wake | claude-mem | 92 | 91 | −1 |
 | ② 存储 | hindsight | 93 | 87 | −6 |
 | ③ 检索 | hindsight | 94 | 86 | −8 |
 | ④ Truth | harness-mem / meta-kb* | 94 | 94 | 0 |
-| ⑤ MCP | hindsight | 93 | 88 | −5 |
-| ⑥ 时序 | hindsight | 91 | 83 | −8 |
-| ⑦ Wiki | meta-kb | 97 | 76 | −21 |
-| ⑧ 成本 | OpenSpace | 87 | 68 | −19 |
-| ⑨ 维护 | ai-harness | 93 | 74 | −19 |
-| ⑩ 证据 | harness-mem | 95 | 95 | 0 |
+| ⑤ MCP | hindsight | 93 | 92 | −1 |
+| ⑥ 时序 | hindsight | 91 | 87 | −4 |
+| ⑦ Wiki | meta-kb | 97 | 80 | −17 |
+| ⑧ 成本 | OpenSpace | 87 | 69 | −18 |
+| ⑨ 维护 | ai-harness | 93 | 84 | −9 |
+| ⑩ 证据 | harness-mem / evo* | 96 | 96 | 0 |
 
 \* meta-kb 的 94 是**编译期 claims 验证**，不是 live memory runtime；与 harness-mem 同分但品类不同。
 
 ---
 
-## harness-mem 十维分项依据（v5.6.0）
+## harness-mem 十维分项依据（v5.8.0）
 
 | 维 | 分 | 主要依据 | 相对结论 |
 |----|---:|----------|----------|
-| ① Wake | **90** | `wake`、`context_assembly`、task-aware `wake_packet`；v5.2 `SearchBackend` 主链路；v5.3 guidance metadata | 略逊 claude-mem hook 自动注入；强于无 runtime wake 的 meta-kb |
-| ② 存储 | **87** | v5.1 canonical SQLite 默认 truth；Storage v2 10k/100k/1M accepted；`index_fabric` + `harness_mem_core_rs` | 索引广度不及 codedb-mcp；memory store 纪律强于 claude-mem 直写 obs |
-| ③ 检索 | **86** | LongMemEval hybrid-real **R@5=0.953**（[`benchmark/v160-baseline.md`](./benchmark/v160-baseline.md)）；reranker/HyDE 默认关 | 低于 mempalace 自报 96.6%、hindsight TEMPR；有 drift suite + shootout |
-| ④ Truth | **94** | `auto_review_candidates`、supersede、dream undo ledger；无静默改 confirmed truth | 参考项目中 live runtime 最强档 |
-| ⑤ MCP | **88** | `harness_mem/mcp/server.py` 33+ 工具；Cursor/Claude/Codex hook + `/hm:*`；v5.6 field-test packet | 略逊 hindsight、claude-mem 安装面 |
-| ⑥ 时序 | **83** | MCP `temporal_query`：current/history/as_of、valid/recorded、supersede 链 | 弱于 hindsight、mempalace KG；强于 claude-mem |
-| ⑦ Wiki | **76** | `knowledge_cache`、wiki bridge、claim metadata、citation validation | 弱于 llm_wiki / meta-kb / ai-harness；**刻意边界** |
-| ⑧ 成本 | **68** | `surface_cost_report`、v4.6 bounded fixture；**`token_cost_saving.ready=false`**（全局） | 有观测、无公开全局省钱宣称 |
-| ⑨ 维护 | **74** | Auto Dream opt-in、`dream_ledger`、metabolism；v5.4 unified maintenance summary；host 默认 off | 弱于常驻 daemon 类参考；符合不默认后台自治 |
-| ⑩ 证据 | **95** | 31 accepted runs、八维 `memory_eval_matrix`、`claim_promotion`、`default_change_decision_gate.ready=true` | 参考项目中最完整的 release evidence 链 |
+| ① Wake | **91** | `wake`、`context_assembly`、task-aware `wake_packet`；v5.3 `next_actions` / `why_this_result` | 仍略逊 claude-mem hook 自动注入 |
+| ② 存储 | **87** | v5.1 canonical SQLite 默认 truth；Storage v2 10k/100k/1M accepted；`index_fabric` + `harness_mem_core_rs` | 索引广度不及 codedb-mcp / hindsight |
+| ③ 检索 | **86** | LongMemEval hybrid-real **R@5=0.953**；reranker/HyDE 默认关 | 低于 mempalace 自报、hindsight TEMPR |
+| ④ Truth | **94** | `auto_review_candidates`、supersede、dream undo ledger | live runtime 最强档 |
+| ⑤ MCP | **92** | 60-tool full profile + 28-tool minimal profile；v5.6 multi-client field-test packet | 略逊 hindsight；强于多数参考 |
+| ⑥ 时序 | **87** | MCP `temporal_query` read model + v5.7 主路径 temporal metadata / drilldown | 弱于 hindsight，但主路径可发现性已补 |
+| ⑦ Wiki | **80** | wiki bridge；v5.7 generated claim drilldown；v5.8 incremental compile；generated 不替代 truth | 刻意边界 |
+| ⑧ 成本 | **69** | `surface_cost_report`；v5.5 outcome signal；**全局 saving 仍 blocked** | 弱于 OpenSpace |
+| ⑨ 维护 | **84** | v5.4 `maintenance_summary`；Auto Dream opt-in；v5.8 guided maintenance profiles | 弱于 ai-harness 常驻 daemon |
+| ⑩ 证据 | **96** | 31 accepted runs + `context_outcome_loop` / `guided_maintenance_profiles` loop gates | 与 evo 实验纪律并列峰值档 |
 
-v5.6 注记：v5.3-v5.6 已新增 daily-flow DX metadata、guided maintenance summary、`record_context_outcome`、opt-in outcome ranking metadata、`context_outcome_loop` loop harness 和 v5.6 field-test packet。这些提升作为 release gate / UX 实现记录；正式重算分数前，不把它们写成 answer-quality、token/cost 或生产 ranking claim。
-
-**Memory runtime 六维加权**（①③④⑤⑥⑨，各 1/6）：约 **86** — 与 mempalace / hindsight 胶着；**胜在治理 + 证据，输在纯检索峰值与平台化体验**。
+**Memory runtime 六维加权**（①③④⑤⑥⑨）：约 **89** — v5.8 tool profile、temporal drilldown 与 guided maintenance profile 缩小 MCP/时序/维护差距；检索质量与成本公开 claim 差距仍在。
 
 ---
 
@@ -153,26 +152,26 @@ v5.6 注记：v5.3-v5.6 已新增 daily-flow DX metadata、guided maintenance su
 flowchart TB
   subgraph hm_lead["harness-mem 领先"]
     T4["④ Truth 治理 94"]
-    T10["⑩ 证据纪律 95"]
+    T10["⑩ 证据纪律 96"]
   end
 
   subgraph hm_strong["harness-mem 第一梯队"]
-    T1["① Wake 90"]
+    T1["① Wake 91"]
     T3["③ 检索 86"]
-    T5["⑤ MCP 88"]
-    T6["⑥ 时序 83"]
+    T5["⑤ MCP 91"]
+    T6["⑥ 时序 87"]
   end
 
   subgraph hm_gap["harness-mem 弱项或刻意保守"]
-    T7["⑦ Wiki 76"]
-    T8["⑧ 成本 68"]
-    T9["⑨ 维护 74"]
+    T7["⑦ Wiki 80"]
+    T8["⑧ 成本 69"]
+    T9["⑨ 维护 84"]
   end
 
   subgraph ref_peak["参考项目峰值（分维天花板，非 hm 得分）"]
   direction TB
     R1["对照：claude-mem Wake 92"]
-    R2["对照：mempalace 检索 93"]
+    R2["对照：hindsight 检索 94"]
     R3["对照：hindsight 时序 91"]
     R4["对照：codedb-mcp 索引 90"]
     R5["对照：meta-kb Wiki 97"]
@@ -192,7 +191,7 @@ flowchart TB
 | 维度 | 说明 |
 |------|------|
 | ④ Truth 治理 | 候选 / 审核 / supersede / ledger 闭环；claude-mem、hypatia 等普遍弱 |
-| ⑩ 证据纪律 | 28 collections + claim gate；evo 实验纪律强但不是 memory 证据链 |
+| ⑩ 证据纪律 | 29 collections + claim gate；evo 实验纪律强但不是 memory 证据链 |
 | ⑥ 时序（工程克制） | SQLite 双时态 read model，不上图数据库重资产 |
 
 ### 中等偏上，有明确差距
@@ -231,7 +230,7 @@ flowchart TB
 - **generated layer 不是 truth store**
 - **code-intel substrate 不是 memory runtime**
 - retrieval / cost / latency 的 public claim 只能来自本仓 **named artifact**
-- 本文分数若进入 README、CHANGELOG 或对外宣传，需改写为单项、可溯源的 claim；不要原样搬运主观分
+- 本文分数如需复用，必须拆成单项、可溯源、artifact-backed 的具体 claim；不要原样搬运主观分。
 
 ---
 
@@ -243,8 +242,9 @@ flowchart TB
 | [`roadmap-status.md`](./roadmap-status.md) | 当前版本与 claim 边界 |
 | [`how-it-works-visual-guide.md`](./how-it-works-visual-guide.md) | 用户向运行图解 |
 | [`benchmark/v160-baseline.md`](./benchmark/v160-baseline.md) | LongMemEval R@5 锚点 |
-| [`../benchmark-suite/BENCHMARKS.md`](../benchmark-suite/BENCHMARKS.md) | 28 collections 目录 |
+| [`../benchmark-suite/BENCHMARKS.md`](../benchmark-suite/BENCHMARKS.md) | 29 collections 目录 |
 | [`../canvases/harness-mem-completion.canvas.tsx`](../canvases/harness-mem-completion.canvas.tsx) | 五维完成度 Canvas |
+| [`../canvases/harness-mem-reference-comparison.canvas.tsx`](../canvases/harness-mem-reference-comparison.canvas.tsx) | **十维参考对比 Canvas**（hm vs 峰值） |
 
 ---
 

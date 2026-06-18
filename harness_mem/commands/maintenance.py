@@ -459,7 +459,11 @@ async def cmd_export_json_snapshot(
     return 0 if result["snapshot_checksum_match"] else 1
 
 
-async def cmd_rebuild_wiki_bridge(project_name: str | None = None) -> int:
+async def cmd_rebuild_wiki_bridge(
+    project_name: str | None = None,
+    *,
+    incremental: bool = False,
+) -> int:
     """Rebuild generated wiki-bridge artifacts from accepted sources."""
     resolved_project = resolve_project_name(
         project_name,
@@ -479,8 +483,10 @@ async def cmd_rebuild_wiki_bridge(project_name: str | None = None) -> int:
             project_name=resolved_project,
             profile=profile,
             project_root=find_project_root(resolved_project),
+            incremental=incremental,
         )
         print(f"Rebuilt wiki bridge: {resolved_project}")
+        print(f"Incremental: {str(result.get('incremental', False)).lower()}")
         print(f"Claims: {result['claim_count']}")
         print(f"Invalid claims: {result['invalid_claim_count']}")
         print(f"Topics: {result['topic_count']}")
@@ -489,6 +495,7 @@ async def cmd_rebuild_wiki_bridge(project_name: str | None = None) -> int:
         print(f"Cache hit ratio: {result['cache_hit_ratio']:.2f}")
         print(f"Compile duration: {result['compile_duration_ms']} ms")
         print(f"Output token estimate: {result['output_token_estimate']}")
+        print(f"Skipped sources: {result.get('skipped_source_count', 0)}")
         print(
             "Claim diff: "
             f"+{result['claim_diff']['added']} "
@@ -507,6 +514,8 @@ async def cmd_rebuild_wiki_bridge(project_name: str | None = None) -> int:
                 "topic_count": result["topic_count"],
                 "entity_count": result["entity_count"],
                 "cache_hit_ratio": result["cache_hit_ratio"],
+                "incremental": bool(result.get("incremental", False)),
+                "skipped_source_count": result.get("skipped_source_count", 0),
             },
         )
         return 0

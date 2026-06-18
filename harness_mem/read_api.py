@@ -1091,14 +1091,27 @@ def _serialize_validity_fields(result: object) -> dict[str, Any]:
     valid_to = _normalize_datetime(getattr(result, "valid_to", None))
     valid_from = _normalize_datetime(getattr(result, "valid_from", None))
     recorded_at = _normalize_datetime(getattr(result, "recorded_at", None))
-    return {
+    is_historical = bool(valid_to and valid_to <= datetime.now(timezone.utc))
+    superseded_by = list(getattr(result, "superseded_by", []) or [])
+    if is_historical and superseded_by:
+        temporal_scope = "superseded"
+    elif is_historical:
+        temporal_scope = "historical"
+    else:
+        temporal_scope = "current"
+    payload = {
         "valid_from": valid_from.isoformat() if valid_from else None,
         "valid_to": valid_to.isoformat() if valid_to else None,
         "recorded_at": recorded_at.isoformat() if recorded_at else None,
         "supersedes": list(getattr(result, "supersedes", []) or []),
-        "superseded_by": list(getattr(result, "superseded_by", []) or []),
-        "is_historical": bool(valid_to and valid_to <= datetime.now(timezone.utc)),
+        "superseded_by": superseded_by,
+        "is_historical": is_historical,
+        "temporal_scope": temporal_scope,
     }
+    history_included_reason = getattr(result, "_history_included_reason", None)
+    if isinstance(history_included_reason, str) and history_included_reason:
+        payload["history_included_reason"] = history_included_reason
+    return payload
 
 
 def _normalize_datetime(value: object) -> datetime | None:

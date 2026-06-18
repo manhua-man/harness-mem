@@ -251,7 +251,10 @@ def load_compact_wake_payload(
             "cache_hit_ratio": float(compile_metrics.get("cache_hit_ratio", 0.0) or 0.0),
             "updated_at": index_payload.get("updated_at"),
         },
-        drilldown_pointers=_collect_compact_drilldown_pointers(claims),
+        drilldown_pointers=_collect_compact_drilldown_pointers(
+            claims,
+            project_name=project_name,
+        ),
     )
 
 
@@ -433,6 +436,9 @@ async def knowledge_cache_health(
         "hash_drift_count": int(freshness.get("hash_drift_count", len(stale_sources)) or 0),
         "cache_hit_ratio": float(compile_metrics.get("cache_hit_ratio", 0.0) or 0.0),
         "compile_duration_ms": int(compile_metrics.get("duration_ms", 0) or 0),
+        "last_compile_at": generated_index.get("updated_at"),
+        "incremental_compile": bool(compile_metrics.get("incremental", False)),
+        "skipped_source_count": int(compile_metrics.get("skipped_source_count", 0) or 0),
         "output_token_estimate": int(compile_metrics.get("output_token_estimate", 0) or 0),
         "orphaned_output_count": len(orphaned_outputs),
         "generated_review_queue_count": len(generated_review_queue),
@@ -487,6 +493,7 @@ async def rebuild_wiki_bridge(
     project_name: str,
     profile: ProjectProfile | None,
     project_root: Path | None,
+    incremental: bool = False,
 ) -> dict[str, Any]:
     """Compile accepted truth + curated docs into generated wiki-bridge artifacts."""
     started = time.perf_counter()
@@ -507,15 +514,41 @@ async def rebuild_wiki_bridge(
         project_name=project_name,
         sources=sources,
     )
+    tracked_outputs = [
+        GENERATED_CLAIMS_FILENAME,
+        GENERATED_TOPICS_FILENAME,
+        GENERATED_ENTITIES_FILENAME,
+        GENERATED_SOURCE_MAP_FILENAME,
+        GENERATED_CLAIM_DIFF_FILENAME,
+    ]
+    source_hashes_unchanged = _source_hashes_unchanged(previous_sources, sources)
+    generated_outputs_exist = all(
+        (paths.generated_root / output).exists()
+        for output in tracked_outputs
+    )
+    if incremental and source_hashes_unchanged and generated_outputs_exist:
+        return _record_incremental_compile_skip(
+            paths,
+            project_name=project_name,
+            previous_index=previous_index,
+            sources=sources,
+            tracked_outputs=tracked_outputs,
+            started=started,
+        )
 
     memory_entries = await backend.structured_store.list_memory_entries(
         project_name,
         limit=100000,
+        include_history=True,
     )
-    confirmed_rules = await backend.structured_store.list_confirmed_rules(project_name)
+    confirmed_rules = await backend.structured_store.list_confirmed_rules(
+        project_name,
+        include_history=True,
+    )
     relation_facts = await backend.structured_store.list_relation_facts(
         project_name,
         limit=100000,
+        include_history=True,
     )
 
     claims: list[GeneratedClaim] = []
@@ -574,16 +607,11 @@ async def rebuild_wiki_bridge(
     source_map_path.write_text(json.dumps(source_map, indent=2), encoding="utf-8")
     claim_diff_path.write_text(json.dumps(claim_diff, indent=2), encoding="utf-8")
 
-    tracked_outputs = [
-        GENERATED_CLAIMS_FILENAME,
-        GENERATED_TOPICS_FILENAME,
-        GENERATED_ENTITIES_FILENAME,
-        GENERATED_SOURCE_MAP_FILENAME,
-        GENERATED_CLAIM_DIFF_FILENAME,
-    ]
     cache_hit_count = sum(1 for claim in valid_claims if claim.cache_status == "reused")
     compile_metrics = {
         "duration_ms": int((time.perf_counter() - started) * 1000),
+        "incremental": bool(incremental),
+        "skipped_source_count": 0,
         "source_count": len(sources),
         "claim_count": len(valid_claims),
         "invalid_claim_count": len(invalid_claims),
@@ -653,6 +681,8 @@ async def rebuild_wiki_bridge(
         "output_token_estimate": compile_metrics["output_token_estimate"],
         "claim_diff": claim_diff["summary"],
         "tracked_outputs": tracked_outputs,
+        "incremental": bool(incremental),
+        "skipped_source_count": 0,
     }
 
 
@@ -714,11 +744,16 @@ async def _hash_accepted_memory_snapshot(
     entries = await backend.structured_store.list_memory_entries(
         project_name,
         limit=100000,
+        include_history=True,
     )
-    rules = await backend.structured_store.list_confirmed_rules(project_name)
+    rules = await backend.structured_store.list_confirmed_rules(
+        project_name,
+        include_history=True,
+    )
     relation_facts = await backend.structured_store.list_relation_facts(
         project_name,
         limit=100000,
+        include_history=True,
     )
     payload = {
         "memory_entries": [
@@ -1093,6 +1128,8 @@ def _collect_compact_source_ids(claims: tuple[dict[str, Any], ...]) -> tuple[str
 
 def _collect_compact_drilldown_pointers(
     claims: tuple[dict[str, Any], ...],
+    *,
+    project_name: str,
 ) -> tuple[dict[str, Any], ...]:
     pointers: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
@@ -1108,15 +1145,62 @@ def _collect_compact_drilldown_pointers(
             if not claim_id or not source_id or (claim_id, source_id) in seen:
                 continue
             seen.add((claim_id, source_id))
+            staleness = claim.get("staleness") or {}
+            if not isinstance(staleness, dict):
+                staleness = {}
+            temporal_scope = str(staleness.get("status") or "current")
+            drilldown = dict(ref.get("drilldown") or {})
+            truth_type, truth_id = _truth_drilldown_target(drilldown)
+            pointer: dict[str, Any] = {
+                "claim_id": claim_id,
+                "source_id": source_id,
+                "source_ids": [source_id],
+                "authority": COMPILED_AUTHORITY,
+                "reason": str(ref.get("source_kind") or "source"),
+                "drilldown": drilldown,
+                "temporal_scope": temporal_scope,
+                "valid_to": staleness.get("valid_to"),
+                "citation_status": staleness.get("citation_status"),
+            }
+            if truth_type and truth_id:
+                pointer.update(
+                    {
+                        "tool": "temporal_query",
+                        "arguments": {
+                            "project_name": project_name,
+                            "truth_type": truth_type,
+                            "query": str(claim.get("text") or ""),
+                            "mode": (
+                                "history"
+                                if temporal_scope == "historical"
+                                else "current"
+                            ),
+                            "limit": 20,
+                        },
+                        "why": (
+                            "Generated claim drilldown points back to confirmed "
+                            "truth; generated text is not canonical truth."
+                        ),
+                        "source_record_id": truth_id,
+                    }
+                )
             pointers.append(
-                {
-                    "claim_id": claim_id,
-                    "source_id": source_id,
-                    "reason": str(ref.get("source_kind") or "source"),
-                    "drilldown": dict(ref.get("drilldown") or {}),
-                }
+                pointer
             )
     return tuple(pointers)
+
+
+def _truth_drilldown_target(drilldown: dict[str, Any]) -> tuple[str | None, str | None]:
+    mapping = {
+        "memory_entry_id": "memory_entry",
+        "confirmed_rule_id": "confirmed_rule",
+        "relation_fact_id": "relation_fact",
+    }
+    for key, truth_type in mapping.items():
+        value = str(drilldown.get(key) or "").strip()
+        if value:
+            return truth_type, value
+    return None, None
 
 
 def _generated_review_queue(
@@ -1444,6 +1528,111 @@ def _hash_drift_count(
         if previous is not None and previous.get("source_hash") != source.source_hash:
             drift += 1
     return drift
+
+
+def _source_hashes_unchanged(
+    previous_sources: dict[str, dict[str, Any]],
+    current_sources: list[KnowledgeSourceEntry],
+) -> bool:
+    if len(previous_sources) != len(current_sources):
+        return False
+    for source in current_sources:
+        previous = previous_sources.get(source.source_id)
+        if previous is None:
+            return False
+        if previous.get("source_hash") != source.source_hash:
+            return False
+    return True
+
+
+def _record_incremental_compile_skip(
+    paths: KnowledgeCachePaths,
+    *,
+    project_name: str,
+    previous_index: dict[str, Any],
+    sources: list[KnowledgeSourceEntry],
+    tracked_outputs: list[str],
+    started: float,
+) -> dict[str, Any]:
+    counts = previous_index.get("counts", {})
+    if not isinstance(counts, dict):
+        counts = {}
+    claim_diff = previous_index.get("claim_diff", {})
+    if not isinstance(claim_diff, dict):
+        claim_diff = {"added": 0, "removed": 0, "changed": 0, "unchanged": 0}
+    compile_metrics = dict(previous_index.get("compile_metrics") or {})
+    compile_metrics.update(
+        {
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+            "incremental": True,
+            "skipped_source_count": len(sources),
+            "source_count": len(sources),
+        }
+    )
+    freshness = dict(previous_index.get("freshness") or {})
+    freshness.update(
+        {
+            "stale_source_count": 0,
+            "missing_source_count": sum(1 for source in sources if not source.exists),
+            "hash_drift_count": 0,
+            "orphaned_output_count": len([
+                path
+                for path in _generated_files(paths.generated_root)
+                if _normalize_relative_generated_path(path, paths.generated_root)
+                not in set(tracked_outputs)
+            ]),
+        }
+    )
+    payload = {
+        **previous_index,
+        "project_name": project_name,
+        "authority": COMPILED_AUTHORITY,
+        "updated_at": _utc_now().isoformat(),
+        "compiler_version": previous_index.get("compiler_version") or "v3.2",
+        "tracked_outputs": tracked_outputs,
+        "counts": counts,
+        "compile_metrics": compile_metrics,
+        "freshness": freshness,
+        "claim_diff": claim_diff,
+        "sources": [
+            {
+                "source_id": source.source_id,
+                "source_hash": source.source_hash,
+                "source_kind": source.source_kind,
+                "authority": source.authority,
+                "exists": source.exists,
+                "mtime": source.mtime,
+            }
+            for source in sources
+        ],
+    }
+    paths.generated_index_path.write_text(
+        json.dumps(payload, indent=2),
+        encoding="utf-8",
+    )
+    return {
+        "project_name": project_name,
+        "claims_path": str(paths.generated_root / GENERATED_CLAIMS_FILENAME),
+        "topics_path": str(paths.generated_root / GENERATED_TOPICS_FILENAME),
+        "entities_path": str(paths.generated_root / GENERATED_ENTITIES_FILENAME),
+        "source_map_path": str(paths.generated_root / GENERATED_SOURCE_MAP_FILENAME),
+        "claim_diff_path": str(paths.generated_root / GENERATED_CLAIM_DIFF_FILENAME),
+        "index_path": str(paths.generated_index_path),
+        "claim_count": int(counts.get("claims", 0) or 0),
+        "invalid_claim_count": int(counts.get("invalid_claims", 0) or 0),
+        "topic_count": int(counts.get("topics", 0) or 0),
+        "entity_count": int(counts.get("entities", 0) or 0),
+        "source_count": len(sources),
+        "cache_hit_ratio": float(compile_metrics.get("cache_hit_ratio", 0.0) or 0.0),
+        "compile_duration_ms": int(compile_metrics.get("duration_ms", 0) or 0),
+        "output_token_estimate": int(
+            compile_metrics.get("output_token_estimate", 0) or 0
+        ),
+        "claim_diff": claim_diff,
+        "tracked_outputs": tracked_outputs,
+        "incremental": True,
+        "skipped_source_count": len(sources),
+    }
 
 
 def _estimate_compact_output_tokens(

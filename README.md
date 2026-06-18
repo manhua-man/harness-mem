@@ -19,23 +19,26 @@ local-first memory
 
 ## Current Release
 
-Current package version is v5.6.0. On top of the v4.6-v5.0 Evidence Hardening
+Current package version is v5.8.0. On top of the v4.6-v5.0 Evidence Hardening
 Track, v5.1-v5.2 closes the default-kernel cutover: canonical SQLite is now
 the default truth runtime for structured memory and observations, and
 query-driven MCP retrieval now runs through the shared `SearchBackend`
 contract. v5.3-v5.6 adds daily-flow guidance, guided opt-in maintenance
 summaries, a signal-only `record_context_outcome` loop, and a multi-client
-field-test packet for Codex, Claude Code, Cursor, and generic MCP clients. The
-earlier v4.0.x-v5.0 slices still provide the benchmarked canonical store
-contract, Rust facade/fallback, index fabric, context sufficiency, memory evals,
-code-memory federation, claim-promotion policy, and release-evidence packaging.
+field-test packet for Codex, Claude Code, Cursor, and generic MCP clients.
+v5.7-v5.8 adds temporal-aware retrieval metadata, generated-claim drilldowns,
+guided maintenance profiles, incremental generated compile, and the opt-in
+MCP `minimal|full` tool profile. The earlier v4.0.x-v5.0 slices still provide
+the benchmarked canonical store contract, Rust facade/fallback, index fabric,
+context sufficiency, memory evals, code-memory federation, claim-promotion
+policy, and release-evidence packaging.
 
 The 2026-06-16 release snapshot carries 31 accepted runs and keeps blocked
 claim boundaries intact. It does not claim broad token/cost savings, public
 Storage v2 speedups, ANN/Tantivy/LanceDB readiness, default reranker/HyDE
 enablement, generalized Rust performance wins, or end-to-end answer-quality
-gains. v5.6 changes runtime defaults, user guidance, and opt-in maintenance
-signals; it does not add any new public performance claim.
+gains. v5.8 changes runtime retrieval guidance, maintenance ergonomics, and
+MCP tool exposure; it does not add any new public performance claim.
 
 ## Why It Exists
 

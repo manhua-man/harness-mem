@@ -92,6 +92,38 @@ def test_mcp_wake_returns_task_aware_packet(backend: LocalMemoryBackend) -> None
     }
 
 
+def test_mcp_wake_temporal_task_adds_temporal_query_drilldown(
+    backend: LocalMemoryBackend,
+) -> None:
+    run(_seed(backend))
+    mcp_server.set_backend_override(backend)
+    try:
+        result = mcp_server.tool_wake(
+            project_name="demo",
+            no_auto_ingest=True,
+            current_task="as of 2026-02-01 storage v2 evidence",
+            budget_tokens=700,
+        )
+    finally:
+        mcp_server.set_backend_override(None)
+
+    assert result["success"] is True
+    assert any(
+        action["label"] == "inspect_temporal_truth"
+        and action["surface"] == "temporal_query"
+        for action in result["next_actions"]
+    )
+    hint = next(
+        item
+        for item in result["drilldown_hints"]
+        if item["source_kind"] == "temporal_intent"
+    )
+    assert hint["tool"] == "temporal_query"
+    assert hint["arguments"]["mode"] == "as_of"
+    assert hint["arguments"]["as_of"] == "2026-02-01T00:00:00+00:00"
+    assert hint in result["context_plan"]["drilldown_hints"]
+
+
 def test_mcp_search_and_wake_share_backend_runtime_metadata(
     backend: LocalMemoryBackend,
 ) -> None:

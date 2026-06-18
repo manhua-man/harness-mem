@@ -25,9 +25,9 @@ def test_v32_v33_are_implemented_and_v34_started_with_cost_observer() -> None:
     assert "| v3.8.0 | 已完成：True Hybrid Retrieval Shootout |" in roadmap_status
     assert "| v4.5.0 | 已完成：Release Evidence Pack |" in roadmap_status
     assert "| v5.2.0 | 已完成：Default Kernel Cutover（SearchBackend Mainline） |" in roadmap_status
-    assert "| v5.6.0 | 当前版本：Multi-client Release Confidence |" in roadmap_status
+    assert "| v5.8.0 | 当前版本：Guided Maintenance Profiles + Generated Incremental Compile + MCP Tool Profile |" in roadmap_status
     assert "| v3.4.x | 已发布：Runtime Health, Cost Discipline, and Regression Gates |" in roadmap_status
-    assert "regression gates、true-hybrid shootout summary、v4.0.x-v5.6 surface coverage、public-claim readiness" in roadmap_status
+    assert "regression gates、true-hybrid shootout summary、v4.0.x-v5.8 surface coverage、public-claim readiness" in roadmap_status
     assert "claim-promotion gate、release-evidence pack、evidence-hardening track、default-change decision gate 与 truth runtime state" in roadmap_status
     assert "当前 token/cost saving 仍未 ready；true-hybrid latency / retrieval recall 只限本地 synthetic / smoke artifact" in roadmap_status
     assert "| v3.2.0 | 已发布：Generated Knowledge Compiler + Basic Freshness |" in roadmap_status

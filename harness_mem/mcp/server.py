@@ -91,7 +91,7 @@ import re  # noqa: E402
 import time  # noqa: E402
 from datetime import datetime, timedelta, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
-from typing import Any, cast  # noqa: E402
+from typing import Any, Literal, cast  # noqa: E402
 
 from harness_mem import __version__ as _HARNESS_MEM_VERSION  # noqa: E402
 from harness_mem.benchmark_matrix import benchmark_matrix_report  # noqa: E402
@@ -184,6 +184,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
 logger = logging.getLogger("harness_mem_mcp")
 
 DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
+McpToolProfile = Literal["full", "minimal"]
 
 _METABOLISM_PREVIEW_DOCTOR_POINTER = (
     "Run `harness-mem doctor` to inspect local data directory, "
@@ -265,10 +266,237 @@ CONTEXT_OUTCOME_VALUES: dict[str, float] = {
     "ignored": 0.0,
     "misleading": -1.0,
 }
+VALID_MAINTENANCE_PROFILES: frozenset[str] = frozenset(
+    {"weekly-dream", "post-distill-metabolism"}
+)
+MaintenanceProfile = Literal["weekly-dream", "post-distill-metabolism"]
 
 
 def _action(label: str, surface: str, reason: str) -> dict[str, str]:
     return {"label": label, "surface": surface, "reason": reason}
+
+
+_AS_OF_TERMS: tuple[str, ...] = (
+    "as of",
+    "at the time",
+    "back then",
+    "当时",
+    "那时",
+)
+_HISTORY_TERMS: tuple[str, ...] = (
+    "previous",
+    "previously",
+    "formerly",
+    "legacy",
+    "old",
+    "history",
+    "historical",
+    "before",
+    "以前",
+    "之前",
+    "历史",
+    "过去",
+    "旧",
+)
+_DATE_PATTERN = re.compile(r"\b(20\d{2}-\d{2}-\d{2})(?:[T ][0-2]\d:[0-5]\d(?::[0-5]\d)?)?\b")
+
+
+def _temporal_intent_mode(query: str | None) -> Literal["as_of", "history"] | None:
+    normalized = (query or "").strip().lower()
+    if not normalized:
+        return None
+    if any(term in normalized for term in _AS_OF_TERMS):
+        return "as_of"
+    if _DATE_PATTERN.search(normalized):
+        return "as_of"
+    if any(term in normalized for term in _HISTORY_TERMS):
+        return "history"
+    return None
+
+
+def _extract_as_of_hint(query: str | None) -> str | None:
+    match = _DATE_PATTERN.search(query or "")
+    if not match:
+        return None
+    try:
+        return datetime.fromisoformat(match.group(1)).replace(tzinfo=timezone.utc).isoformat()
+    except ValueError:
+        return None
+
+
+def _temporal_query_action(mode: str) -> dict[str, str]:
+    return _action(
+        "inspect_temporal_truth",
+        "temporal_query",
+        (
+            f"Query looks time-scoped; use temporal_query mode={mode} before "
+            "treating old-state answers as current truth."
+        ),
+    )
+
+
+def _temporal_intent_drilldown_hint(
+    *,
+    project_name: str | None,
+    query: str,
+    mode: Literal["as_of", "history"] | None,
+) -> dict[str, Any] | None:
+    if mode is None:
+        return None
+    as_of = _extract_as_of_hint(query) if mode == "as_of" else None
+    arguments: dict[str, Any] = {
+        "project_name": project_name,
+        "query": query,
+        "mode": mode,
+        "limit": 20,
+    }
+    if mode == "as_of":
+        arguments["as_of"] = as_of
+        arguments["requires_as_of"] = as_of is None
+    return {
+        "source_id": None,
+        "source_kind": "temporal_intent",
+        "read_surface": "mcp.temporal_query",
+        "tool": "temporal_query",
+        "arguments": arguments,
+        "why": (
+            "The query appears to ask about historical or as-of truth. "
+            "Use temporal_query and preserve its abstention_reason if no evidence matches."
+        ),
+        "abstention": "no_evidence",
+    }
+
+
+def _with_temporal_intent_hint(
+    hints: list[dict[str, Any]],
+    *,
+    project_name: str | None,
+    query: str,
+    mode: Literal["as_of", "history"] | None,
+) -> list[dict[str, Any]]:
+    hint = _temporal_intent_drilldown_hint(
+        project_name=project_name,
+        query=query,
+        mode=mode,
+    )
+    if hint is None:
+        return list(hints)
+    return [*hints, hint]
+
+
+def _is_historical_truth(record: object) -> bool:
+    valid_to = getattr(record, "valid_to", None)
+    if not isinstance(valid_to, datetime):
+        return False
+    return valid_to <= datetime.now(timezone.utc)
+
+
+def _is_superseded_truth(record: object) -> bool:
+    return _is_historical_truth(record) and bool(list(getattr(record, "superseded_by", []) or []))
+
+
+def _maintenance_profile_definition(name: str) -> dict[str, Any]:
+    definitions: dict[str, dict[str, Any]] = {
+        "weekly-dream": {
+            "name": "weekly-dream",
+            "label": "Weekly Dream",
+            "enabled_by_default": False,
+            "risk_level": "low",
+            "surfaces": ["dream_ledger", "dream_run", "undo_dream_item"],
+            "trigger": "manual_or_opt_in_scheduler",
+            "summary": (
+                "Preview ledger, run one dream pass, then use undo_dream_item "
+                "if an applied ledger item needs reversal."
+            ),
+        },
+        "post-distill-metabolism": {
+            "name": "post-distill-metabolism",
+            "label": "Post-distill Metabolism",
+            "enabled_by_default": False,
+            "risk_level": "low",
+            "surfaces": ["metabolism_preview", "metabolism_run", "list_candidates"],
+            "trigger": "manual_after_distill",
+            "summary": (
+                "Preview replay evidence, write pending maintenance suggestions, "
+                "then review candidates explicitly."
+            ),
+        },
+    }
+    return dict(definitions[name])
+
+
+def _maintenance_profile_dry_run(
+    name: str,
+    counts: dict[str, Any],
+) -> dict[str, Any]:
+    definition = _maintenance_profile_definition(name)
+    generated_cache = counts.get("generated_cache", {})
+    temporal_summary = counts.get("temporal_summary", {})
+    pending = int(counts.get("pending_candidate_count", 0) or 0)
+    stale_sources = int(generated_cache.get("stale_source_count", 0) or 0)
+    invalid_claims = int(generated_cache.get("invalid_claim_count", 0) or 0)
+    historical = int(temporal_summary.get("historical_total", 0) or 0)
+    if name == "weekly-dream":
+        candidate_counts = {
+            "pending_candidates": pending,
+            "stale_sources": stale_sources,
+            "historical_truths": historical,
+        }
+        has_work = any(candidate_counts.values())
+        summary = _maintenance_summary(
+            candidate_counts=candidate_counts,
+            risk_level="low" if has_work else "none",
+            auto_applied=False,
+            needs_human_review=pending > 0,
+            undo_available=False,
+            message=(
+                "Dry-run only: weekly-dream would inspect dream ledger and run one "
+                "explicit dream pass with undo metadata."
+                if has_work
+                else "Dry-run only: no obvious weekly-dream maintenance work is queued."
+            ),
+        )
+    else:
+        candidate_counts = {
+            "pending_candidates": pending,
+            "stale_sources": stale_sources,
+            "invalid_generated_claims": invalid_claims,
+        }
+        has_work = any(candidate_counts.values())
+        summary = _maintenance_summary(
+            candidate_counts=candidate_counts,
+            risk_level="low" if has_work else "none",
+            auto_applied=False,
+            needs_human_review=has_work,
+            undo_available=False,
+            message=(
+                "Dry-run only: post-distill-metabolism would preview replay evidence "
+                "and write review candidates only if explicitly run."
+                if has_work
+                else "Dry-run only: project appears clean for post-distill metabolism."
+            ),
+        )
+    return {
+        **definition,
+        "dry_run": summary["maintenance_summary"],
+    }
+
+
+def _suggest_maintenance_profile(
+    counts: dict[str, Any],
+    active_profile: str | None,
+) -> str | None:
+    if active_profile:
+        return active_profile
+    generated_cache = counts.get("generated_cache", {})
+    pending = int(counts.get("pending_candidate_count", 0) or 0)
+    stale = int(generated_cache.get("stale_source_count", 0) or 0)
+    invalid = int(generated_cache.get("invalid_claim_count", 0) or 0)
+    if pending or stale or invalid:
+        return "post-distill-metabolism"
+    if int(counts.get("memory_entry_count", 0) or 0):
+        return "weekly-dream"
+    return None
 
 
 def _search_dx_metadata(
@@ -280,6 +508,9 @@ def _search_dx_metadata(
     fallback_reason: str | None,
     project_name: str | None,
     query: str,
+    include_history: bool,
+    deep_recall: bool,
+    temporal_intent_mode: Literal["as_of", "history"] | None,
 ) -> dict[str, Any]:
     total = memory_entry_count + relation_fact_count + observation_count
     next_actions: list[dict[str, str]] = []
@@ -321,6 +552,16 @@ def _search_dx_metadata(
                 "Search degraded to a fallback path; inspect runtime health before claiming quality.",
             )
         )
+    if include_history or deep_recall:
+        next_actions.append(
+            _action(
+                "inspect_temporal_chain",
+                "temporal_query",
+                "History-capable search was requested; use temporal_query for current/history/as_of proof.",
+            )
+        )
+    elif temporal_intent_mode:
+        next_actions.append(_temporal_query_action(temporal_intent_mode))
 
     project_fragment = f" for {project_name}" if project_name else ""
     why = (
@@ -328,6 +569,12 @@ def _search_dx_metadata(
         f"relation facts, and {observation_count} observations{project_fragment} "
         f"using {effective_mode} mode for query {query!r}."
     )
+    if include_history:
+        why += " Historical structured truth was included because include_history=true."
+    elif deep_recall:
+        why += " Historical structured truth may be included because deep_recall=true."
+    elif temporal_intent_mode:
+        why += " Query appears temporal; current results remain current-only unless history is requested."
     return {
         "why_this_result": why,
         "next_actions": next_actions,
@@ -341,6 +588,7 @@ def _wake_dx_metadata(
     renderer: str,
     fallback_reason: str | None,
     source_coverage: dict[str, int] | None,
+    temporal_intent_mode: Literal["as_of", "history"] | None = None,
 ) -> dict[str, Any]:
     if not success:
         return {
@@ -376,6 +624,8 @@ def _wake_dx_metadata(
                 "Wake used a fallback search path; inspect health before release claims.",
             )
         )
+    if temporal_intent_mode:
+        next_actions.append(_temporal_query_action(temporal_intent_mode))
     return {
         "why_this_result": (
             f"Generated {renderer} wake context from project profile, rules, "
@@ -386,7 +636,12 @@ def _wake_dx_metadata(
     }
 
 
-def _status_dx_metadata(counts: dict[str, Any], triage: dict[str, Any]) -> dict[str, Any]:
+def _status_dx_metadata(
+    counts: dict[str, Any],
+    triage: dict[str, Any],
+    *,
+    project_name: str,
+) -> dict[str, Any]:
     phase = str(triage.get("phase") or "unknown")
     pending = int(counts.get("pending_candidate_count", 0) or 0)
     next_actions: list[dict[str, str]] = []
@@ -415,6 +670,30 @@ def _status_dx_metadata(counts: dict[str, Any], triage: dict[str, Any]) -> dict[
                 "Search narrows the wake context to the current task.",
             )
         )
+    temporal_summary = counts.get("temporal_summary", {})
+    historical_total = int(temporal_summary.get("historical_total", 0) or 0)
+    superseded_total = int(temporal_summary.get("superseded_total", 0) or 0)
+    if historical_total:
+        next_actions.append(
+            _action(
+                "inspect_temporal_history",
+                "temporal_query",
+                "This project has historical truth; use temporal_query when asking old-state questions.",
+            )
+        )
+    maintenance_profiles = counts.get("maintenance_profiles", {})
+    suggested_profile = maintenance_profiles.get("suggested")
+    if suggested_profile:
+        next_actions.append(
+            _action(
+                "preview_maintenance_profile",
+                "get_project_status",
+                (
+                    f"Review the {suggested_profile} dry-run summary before "
+                    "explicitly running maintenance surfaces."
+                ),
+            )
+        )
     degraded_reason = None
     if phase == "needs-distill":
         degraded_reason = "no_observations_ingested"
@@ -434,7 +713,28 @@ def _status_dx_metadata(counts: dict[str, Any], triage: dict[str, Any]) -> dict[
                 "get_project_status",
                 "Use counts to decide between wake, search, distill, and review.",
             )
-        ],
+        ]
+        + (
+            [
+                {
+                    "source_id": None,
+                    "source_kind": "temporal_summary",
+                    "read_surface": "mcp.temporal_query",
+                    "tool": "temporal_query",
+                    "arguments": {
+                        "project_name": project_name,
+                        "mode": "history",
+                        "limit": 20,
+                    },
+                    "why": (
+                        f"Project has {historical_total} historical truth records "
+                        f"({superseded_total} superseded)."
+                    ),
+                }
+            ]
+            if historical_total
+            else []
+        ),
     }
 
 
@@ -501,13 +801,22 @@ def tool_search_memory(
     tech_stack_by_project = runtime.tech_stack_by_project
     effective_mode = response.effective_mode
     fallback_reason = response.fallback_metadata.get("fallback_reason")
+    temporal_intent = _temporal_intent_mode(query)
+    drilldown_hints = _with_temporal_intent_hint(
+        response.drilldown_hints,
+        project_name=project_name,
+        query=query,
+        mode=temporal_intent,
+    )
     context_payload: dict[str, Any] = {}
     if runtime.context_plan is not None:
         context_plan = runtime.context_plan
+        context_plan_payload = context_plan.to_dict()
+        context_plan_payload["drilldown_hints"] = drilldown_hints
         context_payload = {
             "context_sufficiency": context_plan.context_sufficiency.to_dict(),
             "retrieval_plan": context_plan.retrieval_plan.to_dict(),
-            "context_plan": context_plan.to_dict(),
+            "context_plan": context_plan_payload,
             "iterative_retrieval_trace": (
                 context_plan.iterative_retrieval_trace.to_dict()
             ),
@@ -521,6 +830,9 @@ def tool_search_memory(
         fallback_reason=fallback_reason,
         project_name=project_name,
         query=query,
+        include_history=include_history,
+        deep_recall=deep_recall,
+        temporal_intent_mode=temporal_intent,
     )
 
     return {
@@ -566,7 +878,7 @@ def tool_search_memory(
         "backend_budget": response.budget,
         "backend_truncation": response.truncation,
         "source_coverage": response.source_coverage,
-        "drilldown_hints": response.drilldown_hints,
+        "drilldown_hints": drilldown_hints,
         **dx_metadata,
         "supporting_evidence": runtime.supporting_evidence,
         "answer_ready_context": runtime.answer_ready_context,
@@ -988,7 +1300,9 @@ def tool_get_confirmed_rules(project_name: str, include_history: bool = False) -
 
 def tool_get_project_profile(project_name: str) -> dict:
     """Return the project profile for a project."""
-    store = asyncio.run(LocalProjectProfileStore(DEFAULT_DATA_DIR).get(project_name))
+    from harness_mem.commands import support as _support
+
+    store = asyncio.run(LocalProjectProfileStore(_support.DEFAULT_DATA_DIR).get(project_name))
     if store is None:
         return {"project_name": project_name, "found": False}
 
@@ -1000,6 +1314,8 @@ def tool_get_project_profile(project_name: str) -> dict:
         "stacks": profile.stacks,
         "key_files": profile.key_files,
         "curated_doc_paths": profile.curated_doc_paths,
+        "mcp_tool_profile": profile.mcp_tool_profile,
+        "maintenance_profile": profile.maintenance_profile,
     }
 
 
@@ -1027,6 +1343,8 @@ def tool_file_context(
 
 
 async def _gather_project_status(backend: LocalMemoryBackend, project_name: str) -> dict[str, Any]:
+    from harness_mem.commands import support as _support
+
     observations = await backend.verbatim_store.list(limit=100000)
     project_observations = [
         observation
@@ -1037,8 +1355,22 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
         project_name,
         limit=100000,
     )
+    all_memory_entries = await backend.structured_store.list_memory_entries(
+        project_name,
+        limit=100000,
+        include_history=True,
+    )
     handoffs = await backend.structured_store.get_latest_handoffs(project_name, limit=5)
     confirmed_rules = await backend.structured_store.list_confirmed_rules(project_name)
+    all_confirmed_rules = await backend.structured_store.list_confirmed_rules(
+        project_name,
+        include_history=True,
+    )
+    all_relation_facts = await backend.structured_store.list_relation_facts(
+        project_name,
+        limit=100000,
+        include_history=True,
+    )
     pending_rules = await backend.structured_store.list_rule_candidates(
         project_name,
         status="pending",
@@ -1053,10 +1385,11 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
         status="pending",
         limit=100000,
     )
-    profile = await LocalProjectProfileStore(DEFAULT_DATA_DIR).get(project_name)
+    data_dir = _support.DEFAULT_DATA_DIR
+    profile = await LocalProjectProfileStore(data_dir).get(project_name)
     knowledge_report = await knowledge_cache_health(
         backend,
-        data_dir=DEFAULT_DATA_DIR,
+        data_dir=data_dir,
         project_name=project_name,
         profile=profile,
         project_root=find_project_root(project_name),
@@ -1076,12 +1409,86 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
         limit=100,
         surface_budgets=_cost_surface_budgets(project_name),
     )
+    active_maintenance_profile = profile.maintenance_profile if profile else None
+    suggested_maintenance_profile = _suggest_maintenance_profile(
+        {
+            "memory_entry_count": len(memory_entries),
+            "pending_candidate_count": (
+                len(pending_rules) + len(pending_entries) + len(pending_facts)
+            ),
+            "generated_cache": knowledge_report,
+        },
+        active_maintenance_profile,
+    )
     return {
         "observation_count": len(project_observations),
         "memory_entry_count": len(memory_entries),
         "task_handoff_count": len(handoffs),
         "confirmed_rule_count": len(confirmed_rules),
         "pending_candidate_count": len(pending_rules) + len(pending_entries) + len(pending_facts),
+        "temporal_summary": {
+            "historical_memory_entry_count": sum(
+                1 for entry in all_memory_entries if _is_historical_truth(entry)
+            ),
+            "historical_confirmed_rule_count": sum(
+                1 for rule in all_confirmed_rules if _is_historical_truth(rule)
+            ),
+            "historical_relation_fact_count": sum(
+                1 for fact in all_relation_facts if _is_historical_truth(fact)
+            ),
+            "historical_total": sum(
+                1
+                for record in [
+                    *all_memory_entries,
+                    *all_confirmed_rules,
+                    *all_relation_facts,
+                ]
+                if _is_historical_truth(record)
+            ),
+            "superseded_total": sum(
+                1
+                for record in [
+                    *all_memory_entries,
+                    *all_confirmed_rules,
+                    *all_relation_facts,
+                ]
+                if _is_superseded_truth(record)
+            ),
+        },
+        "maintenance_profiles": {
+            "active": active_maintenance_profile,
+            "suggested": suggested_maintenance_profile,
+            "available": [
+                _maintenance_profile_definition(name)
+                for name in sorted(VALID_MAINTENANCE_PROFILES)
+            ],
+            "dry_runs": {
+                name: _maintenance_profile_dry_run(
+                    name,
+                    {
+                        "memory_entry_count": len(memory_entries),
+                        "pending_candidate_count": (
+                            len(pending_rules)
+                            + len(pending_entries)
+                            + len(pending_facts)
+                        ),
+                        "generated_cache": knowledge_report,
+                        "temporal_summary": {
+                            "historical_total": sum(
+                                1
+                                for record in [
+                                    *all_memory_entries,
+                                    *all_confirmed_rules,
+                                    *all_relation_facts,
+                                ]
+                                if _is_historical_truth(record)
+                            ),
+                        },
+                    },
+                )
+                for name in sorted(VALID_MAINTENANCE_PROFILES)
+            },
+        },
         "generated_cache": {
             "prepared": knowledge_report["prepared"],
             "generated_claim_count": knowledge_report["generated_claim_count"],
@@ -1092,6 +1499,9 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
             "invalid_claim_count": knowledge_report["invalid_claim_count"],
             "cache_hit_ratio": knowledge_report["cache_hit_ratio"],
             "compile_duration_ms": knowledge_report["compile_duration_ms"],
+            "last_compile_at": knowledge_report["last_compile_at"],
+            "incremental_compile": knowledge_report["incremental_compile"],
+            "skipped_source_count": knowledge_report["skipped_source_count"],
             "output_token_estimate": knowledge_report["output_token_estimate"],
         },
         "runtime_versions": runtime_version_payload(),
@@ -1134,7 +1544,7 @@ def tool_get_project_status(project_name: str | None = None) -> dict:
     backend = _get_backend()
     counts = asyncio.run(_gather_project_status(backend, resolved_project))
     triage = _status_triage_hints(counts)
-    dx_metadata = _status_dx_metadata(counts, triage)
+    dx_metadata = _status_dx_metadata(counts, triage, project_name=resolved_project)
     return {
         "success": True,
         "project_name": resolved_project,
@@ -1203,6 +1613,8 @@ async def _merge_project_profile(
     service_hints: list[str] | None,
     database_hints: list[str] | None,
     weak_link_signals: bool | None,
+    mcp_tool_profile: McpToolProfile | None,
+    maintenance_profile: MaintenanceProfile | None,
     replace: bool,
 ) -> ProjectProfile:
     """Apply a non-interactive update to ``ProjectProfile``.
@@ -1244,6 +1656,8 @@ async def _merge_project_profile(
             service_hints=list(service_hints or []),
             database_hints=list(database_hints or []),
             weak_link_signals=bool(weak_link_signals) if weak_link_signals is not None else False,
+            mcp_tool_profile=mcp_tool_profile,
+            maintenance_profile=maintenance_profile,
         )
     else:
         profile = ProjectProfile(
@@ -1258,6 +1672,14 @@ async def _merge_project_profile(
             database_hints=_merge_list(existing.database_hints, database_hints),
             weak_link_signals=(
                 weak_link_signals if weak_link_signals is not None else existing.weak_link_signals
+            ),
+            mcp_tool_profile=(
+                mcp_tool_profile if mcp_tool_profile is not None else existing.mcp_tool_profile
+            ),
+            maintenance_profile=(
+                maintenance_profile
+                if maintenance_profile is not None
+                else existing.maintenance_profile
             ),
             created_at=existing.created_at,
             last_updated=datetime.now(timezone.utc),
@@ -1279,6 +1701,8 @@ def tool_update_project_profile(
     service_hints: list[str] | None = None,
     database_hints: list[str] | None = None,
     weak_link_signals: bool | None = None,
+    mcp_tool_profile: str | None = None,
+    maintenance_profile: str | None = None,
     replace: bool = False,
 ) -> dict:
     """Non-interactive project profile update.
@@ -1291,6 +1715,27 @@ def tool_update_project_profile(
     name = (project_name or "").strip()
     if not name:
         return {"success": False, "error": "project_name must not be empty"}
+    normalized_mcp_tool_profile: McpToolProfile | None = None
+    if mcp_tool_profile is not None:
+        normalized_mcp_tool_profile = _normalize_mcp_tool_profile(mcp_tool_profile)
+        if normalized_mcp_tool_profile is None:
+            return {
+                "success": False,
+                "error": "mcp_tool_profile must be one of: full, minimal",
+            }
+    normalized_maintenance_profile: MaintenanceProfile | None = None
+    if maintenance_profile is not None:
+        normalized_maintenance_profile = _normalize_maintenance_profile(
+            maintenance_profile
+        )
+        if normalized_maintenance_profile is None:
+            return {
+                "success": False,
+                "error": (
+                    "maintenance_profile must be one of: "
+                    "weekly-dream, post-distill-metabolism"
+                ),
+            }
 
     profile = asyncio.run(
         _merge_project_profile(
@@ -1303,6 +1748,8 @@ def tool_update_project_profile(
             service_hints=service_hints,
             database_hints=database_hints,
             weak_link_signals=weak_link_signals,
+            mcp_tool_profile=normalized_mcp_tool_profile,
+            maintenance_profile=normalized_maintenance_profile,
             replace=replace,
         )
     )
@@ -1318,6 +1765,8 @@ def tool_update_project_profile(
             "service_hints": profile.service_hints,
             "database_hints": profile.database_hints,
             "weak_link_signals": profile.weak_link_signals,
+            "mcp_tool_profile": profile.mcp_tool_profile,
+            "maintenance_profile": profile.maintenance_profile,
             "last_updated": profile.last_updated.isoformat(),
         },
     }
@@ -1372,6 +1821,7 @@ def tool_wake(
                     renderer=normalized_renderer,
                     fallback_reason="unsupported_compact_skill_hints",
                     source_coverage=None,
+                    temporal_intent_mode=_temporal_intent_mode(current_task),
                 ),
             }
         backend = _get_backend()
@@ -1390,6 +1840,7 @@ def tool_wake(
                     renderer=normalized_renderer,
                     fallback_reason="compact_wake_artifacts_missing",
                     source_coverage=None,
+                    temporal_intent_mode=_temporal_intent_mode(current_task),
                 ),
             }
         compact_dx = _wake_dx_metadata(
@@ -1397,6 +1848,7 @@ def tool_wake(
             renderer=normalized_renderer,
             fallback_reason=None,
             source_coverage={"compact_payload": 1},
+            temporal_intent_mode=_temporal_intent_mode(current_task),
         )
         return {
             "success": True,
@@ -1415,6 +1867,7 @@ def tool_wake(
         )
     )
     snapshot_payload: dict[str, Any] = {}
+    temporal_intent = _temporal_intent_mode(current_task)
     if command_payload.get("success"):
         effective_skill_hint_limit = (
             DEFAULT_SKILL_HINT_LIMIT if skill_hint_limit is None else skill_hint_limit
@@ -1446,6 +1899,12 @@ def tool_wake(
         context_plan = runtime.context_plan
         if context_plan is None:
             raise RuntimeError("project-scoped wake runtime returned no context plan")
+        drilldown_hints = _with_temporal_intent_hint(
+            runtime.response.drilldown_hints,
+            project_name=resolved,
+            query=current_task or "wake context",
+            mode=temporal_intent,
+        )
         snapshot_payload.update(
             {
                 "context_sufficiency": context_plan.context_sufficiency.to_dict(),
@@ -1453,7 +1912,10 @@ def tool_wake(
                 "iterative_retrieval_trace": (
                     context_plan.iterative_retrieval_trace.to_dict()
                 ),
-                "context_plan": context_plan.to_dict(),
+                "context_plan": {
+                    **context_plan.to_dict(),
+                    "drilldown_hints": drilldown_hints,
+                },
                 "wake_packet": context_plan.wake_packet.to_dict(),
                 "requested_mode": runtime.response.requested_mode,
                 "effective_mode": runtime.response.effective_mode,
@@ -1463,7 +1925,7 @@ def tool_wake(
                 "backend_budget": runtime.response.budget,
                 "backend_truncation": runtime.response.truncation,
                 "source_coverage": runtime.response.source_coverage,
-                "drilldown_hints": runtime.response.drilldown_hints,
+                "drilldown_hints": drilldown_hints,
                 "supporting_evidence": runtime.supporting_evidence,
                 "answer_ready_context": runtime.answer_ready_context,
                 "effective_deep_recall": runtime.effective_deep_recall,
@@ -1475,6 +1937,7 @@ def tool_wake(
         renderer=normalized_renderer,
         fallback_reason=snapshot_payload.get("fallback_reason"),
         source_coverage=snapshot_payload.get("source_coverage"),
+        temporal_intent_mode=temporal_intent,
     )
     return {
         "project_name": resolved,
@@ -3525,7 +3988,12 @@ def tool_benchmark_matrix_report() -> dict:
 
 import asyncio  # noqa: E402 (moved here so the stdio redirect above is clean)
 
-from harness_mem.mcp.tool_specs import ToolSpec, build_tools  # noqa: E402,F401
+from harness_mem.mcp.tool_specs import (  # noqa: E402,F401
+    MINIMAL_TOOL_NAMES,
+    VALID_TOOL_PROFILES,
+    ToolSpec,
+    build_tools,
+)
 
 # The schema for each tool lives in ``tool_specs._SCHEMAS``. Handlers stay
 # next to the backend singleton in this file. ``build_tools`` glues schemas
@@ -3595,6 +4063,114 @@ TOOLS: dict[str, ToolSpec] = build_tools({
 })
 
 
+def _normalize_mcp_tool_profile(value: object) -> McpToolProfile | None:
+    profile = str(value or "").strip().lower()
+    if profile in VALID_TOOL_PROFILES:
+        return cast(McpToolProfile, profile)
+    return None
+
+
+def _normalize_maintenance_profile(value: object) -> MaintenanceProfile | None:
+    profile = str(value or "").strip().lower()
+    if profile in VALID_MAINTENANCE_PROFILES:
+        return cast(MaintenanceProfile, profile)
+    return None
+
+
+def _profile_project_name(params: dict[str, Any]) -> str | None:
+    project_name = params.get("project_name")
+    if not project_name and isinstance(params.get("arguments"), dict):
+        project_name = params["arguments"].get("project_name")
+    if isinstance(project_name, str) and project_name.strip():
+        return project_name.strip()
+    return get_active_project()
+
+
+def _project_profile_mcp_tool_profile(project_name: str | None) -> McpToolProfile | None:
+    if not project_name:
+        return None
+    try:
+        from harness_mem.commands import support as _support
+
+        profile = asyncio.run(LocalProjectProfileStore(_support.DEFAULT_DATA_DIR).get(project_name))
+    except Exception:
+        logger.exception("Failed to read project MCP tool profile for %s", project_name)
+        return None
+    if profile is None:
+        return None
+    return _normalize_mcp_tool_profile(profile.mcp_tool_profile)
+
+
+def _resolve_mcp_tool_profile(params: dict[str, Any]) -> dict[str, Any]:
+    profile = "full"
+    source = "default"
+    degraded_reason = None
+
+    env_profile = os.environ.get("HARNESS_MEM_MCP_TOOL_PROFILE")
+    if env_profile:
+        normalized = _normalize_mcp_tool_profile(env_profile)
+        if normalized is None:
+            degraded_reason = "invalid_env_profile"
+        else:
+            profile = normalized
+            source = "env"
+
+    project_name = _profile_project_name(params)
+    project_profile = _project_profile_mcp_tool_profile(project_name)
+    if project_profile is not None:
+        profile = project_profile
+        source = "project_profile"
+        degraded_reason = None
+
+    return {
+        "profile": profile,
+        "source": source,
+        "project_name": project_name,
+        "degraded_reason": degraded_reason,
+    }
+
+
+def _visible_tool_names(profile: str) -> list[str]:
+    if profile == "minimal":
+        return [name for name in TOOLS if name in MINIMAL_TOOL_NAMES]
+    return list(TOOLS)
+
+
+def _tool_descriptor(name: str, spec: ToolSpec, profile: str) -> dict[str, Any]:
+    return {
+        "name": name,
+        "description": spec["description"],
+        "inputSchema": spec["input_schema"],
+        "annotations": {
+            "harness_mem": {
+                "cluster": spec["cluster"],
+                "profile": profile,
+                "listed_in_minimal": name in MINIMAL_TOOL_NAMES,
+            }
+        },
+    }
+
+
+def _hidden_tool_error(req_id: Any, tool_name: str, profile: str) -> dict[str, Any]:
+    return {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "error": {
+            "code": -32601,
+            "message": f"Tool hidden by MCP tool profile '{profile}': {tool_name}",
+            "data": {
+                "error_code": "HM-MCP-TOOL-HIDDEN",
+                "profile": profile,
+                "tool_name": tool_name,
+                "hint": (
+                    "Set HARNESS_MEM_MCP_TOOL_PROFILE=full or use a project "
+                    "profile with mcp_tool_profile='full' to call this tool."
+                ),
+            },
+        },
+    }
+
+
 # =============================================================================
 # JSON-RPC REQUEST HANDLER
 # =============================================================================
@@ -3641,17 +4217,23 @@ def handle_request(request: dict) -> dict | None:
         return None
 
     if method == "tools/list":
+        profile_info = _resolve_mcp_tool_profile(params)
+        profile = profile_info["profile"]
+        visible_names = _visible_tool_names(profile)
         return {
             "jsonrpc": "2.0",
             "id": req_id,
             "result": {
+                "profile": profile,
+                "profile_source": profile_info["source"],
+                "profile_project_name": profile_info["project_name"],
+                "degraded_reason": profile_info["degraded_reason"],
+                "tool_count": len(visible_names),
+                "total_tool_count": len(TOOLS),
+                "hidden_tool_count": len(TOOLS) - len(visible_names),
                 "tools": [
-                    {
-                        "name": n,
-                        "description": t["description"],
-                        "inputSchema": t["input_schema"],
-                    }
-                    for n, t in TOOLS.items()
+                    _tool_descriptor(name, TOOLS[name], profile)
+                    for name in visible_names
                 ]
             },
         }
@@ -3666,6 +4248,11 @@ def handle_request(request: dict) -> dict | None:
                 "id": req_id,
                 "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
             }
+
+        profile_info = _resolve_mcp_tool_profile(params)
+        profile = profile_info["profile"]
+        if profile == "minimal" and tool_name not in MINIMAL_TOOL_NAMES:
+            return _hidden_tool_error(req_id, str(tool_name), profile)
 
         # Whitelist arguments to declared schema properties
         import inspect

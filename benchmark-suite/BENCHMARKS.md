@@ -27,7 +27,7 @@ dimension.
 | Evidence safety | `evidence_safety`, `client_trace_evidence` | `evidence_safety` has a completed E1-E5 guarded artifact with overclaim and abstention pressure. | Expand only if a new evidence boundary is added; do not generalize beyond the exact task set. |
 | Generated knowledge | `generated_knowledge_freshness` | v3.2 surfaces shipped and GK1-GK5 completed with source-map, freshness, generated-only, invalidation, and citation-laundering checks. | Keep generated prose out of confirmed truth; use future runs for claims-first/source-map coverage improvements. |
 | Temporal query | `temporal_product_query`, `retrieval_quality_longmemeval`, `retrieval_diagnostics` | TQ1-TQ5 completed for current/history/as_of/supersede/ambiguity behavior; LongMemEval remains retrieval-quality evidence. | Use product temporal artifacts for product claims; use LongMemEval for retrieval claims. |
-| Auto maintenance | `auto_maintenance_effectiveness`, `maintenance_recovery` | v3.1 `/hm:dream` surfaces shipped and AM1-AM6 completed for merge/stale/supersede/reject/undo/ledger behavior. | Do not claim production long-run precision/recall without a live maintenance benchmark. |
+| Auto maintenance | `auto_maintenance_effectiveness`, `maintenance_recovery`, `guided_maintenance_profiles` | v3.1 `/hm:dream` surfaces shipped and AM1-AM6 completed for merge/stale/supersede/reject/undo/ledger behavior. v5.8 adds a deterministic profile dry-run smoke for guided opt-in maintenance without running dream/metabolism. | Do not claim production long-run precision/recall without a live maintenance benchmark; profile smoke proves UX/safety wiring only. |
 | Observability | `runtime_health_observability`, `maintenance_recovery`, `client_trace_evidence` | v3.4.4 runtime health/cost/regression surfaces shipped and RH1-RH6 completed, including false-success accounting. | Cloud telemetry and real billing are out of scope unless a separate benchmark is added. |
 | Cost discipline | `client_enabled_vs_disabled`, `memory_shortcut_vs_source_recovery`, `functional_token_economics`, `runtime_health_observability` | Cost surfaces and budget-overrun detection are covered; the 2026-06-09 token-observed pair has named token totals but a negative saving delta. `memory_shortcut_vs_source_recovery` also reports a cache-adjusted local token proxy for diagnosis, but that proxy is not a public cost claim gate. `functional_token_economics` is the separate feature-level fixture benchmark for claude-mem-style progressive-disclosure token claims. | Use `functional_token_economics` only for bounded fixture payload claims. No global token/cost saving claim until a paired long-source shortcut run reports a positive disabled-minus-enabled total-token/cost delta from a named source. |
 | Performance | `latency_warm_path`, `true_hybrid_retrieval_shootout`, `retrieval_quality_longmemeval` | Non-smoke warm-path FTS/wake run completed; the 2026-06-09 true-hybrid probe ran with `effective_mode=hybrid` and no fallback. | Keep true-hybrid latency claims scoped to the local synthetic fixture unless a broader dataset/hardware run is added. |
@@ -771,6 +771,46 @@ Publish rule:
 
 - requires a completed artifact bundle before any public effectiveness claim; no
   public claim may imply silent confirmed-truth mutation
+
+## B10b. Guided Maintenance Profiles
+
+Benchmark id: `guided_maintenance_profiles`
+
+Goal:
+
+- verify v5.8 guided maintenance profiles are explicit opt-in presets with
+  explainable dry-run summaries
+- prove profile status previews do not silently run dream/metabolism or mutate
+  confirmed truth
+
+Core tasks:
+
+- set `ProjectProfile.maintenance_profile` through MCP profile update
+- read `get_project_status` maintenance profile blocks
+- verify dry-run summary fields and no-op behavior
+- verify truth, candidate, and retrieval-signal counts stay unchanged
+
+Metrics:
+
+- `profile_update_success`
+- `dry_run_count`
+- `summary_fields_present`
+- `auto_applied_count`
+- `truth_mutation_count`
+- `candidate_mutation_count`
+- `signal_mutation_count`
+
+Artifacts:
+
+- `tests/loop_harness/test_guided_maintenance_profiles.py`
+- pytest stdout line `[loop_harness:guided_maintenance_profiles] ...`
+- loop harness README scenario entry
+
+Publish rule:
+
+- may be cited only as a release safety gate for guided profile dry-runs
+- must not be phrased as production maintenance precision, answer-quality,
+  token/cost, scheduler, or daemon-readiness evidence
 
 ## B11. Runtime Health Observability
 

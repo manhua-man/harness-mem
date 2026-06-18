@@ -33,7 +33,7 @@ def test_v40_docs_are_indexed_with_index_fabric_scope() -> None:
     assert "| v4.5.0 | 已完成：Release Evidence Pack |" in roadmap_status
     assert "| v5.1 | 已完成：Canonical SQLite Default Truth Runtime |" in roadmap_status
     assert "| v5.2.0 | 已完成：Default Kernel Cutover（SearchBackend Mainline） |" in roadmap_status
-    assert "| v5.6.0 | 当前版本：Multi-client Release Confidence |" in roadmap_status
+    assert "| v5.8.0 | 当前版本：Guided Maintenance Profiles + Generated Incremental Compile + MCP Tool Profile |" in roadmap_status
     assert "v4.0.1+ 未开始" not in roadmap_status
     assert "context sufficiency / task-aware wake" in roadmap_status
     assert "docs/roadmap-v40.md" in roadmap_status

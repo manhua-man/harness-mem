@@ -201,6 +201,14 @@ def main():
         "--export-dir",
         help="For export-json-snapshot, write human-readable JSON blobs here",
     )
+    maintenance.add_argument(
+        "--incremental",
+        action="store_true",
+        help=(
+            "For rebuild-wiki-bridge, skip generated output rewrites when "
+            "tracked source hashes are unchanged"
+        ),
+    )
     apply_group = maintenance.add_mutually_exclusive_group()
     apply_group.add_argument(
         "--dry-run",
@@ -349,7 +357,9 @@ def main():
         if args.action == "prepare-knowledge-cache":
             return asyncio.run(cmd_prepare_knowledge_cache(args.project))
         if args.action == "rebuild-wiki-bridge":
-            return asyncio.run(cmd_rebuild_wiki_bridge(args.project))
+            return asyncio.run(
+                cmd_rebuild_wiki_bridge(args.project, incremental=args.incremental)
+            )
         if args.action == "cleanup-generated-cache":
             return asyncio.run(cmd_cleanup_generated_cache(args.project, apply=not args.dry_run))
         if args.action == "migrate-store-v2":

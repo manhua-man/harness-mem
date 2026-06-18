@@ -29,5 +29,5 @@ def test_roadmap_status_version_index_covers_v15_through_v38() -> None:
     assert "| v4.5.0 | 已完成：Release Evidence Pack：" in roadmap_status
     assert "| v5.1 | 已完成：Canonical SQLite Default Truth Runtime：" in roadmap_status
     assert "| v5.2.0 | 已完成：Default Kernel Cutover：" in roadmap_status
-    assert "| v5.6.0 | 当前版本：Multi-client Release Confidence：" in roadmap_status
+    assert "| v5.8.0 | 当前版本：Guided Maintenance Profiles + Incremental Compile + MCP Tool Profile：" in roadmap_status
     assert "v4.0.1+ 未开始" not in roadmap_status

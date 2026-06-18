@@ -1,6 +1,7 @@
 """ProjectProfile schema — project metadata and hints."""
 
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -55,6 +56,22 @@ class ProjectProfile(BaseModel):
             "after a week of normal usage)."
         ),
     )
+    mcp_tool_profile: Literal["full", "minimal"] | None = Field(
+        default=None,
+        description=(
+            "Optional MCP tools/list profile override for this project. "
+            "None keeps the server default/env profile; 'minimal' lists only "
+            "daily-flow tools while 'full' lists every registered tool."
+        ),
+    )
+    maintenance_profile: Literal["weekly-dream", "post-distill-metabolism"] | None = Field(
+        default=None,
+        description=(
+            "Optional guided opt-in maintenance preset. None keeps maintenance "
+            "manual/off; presets only describe and gate explicit maintenance "
+            "surfaces, they do not enable a daemon or silent truth mutation."
+        ),
+    )
     last_updated: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -84,6 +101,8 @@ class ProjectProfile(BaseModel):
             "database_hints": self.database_hints,
             "conventions": self.conventions,
             "weak_link_signals": self.weak_link_signals,
+            "mcp_tool_profile": self.mcp_tool_profile,
+            "maintenance_profile": self.maintenance_profile,
             "last_updated": self.last_updated.isoformat(),
             "created_at": self.created_at.isoformat(),
             "last_ingest_at": self.last_ingest_at.isoformat() if self.last_ingest_at else None,

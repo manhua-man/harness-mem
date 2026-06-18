@@ -939,6 +939,36 @@
         "explained_result_count",
         "truth_mutation_count"
       ]
+    },
+    {
+      "id": "guided_maintenance_profiles",
+      "title": "Guided Maintenance Profiles",
+      "purpose": "Gate v5.8 guided opt-in maintenance profiles so profile dry-runs stay explainable, no-op friendly, and truth-safe before any explicit dream/metabolism action.",
+      "proves": [
+        "ProjectProfile.maintenance_profile can be set through MCP profile update",
+        "get_project_status exposes available, active, suggested, and dry-run maintenance profiles",
+        "profile dry-runs report candidate_counts, risk_level, auto_applied, needs_human_review, and undo_available without mutating truth or writing maintenance candidates"
+      ],
+      "does_not_prove": [
+        "production long-run maintenance precision/recall",
+        "background daemon safety",
+        "automatic dream/metabolism execution",
+        "global answer-quality or token/cost improvement"
+      ],
+      "artifact_requirements": [
+        "tests/loop_harness/test_guided_maintenance_profiles.py",
+        "tests/loop_harness/README.md",
+        "pytest stdout loop metrics"
+      ],
+      "required_result_fields": [
+        "profile_update_success",
+        "dry_run_count",
+        "summary_fields_present",
+        "auto_applied_count",
+        "truth_mutation_count",
+        "candidate_mutation_count",
+        "signal_mutation_count"
+      ]
     }
   ]
 }

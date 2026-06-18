@@ -10,6 +10,38 @@
 
 ---
 
+## [5.8.0] — 2026-06-18
+
+**主题：v5.7-v5.8 Temporal Retrieval, Claims Drilldown, Guided Maintenance Profiles, and MCP Tool Profiles**
+
+### Added
+
+- **Temporal-aware mainline retrieval**: `search_memory` / `wake` structured truth hits now carry temporal metadata for current, historical, and superseded records, with explicit `temporal_query` drilldown hints instead of silently treating old truth as current.
+- **Generated claim drilldown**: compact generated claims now expose source-backed drilldown pointers with temporal scope, source record IDs, and `temporal_query` argument sketches. Generated text remains non-canonical.
+- **Guided maintenance profiles**: `ProjectProfile.maintenance_profile` supports opt-in presets such as `weekly-dream` and `post-distill-metabolism`, while `get_project_status` reports active, suggested, available, and dry-run maintenance summaries before anything runs.
+- **Generated incremental compile**: `rebuild_wiki_bridge(incremental=True)` and `maintenance rebuild-wiki-bridge --incremental` skip generated output rewrites when source hashes are unchanged, and expose compile metadata through cache health/status surfaces.
+- **MCP tool profiles**: `HARNESS_MEM_MCP_TOOL_PROFILE=minimal|full` and optional project profile override control `tools/list`; `full` remains the default with 60 tools, while `minimal` lists the 28 daily-flow tools and returns a structured hidden-tool error for full-only calls.
+- **Guided maintenance profile gate**: benchmark suite metadata and loop harness coverage now include `guided_maintenance_profiles` for dry-run summary fields, no-op behavior, and truth/candidate/signal mutation invariants.
+
+### Boundaries
+
+- v5.8 does not enable a daemon, scheduler, Auto Dream, or host hook by default.
+- Maintenance profile dry-runs do not auto-run dream/metabolism and do not mutate confirmed truth.
+- Incremental compile updates only the generated layer; generated claims still do not become canonical truth.
+- `minimal` only filters `tools/list`; it does not remove MCP handlers or merge confirm/reject APIs.
+- `token_cost_saving.ready=false` remains blocked. This release does not claim broad token/cost savings, broad answer-quality gains, production maintenance precision/recall, or public speedups.
+
+### Validation
+
+- `python -m pytest -q`
+- `python -m ruff check .`
+- `python -m mypy harness_mem`
+- `python benchmark-suite/tools/validate_release_snapshot.py --path benchmark-suite/release-snapshot.json`
+- `python benchmark-suite/tools/check_release_artifacts.py`
+- `python benchmark-suite/tools/build_release_snapshot.py --check`
+
+---
+
 ## [5.6.0] — 2026-06-18
 
 **主题：v5.3-v5.6 Daily Flow DX, Guided Maintenance, Outcome Loop, and Release Confidence**

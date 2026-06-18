@@ -20,7 +20,7 @@ def test_v35_v38_completed_docs_are_indexed_as_shipped_work() -> None:
     assert "| v3.8.x | 已完成：True Hybrid Retrieval Shootout |" in roadmap_status
     assert "| v4.5.0 | 已完成：Release Evidence Pack |" in roadmap_status
     assert "| v5.2.0 | 已完成：Default Kernel Cutover（SearchBackend Mainline） |" in roadmap_status
-    assert "| v5.6.0 | 当前版本：Multi-client Release Confidence |" in roadmap_status
+    assert "| v5.8.0 | 当前版本：Guided Maintenance Profiles + Generated Incremental Compile + MCP Tool Profile |" in roadmap_status
 
     for roadmap_name in [
         "roadmap-v35.md",

@@ -22,6 +22,7 @@ and closed in a ``finally`` block. The backend is injected via the MCP
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -161,6 +162,19 @@ def test_tool_wake_compact_renderer_returns_generated_summary(
             project_name=PROJECT,
             curated_doc_paths=["docs/compact.md"],
         )
+        valid_to = datetime.now(timezone.utc) - timedelta(days=1)
+        run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    id="compact-historical-entry",
+                    project_name=PROJECT,
+                    category="decision",
+                    content="Compact historical claim used the old renderer.",
+                    source="manual",
+                    valid_to=valid_to,
+                )
+            )
+        )
         run(
             rebuild_wiki_bridge(
                 backend,
@@ -183,6 +197,18 @@ def test_tool_wake_compact_renderer_returns_generated_summary(
         assert "Compact MCP wake renderer" in payload["output"]
         assert payload["compact_payload"]["authority"] == "generated_claim"
         assert payload["compact_payload"]["source_ids"]
+        pointer = next(
+            item
+            for item in payload["compact_payload"]["drilldown_pointers"]
+            if item["claim_id"] == "memory-entry:compact-historical-entry"
+        )
+        assert pointer["authority"] == "generated_claim"
+        assert pointer["temporal_scope"] == "historical"
+        assert pointer["valid_to"] == valid_to.isoformat()
+        assert pointer["tool"] == "temporal_query"
+        assert pointer["arguments"]["truth_type"] == "memory_entry"
+        assert pointer["arguments"]["mode"] == "history"
+        assert pointer["source_record_id"] == "compact-historical-entry"
     finally:
         set_backend_override(None)
         run(backend.close())

@@ -1,0 +1,20 @@
+{
+  "benchmark_id": "guided_maintenance_profiles",
+  "version": 1,
+  "tasks": [
+    {
+      "task_id": "GMP1",
+      "title": "Profile dry-run is explainable and truth-safe",
+      "prompt": "Set a guided maintenance profile through MCP update_project_profile, inspect get_project_status, and verify dry-run summaries expose risk/candidate metadata without writing truth, maintenance candidates, or retrieval signals.",
+      "expected_metrics": [
+        "profile_update_success",
+        "dry_run_count",
+        "summary_fields_present",
+        "auto_applied_count",
+        "truth_mutation_count",
+        "candidate_mutation_count",
+        "signal_mutation_count"
+      ]
+    }
+  ]
+}

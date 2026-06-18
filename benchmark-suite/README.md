@@ -120,6 +120,10 @@ benchmark-suite/
     README.md
     prompts.json
     acceptance_checklist.md
+  guided_maintenance_profiles/
+    README.md
+    prompts.json
+    acceptance_checklist.md
   templates/
     run_manifest.template.json
     task_result.template.json

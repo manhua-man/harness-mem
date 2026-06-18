@@ -14,7 +14,12 @@ from harness_mem.commands.maintenance import (
     cmd_rebuild_wiki_bridge,
 )
 from harness_mem.core.schemas.project_profile import ProjectProfile
-from harness_mem.knowledge_cache import ensure_knowledge_cache_layout, knowledge_cache_paths
+from harness_mem.knowledge_cache import (
+    ensure_knowledge_cache_layout,
+    knowledge_cache_health,
+    knowledge_cache_paths,
+    rebuild_wiki_bridge,
+)
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from tests.helpers import run
 
@@ -145,3 +150,63 @@ def test_rebuild_wiki_bridge_command_writes_counts(
     assert "Output token estimate:" in output
     assert "Claim diff:" in output
     assert "Source map:" in output
+
+
+def test_rebuild_wiki_bridge_incremental_skips_unchanged_sources(
+    backend,
+    data_dir: Path,
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "demo"
+    docs_dir = project_root / "docs"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "architecture.md").write_text(
+        "SQLite FTS5 powers retrieval.",
+        encoding="utf-8",
+    )
+    profile = ProjectProfile(
+        project_name="demo",
+        curated_doc_paths=["docs/architecture.md"],
+    )
+    run(LocalProjectProfileStore(data_dir).save(profile))
+
+    first = run(
+        rebuild_wiki_bridge(
+            backend,
+            data_dir=data_dir,
+            project_name="demo",
+            profile=profile,
+            project_root=project_root,
+        )
+    )
+    claims_path = Path(first["claims_path"])
+    first_claims = claims_path.read_text(encoding="utf-8")
+    first_mtime = claims_path.stat().st_mtime_ns
+
+    second = run(
+        rebuild_wiki_bridge(
+            backend,
+            data_dir=data_dir,
+            project_name="demo",
+            profile=profile,
+            project_root=project_root,
+            incremental=True,
+        )
+    )
+
+    assert second["incremental"] is True
+    assert second["skipped_source_count"] == second["source_count"]
+    assert claims_path.read_text(encoding="utf-8") == first_claims
+    assert claims_path.stat().st_mtime_ns == first_mtime
+
+    health = run(
+        knowledge_cache_health(
+            backend,
+            data_dir=data_dir,
+            project_name="demo",
+            profile=profile,
+            project_root=project_root,
+        )
+    )
+    assert health["incremental_compile"] is True
+    assert health["skipped_source_count"] == second["source_count"]

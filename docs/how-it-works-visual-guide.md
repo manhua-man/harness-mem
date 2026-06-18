@@ -2,7 +2,7 @@
 
 > 面向不熟悉内部名词的读者。用流程图说明「项目怎么跑」、数据怎么分层、代码模块怎么分工。
 >
-> 当前版本以 [`roadmap-status.md`](./roadmap-status.md) 为准（核对：2026-06-18，v5.6.0）。
+> 当前版本以 [`roadmap-status.md`](./roadmap-status.md) 为准（核对：2026-06-18，v5.8.0）。
 > 更细的 MCP 工具表见 [`best-practices.md`](./best-practices.md)；Agent 协作真值见根目录 [`AGENTS.md`](../AGENTS.md)。
 
 ## 一句话
@@ -73,7 +73,47 @@ flowchart LR
 | **Skill** | 给 AI 的操作手册（如 `tools/session-distill/`） |
 | **CLI** | 终端命令；**日常不用**，安装、自检、排障时用 |
 
-你不需要记 MCP 工具名；说「用 harness-mem 唤醒项目」即可。
+你不需要记全部 MCP 工具名；说「用 harness-mem 唤醒项目」即可。维护者连接 MCP 时约有 **60** 个工具注册；v5.8 起可选用 `minimal` profile，日常列表约 **28** 个（见下文）。
+
+---
+
+## MCP 日常主入口（给 Agent / 维护者）
+
+> **v5.8 已发布**：默认仍为 `full` profile；`minimal` 只缩短 `tools/list`，不删能力。
+> 清单来源：gstack 审阅 [`maintainer-feature-surface-trim.md`](./maintainer-feature-surface-trim.md)。
+
+### 主入口 8（用户叙事 — 不是 8 个工具）
+
+多数会话只需关心下面 **8 类** 能力（每类可能对应多个 MCP 工具）：
+
+| # | 你 / Agent 想做什么 | 典型 MCP（类） |
+|---|---------------------|----------------|
+| 1 | 看项目记忆健康与下一步 | `get_project_status` |
+| 2 | 按问题搜记忆 | `search_memory` |
+| 3 | 开任务前注入上下文 | `wake` |
+| 4 | 阶段结束整理会话 | `prepare_session_distill` |
+| 5 | 看待审核项 | `list_candidates` |
+| 6 | 自动过一遍低风险候选 | `auto_review_candidates` |
+| 7 | 提议新记忆/规则/关系 | `suggest_*`（memory / rule / relation / supersede / correction） |
+| 8 | 确认或拒绝候选 | `confirm_*` / `reject_*`（与 suggest 成对） |
+
+### 何时用 full profile
+
+| 场景 | 说明 |
+|------|------|
+| 每周 opt-in 维护 | `/hm:dream` 或 full 下的 `dream_*` / `metabolism_*`（**minimal 不含**） |
+| Skill 治理 / 晋升 | `detect_skill_*`、`suggest_skill` 等 |
+| 发版 / 成本诊断 | `benchmark_matrix_report`、`surface_cost_report` |
+| 原文 regex 搜 | `search_raw` |
+| 图实验召回 | `trace_relations`（时序问题优先 `temporal_query`） |
+
+### minimal 与 full 对比
+
+| | minimal | full |
+|---|---------|------|
+| `tools/list` 约 | **28** | **60** |
+| 默认 | 否（保持 **full**） | **是** |
+| 调 hidden 工具 | 结构化错误 | 正常 |
 
 ---
 
@@ -406,7 +446,8 @@ v5.2 把 MCP `search_memory` / `wake` 的 query-driven 路径、task-aware conte
 | 文件 | 用途 |
 |------|------|
 | [`../canvases/harness-mem-how-it-works.canvas.tsx`](../canvases/harness-mem-how-it-works.canvas.tsx) | 入门图解：7 张流程图 + 名词白话表 |
-| [`../canvases/harness-mem-completion.canvas.tsx`](../canvases/harness-mem-completion.canvas.tsx) | 完成度评估：五维完成度、v5.6 运行时与体验线、能力矩阵 |
+| [`../canvases/harness-mem-completion.canvas.tsx`](../canvases/harness-mem-completion.canvas.tsx) | 完成度评估：五维完成度、v5.8 运行时与体验线、能力矩阵 |
+| [`maintainer-feature-surface-trim.md`](./maintainer-feature-surface-trim.md) | Maintainer：MCP 暴露面精简审阅（gstack） |
 | [`reference-comparison-matrix.md`](./reference-comparison-matrix.md) | Maintainer：十维参考项目对比矩阵（非用户向） |
 
 > Canvas 需在 Cursor 中打开 `.canvas.tsx` 文件渲染。若侧边未自动弹出，从文件树点开即可。

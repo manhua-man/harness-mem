@@ -21,6 +21,7 @@ from harness_mem.core.schemas import (
 )
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.mcp.server import handle_request, set_backend_override
+from harness_mem.mcp.tool_specs import MINIMAL_TOOL_NAMES
 from harness_mem.search.hybrid_search import HybridSearchLayer
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -58,6 +59,13 @@ def rpc(method: str, params: dict | None = None) -> dict:
     resp = handle_request(req)
     assert resp is not None, f"No response for {method}"
     assert "error" not in resp, f"RPC error: {resp.get('error')}"
+    return resp
+
+
+def raw_rpc(method: str, params: dict | None = None) -> dict:
+    req = {"jsonrpc": "2.0", "method": method, "params": params or {}, "id": 1}
+    resp = handle_request(req)
+    assert resp is not None, f"No response for {method}"
     return resp
 
 
@@ -136,7 +144,13 @@ def test_stdio_initialize_fails_before_handshake_when_launch_target_is_invalid()
 
 def test_tools_list():
     resp = rpc("tools/list")
-    tools = resp["result"]["tools"]
+    result = resp["result"]
+    tools = result["tools"]
+    assert result["profile"] == "full"
+    assert result["profile_source"] == "default"
+    assert result["tool_count"] == 60
+    assert result["total_tool_count"] == 60
+    assert result["hidden_tool_count"] == 0
     assert len(tools) == 60
     names = {tool["name"] for tool in tools}
     expected = {
@@ -165,10 +179,128 @@ def test_tools_list():
         "health_summary", "surface_cost_report", "benchmark_matrix_report",
     }
     assert expected.issubset(names)
+    assert all(tool["annotations"]["harness_mem"]["cluster"] for tool in tools)
     benchmark_tool = next(tool for tool in tools if tool["name"] == "benchmark_matrix_report")
     assert "public-claim readiness gates" in benchmark_tool["description"]
     assert "token/cost saving" in benchmark_tool["description"]
     assert "true vector-hybrid latency" in benchmark_tool["description"]
+
+
+def test_tools_list_minimal_profile_from_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("HARNESS_MEM_MCP_TOOL_PROFILE", "minimal")
+
+    resp = rpc("tools/list")
+    result = resp["result"]
+    tools = result["tools"]
+    names = {tool["name"] for tool in tools}
+
+    assert result["profile"] == "minimal"
+    assert result["profile_source"] == "env"
+    assert result["tool_count"] == 28
+    assert result["total_tool_count"] == 60
+    assert result["hidden_tool_count"] == 32
+    assert names == MINIMAL_TOOL_NAMES
+    assert "create_task_handoff" in names
+    for hidden in {
+        "dream_run",
+        "metabolism_run",
+        "search_raw",
+        "trace_relations",
+        "record_context_outcome",
+        "update_project_profile",
+        "get_task_handoffs",
+        "benchmark_matrix_report",
+    }:
+        assert hidden not in names
+    assert all(
+        tool["annotations"]["harness_mem"]["profile"] == "minimal"
+        and tool["annotations"]["harness_mem"]["listed_in_minimal"]
+        for tool in tools
+    )
+
+
+def test_tools_call_hidden_tool_returns_structured_error_in_minimal_profile(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("HARNESS_MEM_MCP_TOOL_PROFILE", "minimal")
+
+    for hidden_tool in ("search_raw", "dream_run"):
+        resp = raw_rpc("tools/call", {"name": hidden_tool, "arguments": {}})
+
+        assert "error" in resp
+        error = resp["error"]
+        assert error["code"] == -32601
+        assert error["data"]["error_code"] == "HM-MCP-TOOL-HIDDEN"
+        assert error["data"]["profile"] == "minimal"
+        assert error["data"]["tool_name"] == hidden_tool
+        assert "HARNESS_MEM_MCP_TOOL_PROFILE=full" in error["data"]["hint"]
+
+
+def test_project_profile_mcp_tool_profile_overrides_env(
+    data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("HARNESS_MEM_MCP_TOOL_PROFILE", "minimal")
+    run(
+        LocalProjectProfileStore(data_dir).save(
+            ProjectProfile(project_name="profile-full", mcp_tool_profile="full")
+        )
+    )
+    assert call_tool("set_active_project", {"project_name": "profile-full"})["success"]
+
+    resp = rpc("tools/list")
+    result = resp["result"]
+
+    assert result["profile"] == "full"
+    assert result["profile_source"] == "project_profile"
+    assert result["profile_project_name"] == "profile-full"
+    assert result["tool_count"] == 60
+
+
+def test_update_project_profile_persists_mcp_tool_profile():
+    updated = call_tool(
+        "update_project_profile",
+        {"project_name": "profile-minimal", "mcp_tool_profile": "minimal"},
+    )
+    assert updated["success"]
+    assert updated["profile"]["mcp_tool_profile"] == "minimal"
+
+    profile = call_tool("get_project_profile", {"project_name": "profile-minimal"})
+    assert profile["found"]
+    assert profile["mcp_tool_profile"] == "minimal"
+
+    assert call_tool("set_active_project", {"project_name": "profile-minimal"})["success"]
+    resp = rpc("tools/list")
+    result = resp["result"]
+    assert result["profile"] == "minimal"
+    assert result["profile_source"] == "project_profile"
+    assert {tool["name"] for tool in result["tools"]} == MINIMAL_TOOL_NAMES
+
+
+def test_update_project_profile_persists_maintenance_profile():
+    updated = call_tool(
+        "update_project_profile",
+        {
+            "project_name": "profile-maintenance",
+            "maintenance_profile": "weekly-dream",
+        },
+    )
+    assert updated["success"]
+    assert updated["profile"]["maintenance_profile"] == "weekly-dream"
+
+    profile = call_tool("get_project_profile", {"project_name": "profile-maintenance"})
+    assert profile["found"]
+    assert profile["maintenance_profile"] == "weekly-dream"
+
+    rejected = call_tool(
+        "update_project_profile",
+        {
+            "project_name": "profile-maintenance",
+            "maintenance_profile": "always-on-daemon",
+        },
+    )
+    assert rejected["success"] is False
+    assert "maintenance_profile must be one of" in rejected["error"]
 
 
 def test_file_context_tool(mcp_backend: LocalMemoryBackend):
@@ -470,14 +602,17 @@ def test_search_raw_tool_returns_exact_snippet(mcp_backend: LocalMemoryBackend):
 def test_search_memory_include_history_returns_historical_structured_truth(
     mcp_backend: LocalMemoryBackend,
 ):
+    valid_to = datetime.now(timezone.utc) - timedelta(days=1)
     run(
         mcp_backend.structured_store.save_memory_entry(
             MemoryEntry(
+                id="mcp-temporal-old-entry",
                 project_name="test-project",
                 category="decision",
                 content="Historical MCP temporal sentinel used Vue.",
                 source="manual",
-                valid_to=datetime.now(timezone.utc) - timedelta(days=1),
+                valid_to=valid_to,
+                superseded_by=["mcp-temporal-new-entry"],
             )
         )
     )
@@ -503,7 +638,59 @@ def test_search_memory_include_history_returns_historical_structured_truth(
     )
     assert history_data["include_history"] is True
     assert history_data["memory_entry_count"] == 1
-    assert history_data["memory_entries"][0]["is_historical"] is True
+    assert "include_history=true" in history_data["why_this_result"]
+    assert any(
+        action["surface"] == "temporal_query"
+        for action in history_data["next_actions"]
+    )
+    entry = history_data["memory_entries"][0]
+    assert entry["id"] == "mcp-temporal-old-entry"
+    assert entry["is_historical"] is True
+    assert entry["temporal_scope"] == "superseded"
+    assert entry["valid_to"] == valid_to.isoformat()
+    assert entry["superseded_by"] == ["mcp-temporal-new-entry"]
+    assert entry["history_included_reason"] == "include_history=true"
+
+    hint = next(
+        item
+        for item in history_data["drilldown_hints"]
+        if item["source_id"] == "mcp-temporal-old-entry"
+    )
+    assert hint["tool"] == "temporal_query"
+    assert hint["arguments"]["truth_type"] == "memory_entry"
+    assert hint["arguments"]["mode"] == "history"
+    assert hint["temporal_scope"] == "superseded"
+    assert hint["valid_to"] == valid_to.isoformat()
+    assert hint["superseded_by"] == ["mcp-temporal-new-entry"]
+
+
+def test_search_memory_temporal_intent_suggests_as_of_drilldown(
+    mcp_backend: LocalMemoryBackend,
+):
+    data = call_tool(
+        "search_memory",
+        {
+            "project_name": "test-project",
+            "query": "as of 2026-02-01 MCP temporal sentinel",
+            "mode": "fts",
+        },
+    )
+
+    assert "Query appears temporal" in data["why_this_result"]
+    assert any(
+        action["label"] == "inspect_temporal_truth"
+        and action["surface"] == "temporal_query"
+        for action in data["next_actions"]
+    )
+    hint = next(
+        item
+        for item in data["drilldown_hints"]
+        if item["source_kind"] == "temporal_intent"
+    )
+    assert hint["tool"] == "temporal_query"
+    assert hint["arguments"]["mode"] == "as_of"
+    assert hint["arguments"]["as_of"] == "2026-02-01T00:00:00+00:00"
+    assert hint["abstention"] == "no_evidence"
 
 
 def test_timeline(mcp_backend: LocalMemoryBackend):
@@ -1516,6 +1703,91 @@ def test_get_project_status_returns_counts_without_cli(mcp_backend: LocalMemoryB
     assert data["cost_budget"]["policy"]["policy_version"] == "cost-budget-v3.4.4"
 
 
+def test_get_project_status_surfaces_temporal_history_hint(
+    mcp_backend: LocalMemoryBackend,
+):
+    run(
+        mcp_backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                id="status-temporal-old-entry",
+                project_name="status-temporal-project",
+                category="decision",
+                content="Status temporal history sentinel used legacy storage.",
+                source="manual",
+                valid_to=datetime.now(timezone.utc) - timedelta(days=1),
+                superseded_by=["status-temporal-new-entry"],
+            )
+        )
+    )
+
+    data = call_tool(
+        "get_project_status",
+        {"project_name": "status-temporal-project"},
+    )
+
+    assert data["success"] is True
+    assert data["temporal_summary"]["historical_memory_entry_count"] == 1
+    assert data["temporal_summary"]["historical_total"] == 1
+    assert data["temporal_summary"]["superseded_total"] == 1
+    assert any(
+        action["label"] == "inspect_temporal_history"
+        and action["surface"] == "temporal_query"
+        for action in data["next_actions"]
+    )
+    hint = next(
+        item
+        for item in data["drilldown_hints"]
+        if item.get("source_kind") == "temporal_summary"
+    )
+    assert hint["tool"] == "temporal_query"
+    assert hint["arguments"]["project_name"] == "status-temporal-project"
+    assert hint["arguments"]["mode"] == "history"
+
+
+def test_get_project_status_returns_maintenance_profile_dry_runs(
+    mcp_backend: LocalMemoryBackend,
+):
+    updated = call_tool(
+        "update_project_profile",
+        {
+            "project_name": "status-maintenance-project",
+            "maintenance_profile": "post-distill-metabolism",
+        },
+    )
+    assert updated["success"]
+    before_ledger = call_tool(
+        "dream_ledger",
+        {"project_name": "status-maintenance-project"},
+    )
+    assert before_ledger["run"] is None
+
+    data = call_tool(
+        "get_project_status",
+        {"project_name": "status-maintenance-project"},
+    )
+
+    profiles = data["maintenance_profiles"]
+    assert profiles["active"] == "post-distill-metabolism"
+    assert profiles["suggested"] == "post-distill-metabolism"
+    assert {
+        profile["name"]
+        for profile in profiles["available"]
+    } == {"post-distill-metabolism", "weekly-dream"}
+    dry_run = profiles["dry_runs"]["post-distill-metabolism"]["dry_run"]
+    assert dry_run["auto_applied"] is False
+    assert dry_run["undo_available"] is False
+    assert "Dry-run only" in dry_run["message"]
+    assert any(
+        action["label"] == "preview_maintenance_profile"
+        for action in data["next_actions"]
+    )
+    after_ledger = call_tool(
+        "dream_ledger",
+        {"project_name": "status-maintenance-project"},
+    )
+    assert after_ledger["run"] is None
+
+
 def test_get_project_status_uses_project_cost_budget_config(
     mcp_backend: LocalMemoryBackend,
     monkeypatch: pytest.MonkeyPatch,
@@ -1540,7 +1812,7 @@ def test_benchmark_matrix_report_exposes_surface_gates():
     data = call_tool("benchmark_matrix_report", {})
 
     assert data["success"] is True
-    assert data["matrix_version"] == "v5.6.0"
+    assert data["matrix_version"] == "v5.8.0"
     surfaces = {row["surface"]: row for row in data["surfaces"]}
     assert {
         "wake",
@@ -1561,6 +1833,7 @@ def test_benchmark_matrix_report_exposes_surface_gates():
         "claim_promotion",
         "release_evidence_pack",
         "context_outcome_loop",
+        "guided_maintenance_profiles",
     }.issubset(
         surfaces
     )

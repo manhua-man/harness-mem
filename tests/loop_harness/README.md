@@ -1,6 +1,6 @@
 # Loop Evaluation Harness
 
-> **状态**: scenario 2/3/4/5/7/8/9/10/11 真跑（v2.0 砍除 1 和 6——见下表脚注）。
+> **状态**: scenario 2/3/4/5/7/8/9/10/11/12 真跑（v2.0 砍除 1 和 6——见下表脚注）。
 
 ## 这个 harness 解决什么问题
 
@@ -26,6 +26,7 @@
 | 9 | `test_mcp_setup_without_cli.py` | ✅ 真跑 | `set_active_project_works`, `update_profile_idempotent`, `wake_surfaces_convention`, `hm_501_emitted` |
 | 10 | `test_wake_usage_badge.py` | ✅ 真跑 | `fresh_rule_marked_never_surfaced`, `veteran_rule_shows_count`, `veteran_rule_shows_recency` |
 | 11 | `test_context_outcome_loop.py` | ✅ 真跑 | `context_outcome_signals`, `used_score_positive`, `misleading_score_negative`, `explained_result_count`, `truth_mutation_count` |
+| 12 | `test_guided_maintenance_profiles.py` | ✅ 真跑 | `profile_update_success`, `dry_run_count`, `summary_fields_present`, `auto_applied_count`, `truth_mutation_count`, `candidate_mutation_count`, `signal_mutation_count` |
 
 **Scenario 1 (distill precision/recall)** 和 **scenario 6 (relation graph data pipeline)** 在 v2.0 移除——它们测的是启发式 distill，已在 v2.0 砍除。LLM-driven distill 的输出非确定性，不能在 CI 中以静态 fixture 跑出 baseline；agent 端的评估应放在 skill prompt 测试或 manual eval 报告里，不挤进 loop_harness。
 
@@ -94,3 +95,11 @@ context loop，而不是 truth 写入捷径。测试先通过 MCP search 拿到 
 `weak_link_signals=True` 的 opt-in 项目里重新 search，验证两个结果都带
 `ranking_explanation(kind=context_outcome)`，且 confirmed memory entry 数量不变。
 这证明 outcome signal 能作为小幅、可解释、可关闭的排序提示，同时不静默修改 truth。
+
+scenario 12 实证：v5.8 的 guided maintenance profile 是显式 opt-in 配置和
+dry-run 预览，不是后台维护入口。测试通过 MCP `update_project_profile` 设置
+`maintenance_profile=post-distill-metabolism`，随后 `get_project_status` 必须返回
+active/suggested/available/dry_runs，并且每个 dry-run summary 都有
+`candidate_counts` / `risk_level` / `auto_applied` / `needs_human_review` /
+`undo_available`。同时 confirmed truth、pending candidates、RetrievalSignal 数量
+保持不变，证明 profile dry-run 不会隐式运行 dream/metabolism，也不会写 truth。

@@ -92,6 +92,71 @@ def test_sqlite_search_backend_deep_recall_includes_archive_tier(
     assert "mem-cold" in {result.source_id for result in response.results}
 
 
+def test_sqlite_search_backend_include_history_explains_temporal_scope(
+    backend: LocalMemoryBackend,
+) -> None:
+    timestamp = datetime(2026, 6, 12, tzinfo=timezone.utc)
+    valid_to = timestamp + timedelta(days=1)
+    run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                id="mem-temporal-old",
+                project_name="demo",
+                category="decision",
+                content="Temporal backend sentinel used the legacy sync loop.",
+                confidence=0.9,
+                source="manual",
+                created_at=timestamp,
+                updated_at=timestamp,
+                valid_to=valid_to,
+                superseded_by=["mem-temporal-new"],
+            )
+        )
+    )
+
+    default_response = run(
+        SQLiteSearchBackend(backend).search(
+            "Temporal backend sentinel",
+            filters=SearchFilters(project_name="demo"),
+            mode="fts",
+            limit=5,
+        )
+    )
+    assert "mem-temporal-old" not in {
+        result.source_id for result in default_response.results
+    }
+
+    history_response = run(
+        SQLiteSearchBackend(backend).search(
+            "Temporal backend sentinel",
+            filters=SearchFilters(project_name="demo", include_history=True),
+            mode="fts",
+            limit=5,
+        )
+    )
+
+    result = next(
+        item for item in history_response.results if item.source_id == "mem-temporal-old"
+    )
+    assert result.metadata["temporal_scope"] == "superseded"
+    assert result.metadata["is_historical"] is True
+    assert result.metadata["valid_to"] == valid_to.isoformat()
+    assert result.metadata["superseded_by"] == ["mem-temporal-new"]
+    assert result.metadata["history_included_reason"] == "include_history=true"
+
+    hint = next(
+        item
+        for item in history_response.drilldown_hints
+        if item["source_id"] == "mem-temporal-old"
+    )
+    assert hint["tool"] == "temporal_query"
+    assert hint["arguments"]["truth_type"] == "memory_entry"
+    assert hint["arguments"]["mode"] == "history"
+    assert hint["temporal_scope"] == "superseded"
+    assert hint["valid_to"] == valid_to.isoformat()
+    assert hint["superseded_by"] == ["mem-temporal-new"]
+
+
 def test_sqlite_search_backend_explains_context_outcome_ranking_hint(
     backend: LocalMemoryBackend,
 ) -> None:

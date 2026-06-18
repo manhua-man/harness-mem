@@ -15,7 +15,7 @@
 | [`how-it-works-visual-guide.md`](./how-it-works-visual-guide.md) | **入门图解**：Mermaid 流程图 + 名词白话表（项目怎么跑） |
 | [`../canvases/`](../canvases/) | **Cursor Canvas**：交互式完成度 / 入门图解面板 |
 | `error-codes.md` | `doctor` 的 `HM-xxx` 错误码与修复提示 |
-| `roadmap-status.md` | 当前版本、已交付能力、non-goals、已发布的 v3.1-v5.6.0 |
+| `roadmap-status.md` | 当前版本、已交付能力、non-goals、已发布的 v3.1-v5.8.0、规划 v5.9-v5.12、暂定 v6.0 |
 | `testing.md` | 维护者测试分层：日常 focused / fast gate / full release gate |
 
 | 目录 | 内容 |
@@ -33,7 +33,9 @@
 | `roadmap/` | 历史 roadmap proposal / design drafts（非当前版本承诺） |
 | `cli/`、`cli-design-expert.md` | CLI / 维护面设计参考 |
 | `reference-projects.md` | 当前仍保留的外部参考边界、机制速记与直接设计结论；不做总榜 |
-| [`reference-comparison-matrix.md`](./reference-comparison-matrix.md) | **Maintainer 十维能力雷达**：harness-mem vs 参考项目分维对照（非对外总分榜） |
+| [`reference-comparison-matrix.md`](./reference-comparison-matrix.md) | **Maintainer 十维能力雷达**（Markdown 全表） |
+| [`maintainer-feature-surface-trim.md`](./maintainer-feature-surface-trim.md) | **功能面精简审阅**（skill-assisted；非删除承诺） |
+| [`../canvases/harness-mem-reference-comparison.canvas.tsx`](../canvases/harness-mem-reference-comparison.canvas.tsx) | **十维参考对比 Canvas**（交互面板） |
 
 LongMemEval / embedding 相关 benchmark 文档默认以 `all-MiniLM-L6-v2` 为基线锚点，除非某份 shootout 明确写了其它模型。
 
@@ -61,6 +63,9 @@ LongMemEval / embedding 相关 benchmark 文档默认以 `all-MiniLM-L6-v2` 为�
 | `roadmap-v37.md` | v3.7：Skill Evolution Governance |
 | `roadmap-v38.md` | v3.8：True Hybrid Retrieval Shootout |
 | `roadmap-v40.md` | v4.0：Storage v2 + Rust Core + Local Memory Index Fabric 总纲 |
+| `roadmap-v57.md` | v5.7（已发布）：Temporal-aware Retrieval + Claims Drilldown |
+| `roadmap-v58.md` | v5.8（已发布）：养库 + MCP `minimal\|full` profile |
+| `roadmap-v59.md` | v5.9+（规划中）：Evidence & Public Claims Train — bounded → broad token/quality + B24 speedup |
 
 OpenSpec：
 

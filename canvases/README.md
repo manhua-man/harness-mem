@@ -5,7 +5,8 @@ Cursor Canvas 交互面板源码，与 `docs/how-it-works-visual-guide.md` 配�
 | 文件 | 用途 |
 |------|------|
 | `harness-mem-how-it-works.canvas.tsx` | 入门：项目怎么跑、7 张流程图、名词白话表 |
-| `harness-mem-completion.canvas.tsx` | 完成度：五维评估、v5.0 证据链、能力矩阵 |
+| `harness-mem-completion.canvas.tsx` | 完成度：五维评估、v5.8 证据链、能力矩阵 |
+| `harness-mem-reference-comparison.canvas.tsx` | **Maintainer**：十维参考项目对比（hm vs 峰值） |
 
 ## 怎么打开
 
@@ -17,4 +18,5 @@ Cursor Canvas 交互面板源码，与 `docs/how-it-works-visual-guide.md` 配�
 
 - [`docs/how-it-works-visual-guide.md`](../docs/how-it-works-visual-guide.md) — Mermaid 版流程图（推荐分享/打印）
 - [`docs/roadmap-status.md`](../docs/roadmap-status.md) — 当前版本与完成度真值
+- [`docs/reference-comparison-matrix.md`](../docs/reference-comparison-matrix.md) — Maintainer 十维对比矩阵（Markdown 全表）
 - [`docs/diagrams/`](../docs/diagrams/) — 正式 SVG 架构图

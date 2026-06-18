@@ -27,6 +27,7 @@ from typing import Any, Callable, TypedDict
 class ToolSpec(TypedDict):
     description: str
     input_schema: dict[str, Any]
+    cluster: str
     handler: Callable[..., dict[str, Any]]
 
 
@@ -36,6 +37,42 @@ class _SchemaOnly(TypedDict):
 
     description: str
     input_schema: dict[str, Any]
+
+
+VALID_TOOL_PROFILES = ("full", "minimal")
+
+MINIMAL_TOOL_NAMES = frozenset(
+    {
+        "search_memory",
+        "wake",
+        "timeline",
+        "temporal_query",
+        "file_context",
+        "get_observations",
+        "get_confirmed_rules",
+        "get_project_status",
+        "get_project_profile",
+        "set_active_project",
+        "prepare_session_distill",
+        "ingest_sessions",
+        "list_candidates",
+        "auto_review_candidates",
+        "suggest_memory_entry",
+        "suggest_rule",
+        "suggest_relation_fact",
+        "suggest_supersede",
+        "suggest_correction",
+        "confirm_memory_entry",
+        "reject_memory_entry",
+        "confirm_rule",
+        "reject_rule",
+        "confirm_relation_fact",
+        "reject_relation_fact",
+        "confirm_supersede",
+        "reject_supersede",
+        "create_task_handoff",
+    }
+)
 
 
 # Ordered map of tool name → schema. Order is the discovery order MCP
@@ -434,6 +471,24 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "Opt-in for v2.3.1 weak-link signal application "
                         "(wake re-grouping into Recent active / Stable / "
                         "quiet + search boost on repeat hits). Default false."
+                    ),
+                },
+                "mcp_tool_profile": {
+                    "type": "string",
+                    "enum": ["full", "minimal"],
+                    "description": (
+                        "Optional project-level MCP tools/list profile override. "
+                        "'full' exposes every registered tool; 'minimal' exposes "
+                        "the daily-flow 28-tool profile."
+                    ),
+                },
+                "maintenance_profile": {
+                    "type": "string",
+                    "enum": ["weekly-dream", "post-distill-metabolism"],
+                    "description": (
+                        "Optional guided opt-in maintenance preset. Stored on "
+                        "ProjectProfile; status returns dry-run summaries but no "
+                        "daemon or maintenance run is enabled by default."
                     ),
                 },
                 "replace": {
@@ -1423,6 +1478,76 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
 }
 
 
+TOOL_CLUSTERS = {
+    # Daily read/context surfaces.
+    "search_memory": "core_read",
+    "timeline": "core_read",
+    "temporal_query": "core_read",
+    "get_observations": "core_read",
+    "get_task_handoffs": "core_read",
+    "get_confirmed_rules": "core_read",
+    "get_project_profile": "core_read",
+    "file_context": "core_read",
+    "get_project_status": "core_read",
+    "set_active_project": "core_read",
+    "wake": "core_read",
+    # Advanced or lower-frequency read/profile surfaces.
+    "trace_relations": "advanced",
+    "search_raw": "advanced",
+    "search_skills": "advanced",
+    "get_skill": "advanced",
+    "update_project_profile": "advanced",
+    "record_context_outcome": "advanced",
+    # Candidate/truth loop.
+    "ingest_sessions": "truth_loop",
+    "prepare_session_distill": "truth_loop",
+    "list_candidates": "truth_loop",
+    "auto_review_candidates": "truth_loop",
+    "suggest_supersede": "truth_loop",
+    "confirm_supersede": "truth_loop",
+    "reject_supersede": "truth_loop",
+    "suggest_correction": "truth_loop",
+    "create_rule_candidate": "truth_loop",
+    "confirm_rule": "truth_loop",
+    "reject_rule": "truth_loop",
+    "suggest_rule": "truth_loop",
+    "suggest_memory_entry": "truth_loop",
+    "confirm_memory_entry": "truth_loop",
+    "reject_memory_entry": "truth_loop",
+    "suggest_relation_fact": "truth_loop",
+    "confirm_relation_fact": "truth_loop",
+    "reject_relation_fact": "truth_loop",
+    "create_task_handoff": "truth_loop",
+    # Opt-in maintenance surfaces.
+    "metabolism_preview": "maintenance",
+    "metabolism_run": "maintenance",
+    "dream_ledger": "maintenance",
+    "dream_run": "maintenance",
+    "dream_auto_tick": "maintenance",
+    "undo_dream_item": "maintenance",
+    # Procedural skill governance.
+    "suggest_skill": "governance",
+    "confirm_skill": "governance",
+    "reject_skill": "governance",
+    "suggest_skill_promotion": "governance",
+    "confirm_skill_promotion": "governance",
+    "reject_skill_promotion": "governance",
+    "record_skill_result": "governance",
+    "detect_skill_improvements": "governance",
+    "confirm_skill_revision": "governance",
+    "reject_skill_revision": "governance",
+    "detect_skill_deprecations": "governance",
+    "confirm_skill_deprecation": "governance",
+    "reject_skill_deprecation": "governance",
+    # Maintainer/release/observer surfaces.
+    "list_reflection_jobs": "maintainer",
+    "get_reflection_job": "maintainer",
+    "health_summary": "maintainer",
+    "surface_cost_report": "maintainer",
+    "benchmark_matrix_report": "maintainer",
+}
+
+
 def build_tools(
     handlers: dict[str, Callable[..., dict[str, Any]]],
 ) -> dict[str, ToolSpec]:
@@ -1435,24 +1560,42 @@ def build_tools(
     """
     schema_keys = set(_SCHEMAS)
     handler_keys = set(handlers)
-    if schema_keys != handler_keys:
+    cluster_keys = set(TOOL_CLUSTERS)
+    if schema_keys != handler_keys or schema_keys != cluster_keys:
         missing_handlers = schema_keys - handler_keys
         unknown_handlers = handler_keys - schema_keys
+        missing_clusters = schema_keys - cluster_keys
+        unknown_clusters = cluster_keys - schema_keys
         details = []
         if missing_handlers:
             details.append(f"missing handlers for: {sorted(missing_handlers)}")
         if unknown_handlers:
             details.append(f"unknown handlers for: {sorted(unknown_handlers)}")
+        if missing_clusters:
+            details.append(f"missing clusters for: {sorted(missing_clusters)}")
+        if unknown_clusters:
+            details.append(f"unknown clusters for: {sorted(unknown_clusters)}")
         raise KeyError("; ".join(details))
+
+    missing_minimal = MINIMAL_TOOL_NAMES - schema_keys
+    if missing_minimal:
+        raise KeyError(f"minimal profile references unknown tools: {sorted(missing_minimal)}")
 
     return {
         name: ToolSpec(
             description=schema["description"],
             input_schema=schema["input_schema"],
+            cluster=TOOL_CLUSTERS[name],
             handler=handlers[name],
         )
         for name, schema in _SCHEMAS.items()
     }
 
 
-__all__ = ["ToolSpec", "build_tools"]
+__all__ = [
+    "MINIMAL_TOOL_NAMES",
+    "TOOL_CLUSTERS",
+    "ToolSpec",
+    "VALID_TOOL_PROFILES",
+    "build_tools",
+]

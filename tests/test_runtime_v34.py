@@ -29,6 +29,7 @@ REQUIRED_COLLECTION_IDS = [
     "retrieval_quality_longmemeval",
     "client_enabled_vs_disabled",
     "evidence_safety",
+    "auto_maintenance_effectiveness",
     "storage_v2_baseline",
     "migration_roundtrip",
     "local_index_fabric_smoke",
@@ -44,6 +45,7 @@ REQUIRED_COLLECTION_IDS = [
     "claim_promotion_pack",
     "release_evidence_pack",
     "context_outcome_loop",
+    "guided_maintenance_profiles",
 ]
 
 
@@ -122,7 +124,7 @@ def test_benchmark_matrix_report_tracks_required_surfaces(tmp_path: Path):
 
     assert report["gate"]["passed"] is True
     assert report["gate"]["missing_surface_coverage"] == []
-    assert report["matrix_version"] == "v5.6.0"
+    assert report["matrix_version"] == "v5.8.0"
     assert report["taxonomy"]["artifact_states"] == [
         "accepted",
         "partial",
@@ -152,6 +154,7 @@ def test_benchmark_matrix_report_tracks_required_surfaces(tmp_path: Path):
         "claim_promotion",
         "release_evidence_pack",
         "context_outcome_loop",
+        "guided_maintenance_profiles",
     }
     assert report["memory_eval_gate"]["passed"] is True
     assert report["retrieval_quality_pack"]["passed"] is True

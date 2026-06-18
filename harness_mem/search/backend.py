@@ -194,6 +194,10 @@ class SQLiteSearchBackend:
                     metadata={
                         "project_name": entry.project_name,
                         "truth_status": truth_status,
+                        **_temporal_metadata(
+                            entry,
+                            history_included_reason=_history_included_reason(filters),
+                        ),
                         "tier": tier,
                         "memory_type": getattr(entry, "memory_type", None),
                         "corpus_id": getattr(entry, "corpus_id", None),
@@ -233,6 +237,10 @@ class SQLiteSearchBackend:
                     metadata={
                         "project_name": fact.project_name,
                         "truth_status": truth_status,
+                        **_temporal_metadata(
+                            fact,
+                            history_included_reason=_history_included_reason(filters),
+                        ),
                         "tier": "hot",
                         "search_mode": "fts",
                         "search_requested_mode": mode,
@@ -312,11 +320,7 @@ class SQLiteSearchBackend:
             },
             source_coverage=_source_coverage(selected),
             drilldown_hints=[
-                {
-                    "source_id": result.source_id,
-                    "source_kind": result.source_kind,
-                    "read_surface": _read_surface(result.source_kind),
-                }
+                _drilldown_hint(result, query)
                 for result in selected
             ],
         )
@@ -415,6 +419,9 @@ def _apply_result_metadata(
     ranking_explanation = result.metadata.get("ranking_explanation")
     if isinstance(ranking_explanation, list):
         setattr(target, "_ranking_explanation", list(ranking_explanation))
+    history_included_reason = result.metadata.get("history_included_reason")
+    if isinstance(history_included_reason, str) and history_included_reason:
+        setattr(target, "_history_included_reason", history_included_reason)
 
 
 async def _apply_signal_influence(
@@ -524,6 +531,45 @@ def _ranking_explanation(entry: MemoryEntry) -> list[dict[str, Any]]:
     return explanations
 
 
+def _history_included_reason(filters: SearchFilters) -> str | None:
+    if filters.include_history:
+        return "include_history=true"
+    if filters.deep_recall:
+        return "deep_recall=true"
+    return None
+
+
+def _temporal_scope(record: object) -> str:
+    valid_to = getattr(record, "valid_to", None)
+    is_historical = isinstance(valid_to, datetime) and valid_to <= datetime.now(timezone.utc)
+    if not is_historical:
+        return "current"
+    if list(getattr(record, "superseded_by", []) or []):
+        return "superseded"
+    return "historical"
+
+
+def _temporal_metadata(
+    record: object,
+    *,
+    history_included_reason: str | None,
+) -> dict[str, Any]:
+    scope = _temporal_scope(record)
+    is_historical = scope in {"historical", "superseded"}
+    metadata: dict[str, Any] = {
+        "temporal_scope": scope,
+        "is_historical": is_historical,
+        "valid_from": _optional_isoformat(getattr(record, "valid_from", None)),
+        "valid_to": _optional_isoformat(getattr(record, "valid_to", None)),
+        "recorded_at": _optional_isoformat(getattr(record, "recorded_at", None)),
+        "supersedes": list(getattr(record, "supersedes", []) or []),
+        "superseded_by": list(getattr(record, "superseded_by", []) or []),
+    }
+    if is_historical and history_included_reason:
+        metadata["history_included_reason"] = history_included_reason
+    return metadata
+
+
 def _entry_truth_status(entry: MemoryEntry) -> str:
     if getattr(entry, "valid_to", None):
         return "historical"
@@ -572,6 +618,42 @@ def _source_coverage(results: list[BackendSearchResult]) -> dict[str, int]:
     for result in results:
         coverage[result.source_kind] = coverage.get(result.source_kind, 0) + 1
     return coverage
+
+
+def _drilldown_hint(result: BackendSearchResult, query: str) -> dict[str, Any]:
+    hint: dict[str, Any] = {
+        "source_id": result.source_id,
+        "source_kind": result.source_kind,
+        "read_surface": _read_surface(result.source_kind),
+    }
+    temporal_scope = result.metadata.get("temporal_scope")
+    if isinstance(temporal_scope, str):
+        hint["temporal_scope"] = temporal_scope
+
+    if result.source_kind in {"memory_entry", "relation_fact"}:
+        project_name = result.metadata.get("project_name")
+        mode = "history" if temporal_scope in {"historical", "superseded"} else "current"
+        hint.update(
+            {
+                "tool": "temporal_query",
+                "arguments": {
+                    "project_name": project_name,
+                    "query": query,
+                    "truth_type": result.source_kind,
+                    "mode": mode,
+                    "limit": 20,
+                },
+                "why": (
+                    "Use temporal_query to inspect current/history/as_of semantics "
+                    "for this structured truth hit."
+                ),
+            }
+        )
+        if result.metadata.get("valid_to"):
+            hint["valid_to"] = result.metadata["valid_to"]
+        if result.metadata.get("superseded_by"):
+            hint["superseded_by"] = list(result.metadata["superseded_by"])
+    return hint
 
 
 def _estimate_tokens(results: list[BackendSearchResult]) -> int:

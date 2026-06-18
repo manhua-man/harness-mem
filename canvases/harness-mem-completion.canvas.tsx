@@ -21,7 +21,7 @@ import {
   useHostTheme,
 } from "cursor/canvas";
 
-const VERSION = "5.6.0";
+const VERSION = "5.8.0";
 const AS_OF = "2026-06-18";
 const ACCEPTED_RUNS = 31;
 
@@ -38,7 +38,7 @@ const DELIVERED_SLICES = [
   { id: "v3x", label: "v3.x 高级能力", value: 100 },
   { id: "v40-v45", label: "v4.0–v4.5 地基", value: 100 },
   { id: "v46-v50", label: "v4.6–v5.0 证据链", value: 100 },
-  { id: "v51-v56", label: "v5.1–v5.6 运行时与体验", value: 100 },
+  { id: "v51-v58", label: "v5.1–v5.8 运行时、体验与养库", value: 100 },
 ];
 
 const CAPABILITIES = [
@@ -48,7 +48,10 @@ const CAPABILITIES = [
   { area: "Storage v2", status: "默认已切换", note: "canonical SQLite 是 structured truth / observations 默认 runtime" },
   { area: "SearchBackend", status: "主链已切换", note: "search / wake / task context 共享 backend contract" },
   { area: "Daily DX", status: "已交付", note: "status / wake / search 返回 next actions 与解释字段" },
+  { area: "Temporal Drilldown", status: "已交付", note: "search / wake 主路径带 temporal metadata 与 temporal_query 钻取" },
+  { area: "Generated Compile", status: "已交付", note: "claim drilldown + incremental source-hash skip；generated 非 truth" },
   { area: "Outcome Loop", status: "Opt-in 已交付", note: "record_context_outcome 只写 signal；ranking hint 默认关闭" },
+  { area: "MCP Tool Profile", status: "已交付", note: "full=60 默认；minimal=28 仅缩短 tools/list，不删 handler" },
   { area: "Rust Core", status: "Native 已交付", note: "PyO3 harness_mem_core_rs + accepted hot-path artifact" },
   { area: "Index Fabric", status: "运行时证据已齐", note: "index_fabric_runtime_conformance accepted" },
   { area: "Auto Dream", status: "已交付", note: "opt-in 维护；host 默认 off；只写 ledger / 候选" },
@@ -65,8 +68,10 @@ const EVIDENCE_TRACK = [
   { id: "v51", content: "v5.1 Canonical SQLite Default Truth Runtime — canonical-first bootstrap", status: "completed" as const },
   { id: "v52", content: "v5.2 SearchBackend Mainline — search/wake/task context 共享 backend contract", status: "completed" as const },
   { id: "v53-v56", content: "v5.3–v5.6 Daily DX / guided maintenance / outcome loop / field-test packet", status: "completed" as const },
+  { id: "v57", content: "v5.7 Temporal-aware Retrieval — temporal metadata / temporal_query drilldown / generated claim drilldown", status: "completed" as const },
+  { id: "v58", content: "v5.8 Guided Maintenance Profiles — incremental compile / minimal-full MCP profile / profile gate", status: "completed" as const },
   { id: "snapshot", content: `release snapshot 合并 ${ACCEPTED_RUNS} 个 accepted runs · evidence_hardening_track 全通过`, status: "completed" as const },
-  { id: "core", content: "v1.5 → v5.6 主路线连续收口（roadmap-status 2026-06-18）", status: "completed" as const },
+  { id: "core", content: "v1.5 → v5.8 主路线连续收口（roadmap-status 2026-06-18）", status: "completed" as const },
 ];
 
 function ArchitectureDiagram() {
@@ -172,12 +177,12 @@ export default function HarnessMemCompletionCanvas() {
           <Pill tone="info">v{VERSION}</Pill>
         </Row>
         <Text tone="secondary">
-          harness-mem 仓库 · 数据源 docs/roadmap-status.md · CHANGELOG 5.6.0 · 核对日期 {AS_OF}
+          harness-mem 仓库 · 数据源 docs/roadmap-status.md · CHANGELOG 5.8.0 · 核对日期 {AS_OF}
         </Text>
       </Stack>
 
       <Callout tone="info">
-        v5.6.0 已收口 default kernel cutover 与使用体验线：canonical SQLite / SearchBackend 进入默认主链路，Daily DX、guided maintenance、outcome signal loop 和 multi-client field-test packet 已落地。public claim 边界不变——仍不能说全局 token 节省、Storage v2 公开 speedup、默认 reranker/HyDE 或 broad answer-quality。
+        v5.8.0 已收口 default kernel cutover、使用体验线、temporal drilldown 和 opt-in 养库线：canonical SQLite / SearchBackend 进入默认主链路，Daily DX、outcome signal loop、multi-client field-test packet、guided maintenance profiles、incremental compile 和 MCP minimal/full profile 已落地。public claim 边界不变，仍不能说全局 token 节省、Storage v2 公开 speedup、默认 reranker/HyDE 或 broad answer-quality。
       </Callout>
 
       <Grid columns={4} gap={12}>
@@ -218,7 +223,7 @@ export default function HarnessMemCompletionCanvas() {
               data={DELIVERED_SLICES.map((s) => ({ label: s.label, value: s.value }))}
             />
             <Text tone="tertiary" size="small">
-              切片权重示意（非工时）· v4.6–v5.6 已收口 · 来源：CHANGELOG 5.6.0 / roadmap-status.md
+              切片权重示意（非工时）· v4.6–v5.8 已收口 · 来源：CHANGELOG 5.8.0 / roadmap-status.md
             </Text>
           </CardBody>
         </Card>
@@ -256,7 +261,7 @@ export default function HarnessMemCompletionCanvas() {
 
       <Stack gap={6}>
         <H2>运行时架构分层</H2>
-        <Text tone="tertiary" size="small">v5.6 形态 · Python 编排 + canonical SQLite + SearchBackend + native Rust PyO3 + Index Fabric</Text>
+        <Text tone="tertiary" size="small">v5.8 形态 · Python 编排 + canonical SQLite + SearchBackend + native Rust PyO3 + Index Fabric + MCP profile</Text>
       </Stack>
       <Card>
         <CardBody>
@@ -329,7 +334,7 @@ export default function HarnessMemCompletionCanvas() {
           </Text>
         </Grid>
         <Text tone="tertiary" size="small">
-          Canvas 数据内嵌自 CHANGELOG 5.6.0 与 roadmap-status.md（2026-06-18）· 打开后可与聊天并排查看
+          Canvas 数据内嵌自 CHANGELOG 5.8.0 与 roadmap-status.md（2026-06-18）· 打开后可与聊天并排查看
         </Text>
       </Stack>
     </Stack>

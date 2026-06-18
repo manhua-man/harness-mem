@@ -323,7 +323,7 @@ export default function HarnessMemHowItWorksCanvas() {
           <Pill tone="info">入门图解</Pill>
         </Row>
         <Text tone="secondary">
-          面向不熟悉名词的读者 · 主产品 harness-mem v5.6.0 · 数据源 AGENTS.md / best-practices.md / roadmap-status.md（2026-06-18）
+          面向不熟悉名词的读者 · 主产品 harness-mem v5.8.0 · 数据源 AGENTS.md / best-practices.md / roadmap-status.md（2026-06-18）
         </Text>
       </Stack>
 

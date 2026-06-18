@@ -657,6 +657,35 @@ Minimum evidence:
 - claim boundary saying outcome feedback is signal-only, opt-in, and not a
   broad answer-quality or token/cost saving claim
 
+## `guided_maintenance_profiles`
+
+Use when:
+
+- changing `ProjectProfile.maintenance_profile`
+- changing `get_project_status` maintenance profile summaries
+- changing maintenance profile dry-run/no-op behavior
+
+Prompt and acceptance source:
+
+- `benchmark-suite/guided_maintenance_profiles/prompts.json`
+- `benchmark-suite/guided_maintenance_profiles/acceptance_checklist.md`
+
+Run:
+
+```bash
+python -m pytest tests/loop_harness/test_guided_maintenance_profiles.py -q --capture=no
+```
+
+Minimum evidence:
+
+- loop harness stdout with `[loop_harness:guided_maintenance_profiles]`
+- `profile_update_success`, `dry_run_count`, `summary_fields_present`,
+  `auto_applied_count`, `truth_mutation_count`, `candidate_mutation_count`,
+  and `signal_mutation_count`
+- claim boundary saying profile dry-runs are opt-in previews and not production
+  maintenance effectiveness, daemon-readiness, answer-quality, or token/cost
+  evidence
+
 ## `canonical_store_runtime_baseline`
 
 Use when validating v4.0.1 canonical entity tables, metadata filters,
