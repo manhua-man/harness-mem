@@ -50,83 +50,62 @@
   },
   "evidence_hardening_track": {
     "cost_token_evidence": {
-      "passed": true,
+      "passed": false,
       "source": "artifact-results",
       "collection_present": true,
-      "memory_shortcut_ready": true,
-      "functional_token_economics_ready": true,
-      "long_source_both_passed": 8,
-      "median_token_saving_ratio": "0.598",
-      "source_read_reduction_pairs": 7,
-      "enabled_source_budget_ok_pairs": 8,
-      "negative_control_pairs": 2,
-      "negative_control_budget_ok_pairs": 2,
-      "blocking": [],
-      "claim_boundary": "bounded long-source memory-shortcut evidence only; not a global token/cost or real-billing claim"
+      "blocking": [
+        "memory_shortcut_vs_source_recovery/missing"
+      ],
+      "claim_boundary": "bounded long-source memory-shortcut evidence only; not a global token/cost or real-billing claim",
+      "memory_shortcut_ready": false,
+      "functional_token_economics_ready": false
     },
     "storage_v2_scale_evidence": {
-      "passed": true,
+      "passed": false,
       "source": "artifact-results",
       "collection_present": true,
-      "baseline_profiles": [
-        "10k",
-        "100k",
-        "1m"
+      "blocking": [
+        "storage_v2_scale_artifacts/missing"
       ],
-      "migration_profiles": [
-        "10k",
-        "100k",
-        "1m"
-      ],
-      "canonical_profiles": [
-        "10k",
-        "100k",
-        "1m"
-      ],
-      "blocking": [],
       "claim_boundary": "10k/100k/1m storage evidence is required before any default canonical-store or speedup discussion"
     },
     "index_fabric_runtime_evidence": {
-      "passed": true,
+      "passed": false,
       "source": "artifact-results",
       "collection_present": true,
-      "operations": [
-        "exact_search",
-        "graph_search",
-        "trigram_search",
-        "word_search"
+      "blocking": [
+        "index_fabric_runtime_conformance/missing"
       ],
-      "blocking": [],
       "claim_boundary": "runtime conformance evidence is required before any index-fabric, Tantivy, LanceDB, or ANN readiness language"
     },
     "rust_native_hot_path_evidence": {
-      "passed": true,
+      "passed": false,
       "source": "artifact-results",
       "collection_present": true,
-      "operations": [
-        "bulk_index_rows",
-        "rank_candidates",
-        "reciprocal_rank_fusion",
-        "scan_jsonl",
-        "tokenize"
+      "blocking": [
+        "rust_core_hot_path/missing"
       ],
-      "blocking": [],
       "claim_boundary": "native Rust evidence is required before any Rust speedup or default-wheel readiness claim"
     },
     "claim_boundary": "future-track evidence gates measure bounded cost, storage, index, and native hot-path readiness; they do not upgrade blocked public claims or default behaviors by themselves"
   },
   "default_change_decision_gate": {
-    "ready": true,
+    "ready": false,
     "required_gates": {
-      "cost_token_evidence": true,
-      "storage_v2_scale_evidence": true,
-      "index_fabric_runtime_evidence": true,
-      "rust_native_hot_path_evidence": true,
+      "cost_token_evidence": false,
+      "storage_v2_scale_evidence": false,
+      "index_fabric_runtime_evidence": false,
+      "rust_native_hot_path_evidence": false,
       "retrieval_quality_pack": true,
       "claim_promotion_policy": true,
       "release_evidence_pack": true
     },
-    "blocking": [],
+    "blocking": [
+      "cost_token_evidence",
+      "storage_v2_scale_evidence",
+      "index_fabric_runtime_evidence",
+      "rust_native_hot_path_evidence"
+    ],
     "claim_boundary": "default storage/index/reranker/HyDE decisions require artifact-backed evidence across cost, storage, index, native hot path, retrieval quality, claim-promotion policy, and release evidence; smoke alone never changes defaults"
   },
   "runs": [
