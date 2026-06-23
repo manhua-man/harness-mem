@@ -1,0 +1,34 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local tool caches / reports
+.coverage
+.coverage.*
+.gstack/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Benchmark outputs
+results_harness*.json
+
+# Local scratch directories
+.local-archive/
+.tmp/
+.tmp*/
+tmp_pytest_codex/
+tmp-review-a/
+tmp-*/
+
+# Local Cursor/Claude config overrides
+**/CLAUDE.local.md
+
+# Local harness-mem config overrides
+.harness-mem.toml
+
+# Build artifacts
+dist/
+build/
+target/
+*.egg-info/

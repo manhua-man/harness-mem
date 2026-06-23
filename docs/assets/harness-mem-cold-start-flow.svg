@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 520" role="img" aria-labelledby="title desc">
+  <title id="title">harness-mem cold-start flow</title>
+  <desc id="desc">A new Agent uses wake, search, distill, and review against a local auditable memory backend.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .ink { fill: #111827; }
+      .muted { fill: #475569; }
+      .card { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; }
+      .store { fill: #0f172a; }
+      .teal { fill: #0ea5a4; }
+      .amber { fill: #f5a524; }
+      .line { fill: none; stroke: #0ea5a4; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+      .line-muted { fill: none; stroke: #94a3b8; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .label { font-size: 30px; font-weight: 750; letter-spacing: 0; }
+      .body { font-size: 20px; letter-spacing: 0; }
+      .small { font-size: 17px; letter-spacing: 0; }
+    </style>
+    <marker id="arrow" markerHeight="12" markerWidth="12" orient="auto" refX="10" refY="6">
+      <path d="M1 1l10 5-10 5z" fill="#0ea5a4"/>
+    </marker>
+  </defs>
+  <rect class="bg" width="1180" height="520" rx="30"/>
+
+  <text x="70" y="72" class="label ink">Cold-start memory loop</text>
+  <text x="70" y="106" class="body muted">A fresh Agent recovers decisions, writes candidates, and keeps truth reviewable.</text>
+
+  <rect x="70" y="162" width="185" height="150" rx="22" class="card"/>
+  <circle cx="118" cy="213" r="22" class="teal"/>
+  <path d="M108 213h20M118 203v20" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+  <text x="96" y="265" class="label ink">New Agent</text>
+  <text x="96" y="294" class="small muted">no chat history</text>
+
+  <path d="M270 237h80" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="370" y="150" width="165" height="174" rx="22" class="card"/>
+  <text x="410" y="200" class="label ink">wake</text>
+  <text x="410" y="238" class="small muted">confirmed</text>
+  <text x="410" y="264" class="small muted">project context</text>
+  <path d="M412 287h82" class="line-muted"/>
+
+  <path d="M552 237h70" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="642" y="150" width="165" height="174" rx="22" class="card"/>
+  <text x="681" y="200" class="label ink">search</text>
+  <text x="681" y="238" class="small muted">prior decisions</text>
+  <text x="681" y="264" class="small muted">with sources</text>
+  <circle cx="696" cy="292" r="9" class="teal"/>
+  <circle cx="724" cy="292" r="9" class="teal"/>
+  <circle cx="752" cy="292" r="9" class="teal"/>
+
+  <path d="M824 237h70" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="914" y="150" width="195" height="174" rx="22" class="card"/>
+  <text x="958" y="200" class="label ink">distill</text>
+  <text x="958" y="238" class="small muted">session evidence</text>
+  <text x="958" y="264" class="small muted">into candidates</text>
+  <path d="M958 293h92" class="line-muted"/>
+
+  <rect x="370" y="378" width="739" height="86" rx="24" class="store"/>
+  <text x="410" y="430" class="body" fill="#e5e7eb">local canonical store</text>
+  <text x="655" y="430" class="body" fill="#99f6e4">candidate / review / supersede</text>
+  <path d="M996 411l23 21 55-58" fill="none" stroke="#f5a524" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <path d="M1012 324v42" class="line" marker-end="url(#arrow)"/>
+  <path d="M452 378v-38" class="line" marker-end="url(#arrow)"/>
+  <path d="M724 378v-38" class="line" marker-end="url(#arrow)"/>
+
+  <text x="74" y="398" class="body ink">What changes?</text>
+  <text x="74" y="427" class="small muted">The Agent reads stable</text>
+  <text x="74" y="452" class="small muted">memory, not folklore.</text>
+  <text x="74" y="477" class="small muted">New facts wait for review</text>
+  <text x="74" y="502" class="small muted">before becoming truth.</text>
+</svg>

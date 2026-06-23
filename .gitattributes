@@ -1,0 +1,28 @@
+# Auto-detect text files and normalize to LF in the repo
+* text=auto
+
+# Explicitly mark these as text files
+*.md text diff=markdown
+*.py text diff=python
+*.json text
+*.yaml text
+*.yml text
+*.toml text
+*.cfg text
+*.ini text
+*.sh text eol=lf
+*.ps1 text eol=crlf
+
+# Denote binary/sensitive files
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.webp binary
+*.mp4 binary
+
+# SQLite databases (binary)
+*.db binary
+*.sqlite binary

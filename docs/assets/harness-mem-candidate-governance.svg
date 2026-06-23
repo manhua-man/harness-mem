@@ -1,0 +1,204 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1050" viewBox="0 0 1440 1050" role="img" aria-labelledby="title desc">
+  <title id="title">Harness-Mem 候选治理与记忆状态机</title>
+  <desc id="desc">从原始会话证据到候选层、自动审核、人类复核、已确认真值、运行时消费和信号回流的状态机。</desc>
+  <defs>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e8f2fb" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="header" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f6fbf"/>
+      <stop offset="55%" stop-color="#11a7b5"/>
+      <stop offset="100%" stop-color="#45bd92"/>
+    </linearGradient>
+    <linearGradient id="candidate" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#eaf5ff"/>
+      <stop offset="100%" stop-color="#e9fbf4"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-18%" width="125%" height="150%">
+      <feDropShadow dx="0" dy="9" stdDeviation="12" flood-color="#0b3558" flood-opacity="0.12"/>
+    </filter>
+    <marker id="blueArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1677b9"/>
+    </marker>
+    <marker id="greenArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#1f9f7a"/>
+    </marker>
+    <marker id="orangeArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#d9791f"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfdff; }
+      .grid { fill: url(#grid); opacity: .72; }
+      .title { font: 700 40px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .subtitle { font: 400 18px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #4d657d; }
+      .panel { fill: #ffffff; stroke: #c6dcee; stroke-width: 1.6; rx: 18; }
+      .panelBlue { fill: #eaf5ff; stroke: #9ccfe0; stroke-width: 1.7; rx: 18; }
+      .panelCand { fill: url(#candidate); stroke: #8fcfda; stroke-width: 2; rx: 20; }
+      .panelGreen { fill: #eefbf5; stroke: #90d4b4; stroke-width: 1.7; rx: 18; }
+      .panelOrange { fill: #fff7ed; stroke: #f1b979; stroke-width: 1.7; rx: 18; }
+      .label { font: 700 22px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
+      .body { font: 400 14px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #425c72; }
+      .small { font: 400 12px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #60788e; }
+      .code { font: 700 13px "Cascadia Mono", Consolas, monospace; fill: #0f6fbf; }
+      .chip { fill: url(#header); rx: 16; }
+      .chipText { font: 700 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #fff; }
+      .status { font: 700 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #173b57; }
+      .card { fill: #ffffff; stroke: #cbdfee; stroke-width: 1.2; rx: 13; }
+      .cardWarn { fill: #fff7ed; stroke: #f1b979; stroke-width: 1.2; rx: 13; }
+      .cardDone { fill: #f0fbf6; stroke: #93d8b6; stroke-width: 1.2; rx: 13; }
+      .arrow { fill: none; stroke: #1677b9; stroke-width: 3; marker-end: url(#blueArrow); }
+      .arrowGreen { fill: none; stroke: #1f9f7a; stroke-width: 3; marker-end: url(#greenArrow); }
+      .arrowOrange { fill: none; stroke: #d9791f; stroke-width: 3; marker-end: url(#orangeArrow); }
+      .dash { fill: none; stroke: #8ca5bb; stroke-width: 2.2; stroke-dasharray: 8 8; marker-end: url(#blueArrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1440" height="1050"/>
+  <rect class="grid" width="1440" height="1050"/>
+  <rect x="0" y="0" width="1440" height="13" fill="url(#header)"/>
+
+  <text class="title" x="70" y="72">Harness-Mem：候选治理与记忆状态机</text>
+  <text class="subtitle" x="72" y="106">核心不是“自动记住一切”，而是把 AI 生成内容先变成可审计候选，再进入受控 truth surface。</text>
+
+  <g transform="translate(76 172)">
+    <rect class="panel" width="260" height="170"/>
+    <rect class="chip" x="22" y="22" width="128" height="32"/>
+    <text class="chipText" x="40" y="44">Raw Source</text>
+    <text class="label" x="24" y="88">原始证据</text>
+    <text class="body" x="24" y="120">Codex / Claude / Cursor</text>
+    <text class="body" x="24" y="146">session, observation, logs</text>
+  </g>
+
+  <g transform="translate(418 172)">
+    <rect class="panelBlue" width="286" height="170"/>
+    <rect class="chip" x="22" y="22" width="150" height="32"/>
+    <text class="chipText" x="40" y="44">Evidence Packet</text>
+    <text class="label" x="24" y="88">证据包</text>
+    <text class="code" x="24" y="120">prepare_session_distill</text>
+    <text class="body" x="24" y="146">project-scoped, source ids</text>
+  </g>
+
+  <g transform="translate(760 172)">
+    <rect class="panelBlue" width="286" height="170"/>
+    <rect class="chip" x="22" y="22" width="130" height="32"/>
+    <text class="chipText" x="40" y="44">LLM Agent</text>
+    <text class="label" x="24" y="88">AI 提炼者</text>
+    <text class="body" x="24" y="120">从 evidence 中判断稳定事实</text>
+    <text class="body" x="24" y="146">生成候选，不直接写 truth</text>
+  </g>
+
+  <g transform="translate(390 412)">
+    <rect class="panelCand" width="500" height="310"/>
+    <rect class="chip" x="24" y="24" width="152" height="32"/>
+    <text class="chipText" x="42" y="46">Candidate Layer</text>
+    <text class="label" x="26" y="92">候选层：pending / reviewable</text>
+    <text class="body" x="26" y="122">所有 AI 提炼、纠错、合并、过期建议都先进这里。</text>
+
+    <g transform="translate(26 150)">
+      <rect class="card" width="212" height="68"/>
+      <text class="status" x="16" y="28">RuleCandidate</text>
+      <text class="body" x="16" y="50">协作规则 / 偏好</text>
+    </g>
+    <g transform="translate(262 150)">
+      <rect class="card" width="212" height="68"/>
+      <text class="status" x="16" y="28">MemoryEntry pending</text>
+      <text class="body" x="16" y="50">长期事实 / 任务状态</text>
+    </g>
+    <g transform="translate(26 236)">
+      <rect class="card" width="212" height="68"/>
+      <text class="status" x="16" y="28">RelationFact pending</text>
+      <text class="body" x="16" y="50">实体关系 / provenance</text>
+    </g>
+    <g transform="translate(262 236)">
+      <rect class="cardWarn" width="212" height="68"/>
+      <text class="status" x="16" y="28">Merge / Stale / Skill</text>
+      <text class="body" x="16" y="50">治理建议，不自动 apply</text>
+    </g>
+  </g>
+
+  <g transform="translate(982 412)">
+    <rect class="panelBlue" width="300" height="152"/>
+    <rect class="chip" x="22" y="22" width="136" height="32"/>
+    <text class="chipText" x="40" y="44">Auto Review</text>
+    <text class="label" x="24" y="88">自动审核</text>
+    <text class="code" x="24" y="120">auto_review_candidates(apply=true)</text>
+  </g>
+
+  <g transform="translate(982 624)">
+    <rect class="panelOrange" width="300" height="146"/>
+    <rect class="chip" x="22" y="22" width="148" height="32"/>
+    <text class="chipText" x="40" y="44">Human Gate</text>
+    <text class="label" x="24" y="88">人类复核残留</text>
+    <text class="body" x="24" y="120">只看高风险 / 证据不足 / 边界不清</text>
+  </g>
+
+  <g transform="translate(994 814)">
+    <rect class="panelOrange" width="250" height="94"/>
+    <text class="label" x="24" y="40">拒绝 / 噪声</text>
+    <text class="body" x="24" y="68">重复、跨项目、证据薄弱</text>
+  </g>
+
+  <g transform="translate(390 792)">
+    <rect class="panelGreen" width="500" height="150"/>
+    <rect class="chip" x="24" y="22" width="158" height="32"/>
+    <text class="chipText" x="42" y="44">Confirmed Truth</text>
+    <text class="label" x="26" y="86">已确认真值层</text>
+    <g transform="translate(26 104)">
+      <rect class="cardDone" width="106" height="40"/>
+      <text class="body" x="14" y="26">ConfirmedRule</text>
+    </g>
+    <g transform="translate(148 104)">
+      <rect class="cardDone" width="116" height="40"/>
+      <text class="body" x="14" y="26">MemoryEntry</text>
+    </g>
+    <g transform="translate(280 104)">
+      <rect class="cardDone" width="104" height="40"/>
+      <text class="body" x="14" y="26">RelationFact</text>
+    </g>
+    <g transform="translate(400 104)">
+      <rect class="cardDone" width="72" height="40"/>
+      <text class="body" x="14" y="26">Skill</text>
+    </g>
+  </g>
+
+  <g transform="translate(76 792)">
+    <rect class="panelGreen" width="260" height="150"/>
+    <rect class="chip" x="22" y="22" width="130" height="32"/>
+    <text class="chipText" x="40" y="44">Read Surface</text>
+    <text class="label" x="24" y="86">消费面</text>
+    <text class="code" x="24" y="118">wake / search_memory</text>
+    <text class="body" x="24" y="140">context assembly / drilldown</text>
+  </g>
+
+  <g transform="translate(76 520)">
+    <rect class="panel" width="260" height="146"/>
+    <rect class="chip" x="22" y="22" width="110" height="32"/>
+    <text class="chipText" x="40" y="44">Signals</text>
+    <text class="label" x="24" y="86">使用信号</text>
+    <text class="body" x="24" y="118">wake_surfaced / search_hit</text>
+    <text class="body" x="24" y="140">confirmed / rejected / skill_result</text>
+  </g>
+
+  <path class="arrow" d="M 336 257 L 416 257"/>
+  <path class="arrow" d="M 704 257 L 758 257"/>
+  <path class="arrow" d="M 900 342 C 900 380 824 386 766 410"/>
+  <path class="arrow" d="M 890 564 L 980 500"/>
+  <path class="arrowGreen" d="M 1132 564 L 1132 622"/>
+  <path class="arrowGreen" d="M 982 697 C 928 764 886 808 890 868"/>
+  <path class="arrowOrange" d="M 1132 770 L 1132 812"/>
+  <path class="arrowGreen" d="M 390 867 L 336 867"/>
+  <path class="dash" d="M 206 792 L 206 668"/>
+  <path class="dash" d="M 336 592 C 394 548 380 504 390 474"/>
+  <path class="dash" d="M 206 520 C 214 420 274 356 418 310"/>
+
+  <g transform="translate(1030 188)">
+    <rect class="panelOrange" width="312" height="112"/>
+    <text class="label" x="24" y="40">红线</text>
+    <text class="body" x="24" y="72">AI 可以提出候选和建议</text>
+    <text class="body" x="24" y="96">不能自治删除或改写 truth</text>
+  </g>
+
+  <g transform="translate(70 980)">
+    <text class="small" x="0" y="0">这张图把候选层画成系统核心：它让长期记忆可以被 AI 提炼、自动低风险审核、人工最终复核，同时仍保留 source ids 和可回滚的治理路径。</text>
+  </g>
+</svg>

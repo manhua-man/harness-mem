@@ -1,0 +1,79 @@
+[project]
+name = "harness-mem"
+version = "0.8.1"
+description = "Local-first, auditable, pluggable Agent memory backend"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "pydantic>=2.0",
+    "sqlite-utils>=3.35",
+    "tomli_w>=1.0,<1.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "anyio>=4.0.0",
+    "build>=1.2.2",
+    "hatchling>=1.27.0",
+    "hypothesis>=6.0",
+    "mypy>=1.11.0",
+    "numpy>=1.26.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.6.0",
+    "tiktoken>=0.7.0",
+    "twine>=5.1.1",
+]
+hybrid = [
+    "sentence-transformers>=3.0.0",
+    "sqlite-vec>=0.1.0",
+]
+rerank = [
+    "sentence-transformers>=3.0.0",
+]
+
+[project.scripts]
+harness-mem = "harness_mem.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Force-include runtime package data so it ships inside the wheel/sdist.
+# These files live under the harness_mem package directory, so hatchling already
+# packs them as package data; ``artifacts`` makes that explicit and survives any
+# future VCS-exclusion rule that might otherwise filter non-.py files.
+[tool.hatch.build]
+artifacts = [
+    "harness_mem/integration/templates/*.template",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["harness_mem"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "CHANGELOG.md",
+    "Cargo.toml",
+    "Cargo.lock",
+    "LICENSE",
+    "README.md",
+    "README.zh-CN.md",
+    "SECURITY.md",
+    "crates",
+    "docs/assets/*.svg",
+    "docs/quickstart.md",
+    "docs/mcp-setup.md",
+    "harness_mem",
+    "plugins/harness-mem",
+    "tools/session-distill",
+    "harness_mem/integration/templates/*.template",
+]
+[[tool.mypy.overrides]]
+module = [
+    "huggingface_hub",
+    "mcp",
+    "mcp.client.stdio",
+    "sentence_transformers",
+]
+ignore_missing_imports = true

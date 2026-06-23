@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/harness_mem_core_rs"]
+resolver = "2"
