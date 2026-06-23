@@ -64,6 +64,7 @@ include = [
     "docs/assets/*.svg",
     "docs/quickstart.md",
     "docs/mcp-setup.md",
+    "docs/demo-cold-start.md",
     "harness_mem",
     "plugins/harness-mem",
     "tools/session-distill",

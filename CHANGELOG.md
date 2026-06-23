@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Added a reproducible cold-start demo guide for the
+  `wake -> search -> distill -> review` product path.
+
 ## [0.8.1] - 2026-06-24
 
 ### Changed
@@ -11,7 +18,7 @@
 - Kept the session distillation reference skill public under
   `tools/session-distill/`.
 - Reduced public documentation to the README, Chinese README, quickstart, MCP
-  setup notes, changelog, license, security policy, and logo asset.
+  setup notes, changelog, license, security policy, and public README assets.
 - Pruned non-product repository materials from the public baseline.
 - Removed maintainer-only evaluation reporting from the public runtime surface.
 

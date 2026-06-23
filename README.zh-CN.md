@@ -90,12 +90,14 @@ cd harness-mem
 - `tools/session-distill/`：session distillation 参考 skill。
 - `docs/quickstart.md`：最小启动路径。
 - `docs/mcp-setup.md`：MCP client 接入说明。
+- `docs/demo-cold-start.md`：可复现 cold-start demo。
 - `docs/assets/`：logo 和公开 README 图。
 
 ## 文档
 
 - [Quickstart](docs/quickstart.md)
 - [MCP setup](docs/mcp-setup.md)
+- [Cold-start demo](docs/demo-cold-start.md)
 - [Changelog](CHANGELOG.md)
 
 ## 开发检查

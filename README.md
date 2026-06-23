@@ -92,12 +92,14 @@ Then use the Agent-facing commands:
 - `tools/session-distill/`: reference session distillation skill.
 - `docs/quickstart.md`: minimal setup path.
 - `docs/mcp-setup.md`: MCP setup notes.
+- `docs/demo-cold-start.md`: reproducible cold-start demo.
 - `docs/assets/`: logo and public README diagrams.
 
 ## Documentation
 
 - [Quickstart](docs/quickstart.md)
 - [MCP setup](docs/mcp-setup.md)
+- [Cold-start demo](docs/demo-cold-start.md)
 - [Changelog](CHANGELOG.md)
 
 ## Development Check
