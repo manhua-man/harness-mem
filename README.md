@@ -12,6 +12,12 @@
   <a href="README.zh-CN.md">简体中文</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/manhua-man/harness-mem/actions/workflows/public-smoke.yml">
+    <img src="https://github.com/manhua-man/harness-mem/actions/workflows/public-smoke.yml/badge.svg" alt="public smoke status" />
+  </a>
+</p>
+
 AI Agents can read your repo, but they usually do not know what happened in the
 last ten sessions: release boundaries, decisions, handoffs, review outcomes,
 and "do not claim this yet" rules.

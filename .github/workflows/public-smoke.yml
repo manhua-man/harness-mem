@@ -1,0 +1,36 @@
+name: public-smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build ruff
+          python -m pip install -e .
+
+      - name: Runtime smoke
+        run: |
+          python -m compileall harness_mem
+          python -m ruff check harness_mem plugins tools
+          python -m harness_mem.cli --help
+
+      - name: Rust smoke
+        run: cargo test --workspace
+
+      - name: Build package
+        run: python -m build

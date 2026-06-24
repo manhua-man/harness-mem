@@ -12,6 +12,12 @@
   <a href="README.md">English</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/manhua-man/harness-mem/actions/workflows/public-smoke.yml">
+    <img src="https://github.com/manhua-man/harness-mem/actions/workflows/public-smoke.yml/badge.svg" alt="public smoke status" />
+  </a>
+</p>
+
 Agent 会读代码，但它通常不知道项目为什么变成现在这样：发布边界、历史决策、handoff、上轮 review 结论、哪些 claim 还不能写。
 
 `harness-mem` 把这些内容变成本地记忆，通过 MCP 接给 Codex、Claude Code、Cursor、Gemini CLI 和其它 Agent 客户端。新 Agent 用 `wake` 和 `search` 找回上下文，用 `distill` 提出新记忆；只有 review 通过的内容才会进入 confirmed memory。

@@ -31,6 +31,31 @@ Use two sessions:
 This makes the cold-start problem visible. Session B should start with only the
 repo and the memory backend, not the previous conversation.
 
+## Five-Minute Script
+
+Copy these prompts into your Agent client after MCP is connected.
+
+Session A:
+
+```text
+Use harness-mem to distill the recent project session into memory candidates.
+Review the candidates and confirm only stable project facts that a future Agent should know.
+Reject noisy, speculative, or one-off items.
+```
+
+Session B:
+
+```text
+Use harness-mem to wake this project.
+Search harness-mem for the current release boundary or claim boundary.
+Use the recovered context to make one small safe update.
+Distill this session into memory candidates, but do not confirm new truth silently.
+Review the new candidates and keep only stable project facts.
+```
+
+If Session B can recover a real prior decision without pasted chat history, the
+demo is showing the intended product loop.
+
 ## Session A: Prepare Real Memory
 
 Pick 2-4 facts that would matter to a future Agent. Good demo memories are

@@ -6,6 +6,13 @@
 
 - Added a reproducible cold-start demo guide for the
   `wake -> search -> distill -> review` product path.
+- Added a minimal public smoke workflow for install/build/runtime sanity checks.
+
+### Fixed
+
+- Aligned plugin metadata with the public `0.8.1` package version and
+  Apache-2.0 license.
+- Removed stale historical wording from the public runtime diagram.
 
 ## [0.8.1] - 2026-06-24
 
