@@ -32,5 +32,8 @@ jobs:
       - name: Rust smoke
         run: cargo test --workspace
 
+      - name: Rust extension build
+        run: cargo build --workspace --features python-extension
+
       - name: Build package
         run: python -m build
