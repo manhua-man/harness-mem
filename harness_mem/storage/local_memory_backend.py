@@ -84,11 +84,7 @@ class LocalMemoryBackend:
         if self._structured_store is None:
             raise RuntimeError("Backend not initialized. Call init() first.")
         if self._reflection_job_store is None:
-            # ``_index`` is a private attribute of LocalStructuredStore but
-            # the backend owns the structured store's lifecycle and the
-            # design doc explicitly calls out sharing the same SQLiteIndex
-            # rather than opening a second handle to the same file.
-            self._reflection_job_store = ReflectionJobStore(
-                self._structured_store._index
-            )
+            # Share the structured store's derived index through its public
+            # lifecycle boundary rather than opening a second handle.
+            self._reflection_job_store = ReflectionJobStore(self._structured_store.index)
         return self._reflection_job_store

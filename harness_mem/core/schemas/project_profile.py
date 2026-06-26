@@ -56,12 +56,23 @@ class ProjectProfile(BaseModel):
             "after a week of normal usage)."
         ),
     )
-    mcp_tool_profile: Literal["full", "minimal"] | None = Field(
+    mcp_tool_profile: Literal[
+        "core-read",
+        "minimal",
+        "distill-suggest",
+        "review-write",
+        "maintenance",
+        "labs",
+        "full",
+    ] | None = Field(
         default=None,
         description=(
             "Optional MCP tools/list profile override for this project. "
-            "None keeps the server default/env profile; 'minimal' lists only "
-            "daily-flow tools while 'full' lists every registered tool."
+            "None keeps the server default/env profile; 'core-read'/'minimal' "
+            "list only read/prepare/list tools; 'distill-suggest' adds "
+            "candidate suggestions and preview; 'review-write' adds durable "
+            "review writes; 'maintenance' and 'labs' are explicit opt-in "
+            "operator surfaces; 'full' lists every registered tool."
         ),
     )
     maintenance_profile: Literal["weekly-dream", "post-distill-metabolism"] | None = Field(

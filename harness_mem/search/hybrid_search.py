@@ -389,8 +389,6 @@ class HybridSearchLayer:
             loader = get_model_loader(model_id)
             expected_dim = loader.dimensions
 
-            conn = self._sqlite._conn_write()
-
             # Build SQL query with IN clause
             placeholders = ','.join('?' * len(entry_ids))
             query = f"""
@@ -400,8 +398,9 @@ class HybridSearchLayer:
             """
             params = (*entry_ids, model_id)
 
-            cursor = conn.execute(query, params)
-            rows = cursor.fetchall()
+            with self._sqlite.locked_connection() as conn:
+                cursor = conn.execute(query, params)
+                rows = cursor.fetchall()
             if not rows:
                 logger.warning(
                     "No persisted vectors found for current model_id=%s; falling back to FTS. "

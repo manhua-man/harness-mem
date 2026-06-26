@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from harness_mem.commands import support as command_support
+from harness_mem.event_log import StateEventType, append_state_event
 from harness_mem.retrieval_signals import record_retrieval_signal
 from harness_mem.core.schemas import (
     ConfirmedRule,
@@ -15,6 +16,33 @@ from harness_mem.core.schemas import (
 )
 from harness_mem.read_api import format_validity_marker, serialize_skill
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+
+def _record_state_event(
+    backend: LocalMemoryBackend,
+    *,
+    event_type: StateEventType,
+    project_name: str | None,
+    target_kind: str,
+    target_id: str,
+    status: str | None,
+    source_surface: str,
+    payload: dict | None = None,
+) -> str | None:
+    try:
+        return append_state_event(
+            backend.data_dir,
+            event_type=event_type,
+            project_name=project_name,
+            target_kind=target_kind,
+            target_id=target_id,
+            status=status,
+            source_surface=source_surface,
+            actor="cli",
+            payload=payload,
+        )
+    except Exception:
+        return None
 
 
 async def cmd_correct(
@@ -90,6 +118,16 @@ async def cmd_correct(
         )
 
         saved_id = await backend.structured_store.save_rule_candidate(candidate)
+        _record_state_event(
+            backend,
+            event_type=StateEventType.CANDIDATE_CREATED,
+            project_name=project_name,
+            target_kind="rule_candidate",
+            target_id=saved_id,
+            status="pending",
+            source_surface="cli.correct",
+            payload={"session_id": session_id, "trigger": trigger},
+        )
         print(f"Created rule candidate: {saved_id}")
         return 0
     finally:
@@ -146,6 +184,16 @@ async def _correct_via_supersede(
         source_session_id=session_id,
     )
     await backend.structured_store.save_confirmed_rule(new_rule)
+    _record_state_event(
+        backend,
+        event_type=StateEventType.TRUTH_CONFIRMED,
+        project_name=project_name,
+        target_kind="confirmed_rule",
+        target_id=new_rule.id,
+        status="accepted",
+        source_surface="cli.correct",
+        payload={"supersedes_rule_id": old_rule.id, "trigger": trigger},
+    )
 
     candidate = SupersedeCandidate(
         id=str(uuid4()),
@@ -160,6 +208,21 @@ async def _correct_via_supersede(
         confidence=1.0,
     )
     await backend.structured_store.save_supersede_candidate(candidate)
+    _record_state_event(
+        backend,
+        event_type=StateEventType.CANDIDATE_CREATED,
+        project_name=project_name,
+        target_kind="supersede",
+        target_id=candidate.id,
+        status="pending",
+        source_surface="cli.correct",
+        payload={
+            "target_type": candidate.target_type,
+            "target_id": candidate.target_id,
+            "replacement_type": candidate.replacement_type,
+            "replacement_id": candidate.replacement_id,
+        },
+    )
     confirmed = await backend.structured_store.confirm_supersede_candidate(candidate.id)
     if confirmed is None:
         print(
@@ -186,6 +249,21 @@ async def _correct_via_supersede(
             "source": "cmd_correct",
         },
     )
+    _record_state_event(
+        backend,
+        event_type=StateEventType.SUPERSEDE_COMPLETED,
+        project_name=project_name,
+        target_kind="supersede",
+        target_id=confirmed.id,
+        status=confirmed.status,
+        source_surface="cli.correct",
+        payload={
+            "target_type": confirmed.target_type,
+            "target_id": confirmed.target_id,
+            "replacement_type": confirmed.replacement_type,
+            "replacement_id": confirmed.replacement_id,
+        },
+    )
 
     print(
         f"Superseded rule {old_rule.id} with new rule {new_rule.id}. "
@@ -199,9 +277,31 @@ async def cmd_confirm_rule(rule_id: str) -> int:
     try:
         # Check MemoryEntry, RelationFact, and RuleCandidate
         if await backend.structured_store.update_memory_entry_status(rule_id, "accepted"):
+            entry = await backend.structured_store.get_memory_entry(rule_id)
+            _record_state_event(
+                backend,
+                event_type=StateEventType.TRUTH_CONFIRMED,
+                project_name=entry.project_name if entry else None,
+                target_kind="memory_entry",
+                target_id=rule_id,
+                status="accepted",
+                source_surface="cli.confirm_rule",
+                payload={"category": getattr(entry, "category", None)},
+            )
             print(f"Confirmed MemoryEntry: {rule_id}")
             return 0
         if await backend.structured_store.update_relation_fact_status(rule_id, "accepted"):
+            fact = await backend.structured_store.get_relation_fact(rule_id)
+            _record_state_event(
+                backend,
+                event_type=StateEventType.TRUTH_CONFIRMED,
+                project_name=fact.project_name if fact else None,
+                target_kind="relation_fact",
+                target_id=rule_id,
+                status="accepted",
+                source_surface="cli.confirm_rule",
+                payload={"relation_type": getattr(fact, "relation_type", None)},
+            )
             print(f"Confirmed RelationFact: {rule_id}")
             return 0
             
@@ -219,6 +319,16 @@ async def cmd_confirm_rule(rule_id: str) -> int:
             )
             await backend.structured_store.save_confirmed_rule(confirmed)
             await backend.structured_store.update_rule_candidate_status(rule_id, "accepted")
+            _record_state_event(
+                backend,
+                event_type=StateEventType.TRUTH_CONFIRMED,
+                project_name=candidate.project_name,
+                target_kind="confirmed_rule",
+                target_id=confirmed.id,
+                status="accepted",
+                source_surface="cli.confirm_rule",
+                payload={"source_candidate_id": rule_id, "trigger": confirmed.trigger},
+            )
             print(f"Confirmed Rule: {confirmed.id}")
             return 0
         return 1
@@ -230,12 +340,45 @@ async def cmd_reject_rule(rule_id: str) -> int:
     await backend.init()
     try:
         if await backend.structured_store.update_memory_entry_status(rule_id, "rejected"):
+            entry = await backend.structured_store.get_memory_entry(rule_id)
+            _record_state_event(
+                backend,
+                event_type=StateEventType.TRUTH_REJECTED,
+                project_name=entry.project_name if entry else None,
+                target_kind="memory_entry",
+                target_id=rule_id,
+                status="rejected",
+                source_surface="cli.reject_rule",
+                payload={"category": getattr(entry, "category", None)},
+            )
             print(f"Rejected MemoryEntry: {rule_id}")
             return 0
         if await backend.structured_store.update_relation_fact_status(rule_id, "rejected"):
+            fact = await backend.structured_store.get_relation_fact(rule_id)
+            _record_state_event(
+                backend,
+                event_type=StateEventType.TRUTH_REJECTED,
+                project_name=fact.project_name if fact else None,
+                target_kind="relation_fact",
+                target_id=rule_id,
+                status="rejected",
+                source_surface="cli.reject_rule",
+                payload={"relation_type": getattr(fact, "relation_type", None)},
+            )
             print(f"Rejected RelationFact: {rule_id}")
             return 0
         if await backend.structured_store.update_rule_candidate_status(rule_id, "rejected"):
+            candidate = await backend.structured_store.get_rule_candidate(rule_id)
+            _record_state_event(
+                backend,
+                event_type=StateEventType.TRUTH_REJECTED,
+                project_name=candidate.project_name if candidate else None,
+                target_kind="rule_candidate",
+                target_id=rule_id,
+                status="rejected",
+                source_surface="cli.reject_rule",
+                payload={"trigger": getattr(candidate, "trigger", None)},
+            )
             print(f"Rejected RuleCandidate: {rule_id}")
             return 0
         return 1
@@ -314,6 +457,21 @@ async def cmd_suggest_supersede(
             confidence=confidence,
         )
         saved_id = await backend.structured_store.save_supersede_candidate(candidate)
+        _record_state_event(
+            backend,
+            event_type=StateEventType.CANDIDATE_CREATED,
+            project_name=project_name,
+            target_kind="supersede",
+            target_id=saved_id,
+            status="pending",
+            source_surface="cli.suggest_supersede",
+            payload={
+                "target_type": target_type,
+                "target_id": target_id,
+                "replacement_type": replacement_type,
+                "replacement_id": replacement_id,
+            },
+        )
         print(f"Created SupersedeCandidate: {saved_id}")
         return 0
     finally:
@@ -340,6 +498,21 @@ async def cmd_confirm_supersede(candidate_id: str) -> int:
                 "replacement_id": confirmed.replacement_id,
             },
         )
+        _record_state_event(
+            backend,
+            event_type=StateEventType.SUPERSEDE_COMPLETED,
+            project_name=confirmed.project_name,
+            target_kind="supersede",
+            target_id=confirmed.id,
+            status=confirmed.status,
+            source_surface="cli.confirm_supersede",
+            payload={
+                "target_type": confirmed.target_type,
+                "target_id": confirmed.target_id,
+                "replacement_type": confirmed.replacement_type,
+                "replacement_id": confirmed.replacement_id,
+            },
+        )
         print(f"Confirmed SupersedeCandidate: {confirmed.id}")
         return 0
     finally:
@@ -356,6 +529,21 @@ async def cmd_reject_supersede(candidate_id: str) -> int:
         updated = await backend.structured_store.update_supersede_candidate_status(candidate_id, "rejected")
         if not updated:
             return 1
+        _record_state_event(
+            backend,
+            event_type=StateEventType.TRUTH_REJECTED,
+            project_name=candidate.project_name,
+            target_kind="supersede",
+            target_id=candidate_id,
+            status="rejected",
+            source_surface="cli.reject_supersede",
+            payload={
+                "target_type": candidate.target_type,
+                "target_id": candidate.target_id,
+                "replacement_type": candidate.replacement_type,
+                "replacement_id": candidate.replacement_id,
+            },
+        )
         print(f"Rejected SupersedeCandidate: {candidate_id}")
         return 0
     finally:
@@ -388,6 +576,16 @@ async def cmd_suggest_procedural(
             status="pending",
         )
         saved_id = await backend.structured_store.save_procedural_candidate(candidate)
+        _record_state_event(
+            backend,
+            event_type=StateEventType.CANDIDATE_CREATED,
+            project_name=project_name,
+            target_kind="procedural_candidate",
+            target_id=saved_id,
+            status="pending",
+            source_surface="cli.suggest_procedural",
+            payload={"activation_condition": activation_condition},
+        )
         print(f"Created ProceduralCandidate: {saved_id}")
         return 0
     finally:
@@ -401,6 +599,16 @@ async def cmd_confirm_procedural(candidate_id: str) -> int:
         skill = await backend.structured_store.confirm_procedural_candidate(candidate_id)
         if skill is None:
             return 1
+        _record_state_event(
+            backend,
+            event_type=StateEventType.TRUTH_CONFIRMED,
+            project_name=skill.project_name,
+            target_kind="skill",
+            target_id=skill.id,
+            status=skill.status,
+            source_surface="cli.confirm_procedural",
+            payload={"source_candidate_id": candidate_id},
+        )
         print(f"Confirmed Skill: {skill.id}")
         return 0
     finally:
@@ -411,12 +619,23 @@ async def cmd_reject_procedural(candidate_id: str) -> int:
     backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
     await backend.init()
     try:
+        candidate = await backend.structured_store.get_procedural_candidate(candidate_id)
         updated = await backend.structured_store.update_procedural_candidate_status(
             candidate_id,
             "rejected",
         )
         if not updated:
             return 1
+        _record_state_event(
+            backend,
+            event_type=StateEventType.TRUTH_REJECTED,
+            project_name=candidate.project_name if candidate else None,
+            target_kind="procedural_candidate",
+            target_id=candidate_id,
+            status="rejected",
+            source_surface="cli.reject_procedural",
+            payload={"activation_condition": getattr(candidate, "activation_condition", None)},
+        )
         print(f"Rejected ProceduralCandidate: {candidate_id}")
         return 0
     finally:

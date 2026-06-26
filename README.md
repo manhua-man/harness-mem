@@ -41,7 +41,7 @@ wake -> search -> distill -> review
 |---|---|
 | `wake` | Load a compact project brief from confirmed memory. |
 | `search` | Retrieve prior decisions, rules, and handoffs with sources. |
-| `distill` | Turn recent session evidence into memory candidates. |
+| `distill` | Turn recent session evidence into memory candidates and preview review decisions. |
 | `review` | Confirm, reject, supersede, or keep candidates pending. |
 
 ## Why It Is Different
@@ -89,6 +89,7 @@ Then use the Agent-facing commands:
 /hm:wake
 /hm:search "release boundary"
 /hm:distill <project> 10
+/hm:review
 ```
 
 ## Repository
@@ -106,6 +107,8 @@ Then use the Agent-facing commands:
 - [Quickstart](docs/quickstart.md)
 - [MCP setup](docs/mcp-setup.md)
 - [Cold-start demo](docs/demo-cold-start.md)
+- [Recall audit contract](docs/recall-audit.md)
+- [Causal benchmark smoke](docs/causal-benchmark.md)
 - [Changelog](CHANGELOG.md)
 
 ## Development Check
@@ -117,4 +120,4 @@ python -m harness_mem.cli --help
 cargo test --workspace
 ```
 
-Current package version: **0.8.1**.
+Current package version: **0.8.2**.

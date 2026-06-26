@@ -19,12 +19,6 @@ allowed-tools:
   - mcp__harness_mem__create_task_handoff
   - mcp__harness_mem__auto_review_candidates
   - mcp__harness_mem__list_candidates
-  - mcp__harness_mem__confirm_memory_entry
-  - mcp__harness_mem__reject_memory_entry
-  - mcp__harness_mem__confirm_rule
-  - mcp__harness_mem__reject_rule
-  - mcp__harness_mem__confirm_relation_fact
-  - mcp__harness_mem__reject_relation_fact
 ---
 
 # Session Distiller (harness-mem 主链)
@@ -33,7 +27,7 @@ allowed-tools:
 
 `session-distill` 是用户主动蒸馏时的默认体验层。
 
-默认目标是把当前项目相关会话转成候选，并在同一轮里自动审核和处理低风险项。用户只看最终复核摘要；显式复查 / 纠错 / 手动补救（无论通过 slash、自然语言还是 CLI）是兜底入口，不是日常必经步骤。
+默认目标是把当前项目相关会话转成候选，并在同一轮里运行 auto-review preview。默认不确认 durable memory；确认、拒绝、替换必须通过 `/hm:review` 或用户显式要求的 apply 模式。
 
 ## 主链
 
@@ -47,8 +41,8 @@ Raw Sessions
   -> session-distill Skill reads evidence
   -> MCP suggest_memory_entry / suggest_rule / suggest_relation_fact / create_task_handoff
   -> Candidate Layer (pending)
-  -> auto_review_candidates(apply=true)
-  -> Human final result review
+  -> auto_review_candidates(apply=false)
+  -> /hm:review durable gate
 ```
 
 ## 默认动作序列
@@ -58,6 +52,8 @@ Raw Sessions
 直接用工具的裸名（`prepare_session_distill`、`suggest_memory_entry`、`auto_review_candidates` 等）。客户端如何把它们映射成可调用 alias（带短横线 / 不带短横线 / 带 server 前缀）由客户端自己决定，本 skill 不假设。
 
 如果你的客户端通过 MCP Router 接入，工具名通常就是裸名；如果直连 server，可能会带 server name 前缀。两种都能跑，prompt 里不要写死前缀。
+
+默认 MCP profile 是 `core-read`，只暴露 read/prepare/list/detail。创建候选和运行 auto-review preview 必须显式使用 `distill-suggest` profile；确认、拒绝或 apply 必须走 `/hm:review` 或 `review-write` profile。
 
 ### 1. 确认项目和真实项目根
 
@@ -96,6 +92,8 @@ Raw Sessions
 - `suggest_relation_fact`: 明确的依赖、归属、替代、冲突等实体关系。
 - `create_task_handoff`: 当前任务状态、阻塞点、下一步。
 
+这些 suggest 工具属于 `distill-suggest` profile。默认 `core-read` 下如果不可见，不要退回 CLI 或直接写 truth；应明确提示需要启用 distill-suggest MCP profile。
+
 每条候选都必须有来源证据：observation id、session id、packet turn、命令或文件路径。证据不足时不要硬写；先列为需要补证，并说明缺口。
 
 不要生成这些候选：
@@ -105,11 +103,11 @@ Raw Sessions
 - `/plan-eng-review`、`/plan-ceo-review`、`/plan-design-review` 等 AI review workflow，除非用户明确要记录为全局工作流记忆。
 - 对应用/游戏项目而言，把 AI 工作流、评审方式或工具名写成项目架构事实。
 
-### 4. 自动审核并处理
+### 4. 自动审核预览
 
-调用 MCP `auto_review_candidates(project_name=<project>, apply=true)`，复用 shared low-risk review policy。
+调用 MCP `auto_review_candidates(project_name=<project>, apply=false)`，复用 shared low-risk review policy。该工具属于 `distill-suggest` profile；默认 `core-read` 不暴露它。
 
-不要停下来让用户逐条选择。默认 distill 路径必须直接消费 `auto_review_candidates` 返回的结果：
+默认 distill 路径必须直接消费 `auto_review_candidates` 返回的结果，但不能确认、拒绝或替换候选：
 
 - `auto_confirmed`
 - `auto_rejected`
@@ -117,11 +115,11 @@ Raw Sessions
 - `needs_user_confirmation`
 - `applied_decisions`
 
-只有 `needs_user_confirmation` 里的高风险残留才放进最终摘要的“需要你确认”区。若用户追问某个候选为什么被自动确认或自动拒绝，再从 `applied_decisions` 里解释 candidate id、evidence id 和 policy reason。
+默认 preview 下 `applied_decisions` 必须为空。若用户追问某个候选为什么被建议确认或拒绝，解释 candidate id、evidence id 和 policy reason。
 
-`list_candidates`、`confirm_*`、`reject_*` 仍可用于显式 review drilldown、用户纠错或 repair/recheck 流程，但它们不是默认 distill 主链。
+`list_candidates` 可用于显式 review drilldown。`confirm_*`、`reject_*` 属于 `/hm:review` durable gate，不是默认 distill 主链。
 
-最后给用户看处理结果摘要，让用户纠错，而不是把用户重新推回到一个独立的 review 入口。
+最后给用户看预审摘要，明确写出 `auto-review mode: preview only` 和 `no durable memory was confirmed`，并提示运行 `/hm:review` 处理候选。
 
 ## `/hm:*` 管理入口
 
@@ -178,7 +176,7 @@ v2.3.0 给后续 metabolism 流程铺地基，但**不**改本 skill 的主链�
 - 不要求普通用户手动跑 `harness-mem ingest` 或 `harness-mem distill`。
 - 不默认把用户级全局 agent 历史灌进当前项目。
 - 不把 "no patterns found" 当成最终高质量蒸馏结论；那只说明 fallback 没抽到明显模式。
-- 不把逐条分类工作交给用户；AI 必须自动审核 pending 候选，低风险项直接处理，高风险项才留给用户最终确认。
+- 不把逐条分类工作交给用户；AI 必须自动预审 pending 候选，但默认不直接处理低风险项，durable write 通过 `/hm:review`。
 - 不把 `session-distill.py` 命令列表当成用户产品面；用户入口是 `/hm:*` 或自然语言等价命令。
 
 ## 兜底策略

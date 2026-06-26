@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "0.8.1"
+version = "0.8.2"
 description = "Local-first, auditable, pluggable Agent memory backend"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -65,6 +65,8 @@ include = [
     "docs/quickstart.md",
     "docs/mcp-setup.md",
     "docs/demo-cold-start.md",
+    "docs/recall-audit.md",
+    "docs/causal-benchmark.md",
     "harness_mem",
     "plugins/harness-mem",
     "tools/session-distill",

@@ -3,7 +3,7 @@ name: "HM: Status"
 description: 通过 MCP 查看当前项目的健康度和下一步建议
 category: Memory
 tags: [harness-mem, status]
-wireFormatVersion: hm-wire-v3.4
+wireFormatVersion: hm-wire-v3.5
 ---
 
 通过 MCP 显示当前项目的记忆状态，并给出 slash-first 下一步建议。

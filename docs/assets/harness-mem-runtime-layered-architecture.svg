@@ -227,5 +227,5 @@
     </g>
   </g>
 
-  <text class="small" x="72" y="962">公开基线：README、Quickstart、MCP setup、cold-start demo；当前包版本 0.8.1。CLI 是安装、自检和维护侧车，日常工作流通过 Agent / MCP。</text>
+  <text class="small" x="72" y="962">公开基线：README、Quickstart、MCP setup、cold-start demo；当前包版本 0.8.2。CLI 是安装、自检和维护侧车，日常工作流通过 Agent / MCP。</text>
 </svg>

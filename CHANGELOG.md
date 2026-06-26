@@ -1,18 +1,39 @@
 # Changelog
 
-## Unreleased
+## [0.8.2] - 2026-06-25
 
 ### Added
 
+- Added an additive MCP `recall` contract for `search_memory` and
+  `trace_relations`, carrying evidence, sources, retrieval steps, planning
+  metadata, and status without removing legacy response arrays.
+- Added typed relation scoring for bounded relation tracing so causal and truth
+  revision edges can outrank generic associations.
+- Added a local append-only state audit ledger for candidate/review/supersede
+  governance events, plus `maintenance state-audit`.
+- Added a deterministic causal benchmark smoke command:
+  `maintenance causal-benchmark`.
+- Added focused pytest coverage for recall contracts, relation scoring, state
+  audit events, MCP additive recall payloads, and the causal benchmark.
 - Added a reproducible cold-start demo guide for the
   `wake -> search -> distill -> review` product path.
 - Added a minimal public smoke workflow for install/build/runtime sanity checks.
 
 ### Fixed
 
-- Aligned plugin metadata with the public `0.8.1` package version and
+- Aligned plugin metadata with the public `0.8.2` package version and
   Apache-2.0 license.
 - Removed stale historical wording from the public runtime diagram.
+
+### Validation
+
+- `python -m compileall harness_mem`
+- `python -m ruff check harness_mem plugins tools`
+- `python -m pytest`
+- `python -m harness_mem.cli --help`
+- `python -m harness_mem.cli maintenance causal-benchmark`
+- `cargo test --workspace`
+- `cargo build --workspace --features python-extension`
 
 ## [0.8.1] - 2026-06-24
 

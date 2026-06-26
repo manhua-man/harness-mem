@@ -1,7 +1,10 @@
 """Embedding model loader with lazy initialization."""
 
 from __future__ import annotations
+from contextlib import contextmanager
+from contextvars import ContextVar
 import os
+from collections.abc import Iterator
 from typing import Any
 
 from harness_mem.embedding.model_registry import get_model_spec, ModelSpec
@@ -9,6 +12,10 @@ from harness_mem.embedding.model_registry import get_model_spec, ModelSpec
 _DISABLE_ENV_VAR = "HARNESS_MEM_DISABLE_EMBEDDINGS"
 _TRUTHY = {"1", "true", "yes", "on"}
 _LOCAL_SNAPSHOT_AVAILABILITY: dict[tuple[str, str, str], bool] = {}
+_DISABLE_CONTEXT: ContextVar[bool] = ContextVar(
+    "harness_mem_disable_embeddings_context",
+    default=False,
+)
 
 
 def embeddings_disabled() -> bool:
@@ -21,7 +28,21 @@ def embeddings_disabled() -> bool:
     cached model, or a broken ``torch`` install). When set, embedding writes
     and search-time embedding are skipped instead of loading the model.
     """
-    return os.environ.get(_DISABLE_ENV_VAR, "").strip().lower() in _TRUTHY
+    return (
+        _DISABLE_CONTEXT.get()
+        or os.environ.get(_DISABLE_ENV_VAR, "").strip().lower() in _TRUTHY
+    )
+
+
+@contextmanager
+def temporarily_disable_embeddings() -> Iterator[None]:
+    """Disable embedding model loading for the current context only."""
+
+    token = _DISABLE_CONTEXT.set(True)
+    try:
+        yield
+    finally:
+        _DISABLE_CONTEXT.reset(token)
 
 
 def has_local_model_snapshot(model_id: str) -> bool:

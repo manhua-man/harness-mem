@@ -1,7 +1,10 @@
 param(
     [switch]$WithHybrid,
     [switch]$RegisterClaude,
-    [switch]$NoSlashCommands
+    [switch]$NoSlashCommands,
+    [switch]$WithMaintenanceCommands,
+    [switch]$WithProductDocCommands,
+    [switch]$WithLabsCommands
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,8 +25,8 @@ if ($WithHybrid) {
 
 & $python.Source -m pip install -e $installTarget
 
-# Install Claude Code slash commands so users can run /hm:status, /hm:distill, etc.
-# from any project without remembering CLI flags. Skip with -NoSlashCommands.
+# Install Claude Code slash commands so users can run the stable /hm:* daily
+# workflow from any project without remembering CLI flags. Skip with -NoSlashCommands.
 if (-not $NoSlashCommands) {
     $slashSrc = Join-Path $pluginRoot "commands\hm"
     $slashDst = Join-Path $env:USERPROFILE ".claude\commands\hm"
@@ -31,10 +34,43 @@ if (-not $NoSlashCommands) {
         if (-not (Test-Path $slashDst)) {
             New-Item -ItemType Directory -Path $slashDst -Force | Out-Null
         }
-        Copy-Item -Path (Join-Path $slashSrc "*.md") -Destination $slashDst -Force
-        $count = (Get-ChildItem $slashDst -Filter "*.md").Count
-        Write-Host "Installed $count Claude Code slash commands to $slashDst"
-        Write-Host "  Available: /hm:status /hm:distill /hm:review /hm:wake /hm:search /hm:search-all /hm:mark /hm:prune /hm:review-kb /hm:prune-kb /hm:verify-entry /hm:prd-sync"
+
+        $dailyCommands = @("status", "wake", "search", "search-all", "distill", "review")
+        $maintenanceCommands = @("mark", "prune", "review-kb", "prune-kb", "verify-entry")
+        $productDocCommands = @("prd-sync")
+        $labsCommands = @("dream")
+
+        $selectedCommands = @($dailyCommands)
+        if ($WithMaintenanceCommands) {
+            $selectedCommands += $maintenanceCommands
+            $selectedCommands += $productDocCommands
+        } elseif ($WithProductDocCommands) {
+            $selectedCommands += $productDocCommands
+        }
+        if ($WithLabsCommands) {
+            $selectedCommands += $labsCommands
+        }
+
+        $knownCommands = @($dailyCommands + $maintenanceCommands + $productDocCommands + $labsCommands)
+        foreach ($command in $knownCommands) {
+            $destination = Join-Path $slashDst "$command.md"
+            if ($selectedCommands -notcontains $command -and (Test-Path $destination)) {
+                Remove-Item -LiteralPath $destination -Force
+            }
+        }
+
+        foreach ($command in $selectedCommands) {
+            $source = Join-Path $slashSrc "$command.md"
+            if (-not (Test-Path $source)) {
+                throw "Slash command source not found at $source"
+            }
+            Copy-Item -LiteralPath $source -Destination $slashDst -Force
+        }
+
+        $availableCommands = ($selectedCommands | ForEach-Object { "/hm:$($_)" }) -join " "
+        Write-Host "Installed $($selectedCommands.Count) Claude Code slash commands to $slashDst"
+        Write-Host "  Available: $availableCommands"
+        Write-Host "  Optional profiles: -WithMaintenanceCommands -WithProductDocCommands -WithLabsCommands"
     } else {
         Write-Warning "Slash command source not found at $slashSrc; skipping."
     }

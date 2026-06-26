@@ -10,8 +10,20 @@ Use this command in your MCP client configuration:
 python -m harness_mem.mcp.server
 ```
 
-The server exposes memory tools such as `wake`, `search_memory`,
-`prepare_session_distill`, candidate review, and project status.
+The server defaults to the `core-read` profile. It exposes read/prepare/review
+inspection tools such as `wake`, `search_memory`, `prepare_session_distill`,
+`list_candidates`, `get_candidate_detail`, and project status.
+
+Candidate suggestion requires the explicit `distill-suggest` profile. Durable
+confirm/reject requires `review-write`. Maintenance, labs, and full registry
+access are separate opt-in profiles.
+
+For local development you can use:
+
+```bash
+HARNESS_MEM_MCP_TOOL_PROFILE=distill-suggest python -m harness_mem.mcp.server
+HARNESS_MEM_MCP_TOOL_PROFILE=review-write python -m harness_mem.mcp.server
+```
 
 ## Claude Code
 
@@ -47,5 +59,5 @@ Search harness-mem for the relevant project decision.
 
 - The CLI is mainly for setup, doctor checks, and maintenance.
 - Daily use should happen through the Agent client and MCP tools.
-- `distill` creates candidates first; review decides what becomes confirmed
-  memory.
+- `distill` creates candidates first and previews review decisions; review
+  decides what becomes confirmed memory.

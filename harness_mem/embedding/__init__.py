@@ -10,6 +10,7 @@ from harness_mem.embedding.model_loader import (
     embeddings_disabled,
     get_model_loader,
     has_local_model_snapshot,
+    temporarily_disable_embeddings,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "embeddings_disabled",
     "get_model_loader",
     "has_local_model_snapshot",
+    "temporarily_disable_embeddings",
 ]

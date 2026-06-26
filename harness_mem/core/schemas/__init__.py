@@ -54,6 +54,17 @@ from harness_mem.core.schemas.file_context import (
     StaleFileSignal,
     StaleFileSignalState,
 )
+from harness_mem.core.schemas.recall_result import (
+    RECALL_RESULT_SCHEMA_VERSION,
+    RecallEffort,
+    RecallEvidence,
+    RecallPlanning,
+    RecallResult,
+    RecallSource,
+    RecallStatus,
+    RecallStep,
+    validate_recall_effort,
+)
 
 __all__ = [
     "Observation",
@@ -98,4 +109,13 @@ __all__ = [
     "CostHint",
     "StaleFileSignal",
     "StaleFileSignalState",
+    "RECALL_RESULT_SCHEMA_VERSION",
+    "RecallEffort",
+    "RecallEvidence",
+    "RecallPlanning",
+    "RecallResult",
+    "RecallSource",
+    "RecallStatus",
+    "RecallStep",
+    "validate_recall_effort",
 ]

@@ -26,6 +26,9 @@ MAINTENANCE_ACTIONS = [
     "rebuild-wiki-bridge",
     "cleanup-generated-cache",
     "migrate-store-v2",
+    "export-json-snapshot",
+    "causal-benchmark",
+    "state-audit",
 ]
 CONFIG_ACTIONS = ["get", "set", "list", "validate"]
 INTEGRATION_ACTIONS = ["install-cursor-hook", "install-claude-hook"]
@@ -189,7 +192,7 @@ complete -c harness-mem -n '__fish_seen_subcommand_from purge' -l dry-run -d "Pr
 complete -c harness-mem -n '__fish_seen_subcommand_from purge' -l stale-only -d "Only stale entries"
 
 # maintenance
-complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -a "assign-memory-types rebuild-vector-index rebuild-verbatim-index prepare-knowledge-cache rebuild-wiki-bridge cleanup-generated-cache migrate-store-v2" -d "Action"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -a "assign-memory-types rebuild-vector-index rebuild-verbatim-index prepare-knowledge-cache rebuild-wiki-bridge cleanup-generated-cache migrate-store-v2 export-json-snapshot causal-benchmark state-audit" -d "Action"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l project -r -d "Project name"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l dry-run -d "Preview only"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l apply -d "Write changes"

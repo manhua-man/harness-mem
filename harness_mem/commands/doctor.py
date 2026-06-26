@@ -335,66 +335,67 @@ def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -
         from harness_mem.commands.support import get_embedding_model_id
         from harness_mem.embedding import get_model_loader
 
+        model_id = get_embedding_model_id()
+        expected_dim = get_model_loader(model_id).dimensions
+
         # Check if vec_embeddings table exists
         structured_store = cast(LocalStructuredStore, backend.structured_store)
-        conn = structured_store._index._conn_write()
-        cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='vec_embeddings'"
-        )
-        table_exists = cursor.fetchone() is not None
+        with structured_store.index.locked_connection() as conn:
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='vec_embeddings'"
+            )
+            table_exists = cursor.fetchone() is not None
 
-        if not table_exists:
-            return {
-                "has_issue": True,
-                "message": "HM-201: Vector index not built",
-                "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
-            }
-
-        # Check if there are any vectors
-        cursor = conn.execute("SELECT COUNT(*) FROM vec_embeddings")
-        vector_count = cursor.fetchone()[0]
-
-        if vector_count == 0:
-            return {
-                "has_issue": True,
-                "message": "HM-201: Vector index is empty",
-                "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
-            }
-
-        # Check model_id mismatch
-        model_id = get_embedding_model_id()
-        cursor = conn.execute(
-            "SELECT COUNT(*) FROM vec_embeddings WHERE model_id = ?",
-            (model_id,)
-        )
-        matching_count = cursor.fetchone()[0]
-
-        if matching_count == 0:
-            cursor = conn.execute("SELECT DISTINCT model_id FROM vec_embeddings LIMIT 1")
-            stored_model = cursor.fetchone()
-            stored_model_id = stored_model[0] if stored_model else "unknown"
-            return {
-                "has_issue": True,
-                "message": f"Vector index uses different model ({stored_model_id}), current config is {model_id}",
-                "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
-            }
-
-        expected_dim = get_model_loader(model_id).dimensions
-        cursor = conn.execute(
-            "SELECT entry_id, length(embedding) FROM vec_embeddings WHERE model_id = ? LIMIT 100",
-            (model_id,),
-        )
-        for entry_id, byte_length in cursor.fetchall():
-            stored_dim = int(byte_length) // 4
-            if stored_dim != expected_dim:
+            if not table_exists:
                 return {
                     "has_issue": True,
-                    "message": (
-                        "Vector index dimension mismatch "
-                        f"(entry={entry_id}, stored={stored_dim}, current={expected_dim})"
-                    ),
-                    "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}",
+                    "message": "HM-201: Vector index not built",
+                    "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
                 }
+
+            # Check if there are any vectors
+            cursor = conn.execute("SELECT COUNT(*) FROM vec_embeddings")
+            vector_count = cursor.fetchone()[0]
+
+            if vector_count == 0:
+                return {
+                    "has_issue": True,
+                    "message": "HM-201: Vector index is empty",
+                    "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
+                }
+
+            # Check model_id mismatch
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM vec_embeddings WHERE model_id = ?",
+                (model_id,)
+            )
+            matching_count = cursor.fetchone()[0]
+
+            if matching_count == 0:
+                cursor = conn.execute("SELECT DISTINCT model_id FROM vec_embeddings LIMIT 1")
+                stored_model = cursor.fetchone()
+                stored_model_id = stored_model[0] if stored_model else "unknown"
+                return {
+                    "has_issue": True,
+                    "message": f"Vector index uses different model ({stored_model_id}), current config is {model_id}",
+                    "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
+                }
+
+            cursor = conn.execute(
+                "SELECT entry_id, length(embedding) FROM vec_embeddings WHERE model_id = ? LIMIT 100",
+                (model_id,),
+            )
+            for entry_id, byte_length in cursor.fetchall():
+                stored_dim = int(byte_length) // 4
+                if stored_dim != expected_dim:
+                    return {
+                        "has_issue": True,
+                        "message": (
+                            "Vector index dimension mismatch "
+                            f"(entry={entry_id}, stored={stored_dim}, current={expected_dim})"
+                        ),
+                        "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}",
+                    }
 
         # All checks passed
         return {"has_issue": False, "message": "", "fix_command": ""}

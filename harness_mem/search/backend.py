@@ -328,6 +328,48 @@ class SQLiteSearchBackend:
         )
 
 
+class SearchFacade:
+    """Stable read-path facade over a concrete SearchBackend.
+
+    This is the product boundary for search return semantics. Storage/index
+    implementations can change underneath it, but callers should receive the
+    same source ids, kinds, project scope, evidence metadata, and fallback
+    diagnostics.
+    """
+
+    def __init__(
+        self,
+        backend: LocalMemoryBackend,
+        *,
+        search_backend: SearchBackend | None = None,
+    ) -> None:
+        self.backend = backend
+        self.search_backend = search_backend or SQLiteSearchBackend(backend)
+
+    async def search(
+        self,
+        query: str,
+        *,
+        filters: SearchFilters,
+        mode: SearchMode = "auto",
+        limit: int = 20,
+        budget_tokens: int | None = None,
+    ) -> SearchBackendResponse:
+        return await self.search_backend.search(
+            query,
+            filters=filters,
+            mode=mode,
+            limit=limit,
+            budget_tokens=budget_tokens,
+        )
+
+    async def hydrate(
+        self,
+        response: SearchBackendResponse,
+    ) -> dict[str, list[Any]]:
+        return await hydrate_backend_results(self.backend, response)
+
+
 async def hydrate_backend_results(
     backend: LocalMemoryBackend,
     response: SearchBackendResponse,
@@ -682,6 +724,7 @@ __all__ = [
     "REPEAT_BOOST_WINDOW_DAYS",
     "SearchBackend",
     "SearchBackendResponse",
+    "SearchFacade",
     "SearchFilters",
     "SQLiteSearchBackend",
     "hydrate_backend_results",

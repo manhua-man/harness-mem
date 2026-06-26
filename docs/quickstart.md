@@ -55,5 +55,6 @@ The stable loop is:
 wake -> search -> distill -> review
 ```
 
-Only confirmed memory is used by `wake` and `search`. New material starts as a
-candidate and must be reviewed before it becomes durable project memory.
+Only confirmed memory is used by `wake` and `search`. `distill` creates
+candidates and runs preview-only auto-review by default. New material must pass
+`review` before it becomes durable project memory.

@@ -1,7 +1,7 @@
 ---
 name: harness-mem
 description: Use harness-mem as a local-first memory runtime for the current project. Trigger when the user asks to remember prior work, resume a project, search old agent sessions, ingest recent agent sessions, create durable project rules, or explain what the project currently knows.
-wireFormatVersion: hm-wire-v3.4
+wireFormatVersion: hm-wire-v3.5
 ---
 
 # harness-mem
@@ -33,7 +33,7 @@ In Claude Code, prefer the no-hyphen MCP alias names such as
 - `ingest_sessions`: indexes raw local agent session files into harness-mem observations.
 - `prepare_session_distill`: one-shot ingest plus recent observation packet for `/hm:distill`.
 - `tools/session-distill`: default user-facing distillation playbook that reads evidence and writes pending candidates.
-- `auto_review_candidates`: shared low-risk review policy for `/hm:distill` and `/hm:review`.
+- `auto_review_candidates`: shared low-risk review policy for `/hm:distill` preview and `/hm:review` apply flows.
 - `/hm:mark` / `/hm:prune` / `/hm:review-kb` / `/hm:prune-kb` / `/hm:verify-entry` / `/hm:prd-sync`: Slash maintenance entries for session closure, manifest cleanup, knowledge-base audit, and candidate PRD sync.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
 - `suggest_*` / `list_candidates` / `confirm_*`: create and review durable memory candidates.
@@ -57,8 +57,8 @@ For status and wake-up:
 If the project has new sessions:
 
 1. Call `prepare_session_distill(project_name=<project>, client="auto", scope="project", project_root=<current project root>)`.
-2. Activate repo-local `tools/session-distill`: read the returned evidence packet, apply `references/distillation-rules.md`, and write pending candidates with `suggest_memory_entry`, `suggest_rule`, `suggest_relation_fact`, or `create_task_handoff`.
-3. Call `auto_review_candidates(project_name=<project>, apply=True)` as the default shipped review surface. Show the user a final summary, with only high-risk leftovers for review. If they ask why a specific item was auto-confirmed or auto-rejected, cite `applied_decisions` rather than re-running a manual per-item review flow.
+2. Activate repo-local `tools/session-distill` under the explicit `distill-suggest` MCP profile: read the returned evidence packet, apply `references/distillation-rules.md`, and write pending candidates with `suggest_memory_entry`, `suggest_rule`, `suggest_relation_fact`, or `create_task_handoff`.
+3. Call `auto_review_candidates(project_name=<project>, apply=False)` under `distill-suggest` as the default shipped distill surface. Show the user a final summary that says auto-review is preview-only and no durable memory was confirmed. If the user wants to apply decisions, route them to `/hm:review` or require explicit `review-write`.
 
 When looking for prior work:
 

@@ -14,6 +14,7 @@ import sys
 from harness_mem import __version__
 from harness_mem.commands import (
     cmd_assign_memory_types,
+    cmd_causal_benchmark,
     cmd_cleanup_generated_cache,
     cmd_config_get,
     cmd_config_list,
@@ -40,6 +41,7 @@ from harness_mem.commands import (
     cmd_quickstart,
     cmd_record_skill_result,
     cmd_rebuild_wiki_bridge,
+    cmd_state_audit,
     cmd_reject_procedural,
     cmd_reject_rule,
     cmd_reject_supersede,
@@ -63,6 +65,7 @@ from harness_mem.adapters.codex.adapter import CodexAdapter  # noqa: F401
 __all__ = [
     "main",
     "cmd_assign_memory_types",
+    "cmd_causal_benchmark",
     "cmd_cleanup_generated_cache",
     "cmd_config_get",
     "cmd_config_set",
@@ -89,6 +92,7 @@ __all__ = [
     "cmd_quickstart",
     "cmd_record_skill_result",
     "cmd_rebuild_wiki_bridge",
+    "cmd_state_audit",
     "cmd_reject_procedural",
     "cmd_reject_rule",
     "cmd_reject_supersede",
@@ -186,6 +190,8 @@ def main():
             "cleanup-generated-cache",
             "migrate-store-v2",
             "export-json-snapshot",
+            "causal-benchmark",
+            "state-audit",
         ],
         help="Maintenance action to run",
     )
@@ -380,6 +386,10 @@ def main():
                     apply=not args.dry_run,
                 )
             )
+        if args.action == "causal-benchmark":
+            return asyncio.run(cmd_causal_benchmark())
+        if args.action == "state-audit":
+            return asyncio.run(cmd_state_audit(args.project))
         parser.error(f"Unknown maintenance action: {args.action}")
 
     if command == "config":

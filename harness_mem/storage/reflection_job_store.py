@@ -74,8 +74,7 @@ class ReflectionJobStore:
         is a single ``INSERT ... ON CONFLICT(id) DO UPDATE`` so callers
         don't need to know whether the row already exists.
         """
-        conn = self._index._conn_write()
-        with self._index._lock:
+        with self._index.locked_connection() as conn:
             self._save_locked(conn, job)
 
     def save_if_no_active_processing(
@@ -90,8 +89,7 @@ class ReflectionJobStore:
         supplied job was saved. The check and insert happen under the same
         SQLite write lock so scheduler ticks cannot both start a dream run.
         """
-        conn = self._index._conn_write()
-        with self._index._lock:
+        with self._index.locked_connection() as conn:
             rows = conn.execute(
                 """
                 SELECT data FROM reflection_jobs
@@ -114,8 +112,7 @@ class ReflectionJobStore:
 
     def get(self, job_id: str) -> ReflectionJob | None:
         """Return the job by id, or ``None`` (Req 2.4, 2.5)."""
-        conn = self._index._conn_write()
-        with self._index._lock:
+        with self._index.locked_connection() as conn:
             row = conn.execute(
                 "SELECT data FROM reflection_jobs WHERE id = ?",
                 (job_id,),
@@ -157,8 +154,7 @@ class ReflectionJobStore:
         sql += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
 
-        conn = self._index._conn_write()
-        with self._index._lock:
+        with self._index.locked_connection() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [ReflectionJob.from_dict(json.loads(row["data"])) for row in rows]
 
@@ -173,10 +169,11 @@ class ReflectionJobStore:
     ) -> bool:
         """Conditional update used for lease acquisition (Req 4.6).
 
-        Atomic, in the SQLite sense: we hold ``self._index._lock`` from
-        the SELECT through the COMMIT, and SQLite serializes writers, so
-        no other caller can slip in between the read of ``data`` and the
-        UPDATE that writes the merged blob back.
+        Atomic, in the SQLite sense: we hold the index's public
+        ``locked_connection`` boundary from the SELECT through the COMMIT,
+        and SQLite serializes writers, so no other caller can slip in
+        between the read of ``data`` and the UPDATE that writes the merged
+        blob back.
 
         ``updates`` is a flat mapping of column-name → new-value. Each
         key that maps to an index column is written to that column;
@@ -222,8 +219,7 @@ class ReflectionJobStore:
             where.append("lease_owner = ?")
             where_params.append(expected_lease_owner)
 
-        conn = self._index._conn_write()
-        with self._index._lock:
+        with self._index.locked_connection() as conn:
             row = conn.execute(
                 "SELECT data FROM reflection_jobs WHERE "
                 + " AND ".join(where),
@@ -273,8 +269,7 @@ class ReflectionJobStore:
             "ORDER BY created_at DESC LIMIT 1"
         )
         params = [key, *_TERMINAL_STATUSES]
-        conn = self._index._conn_write()
-        with self._index._lock:
+        with self._index.locked_connection() as conn:
             row = conn.execute(sql, params).fetchone()
         if row is None:
             return None
@@ -295,8 +290,7 @@ class ReflectionJobStore:
             "ORDER BY created_at DESC LIMIT 1"
         )
         params = [key, *_TERMINAL_STATUSES]
-        conn = self._index._conn_write()
-        with self._index._lock:
+        with self._index.locked_connection() as conn:
             row = conn.execute(sql, params).fetchone()
         if row is None:
             return None

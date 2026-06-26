@@ -1,9 +1,12 @@
 # harness-mem Plugin
 
-Repo-local integration layer for `harness-mem`.
+Repo-local integration bundle for `harness-mem`.
 
 Use this plugin when you want an Agent client to talk to the local
 `harness-mem` runtime through MCP and user-facing commands.
+
+The plugin is not the canonical API. The canonical boundary is the runtime
+package, MCP tool contract, candidate review lifecycle, and local audit state.
 
 ## What It Includes
 
@@ -24,6 +27,20 @@ To also register the MCP server with Claude Code:
 
 ```powershell
 .\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
+```
+
+Default slash command sync installs only the Daily profile:
+
+```text
+/hm:status /hm:wake /hm:search /hm:search-all /hm:distill /hm:review
+```
+
+Optional command profiles must be explicit:
+
+```powershell
+.\plugins\harness-mem\scripts\install.ps1 -WithMaintenanceCommands
+.\plugins\harness-mem\scripts\install.ps1 -WithProductDocCommands
+.\plugins\harness-mem\scripts\install.ps1 -WithLabsCommands
 ```
 
 Skip slash command and skill sync on headless machines:
@@ -48,8 +65,8 @@ Use these from Claude Code after installation:
 | `/hm:wake` | Recover confirmed project context. |
 | `/hm:search "query"` | Search current-project memory. |
 | `/hm:search-all "query"` | Explicit cross-project memory search. |
-| `/hm:distill <project> <n>` | Convert recent session evidence into reviewable candidates. |
-| `/hm:review` | Repair/recheck pending candidates when needed. |
+| `/hm:distill <project> <n>` | Convert recent session evidence into reviewable candidates and preview review decisions. |
+| `/hm:review` | Confirm, reject, replace, or keep pending candidates. |
 
 For Cursor, Gemini CLI, Codex, Hermes, or another MCP-capable client, use the
 same actions in natural language:

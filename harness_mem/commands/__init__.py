@@ -5,11 +5,13 @@ from harness_mem.commands.ingest import cmd_ingest
 from harness_mem.commands.import_bridge import cmd_import
 from harness_mem.commands.maintenance import (
     cmd_assign_memory_types,
+    cmd_causal_benchmark,
     cmd_cleanup_generated_cache,
     cmd_export_json_snapshot,
     cmd_migrate_store_v2,
     cmd_prepare_knowledge_cache,
     cmd_rebuild_wiki_bridge,
+    cmd_state_audit,
 )
 from harness_mem.commands.profile import cmd_profile, cmd_profile_edit, cmd_use
 from harness_mem.commands.purge import cmd_purge
@@ -53,6 +55,7 @@ from harness_mem.commands.integration_cmds import (
 
 __all__ = [
     "cmd_assign_memory_types",
+    "cmd_causal_benchmark",
     "cmd_cleanup_generated_cache",
     "cmd_export_json_snapshot",
     "cmd_migrate_store_v2",
@@ -69,6 +72,7 @@ __all__ = [
     "cmd_profile_edit",
     "cmd_prepare_knowledge_cache",
     "cmd_rebuild_wiki_bridge",
+    "cmd_state_audit",
     "cmd_purge",
     "cmd_search",
     "cmd_search_raw",

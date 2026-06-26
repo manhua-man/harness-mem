@@ -31,6 +31,7 @@ from harness_mem.core.schemas.dream_run import DreamRun
 from harness_mem.core.schemas.retrieval_signal import RetrievalSignal
 from harness_mem.search.hybrid_search import HybridSearchLayer
 from harness_mem.storage.canonical_store import CanonicalStoreRuntime
+from harness_mem.storage.derived_index import DerivedIndex
 from harness_mem.storage.sqlite_index import SQLiteIndex
 
 
@@ -130,6 +131,16 @@ class LocalStructuredStore:
         if self.canonical_mode:
             return _CanonicalStructuredBlobPath(self, entity_type, id)
         return self._subdirs[entity_type] / f"{id}.json"
+
+    @property
+    def index(self) -> DerivedIndex:
+        """Shared derived index owned by this store's lifecycle.
+
+        Exposed for stores that intentionally share the structured SQLite
+        read model without reaching into private attributes.
+        """
+
+        return self._index
 
     @staticmethod
     def _canonical_source_relpath(entity_type: str, id: str) -> str:

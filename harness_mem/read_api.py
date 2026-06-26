@@ -10,13 +10,17 @@ from typing import Any, Sequence
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
+from harness_mem.relation_scoring import (
+    relation_family,
+    score_relation_fact,
+    score_relation_path,
+)
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.retrieval_signals import record_retrieval_signal
 from harness_mem.search import backend as search_backend
 from harness_mem.search.backend import (
     SearchFilters,
-    SQLiteSearchBackend,
-    hydrate_backend_results,
+    SearchFacade,
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -75,6 +79,17 @@ class RelationPath:
         if not self.facts:
             return 0.0
         return min(fact.confidence for fact in self.facts)
+
+    @property
+    def score(self) -> float:
+        return score_relation_path(self.facts)
+
+    @property
+    def edge_scores(self) -> list[float]:
+        return [
+            score_relation_fact(fact, depth=index)
+            for index, fact in enumerate(self.facts, start=1)
+        ]
 
 
 @dataclass(frozen=True)
@@ -143,7 +158,8 @@ async def search_memory(
     """Compatibility facade over the runtime SearchBackend mainline."""
 
     backend_limit = max(20, memory_entry_limit + observation_limit + 20)
-    response = await SQLiteSearchBackend(backend).search(
+    facade = SearchFacade(backend)
+    response = await facade.search(
         query,
         filters=SearchFilters(
             project_name=project_name,
@@ -156,7 +172,7 @@ async def search_memory(
         mode=mode,  # type: ignore[arg-type]
         limit=backend_limit,
     )
-    hydrated = await hydrate_backend_results(backend, response)
+    hydrated = await facade.hydrate(response)
     entries = list(hydrated["memory_entry"])[:memory_entry_limit]
     observations = list(hydrated["observation"])[:observation_limit]
     if record_signals:
@@ -430,7 +446,14 @@ async def trace_relation_paths(
             fact for fact in next_facts
             if fact.confidence >= min_confidence and fact.target_entity not in seen_entities
         ]
-        next_facts.sort(key=lambda fact: (fact.confidence, fact.created_at), reverse=True)
+        next_facts.sort(
+            key=lambda fact: (
+                score_relation_fact(fact, depth=len(current_path) + 1),
+                fact.confidence,
+                fact.created_at,
+            ),
+            reverse=True,
+        )
         for fact in next_facts:
             next_path = (*current_path, fact)
             paths.append(RelationPath(next_path))
@@ -444,6 +467,7 @@ async def trace_relation_paths(
                         {*seen_entities, fact.target_entity},
                     )
                 )
+    paths.sort(key=lambda path: (path.score, path.depth, path.entities), reverse=True)
     return paths[:effective_limit]
 
 
@@ -669,8 +693,11 @@ def serialize_observation_search_result(
 def serialize_relation_fact_search_result(
     fact: RelationFact,
     tech_stack_by_project: dict[str, list[str]] | None = None,
+    *,
+    depth: int = 1,
 ) -> dict[str, Any]:
     """Serialize a relation fact search result for MCP responses."""
+    edge_score = score_relation_fact(fact, depth=depth)
     return {
         "id": fact.id,
         "project_name": fact.project_name,
@@ -685,6 +712,9 @@ def serialize_relation_fact_search_result(
         "provenance": fact.provenance,
         "search_mode": "fts",
         "score": _raw_search_score(fact),
+        "edge_score": edge_score,
+        "relation_weighted_score": edge_score,
+        "relation_family": relation_family(fact.relation_type),
         **_serialize_validity_fields(fact),
     }
 
@@ -695,9 +725,10 @@ def serialize_relation_path(path: RelationPath) -> dict[str, Any]:
         "depth": path.depth,
         "entities": path.entities,
         "confidence": path.confidence,
+        "score": path.score,
         "edges": [
-            serialize_relation_fact_search_result(fact)
-            for fact in path.facts
+            serialize_relation_fact_search_result(fact, depth=index)
+            for index, fact in enumerate(path.facts, start=1)
         ],
         "evidence": [fact.evidence for fact in path.facts],
     }

@@ -20,14 +20,16 @@ jobs:
       - name: Install tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install build ruff
+          python -m pip install build pytest ruff
           python -m pip install -e .
 
       - name: Runtime smoke
         run: |
           python -m compileall harness_mem
           python -m ruff check harness_mem plugins tools
+          python -m pytest
           python -m harness_mem.cli --help
+          python -m harness_mem.cli maintenance causal-benchmark
 
       - name: Rust smoke
         run: cargo test --workspace

@@ -12,6 +12,7 @@ from typing import NamedTuple
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.search.hybrid_search import HybridSearchLayer
 from harness_mem.storage.canonical_store import CanonicalStoreRuntime
+from harness_mem.storage.derived_index import DerivedIndex
 from harness_mem.storage.sqlite_index import SQLiteIndex
 
 _CJK_ASCII_LEFT_BOUNDARY = re.compile(r"([\u3400-\u9fff])([A-Za-z0-9_])")
@@ -84,6 +85,12 @@ class LocalVerbatimStore:
         self._index = SQLiteIndex(self.data_dir / "verbatim_index.sqlite")
         self._index.init_db()
         self._search = HybridSearchLayer(self._index)
+
+    @property
+    def index(self) -> DerivedIndex:
+        """Shared derived index owned by this store's lifecycle."""
+
+        return self._index
 
     async def init_runtime(self) -> None:
         if not self.canonical_mode or self._canonical is None:

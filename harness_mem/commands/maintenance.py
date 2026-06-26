@@ -40,6 +40,8 @@ from harness_mem.storage.canonical_store import (
     build_canonical_store,
     export_json_snapshot,
 )
+from harness_mem.causal_benchmark import arun_causal_benchmark
+from harness_mem.event_log import replay_state_events, state_audit_summary
 
 
 _BLOB_GLOB = "*.json"
@@ -154,12 +156,12 @@ async def cmd_rebuild_vector_index(project_name: str | None = None) -> int:
 
         structured_store = cast(LocalStructuredStore, backend.structured_store)
         verbatim_store = cast(LocalVerbatimStore, backend.verbatim_store)
-        structured_index = structured_store._index
-        verbatim_index = verbatim_store._index
+        structured_index = structured_store.index
+        verbatim_index = verbatim_store.index
         for index in (structured_index, verbatim_index):
-            conn = index._conn_write()
-            conn.execute("DROP TABLE IF EXISTS vec_embeddings")
-            conn.commit()
+            with index.locked_connection() as conn:
+                conn.execute("DROP TABLE IF EXISTS vec_embeddings")
+                conn.commit()
             index.init_db()
 
         entries = await structured_store.list_memory_entries(
@@ -457,6 +459,48 @@ async def cmd_export_json_snapshot(
         },
     )
     return 0 if result["snapshot_checksum_match"] else 1
+
+
+async def cmd_causal_benchmark() -> int:
+    """Run the local deterministic causal-recall smoke benchmark."""
+
+    result = await arun_causal_benchmark()
+    print("Causal benchmark smoke")
+    print(f"Passed: {str(result['passed']).lower()}")
+    print(f"Root cause correct: {str(result['root_cause_correct']).lower()}")
+    print(f"Edge recall: {result['edge_recall']:.2f}")
+    print(f"Path count: {result['path_count']}")
+    print(json.dumps(result, indent=2, sort_keys=True))
+    log_command_invoked(
+        "maintenance.causal-benchmark",
+        project_name=result["project_name"],
+        extra={
+            "passed": result["passed"],
+            "root_cause_correct": result["root_cause_correct"],
+            "edge_recall": result["edge_recall"],
+            "path_count": result["path_count"],
+        },
+    )
+    return 0 if result["passed"] else 1
+
+
+async def cmd_state_audit(project_name: str | None) -> int:
+    """Print append-only state audit ledger summary."""
+
+    summary = state_audit_summary(DEFAULT_DATA_DIR, project_name=project_name)
+    replay = replay_state_events(DEFAULT_DATA_DIR, project_name=project_name)
+    print("State audit ledger")
+    print(f"Project: {summary['project_name'] or '*'}")
+    print(f"Events: {summary['event_count']}")
+    print(f"Replay targets: {replay['target_count']}")
+    print(f"Ledger: {summary['ledger']}")
+    print(json.dumps({**summary, "replay": replay}, indent=2, sort_keys=True))
+    log_command_invoked(
+        "maintenance.state-audit",
+        project_name=project_name,
+        extra={"event_count": summary["event_count"]},
+    )
+    return 0
 
 
 async def cmd_rebuild_wiki_bridge(

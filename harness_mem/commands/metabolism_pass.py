@@ -313,13 +313,13 @@ async def _load_pool_embeddings(
 
     persisted: dict[str, np.ndarray] = {}
     try:
-        conn = store._index._conn_write()
-        placeholders = ",".join("?" * len(pool_ids))
-        rows = conn.execute(
-            f"SELECT entry_id, embedding FROM vec_embeddings "
-            f"WHERE entry_id IN ({placeholders}) AND model_id = ?",
-            (*pool_ids, model_id),
-        ).fetchall()
+        with store.index.locked_connection() as conn:
+            placeholders = ",".join("?" * len(pool_ids))
+            rows = conn.execute(
+                f"SELECT entry_id, embedding FROM vec_embeddings "
+                f"WHERE entry_id IN ({placeholders}) AND model_id = ?",
+                (*pool_ids, model_id),
+            ).fetchall()
         for entry_id, blob in rows:
             arr = np.frombuffer(blob, dtype=np.float32)
             if arr.size != expected_dim:

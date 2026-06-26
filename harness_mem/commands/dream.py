@@ -798,7 +798,7 @@ async def undo_dream_item(
             blob_path = store._blob_path("skills", skill.id)
             blob_path.write_text(json.dumps(restored.to_dict(), indent=2, default=str))
             await asyncio.to_thread(
-                store._index.update,
+                store.index.update,
                 "skills",
                 skill.id,
                 {

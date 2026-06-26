@@ -11,7 +11,9 @@ import logging
 import re
 import sqlite3
 import threading
+from contextlib import contextmanager
 from pathlib import Path
+from collections.abc import Iterator
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -478,6 +480,19 @@ class SQLiteIndex:
                     "or use FTS mode (set mode=fts in search commands)."
                 ) from e
         return self._conn
+
+    @contextmanager
+    def locked_connection(self) -> Iterator[sqlite3.Connection]:
+        """Yield the shared SQLite connection under the index write lock.
+
+        This is the public boundary for maintenance, migration, and companion
+        stores that need atomic SQL not covered by the higher-level index
+        helpers. Callers must not reach into ``_conn_write`` or ``_lock``.
+        """
+
+        conn = self._conn_write()
+        with self._lock:
+            yield conn
 
     def close(self) -> None:
         with self._lock:

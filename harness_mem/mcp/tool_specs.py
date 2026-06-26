@@ -39,9 +39,17 @@ class _SchemaOnly(TypedDict):
     input_schema: dict[str, Any]
 
 
-VALID_TOOL_PROFILES = ("full", "minimal")
+VALID_TOOL_PROFILES = (
+    "core-read",
+    "minimal",
+    "distill-suggest",
+    "review-write",
+    "maintenance",
+    "labs",
+    "full",
+)
 
-MINIMAL_TOOL_NAMES = frozenset(
+CORE_READ_TOOL_NAMES = frozenset(
     {
         "search_memory",
         "wake",
@@ -52,27 +60,86 @@ MINIMAL_TOOL_NAMES = frozenset(
         "get_confirmed_rules",
         "get_project_status",
         "get_project_profile",
-        "set_active_project",
         "prepare_session_distill",
-        "ingest_sessions",
         "list_candidates",
+        "get_candidate_detail",
+    }
+)
+
+MINIMAL_TOOL_NAMES = CORE_READ_TOOL_NAMES
+
+DISTILL_SUGGEST_TOOL_NAMES = frozenset(
+    {
+        *CORE_READ_TOOL_NAMES,
         "auto_review_candidates",
         "suggest_memory_entry",
         "suggest_rule",
         "suggest_relation_fact",
-        "suggest_supersede",
-        "suggest_correction",
-        "confirm_memory_entry",
-        "reject_memory_entry",
-        "confirm_rule",
-        "reject_rule",
-        "confirm_relation_fact",
-        "reject_relation_fact",
-        "confirm_supersede",
-        "reject_supersede",
         "create_task_handoff",
     }
 )
+
+REVIEW_WRITE_TOOL_NAMES = frozenset(
+    {
+        *DISTILL_SUGGEST_TOOL_NAMES,
+        "suggest_supersede",
+        "confirm_supersede",
+        "reject_supersede",
+        "suggest_correction",
+        "create_rule_candidate",
+        "confirm_rule",
+        "reject_rule",
+        "confirm_memory_entry",
+        "reject_memory_entry",
+        "confirm_relation_fact",
+        "reject_relation_fact",
+    }
+)
+
+MAINTENANCE_TOOL_NAMES = frozenset(
+    {
+        *CORE_READ_TOOL_NAMES,
+        "ingest_sessions",
+        "metabolism_preview",
+        "metabolism_run",
+        "list_reflection_jobs",
+        "get_reflection_job",
+        "health_summary",
+        "surface_cost_report",
+    }
+)
+
+LABS_TOOL_NAMES = frozenset(
+    {
+        *MAINTENANCE_TOOL_NAMES,
+        "dream_ledger",
+        "dream_run",
+        "dream_auto_tick",
+        "undo_dream_item",
+        "suggest_skill",
+        "confirm_skill",
+        "reject_skill",
+        "suggest_skill_promotion",
+        "confirm_skill_promotion",
+        "reject_skill_promotion",
+        "record_skill_result",
+        "detect_skill_improvements",
+        "confirm_skill_revision",
+        "reject_skill_revision",
+        "detect_skill_deprecations",
+        "confirm_skill_deprecation",
+        "reject_skill_deprecation",
+    }
+)
+
+PROFILE_TOOL_NAMES = {
+    "core-read": CORE_READ_TOOL_NAMES,
+    "minimal": MINIMAL_TOOL_NAMES,
+    "distill-suggest": DISTILL_SUGGEST_TOOL_NAMES,
+    "review-write": REVIEW_WRITE_TOOL_NAMES,
+    "maintenance": MAINTENANCE_TOOL_NAMES,
+    "labs": LABS_TOOL_NAMES,
+}
 
 
 # Ordered map of tool name → schema. Order is the discovery order MCP
@@ -80,7 +147,12 @@ MINIMAL_TOOL_NAMES = frozenset(
 # ingest / review / suggest) to keep the registry scannable.
 _SCHEMAS: dict[str, _SchemaOnly] = {
     "search_memory": {
-        "description": "Search structured memory entries and verbatim observations for a project.",
+        "description": (
+            "Search structured memory entries and verbatim observations for a "
+            "project. Output keeps legacy memory_entries / relation_facts / "
+            "observations arrays and adds an additive recall contract with "
+            "evidence, sources, steps, planning, and status."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -145,6 +217,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     "trace_relations": {
         "description": (
             "Trace bounded current relation paths for a project entity. "
+            "Output includes weighted path scores and an additive recall "
+            "contract for evidence/source/step inspection. "
             "Returns empty unless relation facts have been populated for "
             "the project — heuristic distill rarely produces them from "
             "natural prose (loop_harness scenario 6 measured 0 facts from "
@@ -486,11 +560,14 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "mcp_tool_profile": {
                     "type": "string",
-                    "enum": ["full", "minimal"],
+                    "enum": list(VALID_TOOL_PROFILES),
                     "description": (
                         "Optional project-level MCP tools/list profile override. "
-                        "'full' exposes every registered tool; 'minimal' exposes "
-                        "the daily-flow 28-tool profile."
+                        "'core-read'/'minimal' expose read/prepare/list surfaces; "
+                        "'distill-suggest' adds candidate suggestion and "
+                        "auto-review preview; 'review-write' adds durable "
+                        "candidate review; 'maintenance' and 'labs' are opt-in; "
+                        "'full' exposes every registered tool."
                     ),
                 },
                 "maintenance_profile": {
@@ -704,6 +781,32 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["project_name"],
         },
     },
+    "get_candidate_detail": {
+        "description": "Read one candidate or reviewable structured item by id without mutating review state.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "candidate_id": {"type": "string", "description": "Candidate or reviewable item id"},
+                "candidate_kind": {
+                    "type": "string",
+                    "enum": [
+                        "memory_entry",
+                        "relation_fact",
+                        "rule_candidate",
+                        "supersede",
+                        "procedural_candidate",
+                        "skill_promotion_candidate",
+                        "skill_revision_candidate",
+                        "skill_deprecation_candidate",
+                        "merge_suggestion_candidate",
+                        "stale_truth_suggestion_candidate",
+                    ],
+                    "description": "Optional kind hint; omit to search all reviewable candidate stores.",
+                },
+            },
+            "required": ["candidate_id"],
+        },
+    },
     "auto_review_candidates": {
         "description": (
             "Run conservative heuristic auto-review across pending memory entries "
@@ -712,7 +815,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "kept_pending / needs_user_confirmation). Use apply=true to apply "
             "the decisions via the same status mutators users would invoke "
             "manually; apply=false (default) returns a preview without "
-            "modifying any candidate."
+            "modifying any candidate. In read/default and distill-suggest "
+            "profiles, apply=true is forced back to preview."
         ),
         "input_schema": {
             "type": "object",
@@ -1510,6 +1614,7 @@ TOOL_CLUSTERS = {
     "ingest_sessions": "truth_loop",
     "prepare_session_distill": "truth_loop",
     "list_candidates": "truth_loop",
+    "get_candidate_detail": "truth_loop",
     "auto_review_candidates": "truth_loop",
     "suggest_supersede": "truth_loop",
     "confirm_supersede": "truth_loop",
@@ -1584,9 +1689,13 @@ def build_tools(
             details.append(f"unknown clusters for: {sorted(unknown_clusters)}")
         raise KeyError("; ".join(details))
 
-    missing_minimal = MINIMAL_TOOL_NAMES - schema_keys
-    if missing_minimal:
-        raise KeyError(f"minimal profile references unknown tools: {sorted(missing_minimal)}")
+    for profile, tool_names in PROFILE_TOOL_NAMES.items():
+        missing_profile_tools = tool_names - schema_keys
+        if missing_profile_tools:
+            raise KeyError(
+                f"{profile} profile references unknown tools: "
+                f"{sorted(missing_profile_tools)}"
+            )
 
     return {
         name: ToolSpec(
@@ -1600,7 +1709,13 @@ def build_tools(
 
 
 __all__ = [
+    "CORE_READ_TOOL_NAMES",
+    "DISTILL_SUGGEST_TOOL_NAMES",
+    "LABS_TOOL_NAMES",
+    "MAINTENANCE_TOOL_NAMES",
     "MINIMAL_TOOL_NAMES",
+    "PROFILE_TOOL_NAMES",
+    "REVIEW_WRITE_TOOL_NAMES",
     "TOOL_CLUSTERS",
     "ToolSpec",
     "VALID_TOOL_PROFILES",

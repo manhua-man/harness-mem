@@ -7,10 +7,11 @@ All logs are written to the local data directory only.
 from __future__ import annotations
 import json
 import asyncio
+import uuid
 from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 class EventType(StrEnum):
@@ -24,6 +25,163 @@ class EventType(StrEnum):
     RULE_REJECTED = "rule_rejected"
     LEARNING_LOOP_COMPLETE = "learning_loop_complete"
     MCP_SURFACE_COST = "mcp_surface_cost"
+
+
+class StateEventType(StrEnum):
+    """Review/governance state changes recorded for audit/replay."""
+
+    CANDIDATE_CREATED = "candidate_created"
+    CANDIDATE_REVIEWED = "candidate_reviewed"
+    TRUTH_CONFIRMED = "truth_confirmed"
+    TRUTH_REJECTED = "truth_rejected"
+    SUPERSEDE_COMPLETED = "supersede_completed"
+
+
+STATE_EVENTS_FILE = "state-events.log"
+
+
+def _state_event_path(data_dir: Path, *, create_parent: bool = False) -> Path:
+    path = Path(data_dir) / STATE_EVENTS_FILE
+    if create_parent:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def append_state_event(
+    data_dir: Path,
+    *,
+    event_type: StateEventType | str,
+    project_name: str | None,
+    target_kind: str,
+    target_id: str,
+    status: str | None = None,
+    source_surface: str | None = None,
+    actor: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> str:
+    """Append one governance state event to the local audit ledger.
+
+    This ledger is separate from command telemetry because it describes durable
+    memory governance transitions that should be inspectable and replayable.
+    """
+
+    event_id = f"state-{uuid.uuid4().hex[:12]}"
+    event = {
+        "id": event_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "type": str(event_type.value if isinstance(event_type, StateEventType) else event_type),
+        "project_name": project_name,
+        "target_kind": target_kind,
+        "target_id": target_id,
+        "status": status,
+        "source_surface": source_surface,
+        "actor": actor,
+        "payload": payload or {},
+    }
+    with open(_state_event_path(data_dir, create_parent=True), "a", encoding="utf-8") as f:
+        f.write(json.dumps(event, default=str, sort_keys=True) + "\n")
+    return event_id
+
+
+def iter_state_events(
+    data_dir: Path,
+    *,
+    project_name: str | None = None,
+    target_kind: str | None = None,
+    target_id: str | None = None,
+    event_type: StateEventType | str | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Iterate state audit events in append order, skipping corrupt lines."""
+
+    path = _state_event_path(data_dir)
+    if not path.exists():
+        return
+    expected_type = (
+        event_type.value if isinstance(event_type, StateEventType) else event_type
+    )
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if project_name is not None and event.get("project_name") != project_name:
+                continue
+            if target_kind is not None and event.get("target_kind") != target_kind:
+                continue
+            if target_id is not None and event.get("target_id") != target_id:
+                continue
+            if expected_type is not None and event.get("type") != expected_type:
+                continue
+            yield event
+
+
+def state_audit_summary(data_dir: Path, *, project_name: str | None = None) -> dict[str, Any]:
+    """Return simple counts for the state audit ledger."""
+
+    by_type: dict[str, int] = {}
+    by_target_kind: dict[str, int] = {}
+    total = 0
+    last_event_at = None
+    for event in iter_state_events(data_dir, project_name=project_name):
+        total += 1
+        evt_type = str(event.get("type") or "unknown")
+        kind = str(event.get("target_kind") or "unknown")
+        by_type[evt_type] = by_type.get(evt_type, 0) + 1
+        by_target_kind[kind] = by_target_kind.get(kind, 0) + 1
+        last_event_at = event.get("timestamp") or last_event_at
+    return {
+        "event_count": total,
+        "project_name": project_name,
+        "by_type": by_type,
+        "by_target_kind": by_target_kind,
+        "last_event_at": last_event_at,
+        "ledger": str(_state_event_path(data_dir)),
+    }
+
+
+def replay_state_events(
+    data_dir: Path,
+    *,
+    project_name: str | None = None,
+) -> dict[str, Any]:
+    """Replay the governance ledger into latest target states.
+
+    This is intentionally conservative: it does not mutate storage or claim to
+    rebuild source blobs. It proves that the append-only state ledger can be
+    replayed into an auditable latest-state projection.
+    """
+
+    targets: dict[str, dict[str, Any]] = {}
+    event_count = 0
+    for event in iter_state_events(data_dir, project_name=project_name):
+        event_count += 1
+        target_kind = str(event.get("target_kind") or "unknown")
+        target_id = str(event.get("target_id") or "")
+        if not target_id:
+            continue
+        key = f"{target_kind}:{target_id}"
+        prior = targets.get(key, {})
+        history = [*prior.get("event_ids", []), event.get("id")]
+        targets[key] = {
+            "target_kind": target_kind,
+            "target_id": target_id,
+            "project_name": event.get("project_name"),
+            "latest_type": event.get("type"),
+            "latest_status": event.get("status"),
+            "latest_event_at": event.get("timestamp"),
+            "latest_source_surface": event.get("source_surface"),
+            "event_ids": history,
+        }
+    return {
+        "schema_version": "harness_mem.state_event_replay.v1",
+        "project_name": project_name,
+        "event_count": event_count,
+        "target_count": len(targets),
+        "targets": targets,
+    }
 
 
 class EventLogger:

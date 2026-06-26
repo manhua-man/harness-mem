@@ -36,7 +36,7 @@ wake -> search -> distill -> review
 |---|---|
 | `wake` | 从已确认记忆生成项目简报。 |
 | `search` | 找回历史决策、规则和 handoff，并保留来源。 |
-| `distill` | 把近期 session evidence 提炼成记忆候选。 |
+| `distill` | 把近期 session evidence 提炼成记忆候选，并预览审核建议。 |
 | `review` | 确认、拒绝、替代或继续挂起候选。 |
 
 ## 关键机制
@@ -87,6 +87,7 @@ cd harness-mem
 /hm:wake
 /hm:search "release boundary"
 /hm:distill <project> 10
+/hm:review
 ```
 
 ## 仓库结构
@@ -104,6 +105,8 @@ cd harness-mem
 - [Quickstart](docs/quickstart.md)
 - [MCP setup](docs/mcp-setup.md)
 - [Cold-start demo](docs/demo-cold-start.md)
+- [Recall audit contract](docs/recall-audit.md)
+- [Causal benchmark smoke](docs/causal-benchmark.md)
 - [Changelog](CHANGELOG.md)
 
 ## 开发检查
@@ -115,4 +118,4 @@ python -m harness_mem.cli --help
 cargo test --workspace
 ```
 
-当前包版本：**0.8.1**。
+当前包版本：**0.8.2**。

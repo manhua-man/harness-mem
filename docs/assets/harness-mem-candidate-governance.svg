@@ -120,16 +120,16 @@
     <rect class="panelBlue" width="300" height="152"/>
     <rect class="chip" x="22" y="22" width="136" height="32"/>
     <text class="chipText" x="40" y="44">Auto Review</text>
-    <text class="label" x="24" y="88">自动审核</text>
-    <text class="code" x="24" y="120">auto_review_candidates(apply=true)</text>
+    <text class="label" x="24" y="88">自动预审</text>
+    <text class="code" x="24" y="120">auto_review_candidates(apply=false)</text>
   </g>
 
   <g transform="translate(982 624)">
     <rect class="panelOrange" width="300" height="146"/>
     <rect class="chip" x="22" y="22" width="148" height="32"/>
     <text class="chipText" x="40" y="44">Human Gate</text>
-    <text class="label" x="24" y="88">人类复核残留</text>
-    <text class="body" x="24" y="120">只看高风险 / 证据不足 / 边界不清</text>
+    <text class="label" x="24" y="88">/hm:review durable gate</text>
+    <text class="body" x="24" y="120">确认 / 拒绝 / 替换候选</text>
   </g>
 
   <g transform="translate(994 814)">

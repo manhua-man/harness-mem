@@ -1,11 +1,11 @@
 ---
 name: "HM: Distill"
-description: 一键整理最近会话，自动审核处理候选记忆，最后给用户复核摘要
+description: 整理最近会话，生成候选记忆，并以 preview-only 方式预审
 category: Memory
 tags: [harness-mem, distill, memory, skill]
 ---
 
-把指定项目最近的会话灌入 verbatim 层，使用仓库里的 `tools/session-distill` 主动提炼候选记忆，随后 AI 自动审核并处理低风险候选，最后只给用户复核摘要。
+把指定项目最近的会话灌入 verbatim 层，使用仓库里的 `tools/session-distill` 主动提炼候选记忆，随后运行 auto-review preview。默认不确认 durable memory；确认、拒绝、替换必须通过 `/hm:review` 或用户显式要求的 apply 模式。
 
 **MCP Tool Names**
 
@@ -51,21 +51,22 @@ tags: [harness-mem, distill, memory, skill]
    - 默认读取并遵循 `tools/session-distill/SKILL.md`
    - 按 `tools/session-distill/references/distillation-rules.md` 判断哪些结论值得进入候选层
    - 直接使用 `prepare_session_distill` 返回的 observations 作为 evidence packet
-   - 用 MCP `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` / `create_task_handoff` 写入 pending 候选
+   - 用 MCP `distill-suggest` profile 下的 `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` / `create_task_handoff` 写入 pending 候选
    - 每条候选必须带 source evidence，例如 observation id、session id、packet turn、命令或文件路径
 
    不要退回旧的 heuristic fallback。v2.0 已移除正则提取式 distill；
    如果 `prepare_session_distill` 或 Skill 无法提供 evidence packet，应把它当作
    runtime / 配置问题排障，而不是退回低质量自动提取。
 
-4. **自动审核并处理候选**
+4. **自动审核预览候选**
    调 MCP `auto_review_candidates`：
    - `project_name=<project>`
-   - `apply=true`
+   - `apply=false`
+   - MCP profile 必须是 `distill-suggest` 或更高；默认 `core-read` 不暴露 candidate suggestion / auto-review preview
 
    MCP 不可用时，直接说明 runtime 工具不可用；CLI 只是开发者本地排障层，不要求普通用户手动运行。
 
-   不要停下来让用户逐条选择，也不要提示用户去运行 `/hm:review`。低风险候选的判断必须复用 shared auto-review policy，而不是在 slash 文档里手写另一套规则。
+   默认不要确认、拒绝或替换候选。低风险候选的判断必须复用 shared auto-review policy，而不是在 slash 文档里手写另一套规则。用户明确要求“自动处理低风险候选”时，才允许在 `review-write` profile 下调用显式 apply 模式或转入 `/hm:review`。
 
    摘要必须以 `auto_review_candidates` 返回的结果为准：
    - `auto_confirmed`
@@ -74,26 +75,28 @@ tags: [harness-mem, distill, memory, skill]
    - `needs_user_confirmation`
    - `applied_decisions`
 
-   只有 `needs_user_confirmation` 里的高风险残留才放进最终摘要的“需要你确认”区。如果用户追问某个候选为什么被自动确认或自动拒绝，再从 `applied_decisions` 里解释 candidate id、evidence id 和 policy reason。
+   默认 preview 下 `applied_decisions` 必须为空。如果用户追问某个候选为什么会被建议确认或拒绝，解释 candidate id、evidence id 和 policy reason。
 
 5. **总结呈现**
-   按"新灌入 N / 新候选 M / 自动确认 C / 自动拒绝 R / 保留待定 K / 需要你确认 H"格式给用户看结果。
+   按"新灌入 N / 新候选 M / 建议确认 C / 建议拒绝 R / 保留待定 K / 需要你确认 H"格式给用户看结果。
 
-   最终只做复核摘要，不要让用户继续跑 `/hm:review`：
+   最终明确说明没有写入 confirmed memory，并把 durable gate 指向 `/hm:review`：
 
    ```text
-   已完成整理和自动审核。
-   自动确认：...
-   自动拒绝：...
+   已完成整理和预审。
+   auto-review mode: preview only
+   no durable memory was confirmed
+   建议确认：...
+   建议拒绝：...
    保留待定：...
    需要你确认：...
-   如果有处理不对，告诉我编号，我会改。
+   运行 /hm:review 处理这些候选。
    ```
 
 **Notes**
 
-- `/hm:distill` 是默认闭环：整理、提炼、自动审核、处理低风险候选、给最终摘要
-- `/hm:review` 只作为复查/纠错/手动补救入口，不是日常必经流程
+- `/hm:distill` 是建议链路：整理、提炼、预审候选、给最终摘要
+- `/hm:review` 是 durable memory gate：确认、拒绝、替换候选都在这里发生
 - 不要把具体客户端写死为默认来源；默认入口必须是 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根目录>)`
 - agent 历史可能是用户全局数据源，默认必须按当前项目路径过滤；跨项目导入必须由用户显式要求 `scope="all"`
 - 用户主路径是 Slash + MCP + Skill；CLI 只能作为开发者排障兜底
