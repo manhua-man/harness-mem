@@ -39,18 +39,9 @@ class _SchemaOnly(TypedDict):
     input_schema: dict[str, Any]
 
 
-VALID_TOOL_PROFILES = (
-    "core-read",
-    "minimal",
-    "review-read",
-    "distill-suggest",
-    "review-write",
-    "maintenance",
-    "labs",
-    "full",
-)
+VALID_TOOL_PROFILES = ("memory",)
 
-CORE_READ_TOOL_NAMES = frozenset(
+PUBLIC_MCP_TOOL_NAMES = frozenset(
     {
         "search_memory",
         "wake",
@@ -58,41 +49,24 @@ CORE_READ_TOOL_NAMES = frozenset(
         "temporal_query",
         "file_context",
         "get_observations",
+        "get_task_handoffs",
         "get_confirmed_rules",
         "get_project_status",
         "get_project_profile",
-        "prepare_session_distill",
-        "list_candidates",
-        "get_candidate_detail",
-    }
-)
-
-MINIMAL_TOOL_NAMES = CORE_READ_TOOL_NAMES
-
-REVIEW_READ_TOOL_NAMES = frozenset(
-    {
-        *CORE_READ_TOOL_NAMES,
+        "set_active_project",
         "trace_relations",
         "search_raw",
         "search_skills",
         "get_skill",
-    }
-)
-
-DISTILL_SUGGEST_TOOL_NAMES = frozenset(
-    {
-        *REVIEW_READ_TOOL_NAMES,
+        "ingest_sessions",
+        "prepare_session_distill",
+        "list_candidates",
+        "get_candidate_detail",
         "auto_review_candidates",
         "suggest_memory_entry",
         "suggest_rule",
         "suggest_relation_fact",
         "create_task_handoff",
-    }
-)
-
-REVIEW_WRITE_TOOL_NAMES = frozenset(
-    {
-        *DISTILL_SUGGEST_TOOL_NAMES,
         "suggest_supersede",
         "confirm_supersede",
         "reject_supersede",
@@ -104,53 +78,16 @@ REVIEW_WRITE_TOOL_NAMES = frozenset(
         "reject_memory_entry",
         "confirm_relation_fact",
         "reject_relation_fact",
-    }
-)
-
-MAINTENANCE_TOOL_NAMES = frozenset(
-    {
-        *REVIEW_READ_TOOL_NAMES,
-        "ingest_sessions",
-        "metabolism_preview",
-        "metabolism_run",
-        "list_reflection_jobs",
-        "get_reflection_job",
-        "health_summary",
-        "surface_cost_report",
-    }
-)
-
-LABS_TOOL_NAMES = frozenset(
-    {
-        *MAINTENANCE_TOOL_NAMES,
         "dream_ledger",
         "dream_run",
         "dream_auto_tick",
         "undo_dream_item",
-        "suggest_skill",
-        "confirm_skill",
-        "reject_skill",
-        "suggest_skill_promotion",
-        "confirm_skill_promotion",
-        "reject_skill_promotion",
-        "record_skill_result",
-        "detect_skill_improvements",
-        "confirm_skill_revision",
-        "reject_skill_revision",
-        "detect_skill_deprecations",
-        "confirm_skill_deprecation",
-        "reject_skill_deprecation",
+        "record_context_outcome",
     }
 )
 
 PROFILE_TOOL_NAMES = {
-    "core-read": CORE_READ_TOOL_NAMES,
-    "minimal": MINIMAL_TOOL_NAMES,
-    "review-read": REVIEW_READ_TOOL_NAMES,
-    "distill-suggest": DISTILL_SUGGEST_TOOL_NAMES,
-    "review-write": REVIEW_WRITE_TOOL_NAMES,
-    "maintenance": MAINTENANCE_TOOL_NAMES,
-    "labs": LABS_TOOL_NAMES,
+    "memory": PUBLIC_MCP_TOOL_NAMES,
 }
 
 
@@ -574,12 +511,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "type": "string",
                     "enum": list(VALID_TOOL_PROFILES),
                     "description": (
-                        "Optional project-level MCP tools/list profile override. "
-                        "'core-read'/'minimal' expose read/prepare/list surfaces; "
-                        "'distill-suggest' adds candidate suggestion and "
-                        "auto-review preview; 'review-write' adds durable "
-                        "candidate review; 'maintenance' and 'labs' are opt-in; "
-                        "'full' exposes every registered tool."
+                        "Deprecated no-op. Public MCP now has one memory "
+                        "surface; historical profile overrides are ignored."
                     ),
                 },
                 "maintenance_profile": {
@@ -806,10 +739,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "relation_fact",
                         "rule_candidate",
                         "supersede",
-                        "procedural_candidate",
-                        "skill_promotion_candidate",
-                        "skill_revision_candidate",
-                        "skill_deprecation_candidate",
                         "merge_suggestion_candidate",
                         "stale_truth_suggestion_candidate",
                     ],
@@ -824,11 +753,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "Run conservative heuristic auto-review across pending memory entries "
             "and rule candidates. Returns the standard summary shape "
             "(auto_confirmed / auto_rejected / "
-            "kept_pending / needs_user_confirmation). Use apply=true to apply "
-            "the decisions via the same status mutators users would invoke "
-            "manually; apply=false (default) returns a preview without "
-            "modifying any candidate. In read/default and distill-suggest "
-            "profiles, apply=true is forced back to preview."
+            "kept_pending / needs_user_confirmation). Public MCP always keeps "
+            "this tool preview-only; durable changes go through explicit "
+            "confirm/reject tools."
         ),
         "input_schema": {
             "type": "object",
@@ -942,126 +869,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             ],
         },
     },
-    "suggest_skill": {
-        "description": "Suggest a procedural skill candidate for later review.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "activation_condition": {"type": "string", "description": "When this workflow should run"},
-                "steps": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Ordered workflow steps",
-                },
-                "termination_condition": {"type": "string", "description": "When this workflow is complete"},
-                "success_examples": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Successful execution examples",
-                },
-                "source_session_id": {"type": "string", "description": "Source session id"},
-                "source": {"type": "string", "description": "Source observation/file/candidate id"},
-                "confidence": {"type": "number", "description": "Confidence score 0.0-1.0"},
-            },
-            "required": ["project_name", "activation_condition", "steps", "termination_condition"],
-        },
-    },
-    "confirm_skill": {
-        "description": "Confirm a procedural skill candidate.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "candidate_id": {"type": "string", "description": "Procedural candidate ID to confirm"},
-            },
-            "required": ["candidate_id"],
-        },
-    },
-    "reject_skill": {
-        "description": "Reject a procedural skill candidate.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "candidate_id": {"type": "string", "description": "Procedural candidate ID to reject"},
-            },
-            "required": ["candidate_id"],
-        },
-    },
-    "suggest_skill_promotion": {
-        "description": "Suggest promoting a project skill into workspace/global shared scope.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "skill_id": {"type": "string", "description": "Confirmed project skill ID"},
-                "target_scope": {
-                    "type": "string",
-                    "description": "Requested shared scope: workspace or global",
-                },
-                "portability_notes": {
-                    "type": "string",
-                    "description": "How to adapt or constrain this skill across projects",
-                },
-                "disabled_assumptions": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Project-specific assumptions that must not carry over",
-                },
-                "confidence": {
-                    "type": "number",
-                    "description": "Optional override confidence score 0.0-1.0",
-                },
-            },
-            "required": ["skill_id", "target_scope"],
-        },
-    },
-    "confirm_skill_promotion": {
-        "description": "Confirm a skill promotion candidate into shared scope.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "candidate_id": {"type": "string", "description": "Skill promotion candidate ID"},
-            },
-            "required": ["candidate_id"],
-        },
-    },
-    "reject_skill_promotion": {
-        "description": "Reject a skill promotion candidate.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "candidate_id": {"type": "string", "description": "Skill promotion candidate ID"},
-            },
-            "required": ["candidate_id"],
-        },
-    },
-    "record_skill_result": {
-        "description": (
-            "Record one execution outcome for a confirmed skill. v3.7 stores "
-            "surface/source_ids/reason as local outcome-ledger context; it "
-            "never rewrites the skill body."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "skill_id": {"type": "string", "description": "Confirmed skill ID"},
-                "success": {"type": "boolean", "description": "Whether the execution succeeded"},
-                "surface": {
-                    "type": "string",
-                    "description": "Optional activation surface, e.g. wake_hint, search_skills, get_skill, manual.",
-                },
-                "source_ids": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Optional evidence ids supporting the result event.",
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "Optional short failure or success note. Raw task content should not be stored.",
-                },
-            },
-            "required": ["skill_id", "success"],
-        },
-    },
     "record_context_outcome": {
         "description": (
             "Record whether returned wake/search context was used, ignored, "
@@ -1094,86 +901,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
             },
             "required": ["project_name", "surface", "source_ids", "outcome"],
-        },
-    },
-    "detect_skill_improvements": {
-        "description": "Create reviewed revision suggestions for low-success skills.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum low-success skills to inspect",
-                    "default": 20,
-                },
-                "lookback_days": {
-                    "type": "integer",
-                    "description": "Lookback window for supporting skill result signals",
-                    "default": 30,
-                },
-            },
-            "required": ["project_name"],
-        },
-    },
-    "confirm_skill_revision": {
-        "description": "Accept a skill revision suggestion without rewriting the skill.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "candidate_id": {"type": "string", "description": "Skill revision suggestion candidate ID"},
-            },
-            "required": ["candidate_id"],
-        },
-    },
-    "reject_skill_revision": {
-        "description": "Reject a skill revision suggestion.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "candidate_id": {"type": "string", "description": "Skill revision suggestion candidate ID"},
-            },
-            "required": ["candidate_id"],
-        },
-    },
-    "detect_skill_deprecations": {
-        "description": "Create reviewed deprecation suggestions for stale or conflicting shared skills.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum shared skills to create deprecation candidates for",
-                    "default": 20,
-                },
-                "stale_days": {
-                    "type": "integer",
-                    "description": "Staleness threshold for unused shared skills",
-                    "default": 60,
-                },
-            },
-            "required": ["project_name"],
-        },
-    },
-    "confirm_skill_deprecation": {
-        "description": "Accept a skill deprecation suggestion and retire the shared skill.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "candidate_id": {"type": "string", "description": "Skill deprecation suggestion candidate ID"},
-            },
-            "required": ["candidate_id"],
-        },
-    },
-    "reject_skill_deprecation": {
-        "description": "Reject a skill deprecation suggestion.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "candidate_id": {"type": "string", "description": "Skill deprecation suggestion candidate ID"},
-            },
-            "required": ["candidate_id"],
         },
     },
     "create_rule_candidate": {
@@ -1557,7 +1284,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     "dream_auto_tick": {
         "description": (
             "Run one host/client scheduler tick for v3.1 auto dream. The tick "
-            "is default-off and only enqueues ReflectionJob(kind='dream') when "
+            "only enqueues ReflectionJob(kind='dream') when "
             "dream.auto.enabled and scheduler gates allow it."
         ),
         "input_schema": {
@@ -1650,20 +1377,6 @@ TOOL_CLUSTERS = {
     "dream_run": "maintenance",
     "dream_auto_tick": "maintenance",
     "undo_dream_item": "maintenance",
-    # Procedural skill governance.
-    "suggest_skill": "governance",
-    "confirm_skill": "governance",
-    "reject_skill": "governance",
-    "suggest_skill_promotion": "governance",
-    "confirm_skill_promotion": "governance",
-    "reject_skill_promotion": "governance",
-    "record_skill_result": "governance",
-    "detect_skill_improvements": "governance",
-    "confirm_skill_revision": "governance",
-    "reject_skill_revision": "governance",
-    "detect_skill_deprecations": "governance",
-    "confirm_skill_deprecation": "governance",
-    "reject_skill_deprecation": "governance",
     # Maintainer/release/observer surfaces.
     "list_reflection_jobs": "maintainer",
     "get_reflection_job": "maintainer",
@@ -1721,14 +1434,8 @@ def build_tools(
 
 
 __all__ = [
-    "CORE_READ_TOOL_NAMES",
-    "DISTILL_SUGGEST_TOOL_NAMES",
-    "LABS_TOOL_NAMES",
-    "MAINTENANCE_TOOL_NAMES",
-    "MINIMAL_TOOL_NAMES",
     "PROFILE_TOOL_NAMES",
-    "REVIEW_READ_TOOL_NAMES",
-    "REVIEW_WRITE_TOOL_NAMES",
+    "PUBLIC_MCP_TOOL_NAMES",
     "TOOL_CLUSTERS",
     "ToolSpec",
     "VALID_TOOL_PROFILES",

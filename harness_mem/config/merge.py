@@ -48,7 +48,7 @@ class MergedConfig:
     distill_mode: Literal["defer_to_agent", "inline", "worker"] = "defer_to_agent"
     worker_mode: Literal["off", "on"] = "off"
     autopilot_enabled: bool = True
-    dream_auto_enabled: bool = False
+    dream_auto_enabled: bool = True
     dream_auto_trigger: Literal["idle_or_interval", "interval", "idle"] = "idle_or_interval"
     dream_auto_min_interval_hours: int = 24
     dream_auto_idle_seconds: int = 900
@@ -116,7 +116,7 @@ _AUTOPILOT_KEYS: tuple[tuple[str, str, str, Any], ...] = (
 )
 
 _DREAM_KEYS: tuple[tuple[str, str, str, Any], ...] = (
-    ("dream.auto.enabled", "dream_auto_enabled", "bool", False),
+    ("dream.auto.enabled", "dream_auto_enabled", "bool", True),
     (
         "dream.auto.trigger",
         "dream_auto_trigger",

@@ -12,7 +12,7 @@ import contextlib
 import io
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal, cast
 
@@ -39,20 +39,9 @@ from harness_mem.commands.support import (
 from harness_mem.commands.wake import DEFAULT_SKILL_HINT_LIMIT, build_wake_snapshot, cmd_wake_up
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import load_merged_config
-from harness_mem.core.schemas import (
-    ProceduralCandidate,
-    SkillPromotionCandidate,
-    SkillRevisionSuggestionCandidate,
-    SupersedeCandidate,
-)
+from harness_mem.core.schemas import SupersedeCandidate
 from harness_mem.core.schemas.metabolism_run import MetabolismRun
 from harness_mem.core.schemas.project_profile import ProjectProfile
-from harness_mem.core.schemas.skill_deprecation_suggestion_candidate import (
-    DeprecationTrigger,
-    SkillDeprecationSuggestionCandidate,
-)
-from harness_mem.core.schemas.skill_promotion_candidate import PromotionScope
-from harness_mem.core.schemas.skill_revision_suggestion_candidate import RevisionTrigger
 from harness_mem.event_log import StateEventType, append_state_event
 from harness_mem.file_context import build_file_context
 from harness_mem.guided_flow import build_guided_flow, guided_flow_drilldown_hint
@@ -1824,9 +1813,8 @@ def tool_update_project_profile(
             return {
                 "success": False,
                 "error": (
-                    "mcp_tool_profile must be one of: core-read, minimal, "
-                    "review-read, distill-suggest, review-write, "
-                    "maintenance, labs, full"
+                    "mcp_tool_profile is deprecated; public MCP uses the "
+                    "single memory surface"
                 ),
             }
     normalized_maintenance_profile: MaintenanceProfile | None = None
@@ -2656,7 +2644,7 @@ def tool_dream_auto_tick(
     project_name: str | None = None,
     project_root: str | None = None,
 ) -> dict:
-    """Host/client scheduler tick for default-off v3.1 auto dream."""
+    """Host/client scheduler tick for v3.1 auto dream."""
     resolved = _resolve_project_for_dream(project_name)
     if not resolved:
         return {
@@ -2943,12 +2931,8 @@ from harness_mem.mcp.serializers import (  # noqa: E402, F401
     _isoformat,
     _serialize_merge_suggestion_candidate,
     _serialize_memory_entry_candidate,
-    _serialize_procedural_candidate,
     _serialize_relation_fact_candidate,
     _serialize_rule_candidate,
-    _serialize_skill_deprecation_suggestion_candidate,
-    _serialize_skill_promotion_candidate,
-    _serialize_skill_revision_suggestion_candidate,
     _serialize_stale_truth_suggestion_candidate,
     _serialize_supersede_candidate,
 )
@@ -2967,25 +2951,11 @@ async def _gather_candidate_payload(
     list[dict],
     list[dict],
     list[dict],
-    list[dict],
-    list[dict],
-    list[dict],
-    list[dict],
 ]:
     rules = await backend.structured_store.list_rule_candidates(project_name, status=status)
     entries = await backend.structured_store.list_memory_entries(project_name, status=status, limit=limit)
     facts = await backend.structured_store.list_relation_facts(project_name, status=status, limit=limit)
     supersedes = await backend.structured_store.list_supersede_candidates(project_name, status=status)
-    procedural = await backend.structured_store.list_procedural_candidates(project_name, status=status)
-    skill_promotions = await backend.structured_store.list_skill_promotion_candidates(
-        project_name, status=status
-    )
-    skill_revisions = await backend.structured_store.list_skill_revision_suggestion_candidates(
-        project_name, status=status
-    )
-    skill_deprecations = await backend.structured_store.list_skill_deprecation_suggestion_candidates(
-        project_name, status=status
-    )
     merge_suggestions = await backend.structured_store.list_merge_suggestion_candidates(project_name, status=status)
     stale_suggestions = await backend.structured_store.list_stale_truth_suggestion_candidates(project_name, status=status)
     return (
@@ -2993,10 +2963,6 @@ async def _gather_candidate_payload(
         [_serialize_memory_entry_candidate(entry) for entry in entries],
         [_serialize_relation_fact_candidate(fact) for fact in facts],
         [_serialize_supersede_candidate(candidate) for candidate in supersedes[:limit]],
-        [_serialize_procedural_candidate(candidate) for candidate in procedural[:limit]],
-        [_serialize_skill_promotion_candidate(candidate) for candidate in skill_promotions[:limit]],
-        [_serialize_skill_revision_suggestion_candidate(candidate) for candidate in skill_revisions[:limit]],
-        [_serialize_skill_deprecation_suggestion_candidate(candidate) for candidate in skill_deprecations[:limit]],
         [_serialize_merge_suggestion_candidate(candidate) for candidate in merge_suggestions[:limit]],
         [_serialize_stale_truth_suggestion_candidate(candidate) for candidate in stale_suggestions[:limit]],
     )
@@ -3017,10 +2983,6 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         memory_entries,
         relation_facts,
         supersede_candidates,
-        procedural_candidates,
-        skill_promotion_candidates,
-        skill_revision_suggestion_candidates,
-        skill_deprecation_suggestion_candidates,
         merge_suggestion_candidates,
         stale_truth_suggestion_candidates,
     ) = asyncio.run(
@@ -3036,10 +2998,6 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         *memory_entries,
         *relation_facts,
         *supersede_candidates,
-        *procedural_candidates,
-        *skill_promotion_candidates,
-        *skill_revision_suggestion_candidates,
-        *skill_deprecation_suggestion_candidates,
         *merge_suggestion_candidates,
         *stale_truth_suggestion_candidates,
     ]
@@ -3056,10 +3014,6 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         "memory_entries": memory_entries,
         "relation_facts": relation_facts,
         "supersede_candidates": supersede_candidates,
-        "procedural_candidates": procedural_candidates,
-        "skill_promotion_candidates": skill_promotion_candidates,
-        "skill_revision_suggestion_candidates": skill_revision_suggestion_candidates,
-        "skill_deprecation_suggestion_candidates": skill_deprecation_suggestion_candidates,
         "merge_suggestion_candidates": merge_suggestion_candidates,
         "stale_truth_suggestion_candidates": stale_truth_suggestion_candidates,
         "count": len(candidates),
@@ -3068,10 +3022,6 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
         "memory_entry_count": len(memory_entries),
         "relation_fact_count": len(relation_facts),
         "supersede_count": len(supersede_candidates),
-        "procedural_count": len(procedural_candidates),
-        "skill_promotion_count": len(skill_promotion_candidates),
-        "skill_revision_suggestion_count": len(skill_revision_suggestion_candidates),
-        "skill_deprecation_suggestion_count": len(skill_deprecation_suggestion_candidates),
         "merge_suggestion_count": len(merge_suggestion_candidates),
         "stale_truth_suggestion_count": len(stale_truth_suggestion_candidates),
     }
@@ -3099,22 +3049,6 @@ def tool_get_candidate_detail(candidate_id: str, candidate_kind: str | None = No
             "supersede": (
                 backend.structured_store.get_supersede_candidate,
                 _serialize_supersede_candidate,
-            ),
-            "procedural_candidate": (
-                backend.structured_store.get_procedural_candidate,
-                _serialize_procedural_candidate,
-            ),
-            "skill_promotion_candidate": (
-                backend.structured_store.get_skill_promotion_candidate,
-                _serialize_skill_promotion_candidate,
-            ),
-            "skill_revision_candidate": (
-                backend.structured_store.get_skill_revision_suggestion_candidate,
-                _serialize_skill_revision_suggestion_candidate,
-            ),
-            "skill_deprecation_candidate": (
-                backend.structured_store.get_skill_deprecation_suggestion_candidate,
-                _serialize_skill_deprecation_suggestion_candidate,
             ),
             "merge_suggestion_candidate": (
                 backend.structured_store.get_merge_suggestion_candidate,
@@ -3602,699 +3536,6 @@ def tool_suggest_rule(
     }
 
 
-def tool_suggest_skill(
-    project_name: str,
-    activation_condition: str,
-    steps: list[str],
-    termination_condition: str,
-    success_examples: list[str] | None = None,
-    source_session_id: str | None = None,
-    source: str = "",
-    confidence: float = 0.7,
-) -> dict:
-    """Suggest a procedural skill candidate for later review."""
-    backend = _get_backend()
-    candidate = ProceduralCandidate(
-        project_name=project_name,
-        activation_condition=activation_condition,
-        steps=steps,
-        termination_condition=termination_condition,
-        success_examples=success_examples or [],
-        source_session_id=source_session_id or "",
-        source=source,
-        confidence=confidence,
-        status="pending",
-    )
-    saved_id = asyncio.run(backend.structured_store.save_procedural_candidate(candidate))
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.CANDIDATE_CREATED,
-        project_name=project_name,
-        target_kind="procedural_candidate",
-        target_id=saved_id,
-        status="pending",
-        source_surface="mcp.suggest_skill",
-        payload={
-            "activation_condition": candidate.activation_condition,
-            "source_session_id": candidate.source_session_id,
-            "source": candidate.source,
-        },
-    )
-    return {
-        "success": True,
-        "candidate_id": saved_id,
-        "status": "pending",
-        "activation_condition": candidate.activation_condition,
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_confirm_skill(candidate_id: str) -> dict:
-    """Confirm a procedural skill candidate."""
-    backend = _get_backend()
-    candidate = asyncio.run(backend.structured_store.get_procedural_candidate(candidate_id))
-    if candidate is None or candidate.status != "pending":
-        return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
-    skill = asyncio.run(backend.structured_store.confirm_procedural_candidate(candidate_id))
-    if skill is None:
-        return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.TRUTH_CONFIRMED,
-        project_name=skill.project_name,
-        target_kind="skill",
-        target_id=skill.id,
-        status=skill.status,
-        source_surface="mcp.confirm_skill",
-        payload={
-            "source_candidate_id": candidate_id,
-            "activation_condition": candidate.activation_condition,
-        },
-    )
-    return {
-        "success": True,
-        "candidate_id": candidate_id,
-        "skill": serialize_skill(skill),
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_reject_skill(candidate_id: str) -> dict:
-    """Reject a procedural skill candidate."""
-    backend = _get_backend()
-    candidate = asyncio.run(backend.structured_store.get_procedural_candidate(candidate_id))
-    if candidate is None:
-        return {
-            "success": False,
-            "candidate_id": candidate_id,
-            "status": "not_found",
-            "state_event_id": None,
-        }
-    updated = asyncio.run(
-        backend.structured_store.update_procedural_candidate_status(
-            candidate_id,
-            "rejected",
-        )
-    )
-    state_event_id = None
-    if updated:
-        state_event_id = _record_state_event(
-            backend,
-            event_type=StateEventType.TRUTH_REJECTED,
-            project_name=candidate.project_name,
-            target_kind="procedural_candidate",
-            target_id=candidate_id,
-            status="rejected",
-            source_surface="mcp.reject_skill",
-            payload={"activation_condition": candidate.activation_condition},
-        )
-    return {
-        "success": updated,
-        "candidate_id": candidate_id,
-        "status": "rejected" if updated else "not_found",
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_suggest_skill_promotion(
-    skill_id: str,
-    target_scope: str,
-    portability_notes: str = "",
-    disabled_assumptions: list[str] | None = None,
-    confidence: float | None = None,
-) -> dict:
-    """Suggest promoting a project skill into shared scope."""
-    if target_scope not in {"workspace", "global"}:
-        return {
-            "success": False,
-            "error": "target_scope must be one of: workspace, global",
-        }
-    requested_scope = cast(PromotionScope, target_scope)
-
-    backend = _get_backend()
-    skill = asyncio.run(backend.structured_store.get_skill(skill_id))
-    if skill is None:
-        return {"success": False, "error": f"Skill not found: {skill_id}"}
-    if skill.scope != "project":
-        return {
-            "success": False,
-            "error": f"Only project-scoped skills can be promoted: {skill_id}",
-        }
-
-    candidate = SkillPromotionCandidate(
-        project_name=skill.project_name,
-        source_skill_id=skill.id,
-        requested_scope=requested_scope,
-        origin_project=skill.origin_project,
-        source_ids=skill.source_ids,
-        portability_notes=portability_notes,
-        disabled_assumptions=disabled_assumptions or [],
-        confidence=skill.confidence if confidence is None else confidence,
-    )
-    saved_id = asyncio.run(backend.structured_store.save_skill_promotion_candidate(candidate))
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.CANDIDATE_CREATED,
-        project_name=candidate.project_name,
-        target_kind="skill_promotion_candidate",
-        target_id=saved_id,
-        status=candidate.status,
-        source_surface="mcp.suggest_skill_promotion",
-        payload={
-            "source_skill_id": candidate.source_skill_id,
-            "requested_scope": candidate.requested_scope,
-            "origin_project": candidate.origin_project,
-        },
-    )
-    return {
-        "success": True,
-        "candidate_id": saved_id,
-        "skill_id": skill.id,
-        "requested_scope": candidate.requested_scope,
-        "status": candidate.status,
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_confirm_skill_promotion(candidate_id: str) -> dict:
-    """Confirm a skill promotion candidate into shared scope."""
-    backend = _get_backend()
-    candidate = asyncio.run(backend.structured_store.get_skill_promotion_candidate(candidate_id))
-    if candidate is None or candidate.status != "pending":
-        return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
-    skill = asyncio.run(backend.structured_store.confirm_skill_promotion_candidate(candidate_id))
-    if skill is None:
-        return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.TRUTH_CONFIRMED,
-        project_name=skill.project_name,
-        target_kind="skill",
-        target_id=skill.id,
-        status=skill.status,
-        source_surface="mcp.confirm_skill_promotion",
-        payload={
-            "source_candidate_id": candidate_id,
-            "source_skill_id": candidate.source_skill_id,
-            "requested_scope": candidate.requested_scope,
-        },
-    )
-    return {
-        "success": True,
-        "candidate_id": candidate_id,
-        "skill": serialize_skill(skill),
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_reject_skill_promotion(candidate_id: str) -> dict:
-    """Reject a skill promotion candidate."""
-    backend = _get_backend()
-    candidate = asyncio.run(backend.structured_store.get_skill_promotion_candidate(candidate_id))
-    if candidate is None:
-        return {
-            "success": False,
-            "candidate_id": candidate_id,
-            "status": "not_found",
-            "state_event_id": None,
-        }
-    updated = asyncio.run(
-        backend.structured_store.update_skill_promotion_candidate_status(
-            candidate_id,
-            "rejected",
-        )
-    )
-    state_event_id = None
-    if updated:
-        state_event_id = _record_state_event(
-            backend,
-            event_type=StateEventType.TRUTH_REJECTED,
-            project_name=candidate.project_name,
-            target_kind="skill_promotion_candidate",
-            target_id=candidate_id,
-            status="rejected",
-            source_surface="mcp.reject_skill_promotion",
-            payload={
-                "source_skill_id": candidate.source_skill_id,
-                "requested_scope": candidate.requested_scope,
-            },
-        )
-    return {
-        "success": updated,
-        "candidate_id": candidate_id,
-        "status": "rejected" if updated else "not_found",
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_record_skill_result(
-    skill_id: str,
-    success: bool,
-    surface: str | None = None,
-    source_ids: list[str] | None = None,
-    reason: str | None = None,
-) -> dict:
-    """Record one execution result for a confirmed skill."""
-    backend = _get_backend()
-    skill = asyncio.run(
-        backend.structured_store.record_skill_result(
-            skill_id,
-            success=success,
-        )
-    )
-    if skill is None:
-        return {"success": False, "error": f"Skill not found: {skill_id}"}
-    asyncio.run(
-        record_retrieval_signal(
-            backend,
-            project_name=skill.project_name,
-            signal_type=(
-                "skill_result_success" if success else "skill_result_failure"
-            ),
-            target_kind="skill",
-            target_id=skill.id,
-            value=skill.success_rate,
-            context={
-                "surface": (surface or "unspecified").strip() or "unspecified",
-                "source_ids": [
-                    item.strip()
-                    for item in (source_ids or [])
-                    if isinstance(item, str) and item.strip()
-                ],
-                "reason": (reason or "").strip(),
-            },
-        )
-    )
-    return {
-        "success": True,
-        "skill": serialize_skill(skill),
-    }
-
-
-def _skill_revision_summary(skill: Any, trigger: str) -> str:
-    if trigger == "zero_success_after_repeated_use":
-        return (
-            f"Skill has 0 successes across {skill.usage_count} uses; "
-            "review activation condition and steps against recent failures."
-        )
-    rate = 0.0 if skill.success_rate is None else skill.success_rate
-    return (
-        f"Skill success rate is {rate:.2f} across {skill.usage_count} uses; "
-        "review the procedure against recent failure outcomes."
-    )
-
-
-def tool_detect_skill_improvements(
-    project_name: str,
-    limit: int = 20,
-    lookback_days: int = 30,
-) -> dict:
-    """Create reviewed revision suggestions for low-success skills."""
-    backend = _get_backend()
-    effective_limit = max(1, min(int(limit), 200))
-    effective_lookback_days = max(1, min(int(lookback_days), 365))
-
-    async def _run() -> dict[str, Any]:
-        since = datetime.now(timezone.utc) - timedelta(days=effective_lookback_days)
-        skills = await backend.structured_store.list_skills(project_name, status="active")
-        pending = await backend.structured_store.list_skill_revision_suggestion_candidates(
-            project_name,
-            status="pending",
-        )
-        pending_skill_ids = {candidate.source_skill_id for candidate in pending}
-
-        matched = [
-            skill
-            for skill in skills
-            if (skill.success_rate is not None and skill.success_rate < 0.5)
-            or (skill.usage_count >= 5 and skill.success_count == 0)
-        ]
-        matched.sort(
-            key=lambda s: (
-                s.success_rate is None,
-                s.success_rate if s.success_rate is not None else 0.0,
-                -s.usage_count,
-            )
-        )
-
-        created: list[SkillRevisionSuggestionCandidate] = []
-        state_event_ids: list[str] = []
-        skipped_existing = 0
-        for skill in matched[:effective_limit]:
-            if skill.id in pending_skill_ids:
-                skipped_existing += 1
-                continue
-            failure_signals = await backend.structured_store.query_retrieval_signals(
-                project_name,
-                signal_type="skill_result_failure",
-                target_kind="skill",
-                target_id=skill.id,
-                since=since,
-                limit=1000,
-            )
-            success_signals = await backend.structured_store.query_retrieval_signals(
-                project_name,
-                signal_type="skill_result_success",
-                target_kind="skill",
-                target_id=skill.id,
-                since=since,
-                limit=1000,
-            )
-            trigger = cast(
-                RevisionTrigger,
-                (
-                "zero_success_after_repeated_use"
-                if skill.usage_count >= 5 and skill.success_count == 0
-                else "low_success_rate"
-                ),
-            )
-            candidate = SkillRevisionSuggestionCandidate(
-                project_name=project_name,
-                source_skill_id=skill.id,
-                trigger=trigger,
-                summary=_skill_revision_summary(skill, trigger),
-                usage_count=skill.usage_count,
-                success_count=skill.success_count,
-                failure_count=skill.failure_count,
-                success_rate=skill.success_rate,
-                recent_failure_signal_ids=[signal.id for signal in failure_signals],
-                recent_success_signal_ids=[signal.id for signal in success_signals],
-                confidence=0.85 if trigger == "zero_success_after_repeated_use" else 0.7,
-            )
-            saved_id = await backend.structured_store.save_skill_revision_suggestion_candidate(candidate)
-            state_event_id = _record_state_event(
-                backend,
-                event_type=StateEventType.CANDIDATE_CREATED,
-                project_name=candidate.project_name,
-                target_kind="skill_revision_candidate",
-                target_id=saved_id,
-                status=candidate.status,
-                source_surface="mcp.detect_skill_improvements",
-                payload={
-                    "source_skill_id": candidate.source_skill_id,
-                    "trigger": candidate.trigger,
-                    "success_rate": candidate.success_rate,
-                },
-            )
-            if state_event_id:
-                state_event_ids.append(state_event_id)
-            created.append(candidate)
-
-        return {
-            "success": True,
-            "project_name": project_name,
-            "lookback_days": effective_lookback_days,
-            "matched_skill_count": len(matched),
-            "created_count": len(created),
-            "skipped_existing_count": skipped_existing,
-            "candidate_ids": [candidate.id for candidate in created],
-            "state_event_ids": state_event_ids,
-        }
-
-    return asyncio.run(_run())
-
-
-def _shared_skill_conflict_target(skills: list[Any], skill: Any) -> Any | None:
-    for other in skills:
-        if other.id == skill.id or other.scope not in {"workspace", "global"}:
-            continue
-        if other.name == skill.name and other.activation_condition == skill.activation_condition:
-            if other.updated_at >= skill.updated_at:
-                return other
-    return None
-
-
-def _skill_deprecation_summary(skill: Any, trigger: str, conflicting_skill: Any | None) -> str:
-    if trigger == "conflicting_shared_skill" and conflicting_skill is not None:
-        return (
-            f"Shared skill overlaps with newer shared skill {conflicting_skill.id}; "
-            "review whether the older one should be retired."
-        )
-    return (
-        "Shared skill has been inactive beyond the stale window; "
-        "review whether it should be retired from the shared library."
-    )
-
-
-def tool_detect_skill_deprecations(
-    project_name: str,
-    limit: int = 20,
-    stale_days: int = 60,
-) -> dict:
-    """Create reviewed deprecation suggestions for stale/conflicting shared skills."""
-    backend = _get_backend()
-    effective_limit = max(1, min(int(limit), 200))
-    effective_stale_days = max(1, min(int(stale_days), 3650))
-
-    async def _run() -> dict[str, Any]:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=effective_stale_days)
-        skills = await backend.structured_store.list_skills_any_scope(
-            project_name,
-            status="active",
-        )
-        shared_skills = [skill for skill in skills if skill.scope in {"workspace", "global"}]
-        pending = await backend.structured_store.list_skill_deprecation_suggestion_candidates(
-            project_name,
-            status="pending",
-        )
-        pending_skill_ids = {candidate.source_skill_id for candidate in pending}
-        created: list[SkillDeprecationSuggestionCandidate] = []
-        state_event_ids: list[str] = []
-        skipped_existing = 0
-
-        for skill in shared_skills:
-            if len(created) >= effective_limit:
-                break
-            if skill.id in pending_skill_ids:
-                skipped_existing += 1
-                continue
-            conflicting_skill = _shared_skill_conflict_target(shared_skills, skill)
-            is_stale = (
-                (skill.last_used_at is not None and skill.last_used_at < cutoff)
-                or (skill.last_used_at is None and skill.created_at < cutoff)
-            )
-            if conflicting_skill is None and not is_stale:
-                continue
-            trigger = cast(
-                DeprecationTrigger,
-                "conflicting_shared_skill" if conflicting_skill is not None else "stale_shared_skill",
-            )
-            candidate = SkillDeprecationSuggestionCandidate(
-                project_name=project_name,
-                source_skill_id=skill.id,
-                trigger=trigger,
-                summary=_skill_deprecation_summary(skill, trigger, conflicting_skill),
-                conflicting_skill_id=conflicting_skill.id if conflicting_skill is not None else "",
-                usage_count=skill.usage_count,
-                success_rate=skill.success_rate,
-                last_used_at=skill.last_used_at,
-                confidence=0.8 if trigger == "conflicting_shared_skill" else 0.7,
-            )
-            saved_id = await backend.structured_store.save_skill_deprecation_suggestion_candidate(
-                candidate
-            )
-            state_event_id = _record_state_event(
-                backend,
-                event_type=StateEventType.CANDIDATE_CREATED,
-                project_name=candidate.project_name,
-                target_kind="skill_deprecation_candidate",
-                target_id=saved_id,
-                status=candidate.status,
-                source_surface="mcp.detect_skill_deprecations",
-                payload={
-                    "source_skill_id": candidate.source_skill_id,
-                    "trigger": candidate.trigger,
-                    "conflicting_skill_id": candidate.conflicting_skill_id,
-                },
-            )
-            if state_event_id:
-                state_event_ids.append(state_event_id)
-            created.append(candidate)
-
-        return {
-            "success": True,
-            "project_name": project_name,
-            "stale_days": effective_stale_days,
-            "shared_skill_count": len(shared_skills),
-            "created_count": len(created),
-            "skipped_existing_count": skipped_existing,
-            "candidate_ids": [candidate.id for candidate in created],
-            "state_event_ids": state_event_ids,
-        }
-
-    return asyncio.run(_run())
-
-
-def tool_confirm_skill_revision(candidate_id: str) -> dict:
-    """Accept a skill revision suggestion without rewriting the skill."""
-    backend = _get_backend()
-    candidate = asyncio.run(
-        backend.structured_store.get_skill_revision_suggestion_candidate(candidate_id)
-    )
-    if candidate is None or candidate.status != "pending":
-        return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
-    updated = asyncio.run(
-        backend.structured_store.update_skill_revision_suggestion_candidate_status(
-            candidate_id,
-            "accepted",
-        )
-    )
-    if not updated:
-        return {"success": False, "error": f"Failed to confirm candidate: {candidate_id}"}
-    skill = asyncio.run(backend.structured_store.get_skill(candidate.source_skill_id))
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.TRUTH_CONFIRMED,
-        project_name=candidate.project_name,
-        target_kind="skill_revision_candidate",
-        target_id=candidate_id,
-        status="accepted",
-        source_surface="mcp.confirm_skill_revision",
-        payload={
-            "source_skill_id": candidate.source_skill_id,
-            "trigger": candidate.trigger,
-        },
-    )
-    return {
-        "success": True,
-        "candidate_id": candidate_id,
-        "status": "accepted",
-        "skill": serialize_skill(skill) if skill is not None else None,
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_reject_skill_revision(candidate_id: str) -> dict:
-    """Reject a skill revision suggestion."""
-    backend = _get_backend()
-    candidate = asyncio.run(
-        backend.structured_store.get_skill_revision_suggestion_candidate(candidate_id)
-    )
-    if candidate is None:
-        return {
-            "success": False,
-            "candidate_id": candidate_id,
-            "status": "not_found",
-            "state_event_id": None,
-        }
-    updated = asyncio.run(
-        backend.structured_store.update_skill_revision_suggestion_candidate_status(
-            candidate_id,
-            "rejected",
-        )
-    )
-    state_event_id = None
-    if updated:
-        state_event_id = _record_state_event(
-            backend,
-            event_type=StateEventType.TRUTH_REJECTED,
-            project_name=candidate.project_name,
-            target_kind="skill_revision_candidate",
-            target_id=candidate_id,
-            status="rejected",
-            source_surface="mcp.reject_skill_revision",
-            payload={
-                "source_skill_id": candidate.source_skill_id,
-                "trigger": candidate.trigger,
-            },
-        )
-    return {
-        "success": updated,
-        "candidate_id": candidate_id,
-        "status": "rejected" if updated else "not_found",
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_confirm_skill_deprecation(candidate_id: str) -> dict:
-    """Accept a skill deprecation suggestion and retire the shared skill."""
-    backend = _get_backend()
-    candidate = asyncio.run(
-        backend.structured_store.get_skill_deprecation_suggestion_candidate(candidate_id)
-    )
-    if candidate is None or candidate.status != "pending":
-        return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
-    retired_skill = asyncio.run(
-        backend.structured_store.update_skill_status(
-            candidate.source_skill_id,
-            "retired",
-        )
-    )
-    if retired_skill is None:
-        return {"success": False, "error": f"Skill not found: {candidate.source_skill_id}"}
-    updated = asyncio.run(
-        backend.structured_store.update_skill_deprecation_suggestion_candidate_status(
-            candidate_id,
-            "accepted",
-        )
-    )
-    if not updated:
-        return {"success": False, "error": f"Failed to confirm candidate: {candidate_id}"}
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.TRUTH_REJECTED,
-        project_name=candidate.project_name,
-        target_kind="skill",
-        target_id=retired_skill.id,
-        status=retired_skill.status,
-        source_surface="mcp.confirm_skill_deprecation",
-        payload={
-            "source_candidate_id": candidate_id,
-            "source_skill_id": candidate.source_skill_id,
-            "trigger": candidate.trigger,
-        },
-    )
-    return {
-        "success": True,
-        "candidate_id": candidate_id,
-        "status": "accepted",
-        "skill": serialize_skill(retired_skill),
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_reject_skill_deprecation(candidate_id: str) -> dict:
-    """Reject a skill deprecation suggestion."""
-    backend = _get_backend()
-    candidate = asyncio.run(
-        backend.structured_store.get_skill_deprecation_suggestion_candidate(candidate_id)
-    )
-    if candidate is None:
-        return {
-            "success": False,
-            "candidate_id": candidate_id,
-            "status": "not_found",
-            "state_event_id": None,
-        }
-    updated = asyncio.run(
-        backend.structured_store.update_skill_deprecation_suggestion_candidate_status(
-            candidate_id,
-            "rejected",
-        )
-    )
-    state_event_id = None
-    if updated:
-        state_event_id = _record_state_event(
-            backend,
-            event_type=StateEventType.TRUTH_REJECTED,
-            project_name=candidate.project_name,
-            target_kind="skill_deprecation_candidate",
-            target_id=candidate_id,
-            status="rejected",
-            source_surface="mcp.reject_skill_deprecation",
-            payload={
-                "source_skill_id": candidate.source_skill_id,
-                "trigger": candidate.trigger,
-            },
-        )
-    return {
-        "success": updated,
-        "candidate_id": candidate_id,
-        "status": "rejected" if updated else "not_found",
-        "state_event_id": state_event_id,
-    }
-
-
 def tool_suggest_memory_entry(
     project_name: str,
     category: str,
@@ -4673,20 +3914,7 @@ def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
         "confirm_supersede": tool_confirm_supersede,
         "reject_supersede": tool_reject_supersede,
         "suggest_correction": tool_suggest_correction,
-        "suggest_skill": tool_suggest_skill,
-        "confirm_skill": tool_confirm_skill,
-        "reject_skill": tool_reject_skill,
-        "suggest_skill_promotion": tool_suggest_skill_promotion,
-        "confirm_skill_promotion": tool_confirm_skill_promotion,
-        "reject_skill_promotion": tool_reject_skill_promotion,
-        "record_skill_result": tool_record_skill_result,
         "record_context_outcome": tool_record_context_outcome,
-        "detect_skill_improvements": tool_detect_skill_improvements,
-        "confirm_skill_revision": tool_confirm_skill_revision,
-        "reject_skill_revision": tool_reject_skill_revision,
-        "detect_skill_deprecations": tool_detect_skill_deprecations,
-        "confirm_skill_deprecation": tool_confirm_skill_deprecation,
-        "reject_skill_deprecation": tool_reject_skill_deprecation,
         "create_rule_candidate": tool_create_rule_candidate,
         "confirm_rule": tool_confirm_rule,
         "reject_rule": tool_reject_rule,

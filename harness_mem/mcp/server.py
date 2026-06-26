@@ -12,6 +12,8 @@ Tools:
   get_confirmed_rules   — confirmed rules for a project
   get_project_profile   — project profile
   get_project_status    — current project memory status and active project
+  dream_ledger          — inspect dream maintenance ledger
+  dream_run             — explicitly run one audited dream pass
   ingest_sessions       — project-scoped environment-aware session ingest
   prepare_session_distill — one-shot ingest + evidence packet for AI distill
   list_candidates       — pending/accepted/rejected review candidates
@@ -22,8 +24,8 @@ Tools:
 
 Current module boundary:
   server.py        — stdio protection, backend singleton, JSON-RPC dispatch
-  tool_specs.py    — MCP schemas, profile membership, cluster metadata
-  tool_registry.py — profile resolution, visibility, tools/list payloads
+  tool_specs.py    — MCP schemas, public surface membership, cluster metadata
+  tool_registry.py — single-surface visibility and tools/list payloads
   executor.py      — tools/call execution policy and write gate enforcement
   tool_handlers.py — tool implementations and handler registry
 """

@@ -65,16 +65,12 @@ def _profile_enforced_args(
     tool_name: str,
     tool_args: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    if (
-        profile not in {"full", "review-write"}
-        and tool_name == "auto_review_candidates"
-        and bool(tool_args.get("apply"))
-    ):
+    if tool_name == "auto_review_candidates" and bool(tool_args.get("apply")):
         adjusted = dict(tool_args)
         adjusted["apply"] = False
         return adjusted, {
             "profile": profile,
-            "reason": "auto_review_apply_requires_review_write_profile",
+            "reason": "auto_review_apply_is_preview_only_on_public_mcp",
             "requested_apply": True,
             "effective_apply": False,
         }

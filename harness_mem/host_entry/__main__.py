@@ -198,7 +198,7 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
     )
     dream_enabled = merged.dream_auto_enabled
 
-    # ---- 4. default-off short-circuit (Req 4.1, 4.2, 4.3, 5.8) ---------
+    # ---- 4. disabled-runtime short-circuit -----------------------------
     # Evaluated strictly before any business command is imported or called.
     if not reflection_enabled and not dream_enabled:
         return (ExitCode.SUCCESS, HostEntryResult.skipped_default_off().to_json())
@@ -206,7 +206,7 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
     reflection_once_func: Any | None = None
     if reflection_enabled:
         # ---- 5. lazy import of reflection_once (Req 1.7) ---------------
-        # Imported lazily so the default-off path never touches the business
+        # Imported lazily so the disabled-runtime path never touches the business
         # command, and so an import failure surfaces as a config-load error
         # (design: exit 3) rather than crashing the process.
         try:

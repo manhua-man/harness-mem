@@ -124,8 +124,9 @@ def _serialize_procedural_candidate(candidate: Any) -> dict:
         "source": candidate.source,
         "confidence": candidate.confidence,
         "created_at": _isoformat(candidate.created_at),
-        "confirm_tool": "confirm_skill",
-        "reject_tool": "reject_skill",
+        "confirm_tool": None,
+        "reject_tool": None,
+        "review_surface": "skill_governance_internal",
     }
 
 
@@ -143,8 +144,9 @@ def _serialize_skill_promotion_candidate(candidate: Any) -> dict:
         "disabled_assumptions": list(candidate.disabled_assumptions),
         "confidence": candidate.confidence,
         "created_at": _isoformat(candidate.created_at),
-        "confirm_tool": "confirm_skill_promotion",
-        "reject_tool": "reject_skill_promotion",
+        "confirm_tool": None,
+        "reject_tool": None,
+        "review_surface": "skill_governance_internal",
     }
 
 
@@ -165,8 +167,9 @@ def _serialize_skill_revision_suggestion_candidate(candidate: Any) -> dict:
         "recent_success_signal_ids": list(candidate.recent_success_signal_ids),
         "confidence": candidate.confidence,
         "created_at": _isoformat(candidate.created_at),
-        "confirm_tool": "confirm_skill_revision",
-        "reject_tool": "reject_skill_revision",
+        "confirm_tool": None,
+        "reject_tool": None,
+        "review_surface": "skill_governance_internal",
     }
 
 
@@ -185,8 +188,9 @@ def _serialize_skill_deprecation_suggestion_candidate(candidate: Any) -> dict:
         "last_used_at": _isoformat(candidate.last_used_at),
         "confidence": candidate.confidence,
         "created_at": _isoformat(candidate.created_at),
-        "confirm_tool": "confirm_skill_deprecation",
-        "reject_tool": "reject_skill_deprecation",
+        "confirm_tool": None,
+        "reject_tool": None,
+        "review_surface": "skill_governance_internal",
     }
 
 
