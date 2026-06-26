@@ -22,14 +22,11 @@ def _point_cli_at_tmp(monkeypatch, tmp_path: Path) -> Path:
     return distill_dir
 
 
-def test_removed_kb_prd_commands_are_not_registered() -> None:
+def test_session_distill_cli_only_registers_artifact_lifecycle_commands() -> None:
     parser = cli.build_parser()
     choices = parser._subparsers._group_actions[0].choices  # type: ignore[attr-defined]
 
-    assert "review-kb" not in choices
-    assert "prune-kb" not in choices
-    assert "verify-entry" not in choices
-    assert "prd-sync" not in choices
+    assert set(choices) == {"run", "status", "list", "mark", "prune", "help"}
 
 
 def test_raw_cleanup_requires_guardrail(monkeypatch, tmp_path: Path) -> None:

@@ -137,7 +137,7 @@ retrieval quality 实验层
 |---|---|---|
 | MCP tools | 默认 `full`；`minimal` 也包含 `suggest/confirm/reject/auto_review` 等写操作。 | P0：改为单 public memory surface；不再让用户选择 profile；Skill governance 不注册为 MCP 工具。 |
 | `/hm:distill auto-review` | 默认 `apply=true` 会混掉 `distill -> review` 的信任边界。 | P0：默认 preview；`apply-low-risk` 显式；`review-now` 进入 `/hm:review`。 |
-| 插件命令面 | `mark/prune/review-kb/verify/prd-sync` 与 Daily 命令混在一起。 | P1：Daily 默认安装 `dream`；maintenance 只保留 `mark/prune`；删除 KB/PRD command surface。 |
+| 插件命令面 | artifact maintenance、KB/PRD 管理和 Daily 命令混在一起。 | P1：Daily 默认安装 `dream`；maintenance 只保留 `mark/prune`；删除 KB/PRD command surface。 |
 | `tools/session-distill` | 同时承担 packet、manifest、KB、PRD、guardrail、candidate export、cleanup，总线化。 | P1：删除 KB/PRD 管理能力，只保留 packet/candidate/export 与 artifact lifecycle。 |
 | storage/search | `truth/index/vector/search facade` 双写与 optional 依赖边界不清。 | P1/P2：先补回归测试，再拆边界。 |
 | storage/reflection job | 维护 store 复用 structured store 私有 `_index` 一类封装穿透。 | P1/P2：先提供显式 IndexStore 或 public index 边界，再拆物理文件。 |
@@ -884,7 +884,7 @@ Daily 默认；artifact maintenance 显式安装；KB/PRD 管理命令不存在�
 验收：
 
 ```text
-默认安装看不到 mark/prune；默认安装包含 dream；review-kb/prune-kb/verify-entry/prd-sync 不再可安装。
+默认安装看不到 mark/prune；默认安装包含 dream；KB/PRD 管理入口不存在。
 ```
 
 ---
