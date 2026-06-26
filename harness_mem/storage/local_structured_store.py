@@ -30,9 +30,11 @@ from harness_mem.core.schemas.metabolism_run import MetabolismRun
 from harness_mem.core.schemas.dream_run import DreamRun
 from harness_mem.core.schemas.retrieval_signal import RetrievalSignal
 from harness_mem.search.hybrid_search import HybridSearchLayer
+from harness_mem.storage.candidate_store import CandidateStore
 from harness_mem.storage.canonical_store import CanonicalStoreRuntime
 from harness_mem.storage.derived_index import DerivedIndex
 from harness_mem.storage.sqlite_index import SQLiteIndex
+from harness_mem.storage.truth_store import TruthStore
 
 
 class _CanonicalStructuredBlobPath:
@@ -119,6 +121,8 @@ class LocalStructuredStore:
         self._index = SQLiteIndex(self.data_dir / "structured_index.sqlite")
         self._index.init_db()
         self._search = HybridSearchLayer(self._index)
+        self.truth_store = TruthStore(self)
+        self.candidate_store = CandidateStore(self)
         if not self.canonical_mode:
             self._backfill_confirmed_rule_source_sessions()
 
@@ -285,17 +289,7 @@ class LocalStructuredStore:
         )
 
     def _truth_collection_for_type(self, truth_type: str) -> str:
-        collections = {
-            "memory_entry": "memory_entries",
-            "relation_fact": "relation_facts",
-            "confirmed_rule": "confirmed_rules",
-        }
-        try:
-            return collections[truth_type]
-        except KeyError as exc:
-            raise ValueError(
-                "truth type must be one of: memory_entry, relation_fact, confirmed_rule"
-            ) from exc
+        return self.truth_store.collection_for_type(truth_type)
 
     def _procedural_search_text(
         self,
@@ -371,12 +365,11 @@ class LocalStructuredStore:
         truth_type: str,
         truth_id: str,
     ) -> tuple[str, Path | _CanonicalStructuredBlobPath, dict[str, Any]] | None:
-        collection = self._truth_collection_for_type(truth_type)
-        blob_path = self._blob_path(collection, truth_id)
-        if not blob_path.exists():
+        loaded = self.truth_store.load(truth_type, truth_id)
+        if loaded is None:
             return None
-        payload = cast(dict[str, Any], json.loads(blob_path.read_text()))
-        return collection, blob_path, payload
+        collection, blob_path, payload = loaded
+        return collection, cast(Path | _CanonicalStructuredBlobPath, blob_path), payload
 
     def _apply_truth_supersede_updates(
         self,
@@ -386,36 +379,15 @@ class LocalStructuredStore:
         add_supersedes: str | None = None,
         add_superseded_by: str | None = None,
     ) -> dict:
-        updated = dict(data)
-        if valid_to is not None:
-            updated["valid_to"] = valid_to.isoformat()
-        if add_supersedes:
-            supersedes = list(updated.get("supersedes") or [])
-            if add_supersedes not in supersedes:
-                supersedes.append(add_supersedes)
-            updated["supersedes"] = supersedes
-        if add_superseded_by:
-            superseded_by = list(updated.get("superseded_by") or [])
-            if add_superseded_by not in superseded_by:
-                superseded_by.append(add_superseded_by)
-            updated["superseded_by"] = superseded_by
-        return updated
+        return self.truth_store.apply_supersede_updates(
+            data,
+            valid_to=valid_to,
+            add_supersedes=add_supersedes,
+            add_superseded_by=add_superseded_by,
+        )
 
     async def _persist_truth_snapshot(self, collection: str, truth_id: str, data: dict) -> bool:
-        blob_path = self._blob_path(collection, truth_id)
-        if not blob_path.exists():
-            return False
-
-        blob_path.write_text(json.dumps(data, indent=2, default=str))
-        updates: dict[str, object] = {}
-        for key in ("valid_to", "supersedes", "superseded_by"):
-            if key in data:
-                updates[key] = data[key]
-        if updates:
-            updated = await asyncio.to_thread(self._index.update, collection, truth_id, updates)
-            if not updated:
-                return False
-        return True
+        return await self.truth_store.persist_snapshot(collection, truth_id, data)
 
     async def _update_truth_supersede_fields(
         self,
@@ -426,32 +398,13 @@ class LocalStructuredStore:
         add_supersedes: str | None = None,
         add_superseded_by: str | None = None,
     ) -> bool:
-        loaded = self._load_truth_data(truth_type, truth_id)
-        if loaded is None:
-            return False
-        collection, blob_path, data = loaded
-
-        updates: dict[str, object] = {}
-        if valid_to is not None:
-            data["valid_to"] = valid_to.isoformat()
-            updates["valid_to"] = valid_to
-        if add_supersedes:
-            supersedes = list(data.get("supersedes") or [])
-            if add_supersedes not in supersedes:
-                supersedes.append(add_supersedes)
-            data["supersedes"] = supersedes
-            updates["supersedes"] = supersedes
-        if add_superseded_by:
-            superseded_by = list(data.get("superseded_by") or [])
-            if add_superseded_by not in superseded_by:
-                superseded_by.append(add_superseded_by)
-            data["superseded_by"] = superseded_by
-            updates["superseded_by"] = superseded_by
-
-        blob_path.write_text(json.dumps(data, indent=2, default=str))
-        if updates:
-            await asyncio.to_thread(self._index.update, collection, truth_id, updates)
-        return True
+        return await self.truth_store.update_supersede_fields(
+            truth_type,
+            truth_id,
+            valid_to=valid_to,
+            add_supersedes=add_supersedes,
+            add_superseded_by=add_superseded_by,
+        )
 
     async def _sync_missing_index_rows_from_canonical(self) -> None:
         canonical = self._canonical
@@ -907,23 +860,7 @@ class LocalStructuredStore:
         return results
 
     async def update_rule_candidate_status(self, id: str, status: str) -> bool:
-        blob_path = self._blob_path("rule_candidates", id)
-        if not blob_path.exists():
-            return False
-
-        updated = await asyncio.to_thread(
-            self._index.update,
-            "rule_candidates",
-            id,
-            {"status": status},
-        )
-        if not updated:
-            return False
-
-        data = json.loads(blob_path.read_text())
-        data["status"] = status
-        blob_path.write_text(json.dumps(data, indent=2, default=str))
-        return True
+        return await self.candidate_store.update_status("rule_candidates", id, status)
 
     # ---- SupersedeCandidate ----
 
@@ -992,31 +929,20 @@ class LocalStructuredStore:
         reviewed_at: datetime | None = None,
         reviewer_id: str | None = None,
     ) -> bool:
-        blob_path = self._blob_path("supersede_candidates", id)
-        if not blob_path.exists():
-            return False
-
         reviewed_at = reviewed_at or datetime.now(timezone.utc)
-        updates: dict[str, object | None] = {
-            "status": status,
-            "reviewed_at": reviewed_at,
-            "reviewer_id": reviewer_id,
-        }
-        updated = await asyncio.to_thread(
-            self._index.update,
+        return await self.candidate_store.update_status(
             "supersede_candidates",
             id,
-            updates,
+            status,
+            index_updates={
+                "reviewed_at": reviewed_at,
+                "reviewer_id": reviewer_id,
+            },
+            payload_updates={
+                "reviewed_at": reviewed_at.isoformat(),
+                "reviewer_id": reviewer_id,
+            },
         )
-        if not updated:
-            return False
-
-        data = json.loads(blob_path.read_text())
-        data["status"] = status
-        data["reviewed_at"] = reviewed_at.isoformat()
-        data["reviewer_id"] = reviewer_id
-        blob_path.write_text(json.dumps(data, indent=2, default=str))
-        return True
 
     async def confirm_supersede_candidate(
         self,
@@ -1130,23 +1056,11 @@ class LocalStructuredStore:
     async def update_merge_suggestion_candidate_status(
         self, id: str, status: str
     ) -> bool:
-        blob_path = self._blob_path("merge_suggestion_candidates", id)
-        if not blob_path.exists():
-            return False
-
-        updated = await asyncio.to_thread(
-            self._index.update,
+        return await self.candidate_store.update_status(
             "merge_suggestion_candidates",
             id,
-            {"status": status},
+            status,
         )
-        if not updated:
-            return False
-
-        data = json.loads(blob_path.read_text())
-        data["status"] = status
-        blob_path.write_text(json.dumps(data, indent=2, default=str))
-        return True
 
     # ---- StaleTruthSuggestionCandidate ----
 
@@ -1209,23 +1123,11 @@ class LocalStructuredStore:
     async def update_stale_truth_suggestion_candidate_status(
         self, id: str, status: str
     ) -> bool:
-        blob_path = self._blob_path("stale_truth_suggestion_candidates", id)
-        if not blob_path.exists():
-            return False
-
-        updated = await asyncio.to_thread(
-            self._index.update,
+        return await self.candidate_store.update_status(
             "stale_truth_suggestion_candidates",
             id,
-            {"status": status},
+            status,
         )
-        if not updated:
-            return False
-
-        data = json.loads(blob_path.read_text())
-        data["status"] = status
-        blob_path.write_text(json.dumps(data, indent=2, default=str))
-        return True
 
     # ---- ProceduralCandidate ----
 
@@ -1290,23 +1192,7 @@ class LocalStructuredStore:
         return results
 
     async def update_procedural_candidate_status(self, id: str, status: str) -> bool:
-        blob_path = self._blob_path("procedural_candidates", id)
-        if not blob_path.exists():
-            return False
-
-        updated = await asyncio.to_thread(
-            self._index.update,
-            "procedural_candidates",
-            id,
-            {"status": status},
-        )
-        if not updated:
-            return False
-
-        data = json.loads(blob_path.read_text())
-        data["status"] = status
-        blob_path.write_text(json.dumps(data, indent=2, default=str))
-        return True
+        return await self.candidate_store.update_status("procedural_candidates", id, status)
 
     async def confirm_procedural_candidate(self, id: str) -> Skill | None:
         candidate = await self.get_procedural_candidate(id)
@@ -1613,23 +1499,11 @@ class LocalStructuredStore:
         return results
 
     async def update_skill_promotion_candidate_status(self, id: str, status: str) -> bool:
-        blob_path = self._blob_path("skill_promotion_candidates", id)
-        if not blob_path.exists():
-            return False
-
-        updated = await asyncio.to_thread(
-            self._index.update,
+        return await self.candidate_store.update_status(
             "skill_promotion_candidates",
             id,
-            {"status": status},
+            status,
         )
-        if not updated:
-            return False
-
-        data = json.loads(blob_path.read_text())
-        data["status"] = status
-        blob_path.write_text(json.dumps(data, indent=2, default=str))
-        return True
 
     async def confirm_skill_promotion_candidate(self, id: str) -> Skill | None:
         candidate = await self.get_skill_promotion_candidate(id)
@@ -1765,21 +1639,11 @@ class LocalStructuredStore:
         id: str,
         status: str,
     ) -> bool:
-        blob_path = self._blob_path("skill_revision_suggestion_candidates", id)
-        if not blob_path.exists():
-            return False
-        updated = await asyncio.to_thread(
-            self._index.update,
+        return await self.candidate_store.update_status(
             "skill_revision_suggestion_candidates",
             id,
-            {"status": status},
+            status,
         )
-        if not updated:
-            return False
-        data = json.loads(blob_path.read_text())
-        data["status"] = status
-        blob_path.write_text(json.dumps(data, indent=2, default=str))
-        return True
 
     async def save_skill_deprecation_suggestion_candidate(
         self,
@@ -1846,21 +1710,11 @@ class LocalStructuredStore:
         id: str,
         status: str,
     ) -> bool:
-        blob_path = self._blob_path("skill_deprecation_suggestion_candidates", id)
-        if not blob_path.exists():
-            return False
-        updated = await asyncio.to_thread(
-            self._index.update,
+        return await self.candidate_store.update_status(
             "skill_deprecation_suggestion_candidates",
             id,
-            {"status": status},
+            status,
         )
-        if not updated:
-            return False
-        data = json.loads(blob_path.read_text())
-        data["status"] = status
-        blob_path.write_text(json.dumps(data, indent=2, default=str))
-        return True
 
     # ---- ConfirmedRule ----
 

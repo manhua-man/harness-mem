@@ -293,8 +293,8 @@ class SQLiteSearchBackend:
                 )
             )
 
-        truncated = len(results) > limit
-        selected = results[:limit]
+        selected = _select_balanced_results(results, limit)
+        truncated = len(results) > len(selected)
         effective_mode = _effective_mode(selected, mode)
         fallback_reason = _fallback_reason(selected)
         return SearchBackendResponse(
@@ -581,6 +581,45 @@ def _history_included_reason(filters: SearchFilters) -> str | None:
     if filters.deep_recall:
         return "deep_recall=true"
     return None
+
+
+def _select_balanced_results(
+    results: list[BackendSearchResult],
+    limit: int,
+) -> list[BackendSearchResult]:
+    """Select results without letting one source kind hide all others.
+
+    Per-source ranking is preserved. The final cut rotates across source kinds
+    so a large memory-entry hit set cannot drop observation or relation hits
+    before callers get a chance to hydrate them.
+    """
+    if limit <= 0 or not results:
+        return []
+
+    source_order = ("memory_entry", "relation_fact", "skill", "observation")
+    buckets: dict[str, list[BackendSearchResult]] = {kind: [] for kind in source_order}
+    extra_kinds: list[str] = []
+    for result in results:
+        if result.source_kind not in buckets:
+            buckets[result.source_kind] = []
+            extra_kinds.append(result.source_kind)
+        buckets[result.source_kind].append(result)
+
+    selected: list[BackendSearchResult] = []
+    ordered_kinds = (*source_order, *extra_kinds)
+    while len(selected) < limit:
+        progressed = False
+        for kind in ordered_kinds:
+            bucket = buckets[kind]
+            if not bucket:
+                continue
+            selected.append(bucket.pop(0))
+            progressed = True
+            if len(selected) >= limit:
+                break
+        if not progressed:
+            break
+    return selected
 
 
 def _temporal_scope(record: object) -> str:

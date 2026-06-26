@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Write-path embeddings are optional. If the first encode blocks on a cold
 # model download or a broken torch install, MCP write tools must still return
-# promptly and leave vec row recovery to rebuild-vector-index / FTS fallback.
+# promptly and leave vec row recovery to maintenance rebuild-vector-index / FTS fallback.
 # Cold-but-healthy local loads on Windows can spend tens of seconds importing
 # and initializing sentence-transformers even when the model snapshot is already
 # cached. Keep the write path finite against broken / fresh-download hangs, but

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
@@ -17,6 +19,7 @@ from harness_mem.search.backend import (
     SearchFacade,
     SQLiteSearchBackend,
 )
+from harness_mem.storage import CandidateStore, TruthStore
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -51,6 +54,15 @@ def _result_projects(response) -> set[str]:
         if isinstance(project_name, str):
             projects.add(project_name)
     return projects
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def test_structured_store_keeps_truth_and_candidate_boundaries(backend) -> None:
+    assert isinstance(backend.structured_store.truth_store, TruthStore)
+    assert isinstance(backend.structured_store.candidate_store, CandidateStore)
 
 
 def test_canonical_truth_survives_missing_index_and_rebuilds_on_boot(backend) -> None:
@@ -110,6 +122,69 @@ def test_canonical_truth_survives_missing_index_and_rebuilds_on_boot(backend) ->
         _run(rebuilt.close())
 
 
+def test_canonical_boot_rebuilds_relation_rule_observation_indexes(backend) -> None:
+    relation = RelationFact(
+        project_name="demo",
+        source_entity="canonicalboot-token",
+        target_entity="search",
+        relation_type="protects",
+        evidence="canonicalboot-token relation rebuild evidence",
+        source="test",
+        status="accepted",
+    )
+    rule = ConfirmedRule(
+        project_name="demo",
+        pattern="canonicalboot-token rule rebuilds from canonical truth",
+        trigger="search invariant test",
+        source_candidate_id="rule-candidate-1",
+    )
+    observation = Observation(
+        session_id="session-canonicalboot",
+        client="codex",
+        raw_content="canonicalboot-token observation rebuilds trigram postings",
+        content_type="turn",
+        metadata={"project_name": "demo"},
+    )
+
+    relation_id = _run(backend.structured_store.save_relation_fact(relation))
+    rule_id = _run(backend.structured_store.save_confirmed_rule(rule))
+    observation_id = _run(backend.verbatim_store.save(observation))
+
+    assert backend.structured_store.index.delete("relation_facts", relation_id) is True
+    assert backend.structured_store.index.delete("confirmed_rules", rule_id) is True
+    assert backend.verbatim_store.index.delete("observations", observation_id) is True
+    backend.verbatim_store.index.delete_observation_trigrams(observation_id)
+
+    data_dir = backend.data_dir
+    _run(backend.close())
+    rebuilt = _run(_new_backend(data_dir))
+    try:
+        assert rebuilt.structured_store.index.get("relation_facts", relation_id) is not None
+        assert rebuilt.structured_store.index.get("confirmed_rules", rule_id) is not None
+        assert rebuilt.verbatim_store.index.get("observations", observation_id) is not None
+
+        relation_results = _run(
+            read_search_relation_facts(
+                rebuilt,
+                project_name="demo",
+                query="canonicalboot-token",
+            )
+        )
+        rules = _run(rebuilt.structured_store.list_confirmed_rules("demo"))
+        regex_matches = _run(
+            rebuilt.verbatim_store.regex_search_observations(
+                "canonicalboot-token",
+                project_name="demo",
+            )
+        )
+
+        assert _ids(relation_results) == {relation_id}
+        assert _ids(rules) == {rule_id}
+        assert {match.observation.id for match in regex_matches} == {observation_id}
+    finally:
+        _run(rebuilt.close())
+
+
 def test_vector_disabled_hybrid_search_falls_back_to_fts(backend) -> None:
     entry = MemoryEntry(
         project_name="demo",
@@ -134,6 +209,65 @@ def test_vector_disabled_hybrid_search_falls_back_to_fts(backend) -> None:
     assert response.fallback_metadata["fallback_reason"] == "embedding not available"
     assert [result.source_id for result in response.results] == [entry_id]
     assert response.results[0].metadata["search_mode"] == "fts"
+
+
+def test_include_history_deep_recall_and_truth_status_control_historical_visibility(
+    backend,
+) -> None:
+    past = _now() - timedelta(days=1)
+    historical = MemoryEntry(
+        project_name="demo",
+        category="decision",
+        content="historytoken superseded memory remains available only for history",
+        source="test",
+        status="accepted",
+        valid_to=past,
+    )
+    current = MemoryEntry(
+        project_name="demo",
+        category="decision",
+        content="historytoken current memory remains default-visible",
+        source="test",
+        status="accepted",
+    )
+    historical_id = _run(backend.structured_store.save_memory_entry(historical))
+    current_id = _run(backend.structured_store.save_memory_entry(current))
+
+    default_response = _run(
+        SearchFacade(backend).search(
+            "historytoken",
+            filters=SearchFilters(project_name="demo"),
+            limit=10,
+        )
+    )
+    assert [result.source_id for result in default_response.results] == [current_id]
+
+    history_response = _run(
+        SearchFacade(backend).search(
+            "historytoken",
+            filters=SearchFilters(project_name="demo", include_history=True),
+            limit=10,
+        )
+    )
+    statuses = {
+        result.source_id: result.metadata["truth_status"]
+        for result in history_response.results
+        if result.source_kind == "memory_entry"
+    }
+    assert statuses[current_id] == "accepted"
+    assert statuses[historical_id] == "historical"
+
+    deep_response = _run(
+        SearchFacade(backend).search(
+            "historytoken",
+            filters=SearchFilters(project_name="demo", deep_recall=True),
+            limit=10,
+        )
+    )
+    assert {result.source_id for result in deep_response.results} == {
+        current_id,
+        historical_id,
+    }
 
 
 def test_search_facade_preserves_memory_relation_observation_semantics(backend) -> None:
@@ -421,3 +555,94 @@ def test_pending_and_rejected_truth_do_not_appear_as_confirmed_search_results(
         "relation_facts",
         rejected_relation_id,
     )["status"] == "rejected"
+
+
+def test_read_api_per_type_limits_do_not_allow_memory_hits_to_starve_observations(
+    backend,
+) -> None:
+    for idx in range(30):
+        _run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="decision",
+                    content=f"starvationtoken memory result {idx}",
+                    source="test",
+                    status="accepted",
+                )
+            )
+        )
+    observation_id = _run(
+        backend.verbatim_store.save(
+            Observation(
+                session_id="session-starvation",
+                client="codex",
+                raw_content="starvationtoken observation must survive source balancing",
+                content_type="turn",
+                metadata={"project_name": "demo"},
+            )
+        )
+    )
+
+    entries, observations = _run(
+        read_search_memory(
+            backend,
+            project_name="demo",
+            query="starvationtoken",
+            memory_entry_limit=1,
+            observation_limit=1,
+            record_signals=False,
+        )
+    )
+
+    assert len(entries) == 1
+    assert _ids(observations) == {observation_id}
+
+
+def test_soft_deleted_memory_and_observations_are_absent_from_search_and_regex(
+    backend,
+) -> None:
+    memory_id = _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content="softdeletetoken memory should disappear",
+                source="test",
+                status="accepted",
+            )
+        )
+    )
+    observation_id = _run(
+        backend.verbatim_store.save(
+            Observation(
+                session_id="session-soft-delete",
+                client="codex",
+                raw_content="softdeletetoken observation should disappear",
+                content_type="turn",
+                metadata={"project_name": "demo"},
+            )
+        )
+    )
+
+    assert _run(backend.structured_store.soft_delete_memory_entry(memory_id)) is True
+    assert _run(backend.verbatim_store.soft_delete(observation_id)) is True
+
+    entries, observations = _run(
+        read_search_memory(
+            backend,
+            project_name="demo",
+            query="softdeletetoken",
+            record_signals=False,
+        )
+    )
+    regex_matches = _run(
+        backend.verbatim_store.regex_search_observations(
+            "softdeletetoken",
+            project_name="demo",
+        )
+    )
+
+    assert entries == []
+    assert observations == []
+    assert regex_matches == []
