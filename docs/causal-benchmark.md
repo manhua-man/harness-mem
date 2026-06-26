@@ -1,14 +1,14 @@
 # Causal Benchmark Smoke
 
 `harness-mem` 0.8.2 includes a small deterministic benchmark for typed relation
-recall:
+recall. It is an internal release-gate test, not a public CLI workflow:
 
 ```bash
-harness-mem maintenance causal-benchmark
+python -m pytest tests/test_core_memory_absorption.py -k causal_benchmark
 ```
 
-Capability boundary: this is an internal maintenance smoke test, not a Daily
-command, not a default MCP tool, and not a public product-quality score.
+Capability boundary: this is not a Daily command, not a default MCP tool, and
+not a public product-quality score.
 
 The benchmark seeds a temporary local memory store with:
 

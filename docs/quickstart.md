@@ -25,6 +25,11 @@ maintenance. Daily memory work should happen through MCP or `/hm:*` commands.
 Maintenance import and purge operations are available as
 `harness-mem maintenance import` and `harness-mem maintenance purge`; both
 preview by default until `--apply` is passed.
+Other CLI maintenance actions are limited to operator repair and audit tasks
+such as index rebuilds, storage migration/export, and state audit.
+Procedural skill lifecycle management is a separate operator workflow:
+`harness-mem skill-governance ...`. It is not part of the daily MCP or `/hm:*`
+memory loop.
 
 ## Register MCP
 
@@ -44,12 +49,12 @@ optionally register MCP:
 .\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
-That install syncs only the Daily `/hm:*` commands by default. To show optional
-maintenance or labs commands later, sync command visibility without reinstalling:
+That install syncs the Daily `/hm:*` commands by default, including dream. To
+show optional artifact maintenance commands later, sync command visibility
+without reinstalling:
 
 ```powershell
 .\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Maintenance
-.\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Labs
 ```
 
 ## Daily Loop
@@ -61,12 +66,13 @@ Use harness-mem to wake this project.
 Search harness-mem for the current project convention.
 Distill the recent session into memory candidates.
 Review the new memory candidates.
+Show the latest dream ledger.
 ```
 
 The stable loop is:
 
 ```text
-wake -> search -> distill -> review
+wake -> search -> distill -> review -> dream ledger
 ```
 
 Only confirmed memory is used by `wake` and `search`. `distill` creates

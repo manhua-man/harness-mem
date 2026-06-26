@@ -7,6 +7,28 @@
 - Removed top-level CLI `import` and `purge`; both now live under
   `harness-mem maintenance import` / `harness-mem maintenance purge` and default
   to dry-run previews unless `--apply` is passed.
+- Kept CLI maintenance as a small flat operator surface for import/purge,
+  index rebuilds, storage migration/export, and state audit; benchmark,
+  generated-cache, and wiki-bridge workflows are not exposed as CLI product
+  subtrees.
+- Grouped plugin slash command sources by physical profile directory while
+  keeping installed `/hm:*` command names flat.
+- Removed the session-distill KB/PRD management surface; durable project,
+  architecture, and product knowledge now flows through candidates and
+  `/hm:review` instead of `knowledge-base.md` or PRD sync notes.
+- Balanced SearchFacade result truncation across source kinds so memory hits do
+  not starve relation or observation hits.
+- Started the storage/search boundary split by keeping `LocalStructuredStore` as
+  the compatibility facade while delegating durable truth updates to
+  `TruthStore` and candidate status writes to `CandidateStore`.
+
+### Added
+
+- Added CLI, MCP profile, plugin command sync, and storage/search invariant tests
+  for the V4.2 boundary hardening pass.
+- Added a dedicated `harness-mem skill-governance ...` operator workflow plus
+  `harness-mem-skill-governance` plugin skill for procedural skill lifecycle
+  review outside the public MCP memory surface.
 
 ## [0.8.2] - 2026-06-25
 
@@ -19,8 +41,7 @@
   revision edges can outrank generic associations.
 - Added a local append-only state audit ledger for candidate/review/supersede
   governance events, plus `maintenance state-audit`.
-- Added a deterministic causal benchmark smoke command:
-  `maintenance causal-benchmark`.
+- Added a deterministic causal benchmark smoke test.
 - Added focused pytest coverage for recall contracts, relation scoring, state
   audit events, MCP additive recall payloads, and the causal benchmark.
 - Added a reproducible cold-start demo guide for the
@@ -53,7 +74,7 @@
 - `python -m ruff check harness_mem plugins tools`
 - `python -m pytest`
 - `python -m harness_mem.cli --help`
-- `python -m harness_mem.cli maintenance causal-benchmark`
+- `python -m pytest tests/test_core_memory_absorption.py -k causal_benchmark`
 - `cargo test --workspace`
 - `cargo build --workspace --features python-extension`
 

@@ -92,8 +92,12 @@ cd harness-mem
 
 终端 CLI 是 operator console，不是日常 memory workflow。顶层只保留
 `init`、`quickstart`/`qs`、`doctor`、`config`、`integration` 和
-`maintenance`；导入和清理走 `harness-mem maintenance ...`，默认都是 dry-run
-预览。
+`maintenance`，另有显式 `skill-governance` operator 流程。导入和清理走
+`harness-mem maintenance ...`，默认都是 dry-run 预览。
+其它 CLI 维护动作只保留 operator repair / audit 所需的索引重建、storage
+迁移/导出和状态审计。
+procedural skill 生命周期治理不进入 MCP 和 Daily slash commands；只有明确要
+维护 skill candidate 时才使用 `harness-mem skill-governance ...`。
 
 ## 仓库结构
 
@@ -112,6 +116,7 @@ cd harness-mem
 - [Cold-start demo](docs/demo-cold-start.md)
 - [Recall audit contract](docs/recall-audit.md)
 - [Causal benchmark smoke](docs/causal-benchmark.md)
+- [Skill governance](docs/skill-governance.md)
 - [Changelog](CHANGELOG.md)
 
 ## 开发检查

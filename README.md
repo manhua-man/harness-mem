@@ -94,8 +94,14 @@ Then use the Agent-facing commands:
 
 The terminal CLI is an operator console, not the daily memory workflow. Its
 top-level surface is `init`, `quickstart`/`qs`, `doctor`, `config`,
-`integration`, and `maintenance`; import and purge operations live under
+`integration`, `maintenance`, and the explicit `skill-governance` operator
+workflow. Import and purge operations live under
 `harness-mem maintenance ...` and default to dry-run previews.
+Other CLI maintenance actions stay limited to operator repair and audit tasks
+such as index rebuilds, storage migration/export, and state audit.
+Procedural skill lifecycle work stays out of MCP and Daily slash commands; use
+`harness-mem skill-governance ...` only when intentionally maintaining skill
+candidates.
 
 ## Repository
 
@@ -114,6 +120,7 @@ top-level surface is `init`, `quickstart`/`qs`, `doctor`, `config`,
 - [Cold-start demo](docs/demo-cold-start.md)
 - [Recall audit contract](docs/recall-audit.md)
 - [Causal benchmark smoke](docs/causal-benchmark.md)
+- [Skill governance](docs/skill-governance.md)
 - [Changelog](CHANGELOG.md)
 
 ## Development Check

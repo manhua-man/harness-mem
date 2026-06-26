@@ -10,23 +10,19 @@ Use this command in your MCP client configuration:
 python -m harness_mem.mcp.server
 ```
 
-The server defaults to the `core-read` profile. It exposes read/prepare/review
-inspection tools such as `wake`, `search_memory`, `prepare_session_distill`,
-`list_candidates`, `get_candidate_detail`, and project status. Deeper read
-drilldowns such as `trace_relations`, `search_raw`, `search_skills`, and
-`get_skill` require the explicit `review-read` profile.
+The server has one public memory surface. It exposes the normal Agent workflow:
+status, wake/search, session ingest/distill, candidate suggestion, explicit
+candidate review, and dream maintenance. Historical `mcp_tool_profile` or
+`HARNESS_MEM_MCP_TOOL_PROFILE` values are ignored so clients do not need to
+choose between `full`, `minimal`, `labs`, or review profiles.
 
-Candidate suggestion requires the explicit `distill-suggest` profile. Durable
-confirm/reject requires `review-write`. Maintenance, labs, and full registry
-access are separate opt-in profiles.
-
-For local development you can use:
-
-```bash
-HARNESS_MEM_MCP_TOOL_PROFILE=distill-suggest python -m harness_mem.mcp.server
-HARNESS_MEM_MCP_TOOL_PROFILE=review-read python -m harness_mem.mcp.server
-HARNESS_MEM_MCP_TOOL_PROFILE=review-write python -m harness_mem.mcp.server
-```
+`auto_review_candidates` is always preview-only on the public MCP surface.
+Durable memory changes go through explicit `confirm_*`, `reject_*`, or
+supersede tools. Operator maintenance and skill lifecycle management are not
+public MCP tools.
+Read-only procedural hints can be searched from memory context, but promotion,
+rejection, and outcome tracking for procedural skills use the separate
+`harness-mem skill-governance ...` operator workflow.
 
 ## Claude Code
 
@@ -44,7 +40,6 @@ profiles can be shown later without reinstalling the runtime:
 
 ```powershell
 .\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Maintenance
-.\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Labs
 ```
 
 ## Generic MCP Client
@@ -71,6 +66,10 @@ Search harness-mem for the relevant project decision.
 - CLI import/purge are maintenance-only commands:
   `harness-mem maintenance import` and `harness-mem maintenance purge`; both
   default to dry-run.
+- Other CLI maintenance actions stay limited to operator repair and audit tasks
+  such as index rebuilds, storage migration/export, and state audit.
+- Skill lifecycle governance is outside MCP; use
+  `harness-mem skill-governance ...` only for explicit procedural skill review.
 - Daily use should happen through the Agent client and MCP tools.
 - `distill` creates candidates first and previews review decisions; review
   decides what becomes confirmed memory.

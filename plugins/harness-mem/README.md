@@ -13,6 +13,8 @@ package, MCP tool contract, candidate review lifecycle, and local audit state.
 - MCP server config for `python -m harness_mem.mcp.server`.
 - Claude Code `/hm:*` command files for common memory actions.
 - Agent skills that teach the client when to wake, search, distill, and review.
+- A separate `harness-mem-skill-governance` skill for explicit procedural
+  skill inventory review.
 - PowerShell install and doctor helpers.
 
 ## Install
@@ -32,15 +34,13 @@ To also register the MCP server with Claude Code:
 Default slash command sync installs only the Daily profile:
 
 ```text
-/hm:status /hm:wake /hm:search /hm:search-all /hm:distill /hm:review
+/hm:status /hm:wake /hm:search /hm:search-all /hm:distill /hm:review /hm:dream
 ```
 
 Optional command profiles must be explicit:
 
 ```powershell
 .\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Maintenance
-.\plugins\harness-mem\scripts\sync-commands.ps1 -Profile ProductDoc
-.\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Labs
 ```
 
 `install.ps1` installs or updates the runtime. `sync-commands.ps1` only changes
@@ -52,7 +52,7 @@ The same command visibility sync is available from the CLI:
 ```powershell
 harness-mem integration commands list
 harness-mem integration commands sync --profile daily
-harness-mem integration commands enable maintenance labs
+harness-mem integration commands enable maintenance
 ```
 
 Skip slash command and skill sync on headless machines:
@@ -79,6 +79,7 @@ Use these from Claude Code after installation:
 | `/hm:search-all "query"` | Explicit cross-project memory search. |
 | `/hm:distill <project> <n>` | Convert recent session evidence into reviewable candidates and preview review decisions. |
 | `/hm:review` | Confirm, reject, replace, or keep pending candidates. |
+| `/hm:dream` | Inspect or explicitly trigger the default dream maintenance ledger. |
 
 For Cursor, Gemini CLI, Codex, Hermes, or another MCP-capable client, use the
 same actions in natural language:
@@ -96,6 +97,12 @@ Review the new harness-mem candidates.
 - CLI is for setup, doctor checks, and explicit maintenance.
 - CLI import/purge live under `harness-mem maintenance ...` and preview by
   default.
+- Other CLI maintenance actions stay limited to operator repair and audit tasks
+  such as index rebuilds, storage migration/export, and state audit.
+- Procedural skill lifecycle governance uses the explicit
+  `harness-mem skill-governance ...` CLI workflow and the
+  `harness-mem-skill-governance` skill; it is not a public MCP lifecycle tool
+  and not a Daily `/hm:*` command.
 - Agents may suggest memory, but durable truth goes through candidate review.
 - Confirmed memory is what future `wake` and `search` consume.
 

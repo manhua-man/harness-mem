@@ -17,9 +17,9 @@ object:
 Legacy response arrays such as `memory_entries`, `relation_facts`,
 `observations`, and `paths` remain in place for compatibility.
 
-Profile boundary: `search_memory` is part of the default `core-read` recall
-surface. `trace_relations` is a deeper read drilldown and requires the explicit
-`review-read` profile or a higher opt-in profile.
+Surface boundary: `search_memory` and `trace_relations` are part of the single
+public MCP memory surface. They are read-path tools; they do not create or
+confirm candidates.
 
 ## Governance boundary
 
