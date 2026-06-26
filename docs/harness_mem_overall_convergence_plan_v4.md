@@ -164,6 +164,7 @@ retrieval quality 实验层
 | Profile | 允许能力 | 不允许能力 |
 |---|---|---|
 | `core-read` / `stable` | `wake`, `search_memory`, `get_project_status`, `prepare_session_distill`, `list_candidates`, `get_candidate_detail`。 | `confirm/reject/replace/auto apply/maintenance/dream/metabolism`。 |
+| `review-read` | 在 `core-read` 上显式增加读钻取：`trace_relations`, `search_raw`, `search_skills`, `get_skill`。 | 仍不能 `suggest/confirm/reject/replace`，不能执行 maintenance/labs。 |
 | `distill-suggest` | 受控 `suggest_*` 或 candidate draft export，用于 `/hm:distill` 生成候选。 | 不能 `confirm/reject/replace`，不能写 durable truth。 |
 | `review-write` | `confirm/reject/replace candidate`。 | 不能执行 maintenance/labs/admin 任务。 |
 | `maintenance` | `mark/prune/review-kb/verify-entry/prd-sync/raw cleanup`。 | 默认不安装，不进入 README 主路径。 |
@@ -760,8 +761,10 @@ candidate/review/audit 语义不因 index 复用而改变。
 ```text
 harness_mem/mcp/server.py          # stdio / JSON-RPC / dispatch
 harness_mem/mcp/backend.py         # backend lifecycle
+harness_mem/mcp/executor.py        # tools/call execution policy
 harness_mem/mcp/serializers.py     # result serialization
 harness_mem/mcp/tool_registry.py   # profile / registry / permissions
+harness_mem/mcp/tool_handlers.py   # MCP tool handler implementations
 harness_mem/mcp/tools/read.py      # wake/search/status/profile/rules
 harness_mem/mcp/tools/distill.py   # prepare_session_distill / suggest-only export
 harness_mem/mcp/tools/review.py    # list/detail/confirm/reject/replace
@@ -1099,8 +1102,8 @@ package version 是唯一对外产品版本；native/Rust 不阻断 Python-only 
 
 | 主题 | 证据/路径 |
 |---|---|
-| MCP 默认 profile 与工具面 | `harness_mem/mcp/tool_specs.py:VALID_TOOL_PROFILES`; `harness_mem/mcp/server.py:_resolve_mcp_tool_profile`; `tests/test_mcp_tool_profile_contract.py` |
-| session-distill 薄入口 | `tools/session-distill/bin/session-distill.py`; `tools/session-distill/lib/cli.py` |
+| MCP 默认 profile 与工具面 | `harness_mem/mcp/tool_specs.py:VALID_TOOL_PROFILES`; `harness_mem/mcp/tool_registry.py:resolve_mcp_tool_profile`; `harness_mem/mcp/executor.py:execute_tool_call`; `tests/test_mcp_tool_profile_contract.py` |
+| session-distill 薄入口 | `tools/session-distill/bin/session-distill.py`; `tools/session-distill/lib/cli.py`; `tools/session-distill/lib/cli_handlers/` |
 | SourceAdapter 统一 | `tools/session-distill/lib/adapters/clients.py`; `tools/session-distill/lib/packet.py`; `tests/test_session_distill_adapters.py` |
 | review gate 与 auto-review 冲突 | `plugins/harness-mem/commands/hm/distill.md`; `tools/session-distill/SKILL.md`; `tests/test_mcp_tool_profile_contract.py` |
 | session-distill summary contract | `tools/session-distill/lib/summary.py`; `tests/test_session_distill_boundaries.py` |

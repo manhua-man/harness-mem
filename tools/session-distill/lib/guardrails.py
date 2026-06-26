@@ -19,7 +19,6 @@ FORBIDDEN_DURABLE_WRITE_TOOLS = frozenset(
         "confirm_relation_fact",
         "reject_relation_fact",
         "auto_review_candidates",
-        "direct_truth_write",
     }
 )
 

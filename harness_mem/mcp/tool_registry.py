@@ -21,6 +21,7 @@ logger = logging.getLogger("harness_mem_mcp")
 McpToolProfile = Literal[
     "core-read",
     "minimal",
+    "review-read",
     "distill-suggest",
     "review-write",
     "maintenance",
@@ -133,6 +134,27 @@ def tool_descriptor(name: str, spec: ToolSpec, profile: str) -> dict[str, Any]:
                 "listed_in_profile": name in visible_tool_name_set({name: spec}, profile),
             }
         },
+    }
+
+
+def list_tools_result(
+    tools: dict[str, ToolSpec],
+    profile_info: McpToolProfileResolution,
+) -> dict[str, Any]:
+    profile = profile_info["profile"]
+    visible_names = visible_tool_names(tools, profile)
+    return {
+        "profile": profile,
+        "profile_source": profile_info["source"],
+        "profile_project_name": profile_info["project_name"],
+        "degraded_reason": profile_info["degraded_reason"],
+        "tool_count": len(visible_names),
+        "total_tool_count": len(tools),
+        "hidden_tool_count": len(tools) - len(visible_names),
+        "tools": [
+            tool_descriptor(name, tools[name], profile)
+            for name in visible_names
+        ],
     }
 
 

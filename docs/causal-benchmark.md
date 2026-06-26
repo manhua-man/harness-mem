@@ -7,6 +7,9 @@ recall:
 harness-mem maintenance causal-benchmark
 ```
 
+Capability boundary: this is an internal maintenance smoke test, not a Daily
+command, not a default MCP tool, and not a public product-quality score.
+
 The benchmark seeds a temporary local memory store with:
 
 - one semantic distractor

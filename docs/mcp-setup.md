@@ -12,7 +12,9 @@ python -m harness_mem.mcp.server
 
 The server defaults to the `core-read` profile. It exposes read/prepare/review
 inspection tools such as `wake`, `search_memory`, `prepare_session_distill`,
-`list_candidates`, `get_candidate_detail`, and project status.
+`list_candidates`, `get_candidate_detail`, and project status. Deeper read
+drilldowns such as `trace_relations`, `search_raw`, `search_skills`, and
+`get_skill` require the explicit `review-read` profile.
 
 Candidate suggestion requires the explicit `distill-suggest` profile. Durable
 confirm/reject requires `review-write`. Maintenance, labs, and full registry
@@ -22,6 +24,7 @@ For local development you can use:
 
 ```bash
 HARNESS_MEM_MCP_TOOL_PROFILE=distill-suggest python -m harness_mem.mcp.server
+HARNESS_MEM_MCP_TOOL_PROFILE=review-read python -m harness_mem.mcp.server
 HARNESS_MEM_MCP_TOOL_PROFILE=review-write python -m harness_mem.mcp.server
 ```
 

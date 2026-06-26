@@ -4,6 +4,10 @@ This is a small, local-first adaptation of the useful Core-Memory idea:
 relations are not all equivalent. A causal edge should influence recall more
 than a generic association, and reviewed/manual provenance should outrank a
 low-confidence heuristic hint.
+
+Capability boundary: this module is an internal ranking helper used by read
+surfaces such as relation tracing. It is not a public MCP/CLI contract and
+should not be registered as a standalone user-visible capability.
 """
 
 from __future__ import annotations

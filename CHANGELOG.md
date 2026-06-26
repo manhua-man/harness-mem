@@ -19,11 +19,25 @@
   `wake -> search -> distill -> review` product path.
 - Added a minimal public smoke workflow for install/build/runtime sanity checks.
 
+### Changed
+
+- Split MCP tool execution policy and handler implementations out of
+  `mcp/server.py`; the server now owns stdio, backend initialization, registry
+  assembly, and JSON-RPC dispatch.
+- Added an explicit `review-read` MCP profile for deeper read drilldowns such as
+  `trace_relations`, `search_raw`, `search_skills`, and `get_skill` while
+  keeping the default `core-read` surface narrow.
+- Split `tools/session-distill/lib/cli.py` command implementations into
+  project, lifecycle, knowledge, and PRD handler modules while preserving the
+  CLI compatibility wrappers.
+
 ### Fixed
 
 - Aligned plugin metadata with the public `0.8.2` package version and
   Apache-2.0 license.
 - Removed stale historical wording from the public runtime diagram.
+- Removed the stale `direct_truth_write` guardrail token after confirming no
+  live direct-truth-write surface remains.
 
 ### Validation
 

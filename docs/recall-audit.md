@@ -17,6 +17,10 @@ object:
 Legacy response arrays such as `memory_entries`, `relation_facts`,
 `observations`, and `paths` remain in place for compatibility.
 
+Profile boundary: `search_memory` is part of the default `core-read` recall
+surface. `trace_relations` is a deeper read drilldown and requires the explicit
+`review-read` profile or a higher opt-in profile.
+
 ## Governance boundary
 
 The recall contract is read-path explanation. It does not turn raw evidence or

@@ -63,9 +63,46 @@ def test_default_mcp_profile_lists_only_read_prepare_list_detail_tools(
     assert "reject_memory_entry" not in tool_names
     assert "confirm_rule" not in tool_names
     assert "reject_rule" not in tool_names
+    assert "trace_relations" not in tool_names
+    assert "search_raw" not in tool_names
+    assert "search_skills" not in tool_names
+    assert "get_skill" not in tool_names
     assert "ingest_sessions" not in tool_names
     assert "dream_run" not in tool_names
     assert "metabolism_run" not in tool_names
+
+
+def test_review_read_profile_exposes_read_drilldowns_without_write_or_labs(
+    backend,
+) -> None:
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/list",
+            "params": {"mcp_tool_profile": "review-read"},
+        }
+    )
+
+    assert response is not None
+    result = response["result"]
+    tool_names = {tool["name"] for tool in result["tools"]}
+
+    assert result["profile"] == "review-read"
+    assert {
+        "search_memory",
+        "trace_relations",
+        "search_raw",
+        "search_skills",
+        "get_skill",
+    } <= tool_names
+    trace_tool = next(tool for tool in result["tools"] if tool["name"] == "trace_relations")
+    assert trace_tool["annotations"]["harness_mem"]["cluster"] == "review_read"
+    assert "auto_review_candidates" not in tool_names
+    assert "suggest_memory_entry" not in tool_names
+    assert "confirm_memory_entry" not in tool_names
+    assert "metabolism_run" not in tool_names
+    assert "dream_run" not in tool_names
 
 
 def test_default_mcp_profile_hides_durable_write_tools(backend) -> None:

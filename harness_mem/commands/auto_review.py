@@ -15,7 +15,7 @@ judgment across every entrypoint that writes candidates:
 - the ``/hm:distill`` slash command (Claude Code ``plugins/harness-mem/commands/hm/distill.md``),
 - the ``session-distill`` skill (``tools/session-distill/SKILL.md``), and
 - the MCP ``auto_review_candidates`` tool exposed by
-  ``harness_mem/mcp/server.py::tool_auto_review_candidates``.
+  ``harness_mem/mcp/tool_handlers.py::tool_auto_review_candidates``.
 
 All three call ``auto_review_candidates(...)`` (or the pure ``decide_*``
 functions) — none of them re-implement category lists, confidence floors, or

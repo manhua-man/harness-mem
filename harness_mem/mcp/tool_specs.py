@@ -2,8 +2,8 @@
 
 This module owns every tool's JSON Schema (``description`` + ``input_schema``).
 It deliberately does **not** know about the handler functions — those live
-in ``harness_mem.mcp.server`` next to the runtime backend singleton, and are
-injected at module-import time via :func:`build_tools`.
+in ``harness_mem.mcp.tool_handlers`` and are injected at module-import time
+via :func:`build_tools`.
 
 Why the split:
 
@@ -42,6 +42,7 @@ class _SchemaOnly(TypedDict):
 VALID_TOOL_PROFILES = (
     "core-read",
     "minimal",
+    "review-read",
     "distill-suggest",
     "review-write",
     "maintenance",
@@ -68,9 +69,19 @@ CORE_READ_TOOL_NAMES = frozenset(
 
 MINIMAL_TOOL_NAMES = CORE_READ_TOOL_NAMES
 
-DISTILL_SUGGEST_TOOL_NAMES = frozenset(
+REVIEW_READ_TOOL_NAMES = frozenset(
     {
         *CORE_READ_TOOL_NAMES,
+        "trace_relations",
+        "search_raw",
+        "search_skills",
+        "get_skill",
+    }
+)
+
+DISTILL_SUGGEST_TOOL_NAMES = frozenset(
+    {
+        *REVIEW_READ_TOOL_NAMES,
         "auto_review_candidates",
         "suggest_memory_entry",
         "suggest_rule",
@@ -98,7 +109,7 @@ REVIEW_WRITE_TOOL_NAMES = frozenset(
 
 MAINTENANCE_TOOL_NAMES = frozenset(
     {
-        *CORE_READ_TOOL_NAMES,
+        *REVIEW_READ_TOOL_NAMES,
         "ingest_sessions",
         "metabolism_preview",
         "metabolism_run",
@@ -135,6 +146,7 @@ LABS_TOOL_NAMES = frozenset(
 PROFILE_TOOL_NAMES = {
     "core-read": CORE_READ_TOOL_NAMES,
     "minimal": MINIMAL_TOOL_NAMES,
+    "review-read": REVIEW_READ_TOOL_NAMES,
     "distill-suggest": DISTILL_SUGGEST_TOOL_NAMES,
     "review-write": REVIEW_WRITE_TOOL_NAMES,
     "maintenance": MAINTENANCE_TOOL_NAMES,
@@ -1604,10 +1616,10 @@ TOOL_CLUSTERS = {
     "set_active_project": "core_read",
     "wake": "core_read",
     # Advanced or lower-frequency read/profile surfaces.
-    "trace_relations": "advanced",
-    "search_raw": "advanced",
-    "search_skills": "advanced",
-    "get_skill": "advanced",
+    "trace_relations": "review_read",
+    "search_raw": "review_read",
+    "search_skills": "review_read",
+    "get_skill": "review_read",
     "update_project_profile": "advanced",
     "record_context_outcome": "advanced",
     # Candidate/truth loop.
@@ -1715,6 +1727,7 @@ __all__ = [
     "MAINTENANCE_TOOL_NAMES",
     "MINIMAL_TOOL_NAMES",
     "PROFILE_TOOL_NAMES",
+    "REVIEW_READ_TOOL_NAMES",
     "REVIEW_WRITE_TOOL_NAMES",
     "TOOL_CLUSTERS",
     "ToolSpec",
