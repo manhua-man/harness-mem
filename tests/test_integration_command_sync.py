@@ -43,8 +43,17 @@ def test_command_profiles_keep_daily_as_default_and_gate_optional_groups() -> No
     )
     assert "mark" in resolve_command_names(profile="maintenance")
     assert "prune" in resolve_command_names(profile="maintenance")
-    assert "review-kb" not in resolve_command_names(profile="maintenance")
-    assert "prd-sync" not in resolve_command_names(profile="full")
+    assert resolve_command_names(profile="full") == (
+        "status",
+        "wake",
+        "search",
+        "search-all",
+        "distill",
+        "review",
+        "dream",
+        "mark",
+        "prune",
+    )
     assert "dream" in resolve_command_names(profile="maintenance")
     with pytest.raises(ValueError, match="profile must be one of"):
         resolve_command_names(profile="labs")
