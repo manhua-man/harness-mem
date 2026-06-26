@@ -35,7 +35,10 @@ CLI_ERROR_CODES: dict[str, CliErrorCode] = {
         code="HM-003",
         level="warning",
         summary="wake-up context is trending too large for a lightweight resume.",
-        fix_command="harness-mem purge -p <project-name> --before <yyyy-mm-dd> --category all --dry-run",
+        fix_command=(
+            "harness-mem maintenance purge -p <project-name> "
+            "--before <yyyy-mm-dd> --category all --dry-run"
+        ),
         note="Preview archival candidates before the wake-up payload grows further.",
     ),
     "doctor_wake_bucket_quota_sum": CliErrorCode(

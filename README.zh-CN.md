@@ -90,6 +90,11 @@ cd harness-mem
 /hm:review
 ```
 
+终端 CLI 是 operator console，不是日常 memory workflow。顶层只保留
+`init`、`quickstart`/`qs`、`doctor`、`config`、`integration` 和
+`maintenance`；导入和清理走 `harness-mem maintenance ...`，默认都是 dry-run
+预览。
+
 ## 仓库结构
 
 - `harness_mem/`：runtime package。

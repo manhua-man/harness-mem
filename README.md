@@ -92,6 +92,11 @@ Then use the Agent-facing commands:
 /hm:review
 ```
 
+The terminal CLI is an operator console, not the daily memory workflow. Its
+top-level surface is `init`, `quickstart`/`qs`, `doctor`, `config`,
+`integration`, and `maintenance`; import and purge operations live under
+`harness-mem maintenance ...` and default to dry-run previews.
+
 ## Repository
 
 - `harness_mem/`: runtime package.

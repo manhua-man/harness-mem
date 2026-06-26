@@ -722,7 +722,8 @@ async def cmd_wake_up(
                 datetime.now(timezone.utc).replace(day=1) - timedelta(days=90)
             ).strftime("%Y-%m-%d")
             purge_command = (
-                f"harness-mem purge -p {project_name} --before {three_months_ago} --category all --dry-run"
+                "harness-mem maintenance purge "
+                f"-p {project_name} --before {three_months_ago} --category all --dry-run"
             )
             print(f"⚠️  Memory budget at {level}")
             print(f"💡 Run: {purge_command}")

@@ -20,6 +20,12 @@ Check the CLI:
 harness-mem --help
 ```
 
+The CLI is for operator setup, doctor checks, integration sync, and explicit
+maintenance. Daily memory work should happen through MCP or `/hm:*` commands.
+Maintenance import and purge operations are available as
+`harness-mem maintenance import` and `harness-mem maintenance purge`; both
+preview by default until `--apply` is passed.
+
 ## Register MCP
 
 Most users should connect `harness-mem` through MCP and let their Agent call the

@@ -12,12 +12,14 @@ from harness_mem.commands.support import (
 )
 from harness_mem.event_log import EventType
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from harness_mem.tools.import_bridge import ImportBridge
+from harness_mem.tools.import_bridge import ImportBridge, summarize_import_file
 
 
 async def cmd_import(
     file_path: str,
     project_name: str | None = None,
+    *,
+    dry_run: bool = False,
 ) -> int:
     """Import memory drafts from a JSON file into the candidate layer."""
     project_name = resolve_project_name(project_name, action_label="import")
@@ -28,6 +30,16 @@ async def cmd_import(
     if not path.exists():
         print(f"Error: File not found: {file_path}")
         return 1
+
+    if dry_run:
+        counts = summarize_import_file(path)
+        total = counts["memory_entries"] + counts["relation_facts"]
+        print(f"[DRY RUN] Would import {total} pending candidates for project '{project_name}':")
+        print(f"  - {counts['memory_entries']} Memory Entries")
+        print(f"  - {counts['relation_facts']} Relation Facts")
+        print("No candidate layer writes were performed.")
+        print("No durable truth was confirmed.")
+        return 0
 
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()

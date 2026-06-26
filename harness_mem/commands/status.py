@@ -118,7 +118,10 @@ async def _status_project_async(backend: LocalMemoryBackend, project_name: str) 
 
 def _suggested_purge_command(project_name: str | None) -> str:
     project_flag = f" -p {project_name}" if project_name else ""
-    return f"harness-mem purge{project_flag} --before <DATE> --category all --dry-run"
+    return (
+        f"harness-mem maintenance purge{project_flag} "
+        "--before <DATE> --category all --dry-run"
+    )
 
 
 def _load_project_config(project_name: str) -> MergedConfig | None:

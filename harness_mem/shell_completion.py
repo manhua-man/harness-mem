@@ -11,8 +11,6 @@ CLI_COMMANDS = [
     "init",
     "quickstart",
     "doctor",
-    "import",
-    "purge",
     "maintenance",
     "config",
     "integration",
@@ -29,6 +27,8 @@ MAINTENANCE_ACTIONS = [
     "export-json-snapshot",
     "causal-benchmark",
     "state-audit",
+    "import",
+    "purge",
 ]
 CONFIG_ACTIONS = ["get", "set", "list", "validate"]
 INTEGRATION_ACTIONS = ["install-cursor-hook", "install-claude-hook", "commands"]
@@ -65,7 +65,7 @@ _harness_mem_completion() {{
 
     if [[ "${{cur}}" == -* ]]; then
         case "${{prev}}" in
-            -p|--project|--before)
+            -p|--project|--before|--source)
                 return
                 ;;
             -c|--client)
@@ -115,6 +115,11 @@ _harness_mem_completion() {{
         return
     fi
 
+    if [[ "${{words[1]}}" == "maintenance" && "${{cur}}" == -* ]]; then
+        COMPREPLY=($(compgen -W "-p --project --source --before --category --stale-only --dry-run --apply --incremental --export-rollback --export-dir" -- "${{cur}}"))
+        return
+    fi
+
     if [[ "${{words[1]}}" == "integration" && "${{cur}}" == -* ]]; then
         COMPREPLY=($(compgen -W "--project-root --force --profile --include --source-dir --target-dir --dry-run" -- "${{cur}}"))
         return
@@ -148,6 +153,7 @@ _harness_mem() {{
         '--limit[limit]:limit:' \\
         '--category[category]:(observations structured all)' \\
         '--before[date (YYYY-MM-DD)]:date:' \\
+        '--source[JSON draft path]:source:' \\
         '--dry-run[preview only]' \\
         '--stale-only[only stale entries]' \\
         '--apply[write maintenance changes]' \\
@@ -209,19 +215,13 @@ complete -c harness-mem -n '__fish_seen_subcommand_from quickstart; or __fish_se
 # doctor
 complete -c harness-mem -n '__fish_seen_subcommand_from doctor' -l project -r -d "Project name"
 
-# import
-complete -c harness-mem -n '__fish_seen_subcommand_from import' -l project -r -d "Project name"
-
-# purge
-complete -c harness-mem -n '__fish_seen_subcommand_from purge' -l project -r -d "Project name"
-complete -c harness-mem -n '__fish_seen_subcommand_from purge' -l before -r -d "Date (YYYY-MM-DD)"
-complete -c harness-mem -n '__fish_seen_subcommand_from purge' -l category -x -a "observations structured all" -d "Category"
-complete -c harness-mem -n '__fish_seen_subcommand_from purge' -l dry-run -d "Preview only"
-complete -c harness-mem -n '__fish_seen_subcommand_from purge' -l stale-only -d "Only stale entries"
-
 # maintenance
-complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -a "assign-memory-types rebuild-vector-index rebuild-verbatim-index prepare-knowledge-cache rebuild-wiki-bridge cleanup-generated-cache migrate-store-v2 export-json-snapshot causal-benchmark state-audit" -d "Action"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -a "assign-memory-types rebuild-vector-index rebuild-verbatim-index prepare-knowledge-cache rebuild-wiki-bridge cleanup-generated-cache migrate-store-v2 export-json-snapshot causal-benchmark state-audit import purge" -d "Action"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l project -r -d "Project name"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l source -r -d "JSON draft path"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l before -r -d "Date (YYYY-MM-DD)"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l category -x -a "observations structured all" -d "Category"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l stale-only -d "Only stale entries"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l dry-run -d "Preview only"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l apply -d "Write changes"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l export-rollback -r -d "Export Storage v2 canonical rows as v3 JSON"

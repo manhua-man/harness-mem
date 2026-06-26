@@ -36,7 +36,7 @@ In Claude Code, prefer the no-hyphen MCP alias names such as
 - `auto_review_candidates`: shared low-risk review policy for `/hm:distill` preview and `/hm:review` apply flows.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
 - `suggest_*` / `list_candidates` / `confirm_*`: create and review durable memory candidates.
-- `purge` remains a CLI/debug operation for explicit cleanup, and only soft-deletes harness-mem indexed data.
+- Cleanup remains an explicit CLI maintenance operation via `harness-mem maintenance purge`, and only soft-deletes harness-mem indexed data.
 
 ## Daily Workflow
 
@@ -80,7 +80,7 @@ Call MCP `suggest_rule` or `suggest_memory_entry`, then show `list_candidates`; 
 
 ## CLI Fallback
 
-CLI remains the bootstrap/debug interface for install checks, local diagnostics, and explicit cleanup previews. Do not present CLI commands as the normal user workflow when MCP tools are available. Only run purge without `--dry-run` after the user approves the exact scope.
+CLI remains the operator interface for install checks, local diagnostics, integration sync, and explicit cleanup previews. Do not present CLI commands as the normal user workflow when MCP tools are available. Only run `harness-mem maintenance purge --apply` after the user approves the exact scope.
 
 ## MCP Use
 

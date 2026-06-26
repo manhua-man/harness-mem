@@ -444,7 +444,10 @@ def prompt_list_labeled(
 
 def suggested_purge_command(project_name: str | None) -> str:
     project_flag = f" -p {project_name}" if project_name else ""
-    return f"harness-mem purge{project_flag} --before <DATE> --category all --dry-run"
+    return (
+        f"harness-mem maintenance purge{project_flag} "
+        "--before <DATE> --category all --dry-run"
+    )
 
 
 def resolve_project_name(

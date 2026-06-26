@@ -68,6 +68,9 @@ Search harness-mem for the relevant project decision.
 ## Notes
 
 - The CLI is mainly for setup, doctor checks, and maintenance.
+- CLI import/purge are maintenance-only commands:
+  `harness-mem maintenance import` and `harness-mem maintenance purge`; both
+  default to dry-run.
 - Daily use should happen through the Agent client and MCP tools.
 - `distill` creates candidates first and previews review decisions; review
   decides what becomes confirmed memory.

@@ -94,6 +94,8 @@ Review the new harness-mem candidates.
 
 - MCP is the normal Agent transport.
 - CLI is for setup, doctor checks, and explicit maintenance.
+- CLI import/purge live under `harness-mem maintenance ...` and preview by
+  default.
 - Agents may suggest memory, but durable truth goes through candidate review.
 - Confirmed memory is what future `wake` and `search` consume.
 

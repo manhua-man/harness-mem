@@ -137,7 +137,7 @@ retrieval quality 实验层
 | storage/search | `truth/index/vector/search facade` 双写与 optional 依赖边界不清。 | P1/P2：先补回归测试，再拆边界。 |
 | storage/reflection job | 维护 store 复用 structured store 私有 `_index` 一类封装穿透。 | P1/P2：先提供显式 IndexStore 或 public index 边界，再拆物理文件。 |
 | `mcp/server.py` | God Module：transport、registry、backend lifecycle、tool specs、maintenance 混合。 | P2：拆 backend/tool groups/serializers/dispatcher。 |
-| CLI | 命令面像第二产品入口。 | P2：降级为 setup/doctor/config/maintenance/debug operator console。 |
+| CLI | 命令面像第二产品入口。 | P2：降级为 setup/doctor/config/integration/maintenance operator console。 |
 | read/context/signals | ranking、signal、sufficiency、cost strategy 容易让 read path 不可解释。 | P2：冻结默认 read contract，高级策略 behind flag 且必须 traceable。 |
 | plugin bundle | 容易被误解为 canonical API 或 Claude-only 产品。 | P2：明确 plugin 是 integration bundle；canonical API 是 runtime + MCP + review lifecycle。 |
 | optional native/Rust | 内部加速实现版本容易污染产品版本叙事。 | P2：对外只称 optional native acceleration；不把 native core 版本当产品版本。 |
@@ -786,8 +786,13 @@ hm doctor
 hm config
 hm integration
 hm maintenance
-hm debug
 ```
+
+V4.1 进一步收敛 CLI surface：旧顶层 `hm import` / `hm purge` 不保留
+deprecated alias，维护能力下沉为 `hm maintenance import` 与
+`hm maintenance purge`。两者默认 dry-run，只有显式 `--apply` 才写
+candidate layer 或执行 soft-delete。本轮不新增 `debug` 顶层命令，避免为了
+收敛反而扩大 public surface。
 
 避免 CLI 和 MCP 同时长成两套完整应用。
 

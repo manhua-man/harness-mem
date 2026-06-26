@@ -70,21 +70,45 @@ __all__ = [
 ]
 
 
-def main():
+def _add_project_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("-p", "--project", help="Project name")
+
+
+def _add_dry_apply_group(parser: argparse.ArgumentParser) -> None:
+    apply_group = parser.add_mutually_exclusive_group()
+    apply_group.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        default=True,
+        help="Preview changes without writing (default)",
+    )
+    apply_group.add_argument(
+        "--apply",
+        dest="dry_run",
+        action="store_false",
+        help="Commit changes to disk",
+    )
+
+
+def main(argv: list[str] | None = None):
     """Run the maintenance-only CLI surface."""
+    args_list = list(sys.argv[1:] if argv is None else argv)
+
     # Handle --completion before full argument parsing.
-    if "--completion" in sys.argv:
+    if "--completion" in args_list or any(
+        arg.startswith("--completion=") for arg in args_list
+    ):
         from harness_mem.shell_completion import print_completion
 
-        for arg in sys.argv[1:]:
+        for idx, arg in enumerate(args_list):
             if arg.startswith("--completion="):
                 shell = arg.split("=", 1)[1]
                 print_completion(shell)
                 return 0
             if arg == "--completion":
-                idx = sys.argv.index(arg)
-                if idx + 1 < len(sys.argv):
-                    print_completion(sys.argv[idx + 1])
+                if idx + 1 < len(args_list):
+                    print_completion(args_list[idx + 1])
                     return 0
         print("--completion requires a shell argument: bash, zsh, or fish", file=sys.stderr)
         return 1
@@ -119,77 +143,116 @@ def main():
     quickstart.set_defaults(command_name="quickstart")
 
     doctor = sub.add_parser("doctor", help="Inspect local setup and suggest repairs")
-    doctor.add_argument("-p", "--project")
+    _add_project_arg(doctor)
     doctor.set_defaults(command_name="doctor")
 
-    import_cmd = sub.add_parser(
-        "import",
-        help="Import memory drafts from AI skills into the candidate layer",
-    )
-    import_cmd.add_argument("file", help="Path to legacy or AI-generated JSON draft")
-    import_cmd.add_argument("-p", "--project")
-    import_cmd.set_defaults(command_name="import")
+    maintenance = sub.add_parser("maintenance", help="Explicit operator maintenance utilities")
+    maintenance.set_defaults(command_name="maintenance")
+    maintenance_sub = maintenance.add_subparsers(dest="maintenance_action")
 
-    purge = sub.add_parser("purge", help="Soft-delete observations or structured memory")
-    purge.add_argument("-p", "--project")
-    purge.add_argument("--before", required=True, help="YYYY-MM-DD")
-    purge.add_argument("--category", choices=["observations", "structured", "all"], default="all")
-    purge.add_argument("--dry-run", action="store_true")
-    purge.add_argument("--stale-only", action="store_true", help="Only include never-accessed or stale entries")
-    purge.set_defaults(command_name="purge")
+    assign_memory_types = maintenance_sub.add_parser(
+        "assign-memory-types",
+        help="Backfill memory_type labels for structured memories",
+    )
+    _add_project_arg(assign_memory_types)
+    _add_dry_apply_group(assign_memory_types)
 
-    maintenance = sub.add_parser("maintenance", help="One-shot maintenance utilities")
-    maintenance.add_argument(
-        "action",
-        choices=[
-            "assign-memory-types",
-            "rebuild-vector-index",
-            "rebuild-verbatim-index",
-            "prepare-knowledge-cache",
-            "rebuild-wiki-bridge",
-            "cleanup-generated-cache",
-            "migrate-store-v2",
-            "export-json-snapshot",
-            "causal-benchmark",
-            "state-audit",
-        ],
-        help="Maintenance action to run",
+    rebuild_vector_index = maintenance_sub.add_parser(
+        "rebuild-vector-index",
+        help="Rebuild the vector index",
     )
-    maintenance.add_argument("-p", "--project", help="Project name")
-    maintenance.add_argument(
-        "--export-rollback",
-        help=(
-            "For migrate-store-v2, export the side-by-side canonical DB back "
-            "to v3-compatible JSON blobs under this directory"
-        ),
+    _add_project_arg(rebuild_vector_index)
+
+    rebuild_verbatim_index = maintenance_sub.add_parser(
+        "rebuild-verbatim-index",
+        help="Rebuild the verbatim exact index",
     )
-    maintenance.add_argument(
-        "--export-dir",
-        help="For export-json-snapshot, write human-readable JSON blobs here",
+    _add_project_arg(rebuild_verbatim_index)
+
+    prepare_knowledge_cache = maintenance_sub.add_parser(
+        "prepare-knowledge-cache",
+        help="Prepare the generated knowledge cache",
     )
-    maintenance.add_argument(
+    _add_project_arg(prepare_knowledge_cache)
+
+    rebuild_wiki_bridge = maintenance_sub.add_parser(
+        "rebuild-wiki-bridge",
+        help="Rebuild the generated wiki bridge",
+    )
+    _add_project_arg(rebuild_wiki_bridge)
+    rebuild_wiki_bridge.add_argument(
         "--incremental",
         action="store_true",
-        help=(
-            "For rebuild-wiki-bridge, skip generated output rewrites when "
-            "tracked source hashes are unchanged"
-        ),
+        help="Skip generated output rewrites when tracked source hashes are unchanged",
     )
-    apply_group = maintenance.add_mutually_exclusive_group()
-    apply_group.add_argument(
-        "--dry-run",
-        dest="dry_run",
+
+    cleanup_generated_cache = maintenance_sub.add_parser(
+        "cleanup-generated-cache",
+        help="Clean generated cache artifacts",
+    )
+    _add_project_arg(cleanup_generated_cache)
+    _add_dry_apply_group(cleanup_generated_cache)
+
+    migrate_store_v2 = maintenance_sub.add_parser(
+        "migrate-store-v2",
+        help="Migrate side-by-side canonical store data",
+    )
+    _add_project_arg(migrate_store_v2)
+    _add_dry_apply_group(migrate_store_v2)
+    migrate_store_v2.add_argument(
+        "--export-rollback",
+        help="Export Storage v2 canonical rows as v3-compatible JSON blobs",
+    )
+
+    export_json_snapshot = maintenance_sub.add_parser(
+        "export-json-snapshot",
+        help="Export a human-readable JSON snapshot",
+    )
+    _add_project_arg(export_json_snapshot)
+    _add_dry_apply_group(export_json_snapshot)
+    export_json_snapshot.add_argument(
+        "--export-dir",
+        required=True,
+        help="Write human-readable JSON blobs here",
+    )
+
+    causal_benchmark = maintenance_sub.add_parser(
+        "causal-benchmark",
+        help="Run the internal causal recall smoke benchmark",
+    )
+    causal_benchmark.set_defaults(maintenance_action="causal-benchmark")
+
+    state_audit = maintenance_sub.add_parser(
+        "state-audit",
+        help="Inspect the local state audit ledger",
+    )
+    _add_project_arg(state_audit)
+
+    import_cmd = maintenance_sub.add_parser(
+        "import",
+        help="Preview or import memory drafts into the candidate layer",
+    )
+    import_cmd.add_argument("--source", required=True, help="Path to JSON draft")
+    _add_project_arg(import_cmd)
+    _add_dry_apply_group(import_cmd)
+
+    purge = maintenance_sub.add_parser(
+        "purge",
+        help="Preview or soft-delete observations or structured memory",
+    )
+    _add_project_arg(purge)
+    purge.add_argument("--before", required=True, help="YYYY-MM-DD")
+    purge.add_argument(
+        "--category",
+        choices=["observations", "structured", "all"],
+        default="all",
+    )
+    purge.add_argument(
+        "--stale-only",
         action="store_true",
-        default=True,
-        help="Preview changes without writing (default)",
+        help="Only include never-accessed or stale entries",
     )
-    apply_group.add_argument(
-        "--apply",
-        dest="dry_run",
-        action="store_false",
-        help="Commit changes to disk",
-    )
-    maintenance.set_defaults(command_name="maintenance")
+    _add_dry_apply_group(purge)
 
     config = sub.add_parser(
         "config",
@@ -331,7 +394,7 @@ def main():
     commands_enable.add_argument("--target-dir", help="Claude Code hm command directory")
     commands_enable.add_argument("--dry-run", action="store_true")
 
-    args = parser.parse_args()
+    args = parser.parse_args(args_list)
     command = getattr(args, "command_name", args.command)
 
     if command is None:
@@ -349,34 +412,29 @@ def main():
     if command == "doctor":
         return asyncio.run(cmd_doctor(args.project))
 
-    if command == "import":
-        return asyncio.run(cmd_import(args.file, args.project))
-
-    if command == "purge":
-        return asyncio.run(
-            cmd_purge(args.before, args.category, args.dry_run, args.project, stale_only=args.stale_only)
-        )
-
     if command == "maintenance":
-        if args.action == "assign-memory-types":
+        if args.maintenance_action is None:
+            maintenance.print_help()
+            return 0
+        if args.maintenance_action == "assign-memory-types":
             return asyncio.run(cmd_assign_memory_types(args.project, apply=not args.dry_run))
-        if args.action == "rebuild-vector-index":
+        if args.maintenance_action == "rebuild-vector-index":
             from harness_mem.commands.maintenance import cmd_rebuild_vector_index
 
             return asyncio.run(cmd_rebuild_vector_index(args.project))
-        if args.action == "rebuild-verbatim-index":
+        if args.maintenance_action == "rebuild-verbatim-index":
             from harness_mem.commands.maintenance import cmd_rebuild_verbatim_index
 
             return asyncio.run(cmd_rebuild_verbatim_index(args.project))
-        if args.action == "prepare-knowledge-cache":
+        if args.maintenance_action == "prepare-knowledge-cache":
             return asyncio.run(cmd_prepare_knowledge_cache(args.project))
-        if args.action == "rebuild-wiki-bridge":
+        if args.maintenance_action == "rebuild-wiki-bridge":
             return asyncio.run(
                 cmd_rebuild_wiki_bridge(args.project, incremental=args.incremental)
             )
-        if args.action == "cleanup-generated-cache":
+        if args.maintenance_action == "cleanup-generated-cache":
             return asyncio.run(cmd_cleanup_generated_cache(args.project, apply=not args.dry_run))
-        if args.action == "migrate-store-v2":
+        if args.maintenance_action == "migrate-store-v2":
             return asyncio.run(
                 cmd_migrate_store_v2(
                     args.project,
@@ -384,9 +442,7 @@ def main():
                     export_rollback=args.export_rollback,
                 )
             )
-        if args.action == "export-json-snapshot":
-            if not args.export_dir:
-                parser.error("maintenance export-json-snapshot requires --export-dir")
+        if args.maintenance_action == "export-json-snapshot":
             return asyncio.run(
                 cmd_export_json_snapshot(
                     args.project,
@@ -394,11 +450,25 @@ def main():
                     apply=not args.dry_run,
                 )
             )
-        if args.action == "causal-benchmark":
+        if args.maintenance_action == "causal-benchmark":
             return asyncio.run(cmd_causal_benchmark())
-        if args.action == "state-audit":
+        if args.maintenance_action == "state-audit":
             return asyncio.run(cmd_state_audit(args.project))
-        parser.error(f"Unknown maintenance action: {args.action}")
+        if args.maintenance_action == "import":
+            return asyncio.run(
+                cmd_import(args.source, args.project, dry_run=args.dry_run)
+            )
+        if args.maintenance_action == "purge":
+            return asyncio.run(
+                cmd_purge(
+                    args.before,
+                    args.category,
+                    args.dry_run,
+                    args.project,
+                    stale_only=args.stale_only,
+                )
+            )
+        maintenance.error(f"Unknown maintenance action: {args.maintenance_action}")
 
     if command == "config":
         if args.config_action is None:

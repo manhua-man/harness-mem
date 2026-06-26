@@ -19,26 +19,40 @@ from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
+def _load_import_items(file_path: Path) -> list[dict[str, Any]]:
+    if not file_path.exists():
+        raise FileNotFoundError(f"Import file not found: {file_path}")
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    items = data if isinstance(data, list) else [data]
+    return [item for item in items if isinstance(item, dict)]
+
+
+def summarize_import_file(file_path: Path) -> dict[str, int]:
+    """Return candidate counts for an import file without writing storage."""
+    counts = {"memory_entries": 0, "relation_facts": 0}
+    for item in _load_import_items(file_path):
+        if ImportBridge.is_relation_fact(item):
+            counts["relation_facts"] += 1
+        else:
+            counts["memory_entries"] += 1
+    return counts
+
+
 class ImportBridge:
     def __init__(self, backend: LocalMemoryBackend):
         self.backend = backend
 
     async def import_file(self, file_path: Path, project_name: str | None = None) -> dict[str, int]:
         """Import entries from a legacy or AI-generated JSON file."""
-        if not file_path.exists():
-            raise FileNotFoundError(f"Import file not found: {file_path}")
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        # Handle both single objects and lists
-        items = data if isinstance(data, list) else [data]
-        
+        items = _load_import_items(file_path)
         counts = {"memory_entries": 0, "relation_facts": 0}
-        
+
         for item in items:
             # Determine if it's a relation fact or a regular memory entry
-            if self._is_relation_fact(item):
+            if self.is_relation_fact(item):
                 fact = self._map_to_relation_fact(item, project_name)
                 await self.backend.structured_store.save_relation_fact(fact)
                 counts["relation_facts"] += 1
@@ -46,10 +60,11 @@ class ImportBridge:
                 entry = self._map_to_memory_entry(item, project_name)
                 await self.backend.structured_store.save_memory_entry(entry)
                 counts["memory_entries"] += 1
-                
+
         return counts
 
-    def _is_relation_fact(self, item: dict[str, Any]) -> bool:
+    @staticmethod
+    def is_relation_fact(item: dict[str, Any]) -> bool:
         """Heuristic to detect relation facts."""
         return all(k in item for k in ("source_entity", "target_entity", "relation_type"))
 

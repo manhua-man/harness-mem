@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Removed top-level CLI `import` and `purge`; both now live under
+  `harness-mem maintenance import` / `harness-mem maintenance purge` and default
+  to dry-run previews unless `--apply` is passed.
+
 ## [0.8.2] - 2026-06-25
 
 ### Added
