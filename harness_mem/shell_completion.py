@@ -11,21 +11,25 @@ CLI_COMMANDS = [
     "init",
     "quickstart",
     "doctor",
+    "skill-governance",
     "maintenance",
     "config",
     "integration",
 ]
 CLI_ALIASES = {"qs": "quickstart"}
+SKILL_GOVERNANCE_ACTIONS = [
+    "list-candidates",
+    "search",
+    "suggest",
+    "confirm",
+    "reject",
+    "record-result",
+]
 MAINTENANCE_ACTIONS = [
-    "assign-memory-types",
     "rebuild-vector-index",
     "rebuild-verbatim-index",
-    "prepare-knowledge-cache",
-    "rebuild-wiki-bridge",
-    "cleanup-generated-cache",
     "migrate-store-v2",
     "export-json-snapshot",
-    "causal-benchmark",
     "state-audit",
     "import",
     "purge",
@@ -33,8 +37,8 @@ MAINTENANCE_ACTIONS = [
 CONFIG_ACTIONS = ["get", "set", "list", "validate"]
 INTEGRATION_ACTIONS = ["install-cursor-hook", "install-claude-hook", "commands"]
 INTEGRATION_COMMAND_ACTIONS = ["list", "sync", "enable"]
-COMMAND_PROFILES = ["daily", "maintenance", "product-doc", "labs", "full"]
-OPTIONAL_COMMAND_GROUPS = ["maintenance", "product-doc", "labs"]
+COMMAND_PROFILES = ["daily", "maintenance", "full"]
+OPTIONAL_COMMAND_GROUPS = ["maintenance"]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -47,6 +51,7 @@ def completion_bash() -> str:
     """Generate bash completion script."""
     commands = " ".join(CLI_COMMANDS)
     aliases = " ".join(CLI_ALIASES.keys())
+    skill_governance_actions = " ".join(SKILL_GOVERNANCE_ACTIONS)
     maintenance_actions = " ".join(MAINTENANCE_ACTIONS)
     config_actions = " ".join(CONFIG_ACTIONS)
     integration_actions = " ".join(INTEGRATION_ACTIONS)
@@ -93,6 +98,10 @@ _harness_mem_completion() {{
                 COMPREPLY=($(compgen -W "{maintenance_actions}" -- "${{cur}}"))
                 return
                 ;;
+            skill-governance)
+                COMPREPLY=($(compgen -W "{skill_governance_actions}" -- "${{cur}}"))
+                return
+                ;;
             config)
                 COMPREPLY=($(compgen -W "{config_actions}" -- "${{cur}}"))
                 return
@@ -116,7 +125,12 @@ _harness_mem_completion() {{
     fi
 
     if [[ "${{words[1]}}" == "maintenance" && "${{cur}}" == -* ]]; then
-        COMPREPLY=($(compgen -W "-p --project --source --before --category --stale-only --dry-run --apply --incremental --export-rollback --export-dir" -- "${{cur}}"))
+        COMPREPLY=($(compgen -W "-p --project --source --before --category --stale-only --dry-run --apply --export-rollback --export-dir" -- "${{cur}}"))
+        return
+    fi
+
+    if [[ "${{words[1]}}" == "skill-governance" && "${{cur}}" == -* ]]; then
+        COMPREPLY=($(compgen -W "-p --project --status --query --limit --activation-condition --step --termination-condition --success-example --source-session-id --source --confidence --success --failure" -- "${{cur}}"))
         return
     fi
 
@@ -133,6 +147,7 @@ complete -F _harness_mem_completion harness-mem
 def completion_zsh() -> str:
     """Generate zsh completion script."""
     commands = " ".join(CLI_COMMANDS + list(CLI_ALIASES.keys()))
+    skill_governance_actions = " ".join(SKILL_GOVERNANCE_ACTIONS)
     maintenance_actions = " ".join(MAINTENANCE_ACTIONS)
     config_actions = " ".join(CONFIG_ACTIONS)
     integration_actions = " ".join(INTEGRATION_ACTIONS)
@@ -157,6 +172,17 @@ _harness_mem() {{
         '--dry-run[preview only]' \\
         '--stale-only[only stale entries]' \\
         '--apply[write maintenance changes]' \\
+        '--status[candidate status]:(pending accepted rejected)' \\
+        '--query[skill search query]:query:' \\
+        '--activation-condition[when the procedural skill should activate]:condition:' \\
+        '--step[procedural step]:step:' \\
+        '--termination-condition[when the workflow is complete]:condition:' \\
+        '--success-example[successful use example]:example:' \\
+        '--source-session-id[source session id]:session_id:' \\
+        '--source[source label]:source:' \\
+        '--confidence[candidate confidence]:confidence:' \\
+        '--success[record successful skill use]' \\
+        '--failure[record failed skill use]' \\
         '--export-rollback[export Storage v2 canonical rows as v3 JSON]:export_dir:' \\
         '--project-root[project directory]:project_root:' \\
         '--scope[config scope]:(user project)' \\
@@ -176,6 +202,9 @@ _harness_mem() {{
             case $words[2] in
                 maintenance)
                     _values 'action' {maintenance_actions}
+                    ;;
+                skill-governance)
+                    _values 'action' {skill_governance_actions}
                     ;;
                 config)
                     _values 'action' {config_actions}
@@ -215,8 +244,24 @@ complete -c harness-mem -n '__fish_seen_subcommand_from quickstart; or __fish_se
 # doctor
 complete -c harness-mem -n '__fish_seen_subcommand_from doctor' -l project -r -d "Project name"
 
+# skill-governance
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -a "list-candidates search suggest confirm reject record-result" -d "Skill governance action"
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -l project -r -d "Project name"
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -l status -x -a "pending accepted rejected" -d "Candidate status"
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -l query -r -d "Skill search query"
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -l limit -x -d "Maximum results"
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -l activation-condition -r -d "Activation condition"
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -l step -r -d "Procedural step"
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -l termination-condition -r -d "Termination condition"
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -l success-example -r -d "Success example"
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -l source-session-id -r -d "Source session id"
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -l source -r -d "Source label"
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -l confidence -x -d "Candidate confidence"
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -l success -d "Record success"
+complete -c harness-mem -n '__fish_seen_subcommand_from skill-governance' -l failure -d "Record failure"
+
 # maintenance
-complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -a "assign-memory-types rebuild-vector-index rebuild-verbatim-index prepare-knowledge-cache rebuild-wiki-bridge cleanup-generated-cache migrate-store-v2 export-json-snapshot causal-benchmark state-audit import purge" -d "Action"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -a "rebuild-vector-index rebuild-verbatim-index migrate-store-v2 export-json-snapshot state-audit import purge" -d "Action"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l project -r -d "Project name"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l source -r -d "JSON draft path"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l before -r -d "Date (YYYY-MM-DD)"
@@ -225,6 +270,7 @@ complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l stale-on
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l dry-run -d "Preview only"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l apply -d "Write changes"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l export-rollback -r -d "Export Storage v2 canonical rows as v3 JSON"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l export-dir -r -d "Export directory"
 
 # config
 complete -c harness-mem -n '__fish_seen_subcommand_from config' -a "get set list validate" -d "Action"
@@ -236,8 +282,8 @@ complete -c harness-mem -n '__fish_seen_subcommand_from integration' -a "install
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l project-root -r -d "Project directory"
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l force -d "Overwrite existing hook"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -a "list sync enable" -d "Command profile action"
-complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l profile -x -a "daily maintenance product-doc labs full" -d "Command profile"
-complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l include -x -a "maintenance product-doc labs" -d "Optional command group"
+complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l profile -x -a "daily maintenance full" -d "Command profile"
+complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l include -x -a "maintenance" -d "Optional command group"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l source-dir -r -d "Slash command source directory"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l target-dir -r -d "Claude Code hm command directory"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l dry-run -d "Preview only"

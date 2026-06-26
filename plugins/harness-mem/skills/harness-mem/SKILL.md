@@ -18,8 +18,8 @@ Treat the project as real production context:
 - Distilled memory is a draft signal. Review it before treating it as durable truth.
 - Use `suggest_*`, `list_candidates`, and `confirm_*` / `reject_*` for stable rules the user explicitly wants remembered.
 - Confirmed truth can be maintained automatically, but it must not be silently overwritten; durable changes go through candidate / review / supersede / ledger.
-- Cross-project skills can be reused, but they must not pollute default wake; shared skills are searched, hinted, and expanded explicitly.
-- Keep the default surface to Daily commands: wake, search, distill, and review. Maintenance, product-doc, and labs commands are opt-in install profiles.
+- Cross-project skills can be read as procedural memory hints, but lifecycle management belongs to `harness-mem skill-governance ...` and the `harness-mem-skill-governance` skill, not MCP public tools.
+- Keep the default surface to Daily commands: wake, search, distill, review, and dream. Artifact maintenance commands are opt-in.
 - Do not delete raw agent session files unless the user explicitly asks for raw-file cleanup through an opt-in maintenance entry.
 
 In Claude Code, prefer the no-hyphen MCP alias names such as
@@ -33,7 +33,7 @@ In Claude Code, prefer the no-hyphen MCP alias names such as
 - `ingest_sessions`: indexes raw local agent session files into harness-mem observations.
 - `prepare_session_distill`: one-shot ingest plus recent observation packet for `/hm:distill`.
 - `tools/session-distill`: default user-facing distillation playbook that reads evidence and writes pending candidates.
-- `auto_review_candidates`: shared low-risk review policy for `/hm:distill` preview and `/hm:review` apply flows.
+- `auto_review_candidates`: shared low-risk review policy for `/hm:distill` preview. Public MCP forces this tool to preview; `/hm:review` applies explicit confirm/reject decisions.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
 - `suggest_*` / `list_candidates` / `confirm_*`: create and review durable memory candidates.
 - Cleanup remains an explicit CLI maintenance operation via `harness-mem maintenance purge`, and only soft-deletes harness-mem indexed data.
@@ -56,8 +56,8 @@ For status and wake-up:
 If the project has new sessions:
 
 1. Call `prepare_session_distill(project_name=<project>, client="auto", scope="project", project_root=<current project root>)`.
-2. Activate repo-local `tools/session-distill` under the explicit `distill-suggest` MCP profile: read the returned evidence packet, apply `references/distillation-rules.md`, and write pending candidates with `suggest_memory_entry`, `suggest_rule`, `suggest_relation_fact`, or `create_task_handoff`.
-3. Call `auto_review_candidates(project_name=<project>, apply=False)` under `distill-suggest` as the default shipped distill surface. Show the user a final summary that says auto-review is preview-only and no durable memory was confirmed. If the user wants to apply decisions, route them to `/hm:review` or require explicit `review-write`.
+2. Activate repo-local `tools/session-distill`: read the returned evidence packet, apply `references/distillation-rules.md`, and write pending candidates with `suggest_memory_entry`, `suggest_rule`, `suggest_relation_fact`, or `create_task_handoff`.
+3. Call `auto_review_candidates(project_name=<project>, apply=False)`. Show the user a final summary that says auto-review is preview-only and no durable memory was confirmed. If the user wants to apply decisions, route them to `/hm:review` and use explicit `confirm_*` / `reject_*` decisions.
 
 When looking for prior work:
 
@@ -70,9 +70,9 @@ separate from other projects worth borrowing from.
 
 For opt-in maintenance:
 
-Use maintenance/product-doc Slash entries only when the user explicitly asks
-for session closure, raw cleanup, knowledge-base audit, or candidate PRD sync.
-Those commands are not part of the default Daily install profile.
+Use maintenance Slash entries only when the user explicitly asks for session
+artifact cleanup. KB and PRD semantics are normal memory candidates; this
+plugin does not expose a separate KB audit or PRD sync product surface.
 
 When the user states a durable project rule:
 

@@ -225,23 +225,6 @@ def _steps_for_phase(
     )
     order += 1
 
-    if memory_entry_count > 0:
-        steps.append(
-            _step(
-                step_id="rebuild_generated",
-                order=order,
-                title="Refresh generated wiki bridge (optional)",
-                description=(
-                    "Rebuild project-local generated claims and wikilink graph after large "
-                    "truth changes; output stays non-canonical."
-                ),
-                entry="maintenance rebuild-wiki-bridge --incremental",
-                entry_kind="slash",
-                required=False,
-            )
-        )
-        order += 1
-
     steps.append(
         _step(
             step_id="handoff",

@@ -414,6 +414,29 @@ async def cmd_list_candidates(project_name: str, status: str | None = None) -> i
     finally:
         await backend.close()
 
+
+async def cmd_list_procedural_candidates(
+    project_name: str,
+    status: str | None = None,
+) -> int:
+    backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
+    await backend.init()
+    effective_status = status or "pending"
+    try:
+        candidates = await backend.structured_store.list_procedural_candidates(
+            project_name,
+            status=effective_status,
+        )
+        print(f"# Procedural Candidates ({project_name}): {len(candidates)} items ({effective_status})")
+        for candidate in candidates:
+            print(f"  [Procedural] {candidate.id}: {candidate.activation_condition[:80]}")
+            for index, step in enumerate(candidate.steps, start=1):
+                print(f"    {index}. {step}")
+        return 0
+    finally:
+        await backend.close()
+
+
 async def cmd_confirmed_rules(project_name: str, *, include_history: bool = False) -> int:
     backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
     await backend.init()

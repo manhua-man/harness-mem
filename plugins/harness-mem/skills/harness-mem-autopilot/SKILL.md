@@ -44,9 +44,9 @@ CLI owns configuration writes, for example `harness-mem config set autopilot.ena
 Autopilot has only this single user-facing switch. When enabled, it may proactively
 wake/search and create evidence-backed candidates or distill handoffs at clear
 task boundaries. Durable memory still goes through the normal candidate/review
-loop; autopilot never silently confirms truth. Dream may automatically maintain
-eligible candidates and memories only when `dream.auto.enabled` is explicitly
-enabled; otherwise dream runs remain explicit maintenance actions.
+loop; autopilot never silently confirms truth. Dream is enabled by default, but
+it still follows runtime scheduler gates, audit ledgers, and undo metadata.
+Users can opt out with `dream.auto.enabled=false`.
 
 ## Trigger map
 
@@ -57,7 +57,7 @@ enabled; otherwise dream runs remain explicit maintenance actions.
 | User explicitly says “remember this”, “make this a rule”, “以后都这样” | Create a candidate with `suggest_rule` or `suggest_memory_entry`; do not directly confirm unless the user explicitly decides. |
 | User asks to organize, distill, archive, or close recent sessions | If enabled, run the normal `/hm:distill` equivalent path: prepare evidence, use session-distill, then auto-review low-risk candidates. |
 | Work reaches a stable, reusable boundary | If enabled, suggest distill or create a handoff candidate; do not write vague transcript notes. |
-| Repeated mistakes or durable workflow patterns appear | If enabled, suggest a rule/procedural candidate when the pattern is stable and evidence-backed. |
+| Repeated mistakes or durable workflow patterns appear | If enabled, suggest a rule candidate for project truth. For reusable procedural skills, point to the explicit `harness-mem-skill-governance` workflow instead of writing lifecycle candidates from autopilot. |
 | New evidence conflicts with existing memory | Suggest supersede or correction; never overwrite confirmed truth in place. |
 
 ## Candidate-worthy test
@@ -84,8 +84,8 @@ Do not:
 - hard-delete confirmed truth;
 - treat generated prose as truth;
 - inject every memory into wake;
-- run hook, scheduler, daemon, or dream auto-maintenance unless the relevant opt-in config is enabled;
-- bypass `dream.auto.enabled` when handing eligible candidates or memories to runtime maintenance;
+- run hook, scheduler, or daemon maintenance outside the runtime gates;
+- bypass `dream.auto.enabled` when handing eligible candidates or memories to dream maintenance;
 - present CLI as the normal daily workflow when MCP or Slash/Skill is available.
 
 ## Output discipline

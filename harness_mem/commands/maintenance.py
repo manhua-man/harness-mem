@@ -1,15 +1,10 @@
-"""Maintenance commands.
-
-v1.6.0 introduced ``maintenance assign-memory-types``: a one-shot,
-idempotent backfill that persists the ``memory_type`` field for legacy
-``MemoryEntry`` blobs.
-"""
+"""Maintenance commands."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 from harness_mem.knowledge_cache import (
     cleanup_generated_outputs,
@@ -25,7 +20,6 @@ from harness_mem.commands.support import (
     log_command_invoked,
     resolve_project_name,
 )
-from harness_mem.core.schemas.memory_entry import MemoryType, _derive_memory_type
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -42,97 +36,6 @@ from harness_mem.storage.canonical_store import (
 )
 from harness_mem.causal_benchmark import arun_causal_benchmark
 from harness_mem.event_log import replay_state_events, state_audit_summary
-
-
-_BLOB_GLOB = "*.json"
-
-
-def _list_memory_entry_blobs(data_dir: Path) -> list[Path]:
-    blob_dir = data_dir / "structured" / "memory_entries"
-    if not blob_dir.exists():
-        return []
-    return sorted(blob_dir.glob(_BLOB_GLOB))
-
-
-async def cmd_assign_memory_types(
-    project_name: str | None,
-    *,
-    apply: bool,
-) -> int:
-    """Backfill ``memory_type`` on legacy MemoryEntry blobs."""
-    resolved_project = resolve_project_name(
-        project_name,
-        required=True,
-        action_label="maintenance assign-memory-types",
-    )
-    if not resolved_project:
-        return 1
-
-    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
-    await backend.init()
-    try:
-        blobs = _list_memory_entry_blobs(DEFAULT_DATA_DIR)
-        already_typed = 0
-        candidates: list[tuple[Path, dict[str, Any], MemoryType]] = []
-
-        for blob_path in blobs:
-            try:
-                data = json.loads(blob_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if data.get("project_name") != resolved_project:
-                continue
-            if "memory_type" in data and data["memory_type"] is not None:
-                already_typed += 1
-                continue
-            derived = _derive_memory_type(data.get("category"))
-            candidates.append((blob_path, data, derived))
-
-        update_count = len(candidates)
-
-        if not apply:
-            print(
-                f"Would update {update_count} MemoryEntry rows "
-                f"({already_typed} already typed)."
-            )
-            for blob_path, data, derived in candidates[:10]:
-                category = data.get("category") or "unknown"
-                entry_id = data.get("id") or blob_path.stem
-                print(f"- {entry_id} (category={category}) -> {derived}")
-            if len(candidates) > 10:
-                print(f"  ... and {len(candidates) - 10} more")
-            print("No changes written. Use --apply to commit.")
-            log_command_invoked(
-                "maintenance.assign-memory-types",
-                project_name=resolved_project,
-                extra={
-                    "apply": False,
-                    "would_update": update_count,
-                    "already_typed": already_typed,
-                },
-            )
-            return 0
-
-        for blob_path, data, derived in candidates:
-            data["memory_type"] = derived
-            blob_path.write_text(
-                json.dumps(data, indent=2, default=str),
-                encoding="utf-8",
-            )
-
-        print(f"Updated {update_count} MemoryEntry rows.")
-        log_command_invoked(
-            "maintenance.assign-memory-types",
-            project_name=resolved_project,
-            extra={
-                "apply": True,
-                "updated": update_count,
-                "already_typed": already_typed,
-            },
-        )
-        return 0
-    finally:
-        await backend.close()
 
 
 async def cmd_rebuild_vector_index(project_name: str | None = None) -> int:
@@ -233,7 +136,7 @@ async def cmd_prepare_knowledge_cache(project_name: str | None = None) -> int:
     resolved_project = resolve_project_name(
         project_name,
         required=True,
-        action_label="maintenance prepare-knowledge-cache",
+        action_label="knowledge-cache prepare",
     )
     if not resolved_project:
         return 1
@@ -262,7 +165,7 @@ async def cmd_prepare_knowledge_cache(project_name: str | None = None) -> int:
         print(f"Source manifest: {paths.source_manifest_path}")
         print(f"Sources tracked: {len(sources)}")
         log_command_invoked(
-            "maintenance.prepare-knowledge-cache",
+            "internal.knowledge-cache.prepare",
             project_name=resolved_project,
             extra={"source_count": len(sources)},
         )
@@ -280,7 +183,7 @@ async def cmd_cleanup_generated_cache(
     resolved_project = resolve_project_name(
         project_name,
         required=True,
-        action_label="maintenance cleanup-generated-cache",
+        action_label="knowledge-cache cleanup-generated",
     )
     if not resolved_project:
         return 1
@@ -306,7 +209,7 @@ async def cmd_cleanup_generated_cache(
     if len(result["orphaned_outputs"]) > 10:
         print(f"  ... and {len(result['orphaned_outputs']) - 10} more")
     log_command_invoked(
-        "maintenance.cleanup-generated-cache",
+        "internal.knowledge-cache.cleanup-generated",
         project_name=resolved_project,
         extra={
             "apply": apply,
@@ -472,7 +375,7 @@ async def cmd_causal_benchmark() -> int:
     print(f"Path count: {result['path_count']}")
     print(json.dumps(result, indent=2, sort_keys=True))
     log_command_invoked(
-        "maintenance.causal-benchmark",
+        "internal.bench.causal",
         project_name=result["project_name"],
         extra={
             "passed": result["passed"],
@@ -512,7 +415,7 @@ async def cmd_rebuild_wiki_bridge(
     resolved_project = resolve_project_name(
         project_name,
         required=True,
-        action_label="maintenance rebuild-wiki-bridge",
+        action_label="wiki-bridge rebuild",
     )
     if not resolved_project:
         return 1
@@ -555,7 +458,7 @@ async def cmd_rebuild_wiki_bridge(
         print(f"Wikilink graph path: {result.get('wikilink_graph_path', '')}")
         print(f"Index: {result['index_path']}")
         log_command_invoked(
-            "maintenance.rebuild-wiki-bridge",
+            "internal.wiki-bridge.rebuild",
             project_name=resolved_project,
             extra={
                 "claim_count": result["claim_count"],

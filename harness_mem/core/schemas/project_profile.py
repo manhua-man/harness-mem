@@ -57,6 +57,7 @@ class ProjectProfile(BaseModel):
         ),
     )
     mcp_tool_profile: Literal[
+        "memory",
         "core-read",
         "minimal",
         "review-read",
@@ -68,14 +69,8 @@ class ProjectProfile(BaseModel):
     ] | None = Field(
         default=None,
         description=(
-            "Optional MCP tools/list profile override for this project. "
-            "None keeps the server default/env profile; 'core-read'/'minimal' "
-            "list only read/prepare/list tools; 'review-read' adds deeper "
-            "read drilldowns such as relation tracing, raw evidence, and "
-            "procedural skill lookup; 'distill-suggest' adds candidate "
-            "suggestions and preview; 'review-write' adds durable review "
-            "writes; 'maintenance' and 'labs' are explicit opt-in operator "
-            "surfaces; 'full' lists every registered tool."
+            "Deprecated compatibility field. Public MCP now has one memory "
+            "surface; runtime ignores historical profile overrides."
         ),
     )
     maintenance_profile: Literal["weekly-dream", "post-distill-metabolism"] | None = Field(

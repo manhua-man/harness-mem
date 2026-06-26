@@ -1213,11 +1213,11 @@ async def health_summary(backend: LocalMemoryBackend, project_name: str) -> dict
 
 # ---- v2.4.2 CLI print blocks -------------------------------------------
 
-# Fix-command pointers for the candidate-health block. Stale candidates point
-# at the review/prune surface (Req 2.3); high-risk-stale candidates escalate
-# to the verify surface (Req 2.4).
-_CANDIDATE_STALE_FIX = "/hm:review-kb"
-_CANDIDATE_HIGH_RISK_FIX = "/hm:verify-entry"
+# Fix-command pointers for the candidate-health block. Stale and high-risk
+# candidates both go through the durable review gate; session-distill no longer
+# owns a separate KB verification surface.
+_CANDIDATE_STALE_FIX = "/hm:review"
+_CANDIDATE_HIGH_RISK_FIX = "/hm:review"
 
 
 def _doctor_candidate_health_block(candidate_report: dict[str, Any]) -> None:
@@ -1515,8 +1515,7 @@ def _doctor_knowledge_cache_block(knowledge_report: dict[str, Any]) -> None:
     else:
         print(
             "⚠️  knowledge cache boundary not prepared. "
-            "Fix: harness-mem maintenance prepare-knowledge-cache "
-            f"--project {knowledge_report['project_name']}"
+            "Refresh generated knowledge through an explicit maintenance workflow."
         )
     if knowledge_report["stale_source_count"] > 0:
         print(
@@ -1524,12 +1523,10 @@ def _doctor_knowledge_cache_block(knowledge_report: dict[str, Any]) -> None:
             "the last boundary snapshot."
         )
         print(
-            "Fix: harness-mem maintenance rebuild-wiki-bridge "
-            f"--project {knowledge_report['project_name']}"
+            "Action: refresh generated knowledge through an explicit maintenance workflow."
         )
     if knowledge_report["orphaned_output_count"] > 0:
         print(
             f"⚠️  {knowledge_report['orphaned_output_count']} orphaned generated output(s). "
-            "Fix: harness-mem maintenance cleanup-generated-cache "
-            f"--project {knowledge_report['project_name']} --apply"
+            "Generated-cache cleanup is an internal maintenance task."
         )

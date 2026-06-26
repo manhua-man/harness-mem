@@ -4,7 +4,6 @@ from harness_mem.commands.doctor import cmd_doctor
 from harness_mem.commands.ingest import cmd_ingest
 from harness_mem.commands.import_bridge import cmd_import
 from harness_mem.commands.maintenance import (
-    cmd_assign_memory_types,
     cmd_causal_benchmark,
     cmd_cleanup_generated_cache,
     cmd_export_json_snapshot,
@@ -34,6 +33,7 @@ from harness_mem.commands.candidates import (
     cmd_suggest_supersede,
     cmd_confirm_supersede,
     cmd_reject_supersede,
+    cmd_list_procedural_candidates,
     cmd_suggest_procedural,
     cmd_confirm_procedural,
     cmd_reject_procedural,
@@ -57,7 +57,6 @@ from harness_mem.commands.integration_cmds import (
 )
 
 __all__ = [
-    "cmd_assign_memory_types",
     "cmd_causal_benchmark",
     "cmd_cleanup_generated_cache",
     "cmd_export_json_snapshot",
@@ -93,6 +92,7 @@ __all__ = [
     "cmd_suggest_supersede",
     "cmd_confirm_supersede",
     "cmd_reject_supersede",
+    "cmd_list_procedural_candidates",
     "cmd_suggest_procedural",
     "cmd_confirm_procedural",
     "cmd_reject_procedural",
