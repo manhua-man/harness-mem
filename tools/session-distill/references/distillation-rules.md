@@ -7,7 +7,8 @@
 - Promote file maps when a session clearly revealed where a concern lives in the codebase.
 - Promote anti-patterns only when the failure mode is reusable and actionable.
 - Promote automation ideas when the same manual pattern appears more than once.
-- After promoting to the distillation `knowledge-base.md`, check whether the lesson is broad enough to become a repo-local rule in the active project.
+- Promote product decisions, requirements, and roadmap constraints as normal harness-mem candidates when they are durable enough to help future work.
+- Durable knowledge is confirmed through harness-mem review, not by writing a separate session-distill KB or PRD layer.
 
 ## Classify Before Promoting
 
@@ -18,12 +19,13 @@ Classify the lesson first:
   - one-off task context
   - temporary parameters, paths, hosts, or values
   - exploratory dead ends and temporary workarounds
-- `knowledge-base.md`
+- harness-mem candidates / confirmed memory
   - reusable workflows
   - command patterns
   - file maps
   - debugging patterns
   - automation ideas
+  - product and requirement decisions
 - repo-local project rules
   - lessons that should change the AI's default future behavior in the repo
   - collaboration defaults, review heuristics, safety defaults, engineering discipline
@@ -40,7 +42,7 @@ Useful shortcut:
 ## Keep Session-Only
 
 - Keep one-off task context in `distilled/sessions/<session-id>.md`.
-- Keep environment-specific notes there when they are useful but not stable enough for the shared knowledge base.
+- Keep environment-specific notes there when they are useful but not stable enough for confirmed memory.
 - Keep exploratory dead ends there if they explain why the chosen approach is safer.
 
 ## Reject As Noise
@@ -95,4 +97,5 @@ Useful shortcut:
 - Repo facts and file maps
 - Anti-patterns and failure modes
 - Skill or automation ideas
+- Product and requirement decisions
 - Volatile watchlist

@@ -162,10 +162,10 @@ def render_session_packet_markdown(
             "",
             "1. Read this packet",
             "2. Query existing memory for dedup",
-            f"3. Write session note -> distilled/sessions/{session['session_id']}.md",
-            "4. Append stable lessons to knowledge-base.md if warranted",
-            "5. Decide whether to promote to project rules",
-            f"6. Use `/hm:mark {session['session_id']} distilled`",
+            "3. Extract candidate drafts from supported evidence",
+            "4. Export candidates through harness-mem suggest_* tools",
+            "5. Review durable memory through `/hm:review`",
+            f"6. Optionally use `/hm:mark {session['session_id']} distilled` for artifact cleanup",
             "",
         ]
     )

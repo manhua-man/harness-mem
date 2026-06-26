@@ -8,15 +8,11 @@ from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar
 
 from lib.guardrails import contains_pending_draft, raw_deletion_root
-from lib.models import KnowledgeEntry
 
 EnsureDirs = Callable[[], None]
 LoadManifest = Callable[[], dict[str, Any]]
 SaveManifest = Callable[[dict[str, Any]], None]
 UtcNow = Callable[[], str]
-ParseKnowledgeEntries = Callable[[], list[KnowledgeEntry]]
-VerifyReminder = Callable[[str, str, str], None]
-KbReviewReminder = Callable[[], None]
 T = TypeVar("T")
 
 DISTILLED_DIR: Path | None = None
@@ -31,9 +27,6 @@ _ensure_dirs: EnsureDirs | None = None
 _load_manifest: LoadManifest | None = None
 _save_manifest: SaveManifest | None = None
 _utc_now: UtcNow | None = None
-_parse_knowledge_entries: ParseKnowledgeEntries | None = None
-_maybe_print_verify_entry_reminder: VerifyReminder | None = None
-_maybe_print_kb_review_reminder: KbReviewReminder | None = None
 
 
 def configure(
@@ -49,16 +42,11 @@ def configure(
     load_manifest: LoadManifest,
     save_manifest: SaveManifest,
     utc_now: UtcNow,
-    parse_knowledge_entries: ParseKnowledgeEntries,
-    maybe_print_verify_entry_reminder: VerifyReminder,
-    maybe_print_kb_review_reminder: KbReviewReminder,
 ) -> None:
     """Bind CLI-owned paths and helpers before executing a lifecycle command."""
     global DISTILLED_DIR, PACKETS_DIR, MEMORY_DRAFTS_DIR, PRUNED_SOURCES_FILE
     global CODEX_RAW_ROOTS, REQUIRED_NOTE_SECTIONS, HANDLED_MANIFEST_STATUSES
     global _ensure_dirs, _load_manifest, _save_manifest, _utc_now
-    global _parse_knowledge_entries, _maybe_print_verify_entry_reminder
-    global _maybe_print_kb_review_reminder
     DISTILLED_DIR = distilled_dir
     PACKETS_DIR = packets_dir
     MEMORY_DRAFTS_DIR = memory_drafts_dir
@@ -70,9 +58,6 @@ def configure(
     _load_manifest = load_manifest
     _save_manifest = save_manifest
     _utc_now = utc_now
-    _parse_knowledge_entries = parse_knowledge_entries
-    _maybe_print_verify_entry_reminder = maybe_print_verify_entry_reminder
-    _maybe_print_kb_review_reminder = maybe_print_kb_review_reminder
 
 
 def _configured_path(value: Path | None, name: str) -> Path:
@@ -205,22 +190,6 @@ def maybe_delete_raw_source(session: dict[str, Any], keep_raw: bool) -> None:
     session["raw_deleted_at"] = utc_now()
 
 
-def validate_same_source_kb(session_id: str) -> list[str]:
-    parse_knowledge_entries = _configured_callable(
-        _parse_knowledge_entries,
-        "parse_knowledge_entries",
-    )
-    errors: list[str] = []
-    entries = parse_knowledge_entries()
-    for entry in entries:
-        if entry.source_session_id == session_id and entry.status != "stable":
-            errors.append(
-                f"knowledge-base line {entry.line_no} for same source is {entry.status}: "
-                + "; ".join(entry.reasons)
-            )
-    return errors
-
-
 def validate_distilled_guardrails(session_id: str, session: dict[str, Any]) -> list[str]:
     """Return the closure guardrail failures for `/hm:mark ... distilled`."""
     errors = []
@@ -228,7 +197,6 @@ def validate_distilled_guardrails(session_id: str, session: dict[str, Any]) -> l
     pending, draft_path = draft_has_pending(session_id)
     if pending:
         errors.append(f"memory draft still has pending entries: {draft_path}")
-    errors.extend(validate_same_source_kb(session_id))
     return errors
 
 
@@ -238,14 +206,6 @@ def cmd_mark(session_id: str, status: str, keep_raw: bool = False) -> int:
     load_manifest = _configured_callable(_load_manifest, "load_manifest")
     save_manifest = _configured_callable(_save_manifest, "save_manifest")
     utc_now = _configured_callable(_utc_now, "utc_now")
-    verify_reminder = _configured_callable(
-        _maybe_print_verify_entry_reminder,
-        "maybe_print_verify_entry_reminder",
-    )
-    kb_review_reminder = _configured_callable(
-        _maybe_print_kb_review_reminder,
-        "maybe_print_kb_review_reminder",
-    )
 
     if not session_id or not status:
         print("Usage: session-distill mark SESSION-ID STATUS")
@@ -278,15 +238,6 @@ def cmd_mark(session_id: str, status: str, keep_raw: bool = False) -> int:
         print("  -> raw source marked missing/deleted; manifest keeps distilled state")
     elif status == "distilled" and session.get("raw_retained_reason"):
         print(f"  -> raw source retained: {session['raw_retained_reason']}")
-    if status == "distilled":
-        note_path = note_path_for(session_id, session)
-        if note_path.exists():
-            verify_reminder(
-                session_id,
-                note_path.read_text(encoding="utf-8", errors="replace"),
-                "session note",
-            )
-        kb_review_reminder()
     print("==> Mark done")
     return 0
 

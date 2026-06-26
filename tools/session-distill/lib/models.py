@@ -71,18 +71,6 @@ class PacketAudit:
 
 
 @dataclass(frozen=True)
-class KnowledgeEntry:
-    """Parsed knowledge-base entry with review classification."""
-
-    section: str
-    line_no: int
-    text: str
-    source_session_id: str | None
-    status: str
-    reasons: list[str]
-
-
-@dataclass(frozen=True)
 class Packet:
     """Packetized session evidence."""
 

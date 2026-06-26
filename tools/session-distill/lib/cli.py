@@ -22,23 +22,6 @@ _LIB_DIR = _SKILL_ROOT / "lib"
 if _LIB_DIR.exists():
     sys.path.insert(0, str(_SKILL_ROOT))
 
-from lib.models import KnowledgeEntry  # noqa: E402
-from lib.cli_handlers.knowledge import (  # noqa: E402
-    backup_knowledge_base as _backup_knowledge_base,
-    classify_knowledge_entry as _classify_knowledge_entry,
-    cmd_prune_kb as _cmd_prune_kb,
-    cmd_review_kb as _cmd_review_kb,
-    cmd_verify_entry as _cmd_verify_entry,
-    configure as _configure_knowledge_handlers,
-    extract_keywords as _extract_keywords,
-    extract_source_session_id as _extract_source_session_id,
-    load_kb_review_state as _load_kb_review_state,
-    maybe_print_kb_review_reminder as _maybe_print_kb_review_reminder,
-    maybe_print_verify_entry_reminder as _maybe_print_verify_entry_reminder,
-    note_has_no_promotion as _note_has_no_promotion,
-    parse_knowledge_entries as _parse_knowledge_entries,
-    related_knowledge_entries as _related_knowledge_entries,
-)
 from lib.cli_handlers.lifecycle import (  # noqa: E402
     append_pruned_source as _append_pruned_source,
     bundle_path_for as _bundle_path_for,
@@ -53,10 +36,8 @@ from lib.cli_handlers.lifecycle import (  # noqa: E402
     parse_statuses as _parse_statuses,
     section_text as _section_text,
     validate_distilled_guardrails as _validate_distilled_guardrails,
-    validate_same_source_kb as _validate_same_source_kb,
     validate_session_note as _validate_session_note,
 )
-from lib.cli_handlers.prd import cmd_prd_sync as _cmd_prd_sync  # noqa: E402
 from lib.cli_handlers.project import (  # noqa: E402
     cmd_bundle as _cmd_bundle,
     cmd_index as _cmd_index,
@@ -79,44 +60,15 @@ def _default_distill_dir() -> Path:
 # Configuration
 DISTILL_DIR = _default_distill_dir()
 MANIFEST_FILE = DISTILL_DIR / "manifest.json"
-KNOWLEDGE_FILE = DISTILL_DIR / "knowledge-base.md"
 PACKETS_DIR = DISTILL_DIR / "packets"
 DISTILLED_DIR = DISTILL_DIR / "distilled" / "sessions"
 MEMORY_DRAFTS_DIR = DISTILL_DIR / "memory-drafts"
-KB_BACKUPS_DIR = DISTILL_DIR / "backups" / "knowledge-base"
-KB_REVIEW_STATE_FILE = DISTILL_DIR / "kb-review-state.json"
 PRUNED_SOURCES_FILE = DISTILL_DIR / "pruned-sources.jsonl"
 
 PROJECTS_DIR = Path(os.environ.get("SESSION_DISTILL_PROJECTS_DIR", Path.home() / ".claude" / "projects"))
 
-# PRD sync configuration
-PRD_DISTILLED_DIR = DISTILL_DIR / "prd-distilled"
 DEFAULT_RUN_NEXT = 3
 DEFAULT_LIST_MIN_SIZE_KB = 100
-KB_REVIEW_REMINDER_THRESHOLD = 5
-VERIFY_REMINDER_LIMIT = 5
-KEYWORD_STOPWORDS = {
-    "assistant",
-    "content",
-    "distilled",
-    "distillation",
-    "evidence",
-    "final",
-    "knowledge",
-    "metadata",
-    "packet",
-    "project",
-    "request",
-    "response",
-    "review",
-    "session",
-    "source",
-    "summary",
-    "tools",
-    "transcript",
-    "turn",
-    "user",
-}
 REQUIRED_NOTE_SECTIONS = (
     "Source",
     "Raw Review",
@@ -125,8 +77,6 @@ REQUIRED_NOTE_SECTIONS = (
     "Promotion Decision",
 )
 HANDLED_MANIFEST_STATUSES = frozenset({"distilled", "skipped"})
-KNOWLEDGE_REVIEW_STATUSES = ("stable", "needs-review", "stale", "superseded")
-PRUNABLE_KB_STATUSES = frozenset({"stale", "superseded"})
 CODEX_RAW_ROOTS = (
     Path.home() / ".codex" / "archived_sessions",
     Path.home() / ".codex" / "sessions",
@@ -143,10 +93,6 @@ def ensure_dirs() -> None:
     PACKETS_DIR.mkdir(parents=True, exist_ok=True)
     DISTILLED_DIR.mkdir(parents=True, exist_ok=True)
     MEMORY_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
-    KB_BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
-
-    if not KNOWLEDGE_FILE.exists():
-        KNOWLEDGE_FILE.write_text("# Session Distill Knowledge Base\n", encoding="utf-8")
 
     if not MANIFEST_FILE.exists():
         save_manifest({"version": 1, "updated_at": "", "sessions": []})
@@ -194,14 +140,12 @@ def source_signature(session: dict[str, Any]) -> dict[str, Any]:
 def _sync_project_handlers() -> None:
     _configure_project_handlers(
         manifest_file=MANIFEST_FILE,
-        knowledge_file=KNOWLEDGE_FILE,
         packets_dir=PACKETS_DIR,
         default_run_next=DEFAULT_RUN_NEXT,
         ensure_dirs=ensure_dirs,
         load_manifest=load_manifest,
         save_manifest=save_manifest,
         source_signature=source_signature,
-        maybe_print_verify_entry_reminder=maybe_print_verify_entry_reminder,
     )
 
 
@@ -251,9 +195,6 @@ def _sync_lifecycle_handlers() -> None:
         load_manifest=load_manifest,
         save_manifest=save_manifest,
         utc_now=utc_now,
-        parse_knowledge_entries=parse_knowledge_entries,
-        maybe_print_verify_entry_reminder=maybe_print_verify_entry_reminder,
-        maybe_print_kb_review_reminder=maybe_print_kb_review_reminder,
     )
 
 
@@ -302,11 +243,6 @@ def maybe_delete_raw_source(session: dict[str, Any], keep_raw: bool) -> None:
     _maybe_delete_raw_source(session, keep_raw)
 
 
-def validate_same_source_kb(session_id: str) -> list[str]:
-    _sync_lifecycle_handlers()
-    return _validate_same_source_kb(session_id)
-
-
 def validate_distilled_guardrails(session_id: str, session: dict[str, Any]) -> list[str]:
     _sync_lifecycle_handlers()
     return _validate_distilled_guardrails(session_id, session)
@@ -324,105 +260,6 @@ def parse_statuses(statuses_text: Optional[str]) -> set[str]:
 def cmd_prune(statuses_text: Optional[str], source_missing: bool, apply: bool) -> int:
     _sync_lifecycle_handlers()
     return _cmd_prune(statuses_text, source_missing=source_missing, apply=apply)
-
-def _sync_knowledge_handlers() -> None:
-    _configure_knowledge_handlers(
-        knowledge_file=KNOWLEDGE_FILE,
-        kb_review_state_file=KB_REVIEW_STATE_FILE,
-        kb_backups_dir=KB_BACKUPS_DIR,
-        keyword_stopwords=KEYWORD_STOPWORDS,
-        knowledge_review_statuses=KNOWLEDGE_REVIEW_STATUSES,
-        prunable_kb_statuses=PRUNABLE_KB_STATUSES,
-        kb_review_reminder_threshold=KB_REVIEW_REMINDER_THRESHOLD,
-        verify_reminder_limit=VERIFY_REMINDER_LIMIT,
-        ensure_dirs=ensure_dirs,
-        utc_now=utc_now,
-        parse_statuses=parse_statuses,
-        note_path_for=note_path_for,
-        section_text=section_text,
-    )
-
-
-def extract_source_session_id(text: str) -> Optional[str]:
-    return _extract_source_session_id(text)
-
-
-def note_has_no_promotion(session_id: str) -> bool:
-    _sync_knowledge_handlers()
-    return _note_has_no_promotion(session_id)
-
-
-def classify_knowledge_entry(text: str, source_session_id: Optional[str]) -> tuple[str, list[str]]:
-    _sync_knowledge_handlers()
-    return _classify_knowledge_entry(text, source_session_id)
-
-
-def parse_knowledge_entries() -> list[KnowledgeEntry]:
-    _sync_knowledge_handlers()
-    return _parse_knowledge_entries()
-
-
-def load_kb_review_state() -> Optional[dict[str, Any]]:
-    _sync_knowledge_handlers()
-    state = _load_kb_review_state()
-    return state if state is None else dict(state)
-
-
-def maybe_print_kb_review_reminder() -> None:
-    _sync_knowledge_handlers()
-    _maybe_print_kb_review_reminder()
-
-
-def extract_keywords(text: str) -> list[str]:
-    _sync_knowledge_handlers()
-    return _extract_keywords(text)
-
-
-def related_knowledge_entries(
-    text: str,
-    source_session_id: str,
-    limit: int = VERIFY_REMINDER_LIMIT,
-) -> list[tuple[KnowledgeEntry, list[str]]]:
-    _sync_knowledge_handlers()
-    return _related_knowledge_entries(text, source_session_id, limit=limit)
-
-
-def maybe_print_verify_entry_reminder(
-    source_session_id: str,
-    text: str,
-    trigger: str,
-) -> None:
-    _sync_knowledge_handlers()
-    _maybe_print_verify_entry_reminder(source_session_id, text, trigger)
-
-
-def cmd_review_kb(next_count: int) -> int:
-    _sync_knowledge_handlers()
-    return _cmd_review_kb(next_count)
-
-
-def backup_knowledge_base() -> Path:
-    _sync_knowledge_handlers()
-    return _backup_knowledge_base()
-
-
-def cmd_prune_kb(statuses_text: Optional[str], dry_run: bool = False) -> int:
-    _sync_knowledge_handlers()
-    return _cmd_prune_kb(statuses_text, dry_run=dry_run)
-
-
-def cmd_verify_entry(query: str) -> int:
-    _sync_knowledge_handlers()
-    return _cmd_verify_entry(query)
-
-
-def cmd_prd_sync(dry_run: bool = True) -> int:
-    return _cmd_prd_sync(
-        dry_run=dry_run,
-        ensure_dirs=ensure_dirs,
-        load_manifest=load_manifest,
-        prd_distilled_dir=PRD_DISTILLED_DIR,
-    )
 
 
 def cmd_run(
@@ -460,19 +297,6 @@ def build_parser() -> argparse.ArgumentParser:
     prune.add_argument("--apply", action="store_true")
     prune.add_argument("--dry-run", action="store_true")
 
-    review_kb = subparsers.add_parser("review-kb")
-    review_kb.add_argument("--next", type=int, default=20)
-
-    prune_kb = subparsers.add_parser("prune-kb")
-    prune_kb.add_argument("--statuses", default="stale,superseded")
-    prune_kb.add_argument("--dry-run", action="store_true")
-
-    verify = subparsers.add_parser("verify-entry")
-    verify.add_argument("query")
-
-    prd = subparsers.add_parser("prd-sync")
-    prd.add_argument("--apply", action="store_true")
-
     subparsers.add_parser("help")
     return parser
 
@@ -488,7 +312,7 @@ def dispatch_command(args: argparse.Namespace, parser: argparse.ArgumentParser) 
         parser.print_help()
         return 0
 
-    projectless = {"mark", "prune", "review-kb", "prune-kb", "verify-entry", "prd-sync"}
+    projectless = {"mark", "prune"}
     project_path = None if args.command in projectless else resolve_project_path(args)
 
     if args.command not in projectless and not project_path:
@@ -506,14 +330,6 @@ def dispatch_command(args: argparse.Namespace, parser: argparse.ArgumentParser) 
         return cmd_mark(args.session_id, args.status, keep_raw=args.keep_raw)
     if args.command == "prune":
         return cmd_prune(args.statuses, source_missing=args.source_missing, apply=args.apply)
-    if args.command == "review-kb":
-        return cmd_review_kb(args.next)
-    if args.command == "prune-kb":
-        return cmd_prune_kb(args.statuses, dry_run=args.dry_run)
-    if args.command == "verify-entry":
-        return cmd_verify_entry(args.query)
-    if args.command == "prd-sync":
-        return cmd_prd_sync(dry_run=not args.apply)
 
     parser.print_help()
     return 1

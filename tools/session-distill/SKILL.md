@@ -129,10 +129,6 @@ Raw Sessions
 |------|------|
 | `/hm:mark <session-id> distilled [--keep-raw]` | 通过 guardrail 后把单个 session 落为 `distilled`。 |
 | `/hm:prune --statuses distilled,skipped --source-missing` | 清理 raw 已不存在、只剩 manifest 占位的已处理记录。 |
-| `/hm:review-kb --next 20` | 巡检 `knowledge-base.md`，输出 stable / needs-review / stale / superseded。 |
-| `/hm:prune-kb --statuses stale,superseded` | 先备份，再清理过期或被替代的 knowledge 条目。 |
-| `/hm:verify-entry <session-id|keyword>` | 定向复查命中条目，并输出复查问题。 |
-| `/hm:prd-sync [--apply]` | 扫描 bundled packets，预览或生成 candidate PRD sync note。 |
 
 `/hm:mark` 的 `distilled` 收口必须检查：
 
@@ -141,26 +137,10 @@ Raw Sessions
 - partial packet 的 `Raw Review` 明确写 `Raw transcript reviewed: yes`。
 - `Promotion Decision` 明确写 `Promote:` 或 `No Promotion:`，不能还有 pending/TODO。
 - `memory-drafts/<session-id>.json` 不能还有 pending 条目。
-- 同源 `knowledge-base.md` 条目不能处于 `needs-review` / `stale` / `superseded`。
 
 raw transcript 删除只由 `/hm:mark ... distilled` 的实现层在安全白名单内执行；`--keep-raw` 会保留 raw。raw 删除后 manifest 仍保留 `distilled/skipped` 状态和 `source_missing` / `raw_deleted_at`，避免重新进入待处理队列。
 
-### 半自动提醒
-
-这些提醒只出现在命令摘要里，不是强 gate，也不会自动清理 truth：
-
-- `/hm:mark ... distilled` 后，如果 `knowledge-base.md` 条目数相比上次 `/hm:review-kb` 新增达到 5 条，会提示跑 `/hm:review-kb --next 20`。
-- 如果还没有 review baseline，但 knowledge-base 已有至少 5 条，也会提示先跑一次 `/hm:review-kb --next 20` 建基线。
-- 新 packet 生成后，若 packet 关键词命中旧 knowledge 条目，会提示 `/hm:verify-entry <keyword>`。
-- 新 note mark 后，若 note 关键词命中旧 knowledge 条目，也会提示 `/hm:verify-entry <keyword>`。
-
-提醒的作用是让用户或 Agent 想起来复查，不要把它升级成自动 prune、自动 supersede 或多轮追问。
-
-`/hm:prd-sync` 是 maintenance / review bridge，不是 `/hm:distill` 主链的一部分：
-
-- 默认 dry-run，只预览命中的 bundled packet 和 topic。
-- 只有显式 `--apply` 才写 `prd-distilled/*.md` candidate 文件。
-- 不直接改正式 PRD、roadmap、knowledge-base 或 confirmed truth。
+KB / PRD 语义不再作为 session-distill 的独立子系统存在。产品决策、架构事实、项目知识和规则都应抽成 harness-mem candidates，再通过 `/hm:review` 进入 confirmed memory。正式 PRD 或 roadmap 文档若存在，属于普通项目文档编辑，不由 session-distill 维护。
 
 ## Memory Metabolism preview (v2.3.0)
 
@@ -177,6 +157,7 @@ v2.3.0 给后续 metabolism 流程铺地基，但**不**改本 skill 的主链�
 - 不默认把用户级全局 agent 历史灌进当前项目。
 - 不把 "no patterns found" 当成最终高质量蒸馏结论；那只说明 fallback 没抽到明显模式。
 - 不把逐条分类工作交给用户；AI 必须自动预审 pending 候选，但默认不直接处理低风险项，durable write 通过 `/hm:review`。
+- 不维护独立的 `knowledge-base.md`、KB review/prune 命令、PRD sync 文件或产品文档桥。
 - 不把 `session-distill.py` 命令列表当成用户产品面；用户入口是 `/hm:*` 或自然语言等价命令。
 
 ## 兜底策略

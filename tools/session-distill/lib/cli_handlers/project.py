@@ -12,11 +12,9 @@ EnsureDirs = Callable[[], None]
 LoadManifest = Callable[[], dict[str, Any]]
 SaveManifest = Callable[[dict[str, Any]], None]
 SourceSignature = Callable[[dict[str, Any]], dict[str, Any]]
-VerifyReminder = Callable[[str, str, str], None]
 T = TypeVar("T")
 
 MANIFEST_FILE: Path | None = None
-KNOWLEDGE_FILE: Path | None = None
 PACKETS_DIR: Path | None = None
 DEFAULT_RUN_NEXT = 3
 
@@ -24,34 +22,28 @@ _ensure_dirs: EnsureDirs | None = None
 _load_manifest: LoadManifest | None = None
 _save_manifest: SaveManifest | None = None
 _source_signature: SourceSignature | None = None
-_maybe_print_verify_entry_reminder: VerifyReminder | None = None
 
 
 def configure(
     *,
     manifest_file: Path,
-    knowledge_file: Path,
     packets_dir: Path,
     default_run_next: int,
     ensure_dirs: EnsureDirs,
     load_manifest: LoadManifest,
     save_manifest: SaveManifest,
     source_signature: SourceSignature,
-    maybe_print_verify_entry_reminder: VerifyReminder,
 ) -> None:
     """Bind CLI-owned paths and helpers before executing a project command."""
-    global MANIFEST_FILE, KNOWLEDGE_FILE, PACKETS_DIR, DEFAULT_RUN_NEXT
+    global MANIFEST_FILE, PACKETS_DIR, DEFAULT_RUN_NEXT
     global _ensure_dirs, _load_manifest, _save_manifest, _source_signature
-    global _maybe_print_verify_entry_reminder
     MANIFEST_FILE = manifest_file
-    KNOWLEDGE_FILE = knowledge_file
     PACKETS_DIR = packets_dir
     DEFAULT_RUN_NEXT = default_run_next
     _ensure_dirs = ensure_dirs
     _load_manifest = load_manifest
     _save_manifest = save_manifest
     _source_signature = source_signature
-    _maybe_print_verify_entry_reminder = maybe_print_verify_entry_reminder
 
 
 def _configured_path(value: Path | None, name: str) -> Path:
@@ -148,10 +140,6 @@ def cmd_bundle(
     ensure_dirs = _configured_callable(_ensure_dirs, "ensure_dirs")
     load_manifest = _configured_callable(_load_manifest, "load_manifest")
     save_manifest = _configured_callable(_save_manifest, "save_manifest")
-    verify_reminder = _configured_callable(
-        _maybe_print_verify_entry_reminder,
-        "maybe_print_verify_entry_reminder",
-    )
     packets_dir = _configured_path(PACKETS_DIR, "packets_dir")
 
     print("==> Bundle: Generating packets")
@@ -174,11 +162,6 @@ def cmd_bundle(
 
         print(f"  -> Generating: {session_id}")
         generate_packet(session, packet_path)
-        verify_reminder(
-            session_id,
-            packet_path.read_text(encoding="utf-8", errors="replace"),
-            "packet",
-        )
         session["status"] = "bundled"
         session["bundle_path"] = str(packet_path)
         count += 1
@@ -206,7 +189,6 @@ def generate_packet(session: dict[str, Any], packet_path: Path) -> None:
 def cmd_status(project_path: Optional[Path]) -> int:
     """Show status."""
     manifest_file = _configured_path(MANIFEST_FILE, "manifest_file")
-    knowledge_file = _configured_path(KNOWLEDGE_FILE, "knowledge_file")
     load_manifest = _configured_callable(_load_manifest, "load_manifest")
 
     print("==> Session Distiller Status")
@@ -238,8 +220,7 @@ def cmd_status(project_path: Optional[Path]) -> int:
                 print(f"  - {session['session_id']}")
         print("")
 
-    kb_lines = len(knowledge_file.read_text(encoding="utf-8").splitlines()) if knowledge_file.exists() else 0
-    print(f"Knowledge base: {knowledge_file} ({kb_lines} lines)")
+    print("Durable knowledge: harness-mem candidate review lifecycle")
     return 0
 
 
@@ -287,10 +268,10 @@ def cmd_run(
     print("")
     print("Next steps:")
     print("  1. AI reads packets/")
-    print("  2. AI writes session notes -> distilled/sessions/")
-    print("  3. AI updates knowledge-base.md only for stable reusable lessons")
-    print("  4. AI decides on project rules promotion")
-    print("  5. User/agent invokes /hm:mark SESSION-ID distilled")
+    print("  2. AI extracts candidate drafts from session evidence")
+    print("  3. AI exports candidates through harness-mem suggest_* tools")
+    print("  4. User/agent invokes /hm:review for durable memory")
+    print("  5. User/agent invokes /hm:mark SESSION-ID distilled if archiving artifacts")
     print("")
 
     return cmd_status(project_path)
