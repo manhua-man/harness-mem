@@ -38,9 +38,21 @@ Default slash command sync installs only the Daily profile:
 Optional command profiles must be explicit:
 
 ```powershell
-.\plugins\harness-mem\scripts\install.ps1 -WithMaintenanceCommands
-.\plugins\harness-mem\scripts\install.ps1 -WithProductDocCommands
-.\plugins\harness-mem\scripts\install.ps1 -WithLabsCommands
+.\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Maintenance
+.\plugins\harness-mem\scripts\sync-commands.ps1 -Profile ProductDoc
+.\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Labs
+```
+
+`install.ps1` installs or updates the runtime. `sync-commands.ps1` only changes
+which `/hm:*` commands are visible in Claude Code; it does not reinstall the
+Python package or rerun doctor checks.
+
+The same command visibility sync is available from the CLI:
+
+```powershell
+harness-mem integration commands list
+harness-mem integration commands sync --profile daily
+harness-mem integration commands enable maintenance labs
 ```
 
 Skip slash command and skill sync on headless machines:

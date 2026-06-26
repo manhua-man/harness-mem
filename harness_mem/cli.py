@@ -21,16 +21,23 @@ from harness_mem.commands import (
     cmd_config_set,
     cmd_config_validate,
     cmd_doctor,
+    cmd_enable_command_profiles,
     cmd_export_json_snapshot,
     cmd_import,
     cmd_install_claude_hook,
     cmd_install_cursor_hook,
+    cmd_list_command_profiles,
     cmd_migrate_store_v2,
     cmd_prepare_knowledge_cache,
     cmd_purge,
     cmd_quickstart,
     cmd_rebuild_wiki_bridge,
     cmd_state_audit,
+    cmd_sync_commands,
+)
+from harness_mem.integration.command_sync import (
+    VALID_COMMAND_PROFILES,
+    VALID_OPTIONAL_GROUPS,
 )
 from harness_mem.commands.support import DEFAULT_DATA_DIR
 
@@ -47,16 +54,19 @@ __all__ = [
     "cmd_config_list",
     "cmd_config_validate",
     "cmd_doctor",
+    "cmd_enable_command_profiles",
     "cmd_export_json_snapshot",
     "cmd_import",
     "cmd_install_cursor_hook",
     "cmd_install_claude_hook",
+    "cmd_list_command_profiles",
     "cmd_migrate_store_v2",
     "cmd_prepare_knowledge_cache",
     "cmd_purge",
     "cmd_quickstart",
     "cmd_rebuild_wiki_bridge",
     "cmd_state_audit",
+    "cmd_sync_commands",
 ]
 
 
@@ -273,6 +283,54 @@ def main():
         "--force", action="store_true", help="Overwrite an existing hook"
     )
 
+    commands = integration_sub.add_parser(
+        "commands",
+        help="List or sync Claude Code /hm:* slash command profiles",
+        description=(
+            "Manage Claude Code /hm:* command visibility without reinstalling "
+            "the harness-mem runtime. Daily commands are the default; "
+            "maintenance, product-doc, and labs are explicit opt-in profiles."
+        ),
+    )
+    commands_sub = commands.add_subparsers(dest="commands_action")
+
+    commands_sub.add_parser("list", help="List available command profiles")
+
+    commands_sync = commands_sub.add_parser(
+        "sync",
+        help="Synchronize one command profile",
+    )
+    commands_sync.add_argument(
+        "--profile",
+        choices=VALID_COMMAND_PROFILES,
+        default="daily",
+        help="Command profile to sync (default: daily)",
+    )
+    commands_sync.add_argument(
+        "--include",
+        action="append",
+        choices=VALID_OPTIONAL_GROUPS,
+        default=[],
+        help="Additional optional group to include; may be repeated",
+    )
+    commands_sync.add_argument("--source-dir", help="Slash command source directory")
+    commands_sync.add_argument("--target-dir", help="Claude Code hm command directory")
+    commands_sync.add_argument("--dry-run", action="store_true")
+
+    commands_enable = commands_sub.add_parser(
+        "enable",
+        help="Enable optional command groups on top of Daily commands",
+    )
+    commands_enable.add_argument(
+        "profiles",
+        nargs="+",
+        choices=(*VALID_OPTIONAL_GROUPS, "full"),
+        help="Optional groups to enable",
+    )
+    commands_enable.add_argument("--source-dir", help="Slash command source directory")
+    commands_enable.add_argument("--target-dir", help="Claude Code hm command directory")
+    commands_enable.add_argument("--dry-run", action="store_true")
+
     args = parser.parse_args()
     command = getattr(args, "command_name", args.command)
 
@@ -364,6 +422,28 @@ def main():
             return cmd_install_cursor_hook(args.project_root, args.force)
         if args.integration_action == "install-claude-hook":
             return cmd_install_claude_hook(args.project_root, args.force)
+        if args.integration_action == "commands":
+            if args.commands_action is None:
+                commands.print_help()
+                return 0
+            if args.commands_action == "list":
+                return cmd_list_command_profiles()
+            if args.commands_action == "sync":
+                return cmd_sync_commands(
+                    profile=args.profile,
+                    include=args.include,
+                    source_dir=args.source_dir,
+                    target_dir=args.target_dir,
+                    dry_run=args.dry_run,
+                )
+            if args.commands_action == "enable":
+                return cmd_enable_command_profiles(
+                    profiles=args.profiles,
+                    source_dir=args.source_dir,
+                    target_dir=args.target_dir,
+                    dry_run=args.dry_run,
+                )
+            commands.error(f"Unknown commands action: {args.commands_action}")
         integration.error(f"Unknown integration action: {args.integration_action}")
 
     return 0

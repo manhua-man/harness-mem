@@ -23,11 +23,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from harness_mem import __version__
+from harness_mem.integration.command_sync import (
+    VALID_COMMAND_PROFILES,
+    known_command_names,
+    resolve_command_names,
+    sync_slash_commands,
+)
 from harness_mem.integration.installer import install_hook
 
 __all__ = [
     "cmd_install_cursor_hook",
     "cmd_install_claude_hook",
+    "cmd_list_command_profiles",
+    "cmd_sync_commands",
+    "cmd_enable_command_profiles",
 ]
 
 # Canonical operator-facing doc the generated hook headers point at.
@@ -91,3 +100,84 @@ def cmd_install_claude_hook(project_root: str | None, force: bool) -> int:
     root = _resolve_project_root(project_root)
     target_path = root / ".claude" / "hooks" / "after-turn.sh"
     return _install("claude_code_hook.sh.template", target_path, root, force)
+
+
+def cmd_list_command_profiles() -> int:
+    """Print available slash command profiles and their command sets."""
+
+    print("Claude Code slash command profiles:")
+    for profile in VALID_COMMAND_PROFILES:
+        commands = " ".join(f"/hm:{name}" for name in resolve_command_names(profile=profile))
+        print(f"  {profile}: {commands}")
+    print("")
+    print("Known command files:")
+    print("  " + " ".join(f"/hm:{name}" for name in known_command_names()))
+    return 0
+
+
+def _path_arg(value: str | None) -> Path | None:
+    return Path(value).expanduser().resolve() if value else None
+
+
+def _print_sync_result(result) -> int:
+    prefix = "[DRY-RUN] Would sync" if result.dry_run else "Synced"
+    commands = " ".join(f"/hm:{name}" for name in result.selected_commands)
+    print(f"{prefix} {len(result.selected_commands)} Claude Code slash commands to {result.destination_dir}")
+    print(f"  Available: {commands}")
+    if result.removed_commands:
+        removed = " ".join(f"/hm:{name}" for name in result.removed_commands)
+        print(f"  Removed: {removed}")
+    return 0
+
+
+def cmd_sync_commands(
+    *,
+    profile: str,
+    include: list[str] | None,
+    source_dir: str | None,
+    target_dir: str | None,
+    dry_run: bool,
+) -> int:
+    """Synchronize Claude Code slash commands without reinstalling runtime."""
+
+    try:
+        result = sync_slash_commands(
+            source_dir=_path_arg(source_dir),
+            destination_dir=_path_arg(target_dir),
+            profile=profile,
+            include=include or [],
+            dry_run=dry_run,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"command sync failed: {exc}", file=sys.stderr)
+        return 1
+    return _print_sync_result(result)
+
+
+def cmd_enable_command_profiles(
+    *,
+    profiles: list[str],
+    source_dir: str | None,
+    target_dir: str | None,
+    dry_run: bool,
+) -> int:
+    """Enable one or more optional command groups without reinstalling runtime."""
+
+    if "full" in profiles:
+        profile = "full"
+        include: list[str] = []
+    else:
+        profile = "daily"
+        include = profiles
+    try:
+        result = sync_slash_commands(
+            source_dir=_path_arg(source_dir),
+            destination_dir=_path_arg(target_dir),
+            profile=profile,
+            include=include,
+            dry_run=dry_run,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"command enable failed: {exc}", file=sys.stderr)
+        return 1
+    return _print_sync_result(result)

@@ -95,7 +95,7 @@ def version_drift_report(repo_root: Path | None = None) -> dict[str, Any]:
         "has_drift": bool(issues),
         "update_guidance": [
             "Codex plugin: reinstall or refresh plugins/harness-mem without mutating global config automatically.",
-            "Slash commands: rerun the host plugin install step so /hm:* registrations point at the current assets.",
+            "Slash commands: run sync-commands.ps1 or `harness-mem integration commands sync` so /hm:* registrations point at the current assets.",
             "MCP: restart the host MCP session after updating the runtime package.",
         ],
     }

@@ -286,9 +286,9 @@ Labs = 实验场
 | 分组 | 命令 | 默认 |
 |---|---|---|
 | Daily | `/hm:status`, `/hm:wake`, `/hm:search`, `/hm:search-all`, `/hm:distill`, `/hm:review` | 是 |
-| Maintenance | `/hm:mark`, `/hm:prune`, `/hm:review-kb`, `/hm:prune-kb`, `/hm:verify-entry` | 否，`-WithMaintenanceCommands` |
-| Product-doc bridge | `/hm:prd-sync` | 否，`-WithProductDocCommands` 或 maintenance |
-| Labs | `/hm:dream`, `/hm:metabolism`, review-helper experiments | 否，`-WithLabsCommands` |
+| Maintenance | `/hm:mark`, `/hm:prune`, `/hm:review-kb`, `/hm:prune-kb`, `/hm:verify-entry` | 否，`sync-commands.ps1 -Profile Maintenance` |
+| Product-doc bridge | `/hm:prd-sync` | 否，`sync-commands.ps1 -Profile ProductDoc` 或 maintenance |
+| Labs | `/hm:dream`, `/hm:metabolism`, review-helper experiments | 否，`sync-commands.ps1 -Profile Labs` |
 
 安装器建议：
 
@@ -296,11 +296,11 @@ Labs = 实验场
 .\install.ps1 -RegisterClaude
 # 默认只装 Daily
 
-.\install.ps1 -RegisterClaude -WithMaintenanceCommands
-# 显式安装 Maintenance
+.\sync-commands.ps1 -Profile Maintenance
+# 不重新安装 runtime，只打开 Maintenance 命令
 
-.\install.ps1 -RegisterClaude -WithLabsCommands
-# 显式安装 Labs
+.\sync-commands.ps1 -Profile Labs
+# 不重新安装 runtime，只打开 Labs 命令
 ```
 
 默认安装后不应该看到：

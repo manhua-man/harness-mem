@@ -36,6 +36,13 @@ cd harness-mem
 ```
 
 The plugin also includes `/hm:*` command files for common memory actions.
+The installer syncs only the Daily command profile by default. Optional command
+profiles can be shown later without reinstalling the runtime:
+
+```powershell
+.\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Maintenance
+.\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Labs
+```
 
 ## Generic MCP Client
 

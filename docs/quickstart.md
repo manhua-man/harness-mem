@@ -38,6 +38,14 @@ optionally register MCP:
 .\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
+That install syncs only the Daily `/hm:*` commands by default. To show optional
+maintenance or labs commands later, sync command visibility without reinstalling:
+
+```powershell
+.\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Maintenance
+.\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Labs
+```
+
 ## Daily Loop
 
 Ask your Agent to use `harness-mem` in plain language:
