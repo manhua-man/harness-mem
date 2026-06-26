@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Iterable
 
 from .models import ReadinessDecision
@@ -39,6 +40,21 @@ def contains_pending_draft(payload: Any) -> bool:
             if str(item.get(field, "")).lower() == "pending":
                 return True
     return False
+
+
+def is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def raw_deletion_root(path: Path, roots: Iterable[Path]) -> Path | None:
+    for root in roots:
+        if is_relative_to(path, root):
+            return root
+    return None
 
 
 def suggest_only_violations(tool_names: Iterable[str]) -> list[str]:

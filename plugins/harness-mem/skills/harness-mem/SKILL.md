@@ -19,8 +19,8 @@ Treat the project as real production context:
 - Use `suggest_*`, `list_candidates`, and `confirm_*` / `reject_*` for stable rules the user explicitly wants remembered.
 - Confirmed truth can be maintained automatically, but it must not be silently overwritten; durable changes go through candidate / review / supersede / ledger.
 - Cross-project skills can be reused, but they must not pollute default wake; shared skills are searched, hinted, and expanded explicitly.
-- Use `/hm:mark`, `/hm:prune`, `/hm:review-kb`, `/hm:prune-kb`, `/hm:verify-entry`, and `/hm:prd-sync` for distillation maintenance. These are user-facing Slash entries; the repo-local script is only the implementation layer.
-- Do not delete raw agent session files unless the user explicitly asks for raw-file cleanup through a maintenance entry.
+- Keep the default surface to Daily commands: wake, search, distill, and review. Maintenance, product-doc, and labs commands are opt-in install profiles.
+- Do not delete raw agent session files unless the user explicitly asks for raw-file cleanup through an opt-in maintenance entry.
 
 In Claude Code, prefer the no-hyphen MCP alias names such as
 `mcp__harness_mem__get_project_status` and
@@ -34,7 +34,6 @@ In Claude Code, prefer the no-hyphen MCP alias names such as
 - `prepare_session_distill`: one-shot ingest plus recent observation packet for `/hm:distill`.
 - `tools/session-distill`: default user-facing distillation playbook that reads evidence and writes pending candidates.
 - `auto_review_candidates`: shared low-risk review policy for `/hm:distill` preview and `/hm:review` apply flows.
-- `/hm:mark` / `/hm:prune` / `/hm:review-kb` / `/hm:prune-kb` / `/hm:verify-entry` / `/hm:prd-sync`: Slash maintenance entries for session closure, manifest cleanup, knowledge-base audit, and candidate PRD sync.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
 - `suggest_*` / `list_candidates` / `confirm_*`: create and review durable memory candidates.
 - `purge` remains a CLI/debug operation for explicit cleanup, and only soft-deletes harness-mem indexed data.
@@ -69,16 +68,11 @@ If the user explicitly wants cross-project borrowing, call
 and present results grouped by `project_name`, keeping current-project hits
 separate from other projects worth borrowing from.
 
-For distillation maintenance:
+For opt-in maintenance:
 
-Use the matching `/hm:*` entry rather than presenting a terminal command:
-
-- `/hm:mark <session-id> distilled [--keep-raw]`
-- `/hm:prune --statuses distilled,skipped --source-missing`
-- `/hm:review-kb --next 20`
-- `/hm:prune-kb --statuses stale,superseded`
-- `/hm:verify-entry <session-id|keyword>`
-- `/hm:prd-sync [--apply]`
+Use maintenance/product-doc Slash entries only when the user explicitly asks
+for session closure, raw cleanup, knowledge-base audit, or candidate PRD sync.
+Those commands are not part of the default Daily install profile.
 
 When the user states a durable project rule:
 

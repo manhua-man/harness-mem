@@ -177,6 +177,10 @@ from harness_mem.runtime_cost import (  # noqa: E402
     observe_mcp_surface_cost,
     surface_cost_report,
 )
+from harness_mem.mcp.tool_registry import (  # noqa: E402
+    McpToolProfile,
+    normalize_mcp_tool_profile,
+)
 from harness_mem.runtime_health import runtime_health_report  # noqa: E402
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend  # noqa: E402
 from harness_mem.storage.local_project_profile_store import (  # noqa: E402
@@ -189,16 +193,6 @@ logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
 logger = logging.getLogger("harness_mem_mcp")
 
 DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
-McpToolProfile = Literal[
-    "core-read",
-    "minimal",
-    "distill-suggest",
-    "review-write",
-    "maintenance",
-    "labs",
-    "full",
-]
-
 _METABOLISM_PREVIEW_DOCTOR_POINTER = (
     "Run `harness-mem doctor` to inspect local data directory, "
     "signal store, and project context."
@@ -1950,11 +1944,14 @@ def tool_update_project_profile(
         return {"success": False, "error": "project_name must not be empty"}
     normalized_mcp_tool_profile: McpToolProfile | None = None
     if mcp_tool_profile is not None:
-        normalized_mcp_tool_profile = _normalize_mcp_tool_profile(mcp_tool_profile)
+        normalized_mcp_tool_profile = normalize_mcp_tool_profile(mcp_tool_profile)
         if normalized_mcp_tool_profile is None:
             return {
                 "success": False,
-                "error": "mcp_tool_profile must be one of: full, minimal",
+                "error": (
+                    "mcp_tool_profile must be one of: core-read, minimal, "
+                    "distill-suggest, review-write, maintenance, labs, full"
+                ),
             }
     normalized_maintenance_profile: MaintenanceProfile | None = None
     if maintenance_profile is not None:
@@ -4773,7 +4770,7 @@ from harness_mem.mcp.tool_specs import (  # noqa: E402,F401
 )
 from harness_mem.mcp.tool_registry import (  # noqa: E402
     hidden_tool_error,
-    normalize_mcp_tool_profile,
+    resolve_mcp_tool_profile,
     tool_descriptor,
     visible_tool_name_set,
     visible_tool_names,
@@ -4847,80 +4844,11 @@ TOOLS: dict[str, ToolSpec] = build_tools({
 })
 
 
-def _normalize_mcp_tool_profile(value: object) -> McpToolProfile | None:
-    return cast(McpToolProfile | None, normalize_mcp_tool_profile(value))
-
-
 def _normalize_maintenance_profile(value: object) -> MaintenanceProfile | None:
     profile = str(value or "").strip().lower()
     if profile in VALID_MAINTENANCE_PROFILES:
         return cast(MaintenanceProfile, profile)
     return None
-
-
-def _profile_project_name(params: dict[str, Any]) -> str | None:
-    project_name = params.get("project_name")
-    if not project_name and isinstance(params.get("arguments"), dict):
-        project_name = params["arguments"].get("project_name")
-    if isinstance(project_name, str) and project_name.strip():
-        return project_name.strip()
-    return get_active_project()
-
-
-def _project_profile_mcp_tool_profile(project_name: str | None) -> McpToolProfile | None:
-    if not project_name:
-        return None
-    try:
-        from harness_mem.commands import support as _support
-
-        profile = asyncio.run(LocalProjectProfileStore(_support.DEFAULT_DATA_DIR).get(project_name))
-    except Exception:
-        logger.exception("Failed to read project MCP tool profile for %s", project_name)
-        return None
-    if profile is None:
-        return None
-    return _normalize_mcp_tool_profile(profile.mcp_tool_profile)
-
-
-def _resolve_mcp_tool_profile(params: dict[str, Any]) -> dict[str, Any]:
-    profile = "core-read"
-    source = "default"
-    degraded_reason = None
-
-    requested_profile = params.get("mcp_tool_profile") or params.get("profile")
-    if not requested_profile and isinstance(params.get("arguments"), dict):
-        requested_profile = params["arguments"].get("mcp_tool_profile")
-    if requested_profile:
-        normalized = _normalize_mcp_tool_profile(requested_profile)
-        if normalized is None:
-            degraded_reason = "invalid_requested_profile"
-        else:
-            profile = normalized
-            source = "request"
-            degraded_reason = None
-
-    env_profile = os.environ.get("HARNESS_MEM_MCP_TOOL_PROFILE")
-    if env_profile:
-        normalized = _normalize_mcp_tool_profile(env_profile)
-        if normalized is None:
-            degraded_reason = "invalid_env_profile"
-        else:
-            profile = normalized
-            source = "env"
-
-    project_name = _profile_project_name(params)
-    project_profile = _project_profile_mcp_tool_profile(project_name)
-    if project_profile is not None:
-        profile = project_profile
-        source = "project_profile"
-        degraded_reason = None
-
-    return {
-        "profile": profile,
-        "source": source,
-        "project_name": project_name,
-        "degraded_reason": degraded_reason,
-    }
 
 
 # =============================================================================
@@ -4969,7 +4897,7 @@ def handle_request(request: dict) -> dict | None:
         return None
 
     if method == "tools/list":
-        profile_info = _resolve_mcp_tool_profile(params)
+        profile_info = resolve_mcp_tool_profile(params)
         profile = profile_info["profile"]
         visible_names = visible_tool_names(TOOLS, profile)
         return {
@@ -5001,7 +4929,7 @@ def handle_request(request: dict) -> dict | None:
                 "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
             }
 
-        profile_info = _resolve_mcp_tool_profile(params)
+        profile_info = resolve_mcp_tool_profile(params)
         profile = profile_info["profile"]
         visible_for_profile = visible_tool_name_set(TOOLS, profile)
         if tool_name not in visible_for_profile:

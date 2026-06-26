@@ -14,7 +14,6 @@ import os
 import re
 import shutil
 import sys
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -28,6 +27,12 @@ if _LIB_DIR.exists():
 from lib.parser import (  # type: ignore[import-untyped]  # noqa: E402  # isort:skip
     list_session_files,
     parse_claude_jsonl_session,
+)
+from lib.guardrails import contains_pending_draft, raw_deletion_root  # noqa: E402
+from lib.models import KnowledgeEntry  # noqa: E402
+from lib.packet import (  # noqa: E402
+    packet_audit_from_jsonl_file,
+    render_session_packet_markdown,
 )
 
 
@@ -93,24 +98,6 @@ CODEX_RAW_ROOTS = (
     Path.home() / ".codex" / "archived_sessions",
     Path.home() / ".codex" / "sessions",
 )
-
-
-@dataclass
-class PacketAudit:
-    coverage: str
-    compaction_events: int
-    invalid_json_lines: int
-    orphan_tool_results: int
-
-
-@dataclass
-class KnowledgeEntry:
-    section: str
-    line_no: int
-    text: str
-    source_session_id: Optional[str]
-    status: str
-    reasons: list[str]
 
 
 def utc_now() -> str:
@@ -279,110 +266,19 @@ def cmd_bundle(
     return 0
 
 
-def inspect_session_file(session_path: Path) -> PacketAudit:
-    compaction_events = 0
-    invalid_json_lines = 0
-    orphan_tool_results = 0
-
-    content = session_path.read_text(encoding="utf-8-sig", errors="replace")
-    for line in content.splitlines():
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line.strip())
-        except json.JSONDecodeError:
-            invalid_json_lines += 1
-            continue
-
-        if record.get("subtype") == "compact_boundary" or record.get("compactMetadata"):
-            compaction_events += 1
-
-        content_items = record.get("message", {}).get("content", "")
-        if isinstance(content_items, list):
-            for item in content_items:
-                if isinstance(item, dict) and item.get("type") == "tool_result":
-                    orphan_tool_results += 1
-
-    coverage = "partial" if compaction_events or invalid_json_lines or orphan_tool_results else "high"
-    return PacketAudit(
-        coverage=coverage,
-        compaction_events=compaction_events,
-        invalid_json_lines=invalid_json_lines,
-        orphan_tool_results=orphan_tool_results,
-    )
-
-
 def generate_packet(session: dict[str, Any], packet_path: Path) -> None:
     """Generate a packet file with actual session content."""
     session_path = Path(session["file_path"])
-    audit = inspect_session_file(session_path)
+    audit = packet_audit_from_jsonl_file(session_path)
     turns = parse_claude_jsonl_session(
         session_path,
         filter_xml_directives=True,
         on_error="warn",
     )
-
-    lines = [
-        f"# Session Packet: {session['session_id']} (FULL)",
-        "",
-        "## Metadata",
-        "",
-        f"- Source: `{session['file_name']}`",
-        f"- Size: {session['size']}",
-        f"- Path: `{session['file_path']}`",
-        "",
-        "## Packet Audit",
-        "",
-        f"- Coverage: `{audit.coverage}`",
-        f"- Compaction events: {audit.compaction_events}",
-        f"- Invalid JSON lines skipped: {audit.invalid_json_lines}",
-        f"- Orphan tool results: {audit.orphan_tool_results}",
-        "",
-        "## Distillation Reminder",
-        "",
-        "- Promote stable workflows, commands, file maps",
-        "- Reject noise: token accounting, duplicate context",
-        "- One-off context stays in session note",
-        "",
-    ]
-
-    if not turns:
-        lines.extend(["## Content", "", "(No parseable content found in this session)", ""])
-    else:
-        for i, turn in enumerate(turns, 1):
-            lines.extend([f"## Turn {i}", ""])
-
-            if turn.get("user"):
-                lines.extend(["### User Request", "", "```text", turn["user"], "```", ""])
-
-            if turn.get("assistant"):
-                lines.extend(["### Assistant Response", ""])
-                for resp in turn["assistant"][:2]:
-                    lines.extend(["```text", resp, "```", ""])
-
-            if turn.get("tools"):
-                lines.extend(["### Tools Used", ""])
-                for tool in turn["tools"][:5]:
-                    lines.append(f"- `{tool['name']}`: {tool['input']}")
-                lines.append("")
-
-    lines.extend(
-        [
-            "---",
-            "",
-            "## Suggested Next Step",
-            "",
-            "1. Read this packet",
-            "2. Query existing memory for dedup",
-            f"3. Write session note -> distilled/sessions/{session['session_id']}.md",
-            "4. Append stable lessons to knowledge-base.md if warranted",
-            "5. Decide whether to promote to project rules",
-            f"6. Use `/hm:mark {session['session_id']} distilled`",
-            "",
-        ]
+    packet_path.write_text(
+        render_session_packet_markdown(session, audit, turns),
+        encoding="utf-8",
     )
-
-    packet_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def cmd_status(project_path: Optional[Path]) -> int:
@@ -504,18 +400,6 @@ def validate_session_note(session_id: str, session: dict[str, Any]) -> list[str]
     return errors
 
 
-def iter_dicts(value: Any) -> list[dict[str, Any]]:
-    found: list[dict[str, Any]] = []
-    if isinstance(value, dict):
-        found.append(value)
-        for item in value.values():
-            found.extend(iter_dicts(item))
-    elif isinstance(value, list):
-        for item in value:
-            found.extend(iter_dicts(item))
-    return found
-
-
 def draft_has_pending(session_id: str) -> tuple[bool, Optional[Path]]:
     draft_path = MEMORY_DRAFTS_DIR / f"{session_id}.json"
     if not draft_path.exists():
@@ -525,26 +409,7 @@ def draft_has_pending(session_id: str) -> tuple[bool, Optional[Path]]:
     except json.JSONDecodeError:
         return True, draft_path
 
-    for item in iter_dicts(payload):
-        for field in ("status", "review_status", "readiness"):
-            if str(item.get(field, "")).lower() == "pending":
-                return True, draft_path
-    return False, draft_path
-
-
-def is_relative_to(path: Path, parent: Path) -> bool:
-    try:
-        path.resolve().relative_to(parent.resolve())
-        return True
-    except ValueError:
-        return False
-
-
-def raw_deletion_root(path: Path) -> Optional[Path]:
-    for root in CODEX_RAW_ROOTS:
-        if is_relative_to(path, root):
-            return root
-    return None
+    return contains_pending_draft(payload), draft_path
 
 
 def append_pruned_source(record: dict[str, Any]) -> None:
@@ -569,7 +434,7 @@ def maybe_delete_raw_source(session: dict[str, Any], keep_raw: bool) -> None:
         session.setdefault("raw_missing_seen_at", utc_now())
         return
 
-    allowed_root = raw_deletion_root(raw_path)
+    allowed_root = raw_deletion_root(raw_path, CODEX_RAW_ROOTS)
     if allowed_root is None:
         session["raw_retained_reason"] = "outside_codex_raw_roots"
         return

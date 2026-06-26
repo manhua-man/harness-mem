@@ -8,6 +8,7 @@ SESSION_DISTILL_ROOT = Path(__file__).resolve().parents[1] / "tools" / "session-
 sys.path.insert(0, str(SESSION_DISTILL_ROOT))
 
 from lib import cli  # noqa: E402
+from lib.guardrails import contains_pending_draft, raw_deletion_root  # noqa: E402
 
 
 def _point_cli_at_tmp(monkeypatch, tmp_path: Path) -> Path:
@@ -90,3 +91,30 @@ def test_prune_manifest_requires_source_missing_guardrail(monkeypatch, tmp_path:
 
     assert result == 1
     assert len(manifest["sessions"]) == 1
+
+
+def test_shared_pending_draft_guardrail_scans_nested_payloads() -> None:
+    payload = {
+        "session": {
+            "candidates": [
+                {"status": "accepted"},
+                {"review": {"readiness": "pending"}},
+            ]
+        }
+    }
+
+    assert contains_pending_draft(payload) is True
+
+
+def test_shared_raw_deletion_root_guardrail_requires_allowed_root(tmp_path: Path) -> None:
+    allowed = tmp_path / "allowed"
+    outside = tmp_path / "outside"
+    raw_path = allowed / "session.jsonl"
+    outside_path = outside / "session.jsonl"
+    raw_path.parent.mkdir()
+    outside_path.parent.mkdir()
+    raw_path.write_text("{}", encoding="utf-8")
+    outside_path.write_text("{}", encoding="utf-8")
+
+    assert raw_deletion_root(raw_path, (allowed,)) == allowed
+    assert raw_deletion_root(outside_path, (allowed,)) is None
