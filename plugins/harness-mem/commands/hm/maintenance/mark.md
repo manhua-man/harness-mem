@@ -27,15 +27,13 @@ tags: [harness-mem, mark, distill, audit]
    - partial packet 没写 raw review
    - `Promotion Decision` 仍是 pending/TODO
    - memory draft 还有 pending
-   - 同源 `knowledge-base.md` 条目不稳定
 4. 若成功，告诉用户：
    - session 已落 `distilled`
    - raw 是否删除、保留或因非白名单路径未删除
    - manifest 是否保留 `source_missing` / `raw_deleted_at`
-   - 是否出现 `/hm:review-kb` 或 `/hm:verify-entry` 轻提醒
 
 **Notes**
 
 - 不要把这包装成让用户手敲 CLI；slash agent 自己调用实现层。
 - raw 删除只允许实现层的安全白名单执行；非白名单 raw 保留并说明原因。
-- 轻提醒不是强制步骤；只有用户要求或当前任务需要时才继续执行提醒里的复查入口。
+- durable memory 只走 harness-mem candidate / review / confirmed memory 链路；本入口不维护独立 KB 或 PRD 文档层。

@@ -2,7 +2,7 @@
 name: "HM: Distill"
 description: 整理最近会话，生成候选记忆，并以 preview-only 方式预审
 category: Memory
-tags: [harness-mem, distill, memory, skill]
+tags: [harness-mem, distill, memory]
 ---
 
 把指定项目最近的会话灌入 verbatim 层，使用仓库里的 `tools/session-distill` 主动提炼候选记忆，随后运行 auto-review preview。默认不确认 durable memory；确认、拒绝、替换必须通过 `/hm:review` 或用户显式要求的 apply 模式。
@@ -51,7 +51,7 @@ tags: [harness-mem, distill, memory, skill]
    - 默认读取并遵循 `tools/session-distill/SKILL.md`
    - 按 `tools/session-distill/references/distillation-rules.md` 判断哪些结论值得进入候选层
    - 直接使用 `prepare_session_distill` 返回的 observations 作为 evidence packet
-   - 用 MCP `distill-suggest` profile 下的 `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` / `create_task_handoff` 写入 pending 候选
+   - 用 MCP `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` / `create_task_handoff` 写入 pending 候选
    - 每条候选必须带 source evidence，例如 observation id、session id、packet turn、命令或文件路径
 
    不要退回旧的 heuristic fallback。v2.0 已移除正则提取式 distill；
@@ -62,11 +62,10 @@ tags: [harness-mem, distill, memory, skill]
    调 MCP `auto_review_candidates`：
    - `project_name=<project>`
    - `apply=false`
-   - MCP profile 必须是 `distill-suggest` 或更高；默认 `core-read` 不暴露 candidate suggestion / auto-review preview
 
    MCP 不可用时，直接说明 runtime 工具不可用；CLI 只是开发者本地排障层，不要求普通用户手动运行。
 
-   默认不要确认、拒绝或替换候选。低风险候选的判断必须复用 shared auto-review policy，而不是在 slash 文档里手写另一套规则。用户明确要求“自动处理低风险候选”时，才允许在 `review-write` profile 下调用显式 apply 模式或转入 `/hm:review`。
+   默认不要确认、拒绝或替换候选。低风险候选的判断必须复用 shared auto-review policy，而不是在 slash 文档里手写另一套规则。用户明确要求“自动处理低风险候选”时，也不要调用 heuristic apply；转入 `/hm:review`，逐条使用显式 `confirm_*` / `reject_*`。
 
    摘要必须以 `auto_review_candidates` 返回的结果为准：
    - `auto_confirmed`

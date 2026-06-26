@@ -1,9 +1,7 @@
 param(
-    [ValidateSet("Daily", "Maintenance", "ProductDoc", "Labs", "Full")]
+    [ValidateSet("Daily", "Maintenance", "Full")]
     [string]$Profile = "Daily",
     [switch]$IncludeMaintenanceCommands,
-    [switch]$IncludeProductDocCommands,
-    [switch]$IncludeLabsCommands,
     [string]$TargetDir,
     [switch]$DryRun
 )
@@ -23,8 +21,6 @@ $python = Get-Command python -ErrorAction Stop
 $profileArg = switch ($Profile) {
     "Daily" { "daily" }
     "Maintenance" { "maintenance" }
-    "ProductDoc" { "product-doc" }
-    "Labs" { "labs" }
     "Full" { "full" }
 }
 
@@ -37,12 +33,6 @@ $cliArgs = @(
 
 if ($IncludeMaintenanceCommands) {
     $cliArgs += @("--include", "maintenance")
-}
-if ($IncludeProductDocCommands) {
-    $cliArgs += @("--include", "product-doc")
-}
-if ($IncludeLabsCommands) {
-    $cliArgs += @("--include", "labs")
 }
 if ($TargetDir) {
     $cliArgs += @("--target-dir", $TargetDir)

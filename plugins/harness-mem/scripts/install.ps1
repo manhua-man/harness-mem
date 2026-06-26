@@ -2,9 +2,7 @@ param(
     [switch]$WithHybrid,
     [switch]$RegisterClaude,
     [switch]$NoSlashCommands,
-    [switch]$WithMaintenanceCommands,
-    [switch]$WithProductDocCommands,
-    [switch]$WithLabsCommands
+    [switch]$WithMaintenanceCommands
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,20 +31,10 @@ if (-not $NoSlashCommands) {
 
     if ($WithMaintenanceCommands) {
         $syncArgs = @("-Profile", "Maintenance")
-    } elseif ($WithProductDocCommands) {
-        $syncArgs = @("-Profile", "ProductDoc")
-    }
-    if ($WithLabsCommands) {
-        if ($WithMaintenanceCommands -or $WithProductDocCommands) {
-            $syncArgs += "-IncludeLabsCommands"
-        } else {
-            $syncArgs = @("-Profile", "Labs")
-        }
     }
     & $syncCommands @syncArgs
     Write-Host "  Change command visibility later without reinstalling:"
     Write-Host "  .\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Maintenance"
-    Write-Host "  .\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Labs"
 
     $skillSrc = Join-Path $pluginRoot "skills"
     $skillDst = Join-Path $env:USERPROFILE ".claude\skills"
@@ -57,7 +45,7 @@ if (-not $NoSlashCommands) {
         Copy-Item -Path (Join-Path $skillSrc "*") -Destination $skillDst -Recurse -Force
         $skillCount = (Get-ChildItem $skillSrc -Directory).Count
         Write-Host "Installed $skillCount Claude Code skills to $skillDst"
-        Write-Host "  Available: harness-mem / harness-mem-autopilot"
+        Write-Host "  Available: harness-mem / harness-mem-autopilot / harness-mem-skill-governance"
     } else {
         Write-Warning "Skill source not found at $skillSrc; skipping."
     }

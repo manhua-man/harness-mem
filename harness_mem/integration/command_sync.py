@@ -7,38 +7,37 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-CommandProfile = Literal["daily", "maintenance", "product-doc", "labs", "full"]
-OptionalCommandGroup = Literal["maintenance", "product-doc", "labs"]
+CommandProfile = Literal["daily", "maintenance", "full"]
+OptionalCommandGroup = Literal["maintenance"]
 
-DAILY_COMMANDS = ("status", "wake", "search", "search-all", "distill", "review")
-MAINTENANCE_COMMANDS = ("mark", "prune", "review-kb", "prune-kb", "verify-entry")
-PRODUCT_DOC_COMMANDS = ("prd-sync",)
-LABS_COMMANDS = ("dream",)
+DAILY_COMMANDS = ("status", "wake", "search", "search-all", "distill", "review", "dream")
+MAINTENANCE_COMMANDS = ("mark", "prune")
+REMOVED_COMMANDS = ("review-kb", "prune-kb", "verify-entry", "prd-sync")
 
 VALID_COMMAND_PROFILES: tuple[CommandProfile, ...] = (
     "daily",
     "maintenance",
-    "product-doc",
-    "labs",
     "full",
 )
 VALID_OPTIONAL_GROUPS: tuple[OptionalCommandGroup, ...] = (
     "maintenance",
-    "product-doc",
-    "labs",
 )
 
 _PROFILE_GROUPS: dict[CommandProfile, tuple[OptionalCommandGroup, ...]] = {
     "daily": (),
-    "maintenance": ("maintenance", "product-doc"),
-    "product-doc": ("product-doc",),
-    "labs": ("labs",),
-    "full": ("maintenance", "product-doc", "labs"),
+    "maintenance": ("maintenance",),
+    "full": ("maintenance",),
 }
 _GROUP_COMMANDS: dict[OptionalCommandGroup, tuple[str, ...]] = {
     "maintenance": MAINTENANCE_COMMANDS,
-    "product-doc": PRODUCT_DOC_COMMANDS,
-    "labs": LABS_COMMANDS,
+}
+_COMMAND_GROUPS: dict[str, str] = {
+    **{command: "daily" for command in DAILY_COMMANDS},
+    **{
+        command: group
+        for group, commands in _GROUP_COMMANDS.items()
+        for command in commands
+    },
 }
 
 
@@ -112,6 +111,21 @@ def known_command_names() -> tuple[str, ...]:
     return tuple(commands)
 
 
+def source_path_for_command(source_dir: Path, command: str) -> Path:
+    """Return the profile-scoped slash command source path.
+
+    The source tree is grouped by command profile, while the installed Claude
+    command directory remains flat so users still invoke `/hm:<command>`.
+    """
+    group = _COMMAND_GROUPS.get(command)
+    if group is None:
+        raise ValueError(f"unknown slash command: {command}")
+    nested = source_dir / group / f"{command}.md"
+    if nested.exists():
+        return nested
+    return source_dir / f"{command}.md"
+
+
 def sync_slash_commands(
     *,
     source_dir: Path | None = None,
@@ -134,14 +148,14 @@ def sync_slash_commands(
     removed: list[str] = []
 
     for command in selected:
-        source = resolved_source / f"{command}.md"
+        source = source_path_for_command(resolved_source, command)
         if not source.exists():
             raise FileNotFoundError(f"Slash command source not found: {source}")
 
     if not dry_run:
         destination.mkdir(parents=True, exist_ok=True)
 
-    for command in known_command_names():
+    for command in (*known_command_names(), *REMOVED_COMMANDS):
         target = destination / f"{command}.md"
         if command not in selected_set and target.exists():
             removed.append(command)
@@ -149,7 +163,7 @@ def sync_slash_commands(
                 target.unlink()
 
     for command in selected:
-        source = resolved_source / f"{command}.md"
+        source = source_path_for_command(resolved_source, command)
         target = destination / f"{command}.md"
         if not dry_run:
             shutil.copy2(source, target)

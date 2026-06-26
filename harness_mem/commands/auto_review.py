@@ -12,7 +12,7 @@ Shared policy contract
 This module is the **single source of truth** for low-risk auto-review
 judgment across every entrypoint that writes candidates:
 
-- the ``/hm:distill`` slash command (Claude Code ``plugins/harness-mem/commands/hm/distill.md``),
+- the ``/hm:distill`` slash command (Claude Code ``plugins/harness-mem/commands/hm/daily/distill.md``),
 - the ``session-distill`` skill (``tools/session-distill/SKILL.md``), and
 - the MCP ``auto_review_candidates`` tool exposed by
   ``harness_mem/mcp/tool_handlers.py::tool_auto_review_candidates``.

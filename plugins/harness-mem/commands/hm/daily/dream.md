@@ -2,7 +2,7 @@
 name: "HM: Dream"
 description: 查看或触发 v3.1 自动梦境维护账本
 category: Memory
-tags: [harness-mem, dream, maintenance]
+tags: [harness-mem, dream, daily]
 ---
 
 通过 MCP 查看 v3.1 DreamRun 账本，或在用户明确要求时触发一次 opt-in dream 维护。
@@ -33,7 +33,7 @@ tags: [harness-mem, dream, maintenance]
 2. **默认读取最近账本**
    - 调 MCP `dream_ledger`：
      - `project_name=<project>`
-   - 如果没有账本，说明还没有 DreamRun，并提示这是默认关闭能力；用户需要显式开启配置或明确要求现在跑一次。
+   - 如果没有账本，说明还没有 DreamRun；梦境默认开启，但仍然要满足 scheduler gate 或由用户明确要求现在跑一次。
 
 3. **展示摘要**
    - 按 `applied` / `rejected` / `archived` / `failed` 分组
@@ -53,7 +53,7 @@ tags: [harness-mem, dream, maintenance]
 
 6. **用户明确要求自动 tick**
    - 只有当用户问“检查是否该自动跑 / 跑一次 scheduler tick”时，调 MCP `dream_auto_tick`
-   - 解释 tick 可能因为 `dream.auto.enabled=false`、没有活动、未到间隔而跳过
+   - 解释 tick 可能因为用户显式设置了 `dream.auto.enabled=false`、没有活动、未到间隔而跳过
 
 7. **撤销**
    - 用户说“撤销第 N 条”时，先把 N 映射到当前 DreamRun item id
