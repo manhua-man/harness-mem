@@ -45,12 +45,6 @@ from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.event_log import StateEventType, append_state_event
 from harness_mem.file_context import build_file_context
 from harness_mem.guided_flow import build_guided_flow, guided_flow_drilldown_hint
-from harness_mem.knowledge_cache import (
-    COMPACT_RENDERER_NAME,
-    knowledge_cache_health,
-    load_compact_wake_payload,
-    render_compact_wake_payload,
-)
 from harness_mem.mcp.tool_registry import McpToolProfile, normalize_mcp_tool_profile
 from harness_mem.read_api import (
     parse_relative_time_window,
@@ -336,16 +330,12 @@ def _maintenance_profile_dry_run(
     counts: dict[str, Any],
 ) -> dict[str, Any]:
     definition = _maintenance_profile_definition(name)
-    generated_cache = counts.get("generated_cache", {})
     temporal_summary = counts.get("temporal_summary", {})
     pending = int(counts.get("pending_candidate_count", 0) or 0)
-    stale_sources = int(generated_cache.get("stale_source_count", 0) or 0)
-    invalid_claims = int(generated_cache.get("invalid_claim_count", 0) or 0)
     historical = int(temporal_summary.get("historical_total", 0) or 0)
     if name == "weekly-dream":
         candidate_counts = {
             "pending_candidates": pending,
-            "stale_sources": stale_sources,
             "historical_truths": historical,
         }
         has_work = any(candidate_counts.values())
@@ -365,8 +355,6 @@ def _maintenance_profile_dry_run(
     else:
         candidate_counts = {
             "pending_candidates": pending,
-            "stale_sources": stale_sources,
-            "invalid_generated_claims": invalid_claims,
         }
         has_work = any(candidate_counts.values())
         summary = _maintenance_summary(
@@ -394,11 +382,8 @@ def _suggest_maintenance_profile(
 ) -> str | None:
     if active_profile:
         return active_profile
-    generated_cache = counts.get("generated_cache", {})
     pending = int(counts.get("pending_candidate_count", 0) or 0)
-    stale = int(generated_cache.get("stale_source_count", 0) or 0)
-    invalid = int(generated_cache.get("invalid_claim_count", 0) or 0)
-    if pending or stale or invalid:
+    if pending:
         return "post-distill-metabolism"
     if int(counts.get("memory_entry_count", 0) or 0):
         return "weekly-dream"
@@ -579,7 +564,6 @@ def _search_dx_metadata(
 def _wake_dx_metadata(
     *,
     success: bool,
-    renderer: str,
     fallback_reason: str | None,
     source_coverage: dict[str, int] | None,
     temporal_intent_mode: Literal["as_of", "history"] | None = None,
@@ -622,7 +606,7 @@ def _wake_dx_metadata(
         next_actions.append(_temporal_query_action(temporal_intent_mode))
     return {
         "why_this_result": (
-            f"Generated {renderer} wake context from project profile, rules, "
+            "Generated wake context from project profile, rules, "
             f"handoffs, and task-aware retrieval; source coverage: {coverage}."
         ),
         "next_actions": next_actions,
@@ -1375,7 +1359,6 @@ def tool_get_project_profile(project_name: str) -> dict:
         "description": profile.description,
         "stacks": profile.stacks,
         "key_files": profile.key_files,
-        "curated_doc_paths": profile.curated_doc_paths,
         "mcp_tool_profile": profile.mcp_tool_profile,
         "maintenance_profile": profile.maintenance_profile,
         "retrieval_profile": profile.retrieval_profile,
@@ -1449,13 +1432,6 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
     )
     data_dir = _support.DEFAULT_DATA_DIR
     profile = await LocalProjectProfileStore(data_dir).get(project_name)
-    knowledge_report = await knowledge_cache_health(
-        backend,
-        data_dir=data_dir,
-        project_name=project_name,
-        profile=profile,
-        project_root=find_project_root(project_name),
-    )
     runtime_report = await runtime_health_report(
         backend,
         data_dir=_observer_data_dir(),
@@ -1479,7 +1455,6 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
             "pending_candidate_count": (
                 len(pending_rules) + len(pending_entries) + len(pending_facts)
             ),
-            "generated_cache": knowledge_report,
         },
         active_maintenance_profile,
     )
@@ -1535,7 +1510,6 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
                             + len(pending_entries)
                             + len(pending_facts)
                         ),
-                        "generated_cache": knowledge_report,
                         "temporal_summary": {
                             "historical_total": sum(
                                 1
@@ -1556,21 +1530,6 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
             active_profile=active_retrieval_profile,
             memory_entry_count=len(memory_entries),
         ),
-        "generated_cache": {
-            "prepared": knowledge_report["prepared"],
-            "generated_claim_count": knowledge_report["generated_claim_count"],
-            "source_map_count": knowledge_report["source_map_count"],
-            "stale_source_count": knowledge_report["stale_source_count"],
-            "missing_source_count": knowledge_report["missing_source_count"],
-            "orphaned_output_count": knowledge_report["orphaned_output_count"],
-            "invalid_claim_count": knowledge_report["invalid_claim_count"],
-            "cache_hit_ratio": knowledge_report["cache_hit_ratio"],
-            "compile_duration_ms": knowledge_report["compile_duration_ms"],
-            "last_compile_at": knowledge_report["last_compile_at"],
-            "incremental_compile": knowledge_report["incremental_compile"],
-            "skipped_source_count": knowledge_report["skipped_source_count"],
-            "output_token_estimate": knowledge_report["output_token_estimate"],
-        },
         "runtime_versions": runtime_version_payload(),
         "job_health": runtime_report.get("job_health", {}),
         "retrieval_health": runtime_report.get("retrieval_health", {}),
@@ -1693,7 +1652,6 @@ async def _merge_project_profile(
     description: str | None,
     stacks: list[str] | None,
     key_files: list[str] | None,
-    curated_doc_paths: list[str] | None,
     conventions: list[str] | None,
     service_hints: list[str] | None,
     database_hints: list[str] | None,
@@ -1735,7 +1693,6 @@ async def _merge_project_profile(
             description=description or "",
             stacks=list(stacks or []),
             key_files=list(key_files or []),
-            curated_doc_paths=list(curated_doc_paths or []),
             conventions=list(conventions or []),
             service_hints=list(service_hints or []),
             database_hints=list(database_hints or []),
@@ -1751,7 +1708,6 @@ async def _merge_project_profile(
             description=description if description is not None else existing.description,
             stacks=_merge_list(existing.stacks, stacks),
             key_files=_merge_list(existing.key_files, key_files),
-            curated_doc_paths=_merge_list(existing.curated_doc_paths, curated_doc_paths),
             conventions=_merge_list(existing.conventions, conventions),
             service_hints=_merge_list(existing.service_hints, service_hints),
             database_hints=_merge_list(existing.database_hints, database_hints),
@@ -1786,7 +1742,6 @@ def tool_update_project_profile(
     description: str | None = None,
     stacks: list[str] | None = None,
     key_files: list[str] | None = None,
-    curated_doc_paths: list[str] | None = None,
     conventions: list[str] | None = None,
     service_hints: list[str] | None = None,
     database_hints: list[str] | None = None,
@@ -1846,7 +1801,6 @@ def tool_update_project_profile(
             description=description,
             stacks=stacks,
             key_files=key_files,
-            curated_doc_paths=curated_doc_paths,
             conventions=conventions,
             service_hints=service_hints,
             database_hints=database_hints,
@@ -1864,7 +1818,6 @@ def tool_update_project_profile(
             "description": profile.description,
             "stacks": profile.stacks,
             "key_files": profile.key_files,
-            "curated_doc_paths": profile.curated_doc_paths,
             "conventions": profile.conventions,
             "service_hints": profile.service_hints,
             "database_hints": profile.database_hints,
@@ -1880,7 +1833,6 @@ def tool_update_project_profile(
 def tool_wake(
     project_name: str | None = None,
     no_auto_ingest: bool = False,
-    renderer: str = "default",
     include_skill_hints: bool | None = None,
     skill_hint_limit: int | None = None,
     current_task: str | None = None,
@@ -1907,61 +1859,6 @@ def tool_wake(
             ],
             "degraded_reason": "missing_project",
             "drilldown_hints": [],
-        }
-    normalized_renderer = str(renderer or "default").strip().lower()
-    if normalized_renderer not in {"default", COMPACT_RENDERER_NAME}:
-        return {
-            "success": False,
-            "error": "renderer must be one of: default, compact",
-        }
-    if normalized_renderer == COMPACT_RENDERER_NAME:
-        if include_skill_hints:
-            return {
-                "success": False,
-                "project_name": resolved,
-                "renderer": normalized_renderer,
-                "error": "include_skill_hints is only supported with renderer=default",
-                **_wake_dx_metadata(
-                    success=False,
-                    renderer=normalized_renderer,
-                    fallback_reason="unsupported_compact_skill_hints",
-                    source_coverage=None,
-                    temporal_intent_mode=_temporal_intent_mode(current_task),
-                ),
-            }
-        backend = _get_backend()
-        payload = load_compact_wake_payload(backend.data_dir, project_name=resolved)
-        if payload is None:
-            return {
-                "success": False,
-                "project_name": resolved,
-                "renderer": normalized_renderer,
-                "error": (
-                    "compact wake is unavailable: generated wiki bridge artifacts "
-                    "have not been built for this project"
-                ),
-                **_wake_dx_metadata(
-                    success=False,
-                    renderer=normalized_renderer,
-                    fallback_reason="compact_wake_artifacts_missing",
-                    source_coverage=None,
-                    temporal_intent_mode=_temporal_intent_mode(current_task),
-                ),
-            }
-        compact_dx = _wake_dx_metadata(
-            success=True,
-            renderer=normalized_renderer,
-            fallback_reason=None,
-            source_coverage={"compact_payload": 1},
-            temporal_intent_mode=_temporal_intent_mode(current_task),
-        )
-        return {
-            "success": True,
-            "project_name": resolved,
-            "renderer": normalized_renderer,
-            "output": render_compact_wake_payload(payload),
-            "compact_payload": payload.to_dict(),
-            **compact_dx,
         }
     command_payload = _run_command_to_payload(
         cmd_wake_up(
@@ -2054,14 +1951,12 @@ def tool_wake(
         )
     wake_dx = _wake_dx_metadata(
         success=bool(command_payload.get("success")),
-        renderer=normalized_renderer,
         fallback_reason=snapshot_payload.get("fallback_reason"),
         source_coverage=snapshot_payload.get("source_coverage"),
         temporal_intent_mode=temporal_intent,
     )
     return {
         "project_name": resolved,
-        "renderer": normalized_renderer,
         **snapshot_payload,
         **wake_dx,
         "include_skill_hints": include_skill_hints,
@@ -2261,9 +2156,8 @@ def tool_metabolism_preview(
 
     backend = _get_backend()
     started_at = datetime.now(timezone.utc)
-    # Writers stay implementation-side per the StructuredStore Protocol
-    # contract (only `list_metabolism_runs` is on the Protocol). Cast to
-    # the local concrete store to access `save_metabolism_run`.
+    # Writers stay implementation-side per the StructuredStore Protocol.
+    # Cast to the local concrete store to access `save_metabolism_run`.
     structured_store = cast(LocalStructuredStore, backend.structured_store)
 
     try:
@@ -3873,6 +3767,7 @@ def tool_surface_cost_report(
             surface_budgets=_cost_surface_budgets(project_name),
         ),
     }
+
 
 def _normalize_maintenance_profile(value: object) -> MaintenanceProfile | None:
     profile = str(value or "").strip().lower()

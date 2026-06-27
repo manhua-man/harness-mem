@@ -4,12 +4,8 @@ from harness_mem.commands.doctor import cmd_doctor
 from harness_mem.commands.ingest import cmd_ingest
 from harness_mem.commands.import_bridge import cmd_import
 from harness_mem.commands.maintenance import (
-    cmd_causal_benchmark,
-    cmd_cleanup_generated_cache,
     cmd_export_json_snapshot,
     cmd_migrate_store_v2,
-    cmd_prepare_knowledge_cache,
-    cmd_rebuild_wiki_bridge,
     cmd_state_audit,
 )
 from harness_mem.commands.profile import cmd_profile, cmd_profile_edit, cmd_use
@@ -33,12 +29,6 @@ from harness_mem.commands.candidates import (
     cmd_suggest_supersede,
     cmd_confirm_supersede,
     cmd_reject_supersede,
-    cmd_list_procedural_candidates,
-    cmd_suggest_procedural,
-    cmd_confirm_procedural,
-    cmd_reject_procedural,
-    cmd_search_skills,
-    cmd_record_skill_result,
 )
 from harness_mem.commands.handoff import cmd_handoff
 from harness_mem.commands.onboarding import cmd_quickstart
@@ -57,8 +47,6 @@ from harness_mem.commands.integration_cmds import (
 )
 
 __all__ = [
-    "cmd_causal_benchmark",
-    "cmd_cleanup_generated_cache",
     "cmd_export_json_snapshot",
     "cmd_migrate_store_v2",
     "cmd_config_get",
@@ -75,8 +63,6 @@ __all__ = [
     "cmd_import",
     "cmd_profile",
     "cmd_profile_edit",
-    "cmd_prepare_knowledge_cache",
-    "cmd_rebuild_wiki_bridge",
     "cmd_state_audit",
     "cmd_purge",
     "cmd_search",
@@ -92,12 +78,6 @@ __all__ = [
     "cmd_suggest_supersede",
     "cmd_confirm_supersede",
     "cmd_reject_supersede",
-    "cmd_list_procedural_candidates",
-    "cmd_suggest_procedural",
-    "cmd_confirm_procedural",
-    "cmd_reject_procedural",
-    "cmd_search_skills",
-    "cmd_record_skill_result",
     "cmd_handoff",
     "cmd_use",
     "cmd_show",

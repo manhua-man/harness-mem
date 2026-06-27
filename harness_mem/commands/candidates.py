@@ -10,11 +10,10 @@ from harness_mem.event_log import StateEventType, append_state_event
 from harness_mem.retrieval_signals import record_retrieval_signal
 from harness_mem.core.schemas import (
     ConfirmedRule,
-    ProceduralCandidate,
     RuleCandidate,
     SupersedeCandidate,
 )
-from harness_mem.read_api import format_validity_marker, serialize_skill
+from harness_mem.read_api import format_validity_marker
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -83,12 +82,16 @@ async def cmd_correct(
 
         # Filtering logic: matches project_name OR has no project_name metadata (legacy/direct)
         session_obs = [
-            obs for obs in all_obs
-            if obs.metadata.get("project_name") == project_name or "project_name" not in obs.metadata
+            obs
+            for obs in all_obs
+            if obs.metadata.get("project_name") == project_name
+            or "project_name" not in obs.metadata
         ]
 
         if not session_obs:
-            print(f"No observations found for session: {session_id} in project: {project_name}")
+            print(
+                f"No observations found for session: {session_id} in project: {project_name}"
+            )
             return 1
 
         print(f"Found {len(session_obs)} observations for session {session_id}")
@@ -271,12 +274,15 @@ async def _correct_via_supersede(
     )
     return 0
 
+
 async def cmd_confirm_rule(rule_id: str) -> int:
     backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
     await backend.init()
     try:
         # Check MemoryEntry, RelationFact, and RuleCandidate
-        if await backend.structured_store.update_memory_entry_status(rule_id, "accepted"):
+        if await backend.structured_store.update_memory_entry_status(
+            rule_id, "accepted"
+        ):
             entry = await backend.structured_store.get_memory_entry(rule_id)
             _record_state_event(
                 backend,
@@ -290,7 +296,9 @@ async def cmd_confirm_rule(rule_id: str) -> int:
             )
             print(f"Confirmed MemoryEntry: {rule_id}")
             return 0
-        if await backend.structured_store.update_relation_fact_status(rule_id, "accepted"):
+        if await backend.structured_store.update_relation_fact_status(
+            rule_id, "accepted"
+        ):
             fact = await backend.structured_store.get_relation_fact(rule_id)
             _record_state_event(
                 backend,
@@ -304,7 +312,7 @@ async def cmd_confirm_rule(rule_id: str) -> int:
             )
             print(f"Confirmed RelationFact: {rule_id}")
             return 0
-            
+
         candidate = await backend.structured_store.get_rule_candidate(rule_id)
         if candidate:
             confirmed = ConfirmedRule(
@@ -318,7 +326,9 @@ async def cmd_confirm_rule(rule_id: str) -> int:
                 source_session_id=candidate.session_id,
             )
             await backend.structured_store.save_confirmed_rule(confirmed)
-            await backend.structured_store.update_rule_candidate_status(rule_id, "accepted")
+            await backend.structured_store.update_rule_candidate_status(
+                rule_id, "accepted"
+            )
             _record_state_event(
                 backend,
                 event_type=StateEventType.TRUTH_CONFIRMED,
@@ -335,11 +345,14 @@ async def cmd_confirm_rule(rule_id: str) -> int:
     finally:
         await backend.close()
 
+
 async def cmd_reject_rule(rule_id: str) -> int:
     backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
     await backend.init()
     try:
-        if await backend.structured_store.update_memory_entry_status(rule_id, "rejected"):
+        if await backend.structured_store.update_memory_entry_status(
+            rule_id, "rejected"
+        ):
             entry = await backend.structured_store.get_memory_entry(rule_id)
             _record_state_event(
                 backend,
@@ -353,7 +366,9 @@ async def cmd_reject_rule(rule_id: str) -> int:
             )
             print(f"Rejected MemoryEntry: {rule_id}")
             return 0
-        if await backend.structured_store.update_relation_fact_status(rule_id, "rejected"):
+        if await backend.structured_store.update_relation_fact_status(
+            rule_id, "rejected"
+        ):
             fact = await backend.structured_store.get_relation_fact(rule_id)
             _record_state_event(
                 backend,
@@ -367,7 +382,9 @@ async def cmd_reject_rule(rule_id: str) -> int:
             )
             print(f"Rejected RelationFact: {rule_id}")
             return 0
-        if await backend.structured_store.update_rule_candidate_status(rule_id, "rejected"):
+        if await backend.structured_store.update_rule_candidate_status(
+            rule_id, "rejected"
+        ):
             candidate = await backend.structured_store.get_rule_candidate(rule_id)
             _record_state_event(
                 backend,
@@ -385,17 +402,30 @@ async def cmd_reject_rule(rule_id: str) -> int:
     finally:
         await backend.close()
 
+
 async def cmd_list_candidates(project_name: str, status: str | None = None) -> int:
     backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
     await backend.init()
     effective_status = status or "pending"
     try:
-        rules = await backend.structured_store.list_rule_candidates(project_name, status=effective_status)
-        entries = await backend.structured_store.list_memory_entries(project_name, status=effective_status)
-        facts = await backend.structured_store.list_relation_facts(project_name, status=effective_status)
-        supersedes = await backend.structured_store.list_supersede_candidates(project_name, status=effective_status)
-        procedural = await backend.structured_store.list_procedural_candidates(project_name, status=effective_status)
-        total = len(rules) + len(entries) + len(facts) + len(supersedes) + len(procedural)
+        rules = await backend.structured_store.list_rule_candidates(
+            project_name, status=effective_status
+        )
+        entries = await backend.structured_store.list_memory_entries(
+            project_name, status=effective_status
+        )
+        facts = await backend.structured_store.list_relation_facts(
+            project_name, status=effective_status
+        )
+        supersedes = await backend.structured_store.list_supersede_candidates(
+            project_name, status=effective_status
+        )
+        procedural = await backend.structured_store.list_procedural_candidates(
+            project_name, status=effective_status
+        )
+        total = (
+            len(rules) + len(entries) + len(facts) + len(supersedes) + len(procedural)
+        )
         print(f"# Candidates ({project_name}): {total} items ({effective_status})")
         for rule_candidate in rules:
             print(f"  [Rule] {rule_candidate.id}: {rule_candidate.pattern[:50]}")
@@ -409,35 +439,17 @@ async def cmd_list_candidates(project_name: str, status: str | None = None) -> i
                 f"{supersede_candidate.target_type} -> {supersede_candidate.replacement_type}"
             )
         for candidate in procedural:
-            print(f"  [Procedural] {candidate.id}: {candidate.activation_condition[:50]}")
+            print(
+                f"  [Procedural] {candidate.id}: {candidate.activation_condition[:50]}"
+            )
         return 0
     finally:
         await backend.close()
 
 
-async def cmd_list_procedural_candidates(
-    project_name: str,
-    status: str | None = None,
+async def cmd_confirmed_rules(
+    project_name: str, *, include_history: bool = False
 ) -> int:
-    backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
-    await backend.init()
-    effective_status = status or "pending"
-    try:
-        candidates = await backend.structured_store.list_procedural_candidates(
-            project_name,
-            status=effective_status,
-        )
-        print(f"# Procedural Candidates ({project_name}): {len(candidates)} items ({effective_status})")
-        for candidate in candidates:
-            print(f"  [Procedural] {candidate.id}: {candidate.activation_condition[:80]}")
-            for index, step in enumerate(candidate.steps, start=1):
-                print(f"    {index}. {step}")
-        return 0
-    finally:
-        await backend.close()
-
-
-async def cmd_confirmed_rules(project_name: str, *, include_history: bool = False) -> int:
     backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
     await backend.init()
     try:
@@ -505,7 +517,9 @@ async def cmd_confirm_supersede(candidate_id: str) -> int:
     backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
     await backend.init()
     try:
-        confirmed = await backend.structured_store.confirm_supersede_candidate(candidate_id)
+        confirmed = await backend.structured_store.confirm_supersede_candidate(
+            candidate_id
+        )
         if confirmed is None:
             return 1
         await record_retrieval_signal(
@@ -549,7 +563,9 @@ async def cmd_reject_supersede(candidate_id: str) -> int:
         candidate = await backend.structured_store.get_supersede_candidate(candidate_id)
         if candidate is None:
             return 1
-        updated = await backend.structured_store.update_supersede_candidate_status(candidate_id, "rejected")
+        updated = await backend.structured_store.update_supersede_candidate_status(
+            candidate_id, "rejected"
+        )
         if not updated:
             return 1
         _record_state_event(
@@ -568,147 +584,6 @@ async def cmd_reject_supersede(candidate_id: str) -> int:
             },
         )
         print(f"Rejected SupersedeCandidate: {candidate_id}")
-        return 0
-    finally:
-        await backend.close()
-
-
-async def cmd_suggest_procedural(
-    project_name: str,
-    activation_condition: str,
-    steps: list[str],
-    termination_condition: str,
-    *,
-    success_examples: list[str] | None = None,
-    source_session_id: str = "",
-    source: str = "",
-    confidence: float = 0.7,
-) -> int:
-    backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
-    await backend.init()
-    try:
-        candidate = ProceduralCandidate(
-            project_name=project_name,
-            activation_condition=activation_condition,
-            steps=command_support.clean_cli_list(steps),
-            termination_condition=termination_condition,
-            success_examples=command_support.clean_cli_list(success_examples),
-            source_session_id=source_session_id,
-            source=source,
-            confidence=confidence,
-            status="pending",
-        )
-        saved_id = await backend.structured_store.save_procedural_candidate(candidate)
-        _record_state_event(
-            backend,
-            event_type=StateEventType.CANDIDATE_CREATED,
-            project_name=project_name,
-            target_kind="procedural_candidate",
-            target_id=saved_id,
-            status="pending",
-            source_surface="cli.suggest_procedural",
-            payload={"activation_condition": activation_condition},
-        )
-        print(f"Created ProceduralCandidate: {saved_id}")
-        return 0
-    finally:
-        await backend.close()
-
-
-async def cmd_confirm_procedural(candidate_id: str) -> int:
-    backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
-    await backend.init()
-    try:
-        skill = await backend.structured_store.confirm_procedural_candidate(candidate_id)
-        if skill is None:
-            return 1
-        _record_state_event(
-            backend,
-            event_type=StateEventType.TRUTH_CONFIRMED,
-            project_name=skill.project_name,
-            target_kind="skill",
-            target_id=skill.id,
-            status=skill.status,
-            source_surface="cli.confirm_procedural",
-            payload={"source_candidate_id": candidate_id},
-        )
-        print(f"Confirmed Skill: {skill.id}")
-        return 0
-    finally:
-        await backend.close()
-
-
-async def cmd_reject_procedural(candidate_id: str) -> int:
-    backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
-    await backend.init()
-    try:
-        candidate = await backend.structured_store.get_procedural_candidate(candidate_id)
-        updated = await backend.structured_store.update_procedural_candidate_status(
-            candidate_id,
-            "rejected",
-        )
-        if not updated:
-            return 1
-        _record_state_event(
-            backend,
-            event_type=StateEventType.TRUTH_REJECTED,
-            project_name=candidate.project_name if candidate else None,
-            target_kind="procedural_candidate",
-            target_id=candidate_id,
-            status="rejected",
-            source_surface="cli.reject_procedural",
-            payload={"activation_condition": getattr(candidate, "activation_condition", None)},
-        )
-        print(f"Rejected ProceduralCandidate: {candidate_id}")
-        return 0
-    finally:
-        await backend.close()
-
-
-async def cmd_search_skills(project_name: str, query: str, limit: int = 10) -> int:
-    backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
-    await backend.init()
-    try:
-        skills = await backend.structured_store.search_skills(
-            query,
-            project_name=project_name,
-            limit=limit,
-        )
-        print(f"# Skills ({project_name}): {len(skills)}")
-        for skill in skills:
-            payload = serialize_skill(skill)
-            print(f"- {payload['name']} [{payload['id']}] success_rate={payload['success_rate']}")
-            for index, step in enumerate(skill.steps, start=1):
-                print(f"  {index}. {step}")
-        return 0
-    finally:
-        await backend.close()
-
-
-async def cmd_record_skill_result(skill_id: str, success: bool) -> int:
-    backend = LocalMemoryBackend(command_support.DEFAULT_DATA_DIR)
-    await backend.init()
-    try:
-        skill = await backend.structured_store.record_skill_result(
-            skill_id,
-            success=success,
-        )
-        if skill is None:
-            return 1
-        await record_retrieval_signal(
-            backend,
-            project_name=skill.project_name,
-            signal_type=(
-                "skill_result_success" if success else "skill_result_failure"
-            ),
-            target_kind="skill",
-            target_id=skill.id,
-            value=skill.success_rate,
-        )
-        print(
-            f"Recorded Skill result: {skill.id} "
-            f"success_rate={skill.success_rate} usage_count={skill.usage_count}"
-        )
         return 0
     finally:
         await backend.close()

@@ -42,7 +42,6 @@ from harness_mem.commands.support import (
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.distribution import distribution_report
-from harness_mem.knowledge_cache import knowledge_cache_health
 from harness_mem.runtime_health import runtime_health_report
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -127,8 +126,6 @@ async def cmd_doctor(project_name: str | None = None) -> int:
         print(f"Profile saved: {'yes' if profile else 'no'}")
         if profile and profile.stacks:
             print(f"Stacks detected: {', '.join(profile.stacks)}")
-        if profile and profile.curated_doc_paths:
-            print(f"Curated docs: {len(profile.curated_doc_paths)}")
 
         backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
         await backend.init()
@@ -246,14 +243,6 @@ async def cmd_doctor(project_name: str | None = None) -> int:
                     data_dir=backend.data_dir,
                 )
             )
-            knowledge_report = await knowledge_cache_health(
-                backend,
-                data_dir=DEFAULT_DATA_DIR,
-                project_name=resolved_project,
-                profile=profile,
-                project_root=find_project_root(resolved_project),
-            )
-            _doctor_knowledge_cache_block(knowledge_report)
             print("📍 Phase: Ready")
             print(f"→ Next: {next_command}")
             print(f"   Why: {reason}")
@@ -1476,57 +1465,3 @@ def _doctor_dream_status_block(dream_report: dict[str, Any]) -> None:
         next_at = dream_report.get("next_eligible_at")
         if next_at:
             print(f"  next eligible: {next_at}")
-
-
-def _doctor_knowledge_cache_block(knowledge_report: dict[str, Any]) -> None:
-    """Render knowledge-cache boundary, generated bridge, and v3.2 freshness."""
-    print("Knowledge cache:")
-    print(
-        "  boundary: "
-        f"manual={knowledge_report['manual_root']} | "
-        f"generated={knowledge_report['generated_root']}"
-    )
-    print(
-        "  sources: "
-        f"{knowledge_report['source_count']} tracked "
-        f"({knowledge_report['curated_doc_count']} curated docs)"
-    )
-    print(
-        "  generated: "
-        f"{knowledge_report['generated_claim_count']} claims, "
-        f"{knowledge_report['generated_topic_count']} topics, "
-        f"{knowledge_report['generated_entity_count']} entities"
-    )
-    print(
-        "  compiler: "
-        f"{knowledge_report['source_map_count']} source-map rows, "
-        f"{knowledge_report['invalid_claim_count']} invalid claims, "
-        f"cache hit ratio {knowledge_report['cache_hit_ratio']:.2f}, "
-        f"compile {knowledge_report['compile_duration_ms']} ms"
-    )
-    print(
-        "  freshness: "
-        f"{knowledge_report['stale_source_count']} stale sources, "
-        f"{knowledge_report['missing_source_count']} missing sources, "
-        f"{knowledge_report['orphaned_output_count']} orphaned outputs"
-    )
-    if knowledge_report["prepared"]:
-        print(f"  sync map: {knowledge_report['sync_map_path']}")
-    else:
-        print(
-            "⚠️  knowledge cache boundary not prepared. "
-            "Refresh generated knowledge through an explicit maintenance workflow."
-        )
-    if knowledge_report["stale_source_count"] > 0:
-        print(
-            f"⚠️  {knowledge_report['stale_source_count']} source(s) changed or missing since "
-            "the last boundary snapshot."
-        )
-        print(
-            "Action: refresh generated knowledge through an explicit maintenance workflow."
-        )
-    if knowledge_report["orphaned_output_count"] > 0:
-        print(
-            f"⚠️  {knowledge_report['orphaned_output_count']} orphaned generated output(s). "
-            "Generated-cache cleanup is an internal maintenance task."
-        )

@@ -43,6 +43,9 @@ def test_command_profiles_keep_daily_as_default_and_gate_optional_groups() -> No
     )
     assert "mark" in resolve_command_names(profile="maintenance")
     assert "prune" in resolve_command_names(profile="maintenance")
+    assert "metabolism" not in resolve_command_names(profile="daily")
+    assert "metabolism" not in resolve_command_names(profile="maintenance")
+    assert "metabolism" not in known_command_names()
     assert resolve_command_names(profile="full") == (
         "status",
         "wake",
@@ -78,8 +81,7 @@ def test_sync_slash_commands_removes_commands_outside_selected_profile(tmp_path:
     target_dir = tmp_path / "target"
     _write_command_sources(source_dir)
     target_dir.mkdir()
-    (target_dir / "review-kb.md").write_text("# old maintenance command\n", encoding="utf-8")
-    (target_dir / "prd-sync.md").write_text("# old product-doc command\n", encoding="utf-8")
+    (target_dir / "mark.md").write_text("# optional maintenance command\n", encoding="utf-8")
 
     result = sync_slash_commands(
         source_dir=source_dir,
@@ -87,10 +89,8 @@ def test_sync_slash_commands_removes_commands_outside_selected_profile(tmp_path:
         profile="daily",
     )
 
-    assert "review-kb" in result.removed_commands
-    assert "prd-sync" in result.removed_commands
-    assert not (target_dir / "review-kb.md").exists()
-    assert not (target_dir / "prd-sync.md").exists()
+    assert "mark" in result.removed_commands
+    assert not (target_dir / "mark.md").exists()
     assert (target_dir / "status.md").read_text(encoding="utf-8") == "# /hm:status\n"
     assert not (target_dir / "daily").exists()
 
@@ -100,8 +100,7 @@ def test_sync_slash_commands_dry_run_does_not_mutate_target(tmp_path: Path) -> N
     target_dir = tmp_path / "target"
     _write_command_sources(source_dir)
     target_dir.mkdir()
-    (target_dir / "review-kb.md").write_text("# old maintenance command\n", encoding="utf-8")
-    (target_dir / "prd-sync.md").write_text("# old product-doc command\n", encoding="utf-8")
+    (target_dir / "mark.md").write_text("# optional maintenance command\n", encoding="utf-8")
 
     result = sync_slash_commands(
         source_dir=source_dir,
@@ -111,8 +110,6 @@ def test_sync_slash_commands_dry_run_does_not_mutate_target(tmp_path: Path) -> N
     )
 
     assert result.dry_run is True
-    assert "review-kb" in result.removed_commands
-    assert "prd-sync" in result.removed_commands
-    assert (target_dir / "review-kb.md").exists()
-    assert (target_dir / "prd-sync.md").exists()
+    assert "mark" in result.removed_commands
+    assert (target_dir / "mark.md").exists()
     assert not (target_dir / "status.md").exists()

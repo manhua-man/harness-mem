@@ -360,7 +360,6 @@ def _argument_shape(arguments: Mapping[str, Any]) -> dict[str, Any]:
     for key in (
         "scope",
         "mode",
-        "renderer",
         "include_history",
         "include_skill_hints",
         "no_auto_ingest",
@@ -407,8 +406,6 @@ def _result_shape(result: Mapping[str, Any] | Any) -> dict[str, Any]:
     output = result.get("output")
     if isinstance(output, str):
         shape["output_chars"] = len(output)
-    if "compact_payload" in result:
-        shape["compact_payload_present"] = True
     source_ids = _collect_source_ids(result)
     if source_ids:
         shape["source_id_count"] = len(source_ids)
@@ -505,8 +502,8 @@ def _cost_hints(
         kinds.extend(["narrower_query", "timeline_drilldown"])
 
     if surface == "wake" and high_output:
-        hints.append("Use renderer=compact or follow up with narrower search/timeline drilldown.")
-        kinds.extend(["compact_context", "timeline_drilldown"])
+        hints.append("Follow up with narrower search or timeline drilldown.")
+        kinds.extend(["narrower_query", "timeline_drilldown"])
     elif surface == "distill" and high_output:
         hints.append("Lower observation_limit or max_chars_per_observation for the next evidence packet.")
         kinds.append("smaller_distill_packet")

@@ -15,7 +15,6 @@ from harness_mem.commands.support import (
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.core.schemas.project_profile import ProjectProfile
-from harness_mem.knowledge_cache import knowledge_cache_health
 from harness_mem.runtime_cost import cost_budget_policy, surface_cost_report
 from harness_mem.runtime_health import runtime_health_report
 from harness_mem.storage.canonical_store import canonical_store_health
@@ -80,7 +79,6 @@ async def _status_project_async(backend: LocalMemoryBackend, project_name: str) 
     print(f"  Task handoffs: {len(handoffs)} (limited to 3 latest in wake-up)")
     print(f"  Confirmed rules: {len(rules)}")
     await _print_dream_status(backend, project_name)
-    await _print_knowledge_cache_status(backend, project_name, profile)
     await _print_runtime_health_status(backend, project_name, profile)
 
     profile_text = ""
@@ -156,27 +154,6 @@ async def _print_dream_status(
         print("  Last dream: none")
 
 
-async def _print_knowledge_cache_status(
-    backend: LocalMemoryBackend,
-    project_name: str,
-    profile: ProjectProfile | None,
-) -> None:
-    report = await knowledge_cache_health(
-        backend,
-        data_dir=DEFAULT_DATA_DIR,
-        project_name=project_name,
-        profile=profile,
-        project_root=find_project_root(project_name),
-    )
-    print(
-        "  Generated cache: "
-        f"{report['generated_claim_count']} claims, "
-        f"{report['stale_source_count']} stale source(s), "
-        f"{report['orphaned_output_count']} orphaned output(s), "
-        f"cache hit ratio {report['cache_hit_ratio']:.2f}"
-    )
-
-
 async def _print_runtime_health_status(
     backend: LocalMemoryBackend,
     project_name: str,
@@ -238,7 +215,6 @@ def _surface_budgets_from_config(config: MergedConfig | None) -> dict[str, int] 
         "wake": config.cost_budget_wake_tokens,
         "search": config.cost_budget_search_tokens,
         "file_context": config.cost_budget_file_context_tokens,
-        "wiki": config.cost_budget_wiki_tokens,
         "dream": config.cost_budget_dream_tokens,
         "distill": config.cost_budget_distill_tokens,
     }

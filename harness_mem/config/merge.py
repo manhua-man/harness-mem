@@ -62,14 +62,12 @@ class MergedConfig:
     dream_handle_allow_supersede: bool = True
     dream_handle_allow_merge: bool = True
     dream_handle_allow_mark_stale: bool = True
-    dream_handle_allow_retire_skill: bool = True
     dream_handle_allow_delete_truth: bool = False
     dream_handle_preserve_audit: bool = True
     dream_handle_undo_window_days: int = 30
     cost_budget_wake_tokens: int = 2000
     cost_budget_search_tokens: int = 1200
     cost_budget_file_context_tokens: int = 900
-    cost_budget_wiki_tokens: int = 1200
     cost_budget_dream_tokens: int = 2000
     cost_budget_distill_tokens: int = 3000
     extras: dict[str, Any] = field(default_factory=dict)
@@ -135,7 +133,6 @@ _DREAM_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     ("dream.handle.allow_supersede", "dream_handle_allow_supersede", "bool", True),
     ("dream.handle.allow_merge", "dream_handle_allow_merge", "bool", True),
     ("dream.handle.allow_mark_stale", "dream_handle_allow_mark_stale", "bool", True),
-    ("dream.handle.allow_retire_skill", "dream_handle_allow_retire_skill", "bool", True),
     ("dream.handle.allow_delete_truth", "dream_handle_allow_delete_truth", "const:false", False),
     ("dream.handle.preserve_audit", "dream_handle_preserve_audit", "const:true", True),
     ("dream.handle.undo_window_days", "dream_handle_undo_window_days", "int:min=1", 30),
@@ -150,7 +147,6 @@ _COST_BUDGET_KEYS: tuple[tuple[str, str, str, Any], ...] = (
         "int:min=1",
         900,
     ),
-    ("cost_budget.wiki_tokens", "cost_budget_wiki_tokens", "int:min=1", 1200),
     ("cost_budget.dream_tokens", "cost_budget_dream_tokens", "int:min=1", 2000),
     ("cost_budget.distill_tokens", "cost_budget_distill_tokens", "int:min=1", 3000),
 )

@@ -238,49 +238,6 @@ _TABLE_SCHEMAS = {
         metabolism_run_id TEXT NOT NULL,
         created_at TEXT NOT NULL
     """,
-    "skill_promotion_candidates": """
-        id TEXT PRIMARY KEY,
-        project_name TEXT NOT NULL,
-        source_skill_id TEXT NOT NULL,
-        requested_scope TEXT NOT NULL,
-        origin_project TEXT NOT NULL,
-        source_ids TEXT NOT NULL DEFAULT '[]',
-        portability_notes TEXT NOT NULL DEFAULT '',
-        disabled_assumptions TEXT NOT NULL DEFAULT '[]',
-        confidence REAL NOT NULL DEFAULT 0.7,
-        status TEXT NOT NULL DEFAULT 'pending',
-        created_at TEXT NOT NULL
-    """,
-    "skill_revision_suggestion_candidates": """
-        id TEXT PRIMARY KEY,
-        project_name TEXT NOT NULL,
-        source_skill_id TEXT NOT NULL,
-        trigger TEXT NOT NULL,
-        summary TEXT NOT NULL,
-        usage_count INTEGER NOT NULL DEFAULT 0,
-        success_count INTEGER NOT NULL DEFAULT 0,
-        failure_count INTEGER NOT NULL DEFAULT 0,
-        success_rate REAL,
-        recent_failure_signal_ids TEXT NOT NULL DEFAULT '[]',
-        recent_success_signal_ids TEXT NOT NULL DEFAULT '[]',
-        confidence REAL NOT NULL DEFAULT 0.7,
-        status TEXT NOT NULL DEFAULT 'pending',
-        created_at TEXT NOT NULL
-    """,
-    "skill_deprecation_suggestion_candidates": """
-        id TEXT PRIMARY KEY,
-        project_name TEXT NOT NULL,
-        source_skill_id TEXT NOT NULL,
-        trigger TEXT NOT NULL,
-        summary TEXT NOT NULL,
-        conflicting_skill_id TEXT NOT NULL DEFAULT '',
-        usage_count INTEGER NOT NULL DEFAULT 0,
-        success_rate REAL,
-        last_used_at TEXT,
-        confidence REAL NOT NULL DEFAULT 0.7,
-        status TEXT NOT NULL DEFAULT 'pending',
-        created_at TEXT NOT NULL
-    """,
     "reflection_jobs": """
         id TEXT PRIMARY KEY,
         project_name TEXT NOT NULL,
@@ -395,9 +352,6 @@ class SQLiteIndex:
             if table_name in (
                 "merge_suggestion_candidates",
                 "stale_truth_suggestion_candidates",
-                "skill_promotion_candidates",
-                "skill_revision_suggestion_candidates",
-                "skill_deprecation_suggestion_candidates",
             ):
                 continue
             # FTS virtual table for full-text search on 'content' or 'raw_content' field
@@ -996,43 +950,6 @@ class SQLiteIndex:
             CREATE INDEX IF NOT EXISTS idx_dream_runs_status
             ON dream_runs(status)
         """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_skill_promotion_candidates_project
-            ON skill_promotion_candidates(project_name)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_skill_promotion_candidates_status
-            ON skill_promotion_candidates(status)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_skill_promotion_candidates_source_skill
-            ON skill_promotion_candidates(source_skill_id)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_skill_revision_suggestion_candidates_project
-            ON skill_revision_suggestion_candidates(project_name)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_skill_revision_suggestion_candidates_status
-            ON skill_revision_suggestion_candidates(status)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_skill_revision_suggestion_candidates_source_skill
-            ON skill_revision_suggestion_candidates(source_skill_id)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_skill_deprecation_suggestion_candidates_project
-            ON skill_deprecation_suggestion_candidates(project_name)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_skill_deprecation_suggestion_candidates_status
-            ON skill_deprecation_suggestion_candidates(status)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_skill_deprecation_suggestion_candidates_source_skill
-            ON skill_deprecation_suggestion_candidates(source_skill_id)
-        """)
-
     @staticmethod
     def _escape_match_token(token: str) -> str:
         escaped = token.replace('"', ' ')

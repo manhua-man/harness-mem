@@ -14,7 +14,6 @@ DreamProposedAction = Literal[
     "merge",
     "mark_stale",
     "supersede",
-    "retire_skill",
     "reject_uncertain",
     "archive_unclassifiable",
 ]

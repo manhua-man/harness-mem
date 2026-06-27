@@ -62,9 +62,6 @@ _COLLECTION_TO_TABLE: dict[str, str] = {
     "merge_suggestion_candidates": "candidates",
     "stale_truth_suggestion_candidates": "candidates",
     "procedural_candidates": "candidates",
-    "skill_promotion_candidates": "candidates",
-    "skill_revision_suggestion_candidates": "candidates",
-    "skill_deprecation_suggestion_candidates": "candidates",
     "metabolism_runs": "metabolism_runs",
     "dream_runs": "dream_runs",
 }

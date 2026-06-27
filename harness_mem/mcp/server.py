@@ -107,7 +107,6 @@ def _cost_surface_budgets(project_name: str | None) -> dict[str, int] | None:
         "wake": cfg.cost_budget_wake_tokens,
         "search": cfg.cost_budget_search_tokens,
         "file_context": cfg.cost_budget_file_context_tokens,
-        "wiki": cfg.cost_budget_wiki_tokens,
         "dream": cfg.cost_budget_dream_tokens,
         "distill": cfg.cost_budget_distill_tokens,
     }

@@ -14,11 +14,10 @@ tags: [harness-mem, wake]
 1. **确认项目**：从 slash 或 active project
 2. **调 MCP `wake`**：
    - 默认：`wake(project_name=<project>)`
-   - 如果用户明确要更紧凑的 generated 摘要：`wake(project_name=<project>, renderer="compact")`
    - 如果用户明确想看 procedural 提示：`wake(project_name=<project>, include_skill_hints=true)`
 3. **直接呈现 `wake.output`**：
    - 把 MCP 返回的 wake-up 文本作为主结果
-   - 如果返回了 compact skill hints，只把它们当作 hint，不要擅自展开完整 skill body
+   - 如果返回了 skill hints，只把它们当作 hint，不要擅自展开完整 skill body
    - 只有用户继续追问某个 hint 时，才调 `get_skill(skill_id)`
 4. **结语**：
    - 有内容：明确告诉用户“以上是 wake-up 上下文，接下来你可以基于这些继续工作”

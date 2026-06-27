@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from harness_mem.causal_benchmark import arun_causal_benchmark, run_causal_benchmark
 from harness_mem.core.schemas.recall_result import (
     RecallEvidence,
     RecallResult,
     RecallStep,
 )
+from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.embedding import embeddings_disabled, temporarily_disable_embeddings
 from harness_mem.event_log import (
@@ -24,6 +25,110 @@ from harness_mem.relation_scoring import (
     score_relation_fact,
     score_relation_path,
 )
+from harness_mem.read_api import search_memory, trace_relation_paths
+from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+
+BENCHMARK_PROJECT = "harness_mem_causal_benchmark"
+
+
+async def _run_causal_benchmark(data_dir: Path, project_name: str) -> dict:
+    backend = LocalMemoryBackend(data_dir)
+    await backend.init()
+    try:
+        root_entry = MemoryEntry(
+            id="bench-root-cause",
+            project_name=project_name,
+            category="bug",
+            content="Redis connection pool exhaustion was the root cause of the retry storm.",
+            confidence=0.95,
+            source="benchmark:gold",
+            status="accepted",
+            tags=["benchmark", "root_cause"],
+        )
+        distractor = MemoryEntry(
+            id="bench-distractor",
+            project_name=project_name,
+            category="bug",
+            content="API 500 errors runbook: restart web workers and inspect generic logs.",
+            confidence=0.9,
+            source="benchmark:distractor",
+            status="accepted",
+            tags=["benchmark", "semantic_distractor"],
+        )
+        await backend.structured_store.save_memory_entry(root_entry)
+        await backend.structured_store.save_memory_entry(distractor)
+        facts = [
+            RelationFact(
+                id="bench-edge-api-retries",
+                project_name=project_name,
+                source_entity="api_500_incident",
+                target_entity="retry_storm",
+                relation_type="caused_by",
+                confidence=0.95,
+                evidence="The API 500 incident was caused by a retry storm.",
+                source="benchmark:gold",
+                status="accepted",
+                tags=["benchmark"],
+            ),
+            RelationFact(
+                id="bench-edge-retries-redis",
+                project_name=project_name,
+                source_entity="retry_storm",
+                target_entity="redis_pool_exhaustion",
+                relation_type="caused_by",
+                confidence=0.95,
+                evidence="The retry storm was caused by Redis pool exhaustion.",
+                source="benchmark:gold",
+                status="accepted",
+                tags=["benchmark"],
+            ),
+        ]
+        for fact in facts:
+            await backend.structured_store.save_relation_fact(fact)
+
+        entries, _ = await search_memory(
+            backend,
+            project_name=project_name,
+            query="why API 500 errors happened",
+            scope="project",
+            mode="fts",
+            memory_entry_limit=5,
+            observation_limit=0,
+            record_signals=False,
+        )
+        paths = await trace_relation_paths(
+            backend,
+            project_name=project_name,
+            source_entity="api_500_incident",
+            max_depth=2,
+            limit=5,
+        )
+
+        top_path = paths[0] if paths else None
+        root_entity = top_path.entities[-1] if top_path and top_path.entities else ""
+        gold_edges = {"bench-edge-api-retries", "bench-edge-retries-redis"}
+        traversed_edges = {fact.id for path in paths for fact in path.facts}
+        root_cause_correct = root_entity == "redis_pool_exhaustion"
+        edge_recall = len(gold_edges.intersection(traversed_edges)) / len(gold_edges)
+        return {
+            "root_cause_correct": root_cause_correct,
+            "edge_recall": edge_recall,
+            "path_count": len(paths),
+            "passed": root_cause_correct and edge_recall == 1.0,
+        }
+    finally:
+        await backend.close()
+
+
+def run_causal_benchmark() -> dict:
+    return asyncio.run(arun_causal_benchmark())
+
+
+async def arun_causal_benchmark() -> dict:
+    with temporarily_disable_embeddings():
+        with TemporaryDirectory(prefix="harness-mem-causal-benchmark-") as tmp:
+            return await _run_causal_benchmark(Path(tmp), BENCHMARK_PROJECT)
 
 
 def test_recall_result_round_trip() -> None:

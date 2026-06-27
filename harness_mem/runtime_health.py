@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from harness_mem.knowledge_cache import knowledge_cache_health
 from harness_mem.runtime_cost import surface_cost_report
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.version_drift import version_drift_report
@@ -33,17 +32,6 @@ async def runtime_health_report(
         warnings.append(f"job_health unavailable: {exc}")
         report["job_health"] = {"warnings": [str(exc)]}
     try:
-        report["generated_cache"] = await knowledge_cache_health(
-            backend,
-            data_dir=data_dir,
-            project_name=project_name,
-            profile=profile,
-            project_root=project_root,
-        )
-    except Exception as exc:  # noqa: BLE001
-        warnings.append(f"generated_cache unavailable: {exc}")
-        report["generated_cache"] = {"warnings": [str(exc)]}
-    try:
         report["retrieval_health"] = _retrieval_health(data_dir, project_name)
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"retrieval_health unavailable: {exc}")
@@ -59,7 +47,6 @@ async def runtime_health_report(
         "fallbacks": [
             "wake/search continue even when health slices are unavailable",
             "cost observer failures are advisory and never block MCP tool results",
-            "generated cache warnings point to maintenance surfaces instead of rewriting truth",
         ],
     }
     return report

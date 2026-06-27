@@ -479,11 +479,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "items": {"type": "string"},
                     "description": "Important file paths",
                 },
-                "curated_doc_paths": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Manual curated doc paths for knowledge-cache source mapping",
-                },
                 "conventions": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -562,20 +557,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "Skip the auto-ingest pass before generating wake-up text.",
                     "default": False,
                 },
-                "renderer": {
-                    "type": "string",
-                    "enum": ["default", "compact"],
-                    "description": (
-                        "v2.6.3: opt-in renderer. default returns confirmed "
-                        "truth wake output; compact returns generated wiki "
-                        "bridge summaries with source ids and never replaces "
-                        "confirmed truth."
-                    ),
-                    "default": "default",
-                },
                 "include_skill_hints": {
                     "type": "boolean",
-                    "description": "Opt-in compact skill hints appended only to the default wake renderer.",
+                    "description": "Opt-in compact skill hints appended to wake output.",
                 },
                 "skill_hint_limit": {
                     "type": "integer",
@@ -1370,13 +1354,15 @@ TOOL_CLUSTERS = {
     "confirm_relation_fact": "truth_loop",
     "reject_relation_fact": "truth_loop",
     "create_task_handoff": "truth_loop",
-    # Opt-in maintenance surfaces.
+    # Internal maintenance surfaces.
     "metabolism_preview": "maintenance",
     "metabolism_run": "maintenance",
-    "dream_ledger": "maintenance",
-    "dream_run": "maintenance",
-    "dream_auto_tick": "maintenance",
-    "undo_dream_item": "maintenance",
+    # Dream is a default product capability; the cluster name is separate from
+    # whether a tool appears in the public MCP surface.
+    "dream_ledger": "dream",
+    "dream_run": "dream",
+    "dream_auto_tick": "dream",
+    "undo_dream_item": "dream",
     # Maintainer/release/observer surfaces.
     "list_reflection_jobs": "maintainer",
     "get_reflection_job": "maintainer",

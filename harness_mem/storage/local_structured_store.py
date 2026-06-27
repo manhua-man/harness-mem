@@ -16,13 +16,6 @@ from harness_mem.core.schemas.stale_truth_suggestion_candidate import (
     StaleTruthSuggestionCandidate,
 )
 from harness_mem.core.schemas.procedural_candidate import ProceduralCandidate
-from harness_mem.core.schemas.skill_promotion_candidate import SkillPromotionCandidate
-from harness_mem.core.schemas.skill_revision_suggestion_candidate import (
-    SkillRevisionSuggestionCandidate,
-)
-from harness_mem.core.schemas.skill_deprecation_suggestion_candidate import (
-    SkillDeprecationSuggestionCandidate,
-)
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.relation_fact import RelationFact
@@ -98,13 +91,6 @@ class LocalStructuredStore:
             "rule_candidates": self.blob_dir / "rule_candidates",
             "supersede_candidates": self.blob_dir / "supersede_candidates",
             "procedural_candidates": self.blob_dir / "procedural_candidates",
-            "skill_promotion_candidates": self.blob_dir / "skill_promotion_candidates",
-            "skill_revision_suggestion_candidates": (
-                self.blob_dir / "skill_revision_suggestion_candidates"
-            ),
-            "skill_deprecation_suggestion_candidates": (
-                self.blob_dir / "skill_deprecation_suggestion_candidates"
-            ),
             "skills": self.blob_dir / "skills",
             "confirmed_rules": self.blob_dir / "confirmed_rules",
             "relation_facts": self.blob_dir / "relation_facts",
@@ -315,29 +301,6 @@ class LocalStructuredStore:
             return activation
         return activation[:77].rstrip() + "..."
 
-    def _collect_skill_source_ids(
-        self,
-        *,
-        source_skill: Skill,
-        source_skill_id: str,
-        candidate: SkillPromotionCandidate | None = None,
-    ) -> list[str]:
-        source_ids = [
-            *source_skill.source_ids,
-            source_skill_id,
-            source_skill.source_candidate_id,
-            source_skill.source_session_id,
-        ]
-        if candidate is not None:
-            source_ids.extend(candidate.source_ids)
-            source_ids.append(candidate.id)
-        deduped: list[str] = []
-        for source_id in source_ids:
-            cleaned = str(source_id).strip() if source_id is not None else ""
-            if cleaned and cleaned not in deduped:
-                deduped.append(cleaned)
-        return deduped
-
     async def _find_existing_shared_skill(
         self,
         *,
@@ -420,9 +383,6 @@ class LocalStructuredStore:
             "stale_truth_suggestion_candidates",
             "procedural_candidates",
             "skills",
-            "skill_promotion_candidates",
-            "skill_revision_suggestion_candidates",
-            "skill_deprecation_suggestion_candidates",
             "confirmed_rules",
             "relation_facts",
             "metabolism_runs",
@@ -481,21 +441,6 @@ class LocalStructuredStore:
             return
         if collection == "skills":
             await self.save_skill(Skill.from_dict(payload))
-            return
-        if collection == "skill_promotion_candidates":
-            await self.save_skill_promotion_candidate(
-                SkillPromotionCandidate.from_dict(payload)
-            )
-            return
-        if collection == "skill_revision_suggestion_candidates":
-            await self.save_skill_revision_suggestion_candidate(
-                SkillRevisionSuggestionCandidate.from_dict(payload)
-            )
-            return
-        if collection == "skill_deprecation_suggestion_candidates":
-            await self.save_skill_deprecation_suggestion_candidate(
-                SkillDeprecationSuggestionCandidate.from_dict(payload)
-            )
             return
         if collection == "confirmed_rules":
             await self.save_confirmed_rule(ConfirmedRule.from_dict(payload))
@@ -1440,281 +1385,6 @@ class LocalStructuredStore:
             },
         )
         return updated_skill
-
-    async def save_skill_promotion_candidate(
-        self,
-        candidate: SkillPromotionCandidate,
-    ) -> str:
-        blob_path = self._blob_path("skill_promotion_candidates", candidate.id)
-        blob_path.write_text(json.dumps(candidate.to_dict(), indent=2, default=str))
-        await asyncio.to_thread(
-            self._index.insert,
-            "skill_promotion_candidates",
-            {
-                "id": candidate.id,
-                "project_name": candidate.project_name,
-                "source_skill_id": candidate.source_skill_id,
-                "requested_scope": candidate.requested_scope,
-                "origin_project": candidate.origin_project,
-                "source_ids": candidate.source_ids,
-                "portability_notes": candidate.portability_notes,
-                "disabled_assumptions": candidate.disabled_assumptions,
-                "confidence": candidate.confidence,
-                "status": candidate.status,
-                "created_at": candidate.created_at,
-            },
-        )
-        return candidate.id
-
-    async def get_skill_promotion_candidate(self, id: str) -> SkillPromotionCandidate | None:
-        blob_path = self._blob_path("skill_promotion_candidates", id)
-        if not blob_path.exists():
-            return None
-        data = json.loads(blob_path.read_text())
-        return SkillPromotionCandidate.from_dict(data)
-
-    async def list_skill_promotion_candidates(
-        self,
-        project_name: str,
-        status: str | None = None,
-    ) -> list[SkillPromotionCandidate]:
-        where_parts = ["project_name = ?"]
-        params = [project_name]
-        if status:
-            where_parts.append("status = ?")
-            params.append(status)
-        rows = await asyncio.to_thread(
-            self._index.list,
-            "skill_promotion_candidates",
-            " AND ".join(where_parts),
-            tuple(params),
-            order_by="created_at DESC",
-        )
-        results = []
-        for row in rows:
-            blob_path = self._blob_path("skill_promotion_candidates", row["id"])
-            if blob_path.exists():
-                data = json.loads(blob_path.read_text())
-                results.append(SkillPromotionCandidate.from_dict(data))
-        return results
-
-    async def update_skill_promotion_candidate_status(self, id: str, status: str) -> bool:
-        return await self.candidate_store.update_status(
-            "skill_promotion_candidates",
-            id,
-            status,
-        )
-
-    async def confirm_skill_promotion_candidate(self, id: str) -> Skill | None:
-        candidate = await self.get_skill_promotion_candidate(id)
-        if candidate is None or candidate.status != "pending":
-            return None
-
-        source_skill = await self.get_skill(candidate.source_skill_id)
-        if source_skill is None or source_skill.scope != "project":
-            return None
-
-        now = datetime.now(timezone.utc)
-        existing_shared_skill = await self._find_existing_shared_skill(
-            source_skill_id=source_skill.id,
-            requested_scope=candidate.requested_scope,
-        )
-        if existing_shared_skill is None:
-            shared_skill = Skill(
-                project_name=source_skill.project_name,
-                name=source_skill.name,
-                activation_condition=source_skill.activation_condition,
-                steps=source_skill.steps,
-                termination_condition=source_skill.termination_condition,
-                success_examples=source_skill.success_examples,
-                source_candidate_id=source_skill.source_candidate_id,
-                source_session_id=source_skill.source_session_id,
-                scope=candidate.requested_scope,
-                origin_project=source_skill.origin_project,
-                source_ids=self._collect_skill_source_ids(
-                    source_skill=source_skill,
-                    source_skill_id=source_skill.id,
-                    candidate=candidate,
-                ),
-                portability_notes=candidate.portability_notes,
-                disabled_assumptions=candidate.disabled_assumptions,
-                confidence=source_skill.confidence,
-                created_at=now,
-                updated_at=now,
-            )
-        else:
-            shared_skill = existing_shared_skill.model_copy(
-                update={
-                    "project_name": source_skill.project_name,
-                    "name": source_skill.name,
-                    "activation_condition": source_skill.activation_condition,
-                    "steps": source_skill.steps,
-                    "termination_condition": source_skill.termination_condition,
-                    "success_examples": source_skill.success_examples,
-                    "source_candidate_id": source_skill.source_candidate_id,
-                    "source_session_id": source_skill.source_session_id,
-                    "scope": candidate.requested_scope,
-                    "origin_project": source_skill.origin_project,
-                    "source_ids": self._collect_skill_source_ids(
-                        source_skill=source_skill,
-                        source_skill_id=source_skill.id,
-                        candidate=candidate,
-                    ),
-                    "portability_notes": candidate.portability_notes,
-                    "disabled_assumptions": candidate.disabled_assumptions,
-                    "confidence": source_skill.confidence,
-                    "updated_at": now,
-                }
-            )
-        await self.save_skill(shared_skill)
-        updated = await self.update_skill_promotion_candidate_status(candidate.id, "accepted")
-        if not updated:
-            return None
-        return shared_skill
-
-    async def save_skill_revision_suggestion_candidate(
-        self,
-        candidate: SkillRevisionSuggestionCandidate,
-    ) -> str:
-        blob_path = self._blob_path("skill_revision_suggestion_candidates", candidate.id)
-        blob_path.write_text(json.dumps(candidate.to_dict(), indent=2, default=str))
-        await asyncio.to_thread(
-            self._index.insert,
-            "skill_revision_suggestion_candidates",
-            {
-                "id": candidate.id,
-                "project_name": candidate.project_name,
-                "source_skill_id": candidate.source_skill_id,
-                "trigger": candidate.trigger,
-                "summary": candidate.summary,
-                "usage_count": candidate.usage_count,
-                "success_count": candidate.success_count,
-                "failure_count": candidate.failure_count,
-                "success_rate": candidate.success_rate,
-                "recent_failure_signal_ids": candidate.recent_failure_signal_ids,
-                "recent_success_signal_ids": candidate.recent_success_signal_ids,
-                "confidence": candidate.confidence,
-                "status": candidate.status,
-                "created_at": candidate.created_at,
-            },
-        )
-        return candidate.id
-
-    async def get_skill_revision_suggestion_candidate(
-        self, id: str
-    ) -> SkillRevisionSuggestionCandidate | None:
-        blob_path = self._blob_path("skill_revision_suggestion_candidates", id)
-        if not blob_path.exists():
-            return None
-        data = json.loads(blob_path.read_text())
-        return SkillRevisionSuggestionCandidate.from_dict(data)
-
-    async def list_skill_revision_suggestion_candidates(
-        self,
-        project_name: str,
-        status: str | None = None,
-    ) -> list[SkillRevisionSuggestionCandidate]:
-        where_parts = ["project_name = ?"]
-        params = [project_name]
-        if status:
-            where_parts.append("status = ?")
-            params.append(status)
-        rows = await asyncio.to_thread(
-            self._index.list,
-            "skill_revision_suggestion_candidates",
-            " AND ".join(where_parts),
-            tuple(params),
-            order_by="created_at DESC",
-        )
-        results = []
-        for row in rows:
-            blob_path = self._blob_path("skill_revision_suggestion_candidates", row["id"])
-            if blob_path.exists():
-                data = json.loads(blob_path.read_text())
-                results.append(SkillRevisionSuggestionCandidate.from_dict(data))
-        return results
-
-    async def update_skill_revision_suggestion_candidate_status(
-        self,
-        id: str,
-        status: str,
-    ) -> bool:
-        return await self.candidate_store.update_status(
-            "skill_revision_suggestion_candidates",
-            id,
-            status,
-        )
-
-    async def save_skill_deprecation_suggestion_candidate(
-        self,
-        candidate: SkillDeprecationSuggestionCandidate,
-    ) -> str:
-        blob_path = self._blob_path("skill_deprecation_suggestion_candidates", candidate.id)
-        blob_path.write_text(json.dumps(candidate.to_dict(), indent=2, default=str))
-        await asyncio.to_thread(
-            self._index.insert,
-            "skill_deprecation_suggestion_candidates",
-            {
-                "id": candidate.id,
-                "project_name": candidate.project_name,
-                "source_skill_id": candidate.source_skill_id,
-                "trigger": candidate.trigger,
-                "summary": candidate.summary,
-                "conflicting_skill_id": candidate.conflicting_skill_id,
-                "usage_count": candidate.usage_count,
-                "success_rate": candidate.success_rate,
-                "last_used_at": candidate.last_used_at,
-                "confidence": candidate.confidence,
-                "status": candidate.status,
-                "created_at": candidate.created_at,
-            },
-        )
-        return candidate.id
-
-    async def get_skill_deprecation_suggestion_candidate(
-        self, id: str
-    ) -> SkillDeprecationSuggestionCandidate | None:
-        blob_path = self._blob_path("skill_deprecation_suggestion_candidates", id)
-        if not blob_path.exists():
-            return None
-        data = json.loads(blob_path.read_text())
-        return SkillDeprecationSuggestionCandidate.from_dict(data)
-
-    async def list_skill_deprecation_suggestion_candidates(
-        self,
-        project_name: str,
-        status: str | None = None,
-    ) -> list[SkillDeprecationSuggestionCandidate]:
-        where_parts = ["project_name = ?"]
-        params = [project_name]
-        if status:
-            where_parts.append("status = ?")
-            params.append(status)
-        rows = await asyncio.to_thread(
-            self._index.list,
-            "skill_deprecation_suggestion_candidates",
-            " AND ".join(where_parts),
-            tuple(params),
-            order_by="created_at DESC",
-        )
-        results = []
-        for row in rows:
-            blob_path = self._blob_path("skill_deprecation_suggestion_candidates", row["id"])
-            if blob_path.exists():
-                data = json.loads(blob_path.read_text())
-                results.append(SkillDeprecationSuggestionCandidate.from_dict(data))
-        return results
-
-    async def update_skill_deprecation_suggestion_candidate_status(
-        self,
-        id: str,
-        status: str,
-    ) -> bool:
-        return await self.candidate_store.update_status(
-            "skill_deprecation_suggestion_candidates",
-            id,
-            status,
-        )
 
     # ---- ConfirmedRule ----
 

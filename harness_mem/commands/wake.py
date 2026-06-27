@@ -523,7 +523,7 @@ async def _apply_surface_side_effects(
     """Apply wake's existing per-record side effects over the rendered entries.
 
     Walks the surfaced layers (L0/L1/L2) in render order, selecting the same
-    entries the renderer shows (truth-filtered + budget-capped via
+    entries the wake output shows (truth-filtered + budget-capped via
     ``select_rendered_entries``), and for each surfaced confirmed-rule /
     accepted-memory-entry record applies the existing ``wake_surfaced`` signal
     plus its usage-counter touch (``touch_confirmed_rule`` /

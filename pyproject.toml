@@ -66,7 +66,6 @@ include = [
     "docs/mcp-setup.md",
     "docs/demo-cold-start.md",
     "docs/recall-audit.md",
-    "docs/causal-benchmark.md",
     "harness_mem",
     "plugins/harness-mem",
     "tools/session-distill",

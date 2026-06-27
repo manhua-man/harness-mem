@@ -30,7 +30,9 @@ def normalize_mcp_tool_profile(value: object) -> McpToolProfile | None:
 def _requested_profile(params: dict[str, Any]) -> object | None:
     requested = params.get("mcp_tool_profile") or params.get("profile")
     if not requested and isinstance(params.get("arguments"), dict):
-        requested = params["arguments"].get("mcp_tool_profile")
+        requested = params["arguments"].get("mcp_tool_profile") or params[
+            "arguments"
+        ].get("profile")
     return requested
 
 
@@ -71,9 +73,8 @@ def tool_descriptor(name: str, spec: ToolSpec, profile: str) -> dict[str, Any]:
         "annotations": {
             "harness_mem": {
                 "cluster": spec["cluster"],
-                "surface": "memory",
-                "listed_in_public_surface": name
-                in visible_tool_name_set({name: spec}, profile),
+                "surface": profile,
+                "listed_in_surface": name in visible_tool_name_set({name: spec}, profile),
             }
         },
     }
@@ -91,8 +92,6 @@ def list_tools_result(
         "profile_project_name": profile_info["project_name"],
         "degraded_reason": profile_info["degraded_reason"],
         "tool_count": len(visible_names),
-        "total_tool_count": len(tools),
-        "hidden_tool_count": len(tools) - len(visible_names),
         "tools": [
             tool_descriptor(name, tools[name], profile)
             for name in visible_names
@@ -101,21 +100,23 @@ def list_tools_result(
 
 
 def hidden_tool_error(req_id: Any, tool_name: str, profile: str) -> dict[str, Any]:
+    message = f"Tool is outside the public MCP memory surface: {tool_name}"
+    hint = (
+        "Use the public MCP surface for memory read, distill, candidate "
+        "review, and dream. Operator maintenance and skill lifecycle "
+        "management are not public MCP tools."
+    )
     return {
         "jsonrpc": "2.0",
         "id": req_id,
         "error": {
             "code": -32601,
-            "message": f"Tool is outside the public MCP memory surface: {tool_name}",
+            "message": message,
             "data": {
                 "error_code": "HM-MCP-TOOL-HIDDEN",
-                "profile": "memory",
+                "profile": profile,
                 "tool_name": tool_name,
-                "hint": (
-                    "Use the public MCP surface for memory read, distill, "
-                    "candidate review, and dream. Operator maintenance and "
-                    "skill lifecycle management are not public MCP tools."
-                ),
+                "hint": hint,
             },
         },
     }

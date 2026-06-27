@@ -45,7 +45,7 @@ if (-not $NoSlashCommands) {
         Copy-Item -Path (Join-Path $skillSrc "*") -Destination $skillDst -Recurse -Force
         $skillCount = (Get-ChildItem $skillSrc -Directory).Count
         Write-Host "Installed $skillCount Claude Code skills to $skillDst"
-        Write-Host "  Available: harness-mem / harness-mem-autopilot / harness-mem-skill-governance"
+        Write-Host "  Available: harness-mem / harness-mem-autopilot"
     } else {
         Write-Warning "Skill source not found at $skillSrc; skipping."
     }

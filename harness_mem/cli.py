@@ -23,17 +23,11 @@ from harness_mem.commands import (
     cmd_import,
     cmd_install_claude_hook,
     cmd_install_cursor_hook,
-    cmd_confirm_procedural,
     cmd_list_command_profiles,
-    cmd_list_procedural_candidates,
     cmd_migrate_store_v2,
     cmd_purge,
     cmd_quickstart,
-    cmd_record_skill_result,
-    cmd_reject_procedural,
-    cmd_search_skills,
     cmd_state_audit,
-    cmd_suggest_procedural,
     cmd_sync_commands,
 )
 from harness_mem.integration.command_sync import (
@@ -58,15 +52,9 @@ __all__ = [
     "cmd_install_cursor_hook",
     "cmd_install_claude_hook",
     "cmd_list_command_profiles",
-    "cmd_list_procedural_candidates",
     "cmd_migrate_store_v2",
     "cmd_purge",
     "cmd_quickstart",
-    "cmd_suggest_procedural",
-    "cmd_confirm_procedural",
-    "cmd_reject_procedural",
-    "cmd_search_skills",
-    "cmd_record_skill_result",
     "cmd_state_audit",
     "cmd_sync_commands",
 ]
@@ -151,91 +139,6 @@ def main(argv: list[str] | None = None):
     doctor = sub.add_parser("doctor", help="Inspect local setup and suggest repairs")
     _add_project_arg(doctor)
     doctor.set_defaults(command_name="doctor")
-
-    skill_governance = sub.add_parser(
-        "skill-governance",
-        help="Dedicated operator workflow for procedural skill lifecycle review",
-        description=(
-            "Review and maintain procedural skill candidates outside the public "
-            "memory MCP surface. This is an explicit operator workflow, not a "
-            "Daily memory command."
-        ),
-    )
-    skill_governance.set_defaults(command_name="skill-governance")
-    skill_sub = skill_governance.add_subparsers(dest="skill_governance_action")
-
-    skill_list = skill_sub.add_parser(
-        "list-candidates",
-        help="List procedural skill candidates for review",
-    )
-    _add_required_project_arg(skill_list)
-    skill_list.add_argument(
-        "--status",
-        choices=["pending", "accepted", "rejected"],
-        default="pending",
-    )
-
-    skill_search = skill_sub.add_parser(
-        "search",
-        help="Search confirmed procedural skills",
-    )
-    _add_required_project_arg(skill_search)
-    skill_search.add_argument("--query", required=True, help="Task or workflow query")
-    skill_search.add_argument("--limit", type=int, default=10)
-
-    skill_suggest = skill_sub.add_parser(
-        "suggest",
-        help="Create a procedural skill candidate",
-    )
-    _add_required_project_arg(skill_suggest)
-    skill_suggest.add_argument(
-        "--activation-condition",
-        required=True,
-        help="When this skill should activate",
-    )
-    skill_suggest.add_argument(
-        "--step",
-        dest="steps",
-        action="append",
-        required=True,
-        help="One procedural step; repeat for multiple steps",
-    )
-    skill_suggest.add_argument(
-        "--termination-condition",
-        required=True,
-        help="When the skill workflow is complete",
-    )
-    skill_suggest.add_argument(
-        "--success-example",
-        dest="success_examples",
-        action="append",
-        default=[],
-        help="Optional evidence of a successful run; repeat as needed",
-    )
-    skill_suggest.add_argument("--source-session-id", default="")
-    skill_suggest.add_argument("--source", default="")
-    skill_suggest.add_argument("--confidence", type=float, default=0.7)
-
-    skill_confirm = skill_sub.add_parser(
-        "confirm",
-        help="Promote a procedural candidate to a confirmed skill",
-    )
-    skill_confirm.add_argument("candidate_id")
-
-    skill_reject = skill_sub.add_parser(
-        "reject",
-        help="Reject a procedural skill candidate",
-    )
-    skill_reject.add_argument("candidate_id")
-
-    skill_record = skill_sub.add_parser(
-        "record-result",
-        help="Record whether a confirmed skill helped in a real use",
-    )
-    skill_record.add_argument("skill_id")
-    result_group = skill_record.add_mutually_exclusive_group(required=True)
-    result_group.add_argument("--success", action="store_true")
-    result_group.add_argument("--failure", action="store_true")
 
     maintenance = sub.add_parser("maintenance", help="Explicit operator maintenance utilities")
     maintenance.set_defaults(command_name="maintenance")
@@ -465,41 +368,6 @@ def main(argv: list[str] | None = None):
 
     if command == "doctor":
         return asyncio.run(cmd_doctor(args.project))
-
-    if command == "skill-governance":
-        if args.skill_governance_action is None:
-            skill_governance.print_help()
-            return 0
-        if args.skill_governance_action == "list-candidates":
-            return asyncio.run(
-                cmd_list_procedural_candidates(args.project, status=args.status)
-            )
-        if args.skill_governance_action == "search":
-            return asyncio.run(cmd_search_skills(args.project, args.query, args.limit))
-        if args.skill_governance_action == "suggest":
-            return asyncio.run(
-                cmd_suggest_procedural(
-                    args.project,
-                    args.activation_condition,
-                    args.steps,
-                    args.termination_condition,
-                    success_examples=args.success_examples,
-                    source_session_id=args.source_session_id,
-                    source=args.source,
-                    confidence=args.confidence,
-                )
-            )
-        if args.skill_governance_action == "confirm":
-            return asyncio.run(cmd_confirm_procedural(args.candidate_id))
-        if args.skill_governance_action == "reject":
-            return asyncio.run(cmd_reject_procedural(args.candidate_id))
-        if args.skill_governance_action == "record-result":
-            return asyncio.run(
-                cmd_record_skill_result(args.skill_id, success=args.success)
-            )
-        skill_governance.error(
-            f"Unknown skill governance action: {args.skill_governance_action}"
-        )
 
     if command == "maintenance":
         if args.maintenance_action is None:

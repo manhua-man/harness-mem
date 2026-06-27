@@ -12,7 +12,6 @@ OptionalCommandGroup = Literal["maintenance"]
 
 DAILY_COMMANDS = ("status", "wake", "search", "search-all", "distill", "review", "dream")
 MAINTENANCE_COMMANDS = ("mark", "prune")
-REMOVED_COMMANDS = ("review-kb", "prune-kb", "verify-entry", "prd-sync")
 
 VALID_COMMAND_PROFILES: tuple[CommandProfile, ...] = (
     "daily",
@@ -155,7 +154,7 @@ def sync_slash_commands(
     if not dry_run:
         destination.mkdir(parents=True, exist_ok=True)
 
-    for command in (*known_command_names(), *REMOVED_COMMANDS):
+    for command in known_command_names():
         target = destination / f"{command}.md"
         if command not in selected_set and target.exists():
             removed.append(command)

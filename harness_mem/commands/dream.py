@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,15 +12,11 @@ from harness_mem.commands.metabolism_pass import select_metabolism_pass
 from harness_mem.commands.replay_window import ReplayBudget, ReplayWindow
 from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas import DreamItem, DreamRun, MemoryEntry, ReflectionJob
-from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.merge_suggestion_candidate import MergeSuggestionCandidate
 from harness_mem.core.schemas.stale_truth_suggestion_candidate import (
     StaleTruthSuggestionCandidate,
 )
 from harness_mem.core.schemas.supersede_candidate import SupersedeCandidate
-from harness_mem.core.schemas.skill_deprecation_suggestion_candidate import (
-    SkillDeprecationSuggestionCandidate,
-)
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 
@@ -417,56 +412,6 @@ async def _apply_supersede(
     )
 
 
-async def _apply_skill_retire(
-    store: LocalStructuredStore,
-    candidate: SkillDeprecationSuggestionCandidate,
-) -> DreamItem:
-    before_skill = await store.get_skill(candidate.source_skill_id)
-    if before_skill is None:
-        await store.update_skill_deprecation_suggestion_candidate_status(candidate.id, "rejected")
-        return DreamItem(
-            source_kind="skill_deprecation_suggestion",
-            source_id=candidate.id,
-            evidence_ids=[],
-            risk="medium",
-            proposed_action="retire_skill",
-            final_action="failed",
-            reason="skill missing; candidate rejected to avoid pending review",
-            result={"candidate_status": "rejected"},
-            error="missing skill",
-        )
-    retired = await store.update_skill_status(candidate.source_skill_id, "retired")
-    if retired is None:
-        await store.update_skill_deprecation_suggestion_candidate_status(candidate.id, "rejected")
-        return DreamItem(
-            source_kind="skill_deprecation_suggestion",
-            source_id=candidate.id,
-            evidence_ids=[],
-            risk="medium",
-            proposed_action="retire_skill",
-            final_action="failed",
-            reason="failed to retire skill",
-            result={"candidate_status": "rejected"},
-            error="skill status update failed",
-        )
-    await store.update_skill_deprecation_suggestion_candidate_status(candidate.id, "accepted")
-    return DreamItem(
-        source_kind="skill_deprecation_suggestion",
-        source_id=candidate.id,
-        evidence_ids=[],
-        risk="medium",
-        proposed_action="retire_skill",
-        final_action="applied",
-        reason="auto-retired stale/conflicting shared skill",
-        undo={
-            "kind": "retire_skill",
-            "restore_skill": before_skill.to_dict(),
-            "candidate_id": candidate.id,
-        },
-        result={"candidate_status": "accepted", "skill_id": candidate.source_skill_id},
-    )
-
-
 async def _reject_or_archive(
     store: LocalStructuredStore,
     *,
@@ -487,8 +432,6 @@ async def _reject_or_archive(
             "rejected",
             reviewer_id="dream",
         )
-    elif source_kind == "skill_deprecation_suggestion":
-        await store.update_skill_deprecation_suggestion_candidate_status(source_id, "rejected")
     return DreamItem(
         source_kind=source_kind,
         source_id=source_id,
@@ -562,10 +505,6 @@ async def dream_once(
     pending_merges = await store.list_merge_suggestion_candidates(project_name, status="pending")
     pending_stale = await store.list_stale_truth_suggestion_candidates(project_name, status="pending")
     pending_supersedes = await store.list_supersede_candidates(project_name, status="pending")
-    pending_skill_deprecations = await store.list_skill_deprecation_suggestion_candidates(
-        project_name,
-        status="pending",
-    )
     await persist_progress()
 
     seen_ids: set[str] = set()
@@ -654,24 +593,6 @@ async def dream_once(
             )
         else:
             items.append(await _apply_supersede(store, supersede_candidate, now=started_at))
-        await persist_progress()
-
-    for skill_deprecation_candidate in pending_skill_deprecations:
-        await persist_progress()
-        if not handle_cfg.get("allow_retire_skill", True) or not handle_cfg.get("auto_apply", True):
-            items.append(
-                await _reject_or_archive(
-                    store,
-                    source_kind="skill_deprecation_suggestion",
-                    source_id=skill_deprecation_candidate.id,
-                    evidence_ids=[],
-                    proposed_action="retire_skill",
-                    final_action="archived",
-                    reason="skill retirement disabled by dream policy; archived as dream-only record",
-                )
-            )
-        else:
-            items.append(await _apply_skill_retire(store, skill_deprecation_candidate))
         await persist_progress()
 
     completed_at = _now()
@@ -787,50 +708,6 @@ async def undo_dream_item(
             ok = await store.soft_delete_memory_entry(created["truth_id"])
             if not ok:
                 failures.append(f"soft-delete failed for memory_entry:{created['truth_id']}")
-
-    restore_skill = undo.get("restore_skill")
-    if restore_skill:
-        skill = await store.get_skill(restore_skill["id"])
-        if skill is None:
-            failures.append(f"restore failed for skill:{restore_skill['id']}")
-        else:
-            restored = Skill.from_dict(dict(restore_skill))
-            blob_path = store._blob_path("skills", skill.id)
-            blob_path.write_text(json.dumps(restored.to_dict(), indent=2, default=str))
-            await asyncio.to_thread(
-                store.index.update,
-                "skills",
-                skill.id,
-                {
-                    "name": restored.name,
-                    "activation_condition": restored.activation_condition,
-                    "steps": restored.steps,
-                    "termination_condition": restored.termination_condition,
-                    "success_examples": restored.success_examples,
-                    "source_candidate_id": restored.source_candidate_id,
-                    "source_session_id": restored.source_session_id,
-                    "scope": restored.scope,
-                    "origin_project": restored.origin_project,
-                    "source_ids": restored.source_ids,
-                    "portability_notes": restored.portability_notes,
-                    "disabled_assumptions": restored.disabled_assumptions,
-                    "confidence": restored.confidence,
-                    "status": restored.status,
-                    "usage_count": restored.usage_count,
-                    "success_count": restored.success_count,
-                    "failure_count": restored.failure_count,
-                    "success_rate": restored.success_rate,
-                    "updated_at": restored.updated_at,
-                    "last_used_at": restored.last_used_at,
-                    "search_text": store._procedural_search_text(
-                        name=restored.name,
-                        activation_condition=restored.activation_condition,
-                        steps=restored.steps,
-                        termination_condition=restored.termination_condition,
-                        success_examples=restored.success_examples,
-                    ),
-                },
-            )
 
     if failures:
         return {

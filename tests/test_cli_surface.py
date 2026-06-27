@@ -14,7 +14,6 @@ from harness_mem.shell_completion import (
     COMMAND_PROFILES,
     MAINTENANCE_ACTIONS,
     OPTIONAL_COMMAND_GROUPS,
-    SKILL_GOVERNANCE_ACTIONS,
     completion_bash,
     completion_fish,
     completion_zsh,
@@ -31,13 +30,10 @@ def test_cli_top_level_help_excludes_import_and_purge(capsys: pytest.CaptureFixt
     _assert_help_exit(["--help"])
     out = capsys.readouterr().out
 
-    assert (
-        "{init,quickstart,qs,doctor,skill-governance,maintenance,config,integration}"
-        in out
-    )
+    assert "{init,quickstart,qs,doctor,maintenance,config,integration}" in out
     assert " import " not in out
     assert " purge " not in out
-    assert "skill-governance" in out
+    assert "skill-governance" not in out
 
 
 def test_removed_top_level_import_and_purge_are_invalid(
@@ -50,6 +46,10 @@ def test_removed_top_level_import_and_purge_are_invalid(
     _assert_help_exit(["purge", "--help"], code=2)
     purge_err = capsys.readouterr().err
     assert "invalid choice" in purge_err
+
+    _assert_help_exit(["skill-governance", "--help"], code=2)
+    skill_err = capsys.readouterr().err
+    assert "invalid choice" in skill_err
 
 
 def test_maintenance_import_and_purge_help_succeeds(
@@ -66,23 +66,6 @@ def test_maintenance_import_and_purge_help_succeeds(
     assert "harness-mem maintenance purge" in purge_help
     assert "--before" in purge_help
     assert "--stale-only" in purge_help
-
-
-def test_skill_governance_help_paths_succeed(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    paths = [
-        ["skill-governance", "--help"],
-        ["skill-governance", "list-candidates", "--help"],
-        ["skill-governance", "search", "--help"],
-        ["skill-governance", "suggest", "--help"],
-        ["skill-governance", "confirm", "--help"],
-        ["skill-governance", "reject", "--help"],
-        ["skill-governance", "record-result", "--help"],
-    ]
-    for path in paths:
-        _assert_help_exit(path)
-        assert "skill-governance" in capsys.readouterr().out
 
 
 def test_nested_maintenance_actions_are_invalid(
@@ -114,6 +97,9 @@ def test_removed_product_maintenance_actions_are_invalid(
         "cleanup-generated-cache",
         "rebuild-wiki-bridge",
         "causal-benchmark",
+        "list-reflection-jobs",
+        "get-reflection-job",
+        "list-metabolism-runs",
     ]
     for action in removed:
         _assert_help_exit(["maintenance", action, "--help"], code=2)
@@ -279,124 +265,6 @@ def test_flat_maintenance_dispatch_routes(monkeypatch: pytest.MonkeyPatch) -> No
     ]
 
 
-def test_skill_governance_dispatch_routes(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
-
-    async def fake_list(project: str, *, status: str | None = None) -> int:
-        calls.append(("list", (project,), {"status": status}))
-        return 0
-
-    async def fake_search(project: str, query: str, limit: int = 10) -> int:
-        calls.append(("search", (project, query, limit), {}))
-        return 0
-
-    async def fake_suggest(
-        project: str,
-        activation_condition: str,
-        steps: list[str],
-        termination_condition: str,
-        *,
-        success_examples: list[str] | None = None,
-        source_session_id: str = "",
-        source: str = "",
-        confidence: float = 0.7,
-    ) -> int:
-        calls.append(
-            (
-                "suggest",
-                (project, activation_condition, tuple(steps), termination_condition),
-                {
-                    "success_examples": tuple(success_examples or []),
-                    "source_session_id": source_session_id,
-                    "source": source,
-                    "confidence": confidence,
-                },
-            )
-        )
-        return 0
-
-    async def fake_confirm(candidate_id: str) -> int:
-        calls.append(("confirm", (candidate_id,), {}))
-        return 0
-
-    async def fake_reject(candidate_id: str) -> int:
-        calls.append(("reject", (candidate_id,), {}))
-        return 0
-
-    async def fake_record(skill_id: str, success: bool) -> int:
-        calls.append(("record", (skill_id, success), {}))
-        return 0
-
-    monkeypatch.setattr(cli, "cmd_list_procedural_candidates", fake_list)
-    monkeypatch.setattr(cli, "cmd_search_skills", fake_search)
-    monkeypatch.setattr(cli, "cmd_suggest_procedural", fake_suggest)
-    monkeypatch.setattr(cli, "cmd_confirm_procedural", fake_confirm)
-    monkeypatch.setattr(cli, "cmd_reject_procedural", fake_reject)
-    monkeypatch.setattr(cli, "cmd_record_skill_result", fake_record)
-
-    assert (
-        cli.main(["skill-governance", "list-candidates", "-p", "demo", "--status", "rejected"])
-        == 0
-    )
-    assert (
-        cli.main(["skill-governance", "search", "-p", "demo", "--query", "release", "--limit", "3"])
-        == 0
-    )
-    assert (
-        cli.main(
-            [
-                "skill-governance",
-                "suggest",
-                "-p",
-                "demo",
-                "--activation-condition",
-                "A workflow repeats",
-                "--step",
-                "Audit active skills",
-                "--step",
-                "Propose on-demand skills",
-                "--termination-condition",
-                "Activation map is reviewed",
-                "--success-example",
-                "Removed noisy always-on skills",
-                "--source-session-id",
-                "session-1",
-                "--source",
-                "operator",
-                "--confidence",
-                "0.8",
-            ]
-        )
-        == 0
-    )
-    assert cli.main(["skill-governance", "confirm", "candidate-1"]) == 0
-    assert cli.main(["skill-governance", "reject", "candidate-2"]) == 0
-    assert cli.main(["skill-governance", "record-result", "skill-1", "--failure"]) == 0
-
-    assert calls == [
-        ("list", ("demo",), {"status": "rejected"}),
-        ("search", ("demo", "release", 3), {}),
-        (
-            "suggest",
-            (
-                "demo",
-                "A workflow repeats",
-                ("Audit active skills", "Propose on-demand skills"),
-                "Activation map is reviewed",
-            ),
-            {
-                "success_examples": ("Removed noisy always-on skills",),
-                "source_session_id": "session-1",
-                "source": "operator",
-                "confidence": 0.8,
-            },
-        ),
-        ("confirm", ("candidate-1",), {}),
-        ("reject", ("candidate-2",), {}),
-        ("record", ("skill-1", False), {}),
-    ]
-
-
 def test_import_dry_run_previews_without_opening_backend(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -435,16 +303,14 @@ def test_import_dry_run_previews_without_opening_backend(
 def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
     assert "import" not in CLI_COMMANDS
     assert "purge" not in CLI_COMMANDS
-    assert "skill-governance" in CLI_COMMANDS
-    assert "suggest" in SKILL_GOVERNANCE_ACTIONS
-    assert "confirm" in SKILL_GOVERNANCE_ACTIONS
-    assert "record-result" in SKILL_GOVERNANCE_ACTIONS
+    assert "skill-governance" not in CLI_COMMANDS
     assert "import" in MAINTENANCE_ACTIONS
     assert "purge" in MAINTENANCE_ACTIONS
     assert "assign-memory-types" not in MAINTENANCE_ACTIONS
     assert "rebuild-vector-index" in MAINTENANCE_ACTIONS
     assert "migrate-store-v2" in MAINTENANCE_ACTIONS
     assert "product-doc" not in MAINTENANCE_ACTIONS
+    assert "metabolism-run" not in MAINTENANCE_ACTIONS
     assert "product-doc" not in COMMAND_PROFILES
     assert "product-doc" not in OPTIONAL_COMMAND_GROUPS
     assert "bench" not in MAINTENANCE_ACTIONS
@@ -455,23 +321,21 @@ def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
     fish = completion_fish()
 
     assert (
-        'compgen -W "init quickstart doctor skill-governance maintenance '
-        'config integration qs"'
+        'compgen -W "init quickstart doctor maintenance config integration qs"'
     ) in bash
     assert (
-        "commands=(init quickstart doctor skill-governance maintenance "
-        "config integration qs)"
+        "commands=(init quickstart doctor maintenance config integration qs)"
     ) in zsh
     assert (
         "complete -c harness-mem -n '__fish_use_subcommand' "
-        "-a 'init quickstart doctor skill-governance maintenance config integration qs'"
+        "-a 'init quickstart doctor maintenance config integration qs'"
     ) in fish
 
     for script in (bash, zsh, fish):
         assert "import" in script
         assert "purge" in script
-        assert "skill-governance" in script
-        assert "record-result" in script
+        assert "skill-governance" not in script
+        assert "record-result" not in script
         assert "labs" not in script
         assert "product-doc" not in script
         assert "rebuild-vector-index" in script

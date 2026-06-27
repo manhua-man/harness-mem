@@ -94,19 +94,35 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
         "undo_dream_item",
     } <= tool_names
     assert "metabolism_run" not in tool_names
+    assert "metabolism_preview" not in tool_names
+    assert "list_reflection_jobs" not in tool_names
+    assert "get_reflection_job" not in tool_names
+    assert "list_metabolism_runs" not in tool_names
     assert "health_summary" not in tool_names
+    assert "hidden_tool_count" not in result
+    assert "total_tool_count" not in result
     assert not SKILL_GOVERNANCE_TOOLS.intersection(tool_names)
+    tool_by_name = {tool["name"]: tool for tool in result["tools"]}
+    for name in ("dream_ledger", "dream_run", "dream_auto_tick", "undo_dream_item"):
+        assert tool_by_name[name]["annotations"]["harness_mem"]["cluster"] == "dream"
 
 
 def test_historical_profile_requests_do_not_expand_mcp_surface(backend) -> None:
     default_result, default_names = _listed_tool_names()
     requested_result, requested_names = _listed_tool_names({"mcp_tool_profile": "full"})
+    maintenance_result, maintenance_names = _listed_tool_names({"profile": "maintenance"})
 
     assert requested_result["profile"] == "memory"
     assert requested_result["profile_source"] == "single-public-surface"
     assert requested_result["degraded_reason"] == "profile_ignored_single_public_surface"
     assert requested_names == default_names
+    assert maintenance_result["profile"] == "memory"
+    assert maintenance_result["profile_source"] == "single-public-surface"
+    assert maintenance_result["degraded_reason"] == "profile_ignored_single_public_surface"
+    assert maintenance_names == default_names
     assert "suggest_skill" not in requested_names
+    assert "list_reflection_jobs" not in maintenance_names
+    assert "list_metabolism_runs" not in maintenance_names
     assert default_result["tool_count"] == requested_result["tool_count"]
 
 
