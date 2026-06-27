@@ -13,8 +13,6 @@ package, MCP tool contract, candidate review lifecycle, and local audit state.
 - MCP server config for `python -m harness_mem.mcp.server`.
 - Claude Code `/hm:*` command files for common memory actions.
 - Agent skills that teach the client when to wake, search, distill, and review.
-- A separate `harness-mem-skill-governance` skill for explicit procedural
-  skill inventory review.
 - PowerShell install and doctor helpers.
 
 ## Install
@@ -99,10 +97,8 @@ Review the new harness-mem candidates.
   default.
 - Other CLI maintenance actions stay limited to operator repair and audit tasks
   such as index rebuilds, storage migration/export, and state audit.
-- Procedural skill lifecycle governance uses the explicit
-  `harness-mem skill-governance ...` CLI workflow and the
-  `harness-mem-skill-governance` skill; it is not a public MCP lifecycle tool
-  and not a Daily `/hm:*` command.
+- Procedural skill lifecycle governance is outside this plugin and outside the
+  public memory MCP surface.
 - Agents may suggest memory, but durable truth goes through candidate review.
 - Confirmed memory is what future `wake` and `search` consume.
 

@@ -14,7 +14,7 @@
 > **V4.2 决议更新**
 > MCP 不再把 `full/minimal/core-read/review-write/labs` 作为用户需要理解的公开 profile。对外只有一个 public memory surface：读、蒸馏候选、显式 review gate、dream 默认维护。历史 `mcp_tool_profile` 请求只作为兼容噪音忽略。
 >
-> Dream 是默认开启的产品能力，但仍受 scheduler gate、audit ledger 和 undo metadata 约束；它不再归入 labs。Skill governance 不再作为 MCP public tools 暴露，后续如果继续做，应参考 skill-optimizer / skill-activation-auditor 这类显式技能整理流程，而不是塞进 memory MCP。
+> Dream 是默认开启的产品能力，但仍受 scheduler gate、audit ledger 和 undo metadata 约束；它不再归入 labs。Skill governance 不再作为 MCP public tools 或 harness-mem CLI 产品入口暴露；后续如果继续做，应放在 memory 产品之外的专门 skill 整理流程里。
 
 ---
 
@@ -54,7 +54,7 @@ MCP full/minimal 工具面过宽
 插件命令暴露 maintenance/private workflow
 session-distill 单体过胖
 storage/search truth/index/vector 边界不稳
-metabolism/skill governance/knowledge-cache 过早进入用户视野
+metabolism/skill governance 过早进入用户视野，knowledge-cache/wiki bridge 已超出主线
 ```
 
 > **最终结论**
@@ -93,7 +93,7 @@ get_project_status / doctor / setup
 ```text
 metabolism / reflection_jobs
 skill promotion / revision / deprecation
-knowledge-cache compact renderer
+已删除的 knowledge-cache compact renderer
 prune / mark artifact 维护链路
 retrieval quality 实验层
 自动 confirm / 自动 durable write
@@ -111,7 +111,7 @@ retrieval quality 实验层
 | P1 | 插件命令面与 session-distill 过胖 | Daily 与 artifact maintenance 分层；删除 KB/PRD 第二产品能力。 | 默认只装 `status/wake/search/search-all/distill/review/dream`；`session-distill` 只服务 candidate export。 |
 | P1/P2 | storage/search 架构债 | `truth/index/vector/search facade` 边界清楚。 | 补一致性测试，再拆 `TruthStore/DerivedIndex/SearchFacade/VectorBackend`。 |
 | P2 | MCP server / CLI 结构债 | 入口层不继续长成应用内核。 | `server.py` 拆 tool groups；CLI 降级为 operator console。 |
-| P3 | metabolism/skill governance/knowledge-cache | 保留实验价值，但不作为稳定承诺。 | metabolism/knowledge-cache 维持 maintenance/internal；Skill governance 退出 MCP，走 `harness-mem skill-governance ...` 与专门 skill 整理流程。 |
+| P3 | metabolism/skill governance；已删除 knowledge-cache/wiki bridge | 保留必要治理的实验价值，但不作为稳定承诺；knowledge-cache/wiki bridge 不保留独立产品层。 | metabolism 维持受控 internal/read-debug；Skill governance 退出 MCP 和 CLI 产品面；durable knowledge 不再经过 generated cache。 |
 
 ### 关键排序原则
 
@@ -140,14 +140,14 @@ retrieval quality 实验层
 | 插件命令面 | artifact maintenance、KB/PRD 管理和 Daily 命令混在一起。 | P1：Daily 默认安装 `dream`；maintenance 只保留 `mark/prune`；删除 KB/PRD command surface。 |
 | `tools/session-distill` | 同时承担 packet、manifest、KB、PRD、guardrail、candidate export、cleanup，总线化。 | P1：删除 KB/PRD 管理能力，只保留 packet/candidate/export 与 artifact lifecycle。 |
 | storage/search | `truth/index/vector/search facade` 双写与 optional 依赖边界不清。 | P1/P2：先补回归测试，再拆边界。 |
-| storage/reflection job | 维护 store 复用 structured store 私有 `_index` 一类封装穿透。 | P1/P2：先提供显式 IndexStore 或 public index 边界，再拆物理文件。 |
+| storage/reflection job | 维护 store 复用 structured store 私有 `_index` 一类封装穿透。 | P1/P2：已提供 `DerivedIndex` public 边界；后续只在需要时再拆物理文件。 |
 | `mcp/server.py` | God Module：transport、registry、backend lifecycle、tool specs、maintenance 混合。 | P2：拆 backend/tool groups/serializers/dispatcher。 |
 | CLI | 命令面像第二产品入口。 | P2：降级为 setup/doctor/config/integration/maintenance operator console。 |
 | read/context/signals | ranking、signal、sufficiency、cost strategy 容易让 read path 不可解释。 | P2：冻结默认 read contract，高级策略 behind flag 且必须 traceable。 |
 | plugin bundle | 容易被误解为 canonical API 或 Claude-only 产品。 | P2：明确 plugin 是 integration bundle；canonical API 是 runtime + MCP + review lifecycle。 |
 | optional native/Rust | 内部加速实现版本容易污染产品版本叙事。 | P2：对外只称 optional native acceleration；不把 native core 版本当产品版本。 |
 | dream/metabolism/reflection | 将 memory backend 推向自治治理系统。 | dream 默认开启但必须有 gate/audit/undo；metabolism/reflection 仍是 maintenance/internal。 |
-| skill governance | promotion/revision/deprecation 容易把项目拖成 skill lifecycle manager。 | 从 MCP public tools 删除；通过 `harness-mem skill-governance ...` 和 `harness-mem-skill-governance` 专门流程处理。 |
+| skill governance | promotion/revision/deprecation 容易把项目拖成 skill lifecycle manager。 | 从 MCP public tools 与 CLI 产品入口删除；如需继续做，放到 harness-mem 之外的专门 skill 整理流程。 |
 
 ### 当前最危险的不是“大文件”，而是默认行为冲突
 
@@ -170,10 +170,10 @@ skill lifecycle / operator maintenance / experiment 不进入 MCP public tools�
 
 | Surface | 允许能力 | 不允许能力 |
 |---|---|---|
-| MCP public memory surface | `wake/search/status/timeline/file_context/prepare_session_distill/suggest_* / list_candidates / get_candidate_detail / confirm_* / reject_* / supersede / dream_ledger / dream_run / dream_auto_tick / undo_dream_item`。 | `metabolism_run`, `health_summary`, `surface_cost_report`, migrations, purge/rebuild, Skill governance lifecycle tools。 |
-| CLI maintenance surface | import/purge/rebuild/migrate/export/audit/operator repair。 | 不作为 Daily memory workflow；不暴露 cache、wiki bridge、bench 子产品入口。 |
-| Plugin Daily surface | `/hm:status`, `/hm:wake`, `/hm:search`, `/hm:search-all`, `/hm:distill`, `/hm:review`。 | 不默认安装 raw cleanup、artifact maintenance、实验命令；不存在 KB/PRD sync 子产品。 |
-| Skill governance | 走专门 skill-optimizer / skill-activation-auditor 风格流程：`harness-mem skill-governance ...` 与 `harness-mem-skill-governance`。 | 不作为 MCP public lifecycle tools，不混入 Daily `/hm:*` 命令。 |
+| MCP public memory surface | `wake/search/status/timeline/file_context/prepare_session_distill/suggest_* / list_candidates / get_candidate_detail / confirm_* / reject_* / supersede / dream_ledger / dream_run / dream_auto_tick / undo_dream_item`。 | `metabolism_run`, `metabolism_preview`, `health_summary`, `surface_cost_report`, `list_reflection_jobs`, `get_reflection_job`, migrations, purge/rebuild, Skill governance lifecycle tools。 |
+| CLI maintenance surface | import/purge/rebuild/migrate/export/audit/operator repair。 | 不作为 Daily memory workflow；不暴露 cache、wiki bridge、bench 子产品入口；不提供可触发 metabolism 的 CLI 产品入口。 |
+| Plugin Daily surface | `/hm:status`, `/hm:wake`, `/hm:search`, `/hm:search-all`, `/hm:distill`, `/hm:review`, `/hm:dream`。 | 不默认安装 raw cleanup、artifact maintenance、实验命令；不存在 KB/PRD sync 子产品。 |
+| Skill governance | 不属于 harness-mem public memory 产品面；只保留 confirmed procedural memory 的 read hint 能力。 | 不作为 MCP public lifecycle tools，不混入 CLI 或 Daily `/hm:*` 命令。 |
 
 默认用户看到的核心路径：
 
@@ -194,6 +194,7 @@ skill lifecycle / operator maintenance / experiment 不进入 MCP public tools�
 3. confirm/reject/supersede 仍是显式 review gate，不由 heuristic 自动 apply。
 4. 默认包含 dream 账本/显式触发/auto tick/undo，但不包含 metabolism、migration、rebuild、purge。
 5. suggest_skill/confirm_skill/skill promotion/revision/deprecation 不注册为 MCP public tools。
+6. 默认 tools/list 不报告 hidden maintenance tool count；历史 profile 请求只作为兼容噪音忽略，不解锁第二套 MCP 工具面。
 ```
 
 ---
@@ -777,7 +778,7 @@ retrieval_profile=quality
 signal_influence=on
 context_sufficiency=diagnostic
 cost_budget_policy=diagnostic
-knowledge-cache compact renderer
+已删除的 knowledge-cache compact renderer
 ```
 
 但它们不能改变默认 public read contract。默认 contract 应固定为：
@@ -1011,7 +1012,7 @@ project isolation 不靠 JSON LIKE 或文本兜底。
 目标：
 
 ```text
-metabolism/skill governance/knowledge-cache 移出默认路径；dream 保留默认入口但必须可审计、可撤销。
+metabolism/skill governance 移出默认路径；knowledge-cache/wiki bridge 从 runtime package 删除；dream 保留默认入口但必须可审计、可撤销。
 read/context/signals 高级策略不进入 quickstart 主路径。
 plugin 文档明确 integration bundle，不冒充 canonical API。
 native/Rust 只作为 optional acceleration 叙事。
@@ -1041,12 +1042,12 @@ package version 是唯一对外产品版本；native/Rust 不阻断 Python-only 
 [P1] Add session-distill external sync policy
 [P1] Add distill/review gate regression tests
 [P2] Add storage/search consistency tests before refactor
-[P2] Remove private _index coupling from storage/reflection jobs
+[done] Remove private _index coupling from storage/reflection jobs
 [P2] Split MCP server tool groups
 [P2] Freeze default read contract and gate advanced strategy behind flags
 [P2] Clarify plugin as integration bundle, not canonical API
 [P2] Keep native/Rust acceleration optional in public docs
-[P3] Keep metabolism internal and route Skill governance through the dedicated CLI/skill workflow
+[P3] Keep metabolism internal and remove Skill governance from harness-mem public product surfaces
 ```
 
 ---
@@ -1066,14 +1067,14 @@ package version 是唯一对外产品版本；native/Rust 不阻断 Python-only 
 - `session-distill` 有明确 readiness mapping、default summary contract 和外部同步策略。
 - `harness_mem_export` 只能 suggest，不能 confirm/reject/replace/direct truth write。
 - storage/search 已有一致性测试保护，并已启动 TruthStore/CandidateStore 首轮边界拆分。
-- storage/reflection job 不再访问其它 store 的 private attribute。
+- storage/reflection job 通过 `DerivedIndex` public 边界复用 structured index，不再访问其它 store 的 private attribute。
 - read/context/signals 的高级策略默认不改变 wake/search 的稳定 contract。
 - plugin 被表述为 integration bundle，不是 canonical API 或 Claude-only 产品。
 - native/Rust 被表述为 optional acceleration，不污染 package version 叙事。
-- metabolism/knowledge-cache 不出现在 README/quickstart 主路径；dream 作为默认能力出现在 Daily 路径。
-- Skill governance 不进入 MCP lifecycle tools 或 Daily `/hm:*`，但有显式
-  `harness-mem skill-governance ...` 和 `harness-mem-skill-governance`
-  operator 流程。
+- metabolism 不出现在 README/quickstart 主路径；knowledge-cache/wiki bridge 不作为仓库 runtime 能力保留；dream 作为默认能力出现在 Daily 路径。
+- metabolism/reflection jobs 保留为内部后台治理机制；默认产品/MCP/slash 不解释这些概念，只通过受控 maintenance read/debug 通道查看审计状态。
+- Skill governance 不进入 MCP lifecycle tools、CLI 顶层命令或 Daily `/hm:*`；
+  confirmed procedural memory 只作为 read hint 被使用。
 
 ### 证据索引
 
@@ -1090,9 +1091,9 @@ package version 是唯一对外产品版本；native/Rust 不阻断 Python-only 
 | removed KB/PRD command guardrails 与 raw cleanup guardrails | `tools/session-distill/lib/cli.py`; `tests/test_session_distill_cli_guardrails.py` |
 | storage/search 不变量 | `tests/test_storage_search_invariants.py` |
 | storage truth/candidate 边界 | `harness_mem/storage/truth_store.py`; `harness_mem/storage/candidate_store.py`; `harness_mem/storage/local_structured_store.py` |
-| storage derived index 边界 | `harness_mem/storage/derived_index.py`; `harness_mem/storage/local_structured_store.py:index`; `harness_mem/storage/local_verbatim_store.py:index`; `harness_mem/storage/sqlite_index.py:locked_connection` |
+| storage derived index 边界 | `harness_mem/storage/derived_index.py`; `harness_mem/storage/local_structured_store.py:index`; `harness_mem/storage/local_verbatim_store.py:index`; `harness_mem/storage/reflection_job_store.py`; `harness_mem/storage/sqlite_index.py:locked_connection`; `tests/test_storage_search_invariants.py:test_reflection_jobs_use_public_derived_index_boundary` |
 | SearchFacade 边界 | `harness_mem/search/backend.py:SearchFacade`; `tests/test_storage_search_invariants.py` |
-| Skill governance 专门流程 | `harness_mem/cli.py:skill-governance`; `plugins/harness-mem/skills/harness-mem-skill-governance/SKILL.md`; `docs/skill-governance.md`; `tests/test_cli_surface.py` |
+| Skill governance 移除证据 | `tests/test_cli_surface.py`; `tests/test_mcp_tool_profile_contract.py`; `harness_mem/mcp/tool_specs.py` |
 | optional vector fallback | `harness_mem/search/hybrid_search.py`; `tests/test_storage_search_invariants.py:test_vector_disabled_hybrid_search_falls_back_to_fts` |
 | CLI operator console 定位 | `harness_mem/cli.py:3`; `harness_mem/cli.py:141` |
 | read/context/signals 策略层 | `harness_mem/mcp/tool_specs.py:111`; `harness_mem/task_context_runtime.py:8`; `harness_mem/context_assembly.py:365` |

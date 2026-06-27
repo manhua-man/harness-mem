@@ -8,9 +8,9 @@
   `harness-mem maintenance import` / `harness-mem maintenance purge` and default
   to dry-run previews unless `--apply` is passed.
 - Kept CLI maintenance as a small flat operator surface for import/purge,
-  index rebuilds, storage migration/export, and state audit; benchmark,
-  generated-cache, and wiki-bridge workflows are not exposed as CLI product
-  subtrees.
+  index rebuilds, storage migration/export, and state audit; causal benchmark
+  remains test-only, while generated-cache and wiki-bridge workflows were
+  removed from the runtime package.
 - Grouped plugin slash command sources by physical profile directory while
   keeping installed `/hm:*` command names flat.
 - Removed the session-distill KB/PRD management surface; durable project,
@@ -21,15 +21,13 @@
 - Started the storage/search boundary split by keeping `LocalStructuredStore` as
   the compatibility facade while delegating durable truth updates to
   `TruthStore` and candidate status writes to `CandidateStore`.
+- Kept metabolism and reflection jobs out of the default MCP surface; public
+  `tools/list` no longer reports hidden maintenance tool counts.
 
 ### Added
 
-- Added CLI, MCP profile, plugin command sync, and storage/search invariant tests
+- Added CLI, MCP single-surface, plugin command sync, and storage/search invariant tests
   for the V4.2 boundary hardening pass.
-- Added a dedicated `harness-mem skill-governance ...` operator workflow plus
-  `harness-mem-skill-governance` plugin skill for procedural skill lifecycle
-  review outside the public MCP memory surface.
-
 ## [0.8.2] - 2026-06-25
 
 ### Added

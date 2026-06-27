@@ -23,9 +23,10 @@ last ten sessions: release boundaries, decisions, handoffs, review outcomes,
 and "do not claim this yet" rules.
 
 `harness-mem` turns that project memory into a local backend exposed through
-MCP. Codex, Claude Code, Cursor, Gemini CLI, and other Agent clients can recover
-context with `wake` and `search`, then propose new memory through `distill`.
-Nothing becomes durable truth until it passes review.
+one MCP memory surface. Codex, Claude Code, Cursor, Gemini CLI, and other Agent
+clients recover context with `wake` and `search`, propose new memory through
+`distill`, and use dream as the default audited maintenance loop. Nothing
+becomes durable truth until it passes review.
 
 <p align="center">
   <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="A fresh Agent uses wake, search, distill, and review against a local auditable memory backend" width="900" />
@@ -90,18 +91,17 @@ Then use the Agent-facing commands:
 /hm:search "release boundary"
 /hm:distill <project> 10
 /hm:review
+/hm:dream
 ```
 
 The terminal CLI is an operator console, not the daily memory workflow. Its
 top-level surface is `init`, `quickstart`/`qs`, `doctor`, `config`,
-`integration`, `maintenance`, and the explicit `skill-governance` operator
-workflow. Import and purge operations live under
+`integration`, and `maintenance`. Import and purge operations live under
 `harness-mem maintenance ...` and default to dry-run previews.
 Other CLI maintenance actions stay limited to operator repair and audit tasks
 such as index rebuilds, storage migration/export, and state audit.
-Procedural skill lifecycle work stays out of MCP and Daily slash commands; use
-`harness-mem skill-governance ...` only when intentionally maintaining skill
-candidates.
+Procedural skill lifecycle management is outside the public memory MCP and CLI
+product surface.
 
 ## Repository
 
@@ -119,8 +119,6 @@ candidates.
 - [MCP setup](docs/mcp-setup.md)
 - [Cold-start demo](docs/demo-cold-start.md)
 - [Recall audit contract](docs/recall-audit.md)
-- [Causal benchmark smoke](docs/causal-benchmark.md)
-- [Skill governance](docs/skill-governance.md)
 - [Changelog](CHANGELOG.md)
 
 ## Development Check

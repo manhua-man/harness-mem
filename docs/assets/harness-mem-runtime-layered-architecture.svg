@@ -209,9 +209,9 @@
     </g>
     <g transform="translate(24 378)">
       <rect class="cardBlue" width="254" height="104"/>
-      <text class="rule" x="18" y="30">Generated cache 只辅助</text>
-      <text class="body" x="18" y="58">wiki bridge / compact index</text>
-      <text class="body" x="18" y="80">默认不变成 truth</text>
+      <text class="rule" x="18" y="30">Read model 按需生成</text>
+      <text class="body" x="18" y="58">context plan / drilldown</text>
+      <text class="body" x="18" y="80">不维护独立 cache 层</text>
     </g>
     <g transform="translate(24 504)">
       <rect class="cardBlue" width="254" height="104"/>

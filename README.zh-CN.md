@@ -20,7 +20,7 @@
 
 Agent 会读代码，但它通常不知道项目为什么变成现在这样：发布边界、历史决策、handoff、上轮 review 结论、哪些 claim 还不能写。
 
-`harness-mem` 把这些内容变成本地记忆，通过 MCP 接给 Codex、Claude Code、Cursor、Gemini CLI 和其它 Agent 客户端。新 Agent 用 `wake` 和 `search` 找回上下文，用 `distill` 提出新记忆；只有 review 通过的内容才会进入 confirmed memory。
+`harness-mem` 把这些内容变成本地记忆，通过单一 MCP memory surface 接给 Codex、Claude Code、Cursor、Gemini CLI 和其它 Agent 客户端。新 Agent 用 `wake` 和 `search` 找回上下文，用 `distill` 提出新记忆，并把 dream 作为默认的可审计维护循环；只有 review 通过的内容才会进入 confirmed memory。
 
 <p align="center">
   <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="新 Agent 通过 wake、search、distill、review 恢复跨会话项目上下文" width="900" />
@@ -88,16 +88,16 @@ cd harness-mem
 /hm:search "release boundary"
 /hm:distill <project> 10
 /hm:review
+/hm:dream
 ```
 
 终端 CLI 是 operator console，不是日常 memory workflow。顶层只保留
 `init`、`quickstart`/`qs`、`doctor`、`config`、`integration` 和
-`maintenance`，另有显式 `skill-governance` operator 流程。导入和清理走
-`harness-mem maintenance ...`，默认都是 dry-run 预览。
+`maintenance`。导入和清理走 `harness-mem maintenance ...`，默认都是
+dry-run 预览。
 其它 CLI 维护动作只保留 operator repair / audit 所需的索引重建、storage
 迁移/导出和状态审计。
-procedural skill 生命周期治理不进入 MCP 和 Daily slash commands；只有明确要
-维护 skill candidate 时才使用 `harness-mem skill-governance ...`。
+procedural skill 生命周期治理不属于 public memory MCP 和 CLI 产品面。
 
 ## 仓库结构
 
@@ -115,8 +115,6 @@ procedural skill 生命周期治理不进入 MCP 和 Daily slash commands；只�
 - [MCP setup](docs/mcp-setup.md)
 - [Cold-start demo](docs/demo-cold-start.md)
 - [Recall audit contract](docs/recall-audit.md)
-- [Causal benchmark smoke](docs/causal-benchmark.md)
-- [Skill governance](docs/skill-governance.md)
 - [Changelog](CHANGELOG.md)
 
 ## 开发检查

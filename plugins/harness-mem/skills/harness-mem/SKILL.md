@@ -18,7 +18,7 @@ Treat the project as real production context:
 - Distilled memory is a draft signal. Review it before treating it as durable truth.
 - Use `suggest_*`, `list_candidates`, and `confirm_*` / `reject_*` for stable rules the user explicitly wants remembered.
 - Confirmed truth can be maintained automatically, but it must not be silently overwritten; durable changes go through candidate / review / supersede / ledger.
-- Cross-project skills can be read as procedural memory hints, but lifecycle management belongs to `harness-mem skill-governance ...` and the `harness-mem-skill-governance` skill, not MCP public tools.
+- Cross-project skills can be read as procedural memory hints, but lifecycle management is outside the public memory MCP surface.
 - Keep the default surface to Daily commands: wake, search, distill, review, and dream. Artifact maintenance commands are opt-in.
 - Do not delete raw agent session files unless the user explicitly asks for raw-file cleanup through an opt-in maintenance entry.
 
@@ -46,9 +46,8 @@ For status and wake-up:
 
 1. Call `get_project_status` to resolve the active project and counts.
 2. When the project is ready, call `wake(project_name=<project>)` instead of manually stitching low-level read tools.
-3. If the user explicitly wants generated compact context, call `wake(project_name=<project>, renderer="compact")`.
-4. If the user explicitly wants procedural hints, call `wake(project_name=<project>, include_skill_hints=true)`, and only call `get_skill(skill_id)` if they ask to expand a specific hint.
-5. Summarize the usable context and suggest the next IDE-native action:
+3. If the user explicitly wants procedural hints, call `wake(project_name=<project>, include_skill_hints=true)`, and only call `get_skill(skill_id)` if they ask to expand a specific hint.
+4. Summarize the usable context and suggest the next IDE-native action:
    - Claude Code: `/hm:distill`, `/hm:review`, or `/hm:wake`.
    - Cursor / Antigravity / opencode / Hermes / generic AI IDE: "用 harness-mem 唤醒当前项目" or "用 harness-mem 整理最近 N 个 session".
    - Do not present terminal commands as the normal answer when MCP tools are available.

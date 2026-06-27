@@ -27,9 +27,8 @@ Maintenance import and purge operations are available as
 preview by default until `--apply` is passed.
 Other CLI maintenance actions are limited to operator repair and audit tasks
 such as index rebuilds, storage migration/export, and state audit.
-Procedural skill lifecycle management is a separate operator workflow:
-`harness-mem skill-governance ...`. It is not part of the daily MCP or `/hm:*`
-memory loop.
+Procedural skill lifecycle management is outside the public memory MCP and CLI
+product surface.
 
 ## Register MCP
 
@@ -49,13 +48,7 @@ optionally register MCP:
 .\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
-That install syncs the Daily `/hm:*` commands by default, including dream. To
-show optional artifact maintenance commands later, sync command visibility
-without reinstalling:
-
-```powershell
-.\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Maintenance
-```
+That install syncs the Daily `/hm:*` commands by default, including dream.
 
 ## Daily Loop
 
@@ -75,6 +68,7 @@ The stable loop is:
 wake -> search -> distill -> review -> dream ledger
 ```
 
-Only confirmed memory is used by `wake` and `search`. `distill` creates
-candidates and runs preview-only auto-review by default. New material must pass
-`review` before it becomes durable project memory.
+Dream is enabled as a default audited maintenance capability. Only confirmed
+memory is used by `wake` and `search`; `distill` creates candidates and
+preview-only review suggestions. New material must pass `review` before it
+becomes durable project memory.

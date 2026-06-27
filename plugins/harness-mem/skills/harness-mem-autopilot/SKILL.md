@@ -57,7 +57,7 @@ Users can opt out with `dream.auto.enabled=false`.
 | User explicitly says “remember this”, “make this a rule”, “以后都这样” | Create a candidate with `suggest_rule` or `suggest_memory_entry`; do not directly confirm unless the user explicitly decides. |
 | User asks to organize, distill, archive, or close recent sessions | If enabled, run the normal `/hm:distill` equivalent path: prepare evidence, use session-distill, then auto-review low-risk candidates. |
 | Work reaches a stable, reusable boundary | If enabled, suggest distill or create a handoff candidate; do not write vague transcript notes. |
-| Repeated mistakes or durable workflow patterns appear | If enabled, suggest a rule candidate for project truth. For reusable procedural skills, point to the explicit `harness-mem-skill-governance` workflow instead of writing lifecycle candidates from autopilot. |
+| Repeated mistakes or durable workflow patterns appear | If enabled, suggest a rule candidate for project truth. Do not write procedural skill lifecycle candidates from autopilot. |
 | New evidence conflicts with existing memory | Suggest supersede or correction; never overwrite confirmed truth in place. |
 
 ## Candidate-worthy test

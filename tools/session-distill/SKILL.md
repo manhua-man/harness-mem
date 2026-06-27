@@ -53,7 +53,7 @@ Raw Sessions
 
 如果你的客户端通过 MCP Router 接入，工具名通常就是裸名；如果直连 server，可能会带 server name 前缀。两种都能跑，prompt 里不要写死前缀。
 
-默认 MCP profile 是 `core-read`，只暴露 read/prepare/list/detail。创建候选和运行 auto-review preview 必须显式使用 `distill-suggest` profile；确认、拒绝或 apply 必须走 `/hm:review` 或 `review-write` profile。
+MCP 对外是单一 public memory surface。创建候选和运行 auto-review preview 可以走 MCP；确认、拒绝或 apply 必须走 `/hm:review` durable gate 或用户显式确认后的 review 工具调用。
 
 ### 1. 确认项目和真实项目根
 
@@ -92,7 +92,7 @@ Raw Sessions
 - `suggest_relation_fact`: 明确的依赖、归属、替代、冲突等实体关系。
 - `create_task_handoff`: 当前任务状态、阻塞点、下一步。
 
-这些 suggest 工具属于 `distill-suggest` profile。默认 `core-read` 下如果不可见，不要退回 CLI 或直接写 truth；应明确提示需要启用 distill-suggest MCP profile。
+这些 suggest 工具只写 candidate layer。不要退回 CLI 或直接写 truth；如果工具不可用，应停止并报告当前 MCP surface 不完整。
 
 每条候选都必须有来源证据：observation id、session id、packet turn、命令或文件路径。证据不足时不要硬写；先列为需要补证，并说明缺口。
 
@@ -105,7 +105,7 @@ Raw Sessions
 
 ### 4. 自动审核预览
 
-调用 MCP `auto_review_candidates(project_name=<project>, apply=false)`，复用 shared low-risk review policy。该工具属于 `distill-suggest` profile；默认 `core-read` 不暴露它。
+调用 MCP `auto_review_candidates(project_name=<project>, apply=false)`，复用 shared low-risk review policy。
 
 默认 distill 路径必须直接消费 `auto_review_candidates` 返回的结果，但不能确认、拒绝或替换候选：
 
@@ -147,7 +147,7 @@ KB / PRD 语义不再作为 session-distill 的独立子系统存在。产品决
 v2.3.0 给后续 metabolism 流程铺地基，但**不**改本 skill 的主链行为。你需要知道它的形态，避免把它当成 `/hm:distill` 的同类入口去触发。
 
 - **只有 MCP 工具，没有 slash / 自然语言入口**。v2.3.0 仅新增一个工具：`metabolism_preview`。v2.3.1 新增写侧兄弟 `metabolism_run`（跑 suggestion pass 并持久化候选），但 `metabolism_preview` 仍保持只读——它只写审计记录，不产候选、不动 truth。没有 `/hm:metabolism`，没有触发短语；客户端走标准 MCP `tools/call` 调用，和其他 MCP 工具一致。
-- **Signals 是后台写入，不进入用户视野**。`wake_surfaced` / `search_hit` / `confirmed` / `rejected` / `skill_result_*` / `supersede_completed` 都是已有用户可见动作上的 shadow write。用户和 agent 不会看到、不需要响应；唯一的"展面"是 `metabolism_preview` 输出的窗口摘要和 `list_metabolism_runs` 返回的运行记录审计。
+- **Signals 是后台写入，不进入用户视野**。`wake_surfaced` / `search_hit` / `confirmed` / `rejected` / `skill_result_*` / `supersede_completed` 都是已有用户可见动作上的 shadow write。用户和 agent 不会看到、不需要响应；唯一的"展面"是 `metabolism_preview` 输出的窗口摘要；运行记录只作为内部 health/audit 数据保留。
 - **不动 truth，没有 daemon**。Preview 全程只读：每次调用写一条 `MetabolismRun(kind="preview", status="preview")` 作为审计，不触碰 `usage_count` / `last_accessed_at`，不产 rule / candidate，不调度后台任务。工具只在被显式调用时跑。
 - **返回结构**。`{success, run_id, project_name, time_range, dimensions, notes, signals_used}`。`dimensions` 五个固定维度：`observations`、`pending_candidates`、`historical_truths`、`low_success_skills`、`repeat_search_hits`，每条携带 `selected_ids` / `truncated` / `total_seen`。`notes` 列出命中的硬上限 `truncated_within_<dim>: X/Y`，并始终包含一行 `soft_token_budget: <est>/<max>` 审计；若软上限触发尾部裁剪，再追加 `trimmed_for_token_budget: <dims>`。
 
