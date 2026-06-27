@@ -30,7 +30,6 @@ SKILL_GOVERNANCE_TOOLS = {
 
 @pytest.fixture()
 def backend(tmp_path, monkeypatch):
-    monkeypatch.delenv("HARNESS_MEM_MCP_TOOL_PROFILE", raising=False)
     monkeypatch.setenv("HARNESS_MEM_DISABLE_EMBEDDINGS", "1")
 
     async def _build():
@@ -69,9 +68,9 @@ def _listed_tool_names(params: dict | None = None) -> tuple[dict, set[str]]:
 def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
     result, tool_names = _listed_tool_names()
 
-    assert result["profile"] == "memory"
-    assert result["profile_source"] == "single-public-surface"
-    assert result["degraded_reason"] is None
+    assert result["surface"] == "memory"
+    assert "profile" not in result
+    assert "degraded_reason" not in result
     assert {
         "wake",
         "search_memory",
@@ -105,25 +104,6 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
     tool_by_name = {tool["name"]: tool for tool in result["tools"]}
     for name in ("dream_ledger", "dream_run", "dream_auto_tick", "undo_dream_item"):
         assert tool_by_name[name]["annotations"]["harness_mem"]["cluster"] == "dream"
-
-
-def test_historical_profile_requests_do_not_expand_mcp_surface(backend) -> None:
-    default_result, default_names = _listed_tool_names()
-    requested_result, requested_names = _listed_tool_names({"mcp_tool_profile": "full"})
-    maintenance_result, maintenance_names = _listed_tool_names({"profile": "maintenance"})
-
-    assert requested_result["profile"] == "memory"
-    assert requested_result["profile_source"] == "single-public-surface"
-    assert requested_result["degraded_reason"] == "profile_ignored_single_public_surface"
-    assert requested_names == default_names
-    assert maintenance_result["profile"] == "memory"
-    assert maintenance_result["profile_source"] == "single-public-surface"
-    assert maintenance_result["degraded_reason"] == "profile_ignored_single_public_surface"
-    assert maintenance_names == default_names
-    assert "suggest_skill" not in requested_names
-    assert "list_reflection_jobs" not in maintenance_names
-    assert "list_metabolism_runs" not in maintenance_names
-    assert default_result["tool_count"] == requested_result["tool_count"]
 
 
 def test_skill_governance_is_not_registered_as_mcp_public_tools(backend) -> None:
@@ -176,7 +156,7 @@ def test_non_public_maintenance_tool_call_is_hidden(backend) -> None:
     assert response is not None
     assert response["error"]["code"] == -32601
     assert response["error"]["data"]["error_code"] == "HM-MCP-TOOL-HIDDEN"
-    assert response["error"]["data"]["profile"] == "memory"
+    assert response["error"]["data"]["surface"] == "memory"
 
 
 def test_public_auto_review_forces_apply_to_preview(backend) -> None:
@@ -212,8 +192,8 @@ def test_public_auto_review_forces_apply_to_preview(backend) -> None:
     assert payload["auto_confirmed"] == 1
     assert payload["applied"] is False
     assert payload["applied_decisions"] == []
-    assert payload["profile_enforcement"] == {
-        "profile": "memory",
+    assert payload["surface_enforcement"] == {
+        "surface": "memory",
         "reason": "auto_review_apply_is_preview_only_on_public_mcp",
         "requested_apply": True,
         "effective_apply": False,
@@ -250,7 +230,7 @@ def test_public_confirm_remains_explicit_review_gate(backend) -> None:
 
     assert payload["success"] is True
     assert payload["status"] == "accepted"
-    assert "profile_enforcement" not in payload
+    assert "surface_enforcement" not in payload
     assert reloaded is not None
     assert reloaded.status == "accepted"
 

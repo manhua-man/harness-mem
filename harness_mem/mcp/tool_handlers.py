@@ -45,7 +45,6 @@ from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.event_log import StateEventType, append_state_event
 from harness_mem.file_context import build_file_context
 from harness_mem.guided_flow import build_guided_flow, guided_flow_drilldown_hint
-from harness_mem.mcp.tool_registry import McpToolProfile, normalize_mcp_tool_profile
 from harness_mem.read_api import (
     parse_relative_time_window,
     query_temporal_truth,
@@ -1359,7 +1358,6 @@ def tool_get_project_profile(project_name: str) -> dict:
         "description": profile.description,
         "stacks": profile.stacks,
         "key_files": profile.key_files,
-        "mcp_tool_profile": profile.mcp_tool_profile,
         "maintenance_profile": profile.maintenance_profile,
         "retrieval_profile": profile.retrieval_profile,
     }
@@ -1656,7 +1654,6 @@ async def _merge_project_profile(
     service_hints: list[str] | None,
     database_hints: list[str] | None,
     weak_link_signals: bool | None,
-    mcp_tool_profile: McpToolProfile | None,
     maintenance_profile: MaintenanceProfile | None,
     retrieval_profile: RetrievalProfile | None,
     replace: bool,
@@ -1697,7 +1694,6 @@ async def _merge_project_profile(
             service_hints=list(service_hints or []),
             database_hints=list(database_hints or []),
             weak_link_signals=bool(weak_link_signals) if weak_link_signals is not None else False,
-            mcp_tool_profile=mcp_tool_profile,
             maintenance_profile=maintenance_profile,
             retrieval_profile=retrieval_profile,
         )
@@ -1713,9 +1709,6 @@ async def _merge_project_profile(
             database_hints=_merge_list(existing.database_hints, database_hints),
             weak_link_signals=(
                 weak_link_signals if weak_link_signals is not None else existing.weak_link_signals
-            ),
-            mcp_tool_profile=(
-                mcp_tool_profile if mcp_tool_profile is not None else existing.mcp_tool_profile
             ),
             maintenance_profile=(
                 maintenance_profile
@@ -1746,7 +1739,6 @@ def tool_update_project_profile(
     service_hints: list[str] | None = None,
     database_hints: list[str] | None = None,
     weak_link_signals: bool | None = None,
-    mcp_tool_profile: str | None = None,
     maintenance_profile: str | None = None,
     retrieval_profile: str | None = None,
     replace: bool = False,
@@ -1761,17 +1753,6 @@ def tool_update_project_profile(
     name = (project_name or "").strip()
     if not name:
         return {"success": False, "error": "project_name must not be empty"}
-    normalized_mcp_tool_profile: McpToolProfile | None = None
-    if mcp_tool_profile is not None:
-        normalized_mcp_tool_profile = normalize_mcp_tool_profile(mcp_tool_profile)
-        if normalized_mcp_tool_profile is None:
-            return {
-                "success": False,
-                "error": (
-                    "mcp_tool_profile is deprecated; public MCP uses the "
-                    "single memory surface"
-                ),
-            }
     normalized_maintenance_profile: MaintenanceProfile | None = None
     if maintenance_profile is not None:
         normalized_maintenance_profile = _normalize_maintenance_profile(
@@ -1805,7 +1786,6 @@ def tool_update_project_profile(
             service_hints=service_hints,
             database_hints=database_hints,
             weak_link_signals=weak_link_signals,
-            mcp_tool_profile=normalized_mcp_tool_profile,
             maintenance_profile=normalized_maintenance_profile,
             retrieval_profile=normalized_retrieval_profile,
             replace=replace,
@@ -1822,7 +1802,6 @@ def tool_update_project_profile(
             "service_hints": profile.service_hints,
             "database_hints": profile.database_hints,
             "weak_link_signals": profile.weak_link_signals,
-            "mcp_tool_profile": profile.mcp_tool_profile,
             "maintenance_profile": profile.maintenance_profile,
             "retrieval_profile": profile.retrieval_profile,
             "last_updated": profile.last_updated.isoformat(),

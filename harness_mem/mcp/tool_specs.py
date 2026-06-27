@@ -39,8 +39,6 @@ class _SchemaOnly(TypedDict):
     input_schema: dict[str, Any]
 
 
-VALID_TOOL_PROFILES = ("memory",)
-
 PUBLIC_MCP_TOOL_NAMES = frozenset(
     {
         "search_memory",
@@ -85,10 +83,6 @@ PUBLIC_MCP_TOOL_NAMES = frozenset(
         "record_context_outcome",
     }
 )
-
-PROFILE_TOOL_NAMES = {
-    "memory": PUBLIC_MCP_TOOL_NAMES,
-}
 
 
 # Ordered map of tool name → schema. Order is the discovery order MCP
@@ -500,14 +494,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "Opt-in for v2.3.1 weak-link signal application "
                         "(wake re-grouping into Recent active / Stable / "
                         "quiet + search boost on repeat hits). Default false."
-                    ),
-                },
-                "mcp_tool_profile": {
-                    "type": "string",
-                    "enum": list(VALID_TOOL_PROFILES),
-                    "description": (
-                        "Deprecated no-op. Public MCP now has one memory "
-                        "surface; historical profile overrides are ignored."
                     ),
                 },
                 "maintenance_profile": {
@@ -1400,14 +1386,6 @@ def build_tools(
             details.append(f"unknown clusters for: {sorted(unknown_clusters)}")
         raise KeyError("; ".join(details))
 
-    for profile, tool_names in PROFILE_TOOL_NAMES.items():
-        missing_profile_tools = tool_names - schema_keys
-        if missing_profile_tools:
-            raise KeyError(
-                f"{profile} profile references unknown tools: "
-                f"{sorted(missing_profile_tools)}"
-            )
-
     return {
         name: ToolSpec(
             description=schema["description"],
@@ -1420,10 +1398,8 @@ def build_tools(
 
 
 __all__ = [
-    "PROFILE_TOOL_NAMES",
     "PUBLIC_MCP_TOOL_NAMES",
     "TOOL_CLUSTERS",
     "ToolSpec",
-    "VALID_TOOL_PROFILES",
     "build_tools",
 ]

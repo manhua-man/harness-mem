@@ -49,23 +49,6 @@ class ProjectProfile(BaseModel):
             "after a week of normal usage)."
         ),
     )
-    mcp_tool_profile: Literal[
-        "memory",
-        "core-read",
-        "minimal",
-        "review-read",
-        "distill-suggest",
-        "review-write",
-        "maintenance",
-        "labs",
-        "full",
-    ] | None = Field(
-        default=None,
-        description=(
-            "Deprecated compatibility field. Public MCP now has one memory "
-            "surface; runtime ignores historical profile overrides."
-        ),
-    )
     maintenance_profile: Literal["weekly-dream", "post-distill-metabolism"] | None = Field(
         default=None,
         description=(
@@ -111,7 +94,6 @@ class ProjectProfile(BaseModel):
             "database_hints": self.database_hints,
             "conventions": self.conventions,
             "weak_link_signals": self.weak_link_signals,
-            "mcp_tool_profile": self.mcp_tool_profile,
             "maintenance_profile": self.maintenance_profile,
             "retrieval_profile": self.retrieval_profile,
             "last_updated": self.last_updated.isoformat(),

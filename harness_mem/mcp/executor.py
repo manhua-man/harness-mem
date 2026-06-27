@@ -11,8 +11,8 @@ from typing import Any, Callable
 
 from harness_mem.mcp.tool_registry import (
     McpToolProfile,
+    PUBLIC_MCP_SURFACE,
     hidden_tool_error,
-    resolve_mcp_tool_profile,
     visible_tool_name_set,
 )
 from harness_mem.mcp.tool_specs import ToolSpec
@@ -59,9 +59,9 @@ def _internal_tool_error(
     }
 
 
-def _profile_enforced_args(
+def _surface_enforced_args(
     *,
-    profile: McpToolProfile,
+    surface: McpToolProfile,
     tool_name: str,
     tool_args: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
@@ -69,7 +69,7 @@ def _profile_enforced_args(
         adjusted = dict(tool_args)
         adjusted["apply"] = False
         return adjusted, {
-            "profile": profile,
+            "surface": surface,
             "reason": "auto_review_apply_is_preview_only_on_public_mcp",
             "requested_apply": True,
             "effective_apply": False,
@@ -133,16 +133,14 @@ def execute_tool_call(
     if tool_name not in tools:
         return _unknown_tool_error(req_id, tool_name)
 
-    profile_info = resolve_mcp_tool_profile(params)
-    profile = profile_info["profile"]
-    if tool_name not in visible_tool_name_set(tools, profile):
-        return hidden_tool_error(req_id, str(tool_name), profile)
+    if tool_name not in visible_tool_name_set(tools):
+        return hidden_tool_error(req_id, str(tool_name))
 
     if not isinstance(tool_args, dict):
         return _invalid_parameter_error(req_id, "arguments")
 
-    tool_args, profile_enforcement = _profile_enforced_args(
-        profile=profile,
+    tool_args, surface_enforcement = _surface_enforced_args(
+        surface=PUBLIC_MCP_SURFACE,
         tool_name=str(tool_name),
         tool_args=tool_args,
     )
@@ -156,8 +154,8 @@ def execute_tool_call(
     try:
         started_at = time.perf_counter()
         result = spec["handler"](**tool_args)
-        if profile_enforcement is not None and isinstance(result, dict):
-            result["profile_enforcement"] = profile_enforcement
+        if surface_enforcement is not None and isinstance(result, dict):
+            result["surface_enforcement"] = surface_enforcement
         duration_ms = int((time.perf_counter() - started_at) * 1000)
         try:
             observe_mcp_surface_cost(
