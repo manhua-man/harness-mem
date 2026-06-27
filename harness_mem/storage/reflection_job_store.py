@@ -1,6 +1,6 @@
 """ReflectionJobStore — persistence layer for ``ReflectionJob`` records.
 
-Thin wrapper over :class:`SQLiteIndex` exposing the operations
+Thin wrapper over the public :class:`DerivedIndex` boundary exposing the operations
 :func:`reflection_once` needs: upsert, point read, filtered list,
 compare-and-set lease updates, and idempotency-key lookup.
 
@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from harness_mem.core.schemas.reflection_job import ReflectionJob
-from harness_mem.storage.sqlite_index import SQLiteIndex
+from harness_mem.storage.derived_index import DerivedIndex
 
 
 # Columns we mirror onto the table from inside the JSON blob. Anything
@@ -55,13 +55,13 @@ class ReflectionJobStore:
     """SQLite-backed persistence for :class:`ReflectionJob`.
 
     Args:
-        index: Initialized :class:`SQLiteIndex` whose ``init_db`` has run.
+        index: Initialized :class:`DerivedIndex` whose ``init_db`` has run.
             We do NOT call ``init_db`` ourselves — the backend / caller
             owns the lifecycle so this store stays composable with the
             other stores sharing the same connection.
     """
 
-    def __init__(self, index: SQLiteIndex) -> None:
+    def __init__(self, index: DerivedIndex) -> None:
         self._index = index
 
     # ---- save -------------------------------------------------------------

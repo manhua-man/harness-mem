@@ -19,8 +19,9 @@ from harness_mem.search.backend import (
     SearchFacade,
     SQLiteSearchBackend,
 )
-from harness_mem.storage import CandidateStore, TruthStore
+from harness_mem.storage import CandidateStore, DerivedIndex, TruthStore
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.reflection_job_store import ReflectionJobStore
 
 
 def _run(coro):
@@ -63,6 +64,27 @@ def _now() -> datetime:
 def test_structured_store_keeps_truth_and_candidate_boundaries(backend) -> None:
     assert isinstance(backend.structured_store.truth_store, TruthStore)
     assert isinstance(backend.structured_store.candidate_store, CandidateStore)
+
+
+def test_reflection_jobs_use_public_derived_index_boundary(backend) -> None:
+    assert isinstance(backend.structured_store.index, DerivedIndex)
+    assert isinstance(backend.reflection_job_store, ReflectionJobStore)
+
+    repo_root = Path(__file__).resolve().parents[1]
+    forbidden_private_index_access = (
+        "structured_store._index",
+        "_structured_store._index",
+        "verbatim_store._index",
+        "_verbatim_store._index",
+    )
+    offenders: list[str] = []
+    for path in (repo_root / "harness_mem").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        for pattern in forbidden_private_index_access:
+            if pattern in text:
+                offenders.append(f"{path.relative_to(repo_root)}:{pattern}")
+
+    assert offenders == []
 
 
 def test_canonical_truth_survives_missing_index_and_rebuilds_on_boot(backend) -> None:
