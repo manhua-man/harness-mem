@@ -2,12 +2,82 @@
 
 ## Unreleased
 
+## [0.8.7] - 2026-06-29
+
+### Added
+
+- Added `plugins/harness-mem/skills/grill-before-distill/SKILL.md`, grill-me
+  standard admission on distill: deep interrogation for high-impact items, light
+  checklist for ordinary candidates, lookback mode for confirmed truth (no MCP
+  change).
+- Added repo-local `answer-memory-evidence` and `ask-memory-boundary` skills as
+  non-writing answerers for grill admission and review questions.
+- Added `docs/memory-adoption.md`, operator policy for layered helpers
+  (grill-before-distill, smart-search as a reference evidence pattern, Trellis
+  pattern playbook) beside the default distill chain.
+
 ### Changed
+
+- Updated `tools/session-distill`, `harness-mem`, and `harness-mem-autopilot`
+  skills so distill runs prepare → draft claims → risk-scaled grill admission →
+  `suggest_*`, with external evidence required before `confirm_*`.
+- Updated `/hm:distill` command steps to match the aligned session-distill chain.
+
+## [0.8.6] - 2026-06-29
+
+### Changed
+
+- Kept dream supersede output behind review: dream now queues supersede
+  candidates as `pending_review` ledger items instead of auto-confirming truth
+  lineage changes.
+- Added optional structured wake action hints with `why_it_matters` without
+  changing rendered wake text or adding MCP tools.
+
+### Added
+
+- Added exact public MCP tool allowlist regression coverage to preserve the
+  single memory surface.
+
+## [0.8.5] - 2026-06-29
+
+### Changed
+
+- Added low-confidence partial-match abstention and a lightweight 1-hop
+  relation/decision boost, both exposed through additive retrieval metadata.
+
+### Added
+
+- Added a golden-suite A/B gate for adaptive retrieval experiments.
+
+## [0.8.4] - 2026-06-29
+
+### Changed
+
+- Hardened current-truth reads so non-empty `superseded_by` links are treated
+  as historical even if legacy data lacks `valid_to`.
+
+### Added
+
+- Added regression coverage for temporal query abstention/conflict behavior,
+  supersede audit lineage, and MCP `deep_recall`.
+
+## [0.8.3] - 2026-06-29
+
+### Added
 
 - Prepared the v0.8.3 Retrieval Quality Foundation baseline as a local,
   LLM-free read-path benchmark with golden fixtures for project isolation,
-  stale truth exclusion, abstention, and vector-off fallback. This proves the
-  read path is measurable; it does not claim broad retrieval-quality leadership.
+  stale truth exclusion, abstention, and vector-off fallback.
+- Added CLI, MCP single-surface, plugin command sync, and storage/search
+  invariant tests for the V4.2 boundary hardening pass.
+- Added an env-gated MCP maintenance read/debug profile for operators to inspect
+  reflection jobs, persisted metabolism audit runs, runtime health, and MCP cost
+  reports without exposing mutating metabolism tools.
+- Added regression coverage for wake action hints and cross-project
+  observation/relation golden cases.
+
+### Changed
+
 - Kept recall explainability additive by exposing fixed
   `filter -> fts/vector -> merge -> hydrate/context` steps and optional
   `metadata.score_details` without changing the MCP tool list or
@@ -31,27 +101,8 @@
   `TruthStore` and candidate status writes to `CandidateStore`.
 - Kept metabolism and reflection jobs out of the default MCP surface; public
   `tools/list` no longer reports hidden maintenance tool counts.
-- Hardened current-truth reads so non-empty `superseded_by` links are treated
-  as historical even if legacy data lacks `valid_to`.
-- Kept dream supersede output behind review: dream now queues supersede
-  candidates as `pending_review` ledger items instead of auto-confirming truth
-  lineage changes.
-- Added low-confidence partial-match abstention and a lightweight 1-hop
-  relation/decision boost, both exposed through additive retrieval metadata.
-- Added optional structured wake action hints with `why_it_matters` without
-  changing rendered wake text or adding MCP tools.
-
-### Added
-
-- Added CLI, MCP single-surface, plugin command sync, and storage/search invariant tests
-  for the V4.2 boundary hardening pass.
-- Added an env-gated MCP maintenance read/debug profile for operators to inspect
-  reflection jobs, persisted metabolism audit runs, runtime health, and MCP cost
-  reports without exposing mutating metabolism tools.
-- Added regression coverage for temporal query abstention/conflict behavior,
-  supersede audit lineage, MCP `deep_recall`, exact public-tool allowlisting,
-  wake action hints, cross-project observation/relation golden cases, and a
-  golden-suite A/B gate for adaptive retrieval experiments.
+- Updated `docs/roadmap.md`, `docs/recall-audit.md`, and release artifacts for
+  the 0.8.x convergence line.
 
 ## [0.8.2] - 2026-06-25
 

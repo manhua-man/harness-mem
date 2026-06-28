@@ -47,11 +47,12 @@ tags: [harness-mem, distill, memory]
    默认只 ingest 当前 agent 环境、当前项目路径匹配的会话。`client="auto"` 会自动识别 Codex、Claude Code、Cursor、Antigravity、opencode、Hermes 或 generic agent 入口，并按当前项目根过滤证据。
    - 只有用户明确要求全局历史时，才允许 `scope="all"`
 
-3. **启动仓库 Skill 做主动提炼**
-   - 默认读取并遵循 `tools/session-distill/SKILL.md`
-   - 按 `tools/session-distill/references/distillation-rules.md` 判断哪些结论值得进入候选层
-   - 直接使用 `prepare_session_distill` 返回的 observations 作为 evidence packet
-   - 用 MCP `suggest_memory_entry` / `suggest_rule` / `suggest_relation_fact` / `create_task_handoff` 写入 pending 候选
+3. **读 packet、draft claims、标准准入，再写候选**
+   - 默认读取并遵循 `tools/session-distill/SKILL.md`（Step 3–4）
+   - 用 `prepare_session_distill` 返回的 packet 形成 candidate claim
+   - 自动应用 `grill-before-distill` 准入（深度/轻量按风险）；仅 `admit` / `narrow` 继续
+   - 按 `references/distillation-rules.md` 判断价值
+   - 用 MCP `suggest_*` / `create_task_handoff` 写入 pending 候选
    - 每条候选必须带 source evidence，例如 observation id、session id、packet turn、命令或文件路径
 
    不要退回旧的 heuristic fallback。v2.0 已移除正则提取式 distill；

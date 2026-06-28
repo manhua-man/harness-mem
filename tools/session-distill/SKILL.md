@@ -34,15 +34,15 @@ allowed-tools:
 用户只有一条默认主链：`/hm:distill` / 自然语言等价入口。Agent 不要求用户区分 Codex、Claude Code、Cursor、Antigravity、opencode、Hermes 或 generic agent 历史；入口统一调 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根>)`，由 runtime 自动识别可用来源并返回 evidence packet。
 
 ```text
-Raw Sessions
+模糊结论 / session-end
   -> MCP prepare_session_distill(client="auto", project scoped)
-  -> runtime auto-detects client/source
-  -> Observation Store
-  -> session-distill Skill reads evidence
-  -> MCP suggest_memory_entry / suggest_rule / suggest_relation_fact / create_task_handoff
-  -> Candidate Layer (pending)
-  -> auto_review_candidates(apply=false)
-  -> /hm:review durable gate
+  -> session-distill 读 packet + draft candidate claims
+  -> grill-me 准入（标准模式：高风险深度拷问 / 普通候选轻量 checklist）
+  -> distillation-rules
+  -> suggest_*（admit；narrow 后可写；defer/reject 不写）
+  -> 内部 search_memory / 代码检索；外部来源证据（smart-search 为参考候选，confirm 前必须补证）
+  -> auto_review_candidates(apply=false) + /hm:review
+  -> confirm_* -> confirmed truth
 ```
 
 ## 默认动作序列
@@ -81,9 +81,23 @@ MCP 对外是单一 public memory surface。创建候选和运行 auto-review pr
 
 `prepare_session_distill` 会直接返回 evidence packet。不要再调用 `Bash`、`cmem`、`timeline`、`get_observations`、`ls`、`cat` 或 `find` 去摸索同一批 observations；只有 packet 为空或工具报错时才排障。
 
-### 3. 用 Skill 做主动提炼
+### 3. 读 packet、draft claims、标准准入（grill-me / grill-before-distill）
 
-读取 `prepare_session_distill` 返回的 observations / packets / session evidence，按 `references/distillation-rules.md` 判断候选价值。
+先读取 `prepare_session_distill` 返回的 packet，形成 candidate claim，再自动跑准入（无需用户说「先拷问」）。能加载 `plugins/harness-mem/skills/grill-before-distill` 就用；否则内联同规则。不要让 `tools/session-distill` 硬依赖某个插件安装路径。
+
+**按风险选深度，不要每次都走重流程：**
+
+| 场景 | 模式 |
+|---|---|
+| 用户明确规则 / 高影响记忆 | **深度拷问**（一次一问） |
+| 普通 distill 候选 | **轻量 checklist** 过一遍 |
+| 已确认记忆回看 | **lookback**（dream/抽查；见 skill Mode C） |
+
+结合 `references/distillation-rules.md` 判断每条 claim。`admit` 进入 Step 4；`narrow` 改窄后进入 Step 4；`defer` 留 pending/note/补证；`reject` 不写候选。
+
+### 4. 写候选（suggest_*）
+
+仅对 Step 3 为 `admit` 或已改窄的 `narrow` 项调用 `suggest_*`。
 
 产出时优先拆成几类：
 
@@ -95,6 +109,7 @@ MCP 对外是单一 public memory surface。创建候选和运行 auto-review pr
 这些 suggest 工具只写 candidate layer。不要退回 CLI 或直接写 truth；如果工具不可用，应停止并报告当前 MCP surface 不完整。
 
 每条候选都必须有来源证据：observation id、session id、packet turn、命令或文件路径。证据不足时不要硬写；先列为需要补证，并说明缺口。
+外部事实、版本、政策、论文或第三方 API 语义可以先作为 pending candidate 记录缺口，但确认前必须补上可追溯的外部来源证据。smart-search 只是参考候选，不是当前 hm 依赖或已安装能力。
 
 不要生成这些候选：
 
@@ -103,7 +118,7 @@ MCP 对外是单一 public memory surface。创建候选和运行 auto-review pr
 - `/plan-eng-review`、`/plan-ceo-review`、`/plan-design-review` 等 AI review workflow，除非用户明确要记录为全局工作流记忆。
 - 对应用/游戏项目而言，把 AI 工作流、评审方式或工具名写成项目架构事实。
 
-### 4. 自动审核预览
+### 5. 自动审核预览
 
 调用 MCP `auto_review_candidates(project_name=<project>, apply=false)`，复用 shared low-risk review policy。
 
@@ -147,7 +162,18 @@ session-distill 不再定义独立的后台维护入口。它只负责从会话�
 
 - **没有独立维护 MCP 工具**。不要调用或描述 standalone preview/run 维护工具；对外入口是 `/hm:dream` / MCP dream tools 和 dream ledger/undo。
 - **Signals 是后台证据，不进入本 skill 主链**。`wake_surfaced` / `search_hit` / `confirmed` / `rejected` / `supersede_completed` 等信号由 runtime 记录，dream 在自己的调度窗口中消费。
-- **durable write 仍过 gate**。session-distill 只产候选；显式用户记忆通过 `/hm:review`，自动维护通过 dream ledger/undo 审计。
+- **durable write 仍过 gate**。session-distill 只产候选；显式用户记忆通过 `/hm:review`，自动维护通过 dream ledger/undo 审计。dream/lookback 处理已确认或维护中的 truth，不是新候选准入动作。
+
+## 外置协作者
+
+| 协作者 | 默认? | 职责 |
+|---|---|---|
+| `grill-before-distill` (grill-me) | **是**（标准准入，按风险分档） | `suggest_*` 之前给主链动作：admit / narrow / defer / reject；已确认记忆回看用 lookback |
+| smart-search-style CLI | 否（参考候选） | 外部主张举证方案研究；当前不作为 hm 依赖 |
+| `search_memory` | 是（MCP） | 仓库内主张举证，review 前 |
+| Trellis | 否（项目级） | PRD/任务编排，不进 hm 核心 |
+
+详见 `docs/memory-adoption.md`。smart-search / Trellis 仅作参考或项目级选择；准入分档逻辑不跳过（skill 不可用则内联轻量 checklist）。
 
 ## 不做的事
 
@@ -157,6 +183,7 @@ session-distill 不再定义独立的后台维护入口。它只负责从会话�
 - 不把逐条分类工作交给用户；AI 必须自动预审 pending 候选，但默认不直接处理低风险项，durable write 通过 `/hm:review`。
 - 不维护独立的 `knowledge-base.md`、KB review/prune 命令、PRD sync 文件或产品文档桥。
 - 不把 `session-distill.py` 命令列表当成用户产品面；用户入口是 `/hm:*` 或自然语言等价命令。
+- 不把 smart-search / Trellis 硬编码进 hm runtime；smart-search 当前只作为参考证据工具研究，grill-before-distill 是 distill 默认 Skill 步骤，不是新 MCP。
 
 ## 兜底策略
 

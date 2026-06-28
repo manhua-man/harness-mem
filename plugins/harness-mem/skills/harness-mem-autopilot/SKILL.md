@@ -54,25 +54,18 @@ Users can opt out with `dream.auto.enabled=false`.
 |---|---|
 | New task, resume, continue, pick up where we left off | If enabled, call project status, then `wake`; only use accepted/current truth. |
 | User asks “previously”, “last time”, “why did we decide”, “history” | If enabled, use `search_memory`; drill down with `timeline` or observations only when needed. |
-| User explicitly says “remember this”, “make this a rule”, “以后都这样” | Create a candidate with `suggest_rule` or `suggest_memory_entry`; do not directly confirm unless the user explicitly decides. |
-| User asks to organize, distill, archive, or close recent sessions | If enabled, run the normal `/hm:distill` equivalent path: prepare evidence, use session-distill, then auto-review low-risk candidates. |
-| Work reaches a stable, reusable boundary | If enabled, suggest distill or create a handoff candidate; do not write vague transcript notes. |
-| Repeated mistakes or durable workflow patterns appear | If enabled, suggest a rule candidate for project truth. Do not write procedural skill lifecycle candidates from autopilot. |
+| User explicitly says “remember this”, “make this a rule”, “以后都这样” | **Deep** grill-me admission, then `suggest_*` on `admit` / narrowed `narrow`; no confirm without review. |
+| User asks to organize, distill, archive, or close recent sessions | `/hm:distill` path with **light** checklist default; deep for high-impact items. |
+| Work reaches a stable, reusable boundary | Light admission then suggest distill or handoff. |
+| Repeated mistakes or durable workflow patterns appear | **Deep** admission then suggest rule candidate. |
 | New evidence conflicts with existing memory | Suggest supersede or correction; never overwrite confirmed truth in place. |
 
 ## Candidate-worthy test
 
-Before writing any candidate, check whether the memory is stable enough:
-
-```text
-Can the useful work area be named clearly?
-Is the statement durable beyond this turn?
-Is there evidence or a user instruction?
-Would future wake/search benefit from it?
-Is it not just a draft, mood, or transient plan?
-```
-
-If the answer is unclear, do not write. Continue the task or suggest a later distill.
+Before any `suggest_*`, run grill-me admission: **deep** for explicit rules /
+high-impact, **light checklist** for ordinary candidates (inline if skill
+unavailable). Continue on `admit`; rewrite and continue on `narrow`; do not
+write on `reject` or `defer` without an evidence plan.
 
 ## Forbidden behaviors
 

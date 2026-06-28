@@ -55,8 +55,14 @@ For status and wake-up:
 If the project has new sessions:
 
 1. Call `prepare_session_distill(project_name=<project>, client="auto", scope="project", project_root=<current project root>)`.
-2. Activate repo-local `tools/session-distill`: read the returned evidence packet, apply `references/distillation-rules.md`, and write pending candidates with `suggest_memory_entry`, `suggest_rule`, `suggest_relation_fact`, or `create_task_handoff`.
-3. Call `auto_review_candidates(project_name=<project>, apply=False)`. Show the user a final summary that says auto-review is preview-only and no durable memory was confirmed. If the user wants to apply decisions, route them to `/hm:review` and use explicit `confirm_*` / `reject_*` decisions.
+2. Activate repo-local `tools/session-distill`: read the evidence packet, draft candidate claims, apply `grill-before-distill` admission rules, then apply `references/distillation-rules.md`.
+3. Write pending candidates only for admitted items. For external claims, evidence may be attached after `suggest_*`, but must be present before confirmation.
+4. Call `auto_review_candidates(project_name=<project>, apply=False)`. Show the user a final summary that says auto-review is preview-only and no durable memory was confirmed. If the user wants to apply decisions, route them to `/hm:review` and use explicit `confirm_*` / `reject_*` decisions.
+
+When `grill-before-distill` raises an evidence gap, use the repo-local
+`answer-memory-evidence` role. When it raises architecture, product-boundary,
+roadmap, or long-lived-rule ambiguity, use `ask-memory-boundary`. Both roles
+answer questions only; they do not write or confirm memory.
 
 When looking for prior work:
 
@@ -72,6 +78,14 @@ For opt-in maintenance:
 Use maintenance Slash entries only when the user explicitly asks for session
 artifact cleanup. KB and PRD semantics are normal memory candidates; this
 plugin does not expose a separate KB audit or PRD sync product surface.
+
+For Trellis-inspired closeout, keep the surfaces separate:
+
+- Code check: run the repo's normal tests, lint, build, or app-specific checks.
+- Memory check: use `auto_review_candidates(apply=False)` and explicit review tools.
+- Update-spec equivalent: turn repeated lessons into `suggest_rule` or memory candidates; update repo guidance only after confirmation and only for repo-wide rules.
+- Finish-work equivalent: use `create_task_handoff` for current state, blockers, and next steps; inspect `/hm:dream` or dream ledger when maintenance context matters.
+- Journal equivalent: use harness-mem audit/event/timeline/handoff/dream ledger surfaces. Do not create a Trellis journal or second truth store for memory.
 
 When the user states a durable project rule:
 
