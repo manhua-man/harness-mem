@@ -141,6 +141,7 @@ from harness_mem.mcp.tool_specs import (  # noqa: E402,F401
 )
 from harness_mem.mcp.tool_registry import (  # noqa: E402
     list_tools_result,
+    resolve_mcp_surface,
 )
 
 configure_tool_handler_dependencies(
@@ -203,10 +204,11 @@ def handle_request(request: dict) -> dict | None:
         return None
 
     if method == "tools/list":
+        surface_info = resolve_mcp_surface(params)
         return {
             "jsonrpc": "2.0",
             "id": req_id,
-            "result": list_tools_result(TOOLS),
+            "result": list_tools_result(TOOLS, surface_info),
         }
 
     if method == "tools/call":

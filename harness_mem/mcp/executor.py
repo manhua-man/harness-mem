@@ -11,7 +11,8 @@ from typing import Any, Callable
 
 from harness_mem.mcp.tool_registry import (
     McpToolProfile,
-    PUBLIC_MCP_SURFACE,
+    resolve_mcp_surface,
+    visible_tool_name_set,
 )
 from harness_mem.mcp.tool_specs import ToolSpec
 from harness_mem.runtime_cost import observe_mcp_surface_cost
@@ -127,15 +128,20 @@ def execute_tool_call(
 ) -> dict[str, Any]:
     tool_name = params.get("name")
     tool_args = params.get("arguments") or {}
+    surface_info = resolve_mcp_surface(params)
+    surface = surface_info["surface"]
 
     if tool_name not in tools:
+        return _unknown_tool_error(req_id, tool_name)
+
+    if tool_name not in visible_tool_name_set(tools, surface):
         return _unknown_tool_error(req_id, tool_name)
 
     if not isinstance(tool_args, dict):
         return _invalid_parameter_error(req_id, "arguments")
 
     tool_args, surface_enforcement = _surface_enforced_args(
-        surface=PUBLIC_MCP_SURFACE,
+        surface=surface,
         tool_name=str(tool_name),
         tool_args=tool_args,
     )

@@ -28,6 +28,10 @@
 
 - Added CLI, MCP single-surface, plugin command sync, and storage/search invariant tests
   for the V4.2 boundary hardening pass.
+- Added an env-gated MCP maintenance read/debug profile for operators to inspect
+  reflection jobs, persisted metabolism audit runs, runtime health, and MCP cost
+  reports without exposing mutating metabolism tools.
+
 ## [0.8.2] - 2026-06-25
 
 ### Added

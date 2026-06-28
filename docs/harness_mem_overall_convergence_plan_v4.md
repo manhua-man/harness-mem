@@ -233,7 +233,9 @@ skill lifecycle / operator maintenance / experiment 不进入 MCP public tools�
 3. confirm/reject/supersede 仍是显式 review gate，不由 heuristic 自动 apply。
 4. 默认包含 dream 账本/显式触发/auto tick/undo，但不包含 standalone metabolism/reflection、migration、rebuild、purge。
 5. suggest_skill/confirm_skill/skill promotion/revision/deprecation 不注册为 MCP public tools。
-6. 默认 tools/list 不报告 hidden maintenance tool count；历史 MCP profile 参数、env gate、degraded 兼容解释已删除。
+6. 默认 tools/list 不报告 hidden maintenance tool count；历史 MCP profile 参数作为兼容噪音忽略，不解锁第二套产品面。
+7. 受控 read/debug 通道只通过 `HARNESS_MEM_MCP_MAINTENANCE=1` + `profile=maintenance` 打开，且仅暴露 `list_reflection_jobs`, `get_reflection_job`, `list_metabolism_runs`, `health_summary`, `surface_cost_report`。
+8. maintenance profile 不包含 `metabolism_preview` / `metabolism_run`，不能触发 metabolism，不能写候选或修改 truth。
 ```
 
 ---
