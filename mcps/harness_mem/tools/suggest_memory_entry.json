@@ -1,0 +1,47 @@
+{
+  "name": "suggest_memory_entry",
+  "description": "Suggest a memory entry (fact, decision, etc.) for later review.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name"
+      },
+      "category": {
+        "type": "string",
+        "enum": [
+          "architecture",
+          "convention",
+          "api",
+          "bug",
+          "decision"
+        ]
+      },
+      "content": {
+        "type": "string",
+        "description": "Knowledge content"
+      },
+      "source": {
+        "type": "string",
+        "description": "Source observation id or session id"
+      },
+      "confidence": {
+        "type": "number",
+        "description": "Confidence score 0.0-1.0"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "project_name",
+      "category",
+      "content",
+      "source"
+    ]
+  }
+}

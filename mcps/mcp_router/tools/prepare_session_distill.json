@@ -1,0 +1,70 @@
+{
+  "name": "prepare_session_distill",
+  "description": "One-shot project-scoped ingest plus recent observation packet for AI-led session-distill.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name"
+      },
+      "client": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "agent",
+          "claude-code",
+          "codex",
+          "codex-archive",
+          "cursor",
+          "antigravity",
+          "opencode",
+          "hermes"
+        ],
+        "description": "Session client to ingest (default: auto)",
+        "default": "auto"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum sessions to ingest (default: 5)",
+        "default": 5
+      },
+      "full_rescan": {
+        "type": "boolean",
+        "description": "Ignore ingest cursor and rescan matching sessions",
+        "default": false
+      },
+      "scope": {
+        "type": "string",
+        "enum": [
+          "project",
+          "all"
+        ],
+        "description": "Session scope for global stores (default: project)",
+        "default": "project"
+      },
+      "project_root": {
+        "type": "string",
+        "description": "Project root for cwd-scoped matching"
+      },
+      "observation_limit": {
+        "type": "integer",
+        "description": "Recent observations to include in the evidence packet (default: 5)",
+        "default": 5
+      },
+      "max_chars_per_observation": {
+        "type": "integer",
+        "description": "Maximum raw_content chars per observation (default: 6000)",
+        "default": 6000
+      },
+      "run_ingest": {
+        "type": "boolean",
+        "description": "Run ingest before building the packet (default: true)",
+        "default": true
+      }
+    },
+    "required": [
+      "project_name"
+    ]
+  }
+}

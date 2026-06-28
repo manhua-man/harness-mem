@@ -26,33 +26,17 @@ public MCP tools.
 Read-only procedural hints can be searched from memory context, but procedural
 skill lifecycle management is outside this public memory surface.
 
-## Operator Maintenance Profile
+## Operator Maintenance
 
 Metabolism and reflection jobs are internal background governance mechanisms,
 similar to an indexer, compaction worker, repair worker, or GC. Product-facing
 flows should describe the outcome instead: memory is automatically organized,
 deduplicated, expired, repaired, and consolidated.
 
-The public MCP surface does not list these internals, does not report hidden
-maintenance counts, and treats direct calls to maintenance-only tools as
-unknown. Operators can start a controlled read/debug profile when diagnosing
-local state:
-
-```bash
-HARNESS_MEM_MCP_MAINTENANCE=1 python -m harness_mem.mcp.server
-```
-
-Then request `profile=maintenance` from the MCP client. This profile is
-read-only and only lists:
-
-- `list_reflection_jobs`
-- `get_reflection_job`
-- `list_metabolism_runs`
-- `health_summary`
-- `surface_cost_report`
-
-It does not expose `metabolism_preview` or `metabolism_run`; the maintenance
-profile cannot trigger metabolism or write suggestion candidates.
+MCP has no maintenance profile. The public MCP surface does not list these
+internals, does not report hidden maintenance counts, and treats direct calls
+to maintenance-only tools as unknown. Operators should diagnose local state
+through `harness-mem doctor` and explicit CLI maintenance commands.
 
 ## Claude Code
 

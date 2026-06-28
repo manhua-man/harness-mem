@@ -1,0 +1,34 @@
+{
+  "name": "search_tools",
+  "description": "USE WHEN you don't know which server has the tool you need. Searches across all loaded MCP servers by name/description.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string"
+      },
+      "detailLevel": {
+        "type": "string",
+        "enum": [
+          "name",
+          "name+description",
+          "full"
+        ],
+        "default": "name+description"
+      },
+      "hydrateLazy": {
+        "type": "boolean",
+        "description": "Set true to hydrate lazy servers before searching",
+        "default": false
+      },
+      "maxLazyServers": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Optional cap for how many lazy servers to hydrate when searching"
+      }
+    },
+    "required": [
+      "query"
+    ]
+  }
+}

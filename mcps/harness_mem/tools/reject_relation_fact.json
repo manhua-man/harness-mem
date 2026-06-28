@@ -1,0 +1,16 @@
+{
+  "name": "reject_relation_fact",
+  "description": "Reject a pending relation fact.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "fact_id": {
+        "type": "string",
+        "description": "Relation fact ID to reject"
+      }
+    },
+    "required": [
+      "fact_id"
+    ]
+  }
+}

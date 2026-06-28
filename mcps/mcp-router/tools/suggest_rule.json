@@ -1,0 +1,37 @@
+{
+  "name": "suggest_rule",
+  "description": "Suggest a rule for later review (lighter than confirm_rule).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name"
+      },
+      "pattern": {
+        "type": "string",
+        "description": "Rule pattern"
+      },
+      "trigger": {
+        "type": "string",
+        "description": "Trigger scenario"
+      },
+      "session_id": {
+        "type": "string",
+        "description": "Session ID (optional)"
+      },
+      "examples": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Example instances (optional)"
+      }
+    },
+    "required": [
+      "project_name",
+      "pattern",
+      "trigger"
+    ]
+  }
+}

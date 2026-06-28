@@ -1,0 +1,21 @@
+{
+  "name": "get_observations",
+  "description": "List all observations for a given session in a project.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name"
+      },
+      "session_id": {
+        "type": "string",
+        "description": "Session ID to filter by"
+      }
+    },
+    "required": [
+      "project_name",
+      "session_id"
+    ]
+  }
+}

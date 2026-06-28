@@ -1,0 +1,17 @@
+{
+  "name": "dream_ledger",
+  "description": "Return the latest v3.1 DreamRun ledger for a project, or one DreamRun by id. This is the backing MCP surface for /hm:dream: it reads the audit ledger and never mutates truth.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name (defaults to the active project when omitted)."
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Optional DreamRun id for drilldown."
+      }
+    }
+  }
+}

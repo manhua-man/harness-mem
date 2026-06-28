@@ -1,0 +1,17 @@
+{
+  "name": "dream_auto_tick",
+  "description": "Run one host/client auto tick for v3.1 dream. The tick only enqueues a dream job when dream.auto.enabled and dream auto gates allow it.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name (defaults to the active project when omitted)."
+      },
+      "project_root": {
+        "type": "string",
+        "description": "Project directory used to load .harness-mem.toml (defaults to cwd)."
+      }
+    }
+  }
+}

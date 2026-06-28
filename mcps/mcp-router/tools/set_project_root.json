@@ -1,0 +1,15 @@
+{
+  "name": "set_project_root",
+  "description": "Set project root for path resolution",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ]
+  }
+}

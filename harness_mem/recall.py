@@ -43,6 +43,17 @@ def _entry_excerpt(row: dict[str, Any]) -> str:
     return _text(row.get("content") or row.get("evidence") or row.get("preview"))[:500]
 
 
+def _metadata_with_score_details(
+    row: dict[str, Any],
+    base: dict[str, Any],
+) -> dict[str, Any]:
+    metadata = dict(base)
+    score_details = row.get("score_details")
+    if isinstance(score_details, dict) and score_details:
+        metadata["score_details"] = dict(score_details)
+    return metadata
+
+
 def _evidence_from_search_rows(
     *,
     memory_entries: list[dict[str, Any]],
@@ -61,11 +72,14 @@ def _evidence_from_search_rows(
                 reason="search_memory:memory_entry",
                 truth_status=_text(row.get("truth_status") or "confirmed_current"),
                 source_ref=_text(row.get("source")),
-                metadata={
-                    "memory_type": row.get("memory_type"),
-                    "confidence": row.get("confidence"),
-                    "valid_to": row.get("valid_to"),
-                },
+                metadata=_metadata_with_score_details(
+                    row,
+                    {
+                        "memory_type": row.get("memory_type"),
+                        "confidence": row.get("confidence"),
+                        "valid_to": row.get("valid_to"),
+                    },
+                ),
             )
         )
     for row in relation_facts:
@@ -82,11 +96,14 @@ def _evidence_from_search_rows(
                 reason="search_memory:relation_fact",
                 truth_status=_text(row.get("truth_status") or "confirmed_current"),
                 source_ref=_text(row.get("source")),
-                metadata={
-                    "relation_type": row.get("relation_type"),
-                    "confidence": row.get("confidence"),
-                    "valid_to": row.get("valid_to"),
-                },
+                metadata=_metadata_with_score_details(
+                    row,
+                    {
+                        "relation_type": row.get("relation_type"),
+                        "confidence": row.get("confidence"),
+                        "valid_to": row.get("valid_to"),
+                    },
+                ),
             )
         )
     for row in observations:
@@ -99,7 +116,10 @@ def _evidence_from_search_rows(
                 reason="search_memory:observation",
                 truth_status="raw_evidence",
                 source_ref=_text(row.get("session_id")),
-                metadata={"content_type": row.get("content_type")},
+                metadata=_metadata_with_score_details(
+                    row,
+                    {"content_type": row.get("content_type")},
+                ),
             )
         )
     return [item for item in evidence if item.source_id]
@@ -134,6 +154,98 @@ def _sources_from_drilldown_hints(hints: list[dict[str, Any]]) -> list[RecallSou
     return sources
 
 
+def _stage_status(ran: bool, result_count: int = 0) -> str:
+    if not ran:
+        return "skipped"
+    return "ok" if result_count else "empty"
+
+
+def _search_steps(
+    *,
+    project_name: str | None,
+    effective_query: str,
+    requested_mode: str,
+    effective_mode: str,
+    evidence_count: int,
+    counts: tuple[int, int, int],
+    context: dict[str, Any] | None,
+    warnings: list[str] | None,
+) -> list[RecallStep]:
+    memory_count, relation_count, observation_count = counts
+    vector_ran = effective_mode == "hybrid"
+    vector_requested = requested_mode in {"auto", "hybrid"}
+    fallback_reason = next((warning for warning in warnings or [] if warning), None)
+    return [
+        RecallStep(
+            tier="filter",
+            query=effective_query,
+            status="ok",
+            result_count=evidence_count,
+            why="Applied project/scope/current-truth filters before ranking.",
+            metadata={
+                "project_name": project_name,
+                "current_only_default": True,
+            },
+        ),
+        RecallStep(
+            tier="fts",
+            query=effective_query,
+            status=_stage_status(True, evidence_count),
+            result_count=evidence_count,
+            why="Full-text ranking was available for the SQLite read model.",
+            metadata={
+                "requested_mode": requested_mode,
+                "effective_mode": effective_mode,
+            },
+        ),
+        RecallStep(
+            tier="vector",
+            query=effective_query,
+            status=_stage_status(vector_ran, evidence_count),
+            result_count=evidence_count if vector_ran else 0,
+            why=(
+                "Vector ranking contributed to hybrid retrieval."
+                if vector_ran
+                else "Vector ranking was skipped or fell back to FTS."
+            ),
+            metadata={
+                "requested": vector_requested,
+                "fallback_reason": fallback_reason,
+            },
+        ),
+        RecallStep(
+            tier="merge",
+            query=effective_query,
+            status=_stage_status(evidence_count > 0, evidence_count),
+            result_count=evidence_count,
+            why="Merged selected source kinds into one recall evidence list.",
+            metadata={
+                "memory_entry_count": memory_count,
+                "relation_fact_count": relation_count,
+                "observation_count": observation_count,
+            },
+        ),
+        RecallStep(
+            tier="hydrate",
+            query=effective_query,
+            status=_stage_status(evidence_count > 0, evidence_count),
+            result_count=evidence_count,
+            why="Hydrated selected source ids into legacy response arrays.",
+        ),
+        RecallStep(
+            tier="context",
+            query=effective_query,
+            status="ok" if context else "skipped",
+            result_count=len((context or {}).get("context_plan", {}).get("layers", [])),
+            why=(
+                "L0-L4 context assembly explains selected project context."
+                if context
+                else "No project-scoped context assembly was available."
+            ),
+        ),
+    ]
+
+
 def build_search_recall_result(
     *,
     project_name: str | None,
@@ -155,15 +267,18 @@ def build_search_recall_result(
         relation_facts=relation_facts,
         observations=observations,
     )
-    tier_path = ["search"]
-    if relation_facts:
-        tier_path.append("relations")
-    if observations:
-        tier_path.append("sources")
-    if context:
-        tier_path.append("context_assembly")
     answer_ready = bool((answer_ready_context or {}).get("safe_to_answer"))
     counts = (len(memory_entries), len(relation_facts), len(observations))
+    steps = _search_steps(
+        project_name=project_name,
+        effective_query=effective_query,
+        requested_mode=requested_mode,
+        effective_mode=effective_mode,
+        evidence_count=len(evidence),
+        counts=counts,
+        context=context,
+        warnings=warnings,
+    )
     return RecallResult(
         answer=None,
         why=(
@@ -172,28 +287,7 @@ def build_search_recall_result(
         ),
         evidence=evidence,
         sources=_sources_from_drilldown_hints(drilldown_hints),
-        steps=[
-            RecallStep(
-                tier="search",
-                query=effective_query,
-                status="ok",
-                result_count=sum(counts),
-                why="SQLite-backed structured/verbatim retrieval selected anchors.",
-                metadata={
-                    "requested_mode": requested_mode,
-                    "effective_mode": effective_mode,
-                },
-            ),
-            RecallStep(
-                tier="context_assembly",
-                query=effective_query,
-                status="ok" if context else "skipped",
-                result_count=len((context or {}).get("context_plan", {}).get("layers", [])),
-                why="L0-L4 context assembly explains selected project context."
-                if context
-                else "No project-scoped context assembly was available.",
-            ),
-        ],
+        steps=steps,
         planning=RecallPlanning(
             selected_effort=validate_recall_effort(effort),
             reason="Wrap existing harness-mem search/context outputs in an auditable contract.",
@@ -203,7 +297,7 @@ def build_search_recall_result(
                 "observation_count": len(observations),
             },
         ),
-        tier_path=tier_path,
+        tier_path=[step.tier for step in steps if step.status != "skipped"],
         status=_status_from_counts(*counts, answer_ready=answer_ready),
         warnings=list(warnings or []),
         drilldown_hints=list(drilldown_hints or []),

@@ -1,0 +1,77 @@
+{
+  "name": "temporal_query",
+  "description": "Query the v3.3 temporal read model for current, historical, or as_of confirmed truth. Returns valid/recorded time, provenance, supersede chain, timeline, explanations, and abstention metadata. Read-only: rebuilds the projection from confirmed truth and never mutates memory.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name"
+      },
+      "query": {
+        "type": "string",
+        "description": "Optional substring query over subject, predicate, and object"
+      },
+      "subject": {
+        "type": "string",
+        "description": "Optional subject filter. Relation facts use source_entity; rules use trigger; memory entries use category."
+      },
+      "predicate": {
+        "type": "string",
+        "description": "Optional predicate filter. Relation facts use relation_type."
+      },
+      "truth_type": {
+        "type": "string",
+        "enum": [
+          "memory_entry",
+          "relation_fact",
+          "confirmed_rule"
+        ],
+        "description": "Optional projected truth type filter."
+      },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "current",
+          "history",
+          "as_of"
+        ],
+        "description": "current=currently valid, history=expired truth, as_of=valid at the supplied timestamp.",
+        "default": "current"
+      },
+      "as_of": {
+        "type": "string",
+        "description": "ISO datetime for valid-time lookup. Used with mode=as_of; also honored when supplied directly."
+      },
+      "valid_from": {
+        "type": "string",
+        "description": "ISO datetime lower bound for valid-time overlap filter."
+      },
+      "valid_to": {
+        "type": "string",
+        "description": "ISO datetime upper bound for valid-time overlap filter."
+      },
+      "recorded_from": {
+        "type": "string",
+        "description": "ISO datetime lower bound for recorded_at filter."
+      },
+      "recorded_to": {
+        "type": "string",
+        "description": "ISO datetime upper bound for recorded_at filter."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum records to return (default 20, hard cap 100).",
+        "default": 20
+      },
+      "require_unique_current": {
+        "type": "boolean",
+        "description": "When true, multiple current records in current mode produce temporal_conflict abstention.",
+        "default": false
+      }
+    },
+    "required": [
+      "project_name"
+    ]
+  }
+}

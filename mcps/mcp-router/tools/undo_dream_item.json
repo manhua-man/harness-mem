@@ -1,0 +1,25 @@
+{
+  "name": "undo_dream_item",
+  "description": "Undo one applied DreamItem by replaying the undo metadata stored in its DreamRun ledger. Truth is restored or soft-deleted; confirmed records are not hard-deleted.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name (defaults to the active project when omitted)."
+      },
+      "run_id": {
+        "type": "string",
+        "description": "DreamRun id containing the item to undo."
+      },
+      "item_id": {
+        "type": "string",
+        "description": "DreamItem id to undo."
+      }
+    },
+    "required": [
+      "run_id",
+      "item_id"
+    ]
+  }
+}

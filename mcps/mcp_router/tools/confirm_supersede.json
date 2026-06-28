@@ -1,0 +1,16 @@
+{
+  "name": "confirm_supersede",
+  "description": "Confirm a supersede candidate and link truth records.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "candidate_id": {
+        "type": "string",
+        "description": "Supersede candidate ID to confirm"
+      }
+    },
+    "required": [
+      "candidate_id"
+    ]
+  }
+}

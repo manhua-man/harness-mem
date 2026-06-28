@@ -1,0 +1,20 @@
+{
+  "name": "open_nodes",
+  "description": "Open specific nodes in the knowledge graph by their names",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "names": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "An array of entity names to retrieve"
+      }
+    },
+    "required": [
+      "names"
+    ],
+    "additionalProperties": false
+  }
+}

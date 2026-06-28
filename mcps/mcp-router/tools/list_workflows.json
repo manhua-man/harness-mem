@@ -1,0 +1,8 @@
+{
+  "name": "list_workflows",
+  "description": "CALL FIRST to discover available automations before writing custom code. Returns workflow names, descriptions, and required parameters.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {}
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "suggest_correction",
+  "description": "Replace an existing confirmed rule in one shot. Creates a new ConfirmedRule, marks the old rule historical (valid_to set, supersedes/superseded_by linked), and returns the supersede chain ids so the caller can show the user what changed. Use this when reality changed (framework upgrade, policy reversal) and a previously confirmed rule is now actively wrong. Do NOT use this for adding a brand-new rule — use create_rule_candidate + confirm_rule for that.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name"
+      },
+      "supersedes_rule_id": {
+        "type": "string",
+        "description": "ConfirmedRule id this correction replaces"
+      },
+      "pattern": {
+        "type": "string",
+        "description": "Replacement rule pattern text"
+      },
+      "trigger": {
+        "type": "string",
+        "description": "Replacement rule trigger text"
+      },
+      "reason": {
+        "type": "string",
+        "description": "Why the old rule is being replaced (recorded on the supersede chain)"
+      },
+      "examples": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional examples for the new rule"
+      },
+      "source_session_id": {
+        "type": "string",
+        "description": "Session id this correction was triggered from"
+      }
+    },
+    "required": [
+      "project_name",
+      "supersedes_rule_id",
+      "pattern",
+      "trigger",
+      "reason"
+    ]
+  }
+}

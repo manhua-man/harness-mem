@@ -1,0 +1,16 @@
+{
+  "name": "set_active_project",
+  "description": "Set the active project so wake / search / suggest defaults pick it up. The active project is the only thing that prevents memory written from different working directories from cross-contaminating; agents should call this once at the start of a session in a new project.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project to mark as active"
+      }
+    },
+    "required": [
+      "project_name"
+    ]
+  }
+}

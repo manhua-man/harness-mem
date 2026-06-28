@@ -1,0 +1,64 @@
+{
+  "name": "suggest_supersede",
+  "description": "Suggest a supersede candidate to mark old truth historical.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name"
+      },
+      "target_type": {
+        "type": "string",
+        "enum": [
+          "memory_entry",
+          "relation_fact",
+          "confirmed_rule"
+        ],
+        "description": "Truth type to supersede"
+      },
+      "target_id": {
+        "type": "string",
+        "description": "Existing truth id to mark historical"
+      },
+      "replacement_type": {
+        "type": "string",
+        "enum": [
+          "memory_entry",
+          "relation_fact",
+          "confirmed_rule"
+        ],
+        "description": "Replacement truth type"
+      },
+      "replacement_id": {
+        "type": "string",
+        "description": "Replacement truth id"
+      },
+      "reason": {
+        "type": "string",
+        "description": "Why the replacement is needed"
+      },
+      "evidence": {
+        "type": "string",
+        "description": "Evidence for the replacement"
+      },
+      "source": {
+        "type": "string",
+        "description": "Source id (optional)"
+      },
+      "confidence": {
+        "type": "number",
+        "description": "Confidence score 0.0-1.0"
+      }
+    },
+    "required": [
+      "project_name",
+      "target_type",
+      "target_id",
+      "replacement_type",
+      "replacement_id",
+      "reason",
+      "evidence"
+    ]
+  }
+}

@@ -20,9 +20,11 @@ results_harness*.json
 tmp_pytest_codex/
 tmp-review-a/
 tmp-*/
+terminals/
 
 # Local Cursor/Claude config overrides
 **/CLAUDE.local.md
+.codex/
 
 # Local harness-mem config overrides
 .harness-mem.toml

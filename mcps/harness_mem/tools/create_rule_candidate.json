@@ -1,0 +1,38 @@
+{
+  "name": "create_rule_candidate",
+  "description": "Create a rule candidate from a correction pattern.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name"
+      },
+      "session_id": {
+        "type": "string",
+        "description": "Session ID where the correction occurred"
+      },
+      "pattern": {
+        "type": "string",
+        "description": "Rule pattern"
+      },
+      "trigger": {
+        "type": "string",
+        "description": "Trigger scenario"
+      },
+      "examples": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Example instances (optional)"
+      }
+    },
+    "required": [
+      "project_name",
+      "session_id",
+      "pattern",
+      "trigger"
+    ]
+  }
+}

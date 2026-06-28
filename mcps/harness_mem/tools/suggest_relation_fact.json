@@ -1,0 +1,45 @@
+{
+  "name": "suggest_relation_fact",
+  "description": "Suggest a typed relation between entities for later review.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name"
+      },
+      "source_entity": {
+        "type": "string",
+        "description": "Origin entity"
+      },
+      "target_entity": {
+        "type": "string",
+        "description": "Target entity"
+      },
+      "relation_type": {
+        "type": "string",
+        "description": "Relation type (e.g. depends_on)"
+      },
+      "evidence": {
+        "type": "string",
+        "description": "Evidence for this relation"
+      },
+      "source": {
+        "type": "string",
+        "description": "Source id"
+      },
+      "confidence": {
+        "type": "number",
+        "description": "Confidence score 0.0-1.0"
+      }
+    },
+    "required": [
+      "project_name",
+      "source_entity",
+      "target_entity",
+      "relation_type",
+      "evidence",
+      "source"
+    ]
+  }
+}

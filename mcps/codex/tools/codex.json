@@ -1,0 +1,76 @@
+{
+  "name": "codex",
+  "description": "\n    Executes a non-interactive Codex session via CLI to perform AI-assisted coding tasks in a secure workspace.\n    This tool wraps the `codex exec` command, enabling model-driven code generation, debugging, or automation based on natural language prompts.\n    It supports resuming ongoing sessions for continuity and enforces sandbox policies to prevent unsafe operations. Ideal for integrating Codex into MCP servers for agentic workflows, such as code reviews or repo modifications.\n\n    **Key Features:**\n        - **Prompt-Driven Execution:** Send task instructions to Codex for step-by-step code handling.\n        - **Workspace Isolation:** Operate within a specified directory, with optional Git repo skipping.\n        - **Security Controls:** Three sandbox levels balance functionality and safety.\n        - **Session Persistence:** Resume prior conversations via `SESSION_ID` for iterative tasks.\n\n    **Edge Cases & Best Practices:**\n        - Ensure `cd` exists and is accessible; tool fails silently on invalid paths.\n        - For most repos, prefer \"read-only\" to avoid accidental changes.\n        - If needed, set `return_all_messages` to `True` to parse \"all_messages\" for detailed tracing (e.g., reasoning, tool calls, etc.).\n    ",
+  "inputSchema": {
+    "properties": {
+      "PROMPT": {
+        "title": "Prompt",
+        "type": "string"
+      },
+      "cd": {
+        "format": "path",
+        "title": "Cd",
+        "type": "string"
+      },
+      "sandbox": {
+        "default": "read-only",
+        "description": "Sandbox policy for model-generated commands. Defaults to `read-only`.",
+        "enum": [
+          "read-only",
+          "workspace-write",
+          "danger-full-access"
+        ],
+        "title": "Sandbox",
+        "type": "string"
+      },
+      "SESSION_ID": {
+        "default": "",
+        "title": "Session Id",
+        "type": "string"
+      },
+      "skip_git_repo_check": {
+        "default": true,
+        "title": "Skip Git Repo Check",
+        "type": "boolean"
+      },
+      "return_all_messages": {
+        "default": false,
+        "title": "Return All Messages",
+        "type": "boolean"
+      },
+      "image": {
+        "default": [],
+        "description": "Attach one or more image files to the initial prompt. Separate multiple paths with commas or repeat the flag.",
+        "items": {
+          "format": "path",
+          "type": "string"
+        },
+        "title": "Image",
+        "type": "array"
+      },
+      "model": {
+        "default": "",
+        "description": "The model to use for the codex session. This parameter is strictly prohibited unless explicitly specified by the user.",
+        "title": "Model",
+        "type": "string"
+      },
+      "yolo": {
+        "default": false,
+        "description": "Run every command without approvals or sandboxing. Only use when `sandbox` couldn't be applied.",
+        "title": "Yolo",
+        "type": "boolean"
+      },
+      "profile": {
+        "default": "",
+        "title": "Profile",
+        "type": "string"
+      }
+    },
+    "required": [
+      "PROMPT",
+      "cd"
+    ],
+    "title": "codexArguments",
+    "type": "object"
+  }
+}

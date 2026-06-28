@@ -1,0 +1,43 @@
+{
+  "name": "create_task_handoff",
+  "description": "Create a task handoff to record progress.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name"
+      },
+      "task_id": {
+        "type": "string",
+        "description": "Task identifier"
+      },
+      "summary": {
+        "type": "string",
+        "description": "Progress summary"
+      },
+      "status": {
+        "type": "string",
+        "description": "Current status"
+      },
+      "next_steps": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "blockers": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "project_name",
+      "task_id",
+      "summary",
+      "status"
+    ]
+  }
+}

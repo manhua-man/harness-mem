@@ -1,0 +1,17 @@
+{
+  "name": "search_nodes",
+  "description": "Search for nodes in the knowledge graph based on a query",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "The search query to match against entity names, types, and observation content"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "additionalProperties": false
+  }
+}

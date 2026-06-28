@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "0.8.2"
+version = "0.8.3"
 description = "Local-first, auditable, pluggable Agent memory backend"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -20,6 +20,7 @@ dev = [
     "numpy>=1.26.0",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.23.0",
+    "PyYAML>=6.0",
     "ruff>=0.6.0",
     "tiktoken>=0.7.0",
     "twine>=5.1.1",

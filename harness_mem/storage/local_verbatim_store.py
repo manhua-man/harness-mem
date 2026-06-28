@@ -7,7 +7,7 @@ import asyncio
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.search.hybrid_search import HybridSearchLayer
@@ -18,6 +18,25 @@ from harness_mem.storage.sqlite_index import SQLiteIndex
 _CJK_ASCII_LEFT_BOUNDARY = re.compile(r"([\u3400-\u9fff])([A-Za-z0-9_])")
 _CJK_ASCII_RIGHT_BOUNDARY = re.compile(r"([A-Za-z0-9_])([\u3400-\u9fff])")
 _REGEX_META_CHARS = set(r"\.^$*+?{}[]|()")
+_SEARCH_SCORE_FIELDS = (
+    "_fts_score",
+    "_fts_score_total",
+    "_fts_match_count",
+    "_fts_rank",
+    "_vec_rank",
+    "_vec_sim",
+    "_fts_factor",
+    "_vec_factor",
+    "_rrf_score",
+    "_hybrid_score",
+    "_score",
+)
+
+
+def _copy_search_score_fields(data: dict[str, Any], row: dict[str, Any]) -> None:
+    for field in _SEARCH_SCORE_FIELDS:
+        if field in row:
+            data[field] = row[field]
 
 
 class RegexObservationMatch(NamedTuple):
@@ -262,12 +281,7 @@ class LocalVerbatimStore:
                     "_search_requested_mode": search_result.requested_mode,
                     "_search_fallback_reason": search_result.fallback_reason,
                 })
-                if "_fts_score" in row:
-                    data["_fts_score"] = row["_fts_score"]
-                if "_hybrid_score" in row:
-                    data["_hybrid_score"] = row["_hybrid_score"]
-                if "_score" in row:
-                    data["_score"] = row["_score"]
+                _copy_search_score_fields(data, row)
                 results.append(Observation.from_dict(data))
         return results
 

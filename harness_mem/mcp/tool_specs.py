@@ -84,17 +84,6 @@ PUBLIC_MCP_TOOL_NAMES = frozenset(
     }
 )
 
-MAINTENANCE_MCP_TOOL_NAMES = frozenset(
-    {
-        "list_reflection_jobs",
-        "get_reflection_job",
-        "list_metabolism_runs",
-        "health_summary",
-        "surface_cost_report",
-    }
-)
-
-
 # Ordered map of tool name → schema. Order is the discovery order MCP
 # clients see; keep new tools at the bottom of their cluster (read /
 # ingest / review / suggest) to keep the registry scannable.
@@ -948,112 +937,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["project_name", "task_id", "summary", "status"],
         },
     },
-    "list_reflection_jobs": {
-        "description": (
-            "Read-only maintenance list of reflection/dream job audit records. "
-            "Available only through the env-gated maintenance MCP profile."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Optional project filter."},
-                "status": {
-                    "type": "string",
-                    "enum": [
-                        "pending",
-                        "processing",
-                        "completed",
-                        "failed",
-                        "retryable",
-                        "needs_distill",
-                    ],
-                    "description": "Optional job status filter.",
-                },
-                "kind": {
-                    "type": "string",
-                    "enum": ["reflection", "dream"],
-                    "description": "Optional job kind filter.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum jobs to return (default 50, max 200).",
-                    "default": 50,
-                },
-            },
-        },
-    },
-    "get_reflection_job": {
-        "description": (
-            "Read-only maintenance fetch of a single reflection/dream job audit record."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "job_id": {"type": "string", "description": "Reflection job id to fetch."},
-            },
-            "required": ["job_id"],
-        },
-    },
-    "list_metabolism_runs": {
-        "description": (
-            "Read-only maintenance list of persisted metabolism audit records. "
-            "This never triggers metabolism or writes candidates."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {
-                    "type": "string",
-                    "description": "Project name (defaults to active project when omitted).",
-                },
-                "kind": {
-                    "type": "string",
-                    "enum": ["preview", "metabolism"],
-                    "description": "Optional run kind filter.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum runs to return (default 50, max 200).",
-                    "default": 50,
-                },
-            },
-        },
-    },
-    "health_summary": {
-        "description": (
-            "Read-only maintenance runtime health summary for a project."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {
-                    "type": "string",
-                    "description": "Project name (defaults to active project when omitted).",
-                },
-            },
-        },
-    },
-    "surface_cost_report": {
-        "description": (
-            "Read-only maintenance MCP surface cost observer report."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Optional project filter."},
-                "days": {
-                    "type": "integer",
-                    "description": "Lookback window in days (default 7).",
-                    "default": 7,
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum recent events to inspect (default 200, max 1000).",
-                    "default": 200,
-                },
-            },
-        },
-    },
     "dream_ledger": {
         "description": (
             "Return the latest v3.1 DreamRun ledger for a project, or one "
@@ -1196,12 +1079,6 @@ TOOL_CLUSTERS = {
     "confirm_relation_fact": "truth_loop",
     "reject_relation_fact": "truth_loop",
     "create_task_handoff": "truth_loop",
-    # Env-gated operator read/debug profile; never listed on public surface.
-    "list_reflection_jobs": "maintainer",
-    "get_reflection_job": "maintainer",
-    "list_metabolism_runs": "maintainer",
-    "health_summary": "maintainer",
-    "surface_cost_report": "maintainer",
     # Dream is a default product capability; the cluster name is separate from
     # whether a tool appears in the public MCP surface.
     "dream_ledger": "dream",
@@ -1225,15 +1102,13 @@ def build_tools(
     handler_keys = set(handlers)
     cluster_keys = set(TOOL_CLUSTERS)
     public_keys = set(PUBLIC_MCP_TOOL_NAMES)
-    maintenance_keys = set(MAINTENANCE_MCP_TOOL_NAMES)
-    registered_keys = public_keys | maintenance_keys
     if (
-        schema_keys != registered_keys
+        schema_keys != public_keys
         or schema_keys != handler_keys
         or schema_keys != cluster_keys
     ):
-        unclassified_schemas = schema_keys - registered_keys
-        missing_registered_schemas = registered_keys - schema_keys
+        unclassified_schemas = schema_keys - public_keys
+        missing_registered_schemas = public_keys - schema_keys
         missing_handlers = schema_keys - handler_keys
         unknown_handlers = handler_keys - schema_keys
         missing_clusters = schema_keys - cluster_keys
@@ -1265,7 +1140,6 @@ def build_tools(
 
 
 __all__ = [
-    "MAINTENANCE_MCP_TOOL_NAMES",
     "PUBLIC_MCP_TOOL_NAMES",
     "TOOL_CLUSTERS",
     "ToolSpec",

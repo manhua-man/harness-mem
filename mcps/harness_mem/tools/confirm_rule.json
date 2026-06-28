@@ -1,0 +1,16 @@
+{
+  "name": "confirm_rule",
+  "description": "Promote a rule candidate to a confirmed rule.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "rule_id": {
+        "type": "string",
+        "description": "Rule candidate ID to confirm"
+      }
+    },
+    "required": [
+      "rule_id"
+    ]
+  }
+}

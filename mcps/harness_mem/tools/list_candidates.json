@@ -1,0 +1,31 @@
+{
+  "name": "list_candidates",
+  "description": "List structured memory candidates for human review.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name"
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "accepted",
+          "rejected"
+        ],
+        "description": "Candidate status to list (default: pending)",
+        "default": "pending"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum candidates to return across all candidate types (default: 100)",
+        "default": 100
+      }
+    },
+    "required": [
+      "project_name"
+    ]
+  }
+}

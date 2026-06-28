@@ -126,6 +126,8 @@ product surface.
 - [MCP setup](docs/mcp-setup.md)
 - [Cold-start demo](docs/demo-cold-start.md)
 - [Recall audit contract](docs/recall-audit.md)
+- [Agent memory & retrieval research (2026)](docs/agent-memory-retrieval-research-2026.md)
+- [Roadmap](docs/roadmap.md)
 - [Changelog](CHANGELOG.md)
 
 ## Development Check
@@ -137,4 +139,4 @@ python -m harness_mem.cli --help
 cargo test --workspace
 ```
 
-Current package version: **0.8.2**.
+Current package version: **0.8.3**.

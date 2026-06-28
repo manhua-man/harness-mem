@@ -1,0 +1,8 @@
+{
+  "name": "list_servers",
+  "description": "CALL FIRST to see what MCP servers are available. Shows loaded, lazy (on-demand), and disabled servers.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {}
+  }
+}

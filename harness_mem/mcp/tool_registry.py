@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any, Literal, TypedDict
 
-from harness_mem.mcp.tool_specs import (
-    MAINTENANCE_MCP_TOOL_NAMES,
-    PUBLIC_MCP_TOOL_NAMES,
-    ToolSpec,
-)
+from harness_mem.mcp.tool_specs import PUBLIC_MCP_TOOL_NAMES, ToolSpec
 
-McpToolProfile = Literal["memory", "maintenance"]
+McpToolProfile = Literal["memory"]
 PUBLIC_MCP_SURFACE: McpToolProfile = "memory"
-MAINTENANCE_PROFILE_ENV = "HARNESS_MEM_MCP_MAINTENANCE"
 
 
 class McpSurfaceResolution(TypedDict):
@@ -22,63 +16,39 @@ class McpSurfaceResolution(TypedDict):
     degraded_reason: str | None
 
 
-def maintenance_profile_enabled() -> bool:
-    return os.getenv(MAINTENANCE_PROFILE_ENV, "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+def resolve_mcp_surface(_params: dict[str, Any]) -> McpSurfaceResolution:
+    """Return the single public MCP memory surface.
 
-
-def _requested_profile(params: dict[str, Any]) -> str | None:
-    requested = params.get("profile") or params.get("mcp_tool_profile")
-    if not requested and isinstance(params.get("arguments"), dict):
-        requested = params["arguments"].get("profile") or params["arguments"].get(
-            "mcp_tool_profile"
-        )
-    if isinstance(requested, str) and requested.strip():
-        return requested.strip().lower()
-    return None
-
-
-def resolve_mcp_surface(params: dict[str, Any]) -> McpSurfaceResolution:
-    requested = _requested_profile(params)
-    if requested == "maintenance":
-        if maintenance_profile_enabled():
-            return {
-                "surface": "maintenance",
-                "source": "maintenance-env",
-                "degraded_reason": None,
-            }
-        return {
-            "surface": PUBLIC_MCP_SURFACE,
-            "source": "public",
-            "degraded_reason": "maintenance_profile_disabled",
-        }
+    Historical profile parameters are intentionally ignored so MCP clients do not
+    need to understand surface modes.
+    """
     return {
         "surface": PUBLIC_MCP_SURFACE,
         "source": "public",
-        "degraded_reason": (
-            "profile_ignored_single_public_surface"
-            if requested and requested != PUBLIC_MCP_SURFACE
-            else None
-        ),
+        "degraded_reason": None,
     }
 
 
-def visible_tool_name_set(tools: dict[str, ToolSpec], surface: str) -> set[str]:
-    if surface == "maintenance":
-        return set(tools).intersection(MAINTENANCE_MCP_TOOL_NAMES)
+def visible_tool_name_set(
+    tools: dict[str, ToolSpec],
+    _surface: str = PUBLIC_MCP_SURFACE,
+) -> set[str]:
     return set(tools).intersection(PUBLIC_MCP_TOOL_NAMES)
 
 
-def visible_tool_names(tools: dict[str, ToolSpec], surface: str) -> list[str]:
+def visible_tool_names(
+    tools: dict[str, ToolSpec],
+    surface: str = PUBLIC_MCP_SURFACE,
+) -> list[str]:
     visible = visible_tool_name_set(tools, surface)
     return [name for name in tools if name in visible]
 
 
-def tool_descriptor(name: str, spec: ToolSpec, surface: str) -> dict[str, Any]:
+def tool_descriptor(
+    name: str,
+    spec: ToolSpec,
+    surface: str = PUBLIC_MCP_SURFACE,
+) -> dict[str, Any]:
     return {
         "name": name,
         "description": spec["description"],
@@ -104,7 +74,7 @@ def list_tools_result(
     }
     surface = surface_info["surface"]
     visible_names = visible_tool_names(tools, surface)
-    result: dict[str, Any] = {
+    return {
         "surface": surface,
         "tool_count": len(visible_names),
         "tools": [
@@ -112,7 +82,3 @@ def list_tools_result(
             for name in visible_names
         ],
     }
-    if surface == "maintenance" or surface_info["degraded_reason"] is not None:
-        result["surface_source"] = surface_info["source"]
-        result["degraded_reason"] = surface_info["degraded_reason"]
-    return result
