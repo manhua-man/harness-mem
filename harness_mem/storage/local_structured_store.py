@@ -31,6 +31,7 @@ from harness_mem.storage.truth_store import TruthStore
 from harness_mem.governance_status import (
     GOVERNANCE_STATUSES,
     statuses_for_list_filter,
+    user_confirm_status,
     validate_status_transition,
 )
 
@@ -1000,7 +1001,7 @@ class LocalStructuredStore:
             return None
         if not await self.update_supersede_candidate_status(
             id,
-            "accepted",
+            user_confirm_status(),
             reviewed_at=reviewed_at,
             reviewer_id=reviewer_id,
         ):
@@ -1596,12 +1597,19 @@ class LocalStructuredStore:
         limit: int = 100,
         status: str = "accepted",
         include_history: bool = False,
+        include_provisional: bool = False,
     ) -> list[RelationFact]:
+        status_filter = statuses_for_list_filter(
+            status,
+            include_provisional=include_provisional,
+            include_superseded=include_history,
+        )
+        placeholders = ",".join(["?"] * len(status_filter))
         where_parts = [
             "project_name = ?",
-            "COALESCE(status, 'accepted') = ?",
+            f"COALESCE(status, 'accepted') IN ({placeholders})",
         ]
-        params = [project_name, status]
+        params: list[Any] = [project_name, *status_filter]
         if not include_history:
             clause, clause_params = self._current_only_clause()
             where_parts.append(clause)
@@ -1629,7 +1637,7 @@ class LocalStructuredStore:
             blob_path = self._blob_path("relation_facts", row["id"])
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
-                if data.get("status", "accepted") != status:
+                if data.get("status", "accepted") not in status_filter:
                     continue
                 if not include_history and not self._is_current_data(data):
                     continue
@@ -1644,9 +1652,16 @@ class LocalStructuredStore:
         status: str = "accepted",
         include_history: bool = False,
         time_window: tuple[datetime | None, datetime | None] | None = None,
+        include_provisional: bool = False,
     ) -> list[RelationFact]:
-        extra_where_parts = ["COALESCE(status, 'accepted') = ?"]
-        extra_params: tuple = (status,)
+        status_filter = statuses_for_list_filter(
+            status,
+            include_provisional=include_provisional,
+            include_superseded=include_history,
+        )
+        placeholders = ",".join(["?"] * len(status_filter))
+        extra_where_parts = [f"COALESCE(status, 'accepted') IN ({placeholders})"]
+        extra_params: tuple = tuple(status_filter)
         if not include_history:
             clause, clause_params = self._current_only_clause()
             extra_where_parts.append(clause)
@@ -1672,7 +1687,7 @@ class LocalStructuredStore:
             blob_path = self._blob_path("relation_facts", row["id"])
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
-                if data.get("status", "accepted") != status:
+                if data.get("status", "accepted") not in status_filter:
                     continue
                 if not include_history and not self._is_current_data(data):
                     continue

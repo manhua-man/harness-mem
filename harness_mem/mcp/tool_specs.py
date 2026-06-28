@@ -112,6 +112,11 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "v1.7.0: include historical structured truth. Default false returns current truth only.",
                     "default": False,
                 },
+                "include_provisional": {
+                    "type": "boolean",
+                    "description": "v0.8.8: include provisional auto-promoted truth (down-weighted). Default false.",
+                    "default": False,
+                },
                 "deep_recall": {
                     "type": "boolean",
                     "description": "v4.0.4: include cold/archive lifecycle tiers. Default false searches hot/warm only.",
@@ -484,6 +489,11 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "deep_recall": {
                     "type": "boolean",
                     "description": "v4.1: include cold/archive memory in task-aware wake planning.",
+                    "default": False,
+                },
+                "include_provisional": {
+                    "type": "boolean",
+                    "description": "v0.8.8: include provisional auto-promoted truth in task-aware wake planning.",
                     "default": False,
                 },
             },

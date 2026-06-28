@@ -206,7 +206,7 @@ def test_mcp_confirm_supersede_writes_audit_and_links_truth(backend) -> None:
     events = list(iter_state_events(backend.data_dir, project_name="demo"))
 
     assert confirmed["success"] is True
-    assert confirmed["status"] == "accepted"
+    assert confirmed["status"] == "user_confirmed"
     assert old_entry is not None
     assert old_entry.valid_to is not None
     assert old_entry.superseded_by == [new_id]

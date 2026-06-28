@@ -8,7 +8,9 @@ from pathlib import Path
 import pytest
 
 from harness_mem.commands.auto_review import auto_review_candidates
-from harness_mem.core.schemas import MemoryEntry, RelationFact, RuleCandidate
+from harness_mem.core.schemas import MemoryEntry, RelationFact
+from harness_mem.read_api import search_memory
+from harness_mem.search.backend import SQLiteSearchBackend, SearchFilters
 from harness_mem.governance_status import (
     AUTO_CONFIRMED_STATUS,
     DEFERRED_STATUS,
@@ -260,6 +262,121 @@ def test_invalid_status_transition_rejected(backend: LocalMemoryBackend) -> None
         )
     )
     assert updated is False
+
+
+def test_relation_facts_list_includes_auto_confirmed_tier(
+    backend: LocalMemoryBackend,
+) -> None:
+    store = backend.structured_store
+    asyncio.run(
+        store.save_relation_fact(
+            RelationFact(
+                project_name="gov-demo",
+                source_entity="svc-a",
+                target_entity="svc-b",
+                relation_type="depends_on",
+                evidence="auto confirmed relation tier visibility token",
+                source="obs:auto",
+                status=AUTO_CONFIRMED_STATUS,
+            )
+        )
+    )
+    asyncio.run(
+        store.save_relation_fact(
+            RelationFact(
+                project_name="gov-demo",
+                source_entity="svc-c",
+                target_entity="svc-d",
+                relation_type="depends_on",
+                evidence="provisional relation tier visibility token",
+                source="obs:prov",
+                status=PROVISIONAL_STATUS,
+            )
+        )
+    )
+    visible = asyncio.run(store.list_relation_facts("gov-demo", status="accepted"))
+    statuses = {fact.status for fact in visible}
+    assert AUTO_CONFIRMED_STATUS in statuses
+    assert PROVISIONAL_STATUS not in statuses
+    with_provisional = asyncio.run(
+        store.list_relation_facts(
+            "gov-demo", status="accepted", include_provisional=True
+        )
+    )
+    assert any(fact.status == PROVISIONAL_STATUS for fact in with_provisional)
+
+
+def test_search_memory_include_provisional_down_weights(
+    backend: LocalMemoryBackend,
+) -> None:
+    store = backend.structured_store
+    token = "provisionalsearchweighttoken"
+    asyncio.run(
+        store.save_memory_entry(
+            MemoryEntry(
+                project_name="gov-demo",
+                category="decision",
+                content=f"{token} auto confirmed full weight memory entry",
+                source="obs:full",
+                status=AUTO_CONFIRMED_STATUS,
+            )
+        )
+    )
+    asyncio.run(
+        store.save_memory_entry(
+            MemoryEntry(
+                project_name="gov-demo",
+                category="decision",
+                content=f"{token} provisional down weighted memory entry",
+                source="obs:prov",
+                status=PROVISIONAL_STATUS,
+            )
+        )
+    )
+    default_entries, _ = asyncio.run(
+        search_memory(
+            backend,
+            project_name="gov-demo",
+            query=token,
+            include_provisional=False,
+            record_signals=False,
+        )
+    )
+    assert len(default_entries) == 1
+    assert default_entries[0].status == AUTO_CONFIRMED_STATUS
+
+    provisional_entries, _ = asyncio.run(
+        search_memory(
+            backend,
+            project_name="gov-demo",
+            query=token,
+            include_provisional=True,
+            record_signals=False,
+        )
+    )
+    assert {entry.status for entry in provisional_entries} == {
+        AUTO_CONFIRMED_STATUS,
+        PROVISIONAL_STATUS,
+    }
+
+    search_backend = SQLiteSearchBackend(backend)
+    response = asyncio.run(
+        search_backend.search(
+            token,
+            filters=SearchFilters(
+                project_name="gov-demo",
+                include_provisional=True,
+            ),
+            limit=10,
+        )
+    )
+    weights = {
+        result.metadata.get("governance_weight")
+        for result in response.results
+        if result.source_kind == "memory_entry"
+    }
+    assert 1.0 in weights
+    assert 0.6 in weights
 
 
 def test_relation_fact_roundtrip_and_confirm(backend: LocalMemoryBackend) -> None:

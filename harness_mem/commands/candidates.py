@@ -194,7 +194,7 @@ async def _correct_via_supersede(
         project_name=project_name,
         target_kind="confirmed_rule",
         target_id=new_rule.id,
-        status="accepted",
+        status=user_confirm_status(),
         source_surface="cli.correct",
         payload={"supersedes_rule_id": old_rule.id, "trigger": trigger},
     )

@@ -615,6 +615,7 @@ def tool_search_memory(
     mode: str = "auto",
     memory_type: list[str] | None = None,
     include_history: bool = False,
+    include_provisional: bool = False,
     deep_recall: bool = False,
     retrieval_profile: str | None = None,
     task: str | None = None,
@@ -668,6 +669,7 @@ def tool_search_memory(
             mode=mode,
             memory_type=memory_type,
             include_history=include_history,
+            include_provisional=include_provisional,
             time_window=parsed_time.time_window,
             deep_recall=deep_recall,
             current_task=task,
@@ -1487,6 +1489,7 @@ def tool_wake(
     current_task: str | None = None,
     budget_tokens: int = 6000,
     deep_recall: bool = False,
+    include_provisional: bool = False,
 ) -> dict:
     """Generate the wake-up context (project profile + recent rules / handoffs).
 
@@ -1531,6 +1534,7 @@ def tool_wake(
                 scope="project",
                 mode="auto",
                 include_history=deep_recall,
+                include_provisional=include_provisional,
                 deep_recall=deep_recall,
                 current_task=current_task,
                 budget_tokens=budget_tokens,

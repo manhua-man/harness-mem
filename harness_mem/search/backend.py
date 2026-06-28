@@ -181,6 +181,7 @@ class SQLiteSearchBackend:
             limit=source_limit,
             include_history=include_history,
             time_window=filters.time_window,
+            include_provisional=filters.include_provisional,
         )
         entries, relation_boost_count = _apply_relation_decision_boost(
             entries,
@@ -254,17 +255,23 @@ class SQLiteSearchBackend:
             )
             if allowed_truth and truth_status not in allowed_truth:
                 continue
+            base_score = _score(fact)
+            weight = truth_weight(str(getattr(fact, "status", "accepted")))
+            adjusted_score = (
+                base_score * weight if base_score is not None else None
+            )
             results.append(
                 BackendSearchResult(
                     source_id=fact.id,
                     source_kind="relation_fact",
-                    score=_score(fact),
+                    score=adjusted_score,
                     preview=_preview(
                         f"{fact.source_entity} {fact.relation_type} {fact.target_entity}"
                     ),
                     metadata={
                         "project_name": fact.project_name,
                         "truth_status": truth_status,
+                        "governance_weight": weight,
                         **_temporal_metadata(
                             fact,
                             history_included_reason=_history_included_reason(filters),

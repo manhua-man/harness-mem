@@ -52,4 +52,8 @@ class RuleCandidate(BaseModel):
     def from_dict(cls, data: dict) -> "RuleCandidate":
         if isinstance(data.get("created_at"), str):
             data["created_at"] = datetime.fromisoformat(data["created_at"])
+        if "status" in data:
+            from harness_mem.governance_status import normalize_status_on_load
+
+            data["status"] = normalize_status_on_load(data.get("status"))
         return cls(**data)
