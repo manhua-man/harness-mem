@@ -8,6 +8,7 @@ import re
 from typing import Any, Literal, Protocol
 
 from harness_mem.core.schemas.memory_entry import MemoryEntry
+from harness_mem.governance_status import truth_weight
 from harness_mem.signal_influence import pull_recent_signals
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -49,6 +50,7 @@ class SearchFilters:
     tier: list[str] | None = None
     truth_status: list[str] | None = None
     deep_recall: bool = False
+    include_provisional: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -68,6 +70,7 @@ class SearchFilters:
             "tier": list(self.tier or []),
             "truth_status": list(self.truth_status or []),
             "deep_recall": self.deep_recall,
+            "include_provisional": self.include_provisional,
         }
 
 
@@ -158,6 +161,7 @@ class SQLiteSearchBackend:
             include_history=include_history,
             deep_recall=filters.deep_recall,
             time_window=filters.time_window,
+            include_provisional=filters.include_provisional,
         )
         entries = await _apply_signal_influence(
             self.backend,
@@ -202,15 +206,21 @@ class SQLiteSearchBackend:
                 continue
             if filters.corpus_id and getattr(entry, "corpus_id", None) != filters.corpus_id:
                 continue
+            base_score = _score(entry)
+            weight = truth_weight(str(getattr(entry, "status", "accepted")))
+            adjusted_score = (
+                base_score * weight if base_score is not None else None
+            )
             results.append(
                 BackendSearchResult(
                     source_id=entry.id,
                     source_kind="memory_entry",
-                    score=_score(entry),
+                    score=adjusted_score,
                     preview=_preview(entry.content),
                     metadata={
                         "project_name": entry.project_name,
                         "truth_status": truth_status,
+                        "governance_weight": weight,
                         **_temporal_metadata(
                             entry,
                             history_included_reason=_history_included_reason(filters),
@@ -685,7 +695,10 @@ def _temporal_metadata(
 def _entry_truth_status(entry: MemoryEntry) -> str:
     if getattr(entry, "valid_to", None) or list(getattr(entry, "superseded_by", []) or []):
         return "historical"
-    return str(getattr(entry, "status", "accepted"))
+    status = str(getattr(entry, "status", "accepted"))
+    if status == "superseded":
+        return "historical"
+    return status
 
 
 def _default_tiers(deep_recall: bool) -> list[str]:

@@ -64,15 +64,6 @@ def _surface_enforced_args(
     tool_name: str,
     tool_args: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    if tool_name == "auto_review_candidates" and bool(tool_args.get("apply")):
-        adjusted = dict(tool_args)
-        adjusted["apply"] = False
-        return adjusted, {
-            "surface": surface,
-            "reason": "auto_review_apply_is_preview_only_on_public_mcp",
-            "requested_apply": True,
-            "effective_apply": False,
-        }
     return tool_args, None
 
 

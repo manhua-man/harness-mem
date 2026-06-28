@@ -330,7 +330,7 @@ def test_removed_project_profile_write_tool_call_is_unknown(backend) -> None:
     assert "data" not in response["error"]
 
 
-def test_public_auto_review_forces_apply_to_preview(backend) -> None:
+def test_public_auto_review_apply_promotes_candidates(backend) -> None:
     entry = MemoryEntry(
         project_name="demo",
         category="decision",
@@ -361,16 +361,11 @@ def test_public_auto_review_forces_apply_to_preview(backend) -> None:
 
     assert payload["success"] is True
     assert payload["auto_confirmed"] == 1
-    assert payload["applied"] is False
-    assert payload["applied_decisions"] == []
-    assert payload["surface_enforcement"] == {
-        "surface": "memory",
-        "reason": "auto_review_apply_is_preview_only_on_public_mcp",
-        "requested_apply": True,
-        "effective_apply": False,
-    }
+    assert payload["applied"] is True
+    assert len(payload["applied_decisions"]) == 1
+    assert "surface_enforcement" not in payload
     assert reloaded is not None
-    assert reloaded.status == "pending"
+    assert reloaded.status == "auto_confirmed"
 
 
 def test_public_confirm_remains_explicit_review_gate(backend) -> None:
@@ -400,10 +395,10 @@ def test_public_confirm_remains_explicit_review_gate(backend) -> None:
     reloaded = asyncio.run(backend.structured_store.get_memory_entry(entry.id))
 
     assert payload["success"] is True
-    assert payload["status"] == "accepted"
+    assert payload["status"] == "user_confirmed"
     assert "surface_enforcement" not in payload
     assert reloaded is not None
-    assert reloaded.status == "accepted"
+    assert reloaded.status == "user_confirmed"
 
 
 def test_public_candidate_detail_is_limited_to_memory_review_kinds(backend) -> None:

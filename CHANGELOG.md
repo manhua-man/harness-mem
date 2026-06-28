@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## [0.8.8] - 2026-06-29
+
+### Added
+
+- Added `harness_mem/governance_status.py` and `docs/auto-promoted-memory-governance.md`
+  for seven-status auto-promoted memory with post-hoc audit tiers.
+- Added requirement-driven governance tests covering state transitions, auto-review
+  promotion, confirm paths, and read-filter visibility.
+
+### Changed
+
+- `auto_review_candidates(apply=true)` now promotes low-risk candidates to
+  `auto_confirmed`, risk-flagged passes to `provisional`, defers to `deferred`,
+  and records governance events in `state-events.log`.
+- `confirm_*` paths now set `user_confirmed` instead of legacy `accepted`.
+- `wake` / `search_memory` / `list_memory_entries` treat `accepted`,
+  `auto_confirmed`, and `user_confirmed` as full-weight readable truth; `provisional`
+  is opt-in via `include_provisional`.
+- Public MCP `auto_review_candidates` no longer forces preview-only apply.
+
 ## [0.8.7] - 2026-06-29
 
 ### Added

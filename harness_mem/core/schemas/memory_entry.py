@@ -69,7 +69,10 @@ class MemoryEntry(BaseModel):
     )
     status: str = Field(
         default="accepted",
-        description="pending | accepted | rejected"
+        description=(
+            "Governance status: pending | deferred | rejected | auto_confirmed | "
+            "provisional | user_confirmed | superseded | accepted (legacy)"
+        ),
     )
     source: str = Field(
         description="Source observation id or 'manual'"
@@ -174,6 +177,10 @@ class MemoryEntry(BaseModel):
                 data[field] = datetime.fromisoformat(data[field])
         if "status" not in data:
             data["status"] = "accepted"
+        else:
+            from harness_mem.governance_status import normalize_status_on_load
+
+            data["status"] = normalize_status_on_load(data.get("status"))
         if "compacted" not in data:
             data["compacted"] = False
         if "usage_count" not in data:

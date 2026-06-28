@@ -28,6 +28,11 @@ from harness_mem.storage.canonical_store import CanonicalStoreRuntime
 from harness_mem.storage.derived_index import DerivedIndex
 from harness_mem.storage.sqlite_index import SQLiteIndex
 from harness_mem.storage.truth_store import TruthStore
+from harness_mem.governance_status import (
+    GOVERNANCE_STATUSES,
+    statuses_for_list_filter,
+    validate_status_transition,
+)
 
 
 _SEARCH_SCORE_FIELDS = (
@@ -571,13 +576,20 @@ class LocalStructuredStore:
         status: str = "accepted",
         include_history: bool = False,
         deep_recall: bool = False,
+        include_provisional: bool = False,
     ) -> list[MemoryEntry]:
+        status_filter = statuses_for_list_filter(
+            status,
+            include_provisional=include_provisional,
+            include_superseded=include_history,
+        )
+        placeholders = ",".join(["?"] * len(status_filter))
         where_parts = [
             "project_name = ?",
             "COALESCE(compacted, 0) = 0",
-            "COALESCE(status, 'accepted') = ?",
+            f"COALESCE(status, 'accepted') IN ({placeholders})",
         ]
-        params = [project_name, status]
+        params: list[Any] = [project_name, *status_filter]
         if not include_history:
             clause, clause_params = self._current_only_clause()
             where_parts.append(clause)
@@ -601,8 +613,8 @@ class LocalStructuredStore:
                 data = json.loads(blob_path.read_text())
                 if data.get("compacted", False):
                     continue
-                # If specifically listing accepted, but blob says otherwise, skip
-                if status == "accepted" and data.get("status", "accepted") != "accepted":
+                entry_status = data.get("status", "accepted")
+                if entry_status not in status_filter:
                     continue
                 if not include_history and not self._is_current_data(data):
                     continue
@@ -622,12 +634,19 @@ class LocalStructuredStore:
         include_history: bool = False,
         deep_recall: bool = False,
         time_window: tuple[datetime | None, datetime | None] | None = None,
+        include_provisional: bool = False,
     ) -> list[MemoryEntry]:
+        status_filter = statuses_for_list_filter(
+            status,
+            include_provisional=include_provisional,
+            include_superseded=include_history,
+        )
+        placeholders = ",".join(["?"] * len(status_filter))
         extra_where_parts = [
             "COALESCE(compacted, 0) = 0",
-            "COALESCE(status, 'accepted') = ?",
+            f"COALESCE(status, 'accepted') IN ({placeholders})",
         ]
-        extra_params: tuple = (status,)
+        extra_params: tuple = tuple(status_filter)
         if not include_history:
             clause, clause_params = self._current_only_clause()
             extra_where_parts.append(clause)
@@ -661,7 +680,7 @@ class LocalStructuredStore:
                 data = json.loads(blob_path.read_text())
                 if data.get("compacted", False):
                     continue
-                if data.get("status", "accepted") != status:
+                if data.get("status", "accepted") not in status_filter:
                     continue
                 if memory_type and data.get("memory_type", "semantic") not in memory_type:
                     continue
@@ -681,11 +700,16 @@ class LocalStructuredStore:
         return results
 
     async def update_memory_entry_status(self, id: str, status: str) -> bool:
-        """Update the status of a memory entry (e.g. pending -> accepted)."""
+        """Update the governance status of a memory entry."""
+        if status not in GOVERNANCE_STATUSES:
+            return False
         blob_path = self._blob_path("memory_entries", id)
         if not blob_path.exists():
             return False
         data = json.loads(blob_path.read_text())
+        current = data.get("status", "accepted")
+        if not validate_status_transition(current, status):
+            return False
         data["status"] = status
         blob_path.write_text(json.dumps(data, indent=2, default=str))
         await asyncio.to_thread(
@@ -1659,11 +1683,16 @@ class LocalStructuredStore:
         return results
 
     async def update_relation_fact_status(self, id: str, status: str) -> bool:
-        """Update the status of a relation fact."""
+        """Update the governance status of a relation fact."""
+        if status not in GOVERNANCE_STATUSES:
+            return False
         blob_path = self._blob_path("relation_facts", id)
         if not blob_path.exists():
             return False
         data = json.loads(blob_path.read_text())
+        current = data.get("status", "accepted")
+        if not validate_status_transition(current, status):
+            return False
         data["status"] = status
         blob_path.write_text(json.dumps(data, indent=2, default=str))
         await asyncio.to_thread(

@@ -80,6 +80,8 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from harness_mem.core.schemas import MemoryEntry, RuleCandidate
+from harness_mem.event_log import StateEventType, append_state_event
+from harness_mem.governance_status import resolve_promotion_status
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.retrieval_signals import record_retrieval_signal
 
@@ -248,7 +250,9 @@ class AutoReviewSummary:
 
     new_candidates: int = 0
     auto_confirmed: int = 0
+    auto_provisional: int = 0
     auto_rejected: int = 0
+    auto_deferred: int = 0
     kept_pending: int = 0
     needs_user_confirmation: int = 0
     next_user_action: str = ""
@@ -258,7 +262,9 @@ class AutoReviewSummary:
         return {
             "new_candidates": self.new_candidates,
             "auto_confirmed": self.auto_confirmed,
+            "auto_provisional": self.auto_provisional,
             "auto_rejected": self.auto_rejected,
+            "auto_deferred": self.auto_deferred,
             "kept_pending": self.kept_pending,
             "needs_user_confirmation": self.needs_user_confirmation,
             "next_user_action": self.next_user_action,
@@ -474,6 +480,7 @@ async def auto_review_candidates(
     seen: dict[tuple[str, str, str], str] = {}
     deduped: list[AutoReviewDecision] = []
     entry_lookup = {entry.id: entry for entry in pending_entries}
+    rule_lookup = {rule.id: rule for rule in pending_rules}
     for decision in decisions:
         if decision.kind == "memory_entry":
             entry = entry_lookup.get(decision.candidate_id)
@@ -498,18 +505,50 @@ async def auto_review_candidates(
     )
 
     for decision in deduped:
+        confidence = 0.0
+        if decision.kind == "memory_entry":
+            entry = entry_lookup.get(decision.candidate_id)
+            confidence = entry.confidence if entry is not None else 0.0
+        else:
+            rule = rule_lookup.get(decision.candidate_id)
+            confidence = rule.confidence if rule is not None else 0.0
+
         if decision.action == "auto_confirm":
-            summary.auto_confirmed += 1
+            target_status = resolve_promotion_status(
+                action=decision.action,
+                kind=decision.kind,
+                is_high_risk=decision.is_high_risk,
+                confidence=confidence,
+            )
+            if target_status == "auto_confirmed":
+                summary.auto_confirmed += 1
+            else:
+                summary.auto_provisional += 1
             if apply:
                 if decision.kind == "memory_entry":
                     await store.update_memory_entry_status(
-                        decision.candidate_id, "accepted"
+                        decision.candidate_id, target_status
                     )
                 else:
                     await store.update_rule_candidate_status(
-                        decision.candidate_id, "accepted"
+                        decision.candidate_id, target_status
                     )
                 summary.applied_decisions.append(decision)
+                append_state_event(
+                    backend.data_dir,
+                    event_type=StateEventType.CANDIDATE_REVIEWED,
+                    project_name=project_name,
+                    target_kind=decision.kind,
+                    target_id=decision.candidate_id,
+                    status=target_status,
+                    source_surface="auto_review_candidates",
+                    actor="auto_review",
+                    payload={
+                        "action": decision.action,
+                        "reason": decision.reason,
+                        "evidence_id": decision.evidence_id,
+                    },
+                )
                 await record_retrieval_signal(
                     backend,
                     project_name=project_name,
@@ -523,6 +562,7 @@ async def auto_review_candidates(
                     context={
                         "reason": decision.reason,
                         "evidence_id": decision.evidence_id,
+                        "governance_status": target_status,
                     },
                 )
         elif decision.action == "auto_reject":
@@ -537,6 +577,21 @@ async def auto_review_candidates(
                         decision.candidate_id, "rejected"
                     )
                 summary.applied_decisions.append(decision)
+                append_state_event(
+                    backend.data_dir,
+                    event_type=StateEventType.TRUTH_REJECTED,
+                    project_name=project_name,
+                    target_kind=decision.kind,
+                    target_id=decision.candidate_id,
+                    status="rejected",
+                    source_surface="auto_review_candidates",
+                    actor="auto_review",
+                    payload={
+                        "action": decision.action,
+                        "reason": decision.reason,
+                        "evidence_id": decision.evidence_id,
+                    },
+                )
                 await record_retrieval_signal(
                     backend,
                     project_name=project_name,
@@ -553,7 +608,43 @@ async def auto_review_candidates(
                     },
                 )
         else:
-            summary.kept_pending += 1
+            if apply:
+                target_status = resolve_promotion_status(
+                    action=decision.action,
+                    kind=decision.kind,
+                    is_high_risk=decision.is_high_risk,
+                    confidence=confidence,
+                )
+                if decision.kind == "memory_entry":
+                    updated = await store.update_memory_entry_status(
+                        decision.candidate_id, target_status
+                    )
+                else:
+                    updated = await store.update_rule_candidate_status(
+                        decision.candidate_id, target_status
+                    )
+                if updated:
+                    summary.auto_deferred += 1
+                    summary.applied_decisions.append(decision)
+                    append_state_event(
+                        backend.data_dir,
+                        event_type=StateEventType.CANDIDATE_REVIEWED,
+                        project_name=project_name,
+                        target_kind=decision.kind,
+                        target_id=decision.candidate_id,
+                        status=target_status,
+                        source_surface="auto_review_candidates",
+                        actor="auto_review",
+                        payload={
+                            "action": decision.action,
+                            "reason": decision.reason,
+                            "evidence_id": decision.evidence_id,
+                        },
+                    )
+                else:
+                    summary.kept_pending += 1
+            else:
+                summary.kept_pending += 1
             if decision.is_high_risk:
                 summary.needs_user_confirmation += 1
 

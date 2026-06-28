@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
+from harness_mem.governance_status import GOVERNANCE_STATUSES, validate_status_transition
+
 if TYPE_CHECKING:
     from harness_mem.storage.local_structured_store import LocalStructuredStore
 
@@ -29,7 +31,14 @@ class CandidateStore:
         index_updates: dict[str, object | None] | None = None,
         payload_updates: dict[str, Any] | None = None,
     ) -> bool:
+        if status not in GOVERNANCE_STATUSES:
+            return False
         if not self._store.record_payload_exists(collection, entity_id):
+            return False
+
+        data = self._store.read_record_payload(collection, entity_id)
+        current = data.get("status", "pending")
+        if not validate_status_transition(current, status):
             return False
 
         index_patch: dict[str, object | None] = {"status": status}
@@ -44,7 +53,6 @@ class CandidateStore:
         if not updated:
             return False
 
-        data = self._store.read_record_payload(collection, entity_id)
         data["status"] = status
         if payload_updates:
             data.update(payload_updates)

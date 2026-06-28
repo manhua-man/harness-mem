@@ -2130,10 +2130,15 @@ async def _gather_candidate_payload(
 
 def tool_list_candidates(project_name: str, status: str = "pending", limit: int = 100) -> dict:
     """Return structured memory candidates for human review."""
-    if status not in {"pending", "accepted", "rejected"}:
+    from harness_mem.governance_status import GOVERNANCE_STATUSES
+
+    if status not in GOVERNANCE_STATUSES:
         return {
             "success": False,
-            "error": "status must be one of: pending, accepted, rejected",
+            "error": (
+                "status must be one of: pending, deferred, rejected, auto_confirmed, "
+                "provisional, user_confirmed, superseded, accepted"
+            ),
         }
 
     effective_limit = max(1, min(int(limit), 500))
@@ -2324,7 +2329,12 @@ def tool_confirm_rule(rule_id: str) -> dict:
     candidate = asyncio.run(backend.structured_store.get_rule_candidate(rule_id))
     if not candidate:
         return {"success": False, "error": f"Candidate not found: {rule_id}"}
-    if candidate.status == "accepted":
+    from harness_mem.governance_status import (
+        READABLE_FULL_WEIGHT,
+        user_confirm_status,
+    )
+
+    if candidate.status in READABLE_FULL_WEIGHT or candidate.status == user_confirm_status():
         return {"success": False, "error": f"Candidate already confirmed: {rule_id}"}
 
     confirmed = ConfirmedRule(
@@ -2337,14 +2347,18 @@ def tool_confirm_rule(rule_id: str) -> dict:
         source_candidate_id=candidate.id,
     )
     asyncio.run(backend.structured_store.save_confirmed_rule(confirmed))
-    asyncio.run(backend.structured_store.update_rule_candidate_status(rule_id, "accepted"))
+    asyncio.run(
+        backend.structured_store.update_rule_candidate_status(
+            rule_id, user_confirm_status()
+        )
+    )
     state_event_id = _record_state_event(
         backend,
         event_type=StateEventType.TRUTH_CONFIRMED,
         project_name=candidate.project_name,
         target_kind="confirmed_rule",
         target_id=confirmed.id,
-        status="accepted",
+        status=user_confirm_status(),
         source_surface="mcp.confirm_rule",
         payload={"source_candidate_id": rule_id, "trigger": confirmed.trigger},
     )
@@ -2739,7 +2753,13 @@ def tool_suggest_memory_entry(
 def tool_confirm_memory_entry(entry_id: str) -> dict:
     """Confirm a pending memory entry."""
     backend = _get_backend()
-    success = asyncio.run(backend.structured_store.update_memory_entry_status(entry_id, "accepted"))
+    from harness_mem.governance_status import user_confirm_status
+
+    success = asyncio.run(
+        backend.structured_store.update_memory_entry_status(
+            entry_id, user_confirm_status()
+        )
+    )
     state_event_id = None
     if success:
         entry = asyncio.run(backend.structured_store.get_memory_entry(entry_id))
@@ -2749,14 +2769,14 @@ def tool_confirm_memory_entry(entry_id: str) -> dict:
             project_name=entry.project_name if entry else None,
             target_kind="memory_entry",
             target_id=entry_id,
-            status="accepted",
+            status=user_confirm_status(),
             source_surface="mcp.confirm_memory_entry",
             payload={"category": getattr(entry, "category", None)},
         )
     return {
         "success": success,
         "entry_id": entry_id,
-        "status": "accepted" if success else "not_found",
+        "status": user_confirm_status() if success else "not_found",
         "state_event_id": state_event_id,
     }
 
@@ -2834,8 +2854,14 @@ def tool_suggest_relation_fact(
 
 def tool_confirm_relation_fact(fact_id: str) -> dict:
     """Confirm a pending relation fact."""
+    from harness_mem.governance_status import user_confirm_status
+
     backend = _get_backend()
-    success = asyncio.run(backend.structured_store.update_relation_fact_status(fact_id, "accepted"))
+    success = asyncio.run(
+        backend.structured_store.update_relation_fact_status(
+            fact_id, user_confirm_status()
+        )
+    )
     state_event_id = None
     if success:
         fact = asyncio.run(backend.structured_store.get_relation_fact(fact_id))
@@ -2845,14 +2871,14 @@ def tool_confirm_relation_fact(fact_id: str) -> dict:
             project_name=fact.project_name if fact else None,
             target_kind="relation_fact",
             target_id=fact_id,
-            status="accepted",
+            status=user_confirm_status(),
             source_surface="mcp.confirm_relation_fact",
             payload={"relation_type": getattr(fact, "relation_type", None)},
         )
     return {
         "success": success,
         "fact_id": fact_id,
-        "status": "accepted" if success else "not_found",
+        "status": user_confirm_status() if success else "not_found",
         "state_event_id": state_event_id,
     }
 

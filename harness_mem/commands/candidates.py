@@ -13,6 +13,7 @@ from harness_mem.core.schemas import (
     RuleCandidate,
     SupersedeCandidate,
 )
+from harness_mem.governance_status import user_confirm_status
 from harness_mem.read_api import format_validity_marker
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
@@ -281,7 +282,7 @@ async def cmd_confirm_rule(rule_id: str) -> int:
     try:
         # Check MemoryEntry, RelationFact, and RuleCandidate
         if await backend.structured_store.update_memory_entry_status(
-            rule_id, "accepted"
+            rule_id, user_confirm_status()
         ):
             entry = await backend.structured_store.get_memory_entry(rule_id)
             _record_state_event(
@@ -290,14 +291,14 @@ async def cmd_confirm_rule(rule_id: str) -> int:
                 project_name=entry.project_name if entry else None,
                 target_kind="memory_entry",
                 target_id=rule_id,
-                status="accepted",
+                status=user_confirm_status(),
                 source_surface="cli.confirm_rule",
                 payload={"category": getattr(entry, "category", None)},
             )
             print(f"Confirmed MemoryEntry: {rule_id}")
             return 0
         if await backend.structured_store.update_relation_fact_status(
-            rule_id, "accepted"
+            rule_id, user_confirm_status()
         ):
             fact = await backend.structured_store.get_relation_fact(rule_id)
             _record_state_event(
@@ -306,7 +307,7 @@ async def cmd_confirm_rule(rule_id: str) -> int:
                 project_name=fact.project_name if fact else None,
                 target_kind="relation_fact",
                 target_id=rule_id,
-                status="accepted",
+                status=user_confirm_status(),
                 source_surface="cli.confirm_rule",
                 payload={"relation_type": getattr(fact, "relation_type", None)},
             )
@@ -327,7 +328,7 @@ async def cmd_confirm_rule(rule_id: str) -> int:
             )
             await backend.structured_store.save_confirmed_rule(confirmed)
             await backend.structured_store.update_rule_candidate_status(
-                rule_id, "accepted"
+                rule_id, user_confirm_status()
             )
             _record_state_event(
                 backend,
@@ -335,7 +336,7 @@ async def cmd_confirm_rule(rule_id: str) -> int:
                 project_name=candidate.project_name,
                 target_kind="confirmed_rule",
                 target_id=confirmed.id,
-                status="accepted",
+                status=user_confirm_status(),
                 source_surface="cli.confirm_rule",
                 payload={"source_candidate_id": rule_id, "trigger": confirmed.trigger},
             )

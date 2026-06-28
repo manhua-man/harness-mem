@@ -21,7 +21,10 @@ class RelationFact(BaseModel):
     confidence: float = Field(default=0.7, ge=0.0, le=1.0)
     status: str = Field(
         default="accepted",
-        description="pending | accepted | rejected"
+        description=(
+            "Governance status: pending | deferred | rejected | auto_confirmed | "
+            "provisional | user_confirmed | superseded | accepted (legacy)"
+        ),
     )
     evidence: str = Field(description="Human-readable evidence for the relation")
     source: str = Field(description="Source observation id, entry id, or 'manual'")
@@ -96,6 +99,10 @@ class RelationFact(BaseModel):
                 data[field] = datetime.fromisoformat(data[field])
         if "status" not in data:
             data["status"] = "accepted"
+        else:
+            from harness_mem.governance_status import normalize_status_on_load
+
+            data["status"] = normalize_status_on_load(data.get("status"))
         if "tags" not in data:
             data["tags"] = []
         if "provenance" not in data:

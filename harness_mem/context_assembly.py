@@ -21,6 +21,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from harness_mem.commands.support import resolve_project_name
+from harness_mem.governance_status import is_readable_truth
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.context_assembly_plan import (
     LAYER_ORDER,
@@ -410,7 +411,7 @@ async def _recently_surfaced_entries(
         # records (Req 4.1, 8.3, 10.1).
         if entry is None or not entry.id:
             continue
-        if entry.status != "accepted" or entry.valid_to is not None:
+        if not is_readable_truth(entry.status) or entry.valid_to is not None:
             continue
         entries.append(entry)
 

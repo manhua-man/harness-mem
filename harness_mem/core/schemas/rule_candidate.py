@@ -24,7 +24,10 @@ class RuleCandidate(BaseModel):
     )
     status: str = Field(
         default="pending",
-        description="pending | accepted | rejected"
+        description=(
+            "Governance status: pending | deferred | rejected | auto_confirmed | "
+            "provisional | user_confirmed | superseded | accepted (legacy)"
+        ),
     )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
