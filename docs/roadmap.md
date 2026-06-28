@@ -1,7 +1,8 @@
 # Roadmap
 
-`harness-mem` stays on the 0.8.x line for convergence, trust hardening, and
-retrieval-quality proof. The stable product loop remains:
+`harness-mem` stays on the 0.8.x line for convergence, trust hardening,
+retrieval-quality proof, and operator playbook layers. The stable product loop
+remains:
 
 ```text
 wake -> search -> distill -> review
@@ -18,6 +19,7 @@ review gates and undoable audit records when durable truth changes.
 | `0.8.4.x` | Trust hardening. | Superseded/current behavior is locked by contract tests; recall explain output is stable and backward compatible. | New MCP tools, wiki-as-truth, graph-native default. |
 | `0.8.5.x` | Retrieval quality. | Filter-first hybrid ranking, adaptive RRF A/B, and low-confidence abstention improve the golden suite without breaking vector-off fallback. | ColBERT, graph DB, Tantivy/LanceDB default, benchmark leaderboard claims. |
 | `0.8.6.x` | Maintenance closure. | Dream can produce supersede candidates through review; wake/action hints can use optional `why_it_matters` without schema pressure. | Silent truth mutation, standalone metabolism, wiki-as-truth. |
+| `0.8.7.x` | Memory adoption playbook. | Risk-scaled grill admission, evidence/boundary answerers, and Trellis/smart-search operator maps ship as Skills/docs without new MCP tools. | Trellis embed, smart-search MCP, admission runtime enforcement, second truth store. |
 | Later / Labs | Optional acceleration and experiments. | Benchmarks prove the Python/SQLite default has a real bottleneck or quality ceiling. | Default runtime narrative or public surface expansion. |
 
 ## 0.8.4.x — Trust Hardening
@@ -72,6 +74,27 @@ Status: complete for the public surface. Dream records supersede candidates as
 structured action hints; and public MCP tools are exact-allowlisted to preserve
 the single memory surface.
 
+## 0.8.7.x — Memory Adoption Playbook
+
+- Add `grill-before-distill` as the standard admission mode on distill: deep
+  interrogation for high-impact items, light checklist for ordinary candidates,
+  lookback for confirmed truth.
+- Add non-writing answerers: `answer-memory-evidence` for proof gaps and
+  `ask-memory-boundary` for architecture/product-scope questions.
+- Document layered helpers in `docs/memory-adoption.md`: smart-search as a
+  reference external-evidence pattern, Trellis as optional project-level
+  orchestration with an executable pattern playbook (`check`, `update-spec`,
+  `finish-work`, `journal` mapped to existing hm surfaces).
+- Align `session-distill`, `/hm:distill`, and harness-mem skills to:
+  `prepare` → draft claims → risk-scaled admission → `suggest_*` → evidence
+  before `confirm_*`.
+
+Status: complete for the Skill/doc layer. Admission runs automatically with
+depth by risk; external evidence is required before confirmation but not before
+candidate creation; Trellis and smart-search stay outside hm MCP/runtime. Next
+hardening step (Later / Labs) is optional CLI preflight or tests — not a second
+harness.
+
 ## Later / Labs
 
 These are not roadmap promises. They are gated experiments:
@@ -87,6 +110,10 @@ These are not roadmap promises. They are gated experiments:
 - **Graph-native search**: keep as a lab path for richer temporal relation
   traversal. Do not make it the default truth or retrieval engine unless the
   simple 1-hop boost stops being enough under benchmarks.
+- **Admission/evidence enforcement**: optional CLI preflight or contract tests
+  after the 0.8.7 playbook stabilizes; do not add a second runtime harness.
+- **smart-search adoption**: install as user-level CLI Skill when a project
+  wants fetched/source-backed external evidence; keep out of default hm MCP.
 
 ## Stable Boundaries
 
@@ -95,3 +122,5 @@ These are not roadmap promises. They are gated experiments:
 - No standalone metabolism/reflection product surface.
 - No durable write outside review or explicit confirm/reject/supersede.
 - No retrieval-quality claim without retrieval-isolated tests.
+- No Trellis journal or parallel spec truth inside harness-mem.
+- No smart-search or Trellis hard-coded into public MCP; workflow stays Skills.
