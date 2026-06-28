@@ -8,7 +8,7 @@ bound explicit quality-pack behavior so runtime traces can inspect it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol, Sequence, TypeVar
+from typing import Any, Protocol, Sequence, TypeVar
 
 from harness_mem.core.schemas.context_sufficiency import deterministic_query_rewrites
 
@@ -53,6 +53,30 @@ class RetrievalQualityTrace:
             "duplicate_rate": self.duplicate_rate,
             "reranker": self.reranker,
             "notes": list(self.notes),
+        }
+
+
+@dataclass(frozen=True)
+class RetrievalABReport:
+    """Golden-suite A/B gate for retrieval ranking experiments."""
+
+    baseline_name: str
+    candidate_name: str
+    baseline: dict[str, Any]
+    candidate: dict[str, Any]
+    deltas: dict[str, float]
+    allowed_to_ship: bool
+    reasons: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "baseline_name": self.baseline_name,
+            "candidate_name": self.candidate_name,
+            "baseline": dict(self.baseline),
+            "candidate": dict(self.candidate),
+            "deltas": dict(self.deltas),
+            "allowed_to_ship": self.allowed_to_ship,
+            "reasons": list(self.reasons),
         }
 
 
@@ -153,11 +177,67 @@ def build_quality_trace(
     )
 
 
+def build_golden_ab_report(
+    *,
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+    baseline_name: str = "sqlite_fts_baseline",
+    candidate_name: str = "adaptive_rrf_candidate",
+) -> RetrievalABReport:
+    """Compare two golden-suite reports before enabling a ranking candidate.
+
+    This keeps adaptive IDF/RRF work behind an explicit, LLM-free benchmark
+    gate. The candidate cannot ship if it loses recall, introduces forbidden
+    hits/project leaks, or breaks vector-off fallback.
+    """
+
+    deltas = {
+        "overall_recall_at_5": _metric(candidate, "overall_recall_at_5")
+        - _metric(baseline, "overall_recall_at_5"),
+        "project_leak_rate": _metric(candidate, "project_leak_rate")
+        - _metric(baseline, "project_leak_rate"),
+        "forbidden_hit_count": _metric(candidate, "forbidden_hit_count")
+        - _metric(baseline, "forbidden_hit_count"),
+        "p95_latency_ms": _metric(candidate, "p95_latency_ms")
+        - _metric(baseline, "p95_latency_ms"),
+    }
+    reasons: list[str] = []
+    if deltas["overall_recall_at_5"] < 0:
+        reasons.append("candidate reduced overall_recall_at_5")
+    if _metric(candidate, "project_leak_rate") > _metric(baseline, "project_leak_rate"):
+        reasons.append("candidate increased project_leak_rate")
+    if _metric(candidate, "forbidden_hit_count") > _metric(baseline, "forbidden_hit_count"):
+        reasons.append("candidate increased forbidden_hit_count")
+    if bool(baseline.get("vector_disabled")) and not bool(candidate.get("vector_disabled")):
+        reasons.append("candidate broke vector-off fallback")
+    if not bool(candidate.get("llm_free")):
+        reasons.append("candidate is not llm_free")
+    if not bool(candidate.get("read_path_only")):
+        reasons.append("candidate is not read_path_only")
+
+    return RetrievalABReport(
+        baseline_name=baseline_name,
+        candidate_name=candidate_name,
+        baseline=baseline,
+        candidate=candidate,
+        deltas={key: round(value, 3) for key, value in deltas.items()},
+        allowed_to_ship=not reasons,
+        reasons=reasons,
+    )
+
+
+def _metric(report: dict[str, Any], key: str) -> float:
+    value = report.get(key, 0.0)
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
 __all__ = [
     "NoopReranker",
     "RetrievalQualityProfile",
     "RetrievalQualityTrace",
+    "RetrievalABReport",
     "Reranker",
+    "build_golden_ab_report",
     "build_quality_trace",
     "build_query_variants",
     "duplicate_rate",

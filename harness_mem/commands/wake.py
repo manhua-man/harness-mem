@@ -576,13 +576,81 @@ def _disclosure_level_for_plan(plan: ContextAssemblyPlan) -> tuple[int, str]:
     return total_tokens, disclosure_level(total_tokens)
 
 
-def _serialize_plan_entry(entry: PlanEntry) -> dict[str, Any]:
-    return {
+def _serialize_plan_entry(entry: PlanEntry, *, project_name: str) -> dict[str, Any]:
+    payload = {
         "summary": entry.summary,
         "source_ids": list(entry.source_ids),
         "truth_status": entry.truth_status,
         "why_included": entry.why_included,
     }
+    action_hint = _wake_action_hint(entry, project_name=project_name)
+    if action_hint is not None:
+        payload["action_hint"] = action_hint
+    return payload
+
+
+def _wake_action_hint(entry: PlanEntry, *, project_name: str) -> dict[str, Any] | None:
+    source_id = next((value for value in entry.source_ids if value), "")
+    if not source_id:
+        return None
+    if entry.why_included == "identity:active_project":
+        return {
+            "source_id": source_id,
+            "source_kind": "project_profile",
+            "tool": "get_project_profile",
+            "arguments": {"project_name": project_name},
+            "why_it_matters": "Confirms the project identity and stack before loading deeper memory.",
+            "action": "Use this profile to keep wake/search scoped to the active project.",
+        }
+    if entry.why_included == "essential:confirmed_rule":
+        return {
+            "source_id": source_id,
+            "source_kind": "confirmed_rule",
+            "tool": "get_confirmed_rules",
+            "arguments": {"project_name": project_name},
+            "why_it_matters": "Confirmed rules are current operating constraints for this project.",
+            "action": "Apply the rule before changing related behavior.",
+        }
+    if entry.why_included == "essential:high_confidence_truth":
+        return {
+            "source_id": source_id,
+            "source_kind": "memory_entry",
+            "tool": "search_memory",
+            "arguments": {"project_name": project_name, "query": entry.summary},
+            "why_it_matters": "High-confidence current truth should shape task decisions.",
+            "action": "Use this decision as current context, then drill down if it conflicts with the task.",
+        }
+    if entry.why_included == "active:recent_handoff":
+        return {
+            "source_id": source_id,
+            "source_kind": "task_handoff",
+            "tool": "get_task_handoffs",
+            "arguments": {"project_name": project_name},
+            "why_it_matters": "Recent handoffs carry active task state and next steps.",
+            "action": "Resume from this handoff before starting unrelated work.",
+        }
+    if entry.why_included == "active:recently_surfaced":
+        return {
+            "source_id": source_id,
+            "source_kind": "memory_entry",
+            "tool": "search_memory",
+            "arguments": {"project_name": project_name, "query": entry.summary},
+            "why_it_matters": "Recently surfaced memory is likely tied to ongoing work.",
+            "action": "Re-check this context if the current task touches the same subsystem.",
+        }
+    return None
+
+
+def _dedupe_wake_action_hints(hints: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for hint in hints:
+        key = (str(hint.get("source_id") or ""), str(hint.get("tool") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(dict(hint))
+    return deduped
 
 
 async def build_wake_snapshot(
@@ -607,7 +675,8 @@ async def build_wake_snapshot(
     for layer_id in SURFACED_LAYERS:
         layer = plan.layer(layer_id)
         serialized_entries = [
-            _serialize_plan_entry(entry) for entry in select_rendered_entries(layer)
+            _serialize_plan_entry(entry, project_name=project_name)
+            for entry in select_rendered_entries(layer)
         ]
         entries_by_layer[layer_id] = serialized_entries
         sections.append(
@@ -624,6 +693,14 @@ async def build_wake_snapshot(
         "project_profile_entries": entries_by_layer["L0"],
         "essential_truth": entries_by_layer["L1"],
         "active_task": entries_by_layer["L2"],
+        "action_hints": _dedupe_wake_action_hints(
+            [
+                entry["action_hint"]
+                for entries in entries_by_layer.values()
+                for entry in entries
+                if isinstance(entry.get("action_hint"), dict)
+            ]
+        ),
         "disclosure": {
             "approx_tokens": total_tokens,
             "level": level,

@@ -4,6 +4,14 @@
 
 ### Changed
 
+- Prepared the v0.8.3 Retrieval Quality Foundation baseline as a local,
+  LLM-free read-path benchmark with golden fixtures for project isolation,
+  stale truth exclusion, abstention, and vector-off fallback. This proves the
+  read path is measurable; it does not claim broad retrieval-quality leadership.
+- Kept recall explainability additive by exposing fixed
+  `filter -> fts/vector -> merge -> hydrate/context` steps and optional
+  `metadata.score_details` without changing the MCP tool list or
+  `RecallResult` schema version.
 - Removed top-level CLI `import` and `purge`; both now live under
   `harness-mem maintenance import` / `harness-mem maintenance purge` and default
   to dry-run previews unless `--apply` is passed.
@@ -23,6 +31,15 @@
   `TruthStore` and candidate status writes to `CandidateStore`.
 - Kept metabolism and reflection jobs out of the default MCP surface; public
   `tools/list` no longer reports hidden maintenance tool counts.
+- Hardened current-truth reads so non-empty `superseded_by` links are treated
+  as historical even if legacy data lacks `valid_to`.
+- Kept dream supersede output behind review: dream now queues supersede
+  candidates as `pending_review` ledger items instead of auto-confirming truth
+  lineage changes.
+- Added low-confidence partial-match abstention and a lightweight 1-hop
+  relation/decision boost, both exposed through additive retrieval metadata.
+- Added optional structured wake action hints with `why_it_matters` without
+  changing rendered wake text or adding MCP tools.
 
 ### Added
 
@@ -31,6 +48,10 @@
 - Added an env-gated MCP maintenance read/debug profile for operators to inspect
   reflection jobs, persisted metabolism audit runs, runtime health, and MCP cost
   reports without exposing mutating metabolism tools.
+- Added regression coverage for temporal query abstention/conflict behavior,
+  supersede audit lineage, MCP `deep_recall`, exact public-tool allowlisting,
+  wake action hints, cross-project observation/relation golden cases, and a
+  golden-suite A/B gate for adaptive retrieval experiments.
 
 ## [0.8.2] - 2026-06-25
 

@@ -115,6 +115,8 @@ class TemporalRecord:
 
     @property
     def is_current(self) -> bool:
+        if self.superseded_by:
+            return False
         valid_to = _normalize_datetime(self.valid_to)
         return valid_to is None or valid_to > datetime.now(timezone.utc)
 
@@ -658,6 +660,7 @@ def serialize_memory_entry_search_result(
         "provenance": getattr(entry, "provenance"),
         "search_mode": getattr(entry, "_search_mode", requested_mode),
         "score": _raw_search_score(entry),
+        "score_details": _score_details(entry),
         "repeat_boost": getattr(entry, "_repeat_boost", 0.0) or 0.0,
         "context_outcome_counts": getattr(entry, "_context_outcome_counts", {}),
         "context_outcome_score": getattr(entry, "_context_outcome_score", 0.0)
@@ -687,6 +690,7 @@ def serialize_observation_search_result(
         "preview": preview_search_text(observation.raw_content, query, max_chars=200),
         "search_mode": getattr(observation, "_search_mode", requested_mode),
         "score": _raw_search_score(observation),
+        "score_details": _score_details(observation),
     }
 
 
@@ -712,6 +716,7 @@ def serialize_relation_fact_search_result(
         "provenance": fact.provenance,
         "search_mode": "fts",
         "score": _raw_search_score(fact),
+        "score_details": _score_details(fact),
         "edge_score": edge_score,
         "relation_weighted_score": edge_score,
         "relation_family": relation_family(fact.relation_type),
@@ -810,6 +815,7 @@ def serialize_skill(skill: Skill) -> dict[str, Any]:
         "updated_at": skill.updated_at.isoformat() if skill.updated_at else None,
         "last_used_at": skill.last_used_at.isoformat() if skill.last_used_at else None,
         "score": _raw_search_score(skill),
+        "score_details": _score_details(skill),
     }
 
 
@@ -864,6 +870,75 @@ def _raw_search_score(result: object) -> float | None:
     if score is None:
         score = getattr(result, "_fts_score", None)
     return score if isinstance(score, (int, float)) else None
+
+
+def _float_attr(result: object, attr: str) -> float | None:
+    value = getattr(result, attr, None)
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _score_details(result: object) -> dict[str, Any]:
+    """Expose optional ranking signals without changing the recall schema."""
+    existing = getattr(result, "_score_details", None)
+    if isinstance(existing, dict) and existing:
+        return dict(existing)
+
+    details: dict[str, Any] = {}
+    fts_score = _float_attr(result, "_fts_score")
+    vector_score = _float_attr(result, "_vec_sim")
+    rrf_score = _float_attr(result, "_rrf_score")
+    fts_match_count = getattr(result, "_fts_match_count", None)
+    if fts_score is not None:
+        details["fts_score"] = fts_score
+    if isinstance(fts_match_count, int):
+        details["fts_match_count"] = fts_match_count
+    if vector_score is not None:
+        details["vector_score"] = vector_score
+    if rrf_score is not None:
+        details["rrf_score"] = rrf_score
+
+    boosts: list[dict[str, Any]] = []
+    repeat_boost = _float_attr(result, "_repeat_boost")
+    if repeat_boost:
+        boosts.append({"kind": "repeat_search_hit", "score_delta": repeat_boost})
+    outcome_score = _float_attr(result, "_context_outcome_score")
+    if outcome_score:
+        boosts.append({"kind": "context_outcome", "score_delta": outcome_score})
+    ranking_explanation = getattr(result, "_ranking_explanation", None)
+    if isinstance(ranking_explanation, list):
+        boosts.extend(item for item in ranking_explanation if isinstance(item, dict))
+    if boosts:
+        details["boosts"] = boosts
+
+    confidence_tier = _confidence_tier(result, details)
+    if confidence_tier:
+        details["confidence_tier"] = confidence_tier
+    return details
+
+
+def _confidence_tier(result: object, details: dict[str, Any]) -> str | None:
+    vector_score = details.get("vector_score")
+    if isinstance(vector_score, (int, float)):
+        if vector_score >= 0.75:
+            return "high"
+        if vector_score >= 0.55:
+            return "medium"
+        return "low"
+
+    if "rrf_score" in details:
+        return "medium"
+
+    if "fts_score" in details:
+        match_count = getattr(result, "_fts_match_count", None)
+        if isinstance(match_count, int) and match_count >= 2:
+            return "medium"
+        return "low"
+
+    if _raw_search_score(result) is not None:
+        return "low"
+    return None
 
 
 def _record_from_memory_entry(entry: MemoryEntry) -> TemporalRecord:
@@ -1122,9 +1197,11 @@ def _serialize_validity_fields(result: object) -> dict[str, Any]:
     valid_to = _normalize_datetime(getattr(result, "valid_to", None))
     valid_from = _normalize_datetime(getattr(result, "valid_from", None))
     recorded_at = _normalize_datetime(getattr(result, "recorded_at", None))
-    is_historical = bool(valid_to and valid_to <= datetime.now(timezone.utc))
     superseded_by = list(getattr(result, "superseded_by", []) or [])
-    if is_historical and superseded_by:
+    is_historical = bool(valid_to and valid_to <= datetime.now(timezone.utc)) or bool(
+        superseded_by
+    )
+    if superseded_by:
         temporal_scope = "superseded"
     elif is_historical:
         temporal_scope = "historical"

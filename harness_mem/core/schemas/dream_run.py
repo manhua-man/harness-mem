@@ -9,7 +9,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, field_validator
 
 
-DreamFinalAction = Literal["applied", "rejected", "archived", "failed"]
+DreamFinalAction = Literal["applied", "rejected", "archived", "failed", "pending_review"]
 DreamProposedAction = Literal[
     "merge",
     "mark_stale",
@@ -24,8 +24,8 @@ DreamStatus = Literal["processing", "completed", "failed"]
 class DreamItem(BaseModel):
     """One parsed and handled item inside a DreamRun.
 
-    v3.1 deliberately has no ``pending_review`` terminal state. Every item
-    must end as applied, rejected, archived, or failed.
+    ``pending_review`` means dream emitted or preserved a candidate and stopped
+    before any durable truth mutation; explicit review tools own the change.
     """
 
     id: str = Field(default_factory=lambda: str(uuid4()))

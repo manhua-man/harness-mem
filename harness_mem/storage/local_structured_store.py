@@ -30,6 +30,27 @@ from harness_mem.storage.sqlite_index import SQLiteIndex
 from harness_mem.storage.truth_store import TruthStore
 
 
+_SEARCH_SCORE_FIELDS = (
+    "_fts_score",
+    "_fts_score_total",
+    "_fts_match_count",
+    "_fts_rank",
+    "_vec_rank",
+    "_vec_sim",
+    "_fts_factor",
+    "_vec_factor",
+    "_rrf_score",
+    "_hybrid_score",
+    "_score",
+)
+
+
+def _copy_search_score_fields(data: dict[str, Any], row: dict[str, Any]) -> None:
+    for field in _SEARCH_SCORE_FIELDS:
+        if field in row:
+            data[field] = row[field]
+
+
 class _CanonicalStructuredBlobPath:
     """Path-like shim that stores payload JSON in canonical SQLite truth."""
 
@@ -161,9 +182,15 @@ class LocalStructuredStore:
 
     def _current_only_clause(self) -> tuple[str, tuple[str]]:
         now = datetime.now(timezone.utc).isoformat()
-        return "(valid_to IS NULL OR valid_to = '' OR valid_to > ?)", (now,)
+        return (
+            "(valid_to IS NULL OR valid_to = '' OR valid_to > ?) "
+            "AND (superseded_by IS NULL OR superseded_by = '' OR superseded_by = '[]')",
+            (now,),
+        )
 
     def _is_current_data(self, data: dict) -> bool:
+        if _has_superseded_by(data):
+            return False
         valid_to = data.get("valid_to")
         if not valid_to:
             return True
@@ -649,12 +676,7 @@ class LocalStructuredStore:
                     "_search_requested_mode": search_result.requested_mode,
                     "_search_fallback_reason": search_result.fallback_reason,
                 })
-                if "_fts_score" in row:
-                    data["_fts_score"] = row["_fts_score"]
-                if "_hybrid_score" in row:
-                    data["_hybrid_score"] = row["_hybrid_score"]
-                if "_score" in row:
-                    data["_score"] = row["_score"]
+                _copy_search_score_fields(data, row)
                 results.append(MemoryEntry.from_dict(data))
         return results
 
@@ -1305,8 +1327,7 @@ class LocalStructuredStore:
                 data = json.loads(blob_path.read_text())
                 if data.get("status", "active") != status:
                     continue
-                if "_fts_score" in row:
-                    data["_fts_score"] = row["_fts_score"]
+                _copy_search_score_fields(data, row)
                 results.append(Skill.from_dict(data))
             return results
 
@@ -1633,8 +1654,7 @@ class LocalStructuredStore:
                     continue
                 if not self._truth_in_time_window(data, time_window):
                     continue
-                if "_fts_score" in row:
-                    data["_fts_score"] = row["_fts_score"]
+                _copy_search_score_fields(data, row)
                 results.append(RelationFact.from_dict(data))
         return results
 
@@ -1852,3 +1872,15 @@ def _normalize_datetime(value: object) -> datetime | None:
     if normalized.tzinfo is None:
         normalized = normalized.replace(tzinfo=timezone.utc)
     return normalized
+
+
+def _has_superseded_by(data: dict[str, Any]) -> bool:
+    superseded_by = data.get("superseded_by")
+    if superseded_by is None:
+        return False
+    if isinstance(superseded_by, str):
+        stripped = superseded_by.strip()
+        return stripped not in {"", "[]"}
+    if isinstance(superseded_by, list):
+        return bool(superseded_by)
+    return bool(superseded_by)

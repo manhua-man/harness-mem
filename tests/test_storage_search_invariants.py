@@ -11,6 +11,7 @@ from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.read_api import (
+    query_temporal_truth,
     search_memory as read_search_memory,
     search_relation_facts as read_search_relation_facts,
 )
@@ -303,6 +304,229 @@ def test_include_history_deep_recall_and_truth_status_control_historical_visibil
     }
 
 
+def test_superseded_by_links_are_current_hard_filters_even_without_valid_to(
+    backend,
+) -> None:
+    old_memory_id = _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content="supersededlinktoken old memory",
+                source="test",
+                status="accepted",
+                superseded_by=["new-memory"],
+            )
+        )
+    )
+    current_memory_id = _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                id="new-memory",
+                project_name="demo",
+                category="decision",
+                content="supersededlinktoken current memory",
+                source="test",
+                status="accepted",
+                supersedes=[old_memory_id],
+            )
+        )
+    )
+    old_relation_id = _run(
+        backend.structured_store.save_relation_fact(
+            RelationFact(
+                project_name="demo",
+                source_entity="supersededlinktoken-old",
+                target_entity="search",
+                relation_type="supports",
+                evidence="supersededlinktoken old relation",
+                source="test",
+                status="accepted",
+                superseded_by=["new-relation"],
+            )
+        )
+    )
+    current_relation_id = _run(
+        backend.structured_store.save_relation_fact(
+            RelationFact(
+                id="new-relation",
+                project_name="demo",
+                source_entity="supersededlinktoken-current",
+                target_entity="search",
+                relation_type="supports",
+                evidence="supersededlinktoken current relation",
+                source="test",
+                status="accepted",
+                supersedes=[old_relation_id],
+            )
+        )
+    )
+    old_rule_id = _run(
+        backend.structured_store.save_confirmed_rule(
+            ConfirmedRule(
+                project_name="demo",
+                pattern="supersededlinktoken old rule",
+                trigger="search invariant",
+                source_candidate_id="old-rule-candidate",
+                superseded_by=["new-rule"],
+            )
+        )
+    )
+    current_rule_id = _run(
+        backend.structured_store.save_confirmed_rule(
+            ConfirmedRule(
+                id="new-rule",
+                project_name="demo",
+                pattern="supersededlinktoken current rule",
+                trigger="search invariant",
+                source_candidate_id="new-rule-candidate",
+                supersedes=[old_rule_id],
+            )
+        )
+    )
+
+    default_entries, _ = _run(
+        read_search_memory(
+            backend,
+            project_name="demo",
+            query="supersededlinktoken",
+            record_signals=False,
+        )
+    )
+    default_relations = _run(
+        read_search_relation_facts(
+            backend,
+            project_name="demo",
+            query="supersededlinktoken",
+        )
+    )
+    default_rules = _run(backend.structured_store.list_confirmed_rules("demo"))
+
+    assert _ids(default_entries) == {current_memory_id}
+    assert _ids(default_relations) == {current_relation_id}
+    assert _ids(default_rules) == {current_rule_id}
+
+    history_entries, _ = _run(
+        read_search_memory(
+            backend,
+            project_name="demo",
+            query="supersededlinktoken",
+            include_history=True,
+            record_signals=False,
+        )
+    )
+    history_relations = _run(
+        read_search_relation_facts(
+            backend,
+            project_name="demo",
+            query="supersededlinktoken",
+            include_history=True,
+        )
+    )
+    history_rules = _run(
+        backend.structured_store.list_confirmed_rules("demo", include_history=True)
+    )
+
+    assert _ids(history_entries) == {old_memory_id, current_memory_id}
+    assert _ids(history_relations) == {old_relation_id, current_relation_id}
+    assert _ids(history_rules) == {old_rule_id, current_rule_id}
+
+
+def test_query_temporal_truth_current_history_abstention_and_conflict(
+    backend,
+) -> None:
+    past = _now() - timedelta(days=1)
+    historical_id = _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content="temporaltoken historical decision",
+                source="test",
+                status="accepted",
+                valid_to=past,
+            )
+        )
+    )
+    current_id = _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content="temporaltoken current decision",
+                source="test",
+                status="accepted",
+            )
+        )
+    )
+
+    current = _run(
+        query_temporal_truth(
+            backend,
+            project_name="demo",
+            query="temporaltoken",
+            mode="current",
+        )
+    )
+    history = _run(
+        query_temporal_truth(
+            backend,
+            project_name="demo",
+            query="temporaltoken",
+            mode="history",
+        )
+    )
+    missing = _run(
+        query_temporal_truth(
+            backend,
+            project_name="demo",
+            query="missing-temporal-token",
+            mode="current",
+        )
+    )
+
+    assert [record.id for record in current.records] == [current_id]
+    assert current.abstain is False
+    assert [record.id for record in history.records] == [historical_id]
+    assert missing.abstain is True
+    assert missing.abstention_reason == "no_evidence"
+
+    _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content="conflicttoken first current decision",
+                source="test",
+                status="accepted",
+            )
+        )
+    )
+    _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content="conflicttoken second current decision",
+                source="test",
+                status="accepted",
+            )
+        )
+    )
+    conflict = _run(
+        query_temporal_truth(
+            backend,
+            project_name="demo",
+            query="conflicttoken",
+            mode="current",
+            require_unique_current=True,
+        )
+    )
+
+    assert conflict.abstain is True
+    assert conflict.abstention_reason == "temporal_conflict"
+
+
 def test_search_facade_preserves_memory_relation_observation_semantics(backend) -> None:
     memory = MemoryEntry(
         project_name="demo",
@@ -352,6 +576,12 @@ def test_search_facade_preserves_memory_relation_observation_semantics(backend) 
     assert memory_result.metadata["truth_status"] == "accepted"
     assert memory_result.metadata["memory_type"] == "semantic"
     assert memory_result.score is not None
+    assert memory_result.metadata["score_details"]["fts_score"] is not None
+    assert memory_result.metadata["score_details"]["confidence_tier"] in {
+        "low",
+        "medium",
+        "high",
+    }
 
     relation_result = results_by_kind["relation_fact"]
     assert relation_result.source_id == relation_id
@@ -359,12 +589,14 @@ def test_search_facade_preserves_memory_relation_observation_semantics(backend) 
     assert relation_result.metadata["truth_status"] == "accepted"
     assert "semanticstoken-service depends_on derived-index" in relation_result.preview
     assert relation_result.score is not None
+    assert relation_result.metadata["score_details"]["fts_score"] is not None
 
     observation_result = results_by_kind["observation"]
     assert observation_result.source_id == observation_id
     assert observation_result.metadata["project_name"] == "demo"
     assert observation_result.metadata["truth_status"] == "raw"
     assert observation_result.score is not None
+    assert observation_result.metadata["score_details"]["fts_score"] is not None
 
     hydrated = _run(facade.hydrate(response))
     assert hydrated["memory_entry"][0].source == "session:memory"
@@ -392,6 +624,99 @@ def test_search_facade_preserves_memory_relation_observation_semantics(backend) 
     assert _ids(entries) == {memory_id}
     assert _ids(observations) == {observation_id}
     assert _ids(relation_facts) == {relation_id}
+
+
+def test_low_confidence_partial_match_abstains_instead_of_returning_weak_hits(
+    backend,
+) -> None:
+    _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content="weakmatchtoken is present but the missing evidence is absent",
+                source="test",
+                status="accepted",
+            )
+        )
+    )
+
+    response = _run(
+        SQLiteSearchBackend(backend).search(
+            "weakmatchtoken missingevidence",
+            filters=SearchFilters(project_name="demo"),
+            mode="fts",
+            limit=10,
+        )
+    )
+
+    assert response.results == []
+    assert response.retrieval_quality["abstention"] == {
+        "applied": True,
+        "reason": "low_confidence_partial_match",
+        "suppressed_count": 1,
+        "query_token_count": 2,
+    }
+
+
+def test_one_hop_relation_boost_explains_related_decision_ranking(backend) -> None:
+    boosted_id = _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content="relationboosttoken authservice decision should be lifted",
+                source="test",
+                status="accepted",
+            )
+        )
+    )
+    plain_id = _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content="relationboosttoken cache decision has no relation edge",
+                source="test",
+                status="accepted",
+            )
+        )
+    )
+    relation_id = _run(
+        backend.structured_store.save_relation_fact(
+            RelationFact(
+                project_name="demo",
+                source_entity="authservice",
+                target_entity="login",
+                relation_type="supports",
+                evidence="relationboosttoken authservice supports login",
+                source="test",
+                status="accepted",
+            )
+        )
+    )
+
+    response = _run(
+        SearchFacade(backend).search(
+            "relationboosttoken",
+            filters=SearchFilters(project_name="demo"),
+            mode="fts",
+            limit=10,
+        )
+    )
+    memory_results = [
+        result for result in response.results if result.source_kind == "memory_entry"
+    ]
+
+    assert [result.source_id for result in memory_results][:2] == [boosted_id, plain_id]
+    assert response.retrieval_quality["one_hop_relation_boost_count"] == 1
+    boosted = memory_results[0]
+    boosts = boosted.metadata["score_details"]["boosts"]
+    assert any(
+        item["kind"] == "one_hop_relation"
+        and item["relation_fact_ids"] == [relation_id]
+        for item in boosts
+    )
 
 
 def test_project_scope_filters_results_and_scope_all_keeps_project_identity(backend) -> None:

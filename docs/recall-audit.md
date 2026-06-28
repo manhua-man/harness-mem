@@ -1,6 +1,6 @@
 # Recall Audit Contract
 
-`harness-mem` 0.8.2 adds an explainable recall wrapper without replacing the
+`harness-mem` 0.8.3 keeps the explainable recall wrapper without replacing the
 existing governed memory loop.
 
 ## What changed
@@ -13,6 +13,26 @@ object:
 - `steps`: observable retrieval/trace stages
 - `planning`: selected effort and expected result shape
 - `status`: `answered`, `partial`, `empty`, or `failed`
+
+For `search_memory`, recall steps are stable and additive:
+
+```text
+filter -> fts -> vector -> merge -> hydrate -> context
+```
+
+Skipped stages stay present with `status: skipped`. Evidence can include
+optional `metadata.score_details` (`fts_score`, `vector_score`, `rrf_score`,
+`boosts`, `confidence_tier`, and `fts_match_count`) without changing
+`RECALL_RESULT_SCHEMA_VERSION`.
+
+Weak multi-token matches can now be filtered by low-confidence abstention. The
+search response records this in `retrieval_quality.abstention`; additive recall
+then returns `empty` or `partial` from the remaining evidence instead of
+presenting a single-token hit as confident context.
+
+Decision entries can receive a small explainable 1-hop relation boost when a
+returned relation fact shares source/target entity tokens with the decision.
+The boost appears in `metadata.score_details.boosts` as `one_hop_relation`.
 
 Legacy response arrays such as `memory_entries`, `relation_facts`,
 `observations`, and `paths` remain in place for compatibility.

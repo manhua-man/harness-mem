@@ -7,7 +7,6 @@ import pytest
 
 from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas.memory_entry import MemoryEntry
-from harness_mem.core.schemas.metabolism_run import MetabolismRun
 from harness_mem.mcp import server
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
@@ -26,6 +25,49 @@ SKILL_GOVERNANCE_TOOLS = {
     "detect_skill_deprecations",
     "confirm_skill_deprecation",
     "reject_skill_deprecation",
+}
+
+EXPECTED_PUBLIC_MCP_TOOLS = {
+    "auto_review_candidates",
+    "confirm_memory_entry",
+    "confirm_relation_fact",
+    "confirm_rule",
+    "confirm_supersede",
+    "create_rule_candidate",
+    "create_task_handoff",
+    "dream_auto_tick",
+    "dream_ledger",
+    "dream_run",
+    "file_context",
+    "get_candidate_detail",
+    "get_confirmed_rules",
+    "get_observations",
+    "get_project_profile",
+    "get_project_status",
+    "get_skill",
+    "get_task_handoffs",
+    "ingest_sessions",
+    "list_candidates",
+    "prepare_session_distill",
+    "record_context_outcome",
+    "reject_memory_entry",
+    "reject_relation_fact",
+    "reject_rule",
+    "reject_supersede",
+    "search_memory",
+    "search_raw",
+    "search_skills",
+    "set_active_project",
+    "suggest_correction",
+    "suggest_memory_entry",
+    "suggest_relation_fact",
+    "suggest_rule",
+    "suggest_supersede",
+    "temporal_query",
+    "timeline",
+    "trace_relations",
+    "undo_dream_item",
+    "wake",
 }
 
 
@@ -71,6 +113,7 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
     result, tool_names = _listed_tool_names()
 
     assert result["surface"] == "memory"
+    assert tool_names == EXPECTED_PUBLIC_MCP_TOOLS
     assert "profile" not in result
     assert "degraded_reason" not in result
     assert {
@@ -108,37 +151,40 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
         assert tool_by_name[name]["annotations"]["harness_mem"]["cluster"] == "dream"
 
 
-def test_maintenance_profile_requires_env_gate(backend) -> None:
+def test_profile_parameters_do_not_create_a_second_mcp_surface(backend, monkeypatch) -> None:
+    monkeypatch.setenv("HARNESS_MEM_MCP_MAINTENANCE", "1")
     default_result, default_names = _listed_tool_names()
     maintenance_result, maintenance_names = _listed_tool_names({"profile": "maintenance"})
+    legacy_result, legacy_names = _listed_tool_names({"mcp_tool_profile": "full"})
 
     assert maintenance_result["surface"] == "memory"
-    assert maintenance_result["surface_source"] == "public"
-    assert maintenance_result["degraded_reason"] == "maintenance_profile_disabled"
     assert maintenance_names == default_names
+    assert legacy_result["surface"] == "memory"
+    assert legacy_names == default_names
+    assert "surface_source" not in maintenance_result
+    assert "surface_source" not in legacy_result
+    assert "degraded_reason" not in maintenance_result
+    assert "degraded_reason" not in legacy_result
     assert "hidden_tool_count" not in maintenance_result
     assert "total_tool_count" not in maintenance_result
     assert default_result["tool_count"] == maintenance_result["tool_count"]
 
 
-def test_env_gated_maintenance_profile_lists_read_debug_tools_only(
-    backend,
-    monkeypatch: pytest.MonkeyPatch,
+def test_env_gate_does_not_enable_maintenance_mcp_tools(
+    backend, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("HARNESS_MEM_MCP_MAINTENANCE", "1")
 
     result, tool_names = _listed_tool_names({"profile": "maintenance"})
 
-    assert result["surface"] == "maintenance"
-    assert result["surface_source"] == "maintenance-env"
-    assert result["degraded_reason"] is None
-    assert tool_names == {
-        "list_reflection_jobs",
-        "get_reflection_job",
-        "list_metabolism_runs",
-        "health_summary",
-        "surface_cost_report",
-    }
+    assert result["surface"] == "memory"
+    assert "surface_source" not in result
+    assert "degraded_reason" not in result
+    assert "list_reflection_jobs" not in tool_names
+    assert "get_reflection_job" not in tool_names
+    assert "list_metabolism_runs" not in tool_names
+    assert "health_summary" not in tool_names
+    assert "surface_cost_report" not in tool_names
     assert "metabolism_preview" not in tool_names
     assert "metabolism_run" not in tool_names
     assert "hidden_tool_count" not in result
@@ -215,7 +261,7 @@ def test_public_maintenance_read_debug_tool_call_is_unknown(backend) -> None:
     assert response["error"]["message"] == "Unknown tool: list_reflection_jobs"
 
 
-def test_maintenance_profile_keeps_mutating_metabolism_unknown(
+def test_profile_parameter_keeps_mutating_metabolism_unknown(
     backend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -238,18 +284,11 @@ def test_maintenance_profile_keeps_mutating_metabolism_unknown(
     assert response["error"]["message"] == "Unknown tool: metabolism_run"
 
 
-def test_maintenance_profile_can_read_persisted_metabolism_runs(
+def test_profile_parameter_cannot_read_maintenance_debug_tools(
     backend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("HARNESS_MEM_MCP_MAINTENANCE", "1")
-    run = MetabolismRun(
-        project_name="demo",
-        kind="preview",
-        status="preview",
-        notes=["read-debug fixture"],
-    )
-    run_id = asyncio.run(backend.structured_store.save_metabolism_run(run))
 
     response = server.handle_request(
         {
@@ -264,11 +303,9 @@ def test_maintenance_profile_can_read_persisted_metabolism_runs(
         }
     )
 
-    payload = _tool_result(response)
-
-    assert payload["success"] is True
-    assert payload["project_name"] == "demo"
-    assert [item["id"] for item in payload["runs"]] == [run_id]
+    assert response is not None
+    assert response["error"]["code"] == -32601
+    assert response["error"]["message"] == "Unknown tool: list_metabolism_runs"
 
 
 def test_removed_project_profile_write_tool_call_is_unknown(backend) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import re
 from typing import Any, Literal, Protocol
 
 from harness_mem.core.schemas.memory_entry import MemoryEntry
@@ -20,6 +21,15 @@ REPEAT_BOOST_WINDOW_DAYS = 7
 REPEAT_BOOST_MIN_HITS = 2
 CONTEXT_OUTCOME_WINDOW_DAYS = 30
 CONTEXT_OUTCOME_MAX_ABS_SCORE = 0.2
+LOW_CONFIDENCE_MIN_MATCHES = 2
+RELATION_DECISION_BOOST = 0.08
+_SEARCH_STOP_WORDS = {
+    "what", "when", "where", "who", "how", "which", "did", "do", "was", "were",
+    "have", "has", "had", "is", "are", "the", "a", "an", "my", "me", "i", "you",
+    "your", "their", "it", "its", "in", "on", "at", "to", "for", "of", "with",
+    "by", "from", "ago", "last", "that", "this", "there", "about", "get", "got",
+    "give", "gave", "buy", "bought", "made", "make", "said",
+}
 
 
 def _optional_isoformat(value: Any) -> str | None:
@@ -168,6 +178,11 @@ class SQLiteSearchBackend:
             include_history=include_history,
             time_window=filters.time_window,
         )
+        entries, relation_boost_count = _apply_relation_decision_boost(
+            entries,
+            relation_facts,
+            query,
+        )
         skills = await self.backend.structured_store.search_skills(
             query,
             project_name=project_filter,
@@ -206,6 +221,7 @@ class SQLiteSearchBackend:
                         "search_mode": getattr(entry, "_search_mode", mode),
                         "search_requested_mode": getattr(entry, "_search_requested_mode", mode),
                         "fallback_reason": getattr(entry, "_search_fallback_reason", None),
+                        "score_details": _score_details(entry),
                         "repeat_boost": getattr(entry, "_repeat_boost", 0.0) or 0.0,
                         "context_outcome_counts": getattr(
                             entry, "_context_outcome_counts", {}
@@ -247,6 +263,7 @@ class SQLiteSearchBackend:
                         "search_mode": "fts",
                         "search_requested_mode": mode,
                         "fallback_reason": None,
+                        "score_details": _score_details(fact),
                     },
                 )
             )
@@ -267,6 +284,7 @@ class SQLiteSearchBackend:
                         "search_mode": "fts",
                         "search_requested_mode": mode,
                         "fallback_reason": None,
+                        "score_details": _score_details(skill),
                     },
                 )
             )
@@ -289,14 +307,20 @@ class SQLiteSearchBackend:
                         "search_mode": getattr(observation, "_search_mode", mode),
                         "search_requested_mode": getattr(observation, "_search_requested_mode", mode),
                         "fallback_reason": getattr(observation, "_search_fallback_reason", None),
+                        "score_details": _score_details(observation),
                     },
                 )
             )
 
+        results, abstention_quality = _apply_low_confidence_abstention(results, query)
         selected = _select_balanced_results(results, limit)
         truncated = len(results) > len(selected)
         effective_mode = _effective_mode(selected, mode)
         fallback_reason = _fallback_reason(selected)
+        retrieval_quality = {
+            **abstention_quality,
+            "one_hop_relation_boost_count": relation_boost_count,
+        }
         return SearchBackendResponse(
             query=query,
             requested_mode=mode,
@@ -325,6 +349,7 @@ class SQLiteSearchBackend:
                 _drilldown_hint(result, query)
                 for result in selected
             ],
+            retrieval_quality=retrieval_quality,
         )
 
 
@@ -441,6 +466,10 @@ def _apply_result_metadata(
             setattr(target, "_fts_score", float(result.score))
         else:
             setattr(target, "_hybrid_score", float(result.score))
+    score_details = result.metadata.get("score_details")
+    if isinstance(score_details, dict):
+        setattr(target, "_score_details", dict(score_details))
+        _apply_score_detail_attrs(target, score_details)
     repeat_boost = result.metadata.get("repeat_boost")
     if isinstance(repeat_boost, (int, float)) and repeat_boost:
         setattr(target, "_repeat_boost", float(repeat_boost))
@@ -625,10 +654,10 @@ def _select_balanced_results(
 def _temporal_scope(record: object) -> str:
     valid_to = getattr(record, "valid_to", None)
     is_historical = isinstance(valid_to, datetime) and valid_to <= datetime.now(timezone.utc)
-    if not is_historical:
-        return "current"
     if list(getattr(record, "superseded_by", []) or []):
         return "superseded"
+    if not is_historical:
+        return "current"
     return "historical"
 
 
@@ -654,7 +683,7 @@ def _temporal_metadata(
 
 
 def _entry_truth_status(entry: MemoryEntry) -> str:
-    if getattr(entry, "valid_to", None):
+    if getattr(entry, "valid_to", None) or list(getattr(entry, "superseded_by", []) or []):
         return "historical"
     return str(getattr(entry, "status", "accepted"))
 
@@ -671,6 +700,230 @@ def _score(value: object) -> float | None:
         if isinstance(score, (int, float)):
             return float(score)
     return None
+
+
+def _float_attr(value: object, attr: str) -> float | None:
+    raw = getattr(value, attr, None)
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    return None
+
+
+def _score_details(value: object) -> dict[str, Any]:
+    details: dict[str, Any] = {}
+    fts_score = _float_attr(value, "_fts_score")
+    vector_score = _float_attr(value, "_vec_sim")
+    rrf_score = _float_attr(value, "_rrf_score")
+    fts_match_count = getattr(value, "_fts_match_count", None)
+    if fts_score is not None:
+        details["fts_score"] = fts_score
+    if isinstance(fts_match_count, int):
+        details["fts_match_count"] = fts_match_count
+    if vector_score is not None:
+        details["vector_score"] = vector_score
+    if rrf_score is not None:
+        details["rrf_score"] = rrf_score
+
+    boosts: list[dict[str, Any]] = []
+    repeat_boost = _float_attr(value, "_repeat_boost")
+    if repeat_boost:
+        boosts.append({"kind": "repeat_search_hit", "score_delta": repeat_boost})
+    outcome_score = _float_attr(value, "_context_outcome_score")
+    if outcome_score:
+        boosts.append({"kind": "context_outcome", "score_delta": outcome_score})
+    ranking_explanation = getattr(value, "_ranking_explanation", None)
+    if isinstance(ranking_explanation, list):
+        boosts.extend(item for item in ranking_explanation if isinstance(item, dict))
+    if boosts:
+        details["boosts"] = boosts
+
+    confidence_tier = _confidence_tier(value, details)
+    if confidence_tier:
+        details["confidence_tier"] = confidence_tier
+    return details
+
+
+def _confidence_tier(value: object, details: dict[str, Any]) -> str | None:
+    vector_score = details.get("vector_score")
+    if isinstance(vector_score, (int, float)):
+        if vector_score >= 0.75:
+            return "high"
+        if vector_score >= 0.55:
+            return "medium"
+        return "low"
+    if "rrf_score" in details:
+        return "medium"
+    if "fts_score" in details:
+        match_count = getattr(value, "_fts_match_count", None)
+        if isinstance(match_count, int) and match_count >= 2:
+            return "medium"
+        return "low"
+    if _score(value) is not None:
+        return "low"
+    return None
+
+
+def _apply_relation_decision_boost(
+    entries: list[MemoryEntry],
+    relation_facts: list[Any],
+    query: str,
+) -> tuple[list[MemoryEntry], int]:
+    if not entries or not relation_facts:
+        return entries, 0
+    query_tokens = _search_tokens(query)
+    if not query_tokens:
+        return entries, 0
+
+    relevant_facts: list[tuple[Any, set[str]]] = []
+    for fact in relation_facts:
+        fact_tokens = _search_tokens(
+            " ".join(
+                str(part)
+                for part in (
+                    getattr(fact, "source_entity", ""),
+                    getattr(fact, "target_entity", ""),
+                    getattr(fact, "relation_type", ""),
+                    getattr(fact, "evidence", ""),
+                )
+            )
+        )
+        entity_tokens = _search_tokens(
+            f"{getattr(fact, 'source_entity', '')} {getattr(fact, 'target_entity', '')}"
+        )
+        if fact_tokens & query_tokens and entity_tokens:
+            relevant_facts.append((fact, entity_tokens))
+    if not relevant_facts:
+        return entries, 0
+
+    boost_count = 0
+    for entry in entries:
+        if str(getattr(entry, "category", "")).lower() != "decision":
+            continue
+        entry_tokens = _search_tokens(
+            f"{getattr(entry, 'category', '')} {getattr(entry, 'content', '')}"
+        )
+        matched_ids = [
+            str(getattr(fact, "id"))
+            for fact, fact_tokens in relevant_facts
+            if entry_tokens & fact_tokens
+        ]
+        if not matched_ids:
+            continue
+        score_delta = min(0.24, RELATION_DECISION_BOOST * len(matched_ids))
+        _apply_ranking_score_delta(entry, score_delta)
+        _append_ranking_explanation(
+            entry,
+            {
+                "kind": "one_hop_relation",
+                "score_delta": score_delta,
+                "source": "RelationFact",
+                "relation_fact_ids": matched_ids[:5],
+            },
+        )
+        boost_count += 1
+
+    if boost_count:
+        entries.sort(key=_ranking_score, reverse=True)
+    return entries, boost_count
+
+
+def _apply_low_confidence_abstention(
+    results: list[BackendSearchResult],
+    query: str,
+) -> tuple[list[BackendSearchResult], dict[str, Any]]:
+    query_token_count = len(_search_tokens(query))
+    if query_token_count < LOW_CONFIDENCE_MIN_MATCHES:
+        return results, {
+            "abstention": {
+                "applied": False,
+                "reason": None,
+                "suppressed_count": 0,
+            }
+        }
+
+    kept: list[BackendSearchResult] = []
+    suppressed: list[BackendSearchResult] = []
+    for result in results:
+        if _is_low_confidence_partial_match(result, query_token_count):
+            suppressed.append(result)
+        else:
+            kept.append(result)
+
+    reason = "low_confidence_partial_match" if suppressed else None
+    return kept, {
+        "abstention": {
+            "applied": bool(suppressed),
+            "reason": reason,
+            "suppressed_count": len(suppressed),
+            "query_token_count": query_token_count,
+        }
+    }
+
+
+def _is_low_confidence_partial_match(
+    result: BackendSearchResult,
+    query_token_count: int,
+) -> bool:
+    details = result.metadata.get("score_details")
+    if not isinstance(details, dict):
+        return False
+    if details.get("confidence_tier") != "low":
+        return False
+    if "vector_score" in details or "rrf_score" in details:
+        return False
+    match_count = details.get("fts_match_count")
+    if not isinstance(match_count, int):
+        return False
+    required = min(LOW_CONFIDENCE_MIN_MATCHES, query_token_count)
+    return match_count < required
+
+
+def _search_tokens(text: str) -> set[str]:
+    tokens: set[str] = set()
+    for raw in re.findall(r"[A-Za-z0-9_]+", text.lower()):
+        if len(raw) < 3 or raw in _SEARCH_STOP_WORDS:
+            continue
+        tokens.add(raw)
+    return tokens
+
+
+def _ranking_score(value: object) -> float:
+    score = _float_attr(value, "_score")
+    if score is not None:
+        return score
+    hybrid = _float_attr(value, "_hybrid_score")
+    if hybrid is not None:
+        return hybrid
+    total = _float_attr(value, "_fts_score_total")
+    if total is not None:
+        return abs(total)
+    fts = _float_attr(value, "_fts_score")
+    if fts is not None:
+        return abs(fts)
+    return 0.0
+
+
+def _apply_ranking_score_delta(value: object, delta: float) -> None:
+    setattr(value, "_score", _ranking_score(value) + delta)
+
+
+def _append_ranking_explanation(value: object, item: dict[str, Any]) -> None:
+    existing = getattr(value, "_ranking_explanation", None)
+    explanations = list(existing) if isinstance(existing, list) else []
+    explanations.append(item)
+    setattr(value, "_ranking_explanation", explanations)
+
+
+def _apply_score_detail_attrs(target: object, score_details: dict[str, Any]) -> None:
+    attr_by_key = {
+        "fts_score": "_fts_score",
+        "vector_score": "_vec_sim",
+        "rrf_score": "_rrf_score",
+    }
+    for key, attr in attr_by_key.items():
+        value = score_details.get(key)
+        if isinstance(value, (int, float)):
+            setattr(target, attr, float(value))
 
 
 def _preview(text: str, *, max_chars: int = 200) -> str:

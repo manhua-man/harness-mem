@@ -1,0 +1,272 @@
+suite: retrieval_quality_v0_8_3
+version: 0.8.3
+backend: LocalMemoryBackend
+mode: read_path_only
+llm_free: true
+queries:
+  - id: project_alpha_memory
+    project_name: retrieval-quality-alpha
+    query: alpha retention token
+    memory_entries:
+      - id: alpha-memory-1
+        project_name: retrieval-quality-alpha
+        category: decision
+        content: alpha retention token keeps the confirmed memory visible
+        source: benchmark:gold
+        status: accepted
+    expected:
+      memory_entry_ids:
+        - alpha-memory-1
+      observation_ids: []
+      relation_fact_ids: []
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: project_beta_mixed_surface
+    project_name: retrieval-quality-beta
+    query: beta trace token
+    memory_entries:
+      - id: beta-memory-1
+        project_name: retrieval-quality-beta
+        category: note
+        content: beta trace token anchors the read path without changing search contracts
+        source: benchmark:gold
+        status: accepted
+    observations:
+      - id: beta-observation-1
+        project_name: retrieval-quality-beta
+        session_id: session-beta
+        client: codex
+        raw_content: beta trace token appears in raw observation text
+        content_type: turn
+        metadata:
+          project_name: retrieval-quality-beta
+    relation_facts:
+      - id: beta-relation-1
+        project_name: retrieval-quality-beta
+        source_entity: beta-trace-service
+        target_entity: beta-root
+        relation_type: caused_by
+        evidence: beta trace token maps to a causal chain
+        source: benchmark:gold
+        confidence: 0.95
+        status: accepted
+    expected:
+      memory_entry_ids:
+        - beta-memory-1
+      observation_ids:
+        - beta-observation-1
+      relation_fact_ids:
+        - beta-relation-1
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: temporal_alpha_history
+    project_name: retrieval-quality-alpha
+    query: retired alpha token
+    memory_entries:
+      - id: alpha-current-1
+        project_name: retrieval-quality-alpha
+        category: decision
+        content: retired alpha token remains current after the roll-forward
+        source: benchmark:gold
+        status: accepted
+      - id: alpha-history-1
+        project_name: retrieval-quality-alpha
+        category: decision
+        content: retired alpha token existed in the historical branch
+        source: benchmark:gold
+        status: accepted
+        valid_to: 2024-01-01T00:00:00+00:00
+    expected:
+      memory_entry_ids:
+        - alpha-current-1
+        - alpha-history-1
+      observation_ids: []
+      relation_fact_ids: []
+    search:
+      scope: project
+      mode: fts
+      include_history: true
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: temporal_alpha_current_default
+    project_name: retrieval-quality-alpha
+    query: retired alpha default token
+    memory_entries:
+      - id: alpha-default-current-1
+        project_name: retrieval-quality-alpha
+        category: decision
+        content: retired alpha default token remains current after the roll-forward
+        source: benchmark:gold
+        status: accepted
+    noise_memory_entries:
+      - id: alpha-default-history-1
+        project_name: retrieval-quality-alpha
+        category: decision
+        content: retired alpha default token existed only in historical truth
+        source: benchmark:noise
+        status: accepted
+        valid_to: 2024-01-01T00:00:00+00:00
+    expected:
+      memory_entry_ids:
+        - alpha-default-current-1
+      observation_ids: []
+      relation_fact_ids: []
+      forbidden_memory_entry_ids:
+        - alpha-default-history-1
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: cross_project_isolation
+    project_name: retrieval-quality-alpha
+    query: isolation alpha token
+    memory_entries:
+      - id: alpha-isolation-1
+        project_name: retrieval-quality-alpha
+        category: decision
+        content: isolation alpha token confirms alpha scope
+        source: benchmark:gold
+        status: accepted
+    noise_memory_entries:
+      - id: beta-noise-1
+        project_name: retrieval-quality-beta
+        category: decision
+        content: isolation alpha token should not leak to beta scope
+        source: benchmark:noise
+        status: accepted
+    expected:
+      memory_entry_ids:
+        - alpha-isolation-1
+      observation_ids: []
+      relation_fact_ids: []
+      forbidden_memory_entry_ids:
+        - beta-noise-1
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: cross_project_observation_isolation
+    project_name: retrieval-quality-alpha
+    query: observation isolation alpha token
+    observations:
+      - id: alpha-observation-isolation-1
+        project_name: retrieval-quality-alpha
+        session_id: session-alpha-observation-isolation
+        client: codex
+        raw_content: observation isolation alpha token belongs only to alpha evidence
+        content_type: turn
+        metadata:
+          project_name: retrieval-quality-alpha
+    noise_observations:
+      - id: beta-observation-noise-1
+        project_name: retrieval-quality-beta
+        session_id: session-beta-observation-noise
+        client: codex
+        raw_content: observation isolation alpha token should not leak from beta evidence
+        content_type: turn
+        metadata:
+          project_name: retrieval-quality-beta
+    expected:
+      memory_entry_ids: []
+      observation_ids:
+        - alpha-observation-isolation-1
+      relation_fact_ids: []
+      forbidden_observation_ids:
+        - beta-observation-noise-1
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: cross_project_relation_isolation
+    project_name: retrieval-quality-alpha
+    query: relation isolation alpha token
+    relation_facts:
+      - id: alpha-relation-isolation-1
+        project_name: retrieval-quality-alpha
+        source_entity: alpha-relation-isolation
+        target_entity: alpha-search
+        relation_type: supports
+        evidence: relation isolation alpha token belongs only to alpha relation evidence
+        source: benchmark:gold
+        confidence: 0.9
+        status: accepted
+    noise_relation_facts:
+      - id: beta-relation-noise-1
+        project_name: retrieval-quality-beta
+        source_entity: beta-relation-isolation
+        target_entity: beta-search
+        relation_type: supports
+        evidence: relation isolation alpha token should not leak from beta relation evidence
+        source: benchmark:noise
+        confidence: 0.9
+        status: accepted
+    expected:
+      memory_entry_ids: []
+      observation_ids: []
+      relation_fact_ids:
+        - alpha-relation-isolation-1
+      forbidden_relation_fact_ids:
+        - beta-relation-noise-1
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: abstention_no_false_positive
+    project_name: retrieval-quality-alpha
+    query: absent omega token
+    noise_memory_entries:
+      - id: alpha-unrelated-noise-1
+        project_name: retrieval-quality-alpha
+        category: decision
+        content: unrelated benchmark noise should not satisfy missing evidence
+        source: benchmark:noise
+        status: accepted
+    expected:
+      memory_entry_ids: []
+      observation_ids: []
+      relation_fact_ids: []
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: vector_off_fallback
+    project_name: retrieval-quality-alpha
+    query: vector fallback token
+    memory_entries:
+      - id: alpha-vector-fallback-1
+        project_name: retrieval-quality-alpha
+        category: decision
+        content: vector fallback token stays searchable when embeddings are disabled
+        source: benchmark:gold
+        status: accepted
+    expected:
+      memory_entry_ids:
+        - alpha-vector-fallback-1
+      observation_ids: []
+      relation_fact_ids: []
+      vector_disabled: true
+    search:
+      scope: project
+      mode: hybrid
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5

@@ -343,30 +343,17 @@ async def _apply_stale(
     )
 
 
-async def _apply_supersede(
+async def _queue_supersede_for_review(
     store: LocalStructuredStore,
     candidate: SupersedeCandidate,
     *,
-    now: datetime,
+    auto_apply_requested: bool,
 ) -> DreamItem:
-    before_target = await _truth_payload(store, candidate.target_type, candidate.target_id)
-    before_replacement = await _truth_payload(
-        store,
-        candidate.replacement_type,
-        candidate.replacement_id,
-    )
-    confirmed = await store.confirm_supersede_candidate(
-        candidate.id,
-        reviewed_at=now,
-        reviewer_id="dream",
-    )
-    if confirmed is None:
-        await store.update_supersede_candidate_status(
-            candidate.id,
-            "rejected",
-            reviewed_at=now,
-            reviewer_id="dream",
-        )
+    existing = await store.get_supersede_candidate(candidate.id)
+    if existing is None:
+        await store.save_supersede_candidate(candidate)
+        existing = await store.get_supersede_candidate(candidate.id)
+    if existing is None:
         return DreamItem(
             source_kind="supersede",
             source_id=candidate.id,
@@ -374,26 +361,9 @@ async def _apply_supersede(
             risk="high",
             proposed_action="supersede",
             final_action="failed",
-            reason="supersede could not be applied; candidate rejected to avoid pending review",
-            result={"candidate_status": "rejected"},
-            error="confirm_supersede_candidate returned None",
-        )
-    snapshots = []
-    if before_target is not None:
-        snapshots.append(
-            {
-                "truth_type": candidate.target_type,
-                "truth_id": candidate.target_id,
-                "before": before_target,
-            }
-        )
-    if before_replacement is not None:
-        snapshots.append(
-            {
-                "truth_type": candidate.replacement_type,
-                "truth_id": candidate.replacement_id,
-                "before": before_replacement,
-            }
+            reason="supersede candidate could not be saved for explicit review",
+            result={"candidate_status": "missing"},
+            error="save_supersede_candidate returned no readable candidate",
         )
     return DreamItem(
         source_kind="supersede",
@@ -401,14 +371,18 @@ async def _apply_supersede(
         evidence_ids=[candidate.evidence] if candidate.evidence else [],
         risk="high",
         proposed_action="supersede",
-        final_action="applied",
-        reason="auto-applied supersede; old truth remains historical",
-        undo={
-            "kind": "supersede",
-            "restore_truth_snapshots": snapshots,
-            "candidate_id": candidate.id,
+        final_action="pending_review",
+        reason=(
+            "queued supersede candidate for explicit review; dream does not "
+            "mutate truth lineage"
+        ),
+        result={
+            "candidate_status": existing.status,
+            "target_id": candidate.target_id,
+            "replacement_id": candidate.replacement_id,
+            "review_tools": ["confirm_supersede", "reject_supersede"],
+            "auto_apply_requested": auto_apply_requested,
         },
-        result={"candidate_status": "accepted", "target_id": candidate.target_id},
     )
 
 
@@ -579,7 +553,7 @@ async def dream_once(
 
     for supersede_candidate in supersede_candidates:
         await persist_progress()
-        if not handle_cfg.get("allow_supersede", True) or not handle_cfg.get("auto_apply", True):
+        if not handle_cfg.get("allow_supersede", True):
             items.append(
                 await _reject_or_archive(
                     store,
@@ -592,7 +566,13 @@ async def dream_once(
                 )
             )
         else:
-            items.append(await _apply_supersede(store, supersede_candidate, now=started_at))
+            items.append(
+                await _queue_supersede_for_review(
+                    store,
+                    supersede_candidate,
+                    auto_apply_requested=bool(handle_cfg.get("auto_apply", True)),
+                )
+            )
         await persist_progress()
 
     completed_at = _now()
