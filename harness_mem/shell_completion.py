@@ -26,10 +26,15 @@ MAINTENANCE_ACTIONS = [
     "purge",
 ]
 CONFIG_ACTIONS = ["get", "set", "list", "validate"]
-INTEGRATION_ACTIONS = ["install-cursor-hook", "install-claude-hook", "commands"]
-INTEGRATION_COMMAND_ACTIONS = ["list", "sync", "enable"]
-COMMAND_PROFILES = ["daily", "maintenance", "full"]
-OPTIONAL_COMMAND_GROUPS = ["maintenance"]
+INTEGRATION_ACTIONS = [
+    "install-cursor-hook",
+    "install-claude-hook",
+    "install-cursor-wake-hook",
+    "install-claude-wake-hook",
+    "commands",
+]
+INTEGRATION_COMMAND_ACTIONS = ["list", "sync"]
+COMMAND_PROFILES = ["daily"]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -47,7 +52,6 @@ def completion_bash() -> str:
     integration_actions = " ".join(INTEGRATION_ACTIONS)
     integration_command_actions = " ".join(INTEGRATION_COMMAND_ACTIONS)
     command_profiles = " ".join(COMMAND_PROFILES)
-    optional_command_groups = " ".join(OPTIONAL_COMMAND_GROUPS)
     return f"""# harness-mem bash completion
 _harness_mem_completion() {{
     local cur prev words cword
@@ -71,16 +75,8 @@ _harness_mem_completion() {{
                 COMPREPLY=($(compgen -W "observations structured all" -- "${{cur}}"))
                 return
                 ;;
-            --kind)
-                COMPREPLY=($(compgen -W "reflection dream preview metabolism" -- "${{cur}}"))
-                return
-                ;;
             --profile)
                 COMPREPLY=($(compgen -W "{command_profiles}" -- "${{cur}}"))
-                return
-                ;;
-            --include)
-                COMPREPLY=($(compgen -W "{optional_command_groups}" -- "${{cur}}"))
                 return
                 ;;
             *)
@@ -120,7 +116,7 @@ _harness_mem_completion() {{
     fi
 
     if [[ "${{words[1]}}" == "integration" && "${{cur}}" == -* ]]; then
-        COMPREPLY=($(compgen -W "--project-root --force --profile --include --source-dir --target-dir --dry-run" -- "${{cur}}"))
+        COMPREPLY=($(compgen -W "--project-root --force --profile --source-dir --target-dir --dry-run" -- "${{cur}}"))
         return
     fi
 }}
@@ -137,7 +133,6 @@ def completion_zsh() -> str:
     integration_actions = " ".join(INTEGRATION_ACTIONS)
     integration_command_actions = " ".join(INTEGRATION_COMMAND_ACTIONS)
     command_profiles = " ".join(COMMAND_PROFILES)
-    optional_command_groups = " ".join(OPTIONAL_COMMAND_GROUPS)
     return f"""# harness-mem zsh completion
 _harness_mem() {{
     local -a commands
@@ -161,7 +156,6 @@ _harness_mem() {{
         '--scope[config scope]:(user project)' \\
         '--force[overwrite existing hook]' \\
         '--profile[command profile]:profile:({command_profiles})' \\
-        '--include[optional command group]:include:({optional_command_groups})' \\
         '--source-dir[slash command source directory]:source_dir:' \\
         '--target-dir[Claude Code hm command directory]:target_dir:' \\
         '1: :->command' \\
@@ -197,6 +191,7 @@ compdef _harness_mem harness-mem
 def completion_fish() -> str:
     """Generate fish completion script."""
     commands = " ".join(CLI_COMMANDS + list(CLI_ALIASES.keys()))
+    integration_actions = " ".join(INTEGRATION_ACTIONS)
     return f"""# harness-mem fish completion
 complete -c harness-mem -f
 
@@ -233,12 +228,11 @@ complete -c harness-mem -n '__fish_seen_subcommand_from config' -l project-root 
 complete -c harness-mem -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from set' -l scope -x -a "user project" -d "Config scope"
 
 # integration
-complete -c harness-mem -n '__fish_seen_subcommand_from integration' -a "install-cursor-hook install-claude-hook commands" -d "Installer"
+complete -c harness-mem -n '__fish_seen_subcommand_from integration' -a "{integration_actions}" -d "Installer"
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l project-root -r -d "Project directory"
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l force -d "Overwrite existing hook"
-complete -c harness-mem -n '__fish_seen_subcommand_from commands' -a "list sync enable" -d "Command profile action"
-complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l profile -x -a "daily maintenance full" -d "Command profile"
-complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l include -x -a "maintenance" -d "Optional command group"
+complete -c harness-mem -n '__fish_seen_subcommand_from commands' -a "list sync" -d "Command action"
+complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l profile -x -a "daily" -d "Command profile"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l source-dir -r -d "Slash command source directory"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l target-dir -r -d "Claude Code hm command directory"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l dry-run -d "Preview only"

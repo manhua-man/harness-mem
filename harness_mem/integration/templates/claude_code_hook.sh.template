@@ -3,9 +3,7 @@
 # Generated at: ${GENERATED_AT}
 # Docs: ${DOC_POINTER}
 #
-# Triggers default to 'off'. Opt in for this project via:
-#
-#     harness-mem config set triggers.after_agent on --scope project
+# This hook runs one gated dream maintenance tick after a turn.
 
 set -e
 
@@ -13,10 +11,10 @@ PROJECT_ROOT="${PROJECT_ROOT}"
 TURN_ID="$${CLAUDE_CODE_TURN_ID:-unknown}"
 
 python -m harness_mem.host_entry \
+    --action dream-end \
     --project-root "$$PROJECT_ROOT" \
     --source ide_hook \
     --trigger-id "$$TURN_ID" \
-    --session-ids "$${CLAUDE_CODE_SESSION_ID:-}" \
     >/dev/null 2>&1 || true
 
 exit 0

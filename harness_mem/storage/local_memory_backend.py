@@ -73,13 +73,11 @@ class LocalMemoryBackend:
 
     @property
     def reflection_job_store(self) -> ReflectionJobStore:
-        """v2.4.0 ReflectionJobStore wrapping the structured SQLiteIndex.
+        """Internal dream job ledger wrapping the structured SQLiteIndex.
 
-        Lazy because not every backend consumer needs reflection jobs;
-        but once instantiated we cache it for the backend's lifetime so
-        callers share a single connection-locked store. Reuses the
-        structured store's SQLiteIndex (same ``structured_index.sqlite``
-        file) per design.md > "Reuse existing SQLiteIndex".
+        The historical store/table name remains for data compatibility. Lazy
+        construction keeps callers sharing one connection-locked store through
+        the structured store's public index boundary.
         """
         if self._structured_store is None:
             raise RuntimeError("Backend not initialized. Call init() first.")

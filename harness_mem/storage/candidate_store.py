@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -30,8 +29,7 @@ class CandidateStore:
         index_updates: dict[str, object | None] | None = None,
         payload_updates: dict[str, Any] | None = None,
     ) -> bool:
-        blob_path = self._store._blob_path(collection, entity_id)
-        if not blob_path.exists():
+        if not self._store.record_payload_exists(collection, entity_id):
             return False
 
         index_patch: dict[str, object | None] = {"status": status}
@@ -46,9 +44,9 @@ class CandidateStore:
         if not updated:
             return False
 
-        data = json.loads(blob_path.read_text())
+        data = self._store.read_record_payload(collection, entity_id)
         data["status"] = status
         if payload_updates:
             data.update(payload_updates)
-        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        self._store.write_record_payload(collection, entity_id, data)
         return True

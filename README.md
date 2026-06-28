@@ -28,6 +28,13 @@ clients recover context with `wake` and `search`, propose new memory through
 `distill`, and use dream as the default audited maintenance loop. Nothing
 becomes durable truth until it passes review.
 
+Invocation surfaces:
+
+- `/hm:*` commands: `status`, `wake`, `search`, `distill`, `review`, `dream`.
+- Agent MCP calls: plain language or skills trigger `wake/search/distill/review`.
+- Hooks: inject wake context at session start and run gated dream maintenance at session end.
+- CLI: setup, doctor, config, integration, and maintenance only.
+
 <p align="center">
   <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="A fresh Agent uses wake, search, distill, and review against a local auditable memory backend" width="900" />
 </p>

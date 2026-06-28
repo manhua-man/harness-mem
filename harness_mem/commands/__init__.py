@@ -39,9 +39,10 @@ from harness_mem.commands.config_cmds import (
     cmd_config_validate,
 )
 from harness_mem.commands.integration_cmds import (
-    cmd_enable_command_profiles,
-    cmd_install_cursor_hook,
     cmd_install_claude_hook,
+    cmd_install_claude_wake_hook,
+    cmd_install_cursor_hook,
+    cmd_install_cursor_wake_hook,
     cmd_list_command_profiles,
     cmd_sync_commands,
 )
@@ -55,9 +56,10 @@ __all__ = [
     "cmd_config_validate",
     "cmd_install_cursor_hook",
     "cmd_install_claude_hook",
+    "cmd_install_cursor_wake_hook",
+    "cmd_install_claude_wake_hook",
     "cmd_list_command_profiles",
     "cmd_sync_commands",
-    "cmd_enable_command_profiles",
     "cmd_doctor",
     "cmd_ingest",
     "cmd_import",

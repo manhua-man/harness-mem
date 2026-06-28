@@ -152,7 +152,7 @@
     </g>
     <g transform="translate(830 24)">
       <rect class="card" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">reflection jobs</text>
+      <text class="cardTitle" x="18" y="30">dream job ledger</text>
       <text class="body" x="18" y="56">opt-in host trigger</text>
     </g>
   </g>
@@ -180,7 +180,7 @@
     <g transform="translate(890 24)">
       <rect class="cardGreen" width="190" height="80"/>
       <text class="cardTitle" x="18" y="30">Signals / Events</text>
-      <text class="body" x="18" y="56">审计和 metabolism 证据</text>
+      <text class="body" x="18" y="56">dream 审计和维护证据</text>
     </g>
   </g>
 
@@ -222,7 +222,7 @@
     <g transform="translate(24 630)">
       <rect class="cardOrange" width="254" height="104"/>
       <text class="rule" x="18" y="30">无默认自学习</text>
-      <text class="body" x="18" y="58">host hook / scheduler 默认 off</text>
+      <text class="body" x="18" y="58">dream hook 受 gate 约束</text>
       <text class="body" x="18" y="80">worker 不是 always-on daemon</text>
     </g>
   </g>

@@ -805,7 +805,7 @@ async def dream_auto_tick(
     project_name: str,
     project_root: str,
     config: MergedConfig,
-    source: DreamSource = "scheduler",
+    source: DreamSource = "agent",
 ) -> dict[str, Any]:
     decision = await dream_scheduler_decision(
         backend,

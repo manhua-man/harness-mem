@@ -11,11 +11,8 @@ from typing import Any, Sequence, cast
 
 from harness_mem import __version__
 from harness_mem.commands.doctor_thresholds import (
-    CHRONIC_FAILURE_LOOKBACK,
-    CHRONIC_FAILURE_THRESHOLD,
     DORMANT_SIGNAL_AGE,
     HIGH_RISK_CONFIDENCE_CUTOFFS,
-    KNOWN_CHRONIC_PATTERNS,
     STALE_THRESHOLDS,
     WAL_SIZE_THRESHOLD_BYTES,
 )
@@ -48,7 +45,6 @@ from harness_mem.storage.local_project_profile_store import LocalProjectProfileS
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 from harness_mem.storage.canonical_store import canonical_store_health
-from harness_mem.storage.reflection_job_store import ReflectionJobStore
 from harness_mem.version import runtime_version_payload
 
 logger = logging.getLogger(__name__)
@@ -178,7 +174,7 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             # v1.6.2 vector-index health + v1.7.3 verbatim-exact-index
             # health are no longer emitted inline here. As of v2.4.2 they
             # are rolled up into the unified Maintenance block below via
-            # health_summary -> maintenance_hints (Req 5.2). The check
+            # local health summary -> maintenance_hints. The check
             # functions themselves are unchanged; only the inline emission
             # moved. The same message + fix_command strings are preserved
             # verbatim by maintenance_hints so operator-visible text is
@@ -208,7 +204,6 @@ async def cmd_doctor(project_name: str | None = None) -> int:
 
             print()
             await _doctor_weak_link_block(backend, resolved_project)
-            await _doctor_queue_health_block(backend.reflection_job_store)
             dream_config = _load_project_dream_config(resolved_project)
             dream_report = await dream_status_snapshot(
                 backend,
@@ -216,18 +211,12 @@ async def cmd_doctor(project_name: str | None = None) -> int:
                 config=dream_config,
             )
             _doctor_dream_status_block(dream_report)
-            # Compose the v2.4.0 + v2.4.2 health payload in a single pass and
-            # render each slice through its block helper (Req 6.6 — one
-            # detection pass, two surfaces). Note: _doctor_queue_health_block
-            # above and health_summary both call queue_health, so the queue
-            # is queried twice. That minor redundancy is acceptable here —
-            # doctor is not a hot path, and _doctor_queue_health_block is a
-            # frozen v2.4.0 surface we deliberately do not refactor in this
-            # task.
-            report = await health_summary(backend, resolved_project)
+            # Compose local health in a single pass and render the user-facing
+            # slices. Legacy job queues are internal dream runtime details and
+            # are not part of doctor output.
+            report = await local_health_summary(backend, resolved_project)
             _doctor_candidate_health_block(report["candidate_health"])
             _doctor_signal_freshness_block(report["signal_freshness"], resolved_project)
-            _doctor_chronic_failures_block(report["chronic_failures"])
             _doctor_maintenance_block(report["maintenance_hints"])
             _doctor_runtime_health_block(report.get("runtime_health", {}))
             _doctor_storage_v2_block(
@@ -547,174 +536,6 @@ async def _doctor_weak_link_block(
     print("  experimental skills:                       — (deferred to v2.3.2)")
 
 
-# ---- v2.4.0 reflection-job queue diagnostics ---------------------------
-
-# Status keys we always emit, even when count is zero (Req 8.1, 8.6).
-# Keeping the order stable matters because the CLI block prints them in
-# this order and the MCP consumer expects every key present.
-_QUEUE_STATUS_KEYS: tuple[str, ...] = (
-    "pending",
-    "processing",
-    "completed",
-    "failed",
-    "retryable",
-    "needs_distill",
-)
-
-# We intentionally over-fetch each status partition rather than paginate.
-# Doctor is a diagnostic tool — if a queue ever exceeds this, the bigger
-# story is "queue is unhealthy, go look", not "doctor missed N rows".
-_QUEUE_LIST_LIMIT = 1000
-
-_NEEDS_DISTILL_NEXT_ACTION = (
-    "Run /hm:distill or invoke MCP distill tool to complete this job"
-)
-
-
-async def queue_health(job_store: ReflectionJobStore) -> dict[str, Any]:
-    """Read-only queue diagnostic for v2.4.0 reflection jobs (Req 8).
-
-    Returns a structured dict suitable for both CLI display and MCP
-    consumption (Req 8.8). The shape is fixed — every top-level key
-    is always present so callers can branch on values rather than
-    on key existence.
-
-    The function is async only to fit the rest of the doctor surface;
-    underlying ``ReflectionJobStore`` calls are sync. We never call any
-    mutating store method (no save / compare_and_set), so the queue
-    is observed without being disturbed (Req 8.7).
-    """
-    now = datetime.now(timezone.utc)
-
-    # 1) Status counts — always all 6 keys, defaulting to 0 (Req 8.1, 8.6).
-    status_counts: dict[str, int] = {key: 0 for key in _QUEUE_STATUS_KEYS}
-
-    # 2) Oldest pending OR retryable: union the two partitions, pick min created_at.
-    #    We collect the actual job objects so the union arithmetic stays simple.
-    waiting_jobs: list = []
-    pending_jobs = job_store.list(status="pending", limit=_QUEUE_LIST_LIMIT)
-    status_counts["pending"] = len(pending_jobs)
-    waiting_jobs.extend(pending_jobs)
-
-    retryable_jobs = job_store.list(status="retryable", limit=_QUEUE_LIST_LIMIT)
-    status_counts["retryable"] = len(retryable_jobs)
-    waiting_jobs.extend(retryable_jobs)
-
-    # 3) Active leases: every status=processing row with a lease set, flagged
-    #    if the lease has expired (Req 8.3). Rows without lease_until are
-    #    excluded — they're either mid-acquisition or in a defensive state
-    #    we have no signal to interpret.
-    processing_jobs = job_store.list(status="processing", limit=_QUEUE_LIST_LIMIT)
-    status_counts["processing"] = len(processing_jobs)
-    active_leases: list[dict[str, Any]] = []
-    for job in processing_jobs:
-        if job.lease_until is None:
-            continue
-        active_leases.append(
-            {
-                "job_id": job.id,
-                "lease_until": job.lease_until.isoformat(),
-                "expired": job.lease_until < now,
-            }
-        )
-
-    # 4) Latest error: most recently *updated* failed job. The store orders
-    #    list() by created_at desc, but Req 8.4 anchors the report to
-    #    updated_at — so we re-sort on the Python side, cheap because
-    #    failures should be rare.
-    failed_jobs = job_store.list(status="failed", limit=_QUEUE_LIST_LIMIT)
-    status_counts["failed"] = len(failed_jobs)
-    latest_error: dict[str, Any] | None = None
-    if failed_jobs:
-        latest_failed = max(failed_jobs, key=lambda j: j.updated_at)
-        latest_error = {
-            "job_id": latest_failed.id,
-            "error": latest_failed.error or "",
-            "updated_at": latest_failed.updated_at.isoformat(),
-        }
-
-    # 5) Completed count (no list payload needed, but the count is part of
-    #    the report contract so we still query it).
-    completed_jobs = job_store.list(status="completed", limit=_QUEUE_LIST_LIMIT)
-    status_counts["completed"] = len(completed_jobs)
-
-    # 6) needs_distill: every job with a canned next-action hint (Req 8.5).
-    needs_distill_jobs = job_store.list(status="needs_distill", limit=_QUEUE_LIST_LIMIT)
-    status_counts["needs_distill"] = len(needs_distill_jobs)
-    needs_distill_payload = [
-        {"job_id": job.id, "next_action": _NEEDS_DISTILL_NEXT_ACTION}
-        for job in needs_distill_jobs
-    ]
-
-    # 7) Oldest waiting age — min created_at across the union, in seconds.
-    oldest_waiting_age_seconds: int | None = None
-    if waiting_jobs:
-        oldest_created_at = min(job.created_at for job in waiting_jobs)
-        oldest_waiting_age_seconds = int((now - oldest_created_at).total_seconds())
-
-    return {
-        "status_counts": status_counts,
-        "oldest_waiting_age_seconds": oldest_waiting_age_seconds,
-        "active_leases": active_leases,
-        "latest_error": latest_error,
-        "needs_distill": needs_distill_payload,
-    }
-
-
-async def _doctor_queue_health_block(job_store: ReflectionJobStore) -> None:
-    """CLI rendering of :func:`queue_health` for ``cmd_doctor``.
-
-    The shape mirrors the existing weak-link block so the doctor output
-    stays visually consistent: header line followed by indented detail
-    lines. We deliberately keep the formatting compact — doctor is a
-    glanceable summary, not a full job listing. Operators who need
-    detail go to MCP ``list_reflection_jobs`` / ``get_reflection_job``.
-    """
-    report = await queue_health(job_store)
-    counts = report["status_counts"]
-
-    print("Reflection job queue:")
-    counts_line = ", ".join(f"{key}={counts[key]}" for key in _QUEUE_STATUS_KEYS)
-    print(f"  status counts: {counts_line}")
-
-    age = report["oldest_waiting_age_seconds"]
-    if age is None:
-        print("  oldest waiting age: — (no pending or retryable jobs)")
-    else:
-        print(f"  oldest waiting age: {age}s")
-
-    active_leases = report["active_leases"]
-    if not active_leases:
-        print("  active leases: — (no processing jobs with leases)")
-    else:
-        print(f"  active leases: {len(active_leases)}")
-        for lease in active_leases:
-            flag = "expired" if lease["expired"] else "active"
-            print(
-                f"    - {lease['job_id']}: lease_until={lease['lease_until']} [{flag}]"
-            )
-
-    latest_error = report["latest_error"]
-    if latest_error is None:
-        print("  latest error: — (no failed jobs)")
-    else:
-        print(
-            f"  latest error: {latest_error['job_id']} @ {latest_error['updated_at']}"
-        )
-        # Truncate the error to a single line so doctor stays one-screen.
-        error_text = latest_error["error"].splitlines()[0] if latest_error["error"] else ""
-        if error_text:
-            print(f"    {error_text}")
-
-    needs_distill = report["needs_distill"]
-    if not needs_distill:
-        print("  needs_distill: — (no jobs awaiting distill)")
-    else:
-        print(f"  needs_distill: {len(needs_distill)}")
-        for item in needs_distill:
-            print(f"    - {item['job_id']}: {item['next_action']}")
-
-
 # ---- v2.4.2 candidate-health diagnostics -------------------------------
 
 # The five pending-candidate tables covered by Candidate_Health (Req 1.1).
@@ -902,121 +723,6 @@ async def signal_freshness(structured_store: Any, project_name: str) -> dict[str
     return report
 
 
-# ---- v2.4.2 chronic-failure diagnostics --------------------------------
-
-# Over-fetch limit for the failed-job partition. Doctor is a diagnostic —
-# if a single project ever has more than this many failed reflection jobs
-# inside the lookback window, "the queue is on fire, go look" is the real
-# story, not "chronic_failures under-counted by N rows".
-_CHRONIC_LIST_LIMIT = 10000
-
-# How many offenders we surface per chronic sub-category (Req 4.4).
-_CHRONIC_TOP_OFFENDERS = 3
-
-# The "other" bucket label for rows that match no known pattern (Req 4.3).
-_CHRONIC_OTHER_LABEL = "other"
-
-
-def _chronic_label_for_error(error: str | None) -> str:
-    """Map a failed job's error string to a chronic sub-category label.
-
-    Scans ``KNOWN_CHRONIC_PATTERNS`` in declaration order; the first pattern
-    that is a substring of ``error`` wins (Req 4.2, 4.3). The stage-prefix
-    patterns carry a trailing colon (``"ingest:"`` / ``"prepare:"`` /
-    ``"distill:"``) so they match the v2.4.0 stage-prefixed error strings,
-    but the *label* drops that colon for readability (``"ingest"`` etc.).
-    The flag patterns (``"job_store_unavailable"`` / ``"max_retries_exceeded"``)
-    have no colon and are used verbatim as labels. Rows matching no known
-    pattern fall through to the ``"other"`` bucket.
-    """
-    haystack = error or ""
-    for pattern in KNOWN_CHRONIC_PATTERNS:
-        if pattern in haystack:
-            return pattern[:-1] if pattern.endswith(":") else pattern
-    return _CHRONIC_OTHER_LABEL
-
-
-async def chronic_failures(job_store: ReflectionJobStore, project_name: str) -> dict[str, Any]:
-    """Multi-failure aggregation, distinct from v2.4.0 Req 8.4 latest_error (Req 4).
-
-    Read-only. Where v2.4.0 ``queue_health`` Req 8.4 reports the *single* most
-    recent failed job (``latest_error``), this helper aggregates *recurring*
-    failures over a lookback window: it buckets every ``failed`` job whose
-    ``updated_at`` falls within ``CHRONIC_FAILURE_LOOKBACK`` by error
-    sub-category and reports only buckets that breach the chronic threshold.
-    The two surfaces are complementary, so we deliberately do NOT re-derive
-    ``latest_error`` here (Req 4.7).
-
-    Chronic threshold semantics (Req 4.1, 4.5): a sub-category is chronic when
-    it has failed *more than* ``CHRONIC_FAILURE_THRESHOLD`` times in the
-    window. With the default M=3 that means ``count > 3`` (i.e. ``count >= 4``);
-    a bucket with exactly 3 failures is NOT chronic. Per the v2.4.0 idempotency
-    contract, repeated failures of the same logical job accumulate toward the
-    same counter, so we count every failed row in the window without
-    de-duplicating by idempotency key.
-
-    The function is async only to match the rest of the doctor surface;
-    ``ReflectionJobStore.list`` is sync, so we call it synchronously here. No
-    mutating store method is touched (Req 4.6).
-    """
-    now = datetime.now(timezone.utc)
-    cutoff = now - CHRONIC_FAILURE_LOOKBACK
-
-    # 1) All failed jobs in the project (Req 4.1). list() is sync.
-    failed = job_store.list(
-        project_name=project_name, status="failed", limit=_CHRONIC_LIST_LIMIT
-    )
-
-    # 2) Bucket by sub-category, but only rows inside the lookback window
-    #    (Req 4.1). Naive timestamps are treated as UTC before comparison.
-    buckets: dict[str, list[Any]] = {}
-    for job in failed:
-        updated_at = _normalize_created_at(job.updated_at)
-        if updated_at < cutoff:
-            continue
-        label = _chronic_label_for_error(job.error)
-        buckets.setdefault(label, []).append(job)
-
-    # 3) Keep only chronic buckets — count strictly greater than the
-    #    threshold (Req 4.5). Build each survivor's top-N offenders by
-    #    updated_at desc (Req 4.4).
-    subcategories: list[dict[str, Any]] = []
-    for label, rows in buckets.items():
-        if len(rows) <= CHRONIC_FAILURE_THRESHOLD:
-            continue
-        top_rows = sorted(
-            rows,
-            key=lambda r: _normalize_created_at(r.updated_at),
-            reverse=True,
-        )[:_CHRONIC_TOP_OFFENDERS]
-        top_offenders = [
-            {
-                "job_id": r.id,
-                "updated_at": _normalize_created_at(r.updated_at).isoformat(),
-                "error": r.error or "",
-            }
-            for r in top_rows
-        ]
-        subcategories.append(
-            {
-                "label": label,
-                "count": len(rows),
-                "top_offenders": top_offenders,
-            }
-        )
-
-    # 4) Deterministic ordering so the payload is stable: highest count
-    #    first, then label alphabetically to break ties.
-    subcategories.sort(key=lambda s: (-s["count"], s["label"]))
-
-    return {
-        "lookback_days": CHRONIC_FAILURE_LOOKBACK.days,
-        "threshold": CHRONIC_FAILURE_THRESHOLD,
-        "subcategories": subcategories,
-        "is_chronic": bool(subcategories),
-    }
-
-
 # ---- v2.4.2 maintenance-hint roll-up -----------------------------------
 
 # The structured-index WAL file lives beside ``structured_index.sqlite`` in
@@ -1122,31 +828,19 @@ async def maintenance_hints(backend: LocalMemoryBackend, project_name: str) -> d
 # ---- v2.4.2 health-summary orchestrator --------------------------------
 
 
-async def health_summary(backend: LocalMemoryBackend, project_name: str) -> dict[str, Any]:
-    """Compose v2.4.0 + v2.4.2 health surfaces (Req 6). Read-only, never raises.
+async def local_health_summary(backend: LocalMemoryBackend, project_name: str) -> dict[str, Any]:
+    """Compose local health surfaces. Read-only, never raises.
 
-    Routes both the CLI ``cmd_doctor`` blocks and the MCP ``health_summary``
-    tool through the same five detection helpers so the two surfaces never
-    disagree (Req 6.6). The top-level key order is the contract (Req 6.5):
-    ``reflection_queue``, ``candidate_health``, ``signal_freshness``,
-    ``chronic_failures``, ``maintenance_hints`` — Python's insertion-ordered
-    dicts preserve it through JSON serialization.
+    Routes CLI ``cmd_doctor`` blocks through the same detection helpers. The
+    public health payload intentionally avoids legacy queue terminology; dream
+    runtime details are reported through the dream ledger.
 
-    Graceful degradation (Req 6.7): each helper call is wrapped in its own
-    try/except. On failure the affected category becomes ``{"warnings":
-    [str(exc)]}`` and the orchestrator carries on, so a single broken store
-    never crashes the whole summary. The underlying exception is logged to
-    the module logger at WARNING level (never ``print``, so the MCP stdio
-    JSON-RPC stream stays clean per project rule P0).
+    Graceful degradation: each helper call is wrapped in its own try/except.
+    On failure the affected category becomes ``{"warnings": [str(exc)]}`` and
+    the orchestrator carries on, so a single broken store never crashes the
+    whole summary.
     """
     report: dict[str, Any] = {}
-
-    # reflection_queue ← v2.4.0 queue_health (unchanged surface).
-    try:
-        report["reflection_queue"] = await queue_health(backend.reflection_job_store)
-    except Exception as exc:  # noqa: BLE001 — total function, see docstring.
-        logger.warning("health_summary: reflection_queue failed: %s", exc)
-        report["reflection_queue"] = {"warnings": [str(exc)]}
 
     # candidate_health ← per-table pending-candidate aggregate.
     try:
@@ -1154,7 +848,7 @@ async def health_summary(backend: LocalMemoryBackend, project_name: str) -> dict
             backend.structured_store, project_name
         )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("health_summary: candidate_health failed: %s", exc)
+        logger.warning("local_health_summary: candidate_health failed: %s", exc)
         report["candidate_health"] = {"warnings": [str(exc)]}
 
     # signal_freshness ← per-signal-type freshness report.
@@ -1163,23 +857,14 @@ async def health_summary(backend: LocalMemoryBackend, project_name: str) -> dict
             backend.structured_store, project_name
         )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("health_summary: signal_freshness failed: %s", exc)
+        logger.warning("local_health_summary: signal_freshness failed: %s", exc)
         report["signal_freshness"] = {"warnings": [str(exc)]}
-
-    # chronic_failures ← multi-failure aggregation over reflection_jobs.
-    try:
-        report["chronic_failures"] = await chronic_failures(
-            backend.reflection_job_store, project_name
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("health_summary: chronic_failures failed: %s", exc)
-        report["chronic_failures"] = {"warnings": [str(exc)]}
 
     # maintenance_hints ← vector / exact / WAL roll-up.
     try:
         report["maintenance_hints"] = await maintenance_hints(backend, project_name)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("health_summary: maintenance_hints failed: %s", exc)
+        logger.warning("local_health_summary: maintenance_hints failed: %s", exc)
         report["maintenance_hints"] = {"warnings": [str(exc)]}
 
     try:
@@ -1194,7 +879,7 @@ async def health_summary(backend: LocalMemoryBackend, project_name: str) -> dict
             repo_root=Path(__file__).resolve().parents[2],
         )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("health_summary: runtime_health failed: %s", exc)
+        logger.warning("local_health_summary: runtime_health failed: %s", exc)
         report["runtime_health"] = {"warnings": [str(exc)]}
 
     return report
@@ -1210,7 +895,7 @@ _CANDIDATE_HIGH_RISK_FIX = "/hm:review"
 
 
 def _doctor_candidate_health_block(candidate_report: dict[str, Any]) -> None:
-    """Render the candidate-health slice of a ``health_summary`` payload.
+    """Render the candidate-health slice of a local health payload.
 
     Silent absence (Req 2.5): a table only produces output when it has at
     least one stale pending candidate — no "0 stale" filler. High-risk-stale
@@ -1249,7 +934,7 @@ def _doctor_candidate_health_block(candidate_report: dict[str, Any]) -> None:
 def _doctor_signal_freshness_block(
     signal_report: dict[str, Any], project_name: str
 ) -> None:
-    """Render the signal-freshness slice of a ``health_summary`` payload.
+    """Render the signal-freshness slice of a local health payload.
 
     Info-level only (Req 3.4): dormancy may be intentional, so this block
     never escalates to a warning. When every signal type is silent
@@ -1286,32 +971,8 @@ def _doctor_signal_freshness_block(
             print(f"  {signal_type}: dormant (last event: {latest}, {age_days}d ago)")
 
 
-def _doctor_chronic_failures_block(chronic_report: dict[str, Any]) -> None:
-    """Render the chronic-failures slice of a ``health_summary`` payload.
-
-    Silent absence (Req 4.5): nothing is printed unless ``is_chronic`` is
-    True. When chronic, prints a warning header followed by each sub-category
-    with its count and top offenders (Req 4.4). Degraded shape (Req 6.7)
-    renders as warning lines.
-    """
-    if "warnings" in chronic_report:
-        for warning in chronic_report["warnings"]:
-            print(f"⚠️  Chronic failure detection unavailable: {warning}")
-        return
-
-    if not chronic_report.get("is_chronic"):
-        return
-
-    lookback = chronic_report.get("lookback_days")
-    print(f"⚠️  Chronic reflection failures (last {lookback}d):")
-    for sub in chronic_report.get("subcategories", []):
-        print(f"  {sub['label']}: × {sub['count']}")
-        for offender in sub.get("top_offenders", []):
-            print(f"    - {offender['job_id']} @ {offender['updated_at']}")
-
-
 def _doctor_maintenance_block(maintenance_report: dict[str, Any]) -> None:
-    """Render the maintenance-hints slice of a ``health_summary`` payload.
+    """Render the maintenance-hints slice of a local health payload.
 
     Silent absence (Req 5.3): nothing is printed when the hint list is empty.
     Each hint preserves the underlying v1.6.2 / v1.7.3 ``message`` and
@@ -1349,13 +1010,13 @@ def _doctor_runtime_health_block(runtime_report: dict[str, Any]) -> None:
         f"runtime={versions['runtime_version']} | wire={versions['wire_format_version']}"
     )
     jobs = runtime_report.get("job_health", {})
-    for name in ("reflection", "dream", "metabolism"):
-        summary = jobs.get(name, {})
-        print(
-            f"  {name}: last={summary.get('last_status') or 'none'}, "
-            f"failures={summary.get('failure_count', 0)}, "
-            f"retryable={summary.get('retryable_count', 0)}"
-        )
+    dream = jobs.get("dream", {})
+    print(
+        "  dream maintenance: "
+        f"last={dream.get('last_status') or 'none'}, "
+        f"failures={dream.get('failure_count', 0)}, "
+        f"retryable={dream.get('retryable_count', 0)}"
+    )
     retrieval = runtime_report.get("retrieval_health", {})
     surfaces = retrieval.get("surfaces", [])
     if surfaces:
@@ -1458,7 +1119,7 @@ def _doctor_dream_status_block(dream_report: dict[str, Any]) -> None:
         print("  last run: none")
     if dream_report.get("enabled"):
         print(
-            "  scheduler: "
+            "  auto gate: "
             f"{'eligible' if dream_report.get('scheduler_eligible') else 'not eligible'} "
             f"({dream_report.get('scheduler_reason')})"
         )

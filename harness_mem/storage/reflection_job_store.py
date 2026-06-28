@@ -1,14 +1,14 @@
-"""ReflectionJobStore — persistence layer for ``ReflectionJob`` records.
+"""ReflectionJobStore — internal dream job ledger persistence.
 
-Thin wrapper over the public :class:`DerivedIndex` boundary exposing the operations
-:func:`reflection_once` needs: upsert, point read, filtered list,
-compare-and-set lease updates, and idempotency-key lookup.
+The historical table/model names still say ``reflection`` for storage
+compatibility, but the product path now uses this store only for dream job
+dedupe, point reads, and runtime health.
 
 Persistence layout (matches design.md > Data Models > SQLite Table):
 
 * Index columns (``id, project_name, status, kind, phase, source,
   idempotency_key, created_at, updated_at, lease_owner, lease_until,
-  attempt_count``) drive the WHERE clauses for compare-and-set and list.
+  attempt_count``) drive the WHERE clauses for active-job checks and list.
 * The ``data`` column carries the full ``ReflectionJob.to_dict()`` blob
   so unknown / forward-compatible fields round-trip without us listing
   them as columns.
@@ -48,9 +48,6 @@ _INDEX_COLUMNS: tuple[str, ...] = (
     "attempt_count",
 )
 
-_TERMINAL_STATUSES: tuple[str, ...] = ("completed", "failed")
-
-
 class ReflectionJobStore:
     """SQLite-backed persistence for :class:`ReflectionJob`.
 
@@ -87,7 +84,7 @@ class ReflectionJobStore:
 
         Returns the active job that blocked insertion, or ``None`` when the
         supplied job was saved. The check and insert happen under the same
-        SQLite write lock so scheduler ticks cannot both start a dream run.
+        SQLite write lock so dream auto ticks cannot both start a dream run.
         """
         with self._index.locked_connection() as conn:
             rows = conn.execute(
@@ -158,144 +155,6 @@ class ReflectionJobStore:
             rows = conn.execute(sql, params).fetchall()
         return [ReflectionJob.from_dict(json.loads(row["data"])) for row in rows]
 
-    # ---- compare_and_set --------------------------------------------------
-
-    def compare_and_set(
-        self,
-        job_id: str,
-        expected_status: str,
-        expected_lease_owner: str | None,
-        updates: dict[str, Any],
-    ) -> bool:
-        """Conditional update used for lease acquisition (Req 4.6).
-
-        Atomic, in the SQLite sense: we hold the index's public
-        ``locked_connection`` boundary from the SELECT through the COMMIT,
-        and SQLite serializes writers, so no other caller can slip in
-        between the read of ``data`` and the UPDATE that writes the merged
-        blob back.
-
-        ``updates`` is a flat mapping of column-name → new-value. Each
-        key that maps to an index column is written to that column;
-        every key is also merged into the ``data`` JSON so the blob
-        stays in sync (it's the source of truth on read).
-
-        Returns ``True`` iff exactly one row matched the WHERE clause
-        and was updated. Never raises — a missed CAS is a normal
-        outcome (another worker won) per Req 4.7.
-        """
-        if not updates:
-            # No-op CAS would still need to bump updated_at for callers
-            # that just want to refresh the timestamp, but a strict
-            # "no updates" means there's nothing to write — return False
-            # rather than silently match. Practically callers always
-            # pass at least one field.
-            return False
-
-        now_iso = datetime.now(timezone.utc).isoformat()
-
-        # --- build SET clause -------------------------------------------------
-        # We always touch ``updated_at`` and ``data``; everything else
-        # comes from ``updates``. Unknown keys (not in _INDEX_COLUMNS)
-        # are still merged into the JSON blob so callers can stash
-        # forward-compat fields without us listing them here.
-        column_assignments: list[str] = ["updated_at = ?", "data = ?"]
-
-        index_columns_to_update: list[str] = []
-        for key in updates:
-            if key in _INDEX_COLUMNS and key not in ("id", "data", "updated_at"):
-                index_columns_to_update.append(key)
-                column_assignments.append(f"{key} = ?")
-
-        # WHERE clause: id + status + lease_owner. We use a single
-        # ``lease_owner IS ?`` predicate by emitting either ``IS NULL``
-        # or ``= ?`` so the same UPDATE works for both branches without
-        # SQLite parameter-binding NULL ambiguity.
-        where = ["id = ?", "status = ?"]
-        where_params: list[Any] = [job_id, expected_status]
-        if expected_lease_owner is None:
-            where.append("lease_owner IS NULL")
-        else:
-            where.append("lease_owner = ?")
-            where_params.append(expected_lease_owner)
-
-        with self._index.locked_connection() as conn:
-            row = conn.execute(
-                "SELECT data FROM reflection_jobs WHERE "
-                + " AND ".join(where),
-                where_params,
-            ).fetchone()
-            if row is None:
-                # CAS failed — either job doesn't exist, status mismatch,
-                # or lease_owner mismatch. No mutation, no exception.
-                return False
-
-            blob = json.loads(row["data"])
-            for key, value in updates.items():
-                blob[key] = self._json_safe(value)
-            blob["updated_at"] = now_iso
-
-            # Now bind parameters in the same order as ``column_assignments``.
-            # updated_at, data, then each index-column update in declared order.
-            params: list[Any] = [now_iso, json.dumps(blob)]
-            for key in index_columns_to_update:
-                params.append(self._scalar_for_column(updates[key]))
-            params.extend(where_params)
-
-            cursor = conn.execute(
-                "UPDATE reflection_jobs SET "
-                + ", ".join(column_assignments)
-                + " WHERE "
-                + " AND ".join(where),
-                params,
-            )
-            conn.commit()
-            return cursor.rowcount == 1
-
-    # ---- find_by_idempotency_key -----------------------------------------
-
-    def find_by_idempotency_key(self, key: str) -> ReflectionJob | None:
-        """Return the latest non-terminal job for ``key``, or ``None``.
-
-        Terminal statuses (``completed`` / ``failed``) are filtered out
-        so :func:`reflection_once` treats a finished prior run as
-        "no live job" — callers who want to retry after completion
-        should mint a new ``trigger_id`` (Req 5.3).
-        """
-        placeholders = ",".join("?" for _ in _TERMINAL_STATUSES)
-        sql = (
-            "SELECT data FROM reflection_jobs "
-            f"WHERE idempotency_key = ? AND status NOT IN ({placeholders}) "
-            "ORDER BY created_at DESC LIMIT 1"
-        )
-        params = [key, *_TERMINAL_STATUSES]
-        with self._index.locked_connection() as conn:
-            row = conn.execute(sql, params).fetchone()
-        if row is None:
-            return None
-        return ReflectionJob.from_dict(json.loads(row["data"]))
-
-    def find_terminal_by_idempotency_key(self, key: str) -> ReflectionJob | None:
-        """Return the latest terminal (``completed`` / ``failed``) job for ``key``.
-
-        Companion to :meth:`find_by_idempotency_key`; together they cover
-        the full row-set with the same idempotency key. Used by
-        :func:`reflection_once` to disambiguate "same trigger replayed"
-        from "new trigger reusing parameters" per Req 5.3.
-        """
-        placeholders = ",".join("?" for _ in _TERMINAL_STATUSES)
-        sql = (
-            "SELECT data FROM reflection_jobs "
-            f"WHERE idempotency_key = ? AND status IN ({placeholders}) "
-            "ORDER BY created_at DESC LIMIT 1"
-        )
-        params = [key, *_TERMINAL_STATUSES]
-        with self._index.locked_connection() as conn:
-            row = conn.execute(sql, params).fetchone()
-        if row is None:
-            return None
-        return ReflectionJob.from_dict(json.loads(row["data"]))
-
     # ---- helpers ----------------------------------------------------------
 
     @staticmethod
@@ -339,20 +198,5 @@ class ReflectionJobStore:
         )
         conn.execute(sql, [row[c] for c in cols])
         conn.commit()
-
-    @staticmethod
-    def _scalar_for_column(value: Any) -> Any:
-        """Coerce a Python value to something SQLite will accept on UPDATE."""
-        if isinstance(value, datetime):
-            return value.isoformat()
-        return value
-
-    @staticmethod
-    def _json_safe(value: Any) -> Any:
-        """Coerce a value to JSON-serialisable form for the ``data`` blob."""
-        if isinstance(value, datetime):
-            return value.isoformat()
-        return value
-
 
 __all__ = ["ReflectionJobStore"]

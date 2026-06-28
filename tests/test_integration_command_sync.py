@@ -15,7 +15,6 @@ from harness_mem.integration.command_sync import (
 def _write_command_sources(source_dir: Path) -> None:
     groups = {
         "daily": ("status", "wake", "search", "search-all", "distill", "review", "dream"),
-        "maintenance": ("mark", "prune"),
     }
     for command in known_command_names():
         for group, commands in groups.items():
@@ -31,7 +30,7 @@ def _write_command_sources(source_dir: Path) -> None:
         )
 
 
-def test_command_profiles_keep_daily_as_default_and_gate_optional_groups() -> None:
+def test_command_sync_is_daily_only() -> None:
     assert resolve_command_names(profile="daily") == (
         "status",
         "wake",
@@ -41,23 +40,16 @@ def test_command_profiles_keep_daily_as_default_and_gate_optional_groups() -> No
         "review",
         "dream",
     )
-    assert "mark" in resolve_command_names(profile="maintenance")
-    assert "prune" in resolve_command_names(profile="maintenance")
+    assert "mark" not in resolve_command_names(profile="daily")
+    assert "prune" not in resolve_command_names(profile="daily")
     assert "metabolism" not in resolve_command_names(profile="daily")
-    assert "metabolism" not in resolve_command_names(profile="maintenance")
     assert "metabolism" not in known_command_names()
-    assert resolve_command_names(profile="full") == (
-        "status",
-        "wake",
-        "search",
-        "search-all",
-        "distill",
-        "review",
-        "dream",
-        "mark",
-        "prune",
-    )
-    assert "dream" in resolve_command_names(profile="maintenance")
+    with pytest.raises(ValueError, match="optional slash command groups were removed"):
+        resolve_command_names(profile="daily", include=("maintenance",))
+    with pytest.raises(ValueError, match="profile must be one of"):
+        resolve_command_names(profile="maintenance")
+    with pytest.raises(ValueError, match="profile must be one of"):
+        resolve_command_names(profile="full")
     with pytest.raises(ValueError, match="profile must be one of"):
         resolve_command_names(profile="labs")
     with pytest.raises(ValueError, match="profile must be one of"):
@@ -69,11 +61,9 @@ def test_source_path_for_command_uses_profile_subdirectories(tmp_path: Path) -> 
     _write_command_sources(source_dir)
 
     assert source_path_for_command(source_dir, "status") == source_dir / "daily" / "status.md"
-    assert (
-        source_path_for_command(source_dir, "mark")
-        == source_dir / "maintenance" / "mark.md"
-    )
     assert source_path_for_command(source_dir, "dream") == source_dir / "daily" / "dream.md"
+    with pytest.raises(ValueError, match="unknown slash command"):
+        source_path_for_command(source_dir, "mark")
 
 
 def test_sync_slash_commands_removes_commands_outside_selected_profile(tmp_path: Path) -> None:
@@ -82,6 +72,7 @@ def test_sync_slash_commands_removes_commands_outside_selected_profile(tmp_path:
     _write_command_sources(source_dir)
     target_dir.mkdir()
     (target_dir / "mark.md").write_text("# optional maintenance command\n", encoding="utf-8")
+    (target_dir / "prune.md").write_text("# optional maintenance command\n", encoding="utf-8")
 
     result = sync_slash_commands(
         source_dir=source_dir,
@@ -90,7 +81,9 @@ def test_sync_slash_commands_removes_commands_outside_selected_profile(tmp_path:
     )
 
     assert "mark" in result.removed_commands
+    assert "prune" in result.removed_commands
     assert not (target_dir / "mark.md").exists()
+    assert not (target_dir / "prune.md").exists()
     assert (target_dir / "status.md").read_text(encoding="utf-8") == "# /hm:status\n"
     assert not (target_dir / "daily").exists()
 

@@ -18,11 +18,12 @@ from harness_mem.commands import (
     cmd_config_set,
     cmd_config_validate,
     cmd_doctor,
-    cmd_enable_command_profiles,
     cmd_export_json_snapshot,
     cmd_import,
     cmd_install_claude_hook,
+    cmd_install_claude_wake_hook,
     cmd_install_cursor_hook,
+    cmd_install_cursor_wake_hook,
     cmd_list_command_profiles,
     cmd_migrate_store_v2,
     cmd_purge,
@@ -32,7 +33,6 @@ from harness_mem.commands import (
 )
 from harness_mem.integration.command_sync import (
     VALID_COMMAND_PROFILES,
-    VALID_OPTIONAL_GROUPS,
 )
 from harness_mem.commands.support import DEFAULT_DATA_DIR
 
@@ -46,11 +46,12 @@ __all__ = [
     "cmd_config_list",
     "cmd_config_validate",
     "cmd_doctor",
-    "cmd_enable_command_profiles",
     "cmd_export_json_snapshot",
     "cmd_import",
     "cmd_install_cursor_hook",
     "cmd_install_claude_hook",
+    "cmd_install_cursor_wake_hook",
+    "cmd_install_claude_wake_hook",
     "cmd_list_command_profiles",
     "cmd_migrate_store_v2",
     "cmd_purge",
@@ -216,9 +217,8 @@ def main(argv: list[str] | None = None):
         help="Manage harness-mem TOML configuration files",
         description=(
             "Manage the user-level and project-level harness-mem TOML config "
-            "files. Note: v2.4 triggers default to 'off'; installing an IDE "
-            "hook does not by itself enable reflection. Opt in explicitly with "
-            "'config set triggers.after_agent on --scope project'."
+            "files. Dream auto-maintenance uses dream.auto.* keys; wake and "
+            "dream hooks are installed explicitly under integration."
         ),
     )
     config.set_defaults(command_name="config")
@@ -227,13 +227,13 @@ def main(argv: list[str] | None = None):
     config_get = config_sub.add_parser(
         "get", help="Read a single merged configuration value"
     )
-    config_get.add_argument("key", help="Dotted key path, e.g. triggers.after_agent")
+    config_get.add_argument("key", help="Dotted key path, e.g. dream.auto.enabled")
     config_get.add_argument("--project-root", help="Project directory (default: cwd)")
 
     config_set = config_sub.add_parser(
         "set", help="Write a single configuration value to a Config_File"
     )
-    config_set.add_argument("key", help="Dotted key path, e.g. triggers.after_agent")
+    config_set.add_argument("key", help="Dotted key path, e.g. dream.auto.enabled")
     config_set.add_argument("value", help="Literal value to write")
     config_set.add_argument(
         "--scope",
@@ -257,13 +257,11 @@ def main(argv: list[str] | None = None):
 
     integration = sub.add_parser(
         "integration",
-        help="Install IDE hooks that invoke the v2.4.1 host entry",
+        help="Install IDE hooks for wake injection and dream maintenance",
         description=(
             "Generate IDE hook scripts that invoke 'python -m "
-            "harness_mem.host_entry'. Note: v2.4 triggers default to 'off'; "
-            "installing a hook does not by itself enable reflection. Opt in "
-            "explicitly with 'config set triggers.after_agent on --scope "
-            "project'."
+            "harness_mem.host_entry'. Session-start hooks print wake context; "
+            "after-turn hooks run gated dream maintenance."
         ),
     )
     integration.set_defaults(command_name="integration")
@@ -271,12 +269,11 @@ def main(argv: list[str] | None = None):
 
     install_cursor = integration_sub.add_parser(
         "install-cursor-hook",
-        help="Generate the Cursor after-agent hook script",
+        help="Generate the Cursor dream-end hook script",
         description=(
             "Generate the Cursor after-agent hook at "
-            "<project_root>/.cursor/hooks/after-agent.sh. After install, opt in "
-            "via: harness-mem config set triggers.after_agent on --scope "
-            "project"
+            "<project_root>/.cursor/hooks/after-agent.sh. It runs a gated "
+            "dream maintenance tick after agent turns."
         ),
     )
     install_cursor.add_argument(
@@ -288,12 +285,11 @@ def main(argv: list[str] | None = None):
 
     install_claude = integration_sub.add_parser(
         "install-claude-hook",
-        help="Generate the Claude Code after-turn hook script",
+        help="Generate the Claude Code dream-end hook script",
         description=(
             "Generate the Claude Code after-turn hook at "
-            "<project_root>/.claude/hooks/after-turn.sh. After install, opt in "
-            "via: harness-mem config set triggers.after_agent on --scope "
-            "project"
+            "<project_root>/.claude/hooks/after-turn.sh. It runs a gated "
+            "dream maintenance tick after turns."
         ),
     )
     install_claude.add_argument(
@@ -303,53 +299,63 @@ def main(argv: list[str] | None = None):
         "--force", action="store_true", help="Overwrite an existing hook"
     )
 
+    install_cursor_wake = integration_sub.add_parser(
+        "install-cursor-wake-hook",
+        help="Generate the Cursor session-start wake hook script",
+        description=(
+            "Generate the Cursor session-start hook at "
+            "<project_root>/.cursor/hooks/session-start.sh. It prints wake "
+            "context for host injection."
+        ),
+    )
+    install_cursor_wake.add_argument(
+        "--project-root", help="Project directory (default: cwd)"
+    )
+    install_cursor_wake.add_argument(
+        "--force", action="store_true", help="Overwrite an existing hook"
+    )
+
+    install_claude_wake = integration_sub.add_parser(
+        "install-claude-wake-hook",
+        help="Generate the Claude Code session-start wake hook script",
+        description=(
+            "Generate the Claude Code session-start hook at "
+            "<project_root>/.claude/hooks/session-start.sh. It prints wake "
+            "context for host injection."
+        ),
+    )
+    install_claude_wake.add_argument(
+        "--project-root", help="Project directory (default: cwd)"
+    )
+    install_claude_wake.add_argument(
+        "--force", action="store_true", help="Overwrite an existing hook"
+    )
+
     commands = integration_sub.add_parser(
         "commands",
-        help="List or sync Claude Code /hm:* slash command profiles",
+        help="List or sync Claude Code /hm:* slash commands",
         description=(
             "Manage Claude Code /hm:* command visibility without reinstalling "
-            "the harness-mem runtime. Daily commands are the default; "
-            "maintenance commands are explicit opt-in."
+            "the harness-mem runtime. The synced command surface is Daily only."
         ),
     )
     commands_sub = commands.add_subparsers(dest="commands_action")
 
-    commands_sub.add_parser("list", help="List available command profiles")
+    commands_sub.add_parser("list", help="List available Daily commands")
 
     commands_sync = commands_sub.add_parser(
         "sync",
-        help="Synchronize one command profile",
+        help="Synchronize Daily commands",
     )
     commands_sync.add_argument(
         "--profile",
         choices=VALID_COMMAND_PROFILES,
         default="daily",
-        help="Command profile to sync (default: daily)",
-    )
-    commands_sync.add_argument(
-        "--include",
-        action="append",
-        choices=VALID_OPTIONAL_GROUPS,
-        default=[],
-        help="Additional optional group to include; may be repeated",
+        help="Command profile to sync (only daily is supported)",
     )
     commands_sync.add_argument("--source-dir", help="Slash command source directory")
     commands_sync.add_argument("--target-dir", help="Claude Code hm command directory")
     commands_sync.add_argument("--dry-run", action="store_true")
-
-    commands_enable = commands_sub.add_parser(
-        "enable",
-        help="Enable optional command groups on top of Daily commands",
-    )
-    commands_enable.add_argument(
-        "profiles",
-        nargs="+",
-        choices=(*VALID_OPTIONAL_GROUPS, "full"),
-        help="Optional groups to enable",
-    )
-    commands_enable.add_argument("--source-dir", help="Slash command source directory")
-    commands_enable.add_argument("--target-dir", help="Claude Code hm command directory")
-    commands_enable.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args(args_list)
     command = getattr(args, "command_name", args.command)
@@ -437,6 +443,10 @@ def main(argv: list[str] | None = None):
             return cmd_install_cursor_hook(args.project_root, args.force)
         if args.integration_action == "install-claude-hook":
             return cmd_install_claude_hook(args.project_root, args.force)
+        if args.integration_action == "install-cursor-wake-hook":
+            return cmd_install_cursor_wake_hook(args.project_root, args.force)
+        if args.integration_action == "install-claude-wake-hook":
+            return cmd_install_claude_wake_hook(args.project_root, args.force)
         if args.integration_action == "commands":
             if args.commands_action is None:
                 commands.print_help()
@@ -446,14 +456,7 @@ def main(argv: list[str] | None = None):
             if args.commands_action == "sync":
                 return cmd_sync_commands(
                     profile=args.profile,
-                    include=args.include,
-                    source_dir=args.source_dir,
-                    target_dir=args.target_dir,
-                    dry_run=args.dry_run,
-                )
-            if args.commands_action == "enable":
-                return cmd_enable_command_profiles(
-                    profiles=args.profiles,
+                    include=[],
                     source_dir=args.source_dir,
                     target_dir=args.target_dir,
                     dry_run=args.dry_run,

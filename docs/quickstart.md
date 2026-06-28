@@ -35,6 +35,15 @@ product surface.
 Most users should connect `harness-mem` through MCP and let their Agent call the
 tools.
 
+Common invocation paths:
+
+| Path | Use |
+|---|---|
+| Plain language | Ask the Agent to wake, search, distill, or review. |
+| `/hm:*` commands | Run the daily workflow from Claude Code. |
+| Agent skills | Teach the client when to call memory tools. |
+| Hooks | Inject wake context at session start or run gated dream maintenance at session end. |
+
 The server command is:
 
 ```bash

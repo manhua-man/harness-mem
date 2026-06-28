@@ -1,35 +1,74 @@
 # harness-mem 整体收敛审查与整改计划
 
 **版本：v4 修正版**
-**主轴：整体产品边界收敛**
+**主轴：整体收敛状态与剩余整改计划**
 **定位：session-distill 是关键专项之一，但不是本轮收敛的主轴**
 
-目标：把稳定版默认公开面收回到 **local memory core loop**，同时保留并模块化重要能力。
+目标：把稳定版默认公开面收回到 **Agent memory runtime core loop**，同时记录哪些功能已经删除、哪些边界已经收住、哪些代码结构债仍需继续收敛。
 
 > **本版纠偏**
 > 前一版把 `session-distill` 专项放得过重，容易让人误解为“主轴改成 session-distill 内部特化”。本版明确改回：主轴是 **harness-mem 整体收敛**；`session-distill` 是其中一个高优先级模块，重要但不是总主题。
 
-适用范围：MCP 工具面、插件命令面、`/hm:distill` 与 `tools/session-distill`、storage/search 架构、dream/metabolism/skill governance 等治理层、CLI 与文档默认叙事。
+适用范围：MCP 工具面、插件命令面、`/hm:distill` 与 `tools/session-distill`、storage/search 架构、dream 与已删除 M07X standalone 维护面、Skill governance 等治理层、CLI 与文档默认叙事。
 
 > **V4.2 决议更新**
 > MCP 不再把 `full/minimal/core-read/review-write/labs` 作为用户需要理解的公开 profile。对外只有一个 public memory surface：读、蒸馏候选、显式 review gate、dream 默认维护。历史 MCP profile 参数、env gate 和 degraded 兼容解释已经删除。
 >
-> Dream 是默认开启的产品能力，但仍受 scheduler gate、audit ledger 和 undo metadata 约束；它不再归入 labs。Skill governance 不再作为 MCP public tools 或 harness-mem CLI 产品入口暴露；后续如果继续做，应放在 memory 产品之外的专门 skill 整理流程里。
+> Dream 是默认开启的产品能力，但仍受 dream auto gate、audit ledger 和 undo metadata 约束；它不再归入 labs。Skill governance 不再作为 MCP public tools 或 harness-mem CLI 产品入口暴露；后续如果继续做，应放在 memory 产品之外的专门 skill 整理流程里。
+
+## 0. 当前状态快照
+
+这份文档现在不是“未执行计划原文”，而是当前收敛状态和剩余改进计划的基线。按当前代码与提交状态，应这样理解：
+
+### 已闭环
+
+```text
+MCP: 单一 public memory surface；历史 MCP profile 参数、env gate、degraded 解释已删除。
+MCP registry: 只注册 public memory tools；非 public 工具不再先注册再 hidden。
+/hm:distill: 默认 preview；auto-review 不默认写 durable truth。
+Dream: 默认产品能力；保留 auto gate / ledger / undo 边界。
+Skill governance: 退出 MCP、CLI 顶层和 Daily slash commands。
+CLI: 退回 setup / doctor / config / integration / maintenance operator console。
+M10: knowledge-cache / wiki bridge / compact renderer runtime 已删除。
+causal benchmark: 不再作为 CLI/runtime 产品面暴露。
+Plugin: Daily 默认包含 status/wake/search/search-all/distill/review/dream。
+Plugin maintenance slash: /hm:mark 与 /hm:prune 用户可见入口已删除；只保留内部 guardrail helper。
+Storage/search: 已落 TruthStore / CandidateStore / DerivedIndex 不变量测试，并补上 record payload 边界，拆出的 store 不再访问 LocalStructuredStore._blob_path。
+```
+
+### 尚未完全闭环
+
+```text
+MCP handlers: tool_handlers.py 仍偏大；后续可继续拆 handler group，但不是 public contract 漏口。
+storage/search: LocalStructuredStore 仍是兼容 facade，内部职责还要继续向 TruthStore / CandidateStore / DerivedIndex / SearchFacade 下沉。
+read/context/signals: 默认 contract 已收住，但高级策略、trace、cost/sufficiency 仍需继续冻结边界和删无测试分支。
+standalone maintenance/metabolism/reflection: 产品面已收，但内部命名和最小实现仍需继续并入 dream/background job 语义。
+文档: V4 需要持续区分 Done / Remaining / Removed，避免旧计划语言被误读成仍待执行。
+```
+
+### 后续处理原则
+
+```text
+能删的删：没有 public surface、没有内部调用、没有测试价值的旧能力直接删除。
+能合的合：重复治理概念并入 dream / background job / review gate。
+必须保留的收边界：storage/search/read path 不硬删核心能力，但要减少 facade 内部职责和隐式副作用。
+```
 
 ---
 
 ## 目录
 
+0. [当前状态快照](#0-当前状态快照)
 1. [执行摘要：整体收敛的主判断](#1-执行摘要整体收敛的主判断)
 2. [收敛判据：保留、冻结、隔离、重构、延后](#2-收敛判据保留冻结隔离重构延后)
 3. [整体优先级图：P0/P1/P2/P3](#3-整体优先级图p0p1p2p3)
 4. [模块级坏味道审查](#4-模块级坏味道审查)
 5. [稳定版默认公开面设计](#5-稳定版默认公开面设计)
 6. [review gate 与 auto-review 策略](#6-review-gate-与-auto-review-策略)
-7. [插件命令面与安装 profile](#7-插件命令面与安装-profile)
+7. [插件命令面与命令可见性](#7-插件命令面与命令可见性)
 8. [session-distill：整体计划中的关键专项](#8-session-distill整体计划中的关键专项)
 9. [storage/search 与 MCP/CLI 结构债](#9-storagesearch-与-mcpcli-结构债)
-10. [PR/Issue 拆分计划](#10-prissue-拆分计划)
+10. [改进计划：按状态执行](#10-改进计划按状态执行)
 11. [验收清单与证据索引](#11-验收清单与证据索引)
 
 ---
@@ -46,15 +85,15 @@
 wake -> search -> distill -> review
 ```
 
-当前需要收敛的膨胀面：
+本轮从这些膨胀面开始收敛；当前应按状态理解：
 
 ```text
-MCP full/minimal 工具面过宽
-/hm:distill 默认 auto-review apply
-插件命令暴露 maintenance/private workflow
-session-distill 单体过胖
-storage/search truth/index/vector 边界不稳
-metabolism/skill governance 过早进入用户视野，knowledge-cache/wiki bridge 已超出主线
+[done] 历史 MCP full/minimal 工具面过宽 -> 已收为单 public memory surface。
+[done] /hm:distill 默认 auto-review apply -> 已改为默认 preview / review gate。
+[done] 插件默认命令面过宽 -> Daily 默认包含 dream，不默认暴露维护命令。
+[remaining] session-distill 单体仍偏胖 -> 继续拆薄入口和 lib 边界。
+[remaining] storage/search truth/index/vector 边界仍需继续下沉。
+[done/remaining] standalone metabolism/reflection、Skill governance、knowledge-cache/wiki bridge 已退出产品面；内部命名、遗留 schema/store 痕迹继续清理。
 ```
 
 > **最终结论**
@@ -71,8 +110,8 @@ metabolism/skill governance 过早进入用户视野，knowledge-cache/wiki brid
 | 分类 | 判断标准 | 处理方式 |
 |---|---|---|
 | 核心保留 | 直接服务 `wake/search/distill/review`，且可审计。 | 保留并强化测试与文档。 |
-| 默认冻结 | 有价值，但默认暴露会扩大产品面或信任边界。 | 从默认 profile/安装中移走，显式开启。 |
-| 实验隔离 | 概念强、风险高、尚未成为稳定承诺。 | 移动到 `labs` / `maintenance` / `internal`。 |
+| 默认冻结 | 有价值，但默认暴露会扩大产品面或信任边界。 | 从默认可见面/安装中移走，显式开启。 |
+| 实验隔离 | 概念强、风险高、尚未成为稳定承诺。 | 移到 internal、独立专项或显式 maintenance，不进入 public MCP。 |
 | 结构重构 | 功能正确，但模块边界已经影响维护。 | 先锁测试，再拆模块。 |
 | 延后投入 | 重要但不应在 `0.8.x` 继续堆。 | 列入 `0.9+`，不进入当前默认面。 |
 
@@ -91,7 +130,7 @@ get_project_status / doctor / setup
 ### 本轮不应继续扩张的范围
 
 ```text
-metabolism / reflection_jobs
+已删除 standalone metabolism / reflection debug 面
 skill promotion / revision / deprecation
 已删除的 knowledge-cache compact renderer
 prune / mark artifact 维护链路
@@ -99,7 +138,7 @@ retrieval quality 实验层
 自动 confirm / 自动 durable write
 ```
 
-这些功能不是全部删除，而是降权、隔离、显式开启。
+这些功能不是全部保留后换入口。没有明确核心价值、调用方和测试价值的旧能力直接删除；确有价值但不适合作为默认 memory workflow 的能力，才降权、隔离或显式开启。
 
 ---
 
@@ -107,11 +146,11 @@ retrieval quality 实验层
 
 | 优先级 | 问题域 | 目标 | 典型改动 |
 |---|---|---|---|
-| P0 | 默认行为与 public contract 冲突 | 稳定版默认面可信、可解释。 | MCP 单 public memory surface；`/hm:distill` 默认 preview；`/hm:review` 成为 durable gate；Skill governance 退出 MCP public tools。 |
-| P1 | 插件命令面与 session-distill 过胖 | Daily 与 artifact maintenance 分层；删除 KB/PRD 第二产品能力。 | 默认只装 `status/wake/search/search-all/distill/review/dream`；`session-distill` 只服务 candidate export。 |
-| P1/P2 | storage/search 架构债 | `truth/index/vector/search facade` 边界清楚。 | 补一致性测试，再拆 `TruthStore/DerivedIndex/SearchFacade/VectorBackend`。 |
-| P2 | MCP server / CLI 结构债 | 入口层不继续长成应用内核。 | `server.py` 拆 tool groups；CLI 降级为 operator console。 |
-| P3 | metabolism/skill governance；已删除 M10 knowledge-cache/wiki bridge | metabolism 保留必要治理的实验价值，但不作为稳定承诺；M10 不保留产品层、runtime 层或 maintenance/internal 层。 | metabolism 维持受控 internal/read-debug；Skill governance 退出 MCP 和 CLI 产品面；durable knowledge 不再经过 generated cache。 |
+| P0 | 默认行为与 public contract 冲突 | 已闭环；继续用测试守边界。 | MCP 单 public memory surface；`/hm:distill` 默认 preview；`/hm:review` 成为 durable gate；Skill governance 退出 MCP public tools。 |
+| P1 | 插件命令面与 session-distill 过胖 | 默认面已收；继续删除无用 slash/artifact 维护能力。 | 默认只装 `status/wake/search/search-all/distill/review/dream`；`session-distill` 只服务 candidate export。 |
+| P1/P2 | storage/search 架构债 | 第一刀已落；继续把 facade 内部职责下沉。 | 已补一致性测试；继续拆 `TruthStore/DerivedIndex/SearchFacade/VectorBackend`。 |
+| P2 | MCP server / CLI 结构债 | CLI public 面已收；MCP 内部 handler 继续瘦身。 | registry 只注册 public memory tools；CLI 保持 operator console。 |
+| P3 | 已删除 standalone M07X metabolism/reflection；Skill governance；已删除 M10 knowledge-cache/wiki bridge | 产品面已收；继续删内部命名和无调用痕迹。 | dream 保留默认入口、auto gate、ledger、undo；底层扫描/ledger 仅作为 dream 内部实现；Skill governance 不进入 memory MCP/CLI。 |
 
 ### 关键排序原则
 
@@ -126,7 +165,7 @@ retrieval quality 实验层
 -> 再拆 session-distill
 -> 再补 storage/search 测试
 -> 再做结构重构
--> 最后清理 labs/maintenance 文档叙事
+-> 最后清理 maintenance/internal 文档叙事
 ```
 
 ---
@@ -135,9 +174,9 @@ retrieval quality 实验层
 
 | 模块/功能 | 坏味道 | 决策 |
 |---|---|---|
-| MCP tools | 默认 `full`；`minimal` 也包含 `suggest/confirm/reject/auto_review` 等写操作。 | P0：改为单 public memory surface；不再让用户选择 profile；Skill governance 不注册为 MCP 工具。 |
-| `/hm:distill auto-review` | 默认 `apply=true` 会混掉 `distill -> review` 的信任边界。 | P0：默认 preview；`apply-low-risk` 显式；`review-now` 进入 `/hm:review`。 |
-| 插件命令面 | artifact maintenance、KB/PRD 管理和 Daily 命令混在一起。 | P1：Daily 默认安装 `dream`；maintenance 只保留 `mark/prune`；删除 KB/PRD command surface。 |
+| MCP tools | 历史默认 `full`；`minimal` 也包含 `suggest/confirm/reject/auto_review` 等写操作。 | 已完成 P0：改为单 public memory surface；不再让用户选择 profile；Skill governance 不注册为 MCP 工具。 |
+| `/hm:distill auto-review` | 历史默认 `apply=true` 会混掉 `distill -> review` 的信任边界。 | 已完成 P0：默认 preview；`apply-low-risk` 显式；`review-now` 进入 `/hm:review`。 |
+| 插件命令面 | artifact maintenance、KB/PRD 管理和 Daily 命令混在一起。 | 默认面已完成：Daily 默认安装 `dream`；后续继续删除不必要的高级 slash/artifact 命令，而不是靠更多分组膨胀。 |
 | `tools/session-distill` | 同时承担 packet、manifest、KB、PRD、guardrail、candidate export、cleanup，总线化。 | P1：删除 KB/PRD 管理能力，只保留 packet/candidate/export 与 artifact lifecycle。 |
 | storage/search | `truth/index/vector/search facade` 双写与 optional 依赖边界不清。 | P1/P2：先补回归测试，再拆边界。 |
 | storage/reflection job | 维护 store 复用 structured store 私有 `_index` 一类封装穿透。 | P1/P2：已提供 `DerivedIndex` public 边界；后续只在需要时再拆物理文件。 |
@@ -146,7 +185,7 @@ retrieval quality 实验层
 | read/context/signals | ranking、signal、sufficiency、cost strategy 容易让 read path 不可解释。 | P2：冻结默认 read contract，高级策略 behind flag 且必须 traceable。 |
 | plugin bundle | 容易被误解为 canonical API 或 Claude-only 产品。 | P2：明确 plugin 是 integration bundle；canonical API 是 runtime + MCP + review lifecycle。 |
 | optional native/Rust | 内部加速实现版本容易污染产品版本叙事。 | P2：对外只称 optional native acceleration；不把 native core 版本当产品版本。 |
-| dream/metabolism/reflection | 将 memory backend 推向自治治理系统。 | dream 默认开启但必须有 gate/audit/undo；metabolism/reflection 仍是 maintenance/internal。 |
+| dream 与已删除 M07X standalone 维护面 | 旧实现将 memory backend 推向多套自治治理系统。 | dream 是唯一自动维护产品能力，必须有 gate/audit/undo；standalone metabolism/reflection MCP/CLI/slash/read-debug 面删除。 |
 | skill governance | promotion/revision/deprecation 容易把项目拖成 skill lifecycle manager。 | 从 MCP public tools 与 CLI 产品入口删除；如需继续做，放到 harness-mem 之外的专门 skill 整理流程。 |
 
 ### 当前最危险的不是“大文件”，而是默认行为冲突
@@ -164,14 +203,14 @@ retrieval quality 实验层
 ```text
 默认可读、可准备、可建议、可审查；
 durable write 只通过显式 review gate；
-dream 默认开启但必须有 scheduler gate、ledger、undo；
+dream 默认开启但必须有 auto gate、ledger、undo；
 skill lifecycle / operator maintenance / experiment 不进入 MCP public tools。
 ```
 
 | Surface | 允许能力 | 不允许能力 |
 |---|---|---|
-| MCP public memory surface | `wake/search/status/timeline/file_context/prepare_session_distill/suggest_* / list_candidates / get_candidate_detail / confirm_* / reject_* / supersede / dream_ledger / dream_run / dream_auto_tick / undo_dream_item`。 | `metabolism_run`, `metabolism_preview`, `health_summary`, `surface_cost_report`, `list_reflection_jobs`, `get_reflection_job`, migrations, purge/rebuild, Skill governance lifecycle tools。 |
-| CLI maintenance surface | import/purge/rebuild/migrate/export/audit/operator repair。 | 不作为 Daily memory workflow；不暴露 cache、wiki bridge、bench 子产品入口；不提供可触发 metabolism 的 CLI 产品入口。 |
+| MCP public memory surface | `wake/search/status/timeline/file_context/prepare_session_distill/suggest_* / list_candidates / get_candidate_detail / confirm_* / reject_* / supersede / dream_ledger / dream_run / dream_auto_tick / undo_dream_item`。 | 已删除 standalone metabolism/reflection/read-debug tools；不暴露 migrations、purge/rebuild、Skill governance lifecycle tools。 |
+| CLI maintenance surface | import/purge/rebuild/migrate/export/audit/operator repair。 | 不作为 Daily memory workflow；不暴露 cache、wiki bridge、bench 子产品入口；不提供 standalone 后台维护触发入口。 |
 | Plugin Daily surface | `/hm:status`, `/hm:wake`, `/hm:search`, `/hm:search-all`, `/hm:distill`, `/hm:review`, `/hm:dream`。 | 不默认安装 raw cleanup、artifact maintenance、实验命令；不存在 KB/PRD sync 子产品。 |
 | Skill governance | 不属于 harness-mem public memory 产品面；只保留 confirmed procedural memory 的 read hint 能力。 | 不作为 MCP public lifecycle tools，不混入 CLI 或 Daily `/hm:*` 命令。 |
 
@@ -189,12 +228,12 @@ skill lifecycle / operator maintenance / experiment 不进入 MCP public tools�
 ### MCP 单公开面验收标准
 
 ```text
-1. tools/list 只返回一个 public memory surface，不要求用户选择 full/minimal/labs/review-write。
+1. tools/list 只返回一个 public memory surface，不要求用户理解或选择历史 full/minimal/labs/review-write 分组。
 2. auto_review_candidates(apply=true) 在 public MCP 中强制变成 preview。
 3. confirm/reject/supersede 仍是显式 review gate，不由 heuristic 自动 apply。
-4. 默认包含 dream 账本/显式触发/auto tick/undo，但不包含 metabolism、migration、rebuild、purge。
+4. 默认包含 dream 账本/显式触发/auto tick/undo，但不包含 standalone metabolism/reflection、migration、rebuild、purge。
 5. suggest_skill/confirm_skill/skill promotion/revision/deprecation 不注册为 MCP public tools。
-6. 默认 tools/list 不报告 hidden maintenance tool count；历史 profile 请求只作为兼容噪音忽略，不解锁第二套 MCP 工具面。
+6. 默认 tools/list 不报告 hidden maintenance tool count；历史 MCP profile 参数、env gate、degraded 兼容解释已删除。
 ```
 
 ---
@@ -228,7 +267,7 @@ distill
 | 默认 `/hm:distill` | 生成 packet/candidates，运行 preview。 | confirmed memory 不变。 |
 | `--apply-low-risk` | 只自动处理低风险候选。 | 必须显式；必须写 audit log；不得处理 conflict/raw-review blocked。 |
 | `--review-now` | distill 后进入交互式 review。 | `/hm:review` 仍是 gate。 |
-| maintenance apply | mark/prune/raw cleanup 等 artifact 维护。 | 只在 maintenance profile 下可用。 |
+| maintenance apply | mark/prune/raw cleanup 等 artifact 维护。 | 只在显式 maintenance 命令下可用。 |
 
 ### `/hm:distill` 的默认输出应该提示边界
 
@@ -259,31 +298,27 @@ Review:
 
 ---
 
-## 7. 插件命令面与安装 profile
+## 7. 插件命令面与命令可见性
 
-插件命令面要按用户心智分层：
+插件命令面要按用户心智收窄：
 
 ```text
 Daily = 产品入口
-Maintenance = 操作员工具
+历史 Maintenance slash = 已删除用户可见入口
 ```
 
 | 分组 | 命令 | 默认 |
 |---|---|---|
 | Daily | `/hm:status`, `/hm:wake`, `/hm:search`, `/hm:search-all`, `/hm:distill`, `/hm:review`, `/hm:dream` | 是 |
-| Maintenance | `/hm:mark`, `/hm:prune` | 否，`sync-commands.ps1 -Profile Maintenance` |
 
 安装器建议：
 
 ```powershell
 .\install.ps1 -RegisterClaude
 # 默认只装 Daily
-
-.\sync-commands.ps1 -Profile Maintenance
-# 不重新安装 runtime，只打开 Maintenance 命令
 ```
 
-默认安装后不应该看到：
+安装或同步后不应该看到：
 
 ```text
 /hm:mark
@@ -414,10 +449,10 @@ slash command 只是调用 runtime/toolchain。
 
 | 外部经验 | 内部吸收 |
 |---|---|
-| 多 skill 分离 | 内化成 adapters/profile/module 分层，不必拆多个仓库。 |
+| 多 skill 分离 | 内化成 adapters/source/module 分层，不必拆多个仓库，也不重新引入用户可见 profile。 |
 | `packet-memory-export` | 吸收 evidence -> candidate export 边界，内部实现为 `harness_mem_export.py`。 |
 | Codex/Cursor/Claude 入口 | 统一 `SourceAdapter` 接口。 |
-| `grill-me/answer-me/ask-me` | 作为 review-helper/labs，不写 truth。 |
+| `grill-me/answer-me/ask-me` | 最多作为 internal review-helper，不写 truth，不进入 Daily 或 MCP public memory surface。 |
 | guardrail 测试经验 | 迁入内部：partial packet、pending drafts、raw cleanup、mark distilled。 |
 
 ### 8.4 `harness_mem_export` 的边界
@@ -734,15 +769,15 @@ harness_mem/mcp/server.py          # stdio / JSON-RPC / dispatch
 harness_mem/mcp/backend.py         # backend lifecycle
 harness_mem/mcp/executor.py        # tools/call execution policy
 harness_mem/mcp/serializers.py     # result serialization
-harness_mem/mcp/tool_registry.py   # profile / registry / permissions
-harness_mem/mcp/tool_handlers.py   # MCP tool handler implementations
-harness_mem/mcp/tools/read.py      # wake/search/status/profile/rules
+harness_mem/mcp/tool_registry.py   # public memory registry / visibility
+harness_mem/mcp/tool_handlers.py   # temporary compatibility facade while groups split out
+harness_mem/mcp/tools/read.py      # wake/search/status/project/rules
 harness_mem/mcp/tools/distill.py   # prepare_session_distill / suggest-only export
 harness_mem/mcp/tools/review.py    # list/detail/confirm/reject/replace
-harness_mem/mcp/tools/maintenance.py
-harness_mem/mcp/tools/labs.py
-harness_mem/mcp/tools/admin.py
+harness_mem/mcp/tools/dream.py     # dream ledger/run/tick/undo
 ```
+
+MCP registry 不应再保留 hidden internal/admin ToolSpec。确实需要的内部能力应放在 runtime 内部 API、CLI maintenance 或 dream/background job 实现层，而不是先注册成 MCP tool 再隐藏。
 
 ### 9.3 CLI
 
@@ -774,7 +809,7 @@ read path 的默认体验必须 simple、deterministic、traceable。
 可以保留高级策略：
 
 ```text
-retrieval_profile=quality
+retrieval_mode=quality  # 如果代码内部仍叫 retrieval_profile，只作为内部配置名，不进入用户心智模型。
 signal_influence=on
 context_sufficiency=diagnostic
 cost_budget_policy=diagnostic
@@ -795,7 +830,7 @@ get_observations(session/project)
 高级策略的验收标准：
 
 ```text
-默认关闭或由显式配置 opt-in；dream 例外，它是默认开启但受 scheduler gate/audit/undo 约束的维护能力。
+默认关闭或由显式配置 opt-in；dream 例外，它是默认开启但受 auto gate/audit/undo 约束的维护能力。
 输出包含 trace / reason / evidence，不制造黑盒 ranking。
 关闭高级策略后，wake/search 的基础结果仍可解释、可审计。
 不把 signal/sufficiency/cost policy 写成 quickstart 主路径。
@@ -832,222 +867,108 @@ README/quickstart 不用 native core 大版本解释产品边界。
 
 ---
 
-## 10. PR/Issue 拆分计划
+## 10. 改进计划：按状态执行
 
-PR 顺序按“先收默认行为，再拆工具链，再补存储测试，最后整理 maintenance/internal 文档”的顺序执行。
+不要再把早期 PR 列表当作未完成 backlog。当前计划按 Done / P0 / P1 / P2 管理；P0 是 public contract，P1/P2 是继续代码收敛和删除遗留。
 
-每个 PR 都应该小而可验收，避免把 `session-distill` 专项重新变成总线式大改。
+### Done：已闭环，不再反复设计
 
-### PR-1：MCP 单 public memory surface 收敛
+```text
+[done] MCP 单 public memory surface：不再要求用户选择 full/minimal/core-read/review-write/labs。
+[done] Skill governance 退出 memory MCP、harness-mem CLI 产品入口和 Daily slash commands。
+[done] Dream 是默认产品能力，进入 Daily；保留 auto gate、audit ledger、undo metadata。
+[done] /hm:distill 默认 preview；durable write 继续走 /hm:review。
+[done] CLI 退回 operator console；旧顶层 import/purge 已下沉到 maintenance。
+[done] M10 knowledge-cache / wiki bridge / compact renderer runtime 删除。
+[done] causal benchmark 不作为 CLI/runtime 产品面暴露。
+[done] /hm:mark 与 /hm:prune 外部入口删除；session-distill artifact lifecycle 只保留内部 guardrail helper。
+[done] MCP registry 只注册 public memory tools；update_project_profile 不再作为 MCP tool。
+[done] storage/search 已落 TruthStore / CandidateStore / DerivedIndex 不变量测试和 record payload 边界。
+```
+
+### P0：本文档与 public contract 守护
 
 目标：
 
 ```text
-不再让用户选择 full/minimal/review/labs profile；public MCP 只有一个 memory surface。
+文档必须准确反映当前状态，不把已删除或已收敛的旧入口写成仍待执行。
+对用户只讲一个 public memory surface，不再解释 profile、labs 或隐藏工具数量。
 ```
 
 验收：
 
 ```text
-工具列表包含 read/distill candidate/review gate/dream；
-auto_review apply 强制 preview；
-Skill governance 不注册为 MCP public tools。
+历史 full/minimal/labs/review-write 只作为“已删除背景”出现。
+P0 项目全部标为 done 或 public-contract guard，不再挂在待办列表里。
+Dream 默认开启的叙事与 review gate/audit/undo 一致。
+Skill governance 的后续归宿明确为 memory MCP 之外的专项流程，而不是 hidden MCP tool。
 ```
 
----
+### P1：继续做代码收敛与多余功能移除
 
-### PR-2：`/hm:distill` review gate 修正
-
-目标：
+下一轮优先处理“还有代码痕迹但不该形成产品心智”的部分：
 
 ```text
-auto-review 默认 preview；apply-low-risk 显式。
+1. Skill governance 残留清理
+   promotion/revision/deprecation 的 schema、serializer、store 若没有非 MCP 调用方，直接删除。
+   如确实要保留，迁到独立 skill-governance / skill-optimizer 专项，不进 harness-mem memory MCP。
+
+2. Dream / background job 命名合并
+   standalone metabolism/reflection 产品面已删；内部命名继续并入 dream/background job 语义。
+   用户只理解 dream 默认维护，不理解第二套 maintenance/metabolism 系统。
+
+3. session-distill 瘦身
+   保留 packet -> candidate draft -> suggest-only export -> review gate。
+   删除 KB/PRD 第二产品能力；artifact lifecycle 用户入口已删，只保留内部 guardrail helper。
+
+4. Plugin / slash command 收窄
+   Daily 保留 status/wake/search/search-all/distill/review/dream。
+   不再用高级 slash profile 承载维护能力；确需维护走 CLI operator 或内部 helper。
 ```
 
-验收：
+### P2：storage/search/read 继续拆边界
+
+storage/search 不适合粗暴删除，因为它是 core memory runtime 的底座。处理方式是先守不变量，再继续减 facade 职责：
 
 ```text
-运行 distill 后 confirmed memory 数量不变。
-默认 summary 明确显示 auto-review mode: preview only。
-Packet coverage、raw review required、candidate counts、blocked/conflict/local-only 数量可见。
-```
-
----
-
-### PR-3：插件命令分层
-
-目标：
-
-```text
-Daily 默认；artifact maintenance 显式安装；KB/PRD 管理命令不存在。
-```
-
-验收：
-
-```text
-默认安装看不到 mark/prune；默认安装包含 dream；KB/PRD 管理入口不存在。
-```
-
----
-
-### PR-4：session-distill freeze + 薄入口
-
-目标：
-
-```text
-禁止继续扩张；拆 models/paths/packet/manifest/distill_rules/guardrails/export/review_policy/summary。
-bin/session-distill.py 只保留参数解析和 lib 调用。
+1. LocalStructuredStore 继续降为兼容 facade。
+2. TruthStore 持有 canonical truth；CandidateStore 持有 pending/rejected/review lifecycle。
+3. DerivedIndex / SearchFacade 持有可重建 index 与 search 返回 contract。
+4. Vector/embedding 永远不能阻塞 init/store/wake/basic search。
+5. read/context/signals 冻结默认 contract；无测试、无 trace、无明确调用方的策略分支删除。
 ```
 
 验收：
 
 ```text
-旧命令可跑，核心函数可单测。
-packet audit、guardrails、export、review policy 不依赖 CLI 进程状态。
-新增或预留 tools/session-distill/SYNC_POLICY.md，明确外部 skill suite 与内部 specialization 的同步规则。
+truth 不依赖 index 存在。
+index 可删可重建。
+vector backend 不可用时 core loop 仍可用。
+SearchFacade 不丢 source_kind/source_id/project_name/truth_status/preview/hydrate 语义。
+scope=all 仍保留 project identity；project isolation 不靠文本兜底。
 ```
 
----
-
-### PR-5：SourceAdapter 统一
-
-目标：
+### Issue 状态清单
 
 ```text
-Claude/Codex/Cursor/generic 使用同一接口。
-```
-
-验收：
-
-```text
-同一 packetizer 可处理多客户端 fixtures。
-```
-
----
-
-### PR-6：harness_mem_export 边界
-
-目标：
-
-```text
-candidate draft -> suggest_*；禁止 confirm/direct truth write。
-实现 ready-candidate / needs-raw-review / needs-conflict-review / local-only / ephemeral 映射。
-```
-
-验收：
-
-```text
-未 review 的 candidate 不进入 wake/search confirmed 结果。
-partial packet 不能进入 ready/apply 路径。
-blocked/conflict candidate 必须携带 blocked_reason 或 conflict flag。
-local-only/ephemeral 不进入 harness-mem candidate queue。
-```
-
----
-
-### PR-7：信任边界测试
-
-目标：
-
-```text
-覆盖 Packet Audit、pending drafts、raw cleanup、profile 外 slash command 清理、self-session exclusion；不保留 KB/PRD 旧命令兼容清理层。
-覆盖默认 preview、export only suggest、readiness mapping、adapter fixtures。
-```
-
-验收：
-
-```text
-默认链路不会绕过 review gate。
-至少包含 test_distill_default_does_not_confirm_truth、test_auto_review_preview_only、
-test_partial_packet_blocks_ready_candidate、test_harness_mem_export_only_suggests、
-test_distill_self_session_not_promoted。
-```
-
----
-
-### PR-8：storage/search 回归测试
-
-目标：
-
-```text
-补 truth/index/vector/search facade 一致性测试，先锁定 storage/search 不变量。
-```
-
-验收：
-
-```text
-测试先于重构合入。
-覆盖 canonical truth / derived index 同步与 index rebuild。
-覆盖 storage/reflection job 不再访问其它 store 的 private attribute。
-覆盖 vector backend 不可用时 core loop 仍可用。
-覆盖 search_memory 对 memory/relation/skill/observation 命中的稳定返回语义。
-覆盖 scope=project / scope=all 的 project isolation。
-覆盖 candidate review 后 confirmed/pending/rejected 的搜索可见性。
-```
-
----
-
-### PR-9：storage/search 边界重构
-
-目标：
-
-```text
-拆 TruthStore/DerivedIndex/SearchFacade/VectorBackend 等。
-```
-
-验收：
-
-```text
-index 可重建；truth 不依赖 index。
-IndexStore 或等价边界有明确 owner；无 `_structured_store._index` 一类穿透。
-VectorBackend 不阻断 wake/search/review。
-SearchFacade 输出 contract 与 PR-8 测试保持一致。
-project isolation 不靠 JSON LIKE 或文本兜底。
-```
-
----
-
-### PR-10：governance 降权与 M10 删除清理
-
-目标：
-
-```text
-metabolism/skill governance 移出默认路径；M10 knowledge-cache/wiki bridge 从 runtime package 删除，不保留产品层、runtime 层或 maintenance/internal 层；dream 保留默认入口但必须可审计、可撤销。
-read/context/signals 高级策略不进入 quickstart 主路径。
-plugin 文档明确 integration bundle，不冒充 canonical API。
-native/Rust 只作为 optional acceleration 叙事。
-```
-
-验收：
-
-```text
-README/quickstart 只讲核心闭环。
-plugin README 不把 harness-mem 定义成 Claude-only 插件。
-高级 read strategy 有显式 opt-in 与 trace，不改变默认 read contract。
-package version 是唯一对外产品版本；native/Rust 不阻断 Python-only core loop。
-```
-
----
-
-### Issue 标题建议
-
-```text
-[P0] Collapse MCP profiles into one public memory surface
-[P0] Remove Skill governance from MCP public tools
-[P0] Make /hm:distill auto-review preview-only by default
-[P1] Split Daily and Maintenance slash command installation
+[done] Collapse MCP profiles into one public memory surface
+[done] Remove Skill governance from MCP public tools
+[done] Make /hm:distill auto-review preview-only by default
+[done] Keep dream as default Daily capability with gate/audit/undo
+[done] Remove M10 knowledge-cache/wiki bridge/compact renderer runtime
+[done] Remove top-level CLI import/purge and keep CLI as operator console
+[done] Remove user-visible /hm:mark and /hm:prune artifact lifecycle commands
+[done] Ensure MCP registry registers only public memory tools
+[done] Add record payload boundary so split stores avoid LocalStructuredStore._blob_path
+[P0 guard] Keep docs aligned with actual Done / Remaining / Removed status
+[P1] Delete or move remaining Skill governance schema/serializer/store traces
+[P1] Merge standalone metabolism/reflection naming into dream/background jobs
 [P1] Refactor tools/session-distill into thin CLI plus lib modules
-[P1] Add session-distill readiness mapping and default summary contract
-[P1] Add harness_mem_export suggest-only boundary
-[P1] Add session-distill external sync policy
-[P1] Add distill/review gate regression tests
-[P2] Add storage/search consistency tests before refactor
-[done] Remove private _index coupling from storage/reflection jobs
-[P2] Split MCP server tool groups
-[P2] Freeze default read contract and gate advanced strategy behind flags
-[P2] Clarify plugin as integration bundle, not canonical API
+[P1] Delete session-distill KB/PRD and unused artifact lifecycle internals
+[P1] Add/keep distill/review gate regression tests
+[P2] Continue storage/search boundary split behind existing invariant tests
+[P2] Freeze default read contract and delete untested advanced strategy branches
 [P2] Keep native/Rust acceleration optional in public docs
-[P3] Keep metabolism internal and remove Skill governance from harness-mem public product surfaces
 ```
 
 ---
@@ -1056,25 +977,33 @@ package version 是唯一对外产品版本；native/Rust 不阻断 Python-only 
 
 ### Definition of Done
 
-本轮整体收敛完成的判断标准：
+整体收敛不是一个提交结束的事项。当前状态按两层验收：
+
+### 已满足的 public/default 边界
 
 - 默认公开面只展示 local memory core loop。
 - MCP 不要求用户选择 profile；public memory surface 不包含 auto apply、operator maintenance 或 Skill governance lifecycle tools。
 - `/hm:distill` 默认 preview，不 confirm durable memory。
 - `/hm:review` 是用户可理解、可审计的唯一持久化 gate。
-- Daily / Maintenance 命令已分层，Daily 包含 dream；KB/PRD 产品管理命令已删除。
+- Daily slash 命令只剩 status/wake/search/search-all/distill/review/dream；mark/prune 用户入口已删除；KB/PRD 产品管理命令已删除。
+- storage/search 已有一致性测试保护，并已启动 TruthStore/CandidateStore 边界拆分；拆出 store 不再访问 LocalStructuredStore._blob_path。
+- storage/reflection job 通过 `DerivedIndex` public 边界复用 structured index，不再访问其它 store 的 private attribute。
+- plugin 被表述为 integration bundle，不是 canonical API 或 Claude-only 产品。
+- native/Rust 被表述为 optional acceleration，不污染 package version 叙事。
+- standalone M07X metabolism/reflection 不出现在 README/quickstart、MCP/CLI/slash、status/doctor 或 maintenance read/debug 面；M10 knowledge-cache/wiki bridge 已删除，不作为仓库 runtime、产品或 maintenance 能力保留；dream 作为默认能力出现在 Daily 路径。
+- 自动维护统一通过 dream 暴露；底层扫描/ledger 只作为 dream 内部实现细节，不形成独立 read/debug 产品面。
+- Skill governance 不进入 MCP lifecycle tools、CLI 顶层命令或 Daily `/hm:*`；
+  confirmed procedural memory 只作为 read hint 被使用。
+
+### 剩余内部质量闭环
+
 - `session-distill` 作为 P1 专项完成薄入口和 lib 拆分，但没有成为产品主轴。
 - `session-distill` 有明确 readiness mapping、default summary contract 和外部同步策略。
 - `harness_mem_export` 只能 suggest，不能 confirm/reject/replace/direct truth write。
-- storage/search 已有一致性测试保护，并已启动 TruthStore/CandidateStore 首轮边界拆分。
-- storage/reflection job 通过 `DerivedIndex` public 边界复用 structured index，不再访问其它 store 的 private attribute。
-- read/context/signals 的高级策略默认不改变 wake/search 的稳定 contract。
-- plugin 被表述为 integration bundle，不是 canonical API 或 Claude-only 产品。
-- native/Rust 被表述为 optional acceleration，不污染 package version 叙事。
-- metabolism 不出现在 README/quickstart 主路径；M10 knowledge-cache/wiki bridge 已删除，不作为仓库 runtime、产品或 maintenance 能力保留；dream 作为默认能力出现在 Daily 路径。
-- metabolism/reflection jobs 保留为内部后台治理机制；默认产品/MCP/slash 不解释这些概念，只通过受控 maintenance read/debug 通道查看审计状态。
-- Skill governance 不进入 MCP lifecycle tools、CLI 顶层命令或 Daily `/hm:*`；
-  confirmed procedural memory 只作为 read hint 被使用。
+- Skill governance 的 promotion/revision/deprecation schema、serializer、store 痕迹要么删除，要么迁出到独立 skill 专项。
+- Dream / background job 内部命名不再让 metabolism/reflection 看起来像第二套产品面。
+- read/context/signals 的高级策略默认不改变 wake/search 的稳定 contract；无测试、无 trace、无调用方的分支删除。
+- `LocalStructuredStore` 继续降为兼容 facade，核心职责下沉到 TruthStore / CandidateStore / DerivedIndex / SearchFacade。
 
 ### 证据索引
 
@@ -1088,7 +1017,7 @@ package version 是唯一对外产品版本；native/Rust 不阻断 Python-only 
 | review gate 与 auto-review 冲突 | `plugins/harness-mem/commands/hm/daily/distill.md`; `tools/session-distill/SKILL.md`; `tests/test_mcp_public_surface_contract.py` |
 | session-distill summary contract | `tools/session-distill/lib/summary.py`; `tests/test_session_distill_boundaries.py` |
 | harness_mem_export suggest-only 边界 | `tools/session-distill/lib/harness_mem_export.py`; `tests/test_session_distill_boundaries.py` |
-| profile 外 slash command 清理与 raw cleanup guardrails | `harness_mem/integration/command_sync.py`; `tests/test_integration_command_sync.py`; `tools/session-distill/lib/cli.py`; `tests/test_session_distill_cli_guardrails.py` |
+| 非 Daily slash command 清理与 raw cleanup guardrails | `harness_mem/integration/command_sync.py`; `tests/test_integration_command_sync.py`; `tools/session-distill/lib/cli.py`; `tests/test_session_distill_cli_guardrails.py` |
 | storage/search 不变量 | `tests/test_storage_search_invariants.py` |
 | storage truth/candidate 边界 | `harness_mem/storage/truth_store.py`; `harness_mem/storage/candidate_store.py`; `harness_mem/storage/local_structured_store.py` |
 | storage derived index 边界 | `harness_mem/storage/derived_index.py`; `harness_mem/storage/local_structured_store.py:index`; `harness_mem/storage/local_verbatim_store.py:index`; `harness_mem/storage/reflection_job_store.py`; `harness_mem/storage/sqlite_index.py:locked_connection`; `tests/test_storage_search_invariants.py:test_reflection_jobs_use_public_derived_index_boundary` |
@@ -1117,5 +1046,5 @@ package version 是唯一对外产品版本；native/Rust 不阻断 Python-only 
 3. 先改默认行为，再拆结构债。
 4. 先收 public surface，再重构内部模块。
 5. stable 默认不自动写 durable memory。
-6. dream 默认开启但必须 gate/audit/undo；maintenance / governance / metabolism 默认隐藏或内部化。
+6. dream 默认开启但必须 gate/audit/undo；standalone maintenance / governance / metabolism 产品面删除或移出主包。
 ```

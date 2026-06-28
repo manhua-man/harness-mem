@@ -3,10 +3,7 @@
 # Generated at: ${GENERATED_AT}
 # Docs: ${DOC_POINTER}
 #
-# This hook invokes the v2.4.1 host entry. By default, triggers are 'off' and
-# this hook will exit 0 without running reflection. To opt in for this project:
-#
-#     harness-mem config set triggers.after_agent on --scope project
+# This hook runs one gated dream maintenance tick after an agent turn.
 #
 # To remove this hook, delete this file. Reinstall via:
 #
@@ -18,10 +15,10 @@ PROJECT_ROOT="${PROJECT_ROOT}"
 TURN_ID="$${CURSOR_TURN_ID:-unknown}"
 
 python -m harness_mem.host_entry \
+    --action dream-end \
     --project-root "$$PROJECT_ROOT" \
     --source ide_hook \
     --trigger-id "$$TURN_ID" \
-    --session-ids "$${CURSOR_SESSION_ID:-}" \
     >/dev/null 2>&1 || true
 
 exit 0

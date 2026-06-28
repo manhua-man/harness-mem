@@ -165,7 +165,7 @@ def render_session_packet_markdown(
             "3. Extract candidate drafts from supported evidence",
             "4. Export candidates through harness-mem suggest_* tools",
             "5. Review durable memory through `/hm:review`",
-            f"6. Optionally use `/hm:mark {session['session_id']} distilled` for artifact cleanup",
+            "6. Optionally update the distilled session note for archive context",
             "",
         ]
     )

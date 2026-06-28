@@ -1,8 +1,7 @@
 param(
     [switch]$WithHybrid,
     [switch]$RegisterClaude,
-    [switch]$NoSlashCommands,
-    [switch]$WithMaintenanceCommands
+    [switch]$NoSlashCommands
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,13 +27,8 @@ if ($WithHybrid) {
 if (-not $NoSlashCommands) {
     $syncCommands = Join-Path $PSScriptRoot "sync-commands.ps1"
     $syncArgs = @("-Profile", "Daily")
-
-    if ($WithMaintenanceCommands) {
-        $syncArgs = @("-Profile", "Maintenance")
-    }
     & $syncCommands @syncArgs
-    Write-Host "  Change command visibility later without reinstalling:"
-    Write-Host "  .\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Maintenance"
+    Write-Host "  Synced Daily /hm:* commands."
 
     $skillSrc = Join-Path $pluginRoot "skills"
     $skillDst = Join-Path $env:USERPROFILE ".claude\skills"

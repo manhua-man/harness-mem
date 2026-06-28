@@ -38,9 +38,6 @@ _SURFACE_FOR_TOOL: dict[str, str] = {
     "dream_auto_tick": "dream",
     "undo_dream_item": "dream",
     "get_project_status": "status",
-    "health_summary": "health",
-    "metabolism_preview": "metabolism",
-    "metabolism_run": "metabolism",
 }
 
 _SURFACE_THRESHOLDS: dict[str, int] = {
@@ -53,8 +50,6 @@ _SURFACE_THRESHOLDS: dict[str, int] = {
     "distill": 3000,
     "dream": 2000,
     "status": 1200,
-    "health": 1200,
-    "metabolism": 2000,
 }
 _DEFAULT_THRESHOLD = 2000
 

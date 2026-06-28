@@ -49,14 +49,6 @@ class ProjectProfile(BaseModel):
             "after a week of normal usage)."
         ),
     )
-    maintenance_profile: Literal["weekly-dream", "post-distill-metabolism"] | None = Field(
-        default=None,
-        description=(
-            "Optional guided opt-in maintenance preset. None keeps maintenance "
-            "manual/off; presets only describe and gate explicit maintenance "
-            "surfaces, they do not enable a daemon or silent truth mutation."
-        ),
-    )
     retrieval_profile: Literal["light", "quality"] | None = Field(
         default=None,
         description=(
@@ -94,7 +86,6 @@ class ProjectProfile(BaseModel):
             "database_hints": self.database_hints,
             "conventions": self.conventions,
             "weak_link_signals": self.weak_link_signals,
-            "maintenance_profile": self.maintenance_profile,
             "retrieval_profile": self.retrieval_profile,
             "last_updated": self.last_updated.isoformat(),
             "created_at": self.created_at.isoformat(),

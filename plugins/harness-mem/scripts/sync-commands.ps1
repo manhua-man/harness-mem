@@ -1,7 +1,6 @@
 param(
-    [ValidateSet("Daily", "Maintenance", "Full")]
+    [ValidateSet("Daily")]
     [string]$Profile = "Daily",
-    [switch]$IncludeMaintenanceCommands,
     [string]$TargetDir,
     [switch]$DryRun
 )
@@ -20,8 +19,6 @@ $python = Get-Command python -ErrorAction Stop
 
 $profileArg = switch ($Profile) {
     "Daily" { "daily" }
-    "Maintenance" { "maintenance" }
-    "Full" { "full" }
 }
 
 $cliArgs = @(
@@ -31,9 +28,6 @@ $cliArgs = @(
     "--source-dir", $slashSrc
 )
 
-if ($IncludeMaintenanceCommands) {
-    $cliArgs += @("--include", "maintenance")
-}
 if ($TargetDir) {
     $cliArgs += @("--target-dir", $TargetDir)
 }

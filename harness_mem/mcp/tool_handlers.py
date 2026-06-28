@@ -18,7 +18,6 @@ from typing import Any, Callable, Literal, cast
 
 from harness_mem.commands import support as _support
 from harness_mem.commands.auto_review import auto_review_candidates
-from harness_mem.commands.doctor import health_summary
 from harness_mem.commands.dream import (
     dream_auto_tick,
     dream_once,
@@ -26,8 +25,7 @@ from harness_mem.commands.dream import (
     undo_dream_item,
 )
 from harness_mem.commands.ingest import cmd_ingest
-from harness_mem.commands.metabolism_pass import select_metabolism_pass
-from harness_mem.commands.replay_window import ReplayBudget, ReplayWindow, select_replay_window
+from harness_mem.commands.replay_window import ReplayBudget
 from harness_mem.commands.support import (
     SUPPORTED_INGEST_CLIENTS,
     find_project_root,
@@ -40,8 +38,6 @@ from harness_mem.commands.wake import DEFAULT_SKILL_HINT_LIMIT, build_wake_snaps
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import load_merged_config
 from harness_mem.core.schemas import SupersedeCandidate
-from harness_mem.core.schemas.metabolism_run import MetabolismRun
-from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.event_log import StateEventType, append_state_event
 from harness_mem.file_context import build_file_context
 from harness_mem.guided_flow import build_guided_flow, guided_flow_drilldown_hint
@@ -68,7 +64,6 @@ from harness_mem.runtime_cost import cost_budget_policy, surface_cost_report
 from harness_mem.runtime_health import runtime_health_report
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
-from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.task_context_runtime import orchestrate_task_context
 from harness_mem.version import runtime_version_payload
 
@@ -80,10 +75,6 @@ _backend_provider: BackendProvider | None = None
 _observer_data_dir_provider: ObserverDataDirProvider | None = None
 _cost_surface_budgets_provider: CostSurfaceBudgetsProvider | None = None
 logger = logging.getLogger("harness_mem_mcp")
-_METABOLISM_PREVIEW_DOCTOR_POINTER = (
-    "Run `harness-mem doctor` to inspect local data directory, "
-    "signal store, and project context."
-)
 
 
 def configure_tool_handler_dependencies(
@@ -163,10 +154,6 @@ CONTEXT_OUTCOME_VALUES: dict[str, float] = {
     "ignored": 0.0,
     "misleading": -1.0,
 }
-VALID_MAINTENANCE_PROFILES: frozenset[str] = frozenset(
-    {"weekly-dream", "post-distill-metabolism"}
-)
-MaintenanceProfile = Literal["weekly-dream", "post-distill-metabolism"]
 VALID_RETRIEVAL_PROFILES: frozenset[str] = frozenset({"light", "quality"})
 RetrievalProfile = Literal["light", "quality"]
 
@@ -292,101 +279,6 @@ def _is_historical_truth(record: object) -> bool:
 
 def _is_superseded_truth(record: object) -> bool:
     return _is_historical_truth(record) and bool(list(getattr(record, "superseded_by", []) or []))
-
-
-def _maintenance_profile_definition(name: str) -> dict[str, Any]:
-    definitions: dict[str, dict[str, Any]] = {
-        "weekly-dream": {
-            "name": "weekly-dream",
-            "label": "Weekly Dream",
-            "enabled_by_default": False,
-            "risk_level": "low",
-            "surfaces": ["dream_ledger", "dream_run", "undo_dream_item"],
-            "trigger": "manual_or_opt_in_scheduler",
-            "summary": (
-                "Preview ledger, run one dream pass, then use undo_dream_item "
-                "if an applied ledger item needs reversal."
-            ),
-        },
-        "post-distill-metabolism": {
-            "name": "post-distill-metabolism",
-            "label": "Post-distill Metabolism",
-            "enabled_by_default": False,
-            "risk_level": "low",
-            "surfaces": ["metabolism_preview", "metabolism_run", "list_candidates"],
-            "trigger": "manual_after_distill",
-            "summary": (
-                "Preview replay evidence, write pending maintenance suggestions, "
-                "then review candidates explicitly."
-            ),
-        },
-    }
-    return dict(definitions[name])
-
-
-def _maintenance_profile_dry_run(
-    name: str,
-    counts: dict[str, Any],
-) -> dict[str, Any]:
-    definition = _maintenance_profile_definition(name)
-    temporal_summary = counts.get("temporal_summary", {})
-    pending = int(counts.get("pending_candidate_count", 0) or 0)
-    historical = int(temporal_summary.get("historical_total", 0) or 0)
-    if name == "weekly-dream":
-        candidate_counts = {
-            "pending_candidates": pending,
-            "historical_truths": historical,
-        }
-        has_work = any(candidate_counts.values())
-        summary = _maintenance_summary(
-            candidate_counts=candidate_counts,
-            risk_level="low" if has_work else "none",
-            auto_applied=False,
-            needs_human_review=pending > 0,
-            undo_available=False,
-            message=(
-                "Dry-run only: weekly-dream would inspect dream ledger and run one "
-                "explicit dream pass with undo metadata."
-                if has_work
-                else "Dry-run only: no obvious weekly-dream maintenance work is queued."
-            ),
-        )
-    else:
-        candidate_counts = {
-            "pending_candidates": pending,
-        }
-        has_work = any(candidate_counts.values())
-        summary = _maintenance_summary(
-            candidate_counts=candidate_counts,
-            risk_level="low" if has_work else "none",
-            auto_applied=False,
-            needs_human_review=has_work,
-            undo_available=False,
-            message=(
-                "Dry-run only: post-distill-metabolism would preview replay evidence "
-                "and write review candidates only if explicitly run."
-                if has_work
-                else "Dry-run only: project appears clean for post-distill metabolism."
-            ),
-        )
-    return {
-        **definition,
-        "dry_run": summary["maintenance_summary"],
-    }
-
-
-def _suggest_maintenance_profile(
-    counts: dict[str, Any],
-    active_profile: str | None,
-) -> str | None:
-    if active_profile:
-        return active_profile
-    pending = int(counts.get("pending_candidate_count", 0) or 0)
-    if pending:
-        return "post-distill-metabolism"
-    if int(counts.get("memory_entry_count", 0) or 0):
-        return "weekly-dream"
-    return None
 
 
 def _normalize_retrieval_profile(value: object) -> RetrievalProfile | None:
@@ -526,8 +418,8 @@ def _search_dx_metadata(
         next_actions.append(
             _action(
                 "check_index_health",
-                "health_summary",
-                "Search degraded to a fallback path; inspect runtime health before claiming quality.",
+                "harness-mem doctor",
+                "Search degraded to a fallback path; inspect local runtime health before claiming quality.",
             )
         )
     if include_history or deep_recall:
@@ -597,8 +489,8 @@ def _wake_dx_metadata(
         next_actions.append(
             _action(
                 "check_index_health",
-                "health_summary",
-                "Wake used a fallback search path; inspect health before release claims.",
+                "harness-mem doctor",
+                "Wake used a fallback search path; inspect local health before release claims.",
             )
         )
     if temporal_intent_mode:
@@ -658,30 +550,17 @@ def _status_dx_metadata(
                 "This project has historical truth; use temporal_query when asking old-state questions.",
             )
         )
-    maintenance_profiles = counts.get("maintenance_profiles", {})
-    suggested_profile = maintenance_profiles.get("suggested")
-    if suggested_profile:
-        next_actions.append(
-            _action(
-                "preview_maintenance_profile",
-                "get_project_status",
-                (
-                    f"Review the {suggested_profile} dry-run summary before "
-                    "explicitly running maintenance surfaces."
-                ),
-            )
-        )
     retrieval_profiles = counts.get("retrieval_profiles", {})
     suggested_retrieval_profile = retrieval_profiles.get("suggested")
     if suggested_retrieval_profile:
         next_actions.append(
             _action(
                 "consider_retrieval_quality_profile",
-                "update_project_profile",
+                "operator_profile_edit",
                 (
                     "retrieval_profile=quality is available as an opt-in "
-                    "component profile; status only suggests it and does not "
-                    "enable it automatically."
+                    "component profile through operator profile configuration; "
+                    "status only suggests it and does not enable it automatically."
                 ),
             )
         )
@@ -1358,7 +1237,6 @@ def tool_get_project_profile(project_name: str) -> dict:
         "description": profile.description,
         "stacks": profile.stacks,
         "key_files": profile.key_files,
-        "maintenance_profile": profile.maintenance_profile,
         "retrieval_profile": profile.retrieval_profile,
     }
 
@@ -1445,17 +1323,7 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
         limit=100,
         surface_budgets=_cost_surface_budgets(project_name),
     )
-    active_maintenance_profile = profile.maintenance_profile if profile else None
     active_retrieval_profile = profile.retrieval_profile if profile else None
-    suggested_maintenance_profile = _suggest_maintenance_profile(
-        {
-            "memory_entry_count": len(memory_entries),
-            "pending_candidate_count": (
-                len(pending_rules) + len(pending_entries) + len(pending_facts)
-            ),
-        },
-        active_maintenance_profile,
-    )
     return {
         "observation_count": len(project_observations),
         "memory_entry_count": len(memory_entries),
@@ -1490,39 +1358,6 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
                 ]
                 if _is_superseded_truth(record)
             ),
-        },
-        "maintenance_profiles": {
-            "active": active_maintenance_profile,
-            "suggested": suggested_maintenance_profile,
-            "available": [
-                _maintenance_profile_definition(name)
-                for name in sorted(VALID_MAINTENANCE_PROFILES)
-            ],
-            "dry_runs": {
-                name: _maintenance_profile_dry_run(
-                    name,
-                    {
-                        "memory_entry_count": len(memory_entries),
-                        "pending_candidate_count": (
-                            len(pending_rules)
-                            + len(pending_entries)
-                            + len(pending_facts)
-                        ),
-                        "temporal_summary": {
-                            "historical_total": sum(
-                                1
-                                for record in [
-                                    *all_memory_entries,
-                                    *all_confirmed_rules,
-                                    *all_relation_facts,
-                                ]
-                                if _is_historical_truth(record)
-                            ),
-                        },
-                    },
-                )
-                for name in sorted(VALID_MAINTENANCE_PROFILES)
-            },
         },
         "retrieval_profiles": _retrieval_profile_status(
             active_profile=active_retrieval_profile,
@@ -1641,171 +1476,6 @@ def tool_set_active_project(project_name: str) -> dict:
         "success": True,
         "project_name": name,
         "previous_active_project": previous,
-    }
-
-
-async def _merge_project_profile(
-    project_name: str,
-    *,
-    description: str | None,
-    stacks: list[str] | None,
-    key_files: list[str] | None,
-    conventions: list[str] | None,
-    service_hints: list[str] | None,
-    database_hints: list[str] | None,
-    weak_link_signals: bool | None,
-    maintenance_profile: MaintenanceProfile | None,
-    retrieval_profile: RetrievalProfile | None,
-    replace: bool,
-) -> ProjectProfile:
-    """Apply a non-interactive update to ``ProjectProfile``.
-
-    ``replace=False`` (default) merges: ``None`` keeps the existing value,
-    a list extends with deduplication, and ``description`` overwrites only
-    when explicitly provided. ``replace=True`` substitutes each provided
-    field outright; missing fields still keep their existing values.
-    """
-    # Read DEFAULT_DATA_DIR through command_support so runtime overrides flow
-    # through this MCP tool too. Importing at call time is intentional.
-
-    store = LocalProjectProfileStore(_support.DEFAULT_DATA_DIR)
-    existing = await store.get(project_name)
-
-    def _merge_list(old: list[str], new: list[str] | None) -> list[str]:
-        if new is None:
-            return list(old)
-        if replace:
-            return list(new)
-        combined = list(old)
-        seen = {item for item in combined}
-        for item in new:
-            if item not in seen:
-                combined.append(item)
-                seen.add(item)
-        return combined
-
-    if existing is None:
-        profile = ProjectProfile(
-            project_name=project_name,
-            description=description or "",
-            stacks=list(stacks or []),
-            key_files=list(key_files or []),
-            conventions=list(conventions or []),
-            service_hints=list(service_hints or []),
-            database_hints=list(database_hints or []),
-            weak_link_signals=bool(weak_link_signals) if weak_link_signals is not None else False,
-            maintenance_profile=maintenance_profile,
-            retrieval_profile=retrieval_profile,
-        )
-    else:
-        profile = ProjectProfile(
-            id=existing.id,
-            project_name=project_name,
-            description=description if description is not None else existing.description,
-            stacks=_merge_list(existing.stacks, stacks),
-            key_files=_merge_list(existing.key_files, key_files),
-            conventions=_merge_list(existing.conventions, conventions),
-            service_hints=_merge_list(existing.service_hints, service_hints),
-            database_hints=_merge_list(existing.database_hints, database_hints),
-            weak_link_signals=(
-                weak_link_signals if weak_link_signals is not None else existing.weak_link_signals
-            ),
-            maintenance_profile=(
-                maintenance_profile
-                if maintenance_profile is not None
-                else existing.maintenance_profile
-            ),
-            retrieval_profile=(
-                retrieval_profile
-                if retrieval_profile is not None
-                else existing.retrieval_profile
-            ),
-            created_at=existing.created_at,
-            last_updated=datetime.now(timezone.utc),
-            last_ingest_at=existing.last_ingest_at,
-            last_ingest_session_id=existing.last_ingest_session_id,
-        )
-
-    await store.save(profile)
-    return profile
-
-
-def tool_update_project_profile(
-    project_name: str,
-    description: str | None = None,
-    stacks: list[str] | None = None,
-    key_files: list[str] | None = None,
-    conventions: list[str] | None = None,
-    service_hints: list[str] | None = None,
-    database_hints: list[str] | None = None,
-    weak_link_signals: bool | None = None,
-    maintenance_profile: str | None = None,
-    retrieval_profile: str | None = None,
-    replace: bool = False,
-) -> dict:
-    """Non-interactive project profile update.
-
-    Adds (or, with ``replace=True``, substitutes) profile fields. Fields
-    omitted from the call are left untouched on the existing profile.
-    Lists are deduplicated when merged so repeated calls are idempotent
-    for the same value. Returns the resulting profile.
-    """
-    name = (project_name or "").strip()
-    if not name:
-        return {"success": False, "error": "project_name must not be empty"}
-    normalized_maintenance_profile: MaintenanceProfile | None = None
-    if maintenance_profile is not None:
-        normalized_maintenance_profile = _normalize_maintenance_profile(
-            maintenance_profile
-        )
-        if normalized_maintenance_profile is None:
-            return {
-                "success": False,
-                "error": (
-                    "maintenance_profile must be one of: "
-                    "weekly-dream, post-distill-metabolism"
-                ),
-            }
-
-    normalized_retrieval_profile: RetrievalProfile | None = None
-    if retrieval_profile is not None:
-        normalized_retrieval_profile = _normalize_retrieval_profile(retrieval_profile)
-        if normalized_retrieval_profile is None:
-            return {
-                "success": False,
-                "error": "retrieval_profile must be one of: light, quality",
-            }
-
-    profile = asyncio.run(
-        _merge_project_profile(
-            name,
-            description=description,
-            stacks=stacks,
-            key_files=key_files,
-            conventions=conventions,
-            service_hints=service_hints,
-            database_hints=database_hints,
-            weak_link_signals=weak_link_signals,
-            maintenance_profile=normalized_maintenance_profile,
-            retrieval_profile=normalized_retrieval_profile,
-            replace=replace,
-        )
-    )
-    return {
-        "success": True,
-        "project_name": profile.project_name,
-        "profile": {
-            "description": profile.description,
-            "stacks": profile.stacks,
-            "key_files": profile.key_files,
-            "conventions": profile.conventions,
-            "service_hints": profile.service_hints,
-            "database_hints": profile.database_hints,
-            "weak_link_signals": profile.weak_link_signals,
-            "maintenance_profile": profile.maintenance_profile,
-            "retrieval_profile": profile.retrieval_profile,
-            "last_updated": profile.last_updated.isoformat(),
-        },
     }
 
 
@@ -1958,34 +1628,6 @@ def _run_command_to_payload(coro: Any) -> dict[str, Any]:
     }
 
 
-def _replay_window_to_input_window(window: ReplayWindow) -> dict[str, Any]:
-    """Serialize a ``ReplayWindow`` into the JSON-friendly preview shape.
-
-    Locked in by ``test_metabolism_run_preview_shape_round_trip`` (3.5):
-    ``time_range`` is an ISO ``{start, end}`` mapping, ``dimensions`` is
-    a name → ``{selected_ids, truncated, total_seen}`` mapping in the
-    selector's iteration order, ``signal_ids`` and ``notes`` are plain
-    lists. Datetimes don't ``asdict`` cleanly, so we walk the dataclass
-    by hand.
-    """
-    dimensions: dict[str, dict[str, Any]] = {}
-    for name, dim in window.dimensions.items():
-        dimensions[name] = {
-            "selected_ids": list(dim.selected_ids),
-            "truncated": dim.truncated,
-            "total_seen": dim.total_seen,
-        }
-    return {
-        "time_range": {
-            "start": window.time_range[0].isoformat(),
-            "end": window.time_range[1].isoformat(),
-        },
-        "dimensions": dimensions,
-        "signal_ids": list(window.signal_ids),
-        "notes": list(window.notes),
-    }
-
-
 _RISK_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3}
 
 
@@ -2013,51 +1655,6 @@ def _maintenance_summary(
         "message": message,
     }
     return {"maintenance_summary": dict(summary), **summary}
-
-
-def _metabolism_preview_summary(input_window: dict[str, Any]) -> dict[str, Any]:
-    dimensions = input_window.get("dimensions") or {}
-    pending_dim = dimensions.get("pending_candidates") or {}
-    selected_pending = len(pending_dim.get("selected_ids") or [])
-    candidate_counts = {
-        "selected_pending_candidates": selected_pending,
-        "merge_suggestions": 0,
-        "stale_suggestions": 0,
-        "supersede_suggestions": 0,
-    }
-    has_window = any(
-        len((dim or {}).get("selected_ids") or []) > 0
-        for dim in dimensions.values()
-        if isinstance(dim, dict)
-    )
-    return _maintenance_summary(
-        candidate_counts=candidate_counts,
-        risk_level="low" if has_window else "none",
-        auto_applied=False,
-        needs_human_review=selected_pending > 0,
-        undo_available=False,
-        message=(
-            "Preview only; no candidates were written and truth was not changed."
-            if has_window
-            else "No maintenance suggestions selected; project appears clean for this window."
-        ),
-    )
-
-
-def _metabolism_run_summary(output_counts: dict[str, int]) -> dict[str, Any]:
-    total = sum(int(value or 0) for value in output_counts.values())
-    return _maintenance_summary(
-        candidate_counts={key: int(value or 0) for key, value in output_counts.items()},
-        risk_level="medium" if total else "none",
-        auto_applied=False,
-        needs_human_review=total > 0,
-        undo_available=False,
-        message=(
-            "Metabolism wrote pending suggestion candidates for review; truth was not changed."
-            if total
-            else "No maintenance suggestions selected; project appears clean for this window."
-        ),
-    )
 
 
 def _dream_run_summary(run_payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -2108,316 +1705,6 @@ def _dream_run_summary(run_payload: dict[str, Any] | None) -> dict[str, Any]:
             else "No maintenance was applied in this dream run."
         ),
     )
-
-
-def tool_metabolism_preview(
-    project_name: str | None = None,
-    budget: dict | None = None,
-) -> dict:
-    """Preview the next metabolism run's input window.
-
-    v2.3.0: read-only. Resolves the project (active-project fallback),
-    normalizes the optional ``budget`` against ``ReplayBudget`` defaults,
-    runs ``select_replay_window``, persists a
-    ``MetabolismRun(kind="preview", status="preview")`` for audit, and
-    returns the window summary. Selector / persistence failures funnel
-    through a single ``except`` that records an
-    ``MetabolismRun(status="error")`` (best-effort) and returns
-    ``{success: False, error, doctor_pointer}``. This handler MUST NOT
-    raise.
-    """
-    resolved = (project_name or "").strip() or get_active_project()
-    if not resolved:
-        return {
-            "success": False,
-            "error": "project_name is required when no active project is set",
-        }
-
-    backend = _get_backend()
-    started_at = datetime.now(timezone.utc)
-    # Writers stay implementation-side per the StructuredStore Protocol.
-    # Cast to the local concrete store to access `save_metabolism_run`.
-    structured_store = cast(LocalStructuredStore, backend.structured_store)
-
-    try:
-        budget_kwargs: dict[str, int] = {}
-        if budget:
-            for key in (
-                "max_observations",
-                "max_pending_candidates",
-                "max_historical_truths",
-                "max_low_success_skills",
-                "max_repeat_search_hits",
-                "max_total_tokens",
-                "signal_lookback_days",
-            ):
-                if key in budget and budget[key] is not None:
-                    budget_kwargs[key] = budget[key]
-
-        normalized_budget = ReplayBudget(**budget_kwargs)
-        window = asyncio.run(
-            select_replay_window(
-                backend,
-                project_name=resolved,
-                budget=normalized_budget,
-            )
-        )
-        input_window = _replay_window_to_input_window(window)
-        completed_at = datetime.now(timezone.utc)
-        duration_ms = int((completed_at - started_at).total_seconds() * 1000)
-        run_id = asyncio.run(
-            structured_store.save_metabolism_run(
-                MetabolismRun(
-                    project_name=resolved,
-                    kind="preview",
-                    status="preview",
-                    started_at=started_at,
-                    completed_at=completed_at,
-                    input_window=input_window,
-                    selected_signal_ids=list(window.signal_ids),
-                    output_counts={"suggestions": 0},
-                    duration_ms=duration_ms,
-                    notes=list(window.notes) if window.notes else None,
-                )
-            )
-        )
-    except Exception as exc:
-        completed_at = datetime.now(timezone.utc)
-        duration_ms = int((completed_at - started_at).total_seconds() * 1000)
-        error_message = str(exc) or exc.__class__.__name__
-        # Best-effort persist an error run record. Failure here is logged
-        # and swallowed — the user-visible error payload is still returned.
-        try:
-            asyncio.run(
-                structured_store.save_metabolism_run(
-                    MetabolismRun(
-                        project_name=resolved,
-                        kind="preview",
-                        status="error",
-                        started_at=started_at,
-                        completed_at=completed_at,
-                        input_window={},
-                        selected_signal_ids=[],
-                        output_counts={"suggestions": 0},
-                        duration_ms=duration_ms,
-                        notes=[f"selector failed: {error_message}"],
-                    )
-                )
-            )
-        except Exception:
-            logger.exception(
-                "metabolism_preview: failed to persist error run for project=%s",
-                resolved,
-            )
-        return {
-            "success": False,
-            "error": error_message,
-            "doctor_pointer": _METABOLISM_PREVIEW_DOCTOR_POINTER,
-            **_maintenance_summary(
-                candidate_counts={
-                    "selected_pending_candidates": 0,
-                    "merge_suggestions": 0,
-                    "stale_suggestions": 0,
-                    "supersede_suggestions": 0,
-                },
-                risk_level="none",
-                auto_applied=False,
-                needs_human_review=True,
-                undo_available=False,
-                message="Metabolism preview failed before selecting maintenance suggestions.",
-            ),
-        }
-
-    return {
-        "success": True,
-        "run_id": run_id,
-        "project_name": resolved,
-        "time_range": input_window["time_range"],
-        "dimensions": input_window["dimensions"],
-        "notes": list(window.notes),
-        "signals_used": len(window.signal_ids),
-        **_metabolism_preview_summary(input_window),
-    }
-
-
-def tool_metabolism_run(
-    project_name: str | None = None,
-    budget: dict | None = None,
-) -> dict:
-    """Run a metabolism pass and persist suggestion candidates.
-
-    v2.3.1: mirrors :func:`tool_metabolism_preview`'s argument shape and
-    error handling but performs the full suggestion pass:
-
-    1. Resolve the project (active-project fallback) and normalize
-       ``budget`` against ``ReplayBudget`` defaults.
-    2. Run :func:`select_metabolism_pass`, which wraps
-       ``select_replay_window`` and produces merge / stale / supersede
-       candidates (auto-supersede deferred to v2.3.2 — proposer
-       returns ``[]``).
-    3. Persist a ``MetabolismRun(kind="metabolism", status="completed")``
-       audit record carrying per-type ``output_counts``.
-    4. Persist each candidate, rewriting ``metabolism_run_id`` to the
-       newly-saved run id (the pass writes a ``"pending"`` sentinel).
-
-    On any exception the handler best-effort persists a
-    ``MetabolismRun(kind="metabolism", status="error")`` and returns
-    ``{success: False, error, doctor_pointer}`` without raising. This
-    matches the v2.3.0 preview contract bit-for-bit so MCP callers can
-    treat both tools the same way.
-    """
-    resolved = (project_name or "").strip() or get_active_project()
-    if not resolved:
-        return {
-            "success": False,
-            "error": "project_name is required when no active project is set",
-        }
-
-    backend = _get_backend()
-    started_at = datetime.now(timezone.utc)
-    # Same Protocol-vs-impl reasoning as ``tool_metabolism_preview``:
-    # writers stay implementation-side, so cast to the local concrete
-    # store to access ``save_metabolism_run`` and the candidate writers.
-    structured_store = cast(LocalStructuredStore, backend.structured_store)
-
-    try:
-        budget_kwargs: dict[str, int] = {}
-        if budget:
-            for key in (
-                "max_observations",
-                "max_pending_candidates",
-                "max_historical_truths",
-                "max_low_success_skills",
-                "max_repeat_search_hits",
-                "max_total_tokens",
-                "signal_lookback_days",
-            ):
-                if key in budget and budget[key] is not None:
-                    budget_kwargs[key] = budget[key]
-
-        normalized_budget = ReplayBudget(**budget_kwargs)
-        pass_result = asyncio.run(
-            select_metabolism_pass(
-                backend,
-                project_name=resolved,
-                budget=normalized_budget,
-            )
-        )
-        window = pass_result.window
-        input_window = _replay_window_to_input_window(window)
-
-        merge_count = len(pass_result.merge)
-        stale_count = len(pass_result.stale)
-        supersede_count = len(pass_result.supersede)
-        output_counts = {
-            "merge_suggestions": merge_count,
-            "stale_suggestions": stale_count,
-            "supersede_suggestions": supersede_count,
-        }
-
-        # Window notes come from the replay-window selector; pass notes
-        # come from the proposers (e.g. ``stale_scan_truncated``). Both
-        # contribute to the run's audit trail.
-        combined_notes: list[str] = []
-        combined_notes.extend(window.notes)
-        combined_notes.extend(pass_result.notes)
-
-        completed_at = datetime.now(timezone.utc)
-        duration_ms = int((completed_at - started_at).total_seconds() * 1000)
-
-        run_record = MetabolismRun(
-            project_name=resolved,
-            kind="metabolism",
-            status="completed",
-            started_at=started_at,
-            completed_at=completed_at,
-            input_window=input_window,
-            selected_signal_ids=list(window.signal_ids),
-            output_counts=output_counts,
-            duration_ms=duration_ms,
-            notes=combined_notes if combined_notes else None,
-        )
-        run_id = asyncio.run(structured_store.save_metabolism_run(run_record))
-
-        # Persist candidates with the real run id. The pass writes a
-        # ``"pending"`` sentinel so it stays free of the run lifecycle;
-        # the MCP layer is the single place that knows the run id.
-        for merge_candidate in pass_result.merge:
-            merge_candidate.metabolism_run_id = run_id
-            asyncio.run(
-                structured_store.save_merge_suggestion_candidate(merge_candidate)
-            )
-        for stale_candidate in pass_result.stale:
-            stale_candidate.metabolism_run_id = run_id
-            asyncio.run(
-                structured_store.save_stale_truth_suggestion_candidate(stale_candidate)
-            )
-        # Supersede candidates are deferred (proposer returns []) but
-        # iterating still costs nothing and keeps the shape stable for
-        # the day v2.3.2 reactivates the leg.
-        for supersede in pass_result.supersede:
-            asyncio.run(structured_store.save_supersede_candidate(supersede))
-    except Exception as exc:
-        completed_at = datetime.now(timezone.utc)
-        duration_ms = int((completed_at - started_at).total_seconds() * 1000)
-        error_message = str(exc) or exc.__class__.__name__
-        # Best-effort persist an error run record. Failure here is logged
-        # and swallowed — the user-visible error payload is still returned.
-        try:
-            asyncio.run(
-                structured_store.save_metabolism_run(
-                    MetabolismRun(
-                        project_name=resolved,
-                        kind="metabolism",
-                        status="error",
-                        started_at=started_at,
-                        completed_at=completed_at,
-                        input_window={},
-                        selected_signal_ids=[],
-                        output_counts={
-                            "merge_suggestions": 0,
-                            "stale_suggestions": 0,
-                            "supersede_suggestions": 0,
-                        },
-                        duration_ms=duration_ms,
-                        notes=[f"metabolism_run failed: {error_message}"],
-                    )
-                )
-            )
-        except Exception:
-            logger.exception(
-                "metabolism_run: failed to persist error run for project=%s",
-                resolved,
-            )
-        return {
-            "success": False,
-            "error": error_message,
-            "doctor_pointer": _METABOLISM_PREVIEW_DOCTOR_POINTER,
-            **_maintenance_summary(
-                candidate_counts={
-                    "merge_suggestions": 0,
-                    "stale_suggestions": 0,
-                    "supersede_suggestions": 0,
-                },
-                risk_level="none",
-                auto_applied=False,
-                needs_human_review=True,
-                undo_available=False,
-                message="Metabolism run failed before writing review candidates.",
-            ),
-        }
-
-    return {
-        "success": True,
-        "run_id": run_id,
-        "project_name": resolved,
-        "time_range": input_window["time_range"],
-        "dimensions": input_window["dimensions"],
-        "notes": list(combined_notes),
-        "signals_used": len(window.signal_ids),
-        "output_counts": output_counts,
-        **_metabolism_run_summary(output_counts),
-    }
 
 
 def _resolve_project_for_dream(project_name: str | None) -> str | None:
@@ -2517,7 +1804,7 @@ def tool_dream_auto_tick(
     project_name: str | None = None,
     project_root: str | None = None,
 ) -> dict:
-    """Host/client scheduler tick for v3.1 auto dream."""
+    """Host/client auto tick for v3.1 dream."""
     resolved = _resolve_project_for_dream(project_name)
     if not resolved:
         return {
@@ -2537,7 +1824,7 @@ def tool_dream_auto_tick(
             project_name=resolved,
             project_root=root,
             config=config,
-            source="scheduler",
+            source="agent",
         )
     )
     if payload.get("status") == "completed" and payload.get("summary"):
@@ -2557,7 +1844,7 @@ def tool_dream_auto_tick(
                 auto_applied=run_summary.get("applied", 0) > 0,
                 needs_human_review=run_summary.get("failed", 0) > 0,
                 undo_available=run_summary.get("applied", 0) > 0,
-                message="Scheduler completed one dream run and wrote a ledger.",
+                message="Dream auto tick completed one dream run and wrote a ledger.",
             ),
         }
     return {
@@ -3622,138 +2909,6 @@ def tool_create_task_handoff(
     }
 
 
-# =============================================================================
-# REFLECTION JOB VISIBILITY (v2.4.0, Req 7)
-# =============================================================================
-
-# Mirrors the Literal sets on ReflectionJob so we can validate caller
-# input without importing the schema at module-import time. Source of
-# truth for the values is harness_mem.core.schemas.reflection_job.
-_VALID_REFLECTION_JOB_STATUSES: frozenset[str] = frozenset(
-    {"pending", "processing", "completed", "failed", "retryable", "needs_distill"}
-)
-_VALID_REFLECTION_JOB_KINDS: frozenset[str] = frozenset({"reflection", "dream"})
-
-# Caller-facing limit window per Req 7.1 — default 50, hard ceiling 200.
-_REFLECTION_JOB_LIST_DEFAULT_LIMIT = 50
-_REFLECTION_JOB_LIST_MAX_LIMIT = 200
-
-
-def tool_list_reflection_jobs(
-    project_name: str | None = None,
-    status: str | None = None,
-    kind: str | None = None,
-    limit: int = _REFLECTION_JOB_LIST_DEFAULT_LIMIT,
-) -> dict:
-    """List recent reflection jobs (Req 7.1, 7.3, 7.5, 7.6).
-
-    Read-only filtered listing. Status / kind values outside the schema's
-    Literal sets short-circuit with ``{success: false, error}`` listing
-    the valid options (Req 7.5). The ``limit`` is clamped server-side to
-    ``[1, 200]`` so a caller asking for ``limit=500`` still gets at most
-    200 rows (Req 7.1).
-    """
-    if status is not None and status not in _VALID_REFLECTION_JOB_STATUSES:
-        valid = ", ".join(sorted(_VALID_REFLECTION_JOB_STATUSES))
-        return {
-            "success": False,
-            "error": f"Invalid status: {status!r}. Valid values: {valid}.",
-        }
-    if kind is not None and kind not in _VALID_REFLECTION_JOB_KINDS:
-        valid = ", ".join(sorted(_VALID_REFLECTION_JOB_KINDS))
-        return {
-            "success": False,
-            "error": f"Invalid kind: {kind!r}. Valid values: {valid}.",
-        }
-
-    # Clamp limit to [1, 200]. Anything non-int has already been coerced
-    # by the JSON-RPC parameter handling layer; if it ever isn't, fall
-    # back to the default rather than 500'ing.
-    try:
-        clamped = int(limit)
-    except (TypeError, ValueError):
-        clamped = _REFLECTION_JOB_LIST_DEFAULT_LIMIT
-    clamped = max(1, min(clamped, _REFLECTION_JOB_LIST_MAX_LIMIT))
-
-    backend = _get_backend()
-    jobs = backend.reflection_job_store.list(
-        project_name=project_name,
-        status=status,
-        kind=kind,
-        limit=clamped,
-    )
-    return {
-        "success": True,
-        "jobs": [job.to_dict() for job in jobs],
-    }
-
-
-def tool_get_reflection_job(job_id: str) -> dict:
-    """Fetch a single reflection job by id (Req 7.2, 7.4, 7.6).
-
-    Read-only. Returns the full ``to_dict()`` payload on hit; on miss
-    surfaces ``{success: false, error}`` with a "not found" message so
-    Agents can branch on the result without parsing message text
-    (Req 7.4).
-    """
-    backend = _get_backend()
-    job = backend.reflection_job_store.get(job_id)
-    if job is None:
-        return {
-            "success": False,
-            "error": f"Reflection job not found: {job_id}",
-        }
-    return {
-        "success": True,
-        "job": job.to_dict(),
-    }
-
-
-def tool_health_summary(project_name: str | None = None) -> dict:
-    """Read-only combined v2.4.0 + v2.4.2 project health summary (Req 6).
-
-    Resolves the active project when ``project_name`` is omitted, then wraps
-    the ``health_summary`` orchestrator's payload in the standard ``success``
-    envelope. The orchestrator is total (never raises) and self-heals each
-    failed category into a ``{"warnings": [...]}`` slice (Req 6.7), so this
-    handler only needs to guard the project-resolution precondition. No
-    ``print`` here per project rule P0 (MCP stdio protection).
-    """
-    resolved = (project_name or "").strip() or get_active_project()
-    if not resolved:
-        return {
-            "success": False,
-            "error": "project_name is required when no active project is set",
-        }
-    backend = _get_backend()
-    payload = asyncio.run(health_summary(backend, resolved))
-    return {"success": True, "project_name": resolved, **payload}
-
-
-def tool_surface_cost_report(
-    project_name: str | None = None,
-    days: int = 7,
-    limit: int = 200,
-) -> dict:
-    """Return local v3.4.0 MCP surface cost observer aggregates."""
-    return {
-        "success": True,
-        **surface_cost_report(
-            _observer_data_dir(),
-            project_name=project_name,
-            days=days,
-            limit=limit,
-            surface_budgets=_cost_surface_budgets(project_name),
-        ),
-    }
-
-
-def _normalize_maintenance_profile(value: object) -> MaintenanceProfile | None:
-    profile = str(value or "").strip().lower()
-    if profile in VALID_MAINTENANCE_PROFILES:
-        return cast(MaintenanceProfile, profile)
-    return None
-
 def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
     """Return the MCP tool handler map keyed by public tool name."""
     return {
@@ -3771,12 +2926,9 @@ def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
         "file_context": tool_file_context,
         "get_project_status": tool_get_project_status,
         "set_active_project": tool_set_active_project,
-        "update_project_profile": tool_update_project_profile,
         "wake": tool_wake,
         "ingest_sessions": tool_ingest_sessions,
         "prepare_session_distill": tool_prepare_session_distill,
-        "metabolism_preview": tool_metabolism_preview,
-        "metabolism_run": tool_metabolism_run,
         "dream_ledger": tool_dream_ledger,
         "dream_run": tool_dream_run,
         "dream_auto_tick": tool_dream_auto_tick,
@@ -3800,8 +2952,4 @@ def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
         "confirm_relation_fact": tool_confirm_relation_fact,
         "reject_relation_fact": tool_reject_relation_fact,
         "create_task_handoff": tool_create_task_handoff,
-        "list_reflection_jobs": tool_list_reflection_jobs,
-        "get_reflection_job": tool_get_reflection_job,
-        "health_summary": tool_health_summary,
-        "surface_cost_report": tool_surface_cost_report,
     }

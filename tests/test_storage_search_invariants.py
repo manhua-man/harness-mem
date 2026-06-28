@@ -66,6 +66,17 @@ def test_structured_store_keeps_truth_and_candidate_boundaries(backend) -> None:
     assert isinstance(backend.structured_store.candidate_store, CandidateStore)
 
 
+def test_split_store_boundaries_do_not_reach_private_blob_paths() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    for relative in (
+        "harness_mem/storage/truth_store.py",
+        "harness_mem/storage/candidate_store.py",
+    ):
+        text = (repo_root / relative).read_text(encoding="utf-8")
+        assert "._blob_path" not in text
+        assert "record_payload_" in text or "read_record_payload" in text
+
+
 def test_reflection_jobs_use_public_derived_index_boundary(backend) -> None:
     assert isinstance(backend.structured_store.index, DerivedIndex)
     assert isinstance(backend.reflection_job_store, ReflectionJobStore)

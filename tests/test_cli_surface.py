@@ -13,7 +13,6 @@ from harness_mem.shell_completion import (
     CLI_COMMANDS,
     COMMAND_PROFILES,
     MAINTENANCE_ACTIONS,
-    OPTIONAL_COMMAND_GROUPS,
     completion_bash,
     completion_fish,
     completion_zsh,
@@ -311,8 +310,7 @@ def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
     assert "migrate-store-v2" in MAINTENANCE_ACTIONS
     assert "product-doc" not in MAINTENANCE_ACTIONS
     assert "metabolism-run" not in MAINTENANCE_ACTIONS
-    assert "product-doc" not in COMMAND_PROFILES
-    assert "product-doc" not in OPTIONAL_COMMAND_GROUPS
+    assert COMMAND_PROFILES == ["daily"]
     assert "bench" not in MAINTENANCE_ACTIONS
     assert "cache" not in MAINTENANCE_ACTIONS
 
@@ -334,10 +332,17 @@ def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
     for script in (bash, zsh, fish):
         assert "import" in script
         assert "purge" in script
+        assert "install-cursor-wake-hook" in script
+        assert "install-claude-wake-hook" in script
         assert "skill-governance" not in script
         assert "record-result" not in script
         assert "labs" not in script
         assert "product-doc" not in script
+        assert "commands enable" not in script
+        assert "--include" not in script
+        assert "maintenance full" not in script
+        assert "triggers.after_agent" not in script
+        assert "reflection dream preview metabolism" not in script
         assert "rebuild-vector-index" in script
         assert "migrate-store-v2" in script
         assert "wiki-bridge" not in script

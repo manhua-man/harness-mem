@@ -143,7 +143,6 @@ def _serialize_merge_suggestion_candidate(candidate: Any) -> dict:
         "proposed_content": candidate.proposed_content,
         "similarity_score": candidate.similarity_score,
         "evidence_signal_ids": list(candidate.evidence_signal_ids),
-        "metabolism_run_id": candidate.metabolism_run_id,
         "created_at": _isoformat(candidate.created_at),
     }
 
@@ -159,6 +158,5 @@ def _serialize_stale_truth_suggestion_candidate(candidate: Any) -> dict:
         "last_surfaced_at": _isoformat(candidate.last_surfaced_at),
         "days_since_last_surface": candidate.days_since_last_surface,
         "evidence_signal_ids": list(candidate.evidence_signal_ids),
-        "metabolism_run_id": candidate.metabolism_run_id,
         "created_at": _isoformat(candidate.created_at),
     }

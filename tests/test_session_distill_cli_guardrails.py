@@ -22,11 +22,13 @@ def _point_cli_at_tmp(monkeypatch, tmp_path: Path) -> Path:
     return distill_dir
 
 
-def test_session_distill_cli_only_registers_artifact_lifecycle_commands() -> None:
+def test_session_distill_cli_does_not_register_artifact_lifecycle_commands() -> None:
     parser = cli.build_parser()
     choices = parser._subparsers._group_actions[0].choices  # type: ignore[attr-defined]
 
-    assert set(choices) == {"run", "status", "list", "mark", "prune", "help"}
+    assert set(choices) == {"run", "status", "list", "help"}
+    assert "mark" not in choices
+    assert "prune" not in choices
 
 
 def test_raw_cleanup_requires_guardrail(monkeypatch, tmp_path: Path) -> None:

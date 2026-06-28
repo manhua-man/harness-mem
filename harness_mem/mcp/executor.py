@@ -12,8 +12,6 @@ from typing import Any, Callable
 from harness_mem.mcp.tool_registry import (
     McpToolProfile,
     PUBLIC_MCP_SURFACE,
-    hidden_tool_error,
-    visible_tool_name_set,
 )
 from harness_mem.mcp.tool_specs import ToolSpec
 from harness_mem.runtime_cost import observe_mcp_surface_cost
@@ -132,9 +130,6 @@ def execute_tool_call(
 
     if tool_name not in tools:
         return _unknown_tool_error(req_id, tool_name)
-
-    if tool_name not in visible_tool_name_set(tools):
-        return hidden_tool_error(req_id, str(tool_name))
 
     if not isinstance(tool_args, dict):
         return _invalid_parameter_error(req_id, "arguments")

@@ -45,7 +45,7 @@ Autopilot has only this single user-facing switch. When enabled, it may proactiv
 wake/search and create evidence-backed candidates or distill handoffs at clear
 task boundaries. Durable memory still goes through the normal candidate/review
 loop; autopilot never silently confirms truth. Dream is enabled by default, but
-it still follows runtime scheduler gates, audit ledgers, and undo metadata.
+it still follows runtime auto gates, audit ledgers, and undo metadata.
 Users can opt out with `dream.auto.enabled=false`.
 
 ## Trigger map
@@ -84,7 +84,7 @@ Do not:
 - hard-delete confirmed truth;
 - treat generated prose as truth;
 - inject every memory into wake;
-- run hook, scheduler, or daemon maintenance outside the runtime gates;
+- run hook or daemon maintenance outside the runtime gates;
 - bypass `dream.auto.enabled` when handing eligible candidates or memories to dream maintenance;
 - present CLI as the normal daily workflow when MCP or Slash/Skill is available.
 

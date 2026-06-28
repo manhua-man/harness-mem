@@ -122,6 +122,29 @@ class LocalStructuredStore:
             return _CanonicalStructuredBlobPath(self, entity_type, id)
         return self._subdirs[entity_type] / f"{id}.json"
 
+    def record_payload_exists(self, collection: str, entity_id: str) -> bool:
+        """Return whether a structured record payload exists.
+
+        This is the explicit blob/canonical boundary used by smaller stores so
+        they do not need to depend on the private path implementation.
+        """
+        return self._blob_path(collection, entity_id).exists()
+
+    def read_record_payload(self, collection: str, entity_id: str) -> dict[str, Any]:
+        """Read one structured record payload by collection/id."""
+        return json.loads(self._blob_path(collection, entity_id).read_text())
+
+    def write_record_payload(
+        self,
+        collection: str,
+        entity_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Persist one structured record payload by collection/id."""
+        self._blob_path(collection, entity_id).write_text(
+            json.dumps(payload, indent=2, default=str)
+        )
+
     @property
     def index(self) -> DerivedIndex:
         """Shared derived index owned by this store's lifecycle.
@@ -331,7 +354,8 @@ class LocalStructuredStore:
         loaded = self.truth_store.load(truth_type, truth_id)
         if loaded is None:
             return None
-        collection, blob_path, payload = loaded
+        collection, payload = loaded
+        blob_path = self._blob_path(collection, truth_id)
         return collection, cast(Path | _CanonicalStructuredBlobPath, blob_path), payload
 
     def _apply_truth_supersede_updates(

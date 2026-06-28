@@ -646,6 +646,24 @@ async def build_wake_snapshot(
     return payload
 
 
+async def build_wake_injection(
+    backend: LocalMemoryBackend,
+    project_name: str,
+    *,
+    apply_surface_side_effects: bool = True,
+) -> str:
+    """Return the session-start wake text for host injection.
+
+    This is the hook-facing form of wake: it reuses the same L0/L1/L2 context
+    plan renderer as `/hm:wake` and MCP `wake`, but leaves out CLI-only budget
+    advice and never runs maintenance, distill, review, or dream.
+    """
+    plan = await assemble_context_plan(backend, project_name=project_name)
+    if apply_surface_side_effects:
+        await _apply_surface_side_effects(backend, plan)
+    return render_wake_plan(plan)
+
+
 async def cmd_wake_up(
     project_name: str | None,
     no_auto_ingest: bool = False,

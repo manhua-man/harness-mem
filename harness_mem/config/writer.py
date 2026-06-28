@@ -1,12 +1,10 @@
-"""Single-key TOML writer for the v2.4.3 ``config set`` maintenance command.
+"""Single-key TOML writer for the ``config set`` maintenance command.
 
-``config set`` opts a project (or the user-level config) into a trigger or
-changes the distill mode without hand-editing TOML. The write model is a
-structured edit: read the existing file into a ``dict``, mutate exactly one
-leaf under a dotted key path, and write the whole table back via
-:func:`tomli_w.dumps`. Comments and key ordering are NOT preserved — operators
-who need that hand-edit instead (documented v2.4.3 limitation, see design.md
-"Why we round-trip through dict").
+``config set`` edits a single project or user config key without hand-editing
+TOML. The write model is a structured edit: read the existing file into a
+``dict``, mutate exactly one leaf under a dotted key path, and write the whole
+table back via :func:`tomli_w.dumps`. Comments and key ordering are NOT
+preserved.
 
 Recognized-key validation reuses :data:`harness_mem.config.merge._RECOGNIZED_KEYS`
 as the single source of truth so the writer can never disagree with the
@@ -27,6 +25,7 @@ from harness_mem.config.merge import (
     _AUTOPILOT_KEYS,
     _DREAM_KEYS,
     _RECOGNIZED_KEYS,
+    _REMOVED_CONFIG_KEYS,
     _set_dotted,
 )
 
@@ -99,6 +98,10 @@ def _validate(key_path: str, value: str, target: Path) -> Any:
     Non-recognized keys accept any string value (the runtime ignores them via
     ``MergedConfig.extras``).
     """
+    if key_path in _REMOVED_CONFIG_KEYS or key_path.startswith("triggers."):
+        raise ConfigValidationError(
+            key_path=key_path, value=value, source_path=str(target)
+        )
     for recognized_path, _attr, allowed, _default in _RECOGNIZED_KEYS:
         if recognized_path == key_path and value not in allowed:
             raise ConfigValidationError(
@@ -173,7 +176,7 @@ def set_value(
         scope: ``"user"`` writes ``~/.harness-mem/config.toml``; ``"project"``
             writes ``<project_root>/.harness-mem.toml``.
         project_root: Project directory used to locate the project-level file.
-        key_path: Dotted key path to set (for example ``triggers.after_agent``).
+        key_path: Dotted key path to set (for example ``dream.auto.enabled``).
         value: Literal string value to write.
 
     Returns:

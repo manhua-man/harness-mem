@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# harness-mem ${HARNESS_MEM_VERSION} — Cursor session-start wake hook
+# Generated at: ${GENERATED_AT}
+# Docs: ${DOC_POINTER}
+#
+# This hook prints wake context for session-start injection. It is read-only
+# apart from wake-surfaced usage signals and never runs dream maintenance.
+
+set -e
+
+PROJECT_ROOT="${PROJECT_ROOT}"
+TURN_ID="$${CURSOR_TURN_ID:-session-start}"
+
+python -m harness_mem.host_entry \
+    --action wake-start \
+    --project-root "$$PROJECT_ROOT" \
+    --source ide_hook \
+    --trigger-id "$$TURN_ID" \
+    2>/dev/null || true
+
+exit 0

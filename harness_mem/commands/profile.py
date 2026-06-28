@@ -109,7 +109,7 @@ async def cmd_profile_edit(project_name: str | None) -> int:
         print("(Press Enter to keep the current value; '!clear' to reset a field)\n")
     else:
         if not can_prompt():
-            print(f"No profile found for: {project_name}. Call MCP update_project_profile first.")
+            print(f"No profile found for: {project_name}. Creating a new one.\n")
             return 1
         print(f"No profile found for: {project_name}. Creating a new one.\n")
         profile = None

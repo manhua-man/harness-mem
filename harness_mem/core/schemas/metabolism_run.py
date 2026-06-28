@@ -1,4 +1,4 @@
-"""MetabolismRun schema - append-only record of a metabolism / preview run."""
+"""MetabolismRun schema - internal append-only maintenance scan record."""
 
 from datetime import datetime, timezone
 from typing import Literal
@@ -8,11 +8,11 @@ from pydantic import BaseModel, Field
 
 
 class MetabolismRun(BaseModel):
-    """Append-only record of one metabolism / dream-style run.
+    """Append-only record of one internal scan used by dream maintenance.
 
-    v2.3.0 only emits ``kind="preview"`` runs from the
-    ``metabolism_preview`` MCP tool. Future slices (v2.3.1+) will write
-    ``kind="metabolism"`` rows once suggestion writers come online.
+    Standalone MCP scan tools were removed; dream remains the product-facing
+    maintenance loop. This schema is retained for internal audit compatibility
+    while dream owns scheduling, ledger, and undo.
 
     ``notes`` is modeled as a list of strings (rather than a single
     human-readable string) so the replay-window selector can append

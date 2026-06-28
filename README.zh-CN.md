@@ -22,6 +22,13 @@ Agent 会读代码，但它通常不知道项目为什么变成现在这样：�
 
 `harness-mem` 把这些内容变成本地记忆，通过单一 MCP memory surface 接给 Codex、Claude Code、Cursor、Gemini CLI 和其它 Agent 客户端。新 Agent 用 `wake` 和 `search` 找回上下文，用 `distill` 提出新记忆，并把 dream 作为默认的可审计维护循环；只有 review 通过的内容才会进入 confirmed memory。
 
+触发入口：
+
+- `/hm:*` 命令：`status`、`wake`、`search`、`distill`、`review`、`dream`。
+- Agent MCP 调用：自然语言或 skill 触发 `wake/search/distill/review`。
+- Hook：会话开始注入 wake context，会话结束触发 gated dream 维护。
+- CLI：只做 setup、doctor、config、integration 和 maintenance。
+
 <p align="center">
   <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="新 Agent 通过 wake、search、distill、review 恢复跨会话项目上下文" width="900" />
 </p>

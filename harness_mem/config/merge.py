@@ -1,4 +1,4 @@
-"""Merged-config loader for the v2.4.1 host-triggered reflection contract.
+"""Merged-config loader for harness-mem runtime configuration.
 
 Both MCP handlers and the host entry consume :func:`load_merged_config`, which
 deep-merges ``~/.harness-mem/config.toml`` (user-level) and
@@ -43,10 +43,6 @@ class MergedConfig:
     everything else is preserved (nested-table shape intact) in ``extras``.
     """
 
-    triggers_after_agent: Literal["off", "on"] = "off"
-    triggers_scheduler: Literal["off", "on"] = "off"
-    distill_mode: Literal["defer_to_agent", "inline", "worker"] = "defer_to_agent"
-    worker_mode: Literal["off", "on"] = "off"
     autopilot_enabled: bool = True
     dream_auto_enabled: bool = True
     dream_auto_trigger: Literal["idle_or_interval", "interval", "idle"] = "idle_or_interval"
@@ -73,14 +69,12 @@ class MergedConfig:
     extras: dict[str, Any] = field(default_factory=dict)
 
     def to_reflection_config(self) -> dict[str, Any]:
-        """Project to the nested-dict shape v2.4.0 ``reflection_once`` accepts.
+        """Project to the nested-dict shape used by dream runtime config.
 
-        Rebuilds the TOML key-path nesting so that
-        ``config.get("distill", {}).get("mode")`` and its siblings continue to
-        work without an adapter layer (Req 3.9). We start from a deep copy of
-        ``extras`` (so unknown nested tables survive) and overlay the recognized
-        keys at their dotted paths. Recognized keys therefore take precedence
-        over any same-path value that happened to live in ``extras``.
+        Rebuilds TOML key-path nesting from a deep copy of ``extras`` and
+        overlays recognized runtime keys at their dotted paths. Recognized keys
+        therefore take precedence over any same-path value that happened to
+        live in ``extras``.
         """
         out: dict[str, Any] = copy.deepcopy(self.extras)
         for key_path, attr, _allowed, _default in _RECOGNIZED_KEYS:
@@ -94,19 +88,13 @@ class MergedConfig:
         return out
 
 
-# Recognized-key schema — the single source of truth shared by the loader,
-# the validator, the default-fill pass, and ``to_reflection_config``.
-# Each row is (key_path, attribute_name, allowed_values, default).
-_RECOGNIZED_KEYS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
-    ("triggers.after_agent", "triggers_after_agent", ("off", "on"), "off"),
-    ("triggers.scheduler", "triggers_scheduler", ("off", "on"), "off"),
-    (
-        "distill.mode",
-        "distill_mode",
-        ("defer_to_agent", "inline", "worker"),
-        "defer_to_agent",
-    ),
-    ("worker.mode", "worker_mode", ("off", "on"), "off"),
+# Legacy trigger keys removed from the supported runtime config.
+_RECOGNIZED_KEYS: tuple[tuple[str, str, tuple[str, ...], str], ...] = ()
+_REMOVED_CONFIG_KEYS: tuple[str, ...] = (
+    "triggers.after_agent",
+    "triggers.scheduler",
+    "distill.mode",
+    "worker.mode",
 )
 
 _AUTOPILOT_KEYS: tuple[tuple[str, str, str, Any], ...] = (
@@ -197,7 +185,7 @@ def _remove_dotted(d: dict[str, Any], dotted: str) -> None:
     Recognized keys are stripped from the copy of the merged dict that becomes
     ``extras`` so that ``extras`` carries only unrecognized keys. Sibling
     unrecognized keys under the same table survive (e.g. removing
-    ``triggers.after_agent`` leaves ``triggers.custom_thing`` in place).
+    ``dream.auto.enabled`` leaves sibling dream keys in place).
     """
     parts = dotted.split(".")
     chain: list[tuple[dict[str, Any], str]] = []
@@ -463,17 +451,11 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
         _remove_dotted(extras, key_path)
     for key_path, _attr, _kind, _default in _COST_BUDGET_KEYS:
         _remove_dotted(extras, key_path)
-
-    def _resolve(key_path: str, default: str) -> Any:
-        found, value = _get_dotted(merged, key_path)
-        return value if found else default
+    for key_path in _REMOVED_CONFIG_KEYS:
+        _remove_dotted(extras, key_path)
 
     # ---- 7. construct (Req 3.6, 3.9) ------------------------------------
     return MergedConfig(
-        triggers_after_agent=_resolve("triggers.after_agent", "off"),
-        triggers_scheduler=_resolve("triggers.scheduler", "off"),
-        distill_mode=_resolve("distill.mode", "defer_to_agent"),
-        worker_mode=_resolve("worker.mode", "off"),
         **autopilot_values,
         **dream_values,
         **cost_budget_values,

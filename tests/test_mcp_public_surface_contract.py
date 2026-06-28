@@ -140,7 +140,7 @@ def test_mcp_keeps_only_read_only_procedural_skill_hints(backend) -> None:
     assert not SKILL_GOVERNANCE_TOOLS.intersection(tool_names)
 
 
-def test_non_public_maintenance_tool_call_is_hidden(backend) -> None:
+def test_removed_standalone_maintenance_tool_call_is_unknown(backend) -> None:
     response = server.handle_request(
         {
             "jsonrpc": "2.0",
@@ -155,8 +155,29 @@ def test_non_public_maintenance_tool_call_is_hidden(backend) -> None:
 
     assert response is not None
     assert response["error"]["code"] == -32601
-    assert response["error"]["data"]["error_code"] == "HM-MCP-TOOL-HIDDEN"
-    assert response["error"]["data"]["surface"] == "memory"
+    assert response["error"]["message"] == "Unknown tool: metabolism_run"
+
+
+def test_removed_project_profile_write_tool_call_is_unknown(backend) -> None:
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 33,
+            "method": "tools/call",
+            "params": {
+                "name": "update_project_profile",
+                "arguments": {
+                    "project_name": "demo",
+                    "retrieval_profile": "quality",
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    assert response["error"]["code"] == -32601
+    assert response["error"]["message"] == "Unknown tool: update_project_profile"
+    assert "data" not in response["error"]
 
 
 def test_public_auto_review_forces_apply_to_preview(backend) -> None:

@@ -174,13 +174,11 @@ async def _print_runtime_health_status(
     )
     jobs = report.get("job_health", {})
     dream = jobs.get("dream", {})
-    metabolism = jobs.get("metabolism", {})
-    reflection = jobs.get("reflection", {})
     print(
-        "  Job health: "
-        f"reflection={reflection.get('last_status') or 'none'}, "
-        f"dream={dream.get('last_status') or 'none'}, "
-        f"metabolism={metabolism.get('last_status') or 'none'}"
+        "  Dream maintenance: "
+        f"last={dream.get('last_status') or 'none'}, "
+        f"failures={dream.get('failure_count', 0)}, "
+        f"retryable={dream.get('retryable_count', 0)}"
     )
     surface_budgets = _surface_budgets_from_config(_load_project_config(project_name))
     cost = surface_cost_report(

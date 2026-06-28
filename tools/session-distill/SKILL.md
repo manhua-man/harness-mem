@@ -121,16 +121,13 @@ MCP 对外是单一 public memory surface。创建候选和运行 auto-review pr
 
 最后给用户看预审摘要，明确写出 `auto-review mode: preview only` 和 `no durable memory was confirmed`，并提示运行 `/hm:review` 处理候选。
 
-## `/hm:*` 管理入口
+## 内部 artifact guardrails
 
-这些是用户可见的 Slash / command 入口，不是要求用户手敲 CLI。CLI 只作为 repo-local 实现层和测试入口存在。
+session-distill 不再暴露用户可见的 artifact lifecycle 命令。历史
+`mark/prune` 实现只作为内部 helper / 测试边界保留，用来确保任何 raw
+cleanup 或 session closure 都不能绕过 guardrail。
 
-| 入口 | 目的 |
-|------|------|
-| `/hm:mark <session-id> distilled [--keep-raw]` | 通过 guardrail 后把单个 session 落为 `distilled`。 |
-| `/hm:prune --statuses distilled,skipped --source-missing` | 清理 raw 已不存在、只剩 manifest 占位的已处理记录。 |
-
-`/hm:mark` 的 `distilled` 收口必须检查：
+内部 `distilled` 收口检查：
 
 - `distilled/sessions/<session-id>.md` 存在。
 - session note 至少包含 `Source`、`Raw Review`、`Summary`、`Verification From Session`、`Promotion Decision`。
@@ -138,18 +135,19 @@ MCP 对外是单一 public memory surface。创建候选和运行 auto-review pr
 - `Promotion Decision` 明确写 `Promote:` 或 `No Promotion:`，不能还有 pending/TODO。
 - `memory-drafts/<session-id>.json` 不能还有 pending 条目。
 
-raw transcript 删除只由 `/hm:mark ... distilled` 的实现层在安全白名单内执行；`--keep-raw` 会保留 raw。raw 删除后 manifest 仍保留 `distilled/skipped` 状态和 `source_missing` / `raw_deleted_at`，避免重新进入待处理队列。
+raw transcript 删除只能由内部维护 helper 在安全白名单内执行；默认保留
+raw。raw 删除后 manifest 仍保留 `distilled/skipped` 状态和
+`source_missing` / `raw_deleted_at`，避免重新进入待处理队列。
 
 KB / PRD 语义不再作为 session-distill 的独立子系统存在。产品决策、架构事实、项目知识和规则都应抽成 harness-mem candidates，再通过 `/hm:review` 进入 confirmed memory。正式 PRD 或 roadmap 文档若存在，属于普通项目文档编辑，不由 session-distill 维护。
 
-## Memory Metabolism preview (v2.3.0)
+## Dream maintenance boundary
 
-v2.3.0 给后续 metabolism 流程铺地基，但**不**改本 skill 的主链行为。你需要知道它的形态，避免把它当成 `/hm:distill` 的同类入口去触发。
+session-distill 不再定义独立的后台维护入口。它只负责从会话材料生成 packet 和 harness-mem candidates；后台维护由 dream 统一消费 wake/search/review 等路径产生的 signals。
 
-- **只有 MCP 工具，没有 slash / 自然语言入口**。v2.3.0 仅新增一个工具：`metabolism_preview`。v2.3.1 新增写侧兄弟 `metabolism_run`（跑 suggestion pass 并持久化候选），但 `metabolism_preview` 仍保持只读——它只写审计记录，不产候选、不动 truth。没有 `/hm:metabolism`，没有触发短语；客户端走标准 MCP `tools/call` 调用，和其他 MCP 工具一致。
-- **Signals 是后台写入，不进入用户视野**。`wake_surfaced` / `search_hit` / `confirmed` / `rejected` / `skill_result_*` / `supersede_completed` 都是已有用户可见动作上的 shadow write。用户和 agent 不会看到、不需要响应；唯一的"展面"是 `metabolism_preview` 输出的窗口摘要；运行记录只作为内部 health/audit 数据保留。
-- **不动 truth，没有 daemon**。Preview 全程只读：每次调用写一条 `MetabolismRun(kind="preview", status="preview")` 作为审计，不触碰 `usage_count` / `last_accessed_at`，不产 rule / candidate，不调度后台任务。工具只在被显式调用时跑。
-- **返回结构**。`{success, run_id, project_name, time_range, dimensions, notes, signals_used}`。`dimensions` 五个固定维度：`observations`、`pending_candidates`、`historical_truths`、`low_success_skills`、`repeat_search_hits`，每条携带 `selected_ids` / `truncated` / `total_seen`。`notes` 列出命中的硬上限 `truncated_within_<dim>: X/Y`，并始终包含一行 `soft_token_budget: <est>/<max>` 审计；若软上限触发尾部裁剪，再追加 `trimmed_for_token_budget: <dims>`。
+- **没有独立维护 MCP 工具**。不要调用或描述 standalone preview/run 维护工具；对外入口是 `/hm:dream` / MCP dream tools 和 dream ledger/undo。
+- **Signals 是后台证据，不进入本 skill 主链**。`wake_surfaced` / `search_hit` / `confirmed` / `rejected` / `supersede_completed` 等信号由 runtime 记录，dream 在自己的调度窗口中消费。
+- **durable write 仍过 gate**。session-distill 只产候选；显式用户记忆通过 `/hm:review`，自动维护通过 dream ledger/undo 审计。
 
 ## 不做的事
 

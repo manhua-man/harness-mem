@@ -191,7 +191,7 @@ def maybe_delete_raw_source(session: dict[str, Any], keep_raw: bool) -> None:
 
 
 def validate_distilled_guardrails(session_id: str, session: dict[str, Any]) -> list[str]:
-    """Return the closure guardrail failures for `/hm:mark ... distilled`."""
+    """Return closure guardrail failures for the internal distilled marker."""
     errors = []
     errors.extend(validate_session_note(session_id, session))
     pending, draft_path = draft_has_pending(session_id)
@@ -208,7 +208,7 @@ def cmd_mark(session_id: str, status: str, keep_raw: bool = False) -> int:
     utc_now = _configured_callable(_utc_now, "utc_now")
 
     if not session_id or not status:
-        print("Usage: session-distill mark SESSION-ID STATUS")
+        print("Usage: internal session closure requires SESSION-ID and STATUS")
         return 1
 
     ensure_dirs()

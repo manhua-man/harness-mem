@@ -1,4 +1,4 @@
-"""Claude Code slash command profile sync for harness-mem."""
+"""Claude Code slash command sync for the Daily harness-mem surface."""
 
 from __future__ import annotations
 
@@ -7,36 +7,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-CommandProfile = Literal["daily", "maintenance", "full"]
-OptionalCommandGroup = Literal["maintenance"]
+CommandProfile = Literal["daily"]
 
 DAILY_COMMANDS = ("status", "wake", "search", "search-all", "distill", "review", "dream")
-MAINTENANCE_COMMANDS = ("mark", "prune")
+RETIRED_COMMANDS = ("mark", "prune")
 
 VALID_COMMAND_PROFILES: tuple[CommandProfile, ...] = (
     "daily",
-    "maintenance",
-    "full",
-)
-VALID_OPTIONAL_GROUPS: tuple[OptionalCommandGroup, ...] = (
-    "maintenance",
 )
 
-_PROFILE_GROUPS: dict[CommandProfile, tuple[OptionalCommandGroup, ...]] = {
-    "daily": (),
-    "maintenance": ("maintenance",),
-    "full": ("maintenance",),
-}
-_GROUP_COMMANDS: dict[OptionalCommandGroup, tuple[str, ...]] = {
-    "maintenance": MAINTENANCE_COMMANDS,
-}
 _COMMAND_GROUPS: dict[str, str] = {
     **{command: "daily" for command in DAILY_COMMANDS},
-    **{
-        command: group
-        for group, commands in _GROUP_COMMANDS.items()
-        for command in commands
-    },
 }
 
 
@@ -73,48 +54,30 @@ def normalize_profile(value: str | None) -> CommandProfile:
     return profile  # type: ignore[return-value]
 
 
-def normalize_optional_group(value: str) -> OptionalCommandGroup:
-    group = value.strip().lower()
-    if group not in VALID_OPTIONAL_GROUPS:
-        valid = ", ".join(VALID_OPTIONAL_GROUPS)
-        raise ValueError(f"include group must be one of: {valid}")
-    return group  # type: ignore[return-value]
-
-
 def resolve_command_names(
     *,
     profile: str | None = "daily",
     include: tuple[str, ...] | list[str] = (),
 ) -> tuple[str, ...]:
-    normalized_profile = normalize_profile(profile)
-    groups = list(_PROFILE_GROUPS[normalized_profile])
-    for raw_group in include:
-        group = normalize_optional_group(raw_group)
-        if group not in groups:
-            groups.append(group)
-
-    selected: list[str] = list(DAILY_COMMANDS)
-    for group in groups:
-        for command in _GROUP_COMMANDS[group]:
-            if command not in selected:
-                selected.append(command)
-    return tuple(selected)
+    normalize_profile(profile)
+    if include:
+        raise ValueError("optional slash command groups were removed; sync daily only")
+    return DAILY_COMMANDS
 
 
 def known_command_names() -> tuple[str, ...]:
-    commands: list[str] = list(DAILY_COMMANDS)
-    for group in VALID_OPTIONAL_GROUPS:
-        for command in _GROUP_COMMANDS[group]:
-            if command not in commands:
-                commands.append(command)
-    return tuple(commands)
+    return DAILY_COMMANDS
+
+
+def retired_command_names() -> tuple[str, ...]:
+    return RETIRED_COMMANDS
 
 
 def source_path_for_command(source_dir: Path, command: str) -> Path:
-    """Return the profile-scoped slash command source path.
+    """Return the Daily slash command source path.
 
-    The source tree is grouped by command profile, while the installed Claude
-    command directory remains flat so users still invoke `/hm:<command>`.
+    The source tree keeps a ``daily`` folder, while the installed Claude command
+    directory remains flat so users still invoke `/hm:<command>`.
     """
     group = _COMMAND_GROUPS.get(command)
     if group is None:
@@ -154,7 +117,7 @@ def sync_slash_commands(
     if not dry_run:
         destination.mkdir(parents=True, exist_ok=True)
 
-    for command in known_command_names():
+    for command in (*known_command_names(), *retired_command_names()):
         target = destination / f"{command}.md"
         if command not in selected_set and target.exists():
             removed.append(command)

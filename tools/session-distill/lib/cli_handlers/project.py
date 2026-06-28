@@ -271,7 +271,7 @@ def cmd_run(
     print("  2. AI extracts candidate drafts from session evidence")
     print("  3. AI exports candidates through harness-mem suggest_* tools")
     print("  4. User/agent invokes /hm:review for durable memory")
-    print("  5. User/agent invokes /hm:mark SESSION-ID distilled if archiving artifacts")
+    print("  5. Optionally update distilled session notes for archive context")
     print("")
 
     return cmd_status(project_path)

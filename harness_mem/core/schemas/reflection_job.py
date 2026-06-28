@@ -1,10 +1,8 @@
-"""ReflectionJob schema - durable record of one reflection/review unit of work.
+"""Internal dream job ledger schema.
 
-v2.4.0 introduces an explicit job lifecycle so that host hooks, schedulers,
-or Agent workflows that crash mid-reflection leave behind an inspectable
-record (status / phase / lease). This module currently defines the
-required-field skeleton; optional fields, ``model_config``, serialization
-helpers, and the state machine are added in subsequent slices.
+The class name and persisted table remain historical for storage
+compatibility. New product code uses rows with ``kind="dream"`` to dedupe and
+audit end-of-session dream maintenance ticks.
 """
 
 from datetime import datetime, timezone
@@ -15,7 +13,7 @@ from pydantic import BaseModel, Field
 
 
 class ReflectionJob(BaseModel):
-    """Canonical durable record for one reflection/review job."""
+    """Canonical durable record for one internal dream job."""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     project_name: str
@@ -37,6 +35,8 @@ class ReflectionJob(BaseModel):
         "retryable",
         "needs_distill",
     ] = Field(default="pending")
+    # ``scheduler`` is accepted for historical rows only. New host/MCP paths
+    # write ``user``, ``agent``, or ``ide_hook``.
     source: Literal["user", "agent", "ide_hook", "scheduler"]
 
     # Optional fields with defaults
@@ -116,65 +116,3 @@ class ReflectionJob(BaseModel):
         if "updated_at" not in data:
             data["updated_at"] = datetime.now(timezone.utc)
         return cls(**data)
-
-
-# State machine -----------------------------------------------------------
-#
-# Allowed transitions on ``ReflectionJob.status`` (Req 3.1-3.8). Both
-# ``completed`` and ``failed`` are terminal and intentionally map to empty
-# sets so :func:`validate_transition` rejects every outbound move.
-ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-    "pending": {"processing"},
-    "processing": {"needs_distill", "completed", "failed", "retryable"},
-    "retryable": {"processing"},
-    "needs_distill": {"processing", "completed"},
-    "completed": set(),
-    "failed": set(),
-}
-
-
-def validate_transition(current: str, target: str) -> None:
-    """Raise ``ValueError`` if ``current -> target`` is not allowed.
-
-    The error message mentions both the current and the target status so
-    callers can surface a useful diagnostic without re-deriving them.
-    Terminal states (``completed`` / ``failed``) reject every outbound
-    transition because their ``ALLOWED_TRANSITIONS`` entry is an empty set.
-    """
-    allowed = ALLOWED_TRANSITIONS.get(current)
-    if allowed is None:
-        raise ValueError(
-            f"unknown ReflectionJob status {current!r}; cannot transition to {target!r}"
-        )
-    if target not in allowed:
-        raise ValueError(
-            f"invalid ReflectionJob transition: {current!r} -> {target!r}"
-        )
-
-
-def new_pending_job(
-    *,
-    project_name: str,
-    project_root: str,
-    source: Literal["user", "agent", "ide_hook", "scheduler"],
-    phase: Literal[
-        "ingest", "prepare", "distill", "review", "metabolism", "done"
-    ] = "ingest",
-    input_refs: list[str] | None = None,
-) -> ReflectionJob:
-    """Canonical factory for a fresh ReflectionJob (Req 3.11).
-
-    The status field on a freshly created job MUST be ``"pending"`` — the
-    state machine assumes that's where the lifecycle starts. Direct
-    ``ReflectionJob(...)`` construction is reserved for ``from_dict``
-    round-trips where ``status`` may be any persisted value. Business
-    code that wants a brand-new job should call this factory.
-    """
-    return ReflectionJob(
-        project_name=project_name,
-        project_root=project_root,
-        source=source,
-        phase=phase,
-        status="pending",
-        input_refs=list(input_refs) if input_refs else [],
-    )

@@ -15,6 +15,10 @@ status, wake/search, session ingest/distill, candidate suggestion, explicit
 candidate review, and dream as the default audited maintenance capability.
 Historical profile values are ignored.
 
+Invocation paths are Agent MCP calls, `/hm:*` commands, installed skills, and
+explicit IDE hooks. Session-start hooks inject wake context; session-end hooks
+run gated dream maintenance.
+
 `auto_review_candidates` is always preview-only on the public MCP surface.
 Durable memory changes go through explicit `confirm_*`, `reject_*`, or
 supersede tools. Operator maintenance and skill lifecycle management are not

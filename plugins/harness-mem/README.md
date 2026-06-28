@@ -15,6 +15,14 @@ package, MCP tool contract, candidate review lifecycle, and local audit state.
 - Agent skills that teach the client when to wake, search, distill, and review.
 - PowerShell install and doctor helpers.
 
+Invocation paths installed by this plugin:
+
+| Path | Calls |
+|---|---|
+| `/hm:*` commands | Daily status, wake, search, distill, review, and dream. |
+| Agent skills | Memory tool calls selected by the host Agent. |
+| Optional MCP registration | User-level `harness_mem` server entry for Claude Code. |
+
 ## Install
 
 From the repository root:
@@ -29,28 +37,21 @@ To also register the MCP server with Claude Code:
 .\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
-Default slash command sync installs only the Daily profile:
+Slash command sync installs the Daily command surface:
 
 ```text
 /hm:status /hm:wake /hm:search /hm:search-all /hm:distill /hm:review /hm:dream
 ```
 
-Optional command profiles must be explicit:
-
-```powershell
-.\plugins\harness-mem\scripts\sync-commands.ps1 -Profile Maintenance
-```
-
-`install.ps1` installs or updates the runtime. `sync-commands.ps1` only changes
-which `/hm:*` commands are visible in Claude Code; it does not reinstall the
-Python package or rerun doctor checks.
+`install.ps1` installs or updates the runtime. `sync-commands.ps1` refreshes
+the Daily `/hm:*` command files and removes old non-Daily command files; it
+does not reinstall the Python package or rerun doctor checks.
 
 The same command visibility sync is available from the CLI:
 
 ```powershell
 harness-mem integration commands list
 harness-mem integration commands sync --profile daily
-harness-mem integration commands enable maintenance
 ```
 
 Skip slash command and skill sync on headless machines:

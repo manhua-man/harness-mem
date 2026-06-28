@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -40,13 +39,12 @@ class TruthStore:
         self,
         truth_type: str,
         truth_id: str,
-    ) -> tuple[str, Any, dict[str, Any]] | None:
+    ) -> tuple[str, dict[str, Any]] | None:
         collection = self.collection_for_type(truth_type)
-        blob_path = self._store._blob_path(collection, truth_id)
-        if not blob_path.exists():
+        if not self._store.record_payload_exists(collection, truth_id):
             return None
-        payload = json.loads(blob_path.read_text())
-        return collection, blob_path, payload
+        payload = self._store.read_record_payload(collection, truth_id)
+        return collection, payload
 
     def apply_supersede_updates(
         self,
@@ -77,11 +75,10 @@ class TruthStore:
         truth_id: str,
         data: dict[str, Any],
     ) -> bool:
-        blob_path = self._store._blob_path(collection, truth_id)
-        if not blob_path.exists():
+        if not self._store.record_payload_exists(collection, truth_id):
             return False
 
-        blob_path.write_text(json.dumps(data, indent=2, default=str))
+        self._store.write_record_payload(collection, truth_id, data)
         updates: dict[str, object] = {}
         for key in ("valid_to", "supersedes", "superseded_by"):
             if key in data:
@@ -109,7 +106,7 @@ class TruthStore:
         loaded = self.load(truth_type, truth_id)
         if loaded is None:
             return False
-        collection, _, data = loaded
+        collection, data = loaded
         updated = self.apply_supersede_updates(
             data,
             valid_to=valid_to,

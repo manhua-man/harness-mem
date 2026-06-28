@@ -34,9 +34,10 @@ from harness_mem.integration.installer import install_hook
 __all__ = [
     "cmd_install_cursor_hook",
     "cmd_install_claude_hook",
+    "cmd_install_cursor_wake_hook",
+    "cmd_install_claude_wake_hook",
     "cmd_list_command_profiles",
     "cmd_sync_commands",
-    "cmd_enable_command_profiles",
 ]
 
 # Canonical operator-facing doc the generated hook headers point at.
@@ -76,7 +77,7 @@ def _install(template_name: str, target_path: Path, root: Path, force: bool) -> 
 
 
 def cmd_install_cursor_hook(project_root: str | None, force: bool) -> int:
-    """Generate the Cursor after-agent hook script.
+    """Generate the Cursor dream-end hook script.
 
     Resolves ``project_root`` (default: cwd), targets
     ``<project_root>/.cursor/hooks/after-agent.sh``, and delegates to
@@ -90,7 +91,7 @@ def cmd_install_cursor_hook(project_root: str | None, force: bool) -> int:
 
 
 def cmd_install_claude_hook(project_root: str | None, force: bool) -> int:
-    """Generate the Claude Code after-turn hook script.
+    """Generate the Claude Code dream-end hook script.
 
     Resolves ``project_root`` (default: cwd), targets
     ``<project_root>/.claude/hooks/after-turn.sh``, and delegates to
@@ -102,10 +103,24 @@ def cmd_install_claude_hook(project_root: str | None, force: bool) -> int:
     return _install("claude_code_hook.sh.template", target_path, root, force)
 
 
-def cmd_list_command_profiles() -> int:
-    """Print available slash command profiles and their command sets."""
+def cmd_install_cursor_wake_hook(project_root: str | None, force: bool) -> int:
+    """Generate the Cursor session-start wake hook script."""
+    root = _resolve_project_root(project_root)
+    target_path = root / ".cursor" / "hooks" / "session-start.sh"
+    return _install("cursor_session_start.sh.template", target_path, root, force)
 
-    print("Claude Code slash command profiles:")
+
+def cmd_install_claude_wake_hook(project_root: str | None, force: bool) -> int:
+    """Generate the Claude Code session-start wake hook script."""
+    root = _resolve_project_root(project_root)
+    target_path = root / ".claude" / "hooks" / "session-start.sh"
+    return _install("claude_code_session_start.sh.template", target_path, root, force)
+
+
+def cmd_list_command_profiles() -> int:
+    """Print the available Daily slash command set."""
+
+    print("Claude Code slash commands:")
     for profile in VALID_COMMAND_PROFILES:
         commands = " ".join(f"/hm:{name}" for name in resolve_command_names(profile=profile))
         print(f"  {profile}: {commands}")
@@ -150,34 +165,5 @@ def cmd_sync_commands(
         )
     except (FileNotFoundError, ValueError) as exc:
         print(f"command sync failed: {exc}", file=sys.stderr)
-        return 1
-    return _print_sync_result(result)
-
-
-def cmd_enable_command_profiles(
-    *,
-    profiles: list[str],
-    source_dir: str | None,
-    target_dir: str | None,
-    dry_run: bool,
-) -> int:
-    """Enable one or more optional command groups without reinstalling runtime."""
-
-    if "full" in profiles:
-        profile = "full"
-        include: list[str] = []
-    else:
-        profile = "daily"
-        include = profiles
-    try:
-        result = sync_slash_commands(
-            source_dir=_path_arg(source_dir),
-            destination_dir=_path_arg(target_dir),
-            profile=profile,
-            include=include,
-            dry_run=dry_run,
-        )
-    except (FileNotFoundError, ValueError) as exc:
-        print(f"command enable failed: {exc}", file=sys.stderr)
         return 1
     return _print_sync_result(result)

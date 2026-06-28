@@ -446,84 +446,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["project_name"],
         },
     },
-    "update_project_profile": {
-        "description": (
-            "Non-interactive project profile update. Adds (or, with replace=true, "
-            "substitutes) profile fields. Fields omitted from the call are left "
-            "untouched. Lists are deduplicated when merged "
-            "so repeated calls with the same value are idempotent. Profiles feed "
-            "wake-up directly, so this is the fastest way to teach the system a "
-            "stable convention without going through the candidate review loop."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "description": {
-                    "type": "string",
-                    "description": "Short description of the project",
-                },
-                "stacks": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Languages and frameworks (e.g. ['rust', 'tauri', 'typescript'])",
-                },
-                "key_files": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Important file paths",
-                },
-                "conventions": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Project conventions or guard rails",
-                },
-                "service_hints": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Service names or URLs",
-                },
-                "database_hints": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Database connection strings or types",
-                },
-                "weak_link_signals": {
-                    "type": "boolean",
-                    "description": (
-                        "Opt-in for v2.3.1 weak-link signal application "
-                        "(wake re-grouping into Recent active / Stable / "
-                        "quiet + search boost on repeat hits). Default false."
-                    ),
-                },
-                "maintenance_profile": {
-                    "type": "string",
-                    "enum": ["weekly-dream", "post-distill-metabolism"],
-                    "description": (
-                        "Optional guided opt-in maintenance preset. Stored on "
-                        "ProjectProfile; status returns dry-run summaries but no "
-                        "daemon or maintenance run is enabled by default."
-                    ),
-                },
-                "retrieval_profile": {
-                    "type": "string",
-                    "enum": ["light", "quality"],
-                    "description": (
-                        "Optional project-level retrieval profile. None/light "
-                        "keeps the default path. 'quality' opts into bounded "
-                        "query rewrite/fanout metadata with a noop reranker; "
-                        "it does not enable HyDE, ANN, Tantivy, or LanceDB."
-                    ),
-                },
-                "replace": {
-                    "type": "boolean",
-                    "description": "When true, replace each provided list outright instead of merging.",
-                    "default": False,
-                },
-            },
-            "required": ["project_name"],
-        },
-    },
     "wake": {
         "description": (
             "Generate the wake-up context (project profile + recent rules + "
@@ -1016,187 +938,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["project_name", "task_id", "summary", "status"],
         },
     },
-    "list_reflection_jobs": {
-        "description": (
-            "Read-only list of v2.4.0 reflection jobs for a project. "
-            "Filters by project_name, status, and kind; orders by "
-            "created_at descending. Default limit 50, max 200 (limit "
-            "is clamped server-side). Returns ``{success, jobs}`` where "
-            "``jobs`` is a list of ReflectionJob.to_dict() payloads — "
-            "empty when no jobs match. Invalid status / kind values "
-            "return ``{success: false, error}`` listing the valid set. "
-            "This tool never mutates job state."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {
-                    "type": "string",
-                    "description": "Filter by project name (optional)",
-                },
-                "status": {
-                    "type": "string",
-                    "enum": [
-                        "pending",
-                        "processing",
-                        "completed",
-                        "failed",
-                        "retryable",
-                        "needs_distill",
-                    ],
-                    "description": "Filter by job status (optional)",
-                },
-                "kind": {
-                    "type": "string",
-                    "enum": ["reflection", "dream"],
-                    "description": "Filter by job kind (optional). v3.1 adds 'dream'.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum jobs to return (default 50, max 200, clamped server-side)",
-                    "default": 50,
-                },
-            },
-        },
-    },
-    "get_reflection_job": {
-        "description": (
-            "Read-only fetch of a single v2.4.0 reflection job by id. "
-            "Returns ``{success: true, job}`` where ``job`` is the full "
-            "ReflectionJob.to_dict() payload, or "
-            "``{success: false, error}`` when the id does not exist. "
-            "This tool never mutates job state."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "job_id": {
-                    "type": "string",
-                    "description": "Reflection job id to fetch",
-                },
-            },
-            "required": ["job_id"],
-        },
-    },
-    "health_summary": {
-        "description": (
-            "Read-only project health summary (reflection queue + candidate "
-            "health + signal freshness + chronic failures + maintenance hints)."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {
-                    "type": "string",
-                    "description": "Project name (defaults to active project when omitted).",
-                },
-            },
-        },
-    },
-    "surface_cost_report": {
-        "description": (
-            "Read-only v3.4.0 local MCP surface cost observer report. "
-            "Aggregates recent tool output token estimates, high-output calls, "
-            "and drilldown hints from the local event log without storing raw "
-            "tool arguments or response content."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {
-                    "type": "string",
-                    "description": "Optional project filter.",
-                },
-                "days": {
-                    "type": "integer",
-                    "description": "Lookback window in days (default 7).",
-                    "default": 7,
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum recent cost events to inspect (default 200, max 1000).",
-                    "default": 200,
-                },
-            },
-        },
-    },
-    "metabolism_preview": {
-        "description": (
-            "Preview the next metabolism run's input window without writing "
-            "suggestions or mutating truth. Reads recent observations, stale "
-            "pending candidates, recently-superseded historical truths, "
-            "low-success skills, and repeat search-hit aggregates over the "
-            "lookback window, applies per-dimension caps and a heuristic soft "
-            "token budget, then persists a MetabolismRun(kind=\"preview\", "
-            "status=\"preview\") for audit. Returns {success, run_id, "
-            "project_name, time_range, dimensions, notes, signals_used}. "
-            "v2.3.0: preview only, no daemon, no suggestions, no truth mutation."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {
-                    "type": "string",
-                    "description": "Project name (defaults to the active project when omitted).",
-                },
-                "budget": {
-                    "type": "object",
-                    "description": "Optional per-dimension caps and soft token cap. Missing fields fall back to ReplayBudget defaults.",
-                    "properties": {
-                        "max_observations": {"type": "integer", "minimum": 0},
-                        "max_pending_candidates": {"type": "integer", "minimum": 0},
-                        "max_historical_truths": {"type": "integer", "minimum": 0},
-                        "max_low_success_skills": {"type": "integer", "minimum": 0},
-                        "max_repeat_search_hits": {"type": "integer", "minimum": 0},
-                        "max_total_tokens": {"type": "integer", "minimum": 0},
-                        "signal_lookback_days": {"type": "integer", "minimum": 1},
-                    },
-                    "additionalProperties": False,
-                },
-            },
-        },
-    },
-    "metabolism_run": {
-        "description": (
-            "Run a metabolism pass over signals + replay window and "
-            "persist suggestion candidates for later review. Uses the "
-            "same window selection as metabolism_preview, then runs the "
-            "merge / stale proposers (auto-supersede deferred to v2.3.2) "
-            "and writes each suggestion as a pending candidate plus a "
-            "MetabolismRun(kind=\"metabolism\", status=\"completed\") "
-            "audit record. Unlike metabolism_preview this DOES persist new "
-            "candidate rows — use it when you want suggestions to land in "
-            "the review queue, not just see what they would be. v2.3.1: "
-            "merge candidates write proposed_content=\"\" (the Agent fills "
-            "the merged content at confirm time); stale candidates set "
-            "valid_to=now on confirm without producing a replacement. "
-            "Returns {success, run_id, project_name, time_range, "
-            "dimensions, notes, output_counts}."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {
-                    "type": "string",
-                    "description": "Project name (defaults to the active project when omitted).",
-                },
-                "budget": {
-                    "type": "object",
-                    "description": "Optional per-dimension caps and soft token cap. Missing fields fall back to ReplayBudget defaults.",
-                    "properties": {
-                        "max_observations": {"type": "integer", "minimum": 0},
-                        "max_pending_candidates": {"type": "integer", "minimum": 0},
-                        "max_historical_truths": {"type": "integer", "minimum": 0},
-                        "max_low_success_skills": {"type": "integer", "minimum": 0},
-                        "max_repeat_search_hits": {"type": "integer", "minimum": 0},
-                        "max_total_tokens": {"type": "integer", "minimum": 0},
-                        "signal_lookback_days": {"type": "integer", "minimum": 1},
-                    },
-                    "additionalProperties": False,
-                },
-            },
-        },
-    },
     "dream_ledger": {
         "description": (
             "Return the latest v3.1 DreamRun ledger for a project, or one "
@@ -1253,9 +994,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "dream_auto_tick": {
         "description": (
-            "Run one host/client scheduler tick for v3.1 auto dream. The tick "
-            "only enqueues ReflectionJob(kind='dream') when "
-            "dream.auto.enabled and scheduler gates allow it."
+            "Run one host/client auto tick for v3.1 dream. The tick only "
+            "enqueues a dream job when dream.auto.enabled and dream auto gates "
+            "allow it."
         ),
         "input_schema": {
             "type": "object",
@@ -1312,12 +1053,11 @@ TOOL_CLUSTERS = {
     "get_project_status": "core_read",
     "set_active_project": "core_read",
     "wake": "core_read",
-    # Advanced or lower-frequency read/profile surfaces.
+    # Advanced or lower-frequency read surfaces.
     "trace_relations": "review_read",
     "search_raw": "review_read",
     "search_skills": "review_read",
     "get_skill": "review_read",
-    "update_project_profile": "advanced",
     "record_context_outcome": "advanced",
     # Candidate/truth loop.
     "ingest_sessions": "truth_loop",
@@ -1340,20 +1080,12 @@ TOOL_CLUSTERS = {
     "confirm_relation_fact": "truth_loop",
     "reject_relation_fact": "truth_loop",
     "create_task_handoff": "truth_loop",
-    # Internal maintenance surfaces.
-    "metabolism_preview": "maintenance",
-    "metabolism_run": "maintenance",
     # Dream is a default product capability; the cluster name is separate from
     # whether a tool appears in the public MCP surface.
     "dream_ledger": "dream",
     "dream_run": "dream",
     "dream_auto_tick": "dream",
     "undo_dream_item": "dream",
-    # Maintainer/release/observer surfaces.
-    "list_reflection_jobs": "maintainer",
-    "get_reflection_job": "maintainer",
-    "health_summary": "maintainer",
-    "surface_cost_report": "maintainer",
 }
 
 
@@ -1370,12 +1102,19 @@ def build_tools(
     schema_keys = set(_SCHEMAS)
     handler_keys = set(handlers)
     cluster_keys = set(TOOL_CLUSTERS)
-    if schema_keys != handler_keys or schema_keys != cluster_keys:
+    public_keys = set(PUBLIC_MCP_TOOL_NAMES)
+    if schema_keys != public_keys or schema_keys != handler_keys or schema_keys != cluster_keys:
+        non_public_schemas = schema_keys - public_keys
+        missing_public_schemas = public_keys - schema_keys
         missing_handlers = schema_keys - handler_keys
         unknown_handlers = handler_keys - schema_keys
         missing_clusters = schema_keys - cluster_keys
         unknown_clusters = cluster_keys - schema_keys
         details = []
+        if non_public_schemas:
+            details.append(f"non-public schemas registered: {sorted(non_public_schemas)}")
+        if missing_public_schemas:
+            details.append(f"missing public schemas for: {sorted(missing_public_schemas)}")
         if missing_handlers:
             details.append(f"missing handlers for: {sorted(missing_handlers)}")
         if unknown_handlers:

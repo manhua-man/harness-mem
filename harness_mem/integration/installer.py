@@ -6,8 +6,8 @@ The two ``integration install-*-hook`` subcommands compute the IDE-specific
 ``target_path`` + ``template_name`` and delegate here, so the rendering,
 boundary self-check, and overwrite policy live in exactly one place.
 
-Boundary self-check: after substitution
-the rendered body MUST contain ``python -m harness_mem.host_entry`` and MUST NOT
+Boundary self-check: after substitution the rendered body MUST contain
+``python -m harness_mem.host_entry`` with an explicit hook action and MUST NOT
 contain any non-comment line that invokes the ``harness-mem`` console script.
 The check runs at install time, before the file is written, so a drifting
 template can never produce a violating artifact on disk.
@@ -59,6 +59,8 @@ def _assert_boundary(rendered: str) -> None:
             a non-comment ``harness-mem`` console-script invocation.
     """
     if _REQUIRED_HOST_ENTRY not in rendered:
+        raise RuntimeError("rendered template contains forbidden pattern")
+    if "--action dream-end" not in rendered and "--action wake-start" not in rendered:
         raise RuntimeError("rendered template contains forbidden pattern")
     for line in rendered.splitlines():
         if _FORBIDDEN_INVOCATION.search(line):

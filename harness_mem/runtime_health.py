@@ -53,40 +53,14 @@ async def runtime_health_report(
 
 
 async def _job_health(backend: LocalMemoryBackend, project_name: str) -> dict[str, Any]:
-    reflection_jobs = backend.reflection_job_store.list(
-        project_name=project_name,
-        kind="reflection",
-        limit=100,
-    )
     dream_jobs = backend.reflection_job_store.list(
         project_name=project_name,
         kind="dream",
         limit=100,
     )
     dream_runs = await backend.structured_store.list_dream_runs(project_name, limit=20)
-    metabolism_runs = await backend.structured_store.list_metabolism_runs(project_name, limit=20)
     return {
-        "reflection": _reflection_job_summary(reflection_jobs),
         "dream": _run_summary(dream_runs, job_rows=dream_jobs),
-        "metabolism": _run_summary(metabolism_runs),
-    }
-
-
-def _reflection_job_summary(rows: list[Any]) -> dict[str, Any]:
-    status_counts: dict[str, int] = {}
-    for row in rows:
-        status = str(getattr(row, "status", "unknown"))
-        status_counts[status] = status_counts.get(status, 0) + 1
-    latest = rows[0] if rows else None
-    failed = [row for row in rows if getattr(row, "status", None) == "failed"]
-    retryable = [row for row in rows if getattr(row, "status", None) == "retryable"]
-    return {
-        "last_run_at": _iso(getattr(latest, "updated_at", None)) if latest else None,
-        "last_status": getattr(latest, "status", None) if latest else None,
-        "failure_count": len(failed),
-        "retryable_count": len(retryable),
-        "status_counts": status_counts,
-        "latest_error": getattr(failed[0], "error", None) if failed else None,
     }
 
 

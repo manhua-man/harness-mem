@@ -33,7 +33,7 @@ tags: [harness-mem, dream, daily]
 2. **默认读取最近账本**
    - 调 MCP `dream_ledger`：
      - `project_name=<project>`
-   - 如果没有账本，说明还没有 DreamRun；梦境默认开启，但仍然要满足 scheduler gate 或由用户明确要求现在跑一次。
+   - 如果没有账本，说明还没有 DreamRun；梦境默认开启，但仍然要满足 dream auto gate 或由用户明确要求现在跑一次。
 
 3. **展示摘要**
    - 按 `applied` / `rejected` / `archived` / `failed` 分组
@@ -52,7 +52,7 @@ tags: [harness-mem, dream, daily]
    - 说明这是显式触发，不代表开启 always-on daemon
 
 6. **用户明确要求自动 tick**
-   - 只有当用户问“检查是否该自动跑 / 跑一次 scheduler tick”时，调 MCP `dream_auto_tick`
+   - 只有当用户问“检查是否该自动跑 / 跑一次 dream auto tick”时，调 MCP `dream_auto_tick`
    - 解释 tick 可能因为用户显式设置了 `dream.auto.enabled=false`、没有活动、未到间隔而跳过
 
 7. **撤销**

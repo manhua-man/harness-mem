@@ -286,17 +286,6 @@ def build_parser() -> argparse.ArgumentParser:
     list_cmd = subparsers.add_parser("list")
     list_cmd.add_argument("--size", type=int, default=DEFAULT_LIST_MIN_SIZE_KB)
 
-    mark = subparsers.add_parser("mark")
-    mark.add_argument("session_id")
-    mark.add_argument("status")
-    mark.add_argument("--keep-raw", action="store_true")
-
-    prune = subparsers.add_parser("prune")
-    prune.add_argument("--statuses", default="distilled,skipped")
-    prune.add_argument("--source-missing", action="store_true")
-    prune.add_argument("--apply", action="store_true")
-    prune.add_argument("--dry-run", action="store_true")
-
     subparsers.add_parser("help")
     return parser
 
@@ -312,10 +301,9 @@ def dispatch_command(args: argparse.Namespace, parser: argparse.ArgumentParser) 
         parser.print_help()
         return 0
 
-    projectless = {"mark", "prune"}
-    project_path = None if args.command in projectless else resolve_project_path(args)
+    project_path = resolve_project_path(args)
 
-    if args.command not in projectless and not project_path:
+    if not project_path:
         print("Error: Cannot find project directory")
         print("Use --project to specify, or run from project directory")
         return 1
@@ -326,11 +314,6 @@ def dispatch_command(args: argparse.Namespace, parser: argparse.ArgumentParser) 
         return cmd_status(project_path)
     if args.command == "list":
         return cmd_list(project_path, args.size)
-    if args.command == "mark":
-        return cmd_mark(args.session_id, args.status, keep_raw=args.keep_raw)
-    if args.command == "prune":
-        return cmd_prune(args.statuses, source_missing=args.source_missing, apply=args.apply)
-
     parser.print_help()
     return 1
 
