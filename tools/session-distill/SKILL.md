@@ -171,9 +171,7 @@ session-distill 不再定义独立的后台维护入口。它只负责从会话�
 | `grill-before-distill` (grill-me) | **是**（标准准入，按风险分档） | `suggest_*` 之前给主链动作：admit / narrow / defer / reject；已确认记忆回看用 lookback |
 | smart-search-style CLI | 否（参考候选） | 外部主张举证方案研究；当前不作为 hm 依赖 |
 | `search_memory` | 是（MCP） | 仓库内主张举证，review 前 |
-| Trellis | 否（项目级） | PRD/任务编排，不进 hm 核心 |
-
-详见 `docs/memory-adoption.md`。smart-search / Trellis 仅作参考或项目级选择；准入分档逻辑不跳过（skill 不可用则内联轻量 checklist）。
+详见 `docs/memory-adoption.md`。smart-search 仅作参考或项目级选择；准入分档逻辑不跳过（skill 不可用则内联轻量 checklist）。
 
 ## 不做的事
 
@@ -183,7 +181,7 @@ session-distill 不再定义独立的后台维护入口。它只负责从会话�
 - 不把逐条分类工作交给用户；AI 必须自动预审 pending 候选，但默认不直接处理低风险项，durable write 通过 `/hm:review`。
 - 不维护独立的 `knowledge-base.md`、KB review/prune 命令、PRD sync 文件或产品文档桥。
 - 不把 `session-distill.py` 命令列表当成用户产品面；用户入口是 `/hm:*` 或自然语言等价命令。
-- 不把 smart-search / Trellis 硬编码进 hm runtime；smart-search 当前只作为参考证据工具研究，grill-before-distill 是 distill 默认 Skill 步骤，不是新 MCP。
+- 不把 smart-search 硬编码进 hm runtime；smart-search 当前只作为参考证据工具研究，grill-before-distill 是 distill 默认 Skill 步骤，不是新 MCP。
 
 ## 兜底策略
 

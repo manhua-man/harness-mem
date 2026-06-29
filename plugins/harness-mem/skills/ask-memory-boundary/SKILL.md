@@ -56,6 +56,6 @@ must_not_write_yet:
 
 - Do not call `suggest_*`, `confirm_*`, `reject_*`, or supersede tools.
 - Do not turn architecture advice into memory automatically.
-- Do not create a Trellis spec, journal, or second truth store.
+- Do not create a parallel spec, journal, or second truth store.
 - Prefer `narrow` or `defer` when the product boundary is uncertain.
 - Ask the user only for preference, intent, or product direction that evidence cannot settle.

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## [0.8.7.1] - 2026-06-29
+
+### Changed
+
+- Removed borrowed task-orchestration terminology and closeout actions from the
+  memory adoption playbook so the documented workflow stays focused on
+  harness-mem's own distill, review, dream, and evidence boundaries.
+- Clarified that smart-search remains a reference evidence provider only, not a
+  harness-mem runtime, MCP dependency, or truth writer.
+
 ## [0.8.7] - 2026-06-29
 
 ### Added
@@ -13,8 +23,8 @@
 - Added repo-local `answer-memory-evidence` and `ask-memory-boundary` skills as
   non-writing answerers for grill admission and review questions.
 - Added `docs/memory-adoption.md`, operator policy for layered helpers
-  (grill-before-distill, smart-search as a reference evidence pattern, Trellis
-  pattern playbook) beside the default distill chain.
+  (grill-before-distill and smart-search as a reference evidence pattern)
+  beside the default distill chain.
 
 ### Changed
 

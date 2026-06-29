@@ -170,7 +170,7 @@ risk: low | medium | high
 ## Non-goals
 
 - Not only compare-bundle review-stage pressure testing; primary role is admission plus lookback
-- Not Trellis journal or second truth source
+- Not a second truth source
 - Not a new MCP tool
 
 ## References

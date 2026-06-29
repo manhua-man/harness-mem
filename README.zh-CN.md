@@ -134,4 +134,4 @@ python -m harness_mem.cli --help
 cargo test --workspace
 ```
 
-当前包版本：**0.8.7**。
+当前包版本：**0.8.7.1**。

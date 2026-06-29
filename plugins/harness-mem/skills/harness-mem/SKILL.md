@@ -79,14 +79,6 @@ Use maintenance Slash entries only when the user explicitly asks for session
 artifact cleanup. KB and PRD semantics are normal memory candidates; this
 plugin does not expose a separate KB audit or PRD sync product surface.
 
-For Trellis-inspired closeout, keep the surfaces separate:
-
-- Code check: run the repo's normal tests, lint, build, or app-specific checks.
-- Memory check: use `auto_review_candidates(apply=False)` and explicit review tools.
-- Update-spec equivalent: turn repeated lessons into `suggest_rule` or memory candidates; update repo guidance only after confirmation and only for repo-wide rules.
-- Finish-work equivalent: use `create_task_handoff` for current state, blockers, and next steps; inspect `/hm:dream` or dream ledger when maintenance context matters.
-- Journal equivalent: use harness-mem audit/event/timeline/handoff/dream ledger surfaces. Do not create a Trellis journal or second truth store for memory.
-
 When the user states a durable project rule:
 
 Call MCP `suggest_rule` or `suggest_memory_entry`, then show `list_candidates`; only call `confirm_*` or `reject_*` after the user explicitly decides.
