@@ -96,7 +96,7 @@ def test_readiness_mapping_blocks_partial_conflict_and_local_only() -> None:
     assert local_only.skip_reason == "local_only"
 
 
-def test_default_review_policy_is_preview_only() -> None:
+def test_default_review_policy_applies_low_risk() -> None:
     policy = default_review_policy()
     packet = Packet(session_id="session-1", audit=PacketAudit(coverage="high"))
     drafts = [
@@ -109,10 +109,10 @@ def test_default_review_policy_is_preview_only() -> None:
 
     review_plan = plan_review(drafts, packet, policy)
 
-    assert policy.mode == "preview"
-    assert policy.apply is False
-    assert policy.preview_only is True
-    assert review_plan.preview_only is True
+    assert policy.mode == "apply-low-risk"
+    assert policy.preview_only is False
+    assert policy.apply is True
+    assert review_plan.preview_only is False
     assert review_plan.decisions[0].auto_apply_allowed is True
 
 
@@ -155,11 +155,11 @@ def test_default_distill_summary_reports_review_boundaries() -> None:
         review_plan=review_plan,
     )
 
-    assert "auto-review mode: preview" in summary
+    assert "auto-review mode: apply-low-risk" in summary
     assert "raw review required: yes" in summary
     assert "blocked/raw-review: 1" in summary
     assert "conflict-review: 1" in summary
     assert "local-only: 1" in summary
     assert "ephemeral: 1" in summary
     assert "manual review required: 1" in summary
-    assert "no durable memory was confirmed" in summary
+    assert "low-risk decisions may be auto-promoted" in summary

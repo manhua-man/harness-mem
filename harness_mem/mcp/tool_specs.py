@@ -42,6 +42,7 @@ class _SchemaOnly(TypedDict):
 PUBLIC_MCP_TOOL_NAMES = frozenset(
     {
         "search_memory",
+        "autopilot_search_tick",
         "wake",
         "timeline",
         "temporal_query",
@@ -144,6 +145,90 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
             },
             "required": ["query"],
+        },
+    },
+    "autopilot_search_tick": {
+        "description": (
+            "Host-neutral runtime scheduler for automatic task-aware memory "
+            "search. Given an agent event (PI context/tool_result/save_point, "
+            "Claude Code PostToolUse, Cursor after-agent, etc.), it decides "
+            "whether a concrete memory-backed uncertainty exists. When it "
+            "does, it runs bounded search_memory and returns context_injection "
+            "for the next provider request; otherwise it returns the skip "
+            "reason. This is not a session-start wake replacement."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_name": {
+                    "type": "string",
+                    "description": "Normalized or native event name, e.g. context, tool_result, PostToolUse, prepareNextTurn.",
+                },
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (defaults to active project when omitted).",
+                },
+                "current_task": {
+                    "type": "string",
+                    "description": "Current task or subtask the agent is working on.",
+                },
+                "user_prompt": {
+                    "type": "string",
+                    "description": "Latest user prompt, when available.",
+                },
+                "messages": {
+                    "type": "array",
+                    "items": {},
+                    "description": "Optional recent message/event snippets from the host.",
+                },
+                "tool_name": {
+                    "type": "string",
+                    "description": "Tool name for tool_call/tool_result events.",
+                },
+                "tool_input": {
+                    "type": "object",
+                    "description": "Tool input for tool_call/tool_result events.",
+                },
+                "tool_result": {
+                    "description": "Tool result or compact error payload for tool_result events.",
+                },
+                "is_error": {
+                    "type": "boolean",
+                    "description": "Whether the tool result is an error.",
+                    "default": False,
+                },
+                "candidate_claims": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Durable memory/rule claims being considered at a save point.",
+                },
+                "changed_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Files touched or in scope for this event.",
+                },
+                "recent_queries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Recent autopilot queries to suppress duplicates.",
+                },
+                "include_provisional": {
+                    "type": "boolean",
+                    "description": "Allow provisional auto-promoted truth in the search path.",
+                    "default": False,
+                },
+                "budget_tokens": {
+                    "type": "integer",
+                    "description": "Advisory budget for the bounded search tick.",
+                    "default": 1600,
+                },
+                "retrieval_profile": {
+                    "type": "string",
+                    "enum": ["light", "quality"],
+                    "description": "Optional retrieval profile passed through to search_memory.",
+                },
+            },
+            "required": ["event_name"],
         },
     },
     "timeline": {
@@ -654,9 +739,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "Run conservative heuristic auto-review across pending memory entries "
             "and rule candidates. Returns the standard summary shape "
             "(auto_confirmed / auto_rejected / "
-            "kept_pending / needs_user_confirmation). Public MCP always keeps "
-            "this tool preview-only; durable changes go through explicit "
-            "confirm/reject tools."
+            "kept_pending / needs_user_confirmation). With apply=true, low-risk "
+            "decisions are applied with audit events while ambiguous or high-risk "
+            "items stay reviewable."
         ),
         "input_schema": {
             "type": "object",
@@ -1052,6 +1137,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
 TOOL_CLUSTERS = {
     # Daily read/context surfaces.
     "search_memory": "core_read",
+    "autopilot_search_tick": "core_read",
     "timeline": "core_read",
     "temporal_query": "core_read",
     "get_observations": "core_read",

@@ -8,14 +8,14 @@ inbox UX remain follow-up work.
 Current runtime (0.8.x):
 
 ```text
-observation -> candidate -> review gate -> accepted truth
-```
-
-Target runtime:
-
-```text
 observation -> candidate -> auto preflight -> auto_confirmed / provisional truth
                               -> ledger -> /hm:review audit/undo -> user_confirmed
+```
+
+Legacy mental model:
+
+```text
+observation -> candidate -> review gate -> accepted truth
 ```
 
 `/hm:review` becomes an **audit inbox**, not a write gate. Automatic helpers
@@ -199,5 +199,6 @@ Alignment with current code:
 ## Related docs
 
 - [recall-audit.md](recall-audit.md) — current read-path recall contract
+- [autopilot-search-policy.md](autopilot-search-policy.md) — automatic wake/search/distill/review trigger policy
 - [memory-adoption.md](memory-adoption.md) — optional helper layers beside hm
 - [roadmap.md](roadmap.md) — version line and shipped scope

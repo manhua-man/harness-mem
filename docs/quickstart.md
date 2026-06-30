@@ -42,7 +42,7 @@ Common invocation paths:
 | Plain language | Ask the Agent to wake, search, distill, or review. |
 | `/hm:*` commands | Run the daily workflow from Claude Code. |
 | Agent skills | Teach the client when to call memory tools. |
-| Hooks | Inject wake context at session start or run gated dream maintenance at session end. |
+| Hooks | Inject wake context, call `autopilot_search_tick` during work, and run `prepare_session_distill` + `auto_review_candidates(apply=true)` + `dream_auto_tick` at save points or session end. |
 
 The server command is:
 
@@ -58,6 +58,8 @@ optionally register MCP:
 ```
 
 That install syncs the Daily `/hm:*` commands by default, including dream.
+If you want IDE hooks in one shot, use `harness-mem integration install-hook-suite --client cursor`
+or `--client claude-code`.
 
 ## Daily Loop
 
@@ -78,6 +80,17 @@ wake -> search -> distill -> review -> dream ledger
 ```
 
 Dream is enabled as a default audited maintenance capability. Only confirmed
-memory is used by `wake` and `search`; `distill` creates candidates and
-preview-only review suggestions. New material must pass `review` before it
-becomes durable project memory.
+and auto-promoted readable memory is used by `wake` and `search`; `distill`
+prepares the evidence packet and candidate layer, `auto_review_candidates`
+promotes low-risk items with audit metadata, and `dream_auto_tick` maintains
+the ledger. `review` is the post-hoc inbox for confirmation, rejection, undo,
+and supersede.
+
+During an Agent run, supported clients should send context/tool/save-point
+events to `autopilot_search_tick`. The scheduler calls `search_memory` only
+when the event contains a concrete memory-backed uncertainty such as a prior
+decision question, convention uncertainty, conflict, tool failure, durable
+claim grounding, or long-horizon task switch. Manual `/hm:search` is the
+fallback when the client cannot expose those events. `autopilot_search_tick`
+never replaces `wake`, and `prepare_session_distill` never pretends to synthesize
+truth by itself; it only packages evidence for the candidate/review loop.

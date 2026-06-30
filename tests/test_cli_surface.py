@@ -334,6 +334,9 @@ def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
         assert "purge" in script
         assert "install-cursor-wake-hook" in script
         assert "install-claude-wake-hook" in script
+        assert "install-cursor-suite" in script
+        assert "install-claude-suite" in script
+        assert "install-hook-suite" in script
         assert "skill-governance" not in script
         assert "record-result" not in script
         assert "labs" not in script
@@ -352,3 +355,6 @@ def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
         assert "--category" in script or "-l category" in script
         assert "--stale-only" in script or "-l stale-only" in script
         assert "--apply" in script or "-l apply" in script
+    assert "--client" in bash
+    assert "--client" in zsh
+    assert "-l client" in fish

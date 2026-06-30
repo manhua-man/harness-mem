@@ -10,7 +10,8 @@ the harness-mem candidate lifecycle.
   lessons, adapter fixtures, and review helper prompts.
 - harness-mem owns export and review behavior.
 - Internal export must target harness-mem candidate suggestion APIs.
-- Durable memory writes must stay behind the harness-mem review gate.
+- Durable memory writes must be governed by harness-mem auto-review and audit
+  semantics.
 
 ## Allowed To Sync
 
@@ -38,7 +39,7 @@ The default route is:
 raw session -> packet -> candidate draft -> suggest_* -> review preview -> /hm:review
 ```
 
-By default, session-distill may suggest candidates and preview review risk. It
-must not confirm durable memory, reject candidates, replace truth, or run
-auto-review in apply mode unless a future explicit harness-mem command grants
-that authority.
+By default, session-distill may suggest candidates and run low-risk auto-review
+in apply mode. It must not hide durable changes: applied decisions need
+evidence ids, policy reasons, status transitions, and a `/hm:review` audit/undo
+path.

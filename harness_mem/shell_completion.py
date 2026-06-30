@@ -31,6 +31,9 @@ INTEGRATION_ACTIONS = [
     "install-claude-hook",
     "install-cursor-wake-hook",
     "install-claude-wake-hook",
+    "install-cursor-suite",
+    "install-claude-suite",
+    "install-hook-suite",
     "commands",
 ]
 INTEGRATION_COMMAND_ACTIONS = ["list", "sync"]
@@ -116,7 +119,7 @@ _harness_mem_completion() {{
     fi
 
     if [[ "${{words[1]}}" == "integration" && "${{cur}}" == -* ]]; then
-        COMPREPLY=($(compgen -W "--project-root --force --profile --source-dir --target-dir --dry-run" -- "${{cur}}"))
+        COMPREPLY=($(compgen -W "--project-root --force --profile --source-dir --target-dir --dry-run --client" -- "${{cur}}"))
         return
     fi
 }}
@@ -231,6 +234,7 @@ complete -c harness-mem -n '__fish_seen_subcommand_from config; and __fish_seen_
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -a "{integration_actions}" -d "Installer"
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l project-root -r -d "Project directory"
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l force -d "Overwrite existing hook"
+complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l client -x -a "cursor claude-code" -d "Client"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -a "list sync" -d "Command action"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l profile -x -a "daily" -d "Command profile"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l source-dir -r -d "Slash command source directory"

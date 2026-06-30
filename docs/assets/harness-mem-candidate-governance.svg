@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1050" viewBox="0 0 1440 1050" role="img" aria-labelledby="title desc">
   <title id="title">Harness-Mem 候选治理与记忆状态机</title>
-  <desc id="desc">从原始会话证据到候选层、自动审核、人类复核、已确认真值、运行时消费和信号回流的状态机。</desc>
+  <desc id="desc">从原始会话证据到候选层、自动预审、审计 inbox、已确认真值、运行时消费和信号回流的状态机。</desc>
   <defs>
     <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
       <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e8f2fb" stroke-width="1"/>
@@ -121,15 +121,15 @@
     <rect class="chip" x="22" y="22" width="136" height="32"/>
     <text class="chipText" x="40" y="44">Auto Review</text>
     <text class="label" x="24" y="88">自动预审</text>
-    <text class="code" x="24" y="120">auto_review_candidates(apply=false)</text>
+    <text class="code" x="24" y="120">auto_review_candidates(apply=true)</text>
   </g>
 
   <g transform="translate(982 624)">
     <rect class="panelOrange" width="300" height="146"/>
     <rect class="chip" x="22" y="22" width="148" height="32"/>
     <text class="chipText" x="40" y="44">Human Gate</text>
-    <text class="label" x="24" y="88">/hm:review durable gate</text>
-    <text class="body" x="24" y="120">确认 / 拒绝 / 替换候选</text>
+    <text class="label" x="24" y="88">/hm:review audit inbox</text>
+    <text class="body" x="24" y="120">确认 / 拒绝 / 替换 / undo</text>
   </g>
 
   <g transform="translate(994 814)">

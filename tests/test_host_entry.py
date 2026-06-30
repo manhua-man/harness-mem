@@ -5,6 +5,7 @@ import asyncio
 import json
 
 import harness_mem.commands.dream as dream_module
+import harness_mem.commands.maintenance as maintenance_module
 import harness_mem.commands.wake as wake_module
 import harness_mem.host_entry.__main__ as host_entry
 import harness_mem.storage.local_memory_backend as backend_module
@@ -79,3 +80,63 @@ def test_host_entry_dream_end_outputs_dream_json(monkeypatch, tmp_path) -> None:
     assert data["items_processed"] == 2
     assert "reflection" not in payload.lower()
     assert "metabolism" not in payload.lower()
+
+
+def test_host_entry_post_turn_maintenance_outputs_combined_json(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
+    monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
+
+    async def fake_post_turn(
+        _backend,
+        *,
+        project_name: str,
+        project_root: str,
+        config,
+        source: str,
+        trigger_id: str | None = None,
+    ):
+        return {
+            "action": "post-turn-maintenance",
+            "success": True,
+            "status": "completed",
+            "project_name": project_name,
+            "project_root": project_root,
+            "source": source,
+            "trigger_id": trigger_id,
+            "session_distill": {"success": True, "observation_count": 3},
+            "auto_review": {"success": True, "auto_confirmed": 1},
+            "dream": {
+                "success": True,
+                "status": "completed",
+                "job_id": "job-2",
+            },
+            "summary": {
+                "distill_success": True,
+                "observation_count": 3,
+                "auto_review_success": True,
+                "auto_confirmed": 1,
+                "auto_provisional": 0,
+                "auto_rejected": 0,
+                "auto_deferred": 0,
+                "kept_pending": 0,
+                "needs_user_confirmation": 0,
+                "dream_status": "completed",
+                "dream_job_id": "job-2",
+            },
+        }
+
+    async def fail_wake(*_args, **_kwargs):
+        raise AssertionError("post-turn-maintenance must not render wake")
+
+    monkeypatch.setattr(maintenance_module, "run_post_turn_maintenance", fake_post_turn)
+    monkeypatch.setattr(wake_module, "build_wake_injection", fail_wake)
+    monkeypatch.setattr(dream_module, "dream_auto_tick", fail_wake)
+
+    code, payload = asyncio.run(host_entry.run(_args(tmp_path, "post-turn-maintenance")))
+    assert code == ExitCode.SUCCESS
+
+    data = json.loads(payload or "{}")
+    assert data["action"] == "post-turn-maintenance"
+    assert data["status"] == "completed"
+    assert data["summary"]["observation_count"] == 3
+    assert data["summary"]["dream_job_id"] == "job-2"

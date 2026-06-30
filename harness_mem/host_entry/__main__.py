@@ -4,6 +4,8 @@ This module is the adapter that maps explicit IDE hook actions to in-process
 runtime calls. It never shells out to the ``harness-mem`` console script.
 
 ``dream-end`` runs a gated dream maintenance tick and emits one JSON document.
+``post-turn-maintenance`` runs session-distill packetization, low-risk
+auto-review, and dream maintenance, then emits one JSON document.
 ``wake-start`` renders wake context for session-start injection and emits
 plaintext.
 
@@ -19,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -32,7 +35,7 @@ from harness_mem.host_entry.output import HostEntryResult
 logger = logging.getLogger("harness_mem.host_entry")
 
 _VALID_SOURCES = ("user", "agent", "ide_hook")
-_VALID_ACTIONS = ("dream-end", "wake-start")
+_VALID_ACTIONS = ("dream-end", "post-turn-maintenance", "wake-start")
 _MAX_PROJECT_ROOT_CHARS = 4096
 _MAX_TRIGGER_ID_CHARS = 256
 
@@ -70,6 +73,33 @@ def _dream_tick_host_result(payload: dict[str, Any]) -> HostEntryResult:
         items_processed=processed,
         error=None,
     )
+
+
+def _post_turn_host_result(payload: dict[str, Any]) -> dict[str, Any]:
+    """Adapt the post-turn maintenance payload to the host JSON shape."""
+
+    summary_value = payload.get("summary")
+    summary: dict[str, Any] = summary_value if isinstance(summary_value, dict) else {}
+    status = str(payload.get("status") or "")
+    action = str(payload.get("action") or "post-turn-maintenance")
+    next_step = (
+        "partial: distill or dream maintenance needs follow-up"
+        if status == "partial"
+        else "completed: distill, auto-review, and dream maintenance completed"
+    )
+    return {
+        "action": action,
+        "status": status or "failed",
+        "next_step": next_step,
+        "project_name": payload.get("project_name"),
+        "project_root": payload.get("project_root"),
+        "trigger_id": payload.get("trigger_id"),
+        "success": bool(payload.get("success")),
+        "session_distill": payload.get("session_distill"),
+        "auto_review": payload.get("auto_review"),
+        "dream": payload.get("dream"),
+        "summary": summary,
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -177,6 +207,35 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                 else ExitCode.HOOK_FAILED
             )
             return (exit_code, host_result.to_json())
+
+        if args.action == "post-turn-maintenance":
+            try:
+                from harness_mem.commands.maintenance import run_post_turn_maintenance
+
+                maintenance_payload = await run_post_turn_maintenance(
+                    backend,
+                    project_name=project_name,
+                    project_root=args.project_root,
+                    config=merged,
+                    source=args.source,
+                    trigger_id=args.trigger_id,
+                )
+            except Exception as exc:  # noqa: BLE001 - host entry is total.
+                logger.exception("host_entry caught unhandled post-turn exception")
+                maintenance_payload = {
+                    "success": False,
+                    "status": "failed",
+                    "action": "post-turn-maintenance",
+                    "project_name": project_name,
+                    "error": f"{type(exc).__name__}: {exc}"[:512],
+                }
+            host_result = _post_turn_host_result(maintenance_payload)
+            exit_code = (
+                ExitCode.SUCCESS
+                if host_result["status"] in ("completed", "skipped")
+                else ExitCode.HOOK_FAILED
+            )
+            return (exit_code, json.dumps(host_result, sort_keys=True))
 
         logger.error("unsupported action: %s", args.action)
         return (ExitCode.ARG_VALIDATION_ERROR, None)

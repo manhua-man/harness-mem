@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import os
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from importlib import resources
 from pathlib import Path
 from string import Template
 
-__all__ = ["install_hook"]
+__all__ = ["HookInstallResult", "HookSpec", "install_hook", "install_hook_suite"]
 
 # Default documentation pointer baked into generated hook headers.
 DEFAULT_DOC_POINTER = "docs/quickstart.md"
@@ -60,7 +61,11 @@ def _assert_boundary(rendered: str) -> None:
     """
     if _REQUIRED_HOST_ENTRY not in rendered:
         raise RuntimeError("rendered template contains forbidden pattern")
-    if "--action dream-end" not in rendered and "--action wake-start" not in rendered:
+    if (
+        "--action dream-end" not in rendered
+        and "--action post-turn-maintenance" not in rendered
+        and "--action wake-start" not in rendered
+    ):
         raise RuntimeError("rendered template contains forbidden pattern")
     for line in rendered.splitlines():
         if _FORBIDDEN_INVOCATION.search(line):
@@ -125,3 +130,57 @@ def install_hook(
     if os.name == "posix":
         os.chmod(target_path, 0o755)
     return target_path.resolve()
+
+
+@dataclass(frozen=True)
+class HookSpec:
+    """One IDE hook template and its destination path."""
+
+    template_name: str
+    target_path: Path
+
+
+@dataclass(frozen=True)
+class HookInstallResult:
+    """Result of installing one hook script in a suite."""
+
+    target_path: Path
+    status: str
+
+
+def install_hook_suite(
+    *,
+    specs: list[HookSpec] | tuple[HookSpec, ...],
+    project_root: Path,
+    force: bool = False,
+    harness_mem_version: str,
+    generated_at: datetime,
+    doc_pointer: str = DEFAULT_DOC_POINTER,
+) -> list[HookInstallResult]:
+    """Install a set of hooks idempotently.
+
+    Existing files are reported as ``exists`` unless ``force`` is set. Missing
+    files are rendered with the same boundary checks as :func:`install_hook`.
+    """
+
+    results: list[HookInstallResult] = []
+    for spec in specs:
+        if spec.target_path.exists() and not force:
+            results.append(
+                HookInstallResult(
+                    target_path=spec.target_path.resolve(),
+                    status="exists",
+                )
+            )
+            continue
+        written = install_hook(
+            template_name=spec.template_name,
+            target_path=spec.target_path,
+            project_root=project_root,
+            force=force,
+            harness_mem_version=harness_mem_version,
+            generated_at=generated_at,
+            doc_pointer=doc_pointer,
+        )
+        results.append(HookInstallResult(target_path=written, status="installed"))
+    return results

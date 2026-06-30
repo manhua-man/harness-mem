@@ -22,8 +22,11 @@ from harness_mem.commands import (
     cmd_import,
     cmd_install_claude_hook,
     cmd_install_claude_wake_hook,
+    cmd_install_claude_suite,
+    cmd_install_hook_suite,
     cmd_install_cursor_hook,
     cmd_install_cursor_wake_hook,
+    cmd_install_cursor_suite,
     cmd_list_command_profiles,
     cmd_migrate_store_v2,
     cmd_purge,
@@ -52,6 +55,9 @@ __all__ = [
     "cmd_install_claude_hook",
     "cmd_install_cursor_wake_hook",
     "cmd_install_claude_wake_hook",
+    "cmd_install_cursor_suite",
+    "cmd_install_claude_suite",
+    "cmd_install_hook_suite",
     "cmd_list_command_profiles",
     "cmd_migrate_store_v2",
     "cmd_purge",
@@ -315,6 +321,22 @@ def main(argv: list[str] | None = None):
         "--force", action="store_true", help="Overwrite an existing hook"
     )
 
+    install_cursor_suite = integration_sub.add_parser(
+        "install-cursor-suite",
+        help="Generate the Cursor wake + post-turn hook suite",
+        description=(
+            "Generate the Cursor session-start and after-agent hooks at "
+            "<project_root>/.cursor/hooks/. The suite is idempotent and can be "
+            "re-run with --force."
+        ),
+    )
+    install_cursor_suite.add_argument(
+        "--project-root", help="Project directory (default: cwd)"
+    )
+    install_cursor_suite.add_argument(
+        "--force", action="store_true", help="Overwrite existing hooks"
+    )
+
     install_claude_wake = integration_sub.add_parser(
         "install-claude-wake-hook",
         help="Generate the Claude Code session-start wake hook script",
@@ -329,6 +351,43 @@ def main(argv: list[str] | None = None):
     )
     install_claude_wake.add_argument(
         "--force", action="store_true", help="Overwrite an existing hook"
+    )
+
+    install_claude_suite = integration_sub.add_parser(
+        "install-claude-suite",
+        help="Generate the Claude Code wake + post-turn hook suite",
+        description=(
+            "Generate the Claude Code session-start and after-turn hooks at "
+            "<project_root>/.claude/hooks/. The suite is idempotent and can be "
+            "re-run with --force."
+        ),
+    )
+    install_claude_suite.add_argument(
+        "--project-root", help="Project directory (default: cwd)"
+    )
+    install_claude_suite.add_argument(
+        "--force", action="store_true", help="Overwrite existing hooks"
+    )
+
+    install_hook_suite = integration_sub.add_parser(
+        "install-hook-suite",
+        help="Generate a complete hook suite for one client",
+        description=(
+            "Generate both session-start and post-turn hooks for the selected "
+            "client. Supported clients: cursor, claude-code."
+        ),
+    )
+    install_hook_suite.add_argument(
+        "--client",
+        choices=["cursor", "claude-code"],
+        required=True,
+        help="Client to install hooks for",
+    )
+    install_hook_suite.add_argument(
+        "--project-root", help="Project directory (default: cwd)"
+    )
+    install_hook_suite.add_argument(
+        "--force", action="store_true", help="Overwrite existing hooks"
     )
 
     commands = integration_sub.add_parser(
@@ -447,6 +506,12 @@ def main(argv: list[str] | None = None):
             return cmd_install_cursor_wake_hook(args.project_root, args.force)
         if args.integration_action == "install-claude-wake-hook":
             return cmd_install_claude_wake_hook(args.project_root, args.force)
+        if args.integration_action == "install-cursor-suite":
+            return cmd_install_cursor_suite(args.project_root, args.force)
+        if args.integration_action == "install-claude-suite":
+            return cmd_install_claude_suite(args.project_root, args.force)
+        if args.integration_action == "install-hook-suite":
+            return cmd_install_hook_suite(args.client, args.project_root, args.force)
         if args.integration_action == "commands":
             if args.commands_action is None:
                 commands.print_help()

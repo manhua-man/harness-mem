@@ -75,8 +75,8 @@ def default_distill_summary(
             f"- auto-review mode: {review_plan.policy.mode}",
             f"- blocked decisions: {review_counts.get('blocked', 0)}",
             f"- manual review required: {review_counts.get('manual_review', 0)}",
-            "- no durable memory was confirmed",
-            "- run /hm:review to confirm/reject/replace",
+            "- low-risk decisions may be auto-promoted with audit metadata",
+            "- run /hm:review to audit/confirm/reject/undo/replace",
         ]
     )
     return "\n".join(lines)

@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## [0.8.9] - 2026-06-30
+
+### Added
+
+- Added `docs/autopilot-search-policy.md`, defining `wake -> search -> distill
+  -> review -> dream` as an automatic Agent/runtime loop with task-aware search
+  triggers, post-hoc audit semantics, and dream maintenance.
+- Added the MCP `autopilot_search_tick` runtime scheduler. It maps
+  context/tool/save-point events to bounded `search_memory` calls only when a
+  concrete trigger is present, returning a source-attributed
+  `context_injection` payload for the next Agent turn.
+- Added contract tests for session-start skip behavior, convention uncertainty,
+  tool-failure search, save-point claim grounding, and duplicate-query
+  suppression.
+
+### Changed
+
+- Aligned README, MCP setup, `/hm:distill`, `session-distill`, and MCP tool
+  descriptions around low-risk auto-review apply mode instead of a manual-only
+  review gate.
+
 ## [0.8.8] - 2026-06-29
 
 ### Added

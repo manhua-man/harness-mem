@@ -15,7 +15,7 @@ Treat the project as real production context:
 - Prefer MCP tools (`get_project_status`, `wake`, `search_memory`, `timeline`) before guessing from memory.
 - Ingest recent sessions through MCP `ingest_sessions` when the project state may be stale.
 - Use repo-local `tools/session-distill` for user-triggered distillation; do not use the removed heuristic distill path.
-- Distilled memory is a draft signal. Review it before treating it as durable truth.
+- Distilled memory is governed automatically. Low-risk items may become readable memory; review is the post-hoc audit and correction surface.
 - Use `suggest_*`, `list_candidates`, and `confirm_*` / `reject_*` for stable rules the user explicitly wants remembered.
 - Confirmed truth can be maintained automatically, but it must not be silently overwritten; durable changes go through candidate / review / supersede / ledger.
 - Cross-project skills can be read as procedural memory hints, but lifecycle management is outside the public memory MCP surface.
@@ -33,7 +33,7 @@ In Claude Code, prefer the no-hyphen MCP alias names such as
 - `ingest_sessions`: indexes raw local agent session files into harness-mem observations.
 - `prepare_session_distill`: one-shot ingest plus recent observation packet for `/hm:distill`.
 - `tools/session-distill`: default user-facing distillation playbook that reads evidence and writes pending candidates.
-- `auto_review_candidates`: shared low-risk review policy for `/hm:distill` preview. Public MCP forces this tool to preview; `/hm:review` applies explicit confirm/reject decisions.
+- `auto_review_candidates`: shared low-risk review policy for `/hm:distill`. Apply mode promotes low-risk items and records audit decisions; `/hm:review` audits, undoes, and upgrades trust.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
 - `suggest_*` / `list_candidates` / `confirm_*`: create and review durable memory candidates.
 - Cleanup remains an explicit CLI maintenance operation via `harness-mem maintenance purge`, and only soft-deletes harness-mem indexed data.
@@ -57,7 +57,7 @@ If the project has new sessions:
 1. Call `prepare_session_distill(project_name=<project>, client="auto", scope="project", project_root=<current project root>)`.
 2. Activate repo-local `tools/session-distill`: read the evidence packet, draft candidate claims, apply `grill-before-distill` admission rules, then apply `references/distillation-rules.md`.
 3. Write pending candidates only for admitted items. For external claims, evidence may be attached after `suggest_*`, but must be present before confirmation.
-4. Call `auto_review_candidates(project_name=<project>, apply=False)`. Show the user a final summary that says auto-review is preview-only and no durable memory was confirmed. If the user wants to apply decisions, route them to `/hm:review` and use explicit `confirm_*` / `reject_*` decisions.
+4. Call `auto_review_candidates(project_name=<project>, apply=True)`. Show the user a final summary with applied decisions, kept-pending items, and the `/hm:review` audit path.
 
 When `grill-before-distill` raises an evidence gap, use the repo-local
 `answer-memory-evidence` role. When it raises architecture, product-boundary,
@@ -82,7 +82,7 @@ plugin does not expose a separate KB audit or PRD sync product surface.
 For Trellis-inspired closeout, keep the surfaces separate:
 
 - Code check: run the repo's normal tests, lint, build, or app-specific checks.
-- Memory check: use `auto_review_candidates(apply=False)` and explicit review tools.
+- Memory check: use `auto_review_candidates(apply=True)` for low-risk automation and explicit review tools for audit/undo/escalation.
 - Update-spec equivalent: turn repeated lessons into `suggest_rule` or memory candidates; update repo guidance only after confirmation and only for repo-wide rules.
 - Finish-work equivalent: use `create_task_handoff` for current state, blockers, and next steps; inspect `/hm:dream` or dream ledger when maintenance context matters.
 - Journal equivalent: use harness-mem audit/event/timeline/handoff/dream ledger surfaces. Do not create a Trellis journal or second truth store for memory.

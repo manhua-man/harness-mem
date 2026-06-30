@@ -37,6 +37,7 @@ from harness_mem.commands.support import (
 from harness_mem.commands.wake import DEFAULT_SKILL_HINT_LIMIT, build_wake_snapshot, cmd_wake_up
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import load_merged_config
+from harness_mem.autopilot_search import plan_autopilot_search
 from harness_mem.core.schemas import SupersedeCandidate
 from harness_mem.event_log import StateEventType, append_state_event
 from harness_mem.file_context import build_file_context
@@ -75,6 +76,7 @@ _backend_provider: BackendProvider | None = None
 _observer_data_dir_provider: ObserverDataDirProvider | None = None
 _cost_surface_budgets_provider: CostSurfaceBudgetsProvider | None = None
 logger = logging.getLogger("harness_mem_mcp")
+_default_logger = logger
 
 
 def configure_tool_handler_dependencies(
@@ -91,6 +93,16 @@ def configure_tool_handler_dependencies(
     _observer_data_dir_provider = observer_data_dir
     _cost_surface_budgets_provider = cost_surface_budgets
     logger = logger_instance
+
+
+def reset_tool_handler_dependencies() -> None:
+    """Reset MCP tool handler dependencies to their unconfigured defaults."""
+    global _backend_provider, _observer_data_dir_provider
+    global _cost_surface_budgets_provider, logger
+    _backend_provider = None
+    _observer_data_dir_provider = None
+    _cost_surface_budgets_provider = None
+    logger = _default_logger
 
 
 def _get_backend() -> LocalMemoryBackend:
@@ -160,6 +172,61 @@ RetrievalProfile = Literal["light", "quality"]
 
 def _action(label: str, surface: str, reason: str) -> dict[str, str]:
     return {"label": label, "surface": surface, "reason": reason}
+
+
+def _autopilot_dx_metadata(
+    *,
+    should_search: bool,
+    trigger: str | None,
+    search_executed: bool,
+    missing_project: bool = False,
+) -> dict[str, Any]:
+    if missing_project:
+        return {
+            "why_this_result": (
+                "Autopilot detected a search-worthy event but no project was "
+                "available. Set active project at session start or pass project_name."
+            ),
+            "next_actions": [
+                _action(
+                    "set_active_project",
+                    "set_active_project",
+                    "Session-start hooks should set the active project before runtime ticks.",
+                )
+            ],
+            "degraded_reason": "missing_project",
+        }
+    if search_executed:
+        return {
+            "why_this_result": (
+                f"Autopilot search ran because trigger={trigger}; inject the "
+                "returned answer_ready_context or context_plan into the next "
+                "agent context."
+            ),
+            "next_actions": [
+                _action(
+                    "inject_next_context",
+                    "answer_ready_context",
+                    "Use bounded, source-attributed context in the next provider request.",
+                ),
+                _action(
+                    "record_outcome",
+                    "record_context_outcome",
+                    "After the task, mark surfaced source ids used/ignored/misleading.",
+                ),
+            ],
+            "degraded_reason": None,
+        }
+    return {
+        "why_this_result": (
+            "Autopilot search skipped this event because no concrete "
+            "memory-backed uncertainty was detected."
+            if not should_search
+            else "Autopilot search was skipped by policy."
+        ),
+        "next_actions": [],
+        "degraded_reason": None,
+    }
 
 
 _AS_OF_TERMS: tuple[str, ...] = (
@@ -802,6 +869,126 @@ def tool_search_memory(
         "answer_ready_context": runtime.answer_ready_context,
         "recall": recall_result.to_dict(),
         **context_payload,
+    }
+
+
+def tool_autopilot_search_tick(
+    event_name: str,
+    project_name: str | None = None,
+    current_task: str | None = None,
+    user_prompt: str | None = None,
+    messages: list[Any] | None = None,
+    tool_name: str | None = None,
+    tool_input: dict[str, Any] | None = None,
+    tool_result: Any = None,
+    is_error: bool = False,
+    candidate_claims: list[str] | None = None,
+    changed_files: list[str] | None = None,
+    recent_queries: list[str] | None = None,
+    include_provisional: bool = False,
+    budget_tokens: int = 1600,
+    retrieval_profile: str | None = None,
+) -> dict:
+    """Decide whether an agent runtime event should trigger memory search.
+
+    This is the host-neutral bridge for PI ``transformContext`` /
+    ``tool_result`` / save-point hooks, Claude Code ``PostToolUse`` hooks, and
+    Cursor after-agent style hooks. It is not a session-start wake replacement.
+    """
+
+    resolved_project = project_name or get_active_project()
+    decision = plan_autopilot_search(
+        event_name=event_name,
+        current_task=current_task,
+        user_prompt=user_prompt,
+        messages=messages,
+        tool_name=tool_name,
+        tool_input=tool_input,
+        tool_result=tool_result,
+        is_error=is_error,
+        candidate_claims=candidate_claims,
+        changed_files=changed_files,
+        recent_queries=recent_queries,
+        include_provisional=include_provisional,
+        budget_tokens=budget_tokens,
+    )
+    decision_payload = decision.to_dict()
+    if not decision.should_search:
+        return {
+            "success": True,
+            "project_name": resolved_project,
+            "search_executed": False,
+            "decision": decision_payload,
+            "context_injection": None,
+            **_autopilot_dx_metadata(
+                should_search=False,
+                trigger=decision.trigger,
+                search_executed=False,
+            ),
+        }
+    if not resolved_project:
+        return {
+            "success": False,
+            "project_name": None,
+            "search_executed": False,
+            "decision": decision_payload,
+            "context_injection": None,
+            **_autopilot_dx_metadata(
+                should_search=True,
+                trigger=decision.trigger,
+                search_executed=False,
+                missing_project=True,
+            ),
+        }
+
+    search_payload = tool_search_memory(
+        query=decision.query or "",
+        project_name=resolved_project,
+        scope="project",
+        mode="auto",
+        include_history=decision.include_history,
+        include_provisional=decision.include_provisional,
+        deep_recall=decision.deep_recall,
+        retrieval_profile=retrieval_profile,
+        task=current_task,
+        budget_tokens=decision.budget_tokens,
+    )
+    source_ids = [
+        source_id
+        for source_id in search_payload.get("context_plan", {}).get("source_ids", [])
+        if isinstance(source_id, str)
+    ]
+    context_injection = {
+        "target": decision.injection_target,
+        "trigger": decision.trigger,
+        "query": decision.query,
+        "source_ids": source_ids,
+        "answer_ready_context": search_payload.get("answer_ready_context"),
+        "context_plan": search_payload.get("context_plan"),
+        "supporting_evidence": search_payload.get("supporting_evidence", []),
+        "drilldown_hints": search_payload.get("drilldown_hints", []),
+        "record_outcome_call": {
+            "tool": "record_context_outcome",
+            "arguments": {
+                "project_name": resolved_project,
+                "surface": "autopilot_search_tick",
+                "source_ids": source_ids,
+                "outcome": "used",
+            },
+        },
+    }
+    return {
+        "success": True,
+        "project_name": resolved_project,
+        "search_executed": True,
+        "decision": decision_payload,
+        "search": search_payload,
+        "context_injection": context_injection,
+        **_autopilot_dx_metadata(
+            should_search=True,
+            trigger=decision.trigger,
+            search_executed=True,
+        ),
     }
 
 
@@ -2942,6 +3129,7 @@ def tool_create_task_handoff(
 def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
     """Return the MCP tool handler map keyed by public tool name."""
     return {
+        "autopilot_search_tick": tool_autopilot_search_tick,
         "search_memory": tool_search_memory,
         "timeline": tool_timeline,
         "trace_relations": tool_trace_relations,

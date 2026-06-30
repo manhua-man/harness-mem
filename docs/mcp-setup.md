@@ -16,13 +16,24 @@ candidate review, and dream as the default audited maintenance capability.
 Historical profile values are ignored.
 
 Invocation paths are Agent MCP calls, `/hm:*` commands, installed skills, and
-explicit IDE hooks. Session-start hooks inject wake context; session-end hooks
-run gated dream maintenance.
+explicit IDE hooks. Session-start hooks inject wake context; runtime task hooks
+call `autopilot_search_tick`, which decides whether to run bounded
+`search_memory`; save-point or session-end hooks can run distill and dream
+maintenance.
 
-`auto_review_candidates` is always preview-only on the public MCP surface.
-Durable memory changes go through explicit `confirm_*`, `reject_*`, or
-supersede tools. Operator maintenance and skill lifecycle management are not
-public MCP tools.
+`autopilot_search_tick` is the event-level scheduler. PI
+`transformContext` / `tool_result` / `prepareNextTurn`, Claude Code
+`PostToolUse`, and Cursor after-agent hooks should map their native event
+payloads into that tool. It searches only for concrete uncertainty, conflict,
+tool failure, durable-claim grounding, or long-horizon task switches; it is not
+a second `wake`.
+
+`prepare_session_distill` packages recent project observations into an evidence
+packet; it does not synthesize candidate truth on its own. The candidate layer
+is still written by the session-distill / suggest_* path, and
+`auto_review_candidates` then applies the shared low-risk policy and records
+audit events. Ambiguous or high-risk items remain in `/hm:review`. Operator
+maintenance and skill lifecycle management are not public MCP tools.
 Read-only procedural hints can be searched from memory context, but procedural
 skill lifecycle management is outside this public memory surface.
 
@@ -49,7 +60,9 @@ cd harness-mem
 ```
 
 The plugin also includes the Daily `/hm:*` command files for common memory
-actions, including dream.
+actions, including dream. For IDE hooks, prefer the one-shot suite installer:
+`harness-mem integration install-hook-suite --client cursor` or
+`--client claude-code`.
 
 ## Generic MCP Client
 

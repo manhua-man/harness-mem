@@ -1,8 +1,11 @@
 # Memory Adoption: Optional Helpers Beside harness-mem
 
-Operator policy only. **No runtime or MCP changes.** `grill-before-distill`
-(grill-me) is the **standard admission mode** on distill — automatic, depth by
-risk (not a forced heavy loop every time). Other helpers stay opt-in.
+Operator policy for optional helpers. This page does not add another runtime or
+MCP surface; the task-aware runtime scheduler lives in
+`autopilot_search_tick` and [autopilot-search-policy.md](autopilot-search-policy.md).
+`grill-before-distill` (grill-me) is the **standard admission mode** on distill
+— automatic, depth by risk (not a forced heavy loop every time). Other helpers
+stay opt-in.
 
 ## Conclusion
 
@@ -44,7 +47,8 @@ two truth sources.
   → grill-me 准入（高风险深度 / 普通轻量 checklist）
   → admit/narrow 才 suggest_* → pending；defer/reject 不写
   → 内部 search_memory；外部证据工具（smart-search 为参考候选，confirm 前必须补证）
-  → auto_review (preview) → /hm:review → confirm_* → confirmed truth
+  → auto_review_candidates(apply=true) → auto_confirmed / provisional truth
+  → /hm:review audit/undo → user_confirmed
 
 已确认记忆回看 / dream → grill-me lookback（防过时、防误导）
 ```
@@ -142,7 +146,7 @@ store.
 
 | Pattern | Operator action in harness-mem | Never do |
 |---|---|---|
-| `check` | Run code acceptance with the project test stack (`pytest`, `ruff`, app-specific checks). Run memory acceptance with `auto_review_candidates(apply=false)` and explicit `/hm:review` / `confirm_*`. | Do not treat `auto_review_candidates` as code validation; do not treat passing tests as memory confirmation. |
+| `check` | Run code acceptance with the project test stack (`pytest`, `ruff`, app-specific checks). Run memory acceptance with `auto_review_candidates(apply=true)` for low-risk automation, then use `/hm:review` for audit, undo, and high-risk decisions. | Do not treat `auto_review_candidates` as code validation; do not treat passing tests as memory confirmation. |
 | `update-spec` | When a repeated lesson should change future behavior, create `suggest_rule` / `suggest_memory_entry`; after confirmation, update repo guidance such as `AGENTS.md` only when the scope is repo-wide. | Do not create `.trellis/spec/` or a parallel PRD truth layer inside hm. |
 | `finish-work` | At task/session end, call `create_task_handoff` for current state, blockers, and next steps. Then read or trigger `/hm:dream` only when maintenance or ledger review is needed. | Do not double-write task state to a Trellis journal and hm handoff. |
 | `journal` | Use `event_log` / state audit for governance history, `timeline` / `search_memory` for retrievable memory history, `create_task_handoff` for task continuity, and `dream_ledger` for maintenance history. | Do not install or sync Trellis journal as durable project memory. |
@@ -151,7 +155,7 @@ Closeout checklist:
 
 ```text
 1. Code check: run the repo's tests/lint/build for the changed surface.
-2. Memory check: run auto-review preview for new candidates; confirm only through hm review tools.
+2. Memory check: run low-risk auto-review for new candidates; audit high-risk or surprising outcomes through hm review tools.
 3. Update-spec equivalent: promote repeated lessons to rule/doc candidates, not Trellis specs.
 4. Finish-work equivalent: create task handoff and inspect dream ledger when useful.
 5. Journal equivalent: rely on hm audit/event/timeline/handoff surfaces, not a second journal.

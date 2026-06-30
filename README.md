@@ -24,39 +24,47 @@ and "do not claim this yet" rules.
 
 `harness-mem` turns that project memory into a local backend exposed through
 one MCP memory surface. Codex, Claude Code, Cursor, Gemini CLI, and other Agent
-clients recover context with `wake` and `search`, propose new memory through
-`distill`, and use dream as the default audited maintenance loop. Nothing
-becomes durable truth until it passes review.
+clients recover context with `wake` and task-aware `search`, distill recent
+session evidence, auto-promote low-risk memory, keep human review as a
+post-hoc audit/undo surface, and let dream maintain the ledger.
 
 Invocation surfaces:
 
 - `/hm:*` commands: `status`, `wake`, `search`, `distill`, `review`, `dream`.
-- Agent MCP calls: plain language or skills trigger `wake/search/distill/review`.
-- Hooks: inject wake context at session start and run gated dream maintenance at session end.
+- Agent MCP calls: plain language, skills, or hooks trigger `wake/search/distill/review`.
+- Hooks: inject wake context at session start, call `autopilot_search_tick` during work, and run `prepare_session_distill` + `auto_review_candidates(apply=true)` + `dream_auto_tick` at save points or session end.
 - CLI: setup, doctor, config, integration, and maintenance only.
 
 <p align="center">
-  <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="A fresh Agent uses wake, search, distill, and review against a local auditable memory backend" width="900" />
+  <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="A fresh Agent uses wake, search, distill, review, and dream against a local auditable memory backend" width="900" />
 </p>
 
 ## Core Loop
 
 ```text
-wake -> search -> distill -> review
+wake -> search -> distill -> review -> dream
 ```
 
 | Step | Job |
 |---|---|
-| `wake` | Load a compact project brief from confirmed memory. |
-| `search` | Retrieve prior decisions, rules, and handoffs with sources. |
-| `distill` | Turn recent session evidence into memory candidates and preview review decisions. |
-| `review` | Confirm, reject, supersede, or keep candidates pending. |
+| `wake` | Load a compact project brief from readable memory at session start. |
+| `search` | Retrieve prior decisions, rules, and handoffs when `autopilot_search_tick` detects concrete uncertainty, conflict, tool failure, durable-claim grounding, or a long-horizon task switch. |
+| `distill` | Turn recent session evidence into a packet/candidate flow, then run the shared auto-review policy. |
+| `review` | Audit, confirm, reject, undo, or supersede auto-promoted and pending items after the fact. |
+| `dream` | Maintain the ledger, compact stale state, and keep reversible cleanup metadata current after save points or session end. |
+
+The runtime search scheduler is event-driven, not always-on. PI-style
+`transformContext`, `tool_result`, and `prepareNextTurn` events map directly to
+`autopilot_search_tick`; Claude Code `PostToolUse` and Cursor after-agent hooks
+can send the same event payload shape. `/hm:search` remains the manual fallback
+when a client cannot expose those hooks. `prepare_session_distill` packages
+recent evidence; it does not synthesize candidate truth by itself.
 
 ## Why It Is Different
 
 - Local-first: project memory stays on your machine by default.
 - Agent-ready: MCP is the normal integration path for coding tools.
-- Reviewable: Agents suggest memory; confirmed memory is a separate layer.
+- Reviewable: low-risk memory can be auto-promoted, while risk, evidence, and undo metadata stay auditable.
 - Pluggable: use it from Codex, Claude Code, Cursor, Gemini CLI, or any MCP-capable Agent client.
 
 <p align="center">
@@ -88,6 +96,13 @@ Claude Code users can install the repo-local plugin and optionally register MCP:
 git clone https://github.com/manhua-man/harness-mem.git
 cd harness-mem
 .\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
+```
+
+To install IDE hooks in one shot, run:
+
+```bash
+harness-mem integration install-hook-suite --client cursor
+harness-mem integration install-hook-suite --client claude-code
 ```
 
 Then use the Agent-facing commands:
@@ -126,6 +141,7 @@ product surface.
 - [MCP setup](docs/mcp-setup.md)
 - [Cold-start demo](docs/demo-cold-start.md)
 - [Recall audit contract](docs/recall-audit.md)
+- [Autopilot search policy](docs/autopilot-search-policy.md)
 - [Memory adoption: optional helpers (analysis)](docs/memory-adoption.md)
 - [Agent memory & retrieval research (2026)](docs/agent-memory-retrieval-research-2026.md)
 - [Roadmap](docs/roadmap.md)
@@ -140,4 +156,4 @@ python -m harness_mem.cli --help
 cargo test --workspace
 ```
 
-Current package version: **0.8.7**.
+Current package version: **0.8.9**.

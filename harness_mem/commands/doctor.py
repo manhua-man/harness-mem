@@ -888,8 +888,8 @@ async def local_health_summary(backend: LocalMemoryBackend, project_name: str) -
 # ---- v2.4.2 CLI print blocks -------------------------------------------
 
 # Fix-command pointers for the candidate-health block. Stale and high-risk
-# candidates both go through the durable review gate; session-distill no longer
-# owns a separate KB verification surface.
+# candidates both go through the review audit surface; session-distill no
+# longer owns a separate KB verification surface.
 _CANDIDATE_STALE_FIX = "/hm:review"
 _CANDIDATE_HIGH_RISK_FIX = "/hm:review"
 

@@ -2,12 +2,12 @@
 
 This demo shows the core `harness-mem` job: a fresh Agent joins a real project
 without reading old chats, recovers useful context, and proposes new memory
-without silently changing project truth.
+without hiding memory changes from the audit trail.
 
 The flow is intentionally small:
 
 ```text
-wake -> search -> distill -> review
+wake -> search -> distill -> review -> dream
 ```
 
 ## What You Need
@@ -31,6 +31,10 @@ Use two sessions:
 This makes the cold-start problem visible. Session B should start with only the
 repo and the memory backend, not the previous conversation.
 
+If you want the demo project itself to have IDE hooks, install them once with
+`harness-mem integration install-hook-suite --client cursor` or
+`--client claude-code`.
+
 ## Five-Minute Script
 
 Copy these prompts into your Agent client after MCP is connected.
@@ -50,7 +54,8 @@ Use harness-mem to wake this project.
 Search harness-mem for the current release boundary or claim boundary.
 Use the recovered context to make one small safe update.
 Distill this session into memory candidates, but do not confirm new truth silently.
-Review the new candidates and keep only stable project facts.
+Open the review inbox and audit what was auto-promoted or kept pending.
+Then let dream clean up the ledger.
 ```
 
 If Session B can recover a real prior decision without pasted chat history, the
@@ -65,13 +70,13 @@ small but consequential:
 - A project convention: "Use MCP as the Agent surface; CLI is for setup and
   diagnostics."
 - A handoff: "The next useful step is to build a cold-start demo."
-- A review result: "Only confirmed memory should appear in wake/search."
+- A review result: "Only readable trust-tier memory should appear in wake/search."
 
 Ask the existing Agent:
 
 ```text
 Use harness-mem to distill the recent project session into memory candidates.
-Review the candidates and confirm only the stable project facts.
+Apply low-risk review, keep the suspicious items pending, and let dream maintain the ledger.
 ```
 
 Keep the review strict. The demo is stronger when noisy or speculative items

@@ -34,7 +34,7 @@
 
 - **不要换搜索引擎**，不要上 store v3，不要把 Tantivy/LanceDB/完整图库作为默认路径。
 - **先做 retrieval-isolated benchmark**（测「检索对了没」，不是 LoCoMo 答题分），再在小步上改 hybrid 栈。
-- **对外产品**继续加厚 core loop：`wake → search → distill → review`，以及 dream 默认维护、recall contract、单 MCP 公开面。
+- **对外产品**继续加厚 core loop：`wake → search → distill → review → dream`，`autopilot_search_tick` 负责任务态检索调度，`/hm:review` 是 audit inbox，dream 默认维护、recall contract、单 MCP 公开面不变。
 - **2026 前沿**从「embedding-first + chat QA benchmark」转向 **agent-native memory = 数据管理系统**：canonical truth、filter-first retrieval、localized maintenance、可审计边界。
 
 **一句话：** 借鉴 Mem0/Zep 的 retrieval quality 思路 + sqlite-vec/vstash 的 local-first 实现 + Tenure/MemoryData 的评测与 Truth 结构；Rust 只做 optional 热点加速。
@@ -197,8 +197,8 @@ maintenance                 →  合并、失效、压缩、生命周期治理
 
 | 维度 | 现状 |
 |------|------|
-| Core loop | `wake → search → distill → review`（README、v4） |
-| Truth | TruthStore canonical；CandidateStore + review gate；supersede / valid_to |
+| Core loop | `wake → search → distill → review → dream`（README、v4） |
+| Truth | TruthStore canonical；CandidateStore + auto preflight；audit inbox + supersede / valid_to |
 | 公开面 | 单 MCP public memory surface；dream 默认维护 + ledger + undo |
 | Retrieval | SearchFacade 统一 `source_kind` / `truth_status` / `project_name` / temporal metadata |
 | Recall | `search_memory` / `trace_relations` additive `recall` 对象 |
@@ -213,7 +213,7 @@ maintenance                 →  合并、失效、压缩、生命周期治理
 | Retrieval | Filter 可能偏 fusion 后；无 adaptive IDF；无 distance 置信度 tier |
 | Truth | 缺 imperative `why_it_matters` 类字段；supersede 靠 filter 一致性需 golden 守 |
 | Recall | steps/score 分项可加厚；与 Mem0 explain 对标不足 |
-| 文档 | 对外「不宣称什么」需与调研结论同步 |
+| 文档 | 对外「不宣称什么」需与调研结论同步；自动搜索调度与 audit inbox 口径需统一 |
 
 ---
 
@@ -291,7 +291,7 @@ tests/benchmarks/test_search_golden.py
 
 - 统一返回 `truth_status`、`temporal_scope`、`source_kind`
 - supersede **存储层失效** + 默认 search 只 current
-- review gate / state audit 叙事写进对外文档
+- review inbox / state audit 叙事写进对外文档
 - 可选：truth 级 `why_it_matters`（wake 行为指令，非裸 fact）
 
 ### Retrieval（产品可见部分）
@@ -304,7 +304,7 @@ tests/benchmarks/test_search_golden.py
 ### Maintenance
 
 - 仅强化 **dream**：auto gate、ledger、undo
-- dream 产出尽量走 supersede **review**，非静默改 truth
+- dream 产出尽量走 supersede **audit**，非静默改 truth
 - CLI 保持 operator console；purge/rebuild 不进 Daily workflow
 
 ### Recall contract
@@ -317,7 +317,7 @@ tests/benchmarks/test_search_golden.py
 **宣称：**
 
 ```text
-local-first · auditable · wake→search→distill→review
+local-first · auditable · wake→search→distill→review→dream
 truth canonical · index rebuildable · vector optional
 dream = default maintenance (ledger + undo)
 single public MCP surface
@@ -331,7 +331,7 @@ single public MCP surface
 
 | 层 | 内容 | 用户可见 |
 |----|------|----------|
-| **产品** | Core loop、review gate、recall contract、dream、单 MCP 面、文档边界 | 是 |
+| **产品** | Core loop、audit inbox、recall contract、dream、单 MCP 面、文档边界 | 是 |
 | **内核** | Golden benchmark、adaptive RRF、filter 前置、distance tier、Rust 热点 | 否（仅改善 search 可信度） |
 
 **规则：** 内核改进 **不扩展** public MCP tool 列表；不以 LoCoMo 答题分证明检索质量。

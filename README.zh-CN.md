@@ -20,35 +20,42 @@
 
 Agent 会读代码，但它通常不知道项目为什么变成现在这样：发布边界、历史决策、handoff、上轮 review 结论、哪些 claim 还不能写。
 
-`harness-mem` 把这些内容变成本地记忆，通过单一 MCP memory surface 接给 Codex、Claude Code、Cursor、Gemini CLI 和其它 Agent 客户端。新 Agent 用 `wake` 和 `search` 找回上下文，用 `distill` 提出新记忆，并把 dream 作为默认的可审计维护循环；只有 review 通过的内容才会进入 confirmed memory。
+`harness-mem` 把这些内容变成本地记忆，通过单一 MCP memory surface 接给 Codex、Claude Code、Cursor、Gemini CLI 和其它 Agent 客户端。新 Agent 用 `wake` 和按任务触发的 `search` 找回上下文，用 `distill` 整理近期 evidence，低风险内容可自动提升为可读记忆；`review` 是事后审计、纠错和 undo 入口，`dream` 负责维护 ledger。
 
 触发入口：
 
 - `/hm:*` 命令：`status`、`wake`、`search`、`distill`、`review`、`dream`。
-- Agent MCP 调用：自然语言或 skill 触发 `wake/search/distill/review`。
-- Hook：会话开始注入 wake context，会话结束触发 gated dream 维护。
+- Agent MCP 调用：自然语言、skill 或 hook 触发 `wake/search/distill/review`。
+- Hook：会话开始注入 wake context；任务过程中把事件交给 `autopilot_search_tick` 判断并按需 search；save point / 会话结束触发 `prepare_session_distill` + `auto_review_candidates(apply=true)` + `dream_auto_tick`。
 - CLI：只做 setup、doctor、config、integration 和 maintenance。
 
 <p align="center">
-  <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="新 Agent 通过 wake、search、distill、review 恢复跨会话项目上下文" width="900" />
+  <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="新 Agent 通过 wake、search、distill、review、dream 恢复跨会话项目上下文" width="900" />
 </p>
 
 ## 主路径
 
 ```text
-wake -> search -> distill -> review
+wake -> search -> distill -> review -> dream
 ```
 
 | 步骤 | 作用 |
 |---|---|
-| `wake` | 从已确认记忆生成项目简报。 |
-| `search` | 找回历史决策、规则和 handoff，并保留来源。 |
-| `distill` | 把近期 session evidence 提炼成记忆候选，并预览审核建议。 |
-| `review` | 确认、拒绝、替代或继续挂起候选。 |
+| `wake` | 会话开始从可读记忆生成项目简报。 |
+| `search` | 当 `autopilot_search_tick` 检测到具体不确定性、冲突、工具失败、待写入 durable claim 需要 grounding、或长周期任务切换时，找回历史决策、规则和 handoff。 |
+| `distill` | 把近期 session evidence 走成 packet / candidate 流程，然后运行共享 auto-review 策略。 |
+| `review` | 事后审计、确认、拒绝、undo 或替代自动处理过的条目。 |
+| `dream` | 维护 ledger、压缩过期状态，并在 save point / 会话结束后保留可回滚治理记录。 |
+
+任务过程中的检索不是 always-on。PI 里的 `transformContext`、
+`tool_result`、`prepareNextTurn`，Claude Code 的 `PostToolUse`，以及
+Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
+事件入口；`/hm:search` 只是客户端没有这类 hook 时的手动兜底。
+`prepare_session_distill` 只负责整理证据包，不会自己合成候选真值。
 
 ## 关键机制
 
-Agent 只能先提议，不能把旧会话噪声直接写成项目真值。
+Agent 可以自动处理低风险候选，但不能把风险、证据和变更原因藏起来；用户 review 的对象是 audit inbox，不是日常逐条写入闸门。
 
 <p align="center">
   <img src="docs/assets/harness-mem-candidate-governance.svg" alt="candidate-before-truth 记忆治理状态机" width="900" />
@@ -87,6 +94,13 @@ cd harness-mem
 .\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
+如果要一次性安装 IDE hooks，可以运行：
+
+```bash
+harness-mem integration install-hook-suite --client cursor
+harness-mem integration install-hook-suite --client claude-code
+```
+
 然后在 Agent 里使用：
 
 ```text
@@ -122,6 +136,7 @@ procedural skill 生命周期治理不属于 public memory MCP 和 CLI 产品面
 - [MCP setup](docs/mcp-setup.md)
 - [Cold-start demo](docs/demo-cold-start.md)
 - [Recall audit contract](docs/recall-audit.md)
+- [自动检索策略](docs/autopilot-search-policy.md)
 - [记忆协作层采纳指南（分析）](docs/memory-adoption.md)
 - [Changelog](CHANGELOG.md)
 
@@ -134,4 +149,4 @@ python -m harness_mem.cli --help
 cargo test --workspace
 ```
 
-当前包版本：**0.8.7**。
+当前包版本：**0.8.9**。

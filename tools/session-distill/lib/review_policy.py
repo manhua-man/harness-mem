@@ -9,13 +9,13 @@ from .distill_rules import map_candidate_readiness
 from .models import CandidateDraft, Packet, ReadinessDecision
 
 ReviewMode = Literal["preview", "apply-low-risk"]
-DEFAULT_REVIEW_MODE: ReviewMode = "preview"
+DEFAULT_REVIEW_MODE: ReviewMode = "apply-low-risk"
 
 
 @dataclass(frozen=True)
 class ReviewPolicy:
     mode: ReviewMode = DEFAULT_REVIEW_MODE
-    apply: bool = False
+    apply: bool = True
 
     @property
     def preview_only(self) -> bool:
@@ -33,7 +33,7 @@ class ReviewPlan:
 
 
 def default_review_policy() -> ReviewPolicy:
-    return ReviewPolicy()
+    return review_policy_for_mode(DEFAULT_REVIEW_MODE)
 
 
 def review_policy_for_mode(mode: ReviewMode) -> ReviewPolicy:

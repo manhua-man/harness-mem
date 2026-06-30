@@ -2,7 +2,7 @@
 name: session-distill
 version: 1.6.0
 description: |
-  Harness-mem 项目的主动会话蒸馏技能。用于把当前项目相关的 Codex / Claude Code / Cursor / Antigravity / opencode / Hermes / generic agent 会话整理成可审核的候选记忆。
+  Harness-mem 项目的主动会话蒸馏技能。用于把当前项目相关的 Codex / Claude Code / Cursor / Antigravity / opencode / Hermes / generic agent 会话整理成候选记忆，并自动处理低风险项。
   当用户主动要求蒸馏会话、整理记忆、提炼经验、固化项目规则或生成任务交接时使用（无论触发方式是 slash 命令、自然语言请求还是其他客户端入口）。
 allowed-tools:
   - Bash
@@ -27,7 +27,7 @@ allowed-tools:
 
 `session-distill` 是用户主动蒸馏时的默认体验层。
 
-默认目标是把当前项目相关会话转成候选，并在同一轮里运行 auto-review preview。默认不确认 durable memory；确认、拒绝、替换必须通过 `/hm:review` 或用户显式要求的 apply 模式。
+默认目标是把当前项目相关会话转成候选，并在同一轮里运行 auto-review apply-low-risk。低风险项可以自动进入 `auto_confirmed` 或 `provisional` 记忆；`/hm:review` 是事后 audit / undo / confirm 入口，不是日常逐条写入闸门。
 
 ## 主链
 
@@ -41,8 +41,8 @@ allowed-tools:
   -> distillation-rules
   -> suggest_*（admit；narrow 后可写；defer/reject 不写）
   -> 内部 search_memory / 代码检索；外部来源证据（smart-search 为参考候选，confirm 前必须补证）
-  -> auto_review_candidates(apply=false) + /hm:review
-  -> confirm_* -> confirmed truth
+  -> auto_review_candidates(apply=true)
+  -> /hm:review audit / undo / user_confirmed
 ```
 
 ## 默认动作序列
@@ -53,7 +53,7 @@ allowed-tools:
 
 如果你的客户端通过 MCP Router 接入，工具名通常就是裸名；如果直连 server，可能会带 server name 前缀。两种都能跑，prompt 里不要写死前缀。
 
-MCP 对外是单一 public memory surface。创建候选和运行 auto-review preview 可以走 MCP；确认、拒绝或 apply 必须走 `/hm:review` durable gate 或用户显式确认后的 review 工具调用。
+MCP 对外是单一 public memory surface。创建候选和低风险 auto-review apply 可以走 MCP；`/hm:review` 用于审计、undo、用户确认、拒绝和 supersede。
 
 ### 1. 确认项目和真实项目根
 
@@ -120,9 +120,9 @@ MCP 对外是单一 public memory surface。创建候选和运行 auto-review pr
 
 ### 5. 自动审核预览
 
-调用 MCP `auto_review_candidates(project_name=<project>, apply=false)`，复用 shared low-risk review policy。
+调用 MCP `auto_review_candidates(project_name=<project>, apply=true)`，复用 shared low-risk review policy。
 
-默认 distill 路径必须直接消费 `auto_review_candidates` 返回的结果，但不能确认、拒绝或替换候选：
+默认 distill 路径必须直接消费 `auto_review_candidates` 返回的结果，并允许 shared policy 自动确认低风险项、自动拒绝明显噪声、保留高风险/证据不足项：
 
 - `auto_confirmed`
 - `auto_rejected`
@@ -130,11 +130,11 @@ MCP 对外是单一 public memory surface。创建候选和运行 auto-review pr
 - `needs_user_confirmation`
 - `applied_decisions`
 
-默认 preview 下 `applied_decisions` 必须为空。若用户追问某个候选为什么被建议确认或拒绝，解释 candidate id、evidence id 和 policy reason。
+`applied_decisions` 必须展示在最终摘要或 audit 入口中。若用户追问某个候选为什么被确认、拒绝或保留，解释 candidate id、evidence id 和 policy reason。
 
 `list_candidates` 可用于显式 review drilldown。`confirm_*`、`reject_*` 属于 `/hm:review` durable gate，不是默认 distill 主链。
 
-最后给用户看预审摘要，明确写出 `auto-review mode: preview only` 和 `no durable memory was confirmed`，并提示运行 `/hm:review` 处理候选。
+最后给用户看自动处理摘要，明确写出 `auto-review mode: apply-low-risk`，并提示运行 `/hm:review` 审计、undo、确认或替换。
 
 ## 内部 artifact guardrails
 
@@ -162,7 +162,7 @@ session-distill 不再定义独立的后台维护入口。它只负责从会话�
 
 - **没有独立维护 MCP 工具**。不要调用或描述 standalone preview/run 维护工具；对外入口是 `/hm:dream` / MCP dream tools 和 dream ledger/undo。
 - **Signals 是后台证据，不进入本 skill 主链**。`wake_surfaced` / `search_hit` / `confirmed` / `rejected` / `supersede_completed` 等信号由 runtime 记录，dream 在自己的调度窗口中消费。
-- **durable write 仍过 gate**。session-distill 只产候选；显式用户记忆通过 `/hm:review`，自动维护通过 dream ledger/undo 审计。dream/lookback 处理已确认或维护中的 truth，不是新候选准入动作。
+- **durable write 必须可审计**。session-distill 产候选并允许 low-risk auto-review apply；显式用户确认通过 `/hm:review` 升级 trust tier，自动维护通过 dream ledger/undo 审计。dream/lookback 处理已确认或维护中的 truth，不是新候选准入动作。
 
 ## 外置协作者
 
@@ -180,7 +180,7 @@ session-distill 不再定义独立的后台维护入口。它只负责从会话�
 - 不要求普通用户手动跑 `harness-mem ingest` 或 `harness-mem distill`。
 - 不默认把用户级全局 agent 历史灌进当前项目。
 - 不把 "no patterns found" 当成最终高质量蒸馏结论；那只说明 fallback 没抽到明显模式。
-- 不把逐条分类工作交给用户；AI 必须自动预审 pending 候选，但默认不直接处理低风险项，durable write 通过 `/hm:review`。
+- 不把逐条分类工作交给用户；AI 必须自动处理低风险 pending 候选，高风险、冲突或证据不足项进入 audit inbox。
 - 不维护独立的 `knowledge-base.md`、KB review/prune 命令、PRD sync 文件或产品文档桥。
 - 不把 `session-distill.py` 命令列表当成用户产品面；用户入口是 `/hm:*` 或自然语言等价命令。
 - 不把 smart-search / Trellis 硬编码进 hm runtime；smart-search 当前只作为参考证据工具研究，grill-before-distill 是 distill 默认 Skill 步骤，不是新 MCP。

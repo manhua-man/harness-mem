@@ -28,6 +28,7 @@ SKILL_GOVERNANCE_TOOLS = {
 }
 
 EXPECTED_PUBLIC_MCP_TOOLS = {
+    "autopilot_search_tick",
     "auto_review_candidates",
     "confirm_memory_entry",
     "confirm_relation_fact",
@@ -118,6 +119,7 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
     assert "degraded_reason" not in result
     assert {
         "wake",
+        "autopilot_search_tick",
         "search_memory",
         "prepare_session_distill",
         "auto_review_candidates",

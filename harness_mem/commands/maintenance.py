@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
@@ -281,3 +283,127 @@ async def cmd_state_audit(project_name: str | None) -> int:
         extra={"event_count": summary["event_count"]},
     )
     return 0
+
+
+async def run_post_turn_maintenance(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    project_root: str,
+    config: Any | None,
+    source: str = "ide_hook",
+    trigger_id: str | None = None,
+) -> dict[str, Any]:
+    """Run the post-turn maintenance loop: distill packet, auto-review, then dream."""
+    from harness_mem.mcp import tool_handlers as mcp_tool_handlers
+    from harness_mem.commands.auto_review import auto_review_candidates
+    from harness_mem.commands.dream import dream_auto_tick
+
+    previous_backend_provider = getattr(mcp_tool_handlers, "_backend_provider", None)
+    previous_observer_data_dir = getattr(mcp_tool_handlers, "_observer_data_dir_provider", None)
+    previous_cost_surface_budgets = getattr(mcp_tool_handlers, "_cost_surface_budgets_provider", None)
+    previous_logger = getattr(mcp_tool_handlers, "logger", logging.getLogger("harness_mem.host_entry"))
+    try:
+        mcp_tool_handlers.configure_tool_handler_dependencies(
+            backend_provider=lambda: backend,
+            observer_data_dir=lambda: backend.data_dir,
+            cost_surface_budgets=lambda _project_name: None,
+            logger_instance=logging.getLogger("harness_mem.host_entry"),
+        )
+
+        def _prepare_session_distill() -> dict[str, Any]:
+            return mcp_tool_handlers.tool_prepare_session_distill(
+                project_name=project_name,
+                client="auto",
+                limit=5,
+                scope="project",
+                project_root=project_root,
+                observation_limit=5,
+                max_chars_per_observation=6000,
+                run_ingest=True,
+            )
+
+        try:
+            session_distill = await asyncio.to_thread(_prepare_session_distill)
+        except Exception as exc:  # noqa: BLE001 - maintenance should still continue.
+            session_distill = {
+                "success": False,
+                "project_name": project_name,
+                "project_root": project_root,
+                "error": f"{type(exc).__name__}: {exc}"[:512],
+            }
+
+        review_summary: Any | None = None
+        try:
+            review_summary = await auto_review_candidates(
+                backend,
+                project_name=project_name,
+                apply=True,
+            )
+            auto_review_payload: dict[str, Any] = review_summary.to_dict()
+        except Exception as exc:  # noqa: BLE001 - maintenance should still continue.
+            review_summary = None
+            auto_review_payload = {
+                "success": False,
+                "project_name": project_name,
+                "error": f"{type(exc).__name__}: {exc}"[:512],
+            }
+
+        try:
+            dream_payload = await dream_auto_tick(
+                backend,
+                project_name=project_name,
+                project_root=project_root,
+                config=config,
+                source=source,  # type: ignore[arg-type]
+            )
+        except Exception as exc:  # noqa: BLE001 - maintenance should still continue.
+            dream_payload = {
+                "success": False,
+                "status": "failed",
+                "project_name": project_name,
+                "error": f"{type(exc).__name__}: {exc}"[:512],
+            }
+
+        review_counts = review_summary if review_summary is not None else None
+        return {
+            "action": "post-turn-maintenance",
+            "success": bool(session_distill.get("success", False))
+            and bool(auto_review_payload.get("success", True))
+            and bool(dream_payload.get("success", False)),
+            "status": "completed"
+            if session_distill.get("success", False)
+            and auto_review_payload.get("success", True)
+            and dream_payload.get("success", False)
+            else "partial",
+            "project_name": project_name,
+            "project_root": project_root,
+            "source": source,
+            "trigger_id": trigger_id,
+            "session_distill": session_distill,
+            "auto_review": auto_review_payload,
+            "dream": dream_payload,
+            "summary": {
+                "distill_success": bool(session_distill.get("success", False)),
+                "observation_count": session_distill.get("observation_count", 0),
+                "auto_review_success": bool(auto_review_payload.get("success", True)),
+                "auto_confirmed": getattr(review_counts, "auto_confirmed", 0),
+                "auto_provisional": getattr(review_counts, "auto_provisional", 0),
+                "auto_rejected": getattr(review_counts, "auto_rejected", 0),
+                "auto_deferred": getattr(review_counts, "auto_deferred", 0),
+                "kept_pending": getattr(review_counts, "kept_pending", 0),
+                "needs_user_confirmation": getattr(review_counts, "needs_user_confirmation", 0),
+                "dream_status": dream_payload.get("status"),
+                "dream_job_id": dream_payload.get("job_id"),
+            },
+        }
+    finally:
+        if previous_backend_provider is None or previous_observer_data_dir is None or previous_cost_surface_budgets is None:
+            mcp_tool_handlers.reset_tool_handler_dependencies()
+        else:
+            mcp_tool_handlers.configure_tool_handler_dependencies(
+                backend_provider=previous_backend_provider,
+                observer_data_dir=previous_observer_data_dir,
+                cost_surface_budgets=previous_cost_surface_budgets,
+                logger_instance=previous_logger,
+            )

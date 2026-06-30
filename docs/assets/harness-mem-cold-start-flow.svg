@@ -1,75 +1,88 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 520" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 540" role="img" aria-labelledby="title desc">
   <title id="title">harness-mem cold-start flow</title>
-  <desc id="desc">A new Agent uses wake, search, distill, and review against a local auditable memory backend.</desc>
+  <desc id="desc">A fresh Agent wakes, searches when uncertain, distills session evidence, reviews candidates, and runs dream maintenance against a local auditable memory backend.</desc>
   <defs>
     <style>
       .bg { fill: #f8fafc; }
-      .ink { fill: #111827; }
+      .ink { fill: #0f172a; }
       .muted { fill: #475569; }
       .card { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; }
+      .card-accent { fill: #effaf6; stroke: #8ad1b2; stroke-width: 2; }
       .store { fill: #0f172a; }
       .teal { fill: #0ea5a4; }
-      .amber { fill: #f5a524; }
+      .amber { fill: #f59e0b; }
       .line { fill: none; stroke: #0ea5a4; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
       .line-muted { fill: none; stroke: #94a3b8; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
       text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-      .label { font-size: 30px; font-weight: 750; letter-spacing: 0; }
+      .title { font-size: 30px; font-weight: 750; letter-spacing: 0; }
       .body { font-size: 20px; letter-spacing: 0; }
-      .small { font-size: 17px; letter-spacing: 0; }
+      .small { font-size: 16px; letter-spacing: 0; }
+      .step { font-size: 28px; font-weight: 750; letter-spacing: 0; }
+      .step-body { font-size: 16px; letter-spacing: 0; }
+      .note { font-size: 15px; letter-spacing: 0; }
     </style>
     <marker id="arrow" markerHeight="12" markerWidth="12" orient="auto" refX="10" refY="6">
       <path d="M1 1l10 5-10 5z" fill="#0ea5a4"/>
     </marker>
   </defs>
-  <rect class="bg" width="1180" height="520" rx="30"/>
+  <rect class="bg" width="1280" height="540" rx="30"/>
 
-  <text x="70" y="72" class="label ink">Cold-start memory loop</text>
-  <text x="70" y="106" class="body muted">A fresh Agent recovers decisions, writes candidates, and keeps truth reviewable.</text>
+  <text x="70" y="72" class="title ink">Cold-start memory loop</text>
+  <text x="70" y="106" class="body muted">A fresh Agent recovers decisions, routes uncertainty into search, and keeps review plus maintenance visible.</text>
 
-  <rect x="70" y="162" width="185" height="150" rx="22" class="card"/>
-  <circle cx="118" cy="213" r="22" class="teal"/>
-  <path d="M108 213h20M118 203v20" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
-  <text x="96" y="265" class="label ink">New Agent</text>
-  <text x="96" y="294" class="small muted">no chat history</text>
+  <rect x="70" y="154" width="155" height="150" rx="22" class="card"/>
+  <circle cx="118" cy="206" r="22" class="teal"/>
+  <path d="M108 206h20M118 196v20" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+  <text x="98" y="258" class="step ink">Agent</text>
+  <text x="95" y="286" class="step-body muted">fresh session</text>
 
-  <path d="M270 237h80" class="line" marker-end="url(#arrow)"/>
+  <path d="M245 229h48" class="line" marker-end="url(#arrow)"/>
 
-  <rect x="370" y="150" width="165" height="174" rx="22" class="card"/>
-  <text x="410" y="200" class="label ink">wake</text>
-  <text x="410" y="238" class="small muted">confirmed</text>
-  <text x="410" y="264" class="small muted">project context</text>
-  <path d="M412 287h82" class="line-muted"/>
+  <rect x="303" y="154" width="145" height="150" rx="22" class="card"/>
+  <text x="349" y="206" class="step ink">wake</text>
+  <text x="330" y="236" class="step-body muted">confirmed</text>
+  <text x="327" y="258" class="step-body muted">project brief</text>
 
-  <path d="M552 237h70" class="line" marker-end="url(#arrow)"/>
+  <path d="M448 229h48" class="line" marker-end="url(#arrow)"/>
 
-  <rect x="642" y="150" width="165" height="174" rx="22" class="card"/>
-  <text x="681" y="200" class="label ink">search</text>
-  <text x="681" y="238" class="small muted">prior decisions</text>
-  <text x="681" y="264" class="small muted">with sources</text>
-  <circle cx="696" cy="292" r="9" class="teal"/>
-  <circle cx="724" cy="292" r="9" class="teal"/>
-  <circle cx="752" cy="292" r="9" class="teal"/>
+  <rect x="506" y="154" width="145" height="150" rx="22" class="card"/>
+  <text x="544" y="206" class="step ink">search</text>
+  <text x="522" y="236" class="step-body muted">triggered by</text>
+  <text x="522" y="258" class="step-body muted">uncertainty</text>
+  <circle cx="548" cy="286" r="8" class="teal"/>
+  <circle cx="575" cy="286" r="8" class="teal"/>
+  <circle cx="602" cy="286" r="8" class="teal"/>
 
-  <path d="M824 237h70" class="line" marker-end="url(#arrow)"/>
+  <path d="M651 229h48" class="line" marker-end="url(#arrow)"/>
 
-  <rect x="914" y="150" width="195" height="174" rx="22" class="card"/>
-  <text x="958" y="200" class="label ink">distill</text>
-  <text x="958" y="238" class="small muted">session evidence</text>
-  <text x="958" y="264" class="small muted">into candidates</text>
-  <path d="M958 293h92" class="line-muted"/>
+  <rect x="709" y="154" width="155" height="150" rx="22" class="card"/>
+  <text x="749" y="206" class="step ink">distill</text>
+  <text x="726" y="236" class="step-body muted">session evidence</text>
+  <text x="729" y="258" class="step-body muted">into candidates</text>
 
-  <rect x="370" y="378" width="739" height="86" rx="24" class="store"/>
-  <text x="410" y="430" class="body" fill="#e5e7eb">local canonical store</text>
-  <text x="655" y="430" class="body" fill="#99f6e4">candidate / review / supersede</text>
-  <path d="M996 411l23 21 55-58" fill="none" stroke="#f5a524" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M864 229h48" class="line" marker-end="url(#arrow)"/>
 
-  <path d="M1012 324v42" class="line" marker-end="url(#arrow)"/>
-  <path d="M452 378v-38" class="line" marker-end="url(#arrow)"/>
-  <path d="M724 378v-38" class="line" marker-end="url(#arrow)"/>
+  <rect x="922" y="154" width="145" height="150" rx="22" class="card"/>
+  <text x="960" y="206" class="step ink">review</text>
+  <text x="942" y="236" class="step-body muted">audit inbox,</text>
+  <text x="940" y="258" class="step-body muted">undo/supersede</text>
 
-  <text x="74" y="398" class="body ink">What changes?</text>
-  <text x="74" y="427" class="small muted">The Agent reads stable</text>
-  <text x="74" y="452" class="small muted">memory, not folklore.</text>
-  <text x="74" y="477" class="small muted">New facts wait for review</text>
-  <text x="74" y="502" class="small muted">before becoming truth.</text>
+  <path d="M1067 229h48" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="1125" y="154" width="145" height="150" rx="22" class="card-accent"/>
+  <text x="1162" y="206" class="step ink">dream</text>
+  <text x="1145" y="236" class="step-body muted">post-turn</text>
+  <text x="1141" y="258" class="step-body muted">maintenance</text>
+
+  <path d="M1198 304v38" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="228" y="364" width="824" height="104" rx="24" class="store"/>
+  <text x="258" y="408" class="body" fill="#e5e7eb">local canonical store</text>
+  <text x="548" y="408" class="body" fill="#99f6e4">candidate / review / supersede / ledger</text>
+  <text x="258" y="438" class="note" fill="#94a3b8">post-turn-maintenance runs distill, auto-review, and dream after save points or session end.</text>
+
+  <path d="M1198 364v-22" class="line-muted"/>
+  <path d="M1198 342 C 1198 330 1104 330 1090 330" class="line-muted" marker-end="url(#arrow)"/>
+
+  <text x="74" y="500" class="small muted">The user sees one loop: wake, task-aware search, distill, review, and dream. Nothing becomes hidden truth.</text>
 </svg>

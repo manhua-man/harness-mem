@@ -3,11 +3,11 @@
 # Generated at: ${GENERATED_AT}
 # Docs: ${DOC_POINTER}
 #
-# This hook runs one gated dream maintenance tick after an agent turn.
+# This hook runs post-turn maintenance after an agent turn.
 #
 # To remove this hook, delete this file. Reinstall via:
 #
-#     harness-mem integration install-cursor-hook --force
+#     harness-mem integration install-cursor-suite --force
 
 set -e
 
@@ -15,7 +15,7 @@ PROJECT_ROOT="${PROJECT_ROOT}"
 TURN_ID="$${CURSOR_TURN_ID:-unknown}"
 
 python -m harness_mem.host_entry \
-    --action dream-end \
+    --action post-turn-maintenance \
     --project-root "$$PROJECT_ROOT" \
     --source ide_hook \
     --trigger-id "$$TURN_ID" \

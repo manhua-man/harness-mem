@@ -1,6 +1,6 @@
 # Recall Audit Contract
 
-`harness-mem` 0.8.7 keeps the explainable recall wrapper without replacing the
+`harness-mem` 0.8.9 keeps the explainable recall wrapper without replacing the
 existing governed memory loop. Trust hardening (0.8.4), retrieval quality
 (0.8.5), and maintenance closure (0.8.6) extend the read and governance paths
 documented below.
@@ -49,7 +49,8 @@ The recall contract is read-path explanation. It does not turn raw evidence or
 pending candidates into durable truth. Durable memory still follows:
 
 ```text
-observation -> candidate -> review -> confirmed truth
+observation -> candidate -> auto preflight -> auto_confirmed / provisional truth
+                             -> ledger -> /hm:review audit/undo -> user_confirmed
 ```
 
 ## State audit ledger

@@ -29,13 +29,16 @@ from harness_mem.integration.command_sync import (
     resolve_command_names,
     sync_slash_commands,
 )
-from harness_mem.integration.installer import install_hook
+from harness_mem.integration.installer import HookSpec, install_hook, install_hook_suite
 
 __all__ = [
     "cmd_install_cursor_hook",
     "cmd_install_claude_hook",
     "cmd_install_cursor_wake_hook",
     "cmd_install_claude_wake_hook",
+    "cmd_install_hook_suite",
+    "cmd_install_cursor_suite",
+    "cmd_install_claude_suite",
     "cmd_list_command_profiles",
     "cmd_sync_commands",
 ]
@@ -76,8 +79,56 @@ def _install(template_name: str, target_path: Path, root: Path, force: bool) -> 
     return 0
 
 
+def _suite_specs(client: str, root: Path) -> tuple[HookSpec, ...]:
+    if client == "cursor":
+        return (
+            HookSpec(
+                "cursor_session_start.sh.template",
+                root / ".cursor" / "hooks" / "session-start.sh",
+            ),
+            HookSpec(
+                "cursor_after_agent.sh.template",
+                root / ".cursor" / "hooks" / "after-agent.sh",
+            ),
+        )
+    if client == "claude-code":
+        return (
+            HookSpec(
+                "claude_code_session_start.sh.template",
+                root / ".claude" / "hooks" / "session-start.sh",
+            ),
+            HookSpec(
+                "claude_code_hook.sh.template",
+                root / ".claude" / "hooks" / "after-turn.sh",
+            ),
+        )
+    raise ValueError(f"unsupported hook client: {client}")
+
+
+def _install_suite(client: str, project_root: str | None, force: bool) -> int:
+    root = _resolve_project_root(project_root)
+    try:
+        results = install_hook_suite(
+            specs=_suite_specs(client, root),
+            project_root=root,
+            force=force,
+            harness_mem_version=__version__,
+            generated_at=datetime.now(timezone.utc),
+            doc_pointer=_DOC_POINTER,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"install failed: {root}: {exc}", file=sys.stderr)
+        return 1
+    for result in results:
+        if result.status == "installed":
+            print(f"installed: {result.target_path}")
+        else:
+            print(f"exists: {result.target_path}")
+    return 0
+
+
 def cmd_install_cursor_hook(project_root: str | None, force: bool) -> int:
-    """Generate the Cursor dream-end hook script.
+    """Generate the Cursor post-turn hook script.
 
     Resolves ``project_root`` (default: cwd), targets
     ``<project_root>/.cursor/hooks/after-agent.sh``, and delegates to
@@ -91,7 +142,7 @@ def cmd_install_cursor_hook(project_root: str | None, force: bool) -> int:
 
 
 def cmd_install_claude_hook(project_root: str | None, force: bool) -> int:
-    """Generate the Claude Code dream-end hook script.
+    """Generate the Claude Code post-turn hook script.
 
     Resolves ``project_root`` (default: cwd), targets
     ``<project_root>/.claude/hooks/after-turn.sh``, and delegates to
@@ -115,6 +166,21 @@ def cmd_install_claude_wake_hook(project_root: str | None, force: bool) -> int:
     root = _resolve_project_root(project_root)
     target_path = root / ".claude" / "hooks" / "session-start.sh"
     return _install("claude_code_session_start.sh.template", target_path, root, force)
+
+
+def cmd_install_cursor_suite(project_root: str | None, force: bool) -> int:
+    """Generate Cursor wake + post-turn maintenance hooks."""
+    return _install_suite("cursor", project_root, force)
+
+
+def cmd_install_claude_suite(project_root: str | None, force: bool) -> int:
+    """Generate Claude Code wake + post-turn maintenance hooks."""
+    return _install_suite("claude-code", project_root, force)
+
+
+def cmd_install_hook_suite(client: str, project_root: str | None, force: bool) -> int:
+    """Generate the complete hook suite for one supported client."""
+    return _install_suite(client, project_root, force)
 
 
 def cmd_list_command_profiles() -> int:
