@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- MCP stdio now accepts standard `Content-Length` framed requests while keeping
+  the existing newline-delimited JSON direct-client path.
+
 ## [0.8.9] - 2026-06-30
 
 ### Added

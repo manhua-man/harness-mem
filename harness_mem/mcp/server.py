@@ -49,7 +49,7 @@ sys.stdout = sys.stderr
 import json  # noqa: E402
 import logging  # noqa: E402
 from pathlib import Path  # noqa: E402
-from typing import Any  # noqa: E402
+from typing import Any, BinaryIO, Literal  # noqa: E402
 
 from harness_mem import __version__ as _HARNESS_MEM_VERSION  # noqa: E402
 from harness_mem.config.errors import ConfigError  # noqa: E402
@@ -237,6 +237,8 @@ def handle_request(request: dict) -> dict | None:
 # STDOUT RESTORATION + MAIN LOOP
 # =============================================================================
 
+StdioTransport = Literal["framed", "ndjson"]
+
 
 def _restore_stdout():
     """Restore real stdout for MCP JSON-RPC output."""
@@ -264,22 +266,107 @@ def _restore_stdout():
         sys.stdout = sys.__stdout__
 
 
+def _read_non_empty_line(input_stream: BinaryIO) -> bytes:
+    while True:
+        line = input_stream.readline()
+        if not line:
+            return b""
+        if line.strip():
+            return line
+
+
+def _read_framed_request(
+    input_stream: BinaryIO,
+    first_header_line: bytes | None = None,
+) -> dict[str, Any] | None:
+    headers: list[bytes] = []
+    if first_header_line is not None:
+        headers.append(first_header_line)
+
+    while True:
+        line = input_stream.readline()
+        if not line:
+            if headers:
+                raise ValueError("Unexpected EOF while reading MCP frame headers")
+            return None
+        if not line.strip():
+            break
+        headers.append(line)
+
+    content_length: int | None = None
+    for header in headers:
+        name, separator, value = header.decode("ascii", errors="replace").partition(":")
+        if separator and name.lower() == "content-length":
+            content_length = int(value.strip())
+            break
+
+    if content_length is None:
+        raise ValueError("Missing Content-Length header")
+
+    body = input_stream.read(content_length)
+    if len(body) != content_length:
+        raise ValueError("Unexpected EOF while reading MCP frame body")
+    return json.loads(body.decode("utf-8"))
+
+
+def _read_ndjson_request(
+    input_stream: BinaryIO,
+    first_line: bytes | None = None,
+) -> dict[str, Any] | None:
+    line = first_line if first_line is not None else _read_non_empty_line(input_stream)
+    if not line:
+        return None
+    return json.loads(line.decode("utf-8"))
+
+
+def _read_request(
+    input_stream: BinaryIO,
+    transport: StdioTransport | None,
+) -> tuple[dict[str, Any] | None, StdioTransport | None]:
+    if transport == "framed":
+        return _read_framed_request(input_stream), transport
+    if transport == "ndjson":
+        return _read_ndjson_request(input_stream), transport
+
+    first_line = _read_non_empty_line(input_stream)
+    if not first_line:
+        return None, None
+    if first_line.lower().startswith(b"content-length:"):
+        return _read_framed_request(input_stream, first_line), "framed"
+    return _read_ndjson_request(input_stream, first_line), "ndjson"
+
+
+def _write_response(response: dict[str, Any], transport: StdioTransport) -> None:
+    body = json.dumps(response).encode("utf-8")
+    if transport == "framed":
+        output = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
+    else:
+        output = body + b"\n"
+
+    stdout_buffer = getattr(sys.stdout, "buffer", None)
+    if stdout_buffer is not None:
+        stdout_buffer.write(output)
+        stdout_buffer.flush()
+        return
+
+    sys.stdout.write(output.decode("utf-8"))
+    sys.stdout.flush()
+
+
 def main():
     _restore_stdout()
     logger.info("harness-mem MCP Server starting...")
+    input_stream = sys.stdin.buffer
+    transport: StdioTransport | None = None
     while True:
         try:
-            line = sys.stdin.readline()
-            if not line:
+            request, detected_transport = _read_request(input_stream, transport)
+            if request is None:
                 break
-            line = line.strip()
-            if not line:
-                continue
-            request = json.loads(line)
+            transport = detected_transport or transport or "ndjson"
             response = handle_request(request)
             if response is not None:
-                sys.stdout.write(json.dumps(response) + "\n")
-                sys.stdout.flush()
+                _write_response(response, transport)
         except KeyboardInterrupt:
             break
         except Exception as e:
