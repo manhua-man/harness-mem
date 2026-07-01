@@ -1,6 +1,6 @@
 {
   "name": "list_candidates",
-  "description": "List structured memory candidates for human review.",
+  "description": "List structured memory candidates for human review or audit inbox. Status values are layered governance states — use pending / provisional / auto_confirmed for audit; not all seven are interchangeable review filters.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -12,10 +12,14 @@
         "type": "string",
         "enum": [
           "pending",
-          "accepted",
-          "rejected"
+          "deferred",
+          "rejected",
+          "auto_confirmed",
+          "provisional",
+          "user_confirmed",
+          "superseded"
         ],
-        "description": "Candidate status to list (default: pending)",
+        "description": "Governance status filter (single value). Layers: candidate (pending, deferred, rejected); truth (auto_confirmed, provisional, user_confirmed); historical (superseded). Audit inbox typically uses pending, provisional, or auto_confirmed — not all seven interchangeably.",
         "default": "pending"
       },
       "limit": {

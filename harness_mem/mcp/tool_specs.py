@@ -23,6 +23,11 @@ from __future__ import annotations
 
 from typing import Any, Callable, TypedDict
 
+from harness_mem.governance_status import (
+    GOVERNANCE_STATUS_LIST,
+    LIST_CANDIDATES_STATUS_DESCRIPTION,
+)
+
 
 class ToolSpec(TypedDict):
     description: str
@@ -692,15 +697,20 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         },
     },
     "list_candidates": {
-        "description": "List structured memory candidates for human review.",
+        "description": (
+            "List structured memory candidates for human review or audit inbox. "
+            "Status values are layered governance states — use pending / "
+            "provisional / auto_confirmed for audit; not all seven are "
+            "interchangeable review filters."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "project_name": {"type": "string", "description": "Project name"},
                 "status": {
                     "type": "string",
-                    "enum": ["pending", "accepted", "rejected"],
-                    "description": "Candidate status to list (default: pending)",
+                    "enum": list(GOVERNANCE_STATUS_LIST),
+                    "description": LIST_CANDIDATES_STATUS_DESCRIPTION,
                     "default": "pending",
                 },
                 "limit": {

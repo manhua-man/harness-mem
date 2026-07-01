@@ -14,7 +14,10 @@ from harness_mem.search.backend import SQLiteSearchBackend, SearchFilters
 from harness_mem.governance_status import (
     AUTO_CONFIRMED_STATUS,
     DEFERRED_STATUS,
+    GOVERNANCE_STATUS_LIST,
+    GOVERNANCE_STATUSES,
     PROVISIONAL_STATUS,
+    READABLE_TRUTH_FILTER,
     USER_CONFIRMED_STATUS,
     is_readable_truth,
     resolve_promotion_status,
@@ -23,6 +26,8 @@ from harness_mem.governance_status import (
     validate_status_transition,
 )
 from harness_mem.mcp import server
+from harness_mem.mcp.tool_handlers import tool_list_candidates
+from harness_mem.mcp.tool_specs import _SCHEMAS
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -82,7 +87,6 @@ def test_resolve_promotion_status_risky_rule() -> None:
 
 
 def test_read_tier_visibility() -> None:
-    assert is_readable_truth("accepted")
     assert is_readable_truth(AUTO_CONFIRMED_STATUS)
     assert is_readable_truth(USER_CONFIRMED_STATUS)
     assert not is_readable_truth(PROVISIONAL_STATUS)
@@ -92,11 +96,10 @@ def test_read_tier_visibility() -> None:
     assert truth_weight(AUTO_CONFIRMED_STATUS) == 1.0
 
 
-def test_legacy_accepted_list_filter_includes_promoted_statuses() -> None:
-    statuses = statuses_for_list_filter("accepted")
+def test_readable_truth_list_filter_includes_truth_layer() -> None:
+    statuses = statuses_for_list_filter(READABLE_TRUTH_FILTER)
     assert AUTO_CONFIRMED_STATUS in statuses
     assert USER_CONFIRMED_STATUS in statuses
-    assert "accepted" in statuses
     assert PROVISIONAL_STATUS not in statuses
 
 
@@ -110,7 +113,6 @@ def test_schema_roundtrip_all_governance_statuses(backend: LocalMemoryBackend) -
         PROVISIONAL_STATUS,
         USER_CONFIRMED_STATUS,
         "superseded",
-        "accepted",
     ]
     saved_ids: list[str] = []
     for status in statuses:
@@ -233,7 +235,7 @@ def test_list_filter_excludes_provisional_by_default(
             )
         )
 
-    visible = asyncio.run(store.list_memory_entries("gov-demo", status="accepted"))
+    visible = asyncio.run(store.list_memory_entries("gov-demo", status=READABLE_TRUTH_FILTER))
     visible_statuses = {entry.status for entry in visible}
     assert AUTO_CONFIRMED_STATUS in visible_statuses
     assert PROVISIONAL_STATUS not in visible_statuses
@@ -241,7 +243,7 @@ def test_list_filter_excludes_provisional_by_default(
 
     with_provisional = asyncio.run(
         store.list_memory_entries(
-            "gov-demo", status="accepted", include_provisional=True
+            "gov-demo", status=READABLE_TRUTH_FILTER, include_provisional=True
         )
     )
     assert any(entry.status == PROVISIONAL_STATUS for entry in with_provisional)
@@ -294,13 +296,13 @@ def test_relation_facts_list_includes_auto_confirmed_tier(
             )
         )
     )
-    visible = asyncio.run(store.list_relation_facts("gov-demo", status="accepted"))
+    visible = asyncio.run(store.list_relation_facts("gov-demo", status=READABLE_TRUTH_FILTER))
     statuses = {fact.status for fact in visible}
     assert AUTO_CONFIRMED_STATUS in statuses
     assert PROVISIONAL_STATUS not in statuses
     with_provisional = asyncio.run(
         store.list_relation_facts(
-            "gov-demo", status="accepted", include_provisional=True
+            "gov-demo", status=READABLE_TRUTH_FILTER, include_provisional=True
         )
     )
     assert any(fact.status == PROVISIONAL_STATUS for fact in with_provisional)
@@ -399,3 +401,67 @@ def test_relation_fact_roundtrip_and_confirm(backend: LocalMemoryBackend) -> Non
     assert confirmed is True
     assert reloaded is not None
     assert reloaded.status == USER_CONFIRMED_STATUS
+
+
+@pytest.mark.parametrize("status", list(GOVERNANCE_STATUS_LIST))
+def test_list_candidates_accepts_each_governance_status(
+    backend: LocalMemoryBackend,
+    status: str,
+) -> None:
+    project = "gov-list-demo"
+    store = backend.structured_store
+    if status in {"pending", "deferred", "rejected"}:
+        asyncio.run(
+            store.save_memory_entry(
+                MemoryEntry(
+                    project_name=project,
+                    category="decision",
+                    content=f"candidate layer {status}",
+                    source="obs:candidate",
+                    status=status,
+                )
+            )
+        )
+    elif status == "superseded":
+        entry_id = asyncio.run(
+            store.save_memory_entry(
+                MemoryEntry(
+                    project_name=project,
+                    category="decision",
+                    content="superseded truth entry",
+                    source="obs:super",
+                    status=USER_CONFIRMED_STATUS,
+                )
+            )
+        )
+        asyncio.run(
+            store.update_memory_entry_status(entry_id, status)
+        )
+    else:
+        asyncio.run(
+            store.save_memory_entry(
+                MemoryEntry(
+                    project_name=project,
+                    category="decision",
+                    content=f"truth layer {status}",
+                    source="obs:truth",
+                    status=status,
+                )
+            )
+        )
+
+    server.set_backend_override(backend)
+    try:
+        result = tool_list_candidates(project_name=project, status=status, limit=10)
+    finally:
+        server.set_backend_override(None)
+
+    assert result["success"] is True
+    assert result["status"] == status
+    assert result["total_count"] >= 1
+
+
+def test_list_candidates_schema_matches_governance_enum() -> None:
+    schema_enum = _SCHEMAS["list_candidates"]["input_schema"]["properties"]["status"]["enum"]
+    assert schema_enum == list(GOVERNANCE_STATUS_LIST)
+    assert set(schema_enum) == GOVERNANCE_STATUSES

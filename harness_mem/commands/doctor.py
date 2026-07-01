@@ -45,9 +45,16 @@ from harness_mem.storage.local_project_profile_store import LocalProjectProfileS
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 from harness_mem.storage.canonical_store import canonical_store_health
+from harness_mem.governance_status import LEGACY_ACCEPTED_STATUS
 from harness_mem.version import runtime_version_payload
 
 logger = logging.getLogger(__name__)
+
+_LEGACY_SCAN_TABLES: tuple[tuple[str, str], ...] = (
+    ("memory_entries", "list_memory_entries"),
+    ("relation_facts", "list_relation_facts"),
+    ("rule_candidates", "list_rule_candidates"),
+)
 
 STALE_MEMORY_DAYS = 90
 
@@ -216,6 +223,7 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             # are not part of doctor output.
             report = await local_health_summary(backend, resolved_project)
             _doctor_candidate_health_block(report["candidate_health"])
+            _doctor_legacy_accepted_block(report.get("legacy_accepted", {}))
             _doctor_signal_freshness_block(report["signal_freshness"], resolved_project)
             _doctor_maintenance_block(report["maintenance_hints"])
             _doctor_runtime_health_block(report.get("runtime_health", {}))
@@ -627,7 +635,7 @@ async def candidate_health(structured_store: Any, project_name: str) -> dict[str
 
     Note on store-method signatures: ``list_memory_entries`` and
     ``list_relation_facts`` accept a ``limit`` kwarg and default ``status``
-    to ``"accepted"`` — both are passed explicitly here. The rule /
+    to ``READABLE_TRUTH_FILTER`` — both are passed explicitly here. The rule /
     procedural / supersede list methods take no ``limit`` and default
     ``status`` to ``None``, so only ``status="pending"`` is passed to them.
     """
@@ -828,6 +836,28 @@ async def maintenance_hints(backend: LocalMemoryBackend, project_name: str) -> d
 # ---- v2.4.2 health-summary orchestrator --------------------------------
 
 
+async def legacy_accepted_status_report(
+    structured_store: Any,
+    project_name: str,
+) -> dict[str, Any]:
+    """Count blobs still carrying literal pre-0.8.9 ``status=accepted``."""
+    by_table: dict[str, int] = {}
+    for table, list_method in _LEGACY_SCAN_TABLES:
+        list_fn = getattr(structured_store, list_method)
+        if table == "rule_candidates":
+            rows = await list_fn(project_name, status=LEGACY_ACCEPTED_STATUS)
+        else:
+            rows = await list_fn(
+                project_name,
+                status=LEGACY_ACCEPTED_STATUS,
+                limit=100_000,
+            )
+        if rows:
+            by_table[table] = len(rows)
+    total = sum(by_table.values())
+    return {"total": total, "by_table": by_table}
+
+
 async def local_health_summary(backend: LocalMemoryBackend, project_name: str) -> dict[str, Any]:
     """Compose local health surfaces. Read-only, never raises.
 
@@ -850,6 +880,14 @@ async def local_health_summary(backend: LocalMemoryBackend, project_name: str) -
     except Exception as exc:  # noqa: BLE001
         logger.warning("local_health_summary: candidate_health failed: %s", exc)
         report["candidate_health"] = {"warnings": [str(exc)]}
+
+    try:
+        report["legacy_accepted"] = await legacy_accepted_status_report(
+            backend.structured_store, project_name
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("local_health_summary: legacy_accepted failed: %s", exc)
+        report["legacy_accepted"] = {"warnings": [str(exc)]}
 
     # signal_freshness ← per-signal-type freshness report.
     try:
@@ -892,6 +930,29 @@ async def local_health_summary(backend: LocalMemoryBackend, project_name: str) -
 # longer owns a separate KB verification surface.
 _CANDIDATE_STALE_FIX = "/hm:review"
 _CANDIDATE_HIGH_RISK_FIX = "/hm:review"
+
+
+def _doctor_legacy_accepted_block(legacy_report: dict[str, Any]) -> None:
+    """Report legacy ``status=accepted`` blobs (invisible to readable_truth)."""
+    if "warnings" in legacy_report:
+        for warning in legacy_report["warnings"]:
+            print(f"⚠️  Legacy accepted scan unavailable: {warning}")
+        return
+
+    total = int(legacy_report.get("total", 0))
+    by_table = legacy_report.get("by_table") or {}
+    if total <= 0:
+        print(
+            f"Legacy status={LEGACY_ACCEPTED_STATUS}: 0 records "
+            "(invisible to readable_truth; not auto-migrated)"
+        )
+        return
+
+    parts = ", ".join(f"{table}={count}" for table, count in sorted(by_table.items()))
+    print(
+        f"⚠️  Legacy status={LEGACY_ACCEPTED_STATUS}: {total} record(s) ({parts}) "
+        "— invisible to readable_truth; re-confirm or re-promote manually"
+    )
 
 
 def _doctor_candidate_health_block(candidate_report: dict[str, Any]) -> None:

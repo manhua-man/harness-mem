@@ -1,4 +1,4 @@
-"""Governance status tiers for auto-promoted memory with post-hoc audit."""
+"""Governance status tiers: candidate / truth / historical layers."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ GovernanceStatus = Literal[
     "provisional",
     "user_confirmed",
     "superseded",
-    "accepted",
 ]
 
 GOVERNANCE_STATUSES: frozenset[str] = frozenset(
@@ -24,60 +23,112 @@ GOVERNANCE_STATUSES: frozenset[str] = frozenset(
         "provisional",
         "user_confirmed",
         "superseded",
-        "accepted",
     }
 )
 
+GOVERNANCE_STATUS_LIST: tuple[str, ...] = (
+    "pending",
+    "deferred",
+    "rejected",
+    "auto_confirmed",
+    "provisional",
+    "user_confirmed",
+    "superseded",
+)
+
+LEGACY_ACCEPTED_STATUS = "accepted"
+"""Pre-0.8.9 blob status; invisible to readable_truth (doctor reports only)."""
+
+LIST_CANDIDATES_STATUS_DESCRIPTION = (
+    "Governance status filter (single value). Layers: candidate "
+    "(pending, deferred, rejected); truth (auto_confirmed, provisional, "
+    "user_confirmed); historical (superseded). Audit inbox typically uses "
+    "pending, provisional, or auto_confirmed — not all seven interchangeably."
+)
+
+AUDIT_INBOX_STATUSES: frozenset[str] = frozenset(
+    {"pending", "provisional", "auto_confirmed"}
+)
+
+# Layer sets (not parallel enums — runtime routes by layer).
 CANDIDATE_LAYER_STATUSES: frozenset[str] = frozenset(
     {"pending", "deferred", "rejected"}
 )
-
-READABLE_FULL_WEIGHT: frozenset[str] = frozenset(
-    {"accepted", "auto_confirmed", "user_confirmed"}
+TRUTH_LAYER_STATUSES: frozenset[str] = frozenset(
+    {"auto_confirmed", "provisional", "user_confirmed"}
 )
+TRUTH_LAYER_FULL_WEIGHT: frozenset[str] = frozenset(
+    {"auto_confirmed", "user_confirmed"}
+)
+HISTORICAL_LAYER_STATUSES: frozenset[str] = frozenset({"superseded"})
+
+READABLE_TRUTH_FILTER = "readable_truth"
+"""List/search filter token: truth-layer entries at full weight."""
 
 PROVISIONAL_STATUS = "provisional"
-
-INVISIBLE_STATUSES: frozenset[str] = frozenset(
-    {"pending", "deferred", "rejected"}
-)
+INVISIBLE_STATUSES: frozenset[str] = CANDIDATE_LAYER_STATUSES
 
 USER_CONFIRMED_STATUS = "user_confirmed"
 AUTO_CONFIRMED_STATUS = "auto_confirmed"
 SUPERSEDED_STATUS = "superseded"
 DEFERRED_STATUS = "deferred"
-LEGACY_ACCEPTED_STATUS = "accepted"
 
 PROVISIONAL_TRUTH_WEIGHT = 0.6
 FULL_TRUTH_WEIGHT = 1.0
 
-# pending -> promoted / deferred / rejected
-_PENDING_TARGETS = frozenset(
+# Maintenance review candidates (dream supersede/merge/stale) — not truth-layer
+# statuses; kept separate so we do not overload memory governance transitions.
+MAINTENANCE_REVIEW_STATUSES: frozenset[str] = frozenset(
+    {"pending", "rejected", "user_confirmed"}
+)
+MAINTENANCE_REVIEW_COLLECTIONS: frozenset[str] = frozenset(
     {
-        "auto_confirmed",
-        "provisional",
-        "deferred",
-        "rejected",
-        USER_CONFIRMED_STATUS,
-        LEGACY_ACCEPTED_STATUS,
+        "supersede_candidates",
+        "merge_suggestion_candidates",
+        "stale_truth_suggestion_candidates",
+        "procedural_candidates",
     }
 )
-# auto paths -> user audit or lineage
-_AUTO_TARGETS = frozenset({"user_confirmed", "superseded", "rejected"})
-_PROVISIONAL_TARGETS = frozenset({"user_confirmed", "superseded", "rejected"})
+
+_PENDING_TARGETS = frozenset(
+    {
+        AUTO_CONFIRMED_STATUS,
+        PROVISIONAL_STATUS,
+        DEFERRED_STATUS,
+        "rejected",
+        USER_CONFIRMED_STATUS,
+    }
+)
+_AUTO_TARGETS = frozenset({USER_CONFIRMED_STATUS, SUPERSEDED_STATUS, "rejected"})
+_PROVISIONAL_TARGETS = frozenset({USER_CONFIRMED_STATUS, SUPERSEDED_STATUS, "rejected"})
 _DEFERRED_TARGETS = frozenset({"pending", "rejected", USER_CONFIRMED_STATUS})
-_LEGACY_ACCEPTED_TARGETS = frozenset({"user_confirmed", "superseded"})
 
 
 def normalize_status_on_load(status: str | None) -> str:
-    """Preserve stored status; default missing values to legacy accepted."""
+    """Default missing candidate records to pending."""
     if not status:
-        return LEGACY_ACCEPTED_STATUS
+        return "pending"
     return status
+
+
+def is_governed_truth_collection(collection: str) -> bool:
+    return collection not in MAINTENANCE_REVIEW_COLLECTIONS
 
 
 def is_valid_governance_status(status: str) -> bool:
     return status in GOVERNANCE_STATUSES
+
+
+def is_valid_maintenance_review_status(status: str) -> bool:
+    return status in MAINTENANCE_REVIEW_STATUSES
+
+
+def validate_maintenance_review_transition(from_status: str, to_status: str) -> bool:
+    if from_status == to_status:
+        return True
+    if from_status == "pending":
+        return to_status in {USER_CONFIRMED_STATUS, "rejected"}
+    return False
 
 
 def is_readable_truth(
@@ -85,13 +136,13 @@ def is_readable_truth(
     *,
     include_provisional: bool = False,
 ) -> bool:
-    if status in READABLE_FULL_WEIGHT:
+    if status in TRUTH_LAYER_FULL_WEIGHT:
         return True
     return include_provisional and status == PROVISIONAL_STATUS
 
 
 def truth_weight(status: str) -> float:
-    if status in READABLE_FULL_WEIGHT:
+    if status in TRUTH_LAYER_FULL_WEIGHT:
         return FULL_TRUTH_WEIGHT
     if status == PROVISIONAL_STATUS:
         return PROVISIONAL_TRUTH_WEIGHT
@@ -99,14 +150,14 @@ def truth_weight(status: str) -> float:
 
 
 def statuses_for_list_filter(
-    status: str = LEGACY_ACCEPTED_STATUS,
+    status: str = READABLE_TRUTH_FILTER,
     *,
     include_provisional: bool = False,
     include_superseded: bool = False,
 ) -> list[str]:
-    """Resolve a list/filter status token to concrete stored statuses."""
-    if status == LEGACY_ACCEPTED_STATUS:
-        resolved = list(READABLE_FULL_WEIGHT)
+    """Resolve a list/search filter token to concrete truth-layer statuses."""
+    if status == READABLE_TRUTH_FILTER:
+        resolved = list(TRUTH_LAYER_FULL_WEIGHT)
         if include_provisional:
             resolved.append(PROVISIONAL_STATUS)
         if include_superseded:
@@ -116,7 +167,7 @@ def statuses_for_list_filter(
 
 
 def validate_status_transition(from_status: str, to_status: str) -> bool:
-    """Return whether a governance transition is allowed."""
+    """Truth/candidate governance transitions for memory/rule/relation records."""
     if from_status == to_status:
         return True
     if not is_valid_governance_status(from_status) or not is_valid_governance_status(
@@ -126,7 +177,7 @@ def validate_status_transition(from_status: str, to_status: str) -> bool:
 
     if from_status == "pending":
         return to_status in _PENDING_TARGETS
-    if from_status in {AUTO_CONFIRMED_STATUS, LEGACY_ACCEPTED_STATUS}:
+    if from_status == AUTO_CONFIRMED_STATUS:
         return to_status in _AUTO_TARGETS
     if from_status == PROVISIONAL_STATUS:
         return to_status in _PROVISIONAL_TARGETS

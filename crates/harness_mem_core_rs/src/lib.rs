@@ -151,7 +151,13 @@ fn rank_candidates(
         let truth_status = row_object
             .get("truth_status")
             .and_then(Value::as_str);
-        let metadata_penalty = if matches!(truth_status, None | Some("accepted") | Some("confirmed_current")) {
+        let metadata_penalty = if matches!(
+            truth_status,
+            None
+                | Some("auto_confirmed")
+                | Some("user_confirmed")
+                | Some("confirmed_current")
+        ) {
             0.0
         } else {
             0.2
@@ -234,7 +240,7 @@ fn build_bulk_index_row(payload: &Value) -> Value {
     let truth_status = payload
         .get("status")
         .cloned()
-        .unwrap_or_else(|| Value::String("accepted".to_string()));
+        .unwrap_or_else(|| Value::String("pending".to_string()));
     let confidence = payload.get("confidence").cloned().unwrap_or(Value::Null);
     json!({
         "id": entity_id,
@@ -368,7 +374,7 @@ mod tests {
                 "id": "a",
                 "tokens": ["storage", "v2"],
                 "confidence": 0.8,
-                "truth_status": "accepted",
+                "truth_status": "user_confirmed",
                 "project_id": "demo"
             },
             {
