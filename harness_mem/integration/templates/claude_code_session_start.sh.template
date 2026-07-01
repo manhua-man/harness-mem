@@ -8,7 +8,7 @@
 
 set -e
 
-PROJECT_ROOT="${PROJECT_ROOT}"
+PROJECT_ROOT=${PROJECT_ROOT_SHELL}
 TURN_ID="$${CLAUDE_CODE_TURN_ID:-session-start}"
 
 python -m harness_mem.host_entry \

@@ -13,8 +13,10 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Any
+
+from harness_mem.storage.sqlite_vec_index import SqliteVecIndex
 
 logger = logging.getLogger(__name__)
 
@@ -328,6 +330,7 @@ class SQLiteIndex:
         self._conn: sqlite3.Connection | None = None
         self._lock = threading.Lock()
         self._fts_lock = threading.Lock()
+        self._vec_index = SqliteVecIndex()
 
     def init_db(self) -> None:
         """Create all tables and FTS virtual tables if they don't exist."""
@@ -422,6 +425,7 @@ class SQLiteIndex:
                 enable_load_extension(True)
                 try:
                     sqlite_vec.load(self._conn)
+                    self._vec_index.mark_extension_loaded()
                 finally:
                     enable_load_extension(False)
             except sqlite3.OperationalError as e:
@@ -561,6 +565,43 @@ class SQLiteIndex:
                 ),
             )
             conn.commit()
+            self._vec_index.upsert_row(
+                conn,
+                entry_id=entry_id,
+                model_id=model_id,
+                embedding_blob=embedding_blob,
+                dimensions=len(embedding_array),
+            )
+
+    def knn_vec_embeddings(
+        self,
+        query_blob: bytes,
+        *,
+        model_id: str,
+        limit: int,
+        entry_ids: Iterable[str] | None = None,
+    ) -> list[tuple[str, float]] | None:
+        """Return cosine-like scores via sqlite-vec KNN when vec0 is available."""
+
+        conn = self._conn_write()
+        with self._lock:
+            return self._vec_index.knn_vec_embeddings(
+                conn,
+                query_blob,
+                model_id=model_id,
+                limit=limit,
+                entry_ids=entry_ids,
+            )
+
+    def drop_vec0_index(self) -> None:
+        conn = self._conn_write()
+        with self._lock:
+            self._vec_index.drop(conn)
+
+    def vec0_coverage_report(self, *, model_id: str) -> dict[str, int]:
+        conn = self._conn_write()
+        with self._lock:
+            return self._vec_index.vec0_coverage_report(conn, model_id=model_id)
 
     def insert(self, table: str, data: dict[str, Any]) -> str:
         """Insert a row into table. Returns the row id."""

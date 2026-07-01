@@ -95,7 +95,9 @@ def _install(template_name: str, target_path: Path, root: Path, force: bool) -> 
 
 
 def _quote_hook_arg(value: str) -> str:
-    return '"' + value.replace('"', '\\"') + '"'
+    import shlex
+
+    return shlex.quote(value)
 
 
 def _python_script_command(script_path: Path) -> str:

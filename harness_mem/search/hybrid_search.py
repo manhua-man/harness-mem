@@ -7,6 +7,8 @@ import sqlite3
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Sequence
 
+from harness_mem.rust_core import batch_cosine_topk, fuse_hybrid_rrf
+
 if TYPE_CHECKING:
     from harness_mem.storage.sqlite_index import SQLiteIndex
 
@@ -43,6 +45,12 @@ class SearchResult:
     requested_mode: str
     effective_mode: str
     fallback_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class VectorCandidateState:
+    candidate_by_id: dict[str, dict[str, Any]]
+    sim_scores: dict[str, float]
 
 
 class HybridSearchLayer:
@@ -217,29 +225,19 @@ class HybridSearchLayer:
             exponent=self._vector_confidence_exponent,
         )
 
-        fused_scores: dict[str, float] = {}
-        for row_id in candidate_by_id:
-            score = 0.0
-            if row_id in fts_rank:
-                score += (
-                    self._fts_weight
-                    * fts_confidence.get(row_id, 1.0)
-                    / (self._rrf_k + fts_rank[row_id])
-                )
-            if row_id in vec_rank:
-                score += (
-                    self._vector_weight
-                    * vector_confidence.get(row_id, 1.0)
-                    / (self._rrf_k + vec_rank[row_id])
-                )
-            fused_scores[row_id] = score
-
-        ranked = sorted(
-            fused_scores.items(),
-            key=lambda item: -item[1],
+        ranked = fuse_hybrid_rrf(
+            candidate_by_id.keys(),
+            fts_rank=fts_rank,
+            vec_rank=vec_rank,
+            fts_confidence=fts_confidence,
+            vec_confidence=vector_confidence,
+            rrf_k=float(self._rrf_k),
+            fts_weight=float(self._fts_weight),
+            vector_weight=float(self._vector_weight),
+            limit=limit,
         )
         fused: builtins.list[dict[str, Any]] = []
-        for row_id, fused_score in ranked[:limit]:
+        for row_id, fused_score in ranked:
             row = dict(candidate_by_id[row_id])
             row["_fts_rank"] = fts_rank.get(row_id, -1)
             row["_vec_rank"] = vec_rank.get(row_id, -1)
@@ -322,30 +320,95 @@ class HybridSearchLayer:
         if not candidate_by_id:
             return {}, {}, {}
 
-        candidates = list(candidate_by_id.values())
-
-        # v1.6.2: Read persisted embeddings from vec_embeddings table.
-        # If the table is missing, empty, or no rows survive filtering, fall
-        # back to FTS rather than re-encoding documents on the hot path.
-        doc_embeddings_dict = self._read_persisted_embeddings(
-            [row["id"] for row in candidates]
+        allowed_ids = set(candidate_by_id)
+        state = self._try_knn_vector_state(
+            query_embedding,
+            table=table,
+            candidate_by_id=candidate_by_id,
+            allowed_ids=allowed_ids,
+            limit=candidate_limit,
         )
-        if doc_embeddings_dict is None:
+        if state is None:
+            state = self._batch_cosine_vector_state(
+                query_embedding,
+                candidate_by_id=candidate_by_id,
+                allowed_ids=allowed_ids,
+            )
+        if state is None:
             return None
-
-        sim_scores: dict[str, float] = {}
-        for row in candidates:
-            doc_emb = doc_embeddings_dict.get(row["id"])
-            if doc_emb is not None:
-                sim_scores[row["id"]] = self._cosine_similarity(query_embedding, doc_emb)
 
         vec_rank: dict[str, int] = {
             row_id: rank
             for rank, (row_id, _) in enumerate(
-                sorted(sim_scores.items(), key=lambda item: item[1], reverse=True)
+                sorted(state.sim_scores.items(), key=lambda item: item[1], reverse=True)
             )
         }
-        return candidate_by_id, sim_scores, vec_rank
+        return state.candidate_by_id, state.sim_scores, vec_rank
+
+    def _try_knn_vector_state(
+        self,
+        query_embedding: builtins.list[float],
+        *,
+        table: str,
+        candidate_by_id: dict[str, dict[str, Any]],
+        allowed_ids: set[str],
+        limit: int,
+    ) -> VectorCandidateState | None:
+        try:
+            from harness_mem.commands.support import get_embedding_model_id
+            import numpy as np
+        except ImportError:
+            return None
+
+        model_id = get_embedding_model_id()
+        query_blob = np.asarray(query_embedding, dtype=np.float32).tobytes()
+        try:
+            knn_hits = self._sqlite.knn_vec_embeddings(
+                query_blob,
+                model_id=model_id,
+                limit=limit,
+                entry_ids=allowed_ids,
+            )
+        except sqlite3.Error as exc:
+            logger.warning("vec0 KNN failed, using batch cosine fallback: %s", exc)
+            return None
+
+        if not knn_hits:
+            return None
+
+        sim_scores = {row_id: score for row_id, score in knn_hits}
+        filtered_candidates = dict(candidate_by_id)
+        for row_id in list(sim_scores):
+            if row_id not in filtered_candidates:
+                row = self._sqlite.get(table, row_id)
+                if row is None:
+                    sim_scores.pop(row_id, None)
+                    continue
+                filtered_candidates[row_id] = row
+        if not sim_scores:
+            return None
+        return VectorCandidateState(
+            candidate_by_id=filtered_candidates,
+            sim_scores=sim_scores,
+        )
+
+    def _batch_cosine_vector_state(
+        self,
+        query_embedding: builtins.list[float],
+        *,
+        candidate_by_id: dict[str, dict[str, Any]],
+        allowed_ids: set[str],
+    ) -> VectorCandidateState | None:
+        doc_embeddings_dict = self._read_persisted_embeddings(list(allowed_ids))
+        if doc_embeddings_dict is None:
+            return None
+        sim_scores = batch_cosine_topk(query_embedding, doc_embeddings_dict)
+        if not sim_scores:
+            return None
+        return VectorCandidateState(
+            candidate_by_id=candidate_by_id,
+            sim_scores=sim_scores,
+        )
 
     @staticmethod
     def _confidence_factors_from_scores(
@@ -370,12 +433,12 @@ class HybridSearchLayer:
 
     def _read_persisted_embeddings(
         self, entry_ids: builtins.list[str]
-    ) -> dict[str, builtins.list[float]] | None:
+    ) -> dict[str, Any] | None:
         """Read persisted embeddings from vec_embeddings table (v1.6.2).
 
-        Returns dict mapping entry_id to embedding vector (as list of floats).
-        Returns ``None`` if the table is missing, empty, or every row is
-        filtered out, so the caller can fall back to FTS.
+        Returns dict mapping entry_id to a float32 numpy vector when numpy is
+        available, otherwise a list of floats.  Returns ``None`` if the table
+        is missing, empty, or every row is filtered out.
         """
         if not entry_ids:
             return None
@@ -409,16 +472,14 @@ class HybridSearchLayer:
                 )
                 return None
 
-            result: dict[str, builtins.list[float]] = {}
+            result: dict[str, Any] = {}
 
             for row in rows:
                 entry_id = row[0]
                 embedding_blob = row[1]
 
-                # Deserialize BLOB to numpy array
                 embedding_array = np.frombuffer(embedding_blob, dtype=np.float32)
 
-                # Dimension mismatch detection (v1.6.2)
                 if len(embedding_array) != expected_dim:
                     logger.warning(
                         "Dimension mismatch for entry %s: stored=%s, expected=%s. "
@@ -429,7 +490,7 @@ class HybridSearchLayer:
                     )
                     continue
 
-                result[entry_id] = embedding_array.tolist()
+                result[entry_id] = embedding_array
 
             # Log if all vectors filtered out
             if rows and not result:
@@ -499,13 +560,3 @@ class HybridSearchLayer:
             "rule_candidates": "created_at",
             "confirmed_rules": "confirmed_at",
         }.get(table)
-
-    @staticmethod
-    def _cosine_similarity(a: builtins.list[float], b: builtins.list[float]) -> float:
-        """Compute cosine similarity between two vectors."""
-        dot = sum(x * y for x, y in zip(a, b))
-        norm_a = sum(x * x for x in a) ** 0.5
-        norm_b = sum(y * y for y in b) ** 0.5
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-        return dot / (norm_a * norm_b)

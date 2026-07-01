@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+## [0.8.14] - 2026-07-02
+
+### Added
+
+- Rust native `fuse_hybrid_rrf` and `batch_cosine_topk` (`harness_mem_core_rs` v4.0.3).
+- sqlite-vec `vec0` KNN read path with `entry_ids` post-filter (works with
+  `extra_where` on wake/search) and batch-cosine fallback in hybrid search.
+- `harness_mem/storage/sqlite_vec_index.py` for vec0 DDL, upsert, KNN, lazy
+  backfill, and coverage reporting; `doctor` HM-204 when vec0 lags
+  `vec_embeddings`.
+- `harness_mem/mcp/tool_descriptor_export.py` plus
+  `tests/test_mcp_exported_tools.py` to keep `mcps/harness_mem/tools/*.json`
+  aligned with `tool_specs` (seven governance statuses on `list_candidates`).
+- `release-wheels.yml` maturin matrix for six platform targets on version tags
+  (uploads CI artifacts only — does not publish to PyPI).
+- `tests/test_sqlite_vec_index.py`, `tests/test_rust_core_hot_path.py`.
+
+### Changed
+
+- **Build:** single `harness-mem` wheel via maturin (no separate pure/native
+  packages). Source installs now require Rust + maturin to compile
+  `harness_mem_core_rs`.
+- Session parsers and index-fabric postings route through `rust_core.scan_jsonl` /
+  `build_bulk_index_rows` (index fabric computes `_bulk_rows` once per generation).
+- CI installs the maturin-built wheel before the full pytest suite.
+- Hybrid vector scoring splits KNN vs batch-cosine strategies; KNN failures log
+  `sqlite3.Error` instead of swallowing all exceptions.
+- Upgraded stores without `maintenance rebuild-vector-index` get lazy vec0
+  backfill on first KNN query; doctor recommends rebuild for large gaps.
+
+### Note
+
+- Rust hot-path helpers still serialize JSON across the Python/Rust boundary;
+  this release does not claim end-to-end zero-copy vector fusion.
+
+## [0.8.13] - 2026-07-02
+
+### Added
+
+- `HARNESS_MEM_RUST` runtime policy (`prefer`, `required`, `force_python`).
+- `rust_core.fuse_hybrid_rrf` and `rust_core.batch_cosine_topk` hot-path helpers.
+- Maturin config plus CI `maturin develop` native parity smoke.
+
+### Changed
+
+- Hybrid search fusion and vector cosine scoring route through `rust_core`.
+- `doctor` distribution block warns on `python_fallback` and errors on
+  `HARNESS_MEM_RUST=required` without a native extension.
+- Vector read path keeps numpy embeddings in-memory instead of `.tolist()` loops.
+
 ## [0.8.12] - 2026-07-02
 
 ### Added

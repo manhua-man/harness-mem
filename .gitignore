@@ -34,3 +34,10 @@ dist/
 build/
 target/
 *.egg-info/
+
+# Local browser QA artifacts
+.playwright-mcp/
+inspect-current.png
+
+# Internal working notes (not shipped)
+docs/internal/

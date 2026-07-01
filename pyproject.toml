@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "0.8.12"
+version = "0.8.14"
 description = "Local-first, auditable, pluggable Agent memory backend"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -15,6 +15,7 @@ dev = [
     "anyio>=4.0.0",
     "build>=1.2.2",
     "hatchling>=1.27.0",
+    "maturin>=1.7,<2.0",
     "hypothesis>=6.0",
     "mypy>=1.11.0",
     "numpy>=1.26.0",
@@ -37,43 +38,18 @@ rerank = [
 harness-mem = "harness_mem.cli:main"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
 
-# Force-include runtime package data so it ships inside the wheel/sdist.
-# These files live under the harness_mem package directory, so hatchling already
-# packs them as package data; ``artifacts`` makes that explicit and survives any
-# future VCS-exclusion rule that might otherwise filter non-.py files.
-[tool.hatch.build]
-artifacts = [
-    "harness_mem/integration/templates/*.template",
-]
-
-[tool.hatch.build.targets.wheel]
-packages = ["harness_mem"]
-
-[tool.hatch.build.targets.sdist]
+[tool.maturin]
+manifest-path = "crates/harness_mem_core_rs/Cargo.toml"
+module-name = "harness_mem_core_rs"
+python-packages = ["harness_mem"]
+features = ["pyo3/extension-module"]
 include = [
-    "CHANGELOG.md",
-    "Cargo.toml",
-    "Cargo.lock",
-    "LICENSE",
-    "README.md",
-    "README.zh-CN.md",
-    "SECURITY.md",
-    "crates",
-    "docs/assets/*.svg",
-    "docs/quickstart.md",
-    "docs/mcp-setup.md",
-    "docs/demo-cold-start.md",
-    "docs/recall-audit.md",
-    "docs/autopilot-search-policy.md",
-    "docs/auto-promoted-memory-governance.md",
-    "harness_mem",
-    "plugins/harness-mem",
-    "tools/session-distill",
-    "harness_mem/integration/templates/*.template",
+    { path = "harness_mem/integration/templates/*.template", format = "wheel" },
 ]
+
 [[tool.mypy.overrides]]
 module = [
     "huggingface_hub",

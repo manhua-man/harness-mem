@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import shlex
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from harness_mem.commands.integration_cmds import cmd_install_hook_suite
-from harness_mem.integration.installer import install_hook
+from harness_mem.integration.installer import install_hermes_hook_suite, install_hook
 
 
 def _template_vars(tmp_path: Path) -> dict[str, str]:
@@ -80,6 +83,23 @@ def test_wake_start_hook_templates_keep_stdout_for_injection(tmp_path: Path) -> 
         assert "metabolism" not in body.lower()
         assert ">/dev/null 2>&1" not in body
         assert "2>/dev/null" in body
+
+
+def test_shell_hook_templates_shell_quote_project_root(tmp_path: Path) -> None:
+    dangerous_root = tmp_path / "proj $(touch owned) $HOME"
+    dangerous_root.mkdir()
+    quoted_root = shlex.quote(dangerous_root.resolve().as_posix())
+
+    for template in (
+        "cursor_after_agent.sh.template",
+        "claude_code_hook.sh.template",
+        "cursor_session_start.sh.template",
+        "claude_code_session_start.sh.template",
+    ):
+        body = _install_template(dangerous_root, template)
+
+        assert f"PROJECT_ROOT={quoted_root}" in body
+        assert f'PROJECT_ROOT="{dangerous_root.resolve().as_posix()}"' not in body
 
 
 def test_new_host_adapter_templates_render_expected_protocol_bridges(tmp_path: Path) -> None:
@@ -207,6 +227,46 @@ def test_cmd_install_hook_suite_supports_project_local_new_clients(tmp_path: Pat
     assert "session.idle" in plugin_body
 
 
+def test_hook_suite_command_strings_shell_quote_project_root(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dangerous_root = tmp_path / "proj $(touch owned) $HOME"
+    dangerous_root.mkdir()
+    quoted_root = shlex.quote(dangerous_root.resolve().as_posix())
+
+    assert cmd_install_hook_suite("grok", str(dangerous_root), False) == 0
+    capsys.readouterr()
+
+    grok_manifest = dangerous_root / ".grok" / "hooks" / "harness-mem.json"
+    commands = [
+        hook["command"]
+        for event in json.loads(grok_manifest.read_text(encoding="utf-8"))["hooks"].values()
+        for group in event
+        for hook in group["hooks"]
+    ]
+
+    assert commands
+    assert all(quoted_root in command for command in commands)
+    assert all(f'"{dangerous_root.resolve().as_posix()}"' not in command for command in commands)
+
+    assert cmd_install_hook_suite("codex", str(dangerous_root), False) == 0
+    capsys.readouterr()
+
+    codex_hooks = dangerous_root / ".codex" / "hooks.json"
+    codex_commands = [
+        hook["command"]
+        for event in json.loads(codex_hooks.read_text(encoding="utf-8"))["hooks"].values()
+        for group in event
+        for hook in group["hooks"]
+    ]
+    stop_script = dangerous_root / ".codex" / "hooks" / "harness_mem_stop.py"
+    quoted_stop_script = shlex.quote(stop_script.resolve().as_posix())
+
+    assert any(quoted_root in command for command in codex_commands)
+    assert any(quoted_stop_script in command for command in codex_commands)
+
+
 def test_cmd_install_hook_suite_supports_hermes_global_install(
     tmp_path: Path,
     monkeypatch,
@@ -231,3 +291,25 @@ def test_cmd_install_hook_suite_supports_hermes_global_install(
     assert "post_llm_call:" in config_body
     assert pre_script.resolve().as_posix() in config_body
     assert post_script.resolve().as_posix() in config_body
+
+
+def test_hermes_hook_suite_normalizes_empty_inline_hooks_config(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    config_path = home / ".hermes" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("hooks: []\nother: true\n", encoding="utf-8")
+
+    install_hermes_hook_suite(
+        project_root=tmp_path,
+        force=False,
+        harness_mem_version="test",
+        generated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        home_dir=home,
+    )
+
+    config_body = config_path.read_text(encoding="utf-8")
+    assert "hooks: []" not in config_body
+    assert "hooks:\n" in config_body
+    assert "  pre_llm_call:" in config_body
+    assert "  post_llm_call:" in config_body
+    assert "other: true" in config_body

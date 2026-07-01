@@ -8,7 +8,7 @@ import sys
 from typing import Any
 
 from harness_mem.index_fabric import load_current_manifest
-from harness_mem.rust_core import rust_core_status
+from harness_mem.rust_core import rust_core_status, rust_policy
 
 
 WHEEL_TARGETS: tuple[str, ...] = (
@@ -40,10 +40,12 @@ def distribution_report(
     data_dir = Path(data_dir)
     index_dir = index_dir or data_dir / "store_v2" / "index"
     rust = rust_core_status()
+    policy = rust_policy()
+    warnings = _rust_distribution_warnings(rust, policy)
     manifest = load_current_manifest(index_dir)
     cargo_workspace = repo_root / "Cargo.toml"
     crate_manifest = repo_root / "crates" / "harness_mem_core_rs" / "Cargo.toml"
-    return {
+    payload: dict[str, Any] = {
         "platform": {
             "system": platform.system(),
             "machine": platform.machine(),
@@ -56,9 +58,10 @@ def distribution_report(
             "native_available": rust.available,
         },
         "rust_core": rust.to_dict(),
+        "rust_policy": policy,
         "fallback": {
             "mode": "native" if rust.available else "pure_python",
-            "read_path_hard_fail": False,
+            "read_path_hard_fail": policy == "required",
             "reason": rust.fallback_reason,
         },
         "local_build": {
@@ -85,6 +88,31 @@ def distribution_report(
             "doctor_startup_ms_max": 1000,
         },
     }
+    if warnings:
+        payload["warnings"] = warnings
+    return payload
+
+
+def _rust_distribution_warnings(rust: Any, policy: str) -> list[str]:
+    warnings: list[str] = []
+    if policy == "force_python":
+        warnings.append(
+            "HARNESS_MEM_RUST=force_python: hot path is intentionally using python_fallback"
+        )
+        return warnings
+    if not rust.available and policy == "required":
+        warnings.append(
+            "HARNESS_MEM_RUST=required but harness_mem_core_rs is not installed; "
+            "read-path calls will fail with HM-203"
+        )
+        return warnings
+    if not rust.available and policy == "prefer":
+        warnings.append(
+            "rust core running in python_fallback; reinstall harness-mem from a native "
+            "wheel (pip install harness-mem) or run "
+            "'maturin develop --features python-extension' locally"
+        )
+    return warnings
 
 
 def _current_target() -> str:

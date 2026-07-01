@@ -57,6 +57,7 @@ async def cmd_rebuild_vector_index(project_name: str | None = None) -> int:
             with index.locked_connection() as conn:
                 conn.execute("DROP TABLE IF EXISTS vec_embeddings")
                 conn.commit()
+            index.drop_vec0_index()
             index.init_db()
 
         entries = await structured_store.list_memory_entries(

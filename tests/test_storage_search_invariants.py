@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from harness_mem.governance_status import READABLE_TRUTH_FILTER
-
 import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path

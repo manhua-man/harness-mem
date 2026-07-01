@@ -1,9 +1,8 @@
-"""Stable Python facade for the optional v4.0 Rust core.
+"""Stable Python facade for the v4.0 Rust core hot path.
 
-The native extension is optional in v4.0.x.  This module exposes the same
-deterministic data-work API whether ``harness_mem_core_rs`` is installed or the
-pure-Python fallback is used, so runtime read paths and doctor can report the
-mode without hard-failing on platforms that do not have a wheel yet.
+Read-path helpers route through this module.  When ``harness_mem_core_rs`` is
+installed the native implementation is used; otherwise a parity-tested Python
+fallback runs.  ``HARNESS_MEM_RUST`` controls whether fallback is allowed.
 """
 
 from __future__ import annotations
@@ -12,12 +11,20 @@ from dataclasses import dataclass
 import importlib
 import json
 import math
+import os
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal, Sequence
 
 
-RUST_CORE_API_VERSION = "v4.0.2"
+RUST_CORE_API_VERSION = "v4.0.3"
 NATIVE_MODULE_NAME = "harness_mem_core_rs"
+RUST_POLICY_ENV = "HARNESS_MEM_RUST"
+RustPolicy = Literal["prefer", "required", "force_python"]
+_VALID_RUST_POLICIES = frozenset({"prefer", "required", "force_python"})
+
+
+class RustCoreRequiredError(RuntimeError):
+    """Raised when ``HARNESS_MEM_RUST=required`` and the native extension is missing."""
 
 
 @dataclass(frozen=True)
@@ -27,6 +34,7 @@ class RustCoreStatus:
     native_module: str
     available: bool
     fallback_reason: str | None
+    policy: str
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -35,7 +43,17 @@ class RustCoreStatus:
             "native_module": self.native_module,
             "available": self.available,
             "fallback_reason": self.fallback_reason,
+            "policy": self.policy,
         }
+
+
+def rust_policy() -> RustPolicy:
+    """Return the active Rust runtime policy from ``HARNESS_MEM_RUST``."""
+
+    raw = os.environ.get(RUST_POLICY_ENV, "prefer").strip().lower()
+    if raw in _VALID_RUST_POLICIES:
+        return raw  # type: ignore[return-value]
+    return "prefer"
 
 
 @dataclass(frozen=True)
@@ -53,7 +71,18 @@ class JsonlScanResult:
 
 
 def rust_core_status() -> RustCoreStatus:
-    """Return native/fallback mode without importing the extension globally."""
+    """Return native/fallback mode without raising on missing extensions."""
+
+    policy = rust_policy()
+    if policy == "force_python":
+        return RustCoreStatus(
+            api_version=RUST_CORE_API_VERSION,
+            mode="python_fallback",
+            native_module=NATIVE_MODULE_NAME,
+            available=False,
+            fallback_reason="HARNESS_MEM_RUST=force_python",
+            policy=policy,
+        )
 
     try:
         module = importlib.import_module(NATIVE_MODULE_NAME)
@@ -64,6 +93,7 @@ def rust_core_status() -> RustCoreStatus:
             native_module=NATIVE_MODULE_NAME,
             available=False,
             fallback_reason=f"{exc.__class__.__name__}: {exc}",
+            policy=policy,
         )
     version = getattr(module, "api_version", lambda: RUST_CORE_API_VERSION)
     return RustCoreStatus(
@@ -72,6 +102,7 @@ def rust_core_status() -> RustCoreStatus:
         native_module=NATIVE_MODULE_NAME,
         available=True,
         fallback_reason=None,
+        policy=policy,
     )
 
 
@@ -152,6 +183,110 @@ def build_bulk_index_rows(payloads: Iterable[dict[str, Any]]) -> list[dict[str, 
             }
         )
     return rows
+
+
+def fuse_hybrid_rrf(
+    candidate_ids: Iterable[str],
+    *,
+    fts_rank: dict[str, int],
+    vec_rank: dict[str, int],
+    fts_confidence: dict[str, float],
+    vec_confidence: dict[str, float],
+    rrf_k: float = 40.0,
+    fts_weight: float = 2.0,
+    vector_weight: float = 6.0,
+    limit: int,
+) -> list[tuple[str, float]]:
+    """Weighted confidence RRF used by hybrid search."""
+
+    candidate_list = list(candidate_ids)
+    native = _native()
+    if native is not None and hasattr(native, "fuse_hybrid_rrf"):
+        payload = native.fuse_hybrid_rrf(
+            json.dumps(
+                {
+                    "candidate_ids": candidate_list,
+                    "fts_rank": fts_rank,
+                    "vec_rank": vec_rank,
+                    "fts_confidence": fts_confidence,
+                    "vec_confidence": vec_confidence,
+                    "rrf_k": rrf_k,
+                    "fts_weight": fts_weight,
+                    "vector_weight": vector_weight,
+                    "limit": limit,
+                },
+                ensure_ascii=True,
+            )
+        )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        return [(str(row_id), float(score)) for row_id, score in payload]
+
+    fused_scores: dict[str, float] = {}
+    for row_id in candidate_list:
+        score = 0.0
+        if row_id in fts_rank:
+            score += (
+                fts_weight
+                * fts_confidence.get(row_id, 1.0)
+                / (rrf_k + fts_rank[row_id])
+            )
+        if row_id in vec_rank:
+            score += (
+                vector_weight
+                * vec_confidence.get(row_id, 1.0)
+                / (rrf_k + vec_rank[row_id])
+            )
+        fused_scores[row_id] = score
+
+    ranked = sorted(fused_scores.items(), key=lambda item: (-item[1], item[0]))
+    return ranked[:limit]
+
+
+def batch_cosine_topk(
+    query: Sequence[float],
+    embeddings: dict[str, Sequence[float]],
+) -> dict[str, float]:
+    """Cosine similarity for a query vector against many document embeddings."""
+
+    if not embeddings:
+        return {}
+
+    native = _native()
+    if native is not None and hasattr(native, "batch_cosine_topk"):
+        serializable = {
+            row_id: _embedding_as_list(embedding)
+            for row_id, embedding in embeddings.items()
+        }
+        payload = native.batch_cosine_topk(
+            json.dumps([float(value) for value in query], ensure_ascii=True),
+            json.dumps(serializable, ensure_ascii=True),
+        )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        return {str(row_id): float(score) for row_id, score in dict(payload).items()}
+
+    try:
+        import numpy as np
+    except ImportError:
+        return _batch_cosine_topk_python(query, embeddings)
+
+    query_arr = np.asarray(query, dtype=np.float32)
+    row_ids = list(embeddings.keys())
+    matrix = np.stack(
+        [np.asarray(embeddings[row_id], dtype=np.float32) for row_id in row_ids],
+        axis=0,
+    )
+    query_norm = float(np.linalg.norm(query_arr))
+    if query_norm == 0.0:
+        return {row_id: 0.0 for row_id in row_ids}
+
+    norms = np.linalg.norm(matrix, axis=1)
+    dots = matrix @ query_arr
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sims = dots / (norms * query_norm)
+    sims = np.where(norms == 0.0, 0.0, sims)
+    return {row_id: float(sim) for row_id, sim in zip(row_ids, sims)}
 
 
 def reciprocal_rank_fusion(
@@ -237,10 +372,47 @@ def error_to_hm_code(exc: BaseException) -> dict[str, str]:
 
 
 def _native() -> Any | None:
+    if rust_policy() == "force_python":
+        return None
     try:
         return importlib.import_module(NATIVE_MODULE_NAME)
-    except Exception:
+    except Exception as exc:
+        if rust_policy() == "required":
+            raise RustCoreRequiredError(
+                "HM-203: HARNESS_MEM_RUST=required but harness_mem_core_rs is not "
+                f"available ({exc.__class__.__name__}: {exc}). Install the native "
+                "wheel or run: maturin develop --features python-extension"
+            ) from exc
         return None
+
+
+def _embedding_as_list(embedding: Sequence[float]) -> list[float]:
+    try:
+        return embedding.tolist()  # type: ignore[attr-defined]
+    except AttributeError:
+        return [float(value) for value in embedding]
+
+
+def _batch_cosine_topk_python(
+    query: Sequence[float],
+    embeddings: dict[str, Sequence[float]],
+) -> dict[str, float]:
+    query_list = [float(value) for value in query]
+    dot = 0.0
+    norm_q = sum(value * value for value in query_list) ** 0.5
+    if norm_q == 0.0:
+        return {row_id: 0.0 for row_id in embeddings}
+
+    scores: dict[str, float] = {}
+    for row_id, embedding in embeddings.items():
+        emb = [float(value) for value in embedding]
+        norm_e = sum(value * value for value in emb) ** 0.5
+        if norm_e == 0.0:
+            scores[row_id] = 0.0
+            continue
+        dot = sum(x * y for x, y in zip(query_list, emb))
+        scores[row_id] = dot / (norm_q * norm_e)
+    return scores
 
 
 def _search_text(payload: dict[str, Any]) -> str:
@@ -303,11 +475,17 @@ def _float_or(value: object, fallback: float) -> float:
 __all__ = [
     "JsonlScanResult",
     "RUST_CORE_API_VERSION",
+    "RUST_POLICY_ENV",
+    "RustCoreRequiredError",
     "RustCoreStatus",
+    "RustPolicy",
+    "batch_cosine_topk",
     "build_bulk_index_rows",
     "error_to_hm_code",
+    "fuse_hybrid_rrf",
     "rank_candidates",
     "reciprocal_rank_fusion",
     "rust_core_status",
+    "rust_policy",
     "scan_jsonl",
 ]

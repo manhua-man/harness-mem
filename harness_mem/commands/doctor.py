@@ -383,7 +383,20 @@ def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -
                         "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}",
                     }
 
-        # All checks passed
+        coverage = structured_store.index.vec0_coverage_report(model_id=model_id)
+        if coverage.get("vec0_missing", 0) > 0:
+            return {
+                "has_issue": True,
+                "message": (
+                    "HM-204: vec0 index is behind vec_embeddings "
+                    f"({coverage['vec0_missing']} missing); KNN will lazy-backfill "
+                    "or fall back to batch cosine"
+                ),
+                "fix_command": (
+                    f"harness-mem maintenance rebuild-vector-index --project {project_name}"
+                ),
+            }
+
         return {"has_issue": False, "message": "", "fix_command": ""}
 
     except (sqlite3.Error, ValueError):
@@ -1131,7 +1144,7 @@ def _doctor_storage_v2_block(storage_report: dict[str, Any]) -> None:
 def _doctor_distribution_block(distribution: dict[str, Any]) -> None:
     if not distribution:
         return
-    if "warnings" in distribution:
+    if set(distribution.keys()) == {"warnings"}:
         for warning in distribution["warnings"]:
             print(f"⚠️  Distribution report unavailable: {warning}")
         return
@@ -1139,10 +1152,12 @@ def _doctor_distribution_block(distribution: dict[str, Any]) -> None:
     fallback = distribution.get("fallback") or {}
     wheel = distribution.get("wheel_matrix") or {}
     index = distribution.get("index_fabric") or {}
+    policy = distribution.get("rust_policy", rust.get("policy", "prefer"))
     print("Distribution:")
     print(
         "  rust core: "
-        f"{rust.get('mode', 'unknown')} | native={str(rust.get('available')).lower()}"
+        f"{rust.get('mode', 'unknown')} | native={str(rust.get('available')).lower()} | "
+        f"policy={policy}"
     )
     print(
         "  platform: "
@@ -1152,6 +1167,11 @@ def _doctor_distribution_block(distribution: dict[str, Any]) -> None:
         "  index fabric: "
         f"{index.get('freshness', 'unknown')} | sidecars={index.get('sidecar_count', 0)}"
     )
+    for warning in distribution.get("warnings") or []:
+        if policy == "required" and not rust.get("available"):
+            print(f"❌  {warning}")
+        else:
+            print(f"⚠️  {warning}")
 
 
 def _load_project_dream_config(project_name: str) -> MergedConfig | None:

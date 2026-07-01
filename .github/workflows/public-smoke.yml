@@ -20,22 +20,21 @@ jobs:
       - name: Install tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install build pytest ruff
-          python -m pip install -e .
+          python -m pip install pytest ruff maturin
+
+      - name: Build and install native package wheel
+        run: |
+          maturin build --release --features python-extension -o dist/wheel
+          python -m pip install dist/wheel/*.whl --force-reinstall
 
       - name: Runtime smoke
         run: |
           python -m compileall harness_mem
           python -m ruff check harness_mem plugins tools
+          python -c "import harness_mem_core_rs; assert harness_mem_core_rs.api_version()"
           python -m pytest
           python -m harness_mem.cli --help
           python -m harness_mem.cli maintenance causal-benchmark
 
       - name: Rust smoke
         run: cargo test --workspace
-
-      - name: Rust extension build
-        run: cargo build --workspace --features python-extension
-
-      - name: Build package
-        run: python -m build

@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -71,6 +72,7 @@ def _render(
     """
     render_vars: dict[str, str] = {
         "PROJECT_ROOT": project_root_abs,
+        "PROJECT_ROOT_SHELL": shlex.quote(project_root_abs),
         "PROJECT_ROOT_JSON": json.dumps(project_root_abs),
         "PROJECT_ROOT_BASENAME": Path(project_root_abs).name,
         "HARNESS_MEM_VERSION": harness_mem_version,
@@ -324,7 +326,7 @@ def _merge_hermes_config(text: str, *, pre_command: str, post_command: str) -> s
             lines.append("")
         lines.append("hooks:")
         hooks_start = len(lines) - 1
-    elif re.match(r"^hooks:\s*\{\s*\}\s*$", lines[hooks_start]):
+    elif re.match(r"^hooks:\s*(\{\s*\}|\[\s*\])\s*$", lines[hooks_start]):
         lines[hooks_start] = "hooks:"
 
     lines = _ensure_hermes_event(

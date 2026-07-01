@@ -4,7 +4,7 @@ use serde_json::{json, Map, Number, Value};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-pub const API_VERSION: &str = "v4.0.2";
+pub const API_VERSION: &str = "v4.0.3";
 
 pub fn api_version() -> &'static str {
     API_VERSION
@@ -195,6 +195,121 @@ fn rank_candidates(
     serde_json::to_string(&ranked).map_err(|err| PyValueError::new_err(err.to_string()))
 }
 
+pub fn fuse_hybrid_rrf_scores(
+    candidate_ids: &[String],
+    fts_rank: &HashMap<String, usize>,
+    vec_rank: &HashMap<String, usize>,
+    fts_confidence: &HashMap<String, f64>,
+    vec_confidence: &HashMap<String, f64>,
+    rrf_k: f64,
+    fts_weight: f64,
+    vector_weight: f64,
+    limit: usize,
+) -> Vec<(String, f64)> {
+    let mut fused_scores: Vec<(String, f64)> = Vec::new();
+    for row_id in candidate_ids {
+        let mut score = 0.0;
+        if let Some(rank) = fts_rank.get(row_id) {
+            let factor = fts_confidence.get(row_id).copied().unwrap_or(1.0);
+            score += fts_weight * factor / (rrf_k + *rank as f64);
+        }
+        if let Some(rank) = vec_rank.get(row_id) {
+            let factor = vec_confidence.get(row_id).copied().unwrap_or(1.0);
+            score += vector_weight * factor / (rrf_k + *rank as f64);
+        }
+        fused_scores.push((row_id.clone(), score));
+    }
+    fused_scores.sort_by(|left, right| {
+        right
+            .1
+            .partial_cmp(&left.1)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| left.0.cmp(&right.0))
+    });
+    fused_scores.truncate(limit);
+    fused_scores
+}
+
+pub fn batch_cosine_scores(query: &[f32], embeddings: &HashMap<String, Vec<f32>>) -> HashMap<String, f64> {
+    let mut scores = HashMap::new();
+    if embeddings.is_empty() {
+        return scores;
+    }
+    let q_norm = vector_norm(query);
+    if q_norm == 0.0 {
+        for row_id in embeddings.keys() {
+            scores.insert(row_id.clone(), 0.0);
+        }
+        return scores;
+    }
+    for (row_id, embedding) in embeddings {
+        let e_norm = vector_norm(embedding);
+        if e_norm == 0.0 {
+            scores.insert(row_id.clone(), 0.0);
+            continue;
+        }
+        let dot: f32 = query
+            .iter()
+            .zip(embedding.iter())
+            .map(|(left, right)| left * right)
+            .sum();
+        scores.insert(row_id.clone(), (dot / (q_norm * e_norm)) as f64);
+    }
+    scores
+}
+
+#[pyfunction(name = "fuse_hybrid_rrf")]
+fn py_fuse_hybrid_rrf(payload_json: &str) -> PyResult<String> {
+    let payload: Value = serde_json::from_str(payload_json)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let candidate_ids = string_list(payload.get("candidate_ids"))?;
+    let fts_rank = rank_map(payload.get("fts_rank"))?;
+    let vec_rank = rank_map(payload.get("vec_rank"))?;
+    let fts_confidence = confidence_map(payload.get("fts_confidence"))?;
+    let vec_confidence = confidence_map(payload.get("vec_confidence"))?;
+    let rrf_k = value_as_f64(payload.get("rrf_k")).unwrap_or(40.0);
+    let fts_weight = value_as_f64(payload.get("fts_weight")).unwrap_or(2.0);
+    let vector_weight = value_as_f64(payload.get("vector_weight")).unwrap_or(6.0);
+    let limit = payload
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(candidate_ids.len() as u64) as usize;
+    let ranked = fuse_hybrid_rrf_scores(
+        &candidate_ids,
+        &fts_rank,
+        &vec_rank,
+        &fts_confidence,
+        &vec_confidence,
+        rrf_k,
+        fts_weight,
+        vector_weight,
+        limit,
+    );
+    serde_json::to_string(&ranked).map_err(|err| PyValueError::new_err(err.to_string()))
+}
+
+#[pyfunction(name = "batch_cosine_topk")]
+fn py_batch_cosine_topk(query_json: &str, embeddings_json: &str) -> PyResult<String> {
+    let query_values: Vec<f32> = serde_json::from_str::<Vec<f64>>(query_json)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?
+        .into_iter()
+        .map(|value| value as f32)
+        .collect();
+    let raw_embeddings: HashMap<String, Vec<f64>> = serde_json::from_str(embeddings_json)
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    let embeddings: HashMap<String, Vec<f32>> = raw_embeddings
+        .into_iter()
+        .map(|(row_id, values)| {
+            (
+                row_id,
+                values.into_iter().map(|value| value as f32).collect(),
+            )
+        })
+        .collect();
+    let scores = batch_cosine_scores(&query_values, &embeddings);
+    serde_json::to_string(&scores).map_err(|err| PyValueError::new_err(err.to_string()))
+}
+
 #[pyfunction(name = "tokens")]
 fn py_tokens(text: &str) -> Vec<String> {
     tokens(text)
@@ -205,10 +320,53 @@ fn harness_mem_core_rs(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResul
     module.add_function(wrap_pyfunction!(py_api_version, module)?)?;
     module.add_function(wrap_pyfunction!(py_scan_jsonl, module)?)?;
     module.add_function(wrap_pyfunction!(py_reciprocal_rank_fusion, module)?)?;
+    module.add_function(wrap_pyfunction!(py_fuse_hybrid_rrf, module)?)?;
+    module.add_function(wrap_pyfunction!(py_batch_cosine_topk, module)?)?;
     module.add_function(wrap_pyfunction!(build_bulk_index_rows, module)?)?;
     module.add_function(wrap_pyfunction!(rank_candidates, module)?)?;
     module.add_function(wrap_pyfunction!(py_tokens, module)?)?;
     Ok(())
+}
+
+fn vector_norm(values: &[f32]) -> f32 {
+    values.iter().map(|value| value * value).sum::<f32>().sqrt()
+}
+
+fn string_list(value: Option<&Value>) -> PyResult<Vec<String>> {
+    let Some(Value::Array(items)) = value else {
+        return Ok(Vec::new());
+    };
+    Ok(items
+        .iter()
+        .filter_map(Value::as_str)
+        .map(ToOwned::to_owned)
+        .collect())
+}
+
+fn rank_map(value: Option<&Value>) -> PyResult<HashMap<String, usize>> {
+    let Some(Value::Object(map)) = value else {
+        return Ok(HashMap::new());
+    };
+    let mut out = HashMap::new();
+    for (key, item) in map {
+        if let Some(rank) = item.as_u64() {
+            out.insert(key.clone(), rank as usize);
+        }
+    }
+    Ok(out)
+}
+
+fn confidence_map(value: Option<&Value>) -> PyResult<HashMap<String, f64>> {
+    let Some(Value::Object(map)) = value else {
+        return Ok(HashMap::new());
+    };
+    let mut out = HashMap::new();
+    for (key, item) in map {
+        if let Some(score) = value_as_f64(Some(item)) {
+            out.insert(key.clone(), score);
+        }
+    }
+    Ok(out)
 }
 
 fn ordered_score_pairs(scores: BTreeMap<String, f64>) -> Vec<(String, f64)> {
@@ -365,6 +523,36 @@ mod tests {
         let value: Value = serde_json::from_str(&payload).unwrap();
         assert_eq!(value["records"].as_array().unwrap().len(), 1);
         assert_eq!(value["errors"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn fuse_hybrid_rrf_orders_by_score_then_id() {
+        let mut fts_rank = HashMap::new();
+        fts_rank.insert("a".to_string(), 0);
+        let mut vec_rank = HashMap::new();
+        vec_rank.insert("b".to_string(), 0);
+        let ranked = fuse_hybrid_rrf_scores(
+            &["a".to_string(), "b".to_string(), "c".to_string()],
+            &fts_rank,
+            &vec_rank,
+            &HashMap::new(),
+            &HashMap::new(),
+            40.0,
+            2.0,
+            6.0,
+            2,
+        );
+        assert_eq!(ranked.len(), 2);
+    }
+
+    #[test]
+    fn batch_cosine_scores_unit_vectors() {
+        let mut embeddings = HashMap::new();
+        embeddings.insert("a".to_string(), vec![1.0, 0.0]);
+        embeddings.insert("b".to_string(), vec![0.0, 1.0]);
+        let scores = batch_cosine_scores(&[1.0, 0.0], &embeddings);
+        assert!((scores["a"] - 1.0).abs() < 1e-6);
+        assert!((scores["b"]).abs() < 1e-6);
     }
 
     #[test]

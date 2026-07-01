@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from harness_mem.adapters.protocol import SessionRecord
+from harness_mem.rust_core import scan_jsonl
 
 # ---------------------------------------------------------------------------
 # Types
@@ -110,14 +111,7 @@ def parse_claude_jsonl_session(
 
     try:
         content = session_path.read_text(encoding="utf-8-sig", errors="replace")
-        for line in content.splitlines():
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line.strip())
-            except json.JSONDecodeError:
-                continue
-
+        for record in scan_jsonl(content).records:
             record_type = record.get("type")
 
             if record_type == "user":
@@ -213,20 +207,12 @@ def parse_codex_jsonl_session(
             f"unable to read file ({type(exc).__name__}: {exc})"
         ) from exc
 
-    malformed_lines = 0
-    nonempty_lines = 0
-    valid_records = 0
+    scan_result = scan_jsonl(content)
+    malformed_lines = len(scan_result.errors)
+    valid_records = len(scan_result.records)
+    nonempty_lines = valid_records + malformed_lines
 
-    for line in content.splitlines():
-        if not line.strip():
-            continue
-        nonempty_lines += 1
-        try:
-            record = json.loads(line.strip())
-        except json.JSONDecodeError:
-            malformed_lines += 1
-            continue
-        valid_records += 1
+    for record in scan_result.records:
 
         role = record.get("role", "")
         message_content = ""
@@ -383,15 +369,9 @@ def parse_codex_archive_jsonl_session(
 
     try:
         content = session_path.read_text(encoding="utf-8", errors="replace")
-        for line in content.splitlines():
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line.strip())
-            except json.JSONDecodeError:
-                session_meta["invalid_json_lines"] += 1
-                continue
-
+        archive_scan = scan_jsonl(content)
+        session_meta["invalid_json_lines"] = len(archive_scan.errors)
+        for record in archive_scan.records:
             top_level_type = record.get("type")
             payload = record.get("payload")
             if not isinstance(payload, dict):

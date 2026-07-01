@@ -7,9 +7,10 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
-import re
 from typing import Any
 from uuid import uuid4
+
+from harness_mem.rust_core import build_bulk_index_rows
 
 
 INDEX_FABRIC_SCHEMA_VERSION = 1
@@ -173,10 +174,11 @@ def build_index_generation(
     generation_dir.mkdir(parents=True, exist_ok=True)
 
     payloads = _load_payloads(source_dir)
+    bulk_rows = _bulk_rows(payloads)
     sidecar_specs = {
-        "exact.bin": ("exact", _exact_postings(payloads)),
-        "word.bin": ("word", _word_postings(payloads)),
-        "trigram.bin": ("trigram", _trigram_postings(payloads)),
+        "exact.bin": ("exact", _exact_postings_from_rows(bulk_rows)),
+        "word.bin": ("word", _word_postings_from_rows(bulk_rows)),
+        "trigram.bin": ("trigram", _trigram_postings_from_rows(bulk_rows)),
         "graph.bin": ("graph", _graph_edges(payloads)),
     }
     sidecars: list[IndexSidecar] = []
@@ -233,25 +235,39 @@ def _load_payloads(source_dir: Path) -> list[dict[str, Any]]:
     return payloads
 
 
-def _exact_postings(payloads: list[dict[str, Any]]) -> dict[str, list[str]]:
-    postings: dict[str, list[str]] = {}
+def _normalized_payloads(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
     for payload in payloads:
-        entity_id = str(payload.get("id") or payload.get("_source_relpath") or "")
-        for token in _tokens(_payload_text(payload)):
-            postings.setdefault(token, []).append(entity_id)
+        item = dict(payload)
+        if not item.get("id"):
+            item["id"] = str(item.get("_source_relpath") or "")
+        normalized.append(item)
+    return normalized
+
+
+def _bulk_rows(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return build_bulk_index_rows(_normalized_payloads(payloads))
+
+
+def _exact_postings_from_rows(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
+    postings: dict[str, list[str]] = {}
+    for row in rows:
+        entity_id = str(row.get("id") or "")
+        for token in row.get("tokens") or []:
+            postings.setdefault(str(token), []).append(entity_id)
     return _sorted_postings(postings)
 
 
-def _word_postings(payloads: list[dict[str, Any]]) -> dict[str, list[str]]:
-    return _exact_postings(payloads)
+def _word_postings_from_rows(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
+    return _exact_postings_from_rows(rows)
 
 
-def _trigram_postings(payloads: list[dict[str, Any]]) -> dict[str, list[str]]:
+def _trigram_postings_from_rows(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
     postings: dict[str, list[str]] = {}
-    for payload in payloads:
-        entity_id = str(payload.get("id") or payload.get("_source_relpath") or "")
-        for trigram in _trigrams(_payload_text(payload)):
-            postings.setdefault(trigram, []).append(entity_id)
+    for row in rows:
+        entity_id = str(row.get("id") or "")
+        for trigram in row.get("trigrams") or []:
+            postings.setdefault(str(trigram), []).append(entity_id)
     return _sorted_postings(postings)
 
 
@@ -269,31 +285,6 @@ def _graph_edges(payloads: list[dict[str, Any]]) -> list[dict[str, str]]:
             }
         )
     return sorted(edges, key=lambda row: (row["source"], row["relation"], row["target"], row["id"]))
-
-
-def _payload_text(payload: dict[str, Any]) -> str:
-    fields = [
-        "raw_content",
-        "content",
-        "pattern",
-        "trigger",
-        "evidence",
-        "activation_condition",
-        "summary",
-    ]
-    parts = [str(payload.get(field)) for field in fields if payload.get(field)]
-    return "\n".join(parts)
-
-
-def _tokens(text: str) -> list[str]:
-    return sorted(set(re.findall(r"[A-Za-z0-9_]+", text.lower())))
-
-
-def _trigrams(text: str) -> list[str]:
-    normalized = re.sub(r"\s+", " ", text.lower()).strip()
-    if len(normalized) < 3:
-        return [normalized] if normalized else []
-    return sorted({normalized[index:index + 3] for index in range(len(normalized) - 2)})
 
 
 def _sorted_postings(postings: dict[str, list[str]]) -> dict[str, list[str]]:
