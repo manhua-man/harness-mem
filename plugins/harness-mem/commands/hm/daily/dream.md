@@ -3,6 +3,7 @@ name: "HM: Dream"
 description: 查看或触发 v3.1 自动梦境维护账本
 category: Memory
 tags: [harness-mem, dream, daily]
+wireFormatVersion: hm-wire-v3.5
 ---
 
 通过 MCP 查看 v3.1 DreamRun 账本，或在用户明确要求时触发一次 opt-in dream 维护。

@@ -7,6 +7,8 @@ Use this plugin when you want an Agent client to talk to the local
 
 The plugin is not the canonical API. The canonical boundary is the runtime
 package, MCP tool contract, candidate review lifecycle, and local audit state.
+Runtime package version and wire format are the source of truth; the repo-local
+plugin manifest, skills, and slash command assets mirror that contract.
 
 ## What It Includes
 
@@ -46,6 +48,14 @@ Slash command sync installs the Daily command surface:
 `install.ps1` installs or updates the runtime. `sync-commands.ps1` refreshes
 the Daily `/hm:*` command files and removes old non-Daily command files; it
 does not reinstall the Python package or rerun doctor checks.
+
+`harness-mem doctor` reports plugin drift in two separate buckets:
+
+- repo assets: the checked-in plugin manifest, skill, and Daily slash command
+  assets that should match the runtime version and wire format.
+- host install: existing Claude Code command and skill files under the user
+  profile. Missing host files are not treated as runtime failure; stale existing
+  host files are fixed by rerunning `install.ps1` or `sync-commands.ps1`.
 
 The same command visibility sync is available from the CLI:
 

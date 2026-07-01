@@ -3,6 +3,7 @@ name: "HM: Distill"
 description: 整理最近会话，生成候选记忆，并自动处理低风险项
 category: Memory
 tags: [harness-mem, distill, memory]
+wireFormatVersion: hm-wire-v3.5
 ---
 
 把指定项目最近的会话灌入 verbatim 层，使用仓库里的 `tools/session-distill` 主动提炼候选记忆，随后运行 auto-review apply-low-risk。低风险项可自动进入 `auto_confirmed` 或 `provisional`；`/hm:review` 是事后审计、undo、确认和替换入口。

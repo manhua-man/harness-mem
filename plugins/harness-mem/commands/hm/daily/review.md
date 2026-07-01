@@ -3,6 +3,7 @@ name: "HM: Review"
 description: AI 自动审核并处理候选记忆，最后给用户复核摘要
 category: Memory
 tags: [harness-mem, review, memory]
+wireFormatVersion: hm-wire-v3.5
 ---
 
 通过 MCP 列出当前项目的待审候选记忆。AI 自动做质量判断并处理低风险候选，最后给用户一份复核摘要；用户只在结果不对时纠错。

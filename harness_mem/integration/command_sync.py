@@ -5,20 +5,15 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
-CommandProfile = Literal["daily"]
-
-DAILY_COMMANDS = ("status", "wake", "search", "search-all", "distill", "review", "dream")
-RETIRED_COMMANDS = ("mark", "prune")
-
-VALID_COMMAND_PROFILES: tuple[CommandProfile, ...] = (
-    "daily",
+from harness_mem.plugin_assets import (
+    DAILY_COMMANDS,
+    RETIRED_COMMANDS,
+    VALID_COMMAND_PROFILES,
+    CommandProfile,
+    find_plugin_command_source,
+    source_path_for_plugin_command,
 )
-
-_COMMAND_GROUPS: dict[str, str] = {
-    **{command: "daily" for command in DAILY_COMMANDS},
-}
 
 
 @dataclass(frozen=True)
@@ -34,16 +29,7 @@ def default_claude_commands_dir() -> Path:
 
 
 def default_source_dir() -> Path | None:
-    repo_root = Path(__file__).resolve().parents[2]
-    source = repo_root / "plugins" / "harness-mem" / "commands" / "hm"
-    if source.exists():
-        return source
-
-    cwd_source = Path.cwd() / "plugins" / "harness-mem" / "commands" / "hm"
-    if cwd_source.exists():
-        return cwd_source
-
-    return None
+    return find_plugin_command_source()
 
 
 def normalize_profile(value: str | None) -> CommandProfile:
@@ -79,13 +65,7 @@ def source_path_for_command(source_dir: Path, command: str) -> Path:
     The source tree keeps a ``daily`` folder, while the installed Claude command
     directory remains flat so users still invoke `/hm:<command>`.
     """
-    group = _COMMAND_GROUPS.get(command)
-    if group is None:
-        raise ValueError(f"unknown slash command: {command}")
-    nested = source_dir / group / f"{command}.md"
-    if nested.exists():
-        return nested
-    return source_dir / f"{command}.md"
+    return source_path_for_plugin_command(source_dir, command)
 
 
 def sync_slash_commands(

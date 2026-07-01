@@ -3,6 +3,7 @@ name: "HM: Wake"
 description: 通过 MCP `wake` 拉取当前项目的 wake-up 上下文作为新 session 起点
 category: Memory
 tags: [harness-mem, wake]
+wireFormatVersion: hm-wire-v3.5
 ---
 
 调用 MCP `wake` 工具，把当前项目的 wake-up 上下文拉出来。

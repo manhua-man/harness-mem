@@ -3,6 +3,7 @@ name: "HM: Search All"
 description: 跨项目搜索记忆，找其它项目里可借鉴的决策、经验和证据
 category: Memory
 tags: [harness-mem, search, cross-project]
+wireFormatVersion: hm-wire-v3.5
 ---
 
 调用 MCP `search_memory` 做显式跨项目搜索，把结果按项目分组呈现，方便借鉴而不是混淆默认 wake。

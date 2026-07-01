@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 
 from harness_mem import __version__
+from harness_mem.plugin_assets import DAILY_COMMANDS
+from harness_mem.version import WIRE_FORMAT_VERSION
 from harness_mem.version_drift import version_drift_report
 
 
@@ -50,7 +52,7 @@ def test_version_drift_uses_daily_status_path_and_accepts_matching_manifest(
     _write_daily_status(plugin_root, wire="hm-wire-v3.5")
     _write_skill(plugin_root, wire="hm-wire-v3.5")
 
-    report = version_drift_report(repo_root)
+    report = version_drift_report(repo_root, claude_home=tmp_path / "claude")
 
     assert report["surfaces"]["slash_status"]["found"] is True
     assert report["issues"] == []
@@ -65,6 +67,46 @@ def test_version_drift_flags_plugin_version_mismatch(
     _write_daily_status(plugin_root, wire="hm-wire-v3.5")
     _write_skill(plugin_root, wire="hm-wire-v3.5")
 
-    report = version_drift_report(repo_root)
+    report = version_drift_report(repo_root, claude_home=tmp_path / "claude")
 
     assert any(issue["kind"] == "version_mismatch" for issue in report["issues"])
+
+
+def test_repo_plugin_manifest_matches_runtime_contract() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    manifest = repo_root / "plugins" / "harness-mem" / ".codex-plugin" / "plugin.json"
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+
+    assert data["version"] == __version__
+    assert data["wireFormatVersion"] == WIRE_FORMAT_VERSION
+
+
+def test_repo_daily_commands_advertise_runtime_wire_format() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    command_dir = repo_root / "plugins" / "harness-mem" / "commands" / "hm" / "daily"
+
+    for command in DAILY_COMMANDS:
+        body = command_dir.joinpath(f"{command}.md").read_text(encoding="utf-8")
+        assert f"wireFormatVersion: {WIRE_FORMAT_VERSION}" in body
+
+
+def test_version_drift_reports_existing_stale_host_install(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    plugin_root = repo_root / "plugins" / "harness-mem"
+    _write_plugin_manifest(plugin_root, version=__version__, wire="hm-wire-v3.5")
+    _write_daily_status(plugin_root, wire="hm-wire-v3.5")
+    _write_skill(plugin_root, wire="hm-wire-v3.5")
+    host_command_dir = tmp_path / "claude" / "commands" / "hm"
+    host_command_dir.mkdir(parents=True)
+    host_command_dir.joinpath("status.md").write_text(
+        "---\nwireFormatVersion: hm-wire-v0\n---\n",
+        encoding="utf-8",
+    )
+
+    report = version_drift_report(repo_root, claude_home=tmp_path / "claude")
+
+    issue_kinds = {(issue["surface"], issue["kind"]) for issue in report["issues"]}
+    assert ("host_slash_commands", "incomplete_install") in issue_kinds
+    assert ("host_slash_commands", "stale_wire_format") in issue_kinds

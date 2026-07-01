@@ -3,6 +3,7 @@ name: "HM: Search"
 description: 通过 MCP 搜索项目记忆里过往聊过什么
 category: Memory
 tags: [harness-mem, search]
+wireFormatVersion: hm-wire-v3.5
 ---
 
 调用 MCP `search_memory` 工具搜过去说过什么，把结果以可读形式呈现。
