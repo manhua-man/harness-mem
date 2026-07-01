@@ -525,10 +525,10 @@ async def _apply_surface_side_effects(
     Walks the surfaced layers (L0/L1/L2) in render order, selecting the same
     entries the wake output shows (truth-filtered + budget-capped via
     ``select_rendered_entries``), and for each surfaced confirmed-rule /
-    accepted-memory-entry record applies the existing ``wake_surfaced`` signal
+    readable-truth memory-entry record applies the existing ``wake_surfaced`` signal
     plus its usage-counter touch (``touch_confirmed_rule`` /
     ``touch_memory_entry``) **once per distinct source record id** across the
-    whole render — an accepted entry can appear in both L1 and L2 (Req 7.1).
+    whole render — a readable-truth entry can appear in both L1 and L2 (Req 7.1).
     Handoffs and the profile carry no side effect, and no other
     ``RetrievalSignal`` is emitted (Req 7.4).
     """

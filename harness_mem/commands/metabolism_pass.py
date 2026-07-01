@@ -210,7 +210,7 @@ async def _propose_merges(
     current_entries = await store.list_memory_entries(
         project_name,
         limit=10000,
-        status="accepted",
+        status="user_confirmed",
         include_history=False,
     )
     co_active_ids: list[str] = []
@@ -436,7 +436,7 @@ async def _propose_stale(
     entries = await store.list_memory_entries(
         project_name,
         limit=STALE_SCAN_ENTRY_LIMIT,
-        status="accepted",
+        status="user_confirmed",
         include_history=False,
     )
     if len(entries) == STALE_SCAN_ENTRY_LIMIT:
@@ -506,7 +506,7 @@ async def _propose_stale(
     # When neither source has a value, fall back to created_at — that
     # gives us "how long has this truth been around without ever being
     # touched". Targets with no timestamps at all are skipped defensively
-    # (should not happen for accepted truth).
+    # (should not happen for readable truth).
     results: list[tuple[int, str, _StaleKind, datetime | None]] = []
     for target_id, target_kind, created_at, v2_field in targets:
         signal_at = signal_max_at.get(target_id)
@@ -690,7 +690,7 @@ async def _current_truths_for_kind(
         entries = await store.list_memory_entries(
             project_name,
             limit=100000,
-            status="accepted",
+            status="user_confirmed",
             include_history=False,
         )
         return [
@@ -715,7 +715,7 @@ async def _current_truths_for_kind(
         facts = await store.list_relation_facts(
             project_name,
             limit=100000,
-            status="accepted",
+            status="user_confirmed",
             include_history=False,
         )
         return [

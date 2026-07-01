@@ -42,7 +42,7 @@ def test_search_memory_adds_recall_without_removing_legacy_arrays(backend) -> No
                 category="decision",
                 content="Use SQLite for local-first memory.",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )
@@ -92,7 +92,7 @@ def test_trace_relations_adds_weighted_recall(backend) -> None:
                 evidence="Incident was caused by root cause.",
                 source="test",
                 confidence=0.9,
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )
@@ -143,7 +143,7 @@ def test_mcp_search_memory_deep_recall_surfaces_history_opt_in(backend) -> None:
                 category="decision",
                 content="mcpdeeprecalltoken historical memory",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
                 valid_to=past,
             )
         )
@@ -174,7 +174,7 @@ def test_mcp_confirm_supersede_writes_audit_and_links_truth(backend) -> None:
                 category="decision",
                 content="mcpsupersedetoken old decision",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )
@@ -185,7 +185,7 @@ def test_mcp_confirm_supersede_writes_audit_and_links_truth(backend) -> None:
                 category="decision",
                 content="mcpsupersedetoken new decision",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )

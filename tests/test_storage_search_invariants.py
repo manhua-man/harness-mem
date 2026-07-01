@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from harness_mem.governance_status import READABLE_TRUTH_FILTER
+
 import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -105,7 +107,7 @@ def test_canonical_truth_survives_missing_index_and_rebuilds_on_boot(backend) ->
         category="decision",
         content="canonicalrebuildtoken keeps canonical truth independent of the index",
         source="test",
-        status="accepted",
+        status="user_confirmed",
     )
     entry_id = _run(backend.structured_store.save_memory_entry(entry))
 
@@ -126,7 +128,7 @@ def test_canonical_truth_survives_missing_index_and_rebuilds_on_boot(backend) ->
     reloaded = _run(backend.structured_store.get_memory_entry(entry_id))
     assert reloaded is not None
     assert reloaded.content == entry.content
-    assert reloaded.status == "accepted"
+    assert reloaded.status == "user_confirmed"
 
     missing_index, _ = _run(
         read_search_memory(
@@ -164,7 +166,7 @@ def test_canonical_boot_rebuilds_relation_rule_observation_indexes(backend) -> N
         relation_type="protects",
         evidence="canonicalboot-token relation rebuild evidence",
         source="test",
-        status="accepted",
+        status="user_confirmed",
     )
     rule = ConfirmedRule(
         project_name="demo",
@@ -225,7 +227,7 @@ def test_vector_disabled_hybrid_search_falls_back_to_fts(backend) -> None:
         category="decision",
         content="vectorfallbacktoken must remain searchable without embeddings",
         source="test",
-        status="accepted",
+        status="user_confirmed",
     )
     entry_id = _run(backend.structured_store.save_memory_entry(entry))
 
@@ -254,7 +256,7 @@ def test_include_history_deep_recall_and_truth_status_control_historical_visibil
         category="decision",
         content="historytoken superseded memory remains available only for history",
         source="test",
-        status="accepted",
+        status="user_confirmed",
         valid_to=past,
     )
     current = MemoryEntry(
@@ -262,7 +264,7 @@ def test_include_history_deep_recall_and_truth_status_control_historical_visibil
         category="decision",
         content="historytoken current memory remains default-visible",
         source="test",
-        status="accepted",
+        status="user_confirmed",
     )
     historical_id = _run(backend.structured_store.save_memory_entry(historical))
     current_id = _run(backend.structured_store.save_memory_entry(current))
@@ -288,7 +290,7 @@ def test_include_history_deep_recall_and_truth_status_control_historical_visibil
         for result in history_response.results
         if result.source_kind == "memory_entry"
     }
-    assert statuses[current_id] == "accepted"
+    assert statuses[current_id] == "user_confirmed"
     assert statuses[historical_id] == "historical"
 
     deep_response = _run(
@@ -314,7 +316,7 @@ def test_superseded_by_links_are_current_hard_filters_even_without_valid_to(
                 category="decision",
                 content="supersededlinktoken old memory",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
                 superseded_by=["new-memory"],
             )
         )
@@ -327,7 +329,7 @@ def test_superseded_by_links_are_current_hard_filters_even_without_valid_to(
                 category="decision",
                 content="supersededlinktoken current memory",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
                 supersedes=[old_memory_id],
             )
         )
@@ -341,7 +343,7 @@ def test_superseded_by_links_are_current_hard_filters_even_without_valid_to(
                 relation_type="supports",
                 evidence="supersededlinktoken old relation",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
                 superseded_by=["new-relation"],
             )
         )
@@ -356,7 +358,7 @@ def test_superseded_by_links_are_current_hard_filters_even_without_valid_to(
                 relation_type="supports",
                 evidence="supersededlinktoken current relation",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
                 supersedes=[old_relation_id],
             )
         )
@@ -443,7 +445,7 @@ def test_query_temporal_truth_current_history_abstention_and_conflict(
                 category="decision",
                 content="temporaltoken historical decision",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
                 valid_to=past,
             )
         )
@@ -455,7 +457,7 @@ def test_query_temporal_truth_current_history_abstention_and_conflict(
                 category="decision",
                 content="temporaltoken current decision",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )
@@ -498,7 +500,7 @@ def test_query_temporal_truth_current_history_abstention_and_conflict(
                 category="decision",
                 content="conflicttoken first current decision",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )
@@ -509,7 +511,7 @@ def test_query_temporal_truth_current_history_abstention_and_conflict(
                 category="decision",
                 content="conflicttoken second current decision",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )
@@ -533,7 +535,7 @@ def test_search_facade_preserves_memory_relation_observation_semantics(backend) 
         category="decision",
         content="semanticstoken memory entry preserves source and status",
         source="session:memory",
-        status="accepted",
+        status="user_confirmed",
         memory_type="semantic",
     )
     relation = RelationFact(
@@ -544,7 +546,7 @@ def test_search_facade_preserves_memory_relation_observation_semantics(backend) 
         evidence="semanticstoken relation evidence stays attached",
         source="session:relation",
         confidence=0.91,
-        status="accepted",
+        status="user_confirmed",
     )
     observation = Observation(
         session_id="session-observation",
@@ -573,7 +575,7 @@ def test_search_facade_preserves_memory_relation_observation_semantics(backend) 
     memory_result = results_by_kind["memory_entry"]
     assert memory_result.source_id == memory_id
     assert memory_result.metadata["project_name"] == "demo"
-    assert memory_result.metadata["truth_status"] == "accepted"
+    assert memory_result.metadata["truth_status"] == "user_confirmed"
     assert memory_result.metadata["memory_type"] == "semantic"
     assert memory_result.score is not None
     assert memory_result.metadata["score_details"]["fts_score"] is not None
@@ -586,7 +588,7 @@ def test_search_facade_preserves_memory_relation_observation_semantics(backend) 
     relation_result = results_by_kind["relation_fact"]
     assert relation_result.source_id == relation_id
     assert relation_result.metadata["project_name"] == "demo"
-    assert relation_result.metadata["truth_status"] == "accepted"
+    assert relation_result.metadata["truth_status"] == "user_confirmed"
     assert "semanticstoken-service depends_on derived-index" in relation_result.preview
     assert relation_result.score is not None
     assert relation_result.metadata["score_details"]["fts_score"] is not None
@@ -600,7 +602,7 @@ def test_search_facade_preserves_memory_relation_observation_semantics(backend) 
 
     hydrated = _run(facade.hydrate(response))
     assert hydrated["memory_entry"][0].source == "session:memory"
-    assert hydrated["memory_entry"][0].status == "accepted"
+    assert hydrated["memory_entry"][0].status == "user_confirmed"
     assert hydrated["relation_fact"][0].evidence == relation.evidence
     assert hydrated["relation_fact"][0].source == "session:relation"
     assert hydrated["observation"][0].session_id == "session-observation"
@@ -636,7 +638,7 @@ def test_low_confidence_partial_match_abstains_instead_of_returning_weak_hits(
                 category="decision",
                 content="weakmatchtoken is present but the missing evidence is absent",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )
@@ -667,7 +669,7 @@ def test_one_hop_relation_boost_explains_related_decision_ranking(backend) -> No
                 category="decision",
                 content="relationboosttoken authservice decision should be lifted",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )
@@ -678,7 +680,7 @@ def test_one_hop_relation_boost_explains_related_decision_ranking(backend) -> No
                 category="decision",
                 content="relationboosttoken cache decision has no relation edge",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )
@@ -691,7 +693,7 @@ def test_one_hop_relation_boost_explains_related_decision_ranking(backend) -> No
                 relation_type="supports",
                 evidence="relationboosttoken authservice supports login",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )
@@ -728,7 +730,7 @@ def test_project_scope_filters_results_and_scope_all_keeps_project_identity(back
                     category="decision",
                     content=f"isolationtoken memory for {project}",
                     source="test",
-                    status="accepted",
+                    status="user_confirmed",
                 )
             )
         )
@@ -741,7 +743,7 @@ def test_project_scope_filters_results_and_scope_all_keeps_project_identity(back
                     relation_type="touches",
                     evidence=f"isolationtoken relation for {project}",
                     source="test",
-                    status="accepted",
+                    status="user_confirmed",
                 )
             )
         )
@@ -819,7 +821,7 @@ def test_pending_and_rejected_truth_do_not_appear_as_confirmed_search_results(
     assert _run(
         backend.structured_store.update_memory_entry_status(
             confirmed_memory_id,
-            "accepted",
+            "user_confirmed",
         )
     )
     assert _run(
@@ -868,7 +870,7 @@ def test_pending_and_rejected_truth_do_not_appear_as_confirmed_search_results(
     assert _run(
         backend.structured_store.update_relation_fact_status(
             confirmed_relation_id,
-            "accepted",
+            "user_confirmed",
         )
     )
     assert _run(
@@ -900,7 +902,7 @@ def test_pending_and_rejected_truth_do_not_appear_as_confirmed_search_results(
     assert backend.structured_store.index.get(
         "memory_entries",
         confirmed_memory_id,
-    )["status"] == "accepted"
+    )["status"] == "user_confirmed"
     assert backend.structured_store.index.get(
         "memory_entries",
         rejected_memory_id,
@@ -908,7 +910,7 @@ def test_pending_and_rejected_truth_do_not_appear_as_confirmed_search_results(
     assert backend.structured_store.index.get(
         "relation_facts",
         confirmed_relation_id,
-    )["status"] == "accepted"
+    )["status"] == "user_confirmed"
     assert backend.structured_store.index.get(
         "relation_facts",
         rejected_relation_id,
@@ -926,7 +928,7 @@ def test_read_api_per_type_limits_do_not_allow_memory_hits_to_starve_observation
                     category="decision",
                     content=f"starvationtoken memory result {idx}",
                     source="test",
-                    status="accepted",
+                    status="user_confirmed",
                 )
             )
         )
@@ -967,7 +969,7 @@ def test_soft_deleted_memory_and_observations_are_absent_from_search_and_regex(
                 category="decision",
                 content="softdeletetoken memory should disappear",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )

@@ -2328,7 +2328,7 @@ def tool_list_candidates(project_name: str, status: str = "pending", limit: int 
             "success": False,
             "error": (
                 "status must be one of: pending, deferred, rejected, auto_confirmed, "
-                "provisional, user_confirmed, superseded, accepted"
+                "provisional, user_confirmed, superseded"
             ),
         }
 
@@ -2521,11 +2521,11 @@ def tool_confirm_rule(rule_id: str) -> dict:
     if not candidate:
         return {"success": False, "error": f"Candidate not found: {rule_id}"}
     from harness_mem.governance_status import (
-        READABLE_FULL_WEIGHT,
+        TRUTH_LAYER_STATUSES,
         user_confirm_status,
     )
 
-    if candidate.status in READABLE_FULL_WEIGHT or candidate.status == user_confirm_status():
+    if candidate.status in TRUTH_LAYER_STATUSES:
         return {"success": False, "error": f"Candidate already confirmed: {rule_id}"}
 
     confirmed = ConfirmedRule(
@@ -2569,7 +2569,9 @@ def tool_reject_rule(rule_id: str, reason: str | None = None) -> dict:
     candidate = asyncio.run(backend.structured_store.get_rule_candidate(rule_id))
     if not candidate:
         return {"success": False, "error": f"Candidate not found: {rule_id}"}
-    if candidate.status in ("accepted", "rejected"):
+    from harness_mem.governance_status import TRUTH_LAYER_STATUSES
+
+    if candidate.status in TRUTH_LAYER_STATUSES or candidate.status == "rejected":
         return {"success": False, "error": f"Candidate already processed: {rule_id}"}
 
     asyncio.run(backend.structured_store.update_rule_candidate_status(rule_id, "rejected"))
@@ -2736,6 +2738,8 @@ def tool_suggest_correction(
     For brand-new rules (no specific old rule to replace), use
     ``create_rule_candidate`` -> ``confirm_rule`` instead.
     """
+    from harness_mem.governance_status import user_confirm_status
+
     backend = _get_backend()
     old_rule = asyncio.run(backend.structured_store.get_confirmed_rule(supersedes_rule_id))
     if old_rule is None:
@@ -2825,7 +2829,7 @@ def tool_suggest_correction(
         project_name=project_name,
         target_kind="confirmed_rule",
         target_id=new_rule.id,
-        status="accepted",
+        status=user_confirm_status(),
         source_surface="mcp.suggest_correction",
         payload={"supersedes_rule_id": old_rule.id, "trigger": new_rule.trigger},
     )

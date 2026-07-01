@@ -370,7 +370,7 @@ def build_trace_recall_result(
                 query=source_entity,
                 status="ok",
                 result_count=len(paths),
-                why="Bounded typed-edge traversal over accepted relation facts.",
+                why="Bounded typed-edge traversal over readable relation facts.",
                 metadata={"relation_type": relation_type},
             )
         ],

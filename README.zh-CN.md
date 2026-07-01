@@ -137,7 +137,6 @@ procedural skill 生命周期治理不属于 public memory MCP 和 CLI 产品面
 - [Cold-start demo](docs/demo-cold-start.md)
 - [Recall audit contract](docs/recall-audit.md)
 - [自动检索策略](docs/autopilot-search-policy.md)
-- [记忆协作层采纳指南（分析）](docs/memory-adoption.md)
 - [Changelog](CHANGELOG.md)
 
 ## 开发检查
@@ -149,4 +148,4 @@ python -m harness_mem.cli --help
 cargo test --workspace
 ```
 
-当前包版本：**0.8.9**。
+当前包版本：**0.8.11**。

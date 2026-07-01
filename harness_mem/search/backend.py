@@ -208,7 +208,7 @@ class SQLiteSearchBackend:
             if filters.corpus_id and getattr(entry, "corpus_id", None) != filters.corpus_id:
                 continue
             base_score = _score(entry)
-            weight = truth_weight(str(getattr(entry, "status", "accepted")))
+            weight = truth_weight(str(getattr(entry, "status", "pending")))
             adjusted_score = (
                 base_score * weight if base_score is not None else None
             )
@@ -251,12 +251,12 @@ class SQLiteSearchBackend:
 
         for fact in relation_facts:
             truth_status = "historical" if getattr(fact, "valid_to", None) else str(
-                getattr(fact, "status", "accepted")
+                getattr(fact, "status", "pending")
             )
             if allowed_truth and truth_status not in allowed_truth:
                 continue
             base_score = _score(fact)
-            weight = truth_weight(str(getattr(fact, "status", "accepted")))
+            weight = truth_weight(str(getattr(fact, "status", "pending")))
             adjusted_score = (
                 base_score * weight if base_score is not None else None
             )
@@ -702,7 +702,7 @@ def _temporal_metadata(
 def _entry_truth_status(entry: MemoryEntry) -> str:
     if getattr(entry, "valid_to", None) or list(getattr(entry, "superseded_by", []) or []):
         return "historical"
-    status = str(getattr(entry, "status", "accepted"))
+    status = str(getattr(entry, "status", "pending"))
     if status == "superseded":
         return "historical"
     return status

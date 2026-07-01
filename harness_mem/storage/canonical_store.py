@@ -1103,10 +1103,12 @@ def _truth_status(collection: str, payload: dict[str, Any]) -> str:
     valid_to = payload.get("valid_to")
     if valid_to:
         return "historical"
-    if status in {"pending", "accepted", "rejected", "active"}:
-        if status == "accepted" or status == "active":
-            return "confirmed_current"
+    if status in {"pending", "deferred", "rejected"}:
         return status
+    if status in {"auto_confirmed", "provisional", "user_confirmed", "active"}:
+        return "confirmed_current"
+    if status == "superseded":
+        return "historical"
     if collection in {"memory_entries", "confirmed_rules", "relation_facts", "skills"}:
         return "confirmed_current"
     if collection in {"task_handoffs", "metabolism_runs", "dream_runs"}:

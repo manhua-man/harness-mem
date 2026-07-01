@@ -374,12 +374,14 @@ def context_plan_from_response(
         hard_include=[
             result.source_id
             for result in response.results
-            if result.metadata.get("truth_status") in {"accepted", "confirmed_current"}
+            if result.metadata.get("truth_status")
+            in {"auto_confirmed", "user_confirmed", "confirmed_current"}
         ],
         soft_include=[
             result.source_id
             for result in response.results
-            if result.metadata.get("truth_status") not in {"accepted", "confirmed_current"}
+            if result.metadata.get("truth_status")
+            not in {"auto_confirmed", "user_confirmed", "confirmed_current"}
         ],
         evict_first=["stale truths", "low-support summaries", "repeated handoffs"],
         why_included=included,
@@ -472,7 +474,12 @@ def _conflicts(results: list[BackendSearchResult]) -> list[str]:
     current = {
         result.source_id
         for result in results
-        if result.metadata.get("truth_status") in {"accepted", "confirmed_current"}
+        if result.metadata.get("truth_status") in {
+            "confirmed_current",
+            "auto_confirmed",
+            "provisional",
+            "user_confirmed",
+        }
     }
     if historical and current:
         return ["current and historical truth both surfaced"]

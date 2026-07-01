@@ -68,10 +68,11 @@ class MemoryEntry(BaseModel):
         description="Confidence score 0.0-1.0"
     )
     status: str = Field(
-        default="accepted",
+        default="pending",
         description=(
-            "Governance status: pending | deferred | rejected | auto_confirmed | "
-            "provisional | user_confirmed | superseded | accepted (legacy)"
+            "Candidate layer: pending | deferred | rejected. "
+            "Truth layer: auto_confirmed | provisional | user_confirmed. "
+            "Historical: superseded."
         ),
     )
     source: str = Field(
@@ -176,7 +177,7 @@ class MemoryEntry(BaseModel):
             if isinstance(data.get(field), str):
                 data[field] = datetime.fromisoformat(data[field])
         if "status" not in data:
-            data["status"] = "accepted"
+            data["status"] = "pending"
         else:
             from harness_mem.governance_status import normalize_status_on_load
 

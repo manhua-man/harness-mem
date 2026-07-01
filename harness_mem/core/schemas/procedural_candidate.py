@@ -25,7 +25,10 @@ class ProceduralCandidate(BaseModel):
     source_session_id: str = Field(default="", description="Source session provenance")
     source: str = Field(default="", description="Source observation/file/candidate id")
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
-    status: str = Field(default="pending", description="draft | pending | accepted | rejected")
+    status: str = Field(
+        default="pending",
+        description="maintenance review: pending | rejected | user_confirmed",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     model_config = {"extra": "allow"}

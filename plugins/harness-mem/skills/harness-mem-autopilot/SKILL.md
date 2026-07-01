@@ -54,7 +54,7 @@ Users can opt out with `dream.auto.enabled=false`.
 
 | Situation | Action |
 |---|---|
-| New task, resume, continue, pick up where we left off | If enabled, call project status, then `wake`; only use accepted/current truth. |
+| New task, resume, continue, pick up where we left off | If enabled, call project status, then `wake`; only use readable truth (`auto_confirmed` / `user_confirmed`). |
 | Runtime context/tool/save-point event has uncertainty, conflict, failure, durable-claim grounding, or long-horizon task switch | If enabled, call `autopilot_search_tick`; inject returned `context_injection` into the next context when search runs. |
 | User asks “previously”, “last time”, “why did we decide”, “history” | If enabled, use `autopilot_search_tick` when inside a runtime event; use `search_memory` as the explicit fallback path. Drill down with `timeline` or observations only when needed. |
 | User explicitly says “remember this”, “make this a rule”, “以后都这样” | **Deep** grill-me admission, then `suggest_*` on `admit` / narrowed `narrow`; no confirm without review. |

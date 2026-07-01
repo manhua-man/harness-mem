@@ -21,7 +21,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from harness_mem.commands.support import resolve_project_name
-from harness_mem.governance_status import is_readable_truth
+from harness_mem.governance_status import READABLE_TRUTH_FILTER, is_readable_truth
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.context_assembly_plan import (
     LAYER_ORDER,
@@ -221,11 +221,11 @@ async def _build_l1(
     """L1 essential truth (Req 3.1-3.6, 10.1, 10.2, 10.4).
 
     Populates L1 with confirmed, current, high-confidence truth only:
-    confirmed rules first (highest tier — human-promoted), then accepted
+    confirmed rules first (highest tier — human-promoted), then readable truth
     current-truth :class:`MemoryEntry` records. Both source surfaces are pure
     reads and already exclude historical (``valid_to`` set) records via their
     ``include_history=False`` default; the entry surface additionally filters
-    to ``status == "accepted"`` (Req 3.1, 3.5).
+    to ``READABLE_TRUTH_FILTER`` (Req 3.1, 3.5).
 
     Ordering (per design — ``ConfirmedRule`` has no ``confidence`` field):
     rules by ``confirmed_at`` descending (most recently confirmed wins ties),
@@ -256,12 +256,12 @@ async def _build_l1(
         )
 
     # Accepted current-truth entries next, ordered by confidence descending.
-    # ``include_history=False`` + ``status="accepted"`` already exclude pending
+    # ``include_history=False`` + ``READABLE_TRUTH_FILTER`` already exclude pending
     # and historical records; the explicit ``valid_to is None`` check is a
-    # defensive reaffirmation of the accepted-only boundary (Req 3.1, 3.5, 10.1).
+    # defensive reaffirmation of the readable-truth boundary (Req 3.1, 3.5, 10.1).
     entries: list[MemoryEntry] = await backend.structured_store.list_memory_entries(
         project_name,
-        status="accepted",
+        status=READABLE_TRUTH_FILTER,
         include_history=False,
     )
     current_entries = [
@@ -305,11 +305,11 @@ async def _build_l2(
     1. **Recent task handoffs** via ``get_latest_handoffs`` — emitted as
        ``active:recent_handoff`` entries whose ``source_ids`` reference the
        handoff id and whose ``summary`` is the handoff summary.
-    2. **Recently-surfaced accepted current-truth entries**, derived
+    2. **Recently-surfaced readable current-truth entries**, derived
        *read-only* from v2.3 ``RetrievalSignal`` records (Req 4.5): signals of
        type ``wake_surfaced`` / ``search_hit`` targeting memory entries within
        :data:`RECENTLY_SURFACED_WINDOW_DAYS`, re-fetched via
-       ``get_memory_entry`` and filtered to ``status == "accepted"`` and
+       ``get_memory_entry`` and filtered to readable truth and
        ``valid_to is None`` (Req 4.1, 10.1). Emitted as
        ``active:recently_surfaced``.
 
@@ -342,7 +342,7 @@ async def _build_l2(
             )
         )
 
-    # Part B — recently-surfaced accepted current-truth entries, derived
+    # Part B — recently-surfaced readable current-truth entries, derived
     # read-only from retrieval signals (Req 4.1, 4.5, 10.1).
     for entry in await _recently_surfaced_entries(backend, project_name):
         candidates.append(
@@ -361,7 +361,7 @@ async def _recently_surfaced_entries(
     backend: LocalMemoryBackend,
     project_name: str,
 ) -> list[MemoryEntry]:
-    """Resolve recently-surfaced accepted current-truth entries (read-only).
+    """Resolve recently-surfaced readable current-truth entries (read-only).
 
     Mirrors the query shape ``signal_influence.pull_recent_signals`` uses: the
     signals layer filters by a single ``signal_type`` per query, so we issue
@@ -369,8 +369,8 @@ async def _recently_surfaced_entries(
     both scoped to ``target_kind="memory_entry"`` and to the
     :data:`RECENTLY_SURFACED_WINDOW_DAYS` window, then merge in memory newest
     first. Distinct ``target_id`` values are collected preserving newest-first
-    order, then re-fetched via ``get_memory_entry`` and filtered to accepted
-    current truth (``status == "accepted"`` and ``valid_to is None``).
+    order, then re-fetched via ``get_memory_entry`` and filtered to readable
+    current truth (``is_readable_truth`` and ``valid_to is None``).
 
     All reads are side-effect free (Req 4.5, 9): ``query_retrieval_signals``
     and ``get_memory_entry`` perform no writes and emit no ``RetrievalSignal``.
@@ -407,7 +407,7 @@ async def _recently_surfaced_entries(
     entries: list[MemoryEntry] = []
     for target_id in ordered_ids:
         entry = await backend.structured_store.get_memory_entry(target_id)
-        # Keep only accepted current truth; drop missing / pending / historical
+        # Keep only readable current truth; drop missing / pending / historical
         # records (Req 4.1, 8.3, 10.1).
         if entry is None or not entry.id:
             continue
@@ -435,7 +435,7 @@ async def _build_l3(
     Sources, in fixed deterministic order (per the design source-mapping
     table):
 
-    1. ``read_api.search_memory(..., record_signals=False)`` — matched accepted
+    1. ``read_api.search_memory(..., record_signals=False)`` — matched readable
        current-truth entries; ``why_included = "topic_recall:search_memory"``,
        ``source_ids`` = the matched entry id, ``summary`` = a compact preview.
        ``record_signals=False`` is mandatory so no ``search_hit``
@@ -524,7 +524,7 @@ async def _build_l4(
 
     Three deterministic, side-effect-free sources, in fixed order:
 
-    1. **``evidence:supports_L1``** — for each L1 entry resolving to an accepted
+    1. **``evidence:supports_L1``** — for each L1 entry resolving to readable
        :class:`MemoryEntry`, the raw observations recorded in its
        ``provenance.observation_ids`` that still exist in the verbatim store.
        Each becomes an observation drilldown (read surface
@@ -533,7 +533,7 @@ async def _build_l4(
     2. **``evidence:topic_match``** — when a non-empty ``query`` is supplied, the
        observations returned by ``search_memory(..., record_signals=False)``
        (Req 7.3). ``record_signals=False`` keeps the read side-effect free.
-    3. **Historical truth** — accepted memory entries whose ``valid_to`` is set
+    3. **Historical truth** — superseded memory entries whose ``valid_to`` is set
        (superseded). These appear *only* here, tagged
        ``truth_status="historical"``, never in L1 / L2 (Req 7.5, 10.1), each
        surfaced as a drilldown referencing the historical entry id.
@@ -548,7 +548,7 @@ async def _build_l4(
     candidates: list[PlanEntry] = []
     seen_observation_ids: set[str] = set()
 
-    # 1. evidence:supports_L1 — observations backing accepted L1 truth.
+    # 1. evidence:supports_L1 — observations backing readable L1 truth.
     l1_entry_ids = [
         source_id
         for entry in l1_entries
@@ -588,7 +588,7 @@ async def _build_l4(
     # 3. Historical truth — superseded entries, surfaced only as L4 drilldowns.
     historical_entries = await backend.structured_store.list_memory_entries(
         project_name,
-        status="accepted",
+        status=READABLE_TRUTH_FILTER,
         include_history=True,
     )
     for memory_entry in historical_entries:
@@ -615,7 +615,7 @@ async def _resolve_l1_memory_entries(
     backend: LocalMemoryBackend,
     source_ids: list[str],
 ) -> list[MemoryEntry]:
-    """Resolve L1 source ids that are accepted memory entries (read-only).
+    """Resolve L1 source ids that are readable memory entries (read-only).
 
     L1 ``source_ids`` mix confirmed-rule ids and memory-entry ids; only the
     latter resolve via ``get_memory_entry`` and carry the provenance we need to

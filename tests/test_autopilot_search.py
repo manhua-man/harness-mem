@@ -105,7 +105,7 @@ def test_mcp_autopilot_tick_executes_search_on_tool_failure(backend) -> None:
                     "isolate USERPROFILE before running memory tests."
                 ),
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )

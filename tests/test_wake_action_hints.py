@@ -38,7 +38,7 @@ def test_wake_snapshot_includes_optional_action_hints(backend) -> None:
                 category="decision",
                 content="wakehinttoken current decision should guide action",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
                 confidence=0.95,
             )
         )

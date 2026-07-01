@@ -23,7 +23,10 @@ class SupersedeCandidate(BaseModel):
     reason: str
     evidence: str
     confidence: float = Field(default=0.7, ge=0.0, le=1.0)
-    status: str = Field(default="pending", description="pending | accepted | rejected")
+    status: str = Field(
+        default="pending",
+        description="Maintenance review: pending | user_confirmed | rejected",
+    )
     source: str = Field(default="", description="Source observation/session/candidate id")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     reviewed_at: datetime | None = None

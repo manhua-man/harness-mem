@@ -48,7 +48,7 @@ class MergeSuggestionCandidate(BaseModel):
         description="Embedding similarity between target_a and target_b that triggered the pair.",
     )
     evidence_signal_ids: list[str] = Field(default_factory=list)
-    status: Literal["pending", "accepted", "rejected"] = Field(default="pending")
+    status: Literal["pending", "user_confirmed", "rejected"] = Field(default="pending")
     metabolism_run_id: str = Field(description="Back-reference to the run that produced it.")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

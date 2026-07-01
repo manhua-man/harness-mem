@@ -18,15 +18,19 @@ when durable truth changes.
 
 ## Version Line
 
-| Version line | Goal | Ships when | Does not include |
+Roadmap versions **are** release semver (`pyproject.toml` `0.8.N`). There is no
+separate `.x` milestone alias — `0.8.10` in the table is the same `0.8.10` you
+ship.
+
+| Version | Goal | Ships when | Does not include |
 |---|---|---|---|
 | `0.8.3` | Retrieval Quality Foundation. | LLM-free golden suite covers stale truth exclusion, project leak, abstention, and vector-off fallback. | New MCP tools, wiki, search-engine swap, broad quality claims. |
-| `0.8.4.x` | Trust hardening. | Superseded/current behavior is locked by contract tests; recall explain output is stable and backward compatible. | New MCP tools, wiki-as-truth, graph-native default. |
-| `0.8.5.x` | Retrieval quality. | Filter-first hybrid ranking, adaptive RRF A/B, and low-confidence abstention improve the golden suite without breaking vector-off fallback. | ColBERT, graph DB, Tantivy/LanceDB default, benchmark leaderboard claims. |
-| `0.8.6.x` | Maintenance closure. | Dream can produce supersede candidates through review; wake/action hints can use optional `why_it_matters` without schema pressure. | Silent truth mutation, standalone metabolism, wiki-as-truth. |
-| `0.8.7.x` | Memory adoption playbook. | Risk-scaled grill admission, evidence/boundary answerers, and Trellis/smart-search operator maps ship as Skills/docs without new MCP tools. | Trellis embed, smart-search MCP, admission runtime enforcement, second truth store. |
-| `0.8.8.x` | Auto-promoted governance. | Low-risk candidates auto-promote to trust-tiered memory and `/hm:review` becomes post-hoc audit/undo. | Manual-only review gate, hidden truth mutation, no audit metadata. |
-| `0.8.9.x` | Runtime autopilot search. | `autopilot_search_tick` gives Agent clients a concrete task-aware search scheduler that only fires on bounded uncertainty. | Always-on broad search, client-specific hook lock-in, search without trigger discipline. |
+| `0.8.4`–`0.8.7` | Trust, retrieval, maintenance, adoption (shipped patch range). | Contract tests, golden suite, dream/review closure, grill/adoption skills. | Second truth store, wiki-as-truth, graph DB default. |
+| `0.8.8` | Auto-promoted governance. | Low-risk candidates auto-promote to trust-tiered memory; `/hm:review` is post-hoc audit. | Manual-only review gate, hidden truth mutation. |
+| `0.8.9` | Runtime autopilot search. | `autopilot_search_tick` task-aware search scheduler; bounded triggers only. | Always-on broad search, hook lock-in without discipline. |
+| `0.8.10` | Plugin packaging sync. | `plugins/harness-mem` install path, drift checks, and daily command metadata stay aligned with runtime version. | Memory semantics changes. |
+| `0.8.11` | Governance compat removal. | Remove legacy `accepted` read alias; wire seven layered statuses end-to-end; doctor legacy scan; Rust/Python rank parity. | Auto-migration of legacy `accepted` blobs. |
+| `0.8.12` | IDE hook adapters. | `install-hook-suite` for cursor, claude-code, grok, codex, hermes, opencode from checked-in templates. | Per-host hook invention at runtime. |
 | Later / Labs | Optional acceleration and experiments. | Benchmarks prove the Python/SQLite default has a real bottleneck or quality ceiling. | Default runtime narrative or public surface expansion. |
 
 ## 0.8.4.x — Trust Hardening
@@ -87,10 +91,9 @@ the single memory surface.
   lookback for confirmed truth.
 - Add non-writing answerers: `answer-memory-evidence` for proof gaps and
   `ask-memory-boundary` for architecture/product-scope questions.
-- Document layered helpers in `docs/memory-adoption.md`: smart-search as a
-  reference external-evidence pattern, Trellis as optional project-level
-  orchestration with an executable pattern playbook (`check`, `update-spec`,
-  `finish-work`, `journal` mapped to existing hm surfaces).
+- Document layered helper patterns for smart-search external evidence and
+  optional project-level orchestration (`check`, `update-spec`, `finish-work`,
+  `journal` mapped to existing hm surfaces).
 - Align `session-distill`, `/hm:distill`, and harness-mem skills to:
   `prepare` → draft claims → risk-scaled admission → `suggest_*` → evidence
   before `confirm_*`.
@@ -101,7 +104,7 @@ candidate creation; Trellis and smart-search stay outside hm MCP/runtime. Next
 hardening step (Later / Labs) is optional CLI preflight or tests — not a second
 harness.
 
-## 0.8.8.x — Auto-Promoted Governance
+## 0.8.8 — Auto-Promoted Governance
 
 - Keep the public loop named `wake -> search -> distill -> review -> dream`,
   but define it as automatic runtime behavior.
@@ -111,7 +114,7 @@ harness.
 - Keep `auto_review_candidates(apply=true)` as the low-risk promotion path with
   audit metadata.
 
-## 0.8.9.x — Runtime Autopilot Search
+## 0.8.9 — Runtime Autopilot Search
 
 - Install or generate client-specific integrations from a shared event model:
   session start, context transform, tool result, save point, and session end.
@@ -128,6 +131,26 @@ harness.
   audit.
 
 See [autopilot-search-policy.md](autopilot-search-policy.md) for the runtime contract.
+
+## 0.8.10 — Plugin Packaging Sync
+
+- Keep `plugins/harness-mem` version, wire, install scripts, and daily command
+  stubs aligned with the runtime package.
+- Surface install drift through `version_drift` / doctor-friendly checks.
+
+## 0.8.11 — Governance Compat Removal
+
+- Drop legacy `accepted` as a readable-truth alias; use `readable_truth`
+  (`auto_confirmed` + `user_confirmed`) on read paths.
+- Report legacy `status=accepted` blob counts in doctor only; no auto-migration.
+- Lock native vs Python `rank_candidates` parity; clarify `list_candidates`
+  layered status semantics in MCP schema.
+
+## 0.8.12 — IDE Hook Adapters
+
+- Ship checked-in templates under `harness_mem/integration/templates/`.
+- Extend `harness-mem integration install-hook-suite` beyond cursor/claude-code.
+- Document per-host adapter shape in [ide-hook-adapter-matrix.md](ide-hook-adapter-matrix.md).
 
 ## Later / Labs
 

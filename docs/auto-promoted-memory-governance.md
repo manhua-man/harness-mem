@@ -1,131 +1,136 @@
-# Auto-Promoted Memory Governance (Design)
+# Auto-Promoted Memory Governance
 
-Design reference for the **0.8.8+ auto-promoted governance slice**. Runtime
-code in `harness_mem/governance_status.py`, `commands/auto_review.py`, and
-read-path filters implements the first pass; dream undo replay and full audit
-inbox UX remain follow-up work.
+Reference for the **0.8.8+ governance model**: auto-promoted truth with post-hoc
+audit. Runtime code lives in `harness_mem/governance_status.py`,
+`commands/auto_review.py`, read-path filters, and `state-events.log`.
 
-Current runtime (0.8.x):
+Follow-up slices (not yet complete): dream full-chain alignment, undo replay,
+`/hm:review` audit-inbox UX.
 
 ```text
 observation -> candidate -> auto preflight -> auto_confirmed / provisional truth
-                              -> ledger -> /hm:review audit/undo -> user_confirmed
+                              -> ledger -> /hm:review audit -> user_confirmed
 ```
 
-Legacy mental model:
-
-```text
-observation -> candidate -> review gate -> accepted truth
-```
-
-`/hm:review` becomes an **audit inbox**, not a write gate. Automatic helpers
-(grill, answer, smart-search, `auto_review_candidates`) improve write quality on
-the main path; human review is post-hoc governance.
-
-## Governance statuses
-
-| Status | Meaning | wake / search |
-|---|---|---|
-| `pending` | Candidate created; preflight not finished | excluded |
-| `deferred` | Insufficient evidence; not usable memory | excluded |
-| `rejected` | Noise or dangerous conclusion | excluded |
-| `auto_confirmed` | Low risk, sufficient evidence; auto-promoted | normal weight |
-| `provisional` | Written with risk flags | included, down-weighted + caveat |
-| `user_confirmed` | User audited later; highest trust | normal weight, preferred |
-| `superseded` | Replaced; lineage only | historical / `include_history` |
-
-`auto_confirmed` and `user_confirmed` must stay separate so auto-written memory
-does not share the same trust tier as human-audited truth.
-
-## Gap vs current implementation
-
-| Today | Target |
-|---|---|
-| `MemoryEntry.status`: `pending \| accepted \| rejected` | Extend to seven governance statuses |
-| `auto_review_candidates` apply → `accepted` | Promote to `auto_confirmed` or `provisional` |
-| Public MCP forces `apply=false` on auto-review | Redefine surface policy for trusted auto-promote |
-| `confirm_*` is the only truth path | `confirm_*` upgrades to `user_confirmed` |
-| `wake` / `search_memory` filter `status == "accepted"` | Trust-tier filters for auto / provisional / user |
-
-Implementation order: state transition table → schema → `auto_review_candidates`
-apply semantics → wake/search filters → ledger/undo contract tests.
+`/hm:review` is an **audit inbox**, not a write gate. Helpers (grill, answer,
+smart-search, `auto_review_candidates`) improve write quality on the main path;
+human review is post-hoc governance.
 
 ---
 
-## 1. Write path and auto-promotion
+## Layered statuses (not eight parallel enums)
+
+Seven governance statuses are grouped by **storage layer**. Runtime routes by
+layer; callers do not pick a layer manually.
+
+| Layer | Statuses | Role |
+|---|---|---|
+| **Candidate** | `pending`, `deferred`, `rejected` | Not wake/search truth |
+| **Truth** | `auto_confirmed`, `provisional`, `user_confirmed` | Readable truth (weight differs) |
+| **Historical** | `superseded` | Lineage / `include_history` only |
+
+Maintenance review candidates (dream supersede / merge / stale / procedural) use
+a separate status set (`pending`, `rejected`, `user_confirmed`) — not memory
+truth-layer transitions.
+
+Core requirement: **auto-written truth and human-audited truth must not share one
+trust tier.** `auto_confirmed` and `user_confirmed` stay separate for wake
+weighting and audit accountability.
+
+---
+
+## End-to-end flow
 
 ```mermaid
 flowchart TD
-    subgraph sources["Write sources"]
-        D1["/hm:distill + session-distill"]
-        D2["grill-before-distill admission"]
-        D3["dream maintenance (stale / merge / supersede suggestions)"]
-        D4["MCP suggest_* / manual correction"]
+    SRC["AI client session"] --> PREP["prepare_session_distill"]
+    PREP --> SD["session-distill"]
+    SD --> PKT["packet + Packet Audit"]
+    SD --> CAND["suggest_* -> candidate pending"]
+
+    subgraph ADMISSION["Admission / narrow (main path, non-blocking)"]
+        G["grill-before-distill: admit / narrow / defer / reject"]
     end
 
-    subgraph intake["Candidate layer (CandidateStore)"]
-        S1["suggest_memory_entry / suggest_rule / suggest_relation_fact"]
-        S2["status = pending"]
+    CAND --> G
+    G -->|admit / narrow| PREF["auto_review_candidates + evidence checks"]
+    G -->|defer| DEFERRED["deferred / note"]
+    G -->|reject| REJECTED["rejected"]
+
+    subgraph HELPERS["Optional collaborators (quality, not a gate)"]
+        H1["grill-me deep / light"]
+        H2["answer-me / smart-search evidence"]
+        H3["ask-me boundary clarify"]
     end
 
-    subgraph preflight["Auto preflight (auto_review_candidates + evidence helpers)"]
-        P1["Load pending candidates"]
-        P2["decide_* heuristics + evidence / scope / staleness / misleading risk"]
-        P3{"Promotion decision"}
+    PREF -.optional.-> H1
+    PREF -.optional.-> H2
+    PREF -.optional.-> H3
+    H1 & H2 & H3 -.evidence / risk.-> PREF
+
+    PREF -->|low risk + sufficient evidence| AUTO["auto_confirmed truth"]
+    PREF -->|writable but risky| PROV["provisional truth"]
+    PREF -->|insufficient evidence| DEFERRED
+    PREF -->|noise / dangerous| REJECTED
+
+    AUTO --> LEDGER["state-events.log"]
+    PROV --> LEDGER
+    DEFERRED --> LEDGER
+    REJECTED --> LEDGER
+
+    subgraph READ["Read path (does not wait for human review)"]
+        WAKE["wake"]
+        SEARCH["search_memory"]
     end
 
-    subgraph promote["Auto promote (apply=true, non-blocking main path)"]
-        A1["auto_confirmed → write truth layer"]
-        A2["provisional → write truth layer + risk markers"]
-        A3["deferred → keep candidate / note; exclude from wake/search"]
-        A4["rejected → mark rejected; exclude from wake/search"]
+    AUTO --> WAKE & SEARCH
+    PROV -->|"include_provisional=true, weight 0.6"| WAKE & SEARCH
+    USER["user_confirmed"] --> WAKE & SEARCH
+
+    subgraph AUDIT["Post-hoc governance (non-blocking)"]
+        INBOX["/hm:review = audit inbox"]
+        INBOX -->|confirm| USER
+        INBOX -->|reject| REJECTED
+        INBOX -->|undo| UNDO["undo replay (follow-up)"]
+        INBOX -->|supersede| SUPER["superseded + lineage"]
     end
 
-    subgraph audit["Post-hoc audit (not a gate)"]
-        L1["append state-events.log<br/>evidence / risk / reason / reversible_ref"]
-        R1["/hm:review = audit inbox"]
-        R2["user: confirm → user_confirmed"]
-        R3["user: reject / undo / supersede"]
+    LEDGER --> INBOX
+    AUTO & PROV -.spot-check later.-> INBOX
+
+    subgraph MAINTAIN["Maintenance side path (not a write entry)"]
+        DREAM["dream: stale / merge / supersede suggestions"]
     end
 
-    D1 --> D2
-    D2 -->|"admit / narrow"| S1
-    D2 -->|"defer"| A3
-    D2 -->|"reject"| A4
-    D3 --> S1
-    D4 --> S1
-    S1 --> S2
-    S2 --> P1 --> P2 --> P3
-
-    P3 -->|"low risk + sufficient evidence"| A1
-    P3 -->|"writable but risky"| A2
-    P3 -->|"insufficient evidence"| A3
-    P3 -->|"noise / dangerous"| A4
-
-    A1 --> L1
-    A2 --> L1
-    A3 --> L1
-    A4 --> L1
-    L1 --> R1
-    R1 --> R2
-    R1 --> R3
-    R2 --> L1
-    R3 --> L1
+    AUTO & PROV & USER --> DREAM
+    DREAM -->|suggestion| CAND
+    DREAM -.on confirm.-> SUPER
 ```
 
 Notes:
 
-- `grill-before-distill` stays an admission narrow-er (`admit` / `narrow` /
-  `defer` / `reject`). Passing preflight auto-writes truth; it does not wait for
-  manual review.
-- `auto_review_candidates(apply=true)` promotes on the main path instead of
-  preview-only handoff to `/hm:review`.
-- Every promotion appends to `~/.harness-mem/data/state-events.log` for undo and
-  audit replay.
+- `auto_review_candidates(apply=true)` promotes on the main path; public MCP
+  applies promotions directly (no preview-only enforcement).
+- Every promotion appends to `~/.harness-mem/data/state-events.log`.
+- `confirm_*` upgrades truth to `user_confirmed` (highest trust tier).
 
 ---
 
-## 2. Governance state machine
+## Governance statuses
+
+| Status | Layer | Meaning | wake / search |
+|---|---|---|---|
+| `pending` | Candidate | Created; preflight not finished | excluded |
+| `deferred` | Candidate | Insufficient evidence; not usable memory | excluded |
+| `rejected` | Candidate | Noise or dangerous conclusion | excluded |
+| `auto_confirmed` | Truth | Low risk, sufficient evidence; auto-promoted | full weight |
+| `provisional` | Truth | Written with risk flags | opt-in via `include_provisional`, weight 0.6 |
+| `user_confirmed` | Truth | User audited later; highest trust | full weight, preferred |
+| `superseded` | Historical | Replaced; lineage only | `include_history` only |
+
+---
+
+## State machine
 
 ```mermaid
 stateDiagram-v2
@@ -135,10 +140,11 @@ stateDiagram-v2
     pending --> rejected: preflight noise or danger
     pending --> auto_confirmed: preflight low-risk pass
     pending --> provisional: preflight pass with risk flags
+    pending --> user_confirmed: confirm_* without auto promote
 
-    auto_confirmed --> user_confirmed: /hm:review user confirms
-    provisional --> user_confirmed: /hm:review user confirms
-    provisional --> rejected: /hm:review reject or undo
+    auto_confirmed --> user_confirmed: /hm:review or confirm_*
+    provisional --> user_confirmed: /hm:review or confirm_*
+    provisional --> rejected: reject or undo
 
     auto_confirmed --> superseded: dream or user supersede
     provisional --> superseded: dream or user supersede
@@ -151,9 +157,11 @@ stateDiagram-v2
     superseded --> [*]: historical lineage only
 ```
 
+Pure transition rules: `harness_mem/governance_status.py::validate_status_transition`.
+
 ---
 
-## 3. Read path: wake / search trust tiers
+## Read path: wake / search trust tiers
 
 ```mermaid
 flowchart LR
@@ -164,22 +172,22 @@ flowchart LR
     end
 
     subgraph tiers["Truth trust tiers"]
-        T1["user_confirmed<br/>weight 1.0"]
+        T1["user_confirmed<br/>weight 1.0, preferred"]
         T2["auto_confirmed<br/>weight 1.0"]
-        T3["provisional<br/>down-weight + caveat"]
+        T3["provisional<br/>weight 0.6 + caveat"]
         T4["superseded<br/>historical only"]
         T5["pending / deferred / rejected<br/>invisible"]
     end
 
     subgraph stores["Storage boundaries"]
-        TS["TruthStore<br/>memory_entry / relation_fact / confirmed_rule"]
-        CS["CandidateStore<br/>pending / deferred"]
-        LG["state-events.log<br/>audit + undo replay"]
+        TS["TruthStore"]
+        CS["CandidateStore"]
+        LG["state-events.log"]
     end
 
     TS --> T1 & T2 & T3 & T4
     CS --> T5
-    LG -.->|"explain why item appears in wake"| W
+    LG -.->|"audit trail"| W
 
     T1 & T2 --> W & SM
     T3 -->|"include_provisional=true"| W & SM
@@ -187,18 +195,30 @@ flowchart LR
     T5 -.-x W & SM
 ```
 
-Alignment with current code:
+Shipped behavior (0.8.11):
 
-- Today `context_assembly.py` loads only `status == "accepted"`.
-- Target: `auto_confirmed` and `user_confirmed` enter wake at full weight;
-  `provisional` is optional with reduced weight; `superseded` follows existing
-  `historical` / `valid_to` lineage.
+- Default list/search filter is `readable_truth` (`READABLE_TRUTH_FILTER`):
+  `auto_confirmed` + `user_confirmed` at full weight.
+- `include_provisional=true` adds `provisional`; search applies
+  `governance_weight=0.6` in result metadata.
+- `wake` and `search_memory` accept `include_provisional` via
+  `orchestrate_task_context` → `SearchFilters`.
+- New promotes write `auto_confirmed`; `confirm_*` writes `user_confirmed`.
+  Candidate-layer defaults for new rows are `pending`.
+
+---
+
+## Follow-up slices
+
+| Slice | Role |
+|---|---|
+| **dream full chain** | Align stale / merge / supersede maintenance with seven-status promote and lineage |
+| **undo replay** | Revert governance transitions from `state-events.log` |
+| **/hm:review inbox UX** | Inbox-style audit over `provisional` / `auto_confirmed`, not a pre-write gate |
 
 ---
 
 ## Related docs
 
-- [recall-audit.md](recall-audit.md) — current read-path recall contract
+- [recall-audit.md](recall-audit.md) — read-path recall contract
 - [autopilot-search-policy.md](autopilot-search-policy.md) — automatic wake/search/distill/review trigger policy
-- [memory-adoption.md](memory-adoption.md) — optional helper layers beside hm
-- [roadmap.md](roadmap.md) — version line and shipped scope

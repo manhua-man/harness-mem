@@ -19,6 +19,7 @@ from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.core.schemas.metabolism_run import MetabolismRun
 from harness_mem.core.schemas.dream_run import DreamRun
 from harness_mem.core.schemas.retrieval_signal import RetrievalSignal
+from harness_mem.governance_status import READABLE_TRUTH_FILTER
 
 
 @runtime_checkable
@@ -44,7 +45,7 @@ class StructuredStore(Protocol):
         project_name: str,
         category: str | None = None,
         limit: int = 100,
-        status: str = "accepted",
+        status: str = READABLE_TRUTH_FILTER,
         include_history: bool = False,
         deep_recall: bool = False,
         include_provisional: bool = False,
@@ -61,7 +62,7 @@ class StructuredStore(Protocol):
         project_name: str | None = None,
         limit: int = 20,
         mode: str = "auto",
-        status: str = "accepted",
+        status: str = READABLE_TRUTH_FILTER,
         memory_type: list[str] | None = None,
         include_history: bool = False,
         deep_recall: bool = False,
@@ -76,7 +77,7 @@ class StructuredStore(Protocol):
         ...
 
     async def update_memory_entry_status(self, id: str, status: str) -> bool:
-        """Update the status of a memory entry (e.g. pending -> accepted)."""
+        """Update the governance status of a memory entry."""
         ...
 
     async def soft_delete_memory_entry(self, id: str) -> bool:
@@ -131,7 +132,7 @@ class StructuredStore(Protocol):
         id: str,
         status: str,
     ) -> bool:
-        """Update candidate status (pending/accepted/rejected)."""
+        """Update candidate status (governance or maintenance-review status)."""
         ...
 
     # ---- SupersedeCandidate ----
@@ -215,7 +216,7 @@ class StructuredStore(Protocol):
         target_entity: str | None = None,
         relation_type: str | None = None,
         limit: int = 100,
-        status: str = "accepted",
+        status: str = READABLE_TRUTH_FILTER,
         include_history: bool = False,
         include_provisional: bool = False,
     ) -> list[RelationFact]:
@@ -227,7 +228,7 @@ class StructuredStore(Protocol):
         query: str,
         project_name: str | None = None,
         limit: int = 20,
-        status: str = "accepted",
+        status: str = READABLE_TRUTH_FILTER,
         include_history: bool = False,
         time_window: tuple[datetime | None, datetime | None] | None = None,
         include_provisional: bool = False,

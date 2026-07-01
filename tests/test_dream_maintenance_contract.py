@@ -54,7 +54,7 @@ def test_dream_supersede_candidates_wait_for_explicit_review(
                 category="decision",
                 content="supersede-review-token old local-first storage decision",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )
@@ -65,7 +65,7 @@ def test_dream_supersede_candidates_wait_for_explicit_review(
                 category="decision",
                 content="supersede-review-token new canonical storage decision",
                 source="test",
-                status="accepted",
+                status="user_confirmed",
             )
         )
     )

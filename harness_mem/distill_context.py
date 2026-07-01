@@ -153,7 +153,7 @@ class DistillContext:
         """以 ``status="pending"`` 落盘 MemoryEntry 候选。
 
         v2.0: distill 只接受 LLM agent；agent 通过 MCP ``suggest_memory_entry``
-        进入这条路径。从 pending 转 accepted 由 ``confirm_memory_entry`` 或
+        进入这条路径。从 pending 转 truth 由 ``confirm_memory_entry`` 或
         auto_review 路径完成，DistillContext 自身不暴露这种 mutator。
         """
         entry.status = "pending"

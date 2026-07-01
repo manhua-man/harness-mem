@@ -30,6 +30,7 @@ from harness_mem.storage.sqlite_index import SQLiteIndex
 from harness_mem.storage.truth_store import TruthStore
 from harness_mem.governance_status import (
     GOVERNANCE_STATUSES,
+    READABLE_TRUTH_FILTER,
     statuses_for_list_filter,
     user_confirm_status,
     validate_status_transition,
@@ -574,7 +575,7 @@ class LocalStructuredStore:
         project_name: str,
         category: str | None = None,
         limit: int = 100,
-        status: str = "accepted",
+        status: str = READABLE_TRUTH_FILTER,
         include_history: bool = False,
         deep_recall: bool = False,
         include_provisional: bool = False,
@@ -588,7 +589,7 @@ class LocalStructuredStore:
         where_parts = [
             "project_name = ?",
             "COALESCE(compacted, 0) = 0",
-            f"COALESCE(status, 'accepted') IN ({placeholders})",
+            f"COALESCE(status, 'pending') IN ({placeholders})",
         ]
         params: list[Any] = [project_name, *status_filter]
         if not include_history:
@@ -614,7 +615,7 @@ class LocalStructuredStore:
                 data = json.loads(blob_path.read_text())
                 if data.get("compacted", False):
                     continue
-                entry_status = data.get("status", "accepted")
+                entry_status = data.get("status", "pending")
                 if entry_status not in status_filter:
                     continue
                 if not include_history and not self._is_current_data(data):
@@ -630,7 +631,7 @@ class LocalStructuredStore:
         project_name: str | None = None,
         limit: int = 20,
         mode: str = "auto",
-        status: str = "accepted",
+        status: str = READABLE_TRUTH_FILTER,
         memory_type: list[str] | None = None,
         include_history: bool = False,
         deep_recall: bool = False,
@@ -645,7 +646,7 @@ class LocalStructuredStore:
         placeholders = ",".join(["?"] * len(status_filter))
         extra_where_parts = [
             "COALESCE(compacted, 0) = 0",
-            f"COALESCE(status, 'accepted') IN ({placeholders})",
+            f"COALESCE(status, 'pending') IN ({placeholders})",
         ]
         extra_params: tuple = tuple(status_filter)
         if not include_history:
@@ -681,7 +682,7 @@ class LocalStructuredStore:
                 data = json.loads(blob_path.read_text())
                 if data.get("compacted", False):
                     continue
-                if data.get("status", "accepted") not in status_filter:
+                if data.get("status", "pending") not in status_filter:
                     continue
                 if memory_type and data.get("memory_type", "semantic") not in memory_type:
                     continue
@@ -708,7 +709,7 @@ class LocalStructuredStore:
         if not blob_path.exists():
             return False
         data = json.loads(blob_path.read_text())
-        current = data.get("status", "accepted")
+        current = data.get("status", "pending")
         if not validate_status_transition(current, status):
             return False
         data["status"] = status
@@ -1237,7 +1238,9 @@ class LocalStructuredStore:
             updated_at=now,
         )
         await self.save_skill(skill)
-        updated = await self.update_procedural_candidate_status(candidate.id, "accepted")
+        updated = await self.update_procedural_candidate_status(
+            candidate.id, user_confirm_status()
+        )
         if not updated:
             return None
         return skill
@@ -1595,7 +1598,7 @@ class LocalStructuredStore:
         target_entity: str | None = None,
         relation_type: str | None = None,
         limit: int = 100,
-        status: str = "accepted",
+        status: str = READABLE_TRUTH_FILTER,
         include_history: bool = False,
         include_provisional: bool = False,
     ) -> list[RelationFact]:
@@ -1607,7 +1610,7 @@ class LocalStructuredStore:
         placeholders = ",".join(["?"] * len(status_filter))
         where_parts = [
             "project_name = ?",
-            f"COALESCE(status, 'accepted') IN ({placeholders})",
+            f"COALESCE(status, 'pending') IN ({placeholders})",
         ]
         params: list[Any] = [project_name, *status_filter]
         if not include_history:
@@ -1637,7 +1640,7 @@ class LocalStructuredStore:
             blob_path = self._blob_path("relation_facts", row["id"])
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
-                if data.get("status", "accepted") not in status_filter:
+                if data.get("status", "pending") not in status_filter:
                     continue
                 if not include_history and not self._is_current_data(data):
                     continue
@@ -1649,7 +1652,7 @@ class LocalStructuredStore:
         query: str,
         project_name: str | None = None,
         limit: int = 20,
-        status: str = "accepted",
+        status: str = READABLE_TRUTH_FILTER,
         include_history: bool = False,
         time_window: tuple[datetime | None, datetime | None] | None = None,
         include_provisional: bool = False,
@@ -1660,7 +1663,7 @@ class LocalStructuredStore:
             include_superseded=include_history,
         )
         placeholders = ",".join(["?"] * len(status_filter))
-        extra_where_parts = [f"COALESCE(status, 'accepted') IN ({placeholders})"]
+        extra_where_parts = [f"COALESCE(status, 'pending') IN ({placeholders})"]
         extra_params: tuple = tuple(status_filter)
         if not include_history:
             clause, clause_params = self._current_only_clause()
@@ -1687,7 +1690,7 @@ class LocalStructuredStore:
             blob_path = self._blob_path("relation_facts", row["id"])
             if blob_path.exists():
                 data = json.loads(blob_path.read_text())
-                if data.get("status", "accepted") not in status_filter:
+                if data.get("status", "pending") not in status_filter:
                     continue
                 if not include_history and not self._is_current_data(data):
                     continue
@@ -1705,7 +1708,7 @@ class LocalStructuredStore:
         if not blob_path.exists():
             return False
         data = json.loads(blob_path.read_text())
-        current = data.get("status", "accepted")
+        current = data.get("status", "pending")
         if not validate_status_transition(current, status):
             return False
         data["status"] = status

@@ -25,8 +25,8 @@ class RuleCandidate(BaseModel):
     status: str = Field(
         default="pending",
         description=(
-            "Governance status: pending | deferred | rejected | auto_confirmed | "
-            "provisional | user_confirmed | superseded | accepted (legacy)"
+            "Candidate layer: pending | deferred | rejected. "
+            "Truth layer: auto_confirmed | provisional | user_confirmed."
         ),
     )
     created_at: datetime = Field(

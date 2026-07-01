@@ -2,10 +2,31 @@
 
 ## Unreleased
 
-### Fixed
+## [0.8.11] - 2026-07-02
 
-- MCP stdio now accepts standard `Content-Length` framed requests while keeping
-  the existing newline-delimited JSON direct-client path.
+### Added
+
+- Doctor reports a count of legacy blobs still using literal `status=accepted`
+  (invisible to `readable_truth`; not auto-migrated).
+- Added `rank_candidates` native vs Python fallback parity tests.
+
+### Changed
+
+- **Breaking (0.8.x):** removed legacy `accepted` as a governance status and
+  read-path alias. Seven layered statuses only; new rows default to `pending`;
+  promotes write `auto_confirmed`; confirms write `user_confirmed`.
+- Default list/search filter is `readable_truth`; maintenance review candidates
+  use a separate status set.
+- Updated `docs/auto-promoted-memory-governance.md` and roadmap version line to
+  use release semver (`0.8.N`) without `.x` milestone aliases.
+- `list_candidates` MCP schema documents layered status use for audit inbox.
+
+## [0.8.10] - 2026-07-02
+
+### Changed
+
+- Synced `plugins/harness-mem` packaging: install scripts, daily command stubs,
+  and `version_drift` / `plugin_assets` checks against the runtime package.
 
 ## [0.8.9] - 2026-06-30
 
@@ -42,10 +63,10 @@
 - `auto_review_candidates(apply=true)` now promotes low-risk candidates to
   `auto_confirmed`, risk-flagged passes to `provisional`, defers to `deferred`,
   and records governance events in `state-events.log`.
-- `confirm_*` paths now set `user_confirmed` instead of legacy `accepted`.
-- `wake` / `search_memory` / `list_memory_entries` treat `accepted`,
-  `auto_confirmed`, and `user_confirmed` as full-weight readable truth; `provisional`
-  is opt-in via `include_provisional`.
+- `confirm_*` paths now set `user_confirmed` instead of the old `accepted` label.
+- `wake` / `search_memory` / `list_memory_entries` use `readable_truth`
+  (`auto_confirmed` + `user_confirmed`); `provisional` is opt-in via
+  `include_provisional`.
 - Public MCP `auto_review_candidates` no longer forces preview-only apply.
 
 ## [0.8.7] - 2026-06-29

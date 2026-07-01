@@ -75,7 +75,7 @@ def test_shared_pending_draft_guardrail_scans_nested_payloads() -> None:
     payload = {
         "session": {
             "candidates": [
-                {"status": "accepted"},
+                {"status": "user_confirmed"},
                 {"review": {"readiness": "pending"}},
             ]
         }

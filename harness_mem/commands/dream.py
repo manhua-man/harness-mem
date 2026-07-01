@@ -189,7 +189,7 @@ async def _apply_merge(
         content=merged_content,
         source=f"dream:{run_id}",
         confidence=max(0.7, min(1.0, candidate.similarity_score)),
-        status="accepted",
+        status="user_confirmed",
         tags=["dream-merge"],
         provenance={
             "dream_run_id": run_id,
@@ -250,7 +250,9 @@ async def _apply_merge(
             error="failed to mark source truths historical",
         )
 
-    await store.update_merge_suggestion_candidate_status(candidate.id, "accepted")
+    await store.update_merge_suggestion_candidate_status(
+        candidate.id, "user_confirmed"
+    )
     return DreamItem(
         source_kind="merge_suggestion",
         source_id=candidate.id,
@@ -276,7 +278,10 @@ async def _apply_merge(
             ],
             "candidate_id": candidate.id,
         },
-        result={"candidate_status": "accepted", "created_entry_id": merged_entry.id},
+        result={
+            "candidate_status": "user_confirmed",
+            "created_entry_id": merged_entry.id,
+        },
     )
 
 
@@ -319,7 +324,9 @@ async def _apply_stale(
             result={"candidate_status": "rejected"},
             error="truth update failed",
         )
-    await store.update_stale_truth_suggestion_candidate_status(candidate.id, "accepted")
+    await store.update_stale_truth_suggestion_candidate_status(
+        candidate.id, "user_confirmed"
+    )
     return DreamItem(
         source_kind="stale_truth_suggestion",
         source_id=candidate.id,
@@ -339,7 +346,10 @@ async def _apply_stale(
             ],
             "candidate_id": candidate.id,
         },
-        result={"candidate_status": "accepted", "target_id": candidate.target_id},
+        result={
+            "candidate_status": "user_confirmed",
+            "target_id": candidate.target_id,
+        },
     )
 
 

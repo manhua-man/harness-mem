@@ -50,7 +50,7 @@ class StaleTruthSuggestionCandidate(BaseModel):
     last_surfaced_at: datetime | None = None
     days_since_last_surface: int = Field(..., ge=0)
     evidence_signal_ids: list[str] = Field(default_factory=list)
-    status: Literal["pending", "accepted", "rejected"] = "pending"
+    status: Literal["pending", "user_confirmed", "rejected"] = "pending"
     metabolism_run_id: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

@@ -146,7 +146,7 @@ def build_bulk_index_rows(payloads: Iterable[dict[str, Any]]) -> list[dict[str, 
                     or (payload.get("metadata") or {}).get("project_name")
                     if isinstance(payload.get("metadata"), dict)
                     else payload.get("project_name"),
-                    "truth_status": payload.get("status") or "accepted",
+                    "truth_status": payload.get("status") or "pending",
                     "confidence": payload.get("confidence"),
                 },
             }
@@ -214,7 +214,12 @@ def rank_candidates(
         source_id = str(row.get("source_id") or row.get("project_id") or "")
         diversity_seen = source_seen.get(source_id, 0)
         source_seen[source_id] = diversity_seen + 1
-        metadata_penalty = 0.0 if row.get("truth_status") in {None, "accepted", "confirmed_current"} else 0.2
+        metadata_penalty = (
+            0.0
+            if row.get("truth_status")
+            in {None, "auto_confirmed", "user_confirmed", "confirmed_current"}
+            else 0.2
+        )
         score = exact_overlap + confidence - metadata_penalty - diversity_seen * source_diversity_penalty
         ranked.append({**row, "id": row_id, "score": round(score, 6)})
     ranked.sort(key=lambda item: (-_float_or(item.get("score"), 0.0), str(item.get("id"))))

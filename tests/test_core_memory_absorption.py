@@ -43,7 +43,7 @@ async def _run_causal_benchmark(data_dir: Path, project_name: str) -> dict:
             content="Redis connection pool exhaustion was the root cause of the retry storm.",
             confidence=0.95,
             source="benchmark:gold",
-            status="accepted",
+            status="user_confirmed",
             tags=["benchmark", "root_cause"],
         )
         distractor = MemoryEntry(
@@ -53,7 +53,7 @@ async def _run_causal_benchmark(data_dir: Path, project_name: str) -> dict:
             content="API 500 errors runbook: restart web workers and inspect generic logs.",
             confidence=0.9,
             source="benchmark:distractor",
-            status="accepted",
+            status="user_confirmed",
             tags=["benchmark", "semantic_distractor"],
         )
         await backend.structured_store.save_memory_entry(root_entry)
@@ -68,7 +68,7 @@ async def _run_causal_benchmark(data_dir: Path, project_name: str) -> dict:
                 confidence=0.95,
                 evidence="The API 500 incident was caused by a retry storm.",
                 source="benchmark:gold",
-                status="accepted",
+                status="user_confirmed",
                 tags=["benchmark"],
             ),
             RelationFact(
@@ -80,7 +80,7 @@ async def _run_causal_benchmark(data_dir: Path, project_name: str) -> dict:
                 confidence=0.95,
                 evidence="The retry storm was caused by Redis pool exhaustion.",
                 source="benchmark:gold",
-                status="accepted",
+                status="user_confirmed",
                 tags=["benchmark"],
             ),
         ]
@@ -205,7 +205,7 @@ def test_state_event_log_filters_and_summarizes(tmp_path: Path) -> None:
         project_name="other",
         target_kind="memory_entry",
         target_id="mem-2",
-        status="accepted",
+        status="user_confirmed",
         source_surface="test",
     )
     (tmp_path / "state-events.log").write_text(

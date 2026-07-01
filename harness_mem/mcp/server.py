@@ -16,7 +16,7 @@ Tools:
   dream_run             — explicitly run one audited dream pass
   ingest_sessions       — project-scoped environment-aware session ingest
   prepare_session_distill — one-shot ingest + evidence packet for AI distill
-  list_candidates       — pending/accepted/rejected review candidates
+  list_candidates       — pending/deferred/rejected governance candidates
   auto_review_candidates — heuristic auto-confirm / auto-reject pass (preview or apply)
   suggest_correction    — one-shot rule replacement (new rule + supersede chain)
   create_rule_candidate — create a rule candidate

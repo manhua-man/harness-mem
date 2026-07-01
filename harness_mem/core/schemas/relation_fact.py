@@ -20,10 +20,11 @@ class RelationFact(BaseModel):
     relation_type: str = Field(description="Typed relation, e.g. depends_on")
     confidence: float = Field(default=0.7, ge=0.0, le=1.0)
     status: str = Field(
-        default="accepted",
+        default="pending",
         description=(
-            "Governance status: pending | deferred | rejected | auto_confirmed | "
-            "provisional | user_confirmed | superseded | accepted (legacy)"
+            "Candidate layer: pending | deferred | rejected. "
+            "Truth layer: auto_confirmed | provisional | user_confirmed. "
+            "Historical: superseded."
         ),
     )
     evidence: str = Field(description="Human-readable evidence for the relation")
@@ -98,7 +99,7 @@ class RelationFact(BaseModel):
             if isinstance(data.get(field), str):
                 data[field] = datetime.fromisoformat(data[field])
         if "status" not in data:
-            data["status"] = "accepted"
+            data["status"] = "pending"
         else:
             from harness_mem.governance_status import normalize_status_on_load
 
