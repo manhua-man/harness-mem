@@ -1,0 +1,39 @@
+import type { Plugin } from "@opencode-ai/plugin"
+
+const projectRoot = ${PROJECT_ROOT_JSON}
+
+async function runWakeStart($$: any): Promise<string> {
+  try {
+    return await $$`python -m harness_mem.host_entry --action wake-start --project-root $${projectRoot} --source ide_hook --trigger-id opencode-session-created`.text()
+  } catch {
+    return ""
+  }
+}
+
+async function runPostTurnMaintenance($$: any, triggerId: string): Promise<void> {
+  try {
+    await $$`python -m harness_mem.host_entry --action post-turn-maintenance --project-root $${projectRoot} --source ide_hook --trigger-id $${triggerId}`.quiet()
+  } catch {
+    // OpenCode plugin hooks are best-effort.
+  }
+}
+
+const plugin: Plugin = async ({ $$, client }) => ({
+  event: async ({ event }: { event: { type?: string } }) => {
+    const type = event?.type ?? ""
+    if (type === "session.created") {
+      const wakeText = (await runWakeStart($$)).trim()
+      const tui = (client as { tui?: { appendPrompt?: (text: string) => Promise<void> } }).tui
+      if (wakeText && tui?.appendPrompt) {
+        await tui.appendPrompt(`$${wakeText}\n\n`)
+      }
+      return
+    }
+
+    if (type === "session.idle") {
+      await runPostTurnMaintenance($$, "opencode-session-idle")
+    }
+  },
+})
+
+export default plugin

@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ${WAKE_COMMAND_JSON}
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ${POST_TURN_COMMAND_JSON}
+          }
+        ]
+      }
+    ]
+  }
+}

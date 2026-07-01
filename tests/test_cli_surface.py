@@ -12,6 +12,7 @@ from harness_mem.commands.import_bridge import cmd_import
 from harness_mem.shell_completion import (
     CLI_COMMANDS,
     COMMAND_PROFILES,
+    HOOK_SUITE_CLIENTS,
     MAINTENANCE_ACTIONS,
     completion_bash,
     completion_fish,
@@ -313,6 +314,14 @@ def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
     assert COMMAND_PROFILES == ["daily"]
     assert "bench" not in MAINTENANCE_ACTIONS
     assert "cache" not in MAINTENANCE_ACTIONS
+    assert HOOK_SUITE_CLIENTS == [
+        "cursor",
+        "claude-code",
+        "grok",
+        "codex",
+        "hermes",
+        "opencode",
+    ]
 
     bash = completion_bash()
     zsh = completion_zsh()
@@ -355,6 +364,10 @@ def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
         assert "--category" in script or "-l category" in script
         assert "--stale-only" in script or "-l stale-only" in script
         assert "--apply" in script or "-l apply" in script
+    for script in (bash, zsh, fish):
+        assert "grok" in script
+        assert "hermes" in script
+        assert "opencode" in script
     assert "--client" in bash
     assert "--client" in zsh
     assert "-l client" in fish

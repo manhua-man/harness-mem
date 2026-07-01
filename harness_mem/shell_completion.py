@@ -38,6 +38,8 @@ INTEGRATION_ACTIONS = [
 ]
 INTEGRATION_COMMAND_ACTIONS = ["list", "sync"]
 COMMAND_PROFILES = ["daily"]
+HOOK_SUITE_CLIENTS = ["cursor", "claude-code", "grok", "codex", "hermes", "opencode"]
+CLIENT_CHOICES = ["auto", "claude-code", "codex", "skip", *HOOK_SUITE_CLIENTS]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -55,6 +57,7 @@ def completion_bash() -> str:
     integration_actions = " ".join(INTEGRATION_ACTIONS)
     integration_command_actions = " ".join(INTEGRATION_COMMAND_ACTIONS)
     command_profiles = " ".join(COMMAND_PROFILES)
+    client_choices = " ".join(dict.fromkeys(CLIENT_CHOICES))
     return f"""# harness-mem bash completion
 _harness_mem_completion() {{
     local cur prev words cword
@@ -71,7 +74,7 @@ _harness_mem_completion() {{
                 return
                 ;;
             -c|--client)
-                COMPREPLY=($(compgen -W "auto claude-code codex skip" -- "${{cur}}"))
+                COMPREPLY=($(compgen -W "{client_choices}" -- "${{cur}}"))
                 return
                 ;;
             --category)
@@ -136,6 +139,7 @@ def completion_zsh() -> str:
     integration_actions = " ".join(INTEGRATION_ACTIONS)
     integration_command_actions = " ".join(INTEGRATION_COMMAND_ACTIONS)
     command_profiles = " ".join(COMMAND_PROFILES)
+    client_choices = " ".join(dict.fromkeys(CLIENT_CHOICES))
     return f"""# harness-mem zsh completion
 _harness_mem() {{
     local -a commands
@@ -144,8 +148,8 @@ _harness_mem() {{
     _arguments -C \\
         '-p[project name]:project:' \\
         '--project[project name]:project:' \\
-        '-c[client]:client:(auto claude-code codex skip)' \\
-        '--client[client]:client:(auto claude-code codex skip)' \\
+        '-c[client]:client:({client_choices})' \\
+        '--client[client]:client:({client_choices})' \\
         '-n[limit]:limit:' \\
         '--limit[limit]:limit:' \\
         '--category[category]:(observations structured all)' \\
@@ -195,6 +199,7 @@ def completion_fish() -> str:
     """Generate fish completion script."""
     commands = " ".join(CLI_COMMANDS + list(CLI_ALIASES.keys()))
     integration_actions = " ".join(INTEGRATION_ACTIONS)
+    hook_suite_clients = " ".join(HOOK_SUITE_CLIENTS)
     return f"""# harness-mem fish completion
 complete -c harness-mem -f
 
@@ -234,7 +239,7 @@ complete -c harness-mem -n '__fish_seen_subcommand_from config; and __fish_seen_
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -a "{integration_actions}" -d "Installer"
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l project-root -r -d "Project directory"
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l force -d "Overwrite existing hook"
-complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l client -x -a "cursor claude-code" -d "Client"
+complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l client -x -a "{hook_suite_clients}" -d "Client"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -a "list sync" -d "Command action"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l profile -x -a "daily" -d "Command profile"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l source-dir -r -d "Slash command source directory"

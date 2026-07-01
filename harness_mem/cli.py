@@ -37,6 +37,7 @@ from harness_mem.commands import (
 from harness_mem.integration.command_sync import (
     VALID_COMMAND_PROFILES,
 )
+from harness_mem.commands.integration_cmds import SUPPORTED_HOOK_CLIENTS
 from harness_mem.commands.support import DEFAULT_DATA_DIR
 
 # Test compatibility: tests monkeypatch these via cli module.
@@ -373,13 +374,16 @@ def main(argv: list[str] | None = None):
         "install-hook-suite",
         help="Generate a complete hook suite for one client",
         description=(
-            "Generate both session-start and post-turn hooks for the selected "
-            "client. Supported clients: cursor, claude-code."
+            "Generate the wake-injection and post-turn maintenance adapter for "
+            "the selected client. Supported clients: "
+            + ", ".join(SUPPORTED_HOOK_CLIENTS)
+            + ". Hermes installs global shell-hook config under ~/.hermes; "
+            "OpenCode installs a project-local plugin."
         ),
     )
     install_hook_suite.add_argument(
         "--client",
-        choices=["cursor", "claude-code"],
+        choices=list(SUPPORTED_HOOK_CLIENTS),
         required=True,
         help="Client to install hooks for",
     )

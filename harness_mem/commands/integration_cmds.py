@@ -17,6 +17,7 @@ distinct (Req 5.5/5.7, Req 6.5/6.7).
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from datetime import datetime, timezone
@@ -29,9 +30,15 @@ from harness_mem.integration.command_sync import (
     resolve_command_names,
     sync_slash_commands,
 )
-from harness_mem.integration.installer import HookSpec, install_hook, install_hook_suite
+from harness_mem.integration.installer import (
+    HookSpec,
+    install_hermes_hook_suite,
+    install_hook,
+    install_hook_suite,
+)
 
 __all__ = [
+    "SUPPORTED_HOOK_CLIENTS",
     "cmd_install_cursor_hook",
     "cmd_install_claude_hook",
     "cmd_install_cursor_wake_hook",
@@ -45,6 +52,14 @@ __all__ = [
 
 # Canonical operator-facing doc the generated hook headers point at.
 _DOC_POINTER = "docs/quickstart.md"
+SUPPORTED_HOOK_CLIENTS = (
+    "cursor",
+    "claude-code",
+    "grok",
+    "codex",
+    "hermes",
+    "opencode",
+)
 
 
 def _resolve_project_root(project_root: str | None) -> Path:
@@ -72,11 +87,37 @@ def _install(template_name: str, target_path: Path, root: Path, force: bool) -> 
             file=sys.stderr,
         )
         return 1
-    except OSError as exc:
+    except (KeyError, OSError, RuntimeError, ValueError) as exc:
         print(f"install failed: {target_path}: {exc}", file=sys.stderr)
         return 1
     print(f"installed: {written}")
     return 0
+
+
+def _quote_hook_arg(value: str) -> str:
+    return '"' + value.replace('"', '\\"') + '"'
+
+
+def _python_script_command(script_path: Path) -> str:
+    return f"python {_quote_hook_arg(script_path.resolve().as_posix())}"
+
+
+def _host_entry_command(action: str, root: Path, trigger_id: str) -> str:
+    return " ".join(
+        [
+            "python",
+            "-m",
+            "harness_mem.host_entry",
+            "--action",
+            action,
+            "--project-root",
+            _quote_hook_arg(root.resolve().as_posix()),
+            "--source",
+            "ide_hook",
+            "--trigger-id",
+            _quote_hook_arg(trigger_id),
+        ]
+    )
 
 
 def _suite_specs(client: str, root: Path) -> tuple[HookSpec, ...]:
@@ -102,26 +143,80 @@ def _suite_specs(client: str, root: Path) -> tuple[HookSpec, ...]:
                 root / ".claude" / "hooks" / "after-turn.sh",
             ),
         )
+    if client == "grok":
+        return (
+            HookSpec(
+                "grok_hooks.json.template",
+                root / ".grok" / "hooks" / "harness-mem.json",
+                template_vars={
+                    "WAKE_COMMAND_JSON": json.dumps(
+                        _host_entry_command("wake-start", root, "grok-session-start")
+                    ),
+                    "POST_TURN_COMMAND_JSON": json.dumps(
+                        _host_entry_command(
+                            "post-turn-maintenance",
+                            root,
+                            "grok-stop",
+                        )
+                    ),
+                },
+            ),
+        )
+    if client == "codex":
+        stop_script = root / ".codex" / "hooks" / "harness_mem_stop.py"
+        return (
+            HookSpec(
+                "codex_hooks.json.template",
+                root / ".codex" / "hooks.json",
+                template_vars={
+                    "WAKE_COMMAND_JSON": json.dumps(
+                        _host_entry_command("wake-start", root, "codex-session-start")
+                    ),
+                    "STOP_COMMAND_JSON": json.dumps(
+                        _python_script_command(stop_script)
+                    ),
+                },
+            ),
+            HookSpec("codex_stop.py.template", stop_script),
+        )
+    if client == "opencode":
+        return (
+            HookSpec(
+                "opencode_plugin.ts.template",
+                root / ".opencode" / "plugins" / "harness-mem.ts",
+            ),
+        )
     raise ValueError(f"unsupported hook client: {client}")
 
 
 def _install_suite(client: str, project_root: str | None, force: bool) -> int:
     root = _resolve_project_root(project_root)
     try:
-        results = install_hook_suite(
-            specs=_suite_specs(client, root),
-            project_root=root,
-            force=force,
-            harness_mem_version=__version__,
-            generated_at=datetime.now(timezone.utc),
-            doc_pointer=_DOC_POINTER,
-        )
-    except (OSError, ValueError) as exc:
+        if client == "hermes":
+            results = install_hermes_hook_suite(
+                project_root=root,
+                force=force,
+                harness_mem_version=__version__,
+                generated_at=datetime.now(timezone.utc),
+                doc_pointer=_DOC_POINTER,
+            )
+        else:
+            results = install_hook_suite(
+                specs=_suite_specs(client, root),
+                project_root=root,
+                force=force,
+                harness_mem_version=__version__,
+                generated_at=datetime.now(timezone.utc),
+                doc_pointer=_DOC_POINTER,
+            )
+    except (KeyError, OSError, RuntimeError, ValueError) as exc:
         print(f"install failed: {root}: {exc}", file=sys.stderr)
         return 1
     for result in results:
         if result.status == "installed":
             print(f"installed: {result.target_path}")
+        elif result.status == "updated":
+            print(f"updated: {result.target_path}")
         else:
             print(f"exists: {result.target_path}")
     return 0

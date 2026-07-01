@@ -105,6 +105,10 @@ harness-mem integration install-hook-suite --client cursor
 harness-mem integration install-hook-suite --client claude-code
 ```
 
+The generic installer also supports `grok`, `codex`, `hermes`, and
+`opencode`. See [docs/ide-hook-adapter-matrix.md](docs/ide-hook-adapter-matrix.md)
+for the current adapter surface and install model for each host.
+
 Then use the Agent-facing commands:
 
 ```text
@@ -138,6 +142,7 @@ product surface.
 ## Documentation
 
 - [Quickstart](docs/quickstart.md)
+- [IDE hook adapter matrix](docs/ide-hook-adapter-matrix.md)
 - [MCP setup](docs/mcp-setup.md)
 - [Cold-start demo](docs/demo-cold-start.md)
 - [Recall audit contract](docs/recall-audit.md)
@@ -156,4 +161,4 @@ python -m harness_mem.cli --help
 cargo test --workspace
 ```
 
-Current package version: **0.8.11**.
+Current package version: **0.8.12**.

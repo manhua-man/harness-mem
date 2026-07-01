@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## [0.8.12] - 2026-07-02
+
+### Added
+
+- Extended `harness-mem integration install-hook-suite` to grok, codex, hermes,
+  and opencode via checked-in templates under `harness_mem/integration/templates/`.
+- Added [docs/ide-hook-adapter-matrix.md](docs/ide-hook-adapter-matrix.md)
+  documenting per-host hook surfaces and install models.
+
+### Changed
+
+- CLI help and shell completion list all supported hook clients dynamically.
+
 ## [0.8.11] - 2026-07-02
 
 ### Added

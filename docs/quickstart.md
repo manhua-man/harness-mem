@@ -59,7 +59,10 @@ optionally register MCP:
 
 That install syncs the Daily `/hm:*` commands by default, including dream.
 If you want IDE hooks in one shot, use `harness-mem integration install-hook-suite --client cursor`
-or `--client claude-code`.
+or `--client claude-code`. The generic hook-suite installer also supports
+`grok`, `codex`, `hermes`, and `opencode`.
+For the current host support matrix and where each host expects hooks to live,
+see [IDE hook adapter matrix](ide-hook-adapter-matrix.md).
 
 ## Daily Loop
 
