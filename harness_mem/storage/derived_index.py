@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator
+import builtins
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -21,7 +22,7 @@ class DerivedIndex(Protocol):
 
     def init_db(self) -> None: ...
 
-    def locked_connection(self) -> Iterator[sqlite3.Connection]: ...
+    def locked_connection(self) -> AbstractContextManager[sqlite3.Connection]: ...
 
     def get(self, table: str, id: str) -> dict[str, Any] | None: ...
 
@@ -33,7 +34,7 @@ class DerivedIndex(Protocol):
         order_by: str = "created_at DESC",
         limit: int = 100,
         offset: int = 0,
-    ) -> list[dict[str, Any]]: ...
+    ) -> builtins.list[dict[str, Any]]: ...
 
     def search(
         self,
@@ -42,7 +43,7 @@ class DerivedIndex(Protocol):
         limit: int = 20,
         extra_where: str | None = None,
         extra_params: tuple = (),
-    ) -> list[dict[str, Any]]: ...
+    ) -> builtins.list[dict[str, Any]]: ...
 
     def update(self, table: str, id: str, data: dict[str, Any]) -> bool: ...
 

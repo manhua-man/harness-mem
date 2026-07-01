@@ -47,6 +47,7 @@ class StructuredStore(Protocol):
         status: str = "accepted",
         include_history: bool = False,
         deep_recall: bool = False,
+        include_provisional: bool = False,
     ) -> list[MemoryEntry]:
         """List memory entries for a project.
 
@@ -65,6 +66,7 @@ class StructuredStore(Protocol):
         include_history: bool = False,
         deep_recall: bool = False,
         time_window: tuple[datetime | None, datetime | None] | None = None,
+        include_provisional: bool = False,
     ) -> list[MemoryEntry]:
         """Full-text search memory entries with status filtering.
 
@@ -215,6 +217,7 @@ class StructuredStore(Protocol):
         limit: int = 100,
         status: str = "accepted",
         include_history: bool = False,
+        include_provisional: bool = False,
     ) -> list[RelationFact]:
         """List relation facts for a project with optional filters."""
         ...
@@ -227,6 +230,7 @@ class StructuredStore(Protocol):
         status: str = "accepted",
         include_history: bool = False,
         time_window: tuple[datetime | None, datetime | None] | None = None,
+        include_provisional: bool = False,
     ) -> list[RelationFact]:
         """Search relation facts by indexed evidence text with status filtering."""
         ...

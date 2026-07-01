@@ -577,7 +577,7 @@ def _disclosure_level_for_plan(plan: ContextAssemblyPlan) -> tuple[int, str]:
 
 
 def _serialize_plan_entry(entry: PlanEntry, *, project_name: str) -> dict[str, Any]:
-    payload = {
+    payload: dict[str, Any] = {
         "summary": entry.summary,
         "source_ids": list(entry.source_ids),
         "truth_status": entry.truth_status,

@@ -25,12 +25,14 @@ import json
 import logging
 import os
 import sys
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
 
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import load_merged_config
 from harness_mem.host_entry.exit_codes import ExitCode
 from harness_mem.host_entry.output import HostEntryResult
+
+HostEntryStatus = Literal["skipped", "completed", "failed"]
 
 logger = logging.getLogger("harness_mem.host_entry")
 
@@ -59,7 +61,7 @@ def _dream_tick_host_result(payload: dict[str, Any]) -> HostEntryResult:
     summary: dict[str, Any] = summary_value if isinstance(summary_value, dict) else {}
     processed = int(summary.get("processed") or 0)
     status = str(payload.get("status") or "")
-    host_status = "skipped" if status == "skipped" else "completed"
+    host_status: HostEntryStatus = "skipped" if status == "skipped" else "completed"
     next_step = (
         "skipped: dream auto gate did not run"
         if host_status == "skipped"
@@ -229,13 +231,13 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                     "project_name": project_name,
                     "error": f"{type(exc).__name__}: {exc}"[:512],
                 }
-            host_result = _post_turn_host_result(maintenance_payload)
+            post_turn_result = _post_turn_host_result(maintenance_payload)
             exit_code = (
                 ExitCode.SUCCESS
-                if host_result["status"] in ("completed", "skipped")
+                if post_turn_result["status"] in ("completed", "skipped")
                 else ExitCode.HOOK_FAILED
             )
-            return (exit_code, json.dumps(host_result, sort_keys=True))
+            return (exit_code, json.dumps(post_turn_result, sort_keys=True))
 
         logger.error("unsupported action: %s", args.action)
         return (ExitCode.ARG_VALIDATION_ERROR, None)

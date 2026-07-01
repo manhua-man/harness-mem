@@ -1,0 +1,95 @@
+{
+  "name": "agent_browser_read",
+  "description": "Fetch a URL as agent-readable text, preferring text/markdown. Omit url to read the active tab.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "extraArgs": {
+        "description": "Advanced: extra CLI arguments for this command, preserving full CLI parity.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "filter": {
+        "description": "Filter page sections, --llms links/sections, or --outline headings.",
+        "type": "string"
+      },
+      "llms": {
+        "description": "Return nearest-ancestor llms data: index for compact llms.txt links, full for llms-full.txt.",
+        "enum": [
+          "index",
+          "full"
+        ],
+        "type": "string"
+      },
+      "namespace": {
+        "description": "Optional namespace that isolates daemon sockets and restore-state directories.",
+        "type": "string"
+      },
+      "outline": {
+        "description": "Return a heading outline for the selected page instead of the full page text.",
+        "type": "boolean"
+      },
+      "raw": {
+        "description": "Return the response body without HTML extraction.",
+        "type": "boolean"
+      },
+      "readTimeoutMs": {
+        "description": "Request timeout in milliseconds.",
+        "type": "integer"
+      },
+      "requireMd": {
+        "description": "Fail unless the response is Content-Type: text/markdown.",
+        "type": "boolean"
+      },
+      "restore": {
+        "description": "Restore and auto-save browser state. true uses the current session as the key; a string uses that explicit key.",
+        "oneOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "restoreCheckFn": {
+        "description": "Optional JavaScript expression that must evaluate truthy after restore.",
+        "type": "string"
+      },
+      "restoreCheckText": {
+        "description": "Optional page text that restored state must expose.",
+        "type": "string"
+      },
+      "restoreCheckUrl": {
+        "description": "Optional URL pattern that restored state must match.",
+        "type": "string"
+      },
+      "restoreSave": {
+        "description": "Auto-save policy for restored state.",
+        "enum": [
+          "auto",
+          "always",
+          "never"
+        ],
+        "type": "string"
+      },
+      "session": {
+        "description": "Optional isolated browser session name.",
+        "type": "string"
+      },
+      "timeoutMs": {
+        "default": 120000,
+        "description": "Maximum time to wait for this tool call.",
+        "minimum": 1,
+        "type": "integer"
+      },
+      "url": {
+        "description": "URL to read. Bare hosts are normalized to https. Omit to read the active tab.",
+        "type": "string"
+      }
+    },
+    "additionalProperties": false
+  }
+}

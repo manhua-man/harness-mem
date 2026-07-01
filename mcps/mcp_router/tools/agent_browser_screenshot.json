@@ -1,0 +1,98 @@
+{
+  "name": "agent_browser_screenshot",
+  "description": "Capture a screenshot and return the saved path. Small PNG/JPEG screenshots are also returned as image content.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "annotate": {
+        "default": false,
+        "description": "Number visible elements in the screenshot.",
+        "type": "boolean"
+      },
+      "extraArgs": {
+        "description": "Advanced: extra CLI arguments for this command, preserving full CLI parity.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "format": {
+        "description": "Screenshot format.",
+        "enum": [
+          "png",
+          "jpeg"
+        ],
+        "type": "string"
+      },
+      "fullPage": {
+        "default": false,
+        "type": "boolean"
+      },
+      "namespace": {
+        "description": "Optional namespace that isolates daemon sockets and restore-state directories.",
+        "type": "string"
+      },
+      "path": {
+        "description": "Optional output path.",
+        "type": "string"
+      },
+      "quality": {
+        "description": "JPEG quality.",
+        "maximum": 100,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "restore": {
+        "description": "Restore and auto-save browser state. true uses the current session as the key; a string uses that explicit key.",
+        "oneOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "restoreCheckFn": {
+        "description": "Optional JavaScript expression that must evaluate truthy after restore.",
+        "type": "string"
+      },
+      "restoreCheckText": {
+        "description": "Optional page text that restored state must expose.",
+        "type": "string"
+      },
+      "restoreCheckUrl": {
+        "description": "Optional URL pattern that restored state must match.",
+        "type": "string"
+      },
+      "restoreSave": {
+        "description": "Auto-save policy for restored state.",
+        "enum": [
+          "auto",
+          "always",
+          "never"
+        ],
+        "type": "string"
+      },
+      "screenshotDir": {
+        "description": "Default output directory when path is omitted.",
+        "type": "string"
+      },
+      "selector": {
+        "description": "Optional @ref or CSS selector to capture.",
+        "type": "string"
+      },
+      "session": {
+        "description": "Optional isolated browser session name.",
+        "type": "string"
+      },
+      "timeoutMs": {
+        "default": 120000,
+        "description": "Maximum time to wait for this tool call.",
+        "minimum": 1,
+        "type": "integer"
+      }
+    },
+    "additionalProperties": false
+  }
+}

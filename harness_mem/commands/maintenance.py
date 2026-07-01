@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from typing import Any, cast
 
+from harness_mem.config.merge import MergedConfig
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     log_command_invoked,
@@ -290,7 +291,7 @@ async def run_post_turn_maintenance(
     *,
     project_name: str,
     project_root: str,
-    config: Any | None,
+    config: MergedConfig,
     source: str = "ide_hook",
     trigger_id: str | None = None,
 ) -> dict[str, Any]:

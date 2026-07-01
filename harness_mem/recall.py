@@ -13,6 +13,7 @@ from harness_mem.core.schemas.recall_result import (
     RecallEvidence,
     RecallPlanning,
     RecallResult,
+    RecallStatus,
     RecallSource,
     RecallStep,
     validate_recall_effort,
@@ -32,7 +33,7 @@ def _float_or_none(value: Any) -> float | None:
         return None
 
 
-def _status_from_counts(*counts: int, answer_ready: bool = False) -> str:
+def _status_from_counts(*counts: int, answer_ready: bool = False) -> RecallStatus:
     total = sum(max(0, count) for count in counts)
     if total == 0:
         return "empty"
