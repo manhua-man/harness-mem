@@ -26,8 +26,7 @@ if ($WithHybrid) {
 # workflow from any project without remembering CLI flags. Skip with -NoSlashCommands.
 if (-not $NoSlashCommands) {
     $syncCommands = Join-Path $PSScriptRoot "sync-commands.ps1"
-    $syncArgs = @("-Profile", "Daily")
-    & $syncCommands @syncArgs
+    & $syncCommands -Profile "Daily"
     Write-Host "  Synced Daily /hm:* commands."
 
     $skillSrc = Join-Path $pluginRoot "skills"

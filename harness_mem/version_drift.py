@@ -20,7 +20,7 @@ def version_drift_report(repo_root: Path | None = None) -> dict[str, Any]:
     root = Path(repo_root) if repo_root is not None else Path.cwd()
     plugin_root = root / "plugins" / "harness-mem"
     plugin_manifest = plugin_root / ".codex-plugin" / "plugin.json"
-    slash_status = plugin_root / "commands" / "hm" / "status.md"
+    slash_status = plugin_root / "commands" / "hm" / "daily" / "status.md"
     skill_file = plugin_root / "skills" / "harness-mem" / "SKILL.md"
 
     surfaces: dict[str, Any] = {
