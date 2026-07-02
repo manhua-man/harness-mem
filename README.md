@@ -162,10 +162,10 @@ python -m harness_mem.cli --help
 cargo test --workspace
 ```
 
-Regenerate exported MCP tool JSON when `tool_specs` changes:
+Repair or regenerate MCP descriptors when `tool_specs` changes (also reverts incidental `mcps/grok_com_github` IDE drift):
 
 ```bash
-python -m harness_mem.mcp.tool_descriptor_export
+python scripts/ensure_mcps_canonical.py
 ```
 
 ## Releases

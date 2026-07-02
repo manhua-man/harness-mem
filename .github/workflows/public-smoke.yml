@@ -27,15 +27,11 @@ jobs:
           maturin build --release --features python-extension -o dist/wheel
           python -m pip install dist/wheel/*.whl --force-reinstall
 
-      - name: MCP export consistency
-        run: python -m pytest tests/test_mcp_exported_tools.py -q
+      - name: Ensure canonical mcps descriptors
+        run: python scripts/ensure_mcps_canonical.py
 
-      - name: Assert no incidental mcps drift
-        run: |
-          if [ -n "$(git diff --name-only -- mcps/grok_com_github)" ]; then
-            echo "mcps/grok_com_github has uncommitted drift; revert with: git checkout -- mcps/grok_com_github"
-            exit 1
-          fi
+      - name: MCP export consistency
+        run: python -m pytest tests/test_mcp_exported_tools.py tests/test_mcps_worktree_guard.py -q
 
       - name: Runtime smoke
         run: |
