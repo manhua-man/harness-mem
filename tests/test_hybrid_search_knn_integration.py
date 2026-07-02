@@ -1,4 +1,4 @@
-"""Integration proof: filtered hybrid vector path uses vec0 KNN when available."""
+"""Integration proof: public hybrid search uses vec0 KNN with extra_where."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def _seed_vec_row(
     )
 
 
-def test_hybrid_vector_path_uses_vec0_knn_with_extra_where(tmp_path) -> None:
+def test_hybrid_search_public_api_uses_vec0_knn_with_extra_where(tmp_path) -> None:
     pytest.importorskip("sqlite_vec")
     pytest.importorskip("numpy")
 
@@ -102,7 +102,15 @@ def test_hybrid_vector_path_uses_vec0_knn_with_extra_where(tmp_path) -> None:
         ),
         patch.object(layer, "_batch_cosine_vector_state", side_effect=_batch_must_not_run),
     ):
-        result = layer._score_vector_candidates(
+        hybrid = layer.search(
+            "alpha knn integration",
+            table="memory_entries",
+            limit=5,
+            extra_where="status = ?",
+            extra_params=("user_confirmed",),
+            mode="hybrid",
+        )
+        vector = layer.search_vector(
             "alpha knn integration",
             table="memory_entries",
             limit=5,
@@ -110,8 +118,8 @@ def test_hybrid_vector_path_uses_vec0_knn_with_extra_where(tmp_path) -> None:
             extra_params=("user_confirmed",),
         )
 
-    assert result is not None
     assert not batch_calls
-    candidate_by_id, sim_scores, _vec_rank = result
-    assert set(candidate_by_id) == {"keep"}
-    assert "drop" not in sim_scores
+    assert hybrid.effective_mode == "hybrid"
+    assert {row["id"] for row in hybrid.rows} == {"keep"}
+    assert vector.effective_mode == "vector"
+    assert {row["id"] for row in vector.rows} == {"keep"}
