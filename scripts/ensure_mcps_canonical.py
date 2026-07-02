@@ -69,13 +69,37 @@ def main() -> int:
         return 1
 
     print("OBSERVATION: mcps/ diff empty=YES")
-    status = _run_git("status", "--short", "--", "mcps/")
-    if status.returncode != 0:
-        print(status.stderr or status.stdout, file=sys.stderr)
-        return status.returncode
-    short = status.stdout.strip()
-    print(f"git status --short mcps/:\n{short or '(empty)'}")
+
+    mcps_status = _run_git("status", "--short", "--", "mcps/")
+    if mcps_status.returncode != 0:
+        print(mcps_status.stderr or mcps_status.stdout, file=sys.stderr)
+        return mcps_status.returncode
+    mcps_short = mcps_status.stdout.strip()
+    print(f"git status --short mcps/:\n{mcps_short or '(empty)'}")
     print("OBSERVATION: working tree mcps/ clean=YES")
+
+    full_status = _run_git("status", "--short")
+    if full_status.returncode != 0:
+        print(full_status.stderr or full_status.stdout, file=sys.stderr)
+        return full_status.returncode
+    full_short = full_status.stdout.strip()
+    print(f"git status --short:\n{full_short or '(empty)'}")
+    if full_short:
+        print(
+            "ERROR: working tree has uncommitted changes outside PR0 repair",
+            file=sys.stderr,
+        )
+        return 1
+    print("OBSERVATION: working tree clean=YES")
+
+    diff_check = _run_git("diff", "--check")
+    if diff_check.returncode != 0:
+        print("git diff --check:", file=sys.stderr)
+        print(diff_check.stdout or diff_check.stderr, file=sys.stderr)
+        return diff_check.returncode
+    check_out = (diff_check.stdout or diff_check.stderr).strip()
+    print(f"git diff --check:\n{check_out or '(no whitespace/conflict issues)'}")
+    print("OBSERVATION: git diff --check passes=YES")
     return 0
 
 
