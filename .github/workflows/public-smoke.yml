@@ -27,6 +27,9 @@ jobs:
           maturin build --release --features python-extension -o dist/wheel
           python -m pip install dist/wheel/*.whl --force-reinstall
 
+      - name: MCP export consistency
+        run: python -m pytest tests/test_mcp_exported_tools.py -q
+
       - name: Runtime smoke
         run: |
           python -m compileall harness_mem

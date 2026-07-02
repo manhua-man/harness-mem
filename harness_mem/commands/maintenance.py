@@ -82,9 +82,14 @@ async def cmd_rebuild_vector_index(project_name: str | None = None) -> int:
                 model_id,
             )
 
+        vec0_indexed = 0
+        for index in (structured_index, verbatim_index):
+            vec0_indexed += index.rebuild_vec0_index(model_id=model_id)
+
         print(
             f"Done: {len(entries)} entries, "
-            f"{len(project_observations)} observations"
+            f"{len(project_observations)} observations, "
+            f"{vec0_indexed} vec0 row(s) indexed"
         )
         return 0
     except Exception as exc:

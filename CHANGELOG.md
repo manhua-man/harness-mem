@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+## [0.8.18] - 2026-07-02
+
+### Added
+
+- Regression tests: index-fabric single `_bulk_rows` call per generation, vec0 rebuild
+  integration, hybrid KNN integration with `extra_where`, and `batch_cosine_topk`
+  `HARNESS_MEM_RUST=required` guard.
+- Roadmap scope-lock (`docs/roadmap/v0.8.15-0.8.18-scope-lock.md`), defer table, and PR template.
+
+### Changed
+
+- `maintenance rebuild-vector-index` reports vec0 rows indexed after rebuild.
+
+## [0.8.17] - 2026-07-02
+
+### Added
+
+- `SqliteVecIndex.rebuild_from_embeddings` and `SQLiteIndex.rebuild_vec0_index` for
+  explicit vec0 backfill from `vec_embeddings`.
+
+### Changed
+
+- vec0 lifecycle: upgraded stores can clear HM-204 lag via rebuild or lazy backfill;
+  vec0 DDL/KNN/backfill remain in `sqlite_vec_index.py` with `SQLiteIndex` delegating.
+
+## [0.8.16] - 2026-07-02
+
+### Added
+
+- Integration test proving filtered hybrid vector search uses vec0 KNN (batch cosine
+  is fallback only when sqlite-vec is unavailable).
+
+### Note
+
+- Product truth (path A): main hybrid search calls `knn_vec_embeddings` with
+  `entry_ids` post-filter when vec0 is ready; batch cosine runs only on KNN failure
+  or missing sqlite-vec.
+
+## [0.8.15] - 2026-07-02
+
+### Added
+
+- `python -m harness_mem.mcp.tool_descriptor_export` CLI to regenerate
+  `mcps/harness_mem/tools/*.json` from `tool_specs`.
+- CI step gating MCP export consistency (`tests/test_mcp_exported_tools.py`).
+
+### Changed
+
+- README documents artifact-only `release-wheels` workflow and MCP export command.
+
 ## [0.8.14] - 2026-07-02
 
 ### Added

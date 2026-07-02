@@ -45,3 +45,25 @@ def export_tool_descriptors(
 
 def read_exported_tool_descriptor(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def default_export_dir() -> Path:
+    """Return the canonical ``mcps/harness_mem/tools`` directory."""
+
+    return Path(__file__).resolve().parents[2] / "mcps" / "harness_mem" / "tools"
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry: regenerate exported MCP tool JSON from ``tool_specs``."""
+
+    import sys
+
+    args = list(argv if argv is not None else sys.argv[1:])
+    output_dir = Path(args[0]) if args else default_export_dir()
+    written = export_tool_descriptors(output_dir)
+    print(f"exported {len(written)} tool descriptor(s) to {output_dir}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

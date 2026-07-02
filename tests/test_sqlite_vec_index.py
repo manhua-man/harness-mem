@@ -18,7 +18,7 @@ def test_vec0_lazy_backfill_indexes_missing_rows(tmp_path: Path) -> None:
     index._vec_index.mark_extension_loaded()
 
     blob_a = b"\x00\x00\x80\x3f" + b"\x00" * 4
-    blob_b = b"\x00\x00\x00\x00" + b"\x00\x00\x80\x3f" + b"\x00" * 4
+    blob_b = b"\x00\x00\x00\x00" + b"\x00\x00\x80\x3f"
     conn.execute(
         """
         INSERT INTO vec_embeddings (entry_id, model_id, model_version, embedding, created_at)
@@ -59,7 +59,7 @@ def test_knn_respects_entry_id_filter(tmp_path: Path) -> None:
     vec.mark_extension_loaded()
 
     blob_a = b"\x00\x00\x80\x3f" + b"\x00" * 4
-    blob_b = b"\x00\x00\x00\x00" + b"\x00\x00\x80\x3f" + b"\x00" * 4
+    blob_b = b"\x00\x00\x00\x00" + b"\x00\x00\x80\x3f"
     for entry_id, blob in (("a", blob_a), ("b", blob_b)):
         vec.upsert_row(
             conn,
@@ -78,6 +78,32 @@ def test_knn_respects_entry_id_filter(tmp_path: Path) -> None:
     )
     assert hits is not None
     assert hits and hits[0][0] == "a"
+
+
+def test_rebuild_from_embeddings_indexes_all_rows(tmp_path: Path) -> None:
+    pytest.importorskip("sqlite_vec")
+    index = SQLiteIndex(tmp_path / "structured_index.sqlite")
+    index.init_db()
+    conn = index._conn_write()
+    vec = index._vec_index
+    vec.mark_extension_loaded()
+
+    blob_a = b"\x00\x00\x80\x3f" + b"\x00" * 4
+    blob_b = b"\x00\x00\x00\x00" + b"\x00\x00\x80\x3f"
+    conn.execute(
+        """
+        INSERT INTO vec_embeddings (entry_id, model_id, model_version, embedding, created_at)
+        VALUES ('a', 'demo-model', 'v1', ?, 1),
+               ('b', 'demo-model', 'v1', ?, 2)
+        """,
+        (blob_a, blob_b),
+    )
+    conn.commit()
+
+    indexed = vec.rebuild_from_embeddings(conn, model_id="demo-model")
+    assert indexed == 2
+    report = vec.vec0_coverage_report(conn, model_id="demo-model")
+    assert report["vec0_missing"] == 0
 
 
 def test_vec0_coverage_report_counts_missing(tmp_path: Path) -> None:

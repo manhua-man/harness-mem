@@ -103,6 +103,22 @@ def test_required_policy_raises_on_hot_path_without_native(
         )
 
 
+def test_required_policy_raises_for_batch_cosine_without_native(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_import = importlib.import_module
+
+    def fake_import(name: str, package: str | None = None):
+        if name == rust_core.NATIVE_MODULE_NAME:
+            raise ModuleNotFoundError(name)
+        return original_import(name, package)
+
+    monkeypatch.setenv("HARNESS_MEM_RUST", "required")
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    with pytest.raises(RustCoreRequiredError):
+        batch_cosine_topk([1.0, 0.0], {"a": [1.0, 0.0]})
+
+
 def test_fuse_hybrid_rrf_native_matches_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     if not rust_core_status().available:
         pytest.skip("harness_mem_core_rs native extension not installed")

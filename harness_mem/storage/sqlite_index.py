@@ -603,6 +603,13 @@ class SQLiteIndex:
         with self._lock:
             return self._vec_index.vec0_coverage_report(conn, model_id=model_id)
 
+    def rebuild_vec0_index(self, *, model_id: str) -> int:
+        """Backfill vec0 from persisted ``vec_embeddings`` rows."""
+
+        conn = self._conn_write()
+        with self._lock:
+            return self._vec_index.rebuild_from_embeddings(conn, model_id=model_id)
+
     def insert(self, table: str, data: dict[str, Any]) -> str:
         """Insert a row into table. Returns the row id."""
         conn = self._conn_write()

@@ -1,4 +1,9 @@
-"""HybridSearchLayer — FTS + optional vector search via Reciprocal Rank Fusion."""
+"""HybridSearchLayer — FTS + optional vector search via Reciprocal Rank Fusion.
+
+Vector scoring prefers sqlite-vec vec0 KNN with ``entry_ids`` post-filter when the
+extension is loaded and vec0 rows exist; batch cosine via ``rust_core`` is the
+fallback when KNN is unavailable or returns no hits.
+"""
 
 from __future__ import annotations
 import builtins

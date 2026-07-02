@@ -117,6 +117,70 @@ class SqliteVecIndex:
                 break
         return hits
 
+    def rebuild_from_embeddings(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        model_id: str,
+        batch_limit: int = 500,
+    ) -> int:
+        """Rebuild vec0 from ``vec_embeddings`` rows for one model."""
+
+        if not self._sqlite_vec_available:
+            return 0
+        try:
+            row = conn.execute(
+                f"""
+                SELECT length(embedding)
+                FROM {VEC_EMBEDDINGS_TABLE}
+                WHERE model_id = ?
+                LIMIT 1
+                """,
+                (model_id,),
+            ).fetchone()
+        except sqlite3.Error:
+            return 0
+        if not row or not row[0]:
+            return 0
+        dimensions = int(row[0]) // 4
+        if dimensions <= 0:
+            return 0
+
+        self.drop(conn)
+        try:
+            rows = conn.execute(
+                f"""
+                SELECT entry_id, embedding
+                FROM {VEC_EMBEDDINGS_TABLE}
+                WHERE model_id = ?
+                """,
+                (model_id,),
+            ).fetchall()
+        except sqlite3.Error:
+            return 0
+
+        indexed = 0
+        for entry_id, embedding_blob in rows:
+            if not embedding_blob:
+                continue
+            self.upsert_row(
+                conn,
+                entry_id=str(entry_id),
+                model_id=model_id,
+                embedding_blob=embedding_blob,
+                dimensions=dimensions,
+            )
+            if self._vec0_has_entry(conn, str(entry_id), model_id):
+                indexed += 1
+
+        if indexed:
+            logger.info(
+                "vec0 rebuild: indexed %s row(s) for model_id=%s",
+                indexed,
+                model_id,
+            )
+        return indexed
+
     def vec0_coverage_report(
         self,
         conn: sqlite3.Connection,
@@ -216,7 +280,8 @@ class SqliteVecIndex:
                 embedding_blob=embedding_blob,
                 dimensions=dimensions,
             )
-            backfilled += 1
+            if self._vec0_has_entry(conn, str(entry_id), model_id):
+                backfilled += 1
         if backfilled:
             logger.info(
                 "vec0 lazy backfill: indexed %s row(s) for model_id=%s",
