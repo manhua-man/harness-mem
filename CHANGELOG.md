@@ -14,6 +14,7 @@
 ### Changed
 
 - `maintenance rebuild-vector-index` reports vec0 rows indexed after rebuild.
+- Plugin manifest version aligned with runtime `0.8.18`.
 
 ## [0.8.17] - 2026-07-02
 
