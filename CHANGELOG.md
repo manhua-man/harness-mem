@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.8.19] - 2026-07-07
+
+### Fixed
+
+- Public smoke CI now installs `PyYAML` before collecting the benchmark tests.
+- Native wheel builds enable PyO3 import-library generation so the Windows
+  ARM64 release target can cross-compile.
+
 ## [0.8.18] - 2026-07-02
 
 ### Added

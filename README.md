@@ -173,4 +173,4 @@ python scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds native wheels for six targets and uploads **GitHub Actions artifacts only** (no PyPI publish).
 
-Current package version: **0.8.18**.
+Current package version: **0.8.19**.

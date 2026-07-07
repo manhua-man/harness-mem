@@ -20,7 +20,7 @@ jobs:
       - name: Install tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest ruff maturin
+          python -m pip install pytest ruff maturin PyYAML
 
       - name: Build and install native package wheel
         run: |
@@ -40,7 +40,7 @@ jobs:
           python -c "import harness_mem_core_rs; assert harness_mem_core_rs.api_version()"
           python -m pytest
           python -m harness_mem.cli --help
-          python -m harness_mem.cli maintenance causal-benchmark
+          python -m harness_mem.cli maintenance state-audit --help
 
       - name: Rust smoke
         run: cargo test --workspace
