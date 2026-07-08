@@ -158,6 +158,125 @@ def parse_claude_jsonl_session(
 
 
 # ---------------------------------------------------------------------------
+# Cursor .jsonl parser
+# ---------------------------------------------------------------------------
+
+def parse_cursor_jsonl_session(
+    session_path: Path,
+    *,
+    max_user_chars: int = 2000,
+    max_assistant_chars: int = 1000,
+    max_tool_input_chars: int = 300,
+    issues: list[Issue] | None = None,
+) -> list[Turn]:
+    """Parse a Cursor agent transcript ``.jsonl`` session into turns.
+
+    Cursor agent transcripts use role-based records with ``message.content``
+    blocks similar to Claude assistant messages. Transcript files can also
+    include non-conversation lifecycle records such as ``turn_ended``; those
+    are ignored for memory ingestion.
+    """
+    issues = issues if issues is not None else []
+    turns: list[Turn] = []
+    current_turn: Turn | None = None
+
+    try:
+        content = session_path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError as exc:
+        raise ValueError(
+            f"unable to read file ({type(exc).__name__}: {exc})"
+        ) from exc
+
+    scan_result = scan_jsonl(content)
+    malformed_lines = len(scan_result.errors)
+    valid_records = len(scan_result.records)
+    nonempty_lines = valid_records + malformed_lines
+
+    for record in scan_result.records:
+        role = record.get("role")
+        message = record.get("message", {})
+        content_items = message.get("content", []) if isinstance(message, dict) else []
+
+        if role == "user":
+            user_text = _render_cursor_content_items(content_items)
+            if user_text:
+                current_turn = {
+                    "user": user_text[:max_user_chars],
+                    "assistant": [],
+                    "tools": [],
+                }
+                turns.append(current_turn)
+            continue
+
+        if role == "assistant":
+            if current_turn is None:
+                current_turn = {"user": "", "assistant": [], "tools": []}
+                turns.append(current_turn)
+            if isinstance(content_items, list):
+                for item in content_items:
+                    if not isinstance(item, dict):
+                        continue
+                    if item.get("type") == "text":
+                        text = str(item.get("text") or "").strip()
+                        if text:
+                            current_turn["assistant"].append(text[:max_assistant_chars])
+                    elif item.get("type") == "tool_use":
+                        tool_name = str(item.get("name") or "")
+                        tool_input = item.get("input", {})
+                        if tool_name:
+                            current_turn["tools"].append({
+                                "name": tool_name,
+                                "input": str(tool_input)[:max_tool_input_chars],
+                            })
+            continue
+
+    if valid_records == 0 and nonempty_lines > 0:
+        raise ValueError(
+            f"no valid JSON records found; skipped {malformed_lines} malformed line(s)"
+        )
+
+    if malformed_lines > 0:
+        _append_issue(
+            issues,
+            level="warning",
+            code="session_malformed_lines_skipped",
+            message=(
+                f"Cursor session {session_path} skipped "
+                f"{malformed_lines} malformed JSON line(s)"
+            ),
+            path=session_path,
+        )
+
+    if valid_records > 0 and not turns:
+        _append_issue(
+            issues,
+            level="warning",
+            code="session_empty_after_parse",
+            message=(
+                f"Cursor session {session_path} contained valid JSON records, "
+                "but no transcript content was extracted"
+            ),
+            path=session_path,
+        )
+
+    return turns
+
+
+def _render_cursor_content_items(content_items: Any) -> str:
+    if not isinstance(content_items, list):
+        return ""
+    parts: list[str] = []
+    for item in content_items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "text":
+            text = str(item.get("text") or "").strip()
+            if text:
+                parts.append(text)
+    return "\n".join(parts).strip()
+
+
+# ---------------------------------------------------------------------------
 # Codex .jsonl parser
 # ---------------------------------------------------------------------------
 
@@ -296,6 +415,7 @@ BOILERPLATE_USER_PREFIXES = (
 )
 IDE_CONTEXT_PREFIX = "# Context from my IDE setup:"
 IDE_REQUEST_MARKER = "## My request for Codex:"
+AGENTS_CONTEXT_PREFIX = "# AGENTS.md instructions"
 TURN_ABORTED_REGEX = re.compile(r"<turn_aborted>.*?</turn_aborted>", re.DOTALL)
 
 
@@ -319,6 +439,8 @@ def sanitize_archived_user_text(text: str) -> str:
     """Remove IDE boilerplate and aborted turn markers from Codex user messages."""
     cleaned = text.strip()
     if not cleaned:
+        return ""
+    if cleaned.startswith(AGENTS_CONTEXT_PREFIX) and IDE_REQUEST_MARKER not in cleaned:
         return ""
     if any(cleaned.startswith(prefix) for prefix in BOILERPLATE_USER_PREFIXES):
         # If it only contains boilerplate, it's effectively empty for memory
@@ -549,7 +671,9 @@ __all__ = [
     "Issue",
     "extract_claude_session_cwd",
     "parse_claude_jsonl_session",
+    "parse_cursor_jsonl_session",
     "parse_codex_jsonl_session",
+    "parse_codex_archive_jsonl_session",
     "list_session_files",
     "session_sort_key",
     "select_turns_for_packet",

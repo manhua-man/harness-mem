@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 
 import harness_mem.commands.dream as dream_module
 import harness_mem.commands.maintenance as maintenance_module
@@ -30,12 +31,14 @@ def _args(tmp_path, action: str) -> argparse.Namespace:
         project_root=str(tmp_path),
         source="ide_hook",
         trigger_id="turn-1",
+        client=None,
     )
 
 
 def test_host_entry_wake_start_outputs_wake_text(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
     monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
+    monkeypatch.setattr(host_entry, "ensure_project_profile", lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)))
 
     async def fake_wake(_backend, project_name: str) -> str:
         return f"Wake context for {project_name}"
@@ -55,6 +58,7 @@ def test_host_entry_wake_start_outputs_wake_text(monkeypatch, tmp_path) -> None:
 def test_host_entry_dream_end_outputs_dream_json(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
     monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
+    monkeypatch.setattr(host_entry, "ensure_project_profile", lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)))
 
     async def fake_dream(_backend, *, project_name: str, **_kwargs):
         return {
@@ -85,6 +89,7 @@ def test_host_entry_dream_end_outputs_dream_json(monkeypatch, tmp_path) -> None:
 def test_host_entry_post_turn_maintenance_outputs_combined_json(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
     monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
+    monkeypatch.setattr(host_entry, "ensure_project_profile", lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)))
 
     async def fake_post_turn(
         _backend,
@@ -140,3 +145,24 @@ def test_host_entry_post_turn_maintenance_outputs_combined_json(monkeypatch, tmp
     assert data["status"] == "completed"
     assert data["summary"]["observation_count"] == 3
     assert data["summary"]["dream_job_id"] == "job-2"
+
+
+def test_host_entry_client_override_sets_runtime_host(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
+    monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
+    monkeypatch.setattr(host_entry, "ensure_project_profile", lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)))
+
+    async def fake_wake(_backend, project_name: str) -> str:
+        assert os.environ.get("HARNESS_MEM_CLIENT") == "cursor"
+        return f"Wake context for {project_name}"
+
+    monkeypatch.setattr(wake_module, "build_wake_injection", fake_wake)
+    args = _args(tmp_path, "wake-start")
+    args.client = "cursor"
+    previous = os.environ.get("HARNESS_MEM_CLIENT")
+
+    code, payload = asyncio.run(host_entry.run(args))
+
+    assert code == ExitCode.SUCCESS
+    assert payload == f"Wake context for {tmp_path.name}"
+    assert os.environ.get("HARNESS_MEM_CLIENT") == previous

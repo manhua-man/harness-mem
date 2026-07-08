@@ -7,6 +7,7 @@ from pathlib import Path
 from harness_mem.commands.dream import dream_status_snapshot
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
+    ensure_project_profile,
     find_project_root,
     get_active_project,
     log_next_step_shown,
@@ -31,8 +32,14 @@ async def cmd_status(project_name: str | None = None) -> int:
         print(f"Truth runtime: {backend.runtime_state}")
         if backend.runtime_state == "degraded_fallback" and backend.runtime_recovery_hint:
             print(f"Recovery: {backend.runtime_recovery_hint}")
-        resolved_project = resolve_project_name(project_name, required=False, action_label="status")
+        resolved_project = resolve_project_name(
+            project_name,
+            project_root=Path.cwd(),
+            required=False,
+            action_label="status",
+        )
         if resolved_project:
+            await ensure_project_profile(resolved_project, Path.cwd())
             await _status_project_async(backend, resolved_project)
         else:
             print("harness-mem is ready")
@@ -101,9 +108,9 @@ async def _status_project_async(backend: LocalMemoryBackend, project_name: str) 
     elif len(project_obs) == 0:
         print()
         print("📍 Phase: Empty")
-        next_step = f'MCP ingest_sessions(project_name="{project_name}", client="claude-code")'
+        next_step = f'MCP ingest_sessions(project_name="{project_name}", client="auto")'
         print(f"→ Next: {next_step}")
-        print("   Why: No observations yet; ingestion should be driven by the agent through MCP")
+        print("   Why: No observations yet; auto ingest uses the current host when a native project-scoped adapter is available")
         log_next_step_shown(project_name, "status", next_step)
     else:
         print()

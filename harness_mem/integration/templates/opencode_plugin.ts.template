@@ -2,20 +2,38 @@ import type { Plugin } from "@opencode-ai/plugin"
 
 const projectRoot = ${PROJECT_ROOT_JSON}
 
-async function runWakeStart($$: any): Promise<string> {
+async function withHarnessMemClient<T>(clientName: string, fn: () => Promise<T>): Promise<T> {
+  const previous = process.env.HARNESS_MEM_CLIENT
+  process.env.HARNESS_MEM_CLIENT = clientName
   try {
-    return await $$`python -m harness_mem.host_entry --action wake-start --project-root $${projectRoot} --source ide_hook --trigger-id opencode-session-created`.text()
-  } catch {
-    return ""
+    return await fn()
+  } finally {
+    if (previous === undefined) {
+      delete process.env.HARNESS_MEM_CLIENT
+    } else {
+      process.env.HARNESS_MEM_CLIENT = previous
+    }
   }
 }
 
+async function runWakeStart($$: any): Promise<string> {
+  return withHarnessMemClient("opencode", async () => {
+    try {
+      return await $$`python -m harness_mem.host_entry --action wake-start --project-root $${projectRoot} --source ide_hook --trigger-id opencode-session-created`.text()
+    } catch {
+      return ""
+    }
+  })
+}
+
 async function runPostTurnMaintenance($$: any, triggerId: string): Promise<void> {
-  try {
-    await $$`python -m harness_mem.host_entry --action post-turn-maintenance --project-root $${projectRoot} --source ide_hook --trigger-id $${triggerId}`.quiet()
-  } catch {
-    // OpenCode plugin hooks are best-effort.
-  }
+  await withHarnessMemClient("opencode", async () => {
+    try {
+      await $$`python -m harness_mem.host_entry --action post-turn-maintenance --project-root $${projectRoot} --source ide_hook --trigger-id $${triggerId}`.quiet()
+    } catch {
+      // OpenCode plugin hooks are best-effort.
+    }
+  })
 }
 
 const plugin: Plugin = async ({ $$, client }) => ({

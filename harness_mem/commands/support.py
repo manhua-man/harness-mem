@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import sys
 import tomllib
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from harness_mem.adapters import AdapterRegistry
 from harness_mem.adapters.protocol import SessionRecord
-from harness_mem.adapters.claude_code.project_profile_detector import build_project_profile
+from harness_mem.adapters.claude_code.project_profile_detector import (
+    build_project_profile,
+    normalize_project_root,
+)
 from harness_mem.event_log import EventType, get_event_logger
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -21,16 +27,33 @@ DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
 CONFIG_TOML_PATH = Path.home() / ".harness-mem" / "config.toml"
 LEGACY_CONFIG_JSON_PATH = Path.home() / ".harness-mem" / "config.json"
 
-NATIVE_INGEST_CLIENTS = {"claude-code", "codex", "codex-archive"}
+NATIVE_INGEST_CLIENTS = {"claude-code", "cursor", "codex", "codex-archive"}
 AUTO_DETECT_CLIENTS = {
     "auto",
     "agent",
     "cursor",
+    "grok",
     "antigravity",
     "opencode",
     "hermes",
 }
 SUPPORTED_INGEST_CLIENTS = NATIVE_INGEST_CLIENTS | AUTO_DETECT_CLIENTS
+
+_WORKSPACE_MARKERS = (
+    ".git",
+    ".cursor",
+    ".claude",
+    ".codex",
+    ".grok",
+    ".opencode",
+    ".harness-mem.toml",
+    "pyproject.toml",
+    "package.json",
+    "Cargo.toml",
+    "go.mod",
+    "requirements.txt",
+    "setup.py",
+)
 
 
 # v1.6.1: wake-up bucket quota defaults & validation.
@@ -44,6 +67,32 @@ _BUCKET_QUOTA_TOLERANCE: float = 0.001
 # v1.6.2: embedding model configuration
 DEFAULT_EMBEDDING_MODEL_ID: str = "all-MiniLM-L6-v2"
 EMBEDDING_MODEL_ENV: str = "HARNESS_MEM_EMBEDDING_MODEL_ID"
+PROJECT_ROOT_ENV: str = "HARNESS_MEM_PROJECT_ROOT"
+
+
+@dataclass(frozen=True)
+class ProjectContext:
+    project_name: str
+    project_root: Path | None
+    project_id: str | None
+    source: Literal[
+        "explicit_name",
+        "project_root",
+        "workspace_env",
+        "workspace_cwd",
+        "project_env",
+        "active_project",
+        "prompt",
+    ]
+
+
+@dataclass(frozen=True)
+class HostSourceResolution:
+    requested_client: str
+    host_client: str
+    resolved_client: str | None
+    source_kind: Literal["transcript", "archive", "unavailable"]
+    adapter_available: bool
 
 
 class WakeBucketQuotaError(ValueError):
@@ -246,24 +295,56 @@ def safe_project_slug(project_name: str) -> str:
     return project_name.replace("/", "_").replace("\\", "_").replace(":", "_").replace(" ", "_")
 
 
-def current_agent_client() -> str:
-    """Infer the current assistant runtime for default session ingestion.
+def _detected_runtime_client() -> str:
+    """Infer the current assistant runtime without forcing an adapter fallback.
 
     Explicit native ``HARNESS_MEM_CLIENT`` wins. Generic agent runtime names
-    such as cursor/antigravity/opencode/hermes are treated as auto-detect
-    requests. Otherwise Codex-specific markers win
-    over generic Claude Code environment flags, because Claude-related env vars
-    can be present in nested or bridged shells while ``CODEX_THREAD_ID`` is a
-    stronger signal that the active conversation is a Codex rollout.
+    such as cursor/antigravity/opencode/hermes remain host labels here.
+    Codex-specific markers win over generic Claude Code environment flags,
+    because Claude-related env vars can be present in nested or bridged shells
+    while ``CODEX_THREAD_ID`` is a stronger signal that the active conversation
+    is a native Codex rollout.
     """
     configured = normalize_client_name(os.environ.get("HARNESS_MEM_CLIENT"))
-    if configured in NATIVE_INGEST_CLIENTS:
+    if configured in SUPPORTED_INGEST_CLIENTS and configured not in {"auto", "agent"}:
         return configured
     if os.environ.get("CODEX_THREAD_ID"):
-        return "codex-archive"
+        return "codex"
     if any(key.startswith("CLAUDE_CODE") for key in os.environ):
         return "claude-code"
     return "claude-code"
+
+
+def resolve_host_source(client: str | None) -> HostSourceResolution:
+    """Resolve a requested host/runtime name to an honest ingest source status."""
+    normalized = normalize_client_name(client)
+    if normalized in {"auto", "agent"}:
+        host_client = _detected_runtime_client()
+    else:
+        host_client = normalized
+
+    if host_client in NATIVE_INGEST_CLIENTS:
+        return HostSourceResolution(
+            requested_client=normalized,
+            host_client=host_client,
+            resolved_client=host_client,
+            source_kind="archive" if host_client == "codex-archive" else "transcript",
+            adapter_available=True,
+        )
+
+    return HostSourceResolution(
+        requested_client=normalized,
+        host_client=host_client,
+        resolved_client=host_client if host_client in SUPPORTED_INGEST_CLIENTS else None,
+        source_kind="unavailable",
+        adapter_available=host_client in AdapterRegistry.list(),
+    )
+
+
+def current_agent_client() -> str:
+    """Return the best adapter-backed client for default session ingestion."""
+    resolution = resolve_host_source("auto")
+    return resolution.resolved_client or "claude-code"
 
 
 def normalize_client_name(client: str | None) -> str:
@@ -285,12 +366,8 @@ def normalize_client_name(client: str | None) -> str:
 
 def resolve_ingest_client(client: str | None) -> str:
     """Resolve a requested client to a concrete adapter-backed source."""
-    normalized = normalize_client_name(client)
-    if normalized in NATIVE_INGEST_CLIENTS:
-        return normalized
-    if normalized in AUTO_DETECT_CLIENTS:
-        return current_agent_client()
-    return normalized
+    resolution = resolve_host_source(client)
+    return resolution.resolved_client or normalize_client_name(client)
 
 
 def claude_project_name_from_path(path: Path) -> str:
@@ -450,24 +527,121 @@ def suggested_purge_command(project_name: str | None) -> str:
     )
 
 
+def workspace_root_from_path(path: Path) -> Path:
+    """Normalize a host/CLI workspace path to the canonical project root."""
+    return normalize_project_root(path.expanduser())
+
+
+def stable_project_id(project_root: Path) -> str:
+    root = workspace_root_from_path(project_root)
+    digest = hashlib.sha1(root.as_posix().encode("utf-8")).hexdigest()[:12]
+    return f"proj-{digest}"
+
+
+def project_context_from_root(
+    project_root: Path,
+    *,
+    source: Literal["project_root", "workspace_env", "workspace_cwd"],
+) -> ProjectContext:
+    root = workspace_root_from_path(project_root)
+    project_name = root.name or root.as_posix()
+    return ProjectContext(
+        project_name=project_name,
+        project_root=root,
+        project_id=stable_project_id(root),
+        source=source,
+    )
+
+
+def _looks_like_workspace_root(path: Path) -> bool:
+    if not path.exists() or not path.is_dir():
+        return False
+    return any((path / marker).exists() for marker in _WORKSPACE_MARKERS)
+
+
+def resolve_project_context(
+    project_name: str | None,
+    *,
+    project_root: str | Path | None = None,
+    cwd: Path | None = None,
+    required: bool = True,
+    action_label: str = "this command",
+) -> ProjectContext | None:
+    explicit_name = (project_name or "").strip()
+    if explicit_name:
+        return ProjectContext(
+            project_name=explicit_name,
+            project_root=None,
+            project_id=None,
+            source="explicit_name",
+        )
+
+    root_hint = project_root
+    if root_hint is None:
+        env_root = os.environ.get(PROJECT_ROOT_ENV)
+        if env_root:
+            root_hint = env_root
+    if root_hint is not None:
+        return project_context_from_root(Path(root_hint), source="project_root" if project_root is not None else "workspace_env")
+
+    candidate_cwd = cwd or Path.cwd()
+    if _looks_like_workspace_root(candidate_cwd):
+        return project_context_from_root(candidate_cwd, source="workspace_cwd")
+
+    env_project = (os.environ.get("HARNESS_MEM_PROJECT") or "").strip()
+    if env_project:
+        return ProjectContext(
+            project_name=env_project,
+            project_root=None,
+            project_id=None,
+            source="project_env",
+        )
+
+    active_project = get_active_project()
+    if active_project:
+        return ProjectContext(
+            project_name=active_project,
+            project_root=None,
+            project_id=None,
+            source="active_project",
+        )
+
+    if required and can_prompt():
+        prompted = prompt_text("Project name")
+        if prompted:
+            set_active_project(prompted)
+            return ProjectContext(
+                project_name=prompted,
+                project_root=None,
+                project_id=None,
+                source="prompt",
+            )
+
+    if required:
+        print(
+            f"Project name required for {action_label}. Pass -p/--project, "
+            f"set {PROJECT_ROOT_ENV}, set HARNESS_MEM_PROJECT, run from a workspace "
+            "directory, or call MCP set_active_project first."
+        )
+    return None
+
+
 def resolve_project_name(
     project_name: str | None,
     *,
+    project_root: str | Path | None = None,
+    cwd: Path | None = None,
     required: bool = True,
     action_label: str = "this command",
 ) -> str | None:
-    resolved = project_name or os.environ.get("HARNESS_MEM_PROJECT") or get_active_project()
-    if required and not resolved and can_prompt():
-        resolved = prompt_text("Project name")
-        if resolved:
-            set_active_project(resolved)
-    if required and not resolved:
-        print(
-            f"Project name required for {action_label}. Pass -p/--project, "
-            "set HARNESS_MEM_PROJECT, or call MCP set_active_project first."
-        )
-        return None
-    return resolved
+    context = resolve_project_context(
+        project_name,
+        project_root=project_root,
+        cwd=cwd,
+        required=required,
+        action_label=action_label,
+    )
+    return context.project_name if context else None
 
 
 def project_roots(project_name: str) -> list[Path]:
@@ -495,17 +669,28 @@ def find_project_root(project_name: str) -> Path | None:
     return None
 
 
-async def ensure_project_profile(project_name: str) -> tuple[object | None, Path | None]:
+async def ensure_project_profile(
+    project_name: str,
+    project_root: Path | None = None,
+) -> tuple[object | None, Path | None]:
     profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
     existing = await profile_store.get(project_name)
+    root = workspace_root_from_path(project_root) if project_root is not None else find_project_root(project_name)
     if existing:
-        return existing, None
+        if root is not None:
+            existing.project_root = str(root)
+            existing.project_id = stable_project_id(root)
+            existing.display_name = root.name or project_name
+            await profile_store.save(existing)
+        return existing, root
 
-    root = find_project_root(project_name)
     if root is None:
         return None, None
 
     profile = build_project_profile(root, project_name)
+    profile.project_root = str(root)
+    profile.project_id = stable_project_id(root)
+    profile.display_name = root.name or project_name
     await profile_store.save(profile)
     return profile, root
 
@@ -515,8 +700,21 @@ def recent_claude_sessions(project_name: str, limit: int | None = 3) -> list[Ses
     return adapter.list_sessions(project_name, min_size_kb=0, limit=limit)
 
 
-def recent_codex_sessions(limit: int | None = 3) -> list[SessionRecord]:
-    adapter = AdapterRegistry.build("codex", None)
+def recent_cursor_sessions(
+    project_root: Path | None = None,
+    limit: int | None = 3,
+) -> list[SessionRecord]:
+    root = workspace_root_from_path(project_root or Path.cwd())
+    adapter = AdapterRegistry.build("cursor", None, project_root=root)
+    return adapter.list_sessions(min_size_kb=0, limit=limit)
+
+
+def recent_codex_sessions(
+    project_root: Path | None = None,
+    limit: int | None = 3,
+) -> list[SessionRecord]:
+    root = workspace_root_from_path(project_root or Path.cwd())
+    adapter = AdapterRegistry.build("codex", None, project_root=root)
     return adapter.list_sessions(min_size_kb=0, limit=limit)
 
 
@@ -524,8 +722,12 @@ def claude_session_count(project_name: str) -> int:
     return len(recent_claude_sessions(project_name, limit=None))
 
 
-def codex_session_count() -> int:
-    return len(recent_codex_sessions(limit=None))
+def cursor_session_count(project_root: Path | None = None) -> int:
+    return len(recent_cursor_sessions(project_root=project_root, limit=None))
+
+
+def codex_session_count(project_root: Path | None = None) -> int:
+    return len(recent_codex_sessions(project_root=project_root, limit=None))
 
 
 def session_identifier(session: SessionRecord) -> str:
@@ -560,7 +762,7 @@ def print_recent_sessions(title: str, sessions: list[SessionRecord]) -> None:
 
 
 def codex_scope_note() -> str:
-    return "Codex sessions are global across projects, not project-scoped, and need manual review before ingest."
+    return "Codex native sessions are filtered by workspace cwd; archived rollout imports stay explicit via codex-archive."
 
 
 def profile_text(profile: object | None) -> str:
@@ -621,8 +823,12 @@ def suggested_next_step(
     observation_count: int,
     memory_entry_count: int,
     claude_sessions: list[SessionRecord],
+    cursor_sessions: list[SessionRecord] | None = None,
     codex_sessions: list[SessionRecord],
+    project_root: Path | None = None,
 ) -> tuple[str, str]:
+    resolved_root = workspace_root_from_path(project_root) if project_root is not None else None
+    cursor_sessions = cursor_sessions or []
     if observation_count == 0:
         if claude_sessions:
             latest = session_identifier(claude_sessions[0])
@@ -630,14 +836,40 @@ def suggested_next_step(
                 f'MCP ingest_sessions(project_name="{project_name}", client="claude-code", limit={min(5, len(claude_sessions))})',
                 f"Recent Claude Code sessions were found. Start by ingesting the newest session: {latest}.",
             )
+        if cursor_sessions and resolved_root is not None:
+            latest = session_identifier(cursor_sessions[0])
+            return (
+                (
+                    'MCP ingest_sessions('
+                    f'client="cursor", project_root="{resolved_root.as_posix()}", '
+                    f'limit={min(5, len(cursor_sessions))})'
+                ),
+                (
+                    "Recent Cursor sessions were found for this workspace. "
+                    f"Start by ingesting the newest session: {latest}."
+                ),
+            )
         if codex_sessions:
+            if resolved_root is not None:
+                latest = session_identifier(codex_sessions[0])
+                return (
+                    (
+                        'MCP ingest_sessions('
+                        f'client="codex", project_root="{resolved_root.as_posix()}", '
+                        f'limit={min(5, len(codex_sessions))})'
+                    ),
+                    (
+                        "Recent Codex sessions were found for this workspace. "
+                        f"Start by ingesting the newest session: {latest}."
+                    ),
+                )
             return (
                 f'MCP ingest_sessions(project_name="{project_name}", client="auto", limit={min(5, len(codex_sessions))})',
-                f"{codex_scope_note()} The default auto ingest path is project-scoped; use `--scope all` only for an explicit cross-project import.",
+                f"{codex_scope_note()} Pass project_root to keep ingest workspace-scoped.",
             )
         return (
-            f'MCP ingest_sessions(project_name="{project_name}", client="claude-code", limit=5)',
-            "No local sessions have been ingested yet; ingestion should be driven by the agent through MCP.",
+            f'MCP ingest_sessions(project_name="{project_name}", client="auto", limit=5)',
+            "No local sessions have been ingested yet; MCP auto ingest will use the current host when a native project-scoped adapter is available.",
         )
 
     if memory_entry_count == 0 and claude_sessions:

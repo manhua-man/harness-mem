@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,9 @@ from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     chars_to_tokens,
     disclosure_level,
+    ensure_project_profile,
     get_config,
+    current_agent_client,
     log_command_invoked,
     log_next_step_shown,
     project_ingest_lock_path,
@@ -46,6 +49,13 @@ DEFAULT_AUTO_INGEST_MIN_NEW_SESSIONS = 1
 DEFAULT_AUTO_INGEST_SCAN_THROTTLE_SECONDS = 60
 DEFAULT_AUTO_INGEST_LOCK_TTL_SECONDS = 3600
 DEFAULT_SKILL_HINT_LIMIT = 3
+
+
+@dataclass(frozen=True)
+class AutoSyncRuntimePlan:
+    runtime_client: str
+    sync_client: str | None
+    skip_reason: str | None
 
 
 def _elapsed_ms(start_time: float) -> int:
@@ -353,6 +363,32 @@ def _acquire_ingest_lock(
     return True, None
 
 
+def _auto_sync_runtime_plan() -> AutoSyncRuntimePlan:
+    runtime_client = current_agent_client()
+    if runtime_client in {"claude-code", "cursor", "codex"}:
+        return AutoSyncRuntimePlan(
+            runtime_client=runtime_client,
+            sync_client=runtime_client,
+            skip_reason=None,
+        )
+    if runtime_client == "codex-archive":
+        return AutoSyncRuntimePlan(
+            runtime_client=runtime_client,
+            sync_client=None,
+            skip_reason=(
+                "host codex currently syncs through archived rollouts; "
+                "wake auto-sync stays off for archive imports; use codex-archive ingest explicitly"
+            ),
+        )
+    return AutoSyncRuntimePlan(
+        runtime_client=runtime_client,
+        sync_client=None,
+        skip_reason=(
+            f"host {runtime_client} has no native project-scoped ingest yet"
+        ),
+    )
+
+
 async def _auto_sync_sessions(backend: LocalMemoryBackend, project_name: str) -> None:
     """Perform a light, timed ingestion of new sessions."""
     start_time = time.perf_counter()
@@ -382,6 +418,11 @@ async def _auto_sync_sessions(backend: LocalMemoryBackend, project_name: str) ->
 
 
 async def _perform_sync(backend: LocalMemoryBackend, project_name: str, start_time: float) -> None:
+    plan = _auto_sync_runtime_plan()
+    if plan.sync_client is None:
+        _print_auto_sync_skipped(plan.skip_reason or "unsupported host", start_time)
+        return
+
     config = get_config()
     min_interval_seconds = _wake_int_setting(
         config,
@@ -420,7 +461,14 @@ async def _perform_sync(backend: LocalMemoryBackend, project_name: str, start_ti
         _print_auto_sync_skipped("scan throttle", start_time)
         return
 
-    adapter = AdapterRegistry.build("claude-code", backend)
+    if plan.sync_client in {"cursor", "codex"}:
+        adapter = AdapterRegistry.build(
+            plan.sync_client,
+            backend,
+            project_root=Path.cwd(),
+        )
+    else:
+        adapter = AdapterRegistry.build("claude-code", backend)
     profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
     profile = await profile_store.get(project_name)
     all_sessions = adapter.list_sessions(project_name, min_size_kb=0)
@@ -762,7 +810,11 @@ async def cmd_wake_up(
     bucket-quota ``Memory Entries`` block is superseded by the plan-backed
     L1/L2 rendering, so the flag no longer affects the rendered output.
     """
-    project_name = resolve_project_name(project_name, action_label="wake-up")
+    project_name = resolve_project_name(
+        project_name,
+        project_root=Path.cwd(),
+        action_label="wake-up",
+    )
     if not project_name:
         return 1
 
@@ -782,6 +834,7 @@ async def cmd_wake_up(
 
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
+    await ensure_project_profile(project_name, Path.cwd())
 
     if should_auto_ingest:
         await _auto_sync_sessions(backend, project_name)

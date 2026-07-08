@@ -138,7 +138,7 @@ def main(argv: list[str] | None = None):
     quickstart.add_argument(
         "-c",
         "--client",
-        choices=["auto", "claude-code", "codex", "skip"],
+        choices=["auto", "skip", *SUPPORTED_HOOK_CLIENTS],
         default="auto",
     )
     quickstart.add_argument("-n", "--limit", type=int, default=5)

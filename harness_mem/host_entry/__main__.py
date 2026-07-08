@@ -29,6 +29,11 @@ from typing import Any, Literal, Sequence
 
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import load_merged_config
+from harness_mem.commands.support import (
+    ensure_project_profile,
+    normalize_client_name,
+    resolve_project_context,
+)
 from harness_mem.host_entry.exit_codes import ExitCode
 from harness_mem.host_entry.output import HostEntryResult
 
@@ -38,6 +43,16 @@ logger = logging.getLogger("harness_mem.host_entry")
 
 _VALID_SOURCES = ("user", "agent", "ide_hook")
 _VALID_ACTIONS = ("dream-end", "post-turn-maintenance", "wake-start")
+_VALID_CLIENTS = (
+    "claude-code",
+    "cursor",
+    "grok",
+    "codex",
+    "codex-archive",
+    "hermes",
+    "opencode",
+    "antigravity",
+)
 _MAX_PROJECT_ROOT_CHARS = 4096
 _MAX_TRIGGER_ID_CHARS = 256
 
@@ -114,6 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-root", required=True)
     parser.add_argument("--source", required=True, choices=_VALID_SOURCES)
     parser.add_argument("--trigger-id", default=None)
+    parser.add_argument("--client", choices=_VALID_CLIENTS, default=None)
     return parser
 
 
@@ -151,98 +167,115 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
         logger.error(err)
         return (ExitCode.ARG_VALIDATION_ERROR, None)
 
-    # ---- 2. load merged config (Req 3, Req 4.8) ------------------------
+    client_override = normalize_client_name(getattr(args, "client", None))
+    previous_client_env = os.environ.get("HARNESS_MEM_CLIENT")
+    if client_override and client_override != "auto":
+        os.environ["HARNESS_MEM_CLIENT"] = client_override
+
     try:
-        merged = load_merged_config(args.project_root)
-    except ConfigError as exc:
-        logger.error("config error: %s", exc)
-        return (ExitCode.CONFIG_LOAD_ERROR, None)
+        # ---- 2. load merged config (Req 3, Req 4.8) ------------------------
+        try:
+            merged = load_merged_config(args.project_root)
+        except ConfigError as exc:
+            logger.error("config error: %s", exc)
+            return (ExitCode.CONFIG_LOAD_ERROR, None)
 
-    # ---- 3. build backend ---------------------------------------------
-    from harness_mem.storage.local_memory_backend import (
-        DEFAULT_DATA_DIR,
-        LocalMemoryBackend,
-    )
-    from pathlib import Path
+        # ---- 3. build backend ---------------------------------------------
+        from harness_mem.storage.local_memory_backend import (
+            DEFAULT_DATA_DIR,
+            LocalMemoryBackend,
+        )
+        project_context = resolve_project_context(
+            None,
+            project_root=args.project_root,
+            required=True,
+            action_label=f"host-entry {args.action}",
+        )
+        if project_context is None:
+            return (ExitCode.ARG_VALIDATION_ERROR, None)
+        project_name = project_context.project_name
 
-    # Host entry already has the absolute repo path in hand. Use its basename
-    # as the stable project name, falling back to the full path only for edge
-    # cases such as filesystem roots.
-    project_name = Path(args.project_root).name or args.project_root
+        backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
+        await backend.init()
+        try:
+            if project_context.project_root is not None:
+                await ensure_project_profile(project_name, project_context.project_root)
 
-    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
-    await backend.init()
-    try:
-        if args.action == "wake-start":
-            from harness_mem.commands.wake import build_wake_injection
+            if args.action == "wake-start":
+                from harness_mem.commands.wake import build_wake_injection
 
-            try:
-                text = await build_wake_injection(backend, project_name)
-            except Exception:  # noqa: BLE001 - host entry is total.
-                logger.exception("host_entry caught unhandled wake exception")
-                return (ExitCode.HOOK_FAILED, None)
-            return (ExitCode.SUCCESS, text)
+                try:
+                    text = await build_wake_injection(backend, project_name)
+                except Exception:  # noqa: BLE001 - host entry is total.
+                    logger.exception("host_entry caught unhandled wake exception")
+                    return (ExitCode.HOOK_FAILED, None)
+                return (ExitCode.SUCCESS, text)
 
-        if args.action == "dream-end":
-            try:
-                from harness_mem.commands.dream import dream_auto_tick
+            if args.action == "dream-end":
+                try:
+                    from harness_mem.commands.dream import dream_auto_tick
 
-                dream_payload = await dream_auto_tick(
-                    backend,
-                    project_name=project_name,
-                    project_root=args.project_root,
-                    config=merged,
-                    source=args.source,
+                    dream_payload = await dream_auto_tick(
+                        backend,
+                        project_name=project_name,
+                        project_root=args.project_root,
+                        config=merged,
+                        source=args.source,
+                    )
+                except Exception as exc:  # noqa: BLE001 - host entry is total.
+                    logger.exception("host_entry caught unhandled dream exception")
+                    dream_payload = {
+                        "success": False,
+                        "status": "failed",
+                        "project_name": project_name,
+                        "error": f"{type(exc).__name__}: {exc}"[:512],
+                    }
+                host_result = _dream_tick_host_result(dream_payload)
+                exit_code = (
+                    ExitCode.SUCCESS
+                    if host_result.status in ("completed", "skipped")
+                    else ExitCode.HOOK_FAILED
                 )
-            except Exception as exc:  # noqa: BLE001 - host entry is total.
-                logger.exception("host_entry caught unhandled dream exception")
-                dream_payload = {
-                    "success": False,
-                    "status": "failed",
-                    "project_name": project_name,
-                    "error": f"{type(exc).__name__}: {exc}"[:512],
-                }
-            host_result = _dream_tick_host_result(dream_payload)
-            exit_code = (
-                ExitCode.SUCCESS
-                if host_result.status in ("completed", "skipped")
-                else ExitCode.HOOK_FAILED
-            )
-            return (exit_code, host_result.to_json())
+                return (exit_code, host_result.to_json())
 
-        if args.action == "post-turn-maintenance":
-            try:
-                from harness_mem.commands.maintenance import run_post_turn_maintenance
+            if args.action == "post-turn-maintenance":
+                try:
+                    from harness_mem.commands.maintenance import run_post_turn_maintenance
 
-                maintenance_payload = await run_post_turn_maintenance(
-                    backend,
-                    project_name=project_name,
-                    project_root=args.project_root,
-                    config=merged,
-                    source=args.source,
-                    trigger_id=args.trigger_id,
+                    maintenance_payload = await run_post_turn_maintenance(
+                        backend,
+                        project_name=project_name,
+                        project_root=args.project_root,
+                        config=merged,
+                        source=args.source,
+                        trigger_id=args.trigger_id,
+                    )
+                except Exception as exc:  # noqa: BLE001 - host entry is total.
+                    logger.exception("host_entry caught unhandled post-turn exception")
+                    maintenance_payload = {
+                        "success": False,
+                        "status": "failed",
+                        "action": "post-turn-maintenance",
+                        "project_name": project_name,
+                        "error": f"{type(exc).__name__}: {exc}"[:512],
+                    }
+                post_turn_result = _post_turn_host_result(maintenance_payload)
+                exit_code = (
+                    ExitCode.SUCCESS
+                    if post_turn_result["status"] in ("completed", "skipped")
+                    else ExitCode.HOOK_FAILED
                 )
-            except Exception as exc:  # noqa: BLE001 - host entry is total.
-                logger.exception("host_entry caught unhandled post-turn exception")
-                maintenance_payload = {
-                    "success": False,
-                    "status": "failed",
-                    "action": "post-turn-maintenance",
-                    "project_name": project_name,
-                    "error": f"{type(exc).__name__}: {exc}"[:512],
-                }
-            post_turn_result = _post_turn_host_result(maintenance_payload)
-            exit_code = (
-                ExitCode.SUCCESS
-                if post_turn_result["status"] in ("completed", "skipped")
-                else ExitCode.HOOK_FAILED
-            )
-            return (exit_code, json.dumps(post_turn_result, sort_keys=True))
+                return (exit_code, json.dumps(post_turn_result, sort_keys=True))
 
-        logger.error("unsupported action: %s", args.action)
-        return (ExitCode.ARG_VALIDATION_ERROR, None)
+            logger.error("unsupported action: %s", args.action)
+            return (ExitCode.ARG_VALIDATION_ERROR, None)
+        finally:
+            await backend.close()
     finally:
-        await backend.close()
+        if previous_client_env is None:
+            os.environ.pop("HARNESS_MEM_CLIENT", None)
+        else:
+            os.environ["HARNESS_MEM_CLIENT"] = previous_client_env
 
 
 def main(argv: Sequence[str] | None = None) -> int:

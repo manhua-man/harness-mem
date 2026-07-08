@@ -18,11 +18,13 @@ from harness_mem.adapters.claude_code.project_profile_detector import (
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     claude_project_name_candidates_from_path,
+    ensure_project_profile,
     log_cli_event,
     log_command_invoked,
     project_adapter_cursor_path,
+    resolve_host_source,
     resolve_ingest_client,
-    resolve_project_name,
+    resolve_project_context,
     set_active_project,
 )
 from harness_mem.core.schemas.project_profile import ProjectProfile
@@ -44,16 +46,32 @@ async def cmd_ingest(
     client = resolve_ingest_client(client)
     if client != requested_client:
         print(f"Auto-detected ingest client: {client}")
+    host_source = resolve_host_source(requested_client)
 
-    project_name = resolve_project_name(project_name, action_label=f"{client} ingest")
-    if not project_name:
-        return 1
     resolved_project_root = _resolve_project_root(project_root)
+    project_context = resolve_project_context(
+        project_name,
+        project_root=resolved_project_root,
+        required=True,
+        action_label=f"{client} ingest",
+    )
+    if project_context is None:
+        return 1
+    project_name = project_context.project_name
 
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
     try:
         profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
+        await ensure_project_profile(project_name, resolved_project_root)
+
+        if client not in AdapterRegistry.list():
+            print(
+                f"No native ingest adapter for {host_source.host_client} yet. "
+                "Hook-based wake/maintenance can still run, but transcript ingest "
+                "for this host is not implemented in harness-mem 0.8.20 yet."
+            )
+            return 1
 
         if client == "claude-code":
             return await _ingest_claude_code(
@@ -75,7 +93,12 @@ async def cmd_ingest(
             )
 
         print(f"Ingesting {client} sessions for project: {project_name}")
-        adapter = AdapterRegistry.build(client, backend)
+        adapter_kwargs: dict[str, object] = {}
+        if client in {"cursor", "codex"}:
+            adapter_kwargs["project_root"] = resolved_project_root
+        if client == "codex":
+            adapter_kwargs["scope"] = scope
+        adapter = AdapterRegistry.build(client, backend, **adapter_kwargs)
         result = await adapter.ingest(project_name=project_name, limit=limit, min_size_kb=0)
         return _report_non_claude_ingest_result(
             client=client,

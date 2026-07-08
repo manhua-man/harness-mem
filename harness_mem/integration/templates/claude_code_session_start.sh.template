@@ -11,7 +11,7 @@ set -e
 PROJECT_ROOT=${PROJECT_ROOT_SHELL}
 TURN_ID="$${CLAUDE_CODE_TURN_ID:-session-start}"
 
-python -m harness_mem.host_entry \
+HARNESS_MEM_CLIENT=claude-code python -m harness_mem.host_entry \
     --action wake-start \
     --project-root "$$PROJECT_ROOT" \
     --source ide_hook \

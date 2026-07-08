@@ -604,6 +604,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "codex",
                         "codex-archive",
                         "cursor",
+                        "grok",
                         "antigravity",
                         "opencode",
                         "hermes",
@@ -629,10 +630,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "project_root": {
                     "type": "string",
-                    "description": "Project root for cwd-scoped matching (default: current directory)",
+                    "description": "Project root for directory-first project resolution (default: current directory)",
                 },
             },
-            "required": ["project_name"],
         },
     },
     "prepare_session_distill": {
@@ -650,6 +650,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "codex",
                         "codex-archive",
                         "cursor",
+                        "grok",
                         "antigravity",
                         "opencode",
                         "hermes",
@@ -675,7 +676,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "project_root": {
                     "type": "string",
-                    "description": "Project root for cwd-scoped matching",
+                    "description": "Project root for directory-first project resolution",
                 },
                 "observation_limit": {
                     "type": "integer",
@@ -693,7 +694,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "default": True,
                 },
             },
-            "required": ["project_name"],
         },
     },
     "list_candidates": {

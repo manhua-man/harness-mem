@@ -200,6 +200,7 @@ def completion_fish() -> str:
     commands = " ".join(CLI_COMMANDS + list(CLI_ALIASES.keys()))
     integration_actions = " ".join(INTEGRATION_ACTIONS)
     hook_suite_clients = " ".join(HOOK_SUITE_CLIENTS)
+    client_choices = " ".join(dict.fromkeys(CLIENT_CHOICES))
     return f"""# harness-mem fish completion
 complete -c harness-mem -f
 
@@ -211,7 +212,7 @@ complete -c harness-mem -l completion -x -a "bash zsh fish" -d "Generate complet
 complete -c harness-mem -n '__fish_use_subcommand' -a '{commands}' -d "Command"
 
 # quickstart
-complete -c harness-mem -n '__fish_seen_subcommand_from quickstart; or __fish_seen_subcommand_from qs' -l client -x -a "auto claude-code codex skip" -d "Client"
+complete -c harness-mem -n '__fish_seen_subcommand_from quickstart; or __fish_seen_subcommand_from qs' -l client -x -a "{client_choices}" -d "Client"
 complete -c harness-mem -n '__fish_seen_subcommand_from quickstart; or __fish_seen_subcommand_from qs' -l limit -x -d "Max sessions"
 
 # doctor

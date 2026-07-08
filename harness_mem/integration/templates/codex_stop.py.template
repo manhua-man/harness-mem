@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 
@@ -36,6 +37,7 @@ def main() -> int:
         ],
         capture_output=True,
         check=False,
+        env={**os.environ, "HARNESS_MEM_CLIENT": "codex"},
         text=True,
     )
     if result.stderr:
