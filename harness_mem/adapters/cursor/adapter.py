@@ -35,7 +35,12 @@ class CursorAdapter:
     ) -> None:
         self.backend = backend
         self.projects_dir = projects_dir or DEFAULT_PROJECTS_DIR
-        self.project_root = normalize_project_root(project_root.expanduser()) if project_root is not None else None
+        self.project_root_text = str(project_root) if project_root is not None else None
+        self.project_root = (
+            _normalize_cursor_project_root(project_root)
+            if project_root is not None
+            else None
+        )
 
     def list_sessions(
         self,
@@ -202,7 +207,9 @@ class CursorAdapter:
         target_root = self.project_root
         candidate_names = {
             _normalize_token(value)
-            for value in cursor_project_name_candidates_from_path(target_root)
+            for value in cursor_project_name_candidates_from_path(
+                self.project_root_text or target_root
+            )
         }
         matched = [
             path for path in all_dirs if _normalize_token(path.name) in candidate_names
@@ -212,7 +219,11 @@ class CursorAdapter:
 
         fallback_matches: list[Path] = []
         for project_dir in all_dirs:
-            if self._project_dir_mentions_root(project_dir, target_root):
+            if self._project_dir_mentions_root(
+                project_dir,
+                target_root,
+                root_text=self.project_root_text,
+            ):
                 fallback_matches.append(project_dir)
         if fallback_matches:
             return fallback_matches
@@ -227,13 +238,14 @@ class CursorAdapter:
         return []
 
     @staticmethod
-    def _project_dir_mentions_root(project_dir: Path, project_root: Path) -> bool:
-        native_text = str(project_root)
-        variants = {
-            native_text.lower(),
-            native_text.replace("\\", "\\\\").lower(),
-            project_root.as_posix().lower(),
-        }
+    def _project_dir_mentions_root(
+        project_dir: Path,
+        project_root: Path,
+        *,
+        root_text: str | None = None,
+    ) -> bool:
+        native_text = root_text or str(project_root)
+        variants = _cursor_path_variants(root_text=native_text)
         transcript_dir = project_dir / "agent-transcripts"
         for session_file in transcript_dir.glob("*/*.jsonl"):
             try:
@@ -288,13 +300,9 @@ class CursorAdapter:
         issues.append(issue)
 
 
-def cursor_project_name_candidates_from_path(path: Path) -> list[str]:
-    root = normalize_project_root(path.expanduser())
-    resolved = root.expanduser().resolve()
-    drive = resolved.drive.rstrip(":").lower()
-    parts = list(resolved.parts)
-    if drive and parts:
-        parts = parts[1:]
+def cursor_project_name_candidates_from_path(path: Path | str) -> list[str]:
+    drive, parts = _cursor_path_parts(path)
+    root_name = parts[-1] if parts else Path(str(path)).name
     safe_parts = [
         re.sub(r"[^A-Za-z0-9]+", "-", part).strip("-")
         for part in parts
@@ -302,14 +310,14 @@ def cursor_project_name_candidates_from_path(path: Path) -> list[str]:
     ]
     slug = "-".join(part for part in safe_parts if part)
 
-    candidates = [root.name]
+    candidates = [root_name]
     if drive and slug:
         candidates.append(f"{drive}-{slug}")
     elif slug:
         candidates.append(slug)
 
-    if drive and root.name:
-        candidates.append(f"{drive}-{root.name}")
+    if drive and root_name:
+        candidates.append(f"{drive}-{root_name}")
 
     unique: list[str] = []
     for candidate in candidates:
@@ -321,3 +329,50 @@ def cursor_project_name_candidates_from_path(path: Path) -> list[str]:
 
 def _normalize_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def _normalize_cursor_project_root(path: Path) -> Path:
+    raw = str(path)
+    if _looks_like_windows_absolute_path(raw):
+        return path
+    return normalize_project_root(path.expanduser())
+
+
+def _looks_like_windows_absolute_path(value: str) -> bool:
+    return bool(re.match(r"^[A-Za-z]:[\\/]", value))
+
+
+def _cursor_path_parts(path: Path | str) -> tuple[str, list[str]]:
+    raw = str(path).strip()
+    if _looks_like_windows_absolute_path(raw):
+        normalized = raw.replace("\\", "/")
+        drive = normalized[0].lower()
+        suffix = normalized[2:].lstrip("/")
+        parts = [part for part in suffix.split("/") if part]
+        return drive, parts
+
+    root = normalize_project_root(Path(raw).expanduser())
+    resolved = root.expanduser().resolve()
+    drive = resolved.drive.rstrip(":").lower()
+    parts = list(resolved.parts)
+    if drive and parts:
+        parts = parts[1:]
+    cleaned_parts = [
+        part
+        for part in parts
+        if part not in {"\\", "/"} and part.strip("\\/")
+    ]
+    return drive, cleaned_parts
+
+
+def _cursor_path_variants(*, root_text: str) -> set[str]:
+    normalized = root_text.replace("\\", "/").strip()
+    variants = {
+        root_text.lower(),
+        root_text.replace("\\", "\\\\").lower(),
+        normalized.lower(),
+    }
+    if _looks_like_windows_absolute_path(root_text):
+        variants.add(root_text.replace("/", "\\").lower())
+        variants.add(root_text.replace("/", "\\\\").lower())
+    return {variant for variant in variants if variant}
