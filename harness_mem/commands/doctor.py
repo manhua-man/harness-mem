@@ -24,11 +24,13 @@ from harness_mem.commands.support import (
     claude_session_count,
     codex_scope_note,
     codex_session_count,
+    cursor_session_count,
     get_active_project,
     log_next_step_shown,
     print_recent_sessions,
     project_state,
     recent_claude_sessions,
+    recent_cursor_sessions,
     recent_codex_sessions,
     resolve_project_name,
     find_project_root,
@@ -114,13 +116,17 @@ async def cmd_doctor(project_name: str | None = None) -> int:
         return 1
 
     if resolved_project:
+        project_root = find_project_root(resolved_project) or Path.cwd()
         claude_sessions = recent_claude_sessions(resolved_project, limit=3)
-        codex_sessions = recent_codex_sessions(limit=3)
+        cursor_sessions = recent_cursor_sessions(project_root, limit=3)
+        codex_sessions = recent_codex_sessions(project_root, limit=3)
         print(f"Doctor project: {resolved_project}")
         print(f"Claude Code sessions: {claude_session_count(resolved_project)}")
-        print(f"Codex sessions (global): {codex_session_count()}")
+        print(f"Cursor sessions (workspace-scoped): {cursor_session_count(project_root)}")
+        print(f"Codex sessions (workspace-scoped): {codex_session_count(project_root)}")
         print_recent_sessions("Recent Claude Code sessions:", claude_sessions)
-        print_recent_sessions("Recent Codex sessions (global):", codex_sessions)
+        print_recent_sessions("Recent Cursor sessions:", cursor_sessions)
+        print_recent_sessions("Recent Codex sessions:", codex_sessions)
         if codex_sessions:
             print(f"Note: {codex_scope_note()}")
 
@@ -206,7 +212,9 @@ async def cmd_doctor(project_name: str | None = None) -> int:
                 observation_count=state["observations"],
                 memory_entry_count=state["memory_entries"],
                 claude_sessions=claude_sessions,
+                cursor_sessions=cursor_sessions,
                 codex_sessions=codex_sessions,
+                project_root=project_root,
             )
 
             print()

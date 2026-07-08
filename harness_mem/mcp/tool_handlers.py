@@ -31,6 +31,8 @@ from harness_mem.commands.support import (
     find_project_root,
     get_active_project,
     normalize_client_name,
+    resolve_project_context,
+    resolve_host_source,
     resolve_ingest_client,
     set_active_project,
 )
@@ -2111,7 +2113,7 @@ def tool_undo_dream_item(
 
 
 def tool_ingest_sessions(
-    project_name: str,
+    project_name: str | None = None,
     client: str = "auto",
     limit: int = 10,
     full_rescan: bool = False,
@@ -2123,25 +2125,51 @@ def tool_ingest_sessions(
     if normalized_client not in SUPPORTED_INGEST_CLIENTS:
         return {
             "success": False,
-            "error": "client must be one of: auto, agent, claude-code, codex, codex-archive, cursor, antigravity, opencode, hermes",
+            "error": "client must be one of: auto, agent, claude-code, codex, codex-archive, cursor, grok, antigravity, opencode, hermes",
         }
     if scope not in {"project", "all"}:
         return {"success": False, "error": "scope must be one of: project, all"}
+    host_source = resolve_host_source(normalized_client)
+    project_context = resolve_project_context(
+        project_name,
+        project_root=project_root,
+        required=True,
+        action_label="MCP ingest_sessions",
+    )
+    if project_context is None:
+        return {
+            "success": False,
+            "error": (
+                "project_name could not be resolved. Pass project_name, pass "
+                "project_root, run from a workspace directory, or set an active project."
+            ),
+        }
+    resolved_project_name = project_context.project_name
+    resolved_project_root = (
+        str(project_context.project_root)
+        if project_context.project_root is not None
+        else project_root
+    )
 
     payload = _run_command_to_payload(
         cmd_ingest(
             normalized_client,
-            project_name,
+            resolved_project_name,
             limit,
             full_rescan,
             scope=scope,
-            project_root=project_root,
+            project_root=resolved_project_root,
         )
     )
     return {
-        "project_name": project_name,
+        "project_name": resolved_project_name,
+        "project_root": resolved_project_root,
+        "project_resolution_source": project_context.source,
         "client": normalized_client,
         "resolved_client": resolve_ingest_client(normalized_client),
+        "host_client": host_source.host_client,
+        "source_kind": host_source.source_kind,
+        "adapter_available": host_source.adapter_available,
         "scope": scope,
         "limit": limit,
         **payload,
@@ -2175,7 +2203,7 @@ def _truncate_packet_text(value: str, max_chars: int) -> str:
 
 
 def tool_prepare_session_distill(
-    project_name: str,
+    project_name: str | None = None,
     client: str = "auto",
     limit: int = 5,
     full_rescan: bool = False,
@@ -2196,10 +2224,31 @@ def tool_prepare_session_distill(
     if normalized_client not in SUPPORTED_INGEST_CLIENTS:
         return {
             "success": False,
-            "error": "client must be one of: auto, agent, claude-code, codex, codex-archive, cursor, antigravity, opencode, hermes",
+            "error": "client must be one of: auto, agent, claude-code, codex, codex-archive, cursor, grok, antigravity, opencode, hermes",
         }
     if scope not in {"project", "all"}:
         return {"success": False, "error": "scope must be one of: project, all"}
+    host_source = resolve_host_source(normalized_client)
+    project_context = resolve_project_context(
+        project_name,
+        project_root=project_root,
+        required=True,
+        action_label="MCP prepare_session_distill",
+    )
+    if project_context is None:
+        return {
+            "success": False,
+            "error": (
+                "project_name could not be resolved. Pass project_name, pass "
+                "project_root, run from a workspace directory, or set an active project."
+            ),
+        }
+    resolved_project_name = project_context.project_name
+    resolved_project_root = (
+        str(project_context.project_root)
+        if project_context.project_root is not None
+        else project_root
+    )
 
     effective_limit = max(1, min(int(limit), 50))
     effective_observation_limit = max(1, min(int(observation_limit), 20))
@@ -2212,23 +2261,23 @@ def tool_prepare_session_distill(
     }
     if run_ingest:
         ingest_payload = tool_ingest_sessions(
-            project_name=project_name,
+            project_name=resolved_project_name,
             client=normalized_client,
             limit=effective_limit,
             full_rescan=full_rescan,
             scope=scope,
-            project_root=project_root,
+            project_root=resolved_project_root,
         )
 
     backend = _get_backend()
     observations = asyncio.run(
         _recent_project_observations(
             backend,
-            project_name=project_name,
+            project_name=resolved_project_name,
             limit=effective_observation_limit,
         )
     )
-    counts = asyncio.run(_gather_project_status(backend, project_name))
+    counts = asyncio.run(_gather_project_status(backend, resolved_project_name))
 
     packet_observations = []
     for observation in observations:
@@ -2251,10 +2300,14 @@ def tool_prepare_session_distill(
 
     return {
         "success": bool(packet_observations) or bool(ingest_payload.get("success")),
-        "project_name": project_name,
-        "project_root": project_root,
+        "project_name": resolved_project_name,
+        "project_root": resolved_project_root,
+        "project_resolution_source": project_context.source,
         "client": normalized_client,
         "resolved_client": resolve_ingest_client(normalized_client),
+        "host_client": host_source.host_client,
+        "source_kind": host_source.source_kind,
+        "adapter_available": host_source.adapter_available,
         "scope": scope,
         "limit": effective_limit,
         "ingest": ingest_payload,

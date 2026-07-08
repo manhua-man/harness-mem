@@ -64,8 +64,10 @@ def test_dream_end_hook_templates_use_explicit_action(tmp_path: Path) -> None:
         assert "metabolism" not in body.lower()
         assert ">/dev/null 2>&1" in body
         if template == "cursor_after_agent.sh.template":
+            assert "HARNESS_MEM_CLIENT=cursor" in body
             assert "install-cursor-suite" in body
         else:
+            assert "HARNESS_MEM_CLIENT=claude-code" in body
             assert "install-claude-suite" in body
 
 
@@ -83,6 +85,10 @@ def test_wake_start_hook_templates_keep_stdout_for_injection(tmp_path: Path) -> 
         assert "metabolism" not in body.lower()
         assert ">/dev/null 2>&1" not in body
         assert "2>/dev/null" in body
+        if template == "cursor_session_start.sh.template":
+            assert "HARNESS_MEM_CLIENT=cursor" in body
+        else:
+            assert "HARNESS_MEM_CLIENT=claude-code" in body
 
 
 def test_shell_hook_templates_shell_quote_project_root(tmp_path: Path) -> None:
@@ -129,21 +135,25 @@ def test_new_host_adapter_templates_render_expected_protocol_bridges(tmp_path: P
     codex_stop = _install_template(tmp_path, "codex_stop.py.template")
     assert '"harness_mem.host_entry"' in codex_stop
     assert '"post-turn-maintenance"' in codex_stop
+    assert '"HARNESS_MEM_CLIENT": "codex"' in codex_stop
     assert 'sys.stdout.write("{}\\n")' in codex_stop
 
     hermes_pre = _install_template(tmp_path, "hermes_pre_llm_call.py.template")
     assert '"wake-start"' in hermes_pre
     assert '"harness_mem.host_entry"' in hermes_pre
+    assert '"HARNESS_MEM_CLIENT": "hermes"' in hermes_pre
     assert '"context"' in hermes_pre
 
     hermes_post = _install_template(tmp_path, "hermes_post_llm_call.py.template")
     assert '"post-turn-maintenance"' in hermes_post
     assert '"harness_mem.host_entry"' in hermes_post
+    assert '"HARNESS_MEM_CLIENT": "hermes"' in hermes_post
     assert 'sys.stdout.write("{}\\n")' in hermes_post
 
     opencode = _install_template(tmp_path, "opencode_plugin.ts.template")
     assert "session.created" in opencode
     assert "session.idle" in opencode
+    assert 'process.env.HARNESS_MEM_CLIENT = clientName' in opencode
     assert "python -m harness_mem.host_entry --action wake-start" in opencode
     assert "python -m harness_mem.host_entry --action post-turn-maintenance" in opencode
 
@@ -210,12 +220,14 @@ def test_cmd_install_hook_suite_supports_project_local_new_clients(tmp_path: Pat
     grok_body = grok_manifest.read_text(encoding="utf-8")
     assert '"SessionStart"' in grok_body
     assert '"Stop"' in grok_body
+    assert "--client grok" in grok_body
 
     assert cmd_install_hook_suite("codex", str(tmp_path), False) == 0
     codex_hooks = tmp_path / ".codex" / "hooks.json"
     codex_stop = tmp_path / ".codex" / "hooks" / "harness_mem_stop.py"
     assert codex_hooks.exists()
     assert codex_stop.exists()
+    assert "--client codex" in codex_hooks.read_text(encoding="utf-8")
     assert "harness_mem_stop.py" in codex_hooks.read_text(encoding="utf-8")
     assert '"post-turn-maintenance"' in codex_stop.read_text(encoding="utf-8")
 

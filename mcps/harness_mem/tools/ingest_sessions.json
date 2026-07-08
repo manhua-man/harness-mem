@@ -17,6 +17,7 @@
           "codex",
           "codex-archive",
           "cursor",
+          "grok",
           "antigravity",
           "opencode",
           "hermes"
@@ -45,11 +46,8 @@
       },
       "project_root": {
         "type": "string",
-        "description": "Project root for cwd-scoped matching (default: current directory)"
+        "description": "Project root for directory-first project resolution (default: current directory)"
       }
-    },
-    "required": [
-      "project_name"
-    ]
+    }
   }
 }

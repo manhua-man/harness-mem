@@ -104,7 +104,7 @@ def _python_script_command(script_path: Path) -> str:
     return f"python {_quote_hook_arg(script_path.resolve().as_posix())}"
 
 
-def _host_entry_command(action: str, root: Path, trigger_id: str) -> str:
+def _host_entry_command(action: str, root: Path, trigger_id: str, client: str) -> str:
     return " ".join(
         [
             "python",
@@ -118,6 +118,8 @@ def _host_entry_command(action: str, root: Path, trigger_id: str) -> str:
             "ide_hook",
             "--trigger-id",
             _quote_hook_arg(trigger_id),
+            "--client",
+            client,
         ]
     )
 
@@ -152,13 +154,14 @@ def _suite_specs(client: str, root: Path) -> tuple[HookSpec, ...]:
                 root / ".grok" / "hooks" / "harness-mem.json",
                 template_vars={
                     "WAKE_COMMAND_JSON": json.dumps(
-                        _host_entry_command("wake-start", root, "grok-session-start")
+                        _host_entry_command("wake-start", root, "grok-session-start", "grok")
                     ),
                     "POST_TURN_COMMAND_JSON": json.dumps(
                         _host_entry_command(
                             "post-turn-maintenance",
                             root,
                             "grok-stop",
+                            "grok",
                         )
                     ),
                 },
@@ -172,7 +175,7 @@ def _suite_specs(client: str, root: Path) -> tuple[HookSpec, ...]:
                 root / ".codex" / "hooks.json",
                 template_vars={
                     "WAKE_COMMAND_JSON": json.dumps(
-                        _host_entry_command("wake-start", root, "codex-session-start")
+                        _host_entry_command("wake-start", root, "codex-session-start", "codex")
                     ),
                     "STOP_COMMAND_JSON": json.dumps(
                         _python_script_command(stop_script)

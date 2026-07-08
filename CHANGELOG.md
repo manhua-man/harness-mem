@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## [0.8.20] - 2026-07-09
+
+### Added
+
+- Directory-first project resolution across CLI, MCP ingest/session-distill,
+  wake, and host-entry flows; new workspaces can auto-create project profile
+  metadata from the current root.
+- Real Cursor transcript ingest for
+  `~/.cursor/projects/*/agent-transcripts/**/*.jsonl` with project-root
+  matching.
+- Native Codex rollout ingest for current
+  `~/.codex/sessions/**/rollout-*.jsonl` files, filtered by recorded session
+  `cwd`.
+- `display_name`, `project_root`, and `project_id` metadata on project
+  profiles.
+
+### Changed
+
+- `active_project.txt` is now a fallback selector behind explicit
+  `project_name`, `project_root`, workspace env, and workspace cwd.
+- Host resolution is honest: Cursor and Codex use real adapters; Grok, Hermes,
+  OpenCode, and similar host labels no longer silently alias to Claude ingest.
+- Wake auto-sync can use project-scoped Cursor and Codex sessions; archived
+  Codex imports remain explicit through `codex-archive`.
+- Doctor, quickstart, status hints, and MCP responses now report resolved host
+  source details and workspace-scoped session counts.
+
 ## [0.8.19] - 2026-07-07
 
 ### Fixed

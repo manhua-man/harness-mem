@@ -16,6 +16,18 @@ class ProjectProfile(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     project_name: str
+    display_name: str | None = Field(
+        default=None,
+        description="Human-facing label, usually the workspace directory basename.",
+    )
+    project_root: str | None = Field(
+        default=None,
+        description="Canonical absolute workspace root used to identify this project on disk.",
+    )
+    project_id: str | None = Field(
+        default=None,
+        description="Stable path-derived identity for directory-first project resolution.",
+    )
     description: str = ""
     stacks: list[str] = Field(
         default_factory=list,
@@ -79,6 +91,9 @@ class ProjectProfile(BaseModel):
         return {
             "id": self.id,
             "project_name": self.project_name,
+            "display_name": self.display_name,
+            "project_root": self.project_root,
+            "project_id": self.project_id,
             "description": self.description,
             "stacks": self.stacks,
             "key_files": self.key_files,
