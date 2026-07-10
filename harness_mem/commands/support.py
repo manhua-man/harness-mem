@@ -27,7 +27,7 @@ DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
 CONFIG_TOML_PATH = Path.home() / ".harness-mem" / "config.toml"
 LEGACY_CONFIG_JSON_PATH = Path.home() / ".harness-mem" / "config.json"
 
-NATIVE_INGEST_CLIENTS = {"claude-code", "cursor", "codex", "codex-archive"}
+NATIVE_INGEST_CLIENTS = {"claude-code", "cursor", "codex", "codex-archive", "grok"}
 AUTO_DETECT_CLIENTS = {
     "auto",
     "agent",
@@ -718,6 +718,15 @@ def recent_codex_sessions(
     return adapter.list_sessions(min_size_kb=0, limit=limit)
 
 
+def recent_grok_sessions(
+    project_root: Path | None = None,
+    limit: int | None = 3,
+) -> list[SessionRecord]:
+    root = workspace_root_from_path(project_root or Path.cwd())
+    adapter = AdapterRegistry.build("grok", None, project_root=root)
+    return adapter.list_sessions(min_size_kb=0, limit=limit)
+
+
 def claude_session_count(project_name: str) -> int:
     return len(recent_claude_sessions(project_name, limit=None))
 
@@ -728,6 +737,10 @@ def cursor_session_count(project_root: Path | None = None) -> int:
 
 def codex_session_count(project_root: Path | None = None) -> int:
     return len(recent_codex_sessions(project_root=project_root, limit=None))
+
+
+def grok_session_count(project_root: Path | None = None) -> int:
+    return len(recent_grok_sessions(project_root=project_root, limit=None))
 
 
 def session_identifier(session: SessionRecord) -> str:
@@ -824,11 +837,13 @@ def suggested_next_step(
     memory_entry_count: int,
     claude_sessions: list[SessionRecord],
     cursor_sessions: list[SessionRecord] | None = None,
+    grok_sessions: list[SessionRecord] | None = None,
     codex_sessions: list[SessionRecord],
     project_root: Path | None = None,
 ) -> tuple[str, str]:
     resolved_root = workspace_root_from_path(project_root) if project_root is not None else None
     cursor_sessions = cursor_sessions or []
+    grok_sessions = grok_sessions or []
     if observation_count == 0:
         if claude_sessions:
             latest = session_identifier(claude_sessions[0])
@@ -866,6 +881,19 @@ def suggested_next_step(
             return (
                 f'MCP ingest_sessions(project_name="{project_name}", client="auto", limit={min(5, len(codex_sessions))})',
                 f"{codex_scope_note()} Pass project_root to keep ingest workspace-scoped.",
+            )
+        if grok_sessions and resolved_root is not None:
+            latest = session_identifier(grok_sessions[0])
+            return (
+                (
+                    'MCP ingest_sessions('
+                    f'client="grok", project_root="{resolved_root.as_posix()}", '
+                    f'limit={min(5, len(grok_sessions))})'
+                ),
+                (
+                    "Recent Grok sessions were found for this workspace. "
+                    f"Start by ingesting the newest session: {latest}."
+                ),
             )
         return (
             f'MCP ingest_sessions(project_name="{project_name}", client="auto", limit=5)',

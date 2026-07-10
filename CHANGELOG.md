@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## [0.8.22] - 2026-07-10
+
+### Added
+
+- Native Grok transcript ingest for
+  `~/.grok/sessions/<url-encoded-project-root>/<session>/chat_history.jsonl`,
+  including project-root scoped listing, transcript parsing, duplicate-skip
+  behavior, and MCP `ingest_sessions(client="grok", project_root=...)`.
+
+### Changed
+
+- Grok now resolves as an adapter-backed transcript source; Hermes and OpenCode
+  remain unavailable until their transcript paths and schemas are proven with
+  local fixtures.
+
 ## [0.8.21.1] - 2026-07-10
 
 ### Added

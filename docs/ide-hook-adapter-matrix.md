@@ -33,6 +33,11 @@ The checked-in templates live in `harness_mem/integration/templates/` and are
 wired by `_suite_specs()` plus the Hermes config installer in
 `harness_mem/commands/integration_cmds.py`.
 
+Native transcript ingest is narrower than hook installation: Claude Code,
+Cursor, Codex, and Grok have adapter-backed transcript sources. Hermes and
+OpenCode hook installation can run wake/maintenance, but transcript ingest
+stays unavailable until their session file layouts are verified.
+
 ## Runtime diagnostics
 
 Run `harness-mem doctor` from the project root to inspect hook runtime state.
@@ -50,8 +55,8 @@ host-entry import/runtime failures that are normally silenced by fail-open
 hook behavior.
 
 Run `harness-mem integration transcript-evidence` to inspect local transcript
-evidence separately from hook-install support. As of `0.8.21.1`, this report
-can verify Grok's project-scoped `chat_history.jsonl` layout when it exists on
+evidence separately from hook-install support. As of `0.8.22`, Grok's
+project-scoped `chat_history.jsonl` layout is adapter-backed when present on
 the machine, while Hermes and OpenCode remain `insufficient_evidence` or
 `missing` until a real transcript path and schema are captured.
 

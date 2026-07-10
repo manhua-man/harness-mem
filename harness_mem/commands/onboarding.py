@@ -16,6 +16,7 @@ from harness_mem.commands.support import (
     ensure_data_dir,
     ensure_project_profile,
     get_active_project,
+    grok_session_count,
     log_next_step_shown,
     print_recent_sessions,
     project_state,
@@ -23,6 +24,7 @@ from harness_mem.commands.support import (
     recent_claude_sessions,
     recent_cursor_sessions,
     recent_codex_sessions,
+    recent_grok_sessions,
     resolve_project_name,
     set_active_project,
     suggested_next_step,
@@ -67,15 +69,19 @@ async def cmd_quickstart(
     claude_sessions = recent_claude_sessions(project_name, limit=limit or 3)
     cursor_sessions = recent_cursor_sessions(workspace_root, limit=limit or 3)
     codex_sessions = recent_codex_sessions(workspace_root, limit=limit or 3)
+    grok_sessions = recent_grok_sessions(workspace_root, limit=limit or 3)
     claude_count = claude_session_count(project_name)
     cursor_count = cursor_session_count(workspace_root)
     codex_count = codex_session_count(workspace_root)
+    grok_count = grok_session_count(workspace_root)
     print(f"Claude Code sessions: {claude_count}")
     print(f"Cursor sessions (workspace-scoped): {cursor_count}")
     print(f"Codex sessions (workspace-scoped): {codex_count}")
+    print(f"Grok sessions (workspace-scoped): {grok_count}")
     print_recent_sessions("Recent Claude Code sessions:", claude_sessions)
     print_recent_sessions("Recent Cursor sessions:", cursor_sessions)
     print_recent_sessions("Recent Codex sessions:", codex_sessions)
+    print_recent_sessions("Recent Grok sessions:", grok_sessions)
     if codex_count:
         print(f"Note: {codex_scope_note()}")
 
@@ -85,6 +91,7 @@ async def cmd_quickstart(
         claude_count=claude_count,
         cursor_count=cursor_count,
         codex_count=codex_count,
+        grok_count=grok_count,
     )
 
     if selected_client == "claude-code" and claude_count == 0:
@@ -95,6 +102,9 @@ async def cmd_quickstart(
         selected_client = "skip"
     elif selected_client == "codex" and codex_count == 0:
         print("No Codex sessions matched the current workspace, so ingest was skipped.")
+        selected_client = "skip"
+    elif selected_client == "grok" and grok_count == 0:
+        print("No Grok sessions matched the current workspace, so ingest was skipped.")
         selected_client = "skip"
     elif selected_client == "codex":
         print(f"Note: {codex_scope_note()}")
@@ -118,6 +128,7 @@ async def cmd_quickstart(
         memory_entry_count=state["memory_entries"],
         claude_sessions=claude_sessions,
         cursor_sessions=cursor_sessions,
+        grok_sessions=grok_sessions,
         codex_sessions=codex_sessions,
         project_root=workspace_root,
     )
@@ -139,16 +150,21 @@ def _choose_quickstart_client(
     claude_count: int,
     cursor_count: int,
     codex_count: int,
+    grok_count: int,
 ) -> str:
     selected_client = requested_client
     if selected_client == "auto":
         if current_client == "cursor" and cursor_count > 0:
             return "cursor"
+        if current_client == "grok" and grok_count > 0:
+            return "grok"
         if claude_count > 0:
             return "claude-code"
         if cursor_count > 0:
             return "cursor"
         if codex_count > 0:
             return "codex"
+        if grok_count > 0:
+            return "grok"
         return "skip"
     return selected_client

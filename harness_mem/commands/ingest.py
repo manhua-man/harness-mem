@@ -95,7 +95,7 @@ async def cmd_ingest(
 
         print(f"Ingesting {client} sessions for project: {project_name}")
         adapter_kwargs: dict[str, object] = {}
-        if client in {"cursor", "codex"}:
+        if client in {"cursor", "codex", "grok"}:
             adapter_kwargs["project_root"] = resolved_project_root
         if client == "codex":
             adapter_kwargs["scope"] = scope

@@ -94,13 +94,13 @@ def test_resolve_ingest_client_no_longer_aliases_cursor_to_claude() -> None:
     assert support.resolve_ingest_client("cursor") == "cursor"
 
 
-def test_resolve_host_source_keeps_grok_label_without_fake_adapter() -> None:
+def test_resolve_host_source_uses_native_grok_adapter() -> None:
     resolution = support.resolve_host_source("grok")
 
     assert resolution.host_client == "grok"
     assert resolution.resolved_client == "grok"
-    assert resolution.source_kind == "unavailable"
-    assert resolution.adapter_available is False
+    assert resolution.source_kind == "transcript"
+    assert resolution.adapter_available is True
 
 
 def test_current_agent_client_prefers_explicit_cursor_env(monkeypatch) -> None:

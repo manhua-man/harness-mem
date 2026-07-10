@@ -43,7 +43,7 @@ def test_collect_transcript_evidence_verifies_grok_project_bucket(
     assert report.session_count == 2
     assert len(report.sample_files) == 1
     assert report.sample_files[0].name == "chat_history.jsonl"
-    assert report.adapter_available is False
+    assert report.adapter_available is True
 
 
 def test_collect_transcript_evidence_keeps_unknown_hosts_unavailable(

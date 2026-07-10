@@ -1,4 +1,4 @@
-"""Adapters — session ingestion adapters for Claude Code, Cursor, and Codex.
+"""Adapters — session ingestion adapters for Claude Code, Cursor, Codex, and Grok.
 
 Registry provides minimal contract for adapter discovery.
 """
@@ -11,6 +11,7 @@ from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
 from harness_mem.adapters.cursor.adapter import CursorAdapter
 from harness_mem.adapters.codex.adapter import CodexAdapter
 from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
+from harness_mem.adapters.grok.adapter import GrokAdapter
 from harness_mem.adapters.protocol import SessionAdapter
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 
@@ -25,6 +26,7 @@ class AdapterRegistry:
         "cursor": CursorAdapter,
         "codex": CodexAdapter,
         "codex-archive": CodexArchiveAdapter,
+        "grok": GrokAdapter,
     }
 
     @classmethod
@@ -62,5 +64,6 @@ __all__ = [
     "ClaudeCodeAdapter",
     "CursorAdapter",
     "CodexAdapter",
+    "GrokAdapter",
     "SessionAdapter",
 ]
