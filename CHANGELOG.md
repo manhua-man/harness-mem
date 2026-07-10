@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## [0.8.21.1] - 2026-07-10
+
+### Added
+
+- `harness-mem integration transcript-evidence` reports local transcript
+  evidence separately from adapter availability for Grok, Hermes, and
+  OpenCode.
+- Grok evidence discovery verifies the concrete
+  `~/.grok/sessions/<url-encoded-project-root>/<session>/chat_history.jsonl`
+  layout before marking a host as `verified_transcript_path`.
+
+### Changed
+
+- Hermes and OpenCode remain explicitly unavailable for transcript ingest when
+  only host roots or no local files are found; the report no longer lets hook
+  install support be mistaken for transcript adapter support.
+
 ## [0.8.21] - 2026-07-10
 
 ### Added

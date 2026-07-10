@@ -36,6 +36,11 @@ from harness_mem.integration.installer import (
     install_hook,
     install_hook_suite,
 )
+from harness_mem.transcript_evidence import (
+    EVIDENCE_CLIENTS,
+    collect_transcript_evidence,
+    render_transcript_evidence,
+)
 
 __all__ = [
     "SUPPORTED_HOOK_CLIENTS",
@@ -48,6 +53,7 @@ __all__ = [
     "cmd_install_claude_suite",
     "cmd_list_command_profiles",
     "cmd_sync_commands",
+    "cmd_transcript_evidence",
 ]
 
 # Canonical operator-facing doc the generated hook headers point at.
@@ -281,6 +287,16 @@ def cmd_install_claude_suite(project_root: str | None, force: bool) -> int:
 def cmd_install_hook_suite(client: str, project_root: str | None, force: bool) -> int:
     """Generate the complete hook suite for one supported client."""
     return _install_suite(client, project_root, force)
+
+
+def cmd_transcript_evidence(client: str, project_root: str | None) -> int:
+    """Print factual local transcript evidence for host adapters."""
+
+    root = _resolve_project_root(project_root)
+    clients = EVIDENCE_CLIENTS if client == "all" else (client,)
+    reports = collect_transcript_evidence(root, clients=clients)
+    print(render_transcript_evidence(reports))
+    return 0
 
 
 def cmd_list_command_profiles() -> int:

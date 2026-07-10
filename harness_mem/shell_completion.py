@@ -34,12 +34,13 @@ INTEGRATION_ACTIONS = [
     "install-cursor-suite",
     "install-claude-suite",
     "install-hook-suite",
+    "transcript-evidence",
     "commands",
 ]
 INTEGRATION_COMMAND_ACTIONS = ["list", "sync"]
 COMMAND_PROFILES = ["daily"]
 HOOK_SUITE_CLIENTS = ["cursor", "claude-code", "grok", "codex", "hermes", "opencode"]
-CLIENT_CHOICES = ["auto", "claude-code", "codex", "skip", *HOOK_SUITE_CLIENTS]
+CLIENT_CHOICES = ["auto", "all", "claude-code", "codex", "skip", *HOOK_SUITE_CLIENTS]
 
 
 def _build_parser() -> argparse.ArgumentParser:

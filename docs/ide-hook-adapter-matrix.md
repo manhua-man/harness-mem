@@ -49,6 +49,12 @@ hooks, set `HARNESS_MEM_HOOK_DEBUG=1` before launching the IDE to surface
 host-entry import/runtime failures that are normally silenced by fail-open
 hook behavior.
 
+Run `harness-mem integration transcript-evidence` to inspect local transcript
+evidence separately from hook-install support. As of `0.8.21.1`, this report
+can verify Grok's project-scoped `chat_history.jsonl` layout when it exists on
+the machine, while Hermes and OpenCode remain `insufficient_evidence` or
+`missing` until a real transcript path and schema are captured.
+
 ## Host matrix
 
 | Host | Native hook surface | Where hooks live | Good `harness-mem` event mapping | Adapter shape we would need | Status |
