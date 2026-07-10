@@ -48,6 +48,7 @@ from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 from harness_mem.storage.canonical_store import canonical_store_health
 from harness_mem.governance_status import LEGACY_ACCEPTED_STATUS
+from harness_mem.hook_runtime import HookRuntimeReport, collect_hook_runtime_report
 from harness_mem.version import runtime_version_payload
 
 logger = logging.getLogger(__name__)
@@ -248,6 +249,7 @@ async def cmd_doctor(project_name: str | None = None) -> int:
                     data_dir=backend.data_dir,
                 )
             )
+            _doctor_hook_runtime_block(collect_hook_runtime_report(project_root))
             print("📍 Phase: Ready")
             print(f"→ Next: {next_command}")
             print(f"   Why: {reason}")
@@ -1180,6 +1182,67 @@ def _doctor_distribution_block(distribution: dict[str, Any]) -> None:
             print(f"❌  {warning}")
         else:
             print(f"⚠️  {warning}")
+
+
+def _doctor_hook_runtime_block(report: HookRuntimeReport) -> None:
+    """Render project-scoped hook runtime diagnostics."""
+
+    print("Hook runtime:")
+    probe = report.python_probe
+    command = " ".join(probe.command)
+    if probe.ok:
+        details = [
+            f"executable={probe.executable or 'unknown'}",
+            f"python={probe.python_version or 'unknown'}",
+            f"harness-mem={probe.harness_mem_version or 'unknown'}",
+        ]
+        print(f"  current shell python ({command}): ok | " + " | ".join(details))
+    else:
+        print(f"  current shell python ({command}): unavailable")
+        if probe.error:
+            print(f"    error: {_doctor_one_line(probe.error)}")
+        print(
+            "    fix: install harness-mem into the Python visible to generated "
+            "hooks, or launch the IDE with that Python on PATH."
+        )
+
+    installed = [hook for hook in report.hooks if hook.exists]
+    missing = len(report.hooks) - len(installed)
+    if not installed:
+        print(f"  hook files: none installed ({missing} known artifact(s) missing)")
+    else:
+        print(f"  hook files: {len(installed)} installed / {missing} missing")
+        for hook in installed:
+            boundary = "host_entry" if hook.contains_host_entry else "no host_entry"
+            if hook.project_root_match:
+                root_match = "project-root match"
+            else:
+                root_match = "project-root not found"
+            scope = "global" if hook.scope == "global" else "project"
+            print(
+                f"    {hook.client} {hook.label}: {boundary}, {root_match} "
+                f"[{scope}] ({_doctor_hook_path(report.project_root, hook.path)})"
+            )
+
+    print(f"  note: {report.ide_env_note}")
+    print(
+        "  debug: set HARNESS_MEM_HOOK_DEBUG=1 before launching the IDE "
+        "to surface hook failures."
+    )
+
+
+def _doctor_hook_path(project_root: Path, path: Path) -> str:
+    try:
+        return path.resolve().relative_to(project_root.resolve()).as_posix()
+    except ValueError:
+        return path.expanduser().resolve().as_posix()
+    except OSError:
+        return str(path)
+
+
+def _doctor_one_line(text: str) -> str:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-1] if lines else ""
 
 
 def _load_project_dream_config(project_name: str) -> MergedConfig | None:

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## [0.8.21] - 2026-07-10
+
+### Added
+
+- `doctor` now reports hook runtime diagnostics: installed hook artifacts,
+  current-shell Python import status, the resolved executable/version, and
+  whether generated hooks still point at the inspected project root.
+- Cursor and Claude Code shell hooks now support `HARNESS_MEM_HOOK_DEBUG=1` so
+  import/runtime failures can surface during IDE startup or post-turn execution
+  while normal hook runs remain fail-open.
+
+### Fixed
+
+- Unimplemented-host ingest guidance now uses the runtime version instead of a
+  hardcoded release number.
+
 ## [0.8.20] - 2026-07-09
 
 ### Added

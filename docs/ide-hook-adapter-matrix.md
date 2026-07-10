@@ -33,6 +33,22 @@ The checked-in templates live in `harness_mem/integration/templates/` and are
 wired by `_suite_specs()` plus the Hermes config installer in
 `harness_mem/commands/integration_cmds.py`.
 
+## Runtime diagnostics
+
+Run `harness-mem doctor` from the project root to inspect hook runtime state.
+The `Hook runtime` block reports:
+
+- whether the current shell `python` can import `harness_mem`
+- the resolved Python executable, Python version, and harness-mem version
+- which generated hook artifacts are installed
+- whether installed hook files still contain the current project root
+
+This probe uses the current shell environment. IDE hook processes can still see
+a different `PATH` or virtual environment. For Cursor and Claude Code shell
+hooks, set `HARNESS_MEM_HOOK_DEBUG=1` before launching the IDE to surface
+host-entry import/runtime failures that are normally silenced by fail-open
+hook behavior.
+
 ## Host matrix
 
 | Host | Native hook surface | Where hooks live | Good `harness-mem` event mapping | Adapter shape we would need | Status |
