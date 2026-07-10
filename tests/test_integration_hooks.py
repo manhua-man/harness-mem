@@ -63,6 +63,8 @@ def test_dream_end_hook_templates_use_explicit_action(tmp_path: Path) -> None:
         assert "reflection" not in body.lower()
         assert "metabolism" not in body.lower()
         assert ">/dev/null 2>&1" in body
+        assert "HARNESS_MEM_HOOK_DEBUG" in body
+        assert "harness_mem.host_entry failed" in body
         if template == "cursor_after_agent.sh.template":
             assert "HARNESS_MEM_CLIENT=cursor" in body
             assert "install-cursor-suite" in body
@@ -85,6 +87,8 @@ def test_wake_start_hook_templates_keep_stdout_for_injection(tmp_path: Path) -> 
         assert "metabolism" not in body.lower()
         assert ">/dev/null 2>&1" not in body
         assert "2>/dev/null" in body
+        assert "HARNESS_MEM_HOOK_DEBUG" in body
+        assert "harness_mem.host_entry failed" in body
         if template == "cursor_session_start.sh.template":
             assert "HARNESS_MEM_CLIENT=cursor" in body
         else:

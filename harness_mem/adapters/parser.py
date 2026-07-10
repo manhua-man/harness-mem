@@ -277,6 +277,118 @@ def _render_cursor_content_items(content_items: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Grok .jsonl parser
+# ---------------------------------------------------------------------------
+
+def parse_grok_jsonl_session(
+    session_path: Path,
+    *,
+    max_user_chars: int = 2000,
+    max_assistant_chars: int = 1000,
+    max_tool_input_chars: int = 300,
+    issues: list[Issue] | None = None,
+) -> list[Turn]:
+    """Parse a Grok CLI ``chat_history.jsonl`` session into turns."""
+
+    issues = issues if issues is not None else []
+    turns: list[Turn] = []
+    current_turn: Turn | None = None
+
+    try:
+        content = session_path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError as exc:
+        raise ValueError(
+            f"unable to read file ({type(exc).__name__}: {exc})"
+        ) from exc
+
+    scan_result = scan_jsonl(content)
+    malformed_lines = len(scan_result.errors)
+    valid_records = len(scan_result.records)
+    nonempty_lines = valid_records + malformed_lines
+
+    for record in scan_result.records:
+        record_type = record.get("type")
+        if record_type == "user":
+            user_text = _render_grok_content(record.get("content"))
+            if user_text:
+                current_turn = {
+                    "user": user_text[:max_user_chars],
+                    "assistant": [],
+                    "tools": [],
+                }
+                turns.append(current_turn)
+            continue
+
+        if record_type == "assistant":
+            if current_turn is None:
+                current_turn = {"user": "", "assistant": [], "tools": []}
+                turns.append(current_turn)
+            assistant_text = _render_grok_content(record.get("content"))
+            if assistant_text:
+                current_turn["assistant"].append(assistant_text[:max_assistant_chars])
+            for tool_call in record.get("tool_calls") or []:
+                if not isinstance(tool_call, dict):
+                    continue
+                tool_name = str(tool_call.get("name") or "")
+                if tool_name:
+                    current_turn["tools"].append(
+                        {
+                            "name": tool_name,
+                            "input": str(tool_call.get("arguments") or "")[
+                                :max_tool_input_chars
+                            ],
+                        }
+                    )
+
+    if valid_records == 0 and nonempty_lines > 0:
+        raise ValueError(
+            f"no valid JSON records found; skipped {malformed_lines} malformed line(s)"
+        )
+
+    if malformed_lines > 0:
+        _append_issue(
+            issues,
+            level="warning",
+            code="session_malformed_lines_skipped",
+            message=(
+                f"Grok session {session_path} skipped "
+                f"{malformed_lines} malformed JSON line(s)"
+            ),
+            path=session_path,
+        )
+
+    if valid_records > 0 and not turns:
+        _append_issue(
+            issues,
+            level="warning",
+            code="session_empty_after_parse",
+            message=(
+                f"Grok session {session_path} contained valid JSON records, "
+                "but no transcript content was extracted"
+            ),
+            path=session_path,
+        )
+
+    return turns
+
+
+def _render_grok_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "text":
+            text = str(item.get("text") or "").strip()
+            if text:
+                parts.append(text)
+    return "\n".join(parts).strip()
+
+
+# ---------------------------------------------------------------------------
 # Codex .jsonl parser
 # ---------------------------------------------------------------------------
 
@@ -672,6 +784,7 @@ __all__ = [
     "extract_claude_session_cwd",
     "parse_claude_jsonl_session",
     "parse_cursor_jsonl_session",
+    "parse_grok_jsonl_session",
     "parse_codex_jsonl_session",
     "parse_codex_archive_jsonl_session",
     "list_session_files",

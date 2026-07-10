@@ -346,6 +346,7 @@ def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
         assert "install-cursor-suite" in script
         assert "install-claude-suite" in script
         assert "install-hook-suite" in script
+        assert "transcript-evidence" in script
         assert "skill-governance" not in script
         assert "record-result" not in script
         assert "labs" not in script
@@ -365,6 +366,7 @@ def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
         assert "--stale-only" in script or "-l stale-only" in script
         assert "--apply" in script or "-l apply" in script
     for script in (bash, zsh, fish):
+        assert "all" in script
         assert "grok" in script
         assert "hermes" in script
         assert "opencode" in script

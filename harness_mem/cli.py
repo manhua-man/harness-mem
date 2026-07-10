@@ -33,11 +33,13 @@ from harness_mem.commands import (
     cmd_quickstart,
     cmd_state_audit,
     cmd_sync_commands,
+    cmd_transcript_evidence,
 )
 from harness_mem.integration.command_sync import (
     VALID_COMMAND_PROFILES,
 )
 from harness_mem.commands.integration_cmds import SUPPORTED_HOOK_CLIENTS
+from harness_mem.transcript_evidence import EVIDENCE_CLIENTS
 from harness_mem.commands.support import DEFAULT_DATA_DIR
 
 # Test compatibility: tests monkeypatch these via cli module.
@@ -65,6 +67,7 @@ __all__ = [
     "cmd_quickstart",
     "cmd_state_audit",
     "cmd_sync_commands",
+    "cmd_transcript_evidence",
 ]
 
 
@@ -394,6 +397,25 @@ def main(argv: list[str] | None = None):
         "--force", action="store_true", help="Overwrite existing hooks"
     )
 
+    transcript_evidence = integration_sub.add_parser(
+        "transcript-evidence",
+        help="Report local transcript evidence for host adapters",
+        description=(
+            "Scan factual local host state for transcript evidence. This command "
+            "does not imply ingest support; adapter availability is reported "
+            "separately."
+        ),
+    )
+    transcript_evidence.add_argument(
+        "--client",
+        choices=["all", *EVIDENCE_CLIENTS],
+        default="all",
+        help="Client to inspect (default: all evidence clients)",
+    )
+    transcript_evidence.add_argument(
+        "--project-root", help="Project directory (default: cwd)"
+    )
+
     commands = integration_sub.add_parser(
         "commands",
         help="List or sync Claude Code /hm:* slash commands",
@@ -516,6 +538,8 @@ def main(argv: list[str] | None = None):
             return cmd_install_claude_suite(args.project_root, args.force)
         if args.integration_action == "install-hook-suite":
             return cmd_install_hook_suite(args.client, args.project_root, args.force)
+        if args.integration_action == "transcript-evidence":
+            return cmd_transcript_evidence(args.client, args.project_root)
         if args.integration_action == "commands":
             if args.commands_action is None:
                 commands.print_help()

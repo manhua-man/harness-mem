@@ -11,11 +11,22 @@ set -e
 PROJECT_ROOT=${PROJECT_ROOT_SHELL}
 TURN_ID="$${CURSOR_TURN_ID:-session-start}"
 
-HARNESS_MEM_CLIENT=cursor python -m harness_mem.host_entry \
-    --action wake-start \
-    --project-root "$$PROJECT_ROOT" \
-    --source ide_hook \
-    --trigger-id "$$TURN_ID" \
-    2>/dev/null || true
+if [ "$${HARNESS_MEM_HOOK_DEBUG:-0}" = "1" ]; then
+    HARNESS_MEM_CLIENT=cursor python -m harness_mem.host_entry \
+        --action wake-start \
+        --project-root "$$PROJECT_ROOT" \
+        --source ide_hook \
+        --trigger-id "$$TURN_ID" || {
+            STATUS=$$?
+            echo "harness_mem.host_entry failed (client=cursor action=wake-start status=$$STATUS)" >&2
+        }
+else
+    HARNESS_MEM_CLIENT=cursor python -m harness_mem.host_entry \
+        --action wake-start \
+        --project-root "$$PROJECT_ROOT" \
+        --source ide_hook \
+        --trigger-id "$$TURN_ID" \
+        2>/dev/null || true
+fi
 
 exit 0

@@ -48,6 +48,7 @@ from harness_mem.commands.integration_cmds import (
     cmd_install_cursor_suite,
     cmd_list_command_profiles,
     cmd_sync_commands,
+    cmd_transcript_evidence,
 )
 
 __all__ = [
@@ -66,6 +67,7 @@ __all__ = [
     "cmd_install_hook_suite",
     "cmd_list_command_profiles",
     "cmd_sync_commands",
+    "cmd_transcript_evidence",
     "cmd_doctor",
     "cmd_ingest",
     "cmd_import",

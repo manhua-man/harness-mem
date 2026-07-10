@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from harness_mem import __version__
 from harness_mem.adapters import AdapterRegistry
 from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
 from harness_mem.adapters.parser import extract_claude_session_cwd
@@ -69,7 +70,7 @@ async def cmd_ingest(
             print(
                 f"No native ingest adapter for {host_source.host_client} yet. "
                 "Hook-based wake/maintenance can still run, but transcript ingest "
-                "for this host is not implemented in harness-mem 0.8.20 yet."
+                f"for this host is not implemented in harness-mem {__version__} yet."
             )
             return 1
 
@@ -94,7 +95,7 @@ async def cmd_ingest(
 
         print(f"Ingesting {client} sessions for project: {project_name}")
         adapter_kwargs: dict[str, object] = {}
-        if client in {"cursor", "codex"}:
+        if client in {"cursor", "codex", "grok"}:
             adapter_kwargs["project_root"] = resolved_project_root
         if client == "codex":
             adapter_kwargs["scope"] = scope

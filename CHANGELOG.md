@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+## [0.8.22] - 2026-07-10
+
+### Added
+
+- Native Grok transcript ingest for
+  `~/.grok/sessions/<url-encoded-project-root>/<session>/chat_history.jsonl`,
+  including project-root scoped listing, transcript parsing, duplicate-skip
+  behavior, and MCP `ingest_sessions(client="grok", project_root=...)`.
+
+### Changed
+
+- Grok now resolves as an adapter-backed transcript source; Hermes and OpenCode
+  remain unavailable until their transcript paths and schemas are proven with
+  local fixtures.
+
+## [0.8.21.1] - 2026-07-10
+
+### Added
+
+- `harness-mem integration transcript-evidence` reports local transcript
+  evidence separately from adapter availability for Grok, Hermes, and
+  OpenCode.
+- Grok evidence discovery verifies the concrete
+  `~/.grok/sessions/<url-encoded-project-root>/<session>/chat_history.jsonl`
+  layout before marking a host as `verified_transcript_path`.
+
+### Changed
+
+- Hermes and OpenCode remain explicitly unavailable for transcript ingest when
+  only host roots or no local files are found; the report no longer lets hook
+  install support be mistaken for transcript adapter support.
+
+## [0.8.21] - 2026-07-10
+
+### Added
+
+- `doctor` now reports hook runtime diagnostics: installed hook artifacts,
+  current-shell Python import status, the resolved executable/version, and
+  whether generated hooks still point at the inspected project root.
+- Cursor and Claude Code shell hooks now support `HARNESS_MEM_HOOK_DEBUG=1` so
+  import/runtime failures can surface during IDE startup or post-turn execution
+  while normal hook runs remain fail-open.
+
+### Fixed
+
+- Unimplemented-host ingest guidance now uses the runtime version instead of a
+  hardcoded release number.
+
 ## [0.8.20] - 2026-07-09
 
 ### Added
