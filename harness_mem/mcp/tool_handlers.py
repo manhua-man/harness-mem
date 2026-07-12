@@ -187,13 +187,13 @@ def _autopilot_dx_metadata(
         return {
             "why_this_result": (
                 "Autopilot detected a search-worthy event but no project was "
-                "available. Set active project at session start or pass project_name."
+                "available. Open the intended workspace or pass project_name."
             ),
             "next_actions": [
                 _action(
-                    "set_active_project",
-                    "set_active_project",
-                    "Session-start hooks should set the active project before runtime ticks.",
+                    "resolve_project_context",
+                    "get_project_status",
+                    "Open the intended workspace so project context can be resolved before runtime ticks.",
                 )
             ],
             "degraded_reason": "missing_project",
@@ -458,7 +458,7 @@ def _search_dx_metadata(
             _action(
                 "distill_recent_sessions",
                 "/hm:distill",
-                "No confirmed memory matched this query; ingest/distill before relying on search.",
+                "No confirmed memory matched this query; run /hm:distill before relying on search.",
             )
         )
         next_actions.append(
@@ -1333,22 +1333,62 @@ def tool_get_skill(skill_id: str) -> dict:
     }
 
 
-def tool_get_observations(project_name: str, session_id: str) -> dict:
-    """List all observations for a given session."""
-    backend = _get_backend()
-    all_obs = asyncio.run(backend.verbatim_store.list(limit=10000))
-    session_obs = [
-        o
-        for o in all_obs
-        if o.session_id == session_id
-        and o.metadata.get("project_name") == project_name
+def tool_get_observations(
+    project_name: str,
+    session_id: str | None = None,
+    observation_ids: list[str] | None = None,
+) -> dict:
+    """Return project observations by session id or explicit observation ids."""
+
+    requested_ids = [
+        value.removeprefix("O-").strip()
+        for value in observation_ids or []
+        if value and value.strip()
     ]
+    if not session_id and not requested_ids:
+        return {
+            "success": False,
+            "project_name": project_name,
+            "error": "session_id or observation_ids is required",
+        }
+
+    backend = _get_backend()
+    project_obs = asyncio.run(
+        backend.verbatim_store.list(limit=10000, project_name=project_name)
+    )
+    unresolved_ids: list[str] = []
+    if requested_ids:
+        selected: list[Any] = []
+        for requested_id in requested_ids:
+            matches = [
+                observation
+                for observation in project_obs
+                if observation.id == requested_id
+                or observation.id.startswith(requested_id)
+            ]
+            if len(matches) == 1:
+                selected.append(matches[0])
+            else:
+                unresolved_ids.append(requested_id)
+        observations = selected
+    else:
+        observations = [
+            observation
+            for observation in project_obs
+            if observation.session_id == session_id
+        ]
 
     return {
+        "success": True,
         "project_name": project_name,
         "session_id": session_id,
-        "observations": [serialize_observation(observation) for observation in session_obs],
-        "count": len(session_obs),
+        "observation_ids": requested_ids,
+        "unresolved_ids": unresolved_ids,
+        "observations": [
+            serialize_observation(observation)
+            for observation in observations
+        ],
+        "count": len(observations),
     }
 
 
@@ -1583,9 +1623,9 @@ def tool_get_project_status(project_name: str | None = None) -> dict:
             "active_project": active_project,
             "phase": "needs-project",
             "suggested_slash": None,
-            "reason": "Provide project_name or set an active project before status can resolve memory context.",
-            "error": "project_name is required when no active project is set",
-            "why_this_result": "No project was supplied and no active project is configured.",
+            "reason": "Open the intended workspace or provide project_name before status can resolve memory context.",
+            "error": "project_name or workspace context is required",
+            "why_this_result": "No project was supplied and no workspace context is available.",
             "next_actions": [
                 _action(
                     "set_active_project",
@@ -1680,7 +1720,7 @@ def tool_wake(
     deep_recall: bool = False,
     include_provisional: bool = False,
 ) -> dict:
-    """Generate the wake-up context (project profile + recent rules / handoffs).
+    """Generate recent context plus stable truth and active handoffs.
 
     Captures the printed wake-up summary as ``output`` so the agent can
     ingest it directly without spawning a CLI subprocess.
@@ -1693,9 +1733,9 @@ def tool_wake(
             "why_this_result": "Wake cannot resolve a project without project_name or an active project.",
             "next_actions": [
                 _action(
-                    "set_active_project",
-                    "set_active_project",
-                    "Set the active project once before running the daily wake flow.",
+                    "resolve_project_context",
+                    "get_project_status",
+                    "Open the intended workspace so wake/search/status can resolve project-scoped memory.",
                 )
             ],
             "degraded_reason": "missing_project",
@@ -2120,7 +2160,7 @@ def tool_ingest_sessions(
     scope: str = "project",
     project_root: str | None = None,
 ) -> dict:
-    """Ingest sessions through MCP so users do not need to drive CLI commands."""
+    """Low-level transcript sync used by /hm:distill and diagnostics."""
     normalized_client = normalize_client_name(client)
     if normalized_client not in SUPPORTED_INGEST_CLIENTS:
         return {
@@ -2134,7 +2174,7 @@ def tool_ingest_sessions(
         project_name,
         project_root=project_root,
         required=True,
-        action_label="MCP ingest_sessions",
+        action_label="MCP transcript sync",
     )
     if project_context is None:
         return {
@@ -2213,12 +2253,12 @@ def tool_prepare_session_distill(
     max_chars_per_observation: int = 6000,
     run_ingest: bool = True,
 ) -> dict:
-    """Prepare a compact evidence packet for AI-led session-distill.
+    """Prepare a compact evidence packet for AI-led /hm:distill.
 
     This intentionally stops before synthesis. The model should read the
     returned observations, decide what deserves a pending candidate, then call
-    suggest_* tools. Keeping the discovery work in one MCP call avoids slash
-    commands probing files, shell aliases, timeline, and observation IDs by hand.
+    suggest_* tools. The lower-level sync step may call ingest_sessions, but
+    /hm:distill is the user-facing flow.
     """
     normalized_client = normalize_client_name(client)
     if normalized_client not in SUPPORTED_INGEST_CLIENTS:

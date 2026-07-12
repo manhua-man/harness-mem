@@ -31,9 +31,10 @@ Use two sessions:
 This makes the cold-start problem visible. Session B should start with only the
 repo and the memory backend, not the previous conversation.
 
-If you want the demo project itself to have IDE hooks, install them once with
-`harness-mem integration install-hook-suite --client cursor` or
-`--client claude-code`.
+When the demo uses a project-scoped MCP entry, the first MCP initialization
+creates the project profile and installs the matching IDE hooks automatically.
+If hooks are missing, the next MCP initialization repairs the project-local
+installation without overwriting existing files.
 
 ## Five-Minute Script
 

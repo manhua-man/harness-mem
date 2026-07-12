@@ -1,6 +1,6 @@
 {
   "name": "wake",
-  "description": "Generate the wake-up context (project profile + recent rules + handoffs) for the given project, or the active project when project_name is omitted. Returns the wake-up text in `output` so the agent can ingest it directly.",
+  "description": "Generate a recent-context index plus stable truth and active handoffs for the given project, or the active project when project_name is omitted. Returns the wake-up text in `output` so the agent can ingest it directly.",
   "inputSchema": {
     "type": "object",
     "properties": {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from urllib.parse import quote
 
@@ -50,7 +51,7 @@ def test_collect_transcript_evidence_keeps_unknown_hosts_unavailable(
     tmp_path: Path,
 ) -> None:
     home = tmp_path / "home"
-    (home / ".hermes").mkdir(parents=True)
+    (home / ".hermes" / "sessions").mkdir(parents=True)
 
     hermes, opencode = collect_transcript_evidence(
         tmp_path,
@@ -59,10 +60,101 @@ def test_collect_transcript_evidence_keeps_unknown_hosts_unavailable(
     )
 
     assert hermes.status == "insufficient_evidence"
-    assert hermes.adapter_available is False
-    assert "no verified transcript path/schema" in hermes.note
+    assert hermes.adapter_available is True
+    assert "no session_*.json file with transcript schema" in hermes.note
     assert opencode.status == "missing"
     assert opencode.adapter_available is False
+
+
+def test_collect_transcript_evidence_verifies_hermes_session_schema(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    sessions_root = home / ".hermes" / "sessions"
+    sessions_root.mkdir(parents=True)
+    session_file = sessions_root / "session_20260711_abcd.json"
+    session_file.write_text(
+        json.dumps(
+            {
+                "session_id": "session_20260711_abcd",
+                "model": "test-model",
+                "messages": [
+                    {"role": "user", "content": "hello"},
+                    {"role": "assistant", "content": "hi"},
+                ],
+                "message_count": 2,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = collect_transcript_evidence(
+        tmp_path,
+        clients=("hermes",),
+        home_dir=home,
+    )[0]
+
+    assert report.client == "hermes"
+    assert report.status == "verified_transcript_path"
+    assert report.session_count == 1
+    assert report.sample_files == (session_file,)
+    assert report.adapter_available is True
+    assert "session_id and messages[]" in report.note
+
+
+def test_collect_transcript_evidence_rejects_invalid_hermes_session(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    sessions_root = home / ".hermes" / "sessions"
+    sessions_root.mkdir(parents=True)
+    (sessions_root / "session_20260711_abcd.json").write_text(
+        json.dumps({"session_id": "session_20260711_abcd", "messages": []}),
+        encoding="utf-8",
+    )
+
+    report = collect_transcript_evidence(
+        tmp_path,
+        clients=("hermes",),
+        home_dir=home,
+    )[0]
+
+    assert report.status == "insufficient_evidence"
+    assert report.session_count == 0
+    assert report.sample_files == ()
+
+
+def test_collect_transcript_evidence_keeps_opencode_config_only_insufficient(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    config_root = home / ".config" / "opencode"
+    config_root.mkdir(parents=True)
+    (config_root / "opencode.json").write_text("{}", encoding="utf-8")
+    (config_root / "gstack.jsonc").write_text("{// config only\n}", encoding="utf-8")
+
+    report = collect_transcript_evidence(
+        tmp_path,
+        clients=("opencode",),
+        home_dir=home,
+    )[0]
+
+    assert report.client == "opencode"
+    assert report.status == "insufficient_evidence"
+    assert report.session_count == 0
+    assert report.sample_files == ()
+    assert report.adapter_available is False
+    assert "no verified transcript path/schema" in report.note
+    assert config_root in report.roots
+
+
+def test_collect_transcript_evidence_reports_missing_opencode_roots(tmp_path: Path) -> None:
+    report = collect_transcript_evidence(
+        tmp_path,
+        clients=("opencode",),
+        home_dir=tmp_path / "home",
+    )[0]
+
+    assert report.status == "missing"
+    assert report.session_count == 0
+    assert report.sample_files == ()
+    assert "No known OpenCode root" in report.note
 
 
 def test_render_transcript_evidence_reports_adapter_separately(tmp_path: Path) -> None:

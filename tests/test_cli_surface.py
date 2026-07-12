@@ -345,7 +345,7 @@ def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
         assert "install-claude-wake-hook" in script
         assert "install-cursor-suite" in script
         assert "install-claude-suite" in script
-        assert "install-hook-suite" in script
+        assert "install-hook-suite" not in script
         assert "transcript-evidence" in script
         assert "skill-governance" not in script
         assert "record-result" not in script

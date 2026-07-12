@@ -29,7 +29,7 @@ def cmd_use(project_name: str | None = None) -> int:
         if current:
             print(f"Active project: {current}")
             return 0
-        print("No active project set. Call MCP set_active_project(project_name=...) first.")
+        print("No project context found. Run this command from the intended workspace.")
         return 1
 
     set_active_project(project_name)

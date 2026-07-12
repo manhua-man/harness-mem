@@ -30,7 +30,7 @@ ship.
 | `0.8.9` | Runtime autopilot search. | `autopilot_search_tick` task-aware search scheduler; bounded triggers only. | Always-on broad search, hook lock-in without discipline. |
 | `0.8.10` | Plugin packaging sync. | `plugins/harness-mem` install path, drift checks, and daily command metadata stay aligned with runtime version. | Memory semantics changes. |
 | `0.8.11` | Governance compat removal. | Remove legacy `accepted` read alias; wire seven layered statuses end-to-end; doctor legacy scan; Rust/Python rank parity. | Auto-migration of legacy `accepted` blobs. |
-| `0.8.12` | IDE hook adapters. | `install-hook-suite` for cursor, claude-code, grok, codex, hermes, opencode from checked-in templates. | Per-host hook invention at runtime. |
+| `0.8.12` | IDE hook adapters. | Checked-in host templates installed by project-scoped MCP bootstrap for cursor, claude-code, grok, codex, hermes, opencode. | Per-host hook invention at runtime. |
 | Later / Labs | Optional acceleration and experiments. | Benchmarks prove the Python/SQLite default has a real bottleneck or quality ceiling. | Default runtime narrative or public surface expansion. |
 
 ## 0.8.4.x — Trust Hardening
@@ -149,7 +149,7 @@ See [autopilot-search-policy.md](autopilot-search-policy.md) for the runtime con
 ## 0.8.12 — IDE Hook Adapters
 
 - Ship checked-in templates under `harness_mem/integration/templates/`.
-- Extend `harness-mem integration install-hook-suite` beyond cursor/claude-code.
+- Extend automatic project-scoped MCP bootstrap beyond cursor/claude-code.
 - Document per-host adapter shape in [ide-hook-adapter-matrix.md](ide-hook-adapter-matrix.md).
 
 ## Later / Labs

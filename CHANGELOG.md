@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### Added
+
+- Native Hermes transcript sync for `~/.hermes/sessions/session_*.json`,
+  including schema-backed parsing, project-root content matching, duplicate
+  skips, and MCP `client="hermes"` support through the distill sync path.
+- Wake auto-sync now uses the project-scoped Grok and Hermes adapters when
+  those hosts invoke the CLI wake path.
+- Session-start wake now leads with a project-scoped recent-context index and
+  keeps stable truth and active handoffs as secondary sections.
+- `get_observations` now accepts observation IDs from recent-context output for
+  direct drilldown while preserving the existing session-based lookup.
+
+### Changed
+
+- Agent-facing guidance now treats `/hm:distill` / `prepare_session_distill`
+  as the product entrypoint. Low-level transcript sync remains internal, and
+  automatic hook maintenance stays quiet unless the user requests audit detail.
+- Project-scoped MCP initialization now creates the workspace profile and
+  installs matching host hooks automatically. Manual project switching,
+  transcript ingest, and generic hook installation are no longer public tools.
+- Distill guidance now returns a concise default outcome; candidate counts,
+  evidence IDs, and auto-review decisions remain available through review and
+  diagnostic surfaces.
+- `transcript-evidence` now reports Hermes as adapter-backed when verified
+  `session_*.json` files are present. OpenCode remains evidence-only and not
+  ingest-ready.
+
 ## [0.8.22] - 2026-07-10
 
 ### Added

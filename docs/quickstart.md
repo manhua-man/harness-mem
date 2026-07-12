@@ -58,11 +58,17 @@ optionally register MCP:
 ```
 
 That install syncs the Daily `/hm:*` commands by default, including dream.
-If you want IDE hooks in one shot, use `harness-mem integration install-hook-suite --client cursor`
-or `--client claude-code`. The generic hook-suite installer also supports
-`grok`, `codex`, `hermes`, and `opencode`.
+For a project-scoped MCP entry, configure its `cwd` as the workspace and set
+`HARNESS_MEM_CLIENT` to the host name. The first MCP initialization then adopts
+the project and installs the matching hook suite without replacing existing
+hooks. The generic hook-suite installer remains available for explicit repair
+and also supports `grok`, `codex`, `hermes`, and `opencode`.
 For the current host support matrix and where each host expects hooks to live,
 see [IDE hook adapter matrix](ide-hook-adapter-matrix.md).
+Session-start wake shows a compact recent-context index first, including recent
+transcript requests, source host, estimated read cost, and drilldown IDs. Stable
+truth and active handoffs are appended when available; an un-distilled project
+is no longer rendered as three empty sections.
 
 ## Daily Loop
 
@@ -82,12 +88,12 @@ The stable loop is:
 wake -> search -> distill -> review -> dream ledger
 ```
 
-Dream is enabled as a default audited maintenance capability. Only confirmed
-and auto-promoted readable memory is used by `wake` and `search`; `distill`
+Dream is enabled as a default audited maintenance capability. Hook maintenance
+is quiet by default. Only confirmed and auto-promoted readable memory is used by `wake` and `search`; `distill`
 prepares the evidence packet and candidate layer, `auto_review_candidates`
 promotes low-risk items with audit metadata, and `dream_auto_tick` maintains
-the ledger. `review` is the post-hoc inbox for confirmation, rejection, undo,
-and supersede.
+the ledger. Counts and candidate IDs belong to the audit surface. `review` is
+the post-hoc inbox for confirmation, rejection, undo, and supersede.
 
 During an Agent run, supported clients should send context/tool/save-point
 events to `autopilot_search_tick`. The scheduler calls `search_memory` only

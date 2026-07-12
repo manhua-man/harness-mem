@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +34,7 @@ def collect_transcript_evidence(
     home_dir: Path | None = None,
     sample_limit: int = 3,
 ) -> tuple[TranscriptEvidence, ...]:
-    """Collect factual local evidence for unimplemented transcript adapters."""
+    """Collect factual local evidence for host transcript adapters."""
 
     home = Path.home() if home_dir is None else home_dir
     root = project_root.expanduser().resolve()
@@ -43,9 +44,9 @@ def collect_transcript_evidence(
         if normalized == "grok":
             reports.append(_grok_evidence(root, home, sample_limit=sample_limit))
         elif normalized == "hermes":
-            reports.append(_generic_missing_evidence("hermes", home / ".hermes"))
+            reports.append(_hermes_evidence(home, sample_limit=sample_limit))
         elif normalized == "opencode":
-            reports.append(_generic_missing_evidence("opencode", home / ".opencode"))
+            reports.append(_opencode_evidence(home))
         else:
             reports.append(
                 TranscriptEvidence(
@@ -99,20 +100,52 @@ def _grok_evidence(project_root: Path, home: Path, *, sample_limit: int) -> Tran
     )
 
 
-def _generic_missing_evidence(client: str, root: Path) -> TranscriptEvidence:
-    status = "insufficient_evidence" if root.exists() else "missing"
+def _hermes_evidence(home: Path, *, sample_limit: int) -> TranscriptEvidence:
+    sessions_root = home / ".hermes" / "sessions"
+    sample_files = _hermes_session_files(sessions_root, sample_limit=sample_limit)
+    all_files = _hermes_session_files(sessions_root, sample_limit=None)
+    status = "verified_transcript_path" if all_files else _status_for_roots((sessions_root,))
     note = (
-        "Host root exists, but no verified transcript path/schema is known yet."
-        if root.exists()
-        else "Host root was not found on this machine."
+        "Found Hermes session_*.json files with session_id and messages[]."
+        if all_files
+        else (
+            "Hermes sessions root exists, but no session_*.json file with transcript schema was found."
+            if sessions_root.exists()
+            else "Hermes sessions root was not found on this machine."
+        )
     )
     return TranscriptEvidence(
-        client=client,
+        client="hermes",
         status=status,
-        adapter_available=client in AdapterRegistry.list(),
-        roots=(root,),
+        adapter_available="hermes" in AdapterRegistry.list(),
+        roots=(sessions_root,),
+        session_count=len(all_files),
+        sample_files=tuple(sample_files),
         note=note,
     )
+
+
+def _opencode_evidence(home: Path) -> TranscriptEvidence:
+    roots = _opencode_roots(home)
+    status = _status_for_roots(roots)
+    if any(root.exists() for root in roots):
+        note = (
+            "OpenCode root/config exists, but no verified transcript path/schema was found. "
+            "Do not treat this host as ingest-ready yet."
+        )
+    else:
+        note = "No known OpenCode root was found on this machine."
+    return TranscriptEvidence(
+        client="opencode",
+        status=status,
+        adapter_available="opencode" in AdapterRegistry.list(),
+        roots=roots,
+        note=note,
+    )
+
+
+def _status_for_roots(roots: Sequence[Path]) -> str:
+    return "insufficient_evidence" if any(root.exists() for root in roots) else "missing"
 
 
 def _grok_project_bucket(project_root: Path) -> str:
@@ -131,6 +164,62 @@ def _grok_chat_history_files(project_bucket: Path, *, sample_limit: int | None) 
     if sample_limit is None:
         return files
     return files[:sample_limit]
+
+
+def _hermes_session_files(sessions_root: Path, *, sample_limit: int | None) -> list[Path]:
+    if not sessions_root.exists() or not sessions_root.is_dir():
+        return []
+    files = [
+        path
+        for path in sessions_root.glob("session_*.json")
+        if path.is_file() and path.stat().st_size > 0 and _is_hermes_session_file(path)
+    ]
+    files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    if sample_limit is None:
+        return files
+    return files[:sample_limit]
+
+
+def _is_hermes_session_file(path: Path) -> bool:
+    data = _read_json_object(path)
+    if data is None:
+        return False
+    if not isinstance(data.get("session_id"), str) or not data["session_id"].strip():
+        return False
+    messages = data.get("messages")
+    if not isinstance(messages, list) or not messages:
+        return False
+    return any(_is_transcript_message(message) for message in messages)
+
+
+def _opencode_roots(home: Path) -> tuple[Path, ...]:
+    return (
+        home / ".opencode",
+        home / ".config" / "opencode",
+        home / "AppData" / "Roaming" / "opencode",
+        home / "AppData" / "Local" / "opencode",
+        home / "AppData" / "Roaming" / "OpenCode",
+        home / "AppData" / "Local" / "OpenCode",
+    )
+
+
+def _is_transcript_message(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    role = value.get("role") or value.get("type")
+    if not isinstance(role, str) or not role.strip():
+        return False
+    return any(key in value and value[key] not in (None, "") for key in ("content", "text", "message"))
+
+
+def _read_json_object(path: Path) -> dict[str, object] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
 
 
 __all__ = [

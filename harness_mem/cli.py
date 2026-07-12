@@ -373,30 +373,6 @@ def main(argv: list[str] | None = None):
         "--force", action="store_true", help="Overwrite existing hooks"
     )
 
-    install_hook_suite = integration_sub.add_parser(
-        "install-hook-suite",
-        help="Generate a complete hook suite for one client",
-        description=(
-            "Generate the wake-injection and post-turn maintenance adapter for "
-            "the selected client. Supported clients: "
-            + ", ".join(SUPPORTED_HOOK_CLIENTS)
-            + ". Hermes installs global shell-hook config under ~/.hermes; "
-            "OpenCode installs a project-local plugin."
-        ),
-    )
-    install_hook_suite.add_argument(
-        "--client",
-        choices=list(SUPPORTED_HOOK_CLIENTS),
-        required=True,
-        help="Client to install hooks for",
-    )
-    install_hook_suite.add_argument(
-        "--project-root", help="Project directory (default: cwd)"
-    )
-    install_hook_suite.add_argument(
-        "--force", action="store_true", help="Overwrite existing hooks"
-    )
-
     transcript_evidence = integration_sub.add_parser(
         "transcript-evidence",
         help="Report local transcript evidence for host adapters",
@@ -536,8 +512,6 @@ def main(argv: list[str] | None = None):
             return cmd_install_cursor_suite(args.project_root, args.force)
         if args.integration_action == "install-claude-suite":
             return cmd_install_claude_suite(args.project_root, args.force)
-        if args.integration_action == "install-hook-suite":
-            return cmd_install_hook_suite(args.client, args.project_root, args.force)
         if args.integration_action == "transcript-evidence":
             return cmd_transcript_evidence(args.client, args.project_root)
         if args.integration_action == "commands":

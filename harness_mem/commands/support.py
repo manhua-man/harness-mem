@@ -27,7 +27,14 @@ DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
 CONFIG_TOML_PATH = Path.home() / ".harness-mem" / "config.toml"
 LEGACY_CONFIG_JSON_PATH = Path.home() / ".harness-mem" / "config.json"
 
-NATIVE_INGEST_CLIENTS = {"claude-code", "cursor", "codex", "codex-archive", "grok"}
+NATIVE_INGEST_CLIENTS = {
+    "claude-code",
+    "cursor",
+    "codex",
+    "codex-archive",
+    "grok",
+    "hermes",
+}
 AUTO_DETECT_CLIENTS = {
     "auto",
     "agent",
@@ -299,7 +306,7 @@ def _detected_runtime_client() -> str:
     """Infer the current assistant runtime without forcing an adapter fallback.
 
     Explicit native ``HARNESS_MEM_CLIENT`` wins. Generic agent runtime names
-    such as cursor/antigravity/opencode/hermes remain host labels here.
+    such as antigravity/opencode remain host labels here.
     Codex-specific markers win over generic Claude Code environment flags,
     because Claude-related env vars can be present in nested or bridged shells
     while ``CODEX_THREAD_ID`` is a stronger signal that the active conversation
@@ -342,7 +349,7 @@ def resolve_host_source(client: str | None) -> HostSourceResolution:
 
 
 def current_agent_client() -> str:
-    """Return the best adapter-backed client for default session ingestion."""
+    """Return the best adapter-backed client for default transcript sync."""
     resolution = resolve_host_source("auto")
     return resolution.resolved_client or "claude-code"
 
@@ -621,7 +628,7 @@ def resolve_project_context(
         print(
             f"Project name required for {action_label}. Pass -p/--project, "
             f"set {PROJECT_ROOT_ENV}, set HARNESS_MEM_PROJECT, run from a workspace "
-            "directory, or call MCP set_active_project first."
+            "directory."
         )
     return None
 
@@ -848,56 +855,54 @@ def suggested_next_step(
         if claude_sessions:
             latest = session_identifier(claude_sessions[0])
             return (
-                f'MCP ingest_sessions(project_name="{project_name}", client="claude-code", limit={min(5, len(claude_sessions))})',
-                f"Recent Claude Code sessions were found. Start by ingesting the newest session: {latest}.",
+                "/hm:distill",
+                (
+                    "Recent Claude Code sessions were found. Run /hm:distill; "
+                    f"it syncs transcript evidence, including the newest session {latest}, "
+                    "then drafts reviewable memory candidates."
+                ),
             )
         if cursor_sessions and resolved_root is not None:
             latest = session_identifier(cursor_sessions[0])
             return (
-                (
-                    'MCP ingest_sessions('
-                    f'client="cursor", project_root="{resolved_root.as_posix()}", '
-                    f'limit={min(5, len(cursor_sessions))})'
-                ),
+                "/hm:distill",
                 (
                     "Recent Cursor sessions were found for this workspace. "
-                    f"Start by ingesting the newest session: {latest}."
+                    f"Run /hm:distill from {resolved_root.as_posix()}; it syncs "
+                    f"the newest evidence such as {latest} before drafting candidates."
                 ),
             )
         if codex_sessions:
             if resolved_root is not None:
                 latest = session_identifier(codex_sessions[0])
                 return (
-                    (
-                        'MCP ingest_sessions('
-                        f'client="codex", project_root="{resolved_root.as_posix()}", '
-                        f'limit={min(5, len(codex_sessions))})'
-                    ),
+                    "/hm:distill",
                     (
                         "Recent Codex sessions were found for this workspace. "
-                        f"Start by ingesting the newest session: {latest}."
+                        f"Run /hm:distill from {resolved_root.as_posix()}; it syncs "
+                        f"the newest evidence such as {latest} before drafting candidates."
                     ),
                 )
             return (
-                f'MCP ingest_sessions(project_name="{project_name}", client="auto", limit={min(5, len(codex_sessions))})',
-                f"{codex_scope_note()} Pass project_root to keep ingest workspace-scoped.",
+                "/hm:distill",
+                f"{codex_scope_note()} Run /hm:distill from the target workspace so sync stays project-scoped.",
             )
         if grok_sessions and resolved_root is not None:
             latest = session_identifier(grok_sessions[0])
             return (
-                (
-                    'MCP ingest_sessions('
-                    f'client="grok", project_root="{resolved_root.as_posix()}", '
-                    f'limit={min(5, len(grok_sessions))})'
-                ),
+                "/hm:distill",
                 (
                     "Recent Grok sessions were found for this workspace. "
-                    f"Start by ingesting the newest session: {latest}."
+                    f"Run /hm:distill from {resolved_root.as_posix()}; it syncs "
+                    f"the newest evidence such as {latest} before drafting candidates."
                 ),
             )
         return (
-            f'MCP ingest_sessions(project_name="{project_name}", client="auto", limit=5)',
-            "No local sessions have been ingested yet; MCP auto ingest will use the current host when a native project-scoped adapter is available.",
+            "/hm:distill",
+            (
+                "No observations exist yet. Run /hm:distill; it is the user-facing "
+                "entrypoint that syncs available transcripts and drafts candidates."
+            ),
         )
 
     if memory_entry_count == 0 and claude_sessions:

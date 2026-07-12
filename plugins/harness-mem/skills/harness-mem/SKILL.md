@@ -1,6 +1,6 @@
 ---
 name: harness-mem
-description: Use harness-mem as a local-first memory runtime for the current project. Trigger when the user asks to remember prior work, resume a project, search old agent sessions, ingest recent agent sessions, create durable project rules, or explain what the project currently knows.
+description: Use harness-mem as a local-first memory runtime for the current project. Trigger when the user asks to remember prior work, resume a project, search old agent sessions, distill recent agent sessions, create durable project rules, or explain what the project currently knows.
 wireFormatVersion: hm-wire-v3.5
 ---
 
@@ -13,7 +13,7 @@ Use this skill to operate the local `harness-mem` runtime from a project workspa
 Treat the project as real production context:
 
 - Prefer MCP tools (`get_project_status`, `wake`, `search_memory`, `timeline`) before guessing from memory.
-- Ingest recent sessions through MCP `ingest_sessions` when the project state may be stale.
+- Use `prepare_session_distill` for stale project state; it syncs recent transcript evidence and returns a packet for candidate drafting.
 - Use repo-local `tools/session-distill` for user-triggered distillation; do not use the removed heuristic distill path.
 - Distilled memory is governed automatically. Low-risk items may become readable memory; review is the post-hoc audit and correction surface.
 - Use `suggest_*`, `list_candidates`, and `confirm_*` / `reject_*` for stable rules the user explicitly wants remembered.
@@ -30,8 +30,8 @@ In Claude Code, prefer the no-hyphen MCP alias names such as
 ## Mental Model
 
 - `get_project_status`: checks active project and current memory counts.
-- `ingest_sessions`: indexes raw local agent session files into harness-mem observations.
-- `prepare_session_distill`: one-shot ingest plus recent observation packet for `/hm:distill`.
+- `ingest_sessions`: low-level transcript sync for `/hm:distill` internals and diagnostics; do not present it as the user workflow.
+- `prepare_session_distill`: `/hm:distill` backend that syncs recent transcript evidence and returns an observation packet.
 - `tools/session-distill`: default user-facing distillation playbook that reads evidence and writes pending candidates.
 - `auto_review_candidates`: shared low-risk review policy for `/hm:distill`. Apply mode promotes low-risk items and records audit decisions; `/hm:review` audits, undoes, and upgrades trust.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
@@ -57,7 +57,7 @@ If the project has new sessions:
 1. Call `prepare_session_distill(project_name=<project>, client="auto", scope="project", project_root=<current project root>)`.
 2. Activate repo-local `tools/session-distill`: read the evidence packet, draft candidate claims, apply `grill-before-distill` admission rules, then apply `references/distillation-rules.md`.
 3. Write pending candidates only for admitted items. For external claims, evidence may be attached after `suggest_*`, but must be present before confirmation.
-4. Call `auto_review_candidates(project_name=<project>, apply=True)`. Show the user a final summary with applied decisions, kept-pending items, and the `/hm:review` audit path.
+4. Call `auto_review_candidates(project_name=<project>, apply=True)`. Give the user a concise outcome only when this was an explicit distill request; keep decision counts and candidate IDs in the audit/review surface unless the user asks for detail.
 
 When `grill-before-distill` raises an evidence gap, use the repo-local
 `answer-memory-evidence` role. When it raises architecture, product-boundary,
@@ -97,4 +97,4 @@ CLI remains the operator interface for install checks, local diagnostics, integr
 
 ## MCP Use
 
-The plugin exposes the MCP server config. MCP is the runtime tool interface used by an agent to call status, ingest, distill, search, timeline, and review tools without asking the user to run every command manually.
+The plugin exposes the MCP server config. MCP is the runtime tool interface used by an agent to call status, distill, search, timeline, and review tools without asking the user to run every command manually.

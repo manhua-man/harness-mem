@@ -1,6 +1,6 @@
 {
   "name": "prepare_session_distill",
-  "description": "One-shot project-scoped ingest plus recent observation packet for AI-led session-distill.",
+  "description": "User-facing /hm:distill backend: sync recent transcripts, then return an evidence packet for AI-led candidate drafting.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -22,17 +22,17 @@
           "opencode",
           "hermes"
         ],
-        "description": "Session client to ingest (default: auto)",
+        "description": "Transcript source to sync before distill (default: auto)",
         "default": "auto"
       },
       "limit": {
         "type": "integer",
-        "description": "Maximum sessions to ingest (default: 5)",
+        "description": "Maximum sessions to sync before distill (default: 5)",
         "default": 5
       },
       "full_rescan": {
         "type": "boolean",
-        "description": "Ignore ingest cursor and rescan matching sessions",
+        "description": "Ignore sync cursor and rescan matching sessions",
         "default": false
       },
       "scope": {
@@ -60,7 +60,7 @@
       },
       "run_ingest": {
         "type": "boolean",
-        "description": "Run ingest before building the packet (default: true)",
+        "description": "Run low-level transcript sync before building the packet (default: true)",
         "default": true
       }
     }

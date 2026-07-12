@@ -201,13 +201,17 @@ class LocalVerbatimStore:
         self,
         session_id: str | None = None,
         limit: int = 100,
+        project_name: str | None = None,
     ) -> builtins.list[Observation]:
-        """List observations, optionally filtered by session_id."""
+        """List observations, optionally filtered by session or project."""
         where_parts = ["COALESCE(compacted, 0) = 0"]
         params: tuple = ()
         if session_id:
             where_parts.append("session_id = ?")
             params = (*params, session_id)
+        if project_name:
+            where_parts.append("metadata LIKE ?")
+            params = (*params, self._project_metadata_pattern(project_name))
         rows = await asyncio.to_thread(
             self._index.list,
             "observations",

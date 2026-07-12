@@ -57,12 +57,10 @@ PUBLIC_MCP_TOOL_NAMES = frozenset(
         "get_confirmed_rules",
         "get_project_status",
         "get_project_profile",
-        "set_active_project",
         "trace_relations",
         "search_raw",
         "search_skills",
         "get_skill",
-        "ingest_sessions",
         "prepare_session_distill",
         "list_candidates",
         "get_candidate_detail",
@@ -430,14 +428,29 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         },
     },
     "get_observations": {
-        "description": "List all observations for a given session in a project.",
+        "description": (
+            "Fetch project observations by session_id or observation_ids. "
+            "Recent-context wake IDs can be passed directly."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "project_name": {"type": "string", "description": "Project name"},
                 "session_id": {"type": "string", "description": "Session ID to filter by"},
+                "observation_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Observation IDs from recent-context wake output; "
+                        "full IDs, O-prefixed IDs, and unique prefixes are accepted"
+                    ),
+                },
             },
-            "required": ["project_name", "session_id"],
+            "required": ["project_name"],
+            "anyOf": [
+                {"required": ["session_id"]},
+                {"required": ["observation_ids"]},
+            ],
         },
     },
     "get_task_handoffs": {
@@ -542,8 +555,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "wake": {
         "description": (
-            "Generate the wake-up context (project profile + recent rules + "
-            "handoffs) for the given project, or the active project when "
+            "Generate a recent-context index plus stable truth and active "
+            "handoffs for the given project, or the active project when "
             "project_name is omitted. Returns the wake-up text in `output` so "
             "the agent can ingest it directly."
         ),
@@ -590,7 +603,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         },
     },
     "ingest_sessions": {
-        "description": "Ingest local agent sessions for a project through MCP.",
+        "description": (
+            "Low-level transcript sync used by /hm:distill and diagnostics; "
+            "prefer prepare_session_distill for memory creation."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -609,17 +625,17 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "opencode",
                         "hermes",
                     ],
-                    "description": "Session client to ingest (default: auto)",
+                    "description": "Transcript source to sync (default: auto)",
                     "default": "auto",
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum sessions to ingest (default: 10)",
+                    "description": "Maximum sessions to sync (default: 10)",
                     "default": 10,
                 },
                 "full_rescan": {
                     "type": "boolean",
-                    "description": "Ignore ingest cursor and rescan matching sessions",
+                    "description": "Ignore sync cursor and rescan matching sessions",
                     "default": False,
                 },
                 "scope": {
@@ -636,7 +652,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         },
     },
     "prepare_session_distill": {
-        "description": "One-shot project-scoped ingest plus recent observation packet for AI-led session-distill.",
+        "description": (
+            "User-facing /hm:distill backend: sync recent transcripts, then "
+            "return an evidence packet for AI-led candidate drafting."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -655,17 +674,17 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "opencode",
                         "hermes",
                     ],
-                    "description": "Session client to ingest (default: auto)",
+                    "description": "Transcript source to sync before distill (default: auto)",
                     "default": "auto",
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum sessions to ingest (default: 5)",
+                    "description": "Maximum sessions to sync before distill (default: 5)",
                     "default": 5,
                 },
                 "full_rescan": {
                     "type": "boolean",
-                    "description": "Ignore ingest cursor and rescan matching sessions",
+                    "description": "Ignore sync cursor and rescan matching sessions",
                     "default": False,
                 },
                 "scope": {
@@ -690,7 +709,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "run_ingest": {
                     "type": "boolean",
-                    "description": "Run ingest before building the packet (default: true)",
+                    "description": "Run low-level transcript sync before building the packet (default: true)",
                     "default": True,
                 },
             },
@@ -1143,6 +1162,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
 }
 
+# Kept in the registry for internal orchestration, but never exposed through
+# MCP tools/list or exported descriptors.
+INTERNAL_MCP_TOOL_NAMES = frozenset({"set_active_project", "ingest_sessions"})
+
 
 TOOL_CLUSTERS = {
     # Daily read/context surfaces.
@@ -1156,16 +1179,16 @@ TOOL_CLUSTERS = {
     "get_project_profile": "core_read",
     "file_context": "core_read",
     "get_project_status": "core_read",
-    "set_active_project": "core_read",
+    "set_active_project": "internal",
     "wake": "core_read",
     # Advanced or lower-frequency read surfaces.
     "trace_relations": "review_read",
     "search_raw": "review_read",
     "search_skills": "review_read",
     "get_skill": "review_read",
+    "ingest_sessions": "internal",
     "record_context_outcome": "advanced",
     # Candidate/truth loop.
-    "ingest_sessions": "truth_loop",
     "prepare_session_distill": "truth_loop",
     "list_candidates": "truth_loop",
     "get_candidate_detail": "truth_loop",
@@ -1208,13 +1231,15 @@ def build_tools(
     handler_keys = set(handlers)
     cluster_keys = set(TOOL_CLUSTERS)
     public_keys = set(PUBLIC_MCP_TOOL_NAMES)
+    internal_keys = set(INTERNAL_MCP_TOOL_NAMES)
+    registered_keys = public_keys | internal_keys
     if (
-        schema_keys != public_keys
+        schema_keys != registered_keys
         or schema_keys != handler_keys
         or schema_keys != cluster_keys
     ):
-        unclassified_schemas = schema_keys - public_keys
-        missing_registered_schemas = public_keys - schema_keys
+        unclassified_schemas = schema_keys - registered_keys
+        missing_registered_schemas = registered_keys - schema_keys
         missing_handlers = schema_keys - handler_keys
         unknown_handlers = handler_keys - schema_keys
         missing_clusters = schema_keys - cluster_keys
@@ -1242,6 +1267,7 @@ def build_tools(
             handler=handlers[name],
         )
         for name, schema in _SCHEMAS.items()
+        if name in public_keys
     }
 
 

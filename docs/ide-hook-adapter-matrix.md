@@ -18,7 +18,8 @@ invent the adapter schema at runtime.
 
 ## Current `harness-mem` support
 
-Today `harness-mem integration install-hook-suite` supports six clients:
+Today the MCP bootstrap supports six clients and installs their hook adapters
+automatically:
 
 | Client flag | Generated files | Runtime action mapping | ID source |
 |---|---|---|---|
@@ -34,9 +35,16 @@ wired by `_suite_specs()` plus the Hermes config installer in
 `harness_mem/commands/integration_cmds.py`.
 
 Native transcript ingest is narrower than hook installation: Claude Code,
-Cursor, Codex, and Grok have adapter-backed transcript sources. Hermes and
+Cursor, Codex, Grok, and Hermes have adapter-backed transcript sources.
 OpenCode hook installation can run wake/maintenance, but transcript ingest
-stays unavailable until their session file layouts are verified.
+stays unavailable until its session file layout is verified.
+
+The CLI wake auto-sync path uses the project-scoped Cursor, Codex, Grok, and
+Hermes adapters. Hook-triggered post-turn maintenance follows the same host
+resolution through `/hm:distill`'s lower-level transcript sync step.
+Session-start injection uses a compact recent-context index. The index is
+derived from project-scoped transcript observations; it does not replace the
+governed truth layer or require `/hm:distill` before recent work is visible.
 
 ## Runtime diagnostics
 
@@ -55,10 +63,11 @@ host-entry import/runtime failures that are normally silenced by fail-open
 hook behavior.
 
 Run `harness-mem integration transcript-evidence` to inspect local transcript
-evidence separately from hook-install support. As of `0.8.22`, Grok's
-project-scoped `chat_history.jsonl` layout is adapter-backed when present on
-the machine, while Hermes and OpenCode remain `insufficient_evidence` or
-`missing` until a real transcript path and schema are captured.
+evidence separately from hook-install support. Grok's project-scoped
+`chat_history.jsonl` layout and Hermes' global `~/.hermes/sessions/session_*.json`
+layout are adapter-backed when present on the machine. OpenCode remains
+`insufficient_evidence` or `missing` until a real transcript path and schema are
+captured.
 
 ## Host matrix
 

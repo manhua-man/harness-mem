@@ -102,7 +102,10 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             f"\n⚠️  HM-501: cwd ({Path.cwd().name}) looks like a different known "
             f"project than the active one ({active_project})."
         )
-        print(f'Fix: call MCP set_active_project(project_name="{suspected_project}")')
+        print(
+            "Fix: reopen the intended workspace or pass its project root; "
+            "project context is directory-first."
+        )
 
     # v1.6.1: validate wake bucket quotas early so misconfiguration surfaces
     # before any project-specific work (HM-101 / HM-102).

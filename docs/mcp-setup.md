@@ -10,10 +10,36 @@ Use this command in your MCP client configuration:
 python -m harness_mem.mcp.server
 ```
 
+For a project-scoped MCP entry, set the server's working directory to the
+workspace and pass the owning client in `HARNESS_MEM_CLIENT`. On its first
+`initialize` request, a recognized client automatically records the project
+profile, makes it active, and installs its hook suite without overwriting
+existing hook files.
+
+```json
+{
+  "command": "python",
+  "args": ["-m", "harness_mem.mcp.server"],
+  "cwd": "${workspaceFolder}",
+  "env": {
+    "HARNESS_MEM_CLIENT": "cursor"
+  }
+}
+```
+
+Use the client-specific syntax for the workspace variable: `cursor`,
+`claude-code`, `grok`, `codex`, `hermes`, and `opencode` are recognized. Where
+a client cannot set `cwd`, set `HARNESS_MEM_PROJECT_ROOT` to the absolute
+workspace path instead. The environment value belongs in the MCP server entry,
+not only the hook command, so initialization sees the correct host identity.
+
 The server has one public memory surface. It exposes the normal Agent workflow:
-status, wake/search, session ingest/distill, candidate suggestion, explicit
+status, wake/search, session distill, candidate suggestion, explicit
 candidate review, and dream as the default audited maintenance capability.
 Historical profile values are ignored.
+The `wake` output leads with a recent project-scoped context index. It is a
+derived view of transcript observations and does not promote them to confirmed
+truth; stable truth and active handoffs remain separate sections.
 
 Invocation paths are Agent MCP calls, `/hm:*` commands, installed skills, and
 explicit IDE hooks. Session-start hooks inject wake context; runtime task hooks
@@ -28,11 +54,14 @@ payloads into that tool. It searches only for concrete uncertainty, conflict,
 tool failure, durable-claim grounding, or long-horizon task switches; it is not
 a second `wake`.
 
-`prepare_session_distill` packages recent project observations into an evidence
-packet; it does not synthesize candidate truth on its own. The candidate layer
+`prepare_session_distill` syncs recent transcript evidence and packages recent
+project observations into an evidence packet; it does not synthesize candidate
+truth on its own. The lower-level transcript sync is internal to `/hm:distill`
+and diagnostics, not a user-facing workflow. The candidate layer
 is still written by the session-distill / suggest_* path, and
 `auto_review_candidates` then applies the shared low-risk policy and records
-audit events. Ambiguous or high-risk items remain in `/hm:review`. Operator
+audit events. These counts and candidate IDs are audit data, not normal wake or
+hook output. Ambiguous or high-risk items remain in `/hm:review`. Operator
 maintenance and skill lifecycle management are not public MCP tools.
 Read-only procedural hints can be searched from memory context, but procedural
 skill lifecycle management is outside this public memory surface.
@@ -60,20 +89,29 @@ cd harness-mem
 ```
 
 The plugin also includes the Daily `/hm:*` command files for common memory
-actions, including dream. For IDE hooks, prefer the one-shot suite installer:
-`harness-mem integration install-hook-suite --client cursor` or
-`--client claude-code`.
+actions, including dream. Project-scoped MCP initialization installs the
+matching IDE hooks automatically. If hooks are missing, the next MCP
+initialization repairs the project-local installation without overwriting
+existing files.
 
 ## Generic MCP Client
 
-Add a server entry that runs:
+Add a project-scoped server entry that runs from the workspace:
 
 ```json
 {
   "command": "python",
-  "args": ["-m", "harness_mem.mcp.server"]
+  "args": ["-m", "harness_mem.mcp.server"],
+  "cwd": "${workspaceFolder}",
+  "env": {
+    "HARNESS_MEM_CLIENT": "cursor"
+  }
 }
 ```
+
+Replace `cursor` with the actual MCP host. For an unrecognized generic client,
+omit the client variable; regular MCP tools still work, while automatic hook
+installation is skipped.
 
 After registration, ask the Agent to:
 

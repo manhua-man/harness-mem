@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 
 import pytest
 
 from harness_mem.config.merge import MergedConfig
+import harness_mem.commands.support as support_module
 from harness_mem.core.schemas.memory_entry import MemoryEntry
+from harness_mem.core.schemas.observation import Observation
 from harness_mem.mcp import server
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
 
 SKILL_GOVERNANCE_TOOLS = {
@@ -47,7 +51,6 @@ EXPECTED_PUBLIC_MCP_TOOLS = {
     "get_project_status",
     "get_skill",
     "get_task_handoffs",
-    "ingest_sessions",
     "list_candidates",
     "prepare_session_distill",
     "record_context_outcome",
@@ -58,7 +61,6 @@ EXPECTED_PUBLIC_MCP_TOOLS = {
     "search_memory",
     "search_raw",
     "search_skills",
-    "set_active_project",
     "suggest_correction",
     "suggest_memory_entry",
     "suggest_relation_fact",
@@ -110,6 +112,52 @@ def _listed_tool_names(params: dict | None = None) -> tuple[dict, set[str]]:
     return result, {tool["name"] for tool in result["tools"]}
 
 
+def test_initialize_adopts_workspace_and_installs_recognized_host_hooks(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "cursor-workspace"
+    workspace.mkdir()
+    (workspace / ".git").mkdir()
+    data_dir = tmp_path / "data"
+    installs: list[tuple[str, str, bool]] = []
+
+    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.delenv("HARNESS_MEM_CLIENT", raising=False)
+    monkeypatch.setenv("HARNESS_MEM_PROJECT_ROOT", str(workspace))
+    monkeypatch.setattr(
+        server,
+        "cmd_install_hook_suite",
+        lambda client, root, force: installs.append((client, root, force)) or 0,
+    )
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 100,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "clientInfo": {"name": "Cursor"},
+            },
+        }
+    )
+
+    assert response is not None
+    assert response["result"]["serverInfo"]["name"] == "harness-mem"
+    assert installs == [("cursor", str(workspace.resolve()), False)]
+    assert support_module.get_active_project() == "cursor-workspace"
+
+    async def _load_profile():
+        store = LocalProjectProfileStore(data_dir)
+        return await store.get("cursor-workspace")
+
+    profile = asyncio.run(_load_profile())
+    assert profile is not None
+    assert profile.project_root == str(workspace.resolve())
+    assert profile.project_id is not None
+
+
 def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
     result, tool_names = _listed_tool_names()
 
@@ -151,6 +199,47 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
     tool_by_name = {tool["name"]: tool for tool in result["tools"]}
     for name in ("dream_ledger", "dream_run", "dream_auto_tick", "undo_dream_item"):
         assert tool_by_name[name]["annotations"]["harness_mem"]["cluster"] == "dream"
+    assert "/hm:distill" in tool_by_name["prepare_session_distill"]["description"]
+    assert "ingest_sessions" not in tool_by_name
+    assert "set_active_project" not in tool_by_name
+
+
+def test_get_observations_accepts_recent_context_ids(backend) -> None:
+    asyncio.run(
+        backend.verbatim_store.save(
+            Observation(
+                id="recent-context-observation-1234",
+                session_id="session-1",
+                client="cursor",
+                raw_content="User: Build the recent context index.",
+                content_type="transcript",
+                timestamp=datetime(2026, 7, 12, tzinfo=timezone.utc),
+                metadata={"project_name": "demo"},
+            )
+        )
+    )
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 101,
+            "method": "tools/call",
+            "params": {
+                "name": "get_observations",
+                "arguments": {
+                    "project_name": "demo",
+                    "observation_ids": ["O-recent-c"],
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    payload = _tool_result(response)
+    assert payload["success"] is True
+    assert payload["count"] == 1
+    assert payload["unresolved_ids"] == []
+    assert payload["observations"][0]["id"] == "recent-context-observation-1234"
 
 
 def test_profile_parameters_do_not_create_a_second_mcp_surface(backend, monkeypatch) -> None:

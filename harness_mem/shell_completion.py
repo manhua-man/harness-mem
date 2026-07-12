@@ -33,7 +33,6 @@ INTEGRATION_ACTIONS = [
     "install-claude-wake-hook",
     "install-cursor-suite",
     "install-claude-suite",
-    "install-hook-suite",
     "transcript-evidence",
     "commands",
 ]

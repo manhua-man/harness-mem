@@ -6,7 +6,7 @@ tags: [harness-mem, distill, memory]
 wireFormatVersion: hm-wire-v3.5
 ---
 
-把指定项目最近的会话灌入 verbatim 层，使用仓库里的 `tools/session-distill` 主动提炼候选记忆，随后运行 auto-review apply-low-risk。低风险项可自动进入 `auto_confirmed` 或 `provisional`；`/hm:review` 是事后审计、undo、确认和替换入口。
+同步指定项目最近的 transcript evidence，使用仓库里的 `tools/session-distill` 主动提炼候选记忆，随后运行 auto-review apply-low-risk。低风险项可自动进入 `auto_confirmed` 或 `provisional`；`/hm:review` 是事后审计、undo、确认和替换入口。
 
 **MCP Tool Names**
 
@@ -43,9 +43,9 @@ wireFormatVersion: hm-wire-v3.5
    - `observation_limit=5`
    - `max_chars_per_observation=6000`
 
-   这个工具会一次性完成项目范围 ingest，并返回最近 observations 的 evidence packet。不要再手动调用 `timeline`、`get_observations`、`Bash`、`cmem`、`ls`、`cat` 或 `find` 去摸索同一批内容；只有 packet 为空或工具明确报错时才排障。
+   这个工具会一次性完成项目范围 transcript sync，并返回最近 observations 的 evidence packet。不要再手动调用 `ingest_sessions`、`timeline`、`get_observations`、`Bash`、`cmem`、`ls`、`cat` 或 `find` 去摸索同一批内容；只有 packet 为空或工具明确报错时才排障。
 
-   默认只 ingest 当前 agent 环境、当前项目路径匹配的会话。`client="auto"` 会自动识别 Codex、Claude Code、Cursor、Antigravity、opencode、Hermes 或 generic agent 入口，并按当前项目根过滤证据。
+   默认只同步当前 agent 环境、当前项目路径匹配的会话。`client="auto"` 会自动识别 Codex、Claude Code、Cursor、Antigravity、opencode、Hermes 或 generic agent 入口，并按当前项目根过滤证据。
    - 只有用户明确要求全局历史时，才允许 `scope="all"`
 
 3. **读 packet、draft claims、标准准入，再写候选**
@@ -69,35 +69,30 @@ wireFormatVersion: hm-wire-v3.5
 
    低风险候选的判断必须复用 shared auto-review policy，而不是在 slash 文档里手写另一套规则。高风险、冲突、证据不足或会改变长期行为的项应保留到 `/hm:review` audit inbox。
 
-   摘要必须以 `auto_review_candidates` 返回的结果为准：
+   内部审计结果必须以 `auto_review_candidates` 返回的结果为准：
    - `auto_confirmed`
    - `auto_rejected`
    - `kept_pending`
    - `needs_user_confirmation`
    - `applied_decisions`
 
-   `applied_decisions` 必须进入最终摘要。如果用户追问某个候选为什么会被确认、拒绝或保留，解释 candidate id、evidence id 和 policy reason。
+   `applied_decisions` 保留在审计结果中。如果用户追问某个候选为什么会被确认、拒绝或保留，解释 candidate id、evidence id 和 policy reason。
 
 5. **总结呈现**
-   按"新灌入 N / 新候选 M / 建议确认 C / 建议拒绝 R / 保留待定 K / 需要你确认 H"格式给用户看结果。
-
-   最终明确说明低风险项已按 policy 自动处理，并把审计入口指向 `/hm:review`：
+   默认只给简短结果，不展示 transcript、候选、自动确认或拒绝的计数：
 
    ```text
    已完成整理和自动处理。
-   auto-review mode: apply-low-risk
-   自动确认：...
-   自动拒绝：...
-   保留待定：...
-   需要你确认：...
-   运行 /hm:review 审计、undo 或提升为 user_confirmed。
+   新的长期记忆已按证据和风险策略处理；近期工作仍可在 wake 中查看。
    ```
+
+   只有用户要求审计详情时，才展示计数、candidate/evidence ID 和 `/hm:review` 入口。
 
 **Notes**
 
-- `/hm:distill` 是自动链路：整理、提炼、写候选、自动处理低风险项、给最终摘要
+- `/hm:distill` 是显式语义整理链路：读取证据、提炼候选、自动处理低风险项；默认摘要保持简短
 - `/hm:review` 是 audit inbox：确认、拒绝、undo、替换候选都在这里发生
 - 不要把具体客户端写死为默认来源；默认入口必须是 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根目录>)`
 - agent 历史可能是用户全局数据源，默认必须按当前项目路径过滤；跨项目导入必须由用户显式要求 `scope="all"`
 - 用户主路径是 Slash + MCP + Skill；CLI 只能作为开发者排障兜底
-- MCP server 的 cwd 不等于当前 agent 项目目录；调用 `prepare_session_distill` / `ingest_sessions` 时必须显式传 `project_root`
+- MCP server 的 cwd 不等于当前 agent 项目目录；调用 `prepare_session_distill` 时必须显式传 `project_root`。`ingest_sessions` 是低层诊断/同步工具，不是用户主路径

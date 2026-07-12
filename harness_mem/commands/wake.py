@@ -31,7 +31,6 @@ from harness_mem.commands.ingest import _select_claude_candidate_sessions
 from harness_mem.commands.wake_render import (
     LAYER_HEADERS,
     SURFACED_LAYERS,
-    render_wake_plan,
     select_rendered_entries,
 )
 from harness_mem.context_assembly import assemble_context_plan
@@ -40,6 +39,7 @@ from harness_mem.core.schemas.context_assembly_plan import ContextAssemblyPlan, 
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.event_log import EventType, get_event_logger
+from harness_mem.recent_context import build_recent_context, render_recent_context
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
@@ -365,7 +365,7 @@ def _acquire_ingest_lock(
 
 def _auto_sync_runtime_plan() -> AutoSyncRuntimePlan:
     runtime_client = current_agent_client()
-    if runtime_client in {"claude-code", "cursor", "codex"}:
+    if runtime_client in {"claude-code", "cursor", "codex", "grok", "hermes"}:
         return AutoSyncRuntimePlan(
             runtime_client=runtime_client,
             sync_client=runtime_client,
@@ -461,14 +461,12 @@ async def _perform_sync(backend: LocalMemoryBackend, project_name: str, start_ti
         _print_auto_sync_skipped("scan throttle", start_time)
         return
 
-    if plan.sync_client in {"cursor", "codex"}:
-        adapter = AdapterRegistry.build(
-            plan.sync_client,
-            backend,
-            project_root=Path.cwd(),
-        )
-    else:
-        adapter = AdapterRegistry.build("claude-code", backend)
+    adapter_kwargs: dict[str, object] = {}
+    if plan.sync_client in {"cursor", "codex", "grok", "hermes"}:
+        adapter_kwargs["project_root"] = Path.cwd()
+    if plan.sync_client in {"codex", "hermes"}:
+        adapter_kwargs["scope"] = "project"
+    adapter = AdapterRegistry.build(plan.sync_client, backend, **adapter_kwargs)
     profile_store = LocalProjectProfileStore(DEFAULT_DATA_DIR)
     profile = await profile_store.get(project_name)
     all_sessions = adapter.list_sessions(project_name, min_size_kb=0)
@@ -779,14 +777,15 @@ async def build_wake_injection(
 ) -> str:
     """Return the session-start wake text for host injection.
 
-    This is the hook-facing form of wake: it reuses the same L0/L1/L2 context
-    plan renderer as `/hm:wake` and MCP `wake`, but leaves out CLI-only budget
-    advice and never runs maintenance, distill, review, or dream.
+    The hook-facing form uses the compact recent-context renderer. The existing
+    ContextAssemblyPlan still supplies stable truth, active handoffs, and wake
+    side effects, but empty L0/L1/L2 sections are no longer the primary view.
     """
     plan = await assemble_context_plan(backend, project_name=project_name)
     if apply_surface_side_effects:
         await _apply_surface_side_effects(backend, plan)
-    return render_wake_plan(plan)
+    recent_context = await build_recent_context(backend, project_name)
+    return render_recent_context(recent_context, plan, compact=True)
 
 
 async def cmd_wake_up(
@@ -799,12 +798,9 @@ async def cmd_wake_up(
 ) -> int:
     """Generate wake-up context for a project.
 
-    v2.5.1: the rendered output reflects the v2.5.0 ``ContextAssemblyPlan``.
-    ``cmd_wake_up`` assembles a plan for the resolved project, renders the
-    cold-start surfaced layers (L0/L1/L2) through the pure
-    :func:`render_wake_plan`, applies wake's existing side effects
-    (``wake_surfaced`` signals + usage-counter touches) in a separate
-    de-duplicated pass, and prints the Disclosure_Level token-budget summary.
+    Human-facing output leads with a recent transcript index and appends
+    stable truth plus active handoffs from ContextAssemblyPlan. Existing wake
+    side effects, structured snapshots, and disclosure accounting stay intact.
 
     ``no_bucket_quota`` is retained for CLI / back-compat; the v1.6.1
     bucket-quota ``Memory Entries`` block is superseded by the plan-backed
@@ -848,9 +844,8 @@ async def cmd_wake_up(
             print(f"Error: could not assemble context plan for '{project_name}': {exc}")
             return 1
 
-        # Req 1, 8 — pure render -> stdout; the MCP redirect_stdout capture
-        # stays complete because rendering emits only via print().
-        print(render_wake_plan(plan))
+        recent_context = await build_recent_context(backend, project_name)
+        print(render_recent_context(recent_context, plan, compact=False))
         if skill_hints_enabled:
             skill_hints = await _select_wake_skill_hints(
                 backend,

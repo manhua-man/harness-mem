@@ -98,16 +98,26 @@ cd harness-mem
 .\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
-To install IDE hooks in one shot, run:
+For Cursor, register a project-scoped MCP server that runs from the workspace:
 
-```bash
-harness-mem integration install-hook-suite --client cursor
-harness-mem integration install-hook-suite --client claude-code
+```json
+{
+  "command": "python",
+  "args": ["-m", "harness_mem.mcp.server"],
+  "cwd": "${workspaceFolder}",
+  "env": {
+    "HARNESS_MEM_CLIENT": "cursor"
+  }
+}
 ```
 
-The generic installer also supports `grok`, `codex`, `hermes`, and
-`opencode`. See [docs/ide-hook-adapter-matrix.md](docs/ide-hook-adapter-matrix.md)
-for the current adapter surface and install model for each host.
+On first MCP initialization, harness-mem adopts the workspace, creates its
+project profile, and installs the matching Cursor hooks without overwriting
+existing files. Users do not run a hook installer. If hooks are missing, the
+next MCP initialization repairs the project-local installation without
+overwriting existing files. See
+[docs/ide-hook-adapter-matrix.md](docs/ide-hook-adapter-matrix.md) for the
+current adapter surface and install model for each host.
 
 Then use the Agent-facing commands:
 

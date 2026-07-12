@@ -67,10 +67,12 @@ def test_dream_end_hook_templates_use_explicit_action(tmp_path: Path) -> None:
         assert "harness_mem.host_entry failed" in body
         if template == "cursor_after_agent.sh.template":
             assert "HARNESS_MEM_CLIENT=cursor" in body
-            assert "install-cursor-suite" in body
+            assert "MCP" in body
+            assert "install-cursor-suite" not in body
         else:
             assert "HARNESS_MEM_CLIENT=claude-code" in body
-            assert "install-claude-suite" in body
+            assert "MCP" in body
+            assert "install-claude-suite" not in body
 
 
 def test_wake_start_hook_templates_keep_stdout_for_injection(tmp_path: Path) -> None:

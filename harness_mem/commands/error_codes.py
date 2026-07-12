@@ -28,8 +28,8 @@ CLI_ERROR_CODES: dict[str, CliErrorCode] = {
         code="HM-002",
         level="warning",
         summary="doctor has no project context to inspect.",
-        fix_command='MCP set_active_project(project_name="<project-name>")',
-        note="Sets the active project so doctor can inspect project-scoped memory and sessions.",
+        fix_command="run harness-mem from the intended workspace directory",
+        note="Project context is resolved from the workspace; the active pointer is only a fallback.",
     ),
     "doctor_wake_budget_large": CliErrorCode(
         code="HM-003",
@@ -69,7 +69,7 @@ CLI_ERROR_CODES: dict[str, CliErrorCode] = {
         code="HM-501",
         level="warning",
         summary="active project does not match the current working directory.",
-        fix_command='MCP set_active_project(project_name="<project-name>")',
+        fix_command="reopen the intended workspace or pass its project root",
         note=(
             "Memory written while the active project is wrong gets attributed to the wrong project, "
             "and wake/search will surface unrelated context. Switch projects, or unset and re-run "

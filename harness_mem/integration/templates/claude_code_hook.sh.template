@@ -5,9 +5,8 @@
 #
 # This hook runs post-turn maintenance after a turn.
 #
-# To remove this hook, delete this file. Reinstall via:
-#
-#     harness-mem integration install-claude-suite --force
+# To remove this hook, delete this file. Reopen the workspace to let the MCP
+# bootstrap restore missing project-local hooks.
 
 set -e
 

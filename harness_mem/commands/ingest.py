@@ -95,9 +95,9 @@ async def cmd_ingest(
 
         print(f"Ingesting {client} sessions for project: {project_name}")
         adapter_kwargs: dict[str, object] = {}
-        if client in {"cursor", "codex", "grok"}:
+        if client in {"cursor", "codex", "grok", "hermes"}:
             adapter_kwargs["project_root"] = resolved_project_root
-        if client == "codex":
+        if client in {"codex", "hermes"}:
             adapter_kwargs["scope"] = scope
         adapter = AdapterRegistry.build(client, backend, **adapter_kwargs)
         result = await adapter.ingest(project_name=project_name, limit=limit, min_size_kb=0)

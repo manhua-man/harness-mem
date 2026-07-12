@@ -1,6 +1,6 @@
 {
   "name": "get_observations",
-  "description": "List all observations for a given session in a project.",
+  "description": "Fetch project observations by session_id or observation_ids. Recent-context wake IDs can be passed directly.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -11,11 +11,29 @@
       "session_id": {
         "type": "string",
         "description": "Session ID to filter by"
+      },
+      "observation_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Observation IDs from recent-context wake output; full IDs, O-prefixed IDs, and unique prefixes are accepted"
       }
     },
     "required": [
-      "project_name",
-      "session_id"
+      "project_name"
+    ],
+    "anyOf": [
+      {
+        "required": [
+          "session_id"
+        ]
+      },
+      {
+        "required": [
+          "observation_ids"
+        ]
+      }
     ]
   }
 }

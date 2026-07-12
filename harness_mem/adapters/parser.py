@@ -389,6 +389,172 @@ def _render_grok_content(content: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Hermes .json parser
+# ---------------------------------------------------------------------------
+
+def parse_hermes_json_session(
+    session_path: Path,
+    *,
+    max_user_chars: int = 2000,
+    max_assistant_chars: int = 1000,
+    max_tool_input_chars: int = 300,
+    issues: list[Issue] | None = None,
+) -> list[Turn]:
+    """Parse a Hermes ``session_*.json`` transcript into turns."""
+
+    issues = issues if issues is not None else []
+    try:
+        data = json.loads(session_path.read_text(encoding="utf-8-sig", errors="replace"))
+    except OSError as exc:
+        raise ValueError(
+            f"unable to read file ({type(exc).__name__}: {exc})"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid Hermes JSON session: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise ValueError("Hermes session root must be a JSON object")
+    messages = data.get("messages")
+    if not isinstance(messages, list):
+        raise ValueError("Hermes session is missing messages[]")
+
+    turns: list[Turn] = []
+    current_turn: Turn | None = None
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "").strip().lower()
+        content = _render_hermes_content(message.get("content"))
+        if not content:
+            content = _render_hermes_codex_message_items(
+                message.get("codex_message_items")
+            )
+
+        if role == "user":
+            if content:
+                current_turn = {
+                    "user": content[:max_user_chars],
+                    "assistant": [],
+                    "tools": [],
+                }
+                turns.append(current_turn)
+            continue
+
+        if role == "assistant":
+            if current_turn is None:
+                current_turn = {"user": "", "assistant": [], "tools": []}
+                turns.append(current_turn)
+            if content:
+                current_turn["assistant"].append(content[:max_assistant_chars])
+            current_turn["tools"].extend(
+                _extract_hermes_tools(
+                    message.get("codex_message_items"),
+                    max_tool_input_chars=max_tool_input_chars,
+                )
+            )
+
+    if messages and not turns:
+        _append_issue(
+            issues,
+            level="warning",
+            code="session_empty_after_parse",
+            message=(
+                f"Hermes session {session_path} contained messages, "
+                "but no transcript content was extracted"
+            ),
+            path=session_path,
+        )
+
+    return turns
+
+
+def read_hermes_session_id(session_path: Path) -> str | None:
+    """Return the ``session_id`` from a Hermes session file when present."""
+
+    try:
+        data = json.loads(session_path.read_text(encoding="utf-8-sig", errors="replace"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    session_id = data.get("session_id")
+    if not isinstance(session_id, str):
+        return None
+    cleaned = session_id.strip()
+    return cleaned or None
+
+
+def _render_hermes_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, dict):
+        for key in ("text", "content", "message"):
+            value = content.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for item in content:
+        if isinstance(item, str) and item.strip():
+            parts.append(item.strip())
+            continue
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") in {None, "text", "output_text", "input_text"}:
+            text = str(item.get("text") or item.get("content") or "").strip()
+            if text:
+                parts.append(text)
+    return "\n".join(parts).strip()
+
+
+def _render_hermes_codex_message_items(items: Any) -> str:
+    if not isinstance(items, list):
+        return ""
+    parts: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "message":
+            rendered = _render_hermes_content(item.get("content"))
+            if rendered:
+                parts.append(rendered)
+    return "\n".join(parts).strip()
+
+
+def _extract_hermes_tools(
+    items: Any,
+    *,
+    max_tool_input_chars: int,
+) -> list[dict[str, str]]:
+    if not isinstance(items, list):
+        return []
+    tools: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        name = str(item.get("name") or item.get("tool_name") or "").strip()
+        if item_type not in {"function_call", "tool_use", "tool_call"} and not name:
+            continue
+        if not name:
+            name = str(item_type or "tool")
+        tool_input = item.get("input")
+        if tool_input is None:
+            tool_input = item.get("arguments")
+        tools.append(
+            {
+                "name": name,
+                "input": json.dumps(tool_input, ensure_ascii=False)[:max_tool_input_chars]
+                if isinstance(tool_input, (dict, list))
+                else str(tool_input or "")[:max_tool_input_chars],
+            }
+        )
+    return tools
+
+
+# ---------------------------------------------------------------------------
 # Codex .jsonl parser
 # ---------------------------------------------------------------------------
 

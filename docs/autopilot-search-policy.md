@@ -46,10 +46,10 @@ Gemini CLI, or other clients.
 
 | Event | Purpose | Typical mapped hook |
 |---|---|---|
-| `session_start` | Set active project and inject `wake` context. | SessionStart, before-agent-start, first context transform. |
+| `session_start` | Resolve the workspace project and inject `wake` context. | SessionStart, before-agent-start, first context transform. |
 | `context_transform` | Add bounded memory context before an LLM request. | Pi `transformContext`, provider-payload/context hook. |
 | `tool_result` | Learn from file/search/test/build outcomes and decide whether extra memory search is useful. | PostToolUse, Pi `afterToolCall`, tool-result observer. |
-| `save_point` | Run distill/auto-review after an assistant turn and tool results settle. | turn end, message end, after-agent, save point. |
+| `save_point` | Sync evidence, review existing candidates, and run dream maintenance after an assistant turn and tool results settle. | turn end, message end, after-agent, save point. |
 | `session_end` | Flush session distill and dream maintenance. | Stop, SessionEnd, SubagentStop, idle/settled hook. |
 
 The installer should configure every supported event the client exposes. If a

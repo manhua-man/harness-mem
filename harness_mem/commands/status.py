@@ -108,9 +108,9 @@ async def _status_project_async(backend: LocalMemoryBackend, project_name: str) 
     elif len(project_obs) == 0:
         print()
         print("📍 Phase: Empty")
-        next_step = f'MCP ingest_sessions(project_name="{project_name}", client="auto")'
+        next_step = "/hm:distill"
         print(f"→ Next: {next_step}")
-        print("   Why: No observations yet; auto ingest uses the current host when a native project-scoped adapter is available")
+        print("   Why: No observations yet; distill syncs transcript evidence and drafts reviewable candidates")
         log_next_step_shown(project_name, "status", next_step)
     else:
         print()

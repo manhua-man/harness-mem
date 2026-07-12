@@ -28,8 +28,9 @@ class VerbatimStore(Protocol):
         self,
         session_id: str | None = None,
         limit: int = 100,
+        project_name: str | None = None,
     ) -> builtins.list[Observation]:
-        """List observations, optionally filtered by session_id."""
+        """List observations, optionally filtered by session or project."""
         ...
 
     async def search(

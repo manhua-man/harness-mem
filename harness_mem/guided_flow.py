@@ -107,24 +107,24 @@ def _steps_for_phase(
     if phase == "needs-project":
         steps.append(
             _step(
-                step_id="activate_project",
+                step_id="resolve_project",
                 order=1,
-                title="Set active project",
+                title="Open the intended workspace",
                 description=(
-                    "Bind the working directory to a project so memory does not cross-contaminate."
+                    "Open the intended workspace so memory resolves to the correct project without a global project switch."
                 ),
-                entry="set_active_project",
-                entry_kind="mcp",
+                entry="project_root",
+                entry_kind="context",
                 required=True,
-                arguments={"project_name": project_name or "<project>"},
+                arguments={"project_root": "<workspace-root>"},
             )
         )
         steps.append(
             _step(
                 step_id="distill",
                 order=2,
-                title="Ingest and distill",
-                description="Run session distill after the project is active.",
+                title="Distill session evidence",
+                description="Sync recent transcript evidence and draft reviewable memory candidates.",
                 entry="/hm:distill",
                 entry_kind="slash",
                 required=True,
@@ -137,9 +137,9 @@ def _steps_for_phase(
             _step(
                 step_id="distill",
                 order=1,
-                title="Ingest and distill",
+                title="Distill session evidence",
                 description=(
-                    "Import sessions and let the gardener distill observations into candidates."
+                    "Sync recent transcript evidence and distill observations into candidates."
                 ),
                 entry="/hm:distill",
                 entry_kind="slash",
