@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,11 +31,7 @@ class AntigravityAdapter:
         self.backend = backend
         home = Path.home() if home_dir is None else home_dir
         self.brain_dir = brain_dir or home / ".gemini" / "antigravity" / "brain"
-        self.project_root = (
-            normalize_project_root(project_root.expanduser())
-            if project_root is not None
-            else None
-        )
+        self.project_root = _normalize_workspace_path(project_root)
 
     def list_sessions(
         self,
@@ -181,7 +178,19 @@ def _read_records(path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def _path_variants(path: Path | None) -> set[str]:
+def _normalize_workspace_path(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    raw = str(path.expanduser())
+    # Transcript metadata can contain a Windows workspace while the adapter is
+    # inspected on a non-Windows machine (for example in CI). Do not resolve
+    # that opaque identity against the host cwd.
+    if re.match(r"^[A-Za-z]:[\\/]", raw):
+        return raw
+    return str(normalize_project_root(Path(raw)))
+
+
+def _path_variants(path: str | None) -> set[str]:
     if path is None:
         return set()
     value = str(path).replace("/", "\\").rstrip("\\").lower()

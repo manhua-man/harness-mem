@@ -9,6 +9,7 @@ unavailable source rather than guessing from configuration files.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,11 +42,7 @@ class OpenCodeAdapter:
     ) -> None:
         self.backend = backend
         self.home_dir = Path.home() if home_dir is None else home_dir
-        self.project_root = (
-            normalize_project_root(project_root.expanduser())
-            if project_root is not None
-            else None
-        )
+        self.project_root = _normalize_workspace_path(project_root)
         self.database_path = database_path or self._find_database()
 
     def list_sessions(
@@ -280,7 +277,16 @@ def _epoch_millis(value: object) -> datetime | None:
     return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
 
 
-def _same_or_child_path(value: Path, root: Path) -> bool:
+def _normalize_workspace_path(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    raw = str(path.expanduser())
+    if re.match(r"^[A-Za-z]:[\\/]", raw):
+        return raw
+    return str(normalize_project_root(Path(raw)))
+
+
+def _same_or_child_path(value: Path, root: str) -> bool:
     value_text = str(value).replace("/", "\\").rstrip("\\").lower()
     root_text = str(root).replace("/", "\\").rstrip("\\").lower()
     return value_text == root_text or value_text.startswith(root_text + "\\")
