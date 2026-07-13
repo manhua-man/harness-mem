@@ -244,6 +244,34 @@ def test_cmd_install_hook_suite_supports_project_local_new_clients(tmp_path: Pat
     assert "session.created" in plugin_body
     assert "session.idle" in plugin_body
 
+    assert cmd_install_hook_suite("antigravity", str(tmp_path), False) == 0
+    antigravity_hooks = tmp_path / ".agents" / "hooks.json"
+    pre_script = tmp_path / ".agents" / "hooks" / "harness_mem_pre_invocation.py"
+    stop_script = tmp_path / ".agents" / "hooks" / "harness_mem_stop.py"
+    manifest = json.loads(antigravity_hooks.read_text(encoding="utf-8"))
+    assert "PreInvocation" in manifest["hooks"]
+    assert "Stop" in manifest["hooks"]
+    assert pre_script.exists()
+    assert stop_script.exists()
+    assert '"injectSteps"' in pre_script.read_text(encoding="utf-8")
+    assert '"decision": "stop"' in stop_script.read_text(encoding="utf-8")
+
+
+def test_antigravity_hook_install_preserves_existing_events(tmp_path: Path) -> None:
+    manifest_path = tmp_path / ".agents" / "hooks.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps({"hooks": {"PostInvocation": [{"hooks": [{"command": "keep-me"}]}]}}),
+        encoding="utf-8",
+    )
+
+    assert cmd_install_hook_suite("antigravity", str(tmp_path), False) == 0
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["hooks"]["PostInvocation"][0]["hooks"][0]["command"] == "keep-me"
+    assert len(manifest["hooks"]["PreInvocation"]) == 1
+    assert len(manifest["hooks"]["Stop"]) == 1
+
 
 def test_hook_suite_command_strings_shell_quote_project_root(
     tmp_path: Path,

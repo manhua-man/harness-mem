@@ -26,7 +26,7 @@ Agent 会读代码，但它通常不知道项目为什么变成现在这样：�
 
 - `/hm:*` 命令：`status`、`wake`、`search`、`distill`、`review`、`dream`。
 - Agent MCP 调用：自然语言、skill 或 hook 触发 `wake/search/distill/review`。
-- Hook：会话开始注入 wake context；任务过程中把事件交给 `autopilot_search_tick` 判断并按需 search；save point / 会话结束触发 `prepare_session_distill` + `auto_review_candidates(apply=true)` + `dream_auto_tick`。
+- Hook：会话开始注入 wake context；任务过程中按需 search；save point / 会话结束只同步 transcript evidence 并创建待蒸馏任务。
 - CLI：只做 setup、doctor、config、integration 和 maintenance。
 
 <p align="center">
@@ -51,7 +51,7 @@ wake -> search -> distill -> review -> dream
 `tool_result`、`prepareNextTurn`，Claude Code 的 `PostToolUse`，以及
 Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 事件入口；`/hm:search` 只是客户端没有这类 hook 时的手动兜底。
-`prepare_session_distill` 只负责整理证据包，不会自己合成候选真值。
+`prepare_session_distill` 只负责同步和打包证据，不会自己合成候选真值。下一个可运行的 Agent 会消费待蒸馏任务，生成候选并调用 `auto_review_candidates(apply=true)`；该提交点完成任务并触发 Dream。`/hm:distill` 是同一管线的立即执行入口。
 
 ## 关键机制
 

@@ -149,6 +149,9 @@ def _known_hook_statuses(project_root: Path, *, home_dir: Path | None) -> list[H
         ("codex", "hooks manifest", project_root / ".codex" / "hooks.json", "project"),
         ("codex", "stop script", project_root / ".codex" / "hooks" / "harness_mem_stop.py", "project"),
         ("opencode", "plugin", project_root / ".opencode" / "plugins" / "harness-mem.ts", "project"),
+        ("antigravity", "hooks manifest", project_root / ".agents" / "hooks.json", "project"),
+        ("antigravity", "PreInvocation script", project_root / ".agents" / "hooks" / "harness_mem_pre_invocation.py", "project"),
+        ("antigravity", "Stop script", project_root / ".agents" / "hooks" / "harness_mem_stop.py", "project"),
     ]
     home = Path.home() if home_dir is None else home_dir
     specs.extend(

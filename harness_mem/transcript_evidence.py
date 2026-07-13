@@ -9,9 +9,11 @@ from pathlib import Path
 from urllib.parse import quote
 
 from harness_mem.adapters import AdapterRegistry
+from harness_mem.adapters.antigravity.adapter import AntigravityAdapter
+from harness_mem.adapters.opencode.adapter import OpenCodeAdapter
 
 
-EVIDENCE_CLIENTS = ("grok", "hermes", "opencode")
+EVIDENCE_CLIENTS = ("grok", "hermes", "opencode", "antigravity")
 
 
 @dataclass(frozen=True)
@@ -46,7 +48,9 @@ def collect_transcript_evidence(
         elif normalized == "hermes":
             reports.append(_hermes_evidence(home, sample_limit=sample_limit))
         elif normalized == "opencode":
-            reports.append(_opencode_evidence(home))
+            reports.append(_opencode_evidence(home, root))
+        elif normalized == "antigravity":
+            reports.append(_antigravity_evidence(home, root, sample_limit=sample_limit))
         else:
             reports.append(
                 TranscriptEvidence(
@@ -125,22 +129,54 @@ def _hermes_evidence(home: Path, *, sample_limit: int) -> TranscriptEvidence:
     )
 
 
-def _opencode_evidence(home: Path) -> TranscriptEvidence:
+def _opencode_evidence(home: Path, project_root: Path) -> TranscriptEvidence:
     roots = _opencode_roots(home)
-    status = _status_for_roots(roots)
-    if any(root.exists() for root in roots):
-        note = (
-            "OpenCode root/config exists, but no verified transcript path/schema was found. "
-            "Do not treat this host as ingest-ready yet."
-        )
-    else:
-        note = "No known OpenCode root was found on this machine."
+    adapter = OpenCodeAdapter(None, home_dir=home, project_root=project_root)
+    database = adapter.database_path
+    sessions = adapter.list_sessions() if database else []
+    status = "verified_transcript_path" if sessions else _status_for_roots(roots)
     return TranscriptEvidence(
         client="opencode",
         status=status,
         adapter_available="opencode" in AdapterRegistry.list(),
-        roots=roots,
-        note=note,
+        roots=tuple(dict.fromkeys((*roots, database.parent) if database else roots)),
+        session_count=len(sessions),
+        sample_files=(database,) if database else (),
+        note=(
+            "Found OpenCode SQLite session/message/part tables for this project."
+            if sessions
+            else (
+                "No known OpenCode root was found on this machine."
+                if not any(root.exists() for root in roots)
+                else "no verified transcript path/schema: readable OpenCode SQLite session database was not found for this project."
+            )
+        ),
+    )
+
+
+def _antigravity_evidence(
+    home: Path,
+    project_root: Path,
+    *,
+    sample_limit: int,
+) -> TranscriptEvidence:
+    brain_root = home / ".gemini" / "antigravity" / "brain"
+    adapter = AntigravityAdapter(None, brain_dir=brain_root, project_root=project_root)
+    sessions = adapter.list_sessions(limit=None)
+    status = "verified_transcript_path" if sessions else _status_for_roots((brain_root,))
+    return TranscriptEvidence(
+        client="antigravity",
+        status=status,
+        adapter_available="antigravity" in AdapterRegistry.list(),
+        roots=(brain_root,),
+        session_count=len(sessions),
+        sample_files=tuple(Path(item["path"]) for item in sessions[:sample_limit]),
+        note=(
+            "Found Antigravity brain transcript.jsonl files matching this project. "
+            "Native agy lifecycle hooks are not part of the verified CLI surface."
+            if sessions
+            else "No Antigravity transcript.jsonl files matched this project."
+        ),
     )
 
 

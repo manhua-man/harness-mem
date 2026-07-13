@@ -45,3 +45,25 @@ def test_auto_sync_runtime_plan_supports_hermes_native_sessions(monkeypatch) -> 
     assert plan.runtime_client == "hermes"
     assert plan.sync_client == "hermes"
     assert plan.skip_reason is None
+
+
+def test_auto_sync_runtime_plan_supports_opencode_native_sessions(monkeypatch) -> None:
+    monkeypatch.setenv("HARNESS_MEM_CLIENT", "opencode")
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+
+    plan = wake._auto_sync_runtime_plan()
+
+    assert plan.runtime_client == "opencode"
+    assert plan.sync_client == "opencode"
+    assert plan.skip_reason is None
+
+
+def test_auto_sync_runtime_plan_supports_antigravity_native_sessions(monkeypatch) -> None:
+    monkeypatch.setenv("HARNESS_MEM_CLIENT", "antigravity")
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+
+    plan = wake._auto_sync_runtime_plan()
+
+    assert plan.runtime_client == "antigravity"
+    assert plan.sync_client == "antigravity"
+    assert plan.skip_reason is None

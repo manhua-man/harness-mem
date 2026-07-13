@@ -125,10 +125,10 @@ harness.
   uncertain project convention, conflict with current context, tool failure
   that resembles a prior issue, file/module boundary question, or pre-write
   claim that must be grounded.
-- Run `prepare_session_distill`, `auto_review_candidates(apply=true)`, and
-  `dream_auto_tick` at save points or session end for eligible sessions; keep
-  high-risk, conflicting, or weak-evidence items out of normal wake/search until
-  audit.
+- At save points or session end, sync evidence and queue a durable distill task.
+  An Agent-capable invocation consumes the packet, creates candidates, applies
+  auto-review, then runs Dream. Keep high-risk, conflicting, or weak-evidence
+  items out of normal wake/search until audit.
 
 See [autopilot-search-policy.md](autopilot-search-policy.md) for the runtime contract.
 

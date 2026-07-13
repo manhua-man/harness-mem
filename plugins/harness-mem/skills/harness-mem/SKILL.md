@@ -31,9 +31,9 @@ In Claude Code, prefer the no-hyphen MCP alias names such as
 
 - `get_project_status`: checks active project and current memory counts.
 - `ingest_sessions`: low-level transcript sync for `/hm:distill` internals and diagnostics; do not present it as the user workflow.
-- `prepare_session_distill`: `/hm:distill` backend that syncs recent transcript evidence and returns an observation packet.
+- `prepare_session_distill`: low-level sync and evidence-packet stage used by `/hm:distill`; it never claims synthesis completed.
 - `tools/session-distill`: default user-facing distillation playbook that reads evidence and writes pending candidates.
-- `auto_review_candidates`: shared low-risk review policy for `/hm:distill`. Apply mode promotes low-risk items and records audit decisions; `/hm:review` audits, undoes, and upgrades trust.
+- `auto_review_candidates`: final `/hm:distill` stage. Apply mode promotes low-risk items, completes queued distill work, records audit decisions, and triggers Dream; `/hm:review` audits, undoes, and upgrades trust.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
 - `suggest_*` / `list_candidates` / `confirm_*`: create and review durable memory candidates.
 - Cleanup remains an explicit CLI maintenance operation via `harness-mem maintenance purge`, and only soft-deletes harness-mem indexed data.

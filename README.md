@@ -32,7 +32,7 @@ Invocation surfaces:
 
 - `/hm:*` commands: `status`, `wake`, `search`, `distill`, `review`, `dream`.
 - Agent MCP calls: plain language, skills, or hooks trigger `wake/search/distill/review`.
-- Hooks: inject wake context at session start, call `autopilot_search_tick` during work, and run `prepare_session_distill` + `auto_review_candidates(apply=true)` + `dream_auto_tick` at save points or session end.
+- Hooks: inject wake context and stage transcript evidence for the next Agent-led distill pass.
 - CLI: setup, doctor, config, integration, and maintenance only.
 
 <p align="center">
@@ -49,7 +49,7 @@ wake -> search -> distill -> review -> dream
 |---|---|
 | `wake` | Load a compact project brief from readable memory at session start. |
 | `search` | Retrieve prior decisions, rules, and handoffs when `autopilot_search_tick` detects concrete uncertainty, conflict, tool failure, durable-claim grounding, or a long-horizon task switch. |
-| `distill` | Turn recent session evidence into a packet/candidate flow, then run the shared auto-review policy. |
+| `distill` | Turn recent session evidence into candidates, run shared auto-review, then trigger Dream. |
 | `review` | Audit, confirm, reject, undo, or supersede auto-promoted and pending items after the fact. |
 | `dream` | Maintain the ledger, compact stale state, and keep reversible cleanup metadata current after save points or session end. |
 
@@ -59,6 +59,8 @@ The runtime search scheduler is event-driven, not always-on. PI-style
 can send the same event payload shape. `/hm:search` remains the manual fallback
 when a client cannot expose those hooks. `prepare_session_distill` packages
 recent evidence; it does not synthesize candidate truth by itself.
+Stop hooks persist a pending distill task; the next Agent-capable wake consumes
+it. `/hm:distill` is the immediate entry to that same pipeline.
 
 ## Why It Is Different
 
@@ -183,4 +185,4 @@ python scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds native wheels for six targets and uploads **GitHub Actions artifacts only** (no PyPI publish).
 
-Current package version: **0.8.22**.
+Current package version: **0.8.23**.

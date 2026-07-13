@@ -63,7 +63,7 @@ def test_collect_transcript_evidence_keeps_unknown_hosts_unavailable(
     assert hermes.adapter_available is True
     assert "no session_*.json file with transcript schema" in hermes.note
     assert opencode.status == "missing"
-    assert opencode.adapter_available is False
+    assert opencode.adapter_available is True
 
 
 def test_collect_transcript_evidence_verifies_hermes_session_schema(tmp_path: Path) -> None:
@@ -139,7 +139,7 @@ def test_collect_transcript_evidence_keeps_opencode_config_only_insufficient(
     assert report.status == "insufficient_evidence"
     assert report.session_count == 0
     assert report.sample_files == ()
-    assert report.adapter_available is False
+    assert report.adapter_available is True
     assert "no verified transcript path/schema" in report.note
     assert config_root in report.roots
 

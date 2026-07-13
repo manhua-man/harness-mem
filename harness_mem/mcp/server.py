@@ -175,7 +175,7 @@ SUPPORTED_PROTOCOL_VERSIONS = [
 
 
 _AUTO_HOOK_CLIENTS = frozenset(
-    {"claude-code", "cursor", "grok", "codex", "hermes", "opencode"}
+    {"claude-code", "cursor", "grok", "codex", "hermes", "opencode", "antigravity"}
 )
 _MCP_CLIENT_ALIASES = {
     "claude code": "claude-code",
@@ -187,6 +187,8 @@ _MCP_CLIENT_ALIASES = {
     "hermes": "hermes",
     "opencode": "opencode",
     "open code": "opencode",
+    "antigravity": "antigravity",
+    "agy": "antigravity",
 }
 
 

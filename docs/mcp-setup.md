@@ -28,7 +28,7 @@ existing hook files.
 ```
 
 Use the client-specific syntax for the workspace variable: `cursor`,
-`claude-code`, `grok`, `codex`, `hermes`, and `opencode` are recognized. Where
+`claude-code`, `grok`, `codex`, `hermes`, `opencode`, and `antigravity` are recognized. Where
 a client cannot set `cwd`, set `HARNESS_MEM_PROJECT_ROOT` to the absolute
 workspace path instead. The environment value belongs in the MCP server entry,
 not only the hook command, so initialization sees the correct host identity.
@@ -42,10 +42,10 @@ derived view of transcript observations and does not promote them to confirmed
 truth; stable truth and active handoffs remain separate sections.
 
 Invocation paths are Agent MCP calls, `/hm:*` commands, installed skills, and
-explicit IDE hooks. Session-start hooks inject wake context; runtime task hooks
+explicit IDE hooks. Session-start/PreInvocation hooks inject wake context; runtime task hooks
 call `autopilot_search_tick`, which decides whether to run bounded
-`search_memory`; save-point or session-end hooks can run distill and dream
-maintenance.
+`search_memory`; save-point or session-end hooks sync evidence and queue
+Agent-led distillation.
 
 `autopilot_search_tick` is the event-level scheduler. PI
 `transformContext` / `tool_result` / `prepareNextTurn`, Claude Code
@@ -59,8 +59,9 @@ project observations into an evidence packet; it does not synthesize candidate
 truth on its own. The lower-level transcript sync is internal to `/hm:distill`
 and diagnostics, not a user-facing workflow. The candidate layer
 is still written by the session-distill / suggest_* path, and
-`auto_review_candidates` then applies the shared low-risk policy and records
-audit events. These counts and candidate IDs are audit data, not normal wake or
+`auto_review_candidates(apply=true)` then applies the shared low-risk policy,
+completes the pending distill task, and runs Dream. These counts and candidate
+IDs are audit data, not normal wake or
 hook output. Ambiguous or high-risk items remain in `/hm:review`. Operator
 maintenance and skill lifecycle management are not public MCP tools.
 Read-only procedural hints can be searched from memory context, but procedural

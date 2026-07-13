@@ -86,7 +86,7 @@ Use these from Claude Code after installation:
 | `/hm:wake` | Recover confirmed project context. |
 | `/hm:search "query"` | Search current-project memory. |
 | `/hm:search-all "query"` | Explicit cross-project memory search. |
-| `/hm:distill <project> <n>` | Convert recent session evidence into reviewable candidates and preview review decisions. |
+| `/hm:distill <project> <n>` | Immediately consume recent evidence, govern candidates, and run Dream. |
 | `/hm:review` | Confirm, reject, replace, or keep pending candidates. |
 | `/hm:dream` | Inspect or explicitly trigger the default dream maintenance ledger. |
 

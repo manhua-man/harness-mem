@@ -365,7 +365,9 @@ def _acquire_ingest_lock(
 
 def _auto_sync_runtime_plan() -> AutoSyncRuntimePlan:
     runtime_client = current_agent_client()
-    if runtime_client in {"claude-code", "cursor", "codex", "grok", "hermes"}:
+    if runtime_client in {
+        "claude-code", "cursor", "codex", "grok", "hermes", "opencode", "antigravity"
+    }:
         return AutoSyncRuntimePlan(
             runtime_client=runtime_client,
             sync_client=runtime_client,
@@ -462,7 +464,9 @@ async def _perform_sync(backend: LocalMemoryBackend, project_name: str, start_ti
         return
 
     adapter_kwargs: dict[str, object] = {}
-    if plan.sync_client in {"cursor", "codex", "grok", "hermes"}:
+    if plan.sync_client in {
+        "cursor", "codex", "grok", "hermes", "opencode", "antigravity"
+    }:
         adapter_kwargs["project_root"] = Path.cwd()
     if plan.sync_client in {"codex", "hermes"}:
         adapter_kwargs["scope"] = "project"
@@ -785,7 +789,16 @@ async def build_wake_injection(
     if apply_surface_side_effects:
         await _apply_surface_side_effects(backend, plan)
     recent_context = await build_recent_context(backend, project_name)
-    return render_recent_context(recent_context, plan, compact=True)
+    rendered = render_recent_context(recent_context, plan, compact=True)
+    from harness_mem.commands.distill_lifecycle import (
+        pending_distill_jobs,
+        render_pending_distill_instruction,
+    )
+
+    instruction = render_pending_distill_instruction(
+        pending_distill_jobs(backend, project_name=project_name)
+    )
+    return f"{rendered}\n\n{instruction}" if instruction else rendered
 
 
 async def cmd_wake_up(

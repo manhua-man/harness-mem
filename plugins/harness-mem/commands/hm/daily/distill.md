@@ -78,6 +78,8 @@ wireFormatVersion: hm-wire-v3.5
 
    `applied_decisions` 保留在审计结果中。如果用户追问某个候选为什么会被确认、拒绝或保留，解释 candidate id、evidence id 和 policy reason。
 
+   `apply=true` 也是同一管线的提交点：它完成待蒸馏任务并触发 Dream。不要再额外调用一条平行的 dream 流程。
+
 5. **总结呈现**
    默认只给简短结果，不展示 transcript、候选、自动确认或拒绝的计数：
 
@@ -90,7 +92,7 @@ wireFormatVersion: hm-wire-v3.5
 
 **Notes**
 
-- `/hm:distill` 是显式语义整理链路：读取证据、提炼候选、自动处理低风险项；默认摘要保持简短
+- `/hm:distill` 是同一自动管线的立即执行入口：读取证据、提炼候选、自动处理低风险项、触发 Dream；默认摘要保持简短
 - `/hm:review` 是 audit inbox：确认、拒绝、undo、替换候选都在这里发生
 - 不要把具体客户端写死为默认来源；默认入口必须是 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根目录>)`
 - agent 历史可能是用户全局数据源，默认必须按当前项目路径过滤；跨项目导入必须由用户显式要求 `scope="all"`

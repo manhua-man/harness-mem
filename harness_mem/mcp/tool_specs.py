@@ -653,8 +653,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "prepare_session_distill": {
         "description": (
-            "User-facing /hm:distill backend: sync recent transcripts, then "
-            "return an evidence packet for AI-led candidate drafting."
+            "Low-level /hm:distill stage: sync recent transcripts, claim queued "
+            "distill work, then return evidence for AI-led candidate drafting. "
+            "This tool does not synthesize or summarize by itself."
         ),
         "input_schema": {
             "type": "object",
@@ -770,7 +771,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "(auto_confirmed / auto_rejected / "
             "kept_pending / needs_user_confirmation). With apply=true, low-risk "
             "decisions are applied with audit events while ambiguous or high-risk "
-            "items stay reviewable."
+            "items stay reviewable. Apply mode also completes Agent-consumed "
+            "distill tasks and triggers Dream."
         ),
         "input_schema": {
             "type": "object",

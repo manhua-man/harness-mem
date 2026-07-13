@@ -349,3 +349,5 @@ def test_tool_prepare_session_distill_cursor_resolves_project_from_project_root_
     assert payload["resolved_client"] == "cursor"
     assert payload["observation_count"] == 1
     assert payload["observations"][0]["client"] == "cursor"
+    assert payload["distill_job_id"]
+    assert payload["distill_status"] == "processing"
