@@ -103,3 +103,46 @@ def test_stdio_ndjson_initialize_stays_supported(tmp_path: Path) -> None:
     response = json.loads(lines[0].decode("utf-8"))
     assert response["id"] == 1
     assert response["result"]["serverInfo"]["name"] == "harness-mem"
+
+
+def test_first_initialize_hook_install_does_not_pollute_ndjson_stdout(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / ".git").mkdir()
+    env = _server_env(tmp_path)
+    env["HARNESS_MEM_CLIENT"] = "cursor"
+    env["HARNESS_MEM_PROJECT_ROOT"] = str(workspace)
+    requests = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "clientInfo": {"name": "Cursor"},
+            },
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+            "params": {},
+        },
+    ]
+    proc = subprocess.run(
+        [sys.executable, "-m", "harness_mem.mcp.server"],
+        cwd=workspace,
+        input="".join(json.dumps(request) + "\n" for request in requests).encode(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        timeout=15,
+        check=False,
+    )
+
+    assert proc.returncode == 0, proc.stderr.decode(errors="replace")
+    responses = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
+    assert [response["id"] for response in responses] == [1, 2]
+    assert (workspace / ".cursor" / "hooks" / "session-start.sh").is_file()

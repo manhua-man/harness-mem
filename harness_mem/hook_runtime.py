@@ -85,6 +85,21 @@ def collect_hook_runtime_report(
     )
 
 
+def collect_hook_file_statuses(
+    project_root: Path,
+    *,
+    client: str | None = None,
+    home_dir: Path | None = None,
+) -> tuple[HookFileStatus, ...]:
+    """Return known hook artifacts without launching a Python probe."""
+
+    root = project_root.expanduser().resolve()
+    statuses = _known_hook_statuses(root, home_dir=home_dir)
+    if client is not None:
+        statuses = [status for status in statuses if status.client == client]
+    return tuple(statuses)
+
+
 def probe_python_runtime(
     *,
     python_command: Sequence[str] = ("python",),
@@ -214,6 +229,7 @@ __all__ = [
     "HookFileStatus",
     "HookRuntimeReport",
     "PythonRuntimeProbe",
+    "collect_hook_file_statuses",
     "collect_hook_runtime_report",
     "probe_python_runtime",
 ]

@@ -16,6 +16,7 @@ from harness_mem.commands.support import (
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.core.schemas.project_profile import ProjectProfile
+from harness_mem.integration_health import build_integration_health
 from harness_mem.runtime_cost import cost_budget_policy, surface_cost_report
 from harness_mem.runtime_health import runtime_health_report
 from harness_mem.storage.canonical_store import canonical_store_health
@@ -74,6 +75,11 @@ async def _status_project_async(backend: LocalMemoryBackend, project_name: str) 
     handoffs = await backend.structured_store.get_latest_handoffs(project_name, limit=3)
     rules = await backend.structured_store.list_confirmed_rules(project_name)
     profile = await profile_store.get(project_name)
+    integration_health = await build_integration_health(
+        backend,
+        project_name=project_name,
+        project_root=find_project_root(project_name),
+    )
 
     print(f"Project: {project_name}")
     print(
@@ -85,6 +91,7 @@ async def _status_project_async(backend: LocalMemoryBackend, project_name: str) 
     print(f"  Memory entries: {len(entries)} (limited to 5 latest in wake-up)")
     print(f"  Task handoffs: {len(handoffs)} (limited to 3 latest in wake-up)")
     print(f"  Confirmed rules: {len(rules)}")
+    print(f"  Integration: {integration_health['summary']}")
     await _print_dream_status(backend, project_name)
     await _print_runtime_health_status(backend, project_name, profile)
 

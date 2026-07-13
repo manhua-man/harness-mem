@@ -46,6 +46,8 @@ except (OSError, AttributeError):
 sys.stdout = sys.stderr
 
 import json  # noqa: E402
+import contextlib  # noqa: E402
+import io  # noqa: E402
 import logging  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any, BinaryIO, Literal  # noqa: E402
@@ -236,11 +238,15 @@ def _bootstrap_mcp_session(params: dict[str, Any]) -> None:
         )
         set_active_project(context.project_name)
 
-        install_status = cmd_install_hook_suite(
-            client,
-            str(context.project_root),
-            False,
-        )
+        install_output = io.StringIO()
+        with contextlib.redirect_stdout(install_output):
+            install_status = cmd_install_hook_suite(
+                client,
+                str(context.project_root),
+                False,
+            )
+        if install_output.getvalue().strip():
+            logger.debug("MCP bootstrap hook install: %s", install_output.getvalue().strip())
         if install_status != 0:
             logger.warning(
                 "MCP bootstrap could not install hook suite: client=%s root=%s",
