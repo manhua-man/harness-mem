@@ -83,13 +83,21 @@ owns storage, candidates, review, retrieval, and local audit state.
 ## Install
 
 ```bash
-pip install harness-mem
+python -m pip install \
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.3 \
+  harness-mem==0.8.23.3
 ```
+
+`harness-mem` itself is distributed through GitHub Releases. The command above
+selects the compatible native wheel for Windows, macOS, or Linux; no PyPI
+project or account is required.
 
 Optional local vector / hybrid search dependencies:
 
 ```bash
-pip install "harness-mem[hybrid]"
+python -m pip install \
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.3 \
+  "harness-mem[hybrid]==0.8.23.3"
 ```
 
 Claude Code users can install the repo-local plugin and optionally register MCP:
@@ -183,6 +191,6 @@ python scripts/ensure_mcps_canonical.py
 ## Releases
 
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
-- Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, attaches distributions to the GitHub Release, and publishes to PyPI through OIDC.
+- Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.8.23.2**.
+Current package version: **0.8.23.3**.

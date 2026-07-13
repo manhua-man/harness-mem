@@ -109,7 +109,7 @@ def _rust_distribution_warnings(rust: Any, policy: str) -> list[str]:
     if not rust.available and policy == "prefer":
         warnings.append(
             "rust core running in python_fallback; reinstall harness-mem from a native "
-            "wheel (pip install harness-mem) or run "
+            "GitHub Release wheel or run "
             "'maturin develop --features python-extension' locally"
         )
     return warnings

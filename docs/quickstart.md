@@ -5,13 +5,20 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 ## Install
 
 ```bash
-pip install harness-mem
+python -m pip install \
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.3 \
+  harness-mem==0.8.23.3
 ```
+
+The package is distributed through GitHub Releases rather than PyPI. Pip uses
+the release asset index above to select the compatible native wheel.
 
 Optional local vector / hybrid search dependencies:
 
 ```bash
-pip install "harness-mem[hybrid]"
+python -m pip install \
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.3 \
+  "harness-mem[hybrid]==0.8.23.3"
 ```
 
 Check the CLI:

@@ -284,7 +284,7 @@ const GLOSSARY_MEMORY = [
 
 const GLOSSARY_TECH = [
   ["FTS5", "SQLite 全文关键词搜索", "搜类名、函数名很准"],
-  ["Hybrid", "关键词 + 语义向量混合检索", "pip install harness-mem[hybrid]"],
+  ["Hybrid", "关键词 + 语义向量混合检索", "从 GitHub Release 安装 [hybrid]"],
   ["Embedding", "把文字变成向量用于语义相似", "默认 all-MiniLM-L6-v2"],
   ["SQLite", "本地数据库，存记忆主数据", "~/.harness-mem/ 下"],
   ["Index Fabric", "可重建的派生索引 sidecar", "加速检索，不是 truth"],
