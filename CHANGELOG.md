@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## [0.8.23.2] - 2026-07-13
+
+### Fixed
+
+- GitHub Release attachment now receives an explicit repository identity in
+  the checkout-free PyPI publish job.
+
 ## [0.8.23.1] - 2026-07-13
 
 ### Added
