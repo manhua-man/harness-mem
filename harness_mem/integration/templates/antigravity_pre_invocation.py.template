@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Generated Antigravity PreInvocation bridge for harness-mem."""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+
+PROJECT_ROOT = ${PROJECT_ROOT_JSON}
+
+
+def main() -> int:
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:  # noqa: BLE001 - passive hooks fail open.
+        payload = {}
+    roots = payload.get("workspacePaths") or []
+    project_root = str(roots[0]) if roots else PROJECT_ROOT
+    trigger_id = str(payload.get("conversationId") or "antigravity-pre-invocation")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "harness_mem.host_entry",
+            "--action",
+            "wake-start",
+            "--project-root",
+            project_root,
+            "--source",
+            "ide_hook",
+            "--trigger-id",
+            trigger_id,
+            "--client",
+            "antigravity",
+        ],
+        capture_output=True,
+        check=False,
+        env={**os.environ, "HARNESS_MEM_CLIENT": "antigravity"},
+        text=True,
+    )
+    message = result.stdout.strip() if result.returncode == 0 else ""
+    json.dump(
+        {"injectSteps": [{"ephemeralMessage": message}]} if message else {"injectSteps": []},
+        sys.stdout,
+    )
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

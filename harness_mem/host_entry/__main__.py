@@ -4,8 +4,8 @@ This module is the adapter that maps explicit IDE hook actions to in-process
 runtime calls. It never shells out to the ``harness-mem`` console script.
 
 ``dream-end`` runs a gated dream maintenance tick and emits one JSON document.
-``post-turn-maintenance`` runs session-distill packetization, low-risk
-auto-review, and dream maintenance, then emits one JSON document.
+``post-turn-maintenance`` syncs evidence, queues Agent-led distillation, and
+emits one JSON document. It does not claim semantic summarization completed.
 ``wake-start`` renders wake context for session-start injection and emits
 plaintext.
 
@@ -99,11 +99,14 @@ def _post_turn_host_result(payload: dict[str, Any]) -> dict[str, Any]:
     summary: dict[str, Any] = summary_value if isinstance(summary_value, dict) else {}
     status = str(payload.get("status") or "")
     action = str(payload.get("action") or "post-turn-maintenance")
-    next_step = (
-        "partial: distill or dream maintenance needs follow-up"
-        if status == "partial"
-        else "completed: distill, auto-review, and dream maintenance completed"
-    )
+    if status == "queued":
+        next_step = "queued: evidence synced; an Agent must consume the pending distill task"
+    elif status == "in_progress":
+        next_step = "in progress: an Agent is already consuming this evidence"
+    elif status == "completed":
+        next_step = "completed: transcript evidence is up to date"
+    else:
+        next_step = "failed: transcript evidence staging did not complete"
     return {
         "action": action,
         "status": status or "failed",
@@ -112,9 +115,8 @@ def _post_turn_host_result(payload: dict[str, Any]) -> dict[str, Any]:
         "project_root": payload.get("project_root"),
         "trigger_id": payload.get("trigger_id"),
         "success": bool(payload.get("success")),
-        "session_distill": payload.get("session_distill"),
-        "auto_review": payload.get("auto_review"),
-        "dream": payload.get("dream"),
+        "evidence_packet": payload.get("evidence_packet"),
+        "distill_job": payload.get("distill_job"),
         "summary": summary,
     }
 
@@ -262,7 +264,8 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                 post_turn_result = _post_turn_host_result(maintenance_payload)
                 exit_code = (
                     ExitCode.SUCCESS
-                    if post_turn_result["status"] in ("completed", "skipped")
+                    if post_turn_result["status"]
+                    in ("completed", "queued", "in_progress", "skipped")
                     else ExitCode.HOOK_FAILED
                 )
                 return (exit_code, json.dumps(post_turn_result, sort_keys=True))

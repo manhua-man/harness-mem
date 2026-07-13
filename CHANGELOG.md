@@ -2,7 +2,19 @@
 
 ## Unreleased
 
+## [0.8.23] - 2026-07-13
+
 ### Added
+
+- Native OpenCode transcript ingest from the verified SQLite
+  `session`/`message`/`part` database layout, scoped by `session.directory`.
+- Native Antigravity transcript ingest from verified brain `transcript.jsonl`
+  files, with workspace-path matching and truthful `client="antigravity"`
+  observations.
+- Transcript evidence now validates OpenCode databases and Antigravity JSONL
+  samples instead of treating configuration directories as transcript data.
+- Native Antigravity lifecycle hooks through merged `.agents/hooks.json`
+  `PreInvocation` and `Stop` entries with JSON stdin/stdout bridge scripts.
 
 - Native Hermes transcript sync for `~/.hermes/sessions/session_*.json`,
   including schema-backed parsing, project-root content matching, duplicate
@@ -25,9 +37,12 @@
 - Distill guidance now returns a concise default outcome; candidate counts,
   evidence IDs, and auto-review decisions remain available through review and
   diagnostic surfaces.
-- `transcript-evidence` now reports Hermes as adapter-backed when verified
-  `session_*.json` files are present. OpenCode remains evidence-only and not
-  ingest-ready.
+- Automatic maintenance now stages evidence as a durable pending distill task.
+  An Agent consumes the task, creates warranted candidates, applies auto-review,
+  and only then runs Dream. Evidence packet preparation is no longer described
+  as completed conversation summarization.
+- `transcript-evidence` now reports OpenCode and Antigravity as adapter-backed
+  when their verified transcript stores are readable.
 
 ## [0.8.22] - 2026-07-10
 

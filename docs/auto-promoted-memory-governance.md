@@ -54,6 +54,7 @@ flowchart TD
 
     CAND --> G
     G -->|admit / narrow| PREF["auto_review_candidates + evidence checks"]
+    PREF --> DREAM["Dream maintenance"]
     G -->|defer| DEFERRED["deferred / note"]
     G -->|reject| REJECTED["rejected"]
 

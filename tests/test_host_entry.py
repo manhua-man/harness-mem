@@ -103,30 +103,18 @@ def test_host_entry_post_turn_maintenance_outputs_combined_json(monkeypatch, tmp
         return {
             "action": "post-turn-maintenance",
             "success": True,
-            "status": "completed",
+            "status": "queued",
             "project_name": project_name,
             "project_root": project_root,
             "source": source,
             "trigger_id": trigger_id,
-            "session_distill": {"success": True, "observation_count": 3},
-            "auto_review": {"success": True, "auto_confirmed": 1},
-            "dream": {
-                "success": True,
-                "status": "completed",
-                "job_id": "job-2",
-            },
+            "evidence_packet": {"success": True, "observation_count": 3},
+            "distill_job": {"id": "distill-1", "status": "needs_distill"},
             "summary": {
-                "distill_success": True,
+                "evidence_packet_ready": True,
                 "observation_count": 3,
-                "auto_review_success": True,
-                "auto_confirmed": 1,
-                "auto_provisional": 0,
-                "auto_rejected": 0,
-                "auto_deferred": 0,
-                "kept_pending": 0,
-                "needs_user_confirmation": 0,
-                "dream_status": "completed",
-                "dream_job_id": "job-2",
+                "distill_queued": True,
+                "distill_job_id": "distill-1",
             },
         }
 
@@ -142,9 +130,11 @@ def test_host_entry_post_turn_maintenance_outputs_combined_json(monkeypatch, tmp
 
     data = json.loads(payload or "{}")
     assert data["action"] == "post-turn-maintenance"
-    assert data["status"] == "completed"
+    assert data["status"] == "queued"
     assert data["summary"]["observation_count"] == 3
-    assert data["summary"]["dream_job_id"] == "job-2"
+    assert data["summary"]["distill_job_id"] == "distill-1"
+    assert "auto_review" not in data
+    assert "dream" not in data
 
 
 def test_host_entry_client_override_sets_runtime_host(monkeypatch, tmp_path) -> None:

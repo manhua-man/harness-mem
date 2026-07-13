@@ -1,4 +1,4 @@
-"""Adapters — transcript sync adapters for Claude Code, Cursor, Codex, Grok, and Hermes.
+"""Transcript sync adapters for supported IDE and agent hosts.
 
 Registry provides minimal contract for adapter discovery.
 """
@@ -13,6 +13,8 @@ from harness_mem.adapters.codex.adapter import CodexAdapter
 from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
 from harness_mem.adapters.grok.adapter import GrokAdapter
 from harness_mem.adapters.hermes.adapter import HermesAdapter
+from harness_mem.adapters.opencode.adapter import OpenCodeAdapter
+from harness_mem.adapters.antigravity.adapter import AntigravityAdapter
 from harness_mem.adapters.protocol import SessionAdapter
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 
@@ -29,6 +31,8 @@ class AdapterRegistry:
         "codex-archive": CodexArchiveAdapter,
         "grok": GrokAdapter,
         "hermes": HermesAdapter,
+        "opencode": OpenCodeAdapter,
+        "antigravity": AntigravityAdapter,
     }
 
     @classmethod
@@ -68,5 +72,7 @@ __all__ = [
     "CodexAdapter",
     "GrokAdapter",
     "HermesAdapter",
+    "OpenCodeAdapter",
+    "AntigravityAdapter",
     "SessionAdapter",
 ]

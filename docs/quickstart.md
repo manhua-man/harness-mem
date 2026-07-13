@@ -42,7 +42,7 @@ Common invocation paths:
 | Plain language | Ask the Agent to wake, search, distill, or review. |
 | `/hm:*` commands | Run the daily workflow from Claude Code. |
 | Agent skills | Teach the client when to call memory tools. |
-| Hooks | Inject wake context, call `autopilot_search_tick` during work, and run `prepare_session_distill` + `auto_review_candidates(apply=true)` + `dream_auto_tick` at save points or session end. |
+| Hooks | Inject wake context and stage transcript evidence for Agent-led distillation. |
 
 The server command is:
 
@@ -61,8 +61,9 @@ That install syncs the Daily `/hm:*` commands by default, including dream.
 For a project-scoped MCP entry, configure its `cwd` as the workspace and set
 `HARNESS_MEM_CLIENT` to the host name. The first MCP initialization then adopts
 the project and installs the matching hook suite without replacing existing
-hooks. The generic hook-suite installer remains available for explicit repair
-and also supports `grok`, `codex`, `hermes`, and `opencode`.
+hooks. OpenCode uses its project plugin; Antigravity uses `.agents/hooks.json`
+with `PreInvocation` and `Stop` JSON bridges. The generic hook-suite installer
+remains available for operator repair.
 For the current host support matrix and where each host expects hooks to live,
 see [IDE hook adapter matrix](ide-hook-adapter-matrix.md).
 Session-start wake shows a compact recent-context index first, including recent
@@ -88,12 +89,12 @@ The stable loop is:
 wake -> search -> distill -> review -> dream ledger
 ```
 
-Dream is enabled as a default audited maintenance capability. Hook maintenance
-is quiet by default. Only confirmed and auto-promoted readable memory is used by `wake` and `search`; `distill`
-prepares the evidence packet and candidate layer, `auto_review_candidates`
-promotes low-risk items with audit metadata, and `dream_auto_tick` maintains
-the ledger. Counts and candidate IDs belong to the audit surface. `review` is
-the post-hoc inbox for confirmation, rejection, undo, and supersede.
+Dream is the final stage of the audited maintenance pipeline. A Stop hook only
+syncs transcript evidence and queues a distill task. The next Agent-capable
+wake consumes that task through the same `/hm:distill` flow: evidence packet,
+Agent judgment, `suggest_*` candidates, `auto_review_candidates(apply=true)`,
+then Dream. Preparing a packet is never reported as a completed summary.
+Counts and candidate IDs stay on the audit surface.
 
 During an Agent run, supported clients should send context/tool/save-point
 events to `autopilot_search_tick`. The scheduler calls `search_memory` only

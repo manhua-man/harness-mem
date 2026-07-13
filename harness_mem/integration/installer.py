@@ -32,6 +32,7 @@ __all__ = [
     "DEFAULT_DOC_POINTER",
     "HookInstallResult",
     "HookSpec",
+    "install_antigravity_hook_suite",
     "install_hermes_hook_suite",
     "install_hook",
     "install_hook_suite",
@@ -96,10 +97,10 @@ def _assert_boundary(rendered: str) -> None:
     """
     if _REQUIRED_HOST_ENTRY not in rendered:
         raise RuntimeError("rendered template contains forbidden pattern")
-    if (
-        "dream-end" not in rendered
-        and "post-turn-maintenance" not in rendered
-        and "wake-start" not in rendered
+    compact = re.sub(r"[\s\"']+", "", rendered)
+    if not any(
+        action in rendered or f"--action,{action}" in compact
+        for action in ("dream-end", "post-turn-maintenance", "wake-start")
     ):
         raise RuntimeError("rendered template contains forbidden pattern")
     for line in rendered.splitlines():
@@ -224,6 +225,83 @@ def install_hook_suite(
         )
         results.append(HookInstallResult(target_path=written, status="installed"))
     return results
+
+
+def install_antigravity_hook_suite(
+    *,
+    project_root: Path,
+    force: bool = False,
+    harness_mem_version: str,
+    generated_at: datetime,
+    doc_pointer: str = DEFAULT_DOC_POINTER,
+) -> list[HookInstallResult]:
+    """Install Antigravity JSON bridges and merge managed event entries."""
+
+    root = project_root.resolve()
+    hook_dir = root / ".agents" / "hooks"
+    pre_script = hook_dir / "harness_mem_pre_invocation.py"
+    stop_script = hook_dir / "harness_mem_stop.py"
+    script_results = install_hook_suite(
+        specs=(
+            HookSpec("antigravity_pre_invocation.py.template", pre_script),
+            HookSpec("antigravity_stop.py.template", stop_script),
+        ),
+        project_root=root,
+        force=force,
+        harness_mem_version=harness_mem_version,
+        generated_at=generated_at,
+        doc_pointer=doc_pointer,
+    )
+
+    manifest_path = root / ".agents" / "hooks.json"
+    before = manifest_path.read_text(encoding="utf-8") if manifest_path.exists() else ""
+    try:
+        manifest = json.loads(before) if before.strip() else {}
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid Antigravity hooks JSON: {manifest_path}: {exc}") from exc
+    if not isinstance(manifest, dict):
+        raise ValueError(f"invalid Antigravity hooks JSON object: {manifest_path}")
+    hooks = manifest.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        raise ValueError(f"invalid Antigravity hooks mapping: {manifest_path}")
+
+    managed = {
+        "PreInvocation": (pre_script, _antigravity_hook_group(pre_script)),
+        "Stop": (stop_script, _antigravity_hook_group(stop_script)),
+    }
+    for event, (script_path, group) in managed.items():
+        groups = hooks.setdefault(event, [])
+        if not isinstance(groups, list):
+            raise ValueError(f"invalid Antigravity {event} hook list: {manifest_path}")
+        marker = script_path.name
+        groups[:] = [
+            existing
+            for existing in groups
+            if marker not in json.dumps(existing, sort_keys=True)
+        ]
+        groups.append(group)
+
+    after = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    if after != before:
+        manifest_path.write_text(after, encoding="utf-8")
+        status = "updated" if before else "installed"
+    else:
+        status = "exists"
+    return script_results + [
+        HookInstallResult(target_path=manifest_path.resolve(), status=status)
+    ]
+
+
+def _antigravity_hook_group(script_path: Path) -> dict[str, object]:
+    return {
+        "hooks": [
+            {
+                "type": "command",
+                "command": f'python "{script_path.resolve().as_posix()}"',
+            }
+        ]
+    }
 
 
 def _detect_newline(text: str) -> str:

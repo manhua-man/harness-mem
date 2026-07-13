@@ -34,6 +34,8 @@ NATIVE_INGEST_CLIENTS = {
     "codex-archive",
     "grok",
     "hermes",
+    "opencode",
+    "antigravity",
 }
 AUTO_DETECT_CLIENTS = {
     "auto",

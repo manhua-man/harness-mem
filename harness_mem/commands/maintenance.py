@@ -301,10 +301,8 @@ async def run_post_turn_maintenance(
     source: str = "ide_hook",
     trigger_id: str | None = None,
 ) -> dict[str, Any]:
-    """Run the post-turn maintenance loop: distill packet, auto-review, then dream."""
+    """Sync transcript evidence and queue Agent-led distillation work."""
     from harness_mem.mcp import tool_handlers as mcp_tool_handlers
-    from harness_mem.commands.auto_review import auto_review_candidates
-    from harness_mem.commands.dream import dream_auto_tick
 
     previous_backend_provider = getattr(mcp_tool_handlers, "_backend_provider", None)
     previous_observer_data_dir = getattr(mcp_tool_handlers, "_observer_data_dir_provider", None)
@@ -328,80 +326,44 @@ async def run_post_turn_maintenance(
                 observation_limit=5,
                 max_chars_per_observation=6000,
                 run_ingest=True,
+                _distill_source=source,
             )
 
         try:
-            session_distill = await asyncio.to_thread(_prepare_session_distill)
+            evidence_packet = await asyncio.to_thread(_prepare_session_distill)
         except Exception as exc:  # noqa: BLE001 - maintenance should still continue.
-            session_distill = {
+            evidence_packet = {
                 "success": False,
                 "project_name": project_name,
                 "project_root": project_root,
                 "error": f"{type(exc).__name__}: {exc}"[:512],
             }
 
-        review_summary: Any | None = None
-        try:
-            review_summary = await auto_review_candidates(
-                backend,
-                project_name=project_name,
-                apply=True,
-            )
-            auto_review_payload: dict[str, Any] = review_summary.to_dict()
-        except Exception as exc:  # noqa: BLE001 - maintenance should still continue.
-            review_summary = None
-            auto_review_payload = {
-                "success": False,
-                "project_name": project_name,
-                "error": f"{type(exc).__name__}: {exc}"[:512],
-            }
-
-        try:
-            dream_payload = await dream_auto_tick(
-                backend,
-                project_name=project_name,
-                project_root=project_root,
-                config=config,
-                source=source,  # type: ignore[arg-type]
-            )
-        except Exception as exc:  # noqa: BLE001 - maintenance should still continue.
-            dream_payload = {
-                "success": False,
-                "status": "failed",
-                "project_name": project_name,
-                "error": f"{type(exc).__name__}: {exc}"[:512],
-            }
-
-        review_counts = review_summary if review_summary is not None else None
+        job_id = evidence_packet.get("distill_job_id")
+        job = backend.reflection_job_store.get(str(job_id)) if job_id else None
         return {
             "action": "post-turn-maintenance",
-            "success": bool(session_distill.get("success", False))
-            and bool(auto_review_payload.get("success", True))
-            and bool(dream_payload.get("success", False)),
-            "status": "completed"
-            if session_distill.get("success", False)
-            and auto_review_payload.get("success", True)
-            and dream_payload.get("success", False)
-            else "partial",
+            "success": bool(evidence_packet.get("success", False)),
+            "status": (
+                "failed"
+                if not evidence_packet.get("success", False)
+                else "queued"
+                if job is not None and job.status == "needs_distill"
+                else "in_progress"
+                if job is not None and job.status == "processing"
+                else "completed"
+            ),
             "project_name": project_name,
             "project_root": project_root,
             "source": source,
             "trigger_id": trigger_id,
-            "session_distill": session_distill,
-            "auto_review": auto_review_payload,
-            "dream": dream_payload,
+            "evidence_packet": evidence_packet,
+            "distill_job": job.to_dict() if job is not None else None,
             "summary": {
-                "distill_success": bool(session_distill.get("success", False)),
-                "observation_count": session_distill.get("observation_count", 0),
-                "auto_review_success": bool(auto_review_payload.get("success", True)),
-                "auto_confirmed": getattr(review_counts, "auto_confirmed", 0),
-                "auto_provisional": getattr(review_counts, "auto_provisional", 0),
-                "auto_rejected": getattr(review_counts, "auto_rejected", 0),
-                "auto_deferred": getattr(review_counts, "auto_deferred", 0),
-                "kept_pending": getattr(review_counts, "kept_pending", 0),
-                "needs_user_confirmation": getattr(review_counts, "needs_user_confirmation", 0),
-                "dream_status": dream_payload.get("status"),
-                "dream_job_id": dream_payload.get("job_id"),
+                "evidence_packet_ready": bool(evidence_packet.get("success", False)),
+                "observation_count": evidence_packet.get("observation_count", 0),
+                "distill_queued": job is not None and job.status == "needs_distill",
+                "distill_job_id": job.id if job is not None else None,
             },
         }
     finally:

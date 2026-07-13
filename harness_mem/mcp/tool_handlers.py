@@ -2252,6 +2252,7 @@ def tool_prepare_session_distill(
     observation_limit: int = 5,
     max_chars_per_observation: int = 6000,
     run_ingest: bool = True,
+    _distill_source: str = "agent",
 ) -> dict:
     """Prepare a compact evidence packet for AI-led /hm:distill.
 
@@ -2338,6 +2339,27 @@ def tool_prepare_session_distill(
             }
         )
 
+    from harness_mem.commands.distill_lifecycle import stage_distill_job
+
+    distill_job = stage_distill_job(
+        backend,
+        project_name=resolved_project_name,
+        project_root=resolved_project_root or str(Path.cwd()),
+        observation_ids=[item["id"] for item in packet_observations],
+        source=(
+            _distill_source
+            if _distill_source in {"user", "agent", "ide_hook", "scheduler"}
+            else "agent"
+        ),  # type: ignore[arg-type]
+    )
+    if (
+        distill_job is not None
+        and _distill_source != "ide_hook"
+        and distill_job.status == "needs_distill"
+    ):
+        distill_job.status = "processing"
+        backend.reflection_job_store.save(distill_job)
+
     return {
         "success": bool(packet_observations) or bool(ingest_payload.get("success")),
         "project_name": resolved_project_name,
@@ -2356,6 +2378,8 @@ def tool_prepare_session_distill(
         "max_chars_per_observation": effective_max_chars,
         "observations": packet_observations,
         "observation_count": len(packet_observations),
+        "distill_job_id": distill_job.id if distill_job is not None else None,
+        "distill_status": distill_job.status if distill_job is not None else "not_queued",
         "distill_instructions": [
             "Do not call Bash, cmem, cat, ls, find, timeline, or get_observations for this slash flow unless this packet is empty.",
             "Read the observations in this response as the session-distill evidence packet.",
@@ -2546,13 +2570,43 @@ def tool_auto_review_candidates(project_name: str, apply: bool = False) -> dict:
     via the same status mutators users would invoke manually.
     """
     backend = _get_backend()
-    summary = asyncio.run(
-        auto_review_candidates(backend, project_name=project_name, apply=apply)
-    )
+    summary = asyncio.run(auto_review_candidates(backend, project_name=project_name, apply=apply))
     payload = summary.to_dict()
     payload["success"] = True
     payload["project_name"] = project_name
     payload["applied"] = bool(apply)
+    if apply:
+        from harness_mem.commands.distill_lifecycle import complete_pending_distill_jobs
+
+        candidate_ids = [
+            decision.candidate_id for decision in summary.applied_decisions
+        ]
+        completed_jobs = complete_pending_distill_jobs(
+            backend,
+            project_name=project_name,
+            candidate_ids=candidate_ids,
+        )
+        payload["distill_jobs_completed"] = [job.id for job in completed_jobs]
+        if completed_jobs:
+            project_root = completed_jobs[0].project_root
+            try:
+                config = load_merged_config(project_root)
+                payload["dream"] = asyncio.run(
+                    dream_auto_tick(
+                        backend,
+                        project_name=project_name,
+                        project_root=project_root,
+                        config=config,
+                        source="agent",
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - review remains auditable.
+                payload["dream"] = {
+                    "success": False,
+                    "status": "failed",
+                    "project_name": project_name,
+                    "error": f"{type(exc).__name__}: {exc}"[:512],
+                }
     return payload
 
 

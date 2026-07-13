@@ -32,6 +32,7 @@ from harness_mem.integration.command_sync import (
 )
 from harness_mem.integration.installer import (
     HookSpec,
+    install_antigravity_hook_suite,
     install_hermes_hook_suite,
     install_hook,
     install_hook_suite,
@@ -65,6 +66,7 @@ SUPPORTED_HOOK_CLIENTS = (
     "codex",
     "hermes",
     "opencode",
+    "antigravity",
 )
 
 
@@ -205,6 +207,14 @@ def _install_suite(client: str, project_root: str | None, force: bool) -> int:
     try:
         if client == "hermes":
             results = install_hermes_hook_suite(
+                project_root=root,
+                force=force,
+                harness_mem_version=__version__,
+                generated_at=datetime.now(timezone.utc),
+                doc_pointer=_DOC_POINTER,
+            )
+        elif client == "antigravity":
+            results = install_antigravity_hook_suite(
                 project_root=root,
                 force=force,
                 harness_mem_version=__version__,
