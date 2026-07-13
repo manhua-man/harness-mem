@@ -77,13 +77,20 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 ## 安装
 
 ```bash
-pip install harness-mem
+python -m pip install \
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.3 \
+  harness-mem==0.8.23.3
 ```
+
+`harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
+Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 需要本地 vector / hybrid search 可选依赖：
 
 ```bash
-pip install "harness-mem[hybrid]"
+python -m pip install \
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.3 \
+  "harness-mem[hybrid]==0.8.23.3"
 ```
 
 Claude Code 用户可以安装 repo-local plugin，并可选注册 MCP：
@@ -148,4 +155,7 @@ python -m harness_mem.cli --help
 cargo test --workspace
 ```
 
-当前包版本：**0.8.23.2**。
+发布标签会构建六个平台 wheel 和 sdist，在 Windows、macOS、Linux 上完成
+全新安装验证后上传到 GitHub Release。本项目不发布到 PyPI。
+
+当前包版本：**0.8.23.3**。

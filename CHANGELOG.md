@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [0.8.23.3] - 2026-07-13
+
+### Changed
+
+- GitHub Releases are now the canonical package channel. Release tags still
+  build and smoke-test six native wheels plus the source distribution, but no
+  longer require a PyPI account, Trusted Publisher, OIDC token, or publish job.
+- Installation docs now use pip's `--find-links` support to select the matching
+  native wheel directly from the versioned GitHub Release assets.
+- PyPI-only Trusted Publishing configuration and the Twine development
+  dependency have been removed.
+
 ## [0.8.23.2] - 2026-07-13
 
 ### Fixed
