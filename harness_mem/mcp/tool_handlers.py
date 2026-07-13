@@ -44,6 +44,7 @@ from harness_mem.core.schemas import SupersedeCandidate
 from harness_mem.event_log import StateEventType, append_state_event
 from harness_mem.file_context import build_file_context
 from harness_mem.guided_flow import build_guided_flow, guided_flow_drilldown_hint
+from harness_mem.integration_health import build_integration_health
 from harness_mem.read_api import (
     parse_relative_time_window,
     query_temporal_truth,
@@ -1652,6 +1653,13 @@ def tool_get_project_status(project_name: str | None = None) -> dict:
     dx_metadata = _status_dx_metadata(counts, triage, project_name=resolved_project)
     flow_hint = guided_flow_drilldown_hint(guided_flow)
     dx_metadata["drilldown_hints"] = [flow_hint, *list(dx_metadata.get("drilldown_hints") or [])]
+    integration_health = asyncio.run(
+        build_integration_health(
+            backend,
+            project_name=resolved_project,
+            project_root=find_project_root(resolved_project),
+        )
+    )
     return {
         "success": True,
         "project_name": resolved_project,
@@ -1663,6 +1671,7 @@ def tool_get_project_status(project_name: str | None = None) -> dict:
         **triage,
         **dx_metadata,
         "guided_flow": guided_flow,
+        "integration_health": integration_health,
     }
 
 

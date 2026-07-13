@@ -77,13 +77,13 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 ## 安装
 
 ```bash
-pip install git+https://github.com/manhua-man/harness-mem.git
+pip install harness-mem
 ```
 
 需要本地 vector / hybrid search 可选依赖：
 
 ```bash
-pip install "harness-mem[hybrid] @ git+https://github.com/manhua-man/harness-mem.git"
+pip install "harness-mem[hybrid]"
 ```
 
 Claude Code 用户可以安装 repo-local plugin，并可选注册 MCP：
@@ -148,4 +148,4 @@ python -m harness_mem.cli --help
 cargo test --workspace
 ```
 
-当前包版本：**0.8.18**。
+当前包版本：**0.8.23.1**。

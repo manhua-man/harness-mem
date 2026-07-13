@@ -5,13 +5,13 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 ## Install
 
 ```bash
-pip install git+https://github.com/manhua-man/harness-mem.git
+pip install harness-mem
 ```
 
 Optional local vector / hybrid search dependencies:
 
 ```bash
-pip install "harness-mem[hybrid] @ git+https://github.com/manhua-man/harness-mem.git"
+pip install "harness-mem[hybrid]"
 ```
 
 Check the CLI:
@@ -70,6 +70,8 @@ Session-start wake shows a compact recent-context index first, including recent
 transcript requests, source host, estimated read cost, and drilldown IDs. Stable
 truth and active handoffs are appended when available; an un-distilled project
 is no longer rendered as three empty sections.
+`get_project_status` and CLI status also expose one compact integration line for
+the current project, host, hooks, transcript observations, and distill queue.
 
 ## Daily Loop
 

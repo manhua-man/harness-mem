@@ -40,6 +40,9 @@ Historical profile values are ignored.
 The `wake` output leads with a recent project-scoped context index. It is a
 derived view of transcript observations and does not promote them to confirmed
 truth; stable truth and active handoffs remain separate sections.
+`get_project_status` includes `integration_health.summary` for a concise check
+of project root, configured host, installed hooks, transcript observations, and
+pending distill work. Missing `HARNESS_MEM_CLIENT` is reported as `unknown`.
 
 Invocation paths are Agent MCP calls, `/hm:*` commands, installed skills, and
 explicit IDE hooks. Session-start/PreInvocation hooks inject wake context; runtime task hooks

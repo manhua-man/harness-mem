@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## [0.8.23.1] - 2026-07-13
+
+### Added
+
+- A compact integration health summary in project status covering workspace,
+  configured host, hook installation, transcript observations, and queued or
+  processing distill work.
+- Release gates that install the built wheels on clean Windows, macOS, and
+  Linux runners and verify first-run MCP project adoption plus automatic hooks.
+
+### Changed
+
+- Version tags now attach six native wheels and an sdist to the GitHub Release,
+  then publish the verified distributions to PyPI through GitHub OIDC Trusted
+  Publishing. No long-lived PyPI password is stored in the repository.
+
 ## [0.8.23] - 2026-07-13
 
 ### Added
