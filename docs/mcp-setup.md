@@ -7,7 +7,7 @@
 Use this command in your MCP client configuration:
 
 ```bash
-python -m harness_mem.mcp.server
+harness-mem-mcp
 ```
 
 For a project-scoped MCP entry, set the server's working directory to the
@@ -18,14 +18,20 @@ existing hook files.
 
 ```json
 {
-  "command": "python",
-  "args": ["-m", "harness_mem.mcp.server"],
+  "command": "harness-mem-mcp",
   "cwd": "${workspaceFolder}",
   "env": {
     "HARNESS_MEM_CLIENT": "cursor"
   }
 }
 ```
+
+`harness-mem-mcp` is installed alongside `harness-mem` and therefore starts
+the server from the same Python environment as the installed package. Verify
+the command in a terminal before adding it to the IDE. If the IDE does not
+inherit that terminal `PATH`, use the absolute path reported by `where
+harness-mem-mcp` (Windows) or `which harness-mem-mcp` (macOS/Linux) as the
+`command` value.
 
 Use the client-specific syntax for the workspace variable: `cursor`,
 `claude-code`, `grok`, `codex`, `hermes`, `opencode`, and `antigravity` are recognized. Where
@@ -104,8 +110,7 @@ Add a project-scoped server entry that runs from the workspace:
 
 ```json
 {
-  "command": "python",
-  "args": ["-m", "harness_mem.mcp.server"],
+  "command": "harness-mem-mcp",
   "cwd": "${workspaceFolder}",
   "env": {
     "HARNESS_MEM_CLIENT": "cursor"

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## [0.8.23.4] - 2026-07-14
+
+### Added
+
+- `harness-mem-mcp`, an installed MCP server command that always launches from
+  the same Python environment as the installed package.
+
+### Changed
+
+- Cursor and generic MCP setup now use `harness-mem-mcp` instead of a bare
+  `python -m ...` command. This prevents multi-Python installations from
+  silently starting an environment without `harness-mem`.
+- Minimal installations now emit one concise fallback warning when optional
+  `tiktoken` is unavailable instead of printing an import traceback.
+
 ## [0.8.23.3] - 2026-07-13
 
 ### Changed

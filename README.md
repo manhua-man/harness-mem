@@ -84,8 +84,8 @@ owns storage, candidates, review, retrieval, and local audit state.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.3 \
-  harness-mem==0.8.23.3
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.4 \
+  harness-mem==0.8.23.4
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -96,8 +96,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.3 \
-  "harness-mem[hybrid]==0.8.23.3"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.4 \
+  "harness-mem[hybrid]==0.8.23.4"
 ```
 
 Claude Code users can install the repo-local plugin and optionally register MCP:
@@ -112,14 +112,19 @@ For Cursor, register a project-scoped MCP server that runs from the workspace:
 
 ```json
 {
-  "command": "python",
-  "args": ["-m", "harness_mem.mcp.server"],
+  "command": "harness-mem-mcp",
   "cwd": "${workspaceFolder}",
   "env": {
     "HARNESS_MEM_CLIENT": "cursor"
   }
 }
 ```
+
+`harness-mem-mcp` is installed with the package and launches the MCP server
+from that exact package environment. Run `harness-mem-mcp` once in a terminal
+to verify that the command is on `PATH`. If Cursor does not inherit that PATH,
+use the absolute path reported by `where harness-mem-mcp` (Windows) or
+`which harness-mem-mcp` (macOS/Linux) as `command` instead of `python`.
 
 On first MCP initialization, harness-mem adopts the workspace, creates its
 project profile, and installs the matching Cursor hooks without overwriting
@@ -193,4 +198,4 @@ python scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.8.23.3**.
+Current package version: **0.8.23.4**.

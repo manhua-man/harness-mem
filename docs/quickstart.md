@@ -6,8 +6,8 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.3 \
-  harness-mem==0.8.23.3
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.4 \
+  harness-mem==0.8.23.4
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Pip uses
@@ -17,8 +17,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.3 \
-  "harness-mem[hybrid]==0.8.23.3"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.4 \
+  "harness-mem[hybrid]==0.8.23.4"
 ```
 
 Check the CLI:
@@ -54,8 +54,14 @@ Common invocation paths:
 The server command is:
 
 ```bash
-python -m harness_mem.mcp.server
+harness-mem-mcp
 ```
+
+This command is installed alongside `harness-mem`, so it always targets the
+same Python environment as the package. Verify it in a terminal before adding
+it to an IDE. When an IDE does not inherit your terminal `PATH`, configure the
+absolute command path from `where harness-mem-mcp` (Windows) or `which
+harness-mem-mcp` (macOS/Linux).
 
 For Claude Code on Windows, the repo-local installer can add plugin files and
 optionally register MCP:

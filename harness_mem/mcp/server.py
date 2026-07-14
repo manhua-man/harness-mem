@@ -2,7 +2,7 @@
 """
 harness-mem MCP Server — structured memory access for AI agents
 =================================================================
-Install: claude mcp add harness-mem -- python -m harness_mem.mcp.server
+Install: claude mcp add harness-mem -- harness-mem-mcp
 
 Tools:
   search_memory          — search structured + verbatim memory

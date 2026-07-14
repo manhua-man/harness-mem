@@ -57,10 +57,18 @@ def _get_encoder() -> Any:
 
             _encoder = tiktoken.get_encoding("cl100k_base")
             return _encoder
+        except ImportError:
+            logger.warning(
+                "token_estimator: optional tiktoken is not installed; "
+                "using char-heuristic"
+            )
+            _encoder_load_failed = True
+            return None
         except Exception:
-            logger.exception(
+            logger.warning(
                 "token_estimator: tiktoken cl100k_base load failed; "
-                "falling back to char-heuristic"
+                "using char-heuristic",
+                exc_info=True,
             )
             _encoder_load_failed = True
             return None

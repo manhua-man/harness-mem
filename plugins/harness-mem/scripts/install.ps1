@@ -46,7 +46,11 @@ if (-not $NoSlashCommands) {
 
 if ($RegisterClaude) {
     $claude = Get-Command claude -ErrorAction Stop
-    & $claude.Source mcp add -s user harness_mem "python -m harness_mem.mcp.server"
+    $mcpServer = Join-Path (Split-Path $python.Source) "harness-mem-mcp.exe"
+    if (-not (Test-Path $mcpServer)) {
+        throw "harness-mem-mcp was not installed at $mcpServer"
+    }
+    & $claude.Source mcp add -s user harness_mem $mcpServer
 }
 
 & $python.Source -m harness_mem.cli doctor

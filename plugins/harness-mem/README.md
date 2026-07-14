@@ -12,7 +12,7 @@ plugin manifest, skills, and slash command assets mirror that contract.
 
 ## What It Includes
 
-- MCP server config for `python -m harness_mem.mcp.server`.
+- MCP server config for the installed `harness-mem-mcp` command.
 - Claude Code `/hm:*` command files for common memory actions.
 - Agent skills that teach the client when to wake, search, distill, and review.
 - PowerShell install and doctor helpers.
