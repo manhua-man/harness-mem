@@ -4,11 +4,16 @@ This demo shows the core `harness-mem` job: a fresh Agent joins a real project
 without reading old chats, recovers useful context, and proposes new memory
 without hiding memory changes from the audit trail.
 
-The flow is intentionally small:
+The product flow is intentionally small:
 
 ```text
 wake -> search -> distill -> review -> dream
 ```
+
+For this controlled walkthrough, the prompts below invoke stages explicitly.
+In normal use, hooks only sync transcript evidence and queue distill work at a
+save point or session end; the next Agent-capable wake, or `/hm:distill`,
+consumes that work through candidates, auto-review, and Dream.
 
 ## What You Need
 
@@ -21,7 +26,8 @@ wake -> search -> distill -> review -> dream
 
 ## Demo Shape
 
-Use two sessions:
+Use two sessions. Session A is only controlled setup for the demo, not the
+normal daily workflow:
 
 | Session | Role | Goal |
 |---|---|---|
@@ -44,8 +50,9 @@ Session A:
 
 ```text
 Use harness-mem to distill the recent project session into memory candidates.
-Review the candidates and confirm only stable project facts that a future Agent should know.
-Reject noisy, speculative, or one-off items.
+Let the normal auto-review policy process low-risk candidates. Use review only
+to audit or correct stable facts that a future Agent should know, and reject
+noisy, speculative, or one-off items.
 ```
 
 Session B:
@@ -54,9 +61,8 @@ Session B:
 Use harness-mem to wake this project.
 Search harness-mem for the current release boundary or claim boundary.
 Use the recovered context to make one small safe update.
-Distill this session into memory candidates, but do not confirm new truth silently.
-Open the review inbox and audit what was auto-promoted or kept pending.
-Then let dream clean up the ledger.
+Distill this session into memory candidates.
+Open the review inbox only to audit what was auto-promoted or kept pending.
 ```
 
 If Session B can recover a real prior decision without pasted chat history, the
@@ -77,7 +83,7 @@ Ask the existing Agent:
 
 ```text
 Use harness-mem to distill the recent project session into memory candidates.
-Apply low-risk review, keep the suspicious items pending, and let dream maintain the ledger.
+Apply the normal low-risk review policy; keep suspicious items pending and let Dream maintain the ledger.
 ```
 
 Keep the review strict. The demo is stronger when noisy or speculative items
@@ -134,12 +140,13 @@ Expected result:
 After the task, ask:
 
 ```text
-Use harness-mem to distill this session into memory candidates. Do not confirm new truth silently.
+Use harness-mem to distill this session into memory candidates.
 ```
 
 Expected result:
 
-- New information is proposed as candidates.
+- New information is proposed as candidates, then the shared policy may
+  auto-confirm only low-risk items with audit metadata.
 - One-off task details are not promoted as durable memory.
 - Anything broad, risky, or under-evidenced remains pending.
 
@@ -176,7 +183,8 @@ The demo is working when:
 - A fresh Agent can explain the project state without pasted chat history.
 - `search` can recover a real prior decision by topic.
 - `distill` creates candidates instead of directly changing confirmed truth.
-- Review decides what becomes durable memory.
+- The shared policy handles low-risk promotion; review audits, corrects, or
+  promotes the remaining uncertain material.
 - The user can understand the value in under five minutes.
 
 ## Common Failure Modes

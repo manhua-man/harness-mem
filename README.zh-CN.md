@@ -101,12 +101,11 @@ cd harness-mem
 .\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
-如果要一次性安装 IDE hooks，可以运行：
-
-```bash
-harness-mem integration install-hook-suite --client cursor
-harness-mem integration install-hook-suite --client claude-code
-```
+Cursor 请在项目 MCP 配置中使用 `harness-mem-mcp`，将 `cwd` 设为工作区，
+并设置 `HARNESS_MEM_CLIENT=cursor`。首次 MCP 初始化会自动认领工作区、创建
+project profile 并安装匹配的 hooks，不需要用户运行 hook installer；缺失的
+project-local hook 会在后续 MCP 初始化时修复，且不会覆盖已有文件。完整配置
+见 [MCP setup](docs/mcp-setup.md)。
 
 然后在 Agent 里使用：
 

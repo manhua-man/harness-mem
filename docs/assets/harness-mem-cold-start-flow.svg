@@ -28,7 +28,7 @@
   <rect class="bg" width="1280" height="540" rx="30"/>
 
   <text x="70" y="72" class="title ink">Cold-start memory loop</text>
-  <text x="70" y="106" class="body muted">A fresh Agent recovers decisions, routes uncertainty into search, and keeps review plus maintenance visible.</text>
+  <text x="70" y="106" class="body muted">A fresh Agent recovers decisions, routes uncertainty into search, and keeps evidence, review, and maintenance honest.</text>
 
   <rect x="70" y="154" width="155" height="150" rx="22" class="card"/>
   <circle cx="118" cy="206" r="22" class="teal"/>
@@ -57,8 +57,8 @@
 
   <rect x="709" y="154" width="155" height="150" rx="22" class="card"/>
   <text x="749" y="206" class="step ink">distill</text>
-  <text x="726" y="236" class="step-body muted">session evidence</text>
-  <text x="729" y="258" class="step-body muted">into candidates</text>
+  <text x="725" y="236" class="step-body muted">Agent consumes</text>
+  <text x="729" y="258" class="step-body muted">queued evidence</text>
 
   <path d="M864 229h48" class="line" marker-end="url(#arrow)"/>
 
@@ -71,15 +71,16 @@
 
   <rect x="1125" y="154" width="145" height="150" rx="22" class="card-accent"/>
   <text x="1162" y="206" class="step ink">dream</text>
-  <text x="1145" y="236" class="step-body muted">post-turn</text>
-  <text x="1141" y="258" class="step-body muted">maintenance</text>
+  <text x="1145" y="236" class="step-body muted">after candidate</text>
+  <text x="1141" y="258" class="step-body muted">review completes</text>
 
   <path d="M1198 304v38" class="line" marker-end="url(#arrow)"/>
 
   <rect x="228" y="364" width="824" height="104" rx="24" class="store"/>
   <text x="258" y="408" class="body" fill="#e5e7eb">local canonical store</text>
   <text x="548" y="408" class="body" fill="#99f6e4">candidate / review / supersede / ledger</text>
-  <text x="258" y="438" class="note" fill="#94a3b8">post-turn-maintenance runs distill, auto-review, and dream after save points or session end.</text>
+  <text x="258" y="430" class="note" fill="#94a3b8">Hooks sync evidence and queue work; the next Agent wake or /hm:distill</text>
+  <text x="258" y="452" class="note" fill="#94a3b8">runs candidates, auto-review, and Dream.</text>
 
   <path d="M1198 364v-22" class="line-muted"/>
   <path d="M1198 342 C 1198 330 1104 330 1090 330" class="line-muted" marker-end="url(#arrow)"/>

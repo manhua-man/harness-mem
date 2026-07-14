@@ -13,10 +13,10 @@ graph TD
     E -->|concrete uncertainty| F["search_memory"]
     E -->|no trigger| G["skip"]
     C --> H["save_point / session_end"]
-    H --> I["prepare_session_distill"]
-    I --> J["auto_review_candidates(apply=true)"]
-    J --> K["dream_auto_tick"]
-    K --> L["audit inbox: /hm:review"]
+    H --> I["sync evidence + queue distill task"]
+    I --> J["next Agent wake or /hm:distill"]
+    J --> K["evidence packet -> candidates -> auto-review"]
+    K --> L["Dream -> audit inbox: /hm:review"]
 ```
 
 The product principle is the same shape as Constitutional AI: the human moves
@@ -29,7 +29,8 @@ the user inspect or undo outcomes later.
 ```text
 session_start -> wake
 context/tool/save_point -> task-aware search
-save_point/session_end -> distill + auto-review + dream maintenance
+save_point/session_end -> sync evidence + queue a distill task
+next Agent-capable wake or /hm:distill -> distill + auto-review + Dream
 review -> post-hoc audit, correction, undo, supersede
 dream -> maintenance ledger and reversible cleanup
 ```
@@ -49,8 +50,8 @@ Gemini CLI, or other clients.
 | `session_start` | Resolve the workspace project and inject `wake` context. | SessionStart, before-agent-start, first context transform. |
 | `context_transform` | Add bounded memory context before an LLM request. | Pi `transformContext`, provider-payload/context hook. |
 | `tool_result` | Learn from file/search/test/build outcomes and decide whether extra memory search is useful. | PostToolUse, Pi `afterToolCall`, tool-result observer. |
-| `save_point` | Sync evidence, review existing candidates, and run dream maintenance after an assistant turn and tool results settle. | turn end, message end, after-agent, save point. |
-| `session_end` | Flush session distill and dream maintenance. | Stop, SessionEnd, SubagentStop, idle/settled hook. |
+| `save_point` | Sync settled evidence and queue a distill task after an assistant turn and tool results settle. | turn end, message end, after-agent, save point. |
+| `session_end` | Flush evidence sync and preserve queued distill work for the next Agent-capable invocation. | Stop, SessionEnd, SubagentStop, idle/settled hook. |
 
 The installer should configure every supported event the client exposes. If a
 platform lacks hooks, `/hm:wake`, `/hm:search`, `/hm:distill`, `/hm:review`,
@@ -74,11 +75,12 @@ The tool maps agent scheduling events rather than IDE names:
 | Before provider request | Pi `transformContext`, extension `context`, provider payload hook | Search only if the task text contains explicit recall, convention uncertainty, conflict, or long-horizon switch. |
 | Before a tool call | Pi `beforeToolCall`, Claude Code `PreToolUse` | Search only for convention/boundary uncertainty before a risky action. |
 | After a tool result | Pi `afterToolCall`, Claude Code `PostToolUse`, `PostToolUseFailure` | Search on errors, flaky outcomes, conflicts, or evidence that contradicts known truth. |
-| Save point / next turn | Pi `prepareNextTurn`, turn-end/after-agent | Ground durable candidate claims before auto-review and refresh context for the next turn. |
+| Save point / next turn | Pi `prepareNextTurn`, turn-end/after-agent | Sync evidence and queue distill work. The next Agent-capable wake consumes it, then refreshes context. |
 
-Session-start stays `wake`. Session-end stays distill/dream. That separation is
-why hook installation is small while task-aware search policy remains testable
-inside `harness-mem`.
+Session-start stays `wake`. Session-end stages evidence rather than claiming
+semantic summarization completed. An Agent-capable wake or `/hm:distill` runs
+the candidate/review/Dream pipeline. That separation keeps hook work small and
+the task-aware search policy testable inside `harness-mem`.
 
 ## Search Is Not Always-On
 
@@ -134,14 +136,20 @@ whether the context helped, was ignored, or misled the Agent.
 
 ## Write Path
 
-At save points or session end:
+At save points or session end, the hook/runtime path only:
 
 1. Ingest the settled session evidence for the current project.
-2. Prepare a distill packet from project-scoped observations.
-3. Hand the packet to the `session-distill` / candidate drafting layer.
-4. Run risk-scaled admission to admit, narrow, defer, or reject drafts.
-5. Write admitted/narrowed items to the candidate layer.
-6. Run `auto_review_candidates(apply=true)`.
+2. Prepare an evidence packet from project-scoped observations.
+3. Queue a durable distill task for the next Agent-capable invocation.
+
+When that Agent invocation occurs, or when `/hm:distill` is explicitly used,
+the pipeline continues:
+
+1. Hand the packet to the `session-distill` / candidate drafting layer.
+2. Run risk-scaled admission to admit, narrow, defer, or reject drafts.
+3. Write admitted/narrowed items to the candidate layer.
+4. Run `auto_review_candidates(apply=true)`, complete the queued task, then
+   run Dream.
 
 Low-risk candidates may become `auto_confirmed`. Risk-flagged but useful
 candidates may become `provisional`. Weak, conflicting, or dangerous items stay
