@@ -15,6 +15,7 @@ import harness_mem.host_entry.__main__ as host_entry
 import harness_mem.storage.local_memory_backend as backend_module
 from harness_mem.config.merge import MergedConfig
 from harness_mem.host_entry.exit_codes import ExitCode
+from harness_mem.hook_receipts import read_hook_execution_receipt
 
 
 class FakeBackend:
@@ -56,6 +57,40 @@ def test_host_entry_wake_start_outputs_wake_text(monkeypatch, tmp_path) -> None:
 
     assert code == ExitCode.SUCCESS
     assert payload == f"Wake context for {tmp_path.name}"
+
+
+def test_host_entry_wake_records_current_codex_hook_execution(monkeypatch, tmp_path) -> None:
+    hook_path = tmp_path / ".codex" / "hooks.json"
+    hook_path.parent.mkdir(parents=True)
+    hook_path.write_text('{"hooks":{"SessionStart":[]}}\n', encoding="utf-8")
+    data_dir = tmp_path / "data"
+    monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
+    monkeypatch.setattr(backend_module, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
+    monkeypatch.setattr(
+        host_entry,
+        "ensure_project_profile",
+        lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)),
+    )
+
+    async def fake_wake(_backend, project_name: str) -> str:
+        return f"Wake context for {project_name}"
+
+    monkeypatch.setattr(wake_module, "build_wake_injection", fake_wake)
+    args = _args(tmp_path, "wake-start")
+    args.client = "codex"
+
+    code, _payload = asyncio.run(host_entry.run(args))
+
+    assert code == ExitCode.SUCCESS
+    receipt = read_hook_execution_receipt(
+        data_dir,
+        project_root=tmp_path,
+        client="codex",
+        action="wake-start",
+    )
+    assert receipt is not None
+    assert receipt["project_name"] == tmp_path.name
 
 
 def test_host_entry_dream_end_outputs_dream_json(monkeypatch, tmp_path) -> None:

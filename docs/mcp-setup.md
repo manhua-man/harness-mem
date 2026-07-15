@@ -49,6 +49,11 @@ truth; stable truth and active handoffs remain separate sections.
 `get_project_status` includes `integration_health.summary` for a concise check
 of project root, configured host, installed hooks, transcript observations, and
 pending distill work. Missing `HARNESS_MEM_CLIENT` is reported as `unknown`.
+For Codex, `hooks=review_required` means the project manifest was installed but
+the current Hook configuration has not yet executed. Open **Codex Settings >
+Hooks**, trust the project hooks, and start a new task. The status changes to
+`ok` only after the matching `SessionStart` Hook completes; changing the Hook
+manifest invalidates the old execution receipt.
 
 Invocation paths are Agent MCP calls, `/hm:*` commands, installed skills, and
 explicit IDE hooks. Session-start/PreInvocation hooks inject wake context; runtime task hooks

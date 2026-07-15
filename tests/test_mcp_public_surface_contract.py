@@ -204,7 +204,9 @@ def test_get_project_status_bootstraps_router_workspace_and_codex_hooks(
         "hooks_status": "installed",
     }
     assert payload["integration_health"]["host"]["client"] == "codex"
-    assert payload["integration_health"]["hooks"]["status"] == "ok"
+    assert payload["integration_health"]["hooks"]["status"] == "review_required"
+    assert payload["integration_health"]["hooks"]["wake_verified"] is False
+    assert "Settings > Hooks" in payload["integration_health"]["hooks"]["action_required"]
     hook_path = workspace / ".codex" / "hooks.json"
     hook_config = json.loads(hook_path.read_text(encoding="utf-8"))
     wake_command = hook_config["hooks"]["SessionStart"][0]["hooks"][0]["command"]

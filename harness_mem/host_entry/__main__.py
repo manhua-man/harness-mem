@@ -307,6 +307,27 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
             if project_context.project_root is not None:
                 await ensure_project_profile(project_name, project_context.project_root)
 
+            def record_success(action: str) -> None:
+                if project_context.project_root is None:
+                    return
+                try:
+                    from harness_mem.hook_receipts import record_hook_execution
+
+                    record_hook_execution(
+                        backend.data_dir,
+                        project_root=project_context.project_root,
+                        project_name=project_name,
+                        client=client_override or "unknown",
+                        action=action,
+                        source=args.source,
+                        trigger_id=args.trigger_id,
+                    )
+                except Exception:  # noqa: BLE001 - receipt failure must not fail the hook.
+                    logger.warning(
+                        "could not persist hook execution receipt",
+                        exc_info=True,
+                    )
+
             if args.action == "wake-start":
                 from harness_mem.commands.wake import build_wake_injection
 
@@ -315,6 +336,7 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                 except Exception:  # noqa: BLE001 - host entry is total.
                     logger.exception("host_entry caught unhandled wake exception")
                     return (ExitCode.HOOK_FAILED, None)
+                record_success("wake-start")
                 return (ExitCode.SUCCESS, text)
 
             if args.action == "dream-end":
@@ -372,6 +394,8 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                     in ("completed", "queued", "in_progress", "skipped")
                     else ExitCode.HOOK_FAILED
                 )
+                if exit_code == ExitCode.SUCCESS:
+                    record_success("post-turn-maintenance")
                 return (exit_code, json.dumps(post_turn_result, sort_keys=True))
 
             logger.error("unsupported action: %s", args.action)

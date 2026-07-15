@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from harness_mem.adapters import AdapterRegistry
+from harness_mem.hook_receipts import read_hook_execution_receipt
 from harness_mem.hook_runtime import collect_hook_file_statuses
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
@@ -32,12 +33,34 @@ async def build_integration_health(
         else ()
     )
     installed_hooks = [hook for hook in hook_files if hook.exists]
+    wake_receipt = (
+        read_hook_execution_receipt(
+            backend.data_dir,
+            project_root=root,
+            client=host,
+            action="wake-start",
+        )
+        if root is not None and host != "unknown"
+        else None
+    )
+    maintenance_receipt = (
+        read_hook_execution_receipt(
+            backend.data_dir,
+            project_root=root,
+            client=host,
+            action="post-turn-maintenance",
+        )
+        if root is not None and host != "unknown"
+        else None
+    )
     if host == "unknown" or root is None:
         hooks_status = "unknown"
     elif not hook_files:
         hooks_status = "unsupported"
     elif len(installed_hooks) == len(hook_files):
-        hooks_status = "ok"
+        hooks_status = (
+            "review_required" if host == "codex" and wake_receipt is None else "ok"
+        )
     else:
         hooks_status = "missing"
 
@@ -124,6 +147,13 @@ async def build_integration_health(
             "installed": len(installed_hooks),
             "expected": len(hook_files),
             "files": [str(hook.path) for hook in hook_files if hook.exists],
+            "wake_verified": wake_receipt is not None,
+            "maintenance_verified": maintenance_receipt is not None,
+            "action_required": (
+                "Open Codex Settings > Hooks, trust this project's hooks, then start a new task."
+                if hooks_status == "review_required"
+                else None
+            ),
         },
         "transcript": {
             "status": transcript_status,

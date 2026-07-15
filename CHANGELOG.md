@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- Project-scoped MCP status bootstrap now adopts the workspace and installs the
+  matching generated Hook suite for all seven recognized hosts without asking
+  users to run a hook installer.
+
+### Fixed
+
+- Codex Hook health no longer treats a present `.codex/hooks.json` as proof
+  that automatic wake works. Status reports `review_required` until Codex has
+  trusted and successfully run the current `SessionStart` definition, using a
+  configuration-bound execution receipt that becomes stale when hooks change.
+
 ## [0.8.24] - 2026-07-15
 
 ### Added
