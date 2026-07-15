@@ -8,9 +8,14 @@ Follow-up slices (not yet complete): dream full-chain alignment, undo replay,
 `/hm:review` audit-inbox UX.
 
 ```text
-observation -> candidate -> auto preflight -> auto_confirmed / provisional truth
-                              -> ledger -> /hm:review audit -> user_confirmed
+immutable source revision -> complete ordered chunks -> final-session review
+  -> idempotent candidate -> finalize_session_distill -> auto_confirmed / provisional truth
+  -> ledger -> /hm:review audit -> user_confirmed
 ```
+
+The source revision is the authoritative session record. Observations are
+derived search material, not a substitute for transcript text or proof that
+distillation completed.
 
 `/hm:review` is an **audit inbox**, not a write gate. Helpers (grill, answer,
 smart-search, `auto_review_candidates`) improve write quality on the main path;
@@ -43,18 +48,21 @@ weighting and audit accountability.
 
 ```mermaid
 flowchart TD
-    SRC["AI client session"] --> PREP["prepare_session_distill"]
-    PREP --> SD["session-distill"]
-    SD --> PKT["packet + Packet Audit"]
-    SD --> CAND["suggest_* -> candidate pending"]
+    SRC["AI client session"] --> SNAP["immutable transcript source revision"]
+    SNAP --> PREP["prepare_session_distill: complete ordered chunks"]
+    PREP --> SD["process without truncation + checkpoint each chunk"]
+    SD --> AUDIT["structural completeness audit"]
+    AUDIT --> REVIEW["required final-session semantic review"]
 
     subgraph ADMISSION["Admission / narrow (main path, non-blocking)"]
         G["grill-before-distill: admit / narrow / defer / reject"]
     end
 
-    CAND --> G
-    G -->|admit / narrow| PREF["auto_review_candidates + evidence checks"]
-    PREF --> DREAM["Dream maintenance"]
+    REVIEW --> G
+    G -->|admit / narrow| CAND["idempotent suggest_* -> candidate pending"]
+    CAND --> FINAL["finalize_session_distill"]
+    FINAL --> PREF["auto-review + evidence checks"]
+    FINAL --> DREAM["Dream maintenance"]
     G -->|defer| DEFERRED["deferred / note"]
     G -->|reject| REJECTED["rejected"]
 
@@ -110,8 +118,15 @@ flowchart TD
 
 Notes:
 
-- `auto_review_candidates(apply=true)` promotes on the main path; public MCP
-  applies promotions directly (no preview-only enforcement).
+- Hooks capture immutable source revisions and queue complete chunk sets. They
+  do not perform session summarization or candidate promotion.
+- `prepare_session_distill` returns bounded chunks without truncation. Each
+  completed chunk has a durable checkpoint, and candidate creation waits for a
+  required final-session review after all expected chunks are complete.
+- Candidate writes are idempotent for retries of the same source revision.
+- `finalize_session_distill` rechecks source revision and chunk completeness,
+  then runs auto-review and Dream. Auto-review promotes on the main path; public
+  MCP applies promotions directly (no preview-only enforcement).
 - Every promotion appends to `~/.harness-mem/data/state-events.log`.
 - `confirm_*` upgrades truth to `user_confirmed` (highest trust tier).
 

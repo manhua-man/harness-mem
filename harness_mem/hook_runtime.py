@@ -1,26 +1,25 @@
-"""Hook runtime diagnostics for generated IDE integrations."""
+"""Runtime diagnostics for generated IDE hook integrations."""
 
 from __future__ import annotations
 
-import json
 import subprocess
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
+from harness_mem.integration.hook_runner import HookRunnerProbe, probe_hook_runner
 
-_PROBE_CODE = r"""
-import json
-import sys
-import harness_mem
+__all__ = [
+    "HookFileStatus",
+    "HookRunnerProbe",
+    "HookRuntimeReport",
+    "collect_hook_file_statuses",
+    "collect_hook_runtime_report",
+    "probe_hook_runner",
+]
 
-print(json.dumps({
-    "executable": sys.executable,
-    "python_version": sys.version.split()[0],
-    "harness_mem_version": harness_mem.__version__,
-}))
-"""
+_LEGACY_HOST_ENTRY = "harness_mem.host_entry"
+Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 
 @dataclass(frozen=True)
@@ -31,57 +30,47 @@ class HookFileStatus:
     label: str
     path: Path
     exists: bool
-    contains_host_entry: bool
+    runner_bound: bool
+    legacy_python: bool
     project_root_match: bool
     scope: str = "project"
 
 
 @dataclass(frozen=True)
-class PythonRuntimeProbe:
-    """Result of probing whether a Python command can import harness_mem."""
-
-    command: tuple[str, ...]
-    ok: bool
-    executable: str | None = None
-    python_version: str | None = None
-    harness_mem_version: str | None = None
-    error: str | None = None
-
-
-@dataclass(frozen=True)
 class HookRuntimeReport:
-    """Doctor-friendly hook runtime report."""
+    """Doctor-friendly status of the installed Hook runner and its artifacts."""
 
     project_root: Path
-    python_probe: PythonRuntimeProbe
+    runner_probe: HookRunnerProbe
     hooks: tuple[HookFileStatus, ...]
-    ide_env_note: str = (
-        "Probe uses the current shell environment; IDE hooks may see a different PATH/env."
-    )
-
-
-Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 
 def collect_hook_runtime_report(
     project_root: Path,
     *,
-    python_command: Sequence[str] = ("python",),
+    hook_runner: Path | None = None,
     runner: Runner = subprocess.run,
     timeout_seconds: float = 5.0,
     home_dir: Path | None = None,
 ) -> HookRuntimeReport:
-    """Collect hook files plus a current-shell Python import probe."""
+    """Collect generated Hook artifacts and probe the exact bound runner."""
 
     root = project_root.expanduser().resolve()
+    runner_probe = probe_hook_runner(
+        hook_runner=hook_runner,
+        runner=runner,
+        timeout_seconds=timeout_seconds,
+    )
     return HookRuntimeReport(
         project_root=root,
-        python_probe=probe_python_runtime(
-            python_command=python_command,
-            runner=runner,
-            timeout_seconds=timeout_seconds,
+        runner_probe=runner_probe,
+        hooks=tuple(
+            _known_hook_statuses(
+                root,
+                home_dir=home_dir,
+                hook_runner=runner_probe.path if runner_probe.ok else None,
+            )
         ),
-        hooks=tuple(_known_hook_statuses(root, home_dir=home_dir)),
     )
 
 
@@ -90,71 +79,23 @@ def collect_hook_file_statuses(
     *,
     client: str | None = None,
     home_dir: Path | None = None,
+    hook_runner: Path | None = None,
 ) -> tuple[HookFileStatus, ...]:
-    """Return known hook artifacts without launching a Python probe."""
+    """Return known Hook artifacts without launching the runner probe."""
 
     root = project_root.expanduser().resolve()
-    statuses = _known_hook_statuses(root, home_dir=home_dir)
+    statuses = _known_hook_statuses(root, home_dir=home_dir, hook_runner=hook_runner)
     if client is not None:
         statuses = [status for status in statuses if status.client == client]
     return tuple(statuses)
 
 
-def probe_python_runtime(
+def _known_hook_statuses(
+    project_root: Path,
     *,
-    python_command: Sequence[str] = ("python",),
-    runner: Runner = subprocess.run,
-    timeout_seconds: float = 5.0,
-) -> PythonRuntimeProbe:
-    """Probe whether ``python_command`` can import harness_mem."""
-
-    command = tuple(python_command)
-    try:
-        completed = runner(
-            [*command, "-c", _PROBE_CODE],
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-        )
-    except FileNotFoundError as exc:
-        return PythonRuntimeProbe(command=command, ok=False, error=str(exc))
-    except subprocess.TimeoutExpired:
-        return PythonRuntimeProbe(
-            command=command,
-            ok=False,
-            error=f"timed out after {timeout_seconds:g}s",
-        )
-    except OSError as exc:
-        return PythonRuntimeProbe(command=command, ok=False, error=str(exc))
-
-    stdout = (completed.stdout or "").strip()
-    stderr = _tail((completed.stderr or "").strip())
-    if completed.returncode != 0:
-        return PythonRuntimeProbe(
-            command=command,
-            ok=False,
-            error=stderr or f"exit status {completed.returncode}",
-        )
-
-    try:
-        payload = json.loads(stdout.splitlines()[-1])
-    except (IndexError, json.JSONDecodeError) as exc:
-        return PythonRuntimeProbe(
-            command=command,
-            ok=False,
-            error=f"invalid probe output: {exc}",
-        )
-
-    return PythonRuntimeProbe(
-        command=command,
-        ok=True,
-        executable=_str_or_none(payload.get("executable")),
-        python_version=_str_or_none(payload.get("python_version")),
-        harness_mem_version=_str_or_none(payload.get("harness_mem_version")),
-    )
-
-
-def _known_hook_statuses(project_root: Path, *, home_dir: Path | None) -> list[HookFileStatus]:
+    home_dir: Path | None,
+    hook_runner: Path | None,
+) -> list[HookFileStatus]:
     specs = [
         ("cursor", "session-start", project_root / ".cursor" / "hooks" / "session-start.sh", "project"),
         ("cursor", "after-agent", project_root / ".cursor" / "hooks" / "after-agent.sh", "project"),
@@ -162,20 +103,11 @@ def _known_hook_statuses(project_root: Path, *, home_dir: Path | None) -> list[H
         ("claude-code", "after-turn", project_root / ".claude" / "hooks" / "after-turn.sh", "project"),
         ("grok", "hooks manifest", project_root / ".grok" / "hooks" / "harness-mem.json", "project"),
         ("codex", "hooks manifest", project_root / ".codex" / "hooks.json", "project"),
-        ("codex", "stop script", project_root / ".codex" / "hooks" / "harness_mem_stop.py", "project"),
         ("opencode", "plugin", project_root / ".opencode" / "plugins" / "harness-mem.ts", "project"),
         ("antigravity", "hooks manifest", project_root / ".agents" / "hooks.json", "project"),
-        ("antigravity", "PreInvocation script", project_root / ".agents" / "hooks" / "harness_mem_pre_invocation.py", "project"),
-        ("antigravity", "Stop script", project_root / ".agents" / "hooks" / "harness_mem_stop.py", "project"),
     ]
     home = Path.home() if home_dir is None else home_dir
-    specs.extend(
-        [
-            ("hermes", "pre_llm_call script", home / ".hermes" / "agent-hooks" / "harness_mem_pre_llm_call.py", "global"),
-            ("hermes", "post_llm_call script", home / ".hermes" / "agent-hooks" / "harness_mem_post_llm_call.py", "global"),
-            ("hermes", "config", home / ".hermes" / "config.yaml", "global"),
-        ]
-    )
+    specs.append(("hermes", "config", home / ".hermes" / "config.yaml", "global"))
     return [
         _hook_file_status(
             client=client,
@@ -183,6 +115,7 @@ def _known_hook_statuses(project_root: Path, *, home_dir: Path | None) -> list[H
             path=path,
             project_root=project_root,
             scope=scope,
+            hook_runner=hook_runner,
         )
         for client, label, path, scope in specs
     ]
@@ -195,6 +128,7 @@ def _hook_file_status(
     path: Path,
     project_root: Path,
     scope: str,
+    hook_runner: Path | None,
 ) -> HookFileStatus:
     exists = path.exists()
     text = ""
@@ -203,33 +137,14 @@ def _hook_file_status(
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             text = ""
+    runner_path = hook_runner.as_posix() if hook_runner is not None else ""
     return HookFileStatus(
         client=client,
         label=label,
         path=path,
         exists=exists,
-        contains_host_entry="harness_mem.host_entry" in text,
+        runner_bound=bool(runner_path and runner_path in text),
+        legacy_python=_LEGACY_HOST_ENTRY in text,
         project_root_match=project_root.as_posix() in text,
         scope=scope,
     )
-
-
-def _tail(text: str, *, max_lines: int = 3) -> str:
-    lines = [line for line in text.splitlines() if line.strip()]
-    return "\n".join(lines[-max_lines:])
-
-
-def _str_or_none(value: Any) -> str | None:
-    if value is None:
-        return None
-    return str(value)
-
-
-__all__ = [
-    "HookFileStatus",
-    "HookRuntimeReport",
-    "PythonRuntimeProbe",
-    "collect_hook_file_statuses",
-    "collect_hook_runtime_report",
-    "probe_python_runtime",
-]

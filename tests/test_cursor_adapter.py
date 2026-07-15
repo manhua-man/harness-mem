@@ -66,7 +66,9 @@ def _cursor_records_for_workspace(workspace: Path) -> list[dict]:
 
 
 def test_cursor_project_name_candidates_from_path() -> None:
-    candidates = cursor_project_name_candidates_from_path(Path("F:/AIInfra/harness-mem"))
+    candidates = cursor_project_name_candidates_from_path(
+        Path("F:/AIInfra/harness-mem")
+    )
     assert "f-AIInfra-harness-mem" in candidates
 
 
@@ -84,7 +86,11 @@ def test_parse_cursor_jsonl_session_reads_role_message_content(tmp_path: Path) -
                 "message": {
                     "content": [
                         {"type": "text", "text": "hi there"},
-                        {"type": "tool_use", "name": "Read", "input": {"path": "demo.py"}},
+                        {
+                            "type": "tool_use",
+                            "name": "Read",
+                            "input": {"path": "demo.py"},
+                        },
                     ]
                 },
             },
@@ -100,16 +106,76 @@ def test_parse_cursor_jsonl_session_reads_role_message_content(tmp_path: Path) -
     assert turns[0]["tools"][0]["name"] == "Read"
 
 
+def test_cursor_observation_renderer_keeps_all_turns_and_content(
+    tmp_path: Path,
+) -> None:
+    session_path = tmp_path / "cursor.jsonl"
+    records: list[dict] = []
+    for turn_number in range(1, 22):
+        records.extend(
+            [
+                {
+                    "role": "user",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"user-{turn_number}-" + "u" * 2100 + "-end",
+                            }
+                        ]
+                    },
+                },
+                {
+                    "role": "assistant",
+                    "message": {
+                        "content": [
+                            *[
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        f"assistant-{turn_number}-{response_number}-"
+                                        + "a" * 1100
+                                        + "-end"
+                                    ),
+                                }
+                                for response_number in range(4)
+                            ],
+                            *[
+                                {
+                                    "type": "tool_use",
+                                    "name": f"Tool-{turn_number}-{tool_number}",
+                                    "input": {"value": "x" * 400},
+                                }
+                                for tool_number in range(6)
+                            ],
+                        ]
+                    },
+                },
+                {"type": "turn_ended", "status": "success"},
+            ]
+        )
+    _write_jsonl(session_path, records)
+
+    observation = CursorAdapter(None, projects_dir=tmp_path).session_to_observation(
+        session_path,
+        "session-long",
+        "demo",
+    )
+
+    assert "## Turn 21" in observation.raw_content
+    assert "user-11-" + "u" * 2100 + "-end" in observation.raw_content
+    assert "assistant-21-3-" + "a" * 1100 + "-end" in observation.raw_content
+    assert "Tool-21-5" in observation.raw_content
+    assert "omitted" not in observation.raw_content
+    assert "[TRUNCATED]" not in observation.raw_content
+
+
 def test_cursor_adapter_lists_sessions_from_slugged_project_dir(tmp_path: Path) -> None:
     projects_dir = tmp_path / ".cursor-projects"
     workspace = Path("F:/AIInfra/harness-mem")
     slug = "f-AIInfra-harness-mem"
     session_path = (
-        projects_dir
-        / slug
-        / "agent-transcripts"
-        / "session-1"
-        / "session-1.jsonl"
+        projects_dir / slug / "agent-transcripts" / "session-1" / "session-1.jsonl"
     )
     _write_jsonl(session_path, _cursor_records_for_workspace(workspace))
 
@@ -137,6 +203,30 @@ def test_cursor_adapter_falls_back_to_transcript_content_match(tmp_path: Path) -
 
     assert len(sessions) == 1
     assert sessions[0]["session_id"] == "session-2"
+
+
+def test_cursor_adapter_excludes_other_workspace_transcripts(tmp_path: Path) -> None:
+    projects_dir = tmp_path / ".cursor-projects"
+    workspace = tmp_path / "wanted"
+    other_workspace = tmp_path / "other"
+    workspace.mkdir()
+    other_workspace.mkdir()
+    _write_jsonl(
+        projects_dir / "wanted" / "agent-transcripts" / "wanted" / "wanted.jsonl",
+        _cursor_records_for_workspace(workspace),
+    )
+    _write_jsonl(
+        projects_dir / "other" / "agent-transcripts" / "other" / "other.jsonl",
+        _cursor_records_for_workspace(other_workspace),
+    )
+
+    sessions = CursorAdapter(
+        None,
+        projects_dir=projects_dir,
+        project_root=workspace,
+    ).list_sessions(min_size_kb=0)
+
+    assert [item["session_id"] for item in sessions] == ["wanted"]
 
 
 def test_tool_ingest_sessions_cursor_uses_project_root_and_reports_resolved_client(
@@ -233,7 +323,7 @@ def test_tool_ingest_sessions_cursor_resolves_project_from_project_root_only(
     assert "Ingested: 1 sessions" in payload["output"]
 
 
-def test_tool_ingest_sessions_cursor_skips_existing_session(
+def test_tool_ingest_sessions_cursor_updates_growing_session_revision(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -265,6 +355,26 @@ def test_tool_ingest_sessions_cursor_skips_existing_session(
         client="cursor",
         project_root=str(workspace),
     )
+    updated_records = _cursor_records_for_workspace(workspace)
+    updated_records.extend(
+        [
+            {
+                "role": "user",
+                "message": {
+                    "content": [{"type": "text", "text": "Inspect one more file."}]
+                },
+            },
+            {
+                "role": "assistant",
+                "message": {
+                    "content": [{"type": "text", "text": "The extra file is valid."}]
+                },
+            },
+            {"type": "turn_ended", "status": "success"},
+        ]
+    )
+    _write_jsonl(session_path, updated_records)
+    expected_bytes = session_path.read_bytes()
     second = tool_handlers.tool_ingest_sessions(
         client="cursor",
         project_root=str(workspace),
@@ -274,18 +384,31 @@ def test_tool_ingest_sessions_cursor_skips_existing_session(
     assert second["success"] is True
     assert "Ingested: 1 sessions" in first["output"]
     assert "Ingested: 0 sessions" in second["output"]
-    assert "Skipped existing: 1 sessions" in second["output"]
+    assert "Skipped existing" not in second["output"]
 
-    async def _load() -> list:
+    async def _load() -> tuple[list, object, list, bytes]:
         backend = LocalMemoryBackend(data_dir)
         await backend.init()
         try:
-            return await backend.verbatim_store.list(limit=10)
+            observations = await backend.verbatim_store.list(limit=10)
+            source = backend.transcript_store.find_source(
+                project_name="servers",
+                client="cursor",
+                session_id="cursor-session",
+            )
+            assert source is not None
+            revisions = backend.transcript_store.list_revisions(source.id)
+            raw_bytes = backend.transcript_store.reconstruct_raw(source.id)
+            return observations, source, revisions, raw_bytes
         finally:
             await backend.close()
 
-    observations = asyncio.run(_load())
+    observations, source, revisions, raw_bytes = asyncio.run(_load())
     assert len(observations) == 1
+    assert len(revisions) == 2
+    assert raw_bytes == expected_bytes
+    assert observations[0].metadata["source_revision"] == source.source_revision
+    assert "Inspect one more file." in observations[0].raw_content
 
 
 def test_tool_prepare_session_distill_cursor_resolves_project_from_project_root_only(
@@ -347,7 +470,9 @@ def test_tool_prepare_session_distill_cursor_resolves_project_from_project_root_
     assert payload["project_root"] == str(workspace.resolve())
     assert payload["project_resolution_source"] == "project_root"
     assert payload["resolved_client"] == "cursor"
-    assert payload["observation_count"] == 1
-    assert payload["observations"][0]["client"] == "cursor"
+    assert payload["distill_mode"] == "lossless_chunks"
+    assert payload["source_id"]
+    assert payload["source_revision"].startswith("sha256:")
+    assert payload["expected_chunk_count"] >= 1
     assert payload["distill_job_id"]
-    assert payload["distill_status"] == "processing"
+    assert payload["distill_status"] in {"queued", "processing"}

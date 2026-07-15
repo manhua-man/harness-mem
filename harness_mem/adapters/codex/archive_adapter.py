@@ -10,8 +10,11 @@ from uuid import uuid4
 
 from harness_mem.adapters.parser import parse_codex_archive_jsonl_session, session_sort_key
 from harness_mem.adapters.protocol import Issue, SessionRecord
+from harness_mem.adapters.scan_scheduler import normalize_source_root, sync_sessions_fairly
+from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
+from harness_mem.transcript_chunking import source_uri_from_path
 
 # Default Codex archived sessions directory
 DEFAULT_ARCHIVE_DIR = Path.home() / ".codex" / "archived_sessions"
@@ -169,6 +172,49 @@ class CodexArchiveAdapter:
             tags=["session", "codex", "archive"],
         )
 
+    async def sync_session(
+        self,
+        session_path: Path,
+        session_id: str,
+        project_name: str,
+        *,
+        project_root: Path | None = None,
+        issues: list[Issue] | None = None,
+    ) -> TranscriptSyncResult:
+        """Capture one exact archived Codex source revision."""
+
+        if self.backend is None:
+            raise RuntimeError(
+                "CodexArchiveAdapter.sync_session requires an initialized backend"
+            )
+        native_bytes = session_path.read_bytes()
+        source_text = native_bytes.decode("utf-8-sig", errors="replace")
+        observation = self.session_to_observation(
+            session_path,
+            session_id,
+            project_name,
+            issues=issues,
+        )
+        root = project_root or Path(
+            str(observation.metadata.get("cwd") or Path.cwd())
+        )
+        stat_result = session_path.stat()
+        return await persist_session_snapshot(
+            self.backend,
+            observation,
+            project_name=project_name,
+            project_root=str(root),
+            client="codex-archive",
+            session_id=session_id,
+            source_kind="jsonl",
+            source_uri=source_uri_from_path(session_path),
+            source_text=source_text,
+            raw_bytes=native_bytes,
+            mtime_ns=stat_result.st_mtime_ns,
+            sequence_count=source_text.count("\n") + int(bool(source_text)),
+            parser_version="codex-archive-jsonl-v1",
+        )
+
     async def ingest(
         self,
         project_name: str | None = None,
@@ -193,70 +239,61 @@ class CodexArchiveAdapter:
                 project_root=project_root,
                 scope=scope,
             )
-        cursor = None if full_rescan else self._load_cursor(cursor_path, issues=warnings)
-        candidate_sessions = scoped_sessions
-        if cursor is not None and scoped_sessions:
-            candidate_sessions = self.list_sessions(
-                min_size_kb=min_size_kb,
-                issues=warnings,
-                cursor=cursor,
-                project_root=project_root,
-                scope=scope,
-            )
-        sessions = candidate_sessions[:limit]
-
-        ingested = 0
-        errors = 0
-        skipped_existing = 0
         if self.backend is None:
             raise RuntimeError("CodexArchiveAdapter.ingest requires an initialized backend")
+        if not project_name:
+            raise ValueError("project_name is required for Codex archive ingest")
 
-        existing_session_ids = await self._existing_session_ids(project_name)
-        committed_sessions: list[SessionRecord] = []
-        for session in sessions:
-            session_id = session["session_id"]
-            if session_id in existing_session_ids:
-                skipped_existing += 1
-                committed_sessions.append(session)
-                continue
-            try:
-                obs = self.session_to_observation(
-                    session["path"],
-                    session_id,
-                    project_name,
-                    issues=warnings,
-                )
-                await self.backend.verbatim_store.save(obs)
-                ingested += 1
-                existing_session_ids.add(session_id)
-                committed_sessions.append(session)
+        source_root = normalize_source_root(self.archive_dir)
+        if full_rescan:
+            self.backend.transcript_store.reset_scan_frontier(
+                project_name=project_name,
+                client="codex-archive",
+                source_root=source_root,
+            )
 
-            except Exception as exc:
-                errors += 1
-                error_details.append({
+        async def sync_one(session: SessionRecord) -> TranscriptSyncResult:
+            return await self.sync_session(
+                session["path"],
+                session["session_id"],
+                project_name,
+                project_root=project_root,
+                issues=warnings,
+            )
+
+        scan = await sync_sessions_fairly(
+            self.backend.transcript_store,
+            project_name=project_name,
+            client="codex-archive",
+            source_root=source_root,
+            sessions=scoped_sessions,
+            change_limit=limit,
+            sync_session=sync_one,
+        )
+        for failure in scan.failures:
+            session_id = failure.session["session_id"]
+            error_details.append({
                     "level": "error",
                     "code": "archive_ingest_failed",
-                    "message": f"Failed to ingest archive {session_id}: {exc}",
-                    "path": str(session["path"]),
+                    "message": f"Failed to ingest archive {session_id}: {failure.error}",
+                    "path": str(failure.session["path"]),
                     "session_id": session_id,
                 })
-
-        if cursor_path is not None and committed_sessions:
-            self._write_cursor(
-                cursor_path,
-                self._cursor_from_session(max(committed_sessions, key=self._session_cursor_key)),
-            )
 
         return {
             "sessions_found": len(all_sessions),
             "scoped_sessions": len(scoped_sessions),
-            "candidate_sessions": len(candidate_sessions),
-            "ingested": ingested,
-            "skipped_existing": skipped_existing,
-            "errors": errors,
+            "candidate_sessions": scan.sessions_scanned,
+            "sessions_scanned": scan.sessions_scanned,
+            "ingested": scan.ingested,
+            "updated": scan.updated,
+            "unchanged": scan.unchanged,
+            "skipped_existing": scan.unchanged,
+            "errors": len(scan.failures),
             "warnings": warnings,
             "error_details": error_details,
-            "scan_mode": "full_rescan" if full_rescan else "incremental",
+            "scan_mode": "full_rescan" if full_rescan else "frontier",
+            "scan_frontier": scan.frontier.to_dict(),
             "scope": scope,
             "project_root": str(project_root) if project_root else None,
         }
@@ -286,7 +323,7 @@ class CodexArchiveAdapter:
 
     def _read_session_header(self, session_path: Path, *, issues: list[Issue] | None = None) -> dict[str, Any]:
         try:
-            with session_path.open("r", encoding="utf-8", errors="replace") as handle:
+            with session_path.open("r", encoding="utf-8-sig", errors="replace") as handle:
                 for _ in range(12):
                     line = handle.readline()
                     if not line:

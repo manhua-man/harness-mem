@@ -3,68 +3,69 @@ from __future__ import annotations
 from pathlib import Path
 
 from harness_mem.commands.doctor import _doctor_hook_runtime_block
-from harness_mem.hook_runtime import (
-    HookFileStatus,
-    HookRuntimeReport,
-    PythonRuntimeProbe,
-)
+from harness_mem.hook_runtime import HookFileStatus, HookRunnerProbe, HookRuntimeReport
 
 
-def test_doctor_hook_runtime_block_renders_success(
-    tmp_path: Path,
-    capsys,
-) -> None:
+def test_doctor_hook_runtime_block_renders_ready_runner(tmp_path: Path, capsys) -> None:
     project_root = tmp_path / "project"
+    runner = tmp_path / "harness-mem-hook"
     hook_path = project_root / ".cursor" / "hooks" / "session-start.sh"
     report = HookRuntimeReport(
         project_root=project_root,
-        python_probe=PythonRuntimeProbe(
-            command=("python",),
-            ok=True,
-            executable="C:/Python/python.exe",
-            python_version="3.13.1",
-            harness_mem_version="0.8.21",
-        ),
+        runner_probe=HookRunnerProbe(path=runner, ok=True, version="0.8.24"),
         hooks=(
             HookFileStatus(
                 client="cursor",
                 label="session-start",
                 path=hook_path,
                 exists=True,
-                contains_host_entry=True,
+                runner_bound=True,
+                legacy_python=False,
                 project_root_match=True,
             ),
         ),
     )
 
     _doctor_hook_runtime_block(report)
-
     out = capsys.readouterr().out
-    assert "Hook runtime:" in out
-    assert "current shell python (python): ok" in out
-    assert "harness-mem=0.8.21" in out
-    assert "cursor session-start: host_entry, project-root match" in out
-    assert "HARNESS_MEM_HOOK_DEBUG=1" in out
+    assert "Hook runtime: ready" in out
+    assert f"runner: {runner} (0.8.24)" in out
+    assert "cursor session-start: runner bound, project-root match" in out
 
 
-def test_doctor_hook_runtime_block_renders_probe_failure(
-    tmp_path: Path,
-    capsys,
-) -> None:
+def test_doctor_hook_runtime_block_renders_legacy_runner(tmp_path: Path, capsys) -> None:
     report = HookRuntimeReport(
         project_root=tmp_path,
-        python_probe=PythonRuntimeProbe(
-            command=("python",),
-            ok=False,
-            error="Traceback\nModuleNotFoundError: No module named 'harness_mem'",
+        runner_probe=HookRunnerProbe(path=tmp_path / "harness-mem-hook", ok=True, version="0.8.24"),
+        hooks=(
+            HookFileStatus(
+                client="cursor",
+                label="session-start",
+                path=tmp_path / ".cursor" / "hooks" / "session-start.sh",
+                exists=True,
+                runner_bound=False,
+                legacy_python=True,
+                project_root_match=True,
+            ),
         ),
+    )
+
+    _doctor_hook_runtime_block(report)
+    out = capsys.readouterr().out
+    assert "Hook runtime: repair needed" in out
+    assert "legacy python" in out
+    assert "reinstall the Hook suite" in out
+
+
+def test_doctor_hook_runtime_block_renders_runner_failure(tmp_path: Path, capsys) -> None:
+    report = HookRuntimeReport(
+        project_root=tmp_path,
+        runner_probe=HookRunnerProbe(path=None, ok=False, error="harness-mem-hook executable was not found"),
         hooks=(),
     )
 
     _doctor_hook_runtime_block(report)
-
     out = capsys.readouterr().out
-    assert "current shell python (python): unavailable" in out
-    assert "No module named 'harness_mem'" in out
-    assert "install harness-mem into the Python visible to generated hooks" in out
-    assert "hook files: none installed" in out
+    assert "Hook runtime: unavailable" in out
+    assert "runner: unavailable" in out
+    assert "harness-mem-hook executable was not found" in out

@@ -11,9 +11,20 @@ wake -> search -> distill -> review -> dream
 ```
 
 For this controlled walkthrough, the prompts below invoke stages explicitly.
-In normal use, hooks only sync transcript evidence and queue distill work at a
-save point or session end; the next Agent-capable wake, or `/hm:distill`,
-consumes that work through candidates, auto-review, and Dream.
+In normal use, hooks only capture an immutable native transcript source revision
+and queue its complete ordered chunks at a save point or session end. Hooks do
+not summarize the session. The next Agent-capable wake, or `/hm:distill`,
+resumes chunk processing and checkpoints each completed chunk.
+
+Distillation never truncates a chunk. After every expected chunk is
+checkpointed, the Agent must perform a final-session review of outcomes,
+contradictions, unfinished work, and evidence strength. Only then may it create
+idempotent candidates. `finalize_session_distill` verifies that contract, runs
+the normal candidate auto-review, and runs Dream. The public model remains:
+
+```text
+wake -> search -> distill -> review -> dream
+```
 
 ## What You Need
 
@@ -145,6 +156,12 @@ Use harness-mem to distill this session into memory candidates.
 
 Expected result:
 
+- The immutable source revision is processed through every ordered chunk, with
+  no truncation and a durable checkpoint for each chunk.
+- Candidate creation waits for the required final-session review and is
+  idempotent when an interrupted distill resumes.
+- `finalize_session_distill` verifies completeness, then runs auto-review and
+  Dream.
 - New information is proposed as candidates, then the shared policy may
   auto-confirm only low-risk items with audit metadata.
 - One-off task details are not promoted as durable memory.
@@ -182,7 +199,11 @@ The demo is working when:
 
 - A fresh Agent can explain the project state without pasted chat history.
 - `search` can recover a real prior decision by topic.
-- `distill` creates candidates instead of directly changing confirmed truth.
+- `distill` consumes every ordered chunk without truncation, checkpoints each
+  chunk, and requires a final-session review before creating idempotent
+  candidates instead of directly changing confirmed truth.
+- `finalize_session_distill` runs auto-review and Dream only after structural
+  completeness is verified.
 - The shared policy handles low-risk promotion; review audits, corrects, or
   promotes the remaining uncertain material.
 - The user can understand the value in under five minutes.

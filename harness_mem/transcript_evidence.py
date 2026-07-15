@@ -10,6 +10,7 @@ from urllib.parse import quote
 
 from harness_mem.adapters import AdapterRegistry
 from harness_mem.adapters.antigravity.adapter import AntigravityAdapter
+from harness_mem.adapters.hermes.adapter import HermesAdapter
 from harness_mem.adapters.opencode.adapter import OpenCodeAdapter
 
 
@@ -106,24 +107,48 @@ def _grok_evidence(project_root: Path, home: Path, *, sample_limit: int) -> Tran
 
 def _hermes_evidence(home: Path, *, sample_limit: int) -> TranscriptEvidence:
     sessions_root = home / ".hermes" / "sessions"
-    sample_files = _hermes_session_files(sessions_root, sample_limit=sample_limit)
+    state_db_candidates = (
+        home / "AppData" / "Local" / "hermes" / "state.db",
+        home / ".hermes" / "state.db",
+    )
+    state_db = next((path for path in state_db_candidates if path.is_file()), None)
+    adapter = HermesAdapter(
+        None,
+        sessions_dir=sessions_root,
+        state_db=state_db,
+        scope="all",
+    )
+    db_sessions = [
+        session
+        for session in adapter.list_sessions(min_size_kb=0)
+        if session.get("source_kind") == "sqlite-session-export"
+    ]
     all_files = _hermes_session_files(sessions_root, sample_limit=None)
-    status = "verified_transcript_path" if all_files else _status_for_roots((sessions_root,))
+    sample_files = [*all_files, *(Path(session["path"]) for session in db_sessions)]
+    sample_files = list(dict.fromkeys(sample_files))[:sample_limit]
+    roots = (sessions_root, *state_db_candidates)
+    status = (
+        "verified_transcript_path"
+        if all_files or db_sessions
+        else _status_for_roots(roots)
+    )
     note = (
-        "Found Hermes session_*.json files with session_id and messages[]."
+        "Found Hermes state.db sessions/messages rows."
+        if db_sessions
+        else "Found Hermes session_*.json files with session_id and messages[]."
         if all_files
         else (
-            "Hermes sessions root exists, but no session_*.json file with transcript schema was found."
-            if sessions_root.exists()
-            else "Hermes sessions root was not found on this machine."
+            "Hermes roots exist, but no verified JSON or SQLite transcript schema was found."
+            if any(root.exists() for root in roots)
+            else "Hermes JSON sessions and state.db were not found on this machine."
         )
     )
     return TranscriptEvidence(
         client="hermes",
         status=status,
         adapter_available="hermes" in AdapterRegistry.list(),
-        roots=(sessions_root,),
-        session_count=len(all_files),
+        roots=roots,
+        session_count=len(all_files) + len(db_sessions),
         sample_files=tuple(sample_files),
         note=note,
     )
@@ -161,21 +186,27 @@ def _antigravity_evidence(
     sample_limit: int,
 ) -> TranscriptEvidence:
     brain_root = home / ".gemini" / "antigravity" / "brain"
-    adapter = AntigravityAdapter(None, brain_dir=brain_root, project_root=project_root)
+    cli_root = home / ".gemini" / "antigravity-cli"
+    adapter = AntigravityAdapter(
+        None,
+        brain_dir=brain_root,
+        cli_root=cli_root,
+        project_root=project_root,
+    )
     sessions = adapter.list_sessions(limit=None)
-    status = "verified_transcript_path" if sessions else _status_for_roots((brain_root,))
+    roots = (brain_root, cli_root)
+    status = "verified_transcript_path" if sessions else _status_for_roots(roots)
     return TranscriptEvidence(
         client="antigravity",
         status=status,
         adapter_available="antigravity" in AdapterRegistry.list(),
-        roots=(brain_root,),
+        roots=roots,
         session_count=len(sessions),
         sample_files=tuple(Path(item["path"]) for item in sessions[:sample_limit]),
         note=(
-            "Found Antigravity brain transcript.jsonl files matching this project. "
-            "Native agy lifecycle hooks are not part of the verified CLI surface."
+            "Found project-matched Antigravity brain transcript or CLI history evidence."
             if sessions
-            else "No Antigravity transcript.jsonl files matched this project."
+            else "No Antigravity brain transcript or CLI history matched this project."
         ),
     )
 

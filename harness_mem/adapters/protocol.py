@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol, TypedDict
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict
 
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
+
+if TYPE_CHECKING:
+    from harness_mem.adapters.snapshot import TranscriptSyncResult
 
 Issue = dict[str, str]
 
@@ -25,6 +28,7 @@ class SessionRecord(TypedDict, total=False):
     mtime: datetime
     mtime_ns: int
     cwd: str
+    source_kind: str
 
 
 class SessionAdapter(Protocol):
@@ -50,7 +54,15 @@ class SessionAdapter(Protocol):
         *,
         issues: list[Issue] | None = None,
     ) -> Observation:
-        """Convert a client session file into a normalized observation."""
+        """Build the derived search rendering for a native session."""
+
+    async def sync_session(
+        self,
+        session_path: Path,
+        session_id: str,
+        project_name: str,
+    ) -> TranscriptSyncResult:
+        """Capture one complete native revision and refresh its search projection."""
 
     async def ingest(
         self,
@@ -58,4 +70,4 @@ class SessionAdapter(Protocol):
         limit: int = 10,
         min_size_kb: int = 0,
     ) -> dict[str, Any]:
-        """Persist recent sessions into the backend."""
+        """Scan and synchronize changed sessions into the backend."""

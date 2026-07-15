@@ -13,6 +13,12 @@ def test_mcp_console_script_uses_the_packaged_server_entrypoint() -> None:
     assert 'harness-mem-mcp = "harness_mem.mcp.server:main"' in pyproject
 
 
+def test_hook_console_script_uses_the_packaged_host_entrypoint() -> None:
+    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+
+    assert 'harness-mem-hook = "harness_mem.host_entry.__main__:main"' in pyproject
+
+
 def test_cursor_docs_do_not_launch_the_mcp_server_through_bare_python() -> None:
     for path in (Path("README.md"), Path("docs/mcp-setup.md")):
         content = path.read_text(encoding="utf-8")

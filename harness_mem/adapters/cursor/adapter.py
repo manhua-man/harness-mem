@@ -17,8 +17,11 @@ from harness_mem.adapters.claude_code.project_profile_detector import (
     normalize_project_root,
 )
 from harness_mem.adapters.protocol import Issue, SessionRecord
+from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
+from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
+from harness_mem.transcript_chunking import source_uri_from_path
 
 DEFAULT_PROJECTS_DIR = Path.home() / ".cursor" / "projects"
 
@@ -88,27 +91,24 @@ class CursorAdapter:
         *,
         issues: list[Issue] | None = None,
     ) -> Observation:
-        turns = parse_cursor_jsonl_session(session_path, issues=issues)
+        turns = parse_cursor_jsonl_session(
+            session_path,
+            issues=issues,
+        )
 
         lines = [f"# Cursor Session: {session_id}"]
-        display_turns = self._select_observation_turns(turns, max_turns=20)
-        for i, turn in display_turns:
+        for i, turn in enumerate(turns, 1):
             lines.append(f"\n## Turn {i}")
             if turn.get("user"):
-                lines.append(f"\nUser: {turn['user'][:500]}")
+                lines.append(f"\nUser: {turn['user']}")
             if turn.get("assistant"):
-                for resp in turn["assistant"][:3]:
-                    lines.append(f"\nAssistant: {resp[:500]}")
+                for resp in turn["assistant"]:
+                    lines.append(f"\nAssistant: {resp}")
             if turn.get("tools"):
-                tool_names = [t["name"] for t in turn["tools"][:5]]
+                tool_names = [t["name"] for t in turn["tools"]]
                 lines.append(f"\nTools: {', '.join(tool_names)}")
-            if i == 10 and len(turns) > 20:
-                omitted = len(turns) - 20
-                lines.append(f"\n[... {omitted} middle turns omitted ...]")
 
         raw_content = "\n".join(lines)
-        if len(raw_content) > 50000:
-            raw_content = raw_content[:50000] + "\n\n[TRUNCATED]"
 
         metadata: dict[str, Any] = {
             "project_name": project_name,
@@ -123,9 +123,50 @@ class CursorAdapter:
             client="cursor",
             raw_content=raw_content,
             content_type="transcript",
-            timestamp=datetime.fromtimestamp(session_path.stat().st_mtime, tz=timezone.utc),
+            timestamp=datetime.fromtimestamp(
+                session_path.stat().st_mtime, tz=timezone.utc
+            ),
             metadata=metadata,
             tags=["session", "cursor"],
+        )
+
+    async def sync_session(
+        self,
+        session_path: Path,
+        session_id: str,
+        project_name: str,
+        *,
+        issues: list[Issue] | None = None,
+    ) -> TranscriptSyncResult:
+        """Capture exact source bytes and upsert the derived observation."""
+
+        if self.backend is None:
+            raise RuntimeError(
+                "CursorAdapter.sync_session requires an initialized backend"
+            )
+        native_bytes = session_path.read_bytes()
+        source_text = native_bytes.decode("utf-8-sig", errors="replace")
+        observation = self.session_to_observation(
+            session_path,
+            session_id,
+            project_name,
+            issues=issues,
+        )
+        project_root = self.project_root or Path.cwd()
+        return await persist_session_snapshot(
+            self.backend,
+            observation,
+            project_name=project_name,
+            project_root=str(project_root),
+            client="cursor",
+            session_id=session_id,
+            source_kind="jsonl",
+            source_uri=source_uri_from_path(session_path),
+            source_text=source_text,
+            raw_bytes=native_bytes,
+            mtime_ns=session_path.stat().st_mtime_ns,
+            sequence_count=len(source_text.splitlines()),
+            parser_version="cursor-jsonl-v1",
         )
 
     async def ingest(
@@ -138,64 +179,57 @@ class CursorAdapter:
         sessions = self.list_sessions(
             project_name=project_name,
             min_size_kb=min_size_kb,
-            limit=limit,
             issues=warnings,
         )
 
-        ingested = 0
-        errors = 0
-        skipped_existing = 0
         if self.backend is None:
             raise RuntimeError("CursorAdapter.ingest requires an initialized backend")
+        if not project_name:
+            raise ValueError("project_name is required for Cursor ingest")
 
-        existing_session_ids = await self._existing_session_ids(project_name)
-        for session in sessions:
-            session_id = session["session_id"]
-            if session_id in existing_session_ids:
-                skipped_existing += 1
-                continue
-            try:
-                observation = self.session_to_observation(
-                    session["path"],
-                    session_id,
-                    project_name,
-                    issues=warnings,
-                )
-                await self.backend.verbatim_store.save(observation)
-                ingested += 1
-                existing_session_ids.add(session_id)
-            except Exception as exc:
-                errors += 1
-                self._append_issue(
-                    warnings,
-                    level="error",
-                    code="session_ingest_failed",
-                    message=f"Failed to ingest Cursor session {session_id}: {exc}",
-                    path=session["path"],
-                    session_id=session_id,
-                )
+        async def sync_one(session: SessionRecord) -> TranscriptSyncResult:
+            return await self.sync_session(
+                session["path"],
+                session["session_id"],
+                project_name,
+                issues=warnings,
+            )
+
+        scan = await sync_sessions_fairly(
+            self.backend.transcript_store,
+            project_name=project_name,
+            client="cursor",
+            source_root=self.projects_dir,
+            sessions=sessions,
+            change_limit=limit,
+            sync_session=sync_one,
+        )
+        for failure in scan.failures:
+            session_id = failure.session["session_id"]
+            self._append_issue(
+                warnings,
+                level="error",
+                code="session_ingest_failed",
+                message=f"Failed to ingest Cursor session {session_id}: {failure.error}",
+                path=failure.session["path"],
+                session_id=session_id,
+            )
 
         return {
             "project_name": project_name,
             "sessions_found": len(sessions),
-            "ingested": ingested,
-            "skipped_existing": skipped_existing,
-            "errors": errors,
+            "sessions_scanned": scan.sessions_scanned,
+            "ingested": scan.ingested,
+            "updated": scan.updated,
+            "unchanged": scan.unchanged,
+            "errors": len(scan.failures),
+            "scan_frontier": scan.frontier.to_dict(),
             "warnings": warnings,
         }
 
-    async def _existing_session_ids(self, project_name: str | None) -> set[str]:
-        if self.backend is None:
-            return set()
-        observations = await self.backend.verbatim_store.list(limit=100000)
-        return {
-            observation.session_id
-            for observation in observations
-            if observation.client == "cursor"
-            and (project_name is None or observation.metadata.get("project_name") == project_name)
-        }
-
-    def _matching_project_dirs(self, *, issues: list[Issue] | None = None) -> list[Path]:
+    def _matching_project_dirs(
+        self, *, issues: list[Issue] | None = None
+    ) -> list[Path]:
         all_dirs = [
             path
             for path in self.projects_dir.iterdir()
@@ -249,28 +283,14 @@ class CursorAdapter:
         transcript_dir = project_dir / "agent-transcripts"
         for session_file in transcript_dir.glob("*/*.jsonl"):
             try:
-                text = session_file.read_text(encoding="utf-8-sig", errors="replace").lower()
+                text = session_file.read_text(
+                    encoding="utf-8-sig", errors="replace"
+                ).lower()
             except OSError:
                 continue
             if any(variant in text for variant in variants):
                 return True
         return False
-
-    @staticmethod
-    def _select_observation_turns(
-        turns: list[dict[str, Any]],
-        *,
-        max_turns: int,
-    ) -> list[tuple[int, dict[str, Any]]]:
-        if len(turns) <= max_turns:
-            return list(enumerate(turns, 1))
-
-        head_count = max_turns // 2
-        tail_count = max_turns - head_count
-        head = list(enumerate(turns[:head_count], 1))
-        tail_start = len(turns) - tail_count + 1
-        tail = list(enumerate(turns[-tail_count:], tail_start))
-        return head + tail
 
     @staticmethod
     def _session_sort_key(session: SessionRecord) -> datetime:
@@ -358,9 +378,7 @@ def _cursor_path_parts(path: Path | str) -> tuple[str, list[str]]:
     if drive and parts:
         parts = parts[1:]
     cleaned_parts = [
-        part
-        for part in parts
-        if part not in {"\\", "/"} and part.strip("\\/")
+        part for part in parts if part not in {"\\", "/"} and part.strip("\\/")
     ]
     return drive, cleaned_parts
 

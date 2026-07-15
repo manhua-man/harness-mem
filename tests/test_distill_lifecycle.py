@@ -43,8 +43,8 @@ def test_distill_job_is_deduplicated_and_rendered(tmp_path: Path) -> None:
             pending_distill_jobs(backend, project_name="demo")
         )
         assert "prepare_session_distill" in instruction
-        assert "auto_review_candidates(apply=true)" in instruction
-        assert "runs Dream" in instruction
+        assert "Legacy observations are audit-only" in instruction
+        assert "finalize_session_distill" in instruction
         assert "summarized until those steps finish" in instruction
     finally:
         _run(backend.close())

@@ -6,8 +6,8 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.4 \
-  harness-mem==0.8.23.4
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.24 \
+  harness-mem==0.8.24
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Pip uses
@@ -17,8 +17,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.4 \
-  "harness-mem[hybrid]==0.8.23.4"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.24 \
+  "harness-mem[hybrid]==0.8.24"
 ```
 
 Check the CLI:
@@ -104,12 +104,14 @@ The stable loop is:
 wake -> search -> distill -> review -> dream ledger
 ```
 
-Dream is the final stage of the audited maintenance pipeline. A Stop hook only
-syncs transcript evidence and queues a distill task. The next Agent-capable
-wake consumes that task through the same `/hm:distill` flow: evidence packet,
-Agent judgment, `suggest_*` candidates, `auto_review_candidates(apply=true)`,
-then Dream. Preparing a packet is never reported as a completed summary.
-Counts and candidate IDs stay on the audit surface.
+Dream is the final stage of the audited maintenance pipeline. A Stop hook
+captures an immutable transcript revision and queues every ordered chunk. The
+next Agent-capable wake consumes those chunks through the same `/hm:distill`
+flow, checkpoints each result, then performs an end-of-session review covering
+the final request, outcome, contradictions, unfinished work, and evidence
+status. Only review-ready jobs may create idempotent `suggest_*` candidates.
+`finalize_session_distill` applies auto-review and then Dream. Merely preparing
+or partially reading a packet is never reported as a completed summary.
 
 During an Agent run, supported clients should send context/tool/save-point
 events to `autopilot_search_tick`. The scheduler calls `search_memory` only
@@ -118,4 +120,5 @@ decision question, convention uncertainty, conflict, tool failure, durable
 claim grounding, or long-horizon task switch. Manual `/hm:search` is the
 fallback when the client cannot expose those events. `autopilot_search_tick`
 never replaces `wake`, and `prepare_session_distill` never pretends to synthesize
-truth by itself; it only packages evidence for the candidate/review loop.
+truth by itself; it claims complete, resumable evidence chunks for the
+candidate/review loop.

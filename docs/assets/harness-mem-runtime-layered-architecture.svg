@@ -84,7 +84,7 @@
     <g transform="translate(230 24)">
       <rect class="card" width="190" height="80"/>
       <text class="cardTitle" x="18" y="30">session-distill</text>
-      <text class="body" x="18" y="56">读 packet 并提炼</text>
+      <text class="body" x="18" y="56">逐块读取 + checkpoint</text>
     </g>
     <g transform="translate(450 24)">
       <rect class="card" width="190" height="80"/>
@@ -169,13 +169,13 @@
     </g>
     <g transform="translate(450 24)">
       <rect class="cardGreen" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Verbatim Store</text>
-      <text class="body" x="18" y="56">SQLite FTS5 raw evidence</text>
+      <text class="cardTitle" x="18" y="30">Transcript Ledger</text>
+      <text class="body" x="18" y="56">raw revisions / chunks</text>
     </g>
     <g transform="translate(670 24)">
       <rect class="cardGreen" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Vector Cache</text>
-      <text class="body" x="18" y="56">optional hybrid retrieval</text>
+      <text class="cardTitle" x="18" y="30">Observation Index</text>
+      <text class="body" x="18" y="56">FTS / optional vectors</text>
     </g>
     <g transform="translate(890 24)">
       <rect class="cardGreen" width="190" height="80"/>

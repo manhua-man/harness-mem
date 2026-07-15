@@ -84,7 +84,7 @@ def test_stdio_content_length_initialize_and_tools_list(tmp_path: Path) -> None:
     responses = _read_content_length_messages(proc.stdout)
     assert [response["id"] for response in responses] == [1, 2]
     assert responses[0]["result"]["serverInfo"]["name"] == "harness-mem"
-    assert responses[1]["result"]["tool_count"] == 39
+    assert responses[1]["result"]["tool_count"] == 41
 
 
 def test_stdio_ndjson_initialize_stays_supported(tmp_path: Path) -> None:

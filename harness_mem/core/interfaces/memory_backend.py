@@ -5,6 +5,7 @@ from typing import Protocol, runtime_checkable
 
 from harness_mem.core.interfaces.verbatim_store import VerbatimStore
 from harness_mem.core.interfaces.structured_store import StructuredStore
+from harness_mem.core.interfaces.transcript_store import TranscriptStore
 
 
 @runtime_checkable
@@ -31,4 +32,9 @@ class MemoryBackend(Protocol):
     @property
     def structured_store(self) -> StructuredStore:
         """Access the structured store."""
+        ...
+
+    @property
+    def transcript_store(self) -> TranscriptStore:
+        """Access the lossless local transcript ledger."""
         ...

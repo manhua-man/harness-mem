@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from harness_mem.commands.distill_lifecycle import stage_distill_job
+from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.integration_health import build_integration_health
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -25,21 +25,22 @@ def test_integration_health_summarizes_current_workspace(
         backend = LocalMemoryBackend(tmp_path / "data")
         await backend.init()
         try:
-            await backend.verbatim_store.save(
+            await persist_session_snapshot(
+                backend,
                 Observation(
                     session_id="cursor-session",
                     client="cursor",
                     raw_content="User: inspect integration health",
                     content_type="transcript",
                     metadata={"project_name": "project"},
-                )
-            )
-            stage_distill_job(
-                backend,
+                ),
                 project_name="project",
                 project_root=str(workspace),
-                observation_ids=["observation-1"],
-                source="ide_hook",
+                client="cursor",
+                session_id="cursor-session",
+                source_kind="jsonl",
+                source_uri="file:///cursor-session.jsonl",
+                source_text="User: inspect integration health\n",
             )
             return await build_integration_health(
                 backend,
@@ -54,11 +55,16 @@ def test_integration_health_summarizes_current_workspace(
     assert health["project"]["status"] == "ok"
     assert health["host"]["client"] == "cursor"
     assert health["hooks"]["status"] == "ok"
-    assert health["transcript"]["status"] == "observed"
+    assert health["transcript"]["status"] == "synced"
+    assert health["transcript"]["session_count"] == 1
+    assert health["transcript"]["latest_source_coverage"] == "complete"
     assert health["pending_distill"] == {
         "status": "queued",
         "queued": 1,
         "processing": 0,
+        "completed_chunks": 0,
+        "expected_chunks": 1,
+        "legacy_audit_only": 0,
     }
     assert health["summary"].startswith("project=ok | host=cursor | hooks=ok (2/2)")
 

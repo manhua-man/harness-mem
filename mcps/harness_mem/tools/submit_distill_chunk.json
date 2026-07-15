@@ -1,0 +1,31 @@
+{
+  "name": "submit_distill_chunk",
+  "description": "Checkpoint the Agent's structured reading of one complete lossless transcript chunk. The lease token comes from prepare_session_distill.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "job_id": {
+        "type": "string",
+        "description": "Distill job id"
+      },
+      "chunk_id": {
+        "type": "string",
+        "description": "Claimed transcript chunk id"
+      },
+      "lease_owner": {
+        "type": "string",
+        "description": "Lease token returned with the chunk"
+      },
+      "result": {
+        "type": "object",
+        "description": "Structured chunk findings, including outcomes, claims, failures, and unresolved work"
+      }
+    },
+    "required": [
+      "job_id",
+      "chunk_id",
+      "lease_owner",
+      "result"
+    ]
+  }
+}

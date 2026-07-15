@@ -14,10 +14,14 @@ from harness_mem.adapters.parser import (
     session_sort_key,
 )
 from harness_mem.adapters.protocol import Issue, SessionRecord
+from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
+from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
+from harness_mem.transcript_chunking import source_uri_from_path
 
 DEFAULT_SESSIONS_DIR = Path.home() / ".codex" / "sessions"
+DEFAULT_ARCHIVE_DIR = Path.home() / ".codex" / "archived_sessions"
 
 
 def _is_path_within(child: Path, parent: Path) -> bool:
@@ -33,20 +37,32 @@ def _is_path_within(child: Path, parent: Path) -> bool:
 class CodexAdapter:
     """Adapter for ingesting current Codex CLI/Desktop rollout sessions.
 
-    Current Codex stores native sessions as ``rollout-*.jsonl`` under
-    ``~/.codex/sessions/YYYY/MM/DD``.  The older ``codex-archive`` adapter
-    remains separate for explicit archive imports.
+    Current Codex stores native sessions under ``~/.codex/sessions`` and moves
+    older rollouts into ``~/.codex/archived_sessions``. Both roots form one
+    logical Codex source family.
     """
 
     def __init__(
         self,
         backend: MemoryBackend | None,
         sessions_dir: Path | None = None,
+        archive_dir: Path | None = None,
         project_root: Path | str | None = None,
         scope: str = "project",
     ):
         self.backend = backend
         self.sessions_dir = sessions_dir or DEFAULT_SESSIONS_DIR
+        self.archive_dir = archive_dir or (
+            DEFAULT_ARCHIVE_DIR
+            if sessions_dir is None
+            else self.sessions_dir.parent / "archived_sessions"
+        )
+        try:
+            self.source_root = Path(
+                os.path.commonpath((self.sessions_dir, self.archive_dir))
+            )
+        except ValueError:
+            self.source_root = self.sessions_dir.parent
         self.project_root = Path(project_root).expanduser() if project_root is not None else None
         self.scope = scope
 
@@ -69,38 +85,71 @@ class CodexAdapter:
             else self.project_root
         )
 
-        if not self.sessions_dir.exists():
-            self._append_issue(
-                issues,
-                level="warning",
-                code="sessions_dir_missing",
-                message=f"Codex sessions directory does not exist: {self.sessions_dir}",
-                path=self.sessions_dir,
-            )
-            return []
-        if not self.sessions_dir.is_dir():
-            self._append_issue(
-                issues,
-                level="warning",
-                code="sessions_dir_invalid",
-                message=f"Codex sessions path is not a directory: {self.sessions_dir}",
-                path=self.sessions_dir,
-            )
-            return []
-
         sessions: list[SessionRecord] = []
-        for session_file in self.sessions_dir.glob("**/rollout-*.jsonl"):
-            try:
-                stat_result = session_file.stat()
-                size_kb = stat_result.st_size / 1024
-                if size_kb < min_size_kb:
-                    continue
-                header = self._read_session_header(session_file, issues=issues)
-                cwd = str(header.get("cwd") or "")
-                if effective_scope == "project" and effective_project_root is not None:
-                    if not cwd or not _is_path_within(Path(cwd), effective_project_root):
-                        continue
-                sessions.append({
+        roots = (
+            ("codex-current", self.sessions_dir),
+            ("codex-archive", self.archive_dir),
+        )
+        for source_kind, root in roots:
+            if not root.exists():
+                continue
+            if not root.is_dir():
+                self._append_issue(
+                    issues,
+                    level="warning",
+                    code="sessions_dir_invalid",
+                    message=f"Codex transcript path is not a directory: {root}",
+                    path=root,
+                )
+                continue
+            for session_file in root.glob("**/rollout-*.jsonl"):
+                self._append_session_record(
+                    sessions,
+                    session_file,
+                    source_kind=source_kind,
+                    min_size_kb=min_size_kb,
+                    effective_scope=effective_scope,
+                    effective_project_root=effective_project_root,
+                    issues=issues,
+                )
+
+        deduped: dict[str, SessionRecord] = {}
+        for session in sessions:
+            session_id = session["session_id"]
+            previous = deduped.get(session_id)
+            if previous is None or (
+                previous.get("source_kind") == "codex-archive"
+                and session.get("source_kind") == "codex-current"
+            ):
+                deduped[session_id] = session
+
+        ordered = sorted(deduped.values(), key=self._session_sort_key, reverse=True)
+        if limit is not None:
+            return ordered[:limit]
+        return ordered
+
+    def _append_session_record(
+        self,
+        sessions: list[SessionRecord],
+        session_file: Path,
+        *,
+        source_kind: str,
+        min_size_kb: int,
+        effective_scope: str,
+        effective_project_root: Path | None,
+        issues: list[Issue] | None,
+    ) -> None:
+        try:
+            stat_result = session_file.stat()
+            size_kb = stat_result.st_size / 1024
+            if size_kb < min_size_kb:
+                return
+            header = self._read_session_header(session_file, issues=issues)
+            cwd = str(header.get("cwd") or "")
+            if effective_scope == "project" and effective_project_root is not None:
+                if not cwd or not _is_path_within(Path(cwd), effective_project_root):
+                    return
+            sessions.append({
                     "path": session_file,
                     "name": session_file.name,
                     "session_id": str(header.get("id") or session_file.stem.removeprefix("rollout-")),
@@ -111,21 +160,16 @@ class CodexAdapter:
                     "mtime": datetime.fromtimestamp(stat_result.st_mtime, tz=timezone.utc),
                     "mtime_ns": stat_result.st_mtime_ns,
                     "cwd": cwd,
+                    "source_kind": source_kind,
                 })
-            except OSError as exc:
-                self._append_issue(
-                    issues,
-                    level="warning",
-                    code="session_scan_failed",
-                    message=f"Failed to inspect Codex session file {session_file}: {exc}",
-                    path=session_file,
-                )
-                continue
-
-        ordered = sorted(sessions, key=self._session_sort_key, reverse=True)
-        if limit is not None:
-            return ordered[:limit]
-        return ordered
+        except OSError as exc:
+            self._append_issue(
+                issues,
+                level="warning",
+                code="session_scan_failed",
+                message=f"Failed to inspect Codex session file {session_file}: {exc}",
+                path=session_file,
+            )
 
     def parse_jsonl_session(
         self,
@@ -164,12 +208,16 @@ class CodexAdapter:
                 lines.append(f"\nTool: {tool.get('name')} -> {tool.get('input')}")
 
         raw_content = "\n".join(lines)
-        if len(raw_content) > 50000:
-            raw_content = raw_content[:50000] + "\n\n[TRUNCATED]"
 
         metadata = {
             "sessions_dir": str(self.sessions_dir),
+            "archive_dir": str(self.archive_dir),
             "original_id": meta.get("session_id"),
+            "source_kind": (
+                "codex-archive"
+                if _is_path_within(session_path, self.archive_dir)
+                else "codex-current"
+            ),
         }
         if project_name:
             metadata["project_name"] = project_name
@@ -187,6 +235,46 @@ class CodexAdapter:
             timestamp=datetime.fromtimestamp(session_path.stat().st_mtime, tz=timezone.utc),
             metadata=metadata,
             tags=["session", "codex"],
+        )
+
+    async def sync_session(
+        self,
+        session_path: Path,
+        session_id: str,
+        project_name: str,
+        *,
+        issues: list[Issue] | None = None,
+    ) -> TranscriptSyncResult:
+        """Capture one exact Codex source revision and its search rendering."""
+
+        if self.backend is None:
+            raise RuntimeError("CodexAdapter.sync_session requires an initialized backend")
+        native_bytes = session_path.read_bytes()
+        source_text = native_bytes.decode("utf-8-sig", errors="replace")
+        observation = self.session_to_observation(
+            session_path,
+            session_id,
+            project_name,
+            issues=issues,
+        )
+        project_root = self.project_root or Path(
+            str(observation.metadata.get("cwd") or Path.cwd())
+        )
+        stat_result = session_path.stat()
+        return await persist_session_snapshot(
+            self.backend,
+            observation,
+            project_name=project_name,
+            project_root=str(project_root),
+            client="codex",
+            session_id=session_id,
+            source_kind=str(observation.metadata["source_kind"]),
+            source_uri=source_uri_from_path(session_path),
+            source_text=source_text,
+            raw_bytes=native_bytes,
+            mtime_ns=stat_result.st_mtime_ns,
+            sequence_count=source_text.count("\n") + int(bool(source_text)),
+            parser_version="codex-jsonl-v1",
         )
 
     async def ingest(
@@ -208,49 +296,51 @@ class CodexAdapter:
                 project_root=self.project_root,
                 scope=self.scope,
             )
-        sessions = scoped_sessions[:limit]
-
-        ingested = 0
-        errors = 0
-        skipped_existing = 0
         if self.backend is None:
             raise RuntimeError("CodexAdapter.ingest requires an initialized backend")
+        if not project_name:
+            raise ValueError("project_name is required for Codex ingest")
 
-        existing_session_ids = await self._existing_session_ids(project_name)
-        for session in sessions:
-            session_id = session["session_id"]
-            if session_id in existing_session_ids:
-                skipped_existing += 1
-                continue
-            try:
-                obs = self.session_to_observation(
-                    session["path"],
-                    session_id,
-                    project_name,
-                    issues=warnings,
-                )
-                await self.backend.verbatim_store.save(obs)
-                ingested += 1
-                existing_session_ids.add(session_id)
-            except Exception as exc:
-                errors += 1
-                error_details.append(self._build_issue(
+        async def sync_one(session: SessionRecord) -> TranscriptSyncResult:
+            return await self.sync_session(
+                session["path"],
+                session["session_id"],
+                project_name,
+                issues=warnings,
+            )
+
+        scan = await sync_sessions_fairly(
+            self.backend.transcript_store,
+            project_name=project_name,
+            client="codex",
+            source_root=self.source_root,
+            sessions=scoped_sessions,
+            change_limit=limit,
+            sync_session=sync_one,
+        )
+        for failure in scan.failures:
+            session_id = failure.session["session_id"]
+            error_details.append(self._build_issue(
                     level="error",
                     code="session_ingest_failed",
-                    message=f"Failed to ingest Codex session {session_id} ({exc})",
-                    path=session["path"],
+                    message=f"Failed to ingest Codex session {session_id} ({failure.error})",
+                    path=failure.session["path"],
                     session_id=session_id,
                 ))
 
         return {
             "sessions_found": len(all_sessions),
             "scoped_sessions": len(scoped_sessions),
-            "candidate_sessions": len(sessions),
-            "ingested": ingested,
-            "skipped_existing": skipped_existing,
-            "errors": errors,
+            "candidate_sessions": scan.sessions_scanned,
+            "sessions_scanned": scan.sessions_scanned,
+            "ingested": scan.ingested,
+            "updated": scan.updated,
+            "unchanged": scan.unchanged,
+            "skipped_existing": scan.unchanged,
+            "errors": len(scan.failures),
             "warnings": warnings,
             "error_details": error_details,
+            "scan_frontier": scan.frontier.to_dict(),
             "scope": self.scope,
             "project_root": str(self.project_root) if self.project_root else None,
         }
@@ -262,7 +352,7 @@ class CodexAdapter:
     def _read_session_header(self, session_path: Path, *, issues: list[Issue] | None = None) -> dict[str, Any]:
         fallback: dict[str, Any] = {}
         try:
-            with session_path.open("r", encoding="utf-8", errors="replace") as handle:
+            with session_path.open("r", encoding="utf-8-sig", errors="replace") as handle:
                 for _ in range(50):
                     line = handle.readline()
                     if not line:

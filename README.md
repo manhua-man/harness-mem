@@ -49,7 +49,7 @@ wake -> search -> distill -> review -> dream
 |---|---|
 | `wake` | Load a compact project brief from readable memory at session start. |
 | `search` | Retrieve prior decisions, rules, and handoffs when `autopilot_search_tick` detects concrete uncertainty, conflict, tool failure, durable-claim grounding, or a long-horizon task switch. |
-| `distill` | Turn recent session evidence into candidates, run shared auto-review, then trigger Dream. |
+| `distill` | Read every ordered transcript chunk, run end-of-session review, create candidates, then trigger auto-review and Dream. |
 | `review` | Audit, confirm, reject, undo, or supersede auto-promoted and pending items after the fact. |
 | `dream` | Maintain the ledger, compact stale state, and keep reversible cleanup metadata current after save points or session end. |
 
@@ -57,10 +57,19 @@ The runtime search scheduler is event-driven, not always-on. PI-style
 `transformContext`, `tool_result`, and `prepareNextTurn` events map directly to
 `autopilot_search_tick`; Claude Code `PostToolUse` and Cursor after-agent hooks
 can send the same event payload shape. `/hm:search` remains the manual fallback
-when a client cannot expose those hooks. `prepare_session_distill` packages
-recent evidence; it does not synthesize candidate truth by itself.
-Stop hooks persist a pending distill task; the next Agent-capable wake consumes
-it. `/hm:distill` is the immediate entry to that same pipeline.
+when a client cannot expose those hooks. Stop hooks capture an immutable native
+transcript revision and queue its complete ordered chunk set.
+`prepare_session_distill` claims bounded chunks without truncating them; the
+Agent checkpoints every chunk, performs an explicit end-of-session review, and
+only then creates idempotent candidates. `finalize_session_distill` runs
+auto-review and Dream. `/hm:distill` is the immediate entry to this same
+resumable pipeline. Hook maintenance only captures and queues evidence: it does
+not claim that an Agent has already summarized the session. Legacy Observations
+without an available native transcript remain audit-only (`legacy_partial`).
+
+<p align="center">
+  <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="Native IDE transcripts are preserved as immutable revisions, processed through every ordered chunk, reviewed at session end, and only then promoted into memory" width="900" />
+</p>
 
 ## Why It Is Different
 
@@ -84,8 +93,8 @@ owns storage, candidates, review, retrieval, and local audit state.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.4 \
-  harness-mem==0.8.23.4
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.24 \
+  harness-mem==0.8.24
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -96,8 +105,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.4 \
-  "harness-mem[hybrid]==0.8.23.4"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.24 \
+  "harness-mem[hybrid]==0.8.24"
 ```
 
 Claude Code users can install the repo-local plugin and optionally register MCP:
@@ -158,7 +167,7 @@ product surface.
 
 - `harness_mem/`: runtime package.
 - `plugins/harness-mem/`: Agent client integration.
-- `tools/session-distill/`: reference session distillation skill.
+- `tools/session-distill/SKILL.md`: instruction-only Agent playbook for the supported MCP distill flow; runtime code lives exclusively under `harness_mem/`.
 - `docs/quickstart.md`: minimal setup path.
 - `docs/mcp-setup.md`: MCP setup notes.
 - `docs/demo-cold-start.md`: reproducible cold-start demo.
@@ -198,4 +207,4 @@ python scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.8.23.4**.
+Current package version: **0.8.24**.

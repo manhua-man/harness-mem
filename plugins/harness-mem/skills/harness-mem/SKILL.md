@@ -13,14 +13,14 @@ Use this skill to operate the local `harness-mem` runtime from a project workspa
 Treat the project as real production context:
 
 - Prefer MCP tools (`get_project_status`, `wake`, `search_memory`, `timeline`) before guessing from memory.
-- Use `prepare_session_distill` for stale project state; it syncs recent transcript evidence and returns a packet for candidate drafting.
-- Use repo-local `tools/session-distill` for user-triggered distillation; do not use the removed heuristic distill path.
+- Use `prepare_session_distill` for stale project state; it syncs immutable transcript revisions and claims complete ordered chunks.
+- Use repo-local `tools/session-distill/SKILL.md` as the instruction-only Agent playbook; all runtime behavior remains in `harness_mem` MCP tools.
 - Distilled memory is governed automatically. Low-risk items may become readable memory; review is the post-hoc audit and correction surface.
 - Use `suggest_*`, `list_candidates`, and `confirm_*` / `reject_*` for stable rules the user explicitly wants remembered.
 - Confirmed truth can be maintained automatically, but it must not be silently overwritten; durable changes go through candidate / review / supersede / ledger.
 - Cross-project skills can be read as procedural memory hints, but lifecycle management is outside the public memory MCP surface.
 - Keep the default surface to Daily commands: wake, search, distill, review, and dream. Artifact maintenance commands are opt-in.
-- Do not delete raw agent session files unless the user explicitly asks for raw-file cleanup through an opt-in maintenance entry.
+- Never delete native agent transcript sources as part of distillation or maintenance.
 
 In Claude Code, prefer the no-hyphen MCP alias names such as
 `mcp__harness_mem__get_project_status` and
@@ -31,9 +31,11 @@ In Claude Code, prefer the no-hyphen MCP alias names such as
 
 - `get_project_status`: checks active project and current memory counts.
 - `ingest_sessions`: low-level transcript sync for `/hm:distill` internals and diagnostics; do not present it as the user workflow.
-- `prepare_session_distill`: low-level sync and evidence-packet stage used by `/hm:distill`; it never claims synthesis completed.
-- `tools/session-distill`: default user-facing distillation playbook that reads evidence and writes pending candidates.
-- `auto_review_candidates`: final `/hm:distill` stage. Apply mode promotes low-risk items, completes queued distill work, records audit decisions, and triggers Dream; `/hm:review` audits, undoes, and upgrades trust.
+- `prepare_session_distill`: syncs native revisions, claims lossless chunks, and later returns all checkpoint results for final-session review.
+- `submit_distill_chunk`: checkpoints one completely read chunk so interrupted work can resume without skipping content.
+- `tools/session-distill/SKILL.md`: instruction-only Agent playbook for final review and candidate drafting.
+- `finalize_session_distill`: verifies revision currency, complete chunk coverage, and semantic promotion gates, then reviews only the current job's candidates and runs Dream.
+- `auto_review_candidates`: project-level audit/maintenance tool, not the lossless session finalization stage.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
 - `suggest_*` / `list_candidates` / `confirm_*`: create and review durable memory candidates.
 - Cleanup remains an explicit CLI maintenance operation via `harness-mem maintenance purge`, and only soft-deletes harness-mem indexed data.
@@ -55,9 +57,10 @@ For status and wake-up:
 If the project has new sessions:
 
 1. Call `prepare_session_distill(project_name=<project>, client="auto", scope="project", project_root=<current project root>)`.
-2. Activate repo-local `tools/session-distill`: read the evidence packet, draft candidate claims, apply `grill-before-distill` admission rules, then apply `references/distillation-rules.md`.
-3. Write pending candidates only for admitted items. For external claims, evidence may be attached after `suggest_*`, but must be present before confirmation.
-4. Call `auto_review_candidates(project_name=<project>, apply=True)`. Give the user a concise outcome only when this was an explicit distill request; keep decision counts and candidate IDs in the audit/review surface unless the user asks for detail.
+2. Read every returned chunk completely, call `submit_distill_chunk`, and repeat `prepare_session_distill` until the job enters `reviewing`.
+3. Activate repo-local `tools/session-distill/SKILL.md`: review all checkpoint results as one complete session, apply `grill-before-distill`, then apply `references/distillation-rules.md`.
+4. Write pending candidates only for admitted items, passing the current `distill_job_id` to every `suggest_*` call. For external claims, evidence may be attached after `suggest_*`, but must be present before confirmation.
+5. Call `finalize_session_distill` with the complete semantic review. Give the user a concise outcome only when this was an explicit distill request; keep decision counts and candidate IDs in the audit/review surface unless the user asks for detail.
 
 When `grill-before-distill` raises an evidence gap, use the repo-local
 `answer-memory-evidence` role. When it raises architecture, product-boundary,
@@ -82,7 +85,7 @@ plugin does not expose a separate KB audit or PRD sync product surface.
 For Trellis-inspired closeout, keep the surfaces separate:
 
 - Code check: run the repo's normal tests, lint, build, or app-specific checks.
-- Memory check: use `auto_review_candidates(apply=True)` for low-risk automation and explicit review tools for audit/undo/escalation.
+- Memory check: finalize a lossless session only through `finalize_session_distill`; reserve `auto_review_candidates(apply=True)` for explicit project-level maintenance, then use review tools for audit/undo/escalation.
 - Update-spec equivalent: turn repeated lessons into `suggest_rule` or memory candidates; update repo guidance only after confirmation and only for repo-wide rules.
 - Finish-work equivalent: use `create_task_handoff` for current state, blockers, and next steps; inspect `/hm:dream` or dream ledger when maintenance context matters.
 - Journal equivalent: use harness-mem audit/event/timeline/handoff/dream ledger surfaces. Do not create a Trellis journal or second truth store for memory.

@@ -43,11 +43,15 @@ two truth sources.
 
 ```text
 模糊结论 / session-end
-  → prepare_session_distill → session-distill drafts candidate claims
+  → hook 保存不可变 transcript source revision，并排队全部有序 chunks（不做摘要）
+  → prepare_session_distill → 完整读取 chunk，不截断；逐 chunk checkpoint
+  → 全部 expected chunks 完成且 source revision 未变化
+  → 必须执行 final-session review
   → grill-me 准入（高风险深度 / 普通轻量 checklist）
-  → admit/narrow 才 suggest_* → pending；defer/reject 不写
+  → admit/narrow 才幂等 suggest_* → pending；defer/reject 不写
   → 内部 search_memory；外部证据工具（smart-search 为参考候选，confirm 前必须补证）
-  → auto_review_candidates(apply=true) → auto_confirmed / provisional truth
+  → finalize_session_distill → auto-review + Dream
+  → auto_confirmed / provisional truth
   → /hm:review audit/undo → user_confirmed
 
 已确认记忆回看 / dream → grill-me lookback（防过时、防误导）
@@ -55,14 +59,20 @@ two truth sources.
 
 Automatic; depth scales by risk — not a heavy re-flow every time.
 
+The immutable source revision, not an Observation or derived evidence bundle,
+is authoritative for session text. Its ordered chunks must reconstruct the
+complete revision. Per-chunk checkpoints make retries resumable, and
+idempotent candidate keys prevent duplicate promotion.
+
 ## Optional helpers on the chain
 
 ```text
-distill 产出候选
+distill 完整处理有序 chunks → per-chunk checkpoints → final-session review
+  → 幂等候选
   → 外部事实? evidence search/fetch support + source
   → 代码事实? search_memory
-  → auto_review 或 /hm:review
-  → confirm_* 写入真相
+  → finalize_session_distill 自动执行 auto-review + Dream
+  → /hm:review 事后审计；confirm_* 写入 user-confirmed 真相
 ```
 
 Evidence does not have to block candidate creation. It does block confirmation:
@@ -89,8 +99,8 @@ Question routing:
 
 | Grill question | First answer source | Escalation |
 |---|---|---|
-| Evidence or source proof | packet, observations, `search_memory`, files/tests/docs | `answer-memory-evidence` |
-| Kind, scope, freshness, misleading risk | Agent reasoning over packet + repo context | grill deeper or defer |
+| Evidence or source proof | immutable source revision/chunks, `search_memory`, files/tests/docs | `answer-memory-evidence` |
+| Kind, scope, freshness, misleading risk | Agent reasoning over complete chunks + repo context | grill deeper or defer |
 | Architecture, product boundary, roadmap, long-lived default | existing docs and code ownership | `ask-memory-boundary` |
 | User preference or durable intent | user statements | ask user only when evidence cannot decide |
 
@@ -115,7 +125,8 @@ part of the product surface.
 
 | Claim type | Cite via |
 |---|---|
-| Repo / code / prior memory | `search_memory`, `get_observations`, file reads |
+| Session statements | Immutable source revision and its complete ordered chunks |
+| Repo / code / prior memory | Current files/tests/docs plus `search_memory`; derived Observations are discovery aids only |
 | External / version-sensitive | fetched/source-backed evidence; smart-search is a reference candidate |
 | High blast-radius rules | grill-before-distill + human before confirm |
 | Stale confirmed truth | dream / audit + re-check |

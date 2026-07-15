@@ -10,11 +10,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import io
+import json
 import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal, cast
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from harness_mem.commands import support as _support
 from harness_mem.commands.auto_review import auto_review_candidates
@@ -2244,13 +2246,6 @@ async def _recent_project_observations(
     )[:limit]
 
 
-def _truncate_packet_text(value: str, max_chars: int) -> str:
-    if len(value) <= max_chars:
-        return value
-    omitted = len(value) - max_chars
-    return f"{value[:max_chars]}\n\n[TRUNCATED: {omitted} chars omitted]"
-
-
 def tool_prepare_session_distill(
     project_name: str | None = None,
     client: str = "auto",
@@ -2260,6 +2255,7 @@ def tool_prepare_session_distill(
     project_root: str | None = None,
     observation_limit: int = 5,
     max_chars_per_observation: int = 6000,
+    chunk_limit: int = 1,
     run_ingest: bool = True,
     _distill_source: str = "agent",
 ) -> dict:
@@ -2320,6 +2316,106 @@ def tool_prepare_session_distill(
         )
 
     backend = _get_backend()
+    lossless_jobs = []
+    for job_status in ("processing", "queued", "retryable", "reviewing"):
+        lossless_jobs.extend(
+            backend.transcript_store.list_distill_jobs(
+                project_name=resolved_project_name,
+                status=job_status,
+                limit=100,
+            )
+        )
+    if lossless_jobs:
+        lossless_job = min(lossless_jobs, key=lambda item: item.created_at)
+        base_payload: dict[str, Any] = {
+            "success": True,
+            "project_name": resolved_project_name,
+            "project_root": resolved_project_root,
+            "project_resolution_source": project_context.source,
+            "client": normalized_client,
+            "resolved_client": resolve_ingest_client(normalized_client),
+            "host_client": host_source.host_client,
+            "source_kind": host_source.source_kind,
+            "adapter_available": host_source.adapter_available,
+            "scope": scope,
+            "limit": effective_limit,
+            "ingest": ingest_payload,
+            "distill_mode": "lossless_chunks",
+            "distill_job_id": lossless_job.id,
+            "distill_status": lossless_job.status,
+            "source_id": lossless_job.source_id,
+            "source_revision": lossless_job.source_revision,
+            "expected_chunk_count": lossless_job.expected_chunk_count,
+            "completed_chunk_count": lossless_job.completed_chunk_count,
+        }
+        if _distill_source == "ide_hook":
+            base_payload.update(
+                {
+                    "chunks": [],
+                    "chunk_count": 0,
+                    "distill_instructions": [
+                        "Evidence was synchronized and queued without claiming Agent work.",
+                        "Consume this job on the next Agent-capable wake or /hm:distill run.",
+                    ],
+                }
+            )
+            return base_payload
+        if lossless_job.status == "reviewing":
+            checkpoints = backend.transcript_store.list_distill_checkpoints(
+                lossless_job.id
+            )
+            base_payload.update(
+                {
+                    "chunks": [],
+                    "chunk_count": 0,
+                    "chunk_results": [
+                        {
+                            "chunk_id": checkpoint.chunk_id,
+                            "chunk_index": checkpoint.chunk_index,
+                            "result": checkpoint.result,
+                        }
+                        for checkpoint in checkpoints
+                    ],
+                    "distill_instructions": [
+                        "Review all chunk results as one complete session in order.",
+                        "Identify final outcome, contradictions, unfinished work, and evidence strength.",
+                        "Create only warranted candidates and pass this distill_job_id to every suggest_* call.",
+                        "Finish with finalize_session_distill; it runs auto-review and Dream.",
+                    ],
+                }
+            )
+            return base_payload
+        lease_owner = f"mcp-distill:{uuid4()}"
+        claims = backend.transcript_store.claim_distill_chunks(
+            lossless_job.id,
+            lease_owner=lease_owner,
+            limit=max(1, min(int(chunk_limit), 3)),
+        )
+        base_payload.update(
+            {
+                "lease_owner": lease_owner if claims else None,
+                "chunks": [
+                    {
+                        "chunk_id": chunk.id,
+                        "chunk_index": chunk.chunk_index,
+                        "char_start": chunk.char_start,
+                        "char_end": chunk.char_end,
+                        "content_sha256": chunk.content_sha256,
+                        "raw_content": chunk.raw_content,
+                    }
+                    for chunk, _checkpoint in claims
+                ],
+                "chunk_count": len(claims),
+                "distill_instructions": [
+                    "Read every returned chunk completely and in chunk_index order.",
+                    "Submit one structured result per chunk with submit_distill_chunk.",
+                    "Then call prepare_session_distill again for the next chunk or final review.",
+                    "Do not create final memory candidates until the job enters reviewing state.",
+                ],
+            }
+        )
+        return base_payload
+
     observations = asyncio.run(
         _recent_project_observations(
             backend,
@@ -2341,33 +2437,14 @@ def tool_prepare_session_distill(
                 "timestamp": observation.timestamp.isoformat() if observation.timestamp else None,
                 "tags": observation.tags,
                 "metadata": observation.metadata,
-                "raw_content": _truncate_packet_text(
-                    observation.raw_content,
-                    effective_max_chars,
+                "raw_content": observation.raw_content,
+                "packet_truncated": False,
+                "source_coverage": observation.metadata.get(
+                    "source_coverage",
+                    "legacy_partial",
                 ),
             }
         )
-
-    from harness_mem.commands.distill_lifecycle import stage_distill_job
-
-    distill_job = stage_distill_job(
-        backend,
-        project_name=resolved_project_name,
-        project_root=resolved_project_root or str(Path.cwd()),
-        observation_ids=[item["id"] for item in packet_observations],
-        source=(
-            _distill_source
-            if _distill_source in {"user", "agent", "ide_hook", "scheduler"}
-            else "agent"
-        ),  # type: ignore[arg-type]
-    )
-    if (
-        distill_job is not None
-        and _distill_source != "ide_hook"
-        and distill_job.status == "needs_distill"
-    ):
-        distill_job.status = "processing"
-        backend.reflection_job_store.save(distill_job)
 
     return {
         "success": bool(packet_observations) or bool(ingest_payload.get("success")),
@@ -2387,18 +2464,161 @@ def tool_prepare_session_distill(
         "max_chars_per_observation": effective_max_chars,
         "observations": packet_observations,
         "observation_count": len(packet_observations),
-        "distill_job_id": distill_job.id if distill_job is not None else None,
-        "distill_status": distill_job.status if distill_job is not None else "not_queued",
+        "distill_mode": "legacy_partial",
+        "distill_job_id": None,
+        "distill_status": "not_queued",
+        "coverage": "legacy_partial",
         "distill_instructions": [
-            "Do not call Bash, cmem, cat, ls, find, timeline, or get_observations for this slash flow unless this packet is empty.",
-            "Read the observations in this response as the session-distill evidence packet.",
-            "Do not create candidates from tool probing, failed commands, MCP/slash mechanics, or agent orchestration failures unless the target project is that tooling.",
-            "For application/game projects, do not record AI review workflows or skill names as project architecture.",
-            "Create only reusable pending candidates with suggest_memory_entry, suggest_rule, suggest_relation_fact, or create_task_handoff.",
-            "Use source values from this packet, e.g. observation:<id>, unless a stronger session/file source is present.",
-            "Finish by calling list_candidates(project_name, status='pending') once.",
+            "No complete native transcript revision is available for these legacy observations.",
+            "Treat them as a searchable audit view, not as a lossless session-distill packet.",
+            "Do not claim the session was completely read, automatically summarized, or eligible for automatic promotion.",
+            "When the native transcript is available, synchronize it to create a lossless distill job instead.",
         ],
     }
+
+
+def tool_submit_distill_chunk(
+    job_id: str,
+    chunk_id: str,
+    lease_owner: str,
+    result: dict,
+) -> dict:
+    """Checkpoint one fully read transcript chunk under its active lease."""
+
+    backend = _get_backend()
+    job = backend.transcript_store.checkpoint_distill_chunk(
+        job_id,
+        chunk_id,
+        lease_owner=lease_owner,
+        result=result,
+    )
+    return {
+        "success": True,
+        "distill_job_id": job.id,
+        "distill_status": job.status,
+        "distill_phase": job.phase,
+        "completed_chunk_count": job.completed_chunk_count,
+        "expected_chunk_count": job.expected_chunk_count,
+        "next_action": (
+            "call prepare_session_distill for final review"
+            if job.status == "reviewing"
+            else "call prepare_session_distill for the next chunk"
+        ),
+    }
+
+
+def tool_finalize_session_distill(
+    project_name: str,
+    job_id: str,
+    semantic_review: dict,
+) -> dict:
+    """Validate and finalize one explicit job, then auto-review and run Dream."""
+
+    backend = _get_backend()
+    job = backend.transcript_store.get_distill_job(job_id)
+    if job is None:
+        return {"success": False, "error": "distill job not found", "distill_job_id": job_id}
+    if job.project_name != project_name:
+        return {"success": False, "error": "distill job belongs to another project"}
+    candidate_ids = asyncio.run(
+        _distill_job_candidate_ids(
+            backend,
+            project_name=project_name,
+            distill_job_id=job_id,
+        )
+    )
+    completed = backend.transcript_store.finalize_distill_job(
+        job_id,
+        semantic_review=semantic_review,
+        output_candidate_ids=candidate_ids,
+    )
+    payload = {
+        "success": completed.status == "completed",
+        "project_name": project_name,
+        "distill_job_id": completed.id,
+        "distill_status": completed.status,
+        "structural_audit": completed.structural_audit,
+        "semantic_review": completed.semantic_review,
+    }
+    if completed.status != "completed":
+        payload["error"] = completed.error
+        return payload
+    if not _semantic_review_allows_promotion(completed.semantic_review):
+        payload["auto_review"] = {
+            "skipped": True,
+            "reason": "semantic_review_blocks_promotion",
+            "candidate_ids": candidate_ids,
+        }
+        return payload
+    summary = asyncio.run(
+        auto_review_candidates(
+            backend,
+            project_name=project_name,
+            apply=True,
+            candidate_ids=candidate_ids,
+        )
+    )
+    payload["auto_review"] = summary.to_dict()
+    try:
+        config = load_merged_config(completed.project_root)
+        payload["dream"] = asyncio.run(
+            dream_auto_tick(
+                backend,
+                project_name=project_name,
+                project_root=completed.project_root,
+                config=config,
+                source="agent",
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - completed distill remains auditable.
+        payload["dream"] = {
+            "success": False,
+            "status": "failed",
+            "project_name": project_name,
+            "error": f"{type(exc).__name__}: {exc}"[:512],
+        }
+    return payload
+
+
+async def _distill_job_candidate_ids(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    distill_job_id: str,
+) -> list[str]:
+    """Return only candidates explicitly produced by one lossless job."""
+
+    entries = await backend.structured_store.list_memory_entries(
+        project_name,
+        limit=100_000,
+        status="pending",
+    )
+    rules = await backend.structured_store.list_rule_candidates(
+        project_name,
+        status="pending",
+    )
+    facts = await backend.structured_store.list_relation_facts(
+        project_name,
+        limit=100_000,
+        status="pending",
+    )
+    return [
+        candidate.id
+        for candidate in [*entries, *rules, *facts]
+        if getattr(candidate, "distill_job_id", None) == distill_job_id
+    ]
+
+
+def _semantic_review_allows_promotion(review: dict[str, Any]) -> bool:
+    """Require an internally consistent, completed review before promotion."""
+
+    return bool(
+        review.get("promotion_decision") == "promote"
+        and review.get("evidence_status") == "answered"
+        and review.get("last_turn_status") == "answered"
+        and not review.get("contradictions")
+        and not review.get("unfinished_work")
+    )
 
 
 # Pure serializers extracted to mcp/serializers.py — see the future-split
@@ -2569,8 +2789,11 @@ def tool_get_candidate_detail(candidate_id: str, candidate_kind: str | None = No
     }
 
 
-def tool_auto_review_candidates(project_name: str, apply: bool = False) -> dict:
-    """Run conservative heuristic auto-review over the project's pending candidates.
+def tool_auto_review_candidates(
+    project_name: str,
+    apply: bool = False,
+) -> dict:
+    """Run conservative heuristic auto-review over pending candidates.
 
     Returns the standard summary shape
     (auto_confirmed / auto_rejected / kept_pending / needs_user_confirmation).
@@ -2579,7 +2802,13 @@ def tool_auto_review_candidates(project_name: str, apply: bool = False) -> dict:
     via the same status mutators users would invoke manually.
     """
     backend = _get_backend()
-    summary = asyncio.run(auto_review_candidates(backend, project_name=project_name, apply=apply))
+    summary = asyncio.run(
+        auto_review_candidates(
+            backend,
+            project_name=project_name,
+            apply=apply,
+        )
+    )
     payload = summary.to_dict()
     payload["success"] = True
     payload["project_name"] = project_name
@@ -2594,6 +2823,7 @@ def tool_auto_review_candidates(project_name: str, apply: bool = False) -> dict:
             backend,
             project_name=project_name,
             candidate_ids=candidate_ids,
+            job_id=None,
         )
         payload["distill_jobs_completed"] = [job.id for job in completed_jobs]
         if completed_jobs:
@@ -2622,6 +2852,62 @@ def tool_auto_review_candidates(project_name: str, apply: bool = False) -> dict:
 # =============================================================================
 # WRITE TOOLS
 # =============================================================================
+
+
+def _distill_candidate_id(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    distill_job_id: str | None,
+    candidate_kind: str,
+    payload: dict[str, Any],
+) -> str | None:
+    """Return a deterministic candidate id for review-ready distill work."""
+
+    if not distill_job_id:
+        return None
+    job = backend.transcript_store.get_distill_job(distill_job_id)
+    if job is None:
+        raise ValueError("distill job not found")
+    if job.project_name != project_name:
+        raise ValueError("distill job belongs to another project")
+    if job.status != "reviewing":
+        raise ValueError("distill candidates can only be created after all chunks are reviewed")
+    fingerprint = json.dumps(
+        _normalize_semantic_claim(payload),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return str(
+        uuid5(
+            NAMESPACE_URL,
+            (
+                "harness-mem://distill-candidate/"
+                f"{project_name}/{job.source_revision}/{job.pipeline_version}/"
+                f"{candidate_kind}/{fingerprint}"
+            ),
+        )
+    )
+
+
+def _normalize_semantic_claim(value: Any) -> Any:
+    """Canonicalize whitespace and unordered containers for claim idempotency."""
+
+    if isinstance(value, str):
+        return " ".join(value.split())
+    if isinstance(value, dict):
+        return {
+            str(key): _normalize_semantic_claim(item)
+            for key, item in sorted(value.items(), key=lambda item: str(item[0]))
+        }
+    if isinstance(value, list):
+        normalized = [_normalize_semantic_claim(item) for item in value]
+        return sorted(
+            normalized,
+            key=lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True),
+        )
+    return value
 
 
 def tool_create_rule_candidate(
@@ -3024,21 +3310,50 @@ def tool_suggest_rule(
     trigger: str,
     session_id: str | None = None,
     examples: list[str] | None = None,
+    distill_job_id: str | None = None,
 ) -> dict:
     """Suggest a rule candidate for later review (lighter than confirm_rule)."""
-    from uuid import uuid4
     from harness_mem.core.schemas.rule_candidate import RuleCandidate
 
     backend = _get_backend()
-    candidate = RuleCandidate(
-        id=str(uuid4()),
+    candidate_id = _distill_candidate_id(
+        backend,
         project_name=project_name,
-        session_id=session_id or "",
+        distill_job_id=distill_job_id,
+        candidate_kind="rule",
+        payload={
+            "pattern": pattern,
+            "trigger": trigger,
+            "examples": examples or [],
+        },
+    )
+    if candidate_id is not None:
+        existing = asyncio.run(backend.structured_store.get_rule_candidate(candidate_id))
+        if existing is not None:
+            return {
+                "success": True,
+                "candidate_id": existing.id,
+                "pattern": existing.pattern,
+                "trigger": existing.trigger,
+                "status": "suggested",
+                "idempotent_replay": True,
+                "state_event_id": None,
+            }
+    job = (
+        backend.transcript_store.get_distill_job(distill_job_id)
+        if distill_job_id
+        else None
+    )
+    candidate = RuleCandidate(
+        id=candidate_id or str(uuid4()),
+        project_name=project_name,
+        session_id=session_id or (job.session_id if job is not None else ""),
         pattern=pattern,
         trigger=trigger,
         examples=examples or [],
         confidence=0.5,
         status="pending",
+        distill_job_id=distill_job_id,
     )
     saved_id = asyncio.run(backend.structured_store.save_rule_candidate(candidate))
     state_event_id = _record_state_event(
@@ -3068,11 +3383,36 @@ def tool_suggest_memory_entry(
     source: str,
     confidence: float = 0.7,
     tags: list[str] | None = None,
+    distill_job_id: str | None = None,
 ) -> dict:
     """Suggest a memory entry for later review."""
     from harness_mem.core.schemas.memory_entry import MemoryEntry
     backend = _get_backend()
+    entry_id = _distill_candidate_id(
+        backend,
+        project_name=project_name,
+        distill_job_id=distill_job_id,
+        candidate_kind="memory",
+        payload={
+            "category": category,
+            "content": content,
+            "source": source,
+            "tags": tags or [],
+        },
+    )
+    if entry_id is not None:
+        existing = asyncio.run(backend.structured_store.get_memory_entry(entry_id))
+        if existing is not None:
+            return {
+                "success": True,
+                "entry_id": existing.id,
+                "category": existing.category,
+                "status": existing.status,
+                "idempotent_replay": True,
+                "state_event_id": None,
+            }
     entry = MemoryEntry(
+        id=entry_id or str(uuid4()),
         project_name=project_name,
         category=category,
         content=content,
@@ -3080,6 +3420,7 @@ def tool_suggest_memory_entry(
         confidence=confidence,
         status="pending",
         tags=tags or [],
+        distill_job_id=distill_job_id,
     )
     saved_id = asyncio.run(backend.structured_store.save_memory_entry(entry))
     state_event_id = _record_state_event(
@@ -3165,11 +3506,40 @@ def tool_suggest_relation_fact(
     evidence: str,
     source: str,
     confidence: float = 0.7,
+    distill_job_id: str | None = None,
 ) -> dict:
     """Suggest a relation fact for later review."""
     from harness_mem.core.schemas.relation_fact import RelationFact
     backend = _get_backend()
+    fact_id = _distill_candidate_id(
+        backend,
+        project_name=project_name,
+        distill_job_id=distill_job_id,
+        candidate_kind="relation",
+        payload={
+            "source_entity": source_entity,
+            "target_entity": target_entity,
+            "relation_type": relation_type,
+            "evidence": evidence,
+            "source": source,
+        },
+    )
+    if fact_id is not None:
+        existing = asyncio.run(backend.structured_store.get_relation_fact(fact_id))
+        if existing is not None:
+            return {
+                "success": True,
+                "fact_id": existing.id,
+                "relation": (
+                    f"{existing.source_entity} --{existing.relation_type}--> "
+                    f"{existing.target_entity}"
+                ),
+                "status": existing.status,
+                "idempotent_replay": True,
+                "state_event_id": None,
+            }
     fact = RelationFact(
+        id=fact_id or str(uuid4()),
         project_name=project_name,
         source_entity=source_entity,
         target_entity=target_entity,
@@ -3178,6 +3548,7 @@ def tool_suggest_relation_fact(
         source=source,
         confidence=confidence,
         status="pending",
+        distill_job_id=distill_job_id,
     )
     saved_id = asyncio.run(backend.structured_store.save_relation_fact(fact))
     state_event_id = _record_state_event(
@@ -3307,6 +3678,8 @@ def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
         "wake": tool_wake,
         "ingest_sessions": tool_ingest_sessions,
         "prepare_session_distill": tool_prepare_session_distill,
+        "submit_distill_chunk": tool_submit_distill_chunk,
+        "finalize_session_distill": tool_finalize_session_distill,
         "dream_ledger": tool_dream_ledger,
         "dream_run": tool_dream_run,
         "dream_auto_tick": tool_dream_auto_tick,

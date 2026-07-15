@@ -62,6 +62,8 @@ PUBLIC_MCP_TOOL_NAMES = frozenset(
         "search_skills",
         "get_skill",
         "prepare_session_distill",
+        "submit_distill_chunk",
+        "finalize_session_distill",
         "list_candidates",
         "get_candidate_detail",
         "auto_review_candidates",
@@ -705,7 +707,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "max_chars_per_observation": {
                     "type": "integer",
-                    "description": "Maximum raw_content chars per observation (default: 6000)",
+                    "description": "Deprecated compatibility field; packets are no longer truncated",
                     "default": 6000,
                 },
                 "run_ingest": {
@@ -713,7 +715,77 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "Run low-level transcript sync before building the packet (default: true)",
                     "default": True,
                 },
+                "chunk_limit": {
+                    "type": "integer",
+                    "description": "Lossless transcript chunks to claim in this Agent call (default: 1, max: 3)",
+                    "default": 1,
+                },
             },
+        },
+    },
+    "submit_distill_chunk": {
+        "description": (
+            "Checkpoint the Agent's structured reading of one complete lossless "
+            "transcript chunk. The lease token comes from prepare_session_distill."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "Distill job id"},
+                "chunk_id": {"type": "string", "description": "Claimed transcript chunk id"},
+                "lease_owner": {"type": "string", "description": "Lease token returned with the chunk"},
+                "result": {
+                    "type": "object",
+                    "description": "Structured chunk findings, including outcomes, claims, failures, and unresolved work",
+                },
+            },
+            "required": ["job_id", "chunk_id", "lease_owner", "result"],
+        },
+    },
+    "finalize_session_distill": {
+        "description": (
+            "Finalize one fully processed session after end-of-session semantic "
+            "review. Auto-review and Dream run only for an internally consistent "
+            "promotion decision, and only over candidates produced by this job."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_name": {"type": "string", "description": "Project name"},
+                "job_id": {"type": "string", "description": "Review-ready distill job id"},
+                "semantic_review": {
+                    "type": "object",
+                    "description": "Final outcome, contradictions, unfinished work, and evidence assessment",
+                    "properties": {
+                        "final_user_request": {"type": "string"},
+                        "final_outcome": {"type": "string"},
+                        "last_turn_status": {
+                            "type": "string",
+                            "enum": ["answered", "unfinished", "unknown"],
+                        },
+                        "contradictions": {"type": "array", "items": {"type": "string"}},
+                        "unfinished_work": {"type": "array", "items": {"type": "string"}},
+                        "evidence_status": {
+                            "type": "string",
+                            "enum": ["answered", "partial", "contradicted", "not_applicable"],
+                        },
+                        "promotion_decision": {
+                            "type": "string",
+                            "enum": ["promote", "partial", "no_promotion", "blocked"],
+                        },
+                    },
+                    "required": [
+                        "final_user_request",
+                        "final_outcome",
+                        "last_turn_status",
+                        "contradictions",
+                        "unfinished_work",
+                        "evidence_status",
+                        "promotion_decision",
+                    ],
+                },
+            },
+            "required": ["project_name", "job_id", "semantic_review"],
         },
     },
     "list_candidates": {
@@ -771,8 +843,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "(auto_confirmed / auto_rejected / "
             "kept_pending / needs_user_confirmation). With apply=true, low-risk "
             "decisions are applied with audit events while ambiguous or high-risk "
-            "items stay reviewable. Apply mode also completes Agent-consumed "
-            "distill tasks and triggers Dream."
+            "items stay reviewable. This is a project-level maintenance tool; "
+            "lossless sessions must finish through finalize_session_distill."
         ),
         "input_schema": {
             "type": "object",
@@ -973,6 +1045,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "items": {"type": "string"},
                     "description": "Example instances (optional)",
                 },
+                "distill_job_id": {
+                    "type": "string",
+                    "description": "Review-ready distill job id for exactly-once candidate creation",
+                },
             },
             "required": ["project_name", "pattern", "trigger"],
         },
@@ -988,6 +1064,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "source": {"type": "string", "description": "Source observation id or session id"},
                 "confidence": {"type": "number", "description": "Confidence score 0.0-1.0"},
                 "tags": {"type": "array", "items": {"type": "string"}},
+                "distill_job_id": {
+                    "type": "string",
+                    "description": "Review-ready distill job id for exactly-once candidate creation",
+                },
             },
             "required": ["project_name", "category", "content", "source"],
         },
@@ -1024,6 +1104,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "evidence": {"type": "string", "description": "Evidence for this relation"},
                 "source": {"type": "string", "description": "Source id"},
                 "confidence": {"type": "number", "description": "Confidence score 0.0-1.0"},
+                "distill_job_id": {
+                    "type": "string",
+                    "description": "Review-ready distill job id for exactly-once candidate creation",
+                },
             },
             "required": ["project_name", "source_entity", "target_entity", "relation_type", "evidence", "source"],
         },
@@ -1192,6 +1276,8 @@ TOOL_CLUSTERS = {
     "record_context_outcome": "advanced",
     # Candidate/truth loop.
     "prepare_session_distill": "truth_loop",
+    "submit_distill_chunk": "truth_loop",
+    "finalize_session_distill": "truth_loop",
     "list_candidates": "truth_loop",
     "get_candidate_detail": "truth_loop",
     "auto_review_candidates": "truth_loop",

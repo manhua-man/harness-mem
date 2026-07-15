@@ -4,7 +4,6 @@ This is the **single source of truth** for session file parsing.
 Derived from the original implementations in:
   - :mod:`harness_mem.adapters.claude_code.adapter`
   - :mod:`harness_mem.adapters.codex.adapter`
-  - ``session-distill/bin/session-distill.py``
 
 Usage::
 
@@ -71,10 +70,6 @@ def extract_claude_session_cwd(session_path: Path, *, max_lines: int = 50) -> Pa
 def parse_claude_jsonl_session(
     session_path: Path,
     *,
-    max_user_chars: int = 2000,
-    max_assistant_chars: int = 1000,
-    max_tool_input_chars: int = 300,
-    filter_xml_directives: bool = False,
     on_error: str = "silent",
 ) -> list[Turn]:
     """Parse a Claude Code ``.jsonl`` session file into a list of turns.
@@ -83,15 +78,6 @@ def parse_claude_jsonl_session(
     ----------
     session_path:
         Path to the ``.jsonl`` file.
-    max_user_chars:
-        Maximum characters to keep for each user message.
-    max_assistant_chars:
-        Maximum characters to keep for each assistant text block.
-    max_tool_input_chars:
-        Maximum characters to keep for tool-use ``input`` serialisation.
-    filter_xml_directives:
-        If ``True``, skip user messages whose content starts with ``<``
-        (heuristic used by ``session-distill`` to skip XML/system directives).
     on_error:
         How to handle top-level parse errors:
 
@@ -117,10 +103,8 @@ def parse_claude_jsonl_session(
             if record_type == "user":
                 message_content = record.get("message", {}).get("content", "")
                 if isinstance(message_content, str) and message_content:
-                    if filter_xml_directives and message_content.startswith("<"):
-                        continue
                     current_turn = {
-                        "user": message_content[:max_user_chars],
+                        "user": message_content,
                         "assistant": [],
                         "tools": [],
                     }
@@ -136,8 +120,8 @@ def parse_claude_jsonl_session(
                             continue
                         if item.get("type") == "text":
                             text = item.get("text", "")
-                            if text and len(text) > 20:
-                                current_turn["assistant"].append(text[:max_assistant_chars])
+                            if text:
+                                current_turn["assistant"].append(text)
 
                         elif item.get("type") == "tool_use":
                             tool_name = item.get("name", "")
@@ -145,7 +129,7 @@ def parse_claude_jsonl_session(
                             if tool_name:
                                 current_turn["tools"].append({
                                     "name": tool_name,
-                                    "input": str(tool_input)[:max_tool_input_chars],
+                                    "input": str(tool_input),
                                 })
     except Exception as exc:
         if on_error == "raise":
@@ -164,9 +148,6 @@ def parse_claude_jsonl_session(
 def parse_cursor_jsonl_session(
     session_path: Path,
     *,
-    max_user_chars: int = 2000,
-    max_assistant_chars: int = 1000,
-    max_tool_input_chars: int = 300,
     issues: list[Issue] | None = None,
 ) -> list[Turn]:
     """Parse a Cursor agent transcript ``.jsonl`` session into turns.
@@ -201,7 +182,7 @@ def parse_cursor_jsonl_session(
             user_text = _render_cursor_content_items(content_items)
             if user_text:
                 current_turn = {
-                    "user": user_text[:max_user_chars],
+                    "user": user_text,
                     "assistant": [],
                     "tools": [],
                 }
@@ -219,14 +200,14 @@ def parse_cursor_jsonl_session(
                     if item.get("type") == "text":
                         text = str(item.get("text") or "").strip()
                         if text:
-                            current_turn["assistant"].append(text[:max_assistant_chars])
+                            current_turn["assistant"].append(text)
                     elif item.get("type") == "tool_use":
                         tool_name = str(item.get("name") or "")
                         tool_input = item.get("input", {})
                         if tool_name:
                             current_turn["tools"].append({
                                 "name": tool_name,
-                                "input": str(tool_input)[:max_tool_input_chars],
+                                "input": str(tool_input),
                             })
             continue
 
@@ -283,9 +264,6 @@ def _render_cursor_content_items(content_items: Any) -> str:
 def parse_grok_jsonl_session(
     session_path: Path,
     *,
-    max_user_chars: int = 2000,
-    max_assistant_chars: int = 1000,
-    max_tool_input_chars: int = 300,
     issues: list[Issue] | None = None,
 ) -> list[Turn]:
     """Parse a Grok CLI ``chat_history.jsonl`` session into turns."""
@@ -312,7 +290,7 @@ def parse_grok_jsonl_session(
             user_text = _render_grok_content(record.get("content"))
             if user_text:
                 current_turn = {
-                    "user": user_text[:max_user_chars],
+                    "user": user_text,
                     "assistant": [],
                     "tools": [],
                 }
@@ -325,7 +303,7 @@ def parse_grok_jsonl_session(
                 turns.append(current_turn)
             assistant_text = _render_grok_content(record.get("content"))
             if assistant_text:
-                current_turn["assistant"].append(assistant_text[:max_assistant_chars])
+                current_turn["assistant"].append(assistant_text)
             for tool_call in record.get("tool_calls") or []:
                 if not isinstance(tool_call, dict):
                     continue
@@ -334,9 +312,7 @@ def parse_grok_jsonl_session(
                     current_turn["tools"].append(
                         {
                             "name": tool_name,
-                            "input": str(tool_call.get("arguments") or "")[
-                                :max_tool_input_chars
-                            ],
+                            "input": str(tool_call.get("arguments") or ""),
                         }
                     )
 
@@ -395,9 +371,6 @@ def _render_grok_content(content: Any) -> str:
 def parse_hermes_json_session(
     session_path: Path,
     *,
-    max_user_chars: int = 2000,
-    max_assistant_chars: int = 1000,
-    max_tool_input_chars: int = 300,
     issues: list[Issue] | None = None,
 ) -> list[Turn]:
     """Parse a Hermes ``session_*.json`` transcript into turns."""
@@ -433,7 +406,7 @@ def parse_hermes_json_session(
         if role == "user":
             if content:
                 current_turn = {
-                    "user": content[:max_user_chars],
+                    "user": content,
                     "assistant": [],
                     "tools": [],
                 }
@@ -445,12 +418,9 @@ def parse_hermes_json_session(
                 current_turn = {"user": "", "assistant": [], "tools": []}
                 turns.append(current_turn)
             if content:
-                current_turn["assistant"].append(content[:max_assistant_chars])
+                current_turn["assistant"].append(content)
             current_turn["tools"].extend(
-                _extract_hermes_tools(
-                    message.get("codex_message_items"),
-                    max_tool_input_chars=max_tool_input_chars,
-                )
+                _extract_hermes_tools(message.get("codex_message_items"))
             )
 
     if messages and not turns:
@@ -525,8 +495,6 @@ def _render_hermes_codex_message_items(items: Any) -> str:
 
 def _extract_hermes_tools(
     items: Any,
-    *,
-    max_tool_input_chars: int,
 ) -> list[dict[str, str]]:
     if not isinstance(items, list):
         return []
@@ -546,9 +514,9 @@ def _extract_hermes_tools(
         tools.append(
             {
                 "name": name,
-                "input": json.dumps(tool_input, ensure_ascii=False)[:max_tool_input_chars]
+                "input": json.dumps(tool_input, ensure_ascii=False)
                 if isinstance(tool_input, (dict, list))
-                else str(tool_input or "")[:max_tool_input_chars],
+                else str(tool_input or ""),
             }
         )
     return tools
@@ -561,8 +529,6 @@ def _extract_hermes_tools(
 def parse_codex_jsonl_session(
     session_path: Path,
     *,
-    max_user_chars: int = 2000,
-    max_assistant_chars: int = 1000,
     issues: list[Issue] | None = None,
 ) -> list[Turn]:
     """Parse a Codex CLI ``.jsonl`` session file into a list of turns.
@@ -576,10 +542,6 @@ def parse_codex_jsonl_session(
     ----------
     session_path:
         Path to the ``.jsonl`` file.
-    max_user_chars:
-        Maximum characters to keep for each user message.
-    max_assistant_chars:
-        Maximum characters to keep for each assistant message.
     issues:
         Optional mutable list to append warnings to.
 
@@ -630,9 +592,9 @@ def parse_codex_jsonl_session(
                 turns.append(current_turn)
 
             if role == "user" or rec_type == "user":
-                current_turn["user"] = message_content[:max_user_chars]
+                current_turn["user"] = message_content
             else:
-                current_turn["assistant"].append(message_content[:max_assistant_chars])
+                current_turn["assistant"].append(message_content)
         else:
             tool_calls = record.get("tool_calls", []) or record.get("function_call", {})
             if tool_calls:
@@ -640,15 +602,15 @@ def parse_codex_jsonl_session(
                     current_turn = {"user": "", "assistant": []}
                     turns.append(current_turn)
                 if isinstance(tool_calls, list):
-                    for tc in tool_calls[:5]:
+                    for tc in tool_calls:
                         fn = tc.get("function", {})
                         current_turn["assistant"].append(
-                            f"[tool: {fn.get('name', '?')}] {fn.get('arguments', '')[:200]}"
+                            f"[tool: {fn.get('name', '?')}] {fn.get('arguments', '')}"
                         )
                 elif isinstance(tool_calls, dict):
                     # function_call dict: keys are "name" and "arguments" directly
                     current_turn["assistant"].append(
-                        f"[tool: {tool_calls.get('name', '?')}] {tool_calls.get('arguments', '')[:200]}"
+                        f"[tool: {tool_calls.get('name', '?')}] {tool_calls.get('arguments', '')}"
                     )
 
     if valid_records == 0 and nonempty_lines > 0:
@@ -733,15 +695,9 @@ def sanitize_archived_user_text(text: str) -> str:
 def parse_codex_archive_jsonl_session(
     session_path: Path,
     *,
-    max_user_chars: int = 2000,
-    max_assistant_chars: int = 1000,
     issues: list[Issue] | None = None,
 ) -> tuple[dict[str, Any], list[Turn]]:
-    """Parse a Codex 'rollout-*.jsonl' archive file.
-
-    Derived from the high-fidelity parser in session-distill.py.
-    Returns (session_meta, turns).
-    """
+    """Parse a Codex ``rollout-*.jsonl`` archive into metadata and turns."""
     session_meta: dict[str, Any] = {
         "session_id": session_path.stem,
         "cwd": "",
@@ -796,12 +752,12 @@ def parse_codex_archive_jsonl_session(
                 if event_type == "user_message":
                     msg = sanitize_archived_user_text(str(payload.get("message") or ""))
                     if msg:
-                        turn["user"] = (turn["user"] + "\n" + msg).strip()[:max_user_chars]
+                        turn["user"] = (turn["user"] + "\n" + msg).strip()
                 elif event_type == "agent_message":
                     msg = str(payload.get("message") or "")
                     phase = str(payload.get("phase") or "")
                     if msg and phase in ("commentary", "final_answer"):
-                        turn["assistant"].append(msg[:max_assistant_chars])
+                        turn["assistant"].append(msg)
                 continue
 
             if top_level_type == "response_item":
@@ -812,15 +768,15 @@ def parse_codex_archive_jsonl_session(
                     if role == "user":
                         sanitized = sanitize_archived_user_text(text)
                         if sanitized:
-                            turn["user"] = (turn["user"] + "\n" + sanitized).strip()[:max_user_chars]
+                            turn["user"] = (turn["user"] + "\n" + sanitized).strip()
                     elif role == "assistant" and text:
-                        turn["assistant"].append(text[:max_assistant_chars])
+                        turn["assistant"].append(text)
                 elif item_type == "function_call":
                     tool_name = str(payload.get("name") or "")
                     args = str(payload.get("arguments") or "")
                     turn["tools"].append({
                         "name": tool_name,
-                        "input": args[:300],
+                        "input": args,
                     })
 
     except Exception as exc:
@@ -887,27 +843,6 @@ def session_sort_key(session: SessionRecord) -> datetime:
 
 
 # ---------------------------------------------------------------------------
-# Packet generation helpers (session-distill compatibility)
-# ---------------------------------------------------------------------------
-
-def select_turns_for_packet(turns: list[Turn], max_turns: int = 12) -> tuple[list[Turn], int]:
-    """Keep the opening request and the ending resolution for long sessions.
-
-    Returns ``(selected_turns, omitted_count)``.
-    If *turns* is already at or under *max_turns*, returns all turns unchanged.
-    """
-    total = len(turns)
-    if total <= max_turns:
-        return turns, 0
-
-    head_count = max_turns // 2
-    tail_count = max_turns - head_count
-    selected = turns[:head_count] + turns[-tail_count:]
-    omitted = total - len(selected)
-    return selected, omitted
-
-
-# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -955,5 +890,4 @@ __all__ = [
     "parse_codex_archive_jsonl_session",
     "list_session_files",
     "session_sort_key",
-    "select_turns_for_packet",
 ]

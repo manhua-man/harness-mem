@@ -26,16 +26,16 @@ automatically:
 | `cursor` | `.cursor/hooks/session-start.sh`, `.cursor/hooks/after-agent.sh` | `wake-start`, `post-turn-maintenance` | `CURSOR_TURN_ID` |
 | `claude-code` | `.claude/hooks/session-start.sh`, `.claude/hooks/after-turn.sh` | `wake-start`, `post-turn-maintenance` | `CLAUDE_CODE_TURN_ID` |
 | `grok` | `.grok/hooks/harness-mem.json` | `SessionStart` -> `wake-start`; `Stop` -> maintenance | static trigger ids in manifest |
-| `codex` | `.codex/hooks.json`, `.codex/hooks/harness_mem_stop.py` | `SessionStart` -> `wake-start`; `Stop` -> maintenance | wrapper reads hook stdin JSON |
-| `hermes` | `~/.hermes/config.yaml`, `~/.hermes/agent-hooks/harness_mem_*.py` | `pre_llm_call` -> `wake-start`; `post_llm_call` -> maintenance | wrapper reads hook stdin JSON |
+| `codex` | `.codex/hooks.json` | `SessionStart` -> `wake-start`; `Stop` -> maintenance | `harness-mem-hook --adapter codex-stop` reads hook stdin JSON |
+| `hermes` | `~/.hermes/config.yaml` | `pre_llm_call` -> `wake-start`; `post_llm_call` -> maintenance | `harness-mem-hook` Hermes adapters read hook stdin JSON |
 | `opencode` | `.opencode/plugins/harness-mem.ts` | `session.created` -> `wake-start`; `session.idle` -> maintenance | plugin event payload |
-| `antigravity` | `.agents/hooks.json`, `.agents/hooks/harness_mem_*.py` | `PreInvocation` -> wake injection; `Stop` -> evidence staging | wrapper reads camelCase hook stdin JSON |
+| `antigravity` | `.agents/hooks.json` | `PreInvocation` -> wake injection; `Stop` -> evidence staging | `harness-mem-hook` adapters read camelCase hook stdin JSON |
 
 The checked-in templates live in `harness_mem/integration/templates/` and are
 wired by `_suite_specs()` plus the Hermes config installer in
 `harness_mem/commands/integration_cmds.py`.
 
-Native transcript ingest is now adapter-backed for Claude Code, Cursor, Codex,
+Native transcript capture is now adapter-backed for Claude Code, Cursor, Codex,
 Grok, Hermes, OpenCode, and Antigravity. OpenCode is read from its verified
 SQLite `session`/`message`/`part` database. Antigravity is read from the
 verified `.gemini/antigravity/brain/*/.system_generated/logs/transcript.jsonl`
@@ -46,36 +46,67 @@ Antigravity lifecycle hooks use its verified workspace customization surface:
 on stdout. The installer merges managed `PreInvocation` and `Stop` entries
 without removing unrelated project hooks.
 
-The CLI wake auto-sync path uses the project-scoped Cursor, Codex, Grok, Hermes,
-OpenCode, and Antigravity adapters. Hook-triggered post-turn maintenance follows the same host
-resolution through `/hm:distill`'s lower-level transcript sync step.
+`wake-start` injects already-captured context and pending work; it does not read
+or summarize a transcript. Hook-triggered post-turn/idle maintenance resolves
+the current host, synchronizes native transcript evidence, and queues lossless
+distill work. The CLI `wake-up` command retains a separate best-effort sync
+option for non-hook environments.
 Session-start injection uses a compact recent-context index. The index is
-derived from project-scoped transcript observations; it does not replace the
-governed truth layer or require `/hm:distill` before recent work is visible.
+derived from project-scoped transcript Observations; it does not replace the
+immutable transcript ledger or governed truth layer, and it does not require
+`/hm:distill` before recent work is visible.
+
+## Transcript adapter contract
+
+Every shipped transcript adapter implements the same evidence boundary:
+
+1. `list_sessions` discovers native host sessions and continues scanning past
+   unchanged recent files so an older backlog can still advance.
+2. `sync_session` reads one complete native source, captures exact bytes (or a
+   deterministic complete export for SQLite-backed OpenCode), and records a new
+   immutable revision whenever that source grows or changes.
+3. The revision is split into complete ordered chunks. Concatenating those
+   chunks reconstructs the normalized transcript without character loss.
+4. `session_to_observation` produces only a derived search rendering. It may be
+   rebuilt and must never be treated as the lossless source of truth.
+5. The revision queues a resumable distill job. Hooks stop after sync and queue;
+   an Agent processes all chunks, checkpoints each result, performs the required
+   final-session review, creates idempotent candidates, and calls
+   `finalize_session_distill` to run auto-review and Dream.
+
+`limit` is a changed-session budget, not a newest-file window. A persistent
+frontier alternates the recent and historical lanes when the budget is one;
+failed sources use a backoff retry lane so they cannot block history. A source
+absent from a complete host inventory becomes `missing`, while all captured
+revisions remain locally readable.
+
+Support is claimed only when a native location, a real format, and regression
+fixtures exist for that host. A hook adapter and a transcript adapter are
+separate capabilities; shipping one never implies the other.
 
 ## Runtime diagnostics
 
 Run `harness-mem doctor` from the project root to inspect hook runtime state.
 The `Hook runtime` block reports:
 
-- whether the current shell `python` can import `harness_mem`
-- the resolved Python executable, Python version, and harness-mem version
-- which generated hook artifacts are installed
+- the absolute `harness-mem-hook` executable bound into generated Hook files
+- its verified package version, or a concise executable failure
+- which generated hook artifacts are installed, legacy, or not bound
 - whether installed hook files still contain the current project root
 
-This probe uses the current shell environment. IDE hook processes can still see
-a different `PATH` or virtual environment. For Cursor and Claude Code shell
-hooks, set `HARNESS_MEM_HOOK_DEBUG=1` before launching the IDE to surface
-host-entry import/runtime failures that are normally silenced by fail-open
-hook behavior.
+The installer validates `harness-mem-hook --version` before writing Hook
+artifacts, so IDE hooks do not depend on a bare `python` selected from the
+IDE's `PATH`. For Cursor and Claude Code shell hooks, set
+`HARNESS_MEM_HOOK_DEBUG=1` before launching the IDE to surface a fail-open
+Hook action failure.
 
 Run `harness-mem integration transcript-evidence` to inspect local transcript
 evidence separately from hook-install support. Grok's project-scoped
-`chat_history.jsonl` layout and Hermes' global `~/.hermes/sessions/session_*.json`
-layout are adapter-backed when present on the machine. OpenCode evidence
-validates the SQLite schema, while Antigravity evidence validates matching
-`transcript.jsonl` files. Evidence status is local-machine state; adapter
-availability is installed-code state.
+`chat_history.jsonl` layout and Hermes' JSON sessions plus `sessions/messages`
+`state.db` layouts are adapter-backed when present. OpenCode evidence validates
+the SQLite schema, while Antigravity evidence validates both brain transcripts
+and project-scoped `antigravity-cli/history.jsonl`. Evidence status is
+local-machine state; adapter availability is installed-code state.
 
 ## Host matrix
 
@@ -84,15 +115,19 @@ availability is installed-code state.
 | Cursor | Shell hook files | `<project>/.cursor/hooks/*.sh` | `session-start` -> `wake-start`; `after-agent` -> maintenance | Checked-in shell templates | Shipped |
 | Claude Code | Shell hook files | `<project>/.claude/hooks/*.sh` | `session-start` -> `wake-start`; `after-turn` -> maintenance | Checked-in shell templates | Shipped |
 | Grok | JSON hook manifests plus plugin hooks | `<project>/.grok/hooks/*.json`, `~/.grok/hooks/*.json`, plugin `hooks/hooks.json` | `SessionStart`, `Stop` | Generate a `.grok/hooks/harness-mem.json` manifest | Shipped |
-| Codex | `hooks.json`, inline config, or plugin hooks | `<project>/.codex/hooks.json`, `~/.codex/hooks.json`, or inline `.codex/config.toml`; plugins can ship `hooks/hooks.json` | `SessionStart`, `Stop` | Generate `.codex/hooks.json` plus a Stop wrapper script | Shipped |
-| Hermes | Shell hooks in YAML, plugin hooks in Python, gateway hooks in `HOOK.yaml` dirs | Shell hooks live in `~/.hermes/config.yaml` and usually point at `~/.hermes/agent-hooks/`; gateway hooks live under `~/.hermes/hooks/<name>/` | `pre_llm_call`, `post_llm_call` | Installer patches user-global YAML and registers home-local wrapper scripts | Shipped |
+| Codex | `hooks.json`, inline config, or plugin hooks | `<project>/.codex/hooks.json`, `~/.codex/hooks.json`, or inline `.codex/config.toml`; plugins can ship `hooks/hooks.json` | `SessionStart`, `Stop` | Generate `.codex/hooks.json` bound to `harness-mem-hook` | Shipped |
+| Hermes | Shell hooks in YAML, plugin hooks in Python, gateway hooks in `HOOK.yaml` dirs | Shell hooks live in `~/.hermes/config.yaml`; gateway hooks live under `~/.hermes/hooks/<name>/` | `pre_llm_call`, `post_llm_call` | Installer patches user-global YAML with `harness-mem-hook` adapters | Shipped |
 | OpenCode | JS/TS plugin event handlers, not shell hook files | `<project>/.opencode/plugins/`, `~/.config/opencode/plugins/`, or plugin objects in config | `session.created`, `session.idle` | Generate a plugin file such as `.opencode/plugins/harness-mem.ts` | Shipped; SQLite ingest verified |
-| Antigravity (`agy`) | Workspace JSON command hooks | `<project>/.agents/hooks.json` plus wrapper scripts | `PreInvocation`, `Stop` | JSON stdin/stdout bridge plus JSONL transcript adapter | Shipped |
+| Antigravity (`agy`) | Workspace JSON command hooks | `<project>/.agents/hooks.json` | `PreInvocation`, `Stop` | Console adapter JSON stdin/stdout bridge plus JSONL transcript adapter | Shipped |
 
 Verification level:
 
-- Local runtime + local docs: Cursor, Claude Code, Grok, Codex CLI, Hermes, Antigravity
-- Upstream docs only on this machine: OpenCode
+- Repository fixtures + project-isolation negative tests: Cursor, Claude Code,
+  Grok, Codex, Hermes, OpenCode, Antigravity.
+- Local runtime evidence on this machine: Cursor, Claude Code, Grok, Codex CLI,
+  Hermes, Antigravity.
+- OpenCode uses a verified `session`/`message`/`part` SQLite fixture and adapter
+  contract test; a live OpenCode installation is not claimed on this machine.
 
 ## What this means for installer design
 
@@ -126,7 +161,9 @@ should only fill in project root, command path, and small host-specific IDs.
   config, not a repo-local hook file.
 - `OpenCode` remains a plugin adapter, not a shell-hook adapter.
 - `Antigravity` uses project-local `.agents/hooks.json`; its transcript adapter
-  separately reads the verified brain `transcript.jsonl` format.
+  reads verified brain `transcript[_full].jsonl` and CLI `history.jsonl` formats.
+- `Hermes` transcript ingest accepts verified `session_*.json` exports and the
+  upstream `sessions/messages` SQLite schema from `state.db`.
 
 ## Design rule
 

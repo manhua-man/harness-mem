@@ -1,0 +1,81 @@
+{
+  "name": "finalize_session_distill",
+  "description": "Finalize one fully processed session after end-of-session semantic review. Auto-review and Dream run only for an internally consistent promotion decision, and only over candidates produced by this job.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name"
+      },
+      "job_id": {
+        "type": "string",
+        "description": "Review-ready distill job id"
+      },
+      "semantic_review": {
+        "type": "object",
+        "description": "Final outcome, contradictions, unfinished work, and evidence assessment",
+        "properties": {
+          "final_user_request": {
+            "type": "string"
+          },
+          "final_outcome": {
+            "type": "string"
+          },
+          "last_turn_status": {
+            "type": "string",
+            "enum": [
+              "answered",
+              "unfinished",
+              "unknown"
+            ]
+          },
+          "contradictions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unfinished_work": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence_status": {
+            "type": "string",
+            "enum": [
+              "answered",
+              "partial",
+              "contradicted",
+              "not_applicable"
+            ]
+          },
+          "promotion_decision": {
+            "type": "string",
+            "enum": [
+              "promote",
+              "partial",
+              "no_promotion",
+              "blocked"
+            ]
+          }
+        },
+        "required": [
+          "final_user_request",
+          "final_outcome",
+          "last_turn_status",
+          "contradictions",
+          "unfinished_work",
+          "evidence_status",
+          "promotion_decision"
+        ]
+      }
+    },
+    "required": [
+      "project_name",
+      "job_id",
+      "semantic_review"
+    ]
+  }
+}

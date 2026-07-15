@@ -76,6 +76,7 @@ Heuristic rules (mirrored from the loop_harness 周明远 user card):
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -446,8 +447,9 @@ async def auto_review_candidates(
     project_name: str,
     *,
     apply: bool = False,
+    candidate_ids: Collection[str] | None = None,
 ) -> AutoReviewSummary:
-    """Review every pending candidate for ``project_name`` once.
+    """Review pending candidates for ``project_name`` once.
 
     When ``apply=True``, applies confirm/reject decisions through the
     structured store mutators. When ``apply=False`` (the default) the function
@@ -461,12 +463,16 @@ async def auto_review_candidates(
     """
     store = backend.structured_store
 
+    requested_ids = {str(value) for value in candidate_ids} if candidate_ids is not None else None
     pending_entries = await store.list_memory_entries(
         project_name, limit=1000, status="pending"
     )
     pending_rules = await store.list_rule_candidates(
         project_name, status="pending"
     )
+    if requested_ids is not None:
+        pending_entries = [entry for entry in pending_entries if entry.id in requested_ids]
+        pending_rules = [rule for rule in pending_rules if rule.id in requested_ids]
 
     decisions: list[AutoReviewDecision] = []
     decisions.extend(decide_memory_entry(entry) for entry in pending_entries)

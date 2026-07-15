@@ -29,6 +29,10 @@ class RuleCandidate(BaseModel):
             "Truth layer: auto_confirmed | provisional | user_confirmed."
         ),
     )
+    distill_job_id: str | None = Field(
+        default=None,
+        description="Lossless distill job that produced this candidate, if any.",
+    )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -45,6 +49,7 @@ class RuleCandidate(BaseModel):
             "examples": self.examples,
             "confidence": self.confidence,
             "status": self.status,
+            "distill_job_id": self.distill_job_id,
             "created_at": self.created_at.isoformat(),
         }
 
@@ -56,4 +61,6 @@ class RuleCandidate(BaseModel):
             from harness_mem.governance_status import normalize_status_on_load
 
             data["status"] = normalize_status_on_load(data.get("status"))
+        if "distill_job_id" not in data:
+            data["distill_job_id"] = None
         return cls(**data)

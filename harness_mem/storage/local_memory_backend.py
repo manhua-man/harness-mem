@@ -9,6 +9,7 @@ from harness_mem.storage.canonical_store import bootstrap_canonical_runtime
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.reflection_job_store import ReflectionJobStore
+from harness_mem.storage.transcript_store import TranscriptStore
 
 
 DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
@@ -26,6 +27,7 @@ class LocalMemoryBackend:
         self._verbatim_store: LocalVerbatimStore | None = None
         self._structured_store: LocalStructuredStore | None = None
         self._reflection_job_store: ReflectionJobStore | None = None
+        self._transcript_store: TranscriptStore | None = None
         self.runtime_state: str = "canonical"
         self.runtime_error: str | None = None
         self.runtime_recovery_hint: str | None = None
@@ -46,6 +48,7 @@ class LocalMemoryBackend:
             self.data_dir,
             canonical_mode=canonical_mode,
         )
+        self._transcript_store = TranscriptStore(self.data_dir)
         await self._verbatim_store.init_runtime()
         await self._structured_store.init_runtime()
 
@@ -57,6 +60,9 @@ class LocalMemoryBackend:
         if self._structured_store:
             self._structured_store.close()
             self._structured_store = None
+        if self._transcript_store:
+            self._transcript_store.close()
+            self._transcript_store = None
         self._reflection_job_store = None
 
     @property
@@ -70,6 +76,12 @@ class LocalMemoryBackend:
         if self._structured_store is None:
             raise RuntimeError("Backend not initialized. Call init() first.")
         return self._structured_store
+
+    @property
+    def transcript_store(self) -> TranscriptStore:
+        if self._transcript_store is None:
+            raise RuntimeError("Backend not initialized. Call init() first.")
+        return self._transcript_store
 
     @property
     def reflection_job_store(self) -> ReflectionJobStore:

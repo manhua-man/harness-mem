@@ -41,6 +41,27 @@ def main() -> int:
                 "HARNESS_MEM_DISABLE_EMBEDDINGS": "1",
             }
         )
+        hash_vector = subprocess.check_output(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "from harness_mem.transcript_chunking import transcript_bytes_revision; "
+                    "print(transcript_bytes_revision(b'\\xef\\xbb\\xbfuser:\\r\\nassistant:\\x00\\xff\\n'))"
+                ),
+            ],
+            cwd=workspace,
+            env=env,
+            text=True,
+        ).strip()
+        expected_hash_vector = (
+            "sha256:ff3a9081f301fcb0a6c45ccedcb26455"
+            "caefce97d8a46da1cfab7e52b51c72a2"
+        )
+        if hash_vector != expected_hash_vector:
+            raise RuntimeError(
+                f"cross-platform transcript hash mismatch: {hash_vector}"
+            )
         requests = [
             {
                 "jsonrpc": "2.0",

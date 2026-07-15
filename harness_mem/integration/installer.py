@@ -5,14 +5,12 @@ multiple host families:
 
 - shell hook files (Cursor, Claude Code)
 - JSON hook manifests (Grok, Codex)
-- helper wrapper scripts (Codex, Hermes)
 - plugin source files (OpenCode)
 
-Boundary self-check: after substitution the rendered body MUST contain a
-``harness_mem.host_entry`` invocation with an explicit hook action and MUST NOT
-contain any non-comment line that invokes the ``harness-mem`` console script.
-The check runs at install time, before the file is written, so a drifting
-template can never produce a violating artifact on disk.
+Every generated command is bound to one verified, absolute
+``harness-mem-hook`` console entry. The check runs at install time, before the
+file is written, so a drifting template cannot reintroduce a bare ``python``
+runtime dependency.
 """
 
 from __future__ import annotations
@@ -28,10 +26,13 @@ from importlib import resources
 from pathlib import Path
 from string import Template
 
+from harness_mem.integration.hook_runner import probe_hook_runner, resolve_hook_runner
+
 __all__ = [
     "DEFAULT_DOC_POINTER",
     "HookInstallResult",
     "HookSpec",
+    "verified_hook_runner",
     "install_antigravity_hook_suite",
     "install_hermes_hook_suite",
     "install_hook",
@@ -42,13 +43,9 @@ __all__ = [
 DEFAULT_DOC_POINTER = "docs/quickstart.md"
 
 _TEMPLATES_PACKAGE = "harness_mem.integration.templates"
-_REQUIRED_HOST_ENTRY = "harness_mem.host_entry"
-# An executable invocation of the console script: a non-comment line where
-# ``harness-mem`` is followed by whitespace and at least one more argument.
-# ``^[^#]*`` cannot cross a ``#``, so any comment (leading or inline) is exempt.
-_FORBIDDEN_INVOCATION = re.compile(r"^[^#]*\bharness-mem\s+\S")
+_LEGACY_HOST_ENTRY = "harness_mem.host_entry"
+_FORBIDDEN_PYTHON_HOST_ENTRY = re.compile(r"^[^#]*\bpython(?:3)?\s+-m\s+harness_mem\.host_entry")
 _HERMES_CONFIG_DIRNAME = ".hermes"
-_HERMES_AGENT_HOOK_DIRNAME = "agent-hooks"
 _HERMES_CONFIG_FILENAME = "config.yaml"
 _HERMES_PRE_LLM_EVENT = "pre_llm_call"
 _HERMES_POST_LLM_EVENT = "post_llm_call"
@@ -63,6 +60,7 @@ def _render(
     harness_mem_version: str,
     generated_at_iso: str,
     doc_pointer: str,
+    hook_runner: Path,
     template_vars: Mapping[str, str] | None = None,
 ) -> str:
     """Substitute the four documented variables into the template body.
@@ -82,30 +80,51 @@ def _render(
         "GENERATED_AT_JSON": json.dumps(generated_at_iso),
         "DOC_POINTER": doc_pointer,
         "DOC_POINTER_JSON": json.dumps(doc_pointer),
+        "HOOK_RUNNER": hook_runner.as_posix(),
+        "HOOK_RUNNER_SHELL": shlex.quote(hook_runner.as_posix()),
+        "HOOK_RUNNER_JSON": json.dumps(hook_runner.as_posix()),
     }
     if template_vars:
         render_vars.update(template_vars)
     return Template(body).substitute(render_vars)
 
 
-def _assert_boundary(rendered: str) -> None:
+def _assert_boundary(rendered: str, *, hook_runner: Path) -> None:
     """Enforce the hook boundary on a rendered body.
 
     Raises:
-        RuntimeError: the body is missing the host-entry invocation or contains
-            a non-comment ``harness-mem`` console-script invocation.
+        RuntimeError: the body is missing the verified Hook runner, an action,
+            or contains a legacy bare-Python host entry invocation.
     """
-    if _REQUIRED_HOST_ENTRY not in rendered:
+    if hook_runner.as_posix() not in rendered:
         raise RuntimeError("rendered template contains forbidden pattern")
     compact = re.sub(r"[\s\"']+", "", rendered)
     if not any(
         action in rendered or f"--action,{action}" in compact
         for action in ("dream-end", "post-turn-maintenance", "wake-start")
-    ):
+    ) and "--adapter" not in rendered:
         raise RuntimeError("rendered template contains forbidden pattern")
     for line in rendered.splitlines():
-        if _FORBIDDEN_INVOCATION.search(line):
+        if _FORBIDDEN_PYTHON_HOST_ENTRY.search(line):
             raise RuntimeError("rendered template contains forbidden pattern")
+
+
+def verified_hook_runner() -> Path:
+    """Return the installed Hook executable after a bounded version probe."""
+
+    path = resolve_hook_runner()
+    probe = probe_hook_runner(hook_runner=path)
+    if not probe.ok:
+        raise RuntimeError(f"harness-mem-hook is unavailable: {probe.error or 'unknown error'}")
+    return path
+
+
+def _is_legacy_hook(path: Path) -> bool:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return _LEGACY_HOST_ENTRY in text
 
 
 def install_hook(
@@ -118,6 +137,7 @@ def install_hook(
     generated_at: datetime,
     doc_pointer: str = DEFAULT_DOC_POINTER,
     template_vars: Mapping[str, str] | None = None,
+    hook_runner: Path | None = None,
 ) -> Path:
     """Render a Hook_Template and write it to ``target_path``.
 
@@ -145,10 +165,11 @@ def install_hook(
         KeyError: the template references an undefined substitution variable.
         OSError: the file or its parent directory cannot be written.
     """
-    if target_path.exists() and not force:
+    if target_path.exists() and not force and not _is_legacy_hook(target_path):
         raise FileExistsError(str(target_path))
 
     resolved_root = Path(project_root).resolve()
+    resolved_runner = Path(hook_runner).resolve() if hook_runner is not None else verified_hook_runner()
     body = (
         resources.files(_TEMPLATES_PACKAGE)
         .joinpath(template_name)
@@ -160,9 +181,10 @@ def install_hook(
         harness_mem_version=harness_mem_version,
         generated_at_iso=generated_at.isoformat(),
         doc_pointer=doc_pointer,
+        hook_runner=resolved_runner,
         template_vars=template_vars,
     )
-    _assert_boundary(rendered)
+    _assert_boundary(rendered, hook_runner=resolved_runner)
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_text(rendered, encoding="utf-8")
@@ -196,6 +218,7 @@ def install_hook_suite(
     harness_mem_version: str,
     generated_at: datetime,
     doc_pointer: str = DEFAULT_DOC_POINTER,
+    hook_runner: Path | None = None,
 ) -> list[HookInstallResult]:
     """Install a set of hooks idempotently.
 
@@ -203,9 +226,24 @@ def install_hook_suite(
     files are rendered with the same boundary checks as :func:`install_hook`.
     """
 
+    resolved_runner = Path(hook_runner).resolve() if hook_runner is not None else verified_hook_runner()
     results: list[HookInstallResult] = []
     for spec in specs:
         if spec.target_path.exists() and not force:
+            if _is_legacy_hook(spec.target_path):
+                written = install_hook(
+                    template_name=spec.template_name,
+                    target_path=spec.target_path,
+                    project_root=project_root,
+                    force=True,
+                    harness_mem_version=harness_mem_version,
+                    generated_at=generated_at,
+                    doc_pointer=doc_pointer,
+                    template_vars=spec.template_vars,
+                    hook_runner=resolved_runner,
+                )
+                results.append(HookInstallResult(target_path=written, status="updated"))
+                continue
             results.append(
                 HookInstallResult(
                     target_path=spec.target_path.resolve(),
@@ -222,6 +260,7 @@ def install_hook_suite(
             generated_at=generated_at,
             doc_pointer=doc_pointer,
             template_vars=spec.template_vars,
+            hook_runner=resolved_runner,
         )
         results.append(HookInstallResult(target_path=written, status="installed"))
     return results
@@ -234,24 +273,12 @@ def install_antigravity_hook_suite(
     harness_mem_version: str,
     generated_at: datetime,
     doc_pointer: str = DEFAULT_DOC_POINTER,
+    hook_runner: Path | None = None,
 ) -> list[HookInstallResult]:
-    """Install Antigravity JSON bridges and merge managed event entries."""
+    """Install Antigravity event entries bound to the Hook console entry."""
 
     root = project_root.resolve()
-    hook_dir = root / ".agents" / "hooks"
-    pre_script = hook_dir / "harness_mem_pre_invocation.py"
-    stop_script = hook_dir / "harness_mem_stop.py"
-    script_results = install_hook_suite(
-        specs=(
-            HookSpec("antigravity_pre_invocation.py.template", pre_script),
-            HookSpec("antigravity_stop.py.template", stop_script),
-        ),
-        project_root=root,
-        force=force,
-        harness_mem_version=harness_mem_version,
-        generated_at=generated_at,
-        doc_pointer=doc_pointer,
-    )
+    resolved_runner = Path(hook_runner).resolve() if hook_runner is not None else verified_hook_runner()
 
     manifest_path = root / ".agents" / "hooks.json"
     before = manifest_path.read_text(encoding="utf-8") if manifest_path.exists() else ""
@@ -266,18 +293,23 @@ def install_antigravity_hook_suite(
         raise ValueError(f"invalid Antigravity hooks mapping: {manifest_path}")
 
     managed = {
-        "PreInvocation": (pre_script, _antigravity_hook_group(pre_script)),
-        "Stop": (stop_script, _antigravity_hook_group(stop_script)),
+        "PreInvocation": (
+            ("--adapter antigravity-pre", "harness_mem_pre_invocation.py"),
+            _antigravity_hook_group(resolved_runner, "antigravity-pre", root),
+        ),
+        "Stop": (
+            ("--adapter antigravity-stop", "harness_mem_stop.py"),
+            _antigravity_hook_group(resolved_runner, "antigravity-stop", root),
+        ),
     }
-    for event, (script_path, group) in managed.items():
+    for event, (markers, group) in managed.items():
         groups = hooks.setdefault(event, [])
         if not isinstance(groups, list):
             raise ValueError(f"invalid Antigravity {event} hook list: {manifest_path}")
-        marker = script_path.name
         groups[:] = [
             existing
             for existing in groups
-            if marker not in json.dumps(existing, sort_keys=True)
+            if not any(marker in json.dumps(existing, sort_keys=True) for marker in markers)
         ]
         groups.append(group)
 
@@ -288,17 +320,15 @@ def install_antigravity_hook_suite(
         status = "updated" if before else "installed"
     else:
         status = "exists"
-    return script_results + [
-        HookInstallResult(target_path=manifest_path.resolve(), status=status)
-    ]
+    return [HookInstallResult(target_path=manifest_path.resolve(), status=status)]
 
 
-def _antigravity_hook_group(script_path: Path) -> dict[str, object]:
+def _antigravity_hook_group(hook_runner: Path, adapter: str, project_root: Path) -> dict[str, object]:
     return {
         "hooks": [
             {
                 "type": "command",
-                "command": f'python "{script_path.resolve().as_posix()}"',
+                "command": _hook_command(hook_runner, "--adapter", adapter, "--project-root", project_root.as_posix()),
             }
         ]
     }
@@ -432,30 +462,16 @@ def install_hermes_hook_suite(
     generated_at: datetime,
     doc_pointer: str = DEFAULT_DOC_POINTER,
     home_dir: Path | None = None,
+    hook_runner: Path | None = None,
 ) -> list[HookInstallResult]:
-    """Install Hermes helper scripts plus managed shell-hook config entries."""
+    """Install Hermes event entries bound to the Hook console entry."""
 
     home = Path.home() if home_dir is None else home_dir
     hermes_root = home / _HERMES_CONFIG_DIRNAME
-    hook_dir = hermes_root / _HERMES_AGENT_HOOK_DIRNAME
     config_path = hermes_root / _HERMES_CONFIG_FILENAME
-    pre_script = hook_dir / "harness_mem_pre_llm_call.py"
-    post_script = hook_dir / "harness_mem_post_llm_call.py"
-
-    script_results = install_hook_suite(
-        specs=(
-            HookSpec("hermes_pre_llm_call.py.template", pre_script),
-            HookSpec("hermes_post_llm_call.py.template", post_script),
-        ),
-        project_root=project_root,
-        force=force,
-        harness_mem_version=harness_mem_version,
-        generated_at=generated_at,
-        doc_pointer=doc_pointer,
-    )
-
-    pre_command = f'python "{pre_script.resolve().as_posix()}"'
-    post_command = f'python "{post_script.resolve().as_posix()}"'
+    resolved_runner = Path(hook_runner).resolve() if hook_runner is not None else verified_hook_runner()
+    pre_command = _hook_command(resolved_runner, "--adapter", "hermes-pre")
+    post_command = _hook_command(resolved_runner, "--adapter", "hermes-post")
     before = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
     after = _merge_hermes_config(
         before,
@@ -469,6 +485,10 @@ def install_hermes_hook_suite(
     else:
         status = "exists"
 
-    return script_results + [
-        HookInstallResult(target_path=config_path.resolve(), status=status)
-    ]
+    return [HookInstallResult(target_path=config_path.resolve(), status=status)]
+
+
+def _hook_command(hook_runner: Path, *args: str) -> str:
+    """Quote a Hook console invocation for shell-style host command fields."""
+
+    return " ".join(shlex.quote(value) for value in (hook_runner.as_posix(), *args))

@@ -8,18 +8,27 @@ unavailable source rather than guessing from configuration files.
 
 from __future__ import annotations
 
+import base64
 import json
+import math
 import re
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 from uuid import uuid4
 
-from harness_mem.adapters.claude_code.project_profile_detector import normalize_project_root
+from harness_mem.adapters.claude_code.project_profile_detector import (
+    normalize_project_root,
+)
 from harness_mem.adapters.protocol import Issue, SessionRecord
+from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
+from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
+from harness_mem.transcript_chunking import source_uri_from_path
 
 DEFAULT_DATABASE_NAMES = (
     "opencode.db",
@@ -27,6 +36,19 @@ DEFAULT_DATABASE_NAMES = (
     "opencode-beta.db",
     "opencode-latest.db",
 )
+
+
+@dataclass(frozen=True)
+class _SessionExport:
+    session: dict[str, Any]
+    messages: list[dict[str, Any]]
+    parts: list[dict[str, Any]]
+    source_text: str
+    raw_bytes: bytes
+
+    @property
+    def sequence_count(self) -> int:
+        return 1 + len(self.messages) + len(self.parts)
 
 
 class OpenCodeAdapter:
@@ -63,7 +85,9 @@ class OpenCodeAdapter:
                     "FROM session ORDER BY time_updated DESC, id DESC"
                 ).fetchall()
         except (OSError, sqlite3.Error) as exc:
-            self._issue(issues, "opencode_database_unreadable", str(exc), self.database_path)
+            self._issue(
+                issues, "opencode_database_unreadable", str(exc), self.database_path
+            )
             return []
 
         sessions: list[SessionRecord] = []
@@ -99,48 +123,62 @@ class OpenCodeAdapter:
     ) -> Observation:
         del issues
         with _connect_readonly(session_path) as db:
-            session = db.execute(
-                "SELECT directory, title, time_updated FROM session WHERE id = ?",
-                (session_id,),
-            ).fetchone()
-            if session is None:
-                raise ValueError(f"OpenCode session not found: {session_id}")
-            messages = db.execute(
-                "SELECT id, data, time_created FROM message "
-                "WHERE session_id = ? ORDER BY time_created, id",
-                (session_id,),
-            ).fetchall()
-            parts = db.execute(
-                "SELECT message_id, data FROM part WHERE session_id = ? ORDER BY message_id, id",
-                (session_id,),
-            ).fetchall()
+            exported = _export_session(db, session_id)
+
+        return self._export_to_observation(
+            exported,
+            session_path,
+            session_id,
+            project_name,
+        )
+
+    def _export_to_observation(
+        self,
+        exported: _SessionExport,
+        session_path: Path,
+        session_id: str,
+        project_name: str | None,
+    ) -> Observation:
+        session = exported.session
 
         parts_by_message: dict[str, list[dict[str, Any]]] = {}
-        for message_id, data in parts:
-            parsed = _decode_json(data)
+        for part in exported.parts:
+            parsed = _decode_json(part.get("data"))
             if isinstance(parsed, dict):
-                parts_by_message.setdefault(str(message_id), []).append(parsed)
+                parts_by_message.setdefault(str(part.get("message_id")), []).append(
+                    parsed
+                )
 
         lines = [f"# OpenCode Session: {session_id}"]
-        if session[0]:
-            lines.append(f"\nWorkspace: {session[0]}")
-        if session[1]:
-            lines.append(f"\nTitle: {session[1]}")
-        for message_id, data, _created in messages:
-            message = _decode_json(data)
+        if session.get("directory"):
+            lines.append(f"\nWorkspace: {session['directory']}")
+        if session.get("title"):
+            lines.append(f"\nTitle: {session['title']}")
+        for message_row in exported.messages:
+            message_id = str(message_row.get("id"))
+            message = _decode_json(message_row.get("data"))
             if not isinstance(message, dict):
                 continue
             role = str(message.get("role") or "").lower()
-            label = "User" if role == "user" else "Assistant" if role == "assistant" else role.title()
-            text = _message_text(message, parts_by_message.get(str(message_id), []))
+            label = (
+                "User"
+                if role == "user"
+                else "Assistant"
+                if role == "assistant"
+                else role.title()
+            )
+            message_parts = parts_by_message.get(message_id, [])
+            text = _message_text(message, message_parts)
             if text:
-                lines.append(f"\n{label}: {text[:4000]}")
-            tools = _message_tools(parts_by_message.get(str(message_id), []))
+                lines.append(f"\n{label}: {text}")
+            tools = _message_tools(message_parts)
             if tools:
-                lines.append(f"\nTools: {', '.join(tools[:10])}")
+                lines.append(f"\nTools: {', '.join(tools)}")
 
         raw_content = "\n".join(lines)
-        timestamp = _epoch_millis(session[2]) or datetime.fromtimestamp(
+        timestamp = _epoch_millis(
+            session.get("time_updated")
+        ) or datetime.fromtimestamp(
             session_path.stat().st_mtime,
             tz=timezone.utc,
         )
@@ -148,7 +186,7 @@ class OpenCodeAdapter:
             id=str(uuid4()),
             session_id=session_id,
             client="opencode",
-            raw_content=raw_content[:50000],
+            raw_content=raw_content,
             content_type="transcript",
             timestamp=timestamp,
             metadata={
@@ -160,6 +198,52 @@ class OpenCodeAdapter:
             tags=["session", "opencode"],
         )
 
+    async def sync_session(
+        self,
+        session_path: Path,
+        session_id: str,
+        project_name: str | None = None,
+    ) -> TranscriptSyncResult:
+        """Persist one deterministic, complete SQLite session export."""
+
+        if self.backend is None:
+            raise RuntimeError(
+                "OpenCodeAdapter.sync_session requires an initialized backend"
+            )
+        with _connect_readonly(session_path) as db:
+            exported = _export_session(db, session_id)
+
+        observation = self._export_to_observation(
+            exported,
+            session_path,
+            session_id,
+            project_name,
+        )
+        project_root = str(self.project_root or exported.session.get("directory") or "")
+        effective_project_name = project_name or _project_name_from_root(project_root)
+        updated = exported.session.get("time_updated")
+        mtime_ns = (
+            int(updated * 1_000_000) if isinstance(updated, (int, float)) else None
+        )
+        source_uri = (
+            f"{source_uri_from_path(session_path)}#session={quote(session_id, safe='')}"
+        )
+        return await persist_session_snapshot(
+            self.backend,
+            observation,
+            project_name=effective_project_name,
+            project_root=project_root,
+            client="opencode",
+            session_id=session_id,
+            source_kind="sqlite-session-export",
+            source_uri=source_uri,
+            source_text=exported.source_text,
+            raw_bytes=exported.raw_bytes,
+            mtime_ns=mtime_ns,
+            sequence_count=exported.sequence_count,
+            parser_version="opencode-sqlite-v1",
+        )
+
     async def ingest(
         self,
         project_name: str | None = None,
@@ -168,44 +252,52 @@ class OpenCodeAdapter:
     ) -> dict[str, Any]:
         if self.backend is None:
             raise RuntimeError("OpenCodeAdapter.ingest requires an initialized backend")
-        sessions = self.list_sessions(project_name, min_size_kb=min_size_kb, limit=limit)
-        existing = {
-            item.session_id
-            for item in await self.backend.verbatim_store.list(limit=100000)
-            if item.client == "opencode"
-            and (project_name is None or item.metadata.get("project_name") == project_name)
-        }
-        ingested = 0
-        skipped = 0
+        if not project_name:
+            raise ValueError("project_name is required for OpenCode ingest")
+        sessions = self.list_sessions(project_name, min_size_kb=min_size_kb)
         errors: list[Issue] = []
-        for session in sessions:
-            session_id = str(session["session_id"])
-            if session_id in existing:
-                skipped += 1
-                continue
-            try:
-                await self.backend.verbatim_store.save(
-                    self.session_to_observation(session["path"], session_id, project_name)
-                )
-                existing.add(session_id)
-                ingested += 1
-            except Exception as exc:  # noqa: BLE001 - report one bad session and continue
-                errors.append({
+
+        async def sync_one(session: SessionRecord) -> TranscriptSyncResult:
+            return await self.sync_session(
+                session["path"],
+                session["session_id"],
+                project_name,
+            )
+
+        source_root = self.database_path or self.home_dir
+        scan = await sync_sessions_fairly(
+            self.backend.transcript_store,
+            project_name=project_name,
+            client="opencode",
+            source_root=source_root,
+            sessions=sessions,
+            change_limit=limit,
+            sync_session=sync_one,
+        )
+        for failure in scan.failures:
+            session_id = failure.session["session_id"]
+            errors.append(
+                {
                     "level": "error",
                     "code": "session_ingest_failed",
-                    "message": f"Failed to ingest OpenCode session {session_id}: {exc}",
-                    "path": str(session["path"]),
+                    "message": f"Failed to ingest OpenCode session {session_id}: {failure.error}",
+                    "path": str(failure.session["path"]),
                     "session_id": session_id,
-                })
+                }
+            )
         return {
             "project_name": project_name,
             "project_root": str(self.project_root) if self.project_root else None,
             "sessions_found": len(sessions),
-            "candidate_sessions": len(sessions),
-            "ingested": ingested,
-            "skipped_existing": skipped,
+            "candidate_sessions": scan.sessions_scanned,
+            "sessions_scanned": scan.sessions_scanned,
+            "ingested": scan.ingested,
+            "updated": scan.updated,
+            "unchanged": scan.unchanged,
+            "skipped_existing": scan.unchanged,
             "errors": len(errors),
             "error_details": errors,
+            "scan_frontier": scan.frontier.to_dict(),
         }
 
     def _find_database(self) -> Path | None:
@@ -218,7 +310,9 @@ class OpenCodeAdapter:
         )
         candidates = [root / name for root in roots for name in DEFAULT_DATABASE_NAMES]
         existing = [path for path in candidates if path.is_file()]
-        return max(existing, key=lambda path: path.stat().st_mtime) if existing else None
+        return (
+            max(existing, key=lambda path: path.stat().st_mtime) if existing else None
+        )
 
     def _connect(self) -> sqlite3.Connection:
         if self.database_path is None:
@@ -235,11 +329,72 @@ class OpenCodeAdapter:
     @staticmethod
     def _issue(issues: list[Issue] | None, code: str, message: str, path: Path) -> None:
         if issues is not None:
-            issues.append({"level": "warning", "code": code, "message": message, "path": str(path)})
+            issues.append(
+                {
+                    "level": "warning",
+                    "code": code,
+                    "message": message,
+                    "path": str(path),
+                }
+            )
 
 
 def _connect_readonly(path: Path) -> sqlite3.Connection:
-    return sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def _export_session(db: sqlite3.Connection, session_id: str) -> _SessionExport:
+    db.execute("BEGIN")
+    session_row = db.execute(
+        "SELECT * FROM session WHERE id = ?",
+        (session_id,),
+    ).fetchone()
+    if session_row is None:
+        raise ValueError(f"OpenCode session not found: {session_id}")
+    message_rows = db.execute(
+        "SELECT * FROM message WHERE session_id = ? ORDER BY time_created, id",
+        (session_id,),
+    ).fetchall()
+    part_rows = db.execute(
+        "SELECT * FROM part WHERE session_id = ? ORDER BY message_id, id",
+        (session_id,),
+    ).fetchall()
+
+    session = dict(session_row)
+    messages = [dict(row) for row in message_rows]
+    parts = [dict(row) for row in part_rows]
+    records = [
+        {"format": "harness-mem-opencode-session-v1", "session_id": session_id},
+        {"row": _encode_sqlite_row(session), "table": "session"},
+        *({"row": _encode_sqlite_row(row), "table": "message"} for row in messages),
+        *({"row": _encode_sqlite_row(row), "table": "part"} for row in parts),
+    ]
+    source_text = "".join(
+        json.dumps(record, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        + "\n"
+        for record in records
+    )
+    return _SessionExport(
+        session=session,
+        messages=messages,
+        parts=parts,
+        source_text=source_text,
+        raw_bytes=source_text.encode("ascii"),
+    )
+
+
+def _encode_sqlite_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {key: _encode_sqlite_value(value) for key, value in row.items()}
+
+
+def _encode_sqlite_value(value: Any) -> Any:
+    if isinstance(value, bytes):
+        return {"$sqlite_blob_base64": base64.b64encode(value).decode("ascii")}
+    if isinstance(value, float) and not math.isfinite(value):
+        return {"$sqlite_float": repr(value)}
+    return value
 
 
 def _decode_json(value: object) -> object:
@@ -268,7 +423,11 @@ def _message_text(message: dict[str, Any], parts: list[dict[str, Any]]) -> str:
 
 
 def _message_tools(parts: list[dict[str, Any]]) -> list[str]:
-    return [str(part.get("tool")) for part in parts if part.get("type") == "tool" and part.get("tool")]
+    return [
+        str(part.get("tool"))
+        for part in parts
+        if part.get("type") == "tool" and part.get("tool")
+    ]
 
 
 def _epoch_millis(value: object) -> datetime | None:
@@ -290,6 +449,11 @@ def _same_or_child_path(value: Path, root: str) -> bool:
     value_text = str(value).replace("/", "\\").rstrip("\\").lower()
     root_text = str(root).replace("/", "\\").rstrip("\\").lower()
     return value_text == root_text or value_text.startswith(root_text + "\\")
+
+
+def _project_name_from_root(project_root: str) -> str:
+    stripped = project_root.replace("\\", "/").rstrip("/")
+    return stripped.rsplit("/", 1)[-1] if stripped else "default"
 
 
 __all__ = ["DEFAULT_DATABASE_NAMES", "OpenCodeAdapter"]
