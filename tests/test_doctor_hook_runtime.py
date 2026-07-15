@@ -12,7 +12,7 @@ def test_doctor_hook_runtime_block_renders_ready_runner(tmp_path: Path, capsys) 
     hook_path = project_root / ".cursor" / "hooks" / "session-start.sh"
     report = HookRuntimeReport(
         project_root=project_root,
-        runner_probe=HookRunnerProbe(path=runner, ok=True, version="0.8.24"),
+        runner_probe=HookRunnerProbe(path=runner, ok=True, version="0.8.25"),
         hooks=(
             HookFileStatus(
                 client="cursor",
@@ -29,14 +29,14 @@ def test_doctor_hook_runtime_block_renders_ready_runner(tmp_path: Path, capsys) 
     _doctor_hook_runtime_block(report)
     out = capsys.readouterr().out
     assert "Hook runtime: ready" in out
-    assert f"runner: {runner} (0.8.24)" in out
+    assert f"runner: {runner} (0.8.25)" in out
     assert "cursor session-start: runner bound, project-root match" in out
 
 
 def test_doctor_hook_runtime_block_renders_legacy_runner(tmp_path: Path, capsys) -> None:
     report = HookRuntimeReport(
         project_root=tmp_path,
-        runner_probe=HookRunnerProbe(path=tmp_path / "harness-mem-hook", ok=True, version="0.8.24"),
+        runner_probe=HookRunnerProbe(path=tmp_path / "harness-mem-hook", ok=True, version="0.8.25"),
         hooks=(
             HookFileStatus(
                 client="cursor",
@@ -80,7 +80,7 @@ def test_doctor_ignores_other_host_config_without_harness_mem_hooks(
         runner_probe=HookRunnerProbe(
             path=tmp_path / "harness-mem-hook",
             ok=True,
-            version="0.8.24",
+            version="0.8.25",
         ),
         hooks=(
             HookFileStatus(
@@ -132,7 +132,7 @@ def test_doctor_reports_partial_suite_for_configured_host(tmp_path: Path, capsys
         runner_probe=HookRunnerProbe(
             path=tmp_path / "harness-mem-hook",
             ok=True,
-            version="0.8.24",
+            version="0.8.25",
         ),
         hooks=(
             HookFileStatus(

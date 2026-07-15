@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.8.25] - 2026-07-16
+
 ### Added
 
 - Project-scoped MCP status bootstrap now adopts the workspace and installs the
