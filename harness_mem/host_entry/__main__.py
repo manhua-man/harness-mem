@@ -64,6 +64,10 @@ _VALID_ADAPTERS = (
 )
 _MAX_PROJECT_ROOT_CHARS = 4096
 _MAX_TRIGGER_ID_CHARS = 256
+_REPEATED_WAKE_CLIENTS = frozenset({"hermes", "antigravity"})
+_WAKE_FALLBACK_TRIGGERS = frozenset(
+    {"hermes-pre-llm", "antigravity-pre-invocation"}
+)
 
 
 def _dream_tick_host_result(payload: dict[str, Any]) -> HostEntryResult:
@@ -279,6 +283,44 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
         os.environ["HARNESS_MEM_CLIENT"] = client_override
 
     try:
+        from harness_mem.storage.local_memory_backend import DEFAULT_DATA_DIR
+
+        if (
+            args.action == "post-turn-maintenance"
+            and args.source == "ide_hook"
+            and os.environ.get("HARNESS_MEM_HOOK_BACKGROUND_WORKER") != "1"
+            and client_override
+            and client_override != "auto"
+        ):
+            try:
+                from harness_mem.hook_background import dispatch_post_turn
+
+                dispatch = dispatch_post_turn(
+                    DEFAULT_DATA_DIR,
+                    project_root=Path(args.project_root),
+                    client=client_override,
+                    source=args.source,
+                    trigger_id=args.trigger_id,
+                )
+                payload = {
+                    "action": "post-turn-maintenance",
+                    "success": True,
+                    "status": "queued",
+                    "project_root": str(Path(args.project_root).resolve()),
+                    "trigger_id": args.trigger_id,
+                    "summary": {
+                        "background": True,
+                        "spawned": dispatch.spawned,
+                        "coalesced": dispatch.coalesced,
+                    },
+                }
+                return (ExitCode.SUCCESS, json.dumps(payload, sort_keys=True))
+            except Exception:  # noqa: BLE001 - fall back to synchronous maintenance.
+                logger.warning(
+                    "could not dispatch background hook maintenance; running inline",
+                    exc_info=True,
+                )
+
         # ---- 2. load merged config (Req 3, Req 4.8) ------------------------
         try:
             merged = load_merged_config(args.project_root)
@@ -287,10 +329,7 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
             return (ExitCode.CONFIG_LOAD_ERROR, None)
 
         # ---- 3. build backend ---------------------------------------------
-        from harness_mem.storage.local_memory_backend import (
-            DEFAULT_DATA_DIR,
-            LocalMemoryBackend,
-        )
+        from harness_mem.storage.local_memory_backend import LocalMemoryBackend
         project_context = resolve_project_context(
             None,
             project_root=args.project_root,
@@ -300,6 +339,24 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
         if project_context is None:
             return (ExitCode.ARG_VALIDATION_ERROR, None)
         project_name = project_context.project_name
+
+        if (
+            args.action == "wake-start"
+            and client_override in _REPEATED_WAKE_CLIENTS
+            and args.trigger_id
+            and args.trigger_id not in _WAKE_FALLBACK_TRIGGERS
+            and project_context.project_root is not None
+        ):
+            from harness_mem.hook_receipts import read_hook_execution_receipt
+
+            receipt = read_hook_execution_receipt(
+                DEFAULT_DATA_DIR,
+                project_root=project_context.project_root,
+                client=client_override,
+                action="wake-start",
+            )
+            if receipt is not None and receipt.get("trigger_id") == args.trigger_id:
+                return (ExitCode.SUCCESS, "")
 
         backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
         await backend.init()
@@ -430,7 +487,46 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--project-root is required")
     if args.source is None:
         parser.error("--source is required")
-    exit_code, stdout_payload = asyncio.run(run(args))
+    worker_generation: str | None = None
+    worker_client = normalize_client_name(args.client)
+    if (
+        os.environ.get("HARNESS_MEM_HOOK_BACKGROUND_WORKER") == "1"
+        and args.action == "post-turn-maintenance"
+        and worker_client
+        and worker_client != "auto"
+    ):
+        from harness_mem.hook_background import (
+            background_generation_from_env,
+            load_background_request,
+        )
+        from harness_mem.storage.local_memory_backend import DEFAULT_DATA_DIR
+
+        request = load_background_request(
+            DEFAULT_DATA_DIR,
+            project_root=Path(args.project_root),
+            client=worker_client,
+        )
+        if request is not None:
+            args.trigger_id = request.trigger_id
+            worker_generation = request.generation
+        else:
+            worker_generation = background_generation_from_env()
+    try:
+        exit_code, stdout_payload = asyncio.run(run(args))
+    finally:
+        if worker_generation is not None and worker_client:
+            from harness_mem.hook_background import finish_background_worker
+            from harness_mem.storage.local_memory_backend import DEFAULT_DATA_DIR
+
+            try:
+                finish_background_worker(
+                    DEFAULT_DATA_DIR,
+                    project_root=Path(args.project_root),
+                    client=worker_client,
+                    processed_generation=worker_generation,
+                )
+            except Exception:  # noqa: BLE001 - background handoff is best-effort.
+                logger.warning("could not hand off coalesced hook maintenance", exc_info=True)
     if stdout_payload is not None:
         sys.stdout.write(stdout_payload + "\n")
     return int(exit_code)

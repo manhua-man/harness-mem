@@ -22,6 +22,11 @@
   each process launch. Stop maintenance also defers transcript embedding model
   loading and limits each interactive pass to one changed session while the
   durable scan frontier continues historical backfill across later turns.
+- IDE post-turn hooks now persist and coalesce maintenance requests behind one
+  detached worker per project and host, so synchronous Hook surfaces return
+  promptly without dropping a request that arrives during a running sync.
+  Hermes and Antigravity pre-hooks also inject wake only once when their native
+  payload supplies a stable session or conversation ID.
 
 ## [0.8.24] - 2026-07-15
 

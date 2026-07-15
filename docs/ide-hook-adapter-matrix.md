@@ -51,6 +51,19 @@ or summarize a transcript. Hook-triggered post-turn/idle maintenance resolves
 the current host, synchronizes native transcript evidence, and queues lossless
 distill work. The CLI `wake-up` command retains a separate best-effort sync
 option for non-hook environments.
+
+Wake remains synchronous because the host needs its returned context before the
+session or invocation proceeds. Post-turn maintenance uses a durable request
+file and one detached worker per project and host. A second event received while
+that worker is active replaces the pending request; after the current sync, the
+worker hands off the newer generation instead of launching concurrent database
+writers or dropping the final turn.
+
+Hermes `pre_llm_call` and Antigravity `PreInvocation` may fire repeatedly inside
+one conversation. When their native payload includes a stable `session_id` or
+`conversationId`, harness-mem reuses the successful wake receipt and emits no
+duplicate context. Fallback trigger labels are deliberately not deduplicated
+because they cannot prove two invocations belong to the same session.
 Session-start injection uses a compact recent-context index. The index is
 derived from project-scoped transcript Observations; it does not replace the
 immutable transcript ledger or governed truth layer, and it does not require
