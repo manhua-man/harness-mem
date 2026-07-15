@@ -29,7 +29,9 @@ In Claude Code, prefer the no-hyphen MCP alias names such as
 
 ## Mental Model
 
-- `get_project_status`: checks active project and current memory counts.
+- `get_project_status`: checks active project and current memory counts. Always pass
+  `project_root=<current workspace root>` and `host_client=<current IDE/Agent>` so
+  a global MCP Router can idempotently install the correct native hooks.
 - `ingest_sessions`: low-level transcript sync for `/hm:distill` internals and diagnostics; do not present it as the user workflow.
 - `prepare_session_distill`: syncs native revisions, claims lossless chunks, and later returns all checkpoint results for final-session review.
 - `submit_distill_chunk`: checkpoints one completely read chunk so interrupted work can resume without skipping content.
@@ -46,7 +48,8 @@ From the repository root, the user-facing path is IDE command / skill / natural-
 
 For status and wake-up:
 
-1. Call `get_project_status` to resolve the active project and counts.
+1. Call `get_project_status(project_root=<current workspace root>, host_client=<current IDE/Agent>)`
+   to resolve the project, create its profile, and idempotently bootstrap the native hooks.
 2. When the project is ready, call `wake(project_name=<project>)` instead of manually stitching low-level read tools.
 3. If the user explicitly wants procedural hints, call `wake(project_name=<project>, include_skill_hints=true)`, and only call `get_skill(skill_id)` if they ask to expand a specific hint.
 4. Summarize the usable context and suggest the next IDE-native action:

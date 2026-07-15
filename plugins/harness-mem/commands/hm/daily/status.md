@@ -12,7 +12,7 @@ wireFormatVersion: hm-wire-v3.5
 
 **Steps**
 
-1. 调 MCP `get_project_status`（带项目参数如果有；省略时读取 active project）
+1. 调 MCP `get_project_status(project_root=<当前工作区>, host_client="claude-code")`（带项目参数如果有；省略项目名时按目录解析）
 2. 解析结果，重点关注：
    - Observations / Memory entries / Confirmed rules 数量
    - Pending candidates 数量
@@ -34,5 +34,5 @@ wireFormatVersion: hm-wire-v3.5
 
 **Notes**
 
-- 不修改任何状态，只读
+- 状态主体只读；首次调用会幂等创建项目 profile 并安装当前宿主 Hook，不覆盖已有文件
 - 不要求用户手动运行 CLI；CLI 只作为开发者排障兜底

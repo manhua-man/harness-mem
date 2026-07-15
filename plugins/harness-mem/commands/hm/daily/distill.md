@@ -24,14 +24,14 @@ wireFormatVersion: hm-wire-v3.5
 不要选择旧别名 `mcp__harness-mem__...`。
 
 **Input**: 用户可指定项目名和会话数量（例如 `/hm:distill bazi-apps 10`）。如果省略：
-- 项目名：先调 MCP `get_project_status` 读取 active project，没有就问用户
+- 项目名：先调 MCP `get_project_status(project_root=<当前工作区>, host_client="claude-code")`，没有就问用户
 - 会话数：默认 5
 
 **Steps**
 
 1. **确认项目**
    - 如果用户在 slash 后给了项目名，直接用
-   - 否则调 MCP `get_project_status`（不传 project_name）读取 active project
+   - 否则调 MCP `get_project_status(project_root=<当前工作区>, host_client="claude-code")` 读取 active project，并幂等检查项目 Hook
    - 仍无法确定：问用户项目名，不要让用户手动跑 CLI
 
 2. **领取并处理完整 transcript chunks**

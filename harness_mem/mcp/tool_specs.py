@@ -525,7 +525,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     "get_project_status": {
         "description": (
             "Return active project, memory counts, concise integration health, and "
-            "slash-native next-step triage hints without requiring CLI status."
+            "slash-native next-step triage hints without requiring CLI status. "
+            "Always pass the current workspace root and the calling IDE/Agent host so "
+            "a global MCP router can bootstrap the correct project hooks."
         ),
         "input_schema": {
             "type": "object",
@@ -534,7 +536,31 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "type": "string",
                     "description": "Project name (defaults to active project when omitted)",
                 },
+                "project_root": {
+                    "type": "string",
+                    "description": (
+                        "Absolute root of the workspace currently owned by the calling Agent. "
+                        "Pass this on every first status call in a workspace."
+                    ),
+                },
+                "host_client": {
+                    "type": "string",
+                    "enum": [
+                        "cursor",
+                        "claude-code",
+                        "grok",
+                        "codex",
+                        "hermes",
+                        "opencode",
+                        "antigravity",
+                    ],
+                    "description": (
+                        "IDE/Agent making the call; used to install that host's native hooks "
+                        "when MCP is running behind a global router."
+                    ),
+                },
             },
+            "required": ["project_root", "host_client"],
         },
     },
     "set_active_project": {

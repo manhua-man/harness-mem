@@ -16,14 +16,15 @@ async def build_integration_health(
     *,
     project_name: str,
     project_root: Path | None,
+    configured_host: str | None = None,
 ) -> dict[str, Any]:
     """Report project, host, hooks, transcript, and distill queue health."""
 
     root = project_root.expanduser().resolve() if project_root is not None else None
     from harness_mem.commands.support import normalize_client_name
 
-    configured_host = os.environ.get("HARNESS_MEM_CLIENT")
-    host = normalize_client_name(configured_host) if configured_host else "unknown"
+    host_hint = configured_host or os.environ.get("HARNESS_MEM_CLIENT")
+    host = normalize_client_name(host_hint) if host_hint else "unknown"
 
     hook_files = (
         collect_hook_file_statuses(root, client=host)
