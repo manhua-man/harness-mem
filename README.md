@@ -143,6 +143,12 @@ overwriting existing files. See
 [docs/ide-hook-adapter-matrix.md](docs/ide-hook-adapter-matrix.md) for the
 current adapter surface and install model for each host.
 
+Codex applies an additional native security gate to project command hooks.
+After automatic installation, open **Codex Settings > Hooks**, review and trust
+the new project hooks once, then start a new task. Until a matching
+`SessionStart` hook has actually completed, `get_project_status` reports
+`hooks=review_required` rather than claiming wake is operational.
+
 Then use the Agent-facing commands:
 
 ```text

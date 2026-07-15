@@ -12,7 +12,7 @@ wireFormatVersion: hm-wire-v3.5
 
 **Steps**
 
-1. **确认当前项目**：从 slash 参数或 MCP `get_project_status` 的 active project
+1. **确认当前项目**：从 slash 参数或 MCP `get_project_status(project_root=<当前工作区>, host_client="claude-code")` 的 active project
 2. **调 MCP search_memory**：
    - `project_name=<current project>`
    - `query=<用户输入>`

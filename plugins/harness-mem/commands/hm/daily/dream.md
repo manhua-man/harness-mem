@@ -28,7 +28,7 @@ wireFormatVersion: hm-wire-v3.5
 
 1. **确认项目**
    - slash 后给了项目名直接用
-   - 否则调 MCP `get_project_status` 读取 active project
+   - 否则调 MCP `get_project_status(project_root=<当前工作区>, host_client="claude-code")` 读取 active project，并幂等检查项目 Hook
    - 仍无法确定时，问用户项目名
 
 2. **默认读取最近账本**

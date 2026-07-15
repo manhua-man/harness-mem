@@ -842,6 +842,15 @@ class SQLiteIndex:
             conn.commit()
         return len(trigrams)
 
+    def observation_ids_with_trigrams(self) -> set[str]:
+        """Return observations that already have exact-search postings."""
+
+        conn = self._conn_write()
+        rows = conn.execute(
+            "SELECT DISTINCT observation_id FROM observation_trigrams"
+        ).fetchall()
+        return {str(row[0]) for row in rows}
+
     def delete_observation_trigrams(self, observation_id: str) -> None:
         """Delete exact-search postings for one observation."""
         conn = self._conn_write()

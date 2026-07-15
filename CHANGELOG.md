@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Added
+
+- Project-scoped MCP status bootstrap now adopts the workspace and installs the
+  matching generated Hook suite for all seven recognized hosts without asking
+  users to run a hook installer.
+
+### Fixed
+
+- Codex Hook health no longer treats a present `.codex/hooks.json` as proof
+  that automatic wake works. Status reports `review_required` until Codex has
+  trusted and successfully run the current `SessionStart` definition, using a
+  configuration-bound execution receipt that becomes stale when hooks change.
+- Hook doctor diagnostics now evaluate complete suites only for hosts that
+  actually contain harness-mem Hook commands. Optional artifacts for other
+  IDEs, and a Hermes config containing only MCP settings, no longer produce a
+  false `repair needed` result.
+- Hook startup no longer rewrites every existing observation trigram index on
+  each process launch. Stop maintenance also defers transcript embedding model
+  loading and limits each interactive pass to one changed session while the
+  durable scan frontier continues historical backfill across later turns.
+- IDE post-turn hooks now persist and coalesce maintenance requests behind one
+  detached worker per project and host, so synchronous Hook surfaces return
+  promptly without dropping a request that arrives during a running sync.
+  Hermes and Antigravity pre-hooks also inject wake only once when their native
+  payload supplies a stable session or conversation ID.
+
 ## [0.8.24] - 2026-07-15
 
 ### Added

@@ -1196,8 +1196,15 @@ def _doctor_distribution_block(distribution: dict[str, Any]) -> None:
 def _doctor_hook_runtime_block(report: HookRuntimeReport) -> None:
     """Render project-scoped hook runtime diagnostics."""
 
-    installed = [hook for hook in report.hooks if hook.exists]
-    missing = len(report.hooks) - len(installed)
+    installed = [
+        hook
+        for hook in report.hooks
+        if hook.exists and (hook.configured or hook.runner_bound or hook.legacy_python)
+    ]
+    configured_clients = {hook.client for hook in installed}
+    expected = [hook for hook in report.hooks if hook.client in configured_clients]
+    missing_hooks = [hook for hook in expected if hook not in installed]
+    missing = len(missing_hooks)
     probe = report.runner_probe
     legacy = [hook for hook in installed if hook.legacy_python]
     unbound = [hook for hook in installed if not hook.runner_bound and not hook.legacy_python]
@@ -1205,7 +1212,7 @@ def _doctor_hook_runtime_block(report: HookRuntimeReport) -> None:
         state = "unavailable"
     elif not installed:
         state = "not installed"
-    elif legacy or unbound:
+    elif missing or legacy or unbound:
         state = "repair needed"
     else:
         state = "ready"
@@ -1220,9 +1227,12 @@ def _doctor_hook_runtime_block(report: HookRuntimeReport) -> None:
         print("    fix: reinstall harness-mem, then reinstall the project Hook suite.")
 
     if not installed:
-        print(f"  hook files: none installed ({missing} known artifact(s) missing)")
+        print("  hook files: none installed")
     else:
-        print(f"  hook files: {len(installed)} installed / {missing} missing")
+        print(
+            f"  hook files: {len(installed)} installed / {missing} missing "
+            f"for {len(configured_clients)} configured host(s)"
+        )
         for hook in installed:
             if hook.legacy_python:
                 binding = "legacy python"
@@ -1240,7 +1250,7 @@ def _doctor_hook_runtime_block(report: HookRuntimeReport) -> None:
                 f"[{scope}] ({_doctor_hook_path(report.project_root, hook.path)})"
             )
 
-    if legacy or unbound:
+    if missing or legacy or unbound:
         print("  fix: reinstall the Hook suite to bind the verified runner.")
 
 

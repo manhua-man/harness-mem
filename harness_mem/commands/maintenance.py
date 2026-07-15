@@ -320,7 +320,7 @@ async def run_post_turn_maintenance(
             return mcp_tool_handlers.tool_prepare_session_distill(
                 project_name=project_name,
                 client="auto",
-                limit=5,
+                limit=1,
                 scope="project",
                 project_root=project_root,
                 observation_limit=5,
@@ -330,7 +330,13 @@ async def run_post_turn_maintenance(
             )
 
         try:
-            evidence_packet = await asyncio.to_thread(_prepare_session_distill)
+            from harness_mem.embedding import temporarily_disable_embeddings
+
+            # Stop hooks must not load torch or encode transcript vectors while
+            # the host is waiting. Exact/FTS indexes remain immediately usable;
+            # vector maintenance can backfill these best-effort rows later.
+            with temporarily_disable_embeddings():
+                evidence_packet = await asyncio.to_thread(_prepare_session_distill)
         except Exception as exc:  # noqa: BLE001 - maintenance should still continue.
             evidence_packet = {
                 "success": False,

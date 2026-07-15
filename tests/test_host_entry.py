@@ -11,10 +11,13 @@ import pytest
 import harness_mem.commands.dream as dream_module
 import harness_mem.commands.maintenance as maintenance_module
 import harness_mem.commands.wake as wake_module
+import harness_mem.hook_background as hook_background
 import harness_mem.host_entry.__main__ as host_entry
+import harness_mem.hook_receipts as hook_receipts
 import harness_mem.storage.local_memory_backend as backend_module
 from harness_mem.config.merge import MergedConfig
 from harness_mem.host_entry.exit_codes import ExitCode
+from harness_mem.hook_receipts import read_hook_execution_receipt
 
 
 class FakeBackend:
@@ -56,6 +59,43 @@ def test_host_entry_wake_start_outputs_wake_text(monkeypatch, tmp_path) -> None:
 
     assert code == ExitCode.SUCCESS
     assert payload == f"Wake context for {tmp_path.name}"
+
+
+def test_host_entry_wake_records_current_codex_hook_execution(monkeypatch, tmp_path) -> None:
+    hook_path = tmp_path / ".codex" / "hooks.json"
+    hook_path.parent.mkdir(parents=True)
+    hook_path.write_text(
+        '{"hooks":{"SessionStart":[{"command":"harness-mem-hook"}]}}\n',
+        encoding="utf-8",
+    )
+    data_dir = tmp_path / "data"
+    monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
+    monkeypatch.setattr(backend_module, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
+    monkeypatch.setattr(
+        host_entry,
+        "ensure_project_profile",
+        lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)),
+    )
+
+    async def fake_wake(_backend, project_name: str) -> str:
+        return f"Wake context for {project_name}"
+
+    monkeypatch.setattr(wake_module, "build_wake_injection", fake_wake)
+    args = _args(tmp_path, "wake-start")
+    args.client = "codex"
+
+    code, _payload = asyncio.run(host_entry.run(args))
+
+    assert code == ExitCode.SUCCESS
+    receipt = read_hook_execution_receipt(
+        data_dir,
+        project_root=tmp_path,
+        client="codex",
+        action="wake-start",
+    )
+    assert receipt is not None
+    assert receipt["project_name"] == tmp_path.name
 
 
 def test_host_entry_dream_end_outputs_dream_json(monkeypatch, tmp_path) -> None:
@@ -138,6 +178,76 @@ def test_host_entry_post_turn_maintenance_outputs_combined_json(monkeypatch, tmp
     assert data["summary"]["distill_job_id"] == "distill-1"
     assert "auto_review" not in data
     assert "dream" not in data
+
+
+def test_host_entry_dispatches_ide_maintenance_without_loading_backend(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_dispatch(_data_dir, **kwargs):
+        captured.update(kwargs)
+        return hook_background.BackgroundDispatch(
+            spawned=True,
+            coalesced=False,
+            generation="generation-1",
+        )
+
+    monkeypatch.setattr(hook_background, "dispatch_post_turn", fake_dispatch)
+    monkeypatch.setattr(
+        host_entry,
+        "load_merged_config",
+        lambda _root: (_ for _ in ()).throw(
+            AssertionError("background dispatch must happen before config/backend startup")
+        ),
+    )
+    args = _args(tmp_path, "post-turn-maintenance")
+    args.client = "cursor"
+
+    code, payload = asyncio.run(host_entry.run(args))
+
+    assert code == ExitCode.SUCCESS
+    data = json.loads(payload or "{}")
+    assert data["status"] == "queued"
+    assert data["summary"] == {
+        "background": True,
+        "coalesced": False,
+        "spawned": True,
+    }
+    assert captured["client"] == "cursor"
+
+
+@pytest.mark.parametrize(
+    ("client", "trigger_id"),
+    (("hermes", "session-7"), ("antigravity", "conversation-7")),
+)
+def test_repeated_pre_hooks_skip_wake_for_same_host_session(
+    monkeypatch,
+    tmp_path,
+    client: str,
+    trigger_id: str,
+) -> None:
+    monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
+    monkeypatch.setattr(
+        hook_receipts,
+        "read_hook_execution_receipt",
+        lambda *_args, **_kwargs: {"trigger_id": trigger_id},
+    )
+
+    class FailBackend:
+        def __init__(self, _data_dir):
+            raise AssertionError("duplicate wake must return before backend startup")
+
+    monkeypatch.setattr(backend_module, "LocalMemoryBackend", FailBackend)
+    args = _args(tmp_path, "wake-start")
+    args.client = client
+    args.trigger_id = trigger_id
+
+    code, payload = asyncio.run(host_entry.run(args))
+
+    assert code == ExitCode.SUCCESS
+    assert payload == ""
 
 
 def test_host_entry_client_override_sets_runtime_host(monkeypatch, tmp_path) -> None:

@@ -27,6 +27,7 @@ from harness_mem.commands.dream import (
     undo_dream_item,
 )
 from harness_mem.commands.ingest import cmd_ingest
+from harness_mem.commands.integration_cmds import SUPPORTED_HOOK_CLIENTS, cmd_install_hook_suite
 from harness_mem.commands.replay_window import ReplayBudget
 from harness_mem.commands.support import (
     SUPPORTED_INGEST_CLIENTS,
@@ -1610,10 +1611,80 @@ async def _gather_project_status(backend: LocalMemoryBackend, project_name: str)
     }
 
 
-def tool_get_project_status(project_name: str | None = None) -> dict:
+_STATUS_BOOTSTRAP_HOSTS = frozenset(SUPPORTED_HOOK_CLIENTS)
+
+
+def _bootstrap_status_workspace(
+    *,
+    project_name: str | None,
+    project_root: str | None,
+    host_client: str | None,
+) -> tuple[str | None, Path | None, str | None, dict[str, Any]]:
+    """Resolve and idempotently bootstrap context supplied by a live Agent."""
+
+    root_context = (
+        resolve_project_context(
+            None,
+            project_root=project_root,
+            required=False,
+            action_label="get_project_status",
+        )
+        if project_root
+        else None
+    )
+    resolved_root = root_context.project_root if root_context is not None else None
+    resolved_project = project_name or (
+        root_context.project_name if root_context is not None else get_active_project()
+    )
+    host = normalize_client_name(host_client) if host_client else None
+
+    bootstrap = {
+        "attempted": False,
+        "host_client": host or "unknown",
+        "hooks_status": "not_requested",
+    }
+    if resolved_project is None or resolved_root is None:
+        return resolved_project, resolved_root, host, bootstrap
+
+    asyncio.run(_support.ensure_project_profile(resolved_project, project_root=resolved_root))
+    set_active_project(resolved_project)
+
+    if host not in _STATUS_BOOTSTRAP_HOSTS:
+        bootstrap["hooks_status"] = "unknown_host"
+        return resolved_project, resolved_root, host, bootstrap
+
+    bootstrap["attempted"] = True
+    install_output = io.StringIO()
+    install_errors = io.StringIO()
+    with contextlib.redirect_stdout(install_output), contextlib.redirect_stderr(install_errors):
+        install_status = cmd_install_hook_suite(host, str(resolved_root), False)
+    if install_status == 0:
+        output = install_output.getvalue()
+        bootstrap["hooks_status"] = (
+            "installed" if "installed:" in output or "updated:" in output else "existing"
+        )
+    else:
+        bootstrap["hooks_status"] = "failed"
+        error = install_errors.getvalue().strip()
+        if error:
+            bootstrap["reason"] = error
+    return resolved_project, resolved_root, host, bootstrap
+
+
+def tool_get_project_status(
+    project_name: str | None = None,
+    project_root: str | None = None,
+    host_client: str | None = None,
+) -> dict:
     """Return active project and memory counts without requiring CLI status."""
+    resolved_project, resolved_root, resolved_host, integration_bootstrap = (
+        _bootstrap_status_workspace(
+            project_name=project_name,
+            project_root=project_root,
+            host_client=host_client,
+        )
+    )
     active_project = get_active_project()
-    resolved_project = project_name or active_project
     if not resolved_project:
         guided_flow = build_guided_flow(
             phase="needs-project",
@@ -1659,12 +1730,15 @@ def tool_get_project_status(project_name: str | None = None) -> dict:
         build_integration_health(
             backend,
             project_name=resolved_project,
-            project_root=find_project_root(resolved_project),
+            project_root=resolved_root or find_project_root(resolved_project),
+            configured_host=resolved_host,
         )
     )
     return {
         "success": True,
         "project_name": resolved_project,
+        "project_root": str(resolved_root) if resolved_root is not None else None,
+        "integration_bootstrap": integration_bootstrap,
         "active_project": active_project,
         "truth_runtime_state": backend.runtime_state,
         "truth_runtime_error": backend.runtime_error,

@@ -77,6 +77,12 @@ the project and installs the matching hook suite without replacing existing
 hooks. OpenCode uses its project plugin; Antigravity uses `.agents/hooks.json`
 with `PreInvocation` and `Stop` JSON bridges. The generic hook-suite installer
 remains available for operator repair.
+
+Codex requires one native security approval after that automatic install:
+open **Settings > Hooks**, review and trust the project's new hooks, then start
+a new task. This is not a harness-mem install command. Codex skips untrusted
+command hooks, and `get_project_status` reports `hooks=review_required` until
+the current `SessionStart` configuration has successfully run.
 For the current host support matrix and where each host expects hooks to live,
 see [IDE hook adapter matrix](ide-hook-adapter-matrix.md).
 Session-start wake shows a compact recent-context index first, including recent

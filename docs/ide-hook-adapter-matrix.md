@@ -26,7 +26,7 @@ automatically:
 | `cursor` | `.cursor/hooks/session-start.sh`, `.cursor/hooks/after-agent.sh` | `wake-start`, `post-turn-maintenance` | `CURSOR_TURN_ID` |
 | `claude-code` | `.claude/hooks/session-start.sh`, `.claude/hooks/after-turn.sh` | `wake-start`, `post-turn-maintenance` | `CLAUDE_CODE_TURN_ID` |
 | `grok` | `.grok/hooks/harness-mem.json` | `SessionStart` -> `wake-start`; `Stop` -> maintenance | static trigger ids in manifest |
-| `codex` | `.codex/hooks.json` | `SessionStart` -> `wake-start`; `Stop` -> maintenance | `harness-mem-hook --adapter codex-stop` reads hook stdin JSON |
+| `codex` | `.codex/hooks.json` | `SessionStart` -> `wake-start`; `Stop` -> maintenance; one-time native Hook trust required | `harness-mem-hook --adapter codex-stop` reads hook stdin JSON |
 | `hermes` | `~/.hermes/config.yaml` | `pre_llm_call` -> `wake-start`; `post_llm_call` -> maintenance | `harness-mem-hook` Hermes adapters read hook stdin JSON |
 | `opencode` | `.opencode/plugins/harness-mem.ts` | `session.created` -> `wake-start`; `session.idle` -> maintenance | plugin event payload |
 | `antigravity` | `.agents/hooks.json` | `PreInvocation` -> wake injection; `Stop` -> evidence staging | `harness-mem-hook` adapters read camelCase hook stdin JSON |
@@ -51,6 +51,19 @@ or summarize a transcript. Hook-triggered post-turn/idle maintenance resolves
 the current host, synchronizes native transcript evidence, and queues lossless
 distill work. The CLI `wake-up` command retains a separate best-effort sync
 option for non-hook environments.
+
+Wake remains synchronous because the host needs its returned context before the
+session or invocation proceeds. Post-turn maintenance uses a durable request
+file and one detached worker per project and host. A second event received while
+that worker is active replaces the pending request; after the current sync, the
+worker hands off the newer generation instead of launching concurrent database
+writers or dropping the final turn.
+
+Hermes `pre_llm_call` and Antigravity `PreInvocation` may fire repeatedly inside
+one conversation. When their native payload includes a stable `session_id` or
+`conversationId`, harness-mem reuses the successful wake receipt and emits no
+duplicate context. Fallback trigger labels are deliberately not deduplicated
+because they cannot prove two invocations belong to the same session.
 Session-start injection uses a compact recent-context index. The index is
 derived from project-scoped transcript Observations; it does not replace the
 immutable transcript ledger or governed truth layer, and it does not require
@@ -94,6 +107,12 @@ The `Hook runtime` block reports:
 - which generated hook artifacts are installed, legacy, or not bound
 - whether installed hook files still contain the current project root
 
+`get_project_status` additionally tracks successful generated-Hook execution
+against the current artifact fingerprint. Codex project command hooks require
+review in **Settings > Hooks** before Codex runs them. A present manifest with
+no matching successful `SessionStart` receipt is reported as
+`review_required`, not `ok`; changing the manifest invalidates the receipt.
+
 The installer validates `harness-mem-hook --version` before writing Hook
 artifacts, so IDE hooks do not depend on a bare `python` selected from the
 IDE's `PATH`. For Cursor and Claude Code shell hooks, set
@@ -115,7 +134,7 @@ local-machine state; adapter availability is installed-code state.
 | Cursor | Shell hook files | `<project>/.cursor/hooks/*.sh` | `session-start` -> `wake-start`; `after-agent` -> maintenance | Checked-in shell templates | Shipped |
 | Claude Code | Shell hook files | `<project>/.claude/hooks/*.sh` | `session-start` -> `wake-start`; `after-turn` -> maintenance | Checked-in shell templates | Shipped |
 | Grok | JSON hook manifests plus plugin hooks | `<project>/.grok/hooks/*.json`, `~/.grok/hooks/*.json`, plugin `hooks/hooks.json` | `SessionStart`, `Stop` | Generate a `.grok/hooks/harness-mem.json` manifest | Shipped |
-| Codex | `hooks.json`, inline config, or plugin hooks | `<project>/.codex/hooks.json`, `~/.codex/hooks.json`, or inline `.codex/config.toml`; plugins can ship `hooks/hooks.json` | `SessionStart`, `Stop` | Generate `.codex/hooks.json` bound to `harness-mem-hook` | Shipped |
+| Codex | `hooks.json`, inline config, or plugin hooks | `<project>/.codex/hooks.json`, `~/.codex/hooks.json`, or inline `.codex/config.toml`; plugins can ship `hooks/hooks.json` | `SessionStart`, `Stop` | Generate `.codex/hooks.json` bound to `harness-mem-hook` | Shipped; user must trust new/changed command hooks once in Codex Settings |
 | Hermes | Shell hooks in YAML, plugin hooks in Python, gateway hooks in `HOOK.yaml` dirs | Shell hooks live in `~/.hermes/config.yaml`; gateway hooks live under `~/.hermes/hooks/<name>/` | `pre_llm_call`, `post_llm_call` | Installer patches user-global YAML with `harness-mem-hook` adapters | Shipped |
 | OpenCode | JS/TS plugin event handlers, not shell hook files | `<project>/.opencode/plugins/`, `~/.config/opencode/plugins/`, or plugin objects in config | `session.created`, `session.idle` | Generate a plugin file such as `.opencode/plugins/harness-mem.ts` | Shipped; SQLite ingest verified |
 | Antigravity (`agy`) | Workspace JSON command hooks | `<project>/.agents/hooks.json` | `PreInvocation`, `Stop` | Console adapter JSON stdin/stdout bridge plus JSONL transcript adapter | Shipped |

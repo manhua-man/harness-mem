@@ -6,8 +6,10 @@ from datetime import datetime, timezone
 
 import pytest
 
+import harness_mem.commands.integration_cmds as integration_cmds
 from harness_mem.config.merge import MergedConfig
 import harness_mem.commands.support as support_module
+import harness_mem.mcp.tool_handlers as tool_handlers
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.mcp import server
@@ -158,6 +160,122 @@ def test_initialize_adopts_workspace_and_installs_recognized_host_hooks(
     assert profile is not None
     assert profile.project_root == str(workspace.resolve())
     assert profile.project_id is not None
+
+
+def test_get_project_status_bootstraps_router_workspace_and_codex_hooks(
+    backend,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "codex-workspace"
+    workspace.mkdir()
+    (workspace / ".git").mkdir()
+    runner = tmp_path / "bin" / "harness-mem-hook.exe"
+    runner.parent.mkdir()
+    runner.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
+    monkeypatch.setattr(integration_cmds, "verified_hook_runner", lambda: runner)
+    monkeypatch.delenv("HARNESS_MEM_CLIENT", raising=False)
+    monkeypatch.delenv("HARNESS_MEM_PROJECT_ROOT", raising=False)
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 101,
+            "method": "tools/call",
+            "params": {
+                "name": "get_project_status",
+                "arguments": {
+                    "project_root": str(workspace),
+                    "host_client": "codex",
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    payload = _tool_result(response)
+    assert payload["success"] is True
+    assert payload["project_name"] == "codex-workspace"
+    assert payload["integration_bootstrap"] == {
+        "attempted": True,
+        "host_client": "codex",
+        "hooks_status": "installed",
+    }
+    assert payload["integration_health"]["host"]["client"] == "codex"
+    assert payload["integration_health"]["hooks"]["status"] == "review_required"
+    assert payload["integration_health"]["hooks"]["wake_verified"] is False
+    assert "Settings > Hooks" in payload["integration_health"]["hooks"]["action_required"]
+    hook_path = workspace / ".codex" / "hooks.json"
+    hook_config = json.loads(hook_path.read_text(encoding="utf-8"))
+    wake_command = hook_config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+    stop_command = hook_config["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert "wake-start" in wake_command
+    assert "codex-stop" in stop_command
+
+    second_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 102,
+            "method": "tools/call",
+            "params": {
+                "name": "get_project_status",
+                "arguments": {
+                    "project_root": str(workspace),
+                    "host_client": "codex",
+                },
+            },
+        }
+    )
+    assert second_response is not None
+    assert _tool_result(second_response)["integration_bootstrap"]["hooks_status"] == "existing"
+
+    profile = asyncio.run(LocalProjectProfileStore(backend.data_dir).get("codex-workspace"))
+    assert profile is not None
+    assert profile.project_root == str(workspace.resolve())
+
+
+@pytest.mark.parametrize("host_client", integration_cmds.SUPPORTED_HOOK_CLIENTS)
+def test_get_project_status_dispatches_bootstrap_for_every_supported_host(
+    backend,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    host_client: str,
+) -> None:
+    workspace = tmp_path / f"{host_client}-workspace"
+    workspace.mkdir()
+    (workspace / ".git").mkdir()
+    installs: list[tuple[str, str, bool]] = []
+
+    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", backend.data_dir)
+    monkeypatch.setattr(
+        tool_handlers,
+        "cmd_install_hook_suite",
+        lambda client, root, force: installs.append((client, root, force)) or 0,
+    )
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 103,
+            "method": "tools/call",
+            "params": {
+                "name": "get_project_status",
+                "arguments": {
+                    "project_root": str(workspace),
+                    "host_client": host_client,
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    payload = _tool_result(response)
+    assert payload["success"] is True
+    assert payload["integration_bootstrap"]["attempted"] is True
+    assert payload["integration_bootstrap"]["host_client"] == host_client
+    assert installs == [(host_client, str(workspace.resolve()), False)]
 
 
 def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:

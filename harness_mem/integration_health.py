@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from harness_mem.adapters import AdapterRegistry
+from harness_mem.hook_receipts import read_hook_execution_receipt
 from harness_mem.hook_runtime import collect_hook_file_statuses
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
@@ -16,27 +17,50 @@ async def build_integration_health(
     *,
     project_name: str,
     project_root: Path | None,
+    configured_host: str | None = None,
 ) -> dict[str, Any]:
     """Report project, host, hooks, transcript, and distill queue health."""
 
     root = project_root.expanduser().resolve() if project_root is not None else None
     from harness_mem.commands.support import normalize_client_name
 
-    configured_host = os.environ.get("HARNESS_MEM_CLIENT")
-    host = normalize_client_name(configured_host) if configured_host else "unknown"
+    host_hint = configured_host or os.environ.get("HARNESS_MEM_CLIENT")
+    host = normalize_client_name(host_hint) if host_hint else "unknown"
 
     hook_files = (
         collect_hook_file_statuses(root, client=host)
         if root is not None and host != "unknown"
         else ()
     )
-    installed_hooks = [hook for hook in hook_files if hook.exists]
+    installed_hooks = [hook for hook in hook_files if hook.exists and hook.configured]
+    wake_receipt = (
+        read_hook_execution_receipt(
+            backend.data_dir,
+            project_root=root,
+            client=host,
+            action="wake-start",
+        )
+        if root is not None and host != "unknown"
+        else None
+    )
+    maintenance_receipt = (
+        read_hook_execution_receipt(
+            backend.data_dir,
+            project_root=root,
+            client=host,
+            action="post-turn-maintenance",
+        )
+        if root is not None and host != "unknown"
+        else None
+    )
     if host == "unknown" or root is None:
         hooks_status = "unknown"
     elif not hook_files:
         hooks_status = "unsupported"
     elif len(installed_hooks) == len(hook_files):
-        hooks_status = "ok"
+        hooks_status = (
+            "review_required" if host == "codex" and wake_receipt is None else "ok"
+        )
     else:
         hooks_status = "missing"
 
@@ -123,6 +147,13 @@ async def build_integration_health(
             "installed": len(installed_hooks),
             "expected": len(hook_files),
             "files": [str(hook.path) for hook in hook_files if hook.exists],
+            "wake_verified": wake_receipt is not None,
+            "maintenance_verified": maintenance_receipt is not None,
+            "action_required": (
+                "Open Codex Settings > Hooks, trust this project's hooks, then start a new task."
+                if hooks_status == "review_required"
+                else None
+            ),
         },
         "transcript": {
             "status": transcript_status,

@@ -23,6 +23,7 @@ from harness_mem.search.backend import (
 from harness_mem.storage import CandidateStore, DerivedIndex, TruthStore
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.reflection_job_store import ReflectionJobStore
+from harness_mem.storage.sqlite_index import SQLiteIndex
 
 
 def _run(coro):
@@ -217,6 +218,31 @@ def test_canonical_boot_rebuilds_relation_rule_observation_indexes(backend) -> N
         assert {match.observation.id for match in regex_matches} == {observation_id}
     finally:
         _run(rebuilt.close())
+
+
+def test_canonical_boot_does_not_rewrite_current_observation_trigrams(
+    backend,
+    monkeypatch,
+) -> None:
+    observation = Observation(
+        session_id="session-current-trigrams",
+        client="codex",
+        raw_content="currenttrigramtoken postings should survive backend restart",
+        content_type="turn",
+        metadata={"project_name": "demo"},
+    )
+    observation_id = _run(backend.verbatim_store.save(observation))
+    assert observation_id in backend.verbatim_store.index.observation_ids_with_trigrams()
+
+    data_dir = backend.data_dir
+    _run(backend.close())
+
+    def fail_rewrite(*_args, **_kwargs):
+        raise AssertionError("current trigram postings must not be rewritten on boot")
+
+    monkeypatch.setattr(SQLiteIndex, "replace_observation_trigrams", fail_rewrite)
+    rebuilt = _run(_new_backend(data_dir))
+    _run(rebuilt.close())
 
 
 def test_vector_disabled_hybrid_search_falls_back_to_fts(backend) -> None:
