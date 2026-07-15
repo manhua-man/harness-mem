@@ -152,7 +152,7 @@ class LocalVerbatimStore:
 
         # Index metadata for search
         await asyncio.to_thread(
-            self._index.insert,
+            self._index.upsert,
             "observations",
             {
                 "id": observation.id,

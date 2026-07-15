@@ -1196,48 +1196,52 @@ def _doctor_distribution_block(distribution: dict[str, Any]) -> None:
 def _doctor_hook_runtime_block(report: HookRuntimeReport) -> None:
     """Render project-scoped hook runtime diagnostics."""
 
-    print("Hook runtime:")
-    probe = report.python_probe
-    command = " ".join(probe.command)
-    if probe.ok:
-        details = [
-            f"executable={probe.executable or 'unknown'}",
-            f"python={probe.python_version or 'unknown'}",
-            f"harness-mem={probe.harness_mem_version or 'unknown'}",
-        ]
-        print(f"  current shell python ({command}): ok | " + " | ".join(details))
-    else:
-        print(f"  current shell python ({command}): unavailable")
-        if probe.error:
-            print(f"    error: {_doctor_one_line(probe.error)}")
-        print(
-            "    fix: install harness-mem into the Python visible to generated "
-            "hooks, or launch the IDE with that Python on PATH."
-        )
-
     installed = [hook for hook in report.hooks if hook.exists]
     missing = len(report.hooks) - len(installed)
+    probe = report.runner_probe
+    legacy = [hook for hook in installed if hook.legacy_python]
+    unbound = [hook for hook in installed if not hook.runner_bound and not hook.legacy_python]
+    if not probe.ok:
+        state = "unavailable"
+    elif not installed:
+        state = "not installed"
+    elif legacy or unbound:
+        state = "repair needed"
+    else:
+        state = "ready"
+
+    print(f"Hook runtime: {state}")
+    if probe.ok:
+        print(f"  runner: {probe.path} ({probe.version or 'unknown version'})")
+    else:
+        print("  runner: unavailable")
+        if probe.error:
+            print(f"    error: {_doctor_one_line(probe.error)}")
+        print("    fix: reinstall harness-mem, then reinstall the project Hook suite.")
+
     if not installed:
         print(f"  hook files: none installed ({missing} known artifact(s) missing)")
     else:
         print(f"  hook files: {len(installed)} installed / {missing} missing")
         for hook in installed:
-            boundary = "host_entry" if hook.contains_host_entry else "no host_entry"
+            if hook.legacy_python:
+                binding = "legacy python"
+            elif hook.runner_bound:
+                binding = "runner bound"
+            else:
+                binding = "runner not found"
             if hook.project_root_match:
                 root_match = "project-root match"
             else:
                 root_match = "project-root not found"
             scope = "global" if hook.scope == "global" else "project"
             print(
-                f"    {hook.client} {hook.label}: {boundary}, {root_match} "
+                f"    {hook.client} {hook.label}: {binding}, {root_match} "
                 f"[{scope}] ({_doctor_hook_path(report.project_root, hook.path)})"
             )
 
-    print(f"  note: {report.ide_env_note}")
-    print(
-        "  debug: set HARNESS_MEM_HOOK_DEBUG=1 before launching the IDE "
-        "to surface hook failures."
-    )
+    if legacy or unbound:
+        print("  fix: reinstall the Hook suite to bind the verified runner.")
 
 
 def _doctor_hook_path(project_root: Path, path: Path) -> str:

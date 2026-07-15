@@ -269,8 +269,8 @@ def main(argv: list[str] | None = None):
         "integration",
         help="Install IDE hooks for wake injection and dream maintenance",
         description=(
-            "Generate IDE hook scripts that invoke 'python -m "
-            "harness_mem.host_entry'. Session-start hooks print wake context; "
+            "Generate IDE hook scripts bound to the verified 'harness-mem-hook' "
+            "console entry. Session-start hooks print wake context; "
             "after-turn hooks run gated dream maintenance."
         ),
     )

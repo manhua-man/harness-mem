@@ -12,6 +12,8 @@ from harness_mem.adapters import AdapterRegistry
 from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
 from harness_mem.adapters.parser import extract_claude_session_cwd
 from harness_mem.adapters.protocol import SessionRecord
+from harness_mem.adapters.scan_scheduler import normalize_source_root, sync_sessions_fairly
+from harness_mem.adapters.snapshot import TranscriptSyncResult
 from harness_mem.adapters.claude_code.project_profile_detector import (
     build_project_profile,
     normalize_project_root,
@@ -100,6 +102,14 @@ async def cmd_ingest(
         if client in {"codex", "hermes"}:
             adapter_kwargs["scope"] = scope
         adapter = AdapterRegistry.build(client, backend, **adapter_kwargs)
+        if full_rescan:
+            source_root = _adapter_source_root(adapter)
+            if source_root is not None:
+                backend.transcript_store.reset_scan_frontier(
+                    project_name=project_name,
+                    client=client,
+                    source_root=normalize_source_root(source_root),
+                )
         result = await adapter.ingest(project_name=project_name, limit=limit, min_size_kb=0)
         return _report_non_claude_ingest_result(
             client=client,
@@ -128,42 +138,45 @@ async def _ingest_claude_code(
         project_root=project_root,
     )
     last_session_id = profile.last_ingest_session_id if profile and not full_rescan else None
-    last_ingest_at = profile.last_ingest_at if profile and not full_rescan else None
 
     print(f"Ingesting claude-code sessions for project: {project_name}")
     if session_project_name != project_name:
         print(f"Claude session project: {session_project_name}")
     print(f"Project root: {project_root}")
-    candidate_sessions = _select_claude_candidate_sessions(
-        all_sessions,
-        limit=limit,
-        full_rescan=full_rescan,
-        last_session_id=last_session_id,
-        last_ingest_at=last_ingest_at,
+    candidate_sessions = all_sessions
+
+    async def sync_one(session: SessionRecord) -> TranscriptSyncResult:
+        return await adapter.sync_session(
+            session["path"],
+            session["session_id"],
+            project_name,
+            project_root=project_root,
+        )
+
+    source_root = (
+        candidate_sessions[0]["path"].parent
+        if candidate_sessions
+        else adapter.sessions_dir / session_project_name
     )
-
-    existing_observations = await backend.verbatim_store.list(limit=100000)
-    existing_session_ids = {
-        observation.session_id
-        for observation in existing_observations
-        if observation.metadata.get("project_name") == project_name
-    }
-
-    ingested = 0
-    errors = 0
-    skipped_existing = 0
-
-    for session in candidate_sessions:
-        try:
-            if session["session_id"] in existing_session_ids:
-                skipped_existing += 1
-                continue
-            observation = adapter.session_to_observation(session["path"], session["session_id"], project_name)
-            await backend.verbatim_store.save(observation)
-            ingested += 1
-            existing_session_ids.add(session["session_id"])
-        except Exception:
-            errors += 1
+    if full_rescan:
+        backend.transcript_store.reset_scan_frontier(
+            project_name=project_name,
+            client="claude-code",
+            source_root=normalize_source_root(source_root),
+        )
+    scan = await sync_sessions_fairly(
+        backend.transcript_store,
+        project_name=project_name,
+        client="claude-code",
+        source_root=source_root,
+        sessions=candidate_sessions,
+        change_limit=limit,
+        sync_session=sync_one,
+    )
+    ingested = scan.ingested
+    updated = scan.updated
+    unchanged = scan.unchanged
+    errors = len(scan.failures)
 
     newest_seen_session_id = last_session_id
     if all_sessions:
@@ -171,8 +184,10 @@ async def _ingest_claude_code(
 
     print(f"Sessions found: {len(all_sessions)}")
     print(f"Ingested: {ingested} sessions")
-    if skipped_existing > 0:
-        print(f"Skipped existing: {skipped_existing} sessions")
+    if updated > 0:
+        print(f"Updated: {updated} sessions")
+    if unchanged > 0:
+        print(f"Unchanged: {unchanged} sessions")
     if errors > 0:
         print(f"Errors: {errors}")
 
@@ -206,6 +221,8 @@ async def _ingest_claude_code(
     extra = {
         "client": "claude-code",
         "ingested": ingested,
+        "updated": updated,
+        "unchanged": unchanged,
         "sessions_found": len(all_sessions),
         "full_rescan": full_rescan,
     }
@@ -256,6 +273,21 @@ def _resolve_project_root(project_root: str | None) -> Path:
     if project_root:
         return normalize_project_root(Path(project_root).expanduser())
     return normalize_project_root(Path.cwd())
+
+
+def _adapter_source_root(adapter: Any) -> Path | None:
+    for name in (
+        "source_root",
+        "database_path",
+        "projects_dir",
+        "sessions_dir",
+        "brain_dir",
+        "archive_dir",
+    ):
+        value = getattr(adapter, name, None)
+        if value is not None:
+            return Path(value)
+    return None
 
 
 def _list_claude_sessions_for_current_project(
@@ -375,7 +407,8 @@ def _report_non_claude_ingest_result(
     for warning in result.get("warnings", []):
         print(f"Warning: {warning['message']}")
 
-    exit_code = 1 if result["errors"] > 0 and result["ingested"] == 0 else 0
+    changed_count = int(result.get("ingested", 0)) + int(result.get("updated", 0))
+    exit_code = 1 if result["errors"] > 0 and changed_count == 0 else 0
     scoped_sessions = result.get("scoped_sessions")
     if (
         result.get("scope") == "project"
@@ -410,9 +443,12 @@ def _report_non_claude_ingest_result(
     if isinstance(candidate_sessions, int):
         print(f"Candidates after cursor: {candidate_sessions}")
     print(f"Ingested: {result['ingested']} sessions")
-    skipped_existing = result.get("skipped_existing", 0)
-    if isinstance(skipped_existing, int) and skipped_existing > 0:
-        print(f"Skipped existing: {skipped_existing} sessions")
+    updated = result.get("updated", 0)
+    if isinstance(updated, int) and updated > 0:
+        print(f"Updated: {updated} sessions")
+    unchanged = result.get("unchanged", result.get("skipped_existing", 0))
+    if isinstance(unchanged, int) and unchanged > 0:
+        print(f"Unchanged: {unchanged} sessions")
     for error in result.get("error_details", []):
         print(f"Error: {error['message']}")
     if result["errors"] > 0:

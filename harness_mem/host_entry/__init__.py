@@ -1,6 +1,6 @@
 """Hook host-entry adapter package.
 
-The host entry is invoked as ``python -m harness_mem.host_entry`` by IDE hooks.
+The host entry is invoked as ``harness-mem-hook`` by IDE hooks.
 It maps explicit hook actions to in-process runtime calls:
 
 * ``dream-end`` emits structured JSON for end-of-session dream maintenance.

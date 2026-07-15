@@ -36,6 +36,7 @@ from harness_mem.integration.installer import (
     install_hermes_hook_suite,
     install_hook,
     install_hook_suite,
+    verified_hook_runner,
 )
 from harness_mem.transcript_evidence import (
     EVIDENCE_CLIENTS,
@@ -108,16 +109,20 @@ def _quote_hook_arg(value: str) -> str:
     return shlex.quote(value)
 
 
-def _python_script_command(script_path: Path) -> str:
-    return f"python {_quote_hook_arg(script_path.resolve().as_posix())}"
+def _hook_command(hook_runner: Path, *args: str) -> str:
+    return " ".join(_quote_hook_arg(value) for value in (hook_runner.as_posix(), *args))
 
 
-def _host_entry_command(action: str, root: Path, trigger_id: str, client: str) -> str:
+def _host_entry_command(
+    hook_runner: Path,
+    action: str,
+    root: Path,
+    trigger_id: str,
+    client: str,
+) -> str:
     return " ".join(
         [
-            "python",
-            "-m",
-            "harness_mem.host_entry",
+            _quote_hook_arg(hook_runner.as_posix()),
             "--action",
             action,
             "--project-root",
@@ -132,7 +137,7 @@ def _host_entry_command(action: str, root: Path, trigger_id: str, client: str) -
     )
 
 
-def _suite_specs(client: str, root: Path) -> tuple[HookSpec, ...]:
+def _suite_specs(client: str, root: Path, hook_runner: Path) -> tuple[HookSpec, ...]:
     if client == "cursor":
         return (
             HookSpec(
@@ -162,10 +167,17 @@ def _suite_specs(client: str, root: Path) -> tuple[HookSpec, ...]:
                 root / ".grok" / "hooks" / "harness-mem.json",
                 template_vars={
                     "WAKE_COMMAND_JSON": json.dumps(
-                        _host_entry_command("wake-start", root, "grok-session-start", "grok")
+                        _host_entry_command(
+                            hook_runner,
+                            "wake-start",
+                            root,
+                            "grok-session-start",
+                            "grok",
+                        )
                     ),
                     "POST_TURN_COMMAND_JSON": json.dumps(
                         _host_entry_command(
+                            hook_runner,
                             "post-turn-maintenance",
                             root,
                             "grok-stop",
@@ -176,21 +188,31 @@ def _suite_specs(client: str, root: Path) -> tuple[HookSpec, ...]:
             ),
         )
     if client == "codex":
-        stop_script = root / ".codex" / "hooks" / "harness_mem_stop.py"
         return (
             HookSpec(
                 "codex_hooks.json.template",
                 root / ".codex" / "hooks.json",
                 template_vars={
                     "WAKE_COMMAND_JSON": json.dumps(
-                        _host_entry_command("wake-start", root, "codex-session-start", "codex")
+                        _host_entry_command(
+                            hook_runner,
+                            "wake-start",
+                            root,
+                            "codex-session-start",
+                            "codex",
+                        )
                     ),
                     "STOP_COMMAND_JSON": json.dumps(
-                        _python_script_command(stop_script)
+                        _hook_command(
+                            hook_runner,
+                            "--adapter",
+                            "codex-stop",
+                            "--project-root",
+                            root.resolve().as_posix(),
+                        )
                     ),
                 },
             ),
-            HookSpec("codex_stop.py.template", stop_script),
         )
     if client == "opencode":
         return (
@@ -205,6 +227,7 @@ def _suite_specs(client: str, root: Path) -> tuple[HookSpec, ...]:
 def _install_suite(client: str, project_root: str | None, force: bool) -> int:
     root = _resolve_project_root(project_root)
     try:
+        hook_runner = verified_hook_runner()
         if client == "hermes":
             results = install_hermes_hook_suite(
                 project_root=root,
@@ -212,6 +235,7 @@ def _install_suite(client: str, project_root: str | None, force: bool) -> int:
                 harness_mem_version=__version__,
                 generated_at=datetime.now(timezone.utc),
                 doc_pointer=_DOC_POINTER,
+                hook_runner=hook_runner,
             )
         elif client == "antigravity":
             results = install_antigravity_hook_suite(
@@ -220,15 +244,17 @@ def _install_suite(client: str, project_root: str | None, force: bool) -> int:
                 harness_mem_version=__version__,
                 generated_at=datetime.now(timezone.utc),
                 doc_pointer=_DOC_POINTER,
+                hook_runner=hook_runner,
             )
         else:
             results = install_hook_suite(
-                specs=_suite_specs(client, root),
+                specs=_suite_specs(client, root, hook_runner),
                 project_root=root,
                 force=force,
                 harness_mem_version=__version__,
                 generated_at=datetime.now(timezone.utc),
                 doc_pointer=_DOC_POINTER,
+                hook_runner=hook_runner,
             )
     except (KeyError, OSError, RuntimeError, ValueError) as exc:
         print(f"install failed: {root}: {exc}", file=sys.stderr)

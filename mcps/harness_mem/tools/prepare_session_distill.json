@@ -55,13 +55,18 @@
       },
       "max_chars_per_observation": {
         "type": "integer",
-        "description": "Maximum raw_content chars per observation (default: 6000)",
+        "description": "Deprecated compatibility field; packets are no longer truncated",
         "default": 6000
       },
       "run_ingest": {
         "type": "boolean",
         "description": "Run low-level transcript sync before building the packet (default: true)",
         "default": true
+      },
+      "chunk_limit": {
+        "type": "integer",
+        "description": "Lossless transcript chunks to claim in this Agent call (default: 1, max: 3)",
+        "default": 1
       }
     }
   }

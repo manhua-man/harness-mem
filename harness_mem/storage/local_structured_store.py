@@ -521,7 +521,7 @@ class LocalStructuredStore:
         blob_path = self._blob_path("memory_entries", entry.id)
         blob_path.write_text(json.dumps(entry.to_dict(), indent=2, default=str))
         await asyncio.to_thread(
-            self._index.insert,
+            self._index.upsert,
             "memory_entries",
             {
                 "id": entry.id,
@@ -827,7 +827,7 @@ class LocalStructuredStore:
         blob_path = self._blob_path("rule_candidates", candidate.id)
         blob_path.write_text(json.dumps(candidate.to_dict(), indent=2, default=str))
         await asyncio.to_thread(
-            self._index.insert,
+            self._index.upsert,
             "rule_candidates",
             {
                 "id": candidate.id,
@@ -1560,7 +1560,7 @@ class LocalStructuredStore:
         blob_path = self._blob_path("relation_facts", fact.id)
         blob_path.write_text(json.dumps(fact.to_dict(), indent=2, default=str))
         await asyncio.to_thread(
-            self._index.insert,
+            self._index.upsert,
             "relation_facts",
             {
                 "id": fact.id,

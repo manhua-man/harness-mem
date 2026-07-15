@@ -35,6 +35,10 @@
         "items": {
           "type": "string"
         }
+      },
+      "distill_job_id": {
+        "type": "string",
+        "description": "Review-ready distill job id for exactly-once candidate creation"
       }
     },
     "required": [

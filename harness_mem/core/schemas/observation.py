@@ -1,4 +1,4 @@
-"""Observation schema — verbatim layer raw session/event."""
+"""Observation schema for searchable session and event renderings."""
 
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -7,16 +7,16 @@ from pydantic import BaseModel, Field
 
 
 class Observation(BaseModel):
-    """Raw session/event from a client adapter.
+    """Searchable session/event rendering from a client adapter.
 
-    This is the verbatim layer — stores original transcript, events,
-    commands, and output exactly as received.
+    Lossless native transcript revisions live in ``TranscriptStore``. Older
+    observations may predate that ledger and carry partial legacy content.
     """
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     session_id: str
     client: str = Field(description="e.g. claude-code, codex, cursor")
-    raw_content: str = Field(description="Original transcript or event JSON")
+    raw_content: str = Field(description="Searchable transcript or event rendering")
     content_type: str = Field(
         description="transcript | event | command | output"
     )

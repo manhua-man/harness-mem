@@ -2,6 +2,71 @@
 
 ## Unreleased
 
+## [0.8.24] - 2026-07-15
+
+### Added
+
+- A lossless transcript ledger that preserves exact native bytes, immutable
+  source revisions, normalized SHA-256 metadata, and complete ordered chunks.
+- Resumable distill jobs with per-chunk leases and checkpoints, revision-aware
+  stale-job handling, required final-session semantic review, and explicit
+  `submit_distill_chunk` / `finalize_session_distill` MCP operations.
+- Revision-aware transcript capture for Cursor, Claude Code, Codex, Grok,
+  Hermes, OpenCode, and Antigravity. Current and archived Codex sessions remain
+  distinct sources under the same host family.
+- Upstream-aligned Hermes `state.db` and Antigravity CLI `history.jsonl` source
+  variants, each exported per session with project-isolation and growth tests.
+- Distill diagnostics for source coverage, revision state, expected/completed
+  chunks, and queued or processing lossless jobs.
+
+### Changed
+
+- Long sessions are processed from beginning to end without transcript or
+  chunk truncation. Bounded Agent calls claim complete chunks and resume from
+  durable checkpoints instead of dropping the unread tail.
+- Appended host sessions create new source revisions and new idempotent jobs;
+  unchanged recent sessions no longer starve older historical backlog scans.
+- Transcript Observations are explicitly derived search projections. Exact
+  source revisions in the transcript ledger are the authoritative session
+  evidence and remain reconstructable independently of search indexes.
+- Candidate suggestions accept a distill job identity and derive stable IDs,
+  so retries do not duplicate memory, rule, or relation candidates.
+- `finalize_session_distill` verifies current revision and complete chunk
+  coverage before applying auto-review and running Dream.
+- Generated hooks bind the exact installed `harness-mem-hook` executable and
+  automatically upgrade legacy managed hooks instead of relying on a bare
+  `python` selected from an IDE's `PATH`.
+- Transcript source persistence and distill job persistence now have separate
+  storage components while sharing one transactional SQLite ledger.
+- Removed the repo-local `tools/session-distill/lib` and
+  `bin/session-distill.py` duplicate implementation after porting its useful
+  lossless, isolation, review-gate, and idempotency coverage to `harness_mem`.
+  `/hm:distill`, the instruction-only skill, and MCP
+  `prepare` / `submit` / `finalize` operations are the only lifecycle.
+
+### Fixed
+
+- Growing sessions are no longer skipped merely because their `session_id` was
+  seen before.
+- Hook preparation is no longer described as completed summarization; hooks
+  capture and queue evidence, while an Agent performs semantic distillation.
+- Legacy completion no longer marks every processing job in a project complete;
+  it targets one explicit job or the sole unambiguous processing job.
+- `finalize_session_distill` now verifies revision currency and complete chunk
+  coverage before auto-review can mutate candidate state.
+- Final semantic review now blocks promotion and Dream for partial, blocked,
+  contradicted, unfinished, or explicit no-promotion outcomes. Auto-review is
+  restricted to candidates produced by the finalized job.
+- The canonical transcript ledger retains raw revisions, uses SHA-256 identity,
+  and processes every turn, assistant block, and tool call without head/tail or
+  character cuts; no repo-local packet/manifest path remains.
+- Distill candidate IDs now use source revision, pipeline version, project,
+  candidate kind, and a normalized semantic claim, so whitespace and unordered
+  collection differences do not create duplicate candidates.
+- Seven host adapters now carry explicit project-isolation negative tests, and
+  release smoke checks a fixed transcript hash vector on Windows, macOS, and
+  Linux.
+
 ## [0.8.23.4] - 2026-07-14
 
 ### Added

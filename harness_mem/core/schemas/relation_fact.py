@@ -29,6 +29,10 @@ class RelationFact(BaseModel):
     )
     evidence: str = Field(description="Human-readable evidence for the relation")
     source: str = Field(description="Source observation id, entry id, or 'manual'")
+    distill_job_id: str | None = Field(
+        default=None,
+        description="Lossless distill job that produced this candidate, if any.",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     tags: list[str] = Field(default_factory=list)
@@ -76,6 +80,7 @@ class RelationFact(BaseModel):
             "status": self.status,
             "evidence": self.evidence,
             "source": self.source,
+            "distill_job_id": self.distill_job_id,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "tags": self.tags,
@@ -108,6 +113,8 @@ class RelationFact(BaseModel):
             data["tags"] = []
         if "provenance" not in data:
             data["provenance"] = None
+        if "distill_job_id" not in data:
+            data["distill_job_id"] = None
         if "valid_from" not in data or data["valid_from"] is None:
             data["valid_from"] = data.get("created_at")
         if "recorded_at" not in data or data["recorded_at"] is None:

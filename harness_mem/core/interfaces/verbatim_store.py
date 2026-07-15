@@ -12,8 +12,9 @@ from harness_mem.core.schemas.observation import Observation
 class VerbatimStore(Protocol):
     """Observation store interface for verbatim layer.
 
-    The verbatim layer stores raw session/event data exactly as received,
-    without summarization or transformation.
+    The historical interface name is retained for compatibility. Lossless
+    transcript source revisions are stored by ``TranscriptStore``; this layer
+    indexes searchable Observation renderings.
     """
 
     async def save(self, observation: Observation) -> str:

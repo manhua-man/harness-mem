@@ -43,7 +43,7 @@ wake -> search -> distill -> review -> dream
 |---|---|
 | `wake` | 会话开始从可读记忆生成项目简报。 |
 | `search` | 当 `autopilot_search_tick` 检测到具体不确定性、冲突、工具失败、待写入 durable claim 需要 grounding、或长周期任务切换时，找回历史决策、规则和 handoff。 |
-| `distill` | 把近期 session evidence 走成 packet / candidate 流程，然后运行共享 auto-review 策略。 |
+| `distill` | 从头到尾读取全部 transcript chunk，做会话末尾审查，再生成候选并运行 auto-review。 |
 | `review` | 事后审计、确认、拒绝、undo 或替代自动处理过的条目。 |
 | `dream` | 维护 ledger、压缩过期状态，并在 save point / 会话结束后保留可回滚治理记录。 |
 
@@ -51,7 +51,11 @@ wake -> search -> distill -> review -> dream
 `tool_result`、`prepareNextTurn`，Claude Code 的 `PostToolUse`，以及
 Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 事件入口；`/hm:search` 只是客户端没有这类 hook 时的手动兜底。
-`prepare_session_distill` 只负责同步和打包证据，不会自己合成候选真值。下一个可运行的 Agent 会消费待蒸馏任务，生成候选并调用 `auto_review_candidates(apply=true)`；该提交点完成任务并触发 Dream。`/hm:distill` 是同一管线的立即执行入口。
+`Stop` Hook 会保存不可变的原始 transcript revision，并排队它的全部有序 chunk。`prepare_session_distill` 每次领取有限数量但不截断内容的 chunk；Agent 必须逐块 checkpoint，全部读完后完成会话末尾审查，才可用稳定幂等 ID 生成候选。`finalize_session_distill` 随后执行 auto-review 和 Dream。`/hm:distill` 是同一条可恢复管线的立即执行入口。Hook 只负责同步和入队，不能声称 Agent 已经完成总结；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
+
+<p align="center">
+  <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="IDE 原始会话以不可变 revision 保存，全部有序 chunk 完成处理和末尾审查后才进入候选记忆" width="900" />
+</p>
 
 ## 关键机制
 
@@ -78,8 +82,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.4 \
-  harness-mem==0.8.23.4
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.24 \
+  harness-mem==0.8.24
 ```
 
 `harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
@@ -89,8 +93,8 @@ Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.23.4 \
-  "harness-mem[hybrid]==0.8.23.4"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.24 \
+  "harness-mem[hybrid]==0.8.24"
 ```
 
 Claude Code 用户可以安装 repo-local plugin，并可选注册 MCP：
@@ -130,7 +134,7 @@ procedural skill 生命周期治理不属于 public memory MCP 和 CLI 产品面
 
 - `harness_mem/`：runtime package。
 - `plugins/harness-mem/`：Agent 客户端接入层。
-- `tools/session-distill/`：session distillation 参考 skill。
+- `tools/session-distill/SKILL.md`：正式 MCP distill 主链的纯 Agent 指令；全部 runtime 实现统一位于 `harness_mem/`。
 - `docs/quickstart.md`：最小启动路径。
 - `docs/mcp-setup.md`：MCP client 接入说明。
 - `docs/demo-cold-start.md`：可复现 cold-start demo。
@@ -157,4 +161,4 @@ cargo test --workspace
 发布标签会构建六个平台 wheel 和 sdist，在 Windows、macOS、Linux 上完成
 全新安装验证后上传到 GitHub Release。本项目不发布到 PyPI。
 
-当前包版本：**0.8.23.4**。
+当前包版本：**0.8.24**。

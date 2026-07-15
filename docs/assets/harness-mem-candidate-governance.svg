@@ -66,16 +66,16 @@
     <text class="chipText" x="40" y="44">Raw Source</text>
     <text class="label" x="24" y="88">原始证据</text>
     <text class="body" x="24" y="120">Codex / Claude / Cursor</text>
-    <text class="body" x="24" y="146">session, observation, logs</text>
+    <text class="body" x="24" y="146">immutable bytes + revisions</text>
   </g>
 
   <g transform="translate(418 172)">
     <rect class="panelBlue" width="286" height="170"/>
     <rect class="chip" x="22" y="22" width="150" height="32"/>
-    <text class="chipText" x="40" y="44">Evidence Packet</text>
-    <text class="label" x="24" y="88">证据包</text>
+    <text class="chipText" x="40" y="44">Lossless Packet</text>
+    <text class="label" x="24" y="88">有序完整分块</text>
     <text class="code" x="24" y="120">prepare_session_distill</text>
-    <text class="body" x="24" y="146">project-scoped, source ids</text>
+    <text class="body" x="24" y="146">lease / checkpoint / no gaps</text>
   </g>
 
   <g transform="translate(760 172)">
@@ -83,8 +83,8 @@
     <rect class="chip" x="22" y="22" width="130" height="32"/>
     <text class="chipText" x="40" y="44">LLM Agent</text>
     <text class="label" x="24" y="88">AI 提炼者</text>
-    <text class="body" x="24" y="120">从 evidence 中判断稳定事实</text>
-    <text class="body" x="24" y="146">生成候选，不直接写 truth</text>
+    <text class="body" x="24" y="120">全部读完后做末尾审查</text>
+    <text class="body" x="24" y="146">幂等候选，不直接写 truth</text>
   </g>
 
   <g transform="translate(390 412)">
@@ -121,7 +121,7 @@
     <rect class="chip" x="22" y="22" width="136" height="32"/>
     <text class="chipText" x="40" y="44">Auto Review</text>
     <text class="label" x="24" y="88">自动预审</text>
-    <text class="code" x="24" y="120">auto_review_candidates(apply=true)</text>
+    <text class="code" x="24" y="120">finalize_session_distill</text>
   </g>
 
   <g transform="translate(982 624)">

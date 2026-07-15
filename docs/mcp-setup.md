@@ -63,15 +63,16 @@ payloads into that tool. It searches only for concrete uncertainty, conflict,
 tool failure, durable-claim grounding, or long-horizon task switches; it is not
 a second `wake`.
 
-`prepare_session_distill` syncs recent transcript evidence and packages recent
-project observations into an evidence packet; it does not synthesize candidate
-truth on its own. The lower-level transcript sync is internal to `/hm:distill`
-and diagnostics, not a user-facing workflow. The candidate layer
-is still written by the session-distill / suggest_* path, and
-`auto_review_candidates(apply=true)` then applies the shared low-risk policy,
-completes the pending distill task, and runs Dream. These counts and candidate
-IDs are audit data, not normal wake or
-hook output. Ambiguous or high-risk items remain in `/hm:review`. Operator
+`prepare_session_distill` syncs native transcript revisions and claims their
+ordered chunks. Chunks are never shortened to fit one MCP response; long
+sessions continue over multiple Agent calls with leases and durable
+checkpoints. After all chunks complete, the Agent receives the ordered chunk
+results and must submit a structured end-of-session review. Candidate writes
+bound to that job use stable IDs so retries do not duplicate memory.
+`finalize_session_distill` applies the shared low-risk policy, completes that
+one explicit job, and runs Dream. Lower-level sync and chunk tools are internal
+Agent workflow, not user commands. Ambiguous or high-risk items remain in
+`/hm:review`. Operator
 maintenance and skill lifecycle management are not public MCP tools.
 Read-only procedural hints can be searched from memory context, but procedural
 skill lifecycle management is outside this public memory surface.

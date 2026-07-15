@@ -57,8 +57,8 @@
 
   <rect x="709" y="154" width="155" height="150" rx="22" class="card"/>
   <text x="749" y="206" class="step ink">distill</text>
-  <text x="725" y="236" class="step-body muted">Agent consumes</text>
-  <text x="729" y="258" class="step-body muted">queued evidence</text>
+  <text x="725" y="236" class="step-body muted">reads every</text>
+  <text x="729" y="258" class="step-body muted">ordered chunk</text>
 
   <path d="M864 229h48" class="line" marker-end="url(#arrow)"/>
 
@@ -77,10 +77,10 @@
   <path d="M1198 304v38" class="line" marker-end="url(#arrow)"/>
 
   <rect x="228" y="364" width="824" height="104" rx="24" class="store"/>
-  <text x="258" y="408" class="body" fill="#e5e7eb">local canonical store</text>
-  <text x="548" y="408" class="body" fill="#99f6e4">candidate / review / supersede / ledger</text>
-  <text x="258" y="430" class="note" fill="#94a3b8">Hooks sync evidence and queue work; the next Agent wake or /hm:distill</text>
-  <text x="258" y="452" class="note" fill="#94a3b8">runs candidates, auto-review, and Dream.</text>
+  <text x="258" y="408" class="body" fill="#e5e7eb">lossless transcript ledger</text>
+  <text x="548" y="408" class="body" fill="#99f6e4">canonical memory / review / Dream</text>
+  <text x="258" y="430" class="note" fill="#94a3b8">Hooks save immutable revisions and queue every chunk; the next Agent</text>
+  <text x="258" y="452" class="note" fill="#94a3b8">checkpoints all chunks, reviews the final outcome, then promotes.</text>
 
   <path d="M1198 364v-22" class="line-muted"/>
   <path d="M1198 342 C 1198 330 1104 330 1090 330" class="line-muted" marker-end="url(#arrow)"/>

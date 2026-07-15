@@ -632,6 +632,32 @@ class SQLiteIndex:
             conn.commit()
         return data["id"]
 
+    def upsert(self, table: str, data: dict[str, Any]) -> str:
+        """Insert or replace one complete entity row by its stable id."""
+
+        conn = self._conn_write()
+        row = dict(data)
+        for key, value in list(row.items()):
+            if isinstance(value, (list, dict)):
+                row[key] = json.dumps(value)
+            elif hasattr(value, "isoformat"):
+                row[key] = value.isoformat()
+            elif value is None:
+                row[key] = ""
+        cols = list(row.keys())
+        placeholders = ",".join(["?"] * len(cols))
+        updates = ",".join(
+            f"{column}=excluded.{column}" for column in cols if column != "id"
+        )
+        with self._lock:
+            conn.execute(
+                f"INSERT INTO {table} ({','.join(cols)}) VALUES ({placeholders}) "
+                f"ON CONFLICT(id) DO UPDATE SET {updates}",
+                [row[column] for column in cols],
+            )
+            conn.commit()
+        return str(data["id"])
+
     def get(self, table: str, id: str) -> dict | None:
         """Get a single row by id."""
         conn = self._conn_write()

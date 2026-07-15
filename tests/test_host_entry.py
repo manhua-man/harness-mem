@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import json
 import os
+
+import pytest
 
 import harness_mem.commands.dream as dream_module
 import harness_mem.commands.maintenance as maintenance_module
@@ -156,3 +159,91 @@ def test_host_entry_client_override_sets_runtime_host(monkeypatch, tmp_path) -> 
     assert code == ExitCode.SUCCESS
     assert payload == f"Wake context for {tmp_path.name}"
     assert os.environ.get("HARNESS_MEM_CLIENT") == previous
+
+
+def test_hook_console_entry_reports_its_version(capsys) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        host_entry.main(["--version"])
+
+    assert exc_info.value.code == 0
+    assert "harness-mem-hook " in capsys.readouterr().out
+
+
+def test_codex_stop_adapter_consumes_hook_payload(monkeypatch, tmp_path, capsys) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_run(args):
+        captured.update(vars(args))
+        return ExitCode.SUCCESS, '{"status": "queued"}'
+
+    monkeypatch.setattr(host_entry, "run", fake_run)
+    monkeypatch.setattr(host_entry.sys, "stdin", io.StringIO('{"turn_id": "turn-22"}'))
+
+    assert host_entry.main(
+        ["--adapter", "codex-stop", "--project-root", str(tmp_path)]
+    ) == ExitCode.SUCCESS
+
+    assert captured["action"] == "post-turn-maintenance"
+    assert captured["client"] == "codex"
+    assert captured["trigger_id"] == "turn-22"
+    assert capsys.readouterr().out == "{}\n"
+
+
+def test_antigravity_pre_adapter_emits_injected_context(monkeypatch, tmp_path, capsys) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_run(args):
+        captured.update(vars(args))
+        return ExitCode.SUCCESS, "remember this"
+
+    monkeypatch.setattr(host_entry, "run", fake_run)
+    monkeypatch.setattr(
+        host_entry.sys,
+        "stdin",
+        io.StringIO(json.dumps({"workspacePaths": [str(tmp_path)], "conversationId": "conv-7"})),
+    )
+
+    assert host_entry.main(
+        ["--adapter", "antigravity-pre", "--project-root", str(tmp_path)]
+    ) == ExitCode.SUCCESS
+
+    assert captured["action"] == "wake-start"
+    assert captured["client"] == "antigravity"
+    assert captured["trigger_id"] == "conv-7"
+    assert json.loads(capsys.readouterr().out) == {
+        "injectSteps": [{"ephemeralMessage": "remember this"}]
+    }
+
+
+def test_hermes_adapter_resolves_project_from_runtime_payload(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_run(args):
+        captured.update(vars(args))
+        return ExitCode.SUCCESS, "runtime-scoped context"
+
+    monkeypatch.setattr(host_entry, "run", fake_run)
+    monkeypatch.setattr(
+        host_entry.sys,
+        "stdin",
+        io.StringIO(
+            json.dumps(
+                {
+                    "session_id": "hermes-session",
+                    "cwd": str(tmp_path),
+                }
+            )
+        ),
+    )
+
+    assert host_entry.main(["--adapter", "hermes-pre"]) == ExitCode.SUCCESS
+
+    assert captured["project_root"] == str(tmp_path.resolve())
+    assert captured["client"] == "hermes"
+    assert json.loads(capsys.readouterr().out) == {
+        "context": "runtime-scoped context"
+    }

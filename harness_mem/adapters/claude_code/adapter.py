@@ -13,8 +13,11 @@ from harness_mem.adapters.parser import (
     session_sort_key,
 )
 from harness_mem.adapters.protocol import Issue, SessionRecord
+from harness_mem.adapters.scan_scheduler import sync_sessions_fairly
+from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
 from harness_mem.core.schemas import Observation
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
+from harness_mem.transcript_chunking import source_uri_from_path
 
 
 # Default Claude Code session directory
@@ -76,24 +79,18 @@ class ClaudeCodeAdapter:
 
         # Summarize turns into a readable transcript
         lines = [f"# Session: {session_id}"]
-        display_turns = self._select_observation_turns(turns, max_turns=20)
-        for i, turn in display_turns:
+        for i, turn in enumerate(turns, 1):
             lines.append(f"\n## Turn {i}")
             if turn.get("user"):
-                lines.append(f"\nUser: {turn['user'][:500]}")
+                lines.append(f"\nUser: {turn['user']}")
             if turn.get("assistant"):
-                for resp in turn["assistant"][:2]:
-                    lines.append(f"\nAssistant: {resp[:500]}")
+                for resp in turn["assistant"]:
+                    lines.append(f"\nAssistant: {resp}")
             if turn.get("tools"):
-                tool_names = [t["name"] for t in turn["tools"][:5]]
+                tool_names = [t["name"] for t in turn["tools"]]
                 lines.append(f"\nTools: {', '.join(tool_names)}")
-            if i == 10 and len(turns) > 20:
-                omitted = len(turns) - 20
-                lines.append(f"\n[... {omitted} middle turns omitted ...]")
 
         raw_content = "\n".join(lines)
-        if len(raw_content) > 50000:
-            raw_content = raw_content[:50000] + "\n\n[TRUNCATED]"
 
         return Observation(
             id=str(uuid4()),
@@ -122,6 +119,38 @@ class ClaudeCodeAdapter:
             raise ValueError("project_name is required for Claude Code observations")
         return self.turns_to_observation(session_path, session_id, project_name)
 
+    async def sync_session(
+        self,
+        session_path: Path,
+        session_id: str,
+        project_name: str,
+        *,
+        project_root: Path | None = None,
+    ) -> TranscriptSyncResult:
+        """Capture exact source bytes and upsert the derived Observation."""
+
+        if self.backend is None:
+            raise RuntimeError("ClaudeCodeAdapter.sync_session requires an initialized backend")
+        native_bytes = session_path.read_bytes()
+        source_text = native_bytes.decode("utf-8-sig", errors="replace")
+        observation = self.turns_to_observation(session_path, session_id, project_name)
+        root = project_root or Path.cwd()
+        return await persist_session_snapshot(
+            self.backend,
+            observation,
+            project_name=project_name,
+            project_root=str(root),
+            client="claude-code",
+            session_id=session_id,
+            source_kind="jsonl",
+            source_uri=source_uri_from_path(session_path),
+            source_text=source_text,
+            raw_bytes=native_bytes,
+            mtime_ns=session_path.stat().st_mtime_ns,
+            sequence_count=source_text.count("\n") + int(bool(source_text)),
+            parser_version="claude-code-jsonl-v1",
+        )
+
     async def ingest_project(
         self,
         project_name: str,
@@ -133,27 +162,45 @@ class ClaudeCodeAdapter:
         Returns dict with counts of ingested observations.
         """
         sessions = self.list_project_sessions(project_name, min_size_kb)
-        sessions = sessions[:limit]
 
-        ingested = 0
-        errors = 0
         if self.backend is None:
             raise RuntimeError("ClaudeCodeAdapter.ingest requires an initialized backend")
 
-        for session in sessions:
-            try:
-                session_id = session["session_id"]
-                obs = self.turns_to_observation(session["path"], session_id, project_name)
-                await self.backend.verbatim_store.save(obs)
-                ingested += 1
-            except Exception:
-                errors += 1
+        async def sync_one(session: SessionRecord) -> TranscriptSyncResult:
+            return await self.sync_session(
+                session["path"],
+                session["session_id"],
+                project_name,
+            )
+
+        source_root = sessions[0]["path"].parent if sessions else self.sessions_dir / project_name
+        scan = await sync_sessions_fairly(
+            self.backend.transcript_store,
+            project_name=project_name,
+            client="claude-code",
+            source_root=source_root,
+            sessions=sessions,
+            change_limit=limit,
+            sync_session=sync_one,
+        )
 
         return {
             "project_name": project_name,
             "sessions_found": len(self.list_project_sessions(project_name, 0)),
-            "ingested": ingested,
-            "errors": errors,
+            "sessions_scanned": scan.sessions_scanned,
+            "ingested": scan.ingested,
+            "updated": scan.updated,
+            "unchanged": scan.unchanged,
+            "errors": len(scan.failures),
+            "error_details": [
+                {
+                    "session_id": failure.session["session_id"],
+                    "path": str(failure.session["path"]),
+                    "message": str(failure.error),
+                }
+                for failure in scan.failures
+            ],
+            "scan_frontier": scan.frontier.to_dict(),
         }
 
     async def ingest(

@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from harness_mem.adapters import AdapterRegistry
-from harness_mem.commands.distill_lifecycle import pending_distill_jobs
-from harness_mem.commands.support import normalize_client_name
 from harness_mem.hook_runtime import collect_hook_file_statuses
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
@@ -22,6 +20,8 @@ async def build_integration_health(
     """Report project, host, hooks, transcript, and distill queue health."""
 
     root = project_root.expanduser().resolve() if project_root is not None else None
+    from harness_mem.commands.support import normalize_client_name
+
     configured_host = os.environ.get("HARNESS_MEM_CLIENT")
     host = normalize_client_name(configured_host) if configured_host else "unknown"
 
@@ -40,16 +40,30 @@ async def build_integration_health(
     else:
         hooks_status = "missing"
 
+    sources = backend.transcript_store.list_sources(
+        project_name=project_name,
+        limit=100000,
+    )
     observations = await backend.verbatim_store.list(
         project_name=project_name,
         limit=100000,
     )
     transcript_clients = sorted(
-        {str(observation.client) for observation in observations if observation.client}
+        {
+            *[str(source.client) for source in sources if source.client],
+            *[
+                str(observation.client)
+                for observation in observations
+                if observation.client
+            ],
+        }
     )
+    host_sources = sum(1 for item in sources if item.client == host)
     host_observations = sum(1 for item in observations if item.client == host)
     adapter_available = host in AdapterRegistry.list()
-    if observations:
+    if sources:
+        transcript_status = "synced"
+    elif observations:
         transcript_status = "observed"
     elif host == "unknown":
         transcript_status = "unknown"
@@ -58,19 +72,42 @@ async def build_integration_health(
     else:
         transcript_status = "unsupported"
 
-    queued = pending_distill_jobs(backend, project_name=project_name)
-    processing = backend.reflection_job_store.list(
+    lossless_queued = []
+    for status in ("queued", "retryable", "reviewing"):
+        lossless_queued.extend(
+            backend.transcript_store.list_distill_jobs(
+                project_name=project_name,
+                status=status,
+                limit=100,
+            )
+        )
+    legacy_audit_only = backend.reflection_job_store.list(
         project_name=project_name,
-        status="processing",
+        status="needs_distill",
         kind="reflection",
         limit=100,
     )
+    queued = lossless_queued
+    lossless_processing = backend.transcript_store.list_distill_jobs(
+        project_name=project_name,
+        status="processing",
+        limit=100,
+    )
+    processing = lossless_processing
     distill_status = "processing" if processing else "queued" if queued else "idle"
     project_status = "ok" if root is not None else "unknown"
+    latest_source = max(sources, key=lambda item: item.updated_at) if sources else None
+    completed_chunks = sum(getattr(job, "completed_chunk_count", 0) for job in [*queued, *processing])
+    expected_chunks = sum(getattr(job, "expected_chunk_count", 0) for job in [*queued, *processing])
+    missing_sources = [source for source in sources if source.status == "missing"]
+    failed_sources = [source for source in sources if source.status == "failed"]
+    partial_sources = [source for source in sources if source.coverage != "complete"]
+    frontiers = backend.transcript_store.list_scan_frontiers(project_name=project_name)
+    retry_source_count = sum(len(frontier.retry_sources) for frontier in frontiers)
     summary = (
         f"project={project_status} | host={host} | "
         f"hooks={hooks_status} ({len(installed_hooks)}/{len(hook_files)}) | "
-        f"transcript={transcript_status} ({len(observations)}) | "
+        f"transcript={transcript_status} ({len(sources)} sessions, {len(missing_sources)} missing, {retry_source_count} retrying) | "
         f"distill={distill_status} ({len(queued)} queued, {len(processing)} processing)"
     )
     return {
@@ -89,15 +126,30 @@ async def build_integration_health(
         },
         "transcript": {
             "status": transcript_status,
+            "session_count": len(sources),
             "observation_count": len(observations),
+            "host_session_count": host_sources,
             "host_observation_count": host_observations,
             "clients": transcript_clients,
             "adapter_available": adapter_available,
+            "latest_source_revision": (
+                latest_source.source_revision if latest_source is not None else None
+            ),
+            "latest_source_coverage": (
+                latest_source.coverage if latest_source is not None else None
+            ),
+            "missing_source_count": len(missing_sources),
+            "failed_source_count": len(failed_sources),
+            "partial_source_count": len(partial_sources),
+            "retry_source_count": retry_source_count,
         },
         "pending_distill": {
             "status": distill_status,
             "queued": len(queued),
             "processing": len(processing),
+            "completed_chunks": completed_chunks,
+            "expected_chunks": expected_chunks,
+            "legacy_audit_only": len(legacy_audit_only),
         },
     }
 

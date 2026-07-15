@@ -27,7 +27,6 @@ from harness_mem.commands.support import (
     project_ingest_scan_stamp_path,
     resolve_project_name,
 )
-from harness_mem.commands.ingest import _select_claude_candidate_sessions
 from harness_mem.commands.wake_render import (
     LAYER_HEADERS,
     SURFACED_LAYERS,
@@ -45,7 +44,6 @@ from harness_mem.storage.local_project_profile_store import LocalProjectProfileS
 
 AUTO_SYNC_TIMEOUT_SECONDS = 0.3
 DEFAULT_AUTO_INGEST_MIN_INTERVAL_SECONDS = 300
-DEFAULT_AUTO_INGEST_MIN_NEW_SESSIONS = 1
 DEFAULT_AUTO_INGEST_SCAN_THROTTLE_SECONDS = 60
 DEFAULT_AUTO_INGEST_LOCK_TTL_SECONDS = 3600
 DEFAULT_SKILL_HINT_LIMIT = 3
@@ -431,11 +429,6 @@ async def _perform_sync(backend: LocalMemoryBackend, project_name: str, start_ti
         "auto_ingest_min_interval_seconds",
         DEFAULT_AUTO_INGEST_MIN_INTERVAL_SECONDS,
     )
-    min_new_sessions = _wake_int_setting(
-        config,
-        "auto_ingest_min_new_sessions",
-        DEFAULT_AUTO_INGEST_MIN_NEW_SESSIONS,
-    )
     scan_throttle_seconds = _wake_int_setting(
         config,
         "auto_ingest_scan_throttle_seconds",
@@ -475,15 +468,7 @@ async def _perform_sync(backend: LocalMemoryBackend, project_name: str, start_ti
     profile = await profile_store.get(project_name)
     all_sessions = adapter.list_sessions(project_name, min_size_kb=0)
 
-    candidate_sessions = _select_claude_candidate_sessions(
-        all_sessions,
-        limit=len(all_sessions),
-        full_rescan=False,
-        last_session_id=(prior_last_session_id or (profile.last_ingest_session_id if profile else None)),
-        last_ingest_at=profile.last_ingest_at if profile else None,
-    )
-
-    if len(candidate_sessions) < min_new_sessions:
+    if not all_sessions:
         _mark_scan_stamp(scan_stamp_path)
         print(f"🔄 Auto-sync: up to date ({_elapsed_ms(start_time)}ms)")
         return
@@ -499,19 +484,18 @@ async def _perform_sync(backend: LocalMemoryBackend, project_name: str, start_ti
         return
 
     ingested = 0
+    updated = 0
     newest_seen_session_id = prior_last_session_id or (profile.last_ingest_session_id if profile else None)
     cursor_time_to_write = prior_cursor_time
 
     try:
-        for session in candidate_sessions:
-            if await _session_exists_for_project(backend, session["session_id"], project_name):
-                continue
-            try:
-                obs = adapter.session_to_observation(session["path"], session["session_id"], project_name)
-                await backend.verbatim_store.save(obs)
-                ingested += 1
-            except Exception:
-                continue
+        result = await adapter.ingest(
+            project_name=project_name,
+            limit=5,
+            min_size_kb=0,
+        )
+        ingested = int(result.get("ingested", 0) or 0)
+        updated = int(result.get("updated", 0) or 0)
 
         if all_sessions:
             newest_seen_session_id = all_sessions[0]["session_id"]
@@ -532,26 +516,13 @@ async def _perform_sync(backend: LocalMemoryBackend, project_name: str, start_ti
             cursor_time=cursor_time_to_write,
         )
 
-    if ingested > 0:
-        print(f"🔄 Auto-synced: {ingested} new sessions ingested ({_elapsed_ms(start_time)}ms)")
+    if ingested > 0 or updated > 0:
+        print(
+            f"🔄 Auto-synced: {ingested} new, {updated} updated "
+            f"({_elapsed_ms(start_time)}ms)"
+        )
     else:
         print(f"🔄 Auto-sync: up to date ({_elapsed_ms(start_time)}ms)")
-
-
-async def _session_exists_for_project(
-    backend: LocalMemoryBackend,
-    session_id: str,
-    project_name: str,
-) -> bool:
-    # Cap is a defensive ceiling, not a paging limit: we short-circuit on the
-    # first matching observation, so realistic transcripts (≤ a few thousand
-    # entries per session) finish well before reaching it. The previous 20
-    # would silently miss long sessions and re-ingest duplicates.
-    observations = await backend.verbatim_store.list(session_id=session_id, limit=10_000)
-    return any(
-        observation.metadata.get("project_name") == project_name
-        for observation in observations
-    )
 
 
 # Map each plan ``why_included`` (set by the v2.5.0 assembler) to the

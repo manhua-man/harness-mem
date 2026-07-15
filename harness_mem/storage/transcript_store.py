@@ -1,0 +1,860 @@
+"""Durable local ledger for lossless transcript sources and chunks."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from harness_mem.core.schemas.session_distill import (
+    DistillChunkCheckpoint,
+    SessionDistillJob,
+)
+from harness_mem.core.schemas.transcript import (
+    TranscriptChunk,
+    TranscriptScanFrontier,
+    TranscriptSource,
+    TranscriptSourceRevision,
+)
+from harness_mem.transcript_chunking import (
+    reconstruct_transcript,
+    sha256_bytes,
+    sha256_text,
+)
+from harness_mem.storage.session_distill_store import SessionDistillStore
+
+TRANSCRIPT_LEDGER_SCHEMA_VERSION = 5
+
+
+class TranscriptStore:
+    """SQLite-backed source-revision ledger independent of derived search data."""
+
+    def __init__(self, data_dir: Path) -> None:
+        self.db_path = Path(data_dir) / "transcript_ledger.sqlite"
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+        self._conn = sqlite3.connect(
+            self.db_path,
+            timeout=10,
+            check_same_thread=False,
+        )
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._init_schema()
+        self._distill = SessionDistillStore(
+            self._conn,
+            self._lock,
+            get_source=self.get_source,
+            reconstruct=self.reconstruct,
+        )
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def save_source(self, source: TranscriptSource) -> None:
+        """Upsert the logical source and its current-revision pointer."""
+
+        source.updated_at = datetime.now(timezone.utc)
+        with self._lock:
+            self._upsert_source_locked(source)
+            self._conn.commit()
+
+    def save_snapshot(
+        self,
+        source: TranscriptSource,
+        chunks: list[TranscriptChunk],
+        *,
+        raw_bytes: bytes | None = None,
+    ) -> None:
+        """Atomically persist one complete immutable revision and its chunks."""
+
+        native_bytes = raw_bytes if raw_bytes is not None else (
+            "".join(chunk.raw_content for chunk in chunks).encode("utf-8")
+        )
+        normalized_text = self._validate_snapshot(source, chunks, native_bytes)
+        now = datetime.now(timezone.utc)
+        source.chunk_count = len(chunks)
+        source.status = "synced"
+        source.coverage = "complete"
+        source.error = None
+        source.synced_at = now
+        source.updated_at = now
+        revision = TranscriptSourceRevision(
+            source_id=source.id,
+            source_revision=source.source_revision,
+            project_name=source.project_name,
+            project_root=source.project_root,
+            client=source.client,
+            session_id=source.session_id,
+            source_kind=source.source_kind,
+            source_uri=source.source_uri,
+            raw_sha256=source.raw_sha256,
+            normalized_sha256=source.normalized_sha256,
+            raw_size_bytes=source.raw_size_bytes,
+            normalized_size_bytes=source.normalized_size_bytes,
+            mtime_ns=source.mtime_ns,
+            parser_version=source.parser_version,
+            coverage="complete",
+            chunk_count=len(chunks),
+            sequence_count=source.sequence_count,
+            metadata=dict(source.metadata),
+            captured_at=now,
+        )
+
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                self._assert_compatible_revision_locked(revision, normalized_text)
+                self._upsert_source_locked(source)
+                self._conn.execute(
+                    """
+                    INSERT INTO transcript_source_revisions (
+                        source_id, source_revision, raw_sha256,
+                        normalized_sha256, raw_size_bytes,
+                        normalized_size_bytes, raw_bytes, captured_at, data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(source_id, source_revision) DO NOTHING
+                    """,
+                    (
+                        source.id,
+                        source.source_revision,
+                        source.raw_sha256,
+                        source.normalized_sha256,
+                        source.raw_size_bytes,
+                        source.normalized_size_bytes,
+                        sqlite3.Binary(native_bytes),
+                        now.isoformat(),
+                        json.dumps(revision.to_dict(), ensure_ascii=False),
+                    ),
+                )
+                self._conn.execute(
+                    "DELETE FROM transcript_chunks WHERE source_id = ? AND source_revision = ?",
+                    (source.id, source.source_revision),
+                )
+                for chunk in chunks:
+                    self._insert_chunk_locked(chunk)
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def get_source(self, source_id: str) -> TranscriptSource | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT data FROM transcript_sources WHERE id = ?",
+                (source_id,),
+            ).fetchone()
+        return self._source_from_row(row)
+
+    def find_source(
+        self,
+        *,
+        project_name: str,
+        client: str,
+        session_id: str,
+        source_uri: str | None = None,
+    ) -> TranscriptSource | None:
+        where_uri = " AND source_uri = ?" if source_uri is not None else ""
+        params: tuple[Any, ...] = (project_name, client, session_id)
+        if source_uri is not None:
+            params = (*params, source_uri)
+        with self._lock:
+            row = self._conn.execute(
+                f"""
+                SELECT data FROM transcript_sources
+                WHERE project_name = ? AND client = ? AND session_id = ?
+                {where_uri}
+                ORDER BY updated_at DESC LIMIT 1
+                """,
+                params,
+            ).fetchone()
+        return self._source_from_row(row)
+
+    def list_sources_for_session(
+        self,
+        *,
+        project_name: str,
+        client: str,
+        session_id: str,
+    ) -> list[TranscriptSource]:
+        """Return every locator ever observed for one native session identifier."""
+
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT data FROM transcript_sources
+                WHERE project_name = ? AND client = ? AND session_id = ?
+                ORDER BY updated_at DESC
+                """,
+                (project_name, client, session_id),
+            ).fetchall()
+        return [TranscriptSource.from_dict(json.loads(row["data"])) for row in rows]
+
+    def get_revision(
+        self,
+        source_id: str,
+        source_revision: str,
+    ) -> TranscriptSourceRevision | None:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT data FROM transcript_source_revisions
+                WHERE source_id = ? AND source_revision = ?
+                """,
+                (source_id, source_revision),
+            ).fetchone()
+        if row is None:
+            return None
+        return TranscriptSourceRevision.from_dict(json.loads(row["data"]))
+
+    def list_revisions(self, source_id: str) -> list[TranscriptSourceRevision]:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT data FROM transcript_source_revisions
+                WHERE source_id = ? ORDER BY captured_at ASC
+                """,
+                (source_id,),
+            ).fetchall()
+        return [
+            TranscriptSourceRevision.from_dict(json.loads(row["data"]))
+            for row in rows
+        ]
+
+    def list_sources(
+        self,
+        *,
+        project_name: str | None = None,
+        client: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[TranscriptSource]:
+        where: list[str] = []
+        params: list[Any] = []
+        if project_name is not None:
+            where.append("project_name = ?")
+            params.append(project_name)
+        if client is not None:
+            where.append("client = ?")
+            params.append(client)
+        if status is not None:
+            where.append("status = ?")
+            params.append(status)
+        sql = "SELECT data FROM transcript_sources"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY updated_at DESC LIMIT ?"
+        params.append(max(1, limit))
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [TranscriptSource.from_dict(json.loads(row["data"])) for row in rows]
+
+    def list_chunks(
+        self,
+        source_id: str,
+        *,
+        source_revision: str | None = None,
+    ) -> list[TranscriptChunk]:
+        revision = source_revision
+        if revision is None:
+            source = self.get_source(source_id)
+            if source is None:
+                return []
+            revision = source.source_revision
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT data FROM transcript_chunks
+                WHERE source_id = ? AND source_revision = ?
+                ORDER BY chunk_index ASC
+                """,
+                (source_id, revision),
+            ).fetchall()
+        return [TranscriptChunk.from_dict(json.loads(row["data"])) for row in rows]
+
+    def reconstruct(self, source_id: str, *, source_revision: str | None = None) -> str:
+        revision_id = source_revision
+        if revision_id is None:
+            source = self.get_source(source_id)
+            if source is None:
+                raise KeyError(source_id)
+            revision_id = source.source_revision
+        revision = self.get_revision(source_id, revision_id)
+        if revision is None:
+            raise KeyError(f"{source_id}@{revision_id}")
+        chunks = self.list_chunks(source_id, source_revision=revision_id)
+        if not chunks and revision.normalized_size_bytes == 0:
+            return ""
+        return reconstruct_transcript(
+            chunks,
+            expected_sha256=revision.normalized_sha256,
+        )
+
+    def reconstruct_raw(
+        self,
+        source_id: str,
+        *,
+        source_revision: str | None = None,
+    ) -> bytes:
+        revision_id = source_revision
+        if revision_id is None:
+            source = self.get_source(source_id)
+            if source is None:
+                raise KeyError(source_id)
+            revision_id = source.source_revision
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT raw_bytes, raw_sha256 FROM transcript_source_revisions
+                WHERE source_id = ? AND source_revision = ?
+                """,
+                (source_id, revision_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"{source_id}@{revision_id}")
+        value = bytes(row["raw_bytes"])
+        if sha256_bytes(value) != row["raw_sha256"]:
+            raise ValueError("stored transcript source bytes failed hash validation")
+        return value
+
+    def get_scan_frontier(
+        self,
+        *,
+        project_name: str,
+        client: str,
+        source_root: str,
+    ) -> TranscriptScanFrontier | None:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT data FROM transcript_scan_frontiers
+                WHERE project_name = ? AND client = ? AND source_root = ?
+                """,
+                (project_name, client, source_root),
+            ).fetchone()
+        if row is None:
+            return None
+        return TranscriptScanFrontier.from_dict(json.loads(row["data"]))
+
+    def save_scan_frontier(self, frontier: TranscriptScanFrontier) -> None:
+        frontier.updated_at = datetime.now(timezone.utc)
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO transcript_scan_frontiers (
+                    project_name, client, source_root, cursor_key,
+                    scan_cycle, updated_at, data
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_name, client, source_root) DO UPDATE SET
+                    cursor_key=excluded.cursor_key,
+                    scan_cycle=excluded.scan_cycle,
+                    updated_at=excluded.updated_at,
+                    data=excluded.data
+                """,
+                (
+                    frontier.project_name,
+                    frontier.client,
+                    frontier.source_root,
+                    frontier.cursor_key,
+                    frontier.scan_cycle,
+                    frontier.updated_at.isoformat(),
+                    json.dumps(frontier.to_dict(), ensure_ascii=False),
+                ),
+            )
+            self._conn.commit()
+
+    def list_scan_frontiers(
+        self,
+        *,
+        project_name: str | None = None,
+        client: str | None = None,
+    ) -> list[TranscriptScanFrontier]:
+        where: list[str] = []
+        params: list[Any] = []
+        if project_name is not None:
+            where.append("project_name = ?")
+            params.append(project_name)
+        if client is not None:
+            where.append("client = ?")
+            params.append(client)
+        sql = "SELECT data FROM transcript_scan_frontiers"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY updated_at DESC"
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [TranscriptScanFrontier.from_dict(json.loads(row["data"])) for row in rows]
+
+    def reset_scan_frontier(
+        self,
+        *,
+        project_name: str,
+        client: str,
+        source_root: str,
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                DELETE FROM transcript_scan_frontiers
+                WHERE project_name = ? AND client = ? AND source_root = ?
+                """,
+                (project_name, client, source_root),
+            )
+            self._conn.commit()
+
+    def mark_sources_missing_from_inventory(
+        self,
+        *,
+        project_name: str,
+        client: str,
+        observed_session_ids: set[str],
+    ) -> list[TranscriptSource]:
+        """Mark absent sources missing without deleting any captured revision.
+
+        Callers must pass the complete host inventory for the project/client
+        scope. This deliberately keys on native session IDs rather than paths:
+        a moved locator remains present while its transcript ledger aliases are
+        retained for audit.
+        """
+
+        observed = {str(value) for value in observed_session_ids}
+        sources = self.list_sources(project_name=project_name, client=client, limit=100_000)
+        now = datetime.now(timezone.utc)
+        missing: list[TranscriptSource] = []
+        for source in sources:
+            if source.session_id in observed or source.status == "missing":
+                continue
+            source.status = "missing"
+            source.error = None
+            source.updated_at = now
+            source.metadata = {
+                **dict(source.metadata),
+                "missing_since": now.isoformat(),
+                "missing_reason": "absent_from_complete_host_inventory",
+            }
+            missing.append(source)
+        if not missing:
+            return []
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                for source in missing:
+                    self._upsert_source_locked(source)
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+        return missing
+
+    def enqueue_distill_job(
+        self,
+        source_id: str,
+        *,
+        pipeline_version: str = "lossless-distill-v1",
+    ) -> SessionDistillJob:
+        return self._distill.enqueue(
+            source_id,
+            pipeline_version=pipeline_version,
+        )
+
+    def get_distill_job(self, job_id: str) -> SessionDistillJob | None:
+        return self._distill.get(job_id)
+
+    def list_distill_jobs(
+        self,
+        *,
+        project_name: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[SessionDistillJob]:
+        return self._distill.list(
+            project_name=project_name,
+            status=status,
+            limit=limit,
+        )
+
+    def list_distill_checkpoints(self, job_id: str) -> list[DistillChunkCheckpoint]:
+        return self._distill.list_checkpoints(job_id)
+
+    def claim_distill_chunks(
+        self,
+        job_id: str,
+        *,
+        lease_owner: str,
+        limit: int = 1,
+        lease_seconds: int = 300,
+    ) -> list[tuple[TranscriptChunk, DistillChunkCheckpoint]]:
+        return self._distill.claim_chunks(
+            job_id,
+            lease_owner=lease_owner,
+            limit=limit,
+            lease_seconds=lease_seconds,
+        )
+
+    def checkpoint_distill_chunk(
+        self,
+        job_id: str,
+        chunk_id: str,
+        *,
+        lease_owner: str,
+        result: dict,
+    ) -> SessionDistillJob:
+        return self._distill.checkpoint_chunk(
+            job_id,
+            chunk_id,
+            lease_owner=lease_owner,
+            result=result,
+        )
+
+    def finalize_distill_job(
+        self,
+        job_id: str,
+        *,
+        semantic_review: dict,
+        output_candidate_ids: list[str] | None = None,
+    ) -> SessionDistillJob:
+        return self._distill.finalize(
+            job_id,
+            semantic_review=semantic_review,
+            output_candidate_ids=output_candidate_ids,
+        )
+
+    def _init_schema(self) -> None:
+        with self._lock:
+            version = int(self._conn.execute("PRAGMA user_version").fetchone()[0])
+            if version > TRANSCRIPT_LEDGER_SCHEMA_VERSION:
+                raise RuntimeError(
+                    "transcript ledger schema is newer than this harness-mem runtime"
+                )
+            has_legacy = self._table_exists_locked("transcript_sources") and not (
+                self._table_exists_locked("transcript_source_revisions")
+            )
+            if has_legacy:
+                self._migrate_legacy_v1_locked()
+            else:
+                if (
+                    self._table_exists_locked("transcript_sources")
+                    and not self._column_exists_locked(
+                        "transcript_sources",
+                        "source_uri",
+                    )
+                ):
+                    self._conn.execute(
+                        "ALTER TABLE transcript_sources "
+                        "ADD COLUMN source_uri TEXT NOT NULL DEFAULT ''"
+                    )
+                    rows = self._conn.execute(
+                        "SELECT id, data FROM transcript_sources"
+                    ).fetchall()
+                    for row in rows:
+                        payload = json.loads(row["data"])
+                        self._conn.execute(
+                            "UPDATE transcript_sources SET source_uri = ? WHERE id = ?",
+                            (str(payload.get("source_uri") or ""), row["id"]),
+                        )
+                self._create_schema_locked()
+            self._conn.execute(
+                f"PRAGMA user_version={TRANSCRIPT_LEDGER_SCHEMA_VERSION}"
+            )
+            self._conn.commit()
+
+    def _create_schema_locked(self) -> None:
+        self._conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS transcript_sources (
+                id TEXT PRIMARY KEY,
+                project_name TEXT NOT NULL,
+                client TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                source_uri TEXT NOT NULL,
+                source_revision TEXT NOT NULL,
+                status TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                data TEXT NOT NULL,
+                UNIQUE(project_name, client, session_id, source_uri)
+            );
+            CREATE INDEX IF NOT EXISTS idx_transcript_sources_project_status
+                ON transcript_sources(project_name, status, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_transcript_sources_client
+                ON transcript_sources(client, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS transcript_source_revisions (
+                source_id TEXT NOT NULL,
+                source_revision TEXT NOT NULL,
+                raw_sha256 TEXT NOT NULL,
+                normalized_sha256 TEXT NOT NULL,
+                raw_size_bytes INTEGER NOT NULL,
+                normalized_size_bytes INTEGER NOT NULL,
+                raw_bytes BLOB NOT NULL,
+                captured_at TEXT NOT NULL,
+                data TEXT NOT NULL,
+                PRIMARY KEY(source_id, source_revision),
+                FOREIGN KEY(source_id) REFERENCES transcript_sources(id)
+                    ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS transcript_chunks (
+                id TEXT PRIMARY KEY,
+                source_id TEXT NOT NULL,
+                source_revision TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                content_sha256 TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                data TEXT NOT NULL,
+                UNIQUE(source_id, source_revision, chunk_index),
+                FOREIGN KEY(source_id, source_revision)
+                    REFERENCES transcript_source_revisions(source_id, source_revision)
+                    ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_transcript_chunks_source_revision
+                ON transcript_chunks(source_id, source_revision, chunk_index);
+
+            CREATE TABLE IF NOT EXISTS distill_jobs (
+                id TEXT PRIMARY KEY,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                project_name TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                source_revision TEXT NOT NULL,
+                status TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                data TEXT NOT NULL,
+                FOREIGN KEY(source_id, source_revision)
+                    REFERENCES transcript_source_revisions(source_id, source_revision)
+            );
+            CREATE INDEX IF NOT EXISTS idx_distill_jobs_project_status
+                ON distill_jobs(project_name, status, created_at ASC);
+
+            CREATE TABLE IF NOT EXISTS distill_job_chunks (
+                job_id TEXT NOT NULL,
+                chunk_id TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                lease_owner TEXT,
+                lease_until TEXT,
+                updated_at TEXT NOT NULL,
+                data TEXT NOT NULL,
+                PRIMARY KEY(job_id, chunk_id),
+                FOREIGN KEY(job_id) REFERENCES distill_jobs(id) ON DELETE CASCADE,
+                FOREIGN KEY(chunk_id) REFERENCES transcript_chunks(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_distill_job_chunks_claim
+                ON distill_job_chunks(job_id, status, chunk_index);
+
+            CREATE TABLE IF NOT EXISTS transcript_scan_frontiers (
+                project_name TEXT NOT NULL,
+                client TEXT NOT NULL,
+                source_root TEXT NOT NULL,
+                cursor_key TEXT,
+                scan_cycle INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                data TEXT NOT NULL,
+                PRIMARY KEY(project_name, client, source_root)
+            );
+            """
+        )
+
+    def _migrate_legacy_v1_locked(self) -> None:
+        self._conn.execute("ALTER TABLE transcript_sources RENAME TO transcript_sources_v1")
+        self._conn.execute("ALTER TABLE transcript_chunks RENAME TO transcript_chunks_v1")
+        self._create_schema_locked()
+        source_rows = self._conn.execute(
+            "SELECT data FROM transcript_sources_v1"
+        ).fetchall()
+        for row in source_rows:
+            payload = json.loads(row["data"])
+            source_id = str(payload["id"])
+            revision_id = str(payload["source_revision"])
+            chunk_rows = self._conn.execute(
+                """
+                SELECT data FROM transcript_chunks_v1
+                WHERE source_id = ? AND source_revision = ? ORDER BY chunk_index
+                """,
+                (source_id, revision_id),
+            ).fetchall()
+            chunks = [TranscriptChunk.from_dict(json.loads(item["data"])) for item in chunk_rows]
+            normalized = "".join(chunk.raw_content for chunk in chunks)
+            native_bytes = normalized.encode("utf-8")
+            payload.pop("content_sha256", None)
+            payload.pop("size_bytes", None)
+            payload.update(
+                {
+                    "source_revision": f"sha256:{sha256_bytes(native_bytes)}",
+                    "raw_sha256": sha256_bytes(native_bytes),
+                    "normalized_sha256": sha256_text(normalized),
+                    "raw_size_bytes": len(native_bytes),
+                    "normalized_size_bytes": len(native_bytes),
+                    "coverage": "complete",
+                    "metadata": {
+                        **dict(payload.get("metadata") or {}),
+                        "migrated_from_ledger_v1": True,
+                    },
+                }
+            )
+            source = TranscriptSource.from_dict(payload)
+            migrated_chunks = [
+                chunk.model_copy(update={"source_revision": source.source_revision})
+                for chunk in chunks
+            ]
+            self._upsert_source_locked(source)
+            revision = TranscriptSourceRevision(
+                source_id=source.id,
+                source_revision=source.source_revision,
+                project_name=source.project_name,
+                project_root=source.project_root,
+                client=source.client,
+                session_id=source.session_id,
+                source_kind=source.source_kind,
+                source_uri=source.source_uri,
+                raw_sha256=source.raw_sha256,
+                normalized_sha256=source.normalized_sha256,
+                raw_size_bytes=source.raw_size_bytes,
+                normalized_size_bytes=source.normalized_size_bytes,
+                mtime_ns=source.mtime_ns,
+                parser_version=source.parser_version,
+                chunk_count=len(migrated_chunks),
+                sequence_count=source.sequence_count,
+                metadata=dict(source.metadata),
+            )
+            self._conn.execute(
+                """
+                INSERT INTO transcript_source_revisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source.id,
+                    source.source_revision,
+                    source.raw_sha256,
+                    source.normalized_sha256,
+                    source.raw_size_bytes,
+                    source.normalized_size_bytes,
+                    sqlite3.Binary(native_bytes),
+                    revision.captured_at.isoformat(),
+                    json.dumps(revision.to_dict(), ensure_ascii=False),
+                ),
+            )
+            for chunk in migrated_chunks:
+                self._insert_chunk_locked(chunk)
+        self._conn.execute("DROP TABLE transcript_chunks_v1")
+        self._conn.execute("DROP TABLE transcript_sources_v1")
+
+    def _upsert_source_locked(self, source: TranscriptSource) -> None:
+        payload = json.dumps(source.to_dict(), ensure_ascii=False)
+        self._conn.execute(
+            """
+            INSERT INTO transcript_sources (
+                id, project_name, client, session_id, source_uri,
+                source_revision, status, updated_at, data
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                project_name=excluded.project_name,
+                client=excluded.client,
+                session_id=excluded.session_id,
+                source_uri=excluded.source_uri,
+                source_revision=excluded.source_revision,
+                status=excluded.status,
+                updated_at=excluded.updated_at,
+                data=excluded.data
+            """,
+            (
+                source.id,
+                source.project_name,
+                source.client,
+                source.session_id,
+                source.source_uri,
+                source.source_revision,
+                source.status,
+                source.updated_at.isoformat(),
+                payload,
+            ),
+        )
+
+    def _insert_chunk_locked(self, chunk: TranscriptChunk) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO transcript_chunks (
+                id, source_id, source_revision, chunk_index,
+                content_sha256, size_bytes, data
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                chunk.id,
+                chunk.source_id,
+                chunk.source_revision,
+                chunk.chunk_index,
+                chunk.content_sha256,
+                chunk.size_bytes,
+                json.dumps(chunk.to_dict(), ensure_ascii=False),
+            ),
+        )
+
+    def _assert_compatible_revision_locked(
+        self,
+        revision: TranscriptSourceRevision,
+        normalized_text: str,
+    ) -> None:
+        row = self._conn.execute(
+            """
+            SELECT raw_sha256, normalized_sha256 FROM transcript_source_revisions
+            WHERE source_id = ? AND source_revision = ?
+            """,
+            (revision.source_id, revision.source_revision),
+        ).fetchone()
+        if row is None:
+            return
+        if row["raw_sha256"] != revision.raw_sha256:
+            raise ValueError("immutable transcript revision raw hash changed")
+        if row["normalized_sha256"] != sha256_text(normalized_text):
+            raise ValueError("immutable transcript revision normalized hash changed")
+
+    @staticmethod
+    def _validate_snapshot(
+        source: TranscriptSource,
+        chunks: list[TranscriptChunk],
+        native_bytes: bytes,
+    ) -> str:
+        normalized = "" if not chunks else reconstruct_transcript(
+            chunks,
+            expected_sha256=source.normalized_sha256,
+        )
+        if source.raw_sha256 != sha256_bytes(native_bytes):
+            raise ValueError("source raw hash does not match native bytes")
+        if not source.source_revision.startswith(f"sha256:{source.raw_sha256}"):
+            raise ValueError("source revision does not match native bytes")
+        if source.normalized_sha256 != sha256_text(normalized):
+            raise ValueError("source normalized hash does not match transcript chunks")
+        if source.raw_size_bytes != len(native_bytes):
+            raise ValueError("source raw size does not match native bytes")
+        if source.normalized_size_bytes != len(normalized.encode("utf-8")):
+            raise ValueError("source normalized size does not match transcript chunks")
+        for chunk in chunks:
+            if chunk.source_id != source.id:
+                raise ValueError("chunk source id does not match transcript source")
+            if chunk.source_revision != source.source_revision:
+                raise ValueError("chunk revision does not match transcript source")
+        return normalized
+
+    @staticmethod
+    def _source_from_row(row: sqlite3.Row | None) -> TranscriptSource | None:
+        if row is None:
+            return None
+        return TranscriptSource.from_dict(json.loads(row["data"]))
+
+    def _table_exists_locked(self, table: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
+            (table,),
+        ).fetchone()
+        return row is not None
+
+    def _column_exists_locked(self, table: str, column: str) -> bool:
+        rows = self._conn.execute(f"PRAGMA table_info({table})").fetchall()
+        return any(str(row["name"]) == column for row in rows)
+
+
+__all__ = ["TRANSCRIPT_LEDGER_SCHEMA_VERSION", "TranscriptStore"]

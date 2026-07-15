@@ -78,6 +78,10 @@ class MemoryEntry(BaseModel):
     source: str = Field(
         description="Source observation id or 'manual'"
     )
+    distill_job_id: str | None = Field(
+        default=None,
+        description="Lossless distill job that produced this candidate, if any.",
+    )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -147,6 +151,7 @@ class MemoryEntry(BaseModel):
             "confidence": self.confidence,
             "status": self.status,
             "source": self.source,
+            "distill_job_id": self.distill_job_id,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "tags": self.tags,
@@ -194,6 +199,8 @@ class MemoryEntry(BaseModel):
             data["decay_score"] = 0.0
         if "provenance" not in data:
             data["provenance"] = None
+        if "distill_job_id" not in data:
+            data["distill_job_id"] = None
         if "memory_type" not in data or data["memory_type"] is None:
             data["memory_type"] = _derive_memory_type(data.get("category"))
         if "valid_from" not in data or data["valid_from"] is None:

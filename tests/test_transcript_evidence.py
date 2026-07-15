@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 from urllib.parse import quote
 
@@ -61,7 +62,7 @@ def test_collect_transcript_evidence_keeps_unknown_hosts_unavailable(
 
     assert hermes.status == "insufficient_evidence"
     assert hermes.adapter_available is True
-    assert "no session_*.json file with transcript schema" in hermes.note
+    assert "no verified JSON or SQLite transcript schema" in hermes.note
     assert opencode.status == "missing"
     assert opencode.adapter_available is True
 
@@ -118,6 +119,87 @@ def test_collect_transcript_evidence_rejects_invalid_hermes_session(tmp_path: Pa
     assert report.status == "insufficient_evidence"
     assert report.session_count == 0
     assert report.sample_files == ()
+
+
+def test_collect_transcript_evidence_verifies_hermes_state_db(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    state_db = home / "AppData" / "Local" / "hermes" / "state.db"
+    state_db.parent.mkdir(parents=True)
+    with sqlite3.connect(state_db) as db:
+        db.executescript(
+            """
+            CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                source TEXT,
+                started_at REAL,
+                ended_at REAL,
+                message_count INTEGER,
+                cwd TEXT,
+                git_repo_root TEXT,
+                model TEXT,
+                archived INTEGER DEFAULT 0
+            );
+            CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT,
+                role TEXT,
+                content TEXT,
+                tool_name TEXT,
+                active INTEGER DEFAULT 1
+            );
+            INSERT INTO sessions VALUES (
+                'hermes-db', 'Hermes DB', 'cli', 1700000000, 1700000100,
+                1, 'F:/repo', 'F:/repo', 'test', 0
+            );
+            INSERT INTO messages (session_id, role, content, tool_name)
+            VALUES ('hermes-db', 'user', 'hello', '');
+            """
+        )
+
+    report = collect_transcript_evidence(
+        tmp_path,
+        clients=("hermes",),
+        home_dir=home,
+    )[0]
+
+    assert report.status == "verified_transcript_path"
+    assert report.session_count == 1
+    assert report.sample_files == (state_db,)
+    assert "state.db sessions/messages" in report.note
+
+
+def test_collect_transcript_evidence_verifies_antigravity_cli_history(
+    tmp_path: Path,
+) -> None:
+    project_root = (tmp_path / "repo").resolve()
+    project_root.mkdir()
+    home = tmp_path / "home"
+    history = home / ".gemini" / "antigravity-cli" / "history.jsonl"
+    history.parent.mkdir(parents=True)
+    history.write_text(
+        json.dumps(
+            {
+                "conversationId": "agy-session",
+                "workspace": str(project_root),
+                "display": "hello",
+                "timestamp": 1_700_000_000_000,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = collect_transcript_evidence(
+        project_root,
+        clients=("antigravity",),
+        home_dir=home,
+    )[0]
+
+    assert report.status == "verified_transcript_path"
+    assert report.session_count == 1
+    assert report.sample_files == (history,)
+    assert "CLI history evidence" in report.note
 
 
 def test_collect_transcript_evidence_keeps_opencode_config_only_insufficient(

@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "0.8.23.4"
+version = "0.8.24"
 description = "Local-first, auditable, pluggable Agent memory backend"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -36,6 +36,7 @@ rerank = [
 [project.scripts]
 harness-mem = "harness_mem.cli:main"
 harness-mem-mcp = "harness_mem.mcp.server:main"
+harness-mem-hook = "harness_mem.host_entry.__main__:main"
 
 [build-system]
 requires = ["maturin>=1.7,<2.0"]

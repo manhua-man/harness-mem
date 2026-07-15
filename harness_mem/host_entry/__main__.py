@@ -1,4 +1,4 @@
-"""Host-entry main module — ``python -m harness_mem.host_entry``.
+"""Host-entry main module for the ``harness-mem-hook`` console script.
 
 This module is the adapter that maps explicit IDE hook actions to in-process
 runtime calls. It never shells out to the ``harness-mem`` console script.
@@ -24,9 +24,11 @@ import asyncio
 import json
 import logging
 import os
+from pathlib import Path
 import sys
 from typing import Any, Literal, Sequence
 
+from harness_mem import __version__
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import load_merged_config
 from harness_mem.commands.support import (
@@ -52,6 +54,13 @@ _VALID_CLIENTS = (
     "hermes",
     "opencode",
     "antigravity",
+)
+_VALID_ADAPTERS = (
+    "antigravity-pre",
+    "antigravity-stop",
+    "codex-stop",
+    "hermes-pre",
+    "hermes-post",
 )
 _MAX_PROJECT_ROOT_CHARS = 4096
 _MAX_TRIGGER_ID_CHARS = 256
@@ -124,12 +133,14 @@ def _post_turn_host_result(payload: dict[str, Any]) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     """Build the argparse parser for the host entry (Req 2.2-2.6)."""
     parser = argparse.ArgumentParser(
-        prog="python -m harness_mem.host_entry",
+        prog="harness-mem-hook",
         allow_abbrev=False,
     )
-    parser.add_argument("--action", required=True, choices=_VALID_ACTIONS)
-    parser.add_argument("--project-root", required=True)
-    parser.add_argument("--source", required=True, choices=_VALID_SOURCES)
+    parser.add_argument("--version", action="version", version=f"harness-mem-hook {__version__}")
+    parser.add_argument("--adapter", choices=_VALID_ADAPTERS)
+    parser.add_argument("--action", choices=_VALID_ACTIONS)
+    parser.add_argument("--project-root")
+    parser.add_argument("--source", choices=_VALID_SOURCES)
     parser.add_argument("--trigger-id", default=None)
     parser.add_argument("--client", choices=_VALID_CLIENTS, default=None)
     return parser
@@ -142,7 +153,9 @@ def validate_args(args: argparse.Namespace) -> str | None:
     constraint, or ``None`` when every bound is satisfied. The ``--source`` enum
     is already enforced by argparse ``choices``, so it is not re-checked here.
     """
-    project_root: str = args.project_root
+    project_root = args.project_root
+    if project_root is None:
+        return "--project-root is required"
     if len(project_root) > _MAX_PROJECT_ROOT_CHARS:
         return f"--project-root exceeds {_MAX_PROJECT_ROOT_CHARS} characters"
     if not os.path.isabs(project_root):
@@ -154,6 +167,97 @@ def validate_args(args: argparse.Namespace) -> str | None:
         return f"--trigger-id exceeds {_MAX_TRIGGER_ID_CHARS} characters"
 
     return None
+
+
+def _adapter_payload() -> dict[str, Any]:
+    try:
+        value = json.load(sys.stdin)
+    except Exception:  # noqa: BLE001 - passive hooks must fail open.
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _adapter_request(args: argparse.Namespace, payload: dict[str, Any]) -> argparse.Namespace:
+    """Translate one host protocol payload into a normal host-entry request."""
+
+    adapter = args.adapter
+    assert adapter is not None
+    workspace_paths = payload.get("workspacePaths")
+    roots = workspace_paths if isinstance(workspace_paths, list) else []
+    extra = payload.get("extra")
+    extra_dict = extra if isinstance(extra, dict) else {}
+    root_candidates = [
+        *(str(value) for value in roots),
+        payload.get("project_root"),
+        payload.get("projectRoot"),
+        payload.get("workspace"),
+        payload.get("cwd"),
+        extra_dict.get("project_root"),
+        extra_dict.get("projectRoot"),
+        extra_dict.get("workspace"),
+        extra_dict.get("cwd"),
+        args.project_root,
+        os.getcwd(),
+    ]
+    project_root = next(
+        (
+            str(Path(str(value)).expanduser().resolve())
+            for value in root_candidates
+            if value and Path(str(value)).expanduser().is_dir()
+        ),
+        args.project_root,
+    )
+
+    if adapter == "antigravity-pre":
+        action, client, default_trigger = "wake-start", "antigravity", "antigravity-pre-invocation"
+        trigger_id = payload.get("conversationId") or default_trigger
+    elif adapter == "antigravity-stop":
+        action, client, default_trigger = "post-turn-maintenance", "antigravity", "antigravity-stop"
+        trigger_id = payload.get("conversationId") or default_trigger
+    elif adapter == "codex-stop":
+        action, client, default_trigger = "post-turn-maintenance", "codex", "codex-stop"
+        trigger_id = payload.get("turn_id") or payload.get("session_id") or default_trigger
+    else:
+        action = "wake-start" if adapter == "hermes-pre" else "post-turn-maintenance"
+        client, default_trigger = "hermes", f"{adapter}-llm"
+        trigger_id = payload.get("session_id") or extra_dict.get("task_id") or default_trigger
+
+    return argparse.Namespace(
+        action=action,
+        project_root=project_root,
+        source="ide_hook",
+        trigger_id=str(trigger_id),
+        client=client,
+    )
+
+
+def _run_adapter(args: argparse.Namespace) -> int:
+    """Run a passive Hook adapter and emit only its host-specific response."""
+
+    payload = _adapter_payload()
+    request = _adapter_request(args, payload)
+    try:
+        exit_code, stdout_payload = asyncio.run(run(request))
+    except Exception:  # noqa: BLE001 - adapters are passive by contract.
+        logger.exception("hook adapter failed: %s", args.adapter)
+        exit_code, stdout_payload = ExitCode.HOOK_FAILED, None
+
+    adapter = args.adapter
+    assert adapter is not None
+    if adapter == "antigravity-pre":
+        message = stdout_payload.strip() if exit_code == ExitCode.SUCCESS and stdout_payload else ""
+        response: dict[str, Any] = (
+            {"injectSteps": [{"ephemeralMessage": message}]} if message else {"injectSteps": []}
+        )
+        sys.stdout.write(json.dumps(response) + "\n")
+    elif adapter == "antigravity-stop":
+        sys.stdout.write(json.dumps({"decision": "stop", "reason": "memory evidence staging finished"}) + "\n")
+    elif adapter == "hermes-pre":
+        context = stdout_payload.rstrip("\n") if exit_code == ExitCode.SUCCESS and stdout_payload else ""
+        sys.stdout.write(json.dumps({"context": context}) + "\n" if context else "{}\n")
+    else:
+        sys.stdout.write("{}\n")
+    return int(ExitCode.SUCCESS)
 
 
 async def run(args: argparse.Namespace) -> tuple[int, str | None]:
@@ -292,6 +396,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.adapter:
+        if args.project_root is None and not args.adapter.startswith("hermes-"):
+            parser.error("--project-root is required with --adapter")
+        return _run_adapter(args)
+    if args.action is None:
+        parser.error("--action is required")
+    if args.project_root is None:
+        parser.error("--project-root is required")
+    if args.source is None:
+        parser.error("--source is required")
     exit_code, stdout_payload = asyncio.run(run(args))
     if stdout_payload is not None:
         sys.stdout.write(stdout_payload + "\n")

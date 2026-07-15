@@ -14,21 +14,23 @@ PROJECT_ROOT=${PROJECT_ROOT_SHELL}
 TURN_ID="$${CLAUDE_CODE_TURN_ID:-unknown}"
 
 if [ "$${HARNESS_MEM_HOOK_DEBUG:-0}" = "1" ]; then
-    HARNESS_MEM_CLIENT=claude-code python -m harness_mem.host_entry \
+    HARNESS_MEM_CLIENT=claude-code ${HOOK_RUNNER_SHELL} \
         --action post-turn-maintenance \
         --project-root "$$PROJECT_ROOT" \
         --source ide_hook \
         --trigger-id "$$TURN_ID" \
+        --client claude-code \
         >/dev/null || {
             STATUS=$$?
-            echo "harness_mem.host_entry failed (client=claude-code action=post-turn-maintenance status=$$STATUS)" >&2
+            echo "harness-mem-hook failed (client=claude-code action=post-turn-maintenance status=$$STATUS)" >&2
         }
 else
-    HARNESS_MEM_CLIENT=claude-code python -m harness_mem.host_entry \
+    HARNESS_MEM_CLIENT=claude-code ${HOOK_RUNNER_SHELL} \
         --action post-turn-maintenance \
         --project-root "$$PROJECT_ROOT" \
         --source ide_hook \
         --trigger-id "$$TURN_ID" \
+        --client claude-code \
         >/dev/null 2>&1 || true
 fi
 
