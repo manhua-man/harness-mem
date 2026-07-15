@@ -18,6 +18,10 @@
   actually contain harness-mem Hook commands. Optional artifacts for other
   IDEs, and a Hermes config containing only MCP settings, no longer produce a
   false `repair needed` result.
+- Hook startup no longer rewrites every existing observation trigram index on
+  each process launch. Stop maintenance also defers transcript embedding model
+  loading and limits each interactive pass to one changed session while the
+  durable scan frontier continues historical backfill across later turns.
 
 ## [0.8.24] - 2026-07-15
 

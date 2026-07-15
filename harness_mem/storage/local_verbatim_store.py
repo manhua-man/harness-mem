@@ -117,18 +117,26 @@ class LocalVerbatimStore:
         canonical_count = self._canonical.count("observations")
         if canonical_count <= 0:
             return
+        payloads = self._canonical.list_payloads("observations")
         indexed_count = await asyncio.to_thread(self._index.count, "observations")
         if indexed_count < canonical_count:
-            for payload in self._canonical.list_payloads("observations"):
+            for payload in payloads:
                 observation_id = str(payload.get("id") or "")
                 if not observation_id:
                     continue
                 if await asyncio.to_thread(self._index.get, "observations", observation_id) is None:
                     await self.save(Observation.from_dict(payload))
-        for payload in self._canonical.list_payloads("observations"):
+        indexed_trigram_ids = await asyncio.to_thread(
+            self._index.observation_ids_with_trigrams
+        )
+        for payload in payloads:
             observation_id = str(payload.get("id") or "")
             raw_content = str(payload.get("raw_content") or "")
-            if observation_id and raw_content:
+            if (
+                observation_id
+                and observation_id not in indexed_trigram_ids
+                and raw_content
+            ):
                 await asyncio.to_thread(
                     self._index.replace_observation_trigrams,
                     observation_id,
