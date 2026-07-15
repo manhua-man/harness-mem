@@ -18,8 +18,11 @@ def test_integration_health_summarizes_current_workspace(
     workspace.mkdir()
     hook_dir = workspace / ".cursor" / "hooks"
     hook_dir.mkdir(parents=True)
-    (hook_dir / "session-start.sh").write_text("wake", encoding="utf-8")
-    (hook_dir / "after-agent.sh").write_text("maintain", encoding="utf-8")
+    (hook_dir / "session-start.sh").write_text("harness-mem-hook wake", encoding="utf-8")
+    (hook_dir / "after-agent.sh").write_text(
+        "harness-mem-hook maintain",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("HARNESS_MEM_CLIENT", "cursor")
 
     async def run() -> dict:
@@ -98,7 +101,10 @@ def test_codex_health_requires_current_hook_execution_proof(
     workspace = tmp_path / "project"
     hook_path = workspace / ".codex" / "hooks.json"
     hook_path.parent.mkdir(parents=True)
-    hook_path.write_text('{"hooks":{"SessionStart":[],"Stop":[]}}\n', encoding="utf-8")
+    hook_path.write_text(
+        '{"hooks":{"SessionStart":[{"command":"harness-mem-hook"}],"Stop":[]}}\n',
+        encoding="utf-8",
+    )
     monkeypatch.setenv("HARNESS_MEM_CLIENT", "codex")
 
     async def run() -> tuple[dict, dict]:

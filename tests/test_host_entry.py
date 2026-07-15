@@ -62,7 +62,10 @@ def test_host_entry_wake_start_outputs_wake_text(monkeypatch, tmp_path) -> None:
 def test_host_entry_wake_records_current_codex_hook_execution(monkeypatch, tmp_path) -> None:
     hook_path = tmp_path / ".codex" / "hooks.json"
     hook_path.parent.mkdir(parents=True)
-    hook_path.write_text('{"hooks":{"SessionStart":[]}}\n', encoding="utf-8")
+    hook_path.write_text(
+        '{"hooks":{"SessionStart":[{"command":"harness-mem-hook"}]}}\n',
+        encoding="utf-8",
+    )
     data_dir = tmp_path / "data"
     monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
     monkeypatch.setattr(backend_module, "DEFAULT_DATA_DIR", data_dir)

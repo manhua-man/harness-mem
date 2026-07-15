@@ -14,6 +14,10 @@
   that automatic wake works. Status reports `review_required` until Codex has
   trusted and successfully run the current `SessionStart` definition, using a
   configuration-bound execution receipt that becomes stale when hooks change.
+- Hook doctor diagnostics now evaluate complete suites only for hosts that
+  actually contain harness-mem Hook commands. Optional artifacts for other
+  IDEs, and a Hermes config containing only MCP settings, no longer produce a
+  false `repair needed` result.
 
 ## [0.8.24] - 2026-07-15
 

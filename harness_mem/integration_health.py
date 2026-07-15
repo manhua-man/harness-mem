@@ -32,7 +32,7 @@ async def build_integration_health(
         if root is not None and host != "unknown"
         else ()
     )
-    installed_hooks = [hook for hook in hook_files if hook.exists]
+    installed_hooks = [hook for hook in hook_files if hook.exists and hook.configured]
     wake_receipt = (
         read_hook_execution_receipt(
             backend.data_dir,

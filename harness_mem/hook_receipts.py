@@ -33,7 +33,9 @@ def hook_configuration_fingerprint(
         client=client,
         home_dir=home_dir,
     )
-    if not statuses or any(not status.exists for status in statuses):
+    if not statuses or any(
+        not status.exists or not status.configured for status in statuses
+    ):
         return None
 
     digest = hashlib.sha256()

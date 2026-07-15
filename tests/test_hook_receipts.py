@@ -12,7 +12,10 @@ def test_hook_receipt_is_bound_to_current_hook_configuration(tmp_path: Path) -> 
     workspace = tmp_path / "project"
     manifest = workspace / ".codex" / "hooks.json"
     manifest.parent.mkdir(parents=True)
-    manifest.write_text('{"hooks":{"SessionStart":[]}}\n', encoding="utf-8")
+    manifest.write_text(
+        '{"hooks":{"SessionStart":[{"command":"harness-mem-hook"}]}}\n',
+        encoding="utf-8",
+    )
     data_dir = tmp_path / "data"
 
     receipt_path = record_hook_execution(
@@ -35,7 +38,10 @@ def test_hook_receipt_is_bound_to_current_hook_configuration(tmp_path: Path) -> 
     assert receipt is not None
     assert receipt["trigger_id"] == "session-1"
 
-    manifest.write_text('{"hooks":{"SessionStart":[],"Stop":[]}}\n', encoding="utf-8")
+    manifest.write_text(
+        '{"hooks":{"SessionStart":[{"command":"harness-mem-hook"}],"Stop":[]}}\n',
+        encoding="utf-8",
+    )
 
     assert (
         read_hook_execution_receipt(

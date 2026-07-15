@@ -34,6 +34,7 @@ class HookFileStatus:
     legacy_python: bool
     project_root_match: bool
     scope: str = "project"
+    configured: bool = False
 
 
 @dataclass(frozen=True)
@@ -147,4 +148,5 @@ def _hook_file_status(
         legacy_python=_LEGACY_HOST_ENTRY in text,
         project_root_match=project_root.as_posix() in text,
         scope=scope,
+        configured="harness-mem-hook" in text or _LEGACY_HOST_ENTRY in text,
     )
