@@ -9,6 +9,32 @@
 - Project-scoped MCP status bootstrap now adopts the workspace and installs the
   matching generated Hook suite for all seven recognized hosts without asking
   users to run a hook installer.
+- Compact/full MCP response views with decision-fingerprint parity. Project
+  status stays below the 1.2k-token budget and distill uses a ≤3k-token indexed
+  manifest followed by semantic-window and raw-proof drilldown.
+- Agent-active parked draining with a two-job active lane, 3:1 recent/oldest
+  fairness, daily new-job budget, exponential failure backoff, and throughput
+  metrics. Runtime reports `waiting_for_agent` when no model can perform review.
+- Atomic Storage v2 migration: pre-migration SQLite backup, staging validation,
+  integrity check, atomic activation, runtime-state-last switching, and automatic
+  restoration after activation failure.
+- Explicit dry-run `maintenance migrate-legacy-accepted` governance migration.
+  Rows move only to pending review or historical/superseded state and retain
+  audit/undo metadata; the migration never confirms truth.
+
+### Changed
+
+- Vector maintenance now reuses one model instance, encodes batches of 32 by
+  default, stages and validates rows before a transactional switch, reports once
+  per batch, and rebuilds vec0 with a batch write. Default pytest runs block real
+  model loading unless a test is marked `embedding_integration`.
+- Doctor explains Storage v2 checksum relationships as `exact_match`,
+  `canonical_superset_expected`, `legacy_missing_in_canonical`,
+  `content_conflict`, or `invalid_legacy`; canonical-only current data is no
+  longer presented as checksum corruption.
+- MCP governance writes are consolidated behind `govern_memory`; the exported
+  public descriptor surface contains 27 tools while full diagnostic drilldown
+  remains available.
 
 ### Fixed
 

@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "0.8.25"
+version = "0.9.0"
 description = "Local-first, auditable, pluggable Agent memory backend"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -49,6 +49,7 @@ python-packages = ["harness_mem"]
 features = ["pyo3/extension-module"]
 include = [
     { path = "harness_mem/integration/templates/*.template", format = "wheel" },
+    { path = "plugins/harness-mem/commands/hm/daily/*.md", format = "wheel" },
 ]
 
 [[tool.mypy.overrides]]
@@ -59,3 +60,8 @@ module = [
     "sentence_transformers",
 ]
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+markers = [
+    "embedding_integration: explicitly loads the real embedding model; excluded from normal CI",
+]

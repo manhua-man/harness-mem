@@ -16,6 +16,10 @@ rejected, and supersede items; it is not the everyday write gate. `dream` is
 the default audited maintenance side path and must keep undoable audit records
 when durable truth changes.
 
+See [maturity-model.md](maturity-model.md) for the **Readiness Ladder v1** scoring
+model (six tracks + scope ledger + claim boundary). Canvas:
+`canvases/harness-mem-readiness-v1.canvas.tsx`.
+
 ## Version Line
 
 Roadmap versions **are** release semver (`pyproject.toml` `0.8.N`). There is no
@@ -29,7 +33,7 @@ ship.
 | `0.8.8` | Auto-promoted governance. | Low-risk candidates auto-promote to trust-tiered memory; `/hm:review` is post-hoc audit. | Manual-only review gate, hidden truth mutation. |
 | `0.8.9` | Runtime autopilot search. | `autopilot_search_tick` task-aware search scheduler; bounded triggers only. | Always-on broad search, hook lock-in without discipline. |
 | `0.8.10` | Plugin packaging sync. | `plugins/harness-mem` install path, drift checks, and daily command metadata stay aligned with runtime version. | Memory semantics changes. |
-| `0.8.11` | Governance compat removal. | Remove legacy `accepted` read alias; wire seven layered statuses end-to-end; doctor legacy scan; Rust/Python rank parity. | Auto-migration of legacy `accepted` blobs. |
+| `0.8.11` | Governance compat removal. | Remove legacy `accepted` read alias; wire seven layered statuses end-to-end; doctor legacy scan; Rust/Python rank parity. | Completed in 0.9.0 with explicit dry-run governance migration. |
 | `0.8.12` | IDE hook adapters. | Checked-in host templates installed by project-scoped MCP bootstrap for cursor, claude-code, grok, codex, hermes, opencode. | Per-host hook invention at runtime. |
 | Later / Labs | Optional acceleration and experiments. | Benchmarks prove the Python/SQLite default has a real bottleneck or quality ceiling. | Default runtime narrative or public surface expansion. |
 
@@ -142,7 +146,7 @@ See [autopilot-search-policy.md](autopilot-search-policy.md) for the runtime con
 
 - Drop legacy `accepted` as a readable-truth alias; use `readable_truth`
   (`auto_confirmed` + `user_confirmed`) on read paths.
-- Report legacy `status=accepted` blob counts in doctor only; no auto-migration.
+- Report legacy `status=accepted` counts in doctor; 0.9.0 adds an explicit dry-run migration that moves rows only to pending review or historical state, never truth.
 - Lock native vs Python `rank_candidates` parity; clarify `list_candidates`
   layered status semantics in MCP schema.
 

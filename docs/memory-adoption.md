@@ -138,7 +138,7 @@ Not runtime-enforced until a future explicit gate cites this doc.
 | Trellis | harness-mem | Recommendation |
 |---|---|---|
 | trellis-check | `auto_review_candidates` (memory only) | Code check separate; memory stays hm |
-| update-spec | `confirm_rule` + promote to AGENTS.md | Adopt pattern; no `.trellis/spec/` in hm |
+| update-spec | `govern_memory(action="decide", kind="rule")` + promote to AGENTS.md | Adopt pattern; no `.trellis/spec/` in hm |
 | finish-work | `create_task_handoff` + dream hook | Map only |
 | journal | event_log + confirmed memory | hm wins; no dual journal |
 
@@ -158,7 +158,7 @@ store.
 | Pattern | Operator action in harness-mem | Never do |
 |---|---|---|
 | `check` | Run code acceptance with the project test stack (`pytest`, `ruff`, app-specific checks). Run memory acceptance with `auto_review_candidates(apply=true)` for low-risk automation, then use `/hm:review` for audit, undo, and high-risk decisions. | Do not treat `auto_review_candidates` as code validation; do not treat passing tests as memory confirmation. |
-| `update-spec` | When a repeated lesson should change future behavior, create `suggest_rule` / `suggest_memory_entry`; after confirmation, update repo guidance such as `AGENTS.md` only when the scope is repo-wide. | Do not create `.trellis/spec/` or a parallel PRD truth layer inside hm. |
+| `update-spec` | When a repeated lesson should change future behavior, use `govern_memory(action="suggest")`; after confirmation, update repo guidance such as `AGENTS.md` only when the scope is repo-wide. | Do not create `.trellis/spec/` or a parallel PRD truth layer inside hm. |
 | `finish-work` | At task/session end, call `create_task_handoff` for current state, blockers, and next steps. Then read or trigger `/hm:dream` only when maintenance or ledger review is needed. | Do not double-write task state to a Trellis journal and hm handoff. |
 | `journal` | Use `event_log` / state audit for governance history, `timeline` / `search_memory` for retrievable memory history, `create_task_handoff` for task continuity, and `dream_ledger` for maintenance history. | Do not install or sync Trellis journal as durable project memory. |
 
@@ -183,7 +183,7 @@ Closeout checklist:
 | Agent execution | wake → search → implement |
 | MCP on demand | Browser/GitHub/etc.; memory via hm MCP |
 | trellis-check | pytest/ruff; separate from auto_review |
-| update-spec | `confirm_rule` + repo rules |
+| update-spec | `govern_memory(action="decide", kind="rule")` + repo rules |
 | finish-work / journal | `create_task_handoff` + dream; journal = confirmed memory |
 
 ## Adoption priority (KISS)

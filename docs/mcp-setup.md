@@ -14,7 +14,8 @@ For a project-scoped MCP entry, set the server's working directory to the
 workspace and pass the owning client in `HARNESS_MEM_CLIENT`. On its first
 `initialize` request, a recognized client automatically records the project
 profile, makes it active, and installs its hook suite without overwriting
-existing hook files.
+existing hook files. It also idempotently repairs that host's user-level Daily
+commands; command discovery is not tied to the current project.
 
 ```json
 {
@@ -39,9 +40,22 @@ a client cannot set `cwd`, set `HARNESS_MEM_PROJECT_ROOT` to the absolute
 workspace path instead. The environment value belongs in the MCP server entry,
 not only the hook command, so initialization sees the correct host identity.
 
+The callable tool prefix is chosen by the MCP client configuration, not by
+harness-mem. A direct server named `harness_mem` commonly exposes
+`mcp__harness_mem__*`; Codex connected through a server named `mcp_router`
+exposes the same logical tools as `mcp__mcp_router__*`. Daily commands and
+skills resolve `wake`, `get_project_status`, `prepare_session_distill`, and the
+other logical names from the current task's tool inventory. Users do not type
+these internal prefixes.
+
+Do not keep both a direct harness-mem entry and a Router-imported copy enabled
+for the same host. Pick one transport. When the server implementation or tool
+schema changes, restart the harness-mem child process in the Router and start a
+new Agent task; existing tasks keep the tool snapshot they started with.
+
 The server has one public memory surface. It exposes the normal Agent workflow:
-status, wake/search, session distill, candidate suggestion, explicit
-candidate review, and dream as the default audited maintenance capability.
+status, wake/search, session distill, composite `govern_memory`, candidate
+review, and dream as the default audited maintenance capability.
 Historical profile values are ignored.
 The `wake` output leads with a recent project-scoped context index. It is a
 derived view of transcript observations and does not promote them to confirmed
@@ -55,11 +69,14 @@ Hooks**, trust the project hooks, and start a new task. The status changes to
 `ok` only after the matching `SessionStart` Hook completes; changing the Hook
 manifest invalidates the old execution receipt.
 
-Invocation paths are Agent MCP calls, `/hm:*` commands, installed skills, and
+Invocation paths are host-native Daily commands, installed skills, Agent MCP calls, and
 explicit IDE hooks. Session-start/PreInvocation hooks inject wake context; runtime task hooks
 call `autopilot_search_tick`, which decides whether to run bounded
 `search_memory`; save-point or session-end hooks sync evidence and queue
-Agent-led distillation.
+bounded Agent distillation. Wake keeps at most two jobs active, parks older cold
+evidence without deleting it, and refills the active lane after completion with
+a 3:1 recent/oldest policy, a daily new-job budget, and failure backoff. This
+preserves recency without starving parked history.
 
 `autopilot_search_tick` is the event-level scheduler. PI
 `transformContext` / `tool_result` / `prepareNextTurn`, Claude Code
@@ -68,11 +85,16 @@ payloads into that tool. It searches only for concrete uncertainty, conflict,
 tool failure, durable-claim grounding, or long-horizon task switches; it is not
 a second `wake`.
 
-`prepare_session_distill` syncs native transcript revisions and claims their
-ordered chunks. Chunks are never shortened to fit one MCP response; long
-sessions continue over multiple Agent calls with leases and durable
-checkpoints. After all chunks complete, the Agent receives the ordered chunk
-results and must submit a structured end-of-session review. Candidate writes
+`prepare_session_distill` syncs native transcript revisions and preserves every
+ordered raw chunk. Daily `evidence_mode="semantic", detail_level="compact",
+budget_tokens=3000` lets runtime hash-verify and checkpoint each chunk before
+returning a deterministic indexed manifest. The Agent selects complete semantic
+windows with `drilldown_exchange_indexes`, then reads raw chunk proof only when
+a candidate needs it. Explicit `detail_level="full"` or `evidence_mode="raw"`
+keeps the original resumable lease loop: chunks are never shortened to fit one
+MCP response, and long sessions continue over multiple calls. After structural
+coverage and semantic reading complete, the Agent submits a structured
+end-of-session review. Candidate writes
 bound to that job use stable IDs so retries do not duplicate memory.
 `finalize_session_distill` applies the shared low-risk policy, completes that
 one explicit job, and runs Dream. Lower-level sync and chunk tools are internal
@@ -94,6 +116,15 @@ internals, does not report hidden maintenance counts, and treats direct calls
 to maintenance-only tools as unknown. Operators should diagnose local state
 through `harness-mem doctor` and explicit CLI maintenance commands.
 
+Storage migration uses an automatic pre-migration SQLite snapshot, a staging DB,
+integrity/checksum-relation validation, atomic activation, and runtime-state-last
+switching. Doctor distinguishes `exact_match`, `canonical_superset_expected`,
+`legacy_missing_in_canonical`, `content_conflict`, and `invalid_legacy`.
+`maintenance migrate-legacy-accepted` is dry-run by default and can only move old
+`accepted` rows to pending review or historical/superseded state; it never confirms truth.
+`maintenance rebuild-vector-index --batch-size 32` preserves old vectors until
+batched staging rows validate, then switches transactionally and rebuilds vec0 once.
+
 ## Claude Code
 
 On Windows:
@@ -104,11 +135,14 @@ cd harness-mem
 .\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
-The plugin also includes the Daily `/hm:*` command files for common memory
-actions, including dream. Project-scoped MCP initialization installs the
-matching IDE hooks automatically. If hooks are missing, the next MCP
-initialization repairs the project-local installation without overwriting
-existing files.
+The plugin includes the Daily command source for common memory actions,
+including dream. Install all host-native commands once with `harness-mem
+integration commands sync` (defaults: `--client all --scope user`): Claude Code uses `/hm:<action>`;
+Codex uses `$hm-<action>` skills; Cursor, Grok, Hermes, OpenCode, and Antigravity
+use `/hm-<action>`. The repo `install.ps1` runs this sync automatically.
+Project-scoped MCP initialization installs the matching IDE hooks automatically.
+If hooks are missing, the next MCP initialization repairs the project-local
+installation without overwriting existing files.
 
 ## Generic MCP Client
 
@@ -127,6 +161,21 @@ Add a project-scoped server entry that runs from the workspace:
 Replace `cursor` with the actual MCP host. For an unrecognized generic client,
 omit the client variable; regular MCP tools still work, while automatic hook
 installation is skipped.
+
+### MCP Router
+
+Register one `harness-mem` server in the Router using `harness-mem-mcp` (or its
+absolute installed path), set the workspace as its context/cwd, and grant the
+active Agent client access. The Router server name becomes the Agent-visible
+namespace. For example, a Codex entry named `mcp_router` exposes
+`mcp__mcp_router__get_project_status`, not
+`mcp__harness_mem__get_project_status`.
+
+Router project groups such as `Unassigned` are organizational metadata; verify
+client access in the Router's app-integration settings rather than inferring it
+from the group label. A stopped duplicate usually comes from importing an
+external IDE MCP config. Disable the duplicate and keep the single entry whose
+command, context path, and installed Python environment are correct.
 
 After registration, ask the Agent to:
 

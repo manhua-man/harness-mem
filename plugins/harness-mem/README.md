@@ -39,15 +39,16 @@ To also register the MCP server with Claude Code:
 .\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
-Slash command sync installs the Daily command surface:
+The installer syncs the Daily command surface once at user scope for all seven
+supported hosts. New projects discover it without another sync:
 
 ```text
 /hm:status /hm:wake /hm:search /hm:search-all /hm:distill /hm:review /hm:dream
 ```
 
-`install.ps1` installs or updates the runtime. `sync-commands.ps1` refreshes
-the Daily `/hm:*` command files and removes old non-Daily command files; it
-does not reinstall the Python package or rerun doctor checks.
+`install.ps1` installs or updates the runtime and runs the all-host user-level
+sync. `sync-commands.ps1` refreshes those command files without reinstalling
+the Python package or rerunning doctor checks.
 
 `harness-mem doctor` reports plugin drift in two separate buckets:
 
@@ -57,11 +58,12 @@ does not reinstall the Python package or rerun doctor checks.
   profile. Missing host files are not treated as runtime failure; stale existing
   host files are fixed by rerunning `install.ps1` or `sync-commands.ps1`.
 
-The same command visibility sync is available from the CLI:
+The same device-level command visibility sync is available from the CLI. Its
+defaults are `--client all --scope user`:
 
 ```powershell
 harness-mem integration commands list
-harness-mem integration commands sync --profile daily
+harness-mem integration commands sync
 ```
 
 Skip slash command and skill sync on headless machines:
@@ -78,27 +80,53 @@ Run a local smoke check:
 
 ## Daily Commands
 
-Use these from Claude Code after installation:
+Every supported host exposes the same seven Daily actions through its native
+command mechanism. The action names are stable; only the host's prefix differs.
+
+| Host | Invocation |
+|---|---|
+| Claude Code | `/hm:status`, `/hm:wake`, `/hm:search`, `/hm:distill`, `/hm:review`, `/hm:dream` |
+| Codex | `$hm-status`, `$hm-wake`, `$hm-search`, `$hm-distill`, `$hm-review`, `$hm-dream` |
+| Cursor, Grok, Hermes, OpenCode, Antigravity | `/hm-status`, `/hm-wake`, `/hm-search`, `/hm-distill`, `/hm-review`, `/hm-dream` |
+
+The repo installer already performs the one-time all-host sync. To repair or
+refresh it independently:
+
+```powershell
+harness-mem integration commands sync
+```
+
+Use `--client codex` to refresh only one host, or `--client codex --scope
+project --project-root .` when deliberately creating a repo-local command set.
+Hermes is profile-scoped and therefore supports only `--scope user`.
+Codex uses skills because its slash menu
+only accepts built-in commands; `$hm-*` is its native, user-invocable form.
+The generated skills resolve logical MCP tool names against the current task:
+Codex behind MCP Router commonly uses `mcp__mcp_router__*`, while a direct
+`harness_mem` server uses `mcp__harness_mem__*`. Restart the server and start a
+new task after changing registration or upgrading the tool schema.
+
+| Host | User-level discovery directory |
+|---|---|
+| Claude Code | `~/.claude/commands/hm` |
+| Codex | `~/.codex/skills` |
+| Cursor | `~/.cursor/skills` |
+| Grok | `~/.grok/skills` |
+| Hermes | `$HERMES_HOME/skills` (`%LOCALAPPDATA%/hermes/skills` on native Windows) |
+| OpenCode | `~/.config/opencode/commands` |
+| Antigravity | `~/.gemini/antigravity/global_workflows` |
+
+The underlying actions are:
 
 | Command | Purpose |
 |---|---|
-| `/hm:status` | Check project memory status and next action. |
-| `/hm:wake` | Recover confirmed project context. |
-| `/hm:search "query"` | Search current-project memory. |
-| `/hm:search-all "query"` | Explicit cross-project memory search. |
-| `/hm:distill <project> <n>` | Immediately consume recent evidence, govern candidates, and run Dream. |
-| `/hm:review` | Confirm, reject, replace, or keep pending candidates. |
-| `/hm:dream` | Inspect or explicitly trigger the default dream maintenance ledger. |
-
-For Cursor, Gemini CLI, Codex, Hermes, or another MCP-capable client, use the
-same actions in natural language:
-
-```text
-Use harness-mem to wake this project.
-Search harness-mem for "release boundary".
-Use harness-mem to distill the recent session into memory candidates.
-Review the new harness-mem candidates.
-```
+| `hm-status` | Check project memory status and next action. |
+| `hm-wake` | Recover confirmed project context. |
+| `hm-search "query"` | Search current-project memory. |
+| `hm-search-all "query"` | Explicit cross-project memory search. |
+| `hm-distill <project> <n>` | Immediately consume recent evidence, govern candidates, and run Dream. |
+| `hm-review` | Confirm, reject, replace, or keep pending candidates. |
+| `hm-dream` | Inspect or explicitly trigger the default dream maintenance ledger. |
 
 ## Boundary
 
