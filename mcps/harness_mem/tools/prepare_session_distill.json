@@ -63,10 +63,66 @@
         "description": "Run low-level transcript sync before building the packet (default: true)",
         "default": true
       },
+      "defer_job_id": {
+        "type": "string",
+        "description": "Failed job to release as retryable and skip for this call."
+      },
+      "defer_reason": {
+        "type": "string",
+        "description": "Bounded failure reason stored with defer_job_id."
+      },
       "chunk_limit": {
         "type": "integer",
         "description": "Lossless transcript chunks to claim in this Agent call (default: 1, max: 3)",
         "default": 1
+      },
+      "evidence_mode": {
+        "type": "string",
+        "enum": [
+          "raw",
+          "semantic"
+        ],
+        "description": "Evidence delivery mode. raw preserves the existing per-chunk Agent loop; semantic lets runtime hash-verify/checkpoint every raw chunk and returns the smaller parser-derived session rendering.",
+        "default": "raw"
+      },
+      "detail_level": {
+        "type": "string",
+        "enum": [
+          "compact",
+          "full"
+        ],
+        "description": "Semantic evidence detail. compact returns a budgeted exchange outline; full returns the complete v1 semantic rendering.",
+        "default": "compact"
+      },
+      "budget_tokens": {
+        "type": "integer",
+        "minimum": 256,
+        "maximum": 12000,
+        "description": "Advisory token budget for compact semantic evidence.",
+        "default": 3000
+      },
+      "drilldown_exchange_indexes": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxItems": 8,
+        "description": "Read complete semantic windows for selected one-based exchange indexes before querying candidate-grade raw proof."
+      },
+      "drilldown_chunk_indexes": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxItems": 8,
+        "description": "Read-only raw chunk indexes to return after a job reaches reviewing; use for candidate-grade evidence drilldown."
+      },
+      "drilldown_query": {
+        "type": "string",
+        "maxLength": 200,
+        "description": "Read-only search over raw chunks after the job reaches reviewing. Returns up to 8 matching chunks when semantic evidence needs proof."
       }
     }
   }

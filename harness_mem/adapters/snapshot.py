@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
 from harness_mem.core.interfaces.memory_backend import MemoryBackend
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.transcript import TranscriptSource
+from harness_mem.capture_policy import (
+    decide_capture,
+    redact_private_bytes,
+    redact_private_text,
+)
+from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.transcript_chunking import (
     chunk_transcript_text,
     sha256_bytes,
@@ -23,9 +30,10 @@ class TranscriptSyncResult:
     """Outcome of synchronizing one native host session revision."""
 
     action: str
-    source: TranscriptSource
-    observation_id: str
-    distill_job_id: str
+    source: TranscriptSource | None
+    observation_id: str | None
+    distill_job_id: str | None
+    reason: str | None = None
 
     @property
     def changed(self) -> bool:
@@ -51,6 +59,44 @@ async def persist_session_snapshot(
 ) -> TranscriptSyncResult:
     """Persist a complete source revision and upsert its search observation."""
 
+    # Legacy/import callers may preserve a no-longer-mounted project root in
+    # transcript metadata.  They keep safe defaults; live project calls load
+    # the merged user/project policy from the existing root.
+    config = (
+        load_merged_config(project_root)
+        if Path(project_root).is_absolute() and Path(project_root).is_dir()
+        else MergedConfig()
+    )
+    capture_decision = decide_capture(
+        config,
+        client=client,
+        session_id=session_id,
+        source_uri=source_uri,
+    )
+    if not capture_decision.admitted:
+        return TranscriptSyncResult(
+            action="ignored",
+            source=None,
+            observation_id=None,
+            distill_job_id=None,
+            reason=capture_decision.reason,
+        )
+
+    private_span_count = 0
+    if config.capture_private_tags:
+        source_text, text_redactions = redact_private_text(source_text)
+        native_input = raw_bytes if raw_bytes is not None else source_text.encode("utf-8")
+        native_bytes, byte_redactions = redact_private_bytes(native_input)
+        private_span_count = max(text_redactions, byte_redactions)
+        # The adapter's searchable rendering is also evidence and must not keep
+        # private content that the immutable ledger rejected.
+        observation.raw_content, observation_redactions = redact_private_text(
+            observation.raw_content
+        )
+        private_span_count = max(private_span_count, observation_redactions)
+    else:
+        native_bytes = raw_bytes if raw_bytes is not None else source_text.encode("utf-8")
+
     requested_source_uri = source_uri
     source_id = transcript_source_id(
         client=client,
@@ -58,7 +104,6 @@ async def persist_session_snapshot(
         session_id=session_id,
         source_uri=source_uri,
     )
-    native_bytes = raw_bytes if raw_bytes is not None else source_text.encode("utf-8")
     revision = transcript_bytes_revision(native_bytes)
     raw_digest = sha256_bytes(native_bytes)
     normalized_digest = sha256_text(source_text)
@@ -135,6 +180,8 @@ async def persist_session_snapshot(
                     requested_source_uri,
                 }
             ),
+            "capture_private_spans_removed": private_span_count,
+            "capture_policy": "project_merged_v1",
         },
         created_at=(
             existing_source.created_at
@@ -160,6 +207,7 @@ async def persist_session_snapshot(
     if action != "unchanged":
         backend.transcript_store.save_snapshot(source, chunks, raw_bytes=native_bytes)
     else:
+        assert existing_source is not None
         if (
             existing_source.status == "missing"
             or requested_source_uri != existing_source.metadata.get("native_source_uri")
@@ -175,7 +223,8 @@ async def persist_session_snapshot(
             if existing_source.status == "missing":
                 source.metadata.pop("missing_since", None)
                 source.metadata.pop("missing_reason", None)
-                source.metadata["reappeared_at"] = source.synced_at.isoformat()
+                if source.synced_at is not None:
+                    source.metadata["reappeared_at"] = source.synced_at.isoformat()
             backend.transcript_store.save_source(source)
         else:
             source = existing_source
@@ -199,7 +248,11 @@ async def persist_session_snapshot(
         )
         await backend.verbatim_store.save(observation)
 
-    distill_job = backend.transcript_store.enqueue_distill_job(source.id)
+    distill_job = backend.transcript_store.enqueue_distill_job(
+        source.id,
+        active_limit=config.distill_auto_target_backlog,
+        recent_first=config.distill_auto_recent_first,
+    )
 
     return TranscriptSyncResult(
         action=action,

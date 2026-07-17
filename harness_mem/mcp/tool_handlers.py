@@ -1,8 +1,9 @@
 """MCP tool handler implementations for harness-mem.
 
 ``server.py`` owns stdio protection, backend initialization, and JSON-RPC
-routing. This module owns the tool bodies and the handler registry that is
-bound to ``tool_specs`` at import time.
+routing. This module owns read/distill/dream bodies and the handler registry
+bound to ``tool_specs``. Candidate/truth writes live in
+``governance_handlers.py`` behind narrow runtime callbacks.
 """
 
 from __future__ import annotations
@@ -41,9 +42,8 @@ from harness_mem.commands.support import (
 )
 from harness_mem.commands.wake import DEFAULT_SKILL_HINT_LIMIT, build_wake_snapshot, cmd_wake_up
 from harness_mem.config.errors import ConfigError
-from harness_mem.config.merge import load_merged_config
+from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.autopilot_search import plan_autopilot_search
-from harness_mem.core.schemas import SupersedeCandidate
 from harness_mem.event_log import StateEventType, append_state_event
 from harness_mem.file_context import build_file_context
 from harness_mem.guided_flow import build_guided_flow, guided_flow_drilldown_hint
@@ -72,7 +72,38 @@ from harness_mem.runtime_health import runtime_health_report
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from harness_mem.task_context_runtime import orchestrate_task_context
+from harness_mem.transcript_chunking import sha256_text
 from harness_mem.version import runtime_version_payload
+from harness_mem.mcp.governance_handlers import (
+    tool_confirm_memory_entry,
+    tool_confirm_relation_fact,
+    tool_confirm_rule,
+    tool_confirm_supersede,
+    tool_create_rule_candidate,
+    tool_create_task_handoff,
+    tool_govern_memory,
+    tool_reject_memory_entry,
+    tool_reject_relation_fact,
+    tool_reject_rule,
+    tool_reject_supersede,
+    tool_suggest_correction,
+    tool_suggest_memory_entry,
+    tool_suggest_relation_fact,
+    tool_suggest_rule,
+    tool_suggest_supersede,
+)
+from harness_mem.mcp.response_views import (
+    STATUS_DETAIL_LEVELS,
+    build_status_dx_metadata,
+    render_project_status,
+    status_triage_hints,
+)
+from harness_mem.mcp.distill_projection import (
+    build_distill_compact_outline,
+    build_distill_semantic_outline,
+    render_distill_exchange_windows,
+    split_distill_semantic_content,
+)
 
 BackendProvider = Callable[[], LocalMemoryBackend]
 ObserverDataDirProvider = Callable[[], Path]
@@ -578,107 +609,7 @@ def _wake_dx_metadata(
     }
 
 
-def _status_dx_metadata(
-    counts: dict[str, Any],
-    triage: dict[str, Any],
-    *,
-    project_name: str,
-) -> dict[str, Any]:
-    phase = str(triage.get("phase") or "unknown")
-    pending = int(counts.get("pending_candidate_count", 0) or 0)
-    next_actions: list[dict[str, str]] = []
-    suggested = triage.get("suggested_slash")
-    if suggested:
-        next_actions.append(
-            _action(
-                "run_suggested_entry",
-                str(suggested),
-                str(triage.get("reason") or "Recommended next daily-flow step."),
-            )
-        )
-    if pending > 0:
-        next_actions.append(
-            _action(
-                "review_pending_when_needed",
-                "/hm:review",
-                "Pending candidates exist; review only when correcting or rechecking candidates.",
-            )
-        )
-    if counts.get("observation_count", 0) and counts.get("memory_entry_count", 0):
-        next_actions.append(
-            _action(
-                "search_before_task",
-                '/hm:search "<topic>"',
-                "Search narrows the wake context to the current task.",
-            )
-        )
-    temporal_summary = counts.get("temporal_summary", {})
-    historical_total = int(temporal_summary.get("historical_total", 0) or 0)
-    superseded_total = int(temporal_summary.get("superseded_total", 0) or 0)
-    if historical_total:
-        next_actions.append(
-            _action(
-                "inspect_temporal_history",
-                "temporal_query",
-                "This project has historical truth; use temporal_query when asking old-state questions.",
-            )
-        )
-    retrieval_profiles = counts.get("retrieval_profiles", {})
-    suggested_retrieval_profile = retrieval_profiles.get("suggested")
-    if suggested_retrieval_profile:
-        next_actions.append(
-            _action(
-                "consider_retrieval_quality_profile",
-                "operator_profile_edit",
-                (
-                    "retrieval_profile=quality is available as an opt-in "
-                    "component profile through operator profile configuration; "
-                    "status only suggests it and does not enable it automatically."
-                ),
-            )
-        )
-    degraded_reason = None
-    if phase == "needs-distill":
-        degraded_reason = "no_observations_ingested"
-    elif counts.get("retrieval_health", {}).get("degraded"):
-        degraded_reason = "retrieval_health_degraded"
-    return {
-        "why_this_result": (
-            f"Project is in phase {phase}: {counts.get('observation_count', 0)} "
-            f"observations, {counts.get('memory_entry_count', 0)} memory entries, "
-            f"{pending} pending candidates."
-        ),
-        "next_actions": next_actions,
-        "degraded_reason": degraded_reason,
-        "drilldown_hints": [
-            _action(
-                "status_counts",
-                "get_project_status",
-                "Use counts to decide between wake, search, distill, and review.",
-            )
-        ]
-        + (
-            [
-                {
-                    "source_id": None,
-                    "source_kind": "temporal_summary",
-                    "read_surface": "mcp.temporal_query",
-                    "tool": "temporal_query",
-                    "arguments": {
-                        "project_name": project_name,
-                        "mode": "history",
-                        "limit": 20,
-                    },
-                    "why": (
-                        f"Project has {historical_total} historical truth records "
-                        f"({superseded_total} superseded)."
-                    ),
-                }
-            ]
-            if historical_total
-            else []
-        ),
-    }
+# Status decision metadata lives in response_views.py.
 
 
 def tool_search_memory(
@@ -1675,8 +1606,16 @@ def tool_get_project_status(
     project_name: str | None = None,
     project_root: str | None = None,
     host_client: str | None = None,
+    detail_level: str = "compact",
 ) -> dict:
     """Return active project and memory counts without requiring CLI status."""
+    if detail_level not in STATUS_DETAIL_LEVELS:
+        return {
+            "success": False,
+            "error": "detail_level must be one of: compact, full",
+            "contract_version": "project-status-v2",
+            "detail_level": detail_level,
+        }
     resolved_project, resolved_root, resolved_host, integration_bootstrap = (
         _bootstrap_status_workspace(
             project_name=project_name,
@@ -1692,7 +1631,7 @@ def tool_get_project_status(
             active_project=active_project,
         )
         flow_hint = guided_flow_drilldown_hint(guided_flow)
-        return {
+        return render_project_status({
             "success": False,
             "active_project": active_project,
             "phase": "needs-project",
@@ -1710,11 +1649,11 @@ def tool_get_project_status(
             "degraded_reason": "missing_project",
             "guided_flow": guided_flow,
             "drilldown_hints": [flow_hint],
-        }
+        }, detail_level=detail_level)
 
     backend = _get_backend()
     counts = asyncio.run(_gather_project_status(backend, resolved_project))
-    triage = _status_triage_hints(counts)
+    triage = status_triage_hints(counts)
     guided_flow = build_guided_flow(
         phase=str(triage.get("phase") or "unknown"),
         observation_count=int(counts.get("observation_count", 0) or 0),
@@ -1723,7 +1662,11 @@ def tool_get_project_status(
         project_name=resolved_project,
         active_project=active_project,
     )
-    dx_metadata = _status_dx_metadata(counts, triage, project_name=resolved_project)
+    dx_metadata = build_status_dx_metadata(
+        counts,
+        triage,
+        project_name=resolved_project,
+    )
     flow_hint = guided_flow_drilldown_hint(guided_flow)
     dx_metadata["drilldown_hints"] = [flow_hint, *list(dx_metadata.get("drilldown_hints") or [])]
     integration_health = asyncio.run(
@@ -1734,7 +1677,7 @@ def tool_get_project_status(
             configured_host=resolved_host,
         )
     )
-    return {
+    payload = {
         "success": True,
         "project_name": resolved_project,
         "project_root": str(resolved_root) if resolved_root is not None else None,
@@ -1749,31 +1692,7 @@ def tool_get_project_status(
         "guided_flow": guided_flow,
         "integration_health": integration_health,
     }
-
-
-def _status_triage_hints(counts: dict[str, Any]) -> dict[str, Any]:
-    if counts["observation_count"] == 0:
-        return {
-            "phase": "needs-distill",
-            "suggested_slash": "/hm:distill",
-            "reason": "No observations have been ingested for this project yet.",
-            "repair_hint": None,
-            "repair_reason": None,
-        }
-
-    hints: dict[str, Any] = {
-        "phase": "ready",
-        "suggested_slash": "/hm:wake",
-        "reason": "Project memory is available for wake-up context.",
-        "repair_hint": None,
-        "repair_reason": None,
-    }
-    if counts["pending_candidate_count"] > 0:
-        hints["repair_hint"] = "/hm:review"
-        hints["repair_reason"] = (
-            "Pending candidates remain; use review only for explicit recheck or correction."
-        )
-    return hints
+    return render_project_status(payload, detail_level=detail_level)
 
 
 def tool_set_active_project(project_name: str) -> dict:
@@ -1875,7 +1794,7 @@ def tool_wake(
             mode=temporal_intent,
         )
         status_counts = asyncio.run(_gather_project_status(_get_backend(), resolved))
-        status_triage = _status_triage_hints(status_counts)
+        status_triage = status_triage_hints(status_counts)
         guided_flow = build_guided_flow(
             phase=str(status_triage.get("phase") or "ready"),
             observation_count=int(status_counts.get("observation_count", 0) or 0),
@@ -2320,6 +2239,131 @@ async def _recent_project_observations(
     )[:limit]
 
 
+# Deterministic semantic projections live in distill_projection.py.
+
+
+def _load_distill_semantic_evidence(
+    backend: LocalMemoryBackend,
+    *,
+    source_id: str,
+    source_revision: str,
+    detail_level: str,
+    budget_tokens: int,
+) -> dict[str, Any] | None:
+    """Load the parser-derived user/assistant/tool rendering for a raw revision."""
+
+    observation_id = str(uuid5(NAMESPACE_URL, f"{source_id}:observation"))
+    observation = asyncio.run(backend.verbatim_store.get(observation_id))
+    if observation is None:
+        return None
+    if observation.metadata.get("source_revision") != source_revision:
+        return None
+
+    parser_content = observation.raw_content
+    if detail_level == "full":
+        content, projection_summary = build_distill_semantic_outline(parser_content)
+        projection_summary = {
+            **projection_summary,
+            "detail_level": "full",
+            "budget_tokens": max(256, int(budget_tokens or 3000)),
+            "budget_state": "full_requested",
+            "budget_reason": "caller explicitly requested complete semantic evidence",
+        }
+    else:
+        content, projection_summary = build_distill_compact_outline(
+            parser_content,
+            budget_tokens=budget_tokens,
+        )
+    source = backend.transcript_store.get_source(source_id)
+    raw_char_count = sum(
+        len(chunk.raw_content)
+        for chunk in backend.transcript_store.list_chunks(
+            source_id,
+            source_revision=source_revision,
+        )
+    )
+    semantic_char_count = len(content)
+    semantic_chunks = split_distill_semantic_content(content)
+    return {
+        "mode": "semantic",
+        "observation_id": observation_id,
+        "source_id": source_id,
+        "source_revision": source_revision,
+        "client": source.client if source is not None else observation.client,
+        "session_id": source.session_id if source is not None else observation.session_id,
+        **projection_summary,
+        "content_sha256": sha256_text(content),
+        "raw_char_count": raw_char_count,
+        "parser_render_char_count": len(parser_content),
+        "semantic_char_count": semantic_char_count,
+        "projection_reduction_ratio": round(
+            semantic_char_count / len(parser_content), 4
+        )
+        if parser_content
+        else 1.0,
+        "reduction_ratio": round(semantic_char_count / raw_char_count, 4)
+        if raw_char_count
+        else 1.0,
+        "semantic_chunk_count": len(semantic_chunks),
+        "chunks": semantic_chunks,
+    }
+
+
+def _load_distill_exchange_windows(
+    backend: LocalMemoryBackend,
+    *,
+    source_id: str,
+    source_revision: str,
+    indexes: list[int],
+) -> list[dict[str, Any]]:
+    observation_id = str(uuid5(NAMESPACE_URL, f"{source_id}:observation"))
+    observation = asyncio.run(backend.verbatim_store.get(observation_id))
+    if observation is None or observation.metadata.get("source_revision") != source_revision:
+        return []
+    return render_distill_exchange_windows(observation.raw_content, indexes)
+
+
+def _checkpoint_distill_structural_projection(
+    backend: LocalMemoryBackend,
+    *,
+    job_id: str,
+    source_revision: str,
+    semantic_content_sha256: str,
+) -> Any:
+    """Checkpoint raw chunks after runtime validation for semantic fast mode."""
+
+    while True:
+        job = backend.transcript_store.get_distill_job(job_id)
+        if job is None:
+            raise KeyError(job_id)
+        if job.status == "reviewing":
+            return job
+        lease_owner = f"mcp-distill-semantic:{uuid4()}"
+        claims = backend.transcript_store.claim_distill_chunks(
+            job_id,
+            lease_owner=lease_owner,
+            limit=256,
+        )
+        if not claims:
+            return job
+        for chunk, _checkpoint in claims:
+            if sha256_text(chunk.raw_content) != chunk.content_sha256:
+                raise ValueError(f"distill input chunk hash mismatch: {chunk.id}")
+            backend.transcript_store.checkpoint_distill_chunk(
+                job_id,
+                chunk.id,
+                lease_owner=lease_owner,
+                result={
+                    "evidence_mode": "semantic",
+                    "structural_verified": True,
+                    "chunk_index": chunk.chunk_index,
+                    "content_sha256": chunk.content_sha256,
+                    "source_revision": source_revision,
+                    "semantic_content_sha256": semantic_content_sha256,
+                },
+            )
+
+
 def tool_prepare_session_distill(
     project_name: str | None = None,
     client: str = "auto",
@@ -2330,14 +2374,22 @@ def tool_prepare_session_distill(
     observation_limit: int = 5,
     max_chars_per_observation: int = 6000,
     chunk_limit: int = 1,
+    evidence_mode: str = "raw",
+    detail_level: str = "compact",
+    budget_tokens: int = 3000,
+    drilldown_exchange_indexes: list[int] | None = None,
+    drilldown_chunk_indexes: list[int] | None = None,
+    drilldown_query: str | None = None,
     run_ingest: bool = True,
+    defer_job_id: str | None = None,
+    defer_reason: str | None = None,
     _distill_source: str = "agent",
 ) -> dict:
     """Prepare a compact evidence packet for AI-led /hm:distill.
 
     This intentionally stops before synthesis. The model should read the
     returned observations, decide what deserves a pending candidate, then call
-    suggest_* tools. The lower-level sync step may call ingest_sessions, but
+    govern_memory(action=suggest). The lower-level sync step may call ingest_sessions, but
     /hm:distill is the user-facing flow.
     """
     normalized_client = normalize_client_name(client)
@@ -2348,6 +2400,39 @@ def tool_prepare_session_distill(
         }
     if scope not in {"project", "all"}:
         return {"success": False, "error": "scope must be one of: project, all"}
+    if evidence_mode not in {"raw", "semantic"}:
+        return {
+            "success": False,
+            "error": "evidence_mode must be one of: raw, semantic",
+        }
+    if detail_level not in {"compact", "full"}:
+        return {
+            "success": False,
+            "error": "detail_level must be one of: compact, full",
+        }
+    resolved_budget_tokens = max(256, min(int(budget_tokens or 3000), 12000))
+    # The caller budget applies to the whole MCP result, not only the semantic
+    # text. Reserve room for provenance, job state, hashes, and drilldown hints.
+    semantic_budget_tokens = (
+        resolved_budget_tokens
+        if detail_level == "full"
+        else max(256, resolved_budget_tokens - 1100)
+    )
+    requested_exchange_indexes = sorted(
+        {
+            int(index)
+            for index in (drilldown_exchange_indexes or [])
+            if int(index) >= 1
+        }
+    )[:8]
+    requested_drilldown_indexes = sorted(
+        {
+            int(index)
+            for index in (drilldown_chunk_indexes or [])
+            if int(index) >= 0
+        }
+    )[:8]
+    requested_drilldown_query = str(drilldown_query or "").strip()[:200]
     host_source = resolve_host_source(normalized_client)
     project_context = resolve_project_context(
         project_name,
@@ -2390,6 +2475,28 @@ def tool_prepare_session_distill(
         )
 
     backend = _get_backend()
+    distill_config = (
+        load_merged_config(Path(resolved_project_root))
+        if resolved_project_root
+        and Path(resolved_project_root).is_absolute()
+        and Path(resolved_project_root).is_dir()
+        else MergedConfig()
+    )
+    deferred_id: str | None = None
+    if defer_job_id:
+        deferred = backend.transcript_store.get_distill_job(defer_job_id)
+        if deferred is None or deferred.project_name != resolved_project_name:
+            return {"success": False, "error": "defer_job_id does not belong to this project"}
+        backend.transcript_store.defer_distill_job(
+            defer_job_id,
+            error=(defer_reason or "Agent deferred a failed distill job"),
+        )
+        deferred_id = defer_job_id
+    backend.transcript_store.rebalance_distill_jobs(
+        resolved_project_name,
+        target_active=distill_config.distill_auto_target_backlog,
+        recent_first=distill_config.distill_auto_recent_first,
+    )
     lossless_jobs = []
     for job_status in ("processing", "queued", "retryable", "reviewing"):
         lossless_jobs.extend(
@@ -2399,8 +2506,17 @@ def tool_prepare_session_distill(
                 limit=100,
             )
         )
+    if deferred_id:
+        lossless_jobs = [job for job in lossless_jobs if job.id != deferred_id]
     if lossless_jobs:
-        lossless_job = min(lossless_jobs, key=lambda item: item.created_at)
+        # Daily automation is recent-first: one malformed historical session
+        # cannot head-of-line block every newer task.  Old work is still
+        # reached once the recent lane is drained.
+        status_priority = {"reviewing": 4, "processing": 3, "queued": 2, "retryable": 1}
+        lossless_job = max(
+            lossless_jobs,
+            key=lambda item: (status_priority.get(item.status, 0), item.created_at),
+        )
         base_payload: dict[str, Any] = {
             "success": True,
             "project_name": resolved_project_name,
@@ -2421,6 +2537,9 @@ def tool_prepare_session_distill(
             "source_revision": lossless_job.source_revision,
             "expected_chunk_count": lossless_job.expected_chunk_count,
             "completed_chunk_count": lossless_job.completed_chunk_count,
+            "evidence_mode": evidence_mode,
+            "detail_level": detail_level,
+            "budget_tokens": resolved_budget_tokens,
         }
         if _distill_source == "ide_hook":
             base_payload.update(
@@ -2435,6 +2554,129 @@ def tool_prepare_session_distill(
             )
             return base_payload
         if lossless_job.status == "reviewing":
+            if requested_exchange_indexes:
+                semantic_windows = _load_distill_exchange_windows(
+                    backend,
+                    source_id=lossless_job.source_id,
+                    source_revision=lossless_job.source_revision,
+                    indexes=requested_exchange_indexes,
+                )
+                base_payload.update(
+                    {
+                        "semantic_drilldown_exchanges": semantic_windows,
+                        "semantic_drilldown_exchange_count": len(semantic_windows),
+                        "distill_instructions": [
+                            "Use these complete semantic windows to choose precise raw proof queries.",
+                            "Verify durable candidates against raw chunks before final review.",
+                        ],
+                    }
+                )
+                if not requested_drilldown_indexes and not requested_drilldown_query:
+                    return base_payload
+            if requested_drilldown_indexes or requested_drilldown_query:
+                raw_chunks = backend.transcript_store.list_chunks(
+                    lossless_job.source_id,
+                    source_revision=lossless_job.source_revision,
+                )
+                chunks_by_index = {
+                    chunk.chunk_index: chunk for chunk in raw_chunks
+                }
+                selected_by_index = {
+                    index: chunks_by_index[index]
+                    for index in requested_drilldown_indexes
+                    if index in chunks_by_index
+                }
+                if requested_drilldown_query:
+                    query_folded = requested_drilldown_query.casefold()
+                    query_terms = [
+                        term for term in query_folded.split() if len(term) >= 2
+                    ]
+                    exact_matches = [
+                        chunk
+                        for chunk in raw_chunks
+                        if query_folded in chunk.raw_content.casefold()
+                    ]
+                    query_matches = exact_matches or [
+                        chunk
+                        for chunk in raw_chunks
+                        if query_terms
+                        and all(
+                            term in chunk.raw_content.casefold()
+                            for term in query_terms
+                        )
+                    ]
+                    for chunk in query_matches:
+                        selected_by_index.setdefault(chunk.chunk_index, chunk)
+                selected_chunks = [
+                    selected_by_index[index]
+                    for index in sorted(selected_by_index)
+                ][:8]
+                base_payload.update(
+                    {
+                        "raw_drilldown_chunks": [
+                            {
+                                "chunk_id": chunk.id,
+                                "chunk_index": chunk.chunk_index,
+                                "char_start": chunk.char_start,
+                                "char_end": chunk.char_end,
+                                "content_sha256": chunk.content_sha256,
+                                "raw_content": chunk.raw_content,
+                            }
+                            for chunk in selected_chunks
+                        ],
+                        "raw_drilldown_chunk_count": len(selected_chunks),
+                        "raw_drilldown_query": requested_drilldown_query or None,
+                        "distill_instructions": [
+                            "Use these read-only raw chunks to verify candidate evidence.",
+                            "Do not submit them again; structural checkpoints are already complete.",
+                            "Finish with finalize_session_distill after semantic review.",
+                        ],
+                    }
+                )
+                return base_payload
+            if evidence_mode == "semantic":
+                semantic_evidence = _load_distill_semantic_evidence(
+                    backend,
+                    source_id=lossless_job.source_id,
+                    source_revision=lossless_job.source_revision,
+                    detail_level=detail_level,
+                    budget_tokens=semantic_budget_tokens,
+                )
+                if semantic_evidence is not None:
+                    checkpoints = backend.transcript_store.list_distill_checkpoints(
+                        lossless_job.id
+                    )
+                    structurally_verified = sum(
+                        bool(checkpoint.result.get("structural_verified"))
+                        for checkpoint in checkpoints
+                    )
+                    base_payload.update(
+                        {
+                            "chunks": [],
+                            "chunk_count": 0,
+                            "semantic_evidence": semantic_evidence,
+                            "structural_checkpoint_summary": {
+                                "expected": lossless_job.expected_chunk_count,
+                                "completed": lossless_job.completed_chunk_count,
+                                "runtime_verified": structurally_verified,
+                            },
+                            "distill_instructions": [
+                                "Read the complete indexed semantic outline in order.",
+                                "Runtime already hash-verified and checkpointed every raw chunk.",
+                                "Select semantic windows with drilldown_exchange_indexes, then verify candidates with raw drilldown.",
+                                "Create only warranted candidates through govern_memory(action=suggest), then call finalize_session_distill.",
+                            ],
+                        }
+                    )
+                    return base_payload
+                base_payload.update(
+                    {
+                        "evidence_mode": "raw",
+                        "evidence_mode_fallback_reason": (
+                            "current semantic observation is unavailable or stale"
+                        ),
+                    }
+                )
             checkpoints = backend.transcript_store.list_distill_checkpoints(
                 lossless_job.id
             )
@@ -2453,12 +2695,66 @@ def tool_prepare_session_distill(
                     "distill_instructions": [
                         "Review all chunk results as one complete session in order.",
                         "Identify final outcome, contradictions, unfinished work, and evidence strength.",
-                        "Create only warranted candidates and pass this distill_job_id to every suggest_* call.",
+                        "Create only warranted candidates and pass this distill_job_id to every govern_memory action=suggest call.",
                         "Finish with finalize_session_distill; it runs auto-review and Dream.",
                     ],
                 }
             )
             return base_payload
+        if evidence_mode == "semantic":
+            semantic_evidence = _load_distill_semantic_evidence(
+                backend,
+                source_id=lossless_job.source_id,
+                source_revision=lossless_job.source_revision,
+                detail_level=detail_level,
+                budget_tokens=semantic_budget_tokens,
+            )
+            if semantic_evidence is not None:
+                updated_job = _checkpoint_distill_structural_projection(
+                    backend,
+                    job_id=lossless_job.id,
+                    source_revision=lossless_job.source_revision,
+                    semantic_content_sha256=semantic_evidence["content_sha256"],
+                )
+                if updated_job.status == "reviewing":
+                    base_payload.update(
+                        {
+                            "distill_status": updated_job.status,
+                            "completed_chunk_count": updated_job.completed_chunk_count,
+                            "chunks": [],
+                            "chunk_count": 0,
+                            "semantic_evidence": semantic_evidence,
+                            "structural_checkpoint_summary": {
+                                "expected": updated_job.expected_chunk_count,
+                                "completed": updated_job.completed_chunk_count,
+                                "runtime_verified": updated_job.completed_chunk_count,
+                            },
+                            "distill_instructions": [
+                                "Read the complete indexed semantic outline in order.",
+                                "Runtime already hash-verified and checkpointed every raw chunk.",
+                                "Select semantic windows with drilldown_exchange_indexes, then verify candidates with raw drilldown.",
+                                "Create only warranted candidates, then call finalize_session_distill.",
+                            ],
+                        }
+                    )
+                    return base_payload
+                base_payload.update(
+                    {
+                        "evidence_mode": "raw",
+                        "evidence_mode_fallback_reason": (
+                            "active raw chunk leases prevented semantic fast-path checkpointing"
+                        ),
+                    }
+                )
+            else:
+                base_payload.update(
+                    {
+                        "evidence_mode": "raw",
+                        "evidence_mode_fallback_reason": (
+                            "current semantic observation is unavailable or stale"
+                        ),
+                    }
+                )
         lease_owner = f"mcp-distill:{uuid4()}"
         claims = backend.transcript_store.claim_distill_chunks(
             lossless_job.id,
@@ -2677,7 +2973,7 @@ async def _distill_job_candidate_ids(
         status="pending",
     )
     return [
-        candidate.id
+        str(getattr(candidate, "id"))
         for candidate in [*entries, *rules, *facts]
         if getattr(candidate, "distill_job_id", None) == distill_job_id
     ]
@@ -2984,753 +3280,6 @@ def _normalize_semantic_claim(value: Any) -> Any:
     return value
 
 
-def tool_create_rule_candidate(
-    project_name: str,
-    session_id: str,
-    pattern: str,
-    trigger: str,
-    examples: list[str] | None = None,
-) -> dict:
-    """Create a rule candidate from a correction."""
-    from uuid import uuid4
-    from harness_mem.core.schemas import RuleCandidate
-
-    backend = _get_backend()
-    candidate = RuleCandidate(
-        id=str(uuid4()),
-        project_name=project_name,
-        session_id=session_id,
-        pattern=pattern,
-        trigger=trigger,
-        examples=examples or [],
-        confidence=0.6,
-        status="pending",
-    )
-    saved_id = asyncio.run(backend.structured_store.save_rule_candidate(candidate))
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.CANDIDATE_CREATED,
-        project_name=project_name,
-        target_kind="rule_candidate",
-        target_id=saved_id,
-        status="pending",
-        source_surface="mcp.create_rule_candidate",
-        payload={"trigger": candidate.trigger, "session_id": candidate.session_id},
-    )
-    return {
-        "success": True,
-        "candidate_id": saved_id,
-        "pattern": candidate.pattern,
-        "trigger": candidate.trigger,
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_confirm_rule(rule_id: str) -> dict:
-    """Promote a rule candidate to a confirmed rule."""
-    from uuid import uuid4
-    from datetime import datetime, timezone
-    from harness_mem.core.schemas import ConfirmedRule
-
-    backend = _get_backend()
-    candidate = asyncio.run(backend.structured_store.get_rule_candidate(rule_id))
-    if not candidate:
-        return {"success": False, "error": f"Candidate not found: {rule_id}"}
-    from harness_mem.governance_status import (
-        TRUTH_LAYER_STATUSES,
-        user_confirm_status,
-    )
-
-    if candidate.status in TRUTH_LAYER_STATUSES:
-        return {"success": False, "error": f"Candidate already confirmed: {rule_id}"}
-
-    confirmed = ConfirmedRule(
-        id=str(uuid4()),
-        project_name=candidate.project_name,
-        pattern=candidate.pattern,
-        trigger=candidate.trigger,
-        examples=candidate.examples,
-        confirmed_at=datetime.now(timezone.utc),
-        source_candidate_id=candidate.id,
-    )
-    asyncio.run(backend.structured_store.save_confirmed_rule(confirmed))
-    asyncio.run(
-        backend.structured_store.update_rule_candidate_status(
-            rule_id, user_confirm_status()
-        )
-    )
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.TRUTH_CONFIRMED,
-        project_name=candidate.project_name,
-        target_kind="confirmed_rule",
-        target_id=confirmed.id,
-        status=user_confirm_status(),
-        source_surface="mcp.confirm_rule",
-        payload={"source_candidate_id": rule_id, "trigger": confirmed.trigger},
-    )
-
-    return {
-        "success": True,
-        "confirmed_rule_id": confirmed.id,
-        "pattern": confirmed.pattern,
-        "trigger": confirmed.trigger,
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_reject_rule(rule_id: str, reason: str | None = None) -> dict:
-    """Reject a rule candidate."""
-    backend = _get_backend()
-    candidate = asyncio.run(backend.structured_store.get_rule_candidate(rule_id))
-    if not candidate:
-        return {"success": False, "error": f"Candidate not found: {rule_id}"}
-    from harness_mem.governance_status import TRUTH_LAYER_STATUSES
-
-    if candidate.status in TRUTH_LAYER_STATUSES or candidate.status == "rejected":
-        return {"success": False, "error": f"Candidate already processed: {rule_id}"}
-
-    asyncio.run(backend.structured_store.update_rule_candidate_status(rule_id, "rejected"))
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.TRUTH_REJECTED,
-        project_name=candidate.project_name,
-        target_kind="rule_candidate",
-        target_id=rule_id,
-        status="rejected",
-        source_surface="mcp.reject_rule",
-        payload={"reason": reason or "No reason provided"},
-    )
-    return {
-        "success": True,
-        "rejected_rule_id": rule_id,
-        "reason": reason or "No reason provided",
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_suggest_supersede(
-    project_name: str,
-    target_type: str,
-    target_id: str,
-    replacement_type: str,
-    replacement_id: str,
-    reason: str,
-    evidence: str,
-    source: str = "",
-    confidence: float = 0.7,
-) -> dict:
-    backend = _get_backend()
-    candidate = SupersedeCandidate(
-        project_name=project_name,
-        target_type=target_type,
-        target_id=target_id,
-        replacement_type=replacement_type,
-        replacement_id=replacement_id,
-        reason=reason,
-        evidence=evidence,
-        source=source,
-        confidence=confidence,
-    )
-    saved_id = asyncio.run(backend.structured_store.save_supersede_candidate(candidate))
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.CANDIDATE_CREATED,
-        project_name=project_name,
-        target_kind="supersede",
-        target_id=saved_id,
-        status="pending",
-        source_surface="mcp.suggest_supersede",
-        payload={
-            "target_type": target_type,
-            "target_id": target_id,
-            "replacement_type": replacement_type,
-            "replacement_id": replacement_id,
-        },
-    )
-    return {
-        "success": True,
-        "candidate_id": saved_id,
-        "target_type": candidate.target_type,
-        "target_id": candidate.target_id,
-        "replacement_type": candidate.replacement_type,
-        "replacement_id": candidate.replacement_id,
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_confirm_supersede(candidate_id: str) -> dict:
-    backend = _get_backend()
-    confirmed = asyncio.run(backend.structured_store.confirm_supersede_candidate(candidate_id))
-    if confirmed is None:
-        return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
-    asyncio.run(
-        record_retrieval_signal(
-            backend,
-            project_name=confirmed.project_name,
-            signal_type="supersede_completed",
-            target_kind="supersede",
-            target_id=confirmed.id,
-            context={
-                "target_type": confirmed.target_type,
-                "target_id": confirmed.target_id,
-                "replacement_type": confirmed.replacement_type,
-                "replacement_id": confirmed.replacement_id,
-            },
-        )
-    )
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.SUPERSEDE_COMPLETED,
-        project_name=confirmed.project_name,
-        target_kind="supersede",
-        target_id=confirmed.id,
-        status=confirmed.status,
-        source_surface="mcp.confirm_supersede",
-        payload={
-            "target_type": confirmed.target_type,
-            "target_id": confirmed.target_id,
-            "replacement_type": confirmed.replacement_type,
-            "replacement_id": confirmed.replacement_id,
-        },
-    )
-    return {
-        "success": True,
-        "candidate_id": confirmed.id,
-        "status": confirmed.status,
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_reject_supersede(candidate_id: str) -> dict:
-    backend = _get_backend()
-    candidate = asyncio.run(backend.structured_store.get_supersede_candidate(candidate_id))
-    if not candidate:
-        return {"success": False, "error": f"Candidate not found: {candidate_id}"}
-    updated = asyncio.run(backend.structured_store.update_supersede_candidate_status(candidate_id, "rejected"))
-    if not updated:
-        return {"success": False, "error": f"Failed to reject candidate: {candidate_id}"}
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.TRUTH_REJECTED,
-        project_name=candidate.project_name,
-        target_kind="supersede",
-        target_id=candidate_id,
-        status="rejected",
-        source_surface="mcp.reject_supersede",
-        payload={
-            "target_type": candidate.target_type,
-            "target_id": candidate.target_id,
-            "replacement_type": candidate.replacement_type,
-            "replacement_id": candidate.replacement_id,
-        },
-    )
-    return {
-        "success": True,
-        "rejected_candidate_id": candidate_id,
-        "status": "rejected",
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_suggest_correction(
-    project_name: str,
-    supersedes_rule_id: str,
-    pattern: str,
-    trigger: str,
-    reason: str,
-    *,
-    examples: list[str] | None = None,
-    source_session_id: str = "",
-) -> dict:
-    """One-shot rule replacement: create new rule + mark old rule historical.
-
-    This is the right tool to call when reality changed (Tauri v1 -> v2,
-    framework upgrade, policy reversal) and an old confirmed rule is now
-    actively wrong. The caller has already named the specific old rule, so
-    no extra human confirm step is needed — the supersede chain is applied
-    immediately.
-
-    For brand-new rules (no specific old rule to replace), use
-    ``create_rule_candidate`` -> ``confirm_rule`` instead.
-    """
-    from harness_mem.governance_status import user_confirm_status
-
-    backend = _get_backend()
-    old_rule = asyncio.run(backend.structured_store.get_confirmed_rule(supersedes_rule_id))
-    if old_rule is None:
-        return {
-            "success": False,
-            "error": f"ConfirmedRule not found: {supersedes_rule_id}",
-        }
-    if old_rule.project_name != project_name:
-        return {
-            "success": False,
-            "error": (
-                f"Rule {supersedes_rule_id} belongs to project "
-                f"{old_rule.project_name!r}, not {project_name!r}"
-            ),
-        }
-    if old_rule.valid_to is not None:
-        return {
-            "success": False,
-            "error": (
-                f"Rule {supersedes_rule_id} is already historical "
-                f"(valid_to={old_rule.valid_to.isoformat()})"
-            ),
-        }
-
-    from uuid import uuid4
-    from datetime import datetime, timezone
-    from harness_mem.core.schemas import ConfirmedRule
-
-    source_id = source_session_id or "agent-correction"
-    new_rule = ConfirmedRule(
-        id=str(uuid4()),
-        project_name=project_name,
-        pattern=pattern,
-        trigger=trigger,
-        examples=list(examples or []),
-        confirmed_at=datetime.now(timezone.utc),
-        source_candidate_id=f"correction:{source_id}",
-        source_session_id=source_id,
-    )
-    asyncio.run(backend.structured_store.save_confirmed_rule(new_rule))
-
-    candidate = SupersedeCandidate(
-        id=str(uuid4()),
-        project_name=project_name,
-        target_type="confirmed_rule",
-        target_id=old_rule.id,
-        replacement_type="confirmed_rule",
-        replacement_id=new_rule.id,
-        reason=reason,
-        evidence=f"Agent-driven correction (source: {source_id}).",
-        source=f"correction:{source_id}",
-        confidence=1.0,
-    )
-    asyncio.run(backend.structured_store.save_supersede_candidate(candidate))
-    confirmed = asyncio.run(
-        backend.structured_store.confirm_supersede_candidate(candidate.id)
-    )
-    if confirmed is None:
-        return {
-            "success": False,
-            "error": (
-                f"Saved new rule {new_rule.id} but supersede confirmation failed; "
-                f"old rule {old_rule.id} is still current. "
-                f"Call confirm_supersede with candidate_id={candidate.id} to retry."
-            ),
-            "new_rule_id": new_rule.id,
-            "supersede_candidate_id": candidate.id,
-        }
-    asyncio.run(
-        record_retrieval_signal(
-            backend,
-            project_name=confirmed.project_name,
-            signal_type="supersede_completed",
-            target_kind="supersede",
-            target_id=confirmed.id,
-            context={
-                "target_type": confirmed.target_type,
-                "target_id": confirmed.target_id,
-                "replacement_type": confirmed.replacement_type,
-                "replacement_id": confirmed.replacement_id,
-            },
-        )
-    )
-    truth_state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.TRUTH_CONFIRMED,
-        project_name=project_name,
-        target_kind="confirmed_rule",
-        target_id=new_rule.id,
-        status=user_confirm_status(),
-        source_surface="mcp.suggest_correction",
-        payload={"supersedes_rule_id": old_rule.id, "trigger": new_rule.trigger},
-    )
-    supersede_state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.SUPERSEDE_COMPLETED,
-        project_name=project_name,
-        target_kind="supersede",
-        target_id=confirmed.id,
-        status=confirmed.status,
-        source_surface="mcp.suggest_correction",
-        payload={
-            "target_type": confirmed.target_type,
-            "target_id": confirmed.target_id,
-            "replacement_type": confirmed.replacement_type,
-            "replacement_id": confirmed.replacement_id,
-        },
-    )
-    return {
-        "success": True,
-        "new_rule_id": new_rule.id,
-        "old_rule_id": old_rule.id,
-        "supersede_candidate_id": candidate.id,
-        "old_rule_valid_to": confirmed.reviewed_at.isoformat() if confirmed.reviewed_at else None,
-        "state_event_ids": [
-            event_id
-            for event_id in (truth_state_event_id, supersede_state_event_id)
-            if event_id
-        ],
-    }
-
-
-def tool_suggest_rule(
-    project_name: str,
-    pattern: str,
-    trigger: str,
-    session_id: str | None = None,
-    examples: list[str] | None = None,
-    distill_job_id: str | None = None,
-) -> dict:
-    """Suggest a rule candidate for later review (lighter than confirm_rule)."""
-    from harness_mem.core.schemas.rule_candidate import RuleCandidate
-
-    backend = _get_backend()
-    candidate_id = _distill_candidate_id(
-        backend,
-        project_name=project_name,
-        distill_job_id=distill_job_id,
-        candidate_kind="rule",
-        payload={
-            "pattern": pattern,
-            "trigger": trigger,
-            "examples": examples or [],
-        },
-    )
-    if candidate_id is not None:
-        existing = asyncio.run(backend.structured_store.get_rule_candidate(candidate_id))
-        if existing is not None:
-            return {
-                "success": True,
-                "candidate_id": existing.id,
-                "pattern": existing.pattern,
-                "trigger": existing.trigger,
-                "status": "suggested",
-                "idempotent_replay": True,
-                "state_event_id": None,
-            }
-    job = (
-        backend.transcript_store.get_distill_job(distill_job_id)
-        if distill_job_id
-        else None
-    )
-    candidate = RuleCandidate(
-        id=candidate_id or str(uuid4()),
-        project_name=project_name,
-        session_id=session_id or (job.session_id if job is not None else ""),
-        pattern=pattern,
-        trigger=trigger,
-        examples=examples or [],
-        confidence=0.5,
-        status="pending",
-        distill_job_id=distill_job_id,
-    )
-    saved_id = asyncio.run(backend.structured_store.save_rule_candidate(candidate))
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.CANDIDATE_CREATED,
-        project_name=project_name,
-        target_kind="rule_candidate",
-        target_id=saved_id,
-        status="pending",
-        source_surface="mcp.suggest_rule",
-        payload={"trigger": candidate.trigger},
-    )
-    return {
-        "success": True,
-        "candidate_id": saved_id,
-        "pattern": candidate.pattern,
-        "trigger": candidate.trigger,
-        "status": "suggested",
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_suggest_memory_entry(
-    project_name: str,
-    category: str,
-    content: str,
-    source: str,
-    confidence: float = 0.7,
-    tags: list[str] | None = None,
-    distill_job_id: str | None = None,
-) -> dict:
-    """Suggest a memory entry for later review."""
-    from harness_mem.core.schemas.memory_entry import MemoryEntry
-    backend = _get_backend()
-    entry_id = _distill_candidate_id(
-        backend,
-        project_name=project_name,
-        distill_job_id=distill_job_id,
-        candidate_kind="memory",
-        payload={
-            "category": category,
-            "content": content,
-            "source": source,
-            "tags": tags or [],
-        },
-    )
-    if entry_id is not None:
-        existing = asyncio.run(backend.structured_store.get_memory_entry(entry_id))
-        if existing is not None:
-            return {
-                "success": True,
-                "entry_id": existing.id,
-                "category": existing.category,
-                "status": existing.status,
-                "idempotent_replay": True,
-                "state_event_id": None,
-            }
-    entry = MemoryEntry(
-        id=entry_id or str(uuid4()),
-        project_name=project_name,
-        category=category,
-        content=content,
-        source=source,
-        confidence=confidence,
-        status="pending",
-        tags=tags or [],
-        distill_job_id=distill_job_id,
-    )
-    saved_id = asyncio.run(backend.structured_store.save_memory_entry(entry))
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.CANDIDATE_CREATED,
-        project_name=project_name,
-        target_kind="memory_entry",
-        target_id=saved_id,
-        status="pending",
-        source_surface="mcp.suggest_memory_entry",
-        payload={"category": entry.category, "source": entry.source},
-    )
-    return {
-        "success": True,
-        "entry_id": saved_id,
-        "category": entry.category,
-        "status": "pending",
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_confirm_memory_entry(entry_id: str) -> dict:
-    """Confirm a pending memory entry."""
-    backend = _get_backend()
-    from harness_mem.governance_status import user_confirm_status
-
-    success = asyncio.run(
-        backend.structured_store.update_memory_entry_status(
-            entry_id, user_confirm_status()
-        )
-    )
-    state_event_id = None
-    if success:
-        entry = asyncio.run(backend.structured_store.get_memory_entry(entry_id))
-        state_event_id = _record_state_event(
-            backend,
-            event_type=StateEventType.TRUTH_CONFIRMED,
-            project_name=entry.project_name if entry else None,
-            target_kind="memory_entry",
-            target_id=entry_id,
-            status=user_confirm_status(),
-            source_surface="mcp.confirm_memory_entry",
-            payload={"category": getattr(entry, "category", None)},
-        )
-    return {
-        "success": success,
-        "entry_id": entry_id,
-        "status": user_confirm_status() if success else "not_found",
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_reject_memory_entry(entry_id: str) -> dict:
-    """Reject a pending memory entry."""
-    backend = _get_backend()
-    success = asyncio.run(backend.structured_store.update_memory_entry_status(entry_id, "rejected"))
-    state_event_id = None
-    if success:
-        entry = asyncio.run(backend.structured_store.get_memory_entry(entry_id))
-        state_event_id = _record_state_event(
-            backend,
-            event_type=StateEventType.TRUTH_REJECTED,
-            project_name=entry.project_name if entry else None,
-            target_kind="memory_entry",
-            target_id=entry_id,
-            status="rejected",
-            source_surface="mcp.reject_memory_entry",
-            payload={"category": getattr(entry, "category", None)},
-        )
-    return {
-        "success": success,
-        "entry_id": entry_id,
-        "status": "rejected" if success else "not_found",
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_suggest_relation_fact(
-    project_name: str,
-    source_entity: str,
-    target_entity: str,
-    relation_type: str,
-    evidence: str,
-    source: str,
-    confidence: float = 0.7,
-    distill_job_id: str | None = None,
-) -> dict:
-    """Suggest a relation fact for later review."""
-    from harness_mem.core.schemas.relation_fact import RelationFact
-    backend = _get_backend()
-    fact_id = _distill_candidate_id(
-        backend,
-        project_name=project_name,
-        distill_job_id=distill_job_id,
-        candidate_kind="relation",
-        payload={
-            "source_entity": source_entity,
-            "target_entity": target_entity,
-            "relation_type": relation_type,
-            "evidence": evidence,
-            "source": source,
-        },
-    )
-    if fact_id is not None:
-        existing = asyncio.run(backend.structured_store.get_relation_fact(fact_id))
-        if existing is not None:
-            return {
-                "success": True,
-                "fact_id": existing.id,
-                "relation": (
-                    f"{existing.source_entity} --{existing.relation_type}--> "
-                    f"{existing.target_entity}"
-                ),
-                "status": existing.status,
-                "idempotent_replay": True,
-                "state_event_id": None,
-            }
-    fact = RelationFact(
-        id=fact_id or str(uuid4()),
-        project_name=project_name,
-        source_entity=source_entity,
-        target_entity=target_entity,
-        relation_type=relation_type,
-        evidence=evidence,
-        source=source,
-        confidence=confidence,
-        status="pending",
-        distill_job_id=distill_job_id,
-    )
-    saved_id = asyncio.run(backend.structured_store.save_relation_fact(fact))
-    state_event_id = _record_state_event(
-        backend,
-        event_type=StateEventType.CANDIDATE_CREATED,
-        project_name=project_name,
-        target_kind="relation_fact",
-        target_id=saved_id,
-        status="pending",
-        source_surface="mcp.suggest_relation_fact",
-        payload={
-            "source_entity": source_entity,
-            "target_entity": target_entity,
-            "relation_type": relation_type,
-        },
-    )
-    return {
-        "success": True,
-        "fact_id": saved_id,
-        "relation": f"{source_entity} --{relation_type}--> {target_entity}",
-        "status": "pending",
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_confirm_relation_fact(fact_id: str) -> dict:
-    """Confirm a pending relation fact."""
-    from harness_mem.governance_status import user_confirm_status
-
-    backend = _get_backend()
-    success = asyncio.run(
-        backend.structured_store.update_relation_fact_status(
-            fact_id, user_confirm_status()
-        )
-    )
-    state_event_id = None
-    if success:
-        fact = asyncio.run(backend.structured_store.get_relation_fact(fact_id))
-        state_event_id = _record_state_event(
-            backend,
-            event_type=StateEventType.TRUTH_CONFIRMED,
-            project_name=fact.project_name if fact else None,
-            target_kind="relation_fact",
-            target_id=fact_id,
-            status=user_confirm_status(),
-            source_surface="mcp.confirm_relation_fact",
-            payload={"relation_type": getattr(fact, "relation_type", None)},
-        )
-    return {
-        "success": success,
-        "fact_id": fact_id,
-        "status": user_confirm_status() if success else "not_found",
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_reject_relation_fact(fact_id: str) -> dict:
-    """Reject a pending relation fact."""
-    backend = _get_backend()
-    success = asyncio.run(backend.structured_store.update_relation_fact_status(fact_id, "rejected"))
-    state_event_id = None
-    if success:
-        fact = asyncio.run(backend.structured_store.get_relation_fact(fact_id))
-        state_event_id = _record_state_event(
-            backend,
-            event_type=StateEventType.TRUTH_REJECTED,
-            project_name=fact.project_name if fact else None,
-            target_kind="relation_fact",
-            target_id=fact_id,
-            status="rejected",
-            source_surface="mcp.reject_relation_fact",
-            payload={"relation_type": getattr(fact, "relation_type", None)},
-        )
-    return {
-        "success": success,
-        "fact_id": fact_id,
-        "status": "rejected" if success else "not_found",
-        "state_event_id": state_event_id,
-    }
-
-
-def tool_create_task_handoff(
-    project_name: str,
-    task_id: str,
-    summary: str,
-    status: str,
-    next_steps: list[str] | None = None,
-    blockers: list[str] | None = None,
-) -> dict:
-    """Create a task handoff to record progress."""
-    from harness_mem.core.schemas.task_handoff import TaskHandoff
-    backend = _get_backend()
-    handoff = TaskHandoff(
-        project_name=project_name,
-        task_id=task_id,
-        summary=summary,
-        status=status,
-        next_steps=next_steps or [],
-        blockers=blockers or [],
-    )
-    saved_id = asyncio.run(backend.structured_store.save_task_handoff(handoff))
-    return {
-        "success": True,
-        "handoff_id": saved_id,
-        "task_id": handoff.task_id,
-    }
-
-
 def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
     """Return the MCP tool handler map keyed by public tool name."""
     return {
@@ -3761,6 +3310,7 @@ def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
         "list_candidates": tool_list_candidates,
         "get_candidate_detail": tool_get_candidate_detail,
         "auto_review_candidates": tool_auto_review_candidates,
+        "govern_memory": tool_govern_memory,
         "suggest_supersede": tool_suggest_supersede,
         "confirm_supersede": tool_confirm_supersede,
         "reject_supersede": tool_reject_supersede,

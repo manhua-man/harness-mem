@@ -14,7 +14,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from harness_mem.commands import token_estimator
 from harness_mem.event_log import EventType, get_event_logger
 
 _COST_EVENT_VERSION = 1
@@ -79,6 +78,10 @@ def analyze_mcp_surface_cost(
     surface_budgets: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
     """Return a privacy-preserving cost analysis for one MCP tool result."""
+    # Import lazily so MCP executor startup does not form
+    # runtime_cost -> commands.__init__ -> doctor -> runtime_health -> runtime_cost.
+    from harness_mem.commands import token_estimator
+
     output_text = json.dumps(result, ensure_ascii=False, default=str, sort_keys=True)
     output_tokens = token_estimator.count_tokens(output_text)
     surface = _SURFACE_FOR_TOOL.get(tool_name, tool_name)
@@ -355,6 +358,8 @@ def _argument_shape(arguments: Mapping[str, Any]) -> dict[str, Any]:
     for key in (
         "scope",
         "mode",
+        "detail_level",
+        "evidence_mode",
         "include_history",
         "include_skill_hints",
         "no_auto_ingest",
@@ -369,6 +374,7 @@ def _argument_shape(arguments: Mapping[str, Any]) -> dict[str, Any]:
         "observation_limit",
         "max_chars_per_observation",
         "skill_hint_limit",
+        "budget_tokens",
     ):
         if key in arguments:
             try:
@@ -425,8 +431,6 @@ def _truncation_metadata(
             truncated_by = "tool"
         if "next_cursor" in result or "cursor" in result:
             remaining_drilldown.append("cursor")
-    if high_output and truncated_by is None:
-        truncated_by = "budget_policy"
     if high_output:
         if source_ids:
             remaining_drilldown.append("source_ids")
@@ -500,8 +504,15 @@ def _cost_hints(
         hints.append("Follow up with narrower search or timeline drilldown.")
         kinds.extend(["narrower_query", "timeline_drilldown"])
     elif surface == "distill" and high_output:
-        hints.append("Lower observation_limit or max_chars_per_observation for the next evidence packet.")
-        kinds.append("smaller_distill_packet")
+        hints.append(
+            "Use compact semantic evidence, then drill into only the selected raw proof."
+        )
+        kinds.extend(["compact_distill_outline", "source_drilldown"])
+    elif surface == "status" and high_output:
+        hints.append(
+            "Use get_project_status detail_level=compact and request full diagnostics only when needed."
+        )
+        kinds.append("compact_status")
     elif surface == "file_context" and high_output:
         hints.append("Ask file_context for the most specific path before reading broad context.")
         kinds.append("narrower_file_context")

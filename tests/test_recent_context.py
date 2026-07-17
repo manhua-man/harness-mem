@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
+from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.core.schemas.context_assembly_plan import (
     Budget,
     ContextAssemblyPlan,
@@ -134,7 +135,7 @@ def test_compact_recent_context_replaces_empty_layer_headers(tmp_path: Path) -> 
 
     output = render_recent_context(index, _plan("demo"), compact=True)
 
-    assert output.startswith("# [demo] recent context")
+    assert output.startswith("# [demo] recent transcript evidence (not facts)")
     assert "O-new-obse" in output
     assert "Add a recent context index." in output
     assert "Active" in output
@@ -142,6 +143,7 @@ def test_compact_recent_context_replaces_empty_layer_headers(tmp_path: Path) -> 
     assert "Stable truths" in output
     assert "Workspace path defines project identity." in output
     assert "get_observations(observation_ids=[" in output
+    assert "[evidence]" in output
     assert "# Project Profile" not in output
     assert "# Essential Truth" not in output
     assert "# Active Task" not in output
@@ -154,5 +156,53 @@ def test_rich_recent_context_includes_legend_and_files(tmp_path: Path) -> None:
     output = render_recent_context(index, _plan("demo"), compact=False)
 
     assert "Legend: @ session" in output
-    assert "Context Index:" in output
+    assert "Evidence Index:" in output
     assert "files: harness_mem/recent_context.py" in output
+
+
+def test_old_release_observation_is_explicitly_conflicted_by_repo_version(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.8.24"\n',
+        encoding="utf-8",
+    )
+
+    async def run() -> str:
+        backend = LocalMemoryBackend(tmp_path / "data")
+        await backend.init()
+        try:
+            observation = Observation(
+                id="old-release-observation",
+                session_id="old-release-session",
+                client="codex",
+                raw_content="Version v3.2.0 was released and is the current release.",
+                content_type="transcript",
+                timestamp=datetime(2026, 6, 7, tzinfo=timezone.utc),
+                metadata={"project_name": "demo"},
+            )
+            await persist_session_snapshot(
+                backend,
+                observation,
+                project_name="demo",
+                project_root=str(project),
+                client="codex",
+                session_id="old-release-session",
+                source_kind="jsonl",
+                source_uri="file:///old-release.jsonl",
+                source_text=observation.raw_content,
+            )
+            index = await build_recent_context(backend, "demo")
+            assert index.items[0].evidence_status == "stale_conflicted"
+            assert "current repository version is 0.8.24" in str(
+                index.items[0].conflict_reason
+            )
+            return render_recent_context(index, _plan("demo"), compact=True)
+        finally:
+            await backend.close()
+
+    output = asyncio.run(run())
+    assert "[STALE/CONFLICTED evidence]" in output
+    assert "Stable truths" in output

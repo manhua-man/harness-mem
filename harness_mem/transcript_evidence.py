@@ -251,7 +251,8 @@ def _is_hermes_session_file(path: Path) -> bool:
     data = _read_json_object(path)
     if data is None:
         return False
-    if not isinstance(data.get("session_id"), str) or not data["session_id"].strip():
+    session_id = data.get("session_id")
+    if not isinstance(session_id, str) or not session_id.strip():
         return False
     messages = data.get("messages")
     if not isinstance(messages, list) or not messages:

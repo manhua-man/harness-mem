@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+from harness_mem.mcp.executor import execute_tool_call
 
 
 def _content_length_frame(payload: dict) -> bytes:
@@ -84,7 +87,7 @@ def test_stdio_content_length_initialize_and_tools_list(tmp_path: Path) -> None:
     responses = _read_content_length_messages(proc.stdout)
     assert [response["id"] for response in responses] == [1, 2]
     assert responses[0]["result"]["serverInfo"]["name"] == "harness-mem"
-    assert responses[1]["result"]["tool_count"] == 41
+    assert responses[1]["result"]["tool_count"] == 27
 
 
 def test_stdio_ndjson_initialize_stays_supported(tmp_path: Path) -> None:
@@ -146,3 +149,30 @@ def test_first_initialize_hook_install_does_not_pollute_ndjson_stdout(
     responses = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
     assert [response["id"] for response in responses] == [1, 2]
     assert (workspace / ".cursor" / "hooks" / "session-start.sh").is_file()
+
+
+def test_tool_result_text_preserves_unicode_without_ascii_expansion(
+    tmp_path: Path,
+) -> None:
+    tools = {
+        "wake": {
+            "description": "test",
+            "input_schema": {"type": "object", "properties": {}},
+            "cluster": "read",
+            "handler": lambda: {"output": "中文会话证据"},
+        }
+    }
+
+    response = execute_tool_call(
+        tools=tools,  # type: ignore[arg-type]
+        params={"name": "wake", "arguments": {}},
+        req_id=1,
+        data_dir=lambda: tmp_path,
+        cost_budgets=lambda _project_name: None,
+        project_name_for_cost=lambda _args, _result: "demo",
+        logger=logging.getLogger("test.mcp-unicode"),
+    )
+
+    payload = response["result"]["content"][0]["text"]
+    assert "中文会话证据" in payload
+    assert "\\u4e2d" not in payload
