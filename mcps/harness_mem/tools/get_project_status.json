@@ -24,6 +24,15 @@
           "antigravity"
         ],
         "description": "IDE/Agent making the call; used to install that host's native hooks when MCP is running behind a global router."
+      },
+      "detail_level": {
+        "type": "string",
+        "enum": [
+          "compact",
+          "full"
+        ],
+        "description": "Response detail. compact is the default decision view; full returns complete health and integration diagnostics.",
+        "default": "compact"
       }
     },
     "required": [

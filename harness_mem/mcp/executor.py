@@ -166,7 +166,12 @@ def execute_tool_call(
             "jsonrpc": "2.0",
             "id": req_id,
             "result": {
-                "content": [{"type": "text", "text": json.dumps(result, indent=2)}]
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(result, indent=2, ensure_ascii=False),
+                    }
+                ]
             },
         }
     except Exception as exc:

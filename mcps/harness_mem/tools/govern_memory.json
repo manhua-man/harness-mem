@@ -1,0 +1,28 @@
+{
+  "name": "govern_memory",
+  "description": "Composite write surface for candidate creation, review decisions, task handoffs, corrections, and supersede governance. Use action=suggest with arguments.kind=memory|rule|relation; action=decide with kind, decision=confirm|reject, and candidate_id; action=handoff; action=correct_rule; or action=supersede. This replaces the former family of low-level suggest_*/confirm_*/reject_* MCP tools.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "suggest",
+          "decide",
+          "handoff",
+          "correct_rule",
+          "supersede"
+        ]
+      },
+      "arguments": {
+        "type": "object",
+        "description": "Action-specific arguments; project_name is required for project writes.",
+        "additionalProperties": true
+      }
+    },
+    "required": [
+      "action",
+      "arguments"
+    ]
+  }
+}

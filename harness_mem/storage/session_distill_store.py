@@ -6,11 +6,12 @@ import json
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import Any, Callable, List, Literal, Set
 from uuid import NAMESPACE_URL, uuid5
 
 from harness_mem.core.schemas.session_distill import (
     DistillChunkCheckpoint,
+    DistillJobStatus,
     SessionDistillJob,
     SessionSemanticReview,
 )
@@ -39,6 +40,8 @@ class SessionDistillStore:
         source_id: str,
         *,
         pipeline_version: str = "lossless-distill-v1",
+        active_limit: int | None = None,
+        recent_first: bool = True,
     ) -> SessionDistillJob:
         """Idempotently queue every chunk from one complete current revision."""
 
@@ -98,6 +101,12 @@ class SessionDistillStore:
                             chunk_index=int(row["chunk_index"]),
                         )
                     )
+                if active_limit is not None:
+                    self._rebalance_locked(
+                        source.project_name,
+                        target_active=max(0, active_limit),
+                        recent_first=recent_first,
+                    )
                 self._conn.commit()
                 return job
             except Exception:
@@ -132,7 +141,7 @@ class SessionDistillStore:
             rows = self._conn.execute(sql, params).fetchall()
         return [SessionDistillJob.from_dict(json.loads(row["data"])) for row in rows]
 
-    def list_checkpoints(self, job_id: str) -> list[DistillChunkCheckpoint]:
+    def list_checkpoints(self, job_id: str) -> List[DistillChunkCheckpoint]:
         with self._lock:
             rows = self._conn.execute(
                 """
@@ -146,6 +155,69 @@ class SessionDistillStore:
             for row in rows
         ]
 
+    def rebalance(
+        self,
+        project_name: str,
+        *,
+        target_active: int = 2,
+        recent_first: bool = True,
+    ) -> dict[str, int]:
+        """Keep a bounded active lane and park excess cold evidence jobs."""
+
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                result = self._rebalance_locked(
+                    project_name,
+                    target_active=max(0, target_active),
+                    recent_first=recent_first,
+                )
+                self._conn.commit()
+                return result
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def mark_agent_offered(
+        self,
+        project_name: str,
+        job_ids: List[str],
+        *,
+        offered_at: datetime | None = None,
+    ) -> int:
+        """Record unique daily Agent offers for budget and throughput reporting."""
+
+        selected: Set[str] = set(job_ids)
+        if not selected:
+            return 0
+        now = offered_at or datetime.now(timezone.utc)
+        day = now.date().isoformat()
+        newly_offered = 0
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                rows = self._conn.execute(
+                    "SELECT data FROM distill_jobs WHERE project_name = ?",
+                    (project_name,),
+                ).fetchall()
+                for row in rows:
+                    job = SessionDistillJob.from_dict(json.loads(row["data"]))
+                    if job.id not in selected:
+                        continue
+                    if job.agent_offer_day != day:
+                        job.agent_offer_day = day
+                        job.agent_offer_count = 0
+                        newly_offered += 1
+                    job.agent_offer_count += 1
+                    job.last_agent_offered_at = now
+                    job.updated_at = now
+                    self._upsert_job_locked(job)
+                self._conn.commit()
+                return newly_offered
+            except Exception:
+                self._conn.rollback()
+                raise
+
     def claim_chunks(
         self,
         job_id: str,
@@ -153,21 +225,24 @@ class SessionDistillStore:
         lease_owner: str,
         limit: int = 1,
         lease_seconds: int = 300,
-    ) -> list[tuple[TranscriptChunk, DistillChunkCheckpoint]]:
+    ) -> List[tuple[TranscriptChunk, DistillChunkCheckpoint]]:
         """Atomically claim pending chunks and reclaim expired leases."""
 
         if not lease_owner.strip():
             raise ValueError("lease_owner is required")
         now = datetime.now(timezone.utc)
         lease_until = now + timedelta(seconds=max(1, lease_seconds))
-        claimed: list[tuple[TranscriptChunk, DistillChunkCheckpoint]] = []
+        claimed: List[tuple[TranscriptChunk, DistillChunkCheckpoint]] = []
         with self._lock:
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
                 job = self._get_job_locked(job_id)
                 if job is None:
                     raise KeyError(job_id)
-                if job.status in {"completed", "failed", "stale"}:
+                if job.status in {"completed", "failed", "stale", "parked"}:
+                    self._conn.rollback()
+                    return []
+                if job.retry_after is not None and job.retry_after > now:
                     self._conn.rollback()
                     return []
                 rows = self._conn.execute(
@@ -208,6 +283,7 @@ class SessionDistillStore:
                     job.status = "processing"
                     job.phase = "chunks"
                     job.attempt_count += 1
+                    job.retry_after = None
                     job.updated_at = now
                     self._upsert_job_locked(job)
                 self._conn.commit()
@@ -287,7 +363,7 @@ class SessionDistillStore:
         job_id: str,
         *,
         semantic_review: dict,
-        output_candidate_ids: list[str] | None = None,
+        output_candidate_ids: List[str] | None = None,
     ) -> SessionDistillJob:
         """Complete one explicit job after structural and semantic review."""
 
@@ -333,6 +409,45 @@ class SessionDistillStore:
                 job.phase = "done"
                 job.error = None
                 job.completed_at = now
+                job.updated_at = now
+                self._upsert_job_locked(job)
+                self._conn.commit()
+                return job
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def defer(self, job_id: str, *, error: str) -> SessionDistillJob:
+        """Release active leases and move one failed job behind healthy work."""
+
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                job = self._get_job_locked(job_id)
+                if job is None:
+                    raise KeyError(job_id)
+                if job.status in {"completed", "stale", "failed"}:
+                    self._conn.rollback()
+                    return job
+                rows = self._conn.execute(
+                    "SELECT data FROM distill_job_chunks WHERE job_id = ?",
+                    (job_id,),
+                ).fetchall()
+                for row in rows:
+                    checkpoint = DistillChunkCheckpoint.from_dict(json.loads(row["data"]))
+                    if checkpoint.status == "processing":
+                        checkpoint.status = "retryable"
+                        checkpoint.lease_owner = None
+                        checkpoint.lease_until = None
+                        checkpoint.error = error[:512]
+                        checkpoint.updated_at = now
+                        self._upsert_checkpoint_locked(checkpoint)
+                job.status = "retryable"
+                job.error = error[:512]
+                retry_number = max(1, job.attempt_count)
+                backoff_seconds = min(6 * 3600, 300 * (2 ** min(retry_number - 1, 7)))
+                job.retry_after = now + timedelta(seconds=backoff_seconds)
                 job.updated_at = now
                 self._upsert_job_locked(job)
                 self._conn.commit()
@@ -417,7 +532,7 @@ class SessionDistillStore:
             """
             SELECT data FROM distill_jobs
             WHERE source_id = ? AND source_revision != ?
-              AND status IN ('queued', 'processing', 'reviewing', 'retryable')
+              AND status IN ('queued', 'processing', 'reviewing', 'retryable', 'parked')
             """,
             (source.id, source.source_revision),
         ).fetchall()
@@ -428,6 +543,93 @@ class SessionDistillStore:
             job.error = "superseded by a newer transcript source revision"
             job.updated_at = now
             self._upsert_job_locked(job)
+
+    def _rebalance_locked(
+        self,
+        project_name: str,
+        *,
+        target_active: int,
+        recent_first: bool,
+    ) -> dict[str, int]:
+        rows = self._conn.execute(
+            """
+            SELECT data FROM distill_jobs
+            WHERE project_name = ?
+            """,
+            (project_name,),
+        ).fetchall()
+        jobs = [SessionDistillJob.from_dict(json.loads(row["data"])) for row in rows]
+        now = datetime.now(timezone.utc)
+        protected = [job for job in jobs if job.status in {"processing", "reviewing"}]
+        candidates = [
+            job
+            for job in jobs
+            if job.status in {"queued", "retryable", "parked"}
+            and (job.retry_after is None or job.retry_after <= now)
+        ]
+        waiting_retry = [
+            job
+            for job in jobs
+            if job.status in {"queued", "retryable", "parked"}
+            and job.retry_after is not None
+            and job.retry_after > now
+        ]
+        available_slots = max(0, target_active - len(protected))
+        currently_active = [job for job in candidates if job.status == "queued"]
+        selected: List[SessionDistillJob] = []
+        if len(currently_active) <= available_slots:
+            selected.extend(currently_active)
+        pool = [job for job in candidates if job.id not in {item.id for item in selected}]
+
+        history = sorted(
+            (job for job in jobs if job.drainer_selected_at is not None),
+            key=lambda job: job.drainer_selected_at or datetime.min.replace(tzinfo=timezone.utc),
+        )
+        recent_streak = 0
+        for historical in reversed(history):
+            if historical.drainer_lane != "recent":
+                break
+            recent_streak += 1
+
+        selected_recent = 0
+        selected_oldest = 0
+        while len(selected) < available_slots and pool:
+            healthy = [job for job in pool if job.error is None]
+            lane_pool = healthy or pool
+            choose_recent = recent_first and recent_streak < 3
+            chosen = max(lane_pool, key=lambda job: job.created_at) if choose_recent else min(
+                lane_pool,
+                key=lambda job: job.created_at,
+            )
+            lane: Literal["recent", "oldest"] = "recent" if choose_recent else "oldest"
+            chosen.drainer_lane = lane
+            chosen.drainer_selected_at = now
+            if lane == "recent":
+                recent_streak += 1
+                selected_recent += 1
+            else:
+                recent_streak = 0
+                selected_oldest += 1
+            selected.append(chosen)
+            pool = [job for job in pool if job.id != chosen.id]
+
+        selected_ids = {job.id for job in selected}
+        for job in candidates:
+            desired: DistillJobStatus = "queued" if job.id in selected_ids else "parked"
+            if job.status == desired:
+                if job.id in selected_ids and job.drainer_selected_at == now:
+                    self._upsert_job_locked(job)
+                continue
+            job.status = desired
+            job.updated_at = now
+            self._upsert_job_locked(job)
+        return {
+            "active": len(protected) + len(selected_ids),
+            "parked": len(pool),
+            "retry_backoff": len(waiting_retry),
+            "selected_recent": selected_recent,
+            "selected_oldest": selected_oldest,
+        }
 
 
 __all__ = ["SessionDistillStore"]

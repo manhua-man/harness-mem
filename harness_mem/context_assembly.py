@@ -46,6 +46,10 @@ from harness_mem.search.backend import (
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
+from harness_mem.temporal_conflicts import (
+    current_project_version,
+    version_conflict_reason,
+)
 
 # Default per-layer budgets (Req 2.4, 3.4, 4.4, 5.4, 7.4).
 DEFAULT_BUDGETS: dict[str, int] = {
@@ -234,6 +238,7 @@ async def _build_l1(
     (max 7) is applied last via :func:`_apply_budget` (Req 3.4).
     """
     candidates: list[PlanEntry] = []
+    repo_version = current_project_version(backend, project_name)
 
     # Confirmed rules first — highest tier. ``list_confirmed_rules`` already
     # returns current-only rules ordered by ``confirmed_at`` descending and is
@@ -244,7 +249,11 @@ async def _build_l1(
     for rule in rules:
         # Defensive: skip historical records and any rule without a resolvable
         # id rather than emit an entry with empty source_ids (Req 3.5, 8.3).
-        if rule.valid_to is not None or not rule.id:
+        if (
+            rule.valid_to is not None
+            or not rule.id
+            or version_conflict_reason(rule.pattern, current_version=repo_version)
+        ):
             continue
         candidates.append(
             PlanEntry(
@@ -265,7 +274,11 @@ async def _build_l1(
         include_history=False,
     )
     current_entries = [
-        entry for entry in entries if entry.valid_to is None and entry.id
+        entry
+        for entry in entries
+        if entry.valid_to is None
+        and entry.id
+        and not version_conflict_reason(entry.content, current_version=repo_version)
     ]
     current_entries.sort(key=lambda entry: entry.confidence, reverse=True)
     for entry in current_entries:
@@ -321,6 +334,7 @@ async def _build_l2(
     layer with no error (Req 4.6).
     """
     candidates: list[PlanEntry] = []
+    repo_version = current_project_version(backend, project_name)
 
     # Part A — recent handoffs (most recent first). ``get_latest_handoffs``
     # orders by ``last_activity`` descending and is a pure read.
@@ -331,7 +345,11 @@ async def _build_l2(
     for handoff in handoffs:
         # Drop any handoff without a resolvable id rather than emit an entry
         # with empty source_ids (Req 8.3).
-        if not handoff.id:
+        if (
+            not handoff.id
+            or handoff.status not in {"in_progress", "pending", "blocked"}
+            or version_conflict_reason(handoff.summary, current_version=repo_version)
+        ):
             continue
         candidates.append(
             PlanEntry(
@@ -345,6 +363,8 @@ async def _build_l2(
     # Part B — recently-surfaced readable current-truth entries, derived
     # read-only from retrieval signals (Req 4.1, 4.5, 10.1).
     for entry in await _recently_surfaced_entries(backend, project_name):
+        if version_conflict_reason(entry.content, current_version=repo_version):
+            continue
         candidates.append(
             PlanEntry(
                 layer="L2",

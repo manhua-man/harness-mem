@@ -147,14 +147,12 @@ class AntigravityAdapter:
         for record in records:
             record_type = str(record.get("type") or "")
             source = str(record.get("source") or "")
-            content = next(
-                (
-                    record.get(key)
-                    for key in ("content", "text", "message", "display")
-                    if isinstance(record.get(key), str) and record.get(key).strip()
-                ),
-                None,
-            )
+            content = None
+            for key in ("content", "text", "message", "display"):
+                value = record.get(key)
+                if isinstance(value, str) and value.strip():
+                    content = value
+                    break
             if isinstance(content, str) and content.strip():
                 label = "User" if record_type == "USER_INPUT" else source.title() or record_type.title()
                 lines.append(f"\n{label}: {content}")

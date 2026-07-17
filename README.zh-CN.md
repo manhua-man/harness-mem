@@ -22,11 +22,11 @@ Agent 会读代码，但它通常不知道项目为什么变成现在这样：�
 
 `harness-mem` 把这些内容变成本地记忆，通过单一 MCP memory surface 接给 Codex、Claude Code、Cursor、Gemini CLI 和其它 Agent 客户端。新 Agent 用 `wake` 和按任务触发的 `search` 找回上下文，用 `distill` 整理近期 evidence，低风险内容可自动提升为可读记忆；`review` 是事后审计、纠错和 undo 入口，`dream` 负责维护 ledger。
 
-触发入口：
+触发入口（用户级安装一次，之后所有项目可见）：
 
 - `/hm:*` 命令：`status`、`wake`、`search`、`distill`、`review`、`dream`。
 - Agent MCP 调用：自然语言、skill 或 hook 触发 `wake/search/distill/review`。
-- Hook：会话开始注入 wake context；任务过程中按需 search；save point / 会话结束只同步 transcript evidence 并创建待蒸馏任务。
+- Hook：会话开始注入 wake context；任务过程中按需 search；save point / 会话结束执行 retention。distill 活跃槽最多 2 条，按 3:1 recent/oldest 公平补位，带失败退避和每日新 job 上限；没有 Agent 时明确显示 `waiting_for_agent`，不会声称后台已完成语义处理。
 - CLI：只做 setup、doctor、config、integration 和 maintenance。
 
 <p align="center">
@@ -43,7 +43,7 @@ wake -> search -> distill -> review -> dream
 |---|---|
 | `wake` | 会话开始从可读记忆生成项目简报。 |
 | `search` | 当 `autopilot_search_tick` 检测到具体不确定性、冲突、工具失败、待写入 durable claim 需要 grounding、或长周期任务切换时，找回历史决策、规则和 handoff。 |
-| `distill` | 从头到尾读取全部 transcript chunk，做会话末尾审查，再生成候选并运行 auto-review。 |
+| `distill` | 校验全部原始 chunk，读取不超过 3k token 的索引清单，选择完整语义窗口，再钻取候选级原文证据，最后做末尾审查、候选治理和 Dream。 |
 | `review` | 事后审计、确认、拒绝、undo 或替代自动处理过的条目。 |
 | `dream` | 维护 ledger、压缩过期状态，并在 save point / 会话结束后保留可回滚治理记录。 |
 
@@ -51,7 +51,11 @@ wake -> search -> distill -> review -> dream
 `tool_result`、`prepareNextTurn`，Claude Code 的 `PostToolUse`，以及
 Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 事件入口；`/hm:search` 只是客户端没有这类 hook 时的手动兜底。
-`Stop` Hook 会保存不可变的原始 transcript revision，并排队它的全部有序 chunk。`prepare_session_distill` 每次领取有限数量但不截断内容的 chunk；Agent 必须逐块 checkpoint，全部读完后完成会话末尾审查，才可用稳定幂等 ID 生成候选。`finalize_session_distill` 随后执行 auto-review 和 Dream。`/hm:distill` 是同一条可恢复管线的立即执行入口。Hook 只负责同步和入队，不能声称 Agent 已经完成总结；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
+`Stop` Hook 会保存不可变的原始 transcript revision，并排队它的全部有序 chunk。日常 `prepare_session_distill(evidence_mode="semantic", detail_level="compact", budget_tokens=3000)` 保留完整原文，由 runtime 校验并 checkpoint 每个 raw chunk，再返回包含全部 exchange 索引和风险信号的 compact manifest；Agent 先选择最多 8 个完整语义窗口，再只为候选主张钻取 raw proof。`detail_level="full"` 与兼容 `raw` 模式只用于显式完整审计，raw chunk 不截断内容。完成会话末尾审查后才可用稳定幂等 ID 生成候选，`finalize_session_distill` 随后执行 auto-review 和 Dream。`/hm:distill` 是同一条可恢复管线的立即执行入口。Hook 只负责同步、排队和注入 Agent 工作，不能声称没有 Agent 时已完成总结；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
+
+Observation 只是证据，不是被记住的事实。wake 的近期索引会明确标成“非事实证据”；L1/L2 只展示结构化当前事实和仍有效的 handoff。被当前仓库版本推翻的旧发布/版本说法会标记冲突，或从 truth/active 层移除。
+
+隐私策略在落盘前执行：可用 `<private>...</private>` 包裹敏感片段，也可在项目 `.harness-mem.toml` 的 `[capture]` 中配置忽略 client、session 和 source glob；被排除内容不会进入 raw revision、chunk、Observation 或索引。`[transcript].retention_days` 控制自动保留期（`0` 表示永久保留）。`harness-mem maintenance erase --project NAME --session-id ID` 默认预览，增加 `--apply` 后会硬删除 raw revision、chunk、distill job、Observation、关联候选/事实以及 FTS/vector 索引，只留下不含原始标识和内容的审计摘要。
 
 <p align="center">
   <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="IDE 原始会话以不可变 revision 保存，全部有序 chunk 完成处理和末尾审查后才进入候选记忆" width="900" />
@@ -82,8 +86,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.25 \
-  harness-mem==0.8.25
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.0 \
+  harness-mem==0.9.0
 ```
 
 `harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
@@ -93,9 +97,19 @@ Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.25 \
-  "harness-mem[hybrid]==0.8.25"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.0 \
+  "harness-mem[hybrid]==0.9.0"
 ```
+
+在当前设备一次性安装全部宿主的原生 Daily 命令。默认参数就是
+`--client all --scope user`：
+
+```bash
+harness-mem integration commands sync
+```
+
+该命令只写各宿主的用户级 command、skill 或 workflow 目录，不安装项目
+hooks，也不会把某个项目路径固化到全局命令中。
 
 Claude Code 用户可以安装 repo-local plugin，并可选注册 MCP：
 
@@ -107,20 +121,28 @@ cd harness-mem
 
 Cursor 请在项目 MCP 配置中使用 `harness-mem-mcp`，将 `cwd` 设为工作区，
 并设置 `HARNESS_MEM_CLIENT=cursor`。首次 MCP 初始化会自动认领工作区、创建
-project profile 并安装匹配的 hooks，不需要用户运行 hook installer；缺失的
-project-local hook 会在后续 MCP 初始化时修复，且不会覆盖已有文件。完整配置
+project profile、安装匹配的项目 hooks，并幂等修复当前宿主的用户级命令；
+不需要用户运行 hook installer，也不需要逐项目同步 command。完整配置
 见 [MCP setup](docs/mcp-setup.md)。
 
-然后在 Agent 里使用：
+仓库安装脚本会自动执行同一套“全部宿主、用户级”同步：
 
-```text
-/hm:status
-/hm:wake
-/hm:search "release boundary"
-/hm:distill <project> 10
-/hm:review
-/hm:dream
+```powershell
+.\plugins\harness-mem\scripts\install.ps1 -WithHybrid
 ```
+
+所有已支持宿主使用同一组动作：`status`、`wake`、`search`、`search-all`、
+`distill`、`review`、`dream`。Claude Code 使用 `/hm:<action>`；Codex 使用可显式
+调用的 `$hm-<action>` skill；Cursor、Grok、Hermes、OpenCode、Antigravity 使用
+`/hm-<action>`。Codex 不支持注册自定义 slash command，因此 `$hm-*` 是它的原生命令形式。
+用户级目录分别是：Claude Code `~/.claude/commands/hm`、Codex
+`~/.codex/skills`、Cursor `~/.cursor/skills`、Grok `~/.grok/skills`、
+Hermes `$HERMES_HOME/skills`（原生 Windows 默认为
+`%LOCALAPPDATA%/hermes/skills`）、OpenCode `~/.config/opencode/commands`、
+Antigravity `~/.gemini/antigravity/global_workflows`。
+生成命令会按逻辑工具名解析当前 MCP namespace：直连 `harness_mem` 与通过
+MCP Router 接入时，内部前缀可以不同，但用户入口不变。修改 MCP 注册或更新
+工具 schema 后，需要重启对应 server 并新开 task，旧 task 不会热更新工具清单。
 
 终端 CLI 是 operator console，不是日常 memory workflow。顶层只保留
 `init`、`quickstart`/`qs`、`doctor`、`config`、`integration` 和
@@ -161,4 +183,4 @@ cargo test --workspace
 发布标签会构建六个平台 wheel 和 sdist，在 Windows、macOS、Linux 上完成
 全新安装验证后上传到 GitHub Release。本项目不发布到 PyPI。
 
-当前包版本：**0.8.25**。
+当前包版本：**0.9.0**。

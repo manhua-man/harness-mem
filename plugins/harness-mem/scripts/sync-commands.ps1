@@ -1,6 +1,10 @@
 param(
     [ValidateSet("Daily")]
     [string]$Profile = "Daily",
+    [ValidateSet("all", "claude-code", "cursor", "grok", "codex", "hermes", "opencode", "antigravity")]
+    [string]$Client = "all",
+    [ValidateSet("user", "project")]
+    [string]$Scope = "user",
     [string]$TargetDir,
     [switch]$DryRun
 )
@@ -21,10 +25,19 @@ $profileArg = switch ($Profile) {
     "Daily" { "daily" }
 }
 
+if ($TargetDir -and $Client -eq "all") {
+    $Client = "claude-code"
+}
+if ($TargetDir -and $Client -ne "claude-code") {
+    throw "-TargetDir is only supported with -Client claude-code"
+}
+
 $cliArgs = @(
     "-m", "harness_mem.cli",
     "integration", "commands", "sync",
     "--profile", $profileArg,
+    "--client", $Client,
+    "--scope", $Scope,
     "--source-dir", $slashSrc
 )
 

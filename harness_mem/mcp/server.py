@@ -26,7 +26,8 @@ Current module boundary:
   tool_specs.py    — MCP schemas, public surface membership, cluster metadata
   tool_registry.py — single-surface visibility and tools/list payloads
   executor.py      — tools/call execution policy and write gate enforcement
-  tool_handlers.py — tool implementations and handler registry
+  tool_handlers.py — read/distill/dream implementations and handler registry
+  governance_handlers.py — candidate/truth/supersede/handoff write implementations
 """
 
 import os

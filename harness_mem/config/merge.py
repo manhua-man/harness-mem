@@ -44,6 +44,17 @@ class MergedConfig:
     """
 
     autopilot_enabled: bool = True
+    capture_enabled: bool = True
+    capture_private_tags: bool = True
+    capture_ignore_clients: tuple[str, ...] = ()
+    capture_ignore_session_ids: tuple[str, ...] = ()
+    capture_ignore_source_globs: tuple[str, ...] = ()
+    transcript_retention_days: int = 0
+    distill_auto_enabled: bool = True
+    distill_auto_max_jobs_per_wake: int = 2
+    distill_auto_target_backlog: int = 2
+    distill_auto_recent_first: bool = True
+    distill_auto_daily_job_budget: int = 8
     dream_auto_enabled: bool = True
     dream_auto_trigger: Literal["idle_or_interval", "interval", "idle"] = "idle_or_interval"
     dream_auto_min_interval_hours: int = 24
@@ -81,6 +92,10 @@ class MergedConfig:
             _set_dotted(out, key_path, getattr(self, attr))
         for key_path, attr, _kind, _default in _AUTOPILOT_KEYS:
             _set_dotted(out, key_path, getattr(self, attr))
+        for key_path, attr, _kind, _default in _CAPTURE_KEYS:
+            _set_dotted(out, key_path, getattr(self, attr))
+        for key_path, attr, _kind, _default in _DISTILL_AUTO_KEYS:
+            _set_dotted(out, key_path, getattr(self, attr))
         for key_path, attr, _kind, _default in _DREAM_KEYS:
             _set_dotted(out, key_path, getattr(self, attr))
         for key_path, attr, _kind, _default in _COST_BUDGET_KEYS:
@@ -99,6 +114,38 @@ _REMOVED_CONFIG_KEYS: tuple[str, ...] = (
 
 _AUTOPILOT_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     ("autopilot.enabled", "autopilot_enabled", "bool", True),
+)
+
+_CAPTURE_KEYS: tuple[tuple[str, str, str, Any], ...] = (
+    ("capture.enabled", "capture_enabled", "bool", True),
+    ("capture.private_tags", "capture_private_tags", "bool", True),
+    ("capture.ignore_clients", "capture_ignore_clients", "str_list", ()),
+    ("capture.ignore_session_ids", "capture_ignore_session_ids", "str_list", ()),
+    ("capture.ignore_source_globs", "capture_ignore_source_globs", "str_list", ()),
+    ("transcript.retention_days", "transcript_retention_days", "int:min=0", 0),
+)
+
+_DISTILL_AUTO_KEYS: tuple[tuple[str, str, str, Any], ...] = (
+    ("distill.auto.enabled", "distill_auto_enabled", "bool", True),
+    (
+        "distill.auto.max_jobs_per_wake",
+        "distill_auto_max_jobs_per_wake",
+        "int:min=1",
+        2,
+    ),
+    (
+        "distill.auto.target_backlog",
+        "distill_auto_target_backlog",
+        "int:min=0",
+        2,
+    ),
+    ("distill.auto.recent_first", "distill_auto_recent_first", "bool", True),
+    (
+        "distill.auto.daily_job_budget",
+        "distill_auto_daily_job_budget",
+        "int:min=1",
+        8,
+    ),
 )
 
 _DREAM_KEYS: tuple[tuple[str, str, str, Any], ...] = (
@@ -245,6 +292,10 @@ def _coerce_typed_value(
 ) -> Any:
     if kind == "bool":
         return _coerce_bool(value, key_path=key_path, source_path=source_path)
+    if kind == "str_list":
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            raise ConfigValidationError(key_path=key_path, value=value, source_path=source_path)
+        return tuple(dict.fromkeys(item.strip() for item in value if item.strip()))
     if kind == "const:true":
         coerced = _coerce_bool(value, key_path=key_path, source_path=source_path)
         if coerced is not True:
@@ -417,6 +468,22 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
         project_path=project_path,
         user_path=user_path,
     )
+    capture_values = _coerce_key_group(
+        merged=merged,
+        keys=_CAPTURE_KEYS,
+        project_dict=project_dict,
+        user_dict=user_dict,
+        project_path=project_path,
+        user_path=user_path,
+    )
+    distill_auto_values = _coerce_key_group(
+        merged=merged,
+        keys=_DISTILL_AUTO_KEYS,
+        project_dict=project_dict,
+        user_dict=user_dict,
+        project_path=project_path,
+        user_path=user_path,
+    )
     _reject_unknown_autopilot_keys(
         merged=merged,
         project_dict=project_dict,
@@ -447,6 +514,10 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
         _remove_dotted(extras, key_path)
     for key_path, _attr, _kind, _default in _AUTOPILOT_KEYS:
         _remove_dotted(extras, key_path)
+    for key_path, _attr, _kind, _default in _CAPTURE_KEYS:
+        _remove_dotted(extras, key_path)
+    for key_path, _attr, _kind, _default in _DISTILL_AUTO_KEYS:
+        _remove_dotted(extras, key_path)
     for key_path, _attr, _kind, _default in _DREAM_KEYS:
         _remove_dotted(extras, key_path)
     for key_path, _attr, _kind, _default in _COST_BUDGET_KEYS:
@@ -457,6 +528,8 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
     # ---- 7. construct (Req 3.6, 3.9) ------------------------------------
     return MergedConfig(
         **autopilot_values,
+        **capture_values,
+        **distill_auto_values,
         **dream_values,
         **cost_budget_values,
         extras=extras,

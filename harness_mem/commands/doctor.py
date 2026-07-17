@@ -343,72 +343,90 @@ def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -
         model_id = get_embedding_model_id()
         expected_dim = get_model_loader(model_id).dimensions
 
-        # Check if vec_embeddings table exists
         structured_store = cast(LocalStructuredStore, backend.structured_store)
-        with structured_store.index.locked_connection() as conn:
-            cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='vec_embeddings'"
-            )
-            table_exists = cursor.fetchone() is not None
+        verbatim_store = cast(LocalVerbatimStore, backend.verbatim_store)
+        indexes = (structured_store.index, verbatim_store.index)
+        table_count = 0
+        vector_count = 0
+        matching_count = 0
+        stored_models: set[str] = set()
+        vec0_missing = 0
 
-            if not table_exists:
-                return {
-                    "has_issue": True,
-                    "message": "HM-201: Vector index not built",
-                    "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
-                }
+        for index in indexes:
+            with index.locked_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name='vec_embeddings'"
+                )
+                if cursor.fetchone() is None:
+                    continue
+                table_count += 1
+                vector_count += int(
+                    conn.execute("SELECT COUNT(*) FROM vec_embeddings").fetchone()[0]
+                )
+                matching_count += int(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM vec_embeddings WHERE model_id = ?",
+                        (model_id,),
+                    ).fetchone()[0]
+                )
+                stored_models.update(
+                    str(row[0])
+                    for row in conn.execute(
+                        "SELECT DISTINCT model_id FROM vec_embeddings"
+                    ).fetchall()
+                )
+                cursor = conn.execute(
+                    "SELECT entry_id, length(embedding) FROM vec_embeddings "
+                    "WHERE model_id = ? LIMIT 100",
+                    (model_id,),
+                )
+                for entry_id, byte_length in cursor.fetchall():
+                    stored_dim = int(byte_length) // 4
+                    if stored_dim != expected_dim:
+                        return {
+                            "has_issue": True,
+                            "message": (
+                                "Vector index dimension mismatch "
+                                f"(entry={entry_id}, stored={stored_dim}, "
+                                f"current={expected_dim})"
+                            ),
+                            "fix_command": (
+                                "harness-mem maintenance rebuild-vector-index "
+                                f"--project {project_name}"
+                            ),
+                        }
+            coverage = index.vec0_coverage_report(model_id=model_id)
+            vec0_missing += int(coverage.get("vec0_missing", 0))
 
-            # Check if there are any vectors
-            cursor = conn.execute("SELECT COUNT(*) FROM vec_embeddings")
-            vector_count = cursor.fetchone()[0]
+        if table_count == 0:
+            return {
+                "has_issue": True,
+                "message": "HM-201: Vector index not built",
+                "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
+            }
 
-            if vector_count == 0:
-                return {
-                    "has_issue": True,
-                    "message": "HM-201: Vector index is empty",
-                    "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
-                }
+        if vector_count == 0:
+            return {
+                "has_issue": True,
+                "message": "HM-201: Vector index is empty",
+                "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
+            }
 
-            # Check model_id mismatch
-            cursor = conn.execute(
-                "SELECT COUNT(*) FROM vec_embeddings WHERE model_id = ?",
-                (model_id,)
-            )
-            matching_count = cursor.fetchone()[0]
+        if matching_count == 0:
+            stored_model_id = ", ".join(sorted(stored_models)) or "unknown"
+            return {
+                "has_issue": True,
+                "message": f"Vector index uses different model ({stored_model_id}), current config is {model_id}",
+                "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
+            }
 
-            if matching_count == 0:
-                cursor = conn.execute("SELECT DISTINCT model_id FROM vec_embeddings LIMIT 1")
-                stored_model = cursor.fetchone()
-                stored_model_id = stored_model[0] if stored_model else "unknown"
-                return {
-                    "has_issue": True,
-                    "message": f"Vector index uses different model ({stored_model_id}), current config is {model_id}",
-                    "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}"
-                }
-
-            cursor = conn.execute(
-                "SELECT entry_id, length(embedding) FROM vec_embeddings WHERE model_id = ? LIMIT 100",
-                (model_id,),
-            )
-            for entry_id, byte_length in cursor.fetchall():
-                stored_dim = int(byte_length) // 4
-                if stored_dim != expected_dim:
-                    return {
-                        "has_issue": True,
-                        "message": (
-                            "Vector index dimension mismatch "
-                            f"(entry={entry_id}, stored={stored_dim}, current={expected_dim})"
-                        ),
-                        "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}",
-                    }
-
-        coverage = structured_store.index.vec0_coverage_report(model_id=model_id)
-        if coverage.get("vec0_missing", 0) > 0:
+        if vec0_missing > 0:
             return {
                 "has_issue": True,
                 "message": (
                     "HM-204: vec0 index is behind vec_embeddings "
-                    f"({coverage['vec0_missing']} missing); KNN will lazy-backfill "
+                    f"({vec0_missing} missing); KNN will lazy-backfill "
                     "or fall back to batch cosine"
                 ),
                 "fix_command": (
@@ -976,14 +994,15 @@ def _doctor_legacy_accepted_block(legacy_report: dict[str, Any]) -> None:
     if total <= 0:
         print(
             f"Legacy status={LEGACY_ACCEPTED_STATUS}: 0 records "
-            "(invisible to readable_truth; not auto-migrated)"
+            "(invisible to readable_truth; governance migration complete)"
         )
         return
 
     parts = ", ".join(f"{table}={count}" for table, count in sorted(by_table.items()))
     print(
         f"⚠️  Legacy status={LEGACY_ACCEPTED_STATUS}: {total} record(s) ({parts}) "
-        "— invisible to readable_truth; re-confirm or re-promote manually"
+        "— invisible to readable_truth; preview with `harness-mem maintenance "
+        "migrate-legacy-accepted --dry-run`, then audit pending rows in $hm-review"
     )
 
 
@@ -1143,6 +1162,12 @@ def _doctor_storage_v2_block(storage_report: dict[str, Any]) -> None:
         f"{'match' if storage_report.get('checksum_match') else 'not matched'} | "
         f"wal={storage_report.get('wal_size_bytes', 0)} bytes"
     )
+    relation = storage_report.get("checksum_relation")
+    explanation = storage_report.get("checksum_relation_explanation")
+    if relation:
+        print(f"  checksum relation: {relation}")
+    if explanation and relation != "exact_match":
+        print(f"  relation detail: {explanation}")
     gate = storage_report.get("dual_write_gate") or {}
     if gate:
         print(

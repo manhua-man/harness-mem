@@ -33,6 +33,7 @@ from harness_mem.commands.wake_render import (
     select_rendered_entries,
 )
 from harness_mem.context_assembly import assemble_context_plan
+from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.context_assembly_plan import ContextAssemblyPlan, PlanEntry
 from harness_mem.core.schemas.project_profile import ProjectProfile
@@ -744,6 +745,52 @@ async def build_wake_snapshot(
     return payload
 
 
+def _build_distill_maintenance_instruction(
+    backend: LocalMemoryBackend,
+    project_name: str,
+    *,
+    record_offer: bool,
+) -> str:
+    """Build one truthful Agent-active drainer instruction for hook and MCP wake."""
+
+    from harness_mem.commands.distill_lifecycle import (
+        pending_distill_jobs,
+        distill_drainer_metrics,
+        render_pending_distill_instruction,
+    )
+
+    distill_config = MergedConfig()
+    sources = backend.transcript_store.list_sources(
+        project_name=project_name,
+        limit=1,
+    )
+    if sources:
+        root = Path(sources[0].project_root)
+        if root.is_absolute() and root.is_dir():
+            distill_config = load_merged_config(root)
+    jobs = pending_distill_jobs(
+        backend,
+        project_name=project_name,
+        recent_first=distill_config.distill_auto_recent_first,
+        target_backlog=distill_config.distill_auto_target_backlog,
+        max_jobs=distill_config.distill_auto_max_jobs_per_wake,
+        daily_job_budget=distill_config.distill_auto_daily_job_budget,
+        record_offer=record_offer,
+    )
+    drainer_metrics = distill_drainer_metrics(
+        backend,
+        project_name=project_name,
+        daily_job_budget=distill_config.distill_auto_daily_job_budget,
+    )
+    instruction = render_pending_distill_instruction(
+        jobs,
+        max_jobs=distill_config.distill_auto_max_jobs_per_wake,
+        target_backlog=distill_config.distill_auto_target_backlog,
+        metrics=drainer_metrics,
+    ) if distill_config.distill_auto_enabled else ""
+    return instruction
+
+
 async def build_wake_injection(
     backend: LocalMemoryBackend,
     project_name: str,
@@ -761,13 +808,10 @@ async def build_wake_injection(
         await _apply_surface_side_effects(backend, plan)
     recent_context = await build_recent_context(backend, project_name)
     rendered = render_recent_context(recent_context, plan, compact=True)
-    from harness_mem.commands.distill_lifecycle import (
-        pending_distill_jobs,
-        render_pending_distill_instruction,
-    )
-
-    instruction = render_pending_distill_instruction(
-        pending_distill_jobs(backend, project_name=project_name)
+    instruction = _build_distill_maintenance_instruction(
+        backend,
+        project_name,
+        record_offer=apply_surface_side_effects,
     )
     return f"{rendered}\n\n{instruction}" if instruction else rendered
 
@@ -830,6 +874,13 @@ async def cmd_wake_up(
 
         recent_context = await build_recent_context(backend, project_name)
         print(render_recent_context(recent_context, plan, compact=False))
+        maintenance_instruction = _build_distill_maintenance_instruction(
+            backend,
+            project_name,
+            record_offer=True,
+        )
+        if maintenance_instruction:
+            print(maintenance_instruction)
         if skill_hints_enabled:
             skill_hints = await _select_wake_skill_hints(
                 backend,

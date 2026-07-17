@@ -8,6 +8,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from harness_mem.core.schemas.session_distill import (
     DistillChunkCheckpoint,
@@ -26,7 +27,7 @@ from harness_mem.transcript_chunking import (
 )
 from harness_mem.storage.session_distill_store import SessionDistillStore
 
-TRANSCRIPT_LEDGER_SCHEMA_VERSION = 5
+TRANSCRIPT_LEDGER_SCHEMA_VERSION = 6
 
 
 class TranscriptStore:
@@ -456,14 +457,47 @@ class TranscriptStore:
         source_id: str,
         *,
         pipeline_version: str = "lossless-distill-v1",
+        active_limit: int | None = None,
+        recent_first: bool = True,
     ) -> SessionDistillJob:
         return self._distill.enqueue(
             source_id,
             pipeline_version=pipeline_version,
+            active_limit=active_limit,
+            recent_first=recent_first,
         )
 
     def get_distill_job(self, job_id: str) -> SessionDistillJob | None:
         return self._distill.get(job_id)
+
+    def defer_distill_job(self, job_id: str, *, error: str) -> SessionDistillJob:
+        return self._distill.defer(job_id, error=error)
+
+    def rebalance_distill_jobs(
+        self,
+        project_name: str,
+        *,
+        target_active: int = 2,
+        recent_first: bool = True,
+    ) -> dict[str, int]:
+        return self._distill.rebalance(
+            project_name,
+            target_active=target_active,
+            recent_first=recent_first,
+        )
+
+    def mark_distill_jobs_agent_offered(
+        self,
+        project_name: str,
+        job_ids: list[str],
+        *,
+        offered_at: datetime | None = None,
+    ) -> int:
+        return self._distill.mark_agent_offered(
+            project_name,
+            job_ids,
+            offered_at=offered_at,
+        )
 
     def list_distill_jobs(
         self,
@@ -523,6 +557,210 @@ class TranscriptStore:
             semantic_review=semantic_review,
             output_candidate_ids=output_candidate_ids,
         )
+
+    def plan_hard_delete(
+        self,
+        *,
+        project_name: str,
+        session_id: str | None = None,
+        source_id: str | None = None,
+        before: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Preview raw revisions, chunks, and jobs selected for erasure."""
+
+        where = ["s.project_name = ?"]
+        params: list[Any] = [project_name]
+        if session_id is not None:
+            where.append("s.session_id = ?")
+            params.append(session_id)
+        if source_id is not None:
+            where.append("r.source_id = ?")
+            params.append(source_id)
+        if before is not None:
+            cutoff = before if before.tzinfo else before.replace(tzinfo=timezone.utc)
+            where.append("r.captured_at < ?")
+            params.append(cutoff.astimezone(timezone.utc).isoformat())
+        sql = f"""
+            SELECT r.source_id, r.source_revision, r.raw_size_bytes,
+                   r.normalized_size_bytes, r.captured_at,
+                   s.session_id, s.client, s.source_uri
+            FROM transcript_source_revisions r
+            JOIN transcript_sources s ON s.id = r.source_id
+            WHERE {' AND '.join(where)}
+            ORDER BY r.captured_at ASC
+        """
+        with self._lock:
+            revisions = [dict(row) for row in self._conn.execute(sql, params).fetchall()]
+            keys = [(str(row["source_id"]), str(row["source_revision"])) for row in revisions]
+            chunk_count = 0
+            jobs: list[dict[str, Any]] = []
+            for selected_source_id, selected_revision in keys:
+                chunk_count += int(
+                    self._conn.execute(
+                        "SELECT COUNT(*) FROM transcript_chunks "
+                        "WHERE source_id = ? AND source_revision = ?",
+                        (selected_source_id, selected_revision),
+                    ).fetchone()[0]
+                )
+                jobs.extend(
+                    dict(row)
+                    for row in self._conn.execute(
+                        "SELECT id, status, phase, source_id, source_revision "
+                        "FROM distill_jobs WHERE source_id = ? AND source_revision = ?",
+                        (selected_source_id, selected_revision),
+                    ).fetchall()
+                )
+        return {
+            "project_name": project_name,
+            "session_id": session_id,
+            "source_id": source_id,
+            "before": before.isoformat() if before is not None else None,
+            "revisions": revisions,
+            "revision_keys": keys,
+            "source_ids": sorted({str(row["source_id"]) for row in revisions}),
+            "session_ids": sorted({str(row["session_id"]) for row in revisions}),
+            "jobs": jobs,
+            "job_ids": sorted({str(row["id"]) for row in jobs}),
+            "revision_count": len(revisions),
+            "chunk_count": chunk_count,
+            "raw_bytes": sum(int(row["raw_size_bytes"]) for row in revisions),
+        }
+
+    def hard_delete_revisions(
+        self,
+        revision_keys: list[tuple[str, str]],
+        *,
+        project_name: str,
+        reason: str,
+        audit_counts: dict[str, int] | None = None,
+    ) -> dict[str, Any]:
+        """Delete selected raw revisions and dependent ledger rows atomically."""
+
+        unique_keys = list(dict.fromkeys((str(a), str(b)) for a, b in revision_keys))
+        deleted_revisions = 0
+        deleted_jobs = 0
+        deleted_chunks = 0
+        affected_sources = {source_id for source_id, _revision in unique_keys}
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                for selected_source_id, selected_revision in unique_keys:
+                    deleted_chunks += int(
+                        self._conn.execute(
+                            "SELECT COUNT(*) FROM transcript_chunks "
+                            "WHERE source_id = ? AND source_revision = ?",
+                            (selected_source_id, selected_revision),
+                        ).fetchone()[0]
+                    )
+                    deleted_jobs += int(
+                        self._conn.execute(
+                            "SELECT COUNT(*) FROM distill_jobs "
+                            "WHERE source_id = ? AND source_revision = ?",
+                            (selected_source_id, selected_revision),
+                        ).fetchone()[0]
+                    )
+                    self._conn.execute(
+                        "DELETE FROM distill_jobs WHERE source_id = ? AND source_revision = ?",
+                        (selected_source_id, selected_revision),
+                    )
+                    cursor = self._conn.execute(
+                        "DELETE FROM transcript_source_revisions "
+                        "WHERE source_id = ? AND source_revision = ?",
+                        (selected_source_id, selected_revision),
+                    )
+                    deleted_revisions += max(0, cursor.rowcount)
+
+                deleted_sources = 0
+                for selected_source_id in affected_sources:
+                    remaining = self._conn.execute(
+                        "SELECT data FROM transcript_source_revisions "
+                        "WHERE source_id = ? ORDER BY captured_at DESC LIMIT 1",
+                        (selected_source_id,),
+                    ).fetchone()
+                    if remaining is None:
+                        deleted_sources += max(
+                            0,
+                            self._conn.execute(
+                                "DELETE FROM transcript_sources WHERE id = ?",
+                                (selected_source_id,),
+                            ).rowcount,
+                        )
+                        continue
+                    revision = TranscriptSourceRevision.from_dict(json.loads(remaining["data"]))
+                    source_row = self._conn.execute(
+                        "SELECT data FROM transcript_sources WHERE id = ?",
+                        (selected_source_id,),
+                    ).fetchone()
+                    if source_row is None:
+                        continue
+                    source = TranscriptSource.from_dict(json.loads(source_row["data"]))
+                    source.source_revision = revision.source_revision
+                    source.raw_sha256 = revision.raw_sha256
+                    source.normalized_sha256 = revision.normalized_sha256
+                    source.raw_size_bytes = revision.raw_size_bytes
+                    source.normalized_size_bytes = revision.normalized_size_bytes
+                    source.chunk_count = revision.chunk_count
+                    source.sequence_count = revision.sequence_count
+                    source.mtime_ns = revision.mtime_ns
+                    source.parser_version = revision.parser_version
+                    source.updated_at = datetime.now(timezone.utc)
+                    source.metadata = {
+                        **dict(source.metadata),
+                        "restored_after_hard_delete": revision.source_revision,
+                    }
+                    self._upsert_source_locked(source)
+
+                counts = {
+                    "revisions": deleted_revisions,
+                    "chunks": deleted_chunks,
+                    "distill_jobs": deleted_jobs,
+                    "sources": deleted_sources,
+                    **(audit_counts or {}),
+                }
+                audit_id = str(uuid4())
+                now = datetime.now(timezone.utc)
+                audit_payload = {
+                    "id": audit_id,
+                    "project_name": project_name,
+                    "reason": reason,
+                    "counts": counts,
+                    "target_digests": [
+                        sha256_text(f"{source_id}@{revision}")
+                        for source_id, revision in unique_keys
+                    ],
+                    "deleted_at": now.isoformat(),
+                }
+                self._conn.execute(
+                    "INSERT INTO transcript_deletion_audit "
+                    "(id, project_name, deleted_at, reason, data) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        audit_id,
+                        project_name,
+                        now.isoformat(),
+                        reason,
+                        json.dumps(audit_payload, ensure_ascii=False),
+                    ),
+                )
+                self._conn.commit()
+                return audit_payload
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def list_deletion_audit(
+        self,
+        *,
+        project_name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT data FROM transcript_deletion_audit"
+        params: tuple[Any, ...] = ()
+        if project_name is not None:
+            sql += " WHERE project_name = ?"
+            params = (project_name,)
+        sql += " ORDER BY deleted_at DESC"
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [json.loads(row["data"]) for row in rows]
 
     def _init_schema(self) -> None:
         with self._lock:
@@ -657,6 +895,16 @@ class TranscriptStore:
                 data TEXT NOT NULL,
                 PRIMARY KEY(project_name, client, source_root)
             );
+
+            CREATE TABLE IF NOT EXISTS transcript_deletion_audit (
+                id TEXT PRIMARY KEY,
+                project_name TEXT NOT NULL,
+                deleted_at TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                data TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_transcript_deletion_audit_project
+                ON transcript_deletion_audit(project_name, deleted_at DESC);
             """
         )
 

@@ -11,6 +11,15 @@ allowed-tools:
   - Edit
   - Glob
   - Grep
+  - mcp__mcp_router__get_project_status
+  - mcp__mcp_router__prepare_session_distill
+  - mcp__mcp_router__submit_distill_chunk
+  - mcp__mcp_router__finalize_session_distill
+  - mcp__mcp_router__suggest_memory_entry
+  - mcp__mcp_router__suggest_rule
+  - mcp__mcp_router__suggest_relation_fact
+  - mcp__mcp_router__create_task_handoff
+  - mcp__mcp_router__list_candidates
   - mcp__harness_mem__get_project_status
   - mcp__harness_mem__prepare_session_distill
   - mcp__harness_mem__submit_distill_chunk
@@ -38,13 +47,15 @@ allowed-tools:
 
 ## 主链
 
-用户只有一条默认主链：`/hm:distill` / 自然语言等价入口。Agent 不要求用户区分 Codex、Claude Code、Cursor、Antigravity、opencode、Hermes 或 generic agent 历史；入口统一调 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根>)`，由 runtime 自动识别来源并返回当前 lossless job 的有序 chunks。
+用户只有一条默认主链：`/hm:distill` / 自然语言等价入口。Agent 不要求用户区分 Codex、Claude Code、Cursor、Antigravity、opencode、Hermes 或 generic agent 历史；入口统一调 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根>, evidence_mode="semantic", detail_level="compact", budget_tokens=3000)`。runtime 自动识别来源、保存完整 native revision、校验并 checkpoint 全部原始 chunk，再返回按 exchange 组织的有序 compact manifest；重复事件、过程播报、被动 wait 和工具参数留在 drilldown，不占用日常 packet。
 
 ```text
 模糊结论 / session-end
-  -> MCP prepare_session_distill(client="auto", project scoped)
-  -> Agent 逐块完整读取并 submit_distill_chunk checkpoint
-  -> prepare_session_distill 返回 reviewing 状态和全部 chunk results
+  -> MCP prepare_session_distill(client="auto", project scoped, evidence_mode="semantic")
+  -> runtime 校验/checkpoint 全部 raw chunks；Agent 完整读取 compact manifest
+  -> 按 drilldown_exchange_indexes 读取候选 semantic windows
+  -> 必要时按 query/chunk index 读取候选相关 raw proof
+  -> prepare_session_distill 返回 reviewing 状态
   -> final-session semantic review
   -> grill-me 准入（标准模式：高风险深度拷问 / 普通候选轻量 checklist）
   -> distillation-rules
@@ -58,9 +69,16 @@ allowed-tools:
 
 ### 0. MCP 工具命名
 
-直接用工具的裸名（`prepare_session_distill`、`submit_distill_chunk`、`finalize_session_distill`、`suggest_memory_entry` 等）。客户端如何把它们映射成可调用 alias（带短横线 / 不带短横线 / 带 server 前缀）由客户端自己决定，本 skill 不假设。
+先检查当前 task 的可调用工具，再按逻辑名选择实际 namespace：
+`prepare_session_distill`、`submit_distill_chunk`、`finalize_session_distill`、
+`suggest_memory_entry` 等。客户端如何把它们映射成可调用 alias（带短横线 /
+不带短横线 / 带 server 前缀）由客户端自己决定，本 skill 不假设。
 
-如果你的客户端通过 MCP Router 接入，工具名通常就是裸名；如果直连 server，可能会带 server name 前缀。两种都能跑，prompt 里不要写死前缀。
+通过 MCP Router 接入 Codex 时，工具通常位于 `mcp__mcp_router__*`；直连
+server 时通常位于 `mcp__harness_mem__*`，也有客户端直接暴露裸工具名。
+三种都能跑，prompt 里不要写死单一前缀。查询 `harness_mem` /
+`harness-mem` alias 失败时，必须先检查 `mcp_router` 和当前工具清单，再判断
+MCP 是否真的不可用。
 
 MCP 对外是单一 public memory surface。`finalize_session_distill` 是当前 job
 唯一收尾入口，并在语义门禁通过时执行限定范围的 low-risk auto-review；
@@ -81,10 +99,18 @@ MCP 对外是单一 public memory surface。`finalize_session_distill` 是当前
 - `limit=<count>`，默认 5
 - `scope="project"`
 - `project_root=<当前 agent 工作区项目根目录>`
+- `evidence_mode="semantic"`
+- `detail_level="compact"`
+- `budget_tokens=3000`
 
 不要用 `observation_limit` 或 `max_chars_per_observation` 把 native transcript
-当成摘要窗口。存在完整 source revision 时，工具会返回可续跑的 lossless
-chunks；必须按顺序消费全部 expected chunks。只有 native transcript 不可用时，
+当成摘要窗口。存在完整 source revision 时，runtime 会校验并 checkpoint 全部
+expected raw chunks，同时返回由宿主 parser rendering 确定性生成的
+`semantic_evidence.chunks` compact manifest：保留全部 exchange 索引、风险信号
+和短预览。Agent 必须按 `semantic_chunk_index` 顺序完整读取 manifest；然后对
+可能产生候选的索引调用 `drilldown_exchange_indexes=[...]` 读取完整 semantic
+window。具体命令、精确版本、错误堆栈或被折叠过程若要成为候选证据，必须再做
+raw drilldown。只有 native transcript 不可用时，
 才会返回明确标记为 `legacy_partial` 的 observation 审计视图，该视图不得宣称
 完整读取或自动提升。
 
@@ -94,16 +120,27 @@ chunks；必须按顺序消费全部 expected chunks。只有 native transcript 
 - Codex: 读取 Codex rollout/archive，并按 session `cwd` 过滤到当前项目路径。
 - 只有用户明确要求跨项目/全局历史时，才允许 `scope="all"`。
 
-`prepare_session_distill` 每次领取一批完整 chunk。逐块完整读取后，用返回的
-`distill_job_id` 作为 `job_id`，连同 `chunk_id`、`lease_owner` 调
-`submit_distill_chunk` 写 checkpoint，
-再重复调用 `prepare_session_distill`，直到 job 进入 `reviewing`。不要调用
+semantic 快路径返回时 job 已进入 `reviewing`。先对候选索引调用
+`prepare_session_distill(..., evidence_mode="semantic",
+drilldown_exchange_indexes=[...])`；如果某条候选还需要命令输出、精确版本或
+其它高风险原文证据，再调用
+`prepare_session_distill(..., evidence_mode="semantic",
+drilldown_query="<关键词>")`；已知位置时也可用
+`drilldown_chunk_indexes=[...]`。最多读取 8 个只读 raw chunk；不要重复提交。
+
+`detail_level="full"` 只用于显式完整语义审计。日常不得用 full 绕过 compact
+预算；`budget_state` 表示消费视图预算状态，不表示 raw revision 被截断。
+
+如果 runtime 明确回退为 `evidence_mode="raw"`，或用户明确要求逐字/合规审计，
+则逐块完整读取返回的 raw chunk，用 `distill_job_id`、`chunk_id`、`lease_owner`
+调用 `submit_distill_chunk`，直到 `reviewing`。不要调用
 `Bash`、`cmem`、`timeline`、`get_observations`、`ls`、`cat` 或 `find` 去摸索
 同一份 transcript；只有工具报错或明确返回 `legacy_partial` 时才排障。
 
 ### 3. 读 packet、draft claims、标准准入（grill-me / grill-before-distill）
 
-进入 `reviewing` 后，按 `chunk_index` 汇总所有 checkpoint result，完成一次
+进入 `reviewing` 后，semantic 模式按 `semantic_chunk_index` 汇总全部 evidence；
+raw 兼容模式按 `chunk_index` 汇总 checkpoint result。完成一次
 覆盖整场会话的 final-session review，再形成 candidate claim。然后自动跑准入
 （无需用户说「先拷问」）。能加载 `plugins/harness-mem/skills/grill-before-distill`
 就用；否则内联同规则。不要让 `tools/session-distill` 硬依赖某个插件安装路径。
@@ -168,8 +205,8 @@ final-session review 必须包含：`final_user_request`、`final_outcome`、
 
 ## Runtime guardrails
 
-- native transcript revision 是权威证据，Observation 只用于搜索。
-- 每个 expected chunk 都必须有 durable checkpoint，才能进入 final review。
+- native transcript revision 是权威证据；compact manifest 和 semantic window 都是同 revision 的 parser-derived 消费视图，不是第二份 truth，也不能替代候选所需的精确 raw proof。
+- 每个 expected raw chunk 都必须有 durable checkpoint，才能进入 final review；semantic 快路径由 runtime 完成 hash 校验和 checkpoint。
 - final review 未通过时，不 auto-review、不 Dream，候选保持 pending。
 - distill 生命周期不删除宿主 transcript 或 transcript ledger 中的 raw revision。
 - 不创建独立 manifest、packet workspace、session note 或 memory-drafts truth store。
@@ -179,7 +216,7 @@ KB / PRD 语义不再作为 session-distill 的独立子系统存在。产品决
 ## Dream maintenance boundary
 
 session-distill 不再定义独立的后台维护入口。它只负责指导 Agent 从完整
-chunk results 生成 harness-mem candidates；后台维护由 dream 统一消费
+compact manifest、选中的 semantic windows 和 raw proof（或 raw checkpoint results）生成 harness-mem candidates；没有 Agent 时只排队并显示 `waiting_for_agent`
 wake/search/review 等路径产生的 signals。
 
 - **没有独立维护 MCP 工具**。不要调用或描述 standalone preview/run 维护工具；对外入口是 `/hm:dream` / MCP dream tools 和 dream ledger/undo。

@@ -22,12 +22,12 @@ if ($WithHybrid) {
 
 & $python.Source -m pip install -e $installTarget
 
-# Install Claude Code slash commands so users can run the stable /hm:* daily
-# workflow from any project without remembering CLI flags. Skip with -NoSlashCommands.
+# Install every host's user-level Daily command surface once. Project hooks are
+# still adopted separately on the first MCP call from each workspace.
 if (-not $NoSlashCommands) {
     $syncCommands = Join-Path $PSScriptRoot "sync-commands.ps1"
-    & $syncCommands -Profile "Daily"
-    Write-Host "  Synced Daily /hm:* commands."
+    & $syncCommands -Profile "Daily" -Client "all" -Scope "user"
+    Write-Host "  Synced Daily commands for all supported hosts (user scope)."
 
     $skillSrc = Join-Path $pluginRoot "skills"
     $skillDst = Join-Path $env:USERPROFILE ".claude\skills"

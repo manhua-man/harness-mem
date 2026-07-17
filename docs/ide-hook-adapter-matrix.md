@@ -31,6 +31,25 @@ automatically:
 | `opencode` | `.opencode/plugins/harness-mem.ts` | `session.created` -> `wake-start`; `session.idle` -> maintenance | plugin event payload |
 | `antigravity` | `.agents/hooks.json` | `PreInvocation` -> wake injection; `Stop` -> evidence staging | `harness-mem-hook` adapters read camelCase hook stdin JSON |
 
+Daily command discovery is a separate, user-level install. Running
+`harness-mem integration commands sync` once installs all seven surfaces, so a
+fresh unrelated project can invoke them before it has any project-local files:
+
+| Host | User-level command discovery | Invocation |
+|---|---|---|
+| Claude Code | `~/.claude/commands/hm/*.md` | `/hm:<action>` |
+| Codex | `~/.codex/skills/hm-*/SKILL.md` | `$hm-<action>` |
+| Cursor | `~/.cursor/skills/hm-*/SKILL.md` | `/hm-<action>` |
+| Grok | `~/.grok/skills/hm-*/SKILL.md` | `/hm-<action>` |
+| Hermes | `$HERMES_HOME/skills/hm-*/SKILL.md` | `/hm-<action>` |
+| OpenCode | `~/.config/opencode/commands/hm-*.md` | `/hm-<action>` |
+| Antigravity | `~/.gemini/antigravity/global_workflows/hm-*.md` | `/hm-<action>` |
+
+These files contain no project path. The first MCP initialization inside each
+workspace adopts that project and installs only its native hook adapter. Codex
+still requires its one-time native trust approval for each new or changed
+project hook manifest.
+
 The checked-in templates live in `harness_mem/integration/templates/` and are
 wired by `_suite_specs()` plus the Hermes config installer in
 `harness_mem/commands/integration_cmds.py`.
@@ -181,6 +200,8 @@ should only fill in project root, command path, and small host-specific IDs.
 - `OpenCode` remains a plugin adapter, not a shell-hook adapter.
 - `Antigravity` uses project-local `.agents/hooks.json`; its transcript adapter
   reads verified brain `transcript[_full].jsonl` and CLI `history.jsonl` formats.
+- Antigravity Daily commands are user-global workflows, not project-local
+  `.agents/skills` copies.
 - `Hermes` transcript ingest accepts verified `session_*.json` exports and the
   upstream `sessions/messages` SQLite schema from `state.db`.
 

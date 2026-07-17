@@ -1,8 +1,15 @@
-suite: retrieval_quality_v0_8_3
-version: 0.8.3
+suite: retrieval_quality_v0_8_24
+version: 0.8.24
 backend: LocalMemoryBackend
 mode: read_path_only
 llm_free: true
+declared_case_count: 60
+generated_matrix:
+  # 51 deterministic isolated cases plus the 9 hand-authored edge cases below.
+  # Expansion lives in the benchmark loader so the fixture stays reviewable.
+  memory: 17
+  observation: 17
+  relation: 17
 queries:
   - id: project_alpha_memory
     project_name: retrieval-quality-alpha

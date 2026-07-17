@@ -22,10 +22,11 @@ Treat the project as real production context:
 - Keep the default surface to Daily commands: wake, search, distill, review, and dream. Artifact maintenance commands are opt-in.
 - Never delete native agent transcript sources as part of distillation or maintenance.
 
-In Claude Code, prefer the no-hyphen MCP alias names such as
-`mcp__harness_mem__get_project_status` and
-`mcp__harness_mem__prepare_session_distill`. Do not select the old
-`mcp__harness-mem__...` aliases.
+Resolve MCP calls from the current task's tool inventory by logical tool name.
+Codex behind MCP Router normally exposes `mcp__mcp_router__*`; a direct server
+normally exposes `mcp__harness_mem__*`; some clients expose bare tool names.
+Do not treat one server prefix as universal, and do not report MCP unavailable
+until the active Router/direct namespace has been checked.
 
 ## Mental Model
 
@@ -33,7 +34,7 @@ In Claude Code, prefer the no-hyphen MCP alias names such as
   `project_root=<current workspace root>` and `host_client=<current IDE/Agent>` so
   a global MCP Router can idempotently install the correct native hooks.
 - `ingest_sessions`: low-level transcript sync for `/hm:distill` internals and diagnostics; do not present it as the user workflow.
-- `prepare_session_distill`: syncs native revisions, claims lossless chunks, and later returns all checkpoint results for final-session review.
+- `prepare_session_distill`: syncs native revisions. Daily `evidence_mode="semantic", detail_level="compact", budget_tokens=3000` hash-verifies/checkpoints every raw chunk and returns an indexed manifest; selected semantic windows and raw proof are separate drilldowns. `detail_level="full"` and `evidence_mode="raw"` are explicit audit paths.
 - `submit_distill_chunk`: checkpoints one completely read chunk so interrupted work can resume without skipping content.
 - `tools/session-distill/SKILL.md`: instruction-only Agent playbook for final review and candidate drafting.
 - `finalize_session_distill`: verifies revision currency, complete chunk coverage, and semantic promotion gates, then reviews only the current job's candidates and runs Dream.
@@ -59,9 +60,9 @@ For status and wake-up:
 
 If the project has new sessions:
 
-1. Call `prepare_session_distill(project_name=<project>, client="auto", scope="project", project_root=<current project root>)`.
-2. Read every returned chunk completely, call `submit_distill_chunk`, and repeat `prepare_session_distill` until the job enters `reviewing`.
-3. Activate repo-local `tools/session-distill/SKILL.md`: review all checkpoint results as one complete session, apply `grill-before-distill`, then apply `references/distillation-rules.md`.
+1. Call `prepare_session_distill(project_name=<project>, client="auto", scope="project", project_root=<current project root>, evidence_mode="semantic", detail_level="compact", budget_tokens=3000)`.
+2. Read the complete indexed manifest in order. Select likely candidate windows with `drilldown_exchange_indexes=[...]`, then obtain candidate-grade raw proof with `drilldown_query="<term>"` or known `drilldown_chunk_indexes=[...]`. Runtime has already hash-verified and checkpointed every raw chunk; use `detail_level="full"` or `evidence_mode="raw"` only for explicit audit or runtime fallback.
+3. Activate repo-local `tools/session-distill/SKILL.md`: review the complete indexed manifest plus selected semantic windows and raw proof (or raw checkpoint results), apply `grill-before-distill`, then apply `references/distillation-rules.md`.
 4. Write pending candidates only for admitted items, passing the current `distill_job_id` to every `suggest_*` call. For external claims, evidence may be attached after `suggest_*`, but must be present before confirmation.
 5. Call `finalize_session_distill` with the complete semantic review. Give the user a concise outcome only when this was an explicit distill request; keep decision counts and candidate IDs in the audit/review surface unless the user asks for detail.
 
@@ -89,13 +90,13 @@ For Trellis-inspired closeout, keep the surfaces separate:
 
 - Code check: run the repo's normal tests, lint, build, or app-specific checks.
 - Memory check: finalize a lossless session only through `finalize_session_distill`; reserve `auto_review_candidates(apply=True)` for explicit project-level maintenance, then use review tools for audit/undo/escalation.
-- Update-spec equivalent: turn repeated lessons into `suggest_rule` or memory candidates; update repo guidance only after confirmation and only for repo-wide rules.
+- Update-spec equivalent: use `govern_memory(action="suggest")` for repeated lessons; update repo guidance only after confirmation and only for repo-wide rules.
 - Finish-work equivalent: use `create_task_handoff` for current state, blockers, and next steps; inspect `/hm:dream` or dream ledger when maintenance context matters.
 - Journal equivalent: use harness-mem audit/event/timeline/handoff/dream ledger surfaces. Do not create a Trellis journal or second truth store for memory.
 
 When the user states a durable project rule:
 
-Call MCP `suggest_rule` or `suggest_memory_entry`, then show `list_candidates`; only call `confirm_*` or `reject_*` after the user explicitly decides.
+Call MCP `govern_memory(action="suggest")`, then show `list_candidates`; only call `govern_memory(action="decide")` after the user explicitly decides.
 
 ## CLI Fallback
 

@@ -175,6 +175,179 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         asyncio.run(backend.close())
 
 
+def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
+    tmp_path: Path,
+) -> None:
+    semantic_content = (
+        "# Session\n\n"
+        "## Turn 1 (turn-1)\n\n"
+        "User: optimize distill throughput\n\n"
+        "## Turn 2 (turn-2)\n\n"
+        "User: optimize distill throughput\n\n"
+        "## Turn 3 (turn-3)\n\n"
+        "Assistant: progress update\n\n"
+        "## Turn 4 (turn-4)\n\n"
+        "Assistant: keep raw audit and use semantic evidence by default\n\n"
+        "## Turn 5 (turn-5)\n\n"
+        'Tool: wait -> {"cell_id":"1"}\n\n'
+        "## Turn 6 (turn-6)\n\n"
+        'Tool: pytest -> {"status":"passed"}\n'
+    )
+    source_text = "".join(
+        f'{{"type":"noise","encrypted_content":"{"x" * 2000}","index":{index}}}\n'
+        for index in range(80)
+    )
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    result = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id="semantic-session",
+                client="codex",
+                raw_content=semantic_content,
+                content_type="transcript",
+                timestamp=datetime.now(timezone.utc),
+                metadata={},
+                tags=["session", "codex"],
+            ),
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            session_id="semantic-session",
+            source_kind="jsonl",
+            source_uri="file:///semantic-session.jsonl",
+            source_text=source_text,
+            raw_bytes=source_text.encode("utf-8"),
+        )
+    )
+    previous_backend_provider = tool_handlers._backend_provider
+    previous_observer_provider = tool_handlers._observer_data_dir_provider
+    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
+    previous_logger = tool_handlers.logger
+    tool_handlers.configure_tool_handler_dependencies(
+        backend_provider=lambda: backend,
+        observer_data_dir=lambda: backend.data_dir,
+        cost_surface_budgets=lambda _project_name: None,
+        logger_instance=logging.getLogger("test.semantic-distill"),
+    )
+    try:
+        packet = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            run_ingest=False,
+            evidence_mode="semantic",
+        )
+
+        assert packet["distill_job_id"] == result.distill_job_id
+        assert packet["distill_status"] == "reviewing"
+        assert packet["chunks"] == []
+        assert packet["completed_chunk_count"] == packet["expected_chunk_count"]
+        evidence = packet["semantic_evidence"]
+        projected = "".join(chunk["content"] for chunk in evidence["chunks"])
+        assert evidence["projection"] == "exchange-outline-v2"
+        assert evidence["detail_level"] == "compact"
+        assert evidence["budget_state"] == "within_budget"
+        assert evidence["output_tokens"] <= evidence["budget_tokens"]
+        assert evidence["parser_render_char_count"] == len(semantic_content)
+        assert evidence["duplicate_message_count"] == 1
+        assert evidence["collapsed_assistant_message_count"] == 1
+        assert evidence["omitted_passive_tool_count"] == 1
+        assert projected.count("U: optimize distill throughput") == 1
+        assert "A: keep raw audit" in projected
+        assert "progress update" not in projected
+        assert "T: pytest" in projected
+        assert "cell_id" not in projected
+        assert evidence["semantic_char_count"] == len(projected)
+        assert evidence["projection_reduction_ratio"] < 1.0
+        assert evidence["raw_char_count"] == len(source_text)
+        assert evidence["reduction_ratio"] < 0.01
+        checkpoints = backend.transcript_store.list_distill_checkpoints(
+            result.distill_job_id
+        )
+        assert checkpoints
+        assert all(checkpoint.status == "completed" for checkpoint in checkpoints)
+        assert all(
+            checkpoint.result["structural_verified"] is True
+            for checkpoint in checkpoints
+        )
+
+        full_semantic = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            run_ingest=False,
+            evidence_mode="semantic",
+            detail_level="full",
+        )
+        assert full_semantic["semantic_evidence"]["projection"] == "exchange-outline-v1"
+        assert full_semantic["semantic_evidence"]["detail_level"] == "full"
+
+        semantic_drilldown = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            run_ingest=False,
+            evidence_mode="semantic",
+            drilldown_exchange_indexes=[1],
+        )
+        assert semantic_drilldown["semantic_drilldown_exchange_count"] == 1
+        assert "Assistant outcome: keep raw audit" in (
+            semantic_drilldown["semantic_drilldown_exchanges"][0]["content"]
+        )
+
+        drilldown = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            run_ingest=False,
+            evidence_mode="semantic",
+            drilldown_chunk_indexes=[0],
+        )
+        assert drilldown["raw_drilldown_chunk_count"] == 1
+        expected_first_chunk = backend.transcript_store.list_chunks(
+            result.source.id,
+            source_revision=result.source.source_revision,
+        )[0]
+        assert (
+            drilldown["raw_drilldown_chunks"][0]["raw_content"]
+            == expected_first_chunk.raw_content
+        )
+        query_drilldown = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            run_ingest=False,
+            evidence_mode="semantic",
+            drilldown_query="encrypted_content",
+        )
+        assert 1 <= query_drilldown["raw_drilldown_chunk_count"] <= 8
+        assert query_drilldown["raw_drilldown_query"] == "encrypted_content"
+        assert all(
+            "encrypted_content" in chunk["raw_content"]
+            for chunk in query_drilldown["raw_drilldown_chunks"]
+        )
+
+        finalized = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=result.distill_job_id,
+            semantic_review={
+                **SEMANTIC_REVIEW,
+                "evidence_status": "partial",
+                "promotion_decision": "no_promotion",
+            },
+        )
+        assert finalized["success"] is True
+        assert finalized["structural_audit"]["coverage"] == "complete"
+    finally:
+        tool_handlers._backend_provider = previous_backend_provider
+        tool_handlers._observer_data_dir_provider = previous_observer_provider
+        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
+        tool_handlers.logger = previous_logger
+        asyncio.run(backend.close())
+
+
 def test_finalize_does_not_auto_review_before_all_chunks_complete(
     tmp_path: Path,
     monkeypatch,
@@ -387,6 +560,73 @@ def test_semantic_review_blocks_promotion_and_dream(
         completed = backend.transcript_store.get_distill_job(job_id)
         assert completed is not None
         assert completed.output_candidate_ids == [candidate["entry_id"]]
+    finally:
+        tool_handlers._backend_provider = previous_backend_provider
+        tool_handlers._observer_data_dir_provider = previous_observer_provider
+        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
+        tool_handlers.logger = previous_logger
+        asyncio.run(backend.close())
+
+
+def test_deferred_recent_job_does_not_block_next_queued_job(tmp_path: Path) -> None:
+    async def save(backend: LocalMemoryBackend, session_id: str) -> str:
+        result = await persist_session_snapshot(
+            backend,
+            Observation(
+                session_id=session_id,
+                client="cursor",
+                raw_content=f"evidence for {session_id}",
+                content_type="transcript",
+                timestamp=datetime.now(timezone.utc),
+                metadata={},
+            ),
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            session_id=session_id,
+            source_kind="jsonl",
+            source_uri=f"file:///{session_id}.jsonl",
+            source_text=f"evidence for {session_id}",
+        )
+        assert result.distill_job_id is not None
+        return result.distill_job_id
+
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    older_job_id = asyncio.run(save(backend, "older-session"))
+    newer_job_id = asyncio.run(save(backend, "newer-session"))
+    previous_backend_provider = tool_handlers._backend_provider
+    previous_observer_provider = tool_handlers._observer_data_dir_provider
+    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
+    previous_logger = tool_handlers.logger
+    tool_handlers.configure_tool_handler_dependencies(
+        backend_provider=lambda: backend,
+        observer_data_dir=lambda: backend.data_dir,
+        cost_surface_budgets=lambda _project_name: None,
+        logger_instance=logging.getLogger("test.defer-distill"),
+    )
+    try:
+        first = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            run_ingest=False,
+        )
+        assert first["distill_job_id"] == newer_job_id
+
+        second = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            run_ingest=False,
+            defer_job_id=newer_job_id,
+            defer_reason="malformed historical source",
+        )
+        assert second["distill_job_id"] == older_job_id
+        deferred = backend.transcript_store.get_distill_job(newer_job_id)
+        assert deferred is not None
+        assert deferred.status == "retryable"
+        assert deferred.error == "malformed historical source"
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider

@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
 
+from harness_mem.commands.integration_cmds import cmd_sync_commands
 from harness_mem.integration.command_sync import (
+    COMMAND_HOSTS,
+    command_hint,
+    default_host_commands_dir,
     known_command_names,
     resolve_command_names,
     source_path_for_command,
+    sync_host_commands,
     sync_slash_commands,
 )
 
@@ -106,3 +112,237 @@ def test_sync_slash_commands_dry_run_does_not_mutate_target(tmp_path: Path) -> N
     assert "mark" in result.removed_commands
     assert (target_dir / "mark.md").exists()
     assert not (target_dir / "status.md").exists()
+
+
+def test_project_command_surfaces_use_native_paths_and_invocation_styles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_dir = tmp_path / "source"
+    _write_command_sources(source_dir)
+    project = tmp_path / "project"
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+
+    expected = {
+        "claude-code": project / ".claude" / "commands" / "hm" / "status.md",
+        "cursor": project / ".cursor" / "commands" / "hm-status.md",
+        "grok": project / ".grok" / "skills" / "hm-status" / "SKILL.md",
+        "opencode": project / ".opencode" / "commands" / "hm-status.md",
+        "codex": project / ".agents" / "skills" / "hm-status" / "SKILL.md",
+        "antigravity": project / ".agents" / "workflows" / "hm-status.md",
+    }
+    for client in (item for item in COMMAND_HOSTS if item != "hermes"):
+        result = sync_host_commands(
+            client=client,
+            project_root=project,
+            scope="project",
+            source_dir=source_dir,
+        )
+        assert result.destination_dir == default_host_commands_dir(
+            client, project, scope="project"
+        )
+        assert expected[client].exists()
+        if client in {"codex", "grok"}:
+            assert "name: hm-status" in expected[client].read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="Hermes commands are user/profile-scoped"):
+        sync_host_commands(
+            client="hermes",
+            project_root=project,
+            scope="project",
+            source_dir=source_dir,
+        )
+    assert command_hint("codex") == "$hm-*"
+    assert command_hint("cursor") == "/hm-*"
+
+
+def test_codex_distill_skill_preserves_router_and_direct_alias_resolution(
+    tmp_path: Path,
+) -> None:
+    source_dir = Path("plugins/harness-mem/commands/hm")
+    project = tmp_path / "project"
+
+    sync_host_commands(
+        client="codex",
+        project_root=project,
+        scope="project",
+        source_dir=source_dir,
+    )
+
+    rendered = (project / ".agents" / "skills" / "hm-distill" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert "mcp__mcp_router__prepare_session_distill" in rendered
+    assert "mcp__harness_mem__prepare_session_distill" in rendered
+    assert "不能因为 `harness_mem` / `harness-mem` server 名查询" in rendered
+
+
+def test_user_command_sync_is_visible_from_unrelated_projects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_dir = tmp_path / "source"
+    _write_command_sources(source_dir)
+    home = tmp_path / "home"
+    local_appdata = tmp_path / "local-appdata"
+    project_a = tmp_path / "project-a"
+    project_b = tmp_path / "project-b"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+
+    expected = {
+        "claude-code": home / ".claude" / "commands" / "hm" / "status.md",
+        "cursor": home / ".cursor" / "skills" / "hm-status" / "SKILL.md",
+        "grok": home / ".grok" / "skills" / "hm-status" / "SKILL.md",
+        "codex": home / ".codex" / "skills" / "hm-status" / "SKILL.md",
+        "hermes": (
+            local_appdata / "hermes" / "skills" / "hm-status" / "SKILL.md"
+            if sys.platform == "win32"
+            else home / ".hermes" / "skills" / "hm-status" / "SKILL.md"
+        ),
+        "opencode": home / ".config" / "opencode" / "commands" / "hm-status.md",
+        "antigravity": (
+            home / ".gemini" / "antigravity" / "global_workflows" / "hm-status.md"
+        ),
+    }
+
+    for client in COMMAND_HOSTS:
+        first = sync_host_commands(
+            client=client,
+            project_root=project_a,
+            scope="user",
+            source_dir=source_dir,
+        )
+        second_destination = default_host_commands_dir(
+            client, project_b, scope="user"
+        )
+        assert first.destination_dir == second_destination
+        assert expected[client].exists()
+        assert not (project_a / ".agents").exists()
+        assert not (project_b / ".agents").exists()
+
+
+def test_generated_skill_strips_bom_and_uses_host_native_invocations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_dir = tmp_path / "source"
+    _write_command_sources(source_dir)
+    status = source_dir / "daily" / "status.md"
+    status.write_text(
+        '\ufeff---\nname: canonical\n---\nUse `/hm:wake` and host_client="claude-code".\n',
+        encoding="utf-8",
+    )
+    home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", lambda: home)
+
+    sync_host_commands(client="codex", scope="user", source_dir=source_dir)
+    rendered = (home / ".codex" / "skills" / "hm-status" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert rendered.count("---") == 2
+    assert "$hm-wake" in rendered
+    assert 'host_client="codex"' in rendered
+    assert "\ufeff" not in rendered
+
+    sync_host_commands(client="antigravity", scope="user", source_dir=source_dir)
+    workflow = (
+        home
+        / ".gemini"
+        / "antigravity"
+        / "global_workflows"
+        / "hm-status.md"
+    ).read_text(encoding="utf-8")
+    assert "/hm-wake" in workflow
+    assert 'host_client="antigravity"' in workflow
+
+
+def test_hermes_user_commands_honor_profile_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_dir = tmp_path / "source"
+    _write_command_sources(source_dir)
+    profile_home = tmp_path / "hermes-profile"
+    monkeypatch.setenv("HERMES_HOME", str(profile_home))
+
+    result = sync_host_commands(client="hermes", scope="user", source_dir=source_dir)
+
+    assert result.destination_dir == profile_home / "skills"
+    assert (profile_home / "skills" / "hm-wake" / "SKILL.md").exists()
+
+
+def test_cli_sync_defaults_can_install_all_hosts_at_user_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source_dir = tmp_path / "source"
+    _write_command_sources(source_dir)
+    home = tmp_path / "home"
+    local_appdata = tmp_path / "local-appdata"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+
+    exit_code = cmd_sync_commands(
+        profile="daily",
+        include=[],
+        source_dir=str(source_dir),
+        target_dir=None,
+        client="all",
+        project_root=str(tmp_path / "unrelated-project"),
+        scope="user",
+        dry_run=False,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert output.count("Synced 7") == len(COMMAND_HOSTS)
+    assert "codex Daily commands" in output
+    assert "antigravity Daily commands" in output
+    assert (home / ".codex" / "skills" / "hm-wake" / "SKILL.md").exists()
+    assert (
+        home / ".gemini" / "antigravity" / "global_workflows" / "hm-wake.md"
+    ).exists()
+
+
+def test_cli_rejects_all_hosts_project_scope_before_writing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source_dir = tmp_path / "source"
+    _write_command_sources(source_dir)
+    project = tmp_path / "project"
+
+    exit_code = cmd_sync_commands(
+        profile="daily",
+        include=[],
+        source_dir=str(source_dir),
+        target_dir=None,
+        client="all",
+        project_root=str(project),
+        scope="project",
+        dry_run=False,
+    )
+
+    assert exit_code == 1
+    assert "--client all supports only --scope user" in capsys.readouterr().err
+    assert not project.exists()
+
+
+def test_cli_target_dir_preserves_legacy_claude_default(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "claude-commands"
+    _write_command_sources(source_dir)
+
+    exit_code = cmd_sync_commands(
+        profile="daily",
+        include=[],
+        source_dir=str(source_dir),
+        target_dir=str(target_dir),
+        client="all",
+        project_root=None,
+        scope="user",
+        dry_run=False,
+    )
+
+    assert exit_code == 0
+    assert "claude-code Daily commands" in capsys.readouterr().out
+    assert (target_dir / "wake.md").exists()

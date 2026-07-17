@@ -67,21 +67,7 @@ PUBLIC_MCP_TOOL_NAMES = frozenset(
         "list_candidates",
         "get_candidate_detail",
         "auto_review_candidates",
-        "suggest_memory_entry",
-        "suggest_rule",
-        "suggest_relation_fact",
-        "create_task_handoff",
-        "suggest_supersede",
-        "confirm_supersede",
-        "reject_supersede",
-        "suggest_correction",
-        "create_rule_candidate",
-        "confirm_rule",
-        "reject_rule",
-        "confirm_memory_entry",
-        "reject_memory_entry",
-        "confirm_relation_fact",
-        "reject_relation_fact",
+        "govern_memory",
         "dream_ledger",
         "dream_run",
         "dream_auto_tick",
@@ -559,6 +545,15 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "when MCP is running behind a global router."
                     ),
                 },
+                "detail_level": {
+                    "type": "string",
+                    "enum": ["compact", "full"],
+                    "description": (
+                        "Response detail. compact is the default decision view; "
+                        "full returns complete health and integration diagnostics."
+                    ),
+                    "default": "compact",
+                },
             },
             "required": ["project_root", "host_client"],
         },
@@ -741,10 +736,70 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "Run low-level transcript sync before building the packet (default: true)",
                     "default": True,
                 },
+                "defer_job_id": {
+                    "type": "string",
+                    "description": "Failed job to release as retryable and skip for this call.",
+                },
+                "defer_reason": {
+                    "type": "string",
+                    "description": "Bounded failure reason stored with defer_job_id.",
+                },
                 "chunk_limit": {
                     "type": "integer",
                     "description": "Lossless transcript chunks to claim in this Agent call (default: 1, max: 3)",
                     "default": 1,
+                },
+                "evidence_mode": {
+                    "type": "string",
+                    "enum": ["raw", "semantic"],
+                    "description": (
+                        "Evidence delivery mode. raw preserves the existing per-chunk "
+                        "Agent loop; semantic lets runtime hash-verify/checkpoint every raw "
+                        "chunk and returns the smaller parser-derived session rendering."
+                    ),
+                    "default": "raw",
+                },
+                "detail_level": {
+                    "type": "string",
+                    "enum": ["compact", "full"],
+                    "description": (
+                        "Semantic evidence detail. compact returns a budgeted exchange "
+                        "outline; full returns the complete v1 semantic rendering."
+                    ),
+                    "default": "compact",
+                },
+                "budget_tokens": {
+                    "type": "integer",
+                    "minimum": 256,
+                    "maximum": 12000,
+                    "description": "Advisory token budget for compact semantic evidence.",
+                    "default": 3000,
+                },
+                "drilldown_exchange_indexes": {
+                    "type": "array",
+                    "items": {"type": "integer", "minimum": 1},
+                    "maxItems": 8,
+                    "description": (
+                        "Read complete semantic windows for selected one-based exchange "
+                        "indexes before querying candidate-grade raw proof."
+                    ),
+                },
+                "drilldown_chunk_indexes": {
+                    "type": "array",
+                    "items": {"type": "integer", "minimum": 0},
+                    "maxItems": 8,
+                    "description": (
+                        "Read-only raw chunk indexes to return after a job reaches reviewing; "
+                        "use for candidate-grade evidence drilldown."
+                    ),
+                },
+                "drilldown_query": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": (
+                        "Read-only search over raw chunks after the job reaches reviewing. "
+                        "Returns up to 8 matching chunks when semantic evidence needs proof."
+                    ),
                 },
             },
         },
@@ -860,6 +915,31 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
             },
             "required": ["candidate_id"],
+        },
+    },
+    "govern_memory": {
+        "description": (
+            "Composite write surface for candidate creation, review decisions, "
+            "task handoffs, corrections, and supersede governance. Use action="
+            "suggest with arguments.kind=memory|rule|relation; action=decide "
+            "with kind, decision=confirm|reject, and candidate_id; action=handoff; "
+            "action=correct_rule; or action=supersede. This replaces the former "
+            "family of low-level suggest_*/confirm_*/reject_* MCP tools."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["suggest", "decide", "handoff", "correct_rule", "supersede"],
+                },
+                "arguments": {
+                    "type": "object",
+                    "description": "Action-specific arguments; project_name is required for project writes.",
+                    "additionalProperties": True,
+                },
+            },
+            "required": ["action", "arguments"],
         },
     },
     "auto_review_candidates": {
@@ -1276,7 +1356,29 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
 
 # Kept in the registry for internal orchestration, but never exposed through
 # MCP tools/list or exported descriptors.
-INTERNAL_MCP_TOOL_NAMES = frozenset({"set_active_project", "ingest_sessions"})
+INTERNAL_MCP_TOOL_NAMES = frozenset(
+    {
+        "set_active_project",
+        "ingest_sessions",
+        # Compatibility handlers retained for internal orchestration and old
+        # local code. They are intentionally absent from MCP tools/list.
+        "suggest_memory_entry",
+        "suggest_rule",
+        "suggest_relation_fact",
+        "create_task_handoff",
+        "suggest_supersede",
+        "confirm_supersede",
+        "reject_supersede",
+        "suggest_correction",
+        "create_rule_candidate",
+        "confirm_rule",
+        "reject_rule",
+        "confirm_memory_entry",
+        "reject_memory_entry",
+        "confirm_relation_fact",
+        "reject_relation_fact",
+    }
+)
 
 
 TOOL_CLUSTERS = {
@@ -1307,6 +1409,7 @@ TOOL_CLUSTERS = {
     "list_candidates": "truth_loop",
     "get_candidate_detail": "truth_loop",
     "auto_review_candidates": "truth_loop",
+    "govern_memory": "truth_loop",
     "suggest_supersede": "truth_loop",
     "confirm_supersede": "truth_loop",
     "reject_supersede": "truth_loop",

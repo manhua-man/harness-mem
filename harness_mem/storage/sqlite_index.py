@@ -13,7 +13,7 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
 from harness_mem.storage.sqlite_vec_index import SqliteVecIndex
@@ -573,6 +573,129 @@ class SQLiteIndex:
                 dimensions=len(embedding_array),
             )
 
+    def replace_embeddings_batch(
+        self,
+        records: Iterable[tuple[str, str]],
+        *,
+        model_id: str,
+        batch_size: int = 32,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> dict[str, Any]:
+        """Encode into staging rows and atomically replace persisted embeddings."""
+
+        from harness_mem.embedding import embeddings_disabled, get_model_loader
+        import numpy as np
+        import time
+
+        items = list(records)
+        total = len(items)
+        if embeddings_disabled():
+            return {
+                "status": "disabled",
+                "total": total,
+                "encoded": 0,
+                "batch_size": max(1, int(batch_size)),
+                "model_id": model_id,
+            }
+        loader = get_model_loader(model_id)
+        size = max(1, int(batch_size))
+        staging = "vec_embeddings_staging"
+        conn = self._conn_write()
+        with self._lock:
+            conn.execute(f"DROP TABLE IF EXISTS {staging}")
+            conn.execute(
+                f"""
+                CREATE TABLE {staging} (
+                    entry_id TEXT PRIMARY KEY,
+                    model_id TEXT NOT NULL,
+                    model_version TEXT NOT NULL,
+                    embedding BLOB NOT NULL,
+                    created_at INTEGER NOT NULL
+                )
+                """
+            )
+            conn.commit()
+        processed = 0
+        try:
+            for start in range(0, total, size):
+                batch = items[start : start + size]
+                vectors = np.asarray(
+                    loader.encode([text for _entry_id, text in batch]),
+                    dtype=np.float32,
+                )
+                if vectors.ndim == 1:
+                    vectors = vectors.reshape(1, -1)
+                if len(vectors) != len(batch):
+                    raise ValueError(
+                        f"embedding batch size mismatch: {len(vectors)} != {len(batch)}"
+                    )
+                created_at = int(time.time())
+                stored_model_version = loader.model_version
+                rows = [
+                    (
+                        entry_id,
+                        model_id,
+                        stored_model_version,
+                        np.asarray(vector, dtype=np.float32).ravel().tobytes(),
+                        created_at,
+                    )
+                    for (entry_id, _text), vector in zip(batch, vectors)
+                ]
+                with self._lock:
+                    conn.executemany(
+                        f"""
+                        INSERT OR REPLACE INTO {staging}
+                        (entry_id, model_id, model_version, embedding, created_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        rows,
+                    )
+                    conn.commit()
+                processed += len(batch)
+                if progress is not None:
+                    progress(processed, total)
+
+            with self._lock:
+                staged = int(conn.execute(f"SELECT COUNT(*) FROM {staging}").fetchone()[0])
+                if staged != total:
+                    raise ValueError(f"embedding staging row mismatch: {staged} != {total}")
+                old_count = int(
+                    conn.execute(
+                        f"SELECT COUNT(*) FROM vec_embeddings "
+                        f"WHERE entry_id IN (SELECT entry_id FROM {staging})"
+                    ).fetchone()[0]
+                )
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(
+                    f"""
+                    INSERT OR REPLACE INTO vec_embeddings
+                    (entry_id, model_id, model_version, embedding, created_at)
+                    SELECT entry_id, model_id, model_version, embedding, created_at
+                    FROM {staging}
+                    """
+                )
+                conn.execute(f"DROP TABLE {staging}")
+                conn.commit()
+                new_count = int(
+                    conn.execute("SELECT COUNT(*) FROM vec_embeddings").fetchone()[0]
+                )
+            return {
+                "status": "replaced",
+                "total": total,
+                "encoded": processed,
+                "old_count": old_count,
+                "new_count": new_count,
+                "batch_size": size,
+                "model_id": model_id,
+                "model_version": loader.model_version,
+            }
+        except Exception:
+            with self._lock:
+                conn.rollback()
+                conn.execute(f"DROP TABLE IF EXISTS {staging}")
+                conn.commit()
+            raise
+
     def knn_vec_embeddings(
         self,
         query_blob: bytes,
@@ -668,6 +791,39 @@ class SQLiteIndex:
         if row is None:
             return None
         return self._row_to_dict(dict(row), table)
+
+    def bulk_upsert(self, table: str, rows: Iterable[dict[str, Any]]) -> int:
+        """Upsert a homogeneous batch in one transaction (benchmark/repair path)."""
+
+        normalized: list[dict[str, Any]] = []
+        for data in rows:
+            row = dict(data)
+            for key, value in list(row.items()):
+                if isinstance(value, (list, dict)):
+                    row[key] = json.dumps(value)
+                elif hasattr(value, "isoformat"):
+                    row[key] = value.isoformat()
+                elif value is None:
+                    row[key] = ""
+            normalized.append(row)
+        if not normalized:
+            return 0
+        columns = list(normalized[0])
+        if any(list(row) != columns for row in normalized):
+            raise ValueError("bulk_upsert rows must have identical ordered columns")
+        placeholders = ",".join("?" for _ in columns)
+        updates = ",".join(
+            f"{column}=excluded.{column}" for column in columns if column != "id"
+        )
+        conn = self._conn_write()
+        with self._lock:
+            conn.executemany(
+                f"INSERT INTO {table} ({','.join(columns)}) VALUES ({placeholders}) "
+                f"ON CONFLICT(id) DO UPDATE SET {updates}",
+                [[row[column] for column in columns] for row in normalized],
+            )
+            conn.commit()
+        return len(normalized)
 
     def list(
         self,
@@ -816,10 +972,16 @@ class SQLiteIndex:
             return cursor.rowcount > 0
 
     def delete(self, table: str, id: str) -> bool:
-        """Delete a row. Returns True if deleted."""
+        """Delete a row and every embedding read-model row for its id."""
         conn = self._conn_write()
         with self._lock:
             cursor = conn.execute(f"DELETE FROM {table} WHERE id=?", (id,))
+            conn.execute("DELETE FROM vec_embeddings WHERE entry_id = ?", (id,))
+            try:
+                conn.execute("DELETE FROM vec_embeddings_vec0 WHERE entry_id = ?", (id,))
+            except sqlite3.Error:
+                # sqlite-vec is optional and the virtual table may not exist.
+                pass
             conn.commit()
             return cursor.rowcount > 0
 

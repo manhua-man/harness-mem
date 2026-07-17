@@ -25,9 +25,12 @@ from pathlib import Path
 
 from harness_mem import __version__
 from harness_mem.integration.command_sync import (
+    COMMAND_HOSTS,
     VALID_COMMAND_PROFILES,
+    command_hint,
     known_command_names,
     resolve_command_names,
+    sync_host_commands,
     sync_slash_commands,
 )
 from harness_mem.integration.installer import (
@@ -256,6 +259,10 @@ def _install_suite(client: str, project_root: str | None, force: bool) -> int:
                 doc_pointer=_DOC_POINTER,
                 hook_runner=hook_runner,
             )
+        command_result = sync_host_commands(
+            client=client,  # type: ignore[arg-type]
+            scope="user",
+        )
     except (KeyError, OSError, RuntimeError, ValueError) as exc:
         print(f"install failed: {root}: {exc}", file=sys.stderr)
         return 1
@@ -266,6 +273,10 @@ def _install_suite(client: str, project_root: str | None, force: bool) -> int:
             print(f"updated: {result.target_path}")
         else:
             print(f"exists: {result.target_path}")
+    print(
+        f"synced: {len(command_result.selected_commands)} {client} Daily commands "
+        f"to {command_result.destination_dir}"
+    )
     return 0
 
 
@@ -338,13 +349,17 @@ def cmd_transcript_evidence(client: str, project_root: str | None) -> int:
 def cmd_list_command_profiles() -> int:
     """Print the available Daily slash command set."""
 
-    print("Claude Code slash commands:")
+    print("Daily command actions:")
     for profile in VALID_COMMAND_PROFILES:
         commands = " ".join(f"/hm:{name}" for name in resolve_command_names(profile=profile))
         print(f"  {profile}: {commands}")
     print("")
-    print("Known command files:")
-    print("  " + " ".join(f"/hm:{name}" for name in known_command_names()))
+    print("Host-native invocation:")
+    for client in COMMAND_HOSTS:
+        print(f"  {client}: {command_hint(client)}")
+    print("")
+    print("Known Daily actions:")
+    print("  " + " ".join(f"hm-{name}" for name in known_command_names()))
     return 0
 
 
@@ -369,19 +384,64 @@ def cmd_sync_commands(
     include: list[str] | None,
     source_dir: str | None,
     target_dir: str | None,
+    client: str,
+    project_root: str | None,
+    scope: str,
     dry_run: bool,
 ) -> int:
-    """Synchronize Claude Code slash commands without reinstalling runtime."""
+    """Synchronize host-native Daily commands without reinstalling runtime."""
 
     try:
-        result = sync_slash_commands(
-            source_dir=_path_arg(source_dir),
-            destination_dir=_path_arg(target_dir),
-            profile=profile,
-            include=include or [],
-            dry_run=dry_run,
-        )
+        if target_dir is not None and client == "all":
+            # Backward compatibility: --target-dir has always meant a Claude
+            # command directory, while the new default client is all.
+            client = "claude-code"
+        if target_dir is not None and client != "claude-code":
+            raise ValueError("--target-dir is only supported with --client claude-code")
+        if client == "all" and scope != "user":
+            raise ValueError("--client all supports only --scope user")
+        if client == "claude-code" and target_dir is not None:
+            result = sync_slash_commands(
+                source_dir=_path_arg(source_dir),
+                destination_dir=_path_arg(target_dir),
+                profile=profile,
+                include=include or [],
+                dry_run=dry_run,
+            )
+        else:
+            if include:
+                raise ValueError("optional slash command groups were removed; sync daily only")
+            clients = COMMAND_HOSTS if client == "all" else (client,)
+            results = [
+                sync_host_commands(
+                    client=item,  # type: ignore[arg-type]
+                    project_root=_resolve_project_root(project_root),
+                    scope=scope,  # type: ignore[arg-type]
+                    source_dir=_path_arg(source_dir),
+                    dry_run=dry_run,
+                )
+                for item in clients
+            ]
+            result = results[0]
     except (FileNotFoundError, ValueError) as exc:
         print(f"command sync failed: {exc}", file=sys.stderr)
         return 1
-    return _print_sync_result(result)
+    if client == "all" and target_dir is None:
+        prefix = "[DRY-RUN] Would sync" if dry_run else "Synced"
+        for item, item_result in zip(COMMAND_HOSTS, results):
+            print(
+                f"{prefix} {len(item_result.selected_commands)} {item} Daily commands "
+                f"to {item_result.destination_dir}"
+            )
+        return 0
+
+    prefix = "[DRY-RUN] Would sync" if result.dry_run else "Synced"
+    if client == "claude-code":
+        actions = " ".join(f"/hm:{name}" for name in result.selected_commands)
+    elif client == "codex":
+        actions = " ".join(f"$hm-{name}" for name in result.selected_commands)
+    else:
+        actions = " ".join(f"/hm-{name}" for name in result.selected_commands)
+    print(f"{prefix} {len(result.selected_commands)} {client} Daily commands to {result.destination_dir}")
+    print(f"  Available: {actions}")
+    return 0

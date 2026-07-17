@@ -11,7 +11,7 @@ from typing import Any, Literal
 GUIDED_FLOW_ID = "daily-memory-loop"
 GUIDED_FLOW_VERSION = "5.13"
 
-EntryKind = Literal["mcp", "slash"]
+EntryKind = Literal["context", "mcp", "slash"]
 
 
 def build_guided_flow(

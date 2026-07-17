@@ -30,6 +30,7 @@ from harness_mem.commands import (
     cmd_list_command_profiles,
     cmd_migrate_store_v2,
     cmd_purge,
+    cmd_erase,
     cmd_quickstart,
     cmd_state_audit,
     cmd_sync_commands,
@@ -160,6 +161,12 @@ def main(argv: list[str] | None = None):
         help="Rebuild the vector index",
     )
     _add_project_arg(rebuild_vector_index)
+    rebuild_vector_index.add_argument(
+        "--batch-size",
+        type=int,
+        default=32,
+        help="Embedding encode batch size (default: 32)",
+    )
 
     rebuild_verbatim_index = maintenance_sub.add_parser(
         "rebuild-verbatim-index",
@@ -196,6 +203,13 @@ def main(argv: list[str] | None = None):
     )
     _add_project_arg(state_audit)
 
+    migrate_legacy_accepted = maintenance_sub.add_parser(
+        "migrate-legacy-accepted",
+        help="Preview or move literal accepted rows to pending/historical governance",
+    )
+    _add_project_arg(migrate_legacy_accepted)
+    _add_dry_apply_group(migrate_legacy_accepted)
+
     import_cmd = maintenance_sub.add_parser(
         "import",
         help="Preview or import memory drafts into the candidate layer",
@@ -221,6 +235,17 @@ def main(argv: list[str] | None = None):
         help="Only include never-accessed or stale entries",
     )
     _add_dry_apply_group(purge)
+
+    erase = maintenance_sub.add_parser(
+        "erase",
+        help="Preview or irreversibly erase transcript and all derived local data",
+    )
+    _add_project_arg(erase)
+    erase.add_argument("--session-id")
+    erase.add_argument("--source-id")
+    erase.add_argument("--before", help="YYYY-MM-DD")
+    erase.add_argument("--reason", default="user_requested_erasure")
+    _add_dry_apply_group(erase)
 
     config = sub.add_parser(
         "config",
@@ -394,9 +419,9 @@ def main(argv: list[str] | None = None):
 
     commands = integration_sub.add_parser(
         "commands",
-        help="List or sync Claude Code /hm:* slash commands",
+        help="List or sync host-native Daily memory commands",
         description=(
-            "Manage Claude Code /hm:* command visibility without reinstalling "
+            "Manage host-native Daily command visibility without reinstalling "
             "the harness-mem runtime. The synced command surface is Daily only."
         ),
     )
@@ -414,8 +439,18 @@ def main(argv: list[str] | None = None):
         default="daily",
         help="Command profile to sync (only daily is supported)",
     )
-    commands_sync.add_argument("--source-dir", help="Slash command source directory")
-    commands_sync.add_argument("--target-dir", help="Claude Code hm command directory")
+    commands_sync.add_argument(
+        "--client", choices=["all", *SUPPORTED_HOOK_CLIENTS], default="all"
+    )
+    commands_sync.add_argument("--project-root", help="Project directory (default: cwd)")
+    commands_sync.add_argument(
+        "--scope",
+        choices=["user", "project"],
+        default="user",
+        help="Install once for all projects (user) or only one project",
+    )
+    commands_sync.add_argument("--source-dir", help="Canonical Daily command source directory")
+    commands_sync.add_argument("--target-dir", help="Claude Code override directory")
     commands_sync.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args(args_list)
@@ -443,7 +478,12 @@ def main(argv: list[str] | None = None):
         if args.maintenance_action == "rebuild-vector-index":
             from harness_mem.commands.maintenance import cmd_rebuild_vector_index
 
-            return asyncio.run(cmd_rebuild_vector_index(args.project))
+            return asyncio.run(
+                cmd_rebuild_vector_index(
+                    args.project,
+                    batch_size=args.batch_size,
+                )
+            )
         if args.maintenance_action == "rebuild-verbatim-index":
             from harness_mem.commands.maintenance import cmd_rebuild_verbatim_index
 
@@ -466,6 +506,15 @@ def main(argv: list[str] | None = None):
             )
         if args.maintenance_action == "state-audit":
             return asyncio.run(cmd_state_audit(args.project))
+        if args.maintenance_action == "migrate-legacy-accepted":
+            from harness_mem.commands.maintenance import cmd_migrate_legacy_accepted
+
+            return asyncio.run(
+                cmd_migrate_legacy_accepted(
+                    args.project,
+                    apply=not args.dry_run,
+                )
+            )
         if args.maintenance_action == "import":
             return asyncio.run(
                 cmd_import(args.source, args.project, dry_run=args.dry_run)
@@ -478,6 +527,19 @@ def main(argv: list[str] | None = None):
                     args.dry_run,
                     args.project,
                     stale_only=args.stale_only,
+                )
+            )
+        if args.maintenance_action == "erase":
+            if not args.project:
+                maintenance.error("maintenance erase requires --project")
+            return asyncio.run(
+                cmd_erase(
+                    args.project,
+                    session_id=args.session_id,
+                    source_id=args.source_id,
+                    before_date=args.before,
+                    apply=not args.dry_run,
+                    reason=args.reason,
                 )
             )
         maintenance.error(f"Unknown maintenance action: {args.maintenance_action}")
@@ -526,6 +588,9 @@ def main(argv: list[str] | None = None):
                     include=[],
                     source_dir=args.source_dir,
                     target_dir=args.target_dir,
+                    client=args.client,
+                    project_root=args.project_root,
+                    scope=args.scope,
                     dry_run=args.dry_run,
                 )
             commands.error(f"Unknown commands action: {args.commands_action}")

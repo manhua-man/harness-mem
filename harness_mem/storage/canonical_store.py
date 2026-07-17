@@ -16,11 +16,13 @@ import os
 from pathlib import Path
 import sqlite3
 from typing import Any, Iterable
+from uuid import uuid4
 
 from harness_mem.storage.store_v2_migration import (
     LegacyPayloadRow,
     StorageV2MigrationError,
     canonical_db_path,
+    apply_store_v2_migration,
     logical_checksum,
     scan_legacy_payloads,
 )
@@ -376,11 +378,228 @@ def write_runtime_state(
 ) -> StorageRuntimeState:
     path = runtime_state_path(Path(data_dir))
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(state.to_dict(), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(state.to_dict(), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
     return state
+
+
+def migrate_canonical_store_atomically(
+    data_dir: Path,
+    *,
+    project_name: str | None = None,
+) -> dict[str, Any]:
+    """Build and validate a staging DB, then atomically activate it with rollback."""
+
+    data_dir = Path(data_dir)
+    target = canonical_store_path(data_dir)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    migration_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    staging = target.with_name(f".{target.name}.{uuid4().hex}.staging")
+    backup_dir = target.parent / "backups"
+    backup = backup_dir / f"canonical-{migration_id}.sqlite"
+    runtime_path = runtime_state_path(data_dir)
+    runtime_before = runtime_path.read_bytes() if runtime_path.exists() else None
+    had_target = target.exists()
+
+    if had_target:
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        _backup_sqlite(target, backup)
+        _backup_sqlite(target, staging)
+
+    activated = False
+    try:
+        payload_result = apply_store_v2_migration(
+            data_dir,
+            project_name=project_name,
+            canonical_path=staging,
+        )
+        canonical_result = build_canonical_store(
+            data_dir,
+            project_name=project_name,
+            canonical_path=staging,
+        )
+        integrity = _sqlite_integrity_check(staging)
+        relation = canonical_checksum_relation(
+            data_dir,
+            project_name=project_name,
+            canonical_path=staging,
+        )
+        if not payload_result["checksum_match"]:
+            raise StorageV2MigrationError("staging payload checksum mismatch")
+        if not canonical_result["checksum_match"]:
+            raise StorageV2MigrationError("staging canonical coverage is incomplete")
+        if integrity != "ok":
+            raise StorageV2MigrationError(f"staging SQLite integrity check failed: {integrity}")
+        if relation["relation"] in {
+            "invalid_legacy",
+            "legacy_missing_in_canonical",
+            "content_conflict",
+        }:
+            raise StorageV2MigrationError(
+                f"staging checksum relation is unsafe: {relation['relation']}"
+            )
+
+        _clear_sqlite_sidecars(target)
+        os.replace(staging, target)
+        activated = True
+        state = StorageRuntimeState(
+            mode="canonical",
+            canonical_db_path=str(target),
+            updated_at=_utc_now(),
+            legacy_payload_count=int(payload_result["migrated_row_count"]),
+            recovery_hint=(
+                f"Pre-migration SQLite snapshot: {backup}"
+                if had_target
+                else "Canonical SQLite was created from validated staging; no prior DB existed."
+            ),
+        )
+        write_runtime_state(data_dir, state)
+        return {
+            "migration_id": migration_id,
+            "canonical_db_path": str(target),
+            "staging_db_path": str(staging),
+            "backup_db_path": str(backup) if had_target else None,
+            "backup_created": had_target and backup.exists(),
+            "activated_atomically": True,
+            "runtime_state_updated_last": True,
+            "sqlite_integrity": integrity,
+            "checksum_relation": relation,
+            "payload_migration": payload_result,
+            "canonical_store": canonical_result,
+        }
+    except Exception:
+        if activated:
+            if had_target and backup.exists():
+                _clear_sqlite_sidecars(target)
+                _backup_sqlite(backup, target)
+            elif target.exists():
+                target.unlink()
+        if runtime_before is not None:
+            runtime_path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_path.write_bytes(runtime_before)
+        elif runtime_path.exists():
+            runtime_path.unlink()
+        raise
+    finally:
+        if staging.exists():
+            staging.unlink()
+
+
+def canonical_checksum_relation(
+    data_dir: Path,
+    *,
+    project_name: str | None = None,
+    canonical_path: Path | None = None,
+) -> dict[str, Any]:
+    """Explain legacy/canonical checksum differences without treating additions as drift."""
+
+    legacy_rows, invalid = scan_legacy_payloads(data_dir, project_name=project_name)
+    if invalid:
+        return {
+            "relation": "invalid_legacy",
+            "explanation": "Legacy JSON contains invalid payloads and cannot be compared safely.",
+            "invalid_legacy_count": len(invalid),
+            "legacy_only_count": 0,
+            "canonical_only_count": 0,
+            "changed_in_canonical_count": 0,
+        }
+    db_path = canonical_path or canonical_store_path(data_dir)
+    if not db_path.exists():
+        return {
+            "relation": "legacy_missing_in_canonical" if legacy_rows else "exact_match",
+            "explanation": "Canonical SQLite is absent." if legacy_rows else "Both stores are empty.",
+            "invalid_legacy_count": 0,
+            "legacy_only_count": len(legacy_rows),
+            "canonical_only_count": 0,
+            "changed_in_canonical_count": 0,
+        }
+    conn = sqlite3.connect(db_path)
+    try:
+        initialize_canonical_schema(conn)
+        canonical_rows = list_canonical_rows(conn, project_name=project_name)
+    finally:
+        conn.close()
+    legacy = {
+        (row.collection, row.project_name or "", row.entity_id): row.payload_sha256
+        for row in legacy_rows
+    }
+    canonical = {
+        (row.collection, row.project_id or "", row.entity_id): row.payload_sha256
+        for row in canonical_rows
+    }
+    legacy_only = sorted(set(legacy) - set(canonical))
+    canonical_only = sorted(set(canonical) - set(legacy))
+    changed = sorted(
+        key for key in set(legacy) & set(canonical) if legacy[key] != canonical[key]
+    )
+    runtime = read_runtime_state(data_dir)
+    if legacy_only:
+        relation = "legacy_missing_in_canonical"
+        explanation = "Canonical SQLite is missing legacy identities; migration is incomplete."
+    elif changed and (runtime is None or runtime.mode != "canonical"):
+        relation = "content_conflict"
+        explanation = (
+            "Legacy and canonical payloads disagree while canonical authority is not established."
+        )
+    elif canonical_only or changed:
+        relation = "canonical_superset_expected"
+        explanation = (
+            "Canonical SQLite contains additional or newer authoritative data; "
+            "legacy JSON is a lagging compatibility snapshot."
+        )
+    else:
+        relation = "exact_match"
+        explanation = "Canonical and legacy logical payloads match exactly."
+    return {
+        "relation": relation,
+        "explanation": explanation,
+        "invalid_legacy_count": 0,
+        "legacy_only_count": len(legacy_only),
+        "canonical_only_count": len(canonical_only),
+        "changed_in_canonical_count": len(changed),
+        "legacy_only_sample": [list(key) for key in legacy_only[:5]],
+        "canonical_only_sample": [list(key) for key in canonical_only[:5]],
+        "changed_in_canonical_sample": [list(key) for key in changed[:5]],
+    }
+
+
+def _backup_sqlite(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        destination.unlink()
+    source_conn = sqlite3.connect(source)
+    destination_conn = sqlite3.connect(destination)
+    try:
+        source_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        source_conn.backup(destination_conn)
+        destination_conn.commit()
+    finally:
+        destination_conn.close()
+        source_conn.close()
+
+
+def _clear_sqlite_sidecars(path: Path) -> None:
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(f"{path}{suffix}")
+        if sidecar.exists():
+            sidecar.unlink()
+
+
+def _sqlite_integrity_check(path: Path) -> str:
+    conn = sqlite3.connect(path)
+    try:
+        row = conn.execute("PRAGMA integrity_check").fetchone()
+        return str(row[0]) if row else "no result"
+    finally:
+        conn.close()
 
 
 def bootstrap_canonical_runtime(data_dir: Path) -> StorageRuntimeState:
@@ -564,10 +783,11 @@ def build_canonical_store(
     db_path.parent.mkdir(parents=True, exist_ok=True)
     migrated_at = _utc_now()
     rule_candidate_sessions = _rule_candidate_session_map(rows)
+    imported_row_count = 0
+    preserved_canonical_row_count = 0
     conn = sqlite3.connect(db_path)
     try:
         initialize_canonical_schema(conn)
-        _clear_project_rows(conn, project_name=project_name)
         for legacy in rows:
             payload = json.loads(legacy.payload_json)
             if legacy.collection == "confirmed_rules":
@@ -577,7 +797,18 @@ def build_canonical_store(
                     if source_session_id:
                         payload["source_session_id"] = source_session_id
             canonical = canonical_row_from_legacy(legacy, payload, migrated_at=migrated_at)
+            existing = conn.execute(
+                f"SELECT 1 FROM {canonical.table_name} WHERE entity_id = ?",
+                (canonical.entity_id,),
+            ).fetchone()
+            if existing is not None:
+                # Canonical is the active truth runtime. Legacy JSON may lag
+                # when dual-write is disabled, so an explicit migration must
+                # never erase or overwrite canonical-only/current records.
+                preserved_canonical_row_count += 1
+                continue
             _upsert_canonical_row(conn, canonical)
+            imported_row_count += 1
         conn.commit()
         canonical_rows = list_canonical_rows(conn, project_name=project_name)
     finally:
@@ -592,11 +823,19 @@ def build_canonical_store(
         "project_name": project_name,
         "data_dir": str(data_dir),
         "canonical_db_path": str(db_path),
-        "imported_row_count": len(rows),
+        "legacy_row_count": len(rows),
+        "imported_row_count": imported_row_count,
+        "preserved_canonical_row_count": preserved_canonical_row_count,
         "canonical_row_count": len(canonical_rows),
         "before_checksum": before_checksum,
         "after_checksum": after_checksum,
-        "checksum_match": before_checksum == after_checksum,
+        # Compatibility field: every legacy row was either imported or was
+        # already represented by canonical truth. Extra canonical rows are
+        # expected and must not be treated as migration drift.
+        "checksum_match": (
+            imported_row_count + preserved_canonical_row_count == len(rows)
+        ),
+        "checksum_scope": "legacy_rows_accounted_for",
         "entity_tables": {
             table: sum(1 for row in canonical_rows if row.table_name == table)
             for table in CANONICAL_ENTITY_TABLES
@@ -834,6 +1073,11 @@ def canonical_store_health(
     legacy_rows, invalid = scan_legacy_payloads(data_dir, project_name=project_name)
     legacy_checksum = logical_checksum(legacy_rows)
     if not db_path.exists():
+        relation = canonical_checksum_relation(
+            data_dir,
+            project_name=project_name,
+            canonical_path=db_path,
+        )
         return {
             "status": "degraded" if runtime and runtime.mode == "degraded_fallback" else "not_migrated",
             "project_name": project_name,
@@ -846,6 +1090,9 @@ def canonical_store_health(
             "checksum_match": False,
             "partial_migration": bool(legacy_rows),
             "checksum_drift": False,
+            "checksum_relation": relation["relation"],
+            "checksum_relation_explanation": relation["explanation"],
+            "checksum_relation_details": relation,
             "wal_size_bytes": 0,
             "wal_warning": False,
             "index_drift": [],
@@ -872,13 +1119,14 @@ def canonical_store_health(
 
     wal_path = Path(f"{db_path}-wal")
     wal_size = wal_path.stat().st_size if wal_path.exists() else 0
-    partial = bool(legacy_rows) and len(canonical_rows) < len(legacy_rows)
-    runtime_mode = runtime.mode if runtime else "canonical"
-    drift = (
-        bool(legacy_rows)
-        and canonical_checksum != legacy_checksum
-        and runtime_mode == "bootstrapped_from_legacy"
+    relation = canonical_checksum_relation(
+        data_dir,
+        project_name=project_name,
+        canonical_path=db_path,
     )
+    partial = relation["relation"] == "legacy_missing_in_canonical"
+    runtime_mode = runtime.mode if runtime else "canonical"
+    drift = relation["relation"] in {"content_conflict", "invalid_legacy"}
     status = "healthy"
     if runtime_mode == "degraded_fallback":
         status = "degraded"
@@ -902,6 +1150,9 @@ def canonical_store_health(
         "checksum_match": canonical_checksum == legacy_checksum,
         "partial_migration": partial,
         "checksum_drift": drift,
+        "checksum_relation": relation["relation"],
+        "checksum_relation_explanation": relation["explanation"],
+        "checksum_relation_details": relation,
         "wal_size_bytes": wal_size,
         "wal_warning": wal_size > wal_size_warning_bytes,
         "index_drift": missing_indexes,

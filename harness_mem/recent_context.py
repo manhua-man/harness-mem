@@ -17,6 +17,10 @@ from typing import Any
 from harness_mem.core.schemas.context_assembly_plan import ContextAssemblyPlan
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.temporal_conflicts import (
+    current_project_version,
+    version_conflict_reason,
+)
 
 DEFAULT_RECENT_CONTEXT_LIMIT = 20
 CHARS_PER_TOKEN_ESTIMATE = 4
@@ -49,6 +53,8 @@ class RecentContextItem:
     read_tokens: int
     work_tokens: int
     files: tuple[str, ...]
+    evidence_status: str = "recent_evidence"
+    conflict_reason: str | None = None
 
     @property
     def display_id(self) -> str:
@@ -79,8 +85,9 @@ async def build_recent_context(
         observation for observation in observations if not observation.compacted
     ]
     project_observations.sort(key=lambda observation: observation.timestamp, reverse=True)
+    current_version = current_project_version(backend, project_name)
     items = tuple(
-        _observation_to_item(observation)
+        _observation_to_item(observation, current_version=current_version)
         for observation in project_observations[: max(0, limit)]
     )
     return RecentContextIndex(
@@ -100,10 +107,10 @@ def render_recent_context(
     """Render a human-readable or agent-compact recent-context packet."""
 
     lines = [
-        f"# [{index.project_name}] recent context",
+        f"# [{index.project_name}] recent transcript evidence (not facts)",
         "",
         (
-            f"Stats: {len(index.items)} observations | "
+            f"Stats: {len(index.items)} evidence observations | "
             f"~{index.total_read_tokens:,}t read | "
             f"{index.total_work_tokens:,}t work preserved"
         ),
@@ -114,7 +121,7 @@ def render_recent_context(
             "Legend: @ session  * bugfix  + feature  ~ refactor  ✓ change  "
             "o discovery  ⚖ decision",
             "",
-            "Context Index: recent work is summarized here; fetch details by ID.",
+            "Evidence Index: recent work is summarized here; it is not durable truth.",
             "",
         ]
 
@@ -130,9 +137,16 @@ def render_recent_context(
                 icon = _TYPE_ICONS.get(item.kind, _TYPE_ICONS["session"])
                 time_text = item.timestamp.astimezone().strftime("%H:%M")
                 source = f" [{item.client}]" if item.client else ""
-                lines.append(
-                    f"  {item.display_id}  {time_text}  {icon}  {item.title}{source}"
+                status = (
+                    " [STALE/CONFLICTED evidence]"
+                    if item.evidence_status == "stale_conflicted"
+                    else " [evidence]"
                 )
+                lines.append(
+                    f"  {item.display_id}  {time_text}  {icon}  {item.title}{source}{status}"
+                )
+                if not compact and item.conflict_reason:
+                    lines.append(f"    conflict: {item.conflict_reason}")
                 if not compact and item.files:
                     lines.append(f"    files: {', '.join(item.files[:3])}")
                 if not compact and item.summary and item.summary != item.title:
@@ -169,7 +183,11 @@ def render_recent_context(
     return "\n".join(lines).rstrip()
 
 
-def _observation_to_item(observation: Observation) -> RecentContextItem:
+def _observation_to_item(
+    observation: Observation,
+    *,
+    current_version: str | None = None,
+) -> RecentContextItem:
     raw_content = observation.raw_content.strip()
     title = (
         _first_user_line(raw_content)
@@ -188,6 +206,10 @@ def _observation_to_item(observation: Observation) -> RecentContextItem:
     timestamp = observation.timestamp
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=timezone.utc)
+    conflict_reason = version_conflict_reason(
+        raw_content,
+        current_version=current_version,
+    )
     return RecentContextItem(
         observation_id=observation.id,
         session_id=observation.session_id,
@@ -199,6 +221,8 @@ def _observation_to_item(observation: Observation) -> RecentContextItem:
         read_tokens=read_tokens,
         work_tokens=work_tokens,
         files=files,
+        evidence_status="stale_conflicted" if conflict_reason else "recent_evidence",
+        conflict_reason=conflict_reason,
     )
 
 

@@ -14,6 +14,7 @@ DistillJobStatus = Literal[
     "reviewing",
     "completed",
     "retryable",
+    "parked",
     "failed",
     "stale",
 ]
@@ -69,6 +70,12 @@ class SessionDistillJob(BaseModel):
     semantic_review: dict = Field(default_factory=dict)
     error: str | None = None
     attempt_count: int = 0
+    retry_after: datetime | None = None
+    drainer_lane: Literal["recent", "oldest"] | None = None
+    drainer_selected_at: datetime | None = None
+    agent_offer_day: str | None = None
+    agent_offer_count: int = 0
+    last_agent_offered_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None

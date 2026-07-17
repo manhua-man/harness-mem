@@ -5,11 +5,12 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from harness_mem import __version__
 from harness_mem.adapters import AdapterRegistry
 from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
+from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
 from harness_mem.adapters.parser import extract_claude_session_cwd
 from harness_mem.adapters.protocol import SessionRecord
 from harness_mem.adapters.scan_scheduler import normalize_source_root, sync_sessions_fairly
@@ -130,7 +131,7 @@ async def _ingest_claude_code(
     full_rescan: bool,
     project_root: Path,
 ) -> int:
-    adapter = AdapterRegistry.build("claude-code", backend)
+    adapter = cast(ClaudeCodeAdapter, AdapterRegistry.build("claude-code", backend))
     profile = await profile_store.get(project_name)
     session_project_name, all_sessions = _list_claude_sessions_for_current_project(
         adapter,
