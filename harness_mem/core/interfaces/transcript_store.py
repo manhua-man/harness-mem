@@ -49,6 +49,14 @@ class TranscriptStore(Protocol):
         session_id: str,
     ) -> list[TranscriptSource]: ...
 
+    def list_sources(
+        self,
+        *,
+        project_name: str | None = None,
+        client: str | None = None,
+        limit: int = 100,
+    ) -> list[TranscriptSource]: ...
+
     def get_revision(
         self,
         source_id: str,
@@ -114,6 +122,8 @@ class TranscriptStore(Protocol):
         source_id: str,
         *,
         pipeline_version: str = "lossless-distill-v1",
+        active_limit: int | None = None,
+        recent_first: bool = True,
     ) -> SessionDistillJob: ...
 
     def get_distill_job(self, job_id: str) -> SessionDistillJob | None: ...

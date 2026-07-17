@@ -19,18 +19,21 @@ from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.store_v2_migration import (
     StorageV2MigrationError,
-    apply_store_v2_migration,
     build_migration_plan,
     export_store_v2_json_snapshot,
 )
 from harness_mem.storage.canonical_store import (
-    build_canonical_store,
     export_json_snapshot,
+    migrate_canonical_store_atomically,
 )
 from harness_mem.event_log import replay_state_events, state_audit_summary
 
 
-async def cmd_rebuild_vector_index(project_name: str | None = None) -> int:
+async def cmd_rebuild_vector_index(
+    project_name: str | None = None,
+    *,
+    batch_size: int = 32,
+) -> int:
     """Rebuild persisted vector rows for structured and verbatim stores."""
     resolved_project = resolve_project_name(
         project_name,
@@ -53,34 +56,36 @@ async def cmd_rebuild_vector_index(project_name: str | None = None) -> int:
         verbatim_store = cast(LocalVerbatimStore, backend.verbatim_store)
         structured_index = structured_store.index
         verbatim_index = verbatim_store.index
-        for index in (structured_index, verbatim_index):
-            with index.locked_connection() as conn:
-                conn.execute("DROP TABLE IF EXISTS vec_embeddings")
-                conn.commit()
-            index.drop_vec0_index()
-            index.init_db()
-
         entries = await structured_store.list_memory_entries(
             resolved_project,
             limit=100000,
         )
-        for i, entry in enumerate(entries, 1):
-            print(f"Rebuilding vector index: {i}/{len(entries)} entries")
-            structured_index.persist_embedding(entry.id, entry.content, model_id)
-
         observations = await verbatim_store.list(limit=100000)
         project_observations = [
             observation
             for observation in observations
             if observation.metadata.get("project_name") == resolved_project
         ]
-        for i, observation in enumerate(project_observations, 1):
-            print(f"Rebuilding vector index: {i}/{len(project_observations)} observations")
-            verbatim_index.persist_embedding(
-                observation.id,
-                observation.raw_content,
-                model_id,
+        def progress(label: str):
+            return lambda done, total: print(
+                f"Embedding batch ({label}): {done}/{total}"
             )
+
+        structured_result = structured_index.replace_embeddings_batch(
+            [(entry.id, entry.content) for entry in entries],
+            model_id=model_id,
+            batch_size=batch_size,
+            progress=progress("entries"),
+        )
+        verbatim_result = verbatim_index.replace_embeddings_batch(
+            [
+                (observation.id, observation.raw_content)
+                for observation in project_observations
+            ],
+            model_id=model_id,
+            batch_size=batch_size,
+            progress=progress("observations"),
+        )
 
         vec0_indexed = 0
         for index in (structured_index, verbatim_index):
@@ -90,6 +95,18 @@ async def cmd_rebuild_vector_index(project_name: str | None = None) -> int:
             f"Done: {len(entries)} entries, "
             f"{len(project_observations)} observations, "
             f"{vec0_indexed} vec0 row(s) indexed"
+        )
+        print(
+            json.dumps(
+                {
+                    "batch_size": max(1, int(batch_size)),
+                    "structured": structured_result,
+                    "verbatim": verbatim_result,
+                    "vec0_indexed": vec0_indexed,
+                },
+                indent=2,
+                sort_keys=True,
+            )
         )
         return 0
     except Exception as exc:
@@ -198,26 +215,34 @@ async def cmd_migrate_store_v2(
             )
             return 0 if plan["invalid_json_count"] == 0 else 1
 
-        result = apply_store_v2_migration(DEFAULT_DATA_DIR, project_name=resolved_project)
-        canonical = build_canonical_store(DEFAULT_DATA_DIR, project_name=resolved_project)
-        print(f"Applied Storage v2 side-by-side migration: {resolved_project}")
+        result = migrate_canonical_store_atomically(
+            DEFAULT_DATA_DIR,
+            project_name=resolved_project,
+        )
+        payload = result["payload_migration"]
+        canonical = result["canonical_store"]
+        relation = result["checksum_relation"]
+        print(f"Applied atomic Storage v2 migration: {resolved_project}")
         print(f"Canonical DB: {result['canonical_db_path']}")
-        print(f"Migrated rows: {result['migrated_row_count']}")
-        print(f"Checksum match: {str(result['checksum_match']).lower()}")
+        print(f"Pre-migration snapshot: {result['backup_db_path'] or 'not needed'}")
+        print(f"Migrated rows: {payload['migrated_row_count']}")
+        print(f"Checksum relation: {relation['relation']}")
         print(f"Canonical entity rows: {canonical['canonical_row_count']}")
-        print("Default storage changed: false")
-        print(json.dumps({**result, "canonical_store": canonical}, indent=2, sort_keys=True))
+        print("Canonical runtime active: true")
+        print(json.dumps(result, indent=2, sort_keys=True))
         log_command_invoked(
             "maintenance.migrate-store-v2",
             project_name=resolved_project,
             extra={
                 "action": "apply",
-                "migrated_row_count": result["migrated_row_count"],
-                "checksum_match": result["checksum_match"],
+                "migrated_row_count": payload["migrated_row_count"],
+                "checksum_match": payload["checksum_match"],
                 "canonical_row_count": canonical["canonical_row_count"],
+                "checksum_relation": relation["relation"],
+                "backup_created": result["backup_created"],
             },
         )
-        return 0 if result["checksum_match"] and canonical["checksum_match"] else 1
+        return 0
     except StorageV2MigrationError as exc:
         print(f"Error: {exc}")
         return 1
@@ -292,6 +317,56 @@ async def cmd_state_audit(project_name: str | None) -> int:
     return 0
 
 
+async def cmd_migrate_legacy_accepted(
+    project_name: str | None,
+    *,
+    apply: bool,
+) -> int:
+    """Preview or apply the one-time accepted→pending/historical migration."""
+
+    resolved_project = resolve_project_name(
+        project_name,
+        required=True,
+        action_label="maintenance migrate-legacy-accepted",
+    )
+    if not resolved_project:
+        return 1
+    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
+    await backend.init()
+    try:
+        from harness_mem.legacy_governance import migrate_legacy_accepted
+
+        result = await migrate_legacy_accepted(
+            backend,
+            project_name=resolved_project,
+            apply=apply,
+        )
+    finally:
+        await backend.close()
+    print(
+        f"Legacy accepted governance {'migration' if apply else 'dry run'}: "
+        f"{resolved_project}"
+    )
+    print(f"Found: {result['found']}")
+    print(f"Pending for Hm Review: {result['by_target']['pending']}")
+    print(f"Historical/superseded: {result['by_target']['superseded']}")
+    print("Automatic truth promotion: false")
+    if not apply:
+        print("No changes written. Use --apply after reviewing the item plan.")
+    print(json.dumps(result, indent=2, sort_keys=True))
+    log_command_invoked(
+        "maintenance.migrate-legacy-accepted",
+        project_name=resolved_project,
+        extra={
+            "apply": apply,
+            "found": result["found"],
+            "pending": result["by_target"]["pending"],
+            "superseded": result["by_target"]["superseded"],
+        },
+    )
+    return 0
+
+
 async def run_post_turn_maintenance(
     backend: LocalMemoryBackend,
     *,
@@ -309,6 +384,14 @@ async def run_post_turn_maintenance(
     previous_cost_surface_budgets = getattr(mcp_tool_handlers, "_cost_surface_budgets_provider", None)
     previous_logger = getattr(mcp_tool_handlers, "logger", logging.getLogger("harness_mem.host_entry"))
     try:
+        from harness_mem.data_lifecycle import enforce_transcript_retention
+
+        retention = await enforce_transcript_retention(
+            backend,
+            project_name=project_name,
+            retention_days=config.transcript_retention_days,
+            apply=True,
+        )
         mcp_tool_handlers.configure_tool_handler_dependencies(
             backend_provider=lambda: backend,
             observer_data_dir=lambda: backend.data_dir,
@@ -363,6 +446,7 @@ async def run_post_turn_maintenance(
             "project_root": project_root,
             "source": source,
             "trigger_id": trigger_id,
+            "retention": retention,
             "evidence_packet": evidence_packet,
             "distill_job": job.to_dict() if job is not None else None,
             "summary": {

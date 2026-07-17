@@ -10,6 +10,7 @@ from harness_mem.commands.support import (
     resolve_project_name,
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.data_lifecycle import hard_delete
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -159,3 +160,57 @@ async def cmd_purge(
         return 0
     finally:
         await backend.close()
+
+
+async def cmd_erase(
+    project_name: str,
+    *,
+    session_id: str | None = None,
+    source_id: str | None = None,
+    before_date: str | None = None,
+    apply: bool = False,
+    reason: str = "user_requested_erasure",
+) -> int:
+    """Preview or execute irreversible transcript and derived-data erasure."""
+
+    if not any((session_id, source_id, before_date)):
+        print("Refusing project-wide erasure without --session-id, --source-id, or --before.")
+        return 1
+    cutoff = None
+    if before_date:
+        try:
+            cutoff = datetime.strptime(before_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            print(f"Invalid date format: {before_date}. Use YYYY-MM-DD.")
+            return 1
+    backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
+    await backend.init()
+    try:
+        result = await hard_delete(
+            backend,
+            project_name=project_name,
+            session_id=session_id,
+            source_id=source_id,
+            before=cutoff,
+            reason=reason,
+            apply=apply,
+        )
+        plan = result["plan"]
+        prefix = "ERASED" if apply else "DRY RUN"
+        print(f"[{prefix}] project={project_name}")
+        print(
+            "  revisions={revisions} chunks={chunks} observations={observations} "
+            "candidates={candidates} structured_truth={structured_truth} raw_bytes={raw_bytes}".format(
+                **plan["counts"]
+            )
+        )
+        if apply:
+            print(f"  audit_id={result['audit']['id']}")
+        else:
+            print("No data changed. Re-run with --apply to execute irreversible erasure.")
+        return 0
+    finally:
+        await backend.close()
+
+
+__all__ = ["cmd_erase", "cmd_purge"]

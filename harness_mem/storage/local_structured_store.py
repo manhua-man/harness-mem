@@ -173,6 +173,33 @@ class LocalStructuredStore:
             json.dumps(payload, indent=2, default=str)
         )
 
+    def list_record_payloads(self, collection: str) -> list[dict[str, Any]]:
+        """List raw payloads for lifecycle planning without search filtering."""
+
+        if collection not in self._subdirs:
+            raise KeyError(collection)
+        if self.canonical_mode:
+            canonical = self._canonical
+            return [] if canonical is None else canonical.list_payloads(collection)
+        payloads: list[dict[str, Any]] = []
+        for path in self._subdirs[collection].glob("*.json"):
+            try:
+                payloads.append(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, json.JSONDecodeError):
+                continue
+        return payloads
+
+    def hard_delete_record(self, collection: str, entity_id: str) -> bool:
+        """Erase canonical/blob truth and all derived index rows for one record."""
+
+        if collection not in self._subdirs:
+            raise KeyError(collection)
+        existed = self.record_payload_exists(collection, entity_id)
+        self._index.delete(collection, entity_id)
+        if existed:
+            self._blob_path(collection, entity_id).unlink()
+        return existed
+
     @property
     def index(self) -> DerivedIndex:
         """Shared derived index owned by this store's lifecycle.

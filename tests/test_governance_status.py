@@ -202,8 +202,15 @@ def test_confirm_memory_entry_sets_user_confirmed(
                 "id": 1,
                 "method": "tools/call",
                 "params": {
-                    "name": "confirm_memory_entry",
-                    "arguments": {"entry_id": entry.id},
+                    "name": "govern_memory",
+                    "arguments": {
+                        "action": "decide",
+                        "arguments": {
+                            "kind": "memory",
+                            "decision": "confirm",
+                            "candidate_id": entry.id,
+                        },
+                    },
                 },
             }
         )
