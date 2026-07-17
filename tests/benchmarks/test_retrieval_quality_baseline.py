@@ -33,7 +33,8 @@ class RetrievalQualityCase:
 
 def _load_cases(path: Path) -> list[RetrievalQualityCase]:
     payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return [
+    raw_cases = [*payload["queries"], *_expand_generated_matrix(payload)]
+    cases = [
         RetrievalQualityCase(
             id=item["id"],
             project_name=item["project_name"],
@@ -47,8 +48,86 @@ def _load_cases(path: Path) -> list[RetrievalQualityCase]:
             search=dict(item.get("search", {})),
             expected=dict(item["expected"]),
         )
-        for item in payload["queries"]
+        for item in raw_cases
     ]
+    declared = int(payload.get("declared_case_count", len(cases)))
+    if len(cases) != declared:
+        raise ValueError(
+            f"retrieval golden declares {declared} cases but expands to {len(cases)}"
+        )
+    return cases
+
+
+def _expand_generated_matrix(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Expand compact deterministic surface-isolation cases from the golden spec."""
+
+    matrix = dict(payload.get("generated_matrix") or {})
+    generated: list[dict[str, Any]] = []
+    for surface in ("memory", "observation", "relation"):
+        for index in range(1, int(matrix.get(surface, 0)) + 1):
+            suffix = f"{index:02d}"
+            project = f"retrieval-matrix-{surface}-{suffix}"
+            query = f"matrix {surface} isolated token {suffix}"
+            item: dict[str, Any] = {
+                "id": f"matrix_{surface}_{suffix}",
+                "project_name": project,
+                "query": query,
+                "expected": {
+                    "memory_entry_ids": [],
+                    "observation_ids": [],
+                    "relation_fact_ids": [],
+                },
+                "search": {
+                    "scope": "project",
+                    "mode": "fts",
+                    "memory_entry_limit": 5,
+                    "observation_limit": 5,
+                    "relation_fact_limit": 5,
+                },
+            }
+            entity_id = f"matrix-{surface}-{suffix}"
+            if surface == "memory":
+                item["memory_entries"] = [
+                    {
+                        "id": entity_id,
+                        "project_name": project,
+                        "category": "decision",
+                        "content": f"{query} confirms structured truth isolation",
+                        "source": "benchmark:generated-gold",
+                        "status": "user_confirmed",
+                    }
+                ]
+                item["expected"]["memory_entry_ids"] = [entity_id]
+            elif surface == "observation":
+                item["observations"] = [
+                    {
+                        "id": entity_id,
+                        "project_name": project,
+                        "session_id": f"session-{entity_id}",
+                        "client": "codex",
+                        "raw_content": f"{query} confirms evidence isolation",
+                        "content_type": "turn",
+                        "metadata": {"project_name": project},
+                    }
+                ]
+                item["expected"]["observation_ids"] = [entity_id]
+            else:
+                item["relation_facts"] = [
+                    {
+                        "id": entity_id,
+                        "project_name": project,
+                        "source_entity": f"source-{suffix}",
+                        "target_entity": f"target-{suffix}",
+                        "relation_type": "supports",
+                        "evidence": f"{query} confirms relation isolation",
+                        "source": "benchmark:generated-gold",
+                        "confidence": 0.9,
+                        "status": "user_confirmed",
+                    }
+                ]
+                item["expected"]["relation_fact_ids"] = [entity_id]
+            generated.append(item)
+    return generated
 
 
 async def _run_case(case: RetrievalQualityCase, data_dir: Path) -> dict:
@@ -210,8 +289,8 @@ def _suite_report(
         for item in results
     )
     return {
-        "suite": "retrieval_quality_v0_8_3",
-        "version": "0.8.3",
+        "suite": "retrieval_quality_v0_8_24",
+        "version": "0.8.24",
         "case_count": len(results),
         "overall_recall_at_5": round(
             sum(
@@ -241,8 +320,9 @@ def test_retrieval_quality_benchmark_report_is_stable(tmp_path: Path) -> None:
     assert cases
 
     report = _run(_run_benchmark_suite(cases, tmp_path))
-    assert report["suite"] == "retrieval_quality_v0_8_3"
-    assert report["version"] == "0.8.3"
+    assert report["suite"] == "retrieval_quality_v0_8_24"
+    assert report["version"] == "0.8.24"
+    assert report["case_count"] == 60
     assert report["case_count"] == len(cases)
     assert report["overall_recall_at_5"] == 1.0
     assert report["project_leak_rate"] == 0.0
@@ -357,7 +437,7 @@ def _p95(values: list[float]) -> float:
     return ordered[index]
 
 
-def test_retrieval_quality_v0_8_3_baseline_fixture_round_trip(tmp_path: Path) -> None:
+def test_retrieval_quality_v0_8_24_baseline_fixture_round_trip(tmp_path: Path) -> None:
     fixture = Path(__file__).with_name("retrieval_quality_golden.yaml")
     cases = _load_cases(fixture)
     assert cases
@@ -403,8 +483,9 @@ def test_retrieval_quality_v0_8_3_baseline_fixture_round_trip(tmp_path: Path) ->
     assert by_id["vector_off_fallback"]["vector_disabled"] is True
 
     report = _suite_report(results, cases)
-    assert report["suite"] == "retrieval_quality_v0_8_3"
-    assert report["version"] == "0.8.3"
+    assert report["suite"] == "retrieval_quality_v0_8_24"
+    assert report["version"] == "0.8.24"
+    assert report["case_count"] == 60
     assert report["case_count"] == len(cases)
     assert report["llm_free"] is True
     assert report["read_path_only"] is True
@@ -419,8 +500,10 @@ def test_retrieval_quality_fixture_declares_llm_free_local_read_path() -> None:
     fixture = Path(__file__).with_name("retrieval_quality_golden.yaml")
     payload = yaml.safe_load(fixture.read_text(encoding="utf-8"))
 
-    assert payload["suite"] == "retrieval_quality_v0_8_3"
-    assert payload["version"] == "0.8.3"
+    assert payload["suite"] == "retrieval_quality_v0_8_24"
+    assert payload["version"] == "0.8.24"
+    assert payload["declared_case_count"] == 60
+    assert len(_load_cases(fixture)) == 60
     assert payload["backend"] == "LocalMemoryBackend"
     assert payload["llm_free"] is True
     assert payload["mode"] == "read_path_only"

@@ -67,3 +67,43 @@ async def _exercise_doctor_vec0(data_dir: Path) -> None:
 def test_doctor_reports_hm204_then_clears_after_vec0_rebuild(tmp_path: Path) -> None:
     pytest.importorskip("sqlite_vec")
     asyncio.run(_exercise_doctor_vec0(tmp_path / "data"))
+
+
+def test_doctor_accepts_verbatim_only_vector_index(tmp_path: Path) -> None:
+    pytest.importorskip("sqlite_vec")
+
+    async def exercise() -> None:
+        backend = LocalMemoryBackend(tmp_path / "data")
+        await backend.init()
+        try:
+            index = backend.verbatim_store.index
+            assert isinstance(index, SQLiteIndex)
+            index._vec_index.mark_extension_loaded()
+            model_id = "doctor-verbatim-model"
+            blob = b"\x00\x00\x80\x3f" + b"\x00" * 4
+            conn = index._conn_write()
+            conn.execute(
+                """
+                INSERT INTO vec_embeddings (
+                    entry_id, model_id, model_version, embedding, created_at
+                ) VALUES ('observation-row', ?, 'v1', ?, 1)
+                """,
+                (model_id, blob),
+            )
+            conn.commit()
+            assert index.rebuild_vec0_index(model_id=model_id) == 1
+
+            with patch(
+                "harness_mem.commands.support.get_embedding_model_id",
+                return_value=model_id,
+            ), patch(
+                "harness_mem.embedding.get_model_loader",
+            ) as loader_mock:
+                loader_mock.return_value.dimensions = 2
+                health = _check_vector_index_health(backend, "doctor-project")
+
+            assert health["has_issue"] is False
+        finally:
+            await backend.close()
+
+    asyncio.run(exercise())

@@ -159,19 +159,31 @@ class SqliteVecIndex:
         except sqlite3.Error:
             return 0
 
-        indexed = 0
-        for entry_id, embedding_blob in rows:
-            if not embedding_blob:
-                continue
-            self.upsert_row(
-                conn,
-                entry_id=str(entry_id),
-                model_id=model_id,
-                embedding_blob=embedding_blob,
-                dimensions=dimensions,
+        if not self._ensure_vec0_table(conn, dimensions):
+            return 0
+        valid_rows = [
+            (str(entry_id), embedding_blob, model_id)
+            for entry_id, embedding_blob in rows
+            if embedding_blob
+        ]
+        try:
+            conn.executemany(
+                f"""
+                INSERT OR REPLACE INTO {VEC0_TABLE}(entry_id, embedding, model_id)
+                VALUES (?, ?, ?)
+                """,
+                valid_rows,
             )
-            if self._vec0_has_entry(conn, str(entry_id), model_id):
-                indexed += 1
+            conn.commit()
+            indexed = int(
+                conn.execute(
+                    f"SELECT COUNT(*) FROM {VEC0_TABLE} WHERE model_id = ?",
+                    (model_id,),
+                ).fetchone()[0]
+            )
+        except sqlite3.Error as exc:
+            logger.debug("vec0 batch rebuild unavailable: %s", exc)
+            return 0
 
         if indexed:
             logger.info(

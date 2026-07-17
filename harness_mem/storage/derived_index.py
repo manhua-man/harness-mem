@@ -6,6 +6,7 @@ import sqlite3
 import builtins
 from contextlib import AbstractContextManager
 from pathlib import Path
+from collections.abc import Callable, Iterable
 from typing import Any, Protocol, runtime_checkable
 
 
@@ -63,3 +64,16 @@ class DerivedIndex(Protocol):
         model_id: str,
         model_version: str | None = None,
     ) -> None: ...
+
+    def replace_embeddings_batch(
+        self,
+        records: Iterable[tuple[str, str]],
+        *,
+        model_id: str,
+        batch_size: int = 32,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> dict[str, Any]: ...
+
+    def rebuild_vec0_index(self, *, model_id: str) -> int: ...
+
+    def vec0_coverage_report(self, *, model_id: str) -> dict[str, int]: ...
