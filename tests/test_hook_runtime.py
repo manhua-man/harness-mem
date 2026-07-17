@@ -24,12 +24,12 @@ def test_probe_hook_runner_reports_version(tmp_path: Path) -> None:
     runner_path.write_text("runner", encoding="utf-8")
 
     def runner(args, **kwargs):
-        return subprocess.CompletedProcess(args, 0, stdout="harness-mem-hook 0.8.24\n", stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout="harness-mem-hook 0.8.25\n", stderr="")
 
     probe = probe_hook_runner(hook_runner=runner_path, runner=runner)
     assert probe.ok is True
     assert probe.path == runner_path.resolve()
-    assert probe.version == "0.8.24"
+    assert probe.version == "0.8.25"
 
 
 def test_probe_hook_runner_reports_bad_version_output(tmp_path: Path) -> None:
@@ -63,7 +63,7 @@ def test_collect_hook_runtime_report_detects_bound_and_legacy_hooks(tmp_path: Pa
     )
 
     def runner(args, **kwargs):
-        return subprocess.CompletedProcess(args, 0, stdout="harness-mem-hook 0.8.24\n", stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout="harness-mem-hook 0.8.25\n", stderr="")
 
     report = collect_hook_runtime_report(
         project_root,

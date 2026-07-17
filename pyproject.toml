@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "0.8.24"
+version = "0.8.25"
 description = "Local-first, auditable, pluggable Agent memory backend"
 readme = "README.md"
 requires-python = ">=3.9"

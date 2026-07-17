@@ -93,8 +93,8 @@ owns storage, candidates, review, retrieval, and local audit state.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.24 \
-  harness-mem==0.8.24
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.25 \
+  harness-mem==0.8.25
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -105,8 +105,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.24 \
-  "harness-mem[hybrid]==0.8.24"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.8.25 \
+  "harness-mem[hybrid]==0.8.25"
 ```
 
 Claude Code users can install the repo-local plugin and optionally register MCP:
@@ -213,4 +213,4 @@ python scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.8.24**.
+Current package version: **0.8.25**.
