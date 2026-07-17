@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -192,7 +193,11 @@ def test_user_command_sync_is_visible_from_unrelated_projects(
         "cursor": home / ".cursor" / "skills" / "hm-status" / "SKILL.md",
         "grok": home / ".grok" / "skills" / "hm-status" / "SKILL.md",
         "codex": home / ".codex" / "skills" / "hm-status" / "SKILL.md",
-        "hermes": local_appdata / "hermes" / "skills" / "hm-status" / "SKILL.md",
+        "hermes": (
+            local_appdata / "hermes" / "skills" / "hm-status" / "SKILL.md"
+            if sys.platform == "win32"
+            else home / ".hermes" / "skills" / "hm-status" / "SKILL.md"
+        ),
         "opencode": home / ".config" / "opencode" / "commands" / "hm-status.md",
         "antigravity": (
             home / ".gemini" / "antigravity" / "global_workflows" / "hm-status.md"

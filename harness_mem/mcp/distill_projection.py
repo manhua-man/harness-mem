@@ -14,6 +14,7 @@ DISTILL_COMPACT_PROJECTION = "exchange-outline-v2"
 
 _TURN_HEADING_RE = re.compile(r"(?m)^## Turn \d+ \([^\n]*\)\s*$")
 _ENTRY_RE = re.compile(r"(?:\A|\n\n)(User|Assistant|Tool): ")
+_EVIDENCE_ANCHOR_RE = re.compile(r"\b[A-Z][A-Z0-9]*(?:[-_][A-Z0-9]+)+\b")
 _PASSIVE_TOOL_NAMES = frozenset({"wait", "wait_agent"})
 _RISK_FLAG_CODES = {
     "version_release": "V",
@@ -345,7 +346,12 @@ def _preview(value: str, limit: int) -> str:
         return normalized
     head = max(1, int(limit * 0.68))
     tail = max(1, limit - head - 1)
-    return f"{normalized[:head].rstrip()}…{normalized[-tail:].lstrip()}"
+    preview = f"{normalized[:head].rstrip()}…{normalized[-tail:].lstrip()}"
+    anchors = list(dict.fromkeys(_EVIDENCE_ANCHOR_RE.findall(normalized)))
+    missing = [anchor for anchor in anchors if anchor not in preview]
+    if missing:
+        preview += f" [anchors: {', '.join(missing)}]"
+    return preview
 
 
 def _risk_flags(value: str) -> list[str]:

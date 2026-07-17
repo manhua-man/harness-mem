@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import harness_mem.mcp.distill_projection as distill_projection
 from harness_mem.mcp.distill_projection import (
     build_distill_compact_outline,
     build_distill_semantic_outline,
@@ -69,6 +70,25 @@ def test_semantic_window_restores_complete_selected_exchange() -> None:
     assert "PRIVATE-PROOF-ALPHA" in windows[0]["content"]
     assert "PRIVATE-PROOF-OMEGA" in windows[0]["content"]
     assert "migration_storage" in windows[0]["risk_flags"]
+
+
+def test_compact_outline_preserves_evidence_anchors_with_fallback_counter(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        distill_projection,
+        "_count_tokens",
+        lambda value: len(value) // 4,
+    )
+
+    compact, summary = build_distill_compact_outline(
+        _long_session(),
+        budget_tokens=3000,
+    )
+
+    assert summary["budget_state"] == "within_budget"
+    assert "PRIVATE-PROOF-ALPHA" in compact
+    assert "PRIVATE-PROOF-OMEGA" in compact
 
 
 def test_compact_outline_expands_instead_of_silently_dropping_coverage() -> None:
