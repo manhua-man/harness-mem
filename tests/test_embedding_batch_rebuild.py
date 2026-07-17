@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from harness_mem.storage.sqlite_index import SQLiteIndex
+
+np = pytest.importorskip("numpy")
 
 
 class FakeBatchLoader:
