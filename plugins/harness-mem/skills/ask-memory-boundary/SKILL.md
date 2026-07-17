@@ -35,7 +35,7 @@ question:
 - A memory claim implies architecture, roadmap, security, release, or product boundary truth.
 - There are multiple plausible implementation or documentation paths.
 - The claim may be true locally but misleading as durable project memory.
-- A repeated lesson might become `suggest_rule` or repo guidance.
+- A repeated lesson might become `govern_memory(action="suggest", kind="rule")` or repo guidance.
 
 ## Output
 

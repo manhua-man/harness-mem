@@ -50,7 +50,7 @@ review/undo. Admission actions only decide whether the write path continues.
 **When:**
 
 - User explicit rule: 「记住」「以后都这样」「写成项目规则」
-- `suggest_rule` or repo-wide AI behavior change
+- `govern_memory(action="suggest", arguments={kind:"rule", ...})` or repo-wide AI behavior change
 - High blast-radius: architecture fact, security, release policy, cross-team default
 - Ambiguous fuzzy conclusion on a draft claim after packet read (not before `prepare_session_distill`)
 
@@ -63,7 +63,7 @@ and local context cannot decide.
 **When:**
 
 - Ordinary `/hm:distill` / session-distill candidates
-- Low–medium risk `suggest_memory_entry`, handoff, relation with clear evidence
+- Low–medium risk `govern_memory(action="suggest")`, handoff, or relation with clear evidence
 - Packet-backed facts with observation ids already attached
 
 **How:** run the 5-point checklist **inline in one pass** (no multi-turn loop

@@ -269,11 +269,13 @@ def plan_session_scan(
     }
     backlog_by_key = {session_scan_key(session): session for session in backlog}
     recent_by_key = {session_scan_key(session): session for session in recent}
-    retry_sessions = [
-        backlog_by_key.get(key) or recent_by_key.get(key)
-        for key in sorted(retry_due)
-        if backlog_by_key.get(key) is not None or recent_by_key.get(key) is not None
-    ][: max(1, total_budget)]
+    retry_sessions: list[SessionRecord] = []
+    for key in sorted(retry_due):
+        retry_session = backlog_by_key.get(key) or recent_by_key.get(key)
+        if retry_session is not None:
+            retry_sessions.append(retry_session)
+        if len(retry_sessions) >= max(1, total_budget):
+            break
     # Pending retries must not immediately re-enter normal traversal. They get
     # another chance only through the due-retry lane after their backoff ends.
     retry_keys = set(frontier.retry_sources)

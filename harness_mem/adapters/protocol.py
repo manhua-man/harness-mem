@@ -29,6 +29,7 @@ class SessionRecord(TypedDict, total=False):
     mtime_ns: int
     cwd: str
     source_kind: str
+    cursor_project_dir: str
 
 
 class SessionAdapter(Protocol):

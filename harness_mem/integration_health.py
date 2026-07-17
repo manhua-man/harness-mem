@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from harness_mem.adapters import AdapterRegistry
+from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.hook_receipts import read_hook_execution_receipt
 from harness_mem.hook_runtime import collect_hook_file_statuses
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -118,7 +119,15 @@ async def build_integration_health(
         limit=100,
     )
     processing = lossless_processing
-    distill_status = "processing" if processing else "queued" if queued else "idle"
+    from harness_mem.commands.distill_lifecycle import distill_drainer_metrics
+
+    distill_config = load_merged_config(root) if root is not None else MergedConfig()
+    drainer = distill_drainer_metrics(
+        backend,
+        project_name=project_name,
+        daily_job_budget=distill_config.distill_auto_daily_job_budget,
+    )
+    distill_status = "processing" if processing else str(drainer["state"])
     project_status = "ok" if root is not None else "unknown"
     latest_source = max(sources, key=lambda item: item.updated_at) if sources else None
     completed_chunks = sum(getattr(job, "completed_chunk_count", 0) for job in [*queued, *processing])
@@ -132,7 +141,7 @@ async def build_integration_health(
         f"project={project_status} | host={host} | "
         f"hooks={hooks_status} ({len(installed_hooks)}/{len(hook_files)}) | "
         f"transcript={transcript_status} ({len(sources)} sessions, {len(missing_sources)} missing, {retry_source_count} retrying) | "
-        f"distill={distill_status} ({len(queued)} queued, {len(processing)} processing)"
+        f"distill={distill_status} ({len(queued)} queued, {len(processing)} processing, {drainer['parked']} parked)"
     )
     return {
         "summary": summary,
@@ -181,6 +190,19 @@ async def build_integration_health(
             "completed_chunks": completed_chunks,
             "expected_chunks": expected_chunks,
             "legacy_audit_only": len(legacy_audit_only),
+            "parked": drainer["parked"],
+            "retry_backoff": drainer["retry_backoff"],
+            "offered_today": drainer["offered_today"],
+            "daily_job_budget": drainer["daily_job_budget"],
+            "daily_budget_remaining": drainer["daily_budget_remaining"],
+            "completed_24h": drainer["completed_24h"],
+            "completed_7d": drainer["completed_7d"],
+            "throughput_per_day_7d": drainer["throughput_per_day_7d"],
+            "oldest_parked_age_hours": drainer["oldest_parked_age_hours"],
+            "recent_lane_selected": drainer["recent_lane_selected"],
+            "oldest_lane_selected": drainer["oldest_lane_selected"],
+            "agent_required": drainer["agent_required"],
+            "background_semantic_processing": False,
         },
     }
 

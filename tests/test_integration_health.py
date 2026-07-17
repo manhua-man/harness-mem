@@ -62,14 +62,16 @@ def test_integration_health_summarizes_current_workspace(
     assert health["transcript"]["status"] == "synced"
     assert health["transcript"]["session_count"] == 1
     assert health["transcript"]["latest_source_coverage"] == "complete"
-    assert health["pending_distill"] == {
-        "status": "queued",
-        "queued": 1,
-        "processing": 0,
-        "completed_chunks": 0,
-        "expected_chunks": 1,
-        "legacy_audit_only": 0,
-    }
+    distill = health["pending_distill"]
+    assert distill["status"] == "waiting_for_agent"
+    assert distill["queued"] == 1
+    assert distill["processing"] == 0
+    assert distill["parked"] == 0
+    assert distill["completed_chunks"] == 0
+    assert distill["expected_chunks"] == 1
+    assert distill["legacy_audit_only"] == 0
+    assert distill["agent_required"] is True
+    assert distill["background_semantic_processing"] is False
     assert health["summary"].startswith("project=ok | host=cursor | hooks=ok (2/2)")
 
 
