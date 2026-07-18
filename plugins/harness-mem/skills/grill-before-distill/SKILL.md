@@ -24,7 +24,7 @@ replace `/hm:review`.
 |---|---|
 | grill-me / grill-before-distill | Admission (depth by risk) |
 | session-distill | Extract candidates |
-| /hm:review + confirm_* | Durable confirmation |
+| /hm:review + `govern_memory(action="decide")` | Durable confirmation |
 
 Runs automatically when distill or memory write is in play — user does not say
 「先拷问」. Pick the **lightest sufficient mode**; escalate when risk rises.
@@ -34,8 +34,8 @@ actions:
 
 | Action | Main-chain meaning |
 |---|---|
-| `admit` | Candidate is allowed to continue to `suggest_*`. |
-| `narrow` | Candidate is useful but wording/scope must be narrowed before `suggest_*`. |
+| `admit` | Candidate is allowed to continue to `govern_memory(action="suggest")`. |
+| `narrow` | Candidate is useful but wording/scope must be narrowed before `govern_memory(action="suggest")`. |
 | `defer` | Do not write yet; keep as pending/note and attach the missing evidence or question. |
 | `reject` | Do not write a candidate; treat as noise, local-only, duplicate, or misleading. |
 
@@ -151,10 +151,10 @@ risk: low | medium | high
   -> prepare_session_distill
   -> 读 packet + draft candidate claims
   -> grill-me 准入（A/B 按风险；对 draft claim，不是空会话先拷问）
-  -> suggest_*（admit；narrow 后可写；defer/reject 不写）
+  -> govern_memory(action="suggest")（admit；narrow 后可写；defer/reject 不写）
   -> 内部 search_memory / 代码检索；外部来源证据（smart-search 为参考候选）
   -> auto_review preview + /hm:review
-  -> confirm_* -> confirmed truth
+  -> govern_memory(action="decide", decision="confirm") -> confirmed truth
 
 已确认记忆维护 / dream / 抽查 -> Mode C lookback
 ```

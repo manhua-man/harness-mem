@@ -1,8 +1,9 @@
 # Roadmap
 
-`harness-mem` stays on the 0.8.x line for convergence, trust hardening,
-retrieval-quality proof, and operator playbook layers. The stable product loop
-is an automatic Agent/runtime loop, not a manual checklist:
+`harness-mem` 0.9.x is the convergence line for one automatic, auditable
+Agent-memory loop. 0.9.0 shipped the automation, storage-safety, and
+cross-host runtime baseline; 0.9.1 removes stale product vocabulary and locks
+the public governance contract. The stable loop is not a manual checklist:
 
 ```text
 wake -> search -> distill -> review -> dream
@@ -20,14 +21,19 @@ See [maturity-model.md](maturity-model.md) for the **Readiness Ladder v1** scori
 model (six tracks + scope ledger + claim boundary). Canvas:
 `canvases/harness-mem-readiness-v1.canvas.tsx`.
 
-## Version Line
+## Current Version Line
 
-Roadmap versions **are** release semver (`pyproject.toml` `0.8.N`). There is no
-separate `.x` milestone alias — `0.8.10` in the table is the same `0.8.10` you
-ship.
+Roadmap versions are release semver. The current package truth comes from
+`pyproject.toml`; historical 0.8.x sections below remain shipped design records,
+not pending work.
 
 | Version | Goal | Ships when | Does not include |
 |---|---|---|---|
+| `0.9.0` | Automatic, safe, cross-host runtime baseline. | Compact MCP responses, two-stage distill, bounded Agent-active draining, Storage v2 recovery, privacy lifecycle, batch vectors, and seven-host commands are verified end to end. | A second truth store, background semantic claims without an Agent, or a broader public MCP surface. |
+| `0.9.1` | Public-contract and narrative convergence. | Every active Skill/command uses `govern_memory`; generated host copies agree; 0.9.x docs and release history are canonical; guardrail tests reject removed governance vocabulary. | Broad handler refactors, new tools, or new configuration profiles. |
+
+### Historical 0.8.x release line
+
 | `0.8.3` | Retrieval Quality Foundation. | LLM-free golden suite covers stale truth exclusion, project leak, abstention, and vector-off fallback. | New MCP tools, wiki, search-engine swap, broad quality claims. |
 | `0.8.4`–`0.8.7` | Trust, retrieval, maintenance, adoption (shipped patch range). | Contract tests, golden suite, dream/review closure, grill/adoption skills. | Second truth store, wiki-as-truth, graph DB default. |
 | `0.8.8` | Auto-promoted governance. | Low-risk candidates auto-promote to trust-tiered memory; `/hm:review` is post-hoc audit. | Manual-only review gate, hidden truth mutation. |
@@ -84,7 +90,7 @@ A/B report instead of changing defaults.
 
 Status: complete for the public surface. Dream records supersede candidates as
 `pending_review` ledger items and leaves truth lineage unchanged until explicit
-`confirm_supersede` / `reject_supersede`; wake snapshots expose optional
+`govern_memory(action="supersede")`; wake snapshots expose optional
 structured action hints; and public MCP tools are exact-allowlisted to preserve
 the single memory surface.
 
@@ -99,8 +105,9 @@ the single memory surface.
   optional project-level orchestration (`check`, `update-spec`, `finish-work`,
   `journal` mapped to existing hm surfaces).
 - Align `session-distill`, `/hm:distill`, and harness-mem skills to:
-  `prepare` → draft claims → risk-scaled admission → `suggest_*` → evidence
-  before `confirm_*`.
+  `prepare` → draft claims → risk-scaled admission →
+  `govern_memory(action="suggest")` → evidence before
+  `govern_memory(action="decide", decision="confirm")`.
 
 Status: complete for the Skill/doc layer. Admission runs automatically with
 depth by risk; external evidence is required before confirmation but not before
@@ -171,8 +178,8 @@ These are not roadmap promises. They are gated experiments:
 - **Graph-native search**: keep as a lab path for richer temporal relation
   traversal. Do not make it the default truth or retrieval engine unless the
   simple 1-hop boost stops being enough under benchmarks.
-- **Admission/evidence enforcement**: optional CLI preflight or contract tests
-  after the 0.8.7 playbook stabilizes; do not add a second runtime harness.
+- **Admission/evidence enforcement**: keep it in the existing Skill and
+  `govern_memory` contract; do not add a second runtime harness.
 - **smart-search adoption**: install as user-level CLI Skill when a project
   wants fetched/source-backed external evidence; keep out of default hm MCP.
 

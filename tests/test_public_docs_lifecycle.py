@@ -107,3 +107,54 @@ def test_repo_local_duplicate_distill_runtime_is_removed() -> None:
     assert not Path("tools/session-distill/bin").exists()
     assert "不包含独立 CLI" in skill
     assert "contains no executable runtime" in sync_policy
+
+
+def test_active_governance_docs_use_single_public_write_surface() -> None:
+    active_paths = [
+        Path("docs/auto-promoted-memory-governance.md"),
+        Path("docs/memory-adoption.md"),
+        Path("docs/roadmap.md"),
+        Path("plugins/harness-mem/commands/hm/daily/distill.md"),
+        Path("plugins/harness-mem/skills/harness-mem/SKILL.md"),
+        Path("plugins/harness-mem/skills/harness-mem-autopilot/SKILL.md"),
+        Path("plugins/harness-mem/skills/grill-before-distill/SKILL.md"),
+        Path("tools/session-distill/SKILL.md"),
+        Path("tools/session-distill/SYNC_POLICY.md"),
+        Path("tools/session-distill/references/distillation-rules.md"),
+    ]
+    generated_roots = [
+        Path(".agents"),
+        Path(".claude"),
+        Path(".cursor"),
+        Path(".grok"),
+        Path(".opencode"),
+    ]
+    generated_paths = [
+        path
+        for root in generated_roots
+        for path in root.rglob("*.md")
+    ]
+
+    retired_names = ("suggest_", "confirm_", "reject_", "create_task_handoff")
+    for path in [*active_paths, *generated_paths]:
+        content = path.read_text(encoding="utf-8")
+        assert not any(name in content for name in retired_names), path
+
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in active_paths)
+    assert 'govern_memory(action="suggest")' in combined
+    assert 'govern_memory(action="decide")' in combined
+    assert 'govern_memory(action="handoff")' in combined
+
+
+def test_current_roadmap_is_0_9_x_and_internal_doc_duplicates_are_removed() -> None:
+    roadmap = Path("docs/roadmap.md").read_text(encoding="utf-8")
+    scope_ledger = Path("docs/roadmap/defer.md").read_text(encoding="utf-8")
+
+    assert "0.9.1" in roadmap
+    assert "0.9.x" in roadmap
+    assert "stays on the 0.8.x line" not in roadmap
+    assert "`pyproject.toml` `0.8.N`" not in roadmap
+    assert "current 0.9.x scope ledger" in scope_ledger
+    assert not Path("docs/internal/roadmap.md").exists()
+    assert not Path("docs/internal/memory-adoption.md").exists()
+    assert not Path("docs/internal/agent-memory-retrieval-research-2026.md").exists()

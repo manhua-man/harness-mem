@@ -1,11 +1,12 @@
 # Auto-Promoted Memory Governance
 
-Reference for the **0.8.8+ governance model**: auto-promoted truth with post-hoc
-audit. Runtime code lives in `harness_mem/governance_status.py`,
+Reference for the **0.9.x governance model**: auto-promoted truth with post-hoc
+audit and one public write boundary. Runtime code lives in `harness_mem/governance_status.py`,
 `commands/auto_review.py`, read-path filters, and `state-events.log`.
 
-Follow-up slices (not yet complete): dream full-chain alignment, undo replay,
-`/hm:review` audit-inbox UX.
+The public MCP write API is `govern_memory`; the former per-kind write-tool
+family is internal compatibility code only. Remaining follow-up is audit-inbox
+UX polish and measured long-running drainer telemetry.
 
 ```text
 immutable source revision -> complete ordered chunks -> final-session review
@@ -59,7 +60,7 @@ flowchart TD
     end
 
     REVIEW --> G
-    G -->|admit / narrow| CAND["idempotent suggest_* -> candidate pending"]
+    G -->|admit / narrow| CAND["govern_memory suggest -> candidate pending"]
     CAND --> FINAL["finalize_session_distill"]
     FINAL --> PREF["auto-review + evidence checks"]
     FINAL --> DREAM["Dream maintenance"]
@@ -128,7 +129,8 @@ Notes:
   then runs auto-review and Dream. Auto-review promotes on the main path; public
   MCP applies promotions directly (no preview-only enforcement).
 - Every promotion appends to `~/.harness-mem/data/state-events.log`.
-- `confirm_*` upgrades truth to `user_confirmed` (highest trust tier).
+- `govern_memory(action="decide", decision="confirm")` upgrades truth to
+  `user_confirmed` (highest trust tier).
 
 ---
 
@@ -150,16 +152,16 @@ Notes:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending: suggest_* / dream suggestion
+    [*] --> pending: govern_memory suggest / dream suggestion
 
     pending --> deferred: preflight insufficient evidence
     pending --> rejected: preflight noise or danger
     pending --> auto_confirmed: preflight low-risk pass
     pending --> provisional: preflight pass with risk flags
-    pending --> user_confirmed: confirm_* without auto promote
+    pending --> user_confirmed: govern_memory confirm without auto promote
 
-    auto_confirmed --> user_confirmed: /hm:review or confirm_*
-    provisional --> user_confirmed: /hm:review or confirm_*
+    auto_confirmed --> user_confirmed: /hm:review or govern_memory confirm
+    provisional --> user_confirmed: /hm:review or govern_memory confirm
     provisional --> rejected: reject or undo
 
     auto_confirmed --> superseded: dream or user supersede
@@ -211,7 +213,7 @@ flowchart LR
     T5 -.-x W & SM
 ```
 
-Shipped behavior (0.8.11):
+Shipped foundation (0.8.11), converged public API (0.9.1):
 
 - Default list/search filter is `readable_truth` (`READABLE_TRUTH_FILTER`):
   `auto_confirmed` + `user_confirmed` at full weight.
@@ -219,7 +221,8 @@ Shipped behavior (0.8.11):
   `governance_weight=0.6` in result metadata.
 - `wake` and `search_memory` accept `include_provisional` via
   `orchestrate_task_context` → `SearchFilters`.
-- New promotes write `auto_confirmed`; `confirm_*` writes `user_confirmed`.
+- New promotes write `auto_confirmed`; explicit
+  `govern_memory(action="decide", decision="confirm")` writes `user_confirmed`.
   Candidate-layer defaults for new rows are `pending`.
 
 ---

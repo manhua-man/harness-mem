@@ -54,7 +54,7 @@ must_not_write_yet:
 
 ## Boundaries
 
-- Do not call `suggest_*`, `confirm_*`, `reject_*`, or supersede tools.
+- Do not call `govern_memory`; this role only answers boundary questions.
 - Do not turn architecture advice into memory automatically.
 - Do not create a Trellis spec, journal, or second truth store.
 - Prefer `narrow` or `defer` when the product boundary is uncertain.

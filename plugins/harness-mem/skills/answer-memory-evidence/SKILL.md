@@ -63,7 +63,7 @@ notes: <uncertainty / caveats>
 
 ## Boundaries
 
-- Do not call `suggest_*`, `confirm_*`, `reject_*`, or supersede tools.
+- Do not call `govern_memory`; this role only answers evidence questions.
 - Do not approve memory.
 - Do not rewrite claims beyond evidence-scoped narrowing.
 - Do not treat broad search snippets as proof; use fetched/source-backed evidence for external claims.

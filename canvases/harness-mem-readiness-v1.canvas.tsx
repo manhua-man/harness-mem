@@ -23,7 +23,7 @@ import {
 
 const MODEL_VERSION = "v1";
 const AS_OF = "2026-07-15";
-const RUNTIME_VERSION = "0.9.0";
+const RUNTIME_VERSION = "0.9.1";
 const WIP_BRANCH = "codex/fix-mcp-status-hook-bootstrap";
 const PYTEST_COUNT = 292;
 
@@ -192,7 +192,7 @@ function ArchitectureDiagram() {
   );
 
   return (
-    <svg viewBox="0 0 720 400" width="100%" height="auto" role="img" aria-label="harness-mem v0.9.0 运行时架构">
+    <svg viewBox="0 0 720 400" width="100%" height="auto" role="img" aria-label="harness-mem v0.9.1 运行时架构">
       <defs>
         <marker id="rdy-arch-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
           <polygon points="0 0, 8 3, 0 6" fill={theme.stroke.primary} />
@@ -242,7 +242,7 @@ function CoreLoopDiagram() {
   ];
 
   return (
-    <svg viewBox="0 0 760 220" width="100%" height="auto" role="img" aria-label="v0.9.0 核心闭环">
+    <svg viewBox="0 0 760 220" width="100%" height="auto" role="img" aria-label="v0.9.1 核心闭环">
       <defs>
         <marker id="rdy-loop-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
           <polygon points="0 0, 8 3, 0 6" fill={theme.accent.primary} />

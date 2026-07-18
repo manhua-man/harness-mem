@@ -1,9 +1,9 @@
 # Recall Audit Contract
 
-`harness-mem` 0.8.9 keeps the explainable recall wrapper without replacing the
-existing governed memory loop. Trust hardening (0.8.4), retrieval quality
-(0.8.5), and maintenance closure (0.8.6) extend the read and governance paths
-documented below.
+This contract originated in `harness-mem` 0.8.9 and remains the current 0.9.x
+explainable recall boundary. It does not replace the governed memory loop.
+Trust hardening, retrieval quality, and maintenance closure extend the read and
+governance paths documented below.
 
 ## What changed
 

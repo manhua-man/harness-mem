@@ -1,14 +1,16 @@
-# Deferred work (living list)
+# Deferred work and scope ledger
 
-Items here are explicitly out of scope for v0.8.15–v0.8.18 PRs unless a dedicated scope-lock amendment says otherwise.
+This is the current 0.9.x scope ledger. Historical 0.8.x scope-lock documents
+remain release records and do not override this list.
 
-| Item | Reason | Earliest revisit |
-|------|--------|------------------|
-| Golden CI infrastructure + fixture expansion | Separate read-path benchmark track | v0.8.19+ |
-| Admission preflight / grill metadata on `confirm_*` | Write-path governance; not blocking vec0/KNN | v0.8.19+ |
-| Rust zero-copy parameter passing | No golden hotspot proof yet | v0.9+ |
-| RRF algorithm tuning / adaptive IDF | Needs stable golden gate first | v0.8.20+ |
-| PyPI publishing | GitHub Releases are the canonical package channel | not planned |
-| Bulk `mcp-router` / `mcp_router` JSON sync | Non-canonical copies; `tool_specs` is source of truth | on demand |
-| `mcps/grok_com_github/**` maintenance | Not harness-mem product surface | never in hm PRs |
-| Docs reorganization | YAGNI until release hardening lands | post-0.8.18 |
+| Item | Status | Reason / revisit rule |
+|------|--------|-----------------------|
+| Golden CI infrastructure + fixture expansion | shipped in 0.9.0 | Retrieval-isolated and scale coverage now gate quality claims. |
+| Admission preflight / grill metadata | deferred | Keep admission in existing Skills and `govern_memory`; add runtime metadata only with measured review value. |
+| Rust zero-copy parameter passing | deferred | No golden hotspot proof yet. |
+| RRF algorithm tuning / adaptive IDF | deferred | Requires a measurable golden-suite win without stability loss. |
+| PyPI publishing | out of product | GitHub Releases remain the canonical package channel. |
+| Bulk `mcp-router` / `mcp_router` JSON sync | frozen | These are non-canonical Router snapshots; `tool_specs.py` plus `mcps/harness_mem` are the source of truth. |
+| `mcps/grok_com_github/**` maintenance | out of product | Not a harness-mem product surface. |
+| Active docs and host-command convergence | 0.9.1 | Remove retired governance vocabulary and guard generated copies against drift. |
+| Split `tool_handlers.py` by bounded capability | deferred | Do only behind public-surface and handler-boundary tests; no 0.9.1 behavior change. |

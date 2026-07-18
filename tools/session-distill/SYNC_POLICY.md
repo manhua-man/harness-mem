@@ -43,7 +43,7 @@ The default route is:
 
 ```text
 immutable source revision -> all ordered chunks -> checkpoints
-  -> final-session review -> idempotent suggest_*
+  -> final-session review -> idempotent govern_memory(action="suggest")
   -> finalize_session_distill -> scoped auto-review + Dream -> /hm:review
 ```
 

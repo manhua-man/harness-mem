@@ -1,6 +1,6 @@
 ---
 name: session-distill
-version: 1.6.0
+version: 1.6.1
 description: |
   Harness-mem 项目的主动会话蒸馏技能。用于把当前项目相关的 Codex / Claude Code / Cursor / Antigravity / opencode / Hermes / generic agent 会话整理成候选记忆，并自动处理低风险项。
   当用户主动要求蒸馏会话、整理记忆、提炼经验、固化项目规则或生成任务交接时使用（无论触发方式是 slash 命令、自然语言请求还是其他客户端入口）。
@@ -15,19 +15,13 @@ allowed-tools:
   - mcp__mcp_router__prepare_session_distill
   - mcp__mcp_router__submit_distill_chunk
   - mcp__mcp_router__finalize_session_distill
-  - mcp__mcp_router__suggest_memory_entry
-  - mcp__mcp_router__suggest_rule
-  - mcp__mcp_router__suggest_relation_fact
-  - mcp__mcp_router__create_task_handoff
+  - mcp__mcp_router__govern_memory
   - mcp__mcp_router__list_candidates
   - mcp__harness_mem__get_project_status
   - mcp__harness_mem__prepare_session_distill
   - mcp__harness_mem__submit_distill_chunk
   - mcp__harness_mem__finalize_session_distill
-  - mcp__harness_mem__suggest_memory_entry
-  - mcp__harness_mem__suggest_rule
-  - mcp__harness_mem__suggest_relation_fact
-  - mcp__harness_mem__create_task_handoff
+  - mcp__harness_mem__govern_memory
   - mcp__harness_mem__list_candidates
 ---
 
@@ -59,7 +53,7 @@ allowed-tools:
   -> final-session semantic review
   -> grill-me 准入（标准模式：高风险深度拷问 / 普通候选轻量 checklist）
   -> distillation-rules
-  -> suggest_*（admit；narrow 后可写；defer/reject 不写）
+  -> govern_memory(action="suggest")（admit；narrow 后可写；defer/reject 不写）
   -> 内部 search_memory / 代码检索；外部来源证据（smart-search 为参考候选，confirm 前必须补证）
   -> finalize_session_distill（结构完整性 + 会话末尾审查后，限定当前 job 自动审核并运行 Dream）
   -> /hm:review audit / undo / user_confirmed
@@ -71,7 +65,7 @@ allowed-tools:
 
 先检查当前 task 的可调用工具，再按逻辑名选择实际 namespace：
 `prepare_session_distill`、`submit_distill_chunk`、`finalize_session_distill`、
-`suggest_memory_entry` 等。客户端如何把它们映射成可调用 alias（带短横线 /
+`govern_memory` 等。客户端如何把它们映射成可调用 alias（带短横线 /
 不带短横线 / 带 server 前缀）由客户端自己决定，本 skill 不假设。
 
 通过 MCP Router 接入 Codex 时，工具通常位于 `mcp__mcp_router__*`；直连
@@ -159,16 +153,17 @@ final-session review 必须包含：`final_user_request`、`final_outcome`、
 
 结合 `references/distillation-rules.md` 判断每条 claim。`admit` 进入 Step 4；`narrow` 改窄后进入 Step 4；`defer` 留 pending/note/补证；`reject` 不写候选。
 
-### 4. 写候选（suggest_*）
+### 4. 写候选（govern_memory）
 
-仅对 Step 3 为 `admit` 或已改窄的 `narrow` 项调用 `suggest_*`。
+仅对 Step 3 为 `admit` 或已改窄的 `narrow` 项调用
+`govern_memory(action="suggest")`。
 
 产出时优先拆成几类：
 
-- `suggest_memory_entry`: 稳定项目知识、架构事实、可复用排障经验。
-- `suggest_rule`: 会改变未来 AI 默认行为的项目规则。
-- `suggest_relation_fact`: 明确的依赖、归属、替代、冲突等实体关系。
-- `create_task_handoff`: 当前任务状态、阻塞点、下一步。
+- `arguments.kind="memory"`: 稳定项目知识、架构事实、可复用排障经验。
+- `arguments.kind="rule"`: 会改变未来 AI 默认行为的项目规则。
+- `arguments.kind="relation"`: 明确的依赖、归属、替代、冲突等实体关系。
+- `action="handoff"`: 当前任务状态、阻塞点、下一步。
 
 这些 suggest 工具只写 candidate layer。不要退回 CLI 或直接写 truth；如果工具不可用，应停止并报告当前 MCP surface 不完整。
 
@@ -199,7 +194,7 @@ final-session review 必须包含：`final_user_request`、`final_outcome`、
 
 `applied_decisions` 必须展示在最终摘要或 audit 入口中。若用户追问某个候选为什么被确认、拒绝或保留，解释 candidate id、evidence id 和 policy reason。
 
-`list_candidates` 可用于显式 review drilldown。`auto_review_candidates` 是项目级审计/维护工具，不是 lossless session 的收尾入口；`confirm_*`、`reject_*` 属于 `/hm:review` durable gate，不是默认 distill 主链。
+`list_candidates` 可用于显式 review drilldown。`auto_review_candidates` 是项目级审计/维护工具，不是 lossless session 的收尾入口；`govern_memory(action="decide")` 属于 `/hm:review` durable gate，不是默认 distill 主链。
 
 最后给用户看自动处理摘要，明确写出 `auto-review mode: apply-low-risk`，并提示运行 `/hm:review` 审计、undo、确认或替换。
 
@@ -227,7 +222,7 @@ wake/search/review 等路径产生的 signals。
 
 | 协作者 | 默认? | 职责 |
 |---|---|---|
-| `grill-before-distill` (grill-me) | **是**（标准准入，按风险分档） | `suggest_*` 之前给主链动作：admit / narrow / defer / reject；已确认记忆回看用 lookback |
+| `grill-before-distill` (grill-me) | **是**（标准准入，按风险分档） | `govern_memory(action="suggest")` 之前给主链动作：admit / narrow / defer / reject；已确认记忆回看用 lookback |
 | smart-search-style CLI | 否（参考候选） | 外部主张举证方案研究；当前不作为 hm 依赖 |
 | `search_memory` | 是（MCP） | 仓库内主张举证，review 前 |
 | Trellis | 否（项目级） | PRD/任务编排，不进 hm 核心 |

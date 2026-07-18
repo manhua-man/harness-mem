@@ -48,8 +48,8 @@ two truth sources.
   → 全部 expected chunks 完成且 source revision 未变化
   → 必须执行 final-session review
   → grill-me 准入（高风险深度 / 普通轻量 checklist）
-  → admit/narrow 才幂等 suggest_* → pending；defer/reject 不写
-  → 内部 search_memory；外部证据工具（smart-search 为参考候选，confirm 前必须补证）
+  → admit/narrow 才幂等 govern_memory(action="suggest") → pending；defer/reject 不写
+  → 内部 search_memory；外部证据工具（smart-search 为参考候选，确认前必须补证）
   → finalize_session_distill → auto-review + Dream
   → auto_confirmed / provisional truth
   → /hm:review audit/undo → user_confirmed
@@ -72,12 +72,12 @@ distill 完整处理有序 chunks → per-chunk checkpoints → final-session re
   → 外部事实? evidence search/fetch support + source
   → 代码事实? search_memory
   → finalize_session_distill 自动执行 auto-review + Dream
-  → /hm:review 事后审计；confirm_* 写入 user-confirmed 真相
+  → /hm:review 事后审计；govern_memory(action="decide", decision="confirm") 写入 user-confirmed 真相
 ```
 
 Evidence does not have to block candidate creation. It does block confirmation:
 external or version-sensitive claims must carry a fetched/source-backed evidence
-bundle before `confirm_*`. smart-search is a reference candidate for that role;
+bundle before `govern_memory(action="decide", decision="confirm")`. smart-search is a reference candidate for that role;
 it is not a current harness-mem dependency or installed skill.
 
 Skill: `plugins/harness-mem/skills/grill-before-distill/SKILL.md`
@@ -86,8 +86,8 @@ Admission actions stay on the main write path:
 
 | Action | Continue how |
 |---|---|
-| `admit` | Continue to `suggest_*`. |
-| `narrow` | Rewrite scope/wording, then continue to `suggest_*`. |
+| `admit` | Continue to `govern_memory(action="suggest")`. |
+| `narrow` | Rewrite scope/wording, then continue to `govern_memory(action="suggest")`. |
 | `defer` | Keep as pending/note or evidence gap; do not write candidate yet. |
 | `reject` | Drop as noise/local-only/misleading. |
 
@@ -139,7 +139,7 @@ Not runtime-enforced until a future explicit gate cites this doc.
 |---|---|---|
 | trellis-check | `auto_review_candidates` (memory only) | Code check separate; memory stays hm |
 | update-spec | `govern_memory(action="decide", kind="rule")` + promote to AGENTS.md | Adopt pattern; no `.trellis/spec/` in hm |
-| finish-work | `create_task_handoff` + dream hook | Map only |
+| finish-work | `govern_memory(action="handoff")` + dream hook | Map only |
 | journal | event_log + confirmed memory | hm wins; no dual journal |
 
 **Hard boundary:**
@@ -159,8 +159,8 @@ store.
 |---|---|---|
 | `check` | Run code acceptance with the project test stack (`pytest`, `ruff`, app-specific checks). Run memory acceptance with `auto_review_candidates(apply=true)` for low-risk automation, then use `/hm:review` for audit, undo, and high-risk decisions. | Do not treat `auto_review_candidates` as code validation; do not treat passing tests as memory confirmation. |
 | `update-spec` | When a repeated lesson should change future behavior, use `govern_memory(action="suggest")`; after confirmation, update repo guidance such as `AGENTS.md` only when the scope is repo-wide. | Do not create `.trellis/spec/` or a parallel PRD truth layer inside hm. |
-| `finish-work` | At task/session end, call `create_task_handoff` for current state, blockers, and next steps. Then read or trigger `/hm:dream` only when maintenance or ledger review is needed. | Do not double-write task state to a Trellis journal and hm handoff. |
-| `journal` | Use `event_log` / state audit for governance history, `timeline` / `search_memory` for retrievable memory history, `create_task_handoff` for task continuity, and `dream_ledger` for maintenance history. | Do not install or sync Trellis journal as durable project memory. |
+| `finish-work` | At task/session end, call `govern_memory(action="handoff")` for current state, blockers, and next steps. Then read or trigger `/hm:dream` only when maintenance or ledger review is needed. | Do not double-write task state to a Trellis journal and hm handoff. |
+| `journal` | Use `event_log` / state audit for governance history, `timeline` / `search_memory` for retrievable memory history, `govern_memory(action="handoff")` for task continuity, and `dream_ledger` for maintenance history. | Do not install or sync Trellis journal as durable project memory. |
 
 Closeout checklist:
 
@@ -184,7 +184,7 @@ Closeout checklist:
 | MCP on demand | Browser/GitHub/etc.; memory via hm MCP |
 | trellis-check | pytest/ruff; separate from auto_review |
 | update-spec | `govern_memory(action="decide", kind="rule")` + repo rules |
-| finish-work / journal | `create_task_handoff` + dream; journal = confirmed memory |
+| finish-work / journal | `govern_memory(action="handoff")` + dream; journal = confirmed memory |
 
 ## Adoption priority (KISS)
 

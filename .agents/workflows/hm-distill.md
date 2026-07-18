@@ -16,12 +16,13 @@ wireFormatVersion: hm-wire-v3.5
 - MCP Router 接入：`mcp__mcp_router__get_project_status`、
   `mcp__mcp_router__prepare_session_distill`、
   `mcp__mcp_router__submit_distill_chunk`、
-  `mcp__mcp_router__finalize_session_distill` 及同 namespace 的 `suggest_*` /
-  `create_task_handoff`。
+  `mcp__mcp_router__finalize_session_distill` 及同 namespace 的
+  `govern_memory`。
 - 直连无短横线 server：`mcp__harness_mem__get_project_status`、
   `mcp__harness_mem__prepare_session_distill`、
   `mcp__harness_mem__submit_distill_chunk`、
-  `mcp__harness_mem__finalize_session_distill` 及同 namespace 的候选工具。
+  `mcp__harness_mem__finalize_session_distill` 及同 namespace 的
+  `govern_memory`。
 - 客户端直接暴露裸工具名时，使用 `get_project_status`、
   `prepare_session_distill`、`finalize_session_distill` 等逻辑名。
 

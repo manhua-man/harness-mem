@@ -4,15 +4,15 @@
 
 Do not ask whether text should be promoted until its destination is clear.
 
-- `create_task_handoff`
+- `govern_memory(action="handoff")`
   - current task state, blockers, unfinished work, and concrete next steps
   - temporary environment details needed to resume the task
-- `suggest_memory_entry`
+- `govern_memory(action="suggest", arguments.kind="memory")`
   - durable architecture facts, decisions, file maps, workflows, and reusable
     debugging lessons
-- `suggest_rule`
+- `govern_memory(action="suggest", arguments.kind="rule")`
   - cross-cutting guidance that should change future Agent behavior in the repo
-- `suggest_relation_fact`
+- `govern_memory(action="suggest", arguments.kind="relation")`
   - explicit ownership, dependency, replacement, conflict, or lineage relations
 - repo docs, comments, or tests
   - system behavior and business constraints that belong with the implementation
@@ -64,7 +64,7 @@ packet manifests, or memory-drafts as parallel truth stores.
 - Keep one candidate to one durable claim.
 - Narrow environment-specific claims instead of pretending they are universal.
 - Merge semantic duplicates through stable candidate identity.
-- Use `suggest_rule` only when future default Agent behavior should change.
+- Use `arguments.kind="rule"` only when future default Agent behavior should change.
 - Use module docs/tests for code behavior rather than turning implementation
   facts into collaboration rules.
 - Do not call confirm/reject/replace tools from the default distill path.

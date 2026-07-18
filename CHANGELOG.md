@@ -2,22 +2,53 @@
 
 ## Unreleased
 
-## [0.8.25] - 2026-07-16
+## [0.9.1] - 2026-07-18
 
 ### Added
 
-- Project-scoped MCP status bootstrap now adopts the workspace and installs the
-  matching generated Hook suite for all seven recognized hosts without asking
-  users to run a hook installer.
+- Public-contract guardrails reject retired per-kind governance tool names in
+  active Skills, Daily commands, generated host copies, and current docs.
+
+### Changed
+
+- Every active memory-write instruction now uses the single public
+  `govern_memory` boundary for suggestion, review decisions, handoff, correction,
+  and supersede operations.
+- The roadmap, maturity snapshot, install examples, and seven generated host
+  command sets now describe the 0.9.x product line and 0.9.1 package truth.
+- The deferred-work page is now the current scope ledger; historical 0.8.x
+  planning documents remain explicitly historical instead of masquerading as
+  current worktree state.
+
+### Removed
+
+- Unreferenced duplicate documents under `docs/internal/`; the canonical
+  roadmap, memory-adoption, and retrieval-research pages remain under `docs/`.
+
+### Fixed
+
+- Restored separate 0.8.25 and 0.9.0 changelog histories after the 0.9.0 merge
+  had accidentally placed 0.9.0 changes under the 0.8.25 heading.
+
+## [0.9.0] - 2026-07-18
+
+### Added
+
 - Compact/full MCP response views with decision-fingerprint parity. Project
   status stays below the 1.2k-token budget and distill uses a ≤3k-token indexed
   manifest followed by semantic-window and raw-proof drilldown.
 - Agent-active parked draining with a two-job active lane, 3:1 recent/oldest
   fairness, daily new-job budget, exponential failure backoff, and throughput
   metrics. Runtime reports `waiting_for_agent` when no model can perform review.
-- Atomic Storage v2 migration: pre-migration SQLite backup, staging validation,
-  integrity check, atomic activation, runtime-state-last switching, and automatic
-  restoration after activation failure.
+- Atomic Storage v2 migration with pre-migration backup, staging validation,
+  integrity checks, atomic activation, runtime-state-last switching, and
+  automatic restoration after activation failure.
+- Project capture policy, private/capture-ignore handling, transcript retention,
+  and preview-first hard deletion across raw revisions, chunks, Observations,
+  candidates, truth, and derived indexes.
+- User-global native Daily commands for Claude Code, Cursor, Grok, Codex,
+  Hermes, OpenCode, and Antigravity, plus cross-host transcript-to-wake tests.
+- Sixty retrieval-isolated benchmark cases and 1k/10k scale coverage.
 - Explicit dry-run `maintenance migrate-legacy-accepted` governance migration.
   Rows move only to pending review or historical/superseded state and retain
   audit/undo metadata; the migration never confirms truth.
@@ -35,6 +66,24 @@
 - MCP governance writes are consolidated behind `govern_memory`; the exported
   public descriptor surface contains 27 tools while full diagnostic drilldown
   remains available.
+
+### Fixed
+
+- Retention of an old transcript revision no longer deletes candidates that
+  belong to a newer retained revision of the same session.
+- Project-scoped vector rebuilds no longer clear embeddings owned by other
+  projects in the shared derived index.
+- Compact distill preserves evidence anchors consistently with or without the
+  optional tokenizer, and host-command tests now follow platform-native Hermes
+  paths.
+
+## [0.8.25] - 2026-07-16
+
+### Added
+
+- Project-scoped MCP status bootstrap now adopts the workspace and installs the
+  matching generated Hook suite for all seven recognized hosts without asking
+  users to run a hook installer.
 
 ### Fixed
 
