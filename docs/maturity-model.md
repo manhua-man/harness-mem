@@ -79,26 +79,27 @@ Binary yes/no: public docs and agent skills must stay inside verified capability
 | ⑨ Maintenance | L1 dream + L4 distill maintenance |
 | ⑩ Evidence | L6 + per-track contract tests |
 
-## Current snapshot (v0.9.1)
+## Current snapshot (v0.9.3)
 
 See `canvases/harness-mem-readiness-v1.canvas.tsx` for the living panel. As of
-2026-07-18:
+2026-07-26:
 
 | Track | Score | Primary gap |
 |-------|------:|-------------|
-| L1 | 94 | — |
-| L2 | 96 | — |
-| L3 | 94 | 60-case golden + 1k/10k scale gates shipped; ranking diversity remains iterative |
-| L4 | 96 | Privacy lifecycle plus bounded Agent-active automation shipped; 3:1 recent/oldest refill, daily budget, backoff, and `waiting_for_agent` keep parked work honest and non-starving |
+| L1 | 96 | — |
+| L2 | 97 | — |
+| L3 | 95 | Seven-day outcome/abstention/exclusion scorecard ships; ranking diversity remains iterative |
+| L4 | 98 | Exact offered-job claims, privacy deletion receipts, backlog reasons, and Storage v2 recovery injection are verified |
 | L5 | 96 | Seven-host global command discovery and cross-host transcript→wake contract verified |
-| L6 | 95 | — |
-| **Weighted** | **~96** | **Retrieval ranking remains the main iterative quality track** |
+| L6 | 97 | Risk-classified Doctor recovery, compact/full status parity, 27-tool contract, and release gates verified |
+| **Weighted** | **~97** | **Retrieval ranking remains the main iterative quality track** |
 
 The public MCP contract currently contains 27 tools (~27.4 KiB compact
 `tools/list` JSON). The former low-level suggest/confirm/reject family is
 internal compatibility code
 behind `govern_memory`; its 784-line implementation is isolated in
-`mcp/governance_handlers.py`, keeping the main handler module below 3,500 lines.
+`mcp/governance_handlers.py`; read/status/dream/distill capability modules keep
+the facade below 900 lines.
 
 ## Review cadence
 

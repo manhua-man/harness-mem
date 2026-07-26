@@ -6,8 +6,8 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.1 \
-  harness-mem==0.9.1
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.3 \
+  harness-mem==0.9.3
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Pip uses
@@ -17,8 +17,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.1 \
-  "harness-mem[hybrid]==0.9.1"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.3 \
+  "harness-mem[hybrid]==0.9.3"
 ```
 
 Check the CLI:
@@ -43,6 +43,9 @@ maintenance. Daily memory work should happen through MCP or `/hm:*` commands.
 Maintenance import, soft purge, and privacy erasure are available as
 `harness-mem maintenance import`, `harness-mem maintenance purge`, and
 `harness-mem maintenance erase`; all preview by default until `--apply` is passed.
+Erase apply first writes a content-free durable receipt. If that write fails,
+deletion does not start; partial failures return non-zero and retain planned,
+actual, and post-delete verification counts without copying private content.
 Other CLI maintenance actions are limited to operator repair and audit tasks
 such as index rebuilds, storage migration/export, and state audit.
 Procedural skill lifecycle management is outside the public memory MCP and CLI
@@ -131,6 +134,11 @@ truth and active handoffs are appended when available; an un-distilled project
 is no longer rendered as three empty sections.
 `get_project_status` and CLI status also expose one compact integration line for
 the current project, host, hooks, transcript observations, and distill queue.
+Compact status keeps the release decisions under its response budget; request
+`detail_level="full"` only when you need seven-day outcome/abstention/exclusion
+counts, stuck-reason actions, or the conservative Agent-throughput drain estimate.
+Doctor's recovery plan is read-only and risk-classified; preview and apply are
+always separate commands.
 
 ## Daily Loop
 
@@ -155,6 +163,9 @@ captures an immutable transcript revision and queues every ordered chunk. The
 next Agent-capable wake offers an active lane of at most two jobs. Refills use
 three recent jobs followed by one oldest eligible job, with exponential failure
 backoff and a daily new-job budget; older evidence stays parked without deletion.
+Each offered job is claimed through
+`prepare_session_distill(distill_job_id=...)`, so the Agent processes the exact
+bounded IDs selected by the drainer instead of reselecting by timestamp.
 Without an Agent, status is `waiting_for_agent`, not background processing;
 the user does not need to keep invoking `/hm:distill`. That command remains an
 explicit immediate/deep-audit entry. In the daily semantic fast path, runtime hash-verifies and checkpoints

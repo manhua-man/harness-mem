@@ -22,10 +22,9 @@ import {
 } from "cursor/canvas";
 
 const MODEL_VERSION = "v1";
-const AS_OF = "2026-07-15";
-const RUNTIME_VERSION = "0.9.1";
-const WIP_BRANCH = "codex/fix-mcp-status-hook-bootstrap";
-const PYTEST_COUNT = 292;
+const AS_OF = "2026-07-26";
+const RUNTIME_VERSION = "0.9.3";
+const PYTEST_COUNT = 384;
 
 type TrackId = "l1" | "l2" | "l3" | "l4" | "l5" | "l6";
 
@@ -47,7 +46,7 @@ const READINESS_TRACKS: ReadinessTrack[] = [
     code: "L1",
     label: "记忆闭环",
     weight: 20,
-    score: 94,
+    score: 96,
     tone: "success",
     acceptance: "wake → search → distill → review → dream 端到端可跑",
     signals: "guided flow v5.13 · 7 条 /hm:* Daily · phase=ready",
@@ -58,7 +57,7 @@ const READINESS_TRACKS: ReadinessTrack[] = [
     code: "L2",
     label: "真理与治理",
     weight: 25,
-    score: 96,
+    score: 97,
     tone: "success",
     acceptance: "无静默改写 confirmed truth；候选 / 审计 / supersede 闭环",
     signals: "7 层 governance status · state audit ledger · finalize 语义终审",
@@ -69,44 +68,44 @@ const READINESS_TRACKS: ReadinessTrack[] = [
     code: "L3",
     label: "检索与召回",
     weight: 15,
-    score: 90,
+    score: 95,
     tone: "success",
     acceptance: "filter-first hybrid；vec0 KNN + batch cosine 回退",
-    signals: "recall.steps 稳定 · abstention · HM-204 doctor",
-    evidence: "0.8.15–18 scope-lock · test_sqlite_vec_index · golden 基线",
+    signals: "recall.steps 稳定 · 7 日 quality scorecard · abstention/exclusion",
+    evidence: "60-case golden · 1k/10k scale · project-isolation fixtures",
   },
   {
     id: "l4",
     code: "L4",
     label: "证据与蒸馏",
     weight: 20,
-    score: 92,
+    score: 98,
     tone: "success",
     acceptance: "无损转写账本 · 可恢复 chunk job · revision 幂等",
-    signals: "7 host 适配器 · prepare/submit/finalize MCP · transcript=synced",
-    evidence: "0.8.24 CHANGELOG · 跨平台 transcript hash smoke",
+    signals: "exact offered-job claim · deletion receipt · backlog reason codes",
+    evidence: "0.9.3 migration failure injection · privacy lifecycle tests",
   },
   {
     id: "l5",
     code: "L5",
     label: "宿主集成",
     weight: 15,
-    score: 82,
-    tone: "warning",
+    score: 96,
+    tone: "success",
     acceptance: "hooks + MCP 入口 + install drift + per-host ingest",
-    signals: "harness-mem-mcp · install_drift=无 · hooks=unknown（bootstrap WIP）",
-    evidence: "integration_health 摘要 · release smoke 三平台 · 当前分支修 bootstrap",
+    signals: "harness-mem-mcp · install_drift=无 · 七宿主全局命令",
+    evidence: "integration_health 摘要 · cross-host transcript→wake contract",
   },
   {
     id: "l6",
     code: "L6",
     label: "运维与发布",
     weight: 5,
-    score: 95,
+    score: 97,
     tone: "success",
     acceptance: "GitHub Release 通道 · doctor/CLI · MCP export CI",
-    signals: "v0.8.24 tag · ensure_mcps_canonical · 292 pytest",
-    evidence: "public-smoke.yml · release-wheels 六目标",
+    signals: "27 MCP tools · risk-classified Doctor · 384 pytest",
+    evidence: "public-smoke.yml · release-wheels 六目标 · Rust 6 tests",
   },
 ];
 
@@ -129,9 +128,9 @@ const SCOPE_LEDGER: ScopeItem[] = [
   { id: "mcp-cmd", item: "harness-mem-mcp 安装入口", state: "shipped", note: "0.8.23.4" },
   { id: "lossless", item: "无损转写 + 可恢复蒸馏", state: "shipped", note: "0.8.24" },
   { id: "hosts-7", item: "7 host 转写适配器", state: "shipped", note: "含 Hermes / Antigravity" },
-  { id: "hooks-boot", item: "status integration bootstrap", state: "in_progress", note: WIP_BRANCH },
-  { id: "distill-q", item: "历史会话蒸馏 backlog", state: "in_progress", note: "queued jobs（非阻塞发布）" },
-  { id: "golden", item: "Golden CI + fixture 扩展", state: "deferred", note: "defer.md · v0.8.19+" },
+  { id: "hooks-boot", item: "status integration bootstrap", state: "shipped", note: "0.9.0" },
+  { id: "distill-q", item: "Agent-active distill backlog diagnostics", state: "shipped", note: "0.9.3" },
+  { id: "golden", item: "Golden CI + fixture 扩展", state: "shipped", note: "60 cases + scale gates" },
   { id: "admission", item: "confirm_* admission preflight", state: "deferred", note: "defer.md" },
   { id: "rrf", item: "RRF / adaptive IDF 调参", state: "deferred", note: "需 golden gate" },
   { id: "wiki", item: "M10 wiki bridge", state: "out_of_product", note: "主动删除" },
@@ -192,7 +191,7 @@ function ArchitectureDiagram() {
   );
 
   return (
-    <svg viewBox="0 0 720 400" width="100%" height="auto" role="img" aria-label="harness-mem v0.9.1 运行时架构">
+    <svg viewBox="0 0 720 400" width="100%" height="auto" role="img" aria-label="harness-mem v0.9.3 运行时架构">
       <defs>
         <marker id="rdy-arch-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
           <polygon points="0 0, 8 3, 0 6" fill={theme.stroke.primary} />
@@ -242,7 +241,7 @@ function CoreLoopDiagram() {
   ];
 
   return (
-    <svg viewBox="0 0 760 220" width="100%" height="auto" role="img" aria-label="v0.9.1 核心闭环">
+    <svg viewBox="0 0 760 220" width="100%" height="auto" role="img" aria-label="v0.9.3 核心闭环">
       <defs>
         <marker id="rdy-loop-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
           <polygon points="0 0, 8 3, 0 6" fill={theme.accent.primary} />
@@ -500,22 +499,22 @@ export default function HarnessMemReadinessV1Canvas() {
       </Grid>
 
       <Stack gap={6}>
-        <H3>下一轨改进（L5）</H3>
+        <H3>下一轨改进（L3）</H3>
         <TodoListCard
           todos={[
             {
               id: "l5-1",
-              content: "合并 status integration bootstrap：host_client + hooks 实报",
-              status: "in_progress",
+              content: "用新增 outcome / abstention / exclusion 数据校准排序多样性",
+              status: "pending",
             },
             {
               id: "l5-2",
-              content: "首次 get_project_status(project_root, host_client) 幂等安装 hooks",
-              status: "in_progress",
+              content: "只有 golden suite 证明提升时才调整 RRF / adaptive IDF",
+              status: "pending",
             },
             {
               id: "l5-3",
-              content: "消化 queued distill backlog（可选，不阻塞 L5 定义）",
+              content: "保留 graph DB、第二 store 和后台语义 Agent 为非目标",
               status: "pending",
             },
           ]}
@@ -526,8 +525,7 @@ export default function HarnessMemReadinessV1Canvas() {
       <Card variant="borderless">
         <CardBody>
           <Text tone="secondary" size="small">
-            Source: get_project_status · CHANGELOG 0.8.24 · docs/maturity-model.md · {PYTEST_COUNT} pytest collected ·
-            WIP {WIP_BRANCH}
+            Source: get_project_status · CHANGELOG 0.9.3 · docs/maturity-model.md · {PYTEST_COUNT} pytest passed
           </Text>
         </CardBody>
       </Card>

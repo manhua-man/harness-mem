@@ -53,6 +53,13 @@ for the same host. Pick one transport. When the server implementation or tool
 schema changes, restart the harness-mem child process in the Router and start a
 new Agent task; existing tasks keep the tool snapshot they started with.
 
+`harness_mem/mcp/tool_specs.py` and `mcps/harness_mem/tools/` are the canonical
+descriptor sources. The checked-in `mcps/mcp-router` and `mcps/mcp_router`
+directories are frozen Router snapshots owned as a whole; do not bulk-copy a
+single harness-mem schema change into them. See
+[compatibility-inventory.md](compatibility-inventory.md) for the keep/remove
+criteria behind this boundary.
+
 The server has one public memory surface. It exposes the normal Agent workflow:
 status, wake/search, session distill, composite `govern_memory`, candidate
 review, and dream as the default audited maintenance capability.
@@ -77,6 +84,9 @@ bounded Agent distillation. Wake keeps at most two jobs active, parks older cold
 evidence without deleting it, and refills the active lane after completion with
 a 3:1 recent/oldest policy, a daily new-job budget, and failure backoff. This
 preserves recency without starving parked history.
+Wake includes the selected IDs; the Agent passes each one back as
+`prepare_session_distill(distill_job_id=...)`. Exact targeting cannot claim a
+parked, cross-project, completed, stale, or retry-backoff job.
 
 `autopilot_search_tick` is the event-level scheduler. PI
 `transformContext` / `tool_result` / `prepareNextTurn`, Claude Code
@@ -85,7 +95,8 @@ payloads into that tool. It searches only for concrete uncertainty, conflict,
 tool failure, durable-claim grounding, or long-horizon task switches; it is not
 a second `wake`.
 
-`prepare_session_distill` syncs native transcript revisions and preserves every
+`prepare_session_distill` optionally claims one active `distill_job_id`,
+syncs native transcript revisions, and preserves every
 ordered raw chunk. Daily `evidence_mode="semantic", detail_level="compact",
 budget_tokens=3000` lets runtime hash-verify and checkpoint each chunk before
 returning a deterministic indexed manifest. The Agent selects complete semantic
@@ -120,10 +131,26 @@ Storage migration uses an automatic pre-migration SQLite snapshot, a staging DB,
 integrity/checksum-relation validation, atomic activation, and runtime-state-last
 switching. Doctor distinguishes `exact_match`, `canonical_superset_expected`,
 `legacy_missing_in_canonical`, `content_conflict`, and `invalid_legacy`.
+Doctor probes the database through a read-only connection and classifies each
+possible recovery as `safe_rebuild`, `snapshot_required`, `manual_review`, or
+`destructive`. The report may name exact preview and apply commands, but
+`automatic_apply_allowed` remains false; corruption fails closed.
 `maintenance migrate-legacy-accepted` is dry-run by default and can only move old
 `accepted` rows to pending review or historical/superseded state; it never confirms truth.
 `maintenance rebuild-vector-index --batch-size 32` preserves old vectors until
 batched staging rows validate, then switches transactionally and rebuilds vec0 once.
+`maintenance erase` also previews by default. Apply persists an `in_progress`
+content-free receipt before deleting anything, then records `succeeded`,
+`skipped`, or `partial_failure` with planned/actual counts and post-delete
+verification. Receipt persistence failure prevents the destructive phase.
+
+Full project status includes a project-isolated seven-day quality scorecard for
+surfaced, used, ignored, misleading, abstained, historical/stale excluded,
+conflict excluded, and insufficient-feedback counts. Missing outcome feedback
+is not treated as poor feedback. Backlog diagnostics distinguish daily-budget
+exhaustion, retry backoff, waiting for the active lane, and zero Agent
+throughput; drain estimates explicitly require Agent execution and never imply
+background semantic processing.
 
 ## Claude Code
 

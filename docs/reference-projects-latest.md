@@ -1,13 +1,13 @@
 # Reference projects — current upstream check
 
-Checked: 2026-07-18. This is the live reference note; comparison canvases are
+Checked: 2026-07-26. This is the live reference note; comparison canvases are
 historical snapshots and must not be used as current version truth.
 
 | Project | Verified upstream state | What harness-mem should keep learning |
 |---|---|---|
-| [claude-mem](https://github.com/thedotmack/claude-mem/releases) | v13.11.0 (2026-07-13) | Worker-native background sync, bounded pages/backoff, cross-platform host correctness, and automatic recovery. Its latest release reinforces failure-isolated backlog processing rather than more user commands. |
-| [Hindsight](https://github.com/vectorize-io/hindsight/releases) | v0.8.4 (2026-07-01) | Retain/recall/reflect simplicity, idempotent chunking, worker operation metrics, temporal/entity extraction, and published long-memory evaluation. harness-mem should compare measured retrieval behavior, not copy its service/graph footprint. |
-| [Mem0](https://github.com/mem0ai/mem0/releases) | Python SDK v2.0.12; Node SDK v3.1.0 (2026-07-13) | Linked-memory deletion, rich filters, URL-safe identifiers, vector-update rollback, and explicit API compatibility are directly relevant to privacy lifecycle, atomic index switching, and temporal supersede semantics. |
+| [claude-mem](https://github.com/thedotmack/claude-mem/releases) | v13.12.4 (2026-07-23) | Failure-isolated shutdown, migration repair that preserves orphaned user data, boot-race hardening, and producer/consumer schema alignment reinforce explicit recovery plans and content-preserving migration tests. |
+| [Hindsight](https://github.com/vectorize-io/hindsight/releases) | core v0.8.5 (2026-07-22) | Recall score floors, bounded operation history, crash-retry accounting, vector coverage repair, and provider/schema failure visibility reinforce abstention metrics, backlog diagnosis, and fail-closed recovery. Integration-only tags are tracked separately from core releases. |
+| [Mem0](https://github.com/mem0ai/mem0/releases) | Python SDK v2.0.14; Node SDK v3.1.2 (2026-07-25) | Explicit search error propagation, linked-memory deletion, rich filters, vector-update safety, and API compatibility remain directly relevant to deletion receipts, atomic index switching, and temporal supersede semantics. |
 
 Changes adopted in the current workspace from this refresh:
 

@@ -2,8 +2,11 @@
 
 `harness-mem` 0.9.x is the convergence line for one automatic, auditable
 Agent-memory loop. 0.9.0 shipped the automation, storage-safety, and
-cross-host runtime baseline; 0.9.1 removes stale product vocabulary and locks
-the public governance contract. The stable loop is not a manual checklist:
+cross-host runtime baseline; 0.9.1 removed stale product vocabulary and locked
+the public governance contract. Version 0.9.3 ships the complete 0.9.2 handler
+and deterministic-distill work together with explainable recovery and quality
+operations. No separate 0.9.2 package or tag was published. The stable loop is
+not a manual checklist:
 
 ```text
 wake -> search -> distill -> review -> dream
@@ -31,6 +34,106 @@ not pending work.
 |---|---|---|---|
 | `0.9.0` | Automatic, safe, cross-host runtime baseline. | Compact MCP responses, two-stage distill, bounded Agent-active draining, Storage v2 recovery, privacy lifecycle, batch vectors, and seven-host commands are verified end to end. | A second truth store, background semantic claims without an Agent, or a broader public MCP surface. |
 | `0.9.1` | Public-contract and narrative convergence. | Every active Skill/command uses `govern_memory`; generated host copies agree; 0.9.x docs and release history are canonical; guardrail tests reject removed governance vocabulary. | Broad handler refactors, new tools, or new configuration profiles. |
+| `0.9.2` | Folded into 0.9.3; not published separately. | Exact offered-job claiming and the bounded handler split ship in the 0.9.3 package and tag. | A separate 0.9.2 release artifact. |
+| `0.9.3` | Explainable recovery and memory-quality operations, including all 0.9.2 work. | Doctor emits a risk-classified recovery plan, Storage v2 drift is explained with replay-tested recovery, privacy deletion has verifiable receipts, and status reports outcome-based retrieval quality rather than latency alone. | A second store, automatic destructive repair, new persistence roots, or autonomous semantic claims without an Agent. |
+
+## 0.9.2 — Deterministic Distill and MCP Implementation Convergence (shipped in 0.9.3)
+
+Goal: make unattended distill execution deterministic while making the MCP
+runtime maintainable.
+
+Functional iteration:
+
+- Add optional `distill_job_id` targeting to the existing
+  `prepare_session_distill` tool so the bounded jobs offered by wake are the
+  jobs actually processed.
+- Render selected IDs in automatic maintenance instructions and require Agents
+  to process them one at a time. A failed job can be deferred without changing
+  the identity of the next selected job.
+- Reject cross-project, parked, completed, stale, or retry-backoff targets with
+  explicit status/retry metadata. Explicit targeting must not bypass fairness,
+  daily budget, or backoff policy.
+- Keep semantic compact mode, raw proof drilldown, candidate idempotency, final
+  semantic review, auto-review, and Dream as one resumable per-job lifecycle.
+
+Internal convergence:
+
+- Keep `tool_handlers.py` as the dependency-binding and registry facade.
+- Own evidence reads and wake in `read_handlers.py`; project/runtime status in
+  `status_handlers.py`; audited maintenance in `dream_handlers.py`; lossless
+  session processing in `distill_handlers.py`; durable governance writes in
+  `governance_handlers.py`.
+- Preserve compatibility re-exports used by tests and older internal imports,
+  but do not add them to the public MCP allowlist.
+- Lock the exact 27-tool public surface. The only additive 0.9.2 schema change
+  is optional `prepare_session_distill.distill_job_id`; compact/full defaults,
+  the review gate, Dream audit/undo behavior, and internal-only status of
+  `set_active_project` and `ingest_sessions` remain unchanged.
+
+Acceptance:
+
+- `tool_handlers.py` stays below 900 lines and contains none of the five
+  capability bodies.
+- Handler-boundary and public-surface contract tests pass, followed by the
+  complete Python, Ruff, Mypy, Rust, and package-build gates.
+- Existing compact/full decision fingerprints and lossless distill lifecycle
+  tests pass without fixture rewrites.
+- A two-job test proves exact selection can process the older offered job even
+  when queue policy would otherwise choose the newer one; deferred jobs expose
+  `retry_after` and cannot be reclaimed early.
+
+## 0.9.3 — Explainable Recovery and Memory-Quality Operations (shipped)
+
+Goal: give users one trustworthy operational view for recovery, privacy, and
+whether retrieved memory is actually helping.
+
+Functional iteration:
+
+- Add a structured Doctor recovery plan with `safe_rebuild`,
+  `snapshot_required`, `manual_review`, and `destructive` risk classes.
+  The plan names exact preview/apply commands; nothing destructive auto-runs.
+- Add a privacy lifecycle report and durable deletion receipt containing the
+  affected revision/chunk/Observation/candidate/index counts and post-delete
+  verification result, without retaining deleted private content.
+- Extend full project status with a seven-day memory-quality scorecard:
+  surfaced, used, ignored, misleading, abstained, stale/conflict excluded, and
+  insufficient-feedback counts. Ranking influence remains bounded and
+  explainable.
+- Surface stuck distill reasons, oldest parked age, effective throughput, and a
+  coarse drain estimate so users can distinguish healthy parked history from a
+  stalled queue.
+
+Internal convergence:
+
+- Split Doctor into bounded probe, classification, rendering, and explicit
+  remediation modules; probes remain read-only unless the user selects a
+  documented repair command.
+- Classify canonical/legacy checksum differences as expected growth, actionable
+  drift, or corruption using row counts, revision lineage, and migration state
+  instead of presenting every mismatch as the same warning.
+- Add migration failure-injection tests covering pre-migration snapshot,
+  transaction rollback, restart recovery, and preservation of newer canonical
+  rows.
+- Inventory internal compatibility aliases and legacy readers, attach a
+  keep/remove criterion to each, and remove only paths proven unused by host,
+  CLI, MCP, migration, and rollback tests.
+
+Acceptance:
+
+- A healthy canonical store with newer rows produces an informational,
+  explained result rather than a maintenance warning.
+- Real divergent or corrupt fixtures still fail closed with a concrete recovery
+  path; no Doctor action silently deletes or overwrites data.
+- Doctor/storage boundary tests, migration replay tests, seven-host smoke tests,
+  and the full release gate pass.
+- Retrieval scorecard fixtures prove project isolation and distinguish no
+  feedback from poor feedback; deletion receipts prove every planned local
+  artifact was removed without copying raw private content into the receipt.
+
+Explicit non-goals for both releases: no public MCP expansion, no new MCP
+profile, no second truth store, no new configuration switch, no new persistence
+path, no automatic destructive action, and no quality claim that bypasses
+retrieval-isolated evaluation.
 
 ### Historical 0.8.x release line
 

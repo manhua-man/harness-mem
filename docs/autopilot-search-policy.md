@@ -152,8 +152,9 @@ transcript source and cannot replace the immutable source revision.
 When that Agent invocation occurs, or when `/hm:distill` is explicitly used,
 the pipeline continues:
 
-1. Claim bounded chunks with `prepare_session_distill`, preserving their full
-   text and source-revision order.
+1. Claim each offered job by passing its `distill_job_id` to
+   `prepare_session_distill`, preserving bounded selection, full text, and
+   source-revision order.
 2. Process and checkpoint each chunk so interruption resumes after the last
    completed chunk without duplicate writes.
 3. After every expected chunk is checkpointed and the source revision is still

@@ -82,7 +82,16 @@ excluded content never reaches raw revisions, chunks, Observations, or indexes.
 `[transcript].retention_days` enables automatic expiry (`0` keeps data).
 `harness-mem maintenance erase --project NAME --session-id ID` previews a full
 hard delete; add `--apply` to erase raw revisions, chunks, jobs, Observations,
-linked candidates/truth, and FTS/vector rows, leaving only a content-free audit digest.
+linked candidates/truth, and FTS/vector rows. Apply first persists a content-free
+receipt, then reports planned versus actual counts and post-delete verification;
+receipt failure prevents deletion, and partial deletion returns a non-zero status.
+
+Operational diagnosis is equally explicit. Doctor probes SQLite read-only and
+renders a recovery plan grouped as `safe_rebuild`, `snapshot_required`,
+`manual_review`, or `destructive`; it never auto-applies a repair. Compact
+project status preserves the decisions while full drilldown adds seven-day
+retrieval outcome/abstention/exclusion counts and concrete distill backlog
+reasons plus a conservative Agent-throughput drain estimate.
 
 <p align="center">
   <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="Native IDE transcripts are preserved as immutable revisions, processed through every ordered chunk, reviewed at session end, and only then promoted into memory" width="900" />
@@ -110,8 +119,8 @@ owns storage, candidates, review, retrieval, and local audit state.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.1 \
-  harness-mem==0.9.1
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.3 \
+  harness-mem==0.9.3
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -122,8 +131,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.1 \
-  "harness-mem[hybrid]==0.9.1"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.3 \
+  "harness-mem[hybrid]==0.9.3"
 ```
 
 Install every supported host's native Daily commands once for the current
@@ -224,6 +233,7 @@ product surface.
 - [Cold-start demo](docs/demo-cold-start.md)
 - [Recall audit contract](docs/recall-audit.md)
 - [Autopilot search policy](docs/autopilot-search-policy.md)
+- [Compatibility inventory](docs/compatibility-inventory.md)
 - [Memory adoption: optional helpers (analysis)](docs/memory-adoption.md)
 - [Agent memory & retrieval research (2026)](docs/agent-memory-retrieval-research-2026.md)
 - [Roadmap](docs/roadmap.md)
@@ -250,4 +260,4 @@ python scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.9.1**.
+Current package version: **0.9.3**.

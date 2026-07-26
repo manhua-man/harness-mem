@@ -2,6 +2,79 @@
 
 ## Unreleased
 
+## [0.9.3] - 2026-07-26
+
+This release includes all work originally planned for 0.9.2; no separate
+0.9.2 package or tag was published.
+
+### Added
+
+- Exact `distill_job_id` claiming for jobs offered by wake. Explicit claims
+  remain project-scoped and cannot bypass the active lane, parked/terminal
+  state, daily budget, or retry backoff.
+- A read-only Doctor recovery planner that classifies findings as
+  `safe_rebuild`, `snapshot_required`, `manual_review`, or `destructive`, with
+  separate preview/apply commands and no automatic apply path.
+- Content-free hard-delete receipts with `in_progress`, `succeeded`, `skipped`,
+  and `partial_failure` states, planned/actual artifact counts, and post-delete
+  verification across transcript revisions, chunks, jobs, Observations,
+  candidates, truth, and derived indexes.
+- A project-isolated seven-day retrieval-quality scorecard covering surfaced,
+  used, ignored, misleading, abstained, historical/stale excluded, conflict
+  excluded, and insufficient-feedback counts.
+- Distill backlog diagnostics for budget exhaustion, retry backoff, active-lane
+  waiting, zero Agent throughput, oldest parked work, and a conservative drain
+  estimate that never claims background semantic processing.
+- A documented compatibility inventory with explicit keep/remove criteria for
+  internal aliases, legacy readers, migration paths, and frozen Router
+  snapshots.
+
+### Changed
+
+- Split the former 3,330-line MCP handler module into bounded read, status,
+  dream, distill, and governance capability modules while retaining the facade,
+  dependency injection, compatibility re-exports, and exact 27-tool public
+  surface.
+- Compact project status now keeps decision-critical quality/backlog counters
+  within its token budget; full status remains the drilldown surface for raw
+  diagnostics.
+- Retrieval abstention and temporal exclusion are recorded only as bounded
+  `RetrievalSignal` shadow evidence. They never become durable truth, and
+  missing outcome feedback is not scored as negative feedback.
+- Current-only MCP search records bounded aggregate exclusion evidence when
+  matching historical truth is intentionally withheld; temporal-query conflict
+  and historical emitters are covered end to end.
+- Healthy canonical stores with newer rows are classified as expected growth;
+  actual content conflicts, invalid legacy data, and corruption still fail
+  closed and require explicit recovery.
+
+### Fixed
+
+- Search-tool results again emit project-scoped `search_hit` evidence after the
+  task-aware retrieval refactor, so quality reporting reflects the public MCP
+  mainline rather than only compatibility reads.
+- Storage v2 migration tests now verify snapshot contents, staging failure
+  isolation, mid-transaction rollback, restart recovery, and preservation of
+  newer canonical rows. Global canonical activation now imports every project,
+  and a live-store fingerprint aborts activation if a concurrent canonical
+  writer changes the active database after staging begins.
+- Hard-delete apply refuses to start if its durable receipt cannot be written,
+  reports partial failures without copying private content or raw identifiers,
+  and verifies every planned local artifact after deletion. Lifecycle reads no
+  longer omit compacted or high-volume Observations; erasure follows explicit
+  candidate, truth, retrieval-signal, metabolism, and dream-run references to a
+  fixed point, rechecks the original selector after deletion, and persists
+  hashed session/source tombstones that prevent automatic recapture.
+- Core hard-delete calls reject implicit project-wide erasure, and no-match
+  receipt-finalization failures remain explicit instead of leaving an
+  `in_progress` audit row while reporting success.
+- Doctor now fails closed for corruption, invalid legacy payloads, and content
+  conflicts even when index drift is also present; no apply command is exposed
+  until authority is unambiguous.
+- The split MCP capability modules can be imported independently without a
+  facade cycle, and backlog drain estimates include the latest retry backoff
+  instead of understating calendar time.
+
 ## [0.9.1] - 2026-07-18
 
 ### Added

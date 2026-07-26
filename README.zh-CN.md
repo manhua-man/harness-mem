@@ -55,7 +55,9 @@ Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 
 Observation 只是证据，不是被记住的事实。wake 的近期索引会明确标成“非事实证据”；L1/L2 只展示结构化当前事实和仍有效的 handoff。被当前仓库版本推翻的旧发布/版本说法会标记冲突，或从 truth/active 层移除。
 
-隐私策略在落盘前执行：可用 `<private>...</private>` 包裹敏感片段，也可在项目 `.harness-mem.toml` 的 `[capture]` 中配置忽略 client、session 和 source glob；被排除内容不会进入 raw revision、chunk、Observation 或索引。`[transcript].retention_days` 控制自动保留期（`0` 表示永久保留）。`harness-mem maintenance erase --project NAME --session-id ID` 默认预览，增加 `--apply` 后会硬删除 raw revision、chunk、distill job、Observation、关联候选/事实以及 FTS/vector 索引，只留下不含原始标识和内容的审计摘要。
+隐私策略在落盘前执行：可用 `<private>...</private>` 包裹敏感片段，也可在项目 `.harness-mem.toml` 的 `[capture]` 中配置忽略 client、session 和 source glob；被排除内容不会进入 raw revision、chunk、Observation 或索引。`[transcript].retention_days` 控制自动保留期（`0` 表示永久保留）。`harness-mem maintenance erase --project NAME --session-id ID` 默认预览，增加 `--apply` 后会硬删除 raw revision、chunk、distill job、Observation、关联候选/事实以及 FTS/vector 索引。apply 会先持久化不含内容和原始标识的 receipt，再报告计划数、实际删除数和删除后验证；receipt 写入失败时不会开始删除，部分失败返回非零状态。
+
+运维诊断同样显式：Doctor 只读探测 SQLite，并把恢复动作分成 `safe_rebuild`、`snapshot_required`、`manual_review` 和 `destructive`，不会自动 apply。compact project status 保留决策信息；full drilldown 增加 7 天检索使用/忽略/误导/放弃/旧冲突排除统计，以及明确的 distill backlog 原因和基于 Agent 实际吞吐的保守清空估算。
 
 <p align="center">
   <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="IDE 原始会话以不可变 revision 保存，全部有序 chunk 完成处理和末尾审查后才进入候选记忆" width="900" />
@@ -86,8 +88,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.1 \
-  harness-mem==0.9.1
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.3 \
+  harness-mem==0.9.3
 ```
 
 `harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
@@ -97,8 +99,8 @@ Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.1 \
-  "harness-mem[hybrid]==0.9.1"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.3 \
+  "harness-mem[hybrid]==0.9.3"
 ```
 
 在当前设备一次性安装全部宿主的原生 Daily 命令。默认参数就是
@@ -183,4 +185,4 @@ cargo test --workspace
 发布标签会构建六个平台 wheel 和 sdist，在 Windows、macOS、Linux 上完成
 全新安装验证后上传到 GitHub Release。本项目不发布到 PyPI。
 
-当前包版本：**0.9.1**。
+当前包版本：**0.9.3**。

@@ -12,5 +12,7 @@ remain release records and do not override this list.
 | PyPI publishing | out of product | GitHub Releases remain the canonical package channel. |
 | Bulk `mcp-router` / `mcp_router` JSON sync | frozen | These are non-canonical Router snapshots; `tool_specs.py` plus `mcps/harness_mem` are the source of truth. |
 | `mcps/grok_com_github/**` maintenance | out of product | Not a harness-mem product surface. |
-| Active docs and host-command convergence | 0.9.1 | Remove retired governance vocabulary and guard generated copies against drift. |
-| Split `tool_handlers.py` by bounded capability | deferred | Do only behind public-surface and handler-boundary tests; no 0.9.1 behavior change. |
+| Active docs and host-command convergence | shipped in 0.9.1 | Retired governance vocabulary is removed and generated copies are guarded against drift. |
+| Deterministic offered-job distill | shipped in 0.9.3 | Optional `distill_job_id` exact targeting respects project scope, active-lane fairness, and retry backoff. Originally planned for 0.9.2. |
+| Split `tool_handlers.py` by bounded capability | shipped in 0.9.3 | Read/status/dream/distill/governance bodies sit behind the existing facade; the 27-tool public allowlist is unchanged. Originally planned for 0.9.2. |
+| Recovery center and memory-quality scorecard | shipped in 0.9.3 | Risk-classified Doctor actions, privacy deletion receipts, outcome quality metrics, and stuck-queue explanations ship without automatic destructive repair. |

@@ -150,7 +150,7 @@ def test_current_roadmap_is_0_9_x_and_internal_doc_duplicates_are_removed() -> N
     roadmap = Path("docs/roadmap.md").read_text(encoding="utf-8")
     scope_ledger = Path("docs/roadmap/defer.md").read_text(encoding="utf-8")
 
-    assert "0.9.1" in roadmap
+    assert "0.9.3" in roadmap
     assert "0.9.x" in roadmap
     assert "stays on the 0.8.x line" not in roadmap
     assert "`pyproject.toml` `0.8.N`" not in roadmap
