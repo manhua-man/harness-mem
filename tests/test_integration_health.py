@@ -72,6 +72,9 @@ def test_integration_health_summarizes_current_workspace(
     assert distill["legacy_audit_only"] == 0
     assert distill["agent_required"] is True
     assert distill["background_semantic_processing"] is False
+    assert distill["pending_total"] == 1
+    assert distill["drain_estimate"]["status"] == "unavailable"
+    assert distill["stuck_reasons"][0]["code"] == "zero_7d_throughput"
     assert health["summary"].startswith("project=ok | host=cursor | hooks=ok (2/2)")
 
 

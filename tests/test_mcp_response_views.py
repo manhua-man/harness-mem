@@ -49,6 +49,19 @@ def _status_snapshot() -> dict:
         "job_health": {"dream": {"failure_count": 0, "retryable_count": 0}},
         "retrieval_health": {
             "window_days": 7,
+            "quality_scorecard": {
+                "assessment": "poor_feedback",
+                "surfaced": 12,
+                "abstained": 4,
+                "stale_excluded": 2,
+                "conflict_excluded": 1,
+                "excluded_total": 3,
+                "used": 3,
+                "ignored": 2,
+                "misleading": 1,
+                "insufficient_feedback": False,
+                "explanation": "full detail",
+            },
             "surfaces": [
                 {
                     "surface": "status",
@@ -135,6 +148,15 @@ def _status_snapshot() -> dict:
                 "processing": 0,
                 "completed_chunks": 0,
                 "expected_chunks": 452,
+                "pending_total": 2,
+                "stuck_reasons": [
+                    {"code": "zero_7d_throughput", "action": "complete one"}
+                ],
+                "drain_estimate": {
+                    "status": "unavailable",
+                    "estimated_calendar_days": None,
+                    "reason": "zero_7d_throughput",
+                },
             },
         },
     }
@@ -151,6 +173,18 @@ def test_compact_status_preserves_decisions_and_stays_within_budget() -> None:
     payload = json.dumps(compact, ensure_ascii=False, sort_keys=True)
     assert token_estimator.count_tokens(payload) <= 1200
     assert compact["retrieval_health"]["high_output_calls"] == 40
+    assert compact["retrieval_health"]["quality_scorecard"] == {
+        "assessment": "poor_feedback",
+        "surfaced": 12,
+        "abstained": 4,
+        "stale_excluded": 2,
+        "conflict_excluded": 1,
+        "excluded_total": 3,
+        "used": 3,
+        "ignored": 2,
+        "misleading": 1,
+        "insufficient_feedback": False,
+    }
     assert "recent_high_output_calls" not in compact["retrieval_health"]
     assert "recent_high_output_calls" not in compact["cost_budget"]
 

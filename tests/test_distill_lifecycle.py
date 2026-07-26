@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.commands.distill_lifecycle import (
+    _coarse_drain_estimate,
     distill_drainer_metrics,
     pending_distill_jobs,
     render_pending_distill_instruction,
@@ -108,6 +110,8 @@ def test_agent_active_drainer_enforces_daily_new_job_budget(tmp_path: Path) -> N
         assert metrics["background_semantic_processing"] is False
         assert "State: waiting_for_agent" in instruction
         assert "three recent jobs, then one oldest" in instruction
+        assert f"process up to 1 now: {first[0].id}" in instruction
+        assert "distill_job_id=<selected id>" in instruction
     finally:
         _run(backend.close())
 
@@ -160,6 +164,169 @@ def test_agent_active_drainer_only_charges_jobs_emitted_to_agent(tmp_path: Path)
         assert metrics["daily_budget_remaining"] == 2
     finally:
         _run(backend.close())
+
+
+def test_drainer_reports_backoff_and_zero_throughput_without_background_claims(
+    tmp_path: Path,
+) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        result = _run(
+            persist_session_snapshot(
+                backend,
+                Observation(
+                    session_id="failed-session",
+                    client="codex",
+                    raw_content="User: inspect failure\n\nAssistant: blocked",
+                    content_type="transcript",
+                    metadata={},
+                ),
+                project_name="demo",
+                project_root=str(tmp_path),
+                client="codex",
+                session_id="failed-session",
+                source_kind="jsonl",
+                source_uri="file:///failed-session.jsonl",
+                source_text="failed source",
+            )
+        )
+        assert result.distill_job_id is not None
+        backend.transcript_store.claim_distill_chunks(
+            result.distill_job_id,
+            lease_owner="broken-agent",
+        )
+        backend.transcript_store.defer_distill_job(
+            result.distill_job_id,
+            error="parser failed",
+        )
+
+        metrics = distill_drainer_metrics(backend, project_name="demo")
+        reasons = {reason["code"]: reason for reason in metrics["stuck_reasons"]}
+
+        assert metrics["state"] == "backoff"
+        assert metrics["pending_total"] == 1
+        assert reasons["retry_backoff"]["retry_after"]
+        assert reasons["zero_7d_throughput"]["count"] == 1
+        assert metrics["drain_estimate"]["status"] == "unavailable"
+        assert metrics["drain_estimate"]["reason"] == "zero_7d_throughput"
+        assert metrics["drain_estimate"]["background_semantic_processing"] is False
+        assert metrics["agent_required"] is True
+    finally:
+        _run(backend.close())
+
+
+def test_drainer_estimate_accounts_for_exhausted_daily_budget(tmp_path: Path) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    now = datetime.now(timezone.utc)
+    try:
+        job_ids = []
+        for index in range(2):
+            result = _run(
+                persist_session_snapshot(
+                    backend,
+                    Observation(
+                        session_id=f"budget-session-{index}",
+                        client="codex",
+                        raw_content=f"User: request {index}\n\nAssistant: done {index}",
+                        content_type="transcript",
+                        metadata={},
+                    ),
+                    project_name="demo",
+                    project_root=str(tmp_path),
+                    client="codex",
+                    session_id=f"budget-session-{index}",
+                    source_kind="jsonl",
+                    source_uri=f"file:///budget-session-{index}.jsonl",
+                    source_text=f"source {index}",
+                )
+            )
+            assert result.distill_job_id is not None
+            job_ids.append(result.distill_job_id)
+
+        offered = pending_distill_jobs(
+            backend,
+            project_name="demo",
+            target_backlog=1,
+            max_jobs=1,
+            daily_job_budget=1,
+            now=now,
+        )
+        assert len(offered) == 1
+        completed_id = offered[0].id
+        for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
+            completed_id,
+            lease_owner="agent",
+            limit=20,
+        ):
+            backend.transcript_store.checkpoint_distill_chunk(
+                completed_id,
+                chunk.id,
+                lease_owner="agent",
+                result={"summary": "done"},
+            )
+        backend.transcript_store.finalize_distill_job(
+            completed_id,
+            semantic_review={
+                "final_user_request": "request",
+                "final_outcome": "complete",
+                "last_turn_status": "answered",
+                "contradictions": [],
+                "unfinished_work": [],
+                "evidence_status": "answered",
+                "promotion_decision": "no_promotion",
+            },
+        )
+        pending_distill_jobs(
+            backend,
+            project_name="demo",
+            target_backlog=1,
+            max_jobs=1,
+            daily_job_budget=1,
+            now=now,
+        )
+
+        metrics = distill_drainer_metrics(
+            backend,
+            project_name="demo",
+            daily_job_budget=1,
+            now=now,
+        )
+        reason_codes = {reason["code"] for reason in metrics["stuck_reasons"]}
+
+        assert metrics["state"] == "daily_budget_exhausted"
+        assert metrics["pending_total"] == 1
+        assert "daily_budget_exhausted" in reason_codes
+        assert metrics["drain_estimate"]["status"] == "coarse_estimate"
+        assert metrics["drain_estimate"]["starts_after"].endswith("T00:00:00+00:00")
+        assert metrics["drain_estimate"]["estimated_calendar_days"] >= 2
+        assert metrics["drain_estimate"]["requires_agent_execution"] is True
+    finally:
+        _run(backend.close())
+
+
+def test_drainer_estimate_includes_latest_retry_backoff() -> None:
+    now = datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc)
+    estimate = _coarse_drain_estimate(
+        pending_total=2,
+        active=1,
+        parked=0,
+        retry_backoff_count=1,
+        throughput_per_day=2.0,
+        daily_job_budget=3,
+        daily_budget_remaining=3,
+        state="backoff",
+        retry_backoff=[
+            SimpleNamespace(retry_after=now + timedelta(days=10))
+        ],
+        current=now,
+    )
+
+    assert estimate["status"] == "coarse_estimate"
+    assert estimate["estimated_calendar_days"] == 11
+    assert estimate["latest_retry_after"] == "2026-08-05T12:00:00+00:00"
+    assert "latest retry backoff" in estimate["basis"]
 
 
 def test_auto_review_completes_distill_job_then_runs_dream(

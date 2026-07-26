@@ -305,6 +305,7 @@ def _compact_job_health(value: Any) -> dict[str, Any]:
 def _compact_retrieval_health(value: Any) -> dict[str, Any]:
     payload = dict(value or {})
     surfaces = list(payload.get("surfaces") or [])
+    scorecard = dict(payload.get("quality_scorecard") or {})
     return {
         "window_days": payload.get("window_days"),
         "surface_count": len(surfaces),
@@ -312,6 +313,18 @@ def _compact_retrieval_health(value: Any) -> dict[str, Any]:
         "high_output_calls": sum(
             int(row.get("high_output_calls", 0) or 0) for row in surfaces
         ),
+        "quality_scorecard": {
+            "assessment": scorecard.get("assessment"),
+            "surfaced": scorecard.get("surfaced"),
+            "abstained": scorecard.get("abstained"),
+            "stale_excluded": scorecard.get("stale_excluded"),
+            "conflict_excluded": scorecard.get("conflict_excluded"),
+            "excluded_total": scorecard.get("excluded_total"),
+            "used": scorecard.get("used"),
+            "ignored": scorecard.get("ignored"),
+            "misleading": scorecard.get("misleading"),
+            "insufficient_feedback": scorecard.get("insufficient_feedback"),
+        },
         "top_opportunities": list(payload.get("top_opportunities") or [])[:3],
     }
 
@@ -383,6 +396,18 @@ def _compact_integration_health(value: Any) -> dict[str, Any]:
             "offered_today": distill.get("offered_today"),
             "daily_job_budget": distill.get("daily_job_budget"),
             "throughput_per_day_7d": distill.get("throughput_per_day_7d"),
+            "pending_total": distill.get("pending_total"),
+            "stuck_reason_codes": [
+                reason.get("code")
+                for reason in list(distill.get("stuck_reasons") or [])[:3]
+                if isinstance(reason, Mapping)
+            ],
+            "drain_estimate": {
+                "status": dict(distill.get("drain_estimate") or {}).get("status"),
+                "estimated_calendar_days": dict(
+                    distill.get("drain_estimate") or {}
+                ).get("estimated_calendar_days"),
+            },
             "agent_required": distill.get("agent_required"),
         },
     }

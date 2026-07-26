@@ -15,6 +15,8 @@ VALID_SIGNAL_TYPES: frozenset[str] = frozenset(
         "wake_surfaced",
         "search_hit",
         "context_outcome",
+        "retrieval_abstained",
+        "retrieval_excluded",
         "skill_result_success",
         "skill_result_failure",
         "supersede_completed",

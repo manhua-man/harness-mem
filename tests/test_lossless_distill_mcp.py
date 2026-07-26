@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
+from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.mcp import tool_handlers
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -173,7 +174,6 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         tool_handlers._cost_surface_budgets_provider = previous_cost_provider
         tool_handlers.logger = previous_logger
         asyncio.run(backend.close())
-
 
 def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
     tmp_path: Path,
@@ -627,6 +627,111 @@ def test_deferred_recent_job_does_not_block_next_queued_job(tmp_path: Path) -> N
         assert deferred is not None
         assert deferred.status == "retryable"
         assert deferred.error == "malformed historical source"
+
+        deferred_target = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            run_ingest=False,
+            distill_job_id=newer_job_id,
+        )
+        assert deferred_target["success"] is False
+        assert deferred_target["distill_job_id"] == newer_job_id
+        assert deferred_target["distill_status"] == "retryable"
+        assert deferred_target["retry_after"] is not None
+    finally:
+        tool_handlers._backend_provider = previous_backend_provider
+        tool_handlers._observer_data_dir_provider = previous_observer_provider
+        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
+        tool_handlers.logger = previous_logger
+        asyncio.run(backend.close())
+
+
+def test_prepare_session_distill_claims_explicit_active_job(tmp_path: Path) -> None:
+    async def save(backend: LocalMemoryBackend, session_id: str) -> str:
+        result = await persist_session_snapshot(
+            backend,
+            Observation(
+                session_id=session_id,
+                client="cursor",
+                raw_content=f"evidence for {session_id}",
+                content_type="transcript",
+                timestamp=datetime.now(timezone.utc),
+                metadata={},
+            ),
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            session_id=session_id,
+            source_kind="jsonl",
+            source_uri=f"file:///{session_id}.jsonl",
+            source_text=f"evidence for {session_id}",
+        )
+        assert result.distill_job_id is not None
+        return result.distill_job_id
+
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    older_job_id = asyncio.run(save(backend, "explicit-older-session"))
+    newer_job_id = asyncio.run(save(backend, "explicit-newer-session"))
+    previous_backend_provider = tool_handlers._backend_provider
+    previous_observer_provider = tool_handlers._observer_data_dir_provider
+    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
+    previous_logger = tool_handlers.logger
+    tool_handlers.configure_tool_handler_dependencies(
+        backend_provider=lambda: backend,
+        observer_data_dir=lambda: backend.data_dir,
+        cost_surface_budgets=lambda _project_name: None,
+        logger_instance=logging.getLogger("test.explicit-distill"),
+    )
+    try:
+        missing = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            run_ingest=False,
+            distill_job_id="missing-job",
+        )
+        assert missing == {
+            "success": False,
+            "error": "distill_job_id does not belong to this project",
+            "distill_job_id": "missing-job",
+        }
+
+        not_offered = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            run_ingest=False,
+            distill_job_id=older_job_id,
+        )
+        assert not_offered == {
+            "success": False,
+            "error": "distill_job_id was not offered for Agent processing today",
+            "distill_job_id": older_job_id,
+            "distill_status": "queued",
+            "agent_offer_day": None,
+        }
+
+        offered = pending_distill_jobs(
+            backend,
+            project_name="demo",
+            target_backlog=2,
+            max_jobs=2,
+            daily_job_budget=2,
+        )
+        assert {job.id for job in offered} == {older_job_id, newer_job_id}
+
+        selected = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            run_ingest=False,
+            distill_job_id=older_job_id,
+        )
+        assert selected["success"] is True
+        assert selected["distill_job_id"] == older_job_id
+        assert selected["selection_source"] == "explicit"
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider

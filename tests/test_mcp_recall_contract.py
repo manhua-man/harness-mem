@@ -77,6 +77,37 @@ def test_search_memory_adds_recall_without_removing_legacy_arrays(backend) -> No
         "medium",
         "high",
     }
+    signals = asyncio.run(
+        backend.structured_store.query_retrieval_signals(
+            "demo",
+            signal_type="search_hit",
+            limit=20,
+        )
+    )
+    assert [signal.target_id for signal in signals] == [evidence["source_id"]]
+
+
+def test_search_memory_records_content_free_abstention_signal(backend) -> None:
+    import asyncio
+
+    query = "evidence-that-does-not-exist-99331"
+    payload = server.tool_search_memory(query=query, project_name="demo")
+    signals = asyncio.run(
+        backend.structured_store.query_retrieval_signals(
+            "demo",
+            signal_type="retrieval_abstained",
+            limit=20,
+        )
+    )
+
+    assert payload["memory_entry_count"] == 0
+    assert len(signals) == 1
+    assert signals[0].context == {
+        "surface": "search_memory",
+        "reason": "no_evidence",
+        "result_count": 0,
+    }
+    assert query not in signals[0].target_id
 
 
 def test_trace_relations_adds_weighted_recall(backend) -> None:
@@ -162,6 +193,64 @@ def test_mcp_search_memory_deep_recall_surfaces_history_opt_in(backend) -> None:
     assert default_payload["memory_entries"] == []
     assert [entry["id"] for entry in deep_payload["memory_entries"]] == [entry_id]
     assert deep_payload["recall"]["evidence"][0]["metadata"]["valid_to"] is not None
+    exclusions = asyncio.run(
+        backend.structured_store.query_retrieval_signals(
+            "demo",
+            signal_type="retrieval_excluded",
+            limit=20,
+        )
+    )
+    assert len(exclusions) == 1
+    assert exclusions[0].value == 1.0
+    assert exclusions[0].context == {
+        "surface": "search_memory",
+        "reason": "historical",
+    }
+
+
+def test_temporal_query_emits_historical_and_conflict_exclusions(backend) -> None:
+    import asyncio
+
+    past = datetime.now(timezone.utc) - timedelta(days=1)
+    for content, valid_to in (
+        ("historical architecture", past),
+        ("current architecture a", None),
+        ("current architecture b", None),
+    ):
+        asyncio.run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name="demo",
+                    category="architecture",
+                    content=content,
+                    source="test",
+                    status="user_confirmed",
+                    valid_to=valid_to,
+                )
+            )
+        )
+
+    payload = server.tool_temporal_query(
+        project_name="demo",
+        subject="architecture",
+        predicate="memory_entry",
+        truth_type="memory_entry",
+        mode="current",
+        require_unique_current=True,
+    )
+    signals = asyncio.run(
+        backend.structured_store.query_retrieval_signals(
+            "demo",
+            signal_type="retrieval_excluded",
+            limit=20,
+        )
+    )
+
+    assert payload["abstain"] is True
+    assert payload["abstention_reason"] == "temporal_conflict"
+    reasons = {(signal.context or {}).get("reason"): signal for signal in signals}
+    assert reasons["temporal_conflict"].value == 2.0
+    assert reasons["historical"].value == 1.0
 
 
 def test_mcp_confirm_supersede_writes_audit_and_links_truth(backend) -> None:

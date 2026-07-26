@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from math import ceil
 from typing import Any
 from typing import Iterable, Literal
 
@@ -146,18 +147,59 @@ def distill_drainer_metrics(
     active = [job for job in jobs if job.status in {"queued", "processing", "reviewing"}]
     parked = [job for job in jobs if job.status == "parked"]
     retry_backoff = [
-        job for job in jobs if job.retry_after is not None and job.retry_after > current
+        job
+        for job in jobs
+        if job.status in {"queued", "retryable", "parked"}
+        and job.retry_after is not None
+        and job.retry_after > current
+    ]
+    retryable_ready = [
+        job
+        for job in jobs
+        if job.status == "retryable"
+        and (job.retry_after is None or job.retry_after <= current)
     ]
     oldest_parked = min((job.created_at for job in parked), default=None)
     budget_remaining = max(0, int(daily_job_budget) - len(offered_today))
+    offered_active_ids = {
+        job.id for job in active if job.agent_offer_day == today
+    }
     state = (
         "waiting_for_agent"
-        if active and (budget_remaining > 0 or any(job.id in {item.id for item in offered_today} for job in active))
+        if active and (budget_remaining > 0 or bool(offered_active_ids))
         else "daily_budget_exhausted"
         if active
         else "backoff"
         if retry_backoff
+        else "waiting_for_lane"
+        if parked or retryable_ready
         else "idle"
+    )
+    pending_ids = {
+        job.id for job in [*active, *parked, *retryable_ready, *retry_backoff]
+    }
+    pending_total = len(pending_ids)
+    throughput_per_day = round(len(completed_7d) / 7, 2)
+    stuck_reasons = _distill_stuck_reasons(
+        state=state,
+        active=len(active),
+        parked=len(parked),
+        retry_backoff=retry_backoff,
+        retryable_ready=len(retryable_ready),
+        throughput_per_day=throughput_per_day,
+        pending_total=pending_total,
+    )
+    drain_estimate = _coarse_drain_estimate(
+        pending_total=pending_total,
+        active=len(active),
+        parked=len(parked),
+        retry_backoff_count=len(retry_backoff),
+        throughput_per_day=throughput_per_day,
+        daily_job_budget=int(daily_job_budget),
+        daily_budget_remaining=budget_remaining,
+        state=state,
+        retry_backoff=retry_backoff,
+        current=current,
     )
     return {
         "state": state,
@@ -169,7 +211,7 @@ def distill_drainer_metrics(
         "daily_budget_remaining": budget_remaining,
         "completed_24h": len(completed_24h),
         "completed_7d": len(completed_7d),
-        "throughput_per_day_7d": round(len(completed_7d) / 7, 2),
+        "throughput_per_day_7d": throughput_per_day,
         "oldest_parked_age_hours": round(
             (current - oldest_parked).total_seconds() / 3600,
             1,
@@ -178,9 +220,148 @@ def distill_drainer_metrics(
         else 0.0,
         "recent_lane_selected": sum(job.drainer_lane == "recent" for job in jobs),
         "oldest_lane_selected": sum(job.drainer_lane == "oldest" for job in jobs),
-        "agent_required": bool(active),
+        "pending_total": pending_total,
+        "stuck_reasons": stuck_reasons,
+        "drain_estimate": drain_estimate,
+        "agent_required": bool(pending_total),
         "background_semantic_processing": False,
     }
+
+
+def _distill_stuck_reasons(
+    *,
+    state: str,
+    active: int,
+    parked: int,
+    retry_backoff: list[SessionDistillJob],
+    retryable_ready: int,
+    throughput_per_day: float,
+    pending_total: int,
+) -> list[dict[str, Any]]:
+    reasons: list[dict[str, Any]] = []
+    if state == "daily_budget_exhausted":
+        reasons.append(
+            {
+                "code": "daily_budget_exhausted",
+                "count": active,
+                "action": "Resume on the next UTC budget day; already offered jobs remain runnable.",
+            }
+        )
+    if retry_backoff:
+        next_retry = min(
+            job.retry_after for job in retry_backoff if job.retry_after is not None
+        )
+        reasons.append(
+            {
+                "code": "retry_backoff",
+                "count": len(retry_backoff),
+                "retry_after": next_retry.isoformat(),
+                "action": "Retry after the reported time; continue healthy jobs first.",
+            }
+        )
+    if retryable_ready and not active:
+        reasons.append(
+            {
+                "code": "retryable_waiting_for_lane",
+                "count": retryable_ready,
+                "action": "Run an Agent-capable wake or /hm:distill to refill the active lane.",
+            }
+        )
+    if parked and not active:
+        reasons.append(
+            {
+                "code": "parked_waiting_for_lane",
+                "count": parked,
+                "action": "Run an Agent-capable wake or /hm:distill to refill the active lane.",
+            }
+        )
+    if pending_total and throughput_per_day <= 0:
+        reasons.append(
+            {
+                "code": "zero_7d_throughput",
+                "count": pending_total,
+                "action": "Complete one offered job with an Agent before estimating drain time.",
+            }
+        )
+    return reasons
+
+
+def _coarse_drain_estimate(
+    *,
+    pending_total: int,
+    active: int,
+    parked: int,
+    retry_backoff_count: int,
+    throughput_per_day: float,
+    daily_job_budget: int,
+    daily_budget_remaining: int,
+    state: str,
+    retry_backoff: list[SessionDistillJob],
+    current: datetime,
+) -> dict[str, Any]:
+    """Estimate queue drain conservatively from observed Agent completions and budget."""
+
+    base: dict[str, Any] = {
+        "pending_jobs": pending_total,
+        "active_jobs": active,
+        "parked_jobs": parked,
+        "retry_backoff_jobs": retry_backoff_count,
+        "observed_throughput_per_day_7d": throughput_per_day,
+        "daily_job_budget": max(0, daily_job_budget),
+        "daily_budget_remaining": daily_budget_remaining,
+        "requires_agent_execution": pending_total > 0,
+        "background_semantic_processing": False,
+    }
+    if pending_total == 0:
+        return {**base, "status": "drained", "estimated_calendar_days": 0}
+    if throughput_per_day <= 0 or daily_job_budget <= 0:
+        reason = "zero_7d_throughput" if throughput_per_day <= 0 else "zero_daily_budget"
+        return {
+            **base,
+            "status": "unavailable",
+            "reason": reason,
+            "estimated_calendar_days": None,
+        }
+
+    effective_rate = min(throughput_per_day, float(daily_job_budget))
+    delay_days = 1 if state == "daily_budget_exhausted" else 0
+    latest_retry_after: datetime | None = None
+    if retry_backoff:
+        retry_times = [
+            job.retry_after for job in retry_backoff if job.retry_after is not None
+        ]
+        if retry_times:
+            latest_retry_after = max(retry_times)
+            backoff_seconds = max(
+                0.0,
+                (latest_retry_after - current.astimezone(timezone.utc)).total_seconds(),
+            )
+            delay_days = max(delay_days, ceil(backoff_seconds / 86_400))
+    estimated_days = delay_days + ceil(pending_total / effective_rate)
+    estimate: dict[str, Any] = {
+        **base,
+        "status": "coarse_estimate",
+        "effective_jobs_per_day": round(effective_rate, 2),
+        "estimated_calendar_days": estimated_days,
+        "basis": (
+            "latest retry backoff plus min(observed 7d Agent throughput, "
+            "daily new-job budget)"
+            if latest_retry_after is not None
+            else "min(observed 7d Agent throughput, daily new-job budget)"
+        ),
+    }
+    if delay_days:
+        next_budget_day = (
+            current.astimezone(timezone.utc) + timedelta(days=1)
+        ).date().isoformat()
+        estimate["starts_after"] = f"{next_budget_day}T00:00:00+00:00"
+    if retry_backoff:
+        estimate["next_retry_after"] = min(
+            job.retry_after for job in retry_backoff if job.retry_after is not None
+        ).isoformat()
+    if latest_retry_after is not None:
+        estimate["latest_retry_after"] = latest_retry_after.isoformat()
+    return estimate
 
 
 def complete_pending_distill_jobs(
@@ -238,9 +419,10 @@ def render_pending_distill_instruction(
             "Fair refill policy: three recent jobs, then one oldest eligible job.",
             f"Steady-state target: at most {max(0, target_backlog)} queued task(s).",
             "Older cold evidence is parked, not deleted, and refills this active lane after completion.",
-            "Do this automatically without asking the user to run /hm:distill: call",
-            "prepare_session_distill with",
-            "evidence_mode=semantic, detail_level=compact, budget_tokens=3000; read the",
+            "Do this automatically without asking the user to run /hm:distill.",
+            "For each selected id, call prepare_session_distill with",
+            "distill_job_id=<selected id>, evidence_mode=semantic,",
+            "detail_level=compact, budget_tokens=3000; read the",
             "indexed manifest, select semantic windows, then drill into raw proof only",
             "when a candidate needs it. Review the complete session and write only",
             "warranted govern_memory(action=suggest) candidates, then call finalize_session_distill.",

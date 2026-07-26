@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +32,11 @@ async def runtime_health_report(
         warnings.append(f"job_health unavailable: {exc}")
         report["job_health"] = {"warnings": [str(exc)]}
     try:
-        report["retrieval_health"] = _retrieval_health(data_dir, project_name)
+        report["retrieval_health"] = await _retrieval_health(
+            backend,
+            data_dir,
+            project_name,
+        )
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"retrieval_health unavailable: {exc}")
         report["retrieval_health"] = {"warnings": [str(exc)]}
@@ -85,7 +89,11 @@ def _run_summary(runs: list[Any], *, job_rows: list[Any] | None = None) -> dict[
     }
 
 
-def _retrieval_health(data_dir: Path, project_name: str) -> dict[str, Any]:
+async def _retrieval_health(
+    backend: LocalMemoryBackend,
+    data_dir: Path,
+    project_name: str,
+) -> dict[str, Any]:
     cost = surface_cost_report(data_dir, project_name=project_name, days=7, limit=500)
     surfaces = {
         row["surface"]: row
@@ -110,10 +118,116 @@ def _retrieval_health(data_dir: Path, project_name: str) -> dict[str, Any]:
         )
     return {
         "window_days": cost.get("window_days", 7),
+        "quality_scorecard": await _retrieval_quality_scorecard(
+            backend,
+            project_name=project_name,
+            window_days=7,
+        ),
         "surfaces": rows,
         "recent_high_output_calls": cost.get("recent_high_output_calls", []),
         "top_opportunities": cost.get("top_opportunities", []),
     }
+
+
+async def _retrieval_quality_scorecard(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    window_days: int,
+) -> dict[str, Any]:
+    """Summarize project-local retrieval feedback without inferring missing outcomes."""
+
+    since = datetime.now(timezone.utc) - timedelta(days=window_days)
+    wake_surfaced = await backend.structured_store.query_retrieval_signals(
+        project_name,
+        signal_type="wake_surfaced",
+        since=since,
+        limit=100000,
+    )
+    search_hits = await backend.structured_store.query_retrieval_signals(
+        project_name,
+        signal_type="search_hit",
+        since=since,
+        limit=100000,
+    )
+    outcome_signals = await backend.structured_store.query_retrieval_signals(
+        project_name,
+        signal_type="context_outcome",
+        since=since,
+        limit=100000,
+    )
+    abstention_signals = await backend.structured_store.query_retrieval_signals(
+        project_name,
+        signal_type="retrieval_abstained",
+        since=since,
+        limit=100000,
+    )
+    exclusion_signals = await backend.structured_store.query_retrieval_signals(
+        project_name,
+        signal_type="retrieval_excluded",
+        since=since,
+        limit=100000,
+    )
+    outcome_counts = {"used": 0, "ignored": 0, "misleading": 0}
+    for signal in outcome_signals:
+        outcome = str((signal.context or {}).get("outcome") or "").strip().lower()
+        if outcome in outcome_counts:
+            outcome_counts[outcome] += 1
+
+    surfaced = len(wake_surfaced) + len(search_hits)
+    abstained = sum(_signal_count(signal) for signal in abstention_signals)
+    stale_excluded = 0
+    conflict_excluded = 0
+    for signal in exclusion_signals:
+        reason = str((signal.context or {}).get("reason") or "").strip().lower()
+        if reason in {"stale", "historical", "superseded"}:
+            stale_excluded += _signal_count(signal)
+        elif reason in {"conflict", "temporal_conflict", "version_conflict"}:
+            conflict_excluded += _signal_count(signal)
+    excluded_total = stale_excluded + conflict_excluded
+    feedback_total = sum(outcome_counts.values())
+    insufficient_feedback = feedback_total == 0
+    negative = outcome_counts["ignored"] + outcome_counts["misleading"]
+    if insufficient_feedback:
+        assessment = "insufficient_feedback"
+        explanation = (
+            "Retrieval activity has no recorded outcome feedback in this window."
+            if surfaced
+            else "No retrieval activity or outcome feedback was recorded in this window."
+        )
+    elif outcome_counts["misleading"] > 0 or negative > outcome_counts["used"]:
+        assessment = "poor_feedback"
+        explanation = "Recorded feedback includes misleading context or more negative than used outcomes."
+    else:
+        assessment = "feedback_available"
+        explanation = "Outcome feedback is available; counts are evidence, not durable truth."
+
+    return {
+        "window_days": window_days,
+        "project_name": project_name,
+        "surfaced": surfaced,
+        "abstained": abstained,
+        "stale_excluded": stale_excluded,
+        "conflict_excluded": conflict_excluded,
+        "excluded_total": excluded_total,
+        **outcome_counts,
+        "feedback_total": feedback_total,
+        "insufficient_feedback": insufficient_feedback,
+        "assessment": assessment,
+        "explanation": explanation,
+    }
+
+
+def _signal_count(signal: Any) -> int:
+    """Return a non-negative aggregate count for one shadow quality signal."""
+
+    value = getattr(signal, "value", None)
+    if value is None:
+        return 1
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError, OverflowError):
+        return 1
 
 
 def _avg_result_count(stats: dict[str, Any]) -> float:

@@ -736,6 +736,13 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "Run low-level transcript sync before building the packet (default: true)",
                     "default": True,
                 },
+                "distill_job_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional active job id to claim exactly. Used by bounded "
+                        "automatic maintenance so offered jobs are processed deterministically."
+                    ),
+                },
                 "defer_job_id": {
                     "type": "string",
                     "description": "Failed job to release as retryable and skip for this call.",

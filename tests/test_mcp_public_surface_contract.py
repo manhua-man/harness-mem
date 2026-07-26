@@ -298,6 +298,10 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
     for name in ("dream_ledger", "dream_run", "dream_auto_tick", "undo_dream_item"):
         assert tool_by_name[name]["annotations"]["harness_mem"]["cluster"] == "dream"
     assert "/hm:distill" in tool_by_name["prepare_session_distill"]["description"]
+    assert (
+        "distill_job_id"
+        in tool_by_name["prepare_session_distill"]["inputSchema"]["properties"]
+    )
     assert "ingest_sessions" not in tool_by_name
     assert "set_active_project" not in tool_by_name
 
