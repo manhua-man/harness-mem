@@ -633,6 +633,7 @@ class TranscriptStore:
         project_name: str,
         reason: str,
         audit_counts: dict[str, int] | None = None,
+        receipt: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Delete selected raw revisions and dependent ledger rows atomically."""
 
@@ -717,9 +718,10 @@ class TranscriptStore:
                     "sources": deleted_sources,
                     **(audit_counts or {}),
                 }
-                audit_id = str(uuid4())
+                audit_id = str(receipt.get("id")) if receipt else str(uuid4())
                 now = datetime.now(timezone.utc)
                 audit_payload = {
+                    **(receipt or {}),
                     "id": audit_id,
                     "project_name": project_name,
                     "reason": reason,
@@ -731,7 +733,7 @@ class TranscriptStore:
                     "deleted_at": now.isoformat(),
                 }
                 self._conn.execute(
-                    "INSERT INTO transcript_deletion_audit "
+                    "INSERT OR REPLACE INTO transcript_deletion_audit "
                     "(id, project_name, deleted_at, reason, data) VALUES (?, ?, ?, ?, ?)",
                     (
                         audit_id,
@@ -747,6 +749,77 @@ class TranscriptStore:
                 self._conn.rollback()
                 raise
 
+    def save_deletion_receipt(self, receipt: dict[str, Any]) -> dict[str, Any]:
+        """Durably upsert a privacy-safe hard-delete receipt.
+
+        The caller owns receipt redaction. This store intentionally persists
+        only the supplied summary and never enriches it with transcript rows.
+        """
+
+        receipt_id = str(receipt.get("id") or "")
+        project_name = str(receipt.get("project_name") or "")
+        reason = str(receipt.get("reason") or "")
+        timestamp = str(
+            receipt.get("completed_at")
+            or receipt.get("requested_at")
+            or datetime.now(timezone.utc).isoformat()
+        )
+        if not receipt_id or not project_name or not reason:
+            raise ValueError("deletion receipt requires id, project_name, and reason")
+        payload = dict(receipt)
+        payload["id"] = receipt_id
+        payload["project_name"] = project_name
+        payload["reason"] = reason
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO transcript_deletion_audit "
+                "(id, project_name, deleted_at, reason, data) VALUES (?, ?, ?, ?, ?)",
+                (
+                    receipt_id,
+                    project_name,
+                    timestamp,
+                    reason,
+                    json.dumps(payload, ensure_ascii=False),
+                ),
+            )
+            self._conn.commit()
+        return payload
+
+    def verify_hard_delete(
+        self,
+        revision_keys: list[tuple[str, str]],
+        *,
+        job_ids: list[str] | None = None,
+    ) -> dict[str, int]:
+        """Count selected ledger records that still exist after erasure."""
+
+        remaining = {"revisions": 0, "chunks": 0, "distill_jobs": 0}
+        unique_keys = list(dict.fromkeys((str(a), str(b)) for a, b in revision_keys))
+        with self._lock:
+            for source_id, source_revision in unique_keys:
+                remaining["revisions"] += int(
+                    self._conn.execute(
+                        "SELECT COUNT(*) FROM transcript_source_revisions "
+                        "WHERE source_id = ? AND source_revision = ?",
+                        (source_id, source_revision),
+                    ).fetchone()[0]
+                )
+                remaining["chunks"] += int(
+                    self._conn.execute(
+                        "SELECT COUNT(*) FROM transcript_chunks "
+                        "WHERE source_id = ? AND source_revision = ?",
+                        (source_id, source_revision),
+                    ).fetchone()[0]
+                )
+            for job_id in set(map(str, job_ids or [])):
+                remaining["distill_jobs"] += int(
+                    self._conn.execute(
+                        "SELECT COUNT(*) FROM distill_jobs WHERE id = ?",
+                        (job_id,),
+                    ).fetchone()[0]
+                )
+        return remaining
+
     def list_deletion_audit(
         self,
         *,
@@ -761,6 +834,48 @@ class TranscriptStore:
         with self._lock:
             rows = self._conn.execute(sql, params).fetchall()
         return [json.loads(row["data"]) for row in rows]
+
+    def matches_hard_delete_tombstone(
+        self,
+        *,
+        project_name: str,
+        client: str,
+        session_id: str,
+        source_id: str,
+    ) -> bool:
+        """Return whether explicit erasure forbids recapturing this source.
+
+        Session/source erasure is durable privacy intent.  Retention cutoffs
+        are intentionally excluded because they must not block future
+        revisions.  In-progress and partial receipts also fail closed: a
+        concurrent adapter must not recreate evidence while erasure is being
+        verified or repaired.
+        """
+
+        session_digest = sha256_text(session_id)
+        source_digest = sha256_text(source_id)
+        source_identity_digest = sha256_text(f"{client}\x1f{session_id}")
+        for receipt in self.list_deletion_audit(project_name=project_name):
+            if receipt.get("kind") != "hard_delete" or receipt.get("status") not in {
+                "in_progress",
+                "succeeded",
+                "partial_failure",
+            }:
+                continue
+            scope = receipt.get("scope")
+            if not isinstance(scope, dict) or scope.get("before") is not None:
+                continue
+            if scope.get("session_id_sha256") == session_digest:
+                return True
+            if scope.get("source_id_sha256") == source_digest:
+                return True
+            source_identities = scope.get("source_identity_sha256")
+            if (
+                isinstance(source_identities, list)
+                and source_identity_digest in source_identities
+            ):
+                return True
+        return False
 
     def _init_schema(self) -> None:
         with self._lock:

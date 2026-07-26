@@ -173,7 +173,12 @@ class LocalStructuredStore:
             json.dumps(payload, indent=2, default=str)
         )
 
-    def list_record_payloads(self, collection: str) -> list[dict[str, Any]]:
+    def list_record_payloads(
+        self,
+        collection: str,
+        *,
+        strict: bool = False,
+    ) -> list[dict[str, Any]]:
         """List raw payloads for lifecycle planning without search filtering."""
 
         if collection not in self._subdirs:
@@ -184,9 +189,16 @@ class LocalStructuredStore:
         payloads: list[dict[str, Any]] = []
         for path in self._subdirs[collection].glob("*.json"):
             try:
-                payloads.append(json.loads(path.read_text(encoding="utf-8")))
+                payload = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
+                if strict:
+                    raise
                 continue
+            if not isinstance(payload, dict):
+                if strict:
+                    raise ValueError(f"invalid structured payload: {path.name}")
+                continue
+            payloads.append(payload)
         return payloads
 
     def hard_delete_record(self, collection: str, entity_id: str) -> bool:

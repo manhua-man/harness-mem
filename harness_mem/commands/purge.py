@@ -196,19 +196,32 @@ async def cmd_erase(
             apply=apply,
         )
         plan = result["plan"]
-        prefix = "ERASED" if apply else "DRY RUN"
+        prefix = "ERASED" if result.get("success") and apply else "DRY RUN"
+        if apply and not result.get("success"):
+            prefix = "PARTIAL FAILURE" if result.get("partial") else "FAILED"
+        if result.get("skipped"):
+            prefix = "SKIPPED"
         print(f"[{prefix}] project={project_name}")
         print(
             "  revisions={revisions} chunks={chunks} observations={observations} "
-            "candidates={candidates} structured_truth={structured_truth} raw_bytes={raw_bytes}".format(
+            "candidates={candidates} structured_truth={structured_truth} indexes={indexes} "
+            "raw_bytes={raw_bytes}".format(
                 **plan["counts"]
             )
         )
-        if apply:
-            print(f"  audit_id={result['audit']['id']}")
-        else:
+        if apply and result.get("skipped"):
+            if result.get("receipt"):
+                print(f"  receipt_id={result['receipt']['id']}")
+                print(f"  receipt_status={result['receipt']['status']}")
+            print("No matching data; nothing changed.")
+        elif apply and result.get("receipt"):
+            print(f"  receipt_id={result['receipt']['id']}")
+            print(f"  receipt_status={result['receipt']['status']}")
+        elif not apply:
             print("No data changed. Re-run with --apply to execute irreversible erasure.")
-        return 0
+        else:
+            print(f"No data changed: {result.get('reason', 'erasure_failed')}.")
+        return 0 if result.get("success") else 1
     finally:
         await backend.close()
 

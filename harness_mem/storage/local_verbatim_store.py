@@ -148,6 +148,27 @@ class LocalVerbatimStore:
             return _CanonicalVerbatimBlobPath(self, observation_id)
         return self.blob_dir / f"{observation_id}.json"
 
+    def list_record_payloads_for_lifecycle(self) -> builtins.list[dict[str, Any]]:
+        """Enumerate every observation payload for privacy lifecycle work.
+
+        User-facing reads intentionally hide compacted observations and apply
+        result limits.  Erasure planning must do neither: a soft-deleted row is
+        still private data, and a large project must not silently retain rows
+        past an arbitrary cap.  Invalid local payloads fail closed so an erase
+        cannot be reported successful without inspecting all stored data.
+        """
+
+        if self.canonical_mode:
+            canonical = self._canonical
+            return [] if canonical is None else canonical.list_payloads("observations")
+        payloads: builtins.list[dict[str, Any]] = []
+        for path in self.blob_dir.glob("*.json"):
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError(f"invalid observation payload: {path.name}")
+            payloads.append(payload)
+        return payloads
+
     @staticmethod
     def _canonical_source_relpath(observation_id: str) -> str:
         return f"verbatim/{observation_id}.json"

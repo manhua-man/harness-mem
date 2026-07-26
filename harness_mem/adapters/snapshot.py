@@ -104,6 +104,24 @@ async def persist_session_snapshot(
         session_id=session_id,
         source_uri=source_uri,
     )
+    tombstone_check = getattr(
+        backend.transcript_store,
+        "matches_hard_delete_tombstone",
+        None,
+    )
+    if callable(tombstone_check) and tombstone_check(
+        project_name=project_name,
+        client=client,
+        session_id=session_id,
+        source_id=source_id,
+    ):
+        return TranscriptSyncResult(
+            action="ignored",
+            source=None,
+            observation_id=None,
+            distill_job_id=None,
+            reason="hard_delete_tombstone",
+        )
     revision = transcript_bytes_revision(native_bytes)
     raw_digest = sha256_bytes(native_bytes)
     normalized_digest = sha256_text(source_text)
