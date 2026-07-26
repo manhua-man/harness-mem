@@ -65,3 +65,9 @@ ignore_missing_imports = true
 markers = [
     "embedding_integration: explicitly loads the real embedding model; excluded from normal CI",
 ]
+
+[tool.ruff.lint]
+# Ruff 0.16 changed its no-config default to a much broader preview policy.
+# Keep the repository's established release gate explicit and cross-version
+# stable; dedicated type, security, and contract suites remain separate gates.
+select = ["E4", "E7", "E9", "F"]
