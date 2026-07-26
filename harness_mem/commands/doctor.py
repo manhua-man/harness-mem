@@ -7,7 +7,7 @@ import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Sequence, cast
+from typing import Any, Mapping, Sequence, cast
 
 from harness_mem import __version__
 from harness_mem.commands.doctor_thresholds import (
@@ -18,6 +18,10 @@ from harness_mem.commands.doctor_thresholds import (
 )
 from harness_mem.commands.dream import dream_status_snapshot
 from harness_mem.commands.error_codes import doctor_error, format_error_summary
+from harness_mem.commands.doctor_recovery import (
+    build_doctor_recovery_plan,
+    read_only_storage_v2_health,
+)
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     WakeBucketQuotaError,
@@ -48,7 +52,6 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
-from harness_mem.storage.canonical_store import canonical_store_health
 from harness_mem.governance_status import LEGACY_ACCEPTED_STATUS
 from harness_mem.hook_runtime import HookRuntimeReport, collect_hook_runtime_report
 from harness_mem.version import runtime_version_payload
@@ -245,13 +248,13 @@ async def cmd_doctor(project_name: str | None = None) -> int:
             _doctor_signal_freshness_block(report["signal_freshness"], resolved_project)
             _doctor_maintenance_block(report["maintenance_hints"])
             _doctor_runtime_health_block(report.get("runtime_health", {}))
-            _doctor_storage_v2_block(
-                canonical_store_health(
-                    backend.data_dir,
-                    project_name=resolved_project,
-                    wal_size_warning_bytes=WAL_SIZE_THRESHOLD_BYTES,
-                )
+            storage_report = read_only_storage_v2_health(
+                backend.data_dir,
+                project_name=resolved_project,
+                wal_size_warning_bytes=WAL_SIZE_THRESHOLD_BYTES,
             )
+            _doctor_storage_v2_block(storage_report)
+            _doctor_recovery_plan_block(build_doctor_recovery_plan(storage_report))
             _doctor_distribution_block(
                 distribution_report(
                     repo_root=Path(__file__).resolve().parents[2],
@@ -1183,6 +1186,31 @@ def _doctor_storage_v2_block(storage_report: dict[str, Any]) -> None:
     drift = storage_report.get("index_drift") or []
     if drift:
         print(f"⚠️  Storage v2 index drift: {len(drift)} missing index(es)")
+
+
+def _doctor_recovery_plan_block(plan: Mapping[str, Any]) -> None:
+    """Render a structured plan without executing any recovery command."""
+
+    assessment = str(plan.get("assessment") or "unknown")
+    items = list(plan.get("items") or [])
+    print(f"Recovery plan: {assessment} (read-only, {len(items)} action(s))")
+    summary = plan.get("summary")
+    if summary:
+        print(f"  {summary}")
+    for item in items:
+        action_class = item.get("action_class") or "manual_review"
+        risk = item.get("risk") or "unknown"
+        marker = "⚠️ " if action_class in {"manual_review", "destructive"} else "  "
+        print(f"{marker}[{action_class}/{risk}] {item.get('reason', '')}")
+        preview = item.get("preview_command")
+        if preview:
+            print(f"    preview: {preview}")
+        apply_command = item.get("apply_command")
+        if apply_command:
+            print(f"    apply (operator only): {apply_command}")
+        no_action = item.get("no_automatic_action")
+        if no_action:
+            print(f"    guardrail: {no_action}")
 
 
 def _doctor_distribution_block(distribution: dict[str, Any]) -> None:

@@ -396,7 +396,12 @@ def migrate_canonical_store_atomically(
     *,
     project_name: str | None = None,
 ) -> dict[str, Any]:
-    """Build and validate a staging DB, then atomically activate it with rollback."""
+    """Build and validate a global staging DB, then activate it with rollback.
+
+    ``project_name`` is retained as request/reporting context only. Runtime
+    authority is global for one ``data_dir``, so an activation must cover every
+    project before the runtime state can safely point at canonical SQLite.
+    """
 
     data_dir = Path(data_dir)
     target = canonical_store_path(data_dir)
@@ -408,6 +413,7 @@ def migrate_canonical_store_atomically(
     runtime_path = runtime_state_path(data_dir)
     runtime_before = runtime_path.read_bytes() if runtime_path.exists() else None
     had_target = target.exists()
+    live_fingerprint_before = _sqlite_logical_fingerprint(target)
 
     if had_target:
         backup_dir.mkdir(parents=True, exist_ok=True)
@@ -418,18 +424,18 @@ def migrate_canonical_store_atomically(
     try:
         payload_result = apply_store_v2_migration(
             data_dir,
-            project_name=project_name,
+            project_name=None,
             canonical_path=staging,
         )
         canonical_result = build_canonical_store(
             data_dir,
-            project_name=project_name,
+            project_name=None,
             canonical_path=staging,
         )
         integrity = _sqlite_integrity_check(staging)
         relation = canonical_checksum_relation(
             data_dir,
-            project_name=project_name,
+            project_name=None,
             canonical_path=staging,
         )
         if not payload_result["checksum_match"]:
@@ -445,6 +451,13 @@ def migrate_canonical_store_atomically(
         }:
             raise StorageV2MigrationError(
                 f"staging checksum relation is unsafe: {relation['relation']}"
+            )
+
+        live_fingerprint_before_activation = _sqlite_logical_fingerprint(target)
+        if live_fingerprint_before_activation != live_fingerprint_before:
+            raise StorageV2MigrationError(
+                "Canonical SQLite changed while migration staging was built; "
+                "activation aborted to preserve concurrent writes. Retry the migration."
             )
 
         _clear_sqlite_sidecars(target)
@@ -464,12 +477,15 @@ def migrate_canonical_store_atomically(
         write_runtime_state(data_dir, state)
         return {
             "migration_id": migration_id,
+            "requested_project_name": project_name,
+            "activation_scope": "all_projects",
             "canonical_db_path": str(target),
             "staging_db_path": str(staging),
             "backup_db_path": str(backup) if had_target else None,
             "backup_created": had_target and backup.exists(),
             "activated_atomically": True,
             "runtime_state_updated_last": True,
+            "live_store_unchanged_before_activation": True,
             "sqlite_integrity": integrity,
             "checksum_relation": relation,
             "payload_migration": payload_result,
@@ -584,6 +600,77 @@ def _backup_sqlite(source: Path, destination: Path) -> None:
     finally:
         destination_conn.close()
         source_conn.close()
+
+
+def _sqlite_logical_fingerprint(path: Path) -> str | None:
+    """Hash one consistent SQLite snapshot, independent of page layout.
+
+    SQLite backup files can differ at the byte level even when their logical
+    contents match. This fingerprint covers schema objects and every user-table
+    row, allowing migration activation to fail closed when the live database
+    changes after staging starts.
+    """
+
+    if not path.exists():
+        return None
+
+    digest = hashlib.sha256()
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("BEGIN")
+        schema_rows = conn.execute(
+            """
+            SELECT type, name, tbl_name, COALESCE(sql, '')
+            FROM sqlite_master
+            WHERE name NOT LIKE 'sqlite_%'
+            ORDER BY type, name, tbl_name
+            """
+        ).fetchall()
+        digest.update(
+            json.dumps(schema_rows, ensure_ascii=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        )
+        for object_type, table_name, _owner, _sql in schema_rows:
+            if object_type != "table":
+                continue
+            quoted_table = _quote_sqlite_identifier(str(table_name))
+            rows = conn.execute(f"SELECT * FROM {quoted_table}").fetchall()
+            encoded_rows = sorted(_encode_sqlite_fingerprint_row(row) for row in rows)
+            digest.update(str(table_name).encode("utf-8"))
+            digest.update(b"\0")
+            for encoded_row in encoded_rows:
+                digest.update(encoded_row)
+                digest.update(b"\n")
+        conn.rollback()
+    finally:
+        conn.close()
+    return digest.hexdigest()
+
+
+def _encode_sqlite_fingerprint_row(row: tuple[Any, ...]) -> bytes:
+    encoded: list[dict[str, Any]] = []
+    for value in row:
+        if value is None:
+            encoded.append({"type": "null", "value": None})
+        elif isinstance(value, bytes):
+            encoded.append({"type": "blob", "value": value.hex()})
+        else:
+            encoded.append(
+                {
+                    "type": type(value).__name__,
+                    "value": value,
+                }
+            )
+    return json.dumps(
+        encoded,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _quote_sqlite_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
 
 
 def _clear_sqlite_sidecars(path: Path) -> None:
