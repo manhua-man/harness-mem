@@ -90,7 +90,10 @@ wireFormatVersion: hm-wire-v3.5
    - 自动应用 `grill-before-distill` 准入（深度/轻量按风险）；仅 `admit` / `narrow` 继续
    - 按 `references/distillation-rules.md` 判断价值
    - 用 MCP `govern_memory(action="suggest")` / `govern_memory(action="handoff")` 写入 pending 候选，并把当前 `distill_job_id` 传入写入参数
-   - 每条候选必须带 source evidence，例如 source revision、session id、chunk id、命令或文件路径
+   - 每条候选必须带 0.9.5 evidence envelope：`evidence_basis`、`verification_outcome`、`verification_refs`
+   - 代码、版本、发布、文件与测试状态只能使用 `repository + verified`，ref 使用项目相对路径与当前文件 SHA-256；绝不写绝对路径或证据正文
+   - 用户明确偏好、纠正或决定使用 `user_statement + verified/not_applicable`，ref 指向 user role 的 exchange index 与完整窗口 SHA-256
+   - 只有会话说法而无法由仓库或用户明确陈述验证时，必须写 `transcript + unverified`；runtime 会终结该 durable candidate，不能伪装为事实
 
    不要退回旧的 heuristic fallback。v2.0 已移除正则提取式 distill；
    如果 `prepare_session_distill` 或 Skill 无法提供 lossless chunks，应把它当作
@@ -103,21 +106,23 @@ wireFormatVersion: hm-wire-v3.5
    - `semantic_review=<Step 3 的完整会话末尾审查>`
 
    `finalize_session_distill` 会重新验证 source revision 与全部 checkpoint，
-   只审核当前 job 产生的候选。`promotion_decision` 不是 `promote`、证据或末轮
-   未回答、存在 contradictions 或 unfinished work 时，必须保留候选为 pending，
-   且不运行 Dream。
+   只治理当前 job 产生的候选。`promotion_decision` 不是 `promote`、证据或末轮
+   未回答、存在 contradictions 或 unfinished work 时，候选会终结为 rejected，
+   该 job 记录 `completion.disposition=no_candidate`，且不运行 Dream；不会留下
+   反复出现的人工待办。
 
    MCP 不可用时，直接说明 runtime 工具不可用；不要回退到独立 CLI、packet
    workspace 或本地 memory-drafts 流程。
 
-   低风险候选的判断必须复用 shared auto-review policy，而不是在 slash 文档里手写另一套规则。高风险、冲突、证据不足或会改变长期行为的项应保留到 `/hm:review` audit inbox。
+   候选判断必须复用 shared auto-review policy，而不是在 slash 文档里手写另一套规则。安全候选自动进入 truth layer；其余候选自动终结。`/hm:review` 是事后 audit、纠错和 undo 入口，不是日常晋升闸门。
 
    内部审计结果必须以 `finalize_session_distill` 返回的 scoped auto-review 结果为准：
    - `auto_confirmed`
    - `auto_rejected`
-   - `kept_pending`
-   - `needs_user_confirmation`
+   - `completion.disposition` (`promoted` / `no_candidate`)
+   - `source_cleanup.status` (`retained` / `deleted` / `partial_failure` / `unsupported`)
    - `applied_decisions`
+   - `evidence_admission` (`repository_verified` / `user_stated` / `unverified_blocked` / `contradicted`)
 
    `applied_decisions` 保留在审计结果中。如果用户追问某个候选为什么会被确认、拒绝或保留，解释 candidate id、evidence id 和 policy reason。
 
@@ -125,11 +130,11 @@ wireFormatVersion: hm-wire-v3.5
    `auto_review_candidates(apply=true)` 收尾，也不要额外调用一条平行 Dream。
 
 5. **总结呈现**
-   默认只给简短结果，不展示 transcript、候选、自动确认或拒绝的计数：
+   默认只给简短结果，不展示 transcript、candidate/evidence ID 或详细计数：
 
    ```text
-   已完成整理和自动处理。
-   新的长期记忆已按证据和风险策略处理；近期工作仍可在 wake 中查看。
+   已完成整理：<形成长期记忆 / 无需长期记忆>。
+   原文：<已保留 / 已删除 / 部分失败 / 当前宿主不支持>。
    ```
 
    只有用户要求审计详情时，才展示计数、candidate/evidence ID 和 `/hm:review` 入口。
@@ -138,6 +143,7 @@ wireFormatVersion: hm-wire-v3.5
 
 - `/hm:distill` 是同一自动管线的立即执行入口：读取证据、提炼候选、自动处理低风险项、触发 Dream；默认摘要保持简短
 - `/hm:review` 是 audit inbox：确认、拒绝、undo、替换候选都在这里发生
+- 原文默认保留；只有用户明确开启并通过 `config set distill.delete_source_after_complete true --scope user --confirm` 写入持久策略，才授权后续完成会话自动清理；不逐会话确认，实际结果以 `source_cleanup.status` 为准
 - 不要把具体客户端写死为默认来源；默认入口必须是 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根目录>)`
 - agent 历史可能是用户全局数据源，默认必须按当前项目路径过滤；跨项目导入必须由用户显式要求 `scope="all"`
 - 用户主路径是 Slash + MCP + Skill；没有独立 session-distill CLI 兜底

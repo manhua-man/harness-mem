@@ -51,11 +51,16 @@ wake -> search -> distill -> review -> dream
 `tool_result`、`prepareNextTurn`，Claude Code 的 `PostToolUse`，以及
 Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 事件入口；`/hm:search` 只是客户端没有这类 hook 时的手动兜底。
-`Stop` Hook 会保存不可变的原始 transcript revision，并排队它的全部有序 chunk。日常 `prepare_session_distill(evidence_mode="semantic", detail_level="compact", budget_tokens=3000)` 保留完整原文，由 runtime 校验并 checkpoint 每个 raw chunk，再返回包含全部 exchange 索引和风险信号的 compact manifest；Agent 先选择最多 8 个完整语义窗口，再只为候选主张钻取 raw proof。`detail_level="full"` 与兼容 `raw` 模式只用于显式完整审计，raw chunk 不截断内容。完成会话末尾审查后才可用稳定幂等 ID 生成候选，`finalize_session_distill` 随后执行 auto-review 和 Dream。`/hm:distill` 是同一条可恢复管线的立即执行入口。Hook 只负责同步、排队和注入 Agent 工作，不能声称没有 Agent 时已完成总结；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
+`Stop` Hook 会保存不可变的原始 transcript revision，并排队它的全部有序 chunk。日常 `prepare_session_distill(evidence_mode="semantic", detail_level="compact", budget_tokens=3000)` 保留完整原文，由 runtime 校验并 checkpoint 每个 raw chunk，再返回包含全部 exchange 索引和风险信号的 compact manifest；Agent 先选择最多 8 个完整语义窗口，再只为候选主张钻取 raw proof。`detail_level="full"` 与兼容 `raw` 模式只用于显式完整审计，raw chunk 不截断内容。完成会话末尾审查后才可用稳定幂等 ID 生成候选，`finalize_session_distill` 随后执行自动治理和 Dream，记录 `promoted` 或 `no_candidate`，并终结未晋升候选，低价值会话不会变成反复出现的人工待办。`/hm:review` 是纠错和 undo 入口，不是日常晋升闸门。`/hm:distill` 是同一条可恢复管线的立即执行入口。Hook 只负责同步、排队和注入 Agent 工作，不能声称没有 Agent 时已完成总结；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
+
+0.9.5 为新候选增加 evidence basis 和 verification outcome。仓库事实必须引用
+当前项目相对文件及其 SHA-256；用户偏好或决定引用 user role 的 exchange
+摘要。只有 transcript 说法、证据缺失/变化或已冲突的候选不能进入长期 truth；
+RelationFact 也走同一准入规则，旧 truth 不会被追溯重分类。
 
 Observation 只是证据，不是被记住的事实。wake 的近期索引会明确标成“非事实证据”；L1/L2 只展示结构化当前事实和仍有效的 handoff。被当前仓库版本推翻的旧发布/版本说法会标记冲突，或从 truth/active 层移除。
 
-隐私策略在落盘前执行：可用 `<private>...</private>` 包裹敏感片段，也可在项目 `.harness-mem.toml` 的 `[capture]` 中配置忽略 client、session 和 source glob；被排除内容不会进入 raw revision、chunk、Observation 或索引。`[transcript].retention_days` 控制自动保留期（`0` 表示永久保留）。`harness-mem maintenance erase --project NAME --session-id ID` 默认预览，增加 `--apply` 后会硬删除 raw revision、chunk、distill job、Observation、关联候选/事实以及 FTS/vector 索引。apply 会先持久化不含内容和原始标识的 receipt，再报告计划数、实际删除数和删除后验证；receipt 写入失败时不会开始删除，部分失败返回非零状态。
+隐私策略在落盘前执行：可用 `<private>...</private>` 包裹敏感片段，也可在项目 `.harness-mem.toml` 的 `[capture]` 中配置忽略 client、session 和 source glob；被排除内容不会进入 raw revision、chunk、Observation 或索引。`[transcript].retention_days` 控制自动保留期（`0` 表示永久保留）。整理完成后的原文清理是另一个持久开关，默认关闭；用 `harness-mem config set distill.delete_source_after_complete true --scope user --confirm` 开启，项目配置可覆盖。`--confirm` 只在持久策略从关闭变为开启时要求；关闭策略以及后续每个会话的自动清理不再逐个确认。IDE 中用户明确说“开启 harness-mem 整理后删除原会话”，即可授权 Agent 执行这次带确认的配置写入。开启后会删除满足静默/CAS 校验的宿主会话源、local raw bytes、chunks、checkpoint result、Observation 和派生索引，同时保留并脱敏长期 Memory/Rule/Fact/Skill；每次结果明确为 `retained`、`deleted`、`partial_failure` 或 `unsupported`，且宿主删除前先写无内容 receipt。无法安全按会话事务删除的共享 SQLite/JSONL 会保持不动并报告 unsupported，绝不会删除整个共享历史文件。`harness-mem maintenance erase --project NAME --session-id ID` 默认预览，增加 `--apply` 后会硬删除 raw revision、chunk、distill job、Observation、关联候选/事实以及 FTS/vector 索引。apply 会先持久化不含内容和原始标识的 receipt，再报告计划数、实际删除数和删除后验证；receipt 写入失败时不会开始删除，部分失败返回非零状态。
 
 运维诊断同样显式：Doctor 只读探测 SQLite，并把恢复动作分成 `safe_rebuild`、`snapshot_required`、`manual_review` 和 `destructive`，不会自动 apply。compact project status 保留决策信息；full drilldown 增加 7 天检索使用/忽略/误导/放弃/旧冲突排除统计，以及明确的 distill backlog 原因和基于 Agent 实际吞吐的保守清空估算。
 
@@ -88,8 +93,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.3 \
-  harness-mem==0.9.3
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.5 \
+  harness-mem==0.9.5
 ```
 
 `harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
@@ -99,8 +104,8 @@ Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.3 \
-  "harness-mem[hybrid]==0.9.3"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.5 \
+  "harness-mem[hybrid]==0.9.5"
 ```
 
 在当前设备一次性安装全部宿主的原生 Daily 命令。默认参数就是
@@ -185,4 +190,4 @@ cargo test --workspace
 发布标签会构建六个平台 wheel 和 sdist，在 Windows、macOS、Linux 上完成
 全新安装验证后上传到 GitHub Release。本项目不发布到 PyPI。
 
-当前包版本：**0.9.3**。
+当前包版本：**0.9.5**。

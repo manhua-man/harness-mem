@@ -1,7 +1,7 @@
 # Compatibility Inventory
 
 This inventory records the compatibility paths reviewed for the combined
-0.9.2/0.9.3 release. It is an ownership and removal ledger, not a second public
+0.9.2–0.9.5 release line. It is an ownership and removal ledger, not a second public
 API definition. The public MCP contract remains the 27 names in
 `harness_mem/mcp/tool_specs.py` and the generated descriptors in
 `mcps/harness_mem/tools/`.
@@ -106,3 +106,31 @@ running server; direct descriptors must come from `tool_specs.py` and
   persisted-data responsibilities.
 - Router snapshots remain frozen and non-canonical; they must not be used to
   overwrite the 27-tool harness-mem contract.
+
+## 0.9.4 audit result
+
+- Completion and cleanup fields extend the existing distill-job JSON with
+  defaults. Old rows remain readable without a SQL migration or pipeline
+  version bump and correctly report an unknown historical outcome.
+- The public MCP tool count remains 27. Finalize/status add compact result
+  fields, but no second tool profile, persistence root, or scheduler.
+- Existing post-turn maintenance owns bounded quiet-source retries; the
+  default-off cleanup policy does not create an autonomous worker.
+- The persistent deletion confirmation is present in CLI help and Bash, Zsh,
+  and Fish completion; it does not create another config command or Daily
+  workflow.
+
+The 0.9.4 work above ships in the combined 0.9.5 package and tag; no separate
+0.9.4 artifact is published.
+
+## 0.9.5 audit result
+
+- Evidence admission extends the three governed candidate payloads with
+  optional fields. Legacy rows load with absent fields and keep their previous
+  read/governance behavior; no retroactive classification migration is needed.
+- `govern_memory`, scoped finalize, candidate detail, Dream audit events, and
+  existing status views own the new contract. The public MCP allowlist remains
+  exactly 27 names.
+- Processed-source cleanup strips transient repository locators from retained
+  truth while keeping one-way digests and stable reason codes. It does not add
+  another receipt store or cleanup scheduler.

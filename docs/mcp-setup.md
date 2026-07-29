@@ -107,11 +107,43 @@ MCP response, and long sessions continue over multiple calls. After structural
 coverage and semantic reading complete, the Agent submits a structured
 end-of-session review. Candidate writes
 bound to that job use stable IDs so retries do not duplicate memory.
-`finalize_session_distill` applies the shared low-risk policy, completes that
-one explicit job, and runs Dream. Lower-level sync and chunk tools are internal
-Agent workflow, not user commands. Ambiguous or high-risk items remain in
-`/hm:review`. Operator
+`finalize_session_distill` applies the shared automatic policy, completes that
+one explicit job, runs Dream, and returns `completion`, `promotion`,
+`queue_effect`, and `source_cleanup` summaries. Safe candidates enter the
+truth layer; everything else is terminally rejected instead of becoming a
+recurring daily prompt. `/hm:review` remains an optional correction, audit, and
+undo surface. Lower-level sync and chunk tools are internal Agent workflow, not user commands. Operator
 maintenance and skill lifecycle management are not public MCP tools.
+
+For 0.9.5 candidates, `govern_memory(action="suggest")` accepts
+`evidence_basis`, `verification_outcome`, and integrity-only
+`verification_refs` inside its existing `arguments` object. Repository claims
+use a project-relative locator plus current file SHA-256; explicit user
+preferences/decisions use a user-role exchange index plus semantic-window
+SHA-256. The runtime rechecks reference integrity before admission.
+Transcript-only, outside-project, missing, changed, or contradicted evidence
+cannot enter readable truth. Relation facts use the same scoped policy and the
+public MCP allowlist remains exactly 27 tools.
+
+`distill.delete_source_after_complete` is a persistent user/project config
+boolean and defaults to `false`. Enabling it is explicit authorization for the
+completed-job cleanup saga: receipt first, native compare-and-swap deletion,
+local raw/chunk/Observation/index cleanup, truth provenance sanitization, and
+post-delete verification. `source_cleanup.status` distinguishes `retained`,
+`deleted`, `partial_failure`, and `unsupported`; a configured policy never
+implies that deletion succeeded. Shared SQLite/JSONL sources are not unlinked
+when a safe session-scoped transaction is unavailable.
+
+Enabling from the CLI requires the one-time policy confirmation:
+
+```powershell
+harness-mem config set distill.delete_source_after_complete true --scope user --confirm
+```
+
+Disabling requires no confirmation. IDE users can instead explicitly say
+“开启 harness-mem 整理后删除原会话” or “关闭 harness-mem 整理后删除原会话”; this
+natural-language control maps to the existing CLI config surface and does not
+add an MCP tool or another Daily command.
 Read-only procedural hints can be searched from memory context, but procedural
 skill lifecycle management is outside this public memory surface.
 

@@ -66,10 +66,20 @@ eight complete semantic windows and only then drills into candidate-grade raw
 proof. `detail_level="full"` and the compatible `raw` mode remain explicit audit paths; raw mode claims bounded
 chunks without truncating them for explicit deep audit. The Agent performs an
 end-of-session review and only then creates idempotent candidates. `finalize_session_distill` runs
-auto-review and Dream. `/hm:distill` is the immediate entry to this same
+automatic governance and Dream, records `promoted` or `no_candidate`, and
+terminally rejects non-promoted candidates so low-value sessions do not become
+recurring manual work. `/hm:review` remains the correction and undo surface,
+not a required promotion gate. `/hm:distill` is the immediate entry to this same
 resumable pipeline. Hook maintenance only captures and queues evidence: it does
 not claim that an Agent has already summarized the session. Legacy Observations
 without an available native transcript remain audit-only (`legacy_partial`).
+
+New distill candidates carry an evidence basis and verification outcome.
+Repository facts must point to a current project-relative file digest; explicit
+preferences and decisions point to a user-authored exchange digest.
+Transcript-only, missing, changed, or contradicted evidence cannot become
+durable truth. Relation facts use the same policy, and legacy truth is not
+retroactively reclassified.
 
 Observations are evidence, never remembered facts. Wake labels their recent
 index as non-truth; L1/L2 contain only structured current facts and active
@@ -80,6 +90,23 @@ Privacy is enforced before persistence. Put sensitive spans inside
 `<private>...</private>`, or configure project-level `[capture]` ignore lists;
 excluded content never reaches raw revisions, chunks, Observations, or indexes.
 `[transcript].retention_days` enables automatic expiry (`0` keeps data).
+Processed source deletion is a separate persistent opt-in and defaults off:
+
+```bash
+harness-mem config set distill.delete_source_after_complete true --scope user --confirm
+```
+
+`--confirm` is required only for the persistent transition from disabled to
+enabled; disabling the policy and individual completed sessions require no
+extra prompt. In an IDE, the explicit natural-language instruction “enable
+harness-mem deletion of original sessions after distill” authorizes the Agent
+to perform this confirmed config write. When enabled, completed jobs delete an eligible quiet native session source,
+local raw bytes, chunks, checkpoint results, matching Observations, and derived
+indexes while retaining sanitized durable Memory/Rule/Fact/Skill truth. Every
+attempt reports `retained`, `deleted`, `partial_failure`, or `unsupported` and
+writes a content-free receipt before native mutation. Shared SQLite/JSONL
+containers that lack a safe transactional session deleter are left untouched
+and reported as unsupported; no whole shared history file is ever unlinked.
 `harness-mem maintenance erase --project NAME --session-id ID` previews a full
 hard delete; add `--apply` to erase raw revisions, chunks, jobs, Observations,
 linked candidates/truth, and FTS/vector rows. Apply first persists a content-free
@@ -119,8 +146,8 @@ owns storage, candidates, review, retrieval, and local audit state.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.3 \
-  harness-mem==0.9.3
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.5 \
+  harness-mem==0.9.5
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -131,8 +158,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.3 \
-  "harness-mem[hybrid]==0.9.3"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.5 \
+  "harness-mem[hybrid]==0.9.5"
 ```
 
 Install every supported host's native Daily commands once for the current
@@ -260,4 +287,4 @@ python scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.9.3**.
+Current package version: **0.9.5**.

@@ -6,8 +6,8 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.3 \
-  harness-mem==0.9.3
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.5 \
+  harness-mem==0.9.5
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Pip uses
@@ -17,8 +17,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.3 \
-  "harness-mem[hybrid]==0.9.3"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.5 \
+  "harness-mem[hybrid]==0.9.5"
 ```
 
 Check the CLI:
@@ -136,7 +136,8 @@ is no longer rendered as three empty sections.
 the current project, host, hooks, transcript observations, and distill queue.
 Compact status keeps the release decisions under its response budget; request
 `detail_level="full"` only when you need seven-day outcome/abstention/exclusion
-counts, stuck-reason actions, or the conservative Agent-throughput drain estimate.
+counts, `promoted`/`no_candidate` completion totals, source-cleanup failures,
+stuck-reason actions, or the conservative Agent-throughput drain estimate.
 Doctor's recovery plan is read-only and risk-classified; preview and apply are
 always separate commands.
 
@@ -176,8 +177,43 @@ raw mode retains the full per-chunk lease loop. The Agent then performs an
 end-of-session review covering the final request, outcome, contradictions,
 unfinished work, and evidence status. Only review-ready jobs may create
 idempotent `govern_memory(action="suggest")` candidates.
-`finalize_session_distill` applies auto-review and then Dream. Merely preparing
-or partially reading a packet is never reported as a completed summary.
+`finalize_session_distill` applies automatic governance and then Dream. Its
+completion block says whether durable knowledge was `promoted` or the session
+ended as `no_candidate`; non-promoted candidates are terminally rejected so a
+completed low-value session does not return as daily review work. Merely
+preparing or partially reading a packet is never reported as completed.
+
+Each new candidate also carries an evidence envelope. Repository claims use a
+current project-relative file digest; explicit user preferences/decisions use
+a user-authored exchange digest. Transcript-only, missing, changed, or
+contradicted evidence is terminally blocked from durable truth. Candidate
+detail and full/compact status expose content-free admission outcomes for
+audit without adding another MCP tool or manual daily gate.
+
+Raw source cleanup is a persistent opt-in, similar to the Dream setting, and
+defaults to keeping source evidence:
+
+```bash
+harness-mem config get distill.delete_source_after_complete
+harness-mem config set distill.delete_source_after_complete true --scope user --confirm
+harness-mem config set distill.delete_source_after_complete false --scope project
+```
+
+`--confirm` is required only when a scope changes from disabled or unset to
+enabled. It confirms the persistent policy once; finalize never asks again for
+each completed session. In an IDE, say “开启 harness-mem 整理后删除原会话” or
+“关闭 harness-mem 整理后删除原会话”; an Agent may translate the explicit enable
+request to the confirmed user-scope config write without adding an MCP tool or
+another Daily command.
+
+When enabled, finalize (and a bounded post-turn retry after an active source
+becomes quiet) deletes the eligible native session source plus harness-mem raw
+bytes, chunks, checkpoint results, matching Observation/index rows, and linked
+evidence-only records. Promoted Memory/Rule/Fact/Skill truth stays readable with
+`source_pruned` provenance. The result is always explicit: `retained`,
+`deleted`, `partial_failure`, or `unsupported`. A content-free `in_progress`
+receipt is durable before native mutation. Shared containers without a safe
+per-session transaction remain untouched and report `unsupported`.
 
 During an Agent run, supported clients should send context/tool/save-point
 events to `autopilot_search_tick`. The scheduler calls `search_memory` only
