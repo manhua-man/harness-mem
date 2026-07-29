@@ -149,6 +149,19 @@ def plan_native_source_cleanup(
             shape_reason,
         )
 
+    # Reject the locator itself before building manifests.  On platforms that
+    # support symlinks, manifest construction deliberately raises for a link;
+    # treating that as a generic preview race would incorrectly report the
+    # source as merely retained instead of fail-closing the cleanup request.
+    # This check is unconditional so broken links are rejected as well.
+    if _is_link_or_reparse(source_path):
+        return _unsupported_plan(
+            source,
+            locator_sha256,
+            quiet_seconds,
+            "native_source_not_regular_file",
+        )
+
     actions = _actions_for_source(source, source_path, roots)
     if not actions:
         return _unsupported_plan(
