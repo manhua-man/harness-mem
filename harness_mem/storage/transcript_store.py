@@ -44,6 +44,7 @@ class TranscriptStore:
         )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA secure_delete=ON")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._init_schema()
         self._distill = SessionDistillStore(
@@ -56,6 +57,15 @@ class TranscriptStore:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    def flush_sensitive_deletes(self) -> None:
+        """Commit secure deletes and truncate the transcript-ledger WAL."""
+
+        with self._lock:
+            self._conn.commit()
+            row = self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if row is not None and int(row[0] or 0) != 0:
+                raise RuntimeError("transcript ledger WAL checkpoint remained busy")
 
     def save_source(self, source: TranscriptSource) -> None:
         """Upsert the logical source and its current-revision pointer."""
@@ -558,6 +568,247 @@ class TranscriptStore:
             output_candidate_ids=output_candidate_ids,
         )
 
+    def record_distill_completion_outcome(
+        self,
+        job_id: str,
+        *,
+        disposition: str | None,
+        reason_codes: list[str],
+        promotion_summary: dict[str, Any],
+        source_cleanup_status: str,
+        source_cleanup_receipt_id: str | None = None,
+    ) -> SessionDistillJob:
+        """Record automatic promotion and source-cleanup results for one job."""
+
+        return self._distill.record_completion_outcome(
+            job_id,
+            disposition=disposition,  # type: ignore[arg-type]
+            reason_codes=reason_codes,
+            promotion_summary=promotion_summary,
+            source_cleanup_status=source_cleanup_status,  # type: ignore[arg-type]
+            source_cleanup_receipt_id=source_cleanup_receipt_id,
+        )
+
+    def prune_completed_distill_evidence(
+        self,
+        job_id: str,
+        *,
+        receipt_id: str,
+    ) -> dict[str, int]:
+        """Remove one completed job's raw evidence while retaining its receipt row.
+
+        ``distill_jobs`` has an intentional foreign key to the immutable source
+        revision.  A processed-source cleanup therefore retains a zero-content
+        revision/source stub and a redacted completed job instead of weakening
+        the FK or creating a second completion ledger.
+        """
+
+        empty_sha = sha256_bytes(b"")
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                job = self._distill._get_job_locked(job_id)
+                if job is None:
+                    raise KeyError(job_id)
+                if job.status != "completed":
+                    raise ValueError(
+                        "processed-source cleanup requires a completed distill job"
+                    )
+                revision_rows = self._conn.execute(
+                    "SELECT data FROM transcript_source_revisions "
+                    "WHERE source_id = ? ORDER BY captured_at ASC",
+                    (job.source_id,),
+                ).fetchall()
+                if not revision_rows:
+                    raise ValueError("distill source revision no longer exists")
+                source_row = self._conn.execute(
+                    "SELECT data FROM transcript_sources WHERE id = ?",
+                    (job.source_id,),
+                ).fetchone()
+                if source_row is None:
+                    raise ValueError("distill source no longer exists")
+
+                checkpoint_count = int(
+                    self._conn.execute(
+                        "SELECT COUNT(*) FROM distill_job_chunks c "
+                        "JOIN distill_jobs j ON j.id = c.job_id "
+                        "WHERE j.source_id = ?",
+                        (job.source_id,),
+                    ).fetchone()[0]
+                )
+                chunk_count = int(
+                    self._conn.execute(
+                        "SELECT COUNT(*) FROM transcript_chunks "
+                        "WHERE source_id = ?",
+                        (job.source_id,),
+                    ).fetchone()[0]
+                )
+                raw_bytes = int(
+                    self._conn.execute(
+                        "SELECT COALESCE(SUM(length(raw_bytes)), 0) "
+                        "FROM transcript_source_revisions WHERE source_id = ?",
+                        (job.source_id,),
+                    ).fetchone()[0]
+                    or 0
+                )
+
+                # Checkpoints reference chunks without ON DELETE CASCADE, so the
+                # job-owned checkpoints must be removed first.
+                self._conn.execute(
+                    "DELETE FROM distill_job_chunks WHERE job_id IN "
+                    "(SELECT id FROM distill_jobs WHERE source_id = ?)",
+                    (job.source_id,),
+                )
+                self._conn.execute(
+                    "DELETE FROM transcript_chunks WHERE source_id = ?",
+                    (job.source_id,),
+                )
+
+                for revision_row in revision_rows:
+                    revision = TranscriptSourceRevision.from_dict(
+                        json.loads(revision_row["data"])
+                    )
+                    revision.project_root = ""
+                    revision.session_id = ""
+                    revision.source_uri = ""
+                    revision.raw_sha256 = empty_sha
+                    revision.normalized_sha256 = empty_sha
+                    revision.raw_size_bytes = 0
+                    revision.normalized_size_bytes = 0
+                    revision.mtime_ns = None
+                    revision.chunk_count = 0
+                    revision.sequence_count = 0
+                    revision.metadata = {
+                        "evidence_state": "source_pruned",
+                        "cleanup_receipt_id": receipt_id,
+                    }
+                    self._conn.execute(
+                        """
+                        UPDATE transcript_source_revisions
+                        SET raw_sha256 = ?, normalized_sha256 = ?,
+                            raw_size_bytes = 0, normalized_size_bytes = 0,
+                            raw_bytes = ?, data = ?
+                        WHERE source_id = ? AND source_revision = ?
+                        """,
+                        (
+                            empty_sha,
+                            empty_sha,
+                            sqlite3.Binary(b""),
+                            json.dumps(revision.to_dict(), ensure_ascii=False),
+                            job.source_id,
+                            revision.source_revision,
+                        ),
+                    )
+
+                source = TranscriptSource.from_dict(json.loads(source_row["data"]))
+                if source.source_revision != job.source_revision:
+                    raise ValueError(
+                        "transcript source changed before processed-source cleanup"
+                    )
+                source.project_root = ""
+                source.session_id = ""
+                source.source_uri = f"processed-source://{source.id}"
+                source.raw_sha256 = empty_sha
+                source.normalized_sha256 = empty_sha
+                source.raw_size_bytes = 0
+                source.normalized_size_bytes = 0
+                source.mtime_ns = None
+                source.status = "missing"
+                source.coverage = "complete"
+                source.chunk_count = 0
+                source.sequence_count = 0
+                source.error = None
+                source.metadata = {
+                    "evidence_state": "source_pruned",
+                    "cleanup_receipt_id": receipt_id,
+                }
+                self._upsert_source_locked(source)
+
+                job_rows = self._conn.execute(
+                    "SELECT data FROM distill_jobs WHERE source_id = ?",
+                    (job.source_id,),
+                ).fetchall()
+                completed_jobs = 0
+                for job_row in job_rows:
+                    source_job = SessionDistillJob.from_dict(json.loads(job_row["data"]))
+                    review = dict(source_job.semantic_review)
+                    source_job.project_root = ""
+                    source_job.session_id = ""
+                    source_job.semantic_review = {
+                        "last_turn_status": review.get("last_turn_status", "unknown"),
+                        "evidence_status": review.get(
+                            "evidence_status", "not_applicable"
+                        ),
+                        "promotion_decision": review.get(
+                            "promotion_decision", "no_promotion"
+                        ),
+                        "contradiction_count": len(review.get("contradictions") or []),
+                        "unfinished_work_count": len(
+                            review.get("unfinished_work") or []
+                        ),
+                        "evidence_state": "source_pruned",
+                    }
+                    source_job.source_cleanup_status = "deleted"
+                    source_job.source_cleanup_receipt_id = receipt_id
+                    source_job.updated_at = datetime.now(timezone.utc)
+                    completed_jobs += int(source_job.status == "completed")
+                    self._distill._upsert_job_locked(source_job)
+                self._conn.commit()
+                return {
+                    "revisions_pruned": len(revision_rows),
+                    "raw_bytes_pruned": raw_bytes,
+                    "chunks_deleted": chunk_count,
+                    "checkpoints_deleted": checkpoint_count,
+                    "completed_jobs_retained": completed_jobs,
+                }
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def verify_completed_distill_evidence_pruned(self, job_id: str) -> dict[str, int]:
+        """Return residual raw-ledger counts for a processed-source cleanup."""
+
+        with self._lock:
+            job = self._distill._get_job_locked(job_id)
+            if job is None:
+                return {"completed_job": 0, "raw_bytes": 1, "chunks": 1, "checkpoints": 1}
+            revision = self._conn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(length(raw_bytes)), 0), "
+                "COALESCE(SUM(raw_size_bytes), 0), "
+                "COALESCE(SUM(normalized_size_bytes), 0) "
+                "FROM transcript_source_revisions WHERE source_id = ?",
+                (job.source_id,),
+            ).fetchone()
+            raw_residual = int(
+                revision is None
+                or int(revision[0] or 0) == 0
+                or bool(
+                    int(revision[1] or 0)
+                    or int(revision[2] or 0)
+                    or int(revision[3] or 0)
+                )
+            )
+            chunks = int(
+                self._conn.execute(
+                    "SELECT COUNT(*) FROM transcript_chunks WHERE source_id = ?",
+                    (job.source_id,),
+                ).fetchone()[0]
+            )
+            checkpoints = int(
+                self._conn.execute(
+                    "SELECT COUNT(*) FROM distill_job_chunks c "
+                    "JOIN distill_jobs j ON j.id = c.job_id "
+                    "WHERE j.source_id = ?",
+                    (job.source_id,),
+                ).fetchone()[0]
+            )
+        return {
+            "completed_job": int(job.status == "completed"),
+            "raw_bytes": raw_residual,
+            "chunks": chunks,
+            "checkpoints": checkpoints,
+        }
+
     def plan_hard_delete(
         self,
         *,
@@ -842,6 +1093,7 @@ class TranscriptStore:
         client: str,
         session_id: str,
         source_id: str,
+        source_revision: str | None = None,
     ) -> bool:
         """Return whether explicit erasure forbids recapturing this source.
 
@@ -856,6 +1108,30 @@ class TranscriptStore:
         source_digest = sha256_text(source_id)
         source_identity_digest = sha256_text(f"{client}\x1f{session_id}")
         for receipt in self.list_deletion_audit(project_name=project_name):
+            if (
+                receipt.get("kind") == "processed_source_cleanup"
+                and receipt.get("status")
+                in {"in_progress", "succeeded", "partial_failure"}
+                and source_revision is not None
+            ):
+                scope = receipt.get("scope")
+                if not isinstance(scope, dict):
+                    continue
+                identity_matches = bool(
+                    scope.get("source_id_sha256") == source_digest
+                    or scope.get("session_id_sha256") == session_digest
+                )
+                if (
+                    identity_matches
+                    and (
+                        scope.get("source_revision_sha256")
+                        == sha256_text(source_revision)
+                        or sha256_text(source_revision)
+                        in set(scope.get("source_revision_sha256s") or [])
+                    )
+                ):
+                    return True
+                continue
             if receipt.get("kind") != "hard_delete" or receipt.get("status") not in {
                 "in_progress",
                 "succeeded",

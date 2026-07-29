@@ -12,7 +12,7 @@ from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
-from harness_mem.core.schemas import SupersedeCandidate
+from harness_mem.core.schemas import EvidenceRef, SupersedeCandidate
 from harness_mem.event_log import StateEventType
 from harness_mem.retrieval_signals import record_retrieval_signal
 
@@ -33,6 +33,38 @@ def _distill_candidate_id(*args, **kwargs):
     from harness_mem.mcp import tool_handlers as core
 
     return core._distill_candidate_id(*args, **kwargs)
+
+
+def _evidence_fields(
+    *,
+    distill_job_id: str | None,
+    evidence_basis: str | None,
+    verification_outcome: str | None,
+    verification_refs: list[dict[str, Any]] | None,
+    verification_reason_codes: list[str] | None,
+) -> dict[str, Any]:
+    """Normalize a v0.9.5 evidence envelope without accepting verified time."""
+
+    basis = evidence_basis
+    outcome = verification_outcome
+    reasons = list(verification_reason_codes or [])
+    if basis is None or outcome is None:
+        basis = basis or "transcript"
+        outcome = "unverified"
+        reasons.append("evidence_envelope_missing")
+    return {
+        "evidence_basis": basis,
+        "verification_outcome": outcome,
+        "verification_refs": [
+            EvidenceRef.from_dict(item) for item in verification_refs or []
+        ],
+        "verification_reason_codes": list(dict.fromkeys(reasons)),
+    }
+
+
+def _apply_evidence_fields(candidate: Any, fields: dict[str, Any]) -> None:
+    for key, value in fields.items():
+        setattr(candidate, key, value)
 
 def tool_create_rule_candidate(
     project_name: str,
@@ -435,6 +467,10 @@ def tool_suggest_rule(
     session_id: str | None = None,
     examples: list[str] | None = None,
     distill_job_id: str | None = None,
+    evidence_basis: str | None = None,
+    verification_outcome: str | None = None,
+    verification_refs: list[dict[str, Any]] | None = None,
+    verification_reason_codes: list[str] | None = None,
 ) -> dict:
     """Suggest a rule candidate for later review (lighter than confirm_rule)."""
     from harness_mem.core.schemas.rule_candidate import RuleCandidate
@@ -451,9 +487,18 @@ def tool_suggest_rule(
             "examples": examples or [],
         },
     )
+    evidence_fields = _evidence_fields(
+        distill_job_id=distill_job_id,
+        evidence_basis=evidence_basis,
+        verification_outcome=verification_outcome,
+        verification_refs=verification_refs,
+        verification_reason_codes=verification_reason_codes,
+    )
     if candidate_id is not None:
         existing = asyncio.run(backend.structured_store.get_rule_candidate(candidate_id))
         if existing is not None:
+            _apply_evidence_fields(existing, evidence_fields)
+            asyncio.run(backend.structured_store.save_rule_candidate(existing))
             return {
                 "success": True,
                 "candidate_id": existing.id,
@@ -478,6 +523,7 @@ def tool_suggest_rule(
         confidence=0.5,
         status="pending",
         distill_job_id=distill_job_id,
+        **evidence_fields,
     )
     saved_id = asyncio.run(backend.structured_store.save_rule_candidate(candidate))
     state_event_id = _record_state_event(
@@ -488,7 +534,11 @@ def tool_suggest_rule(
         target_id=saved_id,
         status="pending",
         source_surface="mcp.suggest_rule",
-        payload={"trigger": candidate.trigger},
+        payload={
+            "trigger": candidate.trigger,
+            "evidence_basis": candidate.evidence_basis,
+            "verification_outcome": candidate.verification_outcome,
+        },
     )
     return {
         "success": True,
@@ -508,6 +558,10 @@ def tool_suggest_memory_entry(
     confidence: float = 0.7,
     tags: list[str] | None = None,
     distill_job_id: str | None = None,
+    evidence_basis: str | None = None,
+    verification_outcome: str | None = None,
+    verification_refs: list[dict[str, Any]] | None = None,
+    verification_reason_codes: list[str] | None = None,
 ) -> dict:
     """Suggest a memory entry for later review."""
     from harness_mem.core.schemas.memory_entry import MemoryEntry
@@ -524,9 +578,18 @@ def tool_suggest_memory_entry(
             "tags": tags or [],
         },
     )
+    evidence_fields = _evidence_fields(
+        distill_job_id=distill_job_id,
+        evidence_basis=evidence_basis,
+        verification_outcome=verification_outcome,
+        verification_refs=verification_refs,
+        verification_reason_codes=verification_reason_codes,
+    )
     if entry_id is not None:
         existing = asyncio.run(backend.structured_store.get_memory_entry(entry_id))
         if existing is not None:
+            _apply_evidence_fields(existing, evidence_fields)
+            asyncio.run(backend.structured_store.save_memory_entry(existing))
             return {
                 "success": True,
                 "entry_id": existing.id,
@@ -545,6 +608,7 @@ def tool_suggest_memory_entry(
         status="pending",
         tags=tags or [],
         distill_job_id=distill_job_id,
+        **evidence_fields,
     )
     saved_id = asyncio.run(backend.structured_store.save_memory_entry(entry))
     state_event_id = _record_state_event(
@@ -555,7 +619,12 @@ def tool_suggest_memory_entry(
         target_id=saved_id,
         status="pending",
         source_surface="mcp.suggest_memory_entry",
-        payload={"category": entry.category, "source": entry.source},
+        payload={
+            "category": entry.category,
+            "source": entry.source,
+            "evidence_basis": entry.evidence_basis,
+            "verification_outcome": entry.verification_outcome,
+        },
     )
     return {
         "success": True,
@@ -631,6 +700,10 @@ def tool_suggest_relation_fact(
     source: str,
     confidence: float = 0.7,
     distill_job_id: str | None = None,
+    evidence_basis: str | None = None,
+    verification_outcome: str | None = None,
+    verification_refs: list[dict[str, Any]] | None = None,
+    verification_reason_codes: list[str] | None = None,
 ) -> dict:
     """Suggest a relation fact for later review."""
     from harness_mem.core.schemas.relation_fact import RelationFact
@@ -648,9 +721,18 @@ def tool_suggest_relation_fact(
             "source": source,
         },
     )
+    evidence_fields = _evidence_fields(
+        distill_job_id=distill_job_id,
+        evidence_basis=evidence_basis,
+        verification_outcome=verification_outcome,
+        verification_refs=verification_refs,
+        verification_reason_codes=verification_reason_codes,
+    )
     if fact_id is not None:
         existing = asyncio.run(backend.structured_store.get_relation_fact(fact_id))
         if existing is not None:
+            _apply_evidence_fields(existing, evidence_fields)
+            asyncio.run(backend.structured_store.save_relation_fact(existing))
             return {
                 "success": True,
                 "fact_id": existing.id,
@@ -673,6 +755,7 @@ def tool_suggest_relation_fact(
         confidence=confidence,
         status="pending",
         distill_job_id=distill_job_id,
+        **evidence_fields,
     )
     saved_id = asyncio.run(backend.structured_store.save_relation_fact(fact))
     state_event_id = _record_state_event(
@@ -687,6 +770,8 @@ def tool_suggest_relation_fact(
             "source_entity": source_entity,
             "target_entity": target_entity,
             "relation_type": relation_type,
+            "evidence_basis": fact.evidence_basis,
+            "verification_outcome": fact.verification_outcome,
         },
     )
     return {
@@ -841,7 +926,7 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
                 )
         else:
             return {"success": False, "error": "unknown governance action"}
-    except TypeError as exc:
+    except (TypeError, ValueError) as exc:
         return {"success": False, "error": f"invalid {action} arguments: {exc}"}
     return {"governance_action": action, **result}
 

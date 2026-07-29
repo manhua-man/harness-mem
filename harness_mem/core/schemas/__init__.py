@@ -12,6 +12,13 @@ from harness_mem.core.schemas.stale_truth_suggestion_candidate import (
 from harness_mem.core.schemas.procedural_candidate import ProceduralCandidate
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
+from harness_mem.core.schemas.evidence import (
+    EvidenceBasis,
+    EvidenceEnvelope,
+    EvidenceRef,
+    EvidenceRefKind,
+    VerificationOutcome,
+)
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.core.schemas.metabolism_run import MetabolismRun
@@ -66,7 +73,12 @@ __all__ = [
     "ProceduralCandidate",
     "Skill",
     "ConfirmedRule",
+    "EvidenceBasis",
+    "EvidenceEnvelope",
+    "EvidenceRef",
+    "EvidenceRefKind",
     "ProjectProfile",
+    "VerificationOutcome",
     "RelationFact",
     "MetabolismRun",
     "DreamItem",

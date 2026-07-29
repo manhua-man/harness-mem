@@ -22,10 +22,9 @@ import tomli_w
 
 from harness_mem.config.errors import ConfigParseError, ConfigValidationError
 from harness_mem.config.merge import (
-    _AUTOPILOT_KEYS,
-    _DREAM_KEYS,
     _RECOGNIZED_KEYS,
     _REMOVED_CONFIG_KEYS,
+    _TYPED_CONFIG_KEYS,
     _set_dotted,
 )
 
@@ -92,6 +91,22 @@ def _parse_int(
     return parsed
 
 
+def _parse_str_list(value: str, *, key_path: str, target: Path) -> list[str]:
+    """Parse one TOML array literal for a typed string-list config key."""
+
+    try:
+        parsed = tomllib.loads(f"value = {value}")["value"]
+    except (KeyError, tomllib.TOMLDecodeError) as exc:
+        raise ConfigValidationError(
+            key_path=key_path, value=value, source_path=str(target)
+        ) from exc
+    if not isinstance(parsed, list) or any(not isinstance(item, str) for item in parsed):
+        raise ConfigValidationError(
+            key_path=key_path, value=value, source_path=str(target)
+        )
+    return list(dict.fromkeys(item.strip() for item in parsed if item.strip()))
+
+
 def _validate(key_path: str, value: str, target: Path) -> Any:
     """Reject Recognized_Key values outside the v2.4.1 allowed set (Req 2.5).
 
@@ -109,21 +124,7 @@ def _validate(key_path: str, value: str, target: Path) -> Any:
             )
         if recognized_path == key_path:
             return value
-    for recognized_path, _attr, kind, _default in _AUTOPILOT_KEYS:
-        if recognized_path != key_path:
-            continue
-        if kind == "bool":
-            return _parse_bool(value, key_path=key_path, target=target)
-        if kind.startswith("enum:"):
-            allowed = tuple(kind.removeprefix("enum:").split(","))
-            if value not in allowed:
-                raise ConfigValidationError(
-                    key_path=key_path, value=value, source_path=str(target)
-                )
-            return value
-    if key_path.startswith("autopilot."):
-        raise ConfigValidationError(key_path=key_path, value=value, source_path=str(target))
-    for recognized_path, _attr, kind, _default in _DREAM_KEYS:
+    for recognized_path, _attr, kind, _default in _TYPED_CONFIG_KEYS:
         if recognized_path != key_path:
             continue
         if kind == "bool":
@@ -156,6 +157,10 @@ def _validate(key_path: str, value: str, target: Path) -> Any:
                     key_path=key_path, value=value, source_path=str(target)
                 )
             return value
+        if kind == "str_list":
+            return _parse_str_list(value, key_path=key_path, target=target)
+    if key_path.startswith("autopilot."):
+        raise ConfigValidationError(key_path=key_path, value=value, source_path=str(target))
     return value
 
 

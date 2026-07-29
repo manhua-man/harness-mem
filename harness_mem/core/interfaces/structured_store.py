@@ -350,6 +350,12 @@ class StructuredStore(Protocol):
 
     # ---- StaleTruthSuggestionCandidate (read-side) ----
 
+    async def save_stale_truth_suggestion_candidate(
+        self, candidate: StaleTruthSuggestionCandidate
+    ) -> str:
+        """Persist a stale-truth proposal and return its id."""
+        ...
+
     async def get_stale_truth_suggestion_candidate(
         self, id: str
     ) -> StaleTruthSuggestionCandidate | None:

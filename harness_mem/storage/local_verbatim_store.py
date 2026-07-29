@@ -515,6 +515,13 @@ class LocalVerbatimStore:
     def exact_index_stats(self) -> dict[str, int]:
         return self._index.observation_trigram_stats()
 
+    def flush_sensitive_deletes(self) -> None:
+        """Flush canonical and derived-index delete pages from their WALs."""
+
+        if self._canonical is not None:
+            self._canonical.flush_sensitive_deletes()
+        self._index.flush_sensitive_deletes()
+
     def close(self) -> None:
         if self._canonical is not None:
             self._canonical.close()

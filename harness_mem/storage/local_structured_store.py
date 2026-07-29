@@ -1932,6 +1932,13 @@ class LocalStructuredStore:
                 results.append(RetrievalSignal.from_dict(data))
         return results
 
+    def flush_sensitive_deletes(self) -> None:
+        """Flush canonical and derived-index delete pages from their WALs."""
+
+        if self._canonical is not None:
+            self._canonical.flush_sensitive_deletes()
+        self._index.flush_sensitive_deletes()
+
     def close(self) -> None:
         if self._canonical is not None:
             self._canonical.close()

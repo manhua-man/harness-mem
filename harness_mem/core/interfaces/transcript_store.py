@@ -162,5 +162,30 @@ class TranscriptStore(Protocol):
         output_candidate_ids: list[str] | None = None,
     ) -> SessionDistillJob: ...
 
+    def record_distill_completion_outcome(
+        self,
+        job_id: str,
+        *,
+        disposition: str | None,
+        reason_codes: list[str],
+        promotion_summary: dict,
+        source_cleanup_status: str,
+        source_cleanup_receipt_id: str | None = None,
+    ) -> SessionDistillJob: ...
+
+    def prune_completed_distill_evidence(
+        self,
+        job_id: str,
+        *,
+        receipt_id: str,
+    ) -> dict[str, int]: ...
+
+    def verify_completed_distill_evidence_pruned(
+        self,
+        job_id: str,
+    ) -> dict[str, int]: ...
+
+    def flush_sensitive_deletes(self) -> None: ...
+
 
 __all__ = ["TranscriptStore"]

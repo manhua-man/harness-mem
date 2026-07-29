@@ -276,6 +276,14 @@ def main(argv: list[str] | None = None):
         required=True,
         help="Which Config_File to modify",
     )
+    config_set.add_argument(
+        "--confirm",
+        action="store_true",
+        help=(
+            "Confirm enabling a persistent destructive policy; required only "
+            "when turning distill.delete_source_after_complete on"
+        ),
+    )
     config_set.add_argument("--project-root", help="Project directory (default: cwd)")
 
     config_list = config_sub.add_parser(
@@ -551,7 +559,13 @@ def main(argv: list[str] | None = None):
         if args.config_action == "get":
             return cmd_config_get(args.key, args.project_root)
         if args.config_action == "set":
-            return cmd_config_set(args.key, args.value, args.scope, args.project_root)
+            return cmd_config_set(
+                args.key,
+                args.value,
+                args.scope,
+                args.project_root,
+                confirm=args.confirm,
+            )
         if args.config_action == "list":
             return cmd_config_list(args.project_root)
         if args.config_action == "validate":

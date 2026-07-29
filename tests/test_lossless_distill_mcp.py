@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,6 +26,113 @@ SEMANTIC_REVIEW = {
     "evidence_status": "answered",
     "promotion_decision": "promote",
 }
+
+
+@pytest.mark.parametrize("root_state", ["invalid_config", "missing_root"])
+def test_completed_finalize_replay_recovers_missing_outcome_when_config_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+    root_state: str,
+) -> None:
+    project = tmp_path / root_state
+    project.mkdir()
+    backend = LocalMemoryBackend(tmp_path / f"data-{root_state}")
+    asyncio.run(backend.init())
+    snapshot = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id=f"recover-{root_state}",
+                client="cursor",
+                raw_content="recover completion outcome",
+                content_type="transcript",
+                timestamp=datetime.now(timezone.utc),
+                metadata={},
+            ),
+            project_name="demo",
+            project_root=str(project),
+            client="cursor",
+            session_id=f"recover-{root_state}",
+            source_kind="jsonl",
+            source_uri=f"file:///recover-{root_state}.jsonl",
+            source_text="user request\nassistant completed answer\n",
+        )
+    )
+    assert snapshot.distill_job_id is not None
+    previous_backend_provider = tool_handlers._backend_provider
+    previous_observer_provider = tool_handlers._observer_data_dir_provider
+    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
+    previous_logger = tool_handlers.logger
+    tool_handlers.configure_tool_handler_dependencies(
+        backend_provider=lambda: backend,
+        observer_data_dir=lambda: backend.data_dir,
+        cost_surface_budgets=lambda _project_name: None,
+        logger_instance=logging.getLogger("test.recover-completed-distill"),
+    )
+
+    async def fake_dream(*_args, **_kwargs):
+        return {"success": True, "status": "completed"}
+
+    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fake_dream)
+    try:
+        for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
+            snapshot.distill_job_id,
+            lease_owner="recovery-test",
+            limit=100,
+        ):
+            backend.transcript_store.checkpoint_distill_chunk(
+                snapshot.distill_job_id,
+                chunk.id,
+                lease_owner="recovery-test",
+                result={"summary": "read"},
+            )
+        candidate = tool_handlers.tool_suggest_memory_entry(
+            project_name="demo",
+            category="decision",
+            content=(
+                "Completed finalize retries recover their terminal outcome even when "
+                "the original project configuration is unavailable."
+            ),
+            source=f"distill-job:{snapshot.distill_job_id}",
+            confidence=0.99,
+            distill_job_id=snapshot.distill_job_id,
+        )
+        backend.transcript_store.finalize_distill_job(
+            snapshot.distill_job_id,
+            semantic_review=SEMANTIC_REVIEW,
+            output_candidate_ids=[candidate["entry_id"]],
+        )
+        if root_state == "invalid_config":
+            (project / ".harness-mem.toml").write_text(
+                "[distill\n",
+                encoding="utf-8",
+            )
+            expected_reason = "completion_config_invalid"
+        else:
+            project.rmdir()
+            expected_reason = "completion_project_root_unavailable"
+
+        replay = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=snapshot.distill_job_id,
+            semantic_review=SEMANTIC_REVIEW,
+        )
+
+        assert replay["success"] is True
+        assert replay["idempotent_replay"] is True
+        assert replay["completion_recovered"] is True
+        assert replay["completion"]["disposition"] == "no_candidate"
+        assert expected_reason in replay["completion"]["reason_codes"]
+        assert replay["source_cleanup"]["configured"] is False
+        stored = backend.transcript_store.get_distill_job(snapshot.distill_job_id)
+        assert stored is not None
+        assert stored.completion_disposition == "no_candidate"
+    finally:
+        tool_handlers._backend_provider = previous_backend_provider
+        tool_handlers._observer_data_dir_provider = previous_observer_provider
+        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
+        tool_handlers.logger = previous_logger
+        asyncio.run(backend.close())
 
 
 def test_mcp_reads_every_lossless_chunk_before_final_review(
@@ -163,11 +273,246 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         assert finalized["success"] is True
         assert finalized["structural_audit"]["coverage"] == "complete"
         assert finalized["dream"]["job_id"] == "dream-1"
+        assert finalized["completion"]["disposition"] == "no_candidate"
+        assert finalized["promotion"] == {
+            "suggested": 3,
+            "promoted": 0,
+            "rejected": 3,
+            "pending": 0,
+            "missing": 0,
+            "evidence_admission": {
+                "repository_verified": 0,
+                "user_stated": 0,
+                "unverified_blocked": 3,
+                "contradicted": 0,
+                "legacy_or_unknown": 0,
+            },
+        }
+        assert finalized["queue_effect"]["removed_from_pending"] is True
+        assert finalized["source_cleanup"] == {
+            "configured": False,
+            "status": "retained",
+            "receipt_id": None,
+            "reason_codes": ["retention_default"],
+        }
         unrelated_entry = asyncio.run(
             backend.structured_store.get_memory_entry(unrelated["entry_id"])
         )
         assert unrelated_entry is not None
         assert unrelated_entry.status == "pending"
+    finally:
+        tool_handlers._backend_provider = previous_backend_provider
+        tool_handlers._observer_data_dir_provider = previous_observer_provider
+        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
+        tool_handlers.logger = previous_logger
+        asyncio.run(backend.close())
+
+
+def test_finalize_records_promoted_disposition_without_manual_review(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    result = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id="promoted-session",
+                client="cursor",
+                raw_content="search rendering",
+                content_type="transcript",
+                metadata={},
+            ),
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            session_id="promoted-session",
+            source_kind="jsonl",
+            source_uri="file:///promoted-session.jsonl",
+            source_text="user request\nassistant completed answer\n",
+        )
+    )
+    previous_backend_provider = tool_handlers._backend_provider
+    previous_observer_provider = tool_handlers._observer_data_dir_provider
+    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
+    previous_logger = tool_handlers.logger
+    tool_handlers.configure_tool_handler_dependencies(
+        backend_provider=lambda: backend,
+        observer_data_dir=lambda: backend.data_dir,
+        cost_surface_budgets=lambda _project_name: None,
+        logger_instance=logging.getLogger("test.promoted-distill"),
+    )
+
+    async def fake_dream(*_args, **_kwargs):
+        return {"success": True, "status": "completed"}
+
+    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fake_dream)
+    try:
+        repository_evidence = tmp_path / "admission-policy.txt"
+        repository_evidence.write_text(
+            "One automatic distill completion path.",
+            encoding="utf-8",
+        )
+        packet = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            run_ingest=False,
+        )
+        chunk = packet["chunks"][0]
+        tool_handlers.tool_submit_distill_chunk(
+            job_id=result.distill_job_id,
+            chunk_id=chunk["chunk_id"],
+            lease_owner=packet["lease_owner"],
+            result={"summary": "read"},
+        )
+        candidate = tool_handlers.tool_suggest_memory_entry(
+            project_name="demo",
+            category="decision",
+            content=(
+                "The project uses one automatic distill completion path so low-value "
+                "sessions never require manual candidate promotion or repeated review."
+            ),
+            source=f"distill-job:{result.distill_job_id}",
+            confidence=0.99,
+            distill_job_id=result.distill_job_id,
+            evidence_basis="repository",
+            verification_outcome="verified",
+            verification_refs=[
+                {
+                    "kind": "repository",
+                    "locator": "admission-policy.txt",
+                    "content_sha256": hashlib.sha256(
+                        repository_evidence.read_bytes()
+                    ).hexdigest(),
+                }
+            ],
+        )
+        finalized = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=result.distill_job_id,
+            semantic_review=SEMANTIC_REVIEW,
+        )
+
+        assert finalized["completion"] == {
+            "disposition": "promoted",
+            "reason_codes": ["durable_memory_promoted"],
+        }
+        assert finalized["promotion"]["promoted"] == 1
+        stored = asyncio.run(
+            backend.structured_store.get_memory_entry(candidate["entry_id"])
+        )
+        assert stored is not None
+        assert stored.status == "auto_confirmed"
+        replay = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=result.distill_job_id,
+            semantic_review=SEMANTIC_REVIEW,
+        )
+        assert replay["idempotent_replay"] is True
+        assert replay["completion"] == finalized["completion"]
+        assert replay["promotion"] == finalized["promotion"]
+    finally:
+        tool_handlers._backend_provider = previous_backend_provider
+        tool_handlers._observer_data_dir_provider = previous_observer_provider
+        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
+        tool_handlers.logger = previous_logger
+        asyncio.run(backend.close())
+
+
+def test_finalize_delete_toggle_runs_audited_source_cleanup(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    (tmp_path / ".harness-mem.toml").write_text(
+        "[distill]\ndelete_source_after_complete = true\n",
+        encoding="utf-8",
+    )
+    session_id = "019f0000-0000-7000-8000-000000000120"
+    native_root = tmp_path / ".codex" / "sessions"
+    native_path = native_root / f"rollout-2026-07-28-{session_id}.jsonl"
+    native_path.parent.mkdir(parents=True)
+    source_text = "completed low-value session\n"
+    native_path.write_bytes(source_text.encode("utf-8"))
+    old = time.time() - 300
+    os.utime(native_path, (old, old))
+
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    result = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id=session_id,
+                client="codex",
+                raw_content=source_text,
+                content_type="transcript",
+                metadata={},
+            ),
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            session_id=session_id,
+            source_kind="codex-current",
+            source_uri=native_path.absolute().as_uri(),
+            source_text=source_text,
+            raw_bytes=source_text.encode("utf-8"),
+            mtime_ns=native_path.stat().st_mtime_ns,
+        )
+    )
+    result.source.metadata["native_cleanup_descriptor"] = {
+        "version": 1,
+        "allowed_root_uris": [native_root.absolute().as_uri()],
+    }
+    backend.transcript_store.save_source(result.source)
+    previous_backend_provider = tool_handlers._backend_provider
+    previous_observer_provider = tool_handlers._observer_data_dir_provider
+    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
+    previous_logger = tool_handlers.logger
+    tool_handlers.configure_tool_handler_dependencies(
+        backend_provider=lambda: backend,
+        observer_data_dir=lambda: backend.data_dir,
+        cost_surface_budgets=lambda _project_name: None,
+        logger_instance=logging.getLogger("test.finalize-source-cleanup"),
+    )
+
+    async def fake_dream(*_args, **_kwargs):
+        return {"success": True, "status": "completed"}
+
+    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fake_dream)
+    try:
+        packet = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            run_ingest=False,
+        )
+        chunk = packet["chunks"][0]
+        tool_handlers.tool_submit_distill_chunk(
+            job_id=result.distill_job_id,
+            chunk_id=chunk["chunk_id"],
+            lease_owner=packet["lease_owner"],
+            result={"summary": "read"},
+        )
+        finalized = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=result.distill_job_id,
+            semantic_review=SEMANTIC_REVIEW,
+        )
+
+        assert finalized["completion"]["disposition"] == "no_candidate"
+        assert finalized["source_cleanup"]["configured"] is True
+        assert finalized["source_cleanup"]["status"] == "deleted"
+        assert finalized["source_cleanup"]["receipt_id"]
+        assert not native_path.exists()
+        assert backend.transcript_store.reconstruct_raw(
+            result.source.id,
+            source_revision=result.source.source_revision,
+        ) == b""
+        assert asyncio.run(
+            backend.verbatim_store.get(str(result.observation_id))
+        ) is None
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider
@@ -534,7 +879,7 @@ def test_semantic_review_blocks_promotion_and_dream(
         candidate = tool_handlers.tool_suggest_memory_entry(
             project_name="demo",
             category="decision",
-            content="Candidate must stay pending when review blocks promotion.",
+            content="Candidate is terminally rejected when semantic review blocks promotion.",
             source=f"distill-job:{job_id}",
             confidence=0.99,
             distill_job_id=job_id,
@@ -556,10 +901,30 @@ def test_semantic_review_blocks_promotion_and_dream(
             backend.structured_store.get_memory_entry(candidate["entry_id"])
         )
         assert stored is not None
-        assert stored.status == "pending"
+        assert stored.status == "rejected"
         completed = backend.transcript_store.get_distill_job(job_id)
         assert completed is not None
         assert completed.output_candidate_ids == [candidate["entry_id"]]
+        assert completed.completion_disposition == "no_candidate"
+        assert completed.completion_reason_codes == ["semantic_review_blocked"]
+        assert completed.promotion_summary == {
+            "suggested": 1,
+            "promoted": 0,
+            "rejected": 1,
+            "pending": 0,
+            "missing": 0,
+            "evidence_admission": {
+                "repository_verified": 0,
+                "user_stated": 0,
+                "unverified_blocked": 0,
+                "contradicted": 0,
+                "legacy_or_unknown": 0,
+            },
+        }
+        assert completed.source_cleanup_status == "retained"
+        assert finalized["completion"]["disposition"] == "no_candidate"
+        assert finalized["queue_effect"]["removed_from_pending"] is True
+        assert finalized["source_cleanup"]["status"] == "retained"
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider

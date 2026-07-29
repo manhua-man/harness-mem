@@ -1,6 +1,6 @@
 {
   "name": "auto_review_candidates",
-  "description": "Run conservative heuristic auto-review across pending memory entries and rule candidates. Returns the standard summary shape (auto_confirmed / auto_rejected / kept_pending / needs_user_confirmation). With apply=true, low-risk decisions are applied with audit events while ambiguous or high-risk items stay reviewable. This is a project-level maintenance tool; lossless sessions must finish through finalize_session_distill.",
+  "description": "Run evidence-grounded auto-review across pending memory entries, rule candidates, and relation facts. Repository and explicit user-statement evidence are revalidated against the current source; transcript-only, unverified, or contradicted durable truths are blocked. Returns the standard summary shape (auto_confirmed / auto_rejected / kept_pending / needs_user_confirmation). With apply=true, low-risk decisions are applied with audit events while ambiguous or high-risk items stay reviewable. This is a project-level maintenance tool; lossless sessions must finish through finalize_session_distill.",
   "inputSchema": {
     "type": "object",
     "properties": {

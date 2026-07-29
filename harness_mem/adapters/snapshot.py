@@ -23,6 +23,7 @@ from harness_mem.transcript_chunking import (
     transcript_bytes_revision,
     transcript_source_id,
 )
+from harness_mem.native_source_cleanup import build_native_cleanup_descriptor
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,13 @@ async def persist_session_snapshot(
 ) -> TranscriptSyncResult:
     """Persist a complete source revision and upsert its search observation."""
 
+    # Keep a content-free digest of the bytes that actually live in the host.
+    # ``raw_sha256`` below may describe a redacted capture when private-tag
+    # filtering is enabled, so it cannot safely be used as a compare-and-swap
+    # guard before removing the native source.
+    native_input = raw_bytes if raw_bytes is not None else source_text.encode("utf-8")
+    native_input_sha256 = sha256_bytes(native_input)
+
     # Legacy/import callers may preserve a no-longer-mounted project root in
     # transcript metadata.  They keep safe defaults; live project calls load
     # the merged user/project policy from the existing root.
@@ -85,7 +93,6 @@ async def persist_session_snapshot(
     private_span_count = 0
     if config.capture_private_tags:
         source_text, text_redactions = redact_private_text(source_text)
-        native_input = raw_bytes if raw_bytes is not None else source_text.encode("utf-8")
         native_bytes, byte_redactions = redact_private_bytes(native_input)
         private_span_count = max(text_redactions, byte_redactions)
         # The adapter's searchable rendering is also evidence and must not keep
@@ -98,12 +105,18 @@ async def persist_session_snapshot(
         native_bytes = raw_bytes if raw_bytes is not None else source_text.encode("utf-8")
 
     requested_source_uri = source_uri
+    native_cleanup_descriptor = build_native_cleanup_descriptor(
+        client=client,
+        source_kind=source_kind,
+        source_uri=requested_source_uri,
+    )
     source_id = transcript_source_id(
         client=client,
         project_name=project_name,
         session_id=session_id,
         source_uri=source_uri,
     )
+    revision = transcript_bytes_revision(native_bytes)
     tombstone_check = getattr(
         backend.transcript_store,
         "matches_hard_delete_tombstone",
@@ -114,6 +127,7 @@ async def persist_session_snapshot(
         client=client,
         session_id=session_id,
         source_id=source_id,
+        source_revision=revision,
     ):
         return TranscriptSyncResult(
             action="ignored",
@@ -122,7 +136,6 @@ async def persist_session_snapshot(
             distill_job_id=None,
             reason="hard_delete_tombstone",
         )
-    revision = transcript_bytes_revision(native_bytes)
     raw_digest = sha256_bytes(native_bytes)
     normalized_digest = sha256_text(source_text)
     existing_source = backend.transcript_store.find_source(
@@ -188,6 +201,12 @@ async def persist_session_snapshot(
             if observation.timestamp
             else None,
             "native_source_uri": requested_source_uri,
+            "native_input_sha256": native_input_sha256,
+            **(
+                {"native_cleanup_descriptor": native_cleanup_descriptor}
+                if native_cleanup_descriptor is not None
+                else {}
+            ),
             "native_source_aliases": sorted(
                 {
                     *(

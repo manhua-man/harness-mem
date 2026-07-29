@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 
 from harness_mem.commands import token_estimator
+from harness_mem.guided_flow import build_guided_flow
 from harness_mem.mcp.response_views import (
     project_status_decision_fingerprint,
     render_project_status,
+    status_triage_hints,
 )
 
 
@@ -37,6 +39,24 @@ def _status_snapshot() -> dict:
         "task_handoff_count": 1,
         "confirmed_rule_count": 3,
         "pending_candidate_count": 2,
+        "pending_distill": {
+            "state": "waiting_for_agent",
+            "active": 2,
+            "parked": 0,
+            "retry_backoff": 0,
+            "pending_total": 2,
+            "completed_7d": 8,
+            "promoted_7d": 5,
+            "no_candidate_7d": 3,
+            "legacy_unknown_7d": 0,
+            "evidence_admission_7d": {
+                "repository_verified": 4,
+                "user_stated": 2,
+                "unverified_blocked": 1,
+                "contradicted": 1,
+                "legacy_or_unknown": 0,
+            },
+        },
         "temporal_summary": {"historical_total": 1, "superseded_total": 1},
         "retrieval_profiles": {
             "active": "light",
@@ -149,6 +169,13 @@ def _status_snapshot() -> dict:
                 "completed_chunks": 0,
                 "expected_chunks": 452,
                 "pending_total": 2,
+                "evidence_admission_7d": {
+                    "repository_verified": 4,
+                    "user_stated": 2,
+                    "unverified_blocked": 1,
+                    "contradicted": 1,
+                    "legacy_or_unknown": 0,
+                },
                 "stuck_reasons": [
                     {"code": "zero_7d_throughput", "action": "complete one"}
                 ],
@@ -187,6 +214,10 @@ def test_compact_status_preserves_decisions_and_stays_within_budget() -> None:
     }
     assert "recent_high_output_calls" not in compact["retrieval_health"]
     assert "recent_high_output_calls" not in compact["cost_budget"]
+    assert compact["pending_distill"]["evidence_admission_attention_7d"] == {
+        "unverified_blocked": 1,
+        "contradicted": 1,
+    }
 
 
 def test_compact_status_exposes_exact_full_drilldown() -> None:
@@ -213,3 +244,56 @@ def test_full_status_keeps_complete_diagnostics() -> None:
     assert full["detail_level"] == "full"
     assert len(full["cost_budget"]["recent_high_output_calls"]) == 40
     assert full["install_drift"]["surfaces"]["skill"]["text"] == "x" * 4000
+
+
+def test_status_triage_uses_distill_jobs_instead_of_observation_count() -> None:
+    ready = status_triage_hints(
+        {
+            "observation_count": 41,
+            "memory_entry_count": 0,
+            "task_handoff_count": 0,
+            "confirmed_rule_count": 0,
+            "pending_candidate_count": 0,
+            "pending_distill": {"pending_total": 0},
+        }
+    )
+    waiting = status_triage_hints(
+        {
+            "observation_count": 0,
+            "memory_entry_count": 2,
+            "task_handoff_count": 0,
+            "confirmed_rule_count": 0,
+            "pending_candidate_count": 0,
+            "pending_distill": {"pending_total": 3},
+        }
+    )
+
+    assert ready["phase"] == "ready"
+    assert waiting["phase"] == "needs-distill"
+    assert "3 captured sessions" in waiting["reason"]
+
+
+def test_empty_project_waits_for_capture_instead_of_claiming_distill_work() -> None:
+    triage = status_triage_hints(
+        {
+            "observation_count": 0,
+            "memory_entry_count": 0,
+            "task_handoff_count": 0,
+            "confirmed_rule_count": 0,
+            "pending_candidate_count": 0,
+            "pending_distill": {"pending_total": 0},
+        }
+    )
+
+    assert triage["phase"] == "awaiting-capture"
+    assert triage["suggested_slash"] == "/hm:wake"
+    guided = build_guided_flow(
+        phase=triage["phase"],
+        observation_count=0,
+        pending_candidate_count=0,
+        memory_entry_count=0,
+        project_name="demo",
+    )
+    assert guided["current_step_id"] == "wake"
+    assert guided["steps"][0]["entry"] == 'wake(project_name="demo")'
+    assert "No captured evidence" in guided["why"]

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from harness_mem.core.schemas.session_distill import SessionDistillJob
 from harness_mem.core.schemas.transcript import TranscriptSource
 from harness_mem.storage.transcript_store import TranscriptStore
 from harness_mem.transcript_chunking import (
@@ -99,7 +100,39 @@ def test_job_claim_checkpoint_and_finalize(tmp_path: Path) -> None:
     assert completed.status == "completed"
     assert completed.structural_audit["coverage"] == "complete"
     assert completed.output_candidate_ids == ["candidate-1"]
+    outcome = store.record_distill_completion_outcome(
+        job.id,
+        disposition="promoted",
+        reason_codes=["durable_memory_promoted"],
+        promotion_summary={"suggested": 1, "promoted": 1, "rejected": 0},
+        source_cleanup_status="retained",
+    )
+    assert outcome.completion_disposition == "promoted"
+    assert outcome.source_cleanup_status == "retained"
     store.close()
+
+
+def test_legacy_job_json_defaults_new_completion_fields_to_unknown() -> None:
+    legacy = SessionDistillJob.from_dict(
+        {
+            "id": "legacy-job",
+            "idempotency_key": "source:revision:lossless-distill-v1",
+            "project_name": "demo",
+            "project_root": "C:/work/demo",
+            "client": "cursor",
+            "session_id": "legacy-session",
+            "source_id": "source",
+            "source_revision": "revision",
+            "status": "completed",
+            "phase": "done",
+            "output_candidate_ids": ["candidate-1"],
+        }
+    )
+
+    assert legacy.completion_disposition is None
+    assert legacy.source_cleanup_status is None
+    assert legacy.completion_reason_codes == []
+    assert legacy.promotion_summary == {}
 
 
 def test_checkpoint_requires_current_lease_owner(tmp_path: Path) -> None:

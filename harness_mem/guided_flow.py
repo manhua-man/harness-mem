@@ -58,8 +58,10 @@ def _flow_why(*, phase: str, current_step_id: str) -> str:
         )
     if phase == "needs-distill":
         return (
-            "Project has no observations yet; distill or ingest sessions before wake."
+            "Captured sessions are waiting for distill before the next wake."
         )
+    if phase == "awaiting-capture":
+        return "No captured evidence exists yet; wake will sync the current workspace."
     if current_step_id == "review_pending":
         return (
             "Pending candidates remain; review only when correcting or rechecking, "
@@ -81,7 +83,9 @@ def _current_step_id(
 ) -> str:
     if phase == "needs-project":
         return "activate_project"
-    if phase == "needs-distill" or observation_count == 0:
+    if phase == "awaiting-capture":
+        return "wake"
+    if phase == "needs-distill":
         return "distill"
     if pending_candidate_count > 0 and any(
         step["step_id"] == "review_pending" for step in steps
@@ -132,7 +136,24 @@ def _steps_for_phase(
         )
         return steps
 
-    if phase == "needs-distill" or observation_count == 0:
+    if phase == "awaiting-capture":
+        steps.append(
+            _step(
+                step_id="wake",
+                order=1,
+                title="Capture and wake the current workspace",
+                description=(
+                    "Sync available session evidence, then load any project memory."
+                ),
+                entry=f"wake({project_fragment})",
+                entry_kind="mcp",
+                required=True,
+                arguments={"project_name": project_name} if project_name else {},
+            )
+        )
+        return steps
+
+    if phase == "needs-distill":
         steps.append(
             _step(
                 step_id="distill",
