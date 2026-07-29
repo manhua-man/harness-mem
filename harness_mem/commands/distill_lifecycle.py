@@ -144,6 +144,32 @@ def distill_drainer_metrics(
     completed_7d = [
         job for job in completed if job.completed_at and job.completed_at >= current - timedelta(days=7)
     ]
+    promoted_7d = [
+        job for job in completed_7d if job.completion_disposition == "promoted"
+    ]
+    no_candidate_7d = [
+        job for job in completed_7d if job.completion_disposition == "no_candidate"
+    ]
+    legacy_unknown_7d = [
+        job for job in completed_7d if job.completion_disposition is None
+    ]
+    evidence_admission_7d = {
+        "repository_verified": 0,
+        "user_stated": 0,
+        "unverified_blocked": 0,
+        "contradicted": 0,
+        "legacy_or_unknown": 0,
+    }
+    for job in completed_7d:
+        admission = dict(job.promotion_summary.get("evidence_admission") or {})
+        for key in evidence_admission_7d:
+            evidence_admission_7d[key] += max(0, int(admission.get(key) or 0))
+    cleanup_partial = [
+        job for job in jobs if job.source_cleanup_status == "partial_failure"
+    ]
+    cleanup_unsupported = [
+        job for job in jobs if job.source_cleanup_status == "unsupported"
+    ]
     active = [job for job in jobs if job.status in {"queued", "processing", "reviewing"}]
     parked = [job for job in jobs if job.status == "parked"]
     retry_backoff = [
@@ -211,6 +237,12 @@ def distill_drainer_metrics(
         "daily_budget_remaining": budget_remaining,
         "completed_24h": len(completed_24h),
         "completed_7d": len(completed_7d),
+        "promoted_7d": len(promoted_7d),
+        "no_candidate_7d": len(no_candidate_7d),
+        "legacy_unknown_7d": len(legacy_unknown_7d),
+        "evidence_admission_7d": evidence_admission_7d,
+        "source_cleanup_partial_failure": len(cleanup_partial),
+        "source_cleanup_unsupported": len(cleanup_unsupported),
         "throughput_per_day_7d": throughput_per_day,
         "oldest_parked_age_hours": round(
             (current - oldest_parked).total_seconds() / 3600,

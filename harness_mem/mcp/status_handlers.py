@@ -14,6 +14,7 @@ from typing import Any
 
 from harness_mem.commands import support as _support
 from harness_mem.commands.integration_cmds import SUPPORTED_HOOK_CLIENTS
+from harness_mem.commands.distill_lifecycle import distill_drainer_metrics
 from harness_mem.commands.support import (
     find_project_root,
     get_active_project,
@@ -22,6 +23,7 @@ from harness_mem.commands.support import (
     set_active_project,
 )
 from harness_mem.guided_flow import build_guided_flow, guided_flow_drilldown_hint
+from harness_mem.governance_status import TRUTH_LAYER_STATUSES
 from harness_mem.integration_health import build_integration_health
 from harness_mem.mcp.read_handlers import (
     _action,
@@ -30,6 +32,7 @@ from harness_mem.mcp.read_handlers import (
     _retrieval_profile_status,
 )
 from harness_mem.mcp.response_views import (
+    STATUS_CONTRACT_VERSION,
     STATUS_DETAIL_LEVELS,
     build_status_dx_metadata,
     render_project_status,
@@ -105,6 +108,32 @@ async def _gather_project_status(
         status="pending",
         limit=100000,
     )
+    truth_entries = []
+    truth_rules = []
+    truth_facts = []
+    for truth_status in TRUTH_LAYER_STATUSES:
+        truth_entries.extend(
+            await backend.structured_store.list_memory_entries(
+                project_name,
+                status=truth_status,
+                limit=100000,
+                include_provisional=True,
+            )
+        )
+        truth_rules.extend(
+            await backend.structured_store.list_rule_candidates(
+                project_name,
+                status=truth_status,
+            )
+        )
+        truth_facts.extend(
+            await backend.structured_store.list_relation_facts(
+                project_name,
+                status=truth_status,
+                limit=100000,
+                include_provisional=True,
+            )
+        )
     data_dir = _support.DEFAULT_DATA_DIR
     profile = await LocalProjectProfileStore(data_dir).get(project_name)
     runtime_report = await runtime_health_report(
@@ -123,6 +152,10 @@ async def _gather_project_status(
         surface_budgets=_cost_surface_budgets(project_name),
     )
     active_retrieval_profile = profile.retrieval_profile if profile else None
+    pending_distill = distill_drainer_metrics(
+        backend,
+        project_name=project_name,
+    )
     return {
         "observation_count": len(project_observations),
         "memory_entry_count": len(memory_entries),
@@ -131,6 +164,11 @@ async def _gather_project_status(
         "pending_candidate_count": len(pending_rules)
         + len(pending_entries)
         + len(pending_facts),
+        "durable_truth_count": len(truth_entries)
+        + len(truth_rules)
+        + len(truth_facts)
+        + len(confirmed_rules),
+        "pending_distill": pending_distill,
         "temporal_summary": {
             "historical_memory_entry_count": sum(
                 1 for entry in all_memory_entries if _is_historical_truth(entry)
@@ -257,7 +295,7 @@ def tool_get_project_status(
         return {
             "success": False,
             "error": "detail_level must be one of: compact, full",
-            "contract_version": "project-status-v2",
+            "contract_version": STATUS_CONTRACT_VERSION,
             "detail_level": detail_level,
         }
     resolved_project, resolved_root, resolved_host, integration_bootstrap = (

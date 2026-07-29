@@ -78,9 +78,21 @@ from __future__ import annotations
 import re
 from collections.abc import Collection
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Literal
 
-from harness_mem.core.schemas import MemoryEntry, RuleCandidate
+from harness_mem.commands.evidence_admission import (
+    apply_validation,
+    evidence_summary_key,
+    uses_evidence_admission,
+    validate_candidate_evidence,
+)
+from harness_mem.core.schemas import (
+    MemoryEntry,
+    RelationFact,
+    RuleCandidate,
+    StaleTruthSuggestionCandidate,
+)
 from harness_mem.event_log import StateEventType, append_state_event
 from harness_mem.governance_status import resolve_promotion_status
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -88,7 +100,7 @@ from harness_mem.retrieval_signals import record_retrieval_signal
 
 
 AutoReviewAction = Literal["auto_confirm", "auto_reject", "defer"]
-CandidateKind = Literal["memory_entry", "rule_candidate"]
+CandidateKind = Literal["memory_entry", "rule_candidate", "relation_fact"]
 
 
 # --- Heuristic thresholds (module-level so tests + downstream tools can
@@ -256,6 +268,11 @@ class AutoReviewSummary:
     auto_deferred: int = 0
     kept_pending: int = 0
     needs_user_confirmation: int = 0
+    repository_verified: int = 0
+    user_stated: int = 0
+    unverified_blocked: int = 0
+    contradicted: int = 0
+    legacy_or_unknown: int = 0
     next_user_action: str = ""
     applied_decisions: list[AutoReviewDecision] = field(default_factory=list)
 
@@ -268,6 +285,13 @@ class AutoReviewSummary:
             "auto_deferred": self.auto_deferred,
             "kept_pending": self.kept_pending,
             "needs_user_confirmation": self.needs_user_confirmation,
+            "evidence_admission": {
+                "repository_verified": self.repository_verified,
+                "user_stated": self.user_stated,
+                "unverified_blocked": self.unverified_blocked,
+                "contradicted": self.contradicted,
+                "legacy_or_unknown": self.legacy_or_unknown,
+            },
             "next_user_action": self.next_user_action,
             "applied_decisions": [
                 {
@@ -329,6 +353,13 @@ def decide_memory_entry(entry: MemoryEntry) -> AutoReviewDecision:
             "matches noise pattern (chatty / commit-message-like)",
             evidence_id=evidence_id,
         )
+    evidence_decision = _evidence_policy_decision(
+        entry,
+        kind="memory_entry",
+        evidence_id=evidence_id,
+    )
+    if evidence_decision is not None:
+        return evidence_decision
     if (
         entry.category in AUTO_CONFIRM_CATEGORIES
         and entry.confidence >= AUTO_CONFIRM_MIN_CONFIDENCE
@@ -398,6 +429,13 @@ def decide_rule_candidate(candidate: RuleCandidate) -> AutoReviewDecision:
             "matches noise pattern (chatty / commit-message-like)",
             evidence_id=evidence_id,
         )
+    evidence_decision = _evidence_policy_decision(
+        candidate,
+        kind="rule_candidate",
+        evidence_id=evidence_id,
+    )
+    if evidence_decision is not None:
+        return evidence_decision
     if candidate.confidence >= RULE_AUTO_CONFIRM_MIN_CONFIDENCE:
         # Rule candidates always change long-term agent behaviour, so
         # missing evidence forces a high-risk defer rather than a silent
@@ -431,6 +469,118 @@ def decide_rule_candidate(candidate: RuleCandidate) -> AutoReviewDecision:
     )
 
 
+def decide_relation_fact(fact: RelationFact) -> AutoReviewDecision:
+    """Apply the same evidence admission contract to RelationFact."""
+
+    combined = (
+        f"{fact.source_entity} {fact.relation_type} {fact.target_entity} "
+        f"{fact.evidence}"
+    ).strip()
+    evidence_id = (fact.source or "").strip() or None
+    if len(combined) < MIN_CONTENT_LENGTH:
+        return AutoReviewDecision(
+            fact.id,
+            "relation_fact",
+            "auto_reject",
+            f"relation content shorter than {MIN_CONTENT_LENGTH} chars",
+            evidence_id=evidence_id,
+        )
+    noise_reason = _match_noise_category(combined)
+    if noise_reason is not None or _is_chatty_noise(combined):
+        return AutoReviewDecision(
+            fact.id,
+            "relation_fact",
+            "auto_reject",
+            f"matches noise pattern ({noise_reason or 'chatty'})",
+            evidence_id=evidence_id,
+        )
+    evidence_decision = _evidence_policy_decision(
+        fact,
+        kind="relation_fact",
+        evidence_id=evidence_id,
+    )
+    if evidence_decision is not None:
+        return evidence_decision
+    return AutoReviewDecision(
+        fact.id,
+        "relation_fact",
+        "defer",
+        "legacy relation lacks evidence admission envelope",
+        evidence_id=evidence_id,
+        is_high_risk=True,
+    )
+
+
+def _evidence_policy_decision(
+    candidate: Any,
+    *,
+    kind: CandidateKind,
+    evidence_id: str | None,
+) -> AutoReviewDecision | None:
+    if not uses_evidence_admission(candidate):
+        return None
+    basis = getattr(candidate, "evidence_basis", None)
+    outcome = getattr(candidate, "verification_outcome", None)
+    if outcome == "contradicted":
+        return AutoReviewDecision(
+            candidate.id,
+            kind,
+            "auto_reject",
+            "evidence contradicted by current source",
+            evidence_id=evidence_id,
+            is_high_risk=True,
+        )
+    if outcome == "unverified" or basis == "transcript":
+        return AutoReviewDecision(
+            candidate.id,
+            kind,
+            "auto_reject",
+            "durable truth requires verified repository or user-statement evidence",
+            evidence_id=evidence_id,
+            is_high_risk=kind in {"rule_candidate", "relation_fact"},
+        )
+    eligible = (
+        basis == "repository" and outcome == "verified"
+    ) or (
+        basis == "user_statement" and outcome in {"verified", "not_applicable"}
+    )
+    if not eligible:
+        return AutoReviewDecision(
+            candidate.id,
+            kind,
+            "auto_reject",
+            "evidence admission envelope is not eligible",
+            evidence_id=evidence_id,
+            is_high_risk=True,
+        )
+    confidence = float(getattr(candidate, "confidence", 0.0) or 0.0)
+    floor = 0.5 if basis == "user_statement" else 0.7
+    if kind == "rule_candidate":
+        floor = 0.5 if basis == "user_statement" else 0.75
+    elif kind == "relation_fact":
+        floor = 0.6 if basis == "user_statement" else 0.7
+    if confidence < floor:
+        return AutoReviewDecision(
+            candidate.id,
+            kind,
+            "auto_reject",
+            f"verified evidence confidence below {floor}",
+            evidence_id=evidence_id,
+            is_high_risk=True,
+        )
+    return AutoReviewDecision(
+        candidate.id,
+        kind,
+        "auto_confirm",
+        f"{basis} evidence passed current-source verification",
+        evidence_id=evidence_id,
+        is_high_risk=(
+            kind in {"rule_candidate", "relation_fact"}
+            or getattr(candidate, "category", "") in {"bug", "api"}
+        ),
+    )
+
+
 def _dedup_key(
     project_name: str, category: str, content: str
 ) -> tuple[str, str, str]:
@@ -456,10 +606,9 @@ async def auto_review_candidates(
     returns the same summary but leaves storage untouched — useful for "what
     would happen" previews from slash commands and calibration runs.
 
-    Note: this function only handles ``MemoryEntry`` and ``RuleCandidate``.
-    ``RelationFact`` candidates are left alone because their signal/noise
-    judgment differs enough that mixing rules would dilute both. They will
-    get their own decision function in a later slice.
+    v0.9.5 applies one evidence policy across ``MemoryEntry``,
+    ``RuleCandidate``, and ``RelationFact`` while preserving legacy heuristic
+    behavior for pre-envelope memory/rule rows.
     """
     store = backend.structured_store
 
@@ -470,13 +619,38 @@ async def auto_review_candidates(
     pending_rules = await store.list_rule_candidates(
         project_name, status="pending"
     )
+    pending_relations = await store.list_relation_facts(
+        project_name,
+        limit=1000,
+        status="pending",
+    )
     if requested_ids is not None:
         pending_entries = [entry for entry in pending_entries if entry.id in requested_ids]
         pending_rules = [rule for rule in pending_rules if rule.id in requested_ids]
+        pending_relations = [
+            fact for fact in pending_relations if fact.id in requested_ids
+        ]
+
+    all_candidates: list[Any] = [
+        *pending_entries,
+        *pending_rules,
+        *pending_relations,
+    ]
+    for item in all_candidates:
+        validation = await validate_candidate_evidence(backend, item)
+        apply_validation(item, validation)
+        if apply and uses_evidence_admission(item):
+            if isinstance(item, MemoryEntry):
+                await store.save_memory_entry(item)
+            elif isinstance(item, RuleCandidate):
+                await store.save_rule_candidate(item)
+            else:
+                await store.save_relation_fact(item)
 
     decisions: list[AutoReviewDecision] = []
     decisions.extend(decide_memory_entry(entry) for entry in pending_entries)
     decisions.extend(decide_rule_candidate(rule) for rule in pending_rules)
+    decisions.extend(decide_relation_fact(fact) for fact in pending_relations)
 
     # In-pass duplicate detection. We only dedup MemoryEntry candidates
     # because that's where the spec calls out the noise category; rule
@@ -487,6 +661,7 @@ async def auto_review_candidates(
     deduped: list[AutoReviewDecision] = []
     entry_lookup = {entry.id: entry for entry in pending_entries}
     rule_lookup = {rule.id: rule for rule in pending_rules}
+    relation_lookup = {fact.id: fact for fact in pending_relations}
     for decision in decisions:
         if decision.kind == "memory_entry":
             entry = entry_lookup.get(decision.candidate_id)
@@ -507,7 +682,7 @@ async def auto_review_candidates(
         deduped.append(decision)
 
     summary = AutoReviewSummary(
-        new_candidates=len(pending_entries) + len(pending_rules),
+        new_candidates=len(all_candidates),
     )
 
     for decision in deduped:
@@ -515,9 +690,18 @@ async def auto_review_candidates(
         if decision.kind == "memory_entry":
             entry = entry_lookup.get(decision.candidate_id)
             confidence = entry.confidence if entry is not None else 0.0
-        else:
+            candidate: Any | None = entry
+        elif decision.kind == "rule_candidate":
             rule = rule_lookup.get(decision.candidate_id)
             confidence = rule.confidence if rule is not None else 0.0
+            candidate = rule
+        else:
+            relation = relation_lookup.get(decision.candidate_id)
+            confidence = relation.confidence if relation is not None else 0.0
+            candidate = relation
+        if candidate is not None:
+            summary_key = evidence_summary_key(candidate)
+            setattr(summary, summary_key, getattr(summary, summary_key) + 1)
 
         if decision.action == "auto_confirm":
             target_status = resolve_promotion_status(
@@ -535,8 +719,12 @@ async def auto_review_candidates(
                     await store.update_memory_entry_status(
                         decision.candidate_id, target_status
                     )
-                else:
+                elif decision.kind == "rule_candidate":
                     await store.update_rule_candidate_status(
+                        decision.candidate_id, target_status
+                    )
+                else:
+                    await store.update_relation_fact_status(
                         decision.candidate_id, target_status
                     )
                 summary.applied_decisions.append(decision)
@@ -562,7 +750,7 @@ async def auto_review_candidates(
                     target_kind=(
                         "memory_entry"
                         if decision.kind == "memory_entry"
-                        else "candidate"
+                        else decision.kind
                     ),
                     target_id=decision.candidate_id,
                     context={
@@ -574,12 +762,26 @@ async def auto_review_candidates(
         elif decision.action == "auto_reject":
             summary.auto_rejected += 1
             if apply:
+                if (
+                    candidate is not None
+                    and getattr(candidate, "verification_outcome", None)
+                    == "contradicted"
+                ):
+                    # Persist the non-destructive historicalization proposal
+                    # before terminally rejecting the source candidate. A
+                    # crash can then retry the still-pending candidate instead
+                    # of losing the only path that handles current truth.
+                    await _propose_contradicted_truth(backend, candidate)
                 if decision.kind == "memory_entry":
                     await store.update_memory_entry_status(
                         decision.candidate_id, "rejected"
                     )
-                else:
+                elif decision.kind == "rule_candidate":
                     await store.update_rule_candidate_status(
+                        decision.candidate_id, "rejected"
+                    )
+                else:
+                    await store.update_relation_fact_status(
                         decision.candidate_id, "rejected"
                     )
                 summary.applied_decisions.append(decision)
@@ -605,7 +807,7 @@ async def auto_review_candidates(
                     target_kind=(
                         "memory_entry"
                         if decision.kind == "memory_entry"
-                        else "candidate"
+                        else decision.kind
                     ),
                     target_id=decision.candidate_id,
                     context={
@@ -625,8 +827,12 @@ async def auto_review_candidates(
                     updated = await store.update_memory_entry_status(
                         decision.candidate_id, target_status
                     )
-                else:
+                elif decision.kind == "rule_candidate":
                     updated = await store.update_rule_candidate_status(
+                        decision.candidate_id, target_status
+                    )
+                else:
+                    updated = await store.update_relation_fact_status(
                         decision.candidate_id, target_status
                     )
                 if updated:
@@ -670,6 +876,108 @@ async def auto_review_candidates(
         summary.next_user_action = "no pending candidates"
 
     return summary
+
+
+async def _propose_contradicted_truth(
+    backend: LocalMemoryBackend,
+    candidate: Any,
+) -> list[str]:
+    """Create audited stale suggestions for exact matching current truth."""
+
+    store = backend.structured_store
+    targets: list[tuple[str, str]] = []
+    if isinstance(candidate, MemoryEntry):
+        normalized = " ".join(candidate.content.casefold().split())
+        for status in ("auto_confirmed", "provisional", "user_confirmed"):
+            entries = await store.list_memory_entries(
+                candidate.project_name,
+                limit=1000,
+                status=status,
+            )
+            targets.extend(
+                ("memory_entry", entry.id)
+                for entry in entries
+                if entry.id != candidate.id
+                and " ".join(entry.content.casefold().split()) == normalized
+            )
+    elif isinstance(candidate, RuleCandidate):
+        normalized_rule = (
+            " ".join(candidate.pattern.casefold().split()),
+            " ".join(candidate.trigger.casefold().split()),
+        )
+        rules = await store.list_confirmed_rules(
+            candidate.project_name,
+            include_history=False,
+        )
+        targets.extend(
+            ("confirmed_rule", rule.id)
+            for rule in rules
+            if (
+                " ".join(rule.pattern.casefold().split()),
+                " ".join(rule.trigger.casefold().split()),
+            )
+            == normalized_rule
+        )
+    elif isinstance(candidate, RelationFact):
+        facts = await store.list_relation_facts(
+            candidate.project_name,
+            limit=1000,
+            include_provisional=True,
+        )
+        targets.extend(
+            ("relation_fact", fact.id)
+            for fact in facts
+            if fact.id != candidate.id
+            and (
+                fact.source_entity.casefold(),
+                fact.relation_type.casefold(),
+                fact.target_entity.casefold(),
+            )
+            == (
+                candidate.source_entity.casefold(),
+                candidate.relation_type.casefold(),
+                candidate.target_entity.casefold(),
+            )
+        )
+    existing = await store.list_stale_truth_suggestion_candidates(
+        candidate.project_name,
+        status="pending",
+    )
+    existing_targets = {(item.target_kind, item.target_id) for item in existing}
+    created: list[str] = []
+    for target_kind, target_id in dict.fromkeys(targets):
+        if (target_kind, target_id) in existing_targets:
+            continue
+        proposal = StaleTruthSuggestionCandidate(
+            project_name=candidate.project_name,
+            target_id=target_id,
+            target_kind=target_kind,  # type: ignore[arg-type]
+            last_surfaced_at=None,
+            days_since_last_surface=0,
+            evidence_signal_ids=[],
+            metabolism_run_id=f"evidence-admission:{candidate.id}",
+            created_at=datetime.now(timezone.utc),
+            reason="contradicted_by_current_evidence",
+            source_candidate_id=candidate.id,
+        )
+        await store.save_stale_truth_suggestion_candidate(proposal)
+        created.append(proposal.id)
+        append_state_event(
+            backend.data_dir,
+            event_type=StateEventType.CANDIDATE_CREATED,
+            project_name=candidate.project_name,
+            target_kind="stale_truth_suggestion_candidate",
+            target_id=proposal.id,
+            status="pending",
+            source_surface="dream.evidence_admission",
+            actor="dream",
+            payload={
+                "target_kind": target_kind,
+                "target_id": target_id,
+                "reason_code": "contradicted_by_current_evidence",
+            },
+        )
+    return created
 
 
 def explain_decision(

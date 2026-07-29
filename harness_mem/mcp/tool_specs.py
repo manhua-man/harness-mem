@@ -97,7 +97,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "memory_type": {
                     "type": "array",
                     "items": {"type": "string", "enum": ["episodic", "semantic", "procedural"]},
-                    "description": "v1.6.1: optional filter on MemoryEntry.memory_type. Multiple values are OR-ed.",
+                    "description": "Optional MemoryEntry.memory_type filter; multiple values are OR-ed.",
                 },
                 "include_history": {
                     "type": "boolean",
@@ -931,7 +931,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "suggest with arguments.kind=memory|rule|relation; action=decide "
             "with kind, decision=confirm|reject, and candidate_id; action=handoff; "
             "action=correct_rule; or action=supersede. This replaces the former "
-            "family of low-level suggest_*/confirm_*/reject_* MCP tools."
+            "family of low-level suggest_*/confirm_*/reject_* MCP tools. "
+            "Distill-bound suggestions should include evidence_basis, "
+            "verification_outcome, and content-free verification_refs so Dream "
+            "can verify repository or explicit user-statement evidence."
         ),
         "input_schema": {
             "type": "object",
@@ -951,8 +954,11 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "auto_review_candidates": {
         "description": (
-            "Run conservative heuristic auto-review across pending memory entries "
-            "and rule candidates. Returns the standard summary shape "
+            "Run evidence-grounded auto-review across pending memory entries, "
+            "rule candidates, and relation facts. Repository and explicit "
+            "user-statement evidence are revalidated against the current source; "
+            "transcript-only, unverified, or contradicted durable truths are blocked. "
+            "Returns the standard summary shape "
             "(auto_confirmed / auto_rejected / "
             "kept_pending / needs_user_confirmation). With apply=true, low-risk "
             "decisions are applied with audit events while ambiguous or high-risk "

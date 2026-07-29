@@ -124,8 +124,8 @@ The underlying actions are:
 | `hm-wake` | Recover confirmed project context. |
 | `hm-search "query"` | Search current-project memory. |
 | `hm-search-all "query"` | Explicit cross-project memory search. |
-| `hm-distill <project> <n>` | Immediately consume recent evidence, govern candidates, and run Dream. |
-| `hm-review` | Confirm, reject, replace, or keep pending candidates. |
+| `hm-distill <project> <n>` | Immediately consume recent evidence, record promoted/no-candidate completion, and run Dream. |
+| `hm-review` | Audit, correct, undo, or replace automatically governed memory. |
 | `hm-dream` | Inspect or explicitly trigger the default dream maintenance ledger. |
 
 ## Boundary
@@ -138,7 +138,15 @@ The underlying actions are:
   such as index rebuilds, storage migration/export, and state audit.
 - Procedural skill lifecycle governance is outside this plugin and outside the
   public memory MCP surface.
-- Agents may suggest memory, but durable truth goes through candidate review.
+- Agents suggest evidence-backed candidates; finalize automatically promotes
+  safe truth and terminally rejects the rest. Review is the post-hoc audit and
+  correction surface, not a daily manual gate.
+- Raw session cleanup defaults off. Enable it persistently with
+  `harness-mem config set distill.delete_source_after_complete true --scope user --confirm`;
+  the confirmation is required only when enabling this persistent destructive
+  policy. An explicit IDE request to enable post-distill source deletion is the
+  user's authorization for that confirmed config write;
+  every completed job reports retained/deleted/partial_failure/unsupported.
 - Confirmed memory is what future `wake` and `search` consume.
 
 See the repository [README](../../README.md), [Quickstart](../../docs/quickstart.md),

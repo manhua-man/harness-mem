@@ -1,0 +1,57 @@
+version: 1
+declared_case_count: 9
+cases:
+  - id: repository_memory_verified
+    kind: memory_entry
+    basis: repository
+    outcome: verified
+    confidence: 0.9
+    expected_action: auto_confirm
+  - id: user_statement_memory_verified
+    kind: memory_entry
+    basis: user_statement
+    outcome: verified
+    confidence: 0.8
+    expected_action: auto_confirm
+  - id: transcript_memory_blocked
+    kind: memory_entry
+    basis: transcript
+    outcome: unverified
+    confidence: 0.9
+    expected_action: auto_reject
+  - id: contradicted_memory_blocked
+    kind: memory_entry
+    basis: repository
+    outcome: contradicted
+    confidence: 0.9
+    expected_action: auto_reject
+  - id: repository_rule_verified
+    kind: rule_candidate
+    basis: repository
+    outcome: verified
+    confidence: 0.9
+    expected_action: auto_confirm
+  - id: unverified_rule_blocked
+    kind: rule_candidate
+    basis: repository
+    outcome: unverified
+    confidence: 0.9
+    expected_action: auto_reject
+  - id: repository_relation_verified
+    kind: relation_fact
+    basis: repository
+    outcome: verified
+    confidence: 0.9
+    expected_action: auto_confirm
+  - id: user_statement_relation_low_confidence
+    kind: relation_fact
+    basis: user_statement
+    outcome: verified
+    confidence: 0.5
+    expected_action: auto_reject
+  - id: transcript_relation_blocked
+    kind: relation_fact
+    basis: transcript
+    outcome: unverified
+    confidence: 0.9
+    expected_action: auto_reject

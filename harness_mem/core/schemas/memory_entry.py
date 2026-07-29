@@ -6,21 +6,24 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from harness_mem.core.schemas.evidence import (
+    EvidenceBasis,
+    EvidenceRef,
+    VerificationOutcome,
+)
+
 
 MemoryType = Literal["episodic", "semantic", "procedural"]
-"""Three-layer memory typing introduced in v1.6.0.
+"""Three-layer memory typing used by search and wake selection.
 
 - ``semantic`` — stable, structured project knowledge (rules, facts, decisions).
-  This is the v1.6.0 default; existing entries auto-derive to ``semantic`` when
+  This is the default; existing entries auto-derive to ``semantic`` when
   their ``category`` matches the registered set (architecture / convention /
   api / bug / decision).
 - ``episodic`` — event-shaped recollections. Used for entries whose ``category``
   is unknown or free-form when loaded from legacy data.
-- ``procedural`` — multi-step skills / how-tos. Reserved for v1.8 — accepted
-  through the API but not produced by any v1.6.x ingest / distill path.
-
-Wake-up bucket budgets and search-time filtering on this field arrive in
-v1.6.1. v1.6.0 only exposes the field; behavior remains unchanged.
+- ``procedural`` — multi-step skills / how-tos. Accepted by the read model and
+  governed separately from ordinary semantic facts.
 """
 
 
@@ -105,12 +108,16 @@ class MemoryEntry(BaseModel):
         default=None,
         description="来源线索: {session_id, observation_ids, agent_type, tool_name}"
     )
+    evidence_basis: EvidenceBasis | None = None
+    verification_outcome: VerificationOutcome | None = None
+    verification_reason_codes: list[str] = Field(default_factory=list)
+    verification_refs: list[EvidenceRef] = Field(default_factory=list)
+    verified_at: datetime | None = None
     memory_type: MemoryType = Field(
         default="semantic",
         description=(
-            "Three-layer memory typing (v1.6.0): episodic (events), "
-            "semantic (rules/facts), procedural (reserved for v1.8). "
-            "Exposed read-only in v1.6.0; consumed by wake-up bucketing in v1.6.1."
+            "Three-layer memory typing: episodic (events), semantic "
+            "(rules/facts), or procedural (ordered workflows)."
         ),
     )
     valid_from: datetime | None = Field(
@@ -161,6 +168,11 @@ class MemoryEntry(BaseModel):
             "tier": self.tier,
             "decay_score": self.decay_score,
             "provenance": self.provenance,
+            "evidence_basis": self.evidence_basis,
+            "verification_outcome": self.verification_outcome,
+            "verification_reason_codes": list(self.verification_reason_codes),
+            "verification_refs": [ref.to_dict() for ref in self.verification_refs],
+            "verified_at": self.verified_at.isoformat() if self.verified_at else None,
             "memory_type": self.memory_type,
             "valid_from": self.valid_from.isoformat() if self.valid_from else None,
             "valid_to": self.valid_to.isoformat() if self.valid_to else None,
@@ -178,6 +190,7 @@ class MemoryEntry(BaseModel):
             "valid_from",
             "valid_to",
             "recorded_at",
+            "verified_at",
         ):
             if isinstance(data.get(field), str):
                 data[field] = datetime.fromisoformat(data[field])
@@ -199,6 +212,14 @@ class MemoryEntry(BaseModel):
             data["decay_score"] = 0.0
         if "provenance" not in data:
             data["provenance"] = None
+        data.setdefault("evidence_basis", None)
+        data.setdefault("verification_outcome", None)
+        data.setdefault("verification_reason_codes", [])
+        data["verification_refs"] = [
+            ref if isinstance(ref, EvidenceRef) else EvidenceRef.from_dict(ref)
+            for ref in data.get("verification_refs") or []
+        ]
+        data.setdefault("verified_at", None)
         if "distill_job_id" not in data:
             data["distill_job_id"] = None
         if "memory_type" not in data or data["memory_type"] is None:

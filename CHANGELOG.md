@@ -2,6 +2,80 @@
 
 ## Unreleased
 
+## [0.9.5] - 2026-07-29
+
+This release includes all work originally planned for 0.9.4; no separate
+0.9.4 package or tag was published.
+
+### Added
+
+- Persistent `distill.delete_source_after_complete` policy at user or project
+  scope. It defaults to `false`; `harness-mem config set ... true` is the
+  explicit opt-in for automatic processed-source cleanup.
+- One-time `--confirm` protection for the transition that enables automatic
+  processed-source deletion. Disabling and per-session finalize need no
+  additional confirmation, and IDE natural-language control maps to the same
+  existing config surface.
+- Per-job `completion_disposition` (`promoted` or `no_candidate`) and
+  `source_cleanup_status` (`retained`, `deleted`, `partial_failure`, or
+  `unsupported`) outcomes on the existing distill ledger, without a second
+  queue or storage system.
+- Content-free processed-source receipts written before native deletion, plus
+  compare-and-swap, quiet-source, allowed-root, symlink/reparse, residual, and
+  WAL/secure-delete checks.
+- A shared evidence envelope for new MemoryEntry, RuleCandidate, and
+  RelationFact candidates: `evidence_basis`, `verification_outcome`, stable
+  reason codes, integrity-only references, and verification time.
+- A deterministic evidence-admission golden matrix covering repository,
+  explicit user-statement, transcript-only, contradicted, low-confidence,
+  relation, and legacy candidate behavior.
+
+### Changed
+
+- `finalize_session_distill` now produces a stable completion, promotion,
+  queue-effect, and source-cleanup summary. Automatic policy promotes safe
+  durable candidates and terminally rejects the rest, so completed low-value
+  sessions do not remain as recurring manual-review work.
+- Compact/full project status uses actual distill jobs, including parked work,
+  instead of Observation count as the work-queue truth. Seven-day completion
+  outcomes distinguish promoted, no-candidate, and legacy-unknown jobs.
+- Typed config handling is shared by autopilot, capture, distill, Dream, and
+  cost-budget keys, so `config set/get/list` preserve TOML booleans, integers,
+  enums, constants, and string lists consistently.
+- Existing post-turn maintenance retries a bounded set of cleanup-eligible
+  completed jobs after the native source becomes quiet; no second scheduler or
+  background semantic worker was introduced.
+- Bash, Zsh, and Fish completion now expose the one-time `config set --confirm`
+  gate used to enable processed-source deletion.
+- Finalize-time Dream admission now revalidates project-relative repository
+  digests and exact user-authored semantic windows. Repository/user-statement
+  evidence may promote under the existing risk policy; transcript-only,
+  malformed, changed, or missing evidence is terminally rejected instead of
+  becoming durable truth.
+- RelationFact now participates in the same scoped automatic admission pass as
+  MemoryEntry and RuleCandidate. Seven-day status and finalize summaries expose
+  verified, user-stated, unverified-blocked, and contradicted counts without
+  increasing the 27-tool public MCP surface.
+- Contradicted candidates create audited stale-truth proposals for exact
+  matching current truth; Dream never silently deletes or rewrites it.
+
+### Security
+
+- Processed-source cleanup preserves promoted Memory/Rule/Fact/Skill truth but
+  removes native per-session sources, local raw revision bytes, chunks,
+  checkpoint results, matching Observations, rejected/linked evidence rows,
+  and derived indexes. Retained truth provenance is replaced by a
+  content-free `source_pruned` receipt reference.
+- Shared-container sources that cannot yet be removed transactionally are
+  reported as `unsupported` and remain untouched; harness-mem never unlinks an
+  entire shared SQLite or JSONL history file.
+- Exact processed-source tombstones prevent an already deleted source revision
+  from being silently recaptured while allowing genuinely newer revisions.
+- Evidence references reject absolute or outside-project repository paths,
+  changed file/source digests, mismatched user roles, and incomplete refs.
+  Processed-source cleanup removes transient locators while retaining only
+  one-way digests and content-free admission outcomes on durable truth.
+
 ## [0.9.3] - 2026-07-26
 
 This release includes all work originally planned for 0.9.2; no separate

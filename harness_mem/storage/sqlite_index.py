@@ -404,6 +404,7 @@ class SQLiteIndex:
                 str(self.db_path), timeout=10, check_same_thread=False
             )
             self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA secure_delete=ON")
             self._conn.row_factory = sqlite3.Row
             # Load sqlite-vec extension for vector storage (Windows-compatible)
             try:
@@ -457,6 +458,16 @@ class SQLiteIndex:
             if self._conn is not None:
                 self._conn.close()
                 self._conn = None
+
+    def flush_sensitive_deletes(self) -> None:
+        """Commit secure deletes and truncate this derived index WAL."""
+
+        conn = self._conn_write()
+        with self._lock:
+            conn.commit()
+            row = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if row is not None and int(row[0] or 0) != 0:
+                raise RuntimeError("derived index WAL checkpoint remained busy")
 
     def persist_embedding(
         self,

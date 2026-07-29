@@ -11,9 +11,8 @@ from pydantic import BaseModel, Field, field_validator
 class ProceduralCandidate(BaseModel):
     """Pending procedural memory extracted from repeated workflows.
 
-    v1.8 starts procedural memory as a read-only, reviewable candidate shape.
     These candidates are not active skills and do not mutate truth or wake
-    selection.
+    selection until governed through the existing review lifecycle.
     """
 
     id: str = Field(default_factory=lambda: str(uuid4()))

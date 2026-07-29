@@ -3,9 +3,12 @@
 `harness-mem` 0.9.x is the convergence line for one automatic, auditable
 Agent-memory loop. 0.9.0 shipped the automation, storage-safety, and
 cross-host runtime baseline; 0.9.1 removed stale product vocabulary and locked
-the public governance contract. Version 0.9.3 ships the complete 0.9.2 handler
+the public governance contract. Version 0.9.3 shipped the complete 0.9.2 handler
 and deterministic-distill work together with explainable recovery and quality
-operations. No separate 0.9.2 package or tag was published. The stable loop is
+operations. Version 0.9.5 ships the completed-session/source-cleanup work
+originally planned for 0.9.4 together with evidence-grounded Dream admission,
+without adding another public tool, store, or scheduler. No separate 0.9.2 or
+0.9.4 package or tag was published. The stable loop is
 not a manual checklist:
 
 ```text
@@ -36,6 +39,41 @@ not pending work.
 | `0.9.1` | Public-contract and narrative convergence. | Every active Skill/command uses `govern_memory`; generated host copies agree; 0.9.x docs and release history are canonical; guardrail tests reject removed governance vocabulary. | Broad handler refactors, new tools, or new configuration profiles. |
 | `0.9.2` | Folded into 0.9.3; not published separately. | Exact offered-job claiming and the bounded handler split ship in the 0.9.3 package and tag. | A separate 0.9.2 release artifact. |
 | `0.9.3` | Explainable recovery and memory-quality operations, including all 0.9.2 work. | Doctor emits a risk-classified recovery plan, Storage v2 drift is explained with replay-tested recovery, privacy deletion has verifiable receipts, and status reports outcome-based retrieval quality rather than latency alone. | A second store, automatic destructive repair, new persistence roots, or autonomous semantic claims without an Agent. |
+| `0.9.4` | Folded into 0.9.5; not published separately. | Terminal distill outcomes and processed-source cleanup ship in the 0.9.5 package and tag. | A separate 0.9.4 release artifact. |
+| `0.9.5` | Terminal completion, opt-in processed-source cleanup, and evidence-grounded Dream admission. | Completed jobs are terminal and auditable; authorized cleanup is verified and truth-preserving; new candidates carry an evidence basis/outcome; repository claims need current repository proof; explicit user decisions can promote; contradicted claims route through historical governance. | A new MCP tool, manual daily promotion, generic web fact-checking, a second truth store/scheduler, silent deletion, whole shared-container deletion, or retroactive reclassification of legacy truth. |
+
+## 0.9.4 — Terminal Completion and Source Cleanup (shipped in 0.9.5)
+
+Goal: make “this session is done” unambiguous while preserving the default
+local audit trail.
+
+- Store completion disposition and actual source-cleanup status on the existing
+  distill job JSON; legacy jobs remain outcome-unknown.
+- Automatically promote safe candidates and reject the rest, leaving review as
+  a post-hoc correction and undo surface.
+- Add the default-off `distill.delete_source_after_complete` user/project
+  policy and use existing post-turn maintenance for bounded quiet-source retry.
+- Delete supported per-session native sources and active harness raw evidence
+  only after a content-free receipt, CAS/quiet/root checks, and full residual
+  verification. Preserve sanitized long-term truth.
+- Keep shared containers untouched when a safe transactional session delete is
+  unavailable, and report `unsupported` instead of overstating deletion.
+- Base compact/full status on the real distill queue, including parked jobs and
+  seven-day promoted/no-candidate/legacy-unknown completion outcomes.
+
+The work is folded into the 0.9.5 package and tag. CLI-surface parity is part
+of that combined release: Bash, Zsh, and Fish completion all expose the
+one-time `--confirm` option required to turn the persistent deletion policy on.
+
+## 0.9.5 — Evidence-Grounded Dream Admission (shipped)
+
+Goal: make automatic promotion depend on a verified evidence envelope rather
+than confidence and a non-empty source id, while keeping review post-hoc and
+preserving the existing 27-tool MCP contract.
+
+The detailed architecture, policy matrix, migration rules, execution slices,
+and acceptance gates are in
+[v0.9.5-evidence-grounded-dream.md](roadmap/v0.9.5-evidence-grounded-dream.md).
 
 ## 0.9.2 — Deterministic Distill and MCP Implementation Convergence (shipped in 0.9.3)
 

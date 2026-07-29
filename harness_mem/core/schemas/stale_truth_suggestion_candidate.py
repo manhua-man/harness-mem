@@ -52,6 +52,8 @@ class StaleTruthSuggestionCandidate(BaseModel):
     evidence_signal_ids: list[str] = Field(default_factory=list)
     status: Literal["pending", "user_confirmed", "rejected"] = "pending"
     metabolism_run_id: str
+    reason: str | None = None
+    source_candidate_id: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     model_config = {"extra": "allow"}
@@ -69,6 +71,8 @@ class StaleTruthSuggestionCandidate(BaseModel):
             "evidence_signal_ids": list(self.evidence_signal_ids),
             "status": self.status,
             "metabolism_run_id": self.metabolism_run_id,
+            "reason": self.reason,
+            "source_candidate_id": self.source_candidate_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
         for key, value in (self.model_extra or {}).items():

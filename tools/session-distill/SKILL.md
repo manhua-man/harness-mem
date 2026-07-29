@@ -151,7 +151,7 @@ final-session review 必须包含：`final_user_request`、`final_outcome`、
 | 普通 distill 候选 | **轻量 checklist** 过一遍 |
 | 已确认记忆回看 | **lookback**（dream/抽查；见 skill Mode C） |
 
-结合 `references/distillation-rules.md` 判断每条 claim。`admit` 进入 Step 4；`narrow` 改窄后进入 Step 4；`defer` 留 pending/note/补证；`reject` 不写候选。
+结合 `references/distillation-rules.md` 判断每条 claim。`admit` 进入 Step 4；`narrow` 改窄后进入 Step 4；`defer` 本轮不写候选，后续有新证据时再处理；`reject` 不写候选。
 
 ### 4. 写候选（govern_memory）
 
@@ -167,8 +167,22 @@ final-session review 必须包含：`final_user_request`、`final_outcome`、
 
 这些 suggest 工具只写 candidate layer。不要退回 CLI 或直接写 truth；如果工具不可用，应停止并报告当前 MCP surface 不完整。
 
-每条候选都必须有来源证据：observation id、session id、packet turn、命令或文件路径。证据不足时不要硬写；先列为需要补证，并说明缺口。
-外部事实、版本、政策、论文或第三方 API 语义可以先作为 pending candidate 记录缺口，但确认前必须补上可追溯的外部来源证据。smart-search 只是参考候选，不是当前 hm 依赖或已安装能力。
+每条候选都必须带 0.9.5 evidence envelope：`evidence_basis`、
+`verification_outcome` 和 content-free `verification_refs`。
+
+- 代码、API、文件、版本、发布和测试状态：只允许 `repository + verified`；ref
+  使用项目相对路径与当前文件 SHA-256。Agent 负责语义判断，runtime 在准入前重新
+  校验路径边界和摘要当前性。
+- 用户明确偏好、纠正或项目决定：使用
+  `user_statement + verified/not_applicable`；ref 只保存 user role、exchange index
+  和完整 semantic window SHA-256。
+- 只有 transcript 说法且无法由仓库或用户明确陈述验证：使用
+  `transcript + unverified`。它可以解释为什么没有候选，但不能晋升 durable truth。
+- ref 不得保存绝对路径、session id、source alias 或证据正文。证据不足时不要伪造
+  `verified`；finalize 会将缺失、变化、越界或不匹配的 envelope 终结为 rejected。
+
+外部事实、政策、论文或第三方 API 语义没有项目本地可验证来源时，默认不生成
+durable candidate。smart-search 只是参考候选，不是当前 hm 依赖或已安装能力。
 
 不要生成这些候选：
 
@@ -184,29 +198,34 @@ final-session review 必须包含：`final_user_request`、`final_outcome`、
 它只审核该 `distill_job_id` 产生的候选，且仅当 `promotion_decision="promote"`
 时才会 apply-low-risk 并运行 Dream。
 
-默认 distill 路径必须直接消费 `finalize_session_distill` 返回的 auto-review 结果，并允许 shared policy 自动确认低风险项、自动拒绝明显噪声、保留高风险/证据不足项：
+默认 distill 路径必须直接消费 `finalize_session_distill` 返回的自动治理结果。shared policy 自动确认安全项，并终结噪声、高风险或证据不足项，使已完成 job 不留下日常人工待办：
 
 - `auto_confirmed`
 - `auto_rejected`
-- `kept_pending`
-- `needs_user_confirmation`
+- `completion.disposition` (`promoted` / `no_candidate`)
+- `source_cleanup.status` (`retained` / `deleted` / `partial_failure` / `unsupported`)
 - `applied_decisions`
+- `evidence_admission` (`repository_verified` / `user_stated` /
+  `unverified_blocked` / `contradicted`)
 
-`applied_decisions` 必须展示在最终摘要或 audit 入口中。若用户追问某个候选为什么被确认、拒绝或保留，解释 candidate id、evidence id 和 policy reason。
+日常摘要使用 `completion.disposition`、`queue_effect` 和 `source_cleanup.status`；`applied_decisions` 留在 audit drilldown。若用户追问某个候选为什么被确认或拒绝，解释 candidate id、evidence id 和 policy reason。
 
 `list_candidates` 可用于显式 review drilldown。`auto_review_candidates` 是项目级审计/维护工具，不是 lossless session 的收尾入口；`govern_memory(action="decide")` 属于 `/hm:review` durable gate，不是默认 distill 主链。
 
-最后给用户看自动处理摘要，明确写出 `auto-review mode: apply-low-risk`，并提示运行 `/hm:review` 审计、undo、确认或替换。
+最后给用户看自动处理摘要，只说明“形成长期记忆/无需长期记忆”和原文的实际清理状态；需要细节时再提示 `/hm:review` 审计或 undo。
 
 ## Runtime guardrails
 
 - native transcript revision 是权威证据；compact manifest 和 semantic window 都是同 revision 的 parser-derived 消费视图，不是第二份 truth，也不能替代候选所需的精确 raw proof。
 - 每个 expected raw chunk 都必须有 durable checkpoint，才能进入 final review；semantic 快路径由 runtime 完成 hash 校验和 checkpoint。
-- final review 未通过时，不 auto-review、不 Dream，候选保持 pending。
-- distill 生命周期不删除宿主 transcript 或 transcript ledger 中的 raw revision。
+- final review 未通过时，不 auto-review、不 Dream，候选终结为 rejected，job 记为 `no_candidate`。
+- distill 默认保留宿主 transcript 和 raw revision。只有持久配置
+  `distill.delete_source_after_complete=true` 时，完成链才执行 receipt-first
+  source cleanup；长期 truth 保留并标记 `source_pruned` provenance，实际结果
+  必须按 `retained/deleted/partial_failure/unsupported` 报告。
 - 不创建独立 manifest、packet workspace、session note 或 memory-drafts truth store。
 
-KB / PRD 语义不再作为 session-distill 的独立子系统存在。产品决策、架构事实、项目知识和规则都应抽成 harness-mem candidates，再通过 `/hm:review` 进入 confirmed memory。正式 PRD 或 roadmap 文档若存在，属于普通项目文档编辑，不由 session-distill 维护。
+KB / PRD 语义不再作为 session-distill 的独立子系统存在。产品决策、架构事实、项目知识和规则都应抽成 harness-mem candidates，由 finalize 自动治理；`/hm:review` 用于事后纠错和 undo。正式 PRD 或 roadmap 文档若存在，属于普通项目文档编辑，不由 session-distill 维护。
 
 ## Dream maintenance boundary
 
@@ -216,7 +235,7 @@ wake/search/review 等路径产生的 signals。
 
 - **没有独立维护 MCP 工具**。不要调用或描述 standalone preview/run 维护工具；对外入口是 `/hm:dream` / MCP dream tools 和 dream ledger/undo。
 - **Signals 是后台证据，不进入本 skill 主链**。`wake_surfaced` / `search_hit` / `confirmed` / `rejected` / `supersede_completed` 等信号由 runtime 记录，dream 在自己的调度窗口中消费。
-- **durable write 必须可审计**。session-distill 产候选并允许 low-risk auto-review apply；显式用户确认通过 `/hm:review` 升级 trust tier，自动维护通过 dream ledger/undo 审计。dream/lookback 处理已确认或维护中的 truth，不是新候选准入动作。
+- **durable write 必须可审计**。session-distill 产候选并由 finalize 自动治理；`/hm:review` 用于事后纠错、undo 或显式升级 trust tier，自动维护通过 dream ledger 审计。dream/lookback 处理已确认或维护中的 truth，不是新候选准入动作。
 
 ## 外置协作者
 
@@ -234,7 +253,7 @@ wake/search/review 等路径产生的 signals。
 - 不要求普通用户手动跑 `harness-mem ingest` 或 `harness-mem distill`。
 - 不默认把用户级全局 agent 历史灌进当前项目。
 - 不把 "no patterns found" 当成最终高质量蒸馏结论；那只说明 fallback 没抽到明显模式。
-- 不把逐条分类工作交给用户；AI 必须自动处理低风险 pending 候选，高风险、冲突或证据不足项进入 audit inbox。
+- 不把逐条分类或晋升工作交给用户；AI 必须自动治理当前 job，高风险、冲突或证据不足项不进入 truth，review 只做事后纠错。
 - 不维护独立的 `knowledge-base.md`、KB review/prune 命令、PRD sync 文件或产品文档桥。
 - 不创建或调用独立 `session-distill.py` CLI；用户入口是 `/hm:*` 或自然语言等价命令。
 - 不把 smart-search / Trellis 硬编码进 hm runtime；smart-search 当前只作为参考证据工具研究，grill-before-distill 是 distill 默认 Skill 步骤，不是新 MCP。

@@ -10,10 +10,12 @@ from typing import Any, Callable, List, Literal, Set
 from uuid import NAMESPACE_URL, uuid5
 
 from harness_mem.core.schemas.session_distill import (
+    CompletionDisposition,
     DistillChunkCheckpoint,
     DistillJobStatus,
     SessionDistillJob,
     SessionSemanticReview,
+    SourceCleanupStatus,
 )
 from harness_mem.core.schemas.transcript import TranscriptChunk, TranscriptSource
 from harness_mem.transcript_chunking import sha256_text
@@ -375,6 +377,13 @@ class SessionDistillStore:
                 job = self._get_job_locked(job_id)
                 if job is None:
                     raise KeyError(job_id)
+                if job.status == "completed":
+                    # Finalize is an idempotent MCP boundary. Processed-source
+                    # cleanup deliberately removes checkpoints and raw chunks,
+                    # so a transport retry must return the durable completion
+                    # receipt instead of trying to reconstruct deleted input.
+                    self._conn.rollback()
+                    return job
                 source = self._get_source(job.source_id)
                 if source is None:
                     raise ValueError("distill source no longer exists")
@@ -448,6 +457,40 @@ class SessionDistillStore:
                 retry_number = max(1, job.attempt_count)
                 backoff_seconds = min(6 * 3600, 300 * (2 ** min(retry_number - 1, 7)))
                 job.retry_after = now + timedelta(seconds=backoff_seconds)
+                job.updated_at = now
+                self._upsert_job_locked(job)
+                self._conn.commit()
+                return job
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def record_completion_outcome(
+        self,
+        job_id: str,
+        *,
+        disposition: CompletionDisposition | None,
+        reason_codes: List[str],
+        promotion_summary: dict[str, Any],
+        source_cleanup_status: SourceCleanupStatus,
+        source_cleanup_receipt_id: str | None = None,
+    ) -> SessionDistillJob:
+        """Persist post-distill truth and cleanup outcomes on the existing job."""
+
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                job = self._get_job_locked(job_id)
+                if job is None:
+                    raise KeyError(job_id)
+                if job.status != "completed":
+                    raise ValueError("completion outcome requires a completed distill job")
+                job.completion_disposition = disposition
+                job.completion_reason_codes = list(dict.fromkeys(reason_codes))
+                job.promotion_summary = dict(promotion_summary)
+                job.source_cleanup_status = source_cleanup_status
+                job.source_cleanup_receipt_id = source_cleanup_receipt_id
                 job.updated_at = now
                 self._upsert_job_locked(job)
                 self._conn.commit()
@@ -553,12 +596,16 @@ class SessionDistillStore:
     ) -> dict[str, int]:
         rows = self._conn.execute(
             """
-            SELECT data FROM distill_jobs
+            SELECT rowid AS queue_ordinal, data FROM distill_jobs
             WHERE project_name = ?
             """,
             (project_name,),
         ).fetchall()
         jobs = [SessionDistillJob.from_dict(json.loads(row["data"])) for row in rows]
+        queue_ordinal = {
+            job.id: int(row["queue_ordinal"])
+            for job, row in zip(jobs, rows, strict=True)
+        }
         now = datetime.now(timezone.utc)
         protected = [job for job in jobs if job.status in {"processing", "reviewing"}]
         candidates = [
@@ -593,13 +640,17 @@ class SessionDistillStore:
 
         selected_recent = 0
         selected_oldest = 0
+
+        def age_key(job: SessionDistillJob) -> tuple[datetime, int]:
+            return job.created_at, queue_ordinal[job.id]
+
         while len(selected) < available_slots and pool:
             healthy = [job for job in pool if job.error is None]
             lane_pool = healthy or pool
             choose_recent = recent_first and recent_streak < 3
-            chosen = max(lane_pool, key=lambda job: job.created_at) if choose_recent else min(
+            chosen = max(lane_pool, key=age_key) if choose_recent else min(
                 lane_pool,
-                key=lambda job: job.created_at,
+                key=age_key,
             )
             lane: Literal["recent", "oldest"] = "recent" if choose_recent else "oldest"
             chosen.drainer_lane = lane

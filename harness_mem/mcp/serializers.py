@@ -41,6 +41,11 @@ def _serialize_rule_candidate(candidate: Any) -> dict:
         "examples": candidate.examples,
         "confidence": candidate.confidence,
         "source_session_id": candidate.session_id,
+        "evidence_basis": getattr(candidate, "evidence_basis", None),
+        "verification_outcome": getattr(candidate, "verification_outcome", None),
+        "verification_reason_codes": list(
+            getattr(candidate, "verification_reason_codes", None) or []
+        ),
         "created_at": _isoformat(candidate.created_at),
         "confirm_tool": "confirm_rule",
         "reject_tool": "reject_rule",
@@ -62,6 +67,11 @@ def _serialize_memory_entry_candidate(entry: Any) -> dict:
         "created_at": _isoformat(entry.created_at),
         "updated_at": _isoformat(entry.updated_at),
         "provenance": entry.provenance,
+        "evidence_basis": getattr(entry, "evidence_basis", None),
+        "verification_outcome": getattr(entry, "verification_outcome", None),
+        "verification_reason_codes": list(
+            getattr(entry, "verification_reason_codes", None) or []
+        ),
         "confirm_tool": "confirm_memory_entry",
         "reject_tool": "reject_memory_entry",
     }
@@ -83,6 +93,11 @@ def _serialize_relation_fact_candidate(fact: Any) -> dict:
         "created_at": _isoformat(fact.created_at),
         "updated_at": _isoformat(fact.updated_at),
         "provenance": fact.provenance,
+        "evidence_basis": getattr(fact, "evidence_basis", None),
+        "verification_outcome": getattr(fact, "verification_outcome", None),
+        "verification_reason_codes": list(
+            getattr(fact, "verification_reason_codes", None) or []
+        ),
         "confirm_tool": "confirm_relation_fact",
         "reject_tool": "reject_relation_fact",
     }

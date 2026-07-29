@@ -55,6 +55,7 @@ class MergedConfig:
     distill_auto_target_backlog: int = 2
     distill_auto_recent_first: bool = True
     distill_auto_daily_job_budget: int = 8
+    distill_delete_source_after_complete: bool = False
     dream_auto_enabled: bool = True
     dream_auto_trigger: Literal["idle_or_interval", "interval", "idle"] = "idle_or_interval"
     dream_auto_min_interval_hours: int = 24
@@ -90,15 +91,7 @@ class MergedConfig:
         out: dict[str, Any] = copy.deepcopy(self.extras)
         for key_path, attr, _allowed, _default in _RECOGNIZED_KEYS:
             _set_dotted(out, key_path, getattr(self, attr))
-        for key_path, attr, _kind, _default in _AUTOPILOT_KEYS:
-            _set_dotted(out, key_path, getattr(self, attr))
-        for key_path, attr, _kind, _default in _CAPTURE_KEYS:
-            _set_dotted(out, key_path, getattr(self, attr))
-        for key_path, attr, _kind, _default in _DISTILL_AUTO_KEYS:
-            _set_dotted(out, key_path, getattr(self, attr))
-        for key_path, attr, _kind, _default in _DREAM_KEYS:
-            _set_dotted(out, key_path, getattr(self, attr))
-        for key_path, attr, _kind, _default in _COST_BUDGET_KEYS:
+        for key_path, attr, _kind, _default in _TYPED_CONFIG_KEYS:
             _set_dotted(out, key_path, getattr(self, attr))
         return out
 
@@ -125,7 +118,7 @@ _CAPTURE_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     ("transcript.retention_days", "transcript_retention_days", "int:min=0", 0),
 )
 
-_DISTILL_AUTO_KEYS: tuple[tuple[str, str, str, Any], ...] = (
+_DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     ("distill.auto.enabled", "distill_auto_enabled", "bool", True),
     (
         "distill.auto.max_jobs_per_wake",
@@ -145,6 +138,12 @@ _DISTILL_AUTO_KEYS: tuple[tuple[str, str, str, Any], ...] = (
         "distill_auto_daily_job_budget",
         "int:min=1",
         8,
+    ),
+    (
+        "distill.delete_source_after_complete",
+        "distill_delete_source_after_complete",
+        "bool",
+        False,
     ),
 )
 
@@ -184,6 +183,14 @@ _COST_BUDGET_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     ),
     ("cost_budget.dream_tokens", "cost_budget_dream_tokens", "int:min=1", 2000),
     ("cost_budget.distill_tokens", "cost_budget_distill_tokens", "int:min=1", 3000),
+)
+
+_TYPED_CONFIG_KEYS: tuple[tuple[str, str, str, Any], ...] = (
+    *_AUTOPILOT_KEYS,
+    *_CAPTURE_KEYS,
+    *_DISTILL_KEYS,
+    *_DREAM_KEYS,
+    *_COST_BUDGET_KEYS,
 )
 
 
@@ -460,25 +467,9 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
                 key_path=key_path, value=value, source_path=source_path
             )
 
-    autopilot_values = _coerce_key_group(
+    typed_values = _coerce_key_group(
         merged=merged,
-        keys=_AUTOPILOT_KEYS,
-        project_dict=project_dict,
-        user_dict=user_dict,
-        project_path=project_path,
-        user_path=user_path,
-    )
-    capture_values = _coerce_key_group(
-        merged=merged,
-        keys=_CAPTURE_KEYS,
-        project_dict=project_dict,
-        user_dict=user_dict,
-        project_path=project_path,
-        user_path=user_path,
-    )
-    distill_auto_values = _coerce_key_group(
-        merged=merged,
-        keys=_DISTILL_AUTO_KEYS,
+        keys=_TYPED_CONFIG_KEYS,
         project_dict=project_dict,
         user_dict=user_dict,
         project_path=project_path,
@@ -491,46 +482,17 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
         project_path=project_path,
         user_path=user_path,
     )
-    dream_values = _coerce_key_group(
-        merged=merged,
-        keys=_DREAM_KEYS,
-        project_dict=project_dict,
-        user_dict=user_dict,
-        project_path=project_path,
-        user_path=user_path,
-    )
-    cost_budget_values = _coerce_key_group(
-        merged=merged,
-        keys=_COST_BUDGET_KEYS,
-        project_dict=project_dict,
-        user_dict=user_dict,
-        project_path=project_path,
-        user_path=user_path,
-    )
-
     # ---- 6. default-fill + extras collection (Req 3.6) ------------------
     extras = copy.deepcopy(merged)
     for key_path, _attr, _allowed, _default in _RECOGNIZED_KEYS:
         _remove_dotted(extras, key_path)
-    for key_path, _attr, _kind, _default in _AUTOPILOT_KEYS:
-        _remove_dotted(extras, key_path)
-    for key_path, _attr, _kind, _default in _CAPTURE_KEYS:
-        _remove_dotted(extras, key_path)
-    for key_path, _attr, _kind, _default in _DISTILL_AUTO_KEYS:
-        _remove_dotted(extras, key_path)
-    for key_path, _attr, _kind, _default in _DREAM_KEYS:
-        _remove_dotted(extras, key_path)
-    for key_path, _attr, _kind, _default in _COST_BUDGET_KEYS:
+    for key_path, _attr, _kind, _default in _TYPED_CONFIG_KEYS:
         _remove_dotted(extras, key_path)
     for key_path in _REMOVED_CONFIG_KEYS:
         _remove_dotted(extras, key_path)
 
     # ---- 7. construct (Req 3.6, 3.9) ------------------------------------
     return MergedConfig(
-        **autopilot_values,
-        **capture_values,
-        **distill_auto_values,
-        **dream_values,
-        **cost_budget_values,
+        **typed_values,
         extras=extras,
     )

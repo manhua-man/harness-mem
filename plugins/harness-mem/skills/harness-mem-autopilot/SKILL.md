@@ -76,7 +76,7 @@ Do not:
 
 - write memory every turn;
 - summarize the whole conversation automatically;
-- turn pending candidates into confirmed truth without approval/policy;
+- turn candidates into truth outside the shared automatic governance policy;
 - hard-delete confirmed truth;
 - treat generated prose as truth;
 - inject every memory into wake;

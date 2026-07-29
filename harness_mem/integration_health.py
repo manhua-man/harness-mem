@@ -197,6 +197,15 @@ async def build_integration_health(
             "daily_budget_remaining": drainer["daily_budget_remaining"],
             "completed_24h": drainer["completed_24h"],
             "completed_7d": drainer["completed_7d"],
+            "promoted_7d": drainer["promoted_7d"],
+            "no_candidate_7d": drainer["no_candidate_7d"],
+            "legacy_unknown_7d": drainer["legacy_unknown_7d"],
+            "source_cleanup_partial_failure": drainer[
+                "source_cleanup_partial_failure"
+            ],
+            "source_cleanup_unsupported": drainer[
+                "source_cleanup_unsupported"
+            ],
             "throughput_per_day_7d": drainer["throughput_per_day_7d"],
             "oldest_parked_age_hours": drainer["oldest_parked_age_hours"],
             "recent_lane_selected": drainer["recent_lane_selected"],

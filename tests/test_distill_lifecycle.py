@@ -278,6 +278,23 @@ def test_drainer_estimate_accounts_for_exhausted_daily_budget(tmp_path: Path) ->
                 "promotion_decision": "no_promotion",
             },
         )
+        backend.transcript_store.record_distill_completion_outcome(
+            completed_id,
+            disposition="no_candidate",
+            reason_codes=["no_durable_candidate"],
+            promotion_summary={
+                "suggested": 0,
+                "promoted": 0,
+                "rejected": 0,
+                "evidence_admission": {
+                    "repository_verified": 2,
+                    "user_stated": 1,
+                    "unverified_blocked": 3,
+                    "contradicted": 1,
+                },
+            },
+            source_cleanup_status="retained",
+        )
         pending_distill_jobs(
             backend,
             project_name="demo",
@@ -297,6 +314,17 @@ def test_drainer_estimate_accounts_for_exhausted_daily_budget(tmp_path: Path) ->
 
         assert metrics["state"] == "daily_budget_exhausted"
         assert metrics["pending_total"] == 1
+        assert metrics["completed_7d"] == 1
+        assert metrics["promoted_7d"] == 0
+        assert metrics["no_candidate_7d"] == 1
+        assert metrics["legacy_unknown_7d"] == 0
+        assert metrics["evidence_admission_7d"] == {
+            "repository_verified": 2,
+            "user_stated": 1,
+            "unverified_blocked": 3,
+            "contradicted": 1,
+            "legacy_or_unknown": 0,
+        }
         assert "daily_budget_exhausted" in reason_codes
         assert metrics["drain_estimate"]["status"] == "coarse_estimate"
         assert metrics["drain_estimate"]["starts_after"].endswith("T00:00:00+00:00")

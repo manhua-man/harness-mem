@@ -385,6 +385,25 @@ async def run_post_turn_maintenance(
     previous_logger = getattr(mcp_tool_handlers, "logger", logging.getLogger("harness_mem.host_entry"))
     try:
         from harness_mem.data_lifecycle import enforce_transcript_retention
+        from harness_mem.processed_source_cleanup import (
+            retry_retained_source_cleanups,
+        )
+
+        source_cleanup: dict[str, Any] = (
+            await retry_retained_source_cleanups(
+                backend,
+                project_name=project_name,
+            )
+            if config.distill_delete_source_after_complete
+            else {
+                "attempted": 0,
+                "deleted": 0,
+                "retained": 0,
+                "partial_failure": 0,
+                "unsupported": 0,
+                "outcomes": [],
+            }
+        )
 
         retention = await enforce_transcript_retention(
             backend,
@@ -446,6 +465,7 @@ async def run_post_turn_maintenance(
             "project_root": project_root,
             "source": source,
             "trigger_id": trigger_id,
+            "source_cleanup": source_cleanup,
             "retention": retention,
             "evidence_packet": evidence_packet,
             "distill_job": job.to_dict() if job is not None else None,
@@ -454,6 +474,12 @@ async def run_post_turn_maintenance(
                 "observation_count": evidence_packet.get("observation_count", 0),
                 "distill_queued": job is not None and job.status == "needs_distill",
                 "distill_job_id": job.id if job is not None else None,
+                "source_cleanup_deleted": source_cleanup["deleted"],
+                "source_cleanup_retained": source_cleanup["retained"],
+                "source_cleanup_failures": int(
+                    source_cleanup["partial_failure"]
+                )
+                + int(source_cleanup["unsupported"]),
             },
         }
     finally:

@@ -112,7 +112,7 @@ _harness_mem_completion() {{
     fi
 
     if [[ "${{words[1]}}" == "config" && "${{cur}}" == -* ]]; then
-        COMPREPLY=($(compgen -W "--project-root --scope" -- "${{cur}}"))
+        COMPREPLY=($(compgen -W "--project-root --scope --confirm" -- "${{cur}}"))
         return
     fi
 
@@ -161,6 +161,7 @@ _harness_mem() {{
         '--export-rollback[export Storage v2 canonical rows as v3 JSON]:export_dir:' \\
         '--project-root[project directory]:project_root:' \\
         '--scope[config scope]:(user project)' \\
+        '--confirm[confirm enabling a persistent destructive config policy]' \\
         '--force[overwrite existing hook]' \\
         '--profile[command profile]:profile:({command_profiles})' \\
         '--source-dir[slash command source directory]:source_dir:' \\
@@ -235,6 +236,7 @@ complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l export-d
 complete -c harness-mem -n '__fish_seen_subcommand_from config' -a "get set list validate" -d "Action"
 complete -c harness-mem -n '__fish_seen_subcommand_from config' -l project-root -r -d "Project directory"
 complete -c harness-mem -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from set' -l scope -x -a "user project" -d "Config scope"
+complete -c harness-mem -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from set' -l confirm -d "Confirm enabling a persistent destructive config policy"
 
 # integration
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -a "{integration_actions}" -d "Installer"

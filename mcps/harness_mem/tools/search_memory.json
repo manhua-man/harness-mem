@@ -39,7 +39,7 @@
             "procedural"
           ]
         },
-        "description": "v1.6.1: optional filter on MemoryEntry.memory_type. Multiple values are OR-ed."
+        "description": "Optional MemoryEntry.memory_type filter; multiple values are OR-ed."
       },
       "include_history": {
         "type": "boolean",

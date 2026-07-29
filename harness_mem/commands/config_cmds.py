@@ -25,9 +25,8 @@ from harness_mem.config.errors import (
     ConfigValidationError,
 )
 from harness_mem.config.merge import (
-    _AUTOPILOT_KEYS,
-    _DREAM_KEYS,
     _RECOGNIZED_KEYS,
+    _TYPED_CONFIG_KEYS,
     _get_dotted,
     _user_config_path,
     load_merged_config,
@@ -70,14 +69,7 @@ def _allowed_for(key: str) -> tuple[str, ...] | None:
     for recognized_path, _attr, allowed, _default in _RECOGNIZED_KEYS:
         if recognized_path == key:
             return allowed
-    for recognized_path, _attr, kind, _default in _AUTOPILOT_KEYS:
-        if recognized_path != key:
-            continue
-        if kind == "bool":
-            return ("true", "false")
-        if kind.startswith("enum:"):
-            return tuple(kind.removeprefix("enum:").split(","))
-    for recognized_path, _attr, kind, _default in _DREAM_KEYS:
+    for recognized_path, _attr, kind, _default in _TYPED_CONFIG_KEYS:
         if recognized_path != key:
             continue
         if kind == "bool":
@@ -90,6 +82,8 @@ def _allowed_for(key: str) -> tuple[str, ...] | None:
             return tuple(kind.removeprefix("enum:").split(","))
         if kind.startswith("int:min="):
             return (f"integer >= {kind.removeprefix('int:min=')}",)
+        if kind == "str_list":
+            return ('TOML string list, e.g. ["codex", "cursor"]',)
     return None
 
 
@@ -145,7 +139,12 @@ def cmd_config_get(key: str, project_root: str | None) -> int:
 
 
 def cmd_config_set(
-    key: str, value: str, scope: str, project_root: str | None
+    key: str,
+    value: str,
+    scope: str,
+    project_root: str | None,
+    *,
+    confirm: bool = False,
 ) -> int:
     """Write a single value to the chosen Config_File (Req 2).
 
@@ -155,6 +154,30 @@ def cmd_config_set(
     (see design.md "Error Handling" table).
     """
     resolved_root = _resolve_project_root(project_root)
+    if key == "distill.delete_source_after_complete" and value.strip().lower() in {
+        "true",
+        "1",
+        "yes",
+        "on",
+    }:
+        target = (
+            _user_config_path()
+            if scope == "user"
+            else _project_config_path(resolved_root)
+        )
+        try:
+            found, current = _get_dotted(_read_raw(target), key)
+        except tomllib.TOMLDecodeError as exc:
+            print(f"parse error: {target}: {exc}", file=sys.stderr)
+            return 1
+        if (not found or current is not True) and not confirm:
+            print(
+                "confirmation required: enabling "
+                "distill.delete_source_after_complete authorizes automatic "
+                "deletion of future completed session sources; rerun with --confirm",
+                file=sys.stderr,
+            )
+            return 1
     try:
         written = set_value(
             scope=scope,  # type: ignore[arg-type]
@@ -162,6 +185,9 @@ def cmd_config_set(
             key_path=key,
             value=value,
         )
+    except ConfigParseError as exc:
+        print(f"parse error: {exc.source_path}: {exc.cause}", file=sys.stderr)
+        return 1
     except ConfigValidationError:
         allowed = _allowed_for(key) or ()
         allowed_repr = "{" + ", ".join(allowed) + "}"
@@ -205,12 +231,7 @@ def cmd_config_list(project_root: str | None) -> int:
         source = _source_label(key_path, project_dict, user_dict)
         print(f"{key_path} = {_format_config_value(value)}  ({source})")
 
-    for key_path, _attr, _kind, _default in _AUTOPILOT_KEYS:
-        _, value = _get_dotted(reflection, key_path)
-        source = _source_label(key_path, project_dict, user_dict)
-        print(f"{key_path} = {_format_config_value(value)}  ({source})")
-
-    for key_path, _attr, _kind, _default in _DREAM_KEYS:
+    for key_path, _attr, _kind, _default in _TYPED_CONFIG_KEYS:
         _, value = _get_dotted(reflection, key_path)
         source = _source_label(key_path, project_dict, user_dict)
         print(f"{key_path} = {_format_config_value(value)}  ({source})")

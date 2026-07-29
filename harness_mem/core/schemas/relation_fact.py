@@ -5,6 +5,12 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from harness_mem.core.schemas.evidence import (
+    EvidenceBasis,
+    EvidenceRef,
+    VerificationOutcome,
+)
+
 
 class RelationFact(BaseModel):
     """A typed relationship between two project entities.
@@ -40,6 +46,11 @@ class RelationFact(BaseModel):
         default=None,
         description="Source clues: {session_id, observation_ids, agent_type, tool_name}",
     )
+    evidence_basis: EvidenceBasis | None = None
+    verification_outcome: VerificationOutcome | None = None
+    verification_reason_codes: list[str] = Field(default_factory=list)
+    verification_refs: list[EvidenceRef] = Field(default_factory=list)
+    verified_at: datetime | None = None
     valid_from: datetime | None = Field(
         default=None,
         description="When this relation becomes valid. Defaults to created_at.",
@@ -85,6 +96,11 @@ class RelationFact(BaseModel):
             "updated_at": self.updated_at.isoformat(),
             "tags": self.tags,
             "provenance": self.provenance,
+            "evidence_basis": self.evidence_basis,
+            "verification_outcome": self.verification_outcome,
+            "verification_reason_codes": list(self.verification_reason_codes),
+            "verification_refs": [ref.to_dict() for ref in self.verification_refs],
+            "verified_at": self.verified_at.isoformat() if self.verified_at else None,
             "valid_from": self.valid_from.isoformat() if self.valid_from else None,
             "valid_to": self.valid_to.isoformat() if self.valid_to else None,
             "recorded_at": self.recorded_at.isoformat() if self.recorded_at else None,
@@ -100,6 +116,7 @@ class RelationFact(BaseModel):
             "valid_from",
             "valid_to",
             "recorded_at",
+            "verified_at",
         ):
             if isinstance(data.get(field), str):
                 data[field] = datetime.fromisoformat(data[field])
@@ -113,6 +130,14 @@ class RelationFact(BaseModel):
             data["tags"] = []
         if "provenance" not in data:
             data["provenance"] = None
+        data.setdefault("evidence_basis", None)
+        data.setdefault("verification_outcome", None)
+        data.setdefault("verification_reason_codes", [])
+        data["verification_refs"] = [
+            ref if isinstance(ref, EvidenceRef) else EvidenceRef.from_dict(ref)
+            for ref in data.get("verification_refs") or []
+        ]
+        data.setdefault("verified_at", None)
         if "distill_job_id" not in data:
             data["distill_job_id"] = None
         if "valid_from" not in data or data["valid_from"] is None:

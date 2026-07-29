@@ -23,8 +23,8 @@ import {
 
 const MODEL_VERSION = "v1";
 const AS_OF = "2026-07-26";
-const RUNTIME_VERSION = "0.9.3";
-const PYTEST_COUNT = 384;
+const RUNTIME_VERSION = "0.9.5";
+const PYTEST_COUNT = 453;
 
 type TrackId = "l1" | "l2" | "l3" | "l4" | "l5" | "l6";
 
@@ -525,7 +525,7 @@ export default function HarnessMemReadinessV1Canvas() {
       <Card variant="borderless">
         <CardBody>
           <Text tone="secondary" size="small">
-            Source: get_project_status · CHANGELOG 0.9.3 · docs/maturity-model.md · {PYTEST_COUNT} pytest passed
+            Source: get_project_status · CHANGELOG 0.9.5 · docs/maturity-model.md · {PYTEST_COUNT} pytest passed
           </Text>
         </CardBody>
       </Card>

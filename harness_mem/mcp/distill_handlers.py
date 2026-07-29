@@ -19,7 +19,10 @@ from harness_mem.commands.support import (
     resolve_host_source,
     resolve_ingest_client,
 )
+from harness_mem.commands.distill_lifecycle import distill_drainer_metrics
+from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import MergedConfig, load_merged_config
+from harness_mem.governance_status import CANDIDATE_LAYER_STATUSES, TRUTH_LAYER_STATUSES
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.transcript_chunking import sha256_text
 from harness_mem.mcp.distill_projection import (
@@ -801,19 +804,61 @@ def tool_finalize_session_distill(
         }
     if job.project_name != project_name:
         return {"success": False, "error": "distill job belongs to another project"}
-    candidate_ids = asyncio.run(
-        _distill_job_candidate_ids(
+    config, config_reason_code = _load_completion_config(job.project_root)
+    recovering_completion = (
+        job.status == "completed" and job.completion_disposition is None
+    )
+    if job.status == "completed" and not recovering_completion:
+        queue = distill_drainer_metrics(
             backend,
             project_name=project_name,
-            distill_job_id=job_id,
+            daily_job_budget=config.distill_auto_daily_job_budget,
         )
-    )
-    completed = backend.transcript_store.finalize_distill_job(
-        job_id,
-        semantic_review=semantic_review,
-        output_candidate_ids=candidate_ids,
-    )
-    payload = {
+        return {
+            "success": True,
+            "idempotent_replay": True,
+            "project_name": project_name,
+            "distill_job_id": job.id,
+            "distill_status": job.status,
+            "structural_audit": job.structural_audit,
+            "semantic_review": job.semantic_review,
+            "completion": {
+                "disposition": job.completion_disposition,
+                "reason_codes": job.completion_reason_codes,
+            },
+            "promotion": dict(job.promotion_summary),
+            "queue_effect": {
+                "removed_from_pending": True,
+                "pending_total_after": queue["pending_total"],
+            },
+            "source_cleanup": {
+                "configured": bool(
+                    config.distill_delete_source_after_complete
+                    or job.source_cleanup_receipt_id
+                    or job.source_cleanup_status
+                    in {"deleted", "partial_failure", "unsupported"}
+                ),
+                "status": job.source_cleanup_status,
+                "receipt_id": job.source_cleanup_receipt_id,
+            },
+        }
+    if recovering_completion:
+        candidate_ids = list(job.output_candidate_ids)
+        completed = job
+    else:
+        candidate_ids = asyncio.run(
+            _distill_job_candidate_ids(
+                backend,
+                project_name=project_name,
+                distill_job_id=job_id,
+            )
+        )
+        completed = backend.transcript_store.finalize_distill_job(
+            job_id,
+            semantic_review=semantic_review,
+            output_candidate_ids=candidate_ids,
+        )
+    payload: dict[str, Any] = {
         "success": completed.status == "completed",
         "project_name": project_name,
         "distill_job_id": completed.id,
@@ -821,44 +866,271 @@ def tool_finalize_session_distill(
         "structural_audit": completed.structural_audit,
         "semantic_review": completed.semantic_review,
     }
+    if recovering_completion:
+        payload["idempotent_replay"] = True
+        payload["completion_recovered"] = True
     if completed.status != "completed":
         payload["error"] = completed.error
         return payload
-    if not _semantic_review_allows_promotion(completed.semantic_review):
+    semantic_allows_promotion = _semantic_review_allows_promotion(
+        completed.semantic_review
+    )
+    dream_result: dict[str, Any] | None = None
+    evidence_admission = {
+        "repository_verified": 0,
+        "user_stated": 0,
+        "unverified_blocked": 0,
+        "contradicted": 0,
+        "legacy_or_unknown": 0,
+    }
+    if semantic_allows_promotion:
+        summary = asyncio.run(
+            auto_review_candidates(
+                backend,
+                project_name=project_name,
+                apply=True,
+                candidate_ids=candidate_ids,
+            )
+        )
+        auto_review_payload = summary.to_dict()
+        payload["auto_review"] = auto_review_payload
+        evidence_admission = dict(auto_review_payload["evidence_admission"])
+    else:
         payload["auto_review"] = {
             "skipped": True,
             "reason": "semantic_review_blocks_promotion",
             "candidate_ids": candidate_ids,
         }
-        return payload
-    summary = asyncio.run(
-        auto_review_candidates(
-            backend,
-            project_name=project_name,
-            apply=True,
-            candidate_ids=candidate_ids,
-        )
-    )
-    payload["auto_review"] = summary.to_dict()
     try:
-        config = load_merged_config(completed.project_root)
-        payload["dream"] = asyncio.run(
-            dream_auto_tick(
-                backend,
-                project_name=project_name,
-                project_root=completed.project_root,
-                config=config,
-                source="agent",
+        if semantic_allows_promotion:
+            dream_result = asyncio.run(
+                dream_auto_tick(
+                    backend,
+                    project_name=project_name,
+                    project_root=completed.project_root,
+                    config=config,
+                    source="agent",
+                )
             )
-        )
+            payload["dream"] = dream_result
     except Exception as exc:  # noqa: BLE001 - completed distill remains auditable.
-        payload["dream"] = {
+        dream_result = {
             "success": False,
             "status": "failed",
             "project_name": project_name,
             "error": f"{type(exc).__name__}: {exc}"[:512],
         }
+        payload["dream"] = dream_result
+
+    promotion_counts = asyncio.run(
+        _settle_distill_candidates(
+            backend,
+            project_name=project_name,
+            candidate_ids=candidate_ids,
+        )
+    )
+    promotion: dict[str, Any] = {
+        **promotion_counts,
+        "evidence_admission": evidence_admission,
+    }
+    disposition = "promoted" if promotion["promoted"] else "no_candidate"
+    reason_codes = (
+        ["durable_memory_promoted"]
+        if disposition == "promoted"
+        else [
+            "semantic_review_blocked"
+            if not semantic_allows_promotion
+            else "no_durable_candidate"
+        ]
+    )
+    if dream_result is not None and dream_result.get("success") is False:
+        reason_codes.append("dream_postprocess_failed")
+    if config_reason_code is not None:
+        reason_codes.append(config_reason_code)
+
+    source_cleanup = {
+        "configured": config.distill_delete_source_after_complete,
+        "status": "retained",
+        "receipt_id": None,
+        "reason_codes": ["retention_default"],
+    }
+    backend.transcript_store.record_distill_completion_outcome(
+        completed.id,
+        disposition=disposition,
+        reason_codes=reason_codes,
+        promotion_summary=promotion,
+        source_cleanup_status="retained",
+    )
+    if config.distill_delete_source_after_complete:
+        source_cleanup = _cleanup_completed_distill_source(
+            backend,
+            completed=completed,
+            dream_result=dream_result,
+        )
+    stored = backend.transcript_store.record_distill_completion_outcome(
+        completed.id,
+        disposition=disposition,
+        reason_codes=reason_codes,
+        promotion_summary=promotion,
+        source_cleanup_status=str(source_cleanup["status"]),
+        source_cleanup_receipt_id=source_cleanup.get("receipt_id"),
+    )
+    queue = distill_drainer_metrics(
+        backend,
+        project_name=project_name,
+        daily_job_budget=config.distill_auto_daily_job_budget,
+    )
+    payload["completion"] = {
+        "disposition": stored.completion_disposition,
+        "reason_codes": stored.completion_reason_codes,
+    }
+    payload["promotion"] = promotion
+    payload["queue_effect"] = {
+        "removed_from_pending": True,
+        "pending_total_after": queue["pending_total"],
+    }
+    payload["source_cleanup"] = source_cleanup
     return payload
+
+
+def _load_completion_config(project_root: str) -> tuple[MergedConfig, str | None]:
+    """Load completion policy without stranding an already-reviewed job."""
+
+    if not project_root or not Path(project_root).is_dir():
+        return MergedConfig(), "completion_project_root_unavailable"
+    try:
+        return load_merged_config(project_root), None
+    except (ConfigError, OSError):
+        # A malformed or temporarily unreadable Config_File must not leave the
+        # distill job completed but missing its terminal outcome. Default-off
+        # source cleanup is the fail-closed fallback.
+        return MergedConfig(), "completion_config_invalid"
+
+
+async def _settle_distill_candidates(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    candidate_ids: list[str],
+) -> dict[str, int]:
+    """Make one distill job terminal without leaving a daily review burden."""
+
+    promoted = 0
+    rejected = 0
+    missing = 0
+    for candidate_id in candidate_ids:
+        candidate: Any | None = await backend.structured_store.get_memory_entry(
+            candidate_id
+        )
+        update_status = backend.structured_store.update_memory_entry_status
+        if candidate is None:
+            candidate = await backend.structured_store.get_rule_candidate(candidate_id)
+            update_status = backend.structured_store.update_rule_candidate_status
+        if candidate is None:
+            candidate = await backend.structured_store.get_relation_fact(candidate_id)
+            update_status = backend.structured_store.update_relation_fact_status
+        if candidate is None:
+            missing += 1
+            continue
+        status = str(getattr(candidate, "status", "pending"))
+        if status in TRUTH_LAYER_STATUSES:
+            promoted += 1
+            continue
+        if status in CANDIDATE_LAYER_STATUSES and status != "rejected":
+            await update_status(candidate_id, "rejected")
+            status = "rejected"
+        if status == "rejected":
+            rejected += 1
+    return {
+        "suggested": len(candidate_ids),
+        "promoted": promoted,
+        "rejected": rejected,
+        "pending": 0,
+        "missing": missing,
+    }
+
+
+def _cleanup_completed_distill_source(
+    backend: LocalMemoryBackend,
+    *,
+    completed: Any,
+    dream_result: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Run the content-free source-cleanup saga after automatic post-processing."""
+
+    if dream_result is not None and dream_result.get("success") is False:
+        return {
+            "configured": True,
+            "status": "retained",
+            "receipt_id": None,
+            "reason_codes": ["dream_postprocess_failed"],
+        }
+    source = backend.transcript_store.get_source(completed.source_id)
+    if source is None or source.source_revision != completed.source_revision:
+        return {
+            "configured": True,
+            "status": "partial_failure",
+            "receipt_id": None,
+            "reason_codes": ["source_revision_changed"],
+        }
+    try:
+        from harness_mem.native_source_cleanup import (
+            apply_native_source_cleanup,
+            plan_native_source_cleanup,
+        )
+        from harness_mem.processed_source_cleanup import (
+            begin_processed_source_cleanup,
+            cleanup_processed_source,
+        )
+
+        native_plan = plan_native_source_cleanup(source)
+        native_preview = native_plan.to_preview()
+        if native_plan.retained:
+            return {
+                "configured": True,
+                "status": "retained",
+                "receipt_id": None,
+                "reason_codes": list(native_preview.get("reason_codes") or []),
+                "native": native_preview,
+            }
+        receipt_id: str | None = None
+        if native_plan.supported:
+            begun = begin_processed_source_cleanup(
+                backend,
+                job_id=completed.id,
+                native_preview=native_preview,
+            )
+            if not begun.get("success"):
+                return {
+                    "configured": True,
+                    "status": "partial_failure",
+                    "receipt_id": None,
+                    "reason_codes": list(begun.get("reason_codes") or []),
+                }
+            receipt_id = str(begun["receipt_id"])
+        native_result = apply_native_source_cleanup(native_plan)
+        result = asyncio.run(
+            cleanup_processed_source(
+                backend,
+                job_id=completed.id,
+                native_cleanup=native_result,
+                receipt_id=receipt_id,
+            )
+        )
+        return {
+            "configured": True,
+            "status": result.get("status", "partial_failure"),
+            "receipt_id": result.get("receipt_id"),
+            "reason_codes": list(result.get("reason_codes") or []),
+            "counts": dict(result.get("counts") or {}),
+        }
+    except Exception as exc:  # noqa: BLE001 - cleanup must fail closed.
+        return {
+            "configured": True,
+            "status": "partial_failure",
+            "receipt_id": None,
+            "reason_codes": [f"cleanup_failed:{type(exc).__name__}"],
+        }
 
 
 async def _distill_job_candidate_ids(

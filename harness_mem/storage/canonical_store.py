@@ -201,11 +201,20 @@ class CanonicalStoreRuntime:
         self.db_path = canonical_store_path(self.data_dir)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self._conn.execute("PRAGMA secure_delete=ON")
         initialize_canonical_schema(self._conn)
         self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()
+
+    def flush_sensitive_deletes(self) -> None:
+        """Commit secure deletes and truncate the canonical-store WAL."""
+
+        self._conn.commit()
+        row = self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        if row is not None and int(row[0] or 0) != 0:
+            raise RuntimeError("canonical store WAL checkpoint remained busy")
 
     def payload_exists(self, collection: str, entity_id: str) -> bool:
         return self.get_row(collection, entity_id) is not None
@@ -347,6 +356,50 @@ class CanonicalStoreRuntime:
                 (collection, entity_id),
             )
         return int(cursor.rowcount or 0) > 0
+
+
+def count_managed_backup_observations(
+    data_dir: Path,
+    *,
+    project_name: str,
+    transcript_source_id: str,
+) -> int:
+    """Count raw observations for one source in managed migration backups.
+
+    Processed-source cleanup cannot mutate a rollback snapshot without also
+    changing its integrity contract.  Callers use this read-only probe to fail
+    closed before deleting the native source.
+    """
+
+    backup_dir = canonical_store_path(Path(data_dir)).parent / "backups"
+    matches = 0
+    for backup in sorted(backup_dir.glob("canonical-*.sqlite")):
+        connection = sqlite3.connect(
+            f"file:{backup.resolve().as_posix()}?mode=ro",
+            uri=True,
+        )
+        try:
+            for table in CANONICAL_ENTITY_TABLES:
+                if not _table_exists(connection, table):
+                    continue
+                quoted_table = _quote_sqlite_identifier(table)
+                rows = connection.execute(
+                    f"SELECT payload_json FROM {quoted_table} "
+                    "WHERE collection = 'observations' AND project_id = ?",
+                    (project_name,),
+                ).fetchall()
+                for row in rows:
+                    payload = json.loads(str(row[0]))
+                    metadata = payload.get("metadata")
+                    if (
+                        isinstance(metadata, dict)
+                        and str(metadata.get("transcript_source_id") or "")
+                        == transcript_source_id
+                    ):
+                        matches += 1
+        finally:
+            connection.close()
+    return matches
 
 
 def canonical_store_path(data_dir: Path) -> Path:

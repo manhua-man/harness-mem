@@ -5,18 +5,34 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 
-STATUS_CONTRACT_VERSION = "project-status-v2"
+STATUS_CONTRACT_VERSION = "project-status-v3"
 STATUS_DETAIL_LEVELS = frozenset({"compact", "full"})
 
 
 def status_triage_hints(counts: Mapping[str, Any]) -> dict[str, Any]:
     """Select the daily status phase from the shared project counts."""
 
-    if counts["observation_count"] == 0:
+    distill = dict(counts.get("pending_distill") or {})
+    pending_distill = int(distill.get("pending_total", 0) or 0)
+    if pending_distill > 0:
         return {
             "phase": "needs-distill",
             "suggested_slash": "/hm:distill",
-            "reason": "No observations have been ingested for this project yet.",
+            "reason": f"{pending_distill} captured sessions are waiting for distill.",
+            "repair_hint": None,
+            "repair_reason": None,
+        }
+
+    if (
+        int(counts.get("observation_count", 0) or 0) == 0
+        and int(counts.get("durable_truth_count", 0) or 0) == 0
+        and int(counts.get("task_handoff_count", 0) or 0) == 0
+        and int(counts.get("confirmed_rule_count", 0) or 0) == 0
+    ):
+        return {
+            "phase": "awaiting-capture",
+            "suggested_slash": "/hm:wake",
+            "reason": "No captured evidence or durable memory exists yet.",
             "repair_hint": None,
             "repair_reason": None,
         }
@@ -46,6 +62,8 @@ def build_status_dx_metadata(
 
     phase = str(triage.get("phase") or "unknown")
     pending = int(counts.get("pending_candidate_count", 0) or 0)
+    distill = dict(counts.get("pending_distill") or {})
+    pending_distill = int(distill.get("pending_total", 0) or 0)
     next_actions: list[dict[str, str]] = []
     suggested = triage.get("suggested_slash")
     if suggested:
@@ -97,7 +115,7 @@ def build_status_dx_metadata(
         )
     degraded_reason = None
     if phase == "needs-distill":
-        degraded_reason = "no_observations_ingested"
+        degraded_reason = "pending_distill_sessions"
     elif (counts.get("retrieval_health") or {}).get("degraded"):
         degraded_reason = "retrieval_health_degraded"
     drilldown_hints: list[dict[str, Any]] = [
@@ -129,7 +147,7 @@ def build_status_dx_metadata(
         "why_this_result": (
             f"Project is in phase {phase}: {counts.get('observation_count', 0)} "
             f"observations, {counts.get('memory_entry_count', 0)} memory entries, "
-            f"{pending} pending candidates."
+            f"{pending_distill} sessions waiting for distill, {pending} pending candidates."
         ),
         "next_actions": next_actions,
         "degraded_reason": degraded_reason,
@@ -230,6 +248,7 @@ def render_project_status(
         "integration_health": _compact_integration_health(
             full.get("integration_health")
         ),
+        "pending_distill": _compact_pending_distill(full.get("pending_distill")),
         "guided_flow": compact_guided_flow,
         "why_this_result": full.get("why_this_result"),
         "next_actions": list(full.get("next_actions") or []),
@@ -268,6 +287,7 @@ def project_status_decision_fingerprint(payload: Mapping[str, Any]) -> dict[str,
         "suggested_slash": payload.get("suggested_slash"),
         "repair_hint": payload.get("repair_hint"),
         "next_actions": list(payload.get("next_actions") or []),
+        "pending_distill": _compact_pending_distill(payload.get("pending_distill")),
     }
 
 
@@ -410,6 +430,35 @@ def _compact_integration_health(value: Any) -> dict[str, Any]:
             },
             "agent_required": distill.get("agent_required"),
         },
+    }
+
+
+def _compact_pending_distill(value: Any) -> dict[str, Any]:
+    payload = dict(value or {})
+    admission = dict(
+        payload.get("evidence_admission_7d")
+        or payload.get("evidence_admission_attention_7d")
+        or {}
+    )
+    return {
+        "state": payload.get("state"),
+        "active": payload.get("active"),
+        "parked": payload.get("parked"),
+        "retry_backoff": payload.get("retry_backoff"),
+        "pending_total": payload.get("pending_total"),
+        "completed_7d": payload.get("completed_7d"),
+        "promoted_7d": payload.get("promoted_7d"),
+        "no_candidate_7d": payload.get("no_candidate_7d"),
+        "legacy_unknown_7d": payload.get("legacy_unknown_7d"),
+        "evidence_admission_attention_7d": {
+            key: int(admission.get(key) or 0)
+            for key in ("unverified_blocked", "contradicted")
+            if int(admission.get(key) or 0) > 0
+        },
+        "source_cleanup_partial_failure": payload.get(
+            "source_cleanup_partial_failure"
+        ),
+        "source_cleanup_unsupported": payload.get("source_cleanup_unsupported"),
     }
 
 

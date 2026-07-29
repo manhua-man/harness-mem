@@ -20,6 +20,13 @@ DistillJobStatus = Literal[
 ]
 DistillJobPhase = Literal["chunks", "review", "promotion", "done"]
 DistillChunkStatus = Literal["pending", "processing", "completed", "retryable", "failed"]
+CompletionDisposition = Literal["promoted", "no_candidate"]
+SourceCleanupStatus = Literal[
+    "retained",
+    "deleted",
+    "partial_failure",
+    "unsupported",
+]
 
 
 class SessionSemanticReview(BaseModel):
@@ -68,6 +75,11 @@ class SessionDistillJob(BaseModel):
     output_candidate_ids: list[str] = Field(default_factory=list)
     structural_audit: dict = Field(default_factory=dict)
     semantic_review: dict = Field(default_factory=dict)
+    completion_disposition: CompletionDisposition | None = None
+    completion_reason_codes: list[str] = Field(default_factory=list)
+    promotion_summary: dict = Field(default_factory=dict)
+    source_cleanup_status: SourceCleanupStatus | None = None
+    source_cleanup_receipt_id: str | None = None
     error: str | None = None
     attempt_count: int = 0
     retry_after: datetime | None = None
@@ -120,6 +132,8 @@ __all__ = [
     "DistillChunkStatus",
     "DistillJobPhase",
     "DistillJobStatus",
+    "CompletionDisposition",
     "SessionDistillJob",
     "SessionSemanticReview",
+    "SourceCleanupStatus",
 ]

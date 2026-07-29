@@ -25,10 +25,8 @@ IMPORTANT_TAGS = {
 
 PROTECTED_SCORE_THRESHOLD = 2.0
 
-# v1.6.1: which memory_type belongs to which bucket. ``procedural`` is reserved
-# for v1.8 and gets quota=0 by default; if some adapter does write
-# ``memory_type="procedural"`` an entry it'll only show up when the user lifts
-# its quota above 0.
+# ``procedural`` gets quota=0 by default and appears only when the user raises
+# its configured wake quota.
 BUCKET_ORDER: tuple[str, ...] = ("semantic", "episodic", "procedural")
 
 
@@ -73,7 +71,7 @@ def select_wake_memory_entries_with_buckets(
     quotas: dict[str, float],
     enabled: bool = True,
 ) -> tuple[list[Any], dict[str, "BucketStats"]]:
-    """v1.6.1: 按 ``memory_type`` 分桶选 entry，返回 ``(selected, stats_per_bucket)``。
+    """按 ``memory_type`` 分桶选 entry，返回 ``(selected, stats_per_bucket)``。
 
     - ``enabled=False`` 时退化到 ``select_wake_memory_entries``，并返回空 stats。
     - 桶名额 = ``floor(limit * quota)``。剩余名额按 ``BUCKET_ORDER`` 优先级让渡，
