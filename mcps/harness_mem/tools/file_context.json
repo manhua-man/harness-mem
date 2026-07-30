@@ -1,6 +1,6 @@
 {
   "name": "file_context",
-  "description": "Return compact, source-attributed memory already associated with a file path before reading the file itself. v4.3 also returns current file fingerprints, Python code symbols/imports, code evidence source ids, and stale checks for memory references to code. Advisory only; never blocks file reads.",
+  "description": "Return compact, source-attributed memory already associated with a file path before reading the file itself. It also returns current file fingerprints, Python code symbols/imports, code evidence source ids, and stale checks for memory references to code. Advisory only; never blocks file reads.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -14,7 +14,7 @@
       },
       "project_root": {
         "type": "string",
-        "description": "Optional project root used to resolve relative paths for v4.3 code evidence."
+        "description": "Optional project root used to resolve relative paths for code evidence."
       }
     },
     "required": [

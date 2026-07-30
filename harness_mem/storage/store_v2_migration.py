@@ -1,15 +1,13 @@
 """Storage v2 migration contract helpers.
 
-v4.0.0 intentionally keeps the existing JSON + SQLite v3 storage path as the
-default runtime.  This module provides the explicit, reversible contract used
-by ``maintenance migrate-store-v2`` and validation smoke checks:
+Canonical SQLite is the current default for fresh data. This module provides
+the explicit, reversible conversion used when an existing installation still
+has legacy JSON as its runtime authority:
 
 * dry-run summarizes legacy JSON payloads and computes a logical checksum
-* apply writes a side-by-side canonical SQLite payload table
+* apply builds and validates canonical SQLite before atomic activation
 * rollback export writes v3-compatible JSON blobs from that canonical table
 
-The canonical table is a contract artifact for v4.0.0; normal wake/search paths
-do not read from it yet.
 """
 
 from __future__ import annotations
@@ -21,9 +19,10 @@ import json
 from pathlib import Path
 import sqlite3
 from typing import Any
+from uuid import uuid4
 
 
-STORAGE_V2_CONTRACT_VERSION = "storage-v2-migration-contract-v4.0.0"
+STORAGE_V2_CONTRACT_VERSION = "storage-v2-migration-contract-v2"
 STORAGE_V2_SCHEMA_VERSION = 1
 STORE_V2_DIR_NAME = "store_v2"
 CANONICAL_DB_NAME = "canonical.sqlite"
@@ -44,7 +43,7 @@ class LegacyPayloadRow:
 
 
 def canonical_db_path(data_dir: Path) -> Path:
-    """Return the side-by-side v4.0.0 canonical DB path for a data dir."""
+    """Return the canonical DB path for a data directory."""
 
     return Path(data_dir) / STORE_V2_DIR_NAME / CANONICAL_DB_NAME
 
@@ -76,7 +75,9 @@ def build_migration_plan(
         "project_name": project_name,
         "data_dir": str(data_dir),
         "canonical_db_path": str(canonical_path or canonical_db_path(data_dir)),
+        "activation_scope": "project" if project_name is not None else "all_projects",
         "default_storage_changed": False,
+        "default_storage_change_on_apply": True,
         "legacy_json_file_count": len(rows),
         "total_payload_bytes": sum(row.size_bytes for row in rows),
         "collections": dict(sorted(collections.items())),
@@ -87,10 +88,10 @@ def build_migration_plan(
         "rollback_supported": True,
         "planned_actions": [
             "scan legacy v3 JSON blobs",
-            "write payload_json rows into side-by-side store_v2/canonical.sqlite",
+            "build canonical SQLite in an isolated staging database",
             "compare legacy logical checksum with canonical logical checksum",
             "allow v3-compatible JSON rollback export from the canonical table",
-            "leave the default JSON + SQLite runtime backend unchanged",
+            "atomically activate canonical runtime only after explicit apply",
         ],
         "claim_readiness": {
             "ready": not blockers,
@@ -173,7 +174,7 @@ def apply_store_v2_migration(
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                f"storage-v2-{migrated_at}",
+                f"storage-v2-{uuid4().hex}",
                 project_name,
                 migrated_at,
                 len(rows),
@@ -203,75 +204,9 @@ def apply_store_v2_migration(
         "claim_readiness": {
             "ready": before_checksum == after_checksum,
             "source": "apply logical checksum",
-            "blocking": [] if before_checksum == after_checksum else ["checksum_mismatch"],
-        },
-    }
-
-
-def export_store_v2_json_snapshot(
-    data_dir: Path,
-    export_dir: Path,
-    *,
-    project_name: str | None = None,
-    canonical_path: Path | None = None,
-    apply: bool = True,
-) -> dict[str, Any]:
-    """Export canonical rows back into v3-compatible JSON blob paths."""
-
-    data_dir = Path(data_dir)
-    db_path = canonical_path or canonical_db_path(data_dir)
-    export_dir = Path(export_dir)
-    if not db_path.exists():
-        raise StorageV2MigrationError(f"Canonical Storage v2 DB not found: {db_path}")
-
-    conn = sqlite3.connect(db_path)
-    try:
-        _init_schema(conn)
-        rows = _canonical_rows(conn, project_name=project_name)
-    finally:
-        conn.close()
-
-    source_checksum = logical_checksum(rows)
-    if apply:
-        export_dir.mkdir(parents=True, exist_ok=True)
-        for row in rows:
-            out_path = export_dir / Path(row.source_relpath)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            payload = json.loads(row.payload_json)
-            out_path.write_text(
-                json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
-                encoding="utf-8",
-            )
-
-        exported_rows, invalid = scan_legacy_payloads(
-            export_dir,
-            project_name=project_name,
-        )
-        export_checksum = logical_checksum(exported_rows)
-        rollback_match = source_checksum == export_checksum and not invalid
-    else:
-        invalid = []
-        export_checksum = source_checksum
-        rollback_match = True
-    return {
-        "contract_version": STORAGE_V2_CONTRACT_VERSION,
-        "schema_version": STORAGE_V2_SCHEMA_VERSION,
-        "action": "export_rollback",
-        "dry_run": not apply,
-        "project_name": project_name,
-        "data_dir": str(data_dir),
-        "canonical_db_path": str(db_path),
-        "export_dir": str(export_dir),
-        "would_export_json_file_count": len(rows),
-        "exported_json_file_count": len(rows) if apply else 0,
-        "source_checksum": source_checksum,
-        "export_checksum": export_checksum,
-        "rollback_checksum_match": rollback_match,
-        "invalid_json_count": len(invalid),
-        "claim_readiness": {
-            "ready": rollback_match,
-            "source": "rollback export logical checksum",
-            "blocking": [] if rollback_match else ["rollback_checksum_mismatch"],
+            "blocking": []
+            if before_checksum == after_checksum
+            else ["checksum_mismatch"],
         },
     }
 
@@ -323,7 +258,10 @@ def logical_checksum(rows: list[LegacyPayloadRow]) -> str:
     """Return a stable logical checksum for payload identity and content."""
 
     digest = hashlib.sha256()
-    for row in sorted(rows, key=lambda item: (item.collection, item.project_name or "", item.entity_id)):
+    for row in sorted(
+        rows,
+        key=lambda item: (item.collection, item.project_name or "", item.entity_id),
+    ):
         digest.update(row.collection.encode("utf-8"))
         digest.update(b"\t")
         digest.update((row.project_name or "").encode("utf-8"))
@@ -343,11 +281,15 @@ def _legacy_json_paths(data_dir: Path) -> list[tuple[str, Path]]:
     paths: list[tuple[str, Path]] = []
     verbatim_dir = data_dir / "verbatim"
     if verbatim_dir.exists():
-        paths.extend(("observations", path) for path in sorted(verbatim_dir.glob("*.json")))
+        paths.extend(
+            ("observations", path) for path in sorted(verbatim_dir.glob("*.json"))
+        )
 
     structured_dir = data_dir / "structured"
     if structured_dir.exists():
-        for collection_dir in sorted(path for path in structured_dir.iterdir() if path.is_dir()):
+        for collection_dir in sorted(
+            path for path in structured_dir.iterdir() if path.is_dir()
+        ):
             paths.extend(
                 (collection_dir.name, path)
                 for path in sorted(collection_dir.glob("*.json"))

@@ -1,6 +1,59 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
+
+from harness_mem.plugin_assets import DAILY_COMMANDS
+
+
+def _invocation_action_set(path: str, heading: str) -> set[str]:
+    content = Path(path).read_text(encoding="utf-8")
+    block = content.split(heading, 1)[1].split('<p align="center">', 1)[0]
+    command_line = next(line for line in block.splitlines() if line.startswith("- `/hm:*`"))
+    values = set(re.findall(r"`([^`]+)`", command_line))
+    values.discard("/hm:*")
+    return values
+
+
+def _plugin_host_action_set(row: str, prefix: str) -> set[str]:
+    return set(re.findall(re.escape(prefix) + r"([a-z-]+)", row))
+
+
+def test_public_invocation_docs_match_the_daily_action_contract() -> None:
+    expected = set(DAILY_COMMANDS)
+    assert _invocation_action_set("README.md", "Invocation surfaces") == expected
+    assert _invocation_action_set("README.zh-CN.md", "触发入口") == expected
+
+    plugin = Path("plugins/harness-mem/README.md").read_text(encoding="utf-8")
+    claude_row = next(line for line in plugin.splitlines() if line.startswith("| Claude Code |"))
+    codex_row = next(line for line in plugin.splitlines() if line.startswith("| Codex |"))
+    other_row = next(
+        line
+        for line in plugin.splitlines()
+        if line.startswith("| Cursor, Grok, Hermes, OpenCode, Antigravity |")
+    )
+    assert _plugin_host_action_set(claude_row, "/hm:") == expected
+    assert _plugin_host_action_set(codex_row, "$hm-") == expected
+    assert _plugin_host_action_set(other_row, "/hm-") == expected
+
+
+def test_doctor_does_not_publish_retired_weak_link_experiment() -> None:
+    doctor = Path("harness_mem/commands/doctor.py").read_text(encoding="utf-8")
+    assert "Weak-link signal influence" not in doctor
+    assert "experimental skills" not in doctor
+    assert "set weak_link_signals=true" not in doctor
+
+
+def test_retired_terminal_daily_command_modules_are_removed() -> None:
+    retired = (
+        "candidates.py",
+        "handoff.py",
+        "profile.py",
+        "search.py",
+        "status.py",
+    )
+    for name in retired:
+        assert not (Path("harness_mem/commands") / name).exists()
 
 
 def test_public_docs_describe_hooks_as_source_snapshot_not_auto_summary() -> None:
@@ -158,3 +211,21 @@ def test_current_roadmap_is_0_9_x_and_internal_doc_duplicates_are_removed() -> N
     assert not Path("docs/internal/roadmap.md").exists()
     assert not Path("docs/internal/memory-adoption.md").exists()
     assert not Path("docs/internal/agent-memory-retrieval-research-2026.md").exists()
+
+
+def test_legacy_storage_cutoff_and_delete_semantics_are_documented() -> None:
+    lifecycle = Path("docs/storage-legacy-lifecycle.md").read_text(encoding="utf-8")
+    compatibility = Path("docs/compatibility-inventory.md").read_text(
+        encoding="utf-8"
+    )
+    skill = Path("plugins/harness-mem/skills/harness-mem/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+    for body in (lifecycle, compatibility):
+        assert "0.9.x" in body
+        assert "1.0.0" in body
+        assert "2027-01-31" in body
+    assert "processed-source cleanup" in skill.lower()
+    assert "privacy erasure" in skill.lower()
+    assert "only soft-deletes harness-mem" not in skill

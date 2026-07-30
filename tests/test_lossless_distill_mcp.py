@@ -13,7 +13,7 @@ import pytest
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.core.schemas.observation import Observation
-from harness_mem.mcp import tool_handlers
+from harness_mem.mcp import governance_handlers, tool_handlers
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -86,7 +86,7 @@ def test_completed_finalize_replay_recovers_missing_outcome_when_config_unavaila
                 lease_owner="recovery-test",
                 result={"summary": "read"},
             )
-        candidate = tool_handlers.tool_suggest_memory_entry(
+        candidate = governance_handlers.tool_suggest_memory_entry(
             project_name="demo",
             category="decision",
             content=(
@@ -208,33 +208,33 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
             assert submitted["success"] is True
 
         assert "".join(collected) == source_text
-        first_memory = tool_handlers.tool_suggest_memory_entry(
+        first_memory = governance_handlers.tool_suggest_memory_entry(
             project_name="demo",
             category="decision",
             content="Use the complete lossless session before promotion.",
             source=f"distill-job:{job_id}",
             distill_job_id=job_id,
         )
-        replayed_memory = tool_handlers.tool_suggest_memory_entry(
+        replayed_memory = governance_handlers.tool_suggest_memory_entry(
             project_name="demo",
             category="decision",
             content="  Use the complete lossless session\n before promotion.  ",
             source=f"distill-job:{job_id}",
             distill_job_id=job_id,
         )
-        first_rule = tool_handlers.tool_suggest_rule(
+        first_rule = governance_handlers.tool_suggest_rule(
             project_name="demo",
             pattern="Read every transcript chunk",
             trigger="distilling a long session",
             distill_job_id=job_id,
         )
-        replayed_rule = tool_handlers.tool_suggest_rule(
+        replayed_rule = governance_handlers.tool_suggest_rule(
             project_name="demo",
             pattern="Read every transcript chunk",
             trigger="distilling a long session",
             distill_job_id=job_id,
         )
-        first_relation = tool_handlers.tool_suggest_relation_fact(
+        first_relation = governance_handlers.tool_suggest_relation_fact(
             project_name="demo",
             source_entity="distill-job",
             target_entity="source-revision",
@@ -243,7 +243,7 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
             source=f"distill-job:{job_id}",
             distill_job_id=job_id,
         )
-        replayed_relation = tool_handlers.tool_suggest_relation_fact(
+        replayed_relation = governance_handlers.tool_suggest_relation_fact(
             project_name="demo",
             source_entity="distill-job",
             target_entity="source-revision",
@@ -258,7 +258,7 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         assert replayed_rule["idempotent_replay"] is True
         assert replayed_relation["fact_id"] == first_relation["fact_id"]
         assert replayed_relation["idempotent_replay"] is True
-        unrelated = tool_handlers.tool_suggest_memory_entry(
+        unrelated = governance_handlers.tool_suggest_memory_entry(
             project_name="demo",
             category="decision",
             content="This pending candidate belongs to another workflow.",
@@ -367,7 +367,7 @@ def test_finalize_records_promoted_disposition_without_manual_review(
             lease_owner=packet["lease_owner"],
             result={"summary": "read"},
         )
-        candidate = tool_handlers.tool_suggest_memory_entry(
+        candidate = governance_handlers.tool_suggest_memory_entry(
             project_name="demo",
             category="decision",
             content=(
@@ -876,7 +876,7 @@ def test_semantic_review_blocks_promotion_and_dream(
             lease_owner=packet["lease_owner"],
             result={"summary": "read complete session"},
         )
-        candidate = tool_handlers.tool_suggest_memory_entry(
+        candidate = governance_handlers.tool_suggest_memory_entry(
             project_name="demo",
             category="decision",
             content="Candidate is terminally rejected when semantic review blocks promotion.",

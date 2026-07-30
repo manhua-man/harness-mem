@@ -51,7 +51,11 @@ until the active Router/direct namespace has been checked.
 - `auto_review_candidates`: project-level audit/maintenance tool, not the lossless session finalization stage.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
 - `govern_memory` / `list_candidates`: create and review durable memory candidates through one public write boundary.
-- Cleanup remains an explicit CLI maintenance operation via `harness-mem maintenance purge`, and only soft-deletes harness-mem indexed data.
+- Processed-source cleanup is controlled only by the persistent
+  `distill.delete_source_after_complete` policy and preserves sanitized durable
+  truth. Explicit privacy erasure uses `harness-mem maintenance erase`, starts
+  with preview, and removes the complete internal closure plus eligible native
+  session sources only after `--apply`.
 
 ## Daily Workflow
 
@@ -116,7 +120,11 @@ Call MCP `govern_memory(action="suggest")`, then show `list_candidates`; only ca
 
 ## CLI Fallback
 
-CLI remains the operator interface for install checks, local diagnostics, integration sync, and explicit cleanup previews. Do not present CLI commands as the normal user workflow when MCP tools are available. Only run `harness-mem maintenance purge --apply` after the user approves the exact scope.
+CLI remains the operator interface for install checks, local diagnostics,
+integration sync, and explicit cleanup previews. Do not present CLI commands as
+the normal user workflow when MCP tools are available. `purge` is a soft
+maintenance delete; `erase` is privacy deletion and defaults to preview. Only
+run either with `--apply` after the user approves the exact scope.
 
 ## MCP Use
 

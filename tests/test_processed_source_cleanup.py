@@ -28,6 +28,26 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def test_cleanup_retry_requires_explicit_authorization(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HARNESS_MEM_DISABLE_EMBEDDINGS", "1")
+
+    async def run() -> None:
+        backend = LocalMemoryBackend(tmp_path / "data")
+        await backend.init()
+        try:
+            result = await retry_retained_source_cleanups(
+                backend,
+                project_name="demo",
+                authorized=False,
+            )
+            assert result["attempted"] == 0
+            assert result["reason"] == "source_cleanup_not_authorized"
+        finally:
+            await backend.close()
+
+    _run(run())
+
+
 async def _completed_snapshot(
     backend: LocalMemoryBackend,
     project: Path,
@@ -494,12 +514,14 @@ def test_existing_post_turn_maintenance_retry_cleans_quiet_retained_source(
             cooled_down = await retry_retained_source_cleanups(
                 backend,
                 project_name="demo",
+                authorized=True,
             )
             assert cooled_down["attempted"] == 0
 
             result = await retry_retained_source_cleanups(
                 backend,
                 project_name="demo",
+                authorized=True,
                 minimum_age_seconds=0,
             )
 
@@ -572,6 +594,7 @@ def test_existing_post_turn_maintenance_retries_partial_failure(
             result = await retry_retained_source_cleanups(
                 backend,
                 project_name="demo",
+                authorized=True,
                 minimum_age_seconds=0,
             )
 

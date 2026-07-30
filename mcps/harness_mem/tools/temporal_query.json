@@ -1,6 +1,6 @@
 {
   "name": "temporal_query",
-  "description": "Query the v3.3 temporal read model for current, historical, or as_of confirmed truth. Returns valid/recorded time, provenance, supersede chain, timeline, explanations, and abstention metadata. Read-only: rebuilds the projection from confirmed truth and never mutates memory.",
+  "description": "Query the temporal read model for current, historical, or as_of confirmed truth. Returns valid/recorded time, provenance, supersede chain, timeline, explanations, and abstention metadata. Read-only: rebuilds the projection from confirmed truth and never mutates memory.",
   "inputSchema": {
     "type": "object",
     "properties": {

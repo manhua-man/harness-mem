@@ -30,6 +30,32 @@ def _isoformat(value: Any) -> str | None:
     return str(value)
 
 
+def _review_actions(
+    candidate_id: str,
+    *,
+    action: str,
+    kind: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Return public composite governance calls for both review decisions."""
+
+    actions: dict[str, dict[str, Any]] = {}
+    for decision in ("confirm", "reject"):
+        nested: dict[str, Any] = {
+            "candidate_id": candidate_id,
+            "decision": decision,
+        }
+        if kind is not None:
+            nested["kind"] = kind
+        actions[decision] = {
+            "tool": "govern_memory",
+            "arguments": {
+                "action": action,
+                "arguments": nested,
+            },
+        }
+    return actions
+
+
 def _serialize_rule_candidate(candidate: Any) -> dict:
     return {
         "type": "rule",
@@ -47,8 +73,7 @@ def _serialize_rule_candidate(candidate: Any) -> dict:
             getattr(candidate, "verification_reason_codes", None) or []
         ),
         "created_at": _isoformat(candidate.created_at),
-        "confirm_tool": "confirm_rule",
-        "reject_tool": "reject_rule",
+        "review_actions": _review_actions(candidate.id, action="decide", kind="rule"),
     }
 
 
@@ -72,8 +97,7 @@ def _serialize_memory_entry_candidate(entry: Any) -> dict:
         "verification_reason_codes": list(
             getattr(entry, "verification_reason_codes", None) or []
         ),
-        "confirm_tool": "confirm_memory_entry",
-        "reject_tool": "reject_memory_entry",
+        "review_actions": _review_actions(entry.id, action="decide", kind="memory"),
     }
 
 
@@ -98,8 +122,7 @@ def _serialize_relation_fact_candidate(fact: Any) -> dict:
         "verification_reason_codes": list(
             getattr(fact, "verification_reason_codes", None) or []
         ),
-        "confirm_tool": "confirm_relation_fact",
-        "reject_tool": "reject_relation_fact",
+        "review_actions": _review_actions(fact.id, action="decide", kind="relation"),
     }
 
 
@@ -120,8 +143,7 @@ def _serialize_supersede_candidate(candidate: Any) -> dict:
         "created_at": _isoformat(candidate.created_at),
         "reviewed_at": _isoformat(candidate.reviewed_at),
         "reviewer_id": candidate.reviewer_id,
-        "confirm_tool": "confirm_supersede",
-        "reject_tool": "reject_supersede",
+        "review_actions": _review_actions(candidate.id, action="supersede"),
     }
 
 

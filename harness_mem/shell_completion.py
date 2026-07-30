@@ -22,29 +22,39 @@ MAINTENANCE_ACTIONS = [
     "migrate-store-v2",
     "export-json-snapshot",
     "state-audit",
+    "migrate-legacy-accepted",
     "import",
     "purge",
+    "erase",
 ]
 CONFIG_ACTIONS = ["get", "set", "list", "validate"]
 INTEGRATION_ACTIONS = [
-    "install-cursor-hook",
-    "install-claude-hook",
-    "install-cursor-wake-hook",
-    "install-claude-wake-hook",
-    "install-cursor-suite",
-    "install-claude-suite",
+    "hooks",
     "transcript-evidence",
     "commands",
 ]
+INTEGRATION_HOOK_ACTIONS = ["sync"]
 INTEGRATION_COMMAND_ACTIONS = ["list", "sync"]
 COMMAND_PROFILES = ["daily"]
-HOOK_SUITE_CLIENTS = ["cursor", "claude-code", "grok", "codex", "hermes", "opencode"]
+HOOK_SUITE_CLIENTS = [
+    "cursor",
+    "claude-code",
+    "grok",
+    "codex",
+    "hermes",
+    "opencode",
+    "antigravity",
+]
 CLIENT_CHOICES = ["auto", "all", "claude-code", "codex", "skip", *HOOK_SUITE_CLIENTS]
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="harness-mem", add_help=False)
-    parser.add_argument("--completion", choices=SUPPORTED_SHELLS, help="Generate completion script for shell")
+    parser.add_argument(
+        "--completion",
+        choices=SUPPORTED_SHELLS,
+        help="Generate completion script for shell",
+    )
     return parser
 
 
@@ -55,6 +65,7 @@ def completion_bash() -> str:
     maintenance_actions = " ".join(MAINTENANCE_ACTIONS)
     config_actions = " ".join(CONFIG_ACTIONS)
     integration_actions = " ".join(INTEGRATION_ACTIONS)
+    integration_hook_actions = " ".join(INTEGRATION_HOOK_ACTIONS)
     integration_command_actions = " ".join(INTEGRATION_COMMAND_ACTIONS)
     command_profiles = " ".join(COMMAND_PROFILES)
     client_choices = " ".join(dict.fromkeys(CLIENT_CHOICES))
@@ -70,7 +81,7 @@ _harness_mem_completion() {{
 
     if [[ "${{cur}}" == -* ]]; then
         case "${{prev}}" in
-            -p|--project|--before|--source)
+            -p|--project|--before|--source|--session-id|--source-id|--reason)
                 return
                 ;;
             -c|--client)
@@ -101,6 +112,8 @@ _harness_mem_completion() {{
             integration)
                 if [[ "${{words[2]}}" == "commands" ]]; then
                     COMPREPLY=($(compgen -W "{integration_command_actions}" -- "${{cur}}"))
+                elif [[ "${{words[2]}}" == "hooks" ]]; then
+                    COMPREPLY=($(compgen -W "{integration_hook_actions}" -- "${{cur}}"))
                 else
                     COMPREPLY=($(compgen -W "{integration_actions}" -- "${{cur}}"))
                 fi
@@ -117,7 +130,7 @@ _harness_mem_completion() {{
     fi
 
     if [[ "${{words[1]}}" == "maintenance" && "${{cur}}" == -* ]]; then
-        COMPREPLY=($(compgen -W "-p --project --source --before --category --stale-only --dry-run --apply --export-rollback --export-dir" -- "${{cur}}"))
+        COMPREPLY=($(compgen -W "-p --project --source --before --category --stale-only --dry-run --apply --export-rollback --export-dir --session-id --source-id --reason" -- "${{cur}}"))
         return
     fi
 
@@ -137,6 +150,7 @@ def completion_zsh() -> str:
     maintenance_actions = " ".join(MAINTENANCE_ACTIONS)
     config_actions = " ".join(CONFIG_ACTIONS)
     integration_actions = " ".join(INTEGRATION_ACTIONS)
+    integration_hook_actions = " ".join(INTEGRATION_HOOK_ACTIONS)
     integration_command_actions = " ".join(INTEGRATION_COMMAND_ACTIONS)
     command_profiles = " ".join(COMMAND_PROFILES)
     client_choices = " ".join(dict.fromkeys(CLIENT_CHOICES))
@@ -155,6 +169,9 @@ _harness_mem() {{
         '--category[category]:(observations structured all)' \\
         '--before[date (YYYY-MM-DD)]:date:' \\
         '--source[JSON draft path]:source:' \\
+        '--session-id[session ID]:session_id:' \\
+        '--source-id[transcript source ID]:source_id:' \\
+        '--reason[erasure reason code]:reason:' \\
         '--dry-run[preview only]' \\
         '--stale-only[only stale entries]' \\
         '--apply[write maintenance changes]' \\
@@ -187,6 +204,9 @@ _harness_mem() {{
                 commands)
                     _values 'action' {integration_command_actions}
                     ;;
+                hooks)
+                    _values 'action' {integration_hook_actions}
+                    ;;
             esac
             ;;
     esac
@@ -199,6 +219,7 @@ compdef _harness_mem harness-mem
 def completion_fish() -> str:
     """Generate fish completion script."""
     commands = " ".join(CLI_COMMANDS + list(CLI_ALIASES.keys()))
+    maintenance_actions = " ".join(MAINTENANCE_ACTIONS)
     integration_actions = " ".join(INTEGRATION_ACTIONS)
     hook_suite_clients = " ".join(HOOK_SUITE_CLIENTS)
     client_choices = " ".join(dict.fromkeys(CLIENT_CHOICES))
@@ -220,7 +241,7 @@ complete -c harness-mem -n '__fish_seen_subcommand_from quickstart; or __fish_se
 complete -c harness-mem -n '__fish_seen_subcommand_from doctor' -l project -r -d "Project name"
 
 # maintenance
-complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -a "rebuild-vector-index rebuild-verbatim-index migrate-store-v2 export-json-snapshot state-audit import purge" -d "Action"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -a "{maintenance_actions}" -d "Action"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l project -r -d "Project name"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l source -r -d "JSON draft path"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l before -r -d "Date (YYYY-MM-DD)"
@@ -231,6 +252,9 @@ complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l dry-run 
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l apply -d "Write changes"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l export-rollback -r -d "Export Storage v2 canonical rows as v3 JSON"
 complete -c harness-mem -n '__fish_seen_subcommand_from maintenance' -l export-dir -r -d "Export directory"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance; and __fish_seen_subcommand_from erase' -l session-id -r -d "Session ID"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance; and __fish_seen_subcommand_from erase' -l source-id -r -d "Transcript source ID"
+complete -c harness-mem -n '__fish_seen_subcommand_from maintenance; and __fish_seen_subcommand_from erase' -l reason -r -d "Erasure reason code"
 
 # config
 complete -c harness-mem -n '__fish_seen_subcommand_from config' -a "get set list validate" -d "Action"
@@ -243,6 +267,7 @@ complete -c harness-mem -n '__fish_seen_subcommand_from integration' -a "{integr
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l project-root -r -d "Project directory"
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l force -d "Overwrite existing hook"
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l client -x -a "{hook_suite_clients}" -d "Client"
+complete -c harness-mem -n '__fish_seen_subcommand_from hooks' -a "sync" -d "Hook action"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -a "list sync" -d "Command action"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l profile -x -a "daily" -d "Command profile"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l source-dir -r -d "Slash command source directory"

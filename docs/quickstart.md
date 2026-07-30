@@ -6,8 +6,8 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.5 \
-  harness-mem==0.9.5
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.6 \
+  harness-mem==0.9.6
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Pip uses
@@ -17,8 +17,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.5 \
-  "harness-mem[hybrid]==0.9.5"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.6 \
+  "harness-mem[hybrid]==0.9.6"
 ```
 
 Check the CLI:
@@ -44,8 +44,10 @@ Maintenance import, soft purge, and privacy erasure are available as
 `harness-mem maintenance import`, `harness-mem maintenance purge`, and
 `harness-mem maintenance erase`; all preview by default until `--apply` is passed.
 Erase apply first writes a content-free durable receipt. If that write fails,
-deletion does not start; partial failures return non-zero and retain planned,
-actual, and post-delete verification counts without copying private content.
+deletion does not start. It then removes eligible native host session files and
+the internal reference closure; shared/unsafe native containers remain intact
+and return partial failure. Results retain planned, actual, and post-delete
+verification counts without copying private content.
 Other CLI maintenance actions are limited to operator repair and audit tasks
 such as index rebuilds, storage migration/export, and state audit.
 Procedural skill lifecycle management is outside the public memory MCP and CLI
@@ -126,6 +128,13 @@ The user-level locations are `~/.claude/commands/hm`, `~/.codex/skills`,
 (`%LOCALAPPDATA%/hermes/skills` on native Windows),
 `~/.config/opencode/commands`, and
 `~/.gemini/antigravity/global_workflows`, respectively.
+
+Project hooks are normally bootstrapped during first MCP initialization. For
+explicit operator repair, use the single cross-host command:
+
+```bash
+harness-mem integration hooks sync --client <host> --project-root . --force
+```
 For the current host support matrix and where each host expects hooks to live,
 see [IDE hook adapter matrix](ide-hook-adapter-matrix.md).
 Session-start wake shows a compact recent-context index first, including recent

@@ -79,27 +79,26 @@ Binary yes/no: public docs and agent skills must stay inside verified capability
 | ⑨ Maintenance | L1 dream + L4 distill maintenance |
 | ⑩ Evidence | L6 + per-track contract tests |
 
-## Current snapshot (v0.9.5)
+## Current snapshot (v0.9.6)
 
 See `canvases/harness-mem-readiness-v1.canvas.tsx` for the living panel. As of
-2026-07-28:
+2026-07-30:
 
 | Track | Score | Primary gap |
 |-------|------:|-------------|
 | L1 | 96 | — |
 | L2 | 97 | — |
 | L3 | 95 | Seven-day outcome/abstention/exclusion scorecard ships; ranking diversity remains iterative |
-| L4 | 98 | Exact offered-job claims, terminal promoted/no-candidate outcomes, receipt-first processed-source cleanup, privacy deletion receipts, and Storage v2 recovery injection are verified |
-| L5 | 96 | Seven-host global command discovery and cross-host transcript→wake contract verified |
-| L6 | 97 | Risk-classified Doctor recovery, compact/full status parity, 27-tool contract, and release gates verified |
-| **Weighted** | **~97** | **Retrieval ranking remains the main iterative quality track** |
+| L4 | 99 | Exact offered-job claims, terminal outcomes, separate truth-preserving/full-erasure paths, native privacy deletion, and receipt-first explicit Storage v2 migration are verified |
+| L5 | 97 | Seven-host global command discovery, one hook-repair path, and cross-host transcript→wake contract verified |
+| L6 | 98 | Risk-classified Doctor recovery, compact/full status parity, exact 27-tool registry equality, and release gates verified |
+| **Weighted** | **~98** | **Retrieval ranking remains the main iterative quality track** |
 
-The public MCP contract currently contains 27 tools (~27.4 KiB compact
-`tools/list` JSON). The former low-level suggest/confirm/reject family is
-internal compatibility code
-behind `govern_memory`; its 784-line implementation is isolated in
-`mcp/governance_handlers.py`; read/status/dream/distill capability modules keep
-the facade below 900 lines.
+The public MCP contract currently contains 27 tools (~27.8 KiB compact
+`tools/list` JSON). The former low-level suggest/confirm/reject schemas and
+registry entries are retired; their private implementations remain behind
+`govern_memory` in `mcp/governance_handlers.py`. Read/status/dream/distill
+capability modules keep the facade below 900 lines.
 
 ## Review cadence
 

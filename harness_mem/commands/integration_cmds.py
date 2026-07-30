@@ -37,7 +37,6 @@ from harness_mem.integration.installer import (
     HookSpec,
     install_antigravity_hook_suite,
     install_hermes_hook_suite,
-    install_hook,
     install_hook_suite,
     verified_hook_runner,
 )
@@ -49,13 +48,7 @@ from harness_mem.transcript_evidence import (
 
 __all__ = [
     "SUPPORTED_HOOK_CLIENTS",
-    "cmd_install_cursor_hook",
-    "cmd_install_claude_hook",
-    "cmd_install_cursor_wake_hook",
-    "cmd_install_claude_wake_hook",
     "cmd_install_hook_suite",
-    "cmd_install_cursor_suite",
-    "cmd_install_claude_suite",
     "cmd_list_command_profiles",
     "cmd_sync_commands",
     "cmd_transcript_evidence",
@@ -79,31 +72,6 @@ def _resolve_project_root(project_root: str | None) -> Path:
     if project_root is None:
         return Path(os.getcwd())
     return Path(project_root).resolve()
-
-
-def _install(template_name: str, target_path: Path, root: Path, force: bool) -> int:
-    """Render+write a hook, mapping installer exceptions to the exit contract."""
-    try:
-        written = install_hook(
-            template_name=template_name,
-            target_path=target_path,
-            project_root=root,
-            force=force,
-            harness_mem_version=__version__,
-            generated_at=datetime.now(timezone.utc),
-            doc_pointer=_DOC_POINTER,
-        )
-    except FileExistsError:
-        print(
-            f"hook already exists: {target_path}; use --force to overwrite",
-            file=sys.stderr,
-        )
-        return 1
-    except (KeyError, OSError, RuntimeError, ValueError) as exc:
-        print(f"install failed: {target_path}: {exc}", file=sys.stderr)
-        return 1
-    print(f"installed: {written}")
-    return 0
 
 
 def _quote_hook_arg(value: str) -> str:
@@ -278,57 +246,6 @@ def _install_suite(client: str, project_root: str | None, force: bool) -> int:
         f"to {command_result.destination_dir}"
     )
     return 0
-
-
-def cmd_install_cursor_hook(project_root: str | None, force: bool) -> int:
-    """Generate the Cursor post-turn hook script.
-
-    Resolves ``project_root`` (default: cwd), targets
-    ``<project_root>/.cursor/hooks/after-agent.sh``, and delegates to
-    :func:`install_hook`. On success prints ``installed: <path>`` to stdout and
-    exits 0; on an existing hook without ``--force`` or a filesystem error,
-    emits a diagnostic to stderr and exits 1.
-    """
-    root = _resolve_project_root(project_root)
-    target_path = root / ".cursor" / "hooks" / "after-agent.sh"
-    return _install("cursor_after_agent.sh.template", target_path, root, force)
-
-
-def cmd_install_claude_hook(project_root: str | None, force: bool) -> int:
-    """Generate the Claude Code post-turn hook script.
-
-    Resolves ``project_root`` (default: cwd), targets
-    ``<project_root>/.claude/hooks/after-turn.sh``, and delegates to
-    :func:`install_hook`. Shares the exit/diagnostic shape with
-    :func:`cmd_install_cursor_hook`.
-    """
-    root = _resolve_project_root(project_root)
-    target_path = root / ".claude" / "hooks" / "after-turn.sh"
-    return _install("claude_code_hook.sh.template", target_path, root, force)
-
-
-def cmd_install_cursor_wake_hook(project_root: str | None, force: bool) -> int:
-    """Generate the Cursor session-start wake hook script."""
-    root = _resolve_project_root(project_root)
-    target_path = root / ".cursor" / "hooks" / "session-start.sh"
-    return _install("cursor_session_start.sh.template", target_path, root, force)
-
-
-def cmd_install_claude_wake_hook(project_root: str | None, force: bool) -> int:
-    """Generate the Claude Code session-start wake hook script."""
-    root = _resolve_project_root(project_root)
-    target_path = root / ".claude" / "hooks" / "session-start.sh"
-    return _install("claude_code_session_start.sh.template", target_path, root, force)
-
-
-def cmd_install_cursor_suite(project_root: str | None, force: bool) -> int:
-    """Generate Cursor wake + post-turn maintenance hooks."""
-    return _install_suite("cursor", project_root, force)
-
-
-def cmd_install_claude_suite(project_root: str | None, force: bool) -> int:
-    """Generate Claude Code wake + post-turn maintenance hooks."""
-    return _install_suite("claude-code", project_root, force)
 
 
 def cmd_install_hook_suite(client: str, project_root: str | None, force: bool) -> int:

@@ -1,9 +1,8 @@
 """Canonical Storage v2 entity store helpers.
 
-v5.1 promotes canonical SQLite from a side-by-side artifact into the default
-runtime truth store. Legacy JSON stays available for first-run migration,
-explicit export, and rollback-compatible maintenance flows, but normal runtime
-reads and writes should now target this canonical layer.
+Canonical SQLite is the default runtime truth store. Legacy JSON remains a
+supported fallback through the 0.9.x line, but existing data changes authority
+only through explicit preview/apply migration.
 """
 
 from __future__ import annotations
@@ -26,12 +25,15 @@ from harness_mem.storage.store_v2_migration import (
     logical_checksum,
     scan_legacy_payloads,
 )
+from harness_mem.version import legacy_storage_support_policy
 
 
 CANONICAL_STORE_SCHEMA_VERSION = 3
 CANONICAL_STORE_CONTRACT_VERSION = "canonical-store-v5.1.0"
 DUAL_WRITE_ENV = "HARNESS_MEM_STORAGE_V2_DUAL_WRITE"
 RUNTIME_STATE_FILE_NAME = "runtime_state.json"
+MIGRATION_RECEIPT_DIR_NAME = "migration_receipts"
+MIGRATION_RECEIPT_SCHEMA_VERSION = 1
 RUNTIME_STATES: tuple[str, ...] = (
     "canonical",
     "bootstrapped_from_legacy",
@@ -187,9 +189,7 @@ class StorageRuntimeState:
             legacy_payload_count=int(payload.get("legacy_payload_count") or 0),
             error=_string_or_none(payload.get("error")),
             recovery_hint=_string_or_none(payload.get("recovery_hint")),
-            default_storage_changed=bool(
-                payload.get("default_storage_changed", True)
-            ),
+            default_storage_changed=bool(payload.get("default_storage_changed", True)),
         )
 
 
@@ -329,7 +329,8 @@ class CanonicalStoreRuntime:
             collection=collection,
             entity_id=entity_id,
             project_name=project_name,
-            source_relpath=source_relpath or _default_source_relpath(collection, entity_id),
+            source_relpath=source_relpath
+            or _default_source_relpath(collection, entity_id),
             payload_json=payload_json,
             payload_sha256=payload_sha,
             size_bytes=len(payload_json.encode("utf-8")),
@@ -412,6 +413,38 @@ def runtime_state_path(data_dir: Path) -> Path:
     return Path(data_dir) / "store_v2" / RUNTIME_STATE_FILE_NAME
 
 
+def migration_receipt_path(data_dir: Path, migration_id: str) -> Path:
+    """Return the content-free receipt path for one explicit migration."""
+
+    return (
+        Path(data_dir)
+        / "store_v2"
+        / MIGRATION_RECEIPT_DIR_NAME
+        / f"{migration_id}.json"
+    )
+
+
+def _write_migration_receipt(data_dir: Path, receipt: dict[str, Any]) -> Path:
+    """Atomically persist a content-free migration receipt."""
+
+    migration_id = str(receipt.get("migration_id") or "")
+    if not migration_id:
+        raise StorageV2MigrationError("migration receipt requires migration_id")
+    path = migration_receipt_path(data_dir, migration_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return path
+
+
 def read_runtime_state(data_dir: Path) -> StorageRuntimeState | None:
     path = runtime_state_path(Path(data_dir))
     if not path.exists():
@@ -459,22 +492,62 @@ def migrate_canonical_store_atomically(
     data_dir = Path(data_dir)
     target = canonical_store_path(data_dir)
     target.parent.mkdir(parents=True, exist_ok=True)
-    migration_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    migration_id = (
+        datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + f"-{uuid4().hex[:8]}"
+    )
     staging = target.with_name(f".{target.name}.{uuid4().hex}.staging")
     backup_dir = target.parent / "backups"
     backup = backup_dir / f"canonical-{migration_id}.sqlite"
     runtime_path = runtime_state_path(data_dir)
     runtime_before = runtime_path.read_bytes() if runtime_path.exists() else None
+    runtime_before_state = read_runtime_state(data_dir)
     had_target = target.exists()
     live_fingerprint_before = _sqlite_logical_fingerprint(target)
-
-    if had_target:
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        _backup_sqlite(target, backup)
-        _backup_sqlite(target, staging)
+    legacy_rows, invalid_legacy = scan_legacy_payloads(data_dir)
+    receipt: dict[str, Any] = {
+        "schema_version": MIGRATION_RECEIPT_SCHEMA_VERSION,
+        "kind": "storage_v2_migration",
+        "migration_id": migration_id,
+        "status": "in_progress",
+        "started_at": _utc_now(),
+        "completed_at": None,
+        "requested_project_name": project_name,
+        "activation_scope": "all_projects",
+        "legacy_row_count": len(legacy_rows),
+        "legacy_invalid_count": len(invalid_legacy),
+        "legacy_logical_checksum": logical_checksum(legacy_rows),
+        "canonical_row_count": None,
+        "canonical_logical_fingerprint": live_fingerprint_before,
+        "checksum_relation": None,
+        "sqlite_integrity": None,
+        "backup_created": False,
+        "backup_path_sha256": None,
+        "runtime_state_before": (
+            runtime_before_state.mode if runtime_before_state is not None else None
+        ),
+        "runtime_state_after": None,
+        "failure_stage": None,
+        "error_code": None,
+    }
+    # Receipt-first: if this write fails, no snapshot, staging DB, activation,
+    # or runtime-state mutation has started.
+    receipt_path = _write_migration_receipt(data_dir, receipt)
 
     activated = False
+    activated_fingerprint: str | None = None
+    failure_stage = "snapshot_live_store"
     try:
+        if had_target:
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            _backup_sqlite(target, backup)
+            _backup_sqlite(target, staging)
+            receipt["backup_created"] = True
+            receipt["backup_path_sha256"] = hashlib.sha256(
+                str(backup).encode("utf-8")
+            ).hexdigest()
+            _write_migration_receipt(data_dir, receipt)
+
+        failure_stage = "build_staging"
         payload_result = apply_store_v2_migration(
             data_dir,
             project_name=None,
@@ -485,6 +558,7 @@ def migrate_canonical_store_atomically(
             project_name=None,
             canonical_path=staging,
         )
+        failure_stage = "validate_staging"
         integrity = _sqlite_integrity_check(staging)
         relation = canonical_checksum_relation(
             data_dir,
@@ -496,7 +570,9 @@ def migrate_canonical_store_atomically(
         if not canonical_result["checksum_match"]:
             raise StorageV2MigrationError("staging canonical coverage is incomplete")
         if integrity != "ok":
-            raise StorageV2MigrationError(f"staging SQLite integrity check failed: {integrity}")
+            raise StorageV2MigrationError(
+                f"staging SQLite integrity check failed: {integrity}"
+            )
         if relation["relation"] in {
             "invalid_legacy",
             "legacy_missing_in_canonical",
@@ -505,7 +581,11 @@ def migrate_canonical_store_atomically(
             raise StorageV2MigrationError(
                 f"staging checksum relation is unsafe: {relation['relation']}"
             )
+        activated_fingerprint = _sqlite_logical_fingerprint(staging)
+        if activated_fingerprint is None:
+            raise StorageV2MigrationError("validated staging SQLite disappeared")
 
+        failure_stage = "compare_before_swap"
         live_fingerprint_before_activation = _sqlite_logical_fingerprint(target)
         if live_fingerprint_before_activation != live_fingerprint_before:
             raise StorageV2MigrationError(
@@ -513,8 +593,24 @@ def migrate_canonical_store_atomically(
                 "activation aborted to preserve concurrent writes. Retry the migration."
             )
 
-        _clear_sqlite_sidecars(target)
-        os.replace(staging, target)
+        failure_stage = "activate_staging"
+        if had_target:
+            _activate_staging_transactionally(
+                staging,
+                target,
+                expected_live_fingerprint=live_fingerprint_before,
+            )
+        else:
+            # A hard link is an atomic create-if-absent operation. Unlike
+            # ``os.replace``, it can never overwrite a canonical DB created by
+            # a concurrent runtime after staging began.
+            try:
+                os.link(staging, target)
+            except FileExistsError as exc:
+                raise StorageV2MigrationError(
+                    "Canonical SQLite appeared while migration staging was built; "
+                    "activation aborted to preserve concurrent writes. Retry the migration."
+                ) from exc
         activated = True
         state = StorageRuntimeState(
             mode="canonical",
@@ -527,8 +623,9 @@ def migrate_canonical_store_atomically(
                 else "Canonical SQLite was created from validated staging; no prior DB existed."
             ),
         )
+        failure_stage = "activate_runtime_state"
         write_runtime_state(data_dir, state)
-        return {
+        result = {
             "migration_id": migration_id,
             "requested_project_name": project_name,
             "activation_scope": "all_projects",
@@ -543,19 +640,94 @@ def migrate_canonical_store_atomically(
             "checksum_relation": relation,
             "payload_migration": payload_result,
             "canonical_store": canonical_result,
+            "receipt": {
+                "id": migration_id,
+                "status": "succeeded",
+                "path": str(receipt_path),
+            },
         }
-    except Exception:
+        failure_stage = "finalize_receipt"
+        receipt.update(
+            {
+                "status": "succeeded",
+                "completed_at": _utc_now(),
+                "canonical_row_count": int(
+                    canonical_result.get("canonical_row_count") or 0
+                ),
+                "canonical_logical_fingerprint": _sqlite_logical_fingerprint(target),
+                "checksum_relation": relation.get("relation"),
+                "sqlite_integrity": integrity,
+                "runtime_state_after": "canonical",
+                "failure_stage": None,
+                "error_code": None,
+            }
+        )
+        _write_migration_receipt(data_dir, receipt)
+        return result
+    except Exception as exc:
+        rollback_status = "not_required"
+        rollback_quarantine_path_sha256: str | None = None
         if activated:
             if had_target and backup.exists():
-                _clear_sqlite_sidecars(target)
-                _backup_sqlite(backup, target)
+                try:
+                    _activate_staging_transactionally(
+                        backup,
+                        target,
+                        expected_live_fingerprint=activated_fingerprint,
+                    )
+                    rollback_status = "restored"
+                except StorageV2MigrationError:
+                    # A writer committed after activation. Never replace its
+                    # live rows with the pre-migration snapshot.
+                    rollback_status = "aborted_concurrent_write"
             elif target.exists():
-                target.unlink()
-        if runtime_before is not None:
-            runtime_path.parent.mkdir(parents=True, exist_ok=True)
-            runtime_path.write_bytes(runtime_before)
-        elif runtime_path.exists():
-            runtime_path.unlink()
+                current_fingerprint = _sqlite_logical_fingerprint(target)
+                if current_fingerprint != activated_fingerprint:
+                    rollback_status = "aborted_concurrent_write"
+                else:
+                    quarantine = (
+                        target.parent
+                        / "failed_activations"
+                        / f"canonical-{migration_id}.sqlite"
+                    )
+                    quarantine.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        os.replace(target, quarantine)
+                    except OSError:
+                        rollback_status = "aborted_concurrent_write"
+                    else:
+                        rollback_status = "quarantined_new_store"
+                        rollback_quarantine_path_sha256 = hashlib.sha256(
+                            str(quarantine).encode("utf-8")
+                        ).hexdigest()
+        if rollback_status != "aborted_concurrent_write":
+            if runtime_before is not None:
+                runtime_path.parent.mkdir(parents=True, exist_ok=True)
+                runtime_path.write_bytes(runtime_before)
+            elif runtime_path.exists():
+                runtime_path.unlink()
+        runtime_after_failure = read_runtime_state(data_dir)
+        receipt.update(
+            {
+                "status": "failed",
+                "completed_at": _utc_now(),
+                "runtime_state_after": (
+                    runtime_after_failure.mode
+                    if runtime_after_failure is not None
+                    else None
+                ),
+                "failure_stage": failure_stage,
+                "error_code": type(exc).__name__,
+                "rollback_status": rollback_status,
+                "rollback_quarantine_path_sha256": (rollback_quarantine_path_sha256),
+            }
+        )
+        try:
+            _write_migration_receipt(data_dir, receipt)
+        except Exception:
+            # The initial in_progress receipt remains durable and cannot be
+            # mistaken for a successful migration.
+            pass
         raise
     finally:
         if staging.exists():
@@ -584,7 +756,9 @@ def canonical_checksum_relation(
     if not db_path.exists():
         return {
             "relation": "legacy_missing_in_canonical" if legacy_rows else "exact_match",
-            "explanation": "Canonical SQLite is absent." if legacy_rows else "Both stores are empty.",
+            "explanation": "Canonical SQLite is absent."
+            if legacy_rows
+            else "Both stores are empty.",
             "invalid_legacy_count": 0,
             "legacy_only_count": len(legacy_rows),
             "canonical_only_count": 0,
@@ -612,12 +786,12 @@ def canonical_checksum_relation(
     runtime = read_runtime_state(data_dir)
     if legacy_only:
         relation = "legacy_missing_in_canonical"
-        explanation = "Canonical SQLite is missing legacy identities; migration is incomplete."
+        explanation = (
+            "Canonical SQLite is missing legacy identities; migration is incomplete."
+        )
     elif changed and (runtime is None or runtime.mode != "canonical"):
         relation = "content_conflict"
-        explanation = (
-            "Legacy and canonical payloads disagree while canonical authority is not established."
-        )
+        explanation = "Legacy and canonical payloads disagree while canonical authority is not established."
     elif canonical_only or changed:
         relation = "canonical_superset_expected"
         explanation = (
@@ -667,38 +841,129 @@ def _sqlite_logical_fingerprint(path: Path) -> str | None:
     if not path.exists():
         return None
 
-    digest = hashlib.sha256()
     conn = sqlite3.connect(path)
     try:
         conn.execute("BEGIN")
-        schema_rows = conn.execute(
-            """
-            SELECT type, name, tbl_name, COALESCE(sql, '')
-            FROM sqlite_master
-            WHERE name NOT LIKE 'sqlite_%'
-            ORDER BY type, name, tbl_name
-            """
-        ).fetchall()
-        digest.update(
-            json.dumps(schema_rows, ensure_ascii=True, separators=(",", ":")).encode(
-                "utf-8"
-            )
-        )
-        for object_type, table_name, _owner, _sql in schema_rows:
-            if object_type != "table":
-                continue
-            quoted_table = _quote_sqlite_identifier(str(table_name))
-            rows = conn.execute(f"SELECT * FROM {quoted_table}").fetchall()
-            encoded_rows = sorted(_encode_sqlite_fingerprint_row(row) for row in rows)
-            digest.update(str(table_name).encode("utf-8"))
-            digest.update(b"\0")
-            for encoded_row in encoded_rows:
-                digest.update(encoded_row)
-                digest.update(b"\n")
+        fingerprint = _sqlite_connection_logical_fingerprint(conn)
         conn.rollback()
     finally:
         conn.close()
+    return fingerprint
+
+
+def _sqlite_connection_logical_fingerprint(
+    conn: sqlite3.Connection,
+    *,
+    schema: str = "main",
+) -> str:
+    """Hash one connection snapshot without opening a second race window."""
+
+    quoted_schema = _quote_sqlite_identifier(schema)
+    digest = hashlib.sha256()
+    schema_rows = conn.execute(
+        f"""
+        SELECT type, name, tbl_name, COALESCE(sql, '')
+        FROM {quoted_schema}.sqlite_master
+        WHERE name NOT LIKE 'sqlite_%'
+        ORDER BY type, name, tbl_name
+        """
+    ).fetchall()
+    digest.update(
+        json.dumps(schema_rows, ensure_ascii=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    )
+    for object_type, table_name, _owner, _sql in schema_rows:
+        if object_type != "table":
+            continue
+        quoted_table = _quote_sqlite_identifier(str(table_name))
+        rows = conn.execute(f"SELECT * FROM {quoted_schema}.{quoted_table}").fetchall()
+        encoded_rows = sorted(_encode_sqlite_fingerprint_row(row) for row in rows)
+        digest.update(str(table_name).encode("utf-8"))
+        digest.update(b"\0")
+        for encoded_row in encoded_rows:
+            digest.update(encoded_row)
+            digest.update(b"\n")
     return digest.hexdigest()
+
+
+def _activate_staging_transactionally(
+    staging: Path,
+    target: Path,
+    *,
+    expected_live_fingerprint: str | None,
+) -> None:
+    """Copy validated staging state into the live SQLite file atomically.
+
+    Keeping the live inode avoids stranding already-open runtime connections
+    on an unlinked database. ``BEGIN IMMEDIATE`` closes the fingerprint-to-
+    commit write window: other writers either commit before the fingerprint
+    check (and cause a fail-closed abort) or wait until activation completes.
+    """
+
+    conn = sqlite3.connect(target, timeout=30.0)
+    attached = False
+    try:
+        conn.execute("ATTACH DATABASE ? AS staged", (str(staging),))
+        attached = True
+        conn.execute("BEGIN IMMEDIATE")
+        live_fingerprint = _sqlite_connection_logical_fingerprint(conn)
+        if live_fingerprint != expected_live_fingerprint:
+            raise StorageV2MigrationError(
+                "Canonical SQLite changed while migration staging was built; "
+                "activation aborted to preserve concurrent writes. Retry the migration."
+            )
+
+        staging_objects = conn.execute(
+            """
+            SELECT type, name, COALESCE(sql, '')
+            FROM staged.sqlite_master
+            WHERE name NOT LIKE 'sqlite_%'
+              AND type IN ('table', 'index', 'trigger', 'view')
+            ORDER BY CASE type
+                WHEN 'table' THEN 0
+                WHEN 'index' THEN 1
+                WHEN 'trigger' THEN 2
+                ELSE 3
+            END, name
+            """
+        ).fetchall()
+        main_objects = {
+            (str(object_type), str(name))
+            for object_type, name in conn.execute(
+                """
+                SELECT type, name
+                FROM main.sqlite_master
+                WHERE name NOT LIKE 'sqlite_%'
+                """
+            ).fetchall()
+        }
+        for object_type, name, create_sql in staging_objects:
+            key = (str(object_type), str(name))
+            if key not in main_objects and create_sql:
+                conn.execute(str(create_sql))
+                main_objects.add(key)
+
+        for object_type, table_name, _create_sql in staging_objects:
+            if object_type != "table":
+                continue
+            quoted_table = _quote_sqlite_identifier(str(table_name))
+            conn.execute(f"DELETE FROM main.{quoted_table}")
+            conn.execute(
+                f"INSERT INTO main.{quoted_table} SELECT * FROM staged.{quoted_table}"
+            )
+        conn.commit()
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+    finally:
+        if attached:
+            try:
+                conn.execute("DETACH DATABASE staged")
+            except sqlite3.Error:
+                pass
+        conn.close()
 
 
 def _encode_sqlite_fingerprint_row(row: tuple[Any, ...]) -> bytes:
@@ -773,7 +1038,8 @@ def bootstrap_canonical_runtime(data_dir: Path) -> StorageRuntimeState:
 
         mode = (
             prior_state.mode
-            if prior_state and prior_state.mode in {"canonical", "bootstrapped_from_legacy"}
+            if prior_state
+            and prior_state.mode in {"canonical", "bootstrapped_from_legacy"}
             else "canonical"
         )
         return write_runtime_state(
@@ -801,30 +1067,22 @@ def bootstrap_canonical_runtime(data_dir: Path) -> StorageRuntimeState:
         )
 
     if legacy_rows:
-        try:
-            result = build_canonical_store(data_dir)
-        except StorageV2MigrationError as exc:
-            return write_runtime_state(
-                data_dir,
-                StorageRuntimeState(
-                    mode="degraded_fallback",
-                    canonical_db_path=str(db_path),
-                    updated_at=_utc_now(),
-                    legacy_payload_count=len(legacy_rows),
-                    error=str(exc),
-                    recovery_hint=_runtime_recovery_hint("degraded_fallback"),
-                ),
-            )
-        mode = "bootstrapped_from_legacy" if result["checksum_match"] else "degraded_fallback"
+        # Existing data never changes authority during ordinary startup.
+        # Keep the lossless legacy fallback active until an operator previews
+        # and explicitly applies the global migration.
         return write_runtime_state(
             data_dir,
             StorageRuntimeState(
-                mode=mode,
+                mode="degraded_fallback",
                 canonical_db_path=str(db_path),
                 updated_at=_utc_now(),
                 legacy_payload_count=len(legacy_rows),
-                error=None if result["checksum_match"] else "canonical checksum mismatch",
-                recovery_hint=_runtime_recovery_hint(mode),
+                error="legacy_migration_required",
+                recovery_hint=(
+                    "Legacy JSON remains authoritative. Preview with "
+                    "`harness-mem maintenance migrate-store-v2 --project "
+                    "<PROJECT_NAME> --dry-run`, then explicitly apply after review."
+                ),
             ),
         )
 
@@ -931,12 +1189,19 @@ def build_canonical_store(
         for legacy in rows:
             payload = json.loads(legacy.payload_json)
             if legacy.collection == "confirmed_rules":
-                source_candidate_id = str(payload.get("source_candidate_id") or "").strip()
-                if source_candidate_id and not str(payload.get("source_session_id") or "").strip():
+                source_candidate_id = str(
+                    payload.get("source_candidate_id") or ""
+                ).strip()
+                if (
+                    source_candidate_id
+                    and not str(payload.get("source_session_id") or "").strip()
+                ):
                     source_session_id = rule_candidate_sessions.get(source_candidate_id)
                     if source_session_id:
                         payload["source_session_id"] = source_session_id
-            canonical = canonical_row_from_legacy(legacy, payload, migrated_at=migrated_at)
+            canonical = canonical_row_from_legacy(
+                legacy, payload, migrated_at=migrated_at
+            )
             existing = conn.execute(
                 f"SELECT 1 FROM {canonical.table_name} WHERE entity_id = ?",
                 (canonical.entity_id,),
@@ -1008,7 +1273,9 @@ def read_compatible_payloads(
         finally:
             conn.close()
 
-    legacy_rows, invalid = scan_legacy_payloads(Path(data_dir), project_name=project_name)
+    legacy_rows, invalid = scan_legacy_payloads(
+        Path(data_dir), project_name=project_name
+    )
     if invalid:
         raise StorageV2MigrationError(
             f"Compatibility reader found invalid JSON files: {len(invalid)}"
@@ -1046,7 +1313,9 @@ def canonical_row_from_legacy(
         collection=row.collection,
         entity_id=row.entity_id,
         project_id=row.project_name,
-        corpus_id=str(payload.get("corpus_id") or metadata.get("corpus_id") or "default"),
+        corpus_id=str(
+            payload.get("corpus_id") or metadata.get("corpus_id") or "default"
+        ),
         type=_entity_type(row.collection, payload),
         truth_status=_truth_status(row.collection, payload),
         confidence=_float_or_none(payload.get("confidence")),
@@ -1070,7 +1339,9 @@ def canonical_row_from_legacy(
             or lifecycle.get("access_count")
             or 0
         ),
-        decay_score=float(payload.get("decay_score") or lifecycle.get("decay_score") or 0.0),
+        decay_score=float(
+            payload.get("decay_score") or lifecycle.get("decay_score") or 0.0
+        ),
         source_relpath=row.source_relpath,
         payload_json=row.payload_json,
         payload_sha256=row.payload_sha256,
@@ -1168,7 +1439,9 @@ def export_json_snapshot(
                 json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
                 encoding="utf-8",
             )
-        exported_rows, invalid = scan_legacy_payloads(export_dir, project_name=project_name)
+        exported_rows, invalid = scan_legacy_payloads(
+            export_dir, project_name=project_name
+        )
         exported_checksum = logical_checksum(exported_rows)
         checksum_match = exported_checksum == checksum and not invalid
     else:
@@ -1218,11 +1491,18 @@ def canonical_store_health(
             project_name=project_name,
             canonical_path=db_path,
         )
+        relation_name = str(relation["relation"])
         return {
-            "status": "degraded" if runtime and runtime.mode == "degraded_fallback" else "not_migrated",
+            "status": "degraded"
+            if runtime and runtime.mode == "degraded_fallback"
+            else "not_migrated",
             "project_name": project_name,
             "canonical_db_path": str(db_path),
-            "runtime_state": runtime.mode if runtime else "degraded_fallback" if invalid else "canonical",
+            "runtime_state": runtime.mode
+            if runtime
+            else "degraded_fallback"
+            if invalid
+            else "canonical",
             "legacy_json_file_count": len(legacy_rows),
             "canonical_row_count": 0,
             "invalid_json_count": len(invalid),
@@ -1233,6 +1513,12 @@ def canonical_store_health(
             "checksum_relation": relation["relation"],
             "checksum_relation_explanation": relation["explanation"],
             "checksum_relation_details": relation,
+            "legacy_reader_policy": _legacy_reader_policy_payload(
+                legacy_row_count=len(legacy_rows),
+                invalid_count=len(invalid),
+                canonical_row_count=0,
+                checksum_relation=relation_name,
+            ),
             "wal_size_bytes": 0,
             "wal_warning": False,
             "index_drift": [],
@@ -1241,9 +1527,20 @@ def canonical_store_health(
             "recovery_hint": (
                 runtime.recovery_hint
                 if runtime and runtime.recovery_hint
-                else _runtime_recovery_hint("degraded_fallback" if invalid else "canonical")
+                else _runtime_recovery_hint(
+                    "degraded_fallback" if invalid else "canonical"
+                )
             ),
-            "fix_command": "harness-mem maintenance migrate-store-v2 --apply",
+            "fix_command": (
+                "harness-mem maintenance migrate-store-v2 "
+                "--project <PROJECT_NAME> --dry-run"
+            ),
+            "apply_command": (
+                ""
+                if relation_name in {"invalid_legacy", "content_conflict"}
+                else "harness-mem maintenance migrate-store-v2 "
+                "--project <PROJECT_NAME> --apply"
+            ),
         }
 
     conn = sqlite3.connect(db_path)
@@ -1293,6 +1590,12 @@ def canonical_store_health(
         "checksum_relation": relation["relation"],
         "checksum_relation_explanation": relation["explanation"],
         "checksum_relation_details": relation,
+        "legacy_reader_policy": _legacy_reader_policy_payload(
+            legacy_row_count=len(legacy_rows),
+            invalid_count=len(invalid),
+            canonical_row_count=len(canonical_rows),
+            checksum_relation=str(relation["relation"]),
+        ),
         "wal_size_bytes": wal_size,
         "wal_warning": wal_size > wal_size_warning_bytes,
         "index_drift": missing_indexes,
@@ -1312,11 +1615,64 @@ def canonical_store_health(
             "enabled": storage_v2_dual_write_enabled(),
         },
         "fix_command": (
-            "harness-mem maintenance migrate-store-v2 --apply"
+            "harness-mem maintenance migrate-store-v2 "
+            "--project <PROJECT_NAME> --dry-run"
             if status in {"degraded", "partial_migration", "checksum_drift"}
             else ""
         ),
+        "apply_command": (
+            "harness-mem maintenance migrate-store-v2 --project <PROJECT_NAME> --apply"
+            if status in {"degraded", "partial_migration", "checksum_drift"}
+            and relation["relation"] not in {"invalid_legacy", "content_conflict"}
+            else ""
+        ),
     }
+
+
+def _legacy_reader_policy_payload(
+    *,
+    legacy_row_count: int,
+    invalid_count: int,
+    canonical_row_count: int,
+    checksum_relation: str,
+) -> dict[str, Any]:
+    """Describe the explicit legacy-reader exit gate without mutating data."""
+
+    policy: dict[str, Any] = dict(legacy_storage_support_policy())
+    if invalid_count or checksum_relation in {"invalid_legacy", "content_conflict"}:
+        conversion_status = "manual_review_required"
+    elif legacy_row_count == 0:
+        conversion_status = "no_legacy_data"
+    elif canonical_row_count == 0 or checksum_relation == "legacy_missing_in_canonical":
+        conversion_status = "migration_required"
+    else:
+        conversion_status = "canonical_verified"
+    policy.update(
+        {
+            "conversion_status": conversion_status,
+            "legacy_row_count": legacy_row_count,
+            "canonical_row_count": canonical_row_count,
+            "reader_removal_allowed": False,
+            "migration_preview_command": (
+                "harness-mem maintenance migrate-store-v2 "
+                "--project <PROJECT_NAME> --dry-run"
+            ),
+            "migration_apply_command": (
+                None
+                if conversion_status == "manual_review_required"
+                else "harness-mem maintenance migrate-store-v2 "
+                "--project <PROJECT_NAME> --apply"
+            ),
+            "removal_gates": [
+                "version_at_least_1.0.0",
+                "date_on_or_after_2027-01-31",
+                "explicit_converter_shipped",
+                "canonical_verified_without_conflict",
+                "release_notes_announce_removal",
+            ],
+        }
+    )
+    return policy
 
 
 def mirror_payload_to_canonical(
@@ -1467,7 +1823,9 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
 
 def _entity_type(collection: str, payload: dict[str, Any]) -> str:
     if collection == "memory_entries":
-        return str(payload.get("memory_type") or payload.get("category") or "memory_entry")
+        return str(
+            payload.get("memory_type") or payload.get("category") or "memory_entry"
+        )
     if collection == "observations":
         return str(payload.get("content_type") or "observation")
     if collection == "confirmed_rules":
@@ -1539,8 +1897,9 @@ def _runtime_recovery_hint(mode: str) -> str:
         )
     if mode == "degraded_fallback":
         return (
-            "Canonical bootstrap is degraded. Retry with "
-            "`harness-mem maintenance migrate-store-v2 --apply`; once healthy, "
+            "Canonical runtime is degraded. Preview with "
+            "`harness-mem maintenance migrate-store-v2 --project "
+            "<PROJECT_NAME> --dry-run`, then explicitly apply after review; once healthy, "
             "use `harness-mem maintenance export-json-snapshot --apply` for a "
             "rollback snapshot."
         )

@@ -257,7 +257,7 @@ def test_tool_ingest_sessions_cursor_uses_project_root_and_reports_resolved_clie
     monkeypatch.setattr(ingest_module, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(cursor_adapter_module, "DEFAULT_PROJECTS_DIR", projects_dir)
 
-    payload = tool_handlers.tool_ingest_sessions(
+    payload = tool_handlers._ingest_sessions(
         project_name="servers",
         client="cursor",
         project_root=str(workspace),
@@ -310,7 +310,7 @@ def test_tool_ingest_sessions_cursor_resolves_project_from_project_root_only(
     monkeypatch.setattr(ingest_module, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(cursor_adapter_module, "DEFAULT_PROJECTS_DIR", projects_dir)
 
-    payload = tool_handlers.tool_ingest_sessions(
+    payload = tool_handlers._ingest_sessions(
         client="cursor",
         project_root=str(workspace),
     )
@@ -351,7 +351,7 @@ def test_tool_ingest_sessions_cursor_updates_growing_session_revision(
     monkeypatch.setattr(ingest_module, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(cursor_adapter_module, "DEFAULT_PROJECTS_DIR", projects_dir)
 
-    first = tool_handlers.tool_ingest_sessions(
+    first = tool_handlers._ingest_sessions(
         client="cursor",
         project_root=str(workspace),
     )
@@ -375,7 +375,7 @@ def test_tool_ingest_sessions_cursor_updates_growing_session_revision(
     )
     _write_jsonl(session_path, updated_records)
     expected_bytes = session_path.read_bytes()
-    second = tool_handlers.tool_ingest_sessions(
+    second = tool_handlers._ingest_sessions(
         client="cursor",
         project_root=str(workspace),
     )

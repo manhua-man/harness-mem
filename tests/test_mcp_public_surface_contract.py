@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -12,7 +13,13 @@ import harness_mem.commands.support as support_module
 import harness_mem.mcp.tool_handlers as tool_handlers
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
+from harness_mem.guided_flow import build_guided_flow
 from harness_mem.mcp import server
+from harness_mem.mcp.tool_specs import (
+    INTERNAL_MCP_TOOL_NAMES,
+    PUBLIC_MCP_TOOL_NAMES,
+    _SCHEMAS,
+)
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
@@ -62,6 +69,51 @@ EXPECTED_PUBLIC_MCP_TOOLS = {
     "undo_dream_item",
     "wake",
 }
+
+
+@pytest.mark.parametrize(
+    ("phase", "observation_count", "pending_candidate_count", "memory_entry_count"),
+    [
+        ("needs-project", 0, 0, 0),
+        ("awaiting-capture", 0, 0, 0),
+        ("needs-distill", 1, 0, 0),
+        ("ready", 1, 0, 1),
+        ("ready", 1, 1, 1),
+    ],
+)
+def test_guided_flow_mcp_entries_are_public_tools(
+    phase: str,
+    observation_count: int,
+    pending_candidate_count: int,
+    memory_entry_count: int,
+) -> None:
+    flow = build_guided_flow(
+        phase=phase,
+        observation_count=observation_count,
+        pending_candidate_count=pending_candidate_count,
+        memory_entry_count=memory_entry_count,
+        project_name="demo",
+    )
+
+    for step in flow["steps"]:
+        if step["entry_kind"] != "mcp":
+            continue
+        tool_name = step["entry"].split("(", 1)[0]
+        assert tool_name in PUBLIC_MCP_TOOL_NAMES, step
+
+
+def test_public_tool_descriptions_do_not_name_internal_mcp_tools() -> None:
+    for tool_name in PUBLIC_MCP_TOOL_NAMES:
+        description = _SCHEMAS[tool_name]["description"]
+        for internal_name in INTERNAL_MCP_TOOL_NAMES:
+            assert internal_name not in description, (tool_name, internal_name)
+
+
+def test_public_tool_contracts_do_not_expose_historical_feature_versions() -> None:
+    version_marker = re.compile(r"\bv\d+\.\d+(?:\.\d+)?\b")
+    for tool_name in PUBLIC_MCP_TOOL_NAMES:
+        serialized = json.dumps(_SCHEMAS[tool_name], sort_keys=True)
+        assert version_marker.search(serialized) is None, tool_name
 
 
 @pytest.fixture()

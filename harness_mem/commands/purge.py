@@ -194,6 +194,7 @@ async def cmd_erase(
             before=cutoff,
             reason=reason,
             apply=apply,
+            native_source_mode="erase",
         )
         plan = result["plan"]
         prefix = "ERASED" if result.get("success") and apply else "DRY RUN"
@@ -205,7 +206,7 @@ async def cmd_erase(
         print(
             "  revisions={revisions} chunks={chunks} observations={observations} "
             "candidates={candidates} structured_truth={structured_truth} indexes={indexes} "
-            "raw_bytes={raw_bytes}".format(
+            "native_sources={native_sources} raw_bytes={raw_bytes}".format(
                 **plan["counts"]
             )
         )

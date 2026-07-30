@@ -101,24 +101,24 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "include_history": {
                     "type": "boolean",
-                    "description": "v1.7.0: include historical structured truth. Default false returns current truth only.",
+                    "description": "Include historical structured truth. Default false returns current truth only.",
                     "default": False,
                 },
                 "include_provisional": {
                     "type": "boolean",
-                    "description": "v0.8.8: include provisional auto-promoted truth (down-weighted). Default false.",
+                    "description": "Include provisional auto-promoted truth (down-weighted). Default false.",
                     "default": False,
                 },
                 "deep_recall": {
                     "type": "boolean",
-                    "description": "v4.0.4: include cold/archive lifecycle tiers. Default false searches hot/warm only.",
+                    "description": "Include cold/archive lifecycle tiers. Default false searches hot/warm only.",
                     "default": False,
                 },
                 "retrieval_profile": {
                     "type": "string",
                     "enum": ["light", "quality"],
                     "description": (
-                        "v5.9.1: opt-in retrieval profile for this call. "
+                        "Opt-in retrieval profile for this call. "
                         "'light' keeps the default path; 'quality' enables "
                         "deterministic query rewrite/fanout metadata with a "
                         "noop reranker. It does not enable HyDE or a heavy "
@@ -127,11 +127,11 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "task": {
                     "type": "string",
-                    "description": "v4.1: optional current task used by context sufficiency checks.",
+                    "description": "Optional current task used by context sufficiency checks.",
                 },
                 "budget_tokens": {
                     "type": "integer",
-                    "description": "v4.1: advisory context budget for ContextPlan / wake packet traces.",
+                    "description": "Advisory context budget for ContextPlan / wake packet traces.",
                     "default": 6000,
                 },
             },
@@ -245,8 +245,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "Returns empty unless relation facts have been populated for "
             "the project — heuristic distill rarely produces them from "
             "natural prose (loop_harness scenario 6 measured 0 facts from "
-            "5 memory entries on real-style sessions). Populate via "
-            "suggest_relation_fact or an LLM-driven distill pass."
+            "5 memory entries on real-style sessions). Populate through "
+            "govern_memory with action=suggest and kind=relation, or through "
+            "an LLM-driven distill pass."
         ),
         "input_schema": {
             "type": "object",
@@ -274,7 +275,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "include_history": {
                     "type": "boolean",
-                    "description": "v1.7.2: include historical relation facts. Default false returns current relations only.",
+                    "description": "Include historical relation facts. Default false returns current relations only.",
                     "default": False,
                 },
             },
@@ -283,7 +284,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "temporal_query": {
         "description": (
-            "Query the v3.3 temporal read model for current, historical, or "
+            "Query the temporal read model for current, historical, or "
             "as_of confirmed truth. Returns valid/recorded time, provenance, "
             "supersede chain, timeline, explanations, and abstention metadata. "
             "Read-only: rebuilds the projection from confirmed truth and never "
@@ -464,7 +465,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "project_name": {"type": "string", "description": "Project name"},
                 "include_history": {
                     "type": "boolean",
-                    "description": "v1.7.0: include historical confirmed rules. Default false returns current rules only.",
+                    "description": "Include historical confirmed rules. Default false returns current rules only.",
                     "default": False,
                 },
             },
@@ -484,7 +485,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     "file_context": {
         "description": (
             "Return compact, source-attributed memory already associated with a "
-            "file path before reading the file itself. v4.3 also returns current "
+            "file path before reading the file itself. It also returns current "
             "file fingerprints, Python code symbols/imports, code evidence source "
             "ids, and stale checks for memory references to code. Advisory only; "
             "never blocks file reads."
@@ -502,7 +503,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "project_root": {
                     "type": "string",
-                    "description": "Optional project root used to resolve relative paths for v4.3 code evidence.",
+                    "description": "Optional project root used to resolve relative paths for code evidence.",
                 },
             },
             "required": ["path"],
@@ -558,24 +559,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["project_root", "host_client"],
         },
     },
-    "set_active_project": {
-        "description": (
-            "Set the active project so wake / search / suggest defaults pick it up. "
-            "The active project is the only thing that prevents memory written "
-            "from different working directories from cross-contaminating; agents should call this "
-            "once at the start of a session in a new project."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {
-                    "type": "string",
-                    "description": "Project to mark as active",
-                },
-            },
-            "required": ["project_name"],
-        },
-    },
     "wake": {
         "description": (
             "Generate a recent-context index plus stable truth and active "
@@ -605,71 +588,22 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "current_task": {
                     "type": "string",
-                    "description": "v4.1: optional current task used to build a task-aware wake packet.",
+                    "description": "Optional current task used to build a task-aware wake packet.",
                 },
                 "budget_tokens": {
                     "type": "integer",
-                    "description": "v4.1: advisory wake packet budget.",
+                    "description": "Advisory wake packet budget.",
                     "default": 6000,
                 },
                 "deep_recall": {
                     "type": "boolean",
-                    "description": "v4.1: include cold/archive memory in task-aware wake planning.",
+                    "description": "Include cold/archive memory in task-aware wake planning.",
                     "default": False,
                 },
                 "include_provisional": {
                     "type": "boolean",
-                    "description": "v0.8.8: include provisional auto-promoted truth in task-aware wake planning.",
+                    "description": "Include provisional auto-promoted truth in task-aware wake planning.",
                     "default": False,
-                },
-            },
-        },
-    },
-    "ingest_sessions": {
-        "description": (
-            "Low-level transcript sync used by /hm:distill and diagnostics; "
-            "prefer prepare_session_distill for memory creation."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "client": {
-                    "type": "string",
-                    "enum": [
-                        "auto",
-                        "agent",
-                        "claude-code",
-                        "codex",
-                        "codex-archive",
-                        "cursor",
-                        "grok",
-                        "antigravity",
-                        "opencode",
-                        "hermes",
-                    ],
-                    "description": "Transcript source to sync (default: auto)",
-                    "default": "auto",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum sessions to sync (default: 10)",
-                    "default": 10,
-                },
-                "full_rescan": {
-                    "type": "boolean",
-                    "description": "Ignore sync cursor and rescan matching sessions",
-                    "default": False,
-                },
-                "scope": {
-                    "type": "string",
-                    "enum": ["project", "all"],
-                    "description": "Session scope for global stores (default: project)",
-                    "default": "project",
-                },
-                "project_root": {
-                    "type": "string",
-                    "description": "Project root for directory-first project resolution (default: current directory)",
                 },
             },
         },
@@ -981,102 +915,6 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["project_name"],
         },
     },
-    "suggest_supersede": {
-        "description": "Suggest a supersede candidate to mark old truth historical.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "target_type": {
-                    "type": "string",
-                    "enum": ["memory_entry", "relation_fact", "confirmed_rule"],
-                    "description": "Truth type to supersede",
-                },
-                "target_id": {"type": "string", "description": "Existing truth id to mark historical"},
-                "replacement_type": {
-                    "type": "string",
-                    "enum": ["memory_entry", "relation_fact", "confirmed_rule"],
-                    "description": "Replacement truth type",
-                },
-                "replacement_id": {"type": "string", "description": "Replacement truth id"},
-                "reason": {"type": "string", "description": "Why the replacement is needed"},
-                "evidence": {"type": "string", "description": "Evidence for the replacement"},
-                "source": {"type": "string", "description": "Source id (optional)"},
-                "confidence": {"type": "number", "description": "Confidence score 0.0-1.0"},
-            },
-            "required": ["project_name", "target_type", "target_id", "replacement_type", "replacement_id", "reason", "evidence"],
-        },
-    },
-    "confirm_supersede": {
-        "description": "Confirm a supersede candidate and link truth records.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "candidate_id": {"type": "string", "description": "Supersede candidate ID to confirm"},
-            },
-            "required": ["candidate_id"],
-        },
-    },
-    "reject_supersede": {
-        "description": "Reject a supersede candidate.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "candidate_id": {"type": "string", "description": "Supersede candidate ID to reject"},
-            },
-            "required": ["candidate_id"],
-        },
-    },
-    "suggest_correction": {
-        "description": (
-            "Replace an existing confirmed rule in one shot. Creates a new "
-            "ConfirmedRule, marks the old rule historical (valid_to set, "
-            "supersedes/superseded_by linked), and returns the supersede "
-            "chain ids so the caller can show the user what changed. Use "
-            "this when reality changed (framework upgrade, policy reversal) "
-            "and a previously confirmed rule is now actively wrong. Do NOT "
-            "use this for adding a brand-new rule — use create_rule_candidate "
-            "+ confirm_rule for that."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "supersedes_rule_id": {
-                    "type": "string",
-                    "description": "ConfirmedRule id this correction replaces",
-                },
-                "pattern": {
-                    "type": "string",
-                    "description": "Replacement rule pattern text",
-                },
-                "trigger": {
-                    "type": "string",
-                    "description": "Replacement rule trigger text",
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "Why the old rule is being replaced (recorded on the supersede chain)",
-                },
-                "examples": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Optional examples for the new rule",
-                },
-                "source_session_id": {
-                    "type": "string",
-                    "description": "Session id this correction was triggered from",
-                },
-            },
-            "required": [
-                "project_name",
-                "supersedes_rule_id",
-                "pattern",
-                "trigger",
-                "reason",
-            ],
-        },
-    },
     "record_context_outcome": {
         "description": (
             "Record whether returned wake/search context was used, ignored, "
@@ -1111,164 +949,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "required": ["project_name", "surface", "source_ids", "outcome"],
         },
     },
-    "create_rule_candidate": {
-        "description": "Create a rule candidate from a correction pattern.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "session_id": {"type": "string", "description": "Session ID where the correction occurred"},
-                "pattern": {"type": "string", "description": "Rule pattern"},
-                "trigger": {"type": "string", "description": "Trigger scenario"},
-                "examples": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Example instances (optional)",
-                },
-            },
-            "required": ["project_name", "session_id", "pattern", "trigger"],
-        },
-    },
-    "confirm_rule": {
-        "description": "Promote a rule candidate to a confirmed rule.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "rule_id": {"type": "string", "description": "Rule candidate ID to confirm"},
-            },
-            "required": ["rule_id"],
-        },
-    },
-    "reject_rule": {
-        "description": "Reject a rule candidate.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "rule_id": {"type": "string", "description": "Rule candidate ID to reject"},
-                "reason": {"type": "string", "description": "Reason for rejection (optional)"},
-            },
-            "required": ["rule_id"],
-        },
-    },
-    "suggest_rule": {
-        "description": "Suggest a rule for later review (lighter than confirm_rule).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "pattern": {"type": "string", "description": "Rule pattern"},
-                "trigger": {"type": "string", "description": "Trigger scenario"},
-                "session_id": {"type": "string", "description": "Session ID (optional)"},
-                "examples": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Example instances (optional)",
-                },
-                "distill_job_id": {
-                    "type": "string",
-                    "description": "Review-ready distill job id for exactly-once candidate creation",
-                },
-            },
-            "required": ["project_name", "pattern", "trigger"],
-        },
-    },
-    "suggest_memory_entry": {
-        "description": "Suggest a memory entry (fact, decision, etc.) for later review.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "category": {"type": "string", "enum": ["architecture", "convention", "api", "bug", "decision"]},
-                "content": {"type": "string", "description": "Knowledge content"},
-                "source": {"type": "string", "description": "Source observation id or session id"},
-                "confidence": {"type": "number", "description": "Confidence score 0.0-1.0"},
-                "tags": {"type": "array", "items": {"type": "string"}},
-                "distill_job_id": {
-                    "type": "string",
-                    "description": "Review-ready distill job id for exactly-once candidate creation",
-                },
-            },
-            "required": ["project_name", "category", "content", "source"],
-        },
-    },
-    "confirm_memory_entry": {
-        "description": "Confirm a pending memory entry.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "entry_id": {"type": "string", "description": "Memory entry ID to confirm"},
-            },
-            "required": ["entry_id"],
-        },
-    },
-    "reject_memory_entry": {
-        "description": "Reject a pending memory entry.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "entry_id": {"type": "string", "description": "Memory entry ID to reject"},
-            },
-            "required": ["entry_id"],
-        },
-    },
-    "suggest_relation_fact": {
-        "description": "Suggest a typed relation between entities for later review.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "source_entity": {"type": "string", "description": "Origin entity"},
-                "target_entity": {"type": "string", "description": "Target entity"},
-                "relation_type": {"type": "string", "description": "Relation type (e.g. depends_on)"},
-                "evidence": {"type": "string", "description": "Evidence for this relation"},
-                "source": {"type": "string", "description": "Source id"},
-                "confidence": {"type": "number", "description": "Confidence score 0.0-1.0"},
-                "distill_job_id": {
-                    "type": "string",
-                    "description": "Review-ready distill job id for exactly-once candidate creation",
-                },
-            },
-            "required": ["project_name", "source_entity", "target_entity", "relation_type", "evidence", "source"],
-        },
-    },
-    "confirm_relation_fact": {
-        "description": "Confirm a pending relation fact.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "fact_id": {"type": "string", "description": "Relation fact ID to confirm"},
-            },
-            "required": ["fact_id"],
-        },
-    },
-    "reject_relation_fact": {
-        "description": "Reject a pending relation fact.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "fact_id": {"type": "string", "description": "Relation fact ID to reject"},
-            },
-            "required": ["fact_id"],
-        },
-    },
-    "create_task_handoff": {
-        "description": "Create a task handoff to record progress.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "project_name": {"type": "string", "description": "Project name"},
-                "task_id": {"type": "string", "description": "Task identifier"},
-                "summary": {"type": "string", "description": "Progress summary"},
-                "status": {"type": "string", "description": "Current status"},
-                "next_steps": {"type": "array", "items": {"type": "string"}},
-                "blockers": {"type": "array", "items": {"type": "string"}},
-            },
-            "required": ["project_name", "task_id", "summary", "status"],
-        },
-    },
     "dream_ledger": {
         "description": (
-            "Return the latest v3.1 DreamRun ledger for a project, or one "
+            "Return the latest DreamRun ledger for a project, or one "
             "DreamRun by id. This is the backing MCP surface for /hm:dream: "
             "it reads the audit ledger and never mutates truth."
         ),
@@ -1288,7 +971,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "dream_run": {
         "description": (
-            "Run one v3.1 dream maintenance pass now. It parses and handles "
+            "Run one dream maintenance pass now. It parses and handles "
             "every selected dream result to a terminal state and writes a "
             "DreamRun ledger with audit and undo metadata."
         ),
@@ -1322,7 +1005,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "dream_auto_tick": {
         "description": (
-            "Run one host/client auto tick for v3.1 dream. The tick only "
+            "Run one host/client auto tick for dream. The tick only "
             "enqueues a dream job when dream.auto.enabled and dream auto gates "
             "allow it."
         ),
@@ -1367,14 +1050,15 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
 }
 
-# Kept in the registry for internal orchestration, but never exposed through
-# MCP tools/list or exported descriptors.
+# Retired internal handler names. Keep this denylist so tests and serializers
+# cannot accidentally reintroduce them into MCP tools/list, public hints, or
+# exported descriptors.
 INTERNAL_MCP_TOOL_NAMES = frozenset(
     {
         "set_active_project",
         "ingest_sessions",
-        # Compatibility handlers retained for internal orchestration and old
-        # local code. They are intentionally absent from MCP tools/list.
+        # Former orchestration handlers are intentionally absent from the MCP
+        # schema and handler registries.
         "suggest_memory_entry",
         "suggest_rule",
         "suggest_relation_fact",
@@ -1406,14 +1090,12 @@ TOOL_CLUSTERS = {
     "get_project_profile": "core_read",
     "file_context": "core_read",
     "get_project_status": "core_read",
-    "set_active_project": "internal",
     "wake": "core_read",
     # Advanced or lower-frequency read surfaces.
     "trace_relations": "review_read",
     "search_raw": "review_read",
     "search_skills": "review_read",
     "get_skill": "review_read",
-    "ingest_sessions": "internal",
     "record_context_outcome": "advanced",
     # Candidate/truth loop.
     "prepare_session_distill": "truth_loop",
@@ -1423,21 +1105,6 @@ TOOL_CLUSTERS = {
     "get_candidate_detail": "truth_loop",
     "auto_review_candidates": "truth_loop",
     "govern_memory": "truth_loop",
-    "suggest_supersede": "truth_loop",
-    "confirm_supersede": "truth_loop",
-    "reject_supersede": "truth_loop",
-    "suggest_correction": "truth_loop",
-    "create_rule_candidate": "truth_loop",
-    "confirm_rule": "truth_loop",
-    "reject_rule": "truth_loop",
-    "suggest_rule": "truth_loop",
-    "suggest_memory_entry": "truth_loop",
-    "confirm_memory_entry": "truth_loop",
-    "reject_memory_entry": "truth_loop",
-    "suggest_relation_fact": "truth_loop",
-    "confirm_relation_fact": "truth_loop",
-    "reject_relation_fact": "truth_loop",
-    "create_task_handoff": "truth_loop",
     # Dream is a default product capability; the cluster name is separate from
     # whether a tool appears in the public MCP surface.
     "dream_ledger": "dream",
@@ -1461,15 +1128,13 @@ def build_tools(
     handler_keys = set(handlers)
     cluster_keys = set(TOOL_CLUSTERS)
     public_keys = set(PUBLIC_MCP_TOOL_NAMES)
-    internal_keys = set(INTERNAL_MCP_TOOL_NAMES)
-    registered_keys = public_keys | internal_keys
     if (
-        schema_keys != registered_keys
+        schema_keys != public_keys
         or schema_keys != handler_keys
         or schema_keys != cluster_keys
     ):
-        unclassified_schemas = schema_keys - registered_keys
-        missing_registered_schemas = registered_keys - schema_keys
+        unclassified_schemas = schema_keys - public_keys
+        missing_registered_schemas = public_keys - schema_keys
         missing_handlers = schema_keys - handler_keys
         unknown_handlers = handler_keys - schema_keys
         missing_clusters = schema_keys - cluster_keys

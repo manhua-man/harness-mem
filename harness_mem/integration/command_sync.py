@@ -61,6 +61,8 @@ def default_hermes_skills_dir() -> Path:
 def command_hint(client: CommandHost) -> str:
     """Return the user-facing native invocation syntax for one host."""
 
+    if client == "claude-code":
+        return "/hm:*"
     if client == "codex":
         return "$hm-*"
     return "/hm-*"

@@ -150,8 +150,22 @@ def test_project_command_surfaces_use_native_paths_and_invocation_styles(
             scope="project",
             source_dir=source_dir,
         )
-    assert command_hint("codex") == "$hm-*"
-    assert command_hint("cursor") == "/hm-*"
+
+
+@pytest.mark.parametrize(
+    ("client", "expected"),
+    [
+        ("claude-code", "/hm:*"),
+        ("codex", "$hm-*"),
+        ("cursor", "/hm-*"),
+        ("grok", "/hm-*"),
+        ("hermes", "/hm-*"),
+        ("opencode", "/hm-*"),
+        ("antigravity", "/hm-*"),
+    ],
+)
+def test_command_hint_uses_exact_host_native_syntax(client: str, expected: str) -> None:
+    assert command_hint(client) == expected
 
 
 def test_codex_distill_skill_preserves_router_and_direct_alias_resolution(

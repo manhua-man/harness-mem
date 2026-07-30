@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import sys
-import tomllib
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -24,8 +22,6 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
 DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
-CONFIG_TOML_PATH = Path.home() / ".harness-mem" / "config.toml"
-LEGACY_CONFIG_JSON_PATH = Path.home() / ".harness-mem" / "config.json"
 
 NATIVE_INGEST_CLIENTS = {
     "claude-code",
@@ -195,21 +191,14 @@ def normalize_handoff_status(value: str | None) -> str:
 
 
 def get_config() -> dict:
-    """Read user configuration, preferring config.toml over legacy JSON."""
-    if CONFIG_TOML_PATH.exists():
-        try:
-            with CONFIG_TOML_PATH.open("rb") as fh:
-                data = tomllib.load(fh)
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            return {}
+    """Return the single merged runtime config for the current workspace."""
 
-    if not LEGACY_CONFIG_JSON_PATH.exists():
-        return {}
+    from harness_mem.config.errors import ConfigError
+    from harness_mem.config.merge import load_merged_config
 
     try:
-        return json.loads(LEGACY_CONFIG_JSON_PATH.read_text(encoding="utf-8"))
-    except Exception:
+        return load_merged_config(Path.cwd()).to_runtime_config()
+    except ConfigError:
         return {}
 
 _ADOPTED_NEXT_STEP_COMMANDS = {
@@ -914,8 +903,7 @@ def suggested_next_step(
                 "Sessions are ingested but no memory entries exist yet. "
                 "Run /hm:distill in your AI agent (Claude Code, Codex, "
                 "Cursor, etc.) so it can read sessions and write candidates "
-                "via MCP suggest_memory_entry. v2.0 removed the heuristic "
-                "CLI distill — distill is LLM-driven only."
+                "through MCP govern_memory. Distill is Agent-driven only."
             ),
         )
 

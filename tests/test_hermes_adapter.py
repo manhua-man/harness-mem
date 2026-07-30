@@ -175,7 +175,7 @@ def test_tool_ingest_sessions_hermes_uses_project_root_and_reports_resolved_clie
     monkeypatch.setattr(ingest_module, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(hermes_adapter_module, "DEFAULT_SESSIONS_DIR", sessions_dir)
 
-    payload = tool_handlers.tool_ingest_sessions(
+    payload = tool_handlers._ingest_sessions(
         client="hermes",
         project_root=str(workspace),
     )

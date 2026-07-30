@@ -54,11 +54,9 @@ schema changes, restart the harness-mem child process in the Router and start a
 new Agent task; existing tasks keep the tool snapshot they started with.
 
 `harness_mem/mcp/tool_specs.py` and `mcps/harness_mem/tools/` are the canonical
-descriptor sources. The checked-in `mcps/mcp-router` and `mcps/mcp_router`
-directories are frozen Router snapshots owned as a whole; do not bulk-copy a
-single harness-mem schema change into them. See
-[compatibility-inventory.md](compatibility-inventory.md) for the keep/remove
-criteria behind this boundary.
+descriptor sources. The stale checked-in Router aggregate snapshots were
+removed in 0.9.6. This does not remove the live `mcp__mcp_router__*` namespace:
+Router clients continue to discover tools from the running server.
 
 The server has one public memory surface. It exposes the normal Agent workflow:
 status, wake/search, session distill, composite `govern_memory`, candidate
@@ -115,7 +113,7 @@ recurring daily prompt. `/hm:review` remains an optional correction, audit, and
 undo surface. Lower-level sync and chunk tools are internal Agent workflow, not user commands. Operator
 maintenance and skill lifecycle management are not public MCP tools.
 
-For 0.9.5 candidates, `govern_memory(action="suggest")` accepts
+New candidates use `govern_memory(action="suggest")` with
 `evidence_basis`, `verification_outcome`, and integrity-only
 `verification_refs` inside its existing `arguments` object. Repository claims
 use a project-relative locator plus current file SHA-256; explicit user
@@ -203,6 +201,10 @@ Project-scoped MCP initialization installs the matching IDE hooks automatically.
 If hooks are missing, the next MCP initialization repairs the project-local
 installation without overwriting existing files.
 
+For explicit hook repair across any supported host, use
+`harness-mem integration hooks sync --client <host> --project-root . --force`.
+The old host-specific hook installer commands are not public CLI surfaces.
+
 ## Generic MCP Client
 
 Add a project-scoped server entry that runs from the workspace:
@@ -254,5 +256,7 @@ Search harness-mem for the relevant project decision.
 - Skill lifecycle governance is outside the public memory MCP and CLI product
   surface.
 - Daily use should happen through the Agent client and MCP tools.
-- `distill` creates candidates first and previews review decisions; review
-  decides what becomes confirmed memory.
+- `distill` creates candidates only after complete evidence review;
+  `finalize_session_distill` applies the shared automatic governance policy
+  and runs Dream. `/hm:review` is the post-hoc audit, correction, and undo
+  surface, not a required promotion gate.

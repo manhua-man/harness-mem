@@ -141,13 +141,24 @@ def test_trace_relations_adds_weighted_recall(backend) -> None:
 
 
 def test_mcp_review_writes_state_audit_events(backend) -> None:
-    suggested = server.tool_suggest_memory_entry(
-        project_name="demo",
-        category="decision",
-        content="State audit events are append-only.",
-        source="test",
+    suggested = server.tool_govern_memory(
+        action="suggest",
+        arguments={
+            "kind": "memory",
+            "project_name": "demo",
+            "category": "decision",
+            "content": "State audit events are append-only.",
+            "source": "test",
+        },
     )
-    confirmed = server.tool_confirm_memory_entry(suggested["entry_id"])
+    confirmed = server.tool_govern_memory(
+        action="decide",
+        arguments={
+            "kind": "memory",
+            "decision": "confirm",
+            "candidate_id": suggested["entry_id"],
+        },
+    )
 
     events = list(iter_state_events(backend.data_dir, project_name="demo"))
 
@@ -279,16 +290,25 @@ def test_mcp_confirm_supersede_writes_audit_and_links_truth(backend) -> None:
         )
     )
 
-    suggested = server.tool_suggest_supersede(
-        project_name="demo",
-        target_type="memory_entry",
-        target_id=old_id,
-        replacement_type="memory_entry",
-        replacement_id=new_id,
-        reason="New decision replaces old decision.",
-        evidence="test evidence",
+    suggested = server.tool_govern_memory(
+        action="supersede",
+        arguments={
+            "project_name": "demo",
+            "target_type": "memory_entry",
+            "target_id": old_id,
+            "replacement_type": "memory_entry",
+            "replacement_id": new_id,
+            "reason": "New decision replaces old decision.",
+            "evidence": "test evidence",
+        },
     )
-    confirmed = server.tool_confirm_supersede(suggested["candidate_id"])
+    confirmed = server.tool_govern_memory(
+        action="supersede",
+        arguments={
+            "decision": "confirm",
+            "candidate_id": suggested["candidate_id"],
+        },
+    )
 
     old_entry = asyncio.run(backend.structured_store.get_memory_entry(old_id))
     new_entry = asyncio.run(backend.structured_store.get_memory_entry(new_id))

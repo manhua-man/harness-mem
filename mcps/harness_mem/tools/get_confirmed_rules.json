@@ -10,7 +10,7 @@
       },
       "include_history": {
         "type": "boolean",
-        "description": "v1.7.0: include historical confirmed rules. Default false returns current rules only.",
+        "description": "Include historical confirmed rules. Default false returns current rules only.",
         "default": false
       }
     },

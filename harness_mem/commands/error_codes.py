@@ -59,7 +59,10 @@ CLI_ERROR_CODES: dict[str, CliErrorCode] = {
         code="HM-401",
         level="warning",
         summary="confirmed rules have not been surfaced in any wake-up for the configured retention window.",
-        fix_command="MCP get_confirmed_rules -> reject_rule or suggest_supersede",
+        fix_command=(
+            "MCP get_confirmed_rules -> govern_memory(action=\"decide\" or "
+            "action=\"supersede\")"
+        ),
         note=(
             "Rules with usage_count == 0 or last_surfaced_at older than the retention window are likely "
             "no longer relevant. doctor only flags them; deletion remains a deliberate human action."

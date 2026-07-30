@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tomllib
 from pathlib import Path
 
@@ -10,7 +11,12 @@ from harness_mem.commands.config_cmds import (
     cmd_config_list,
     cmd_config_set,
 )
-from harness_mem.config.merge import MergedConfig, load_merged_config
+from harness_mem.commands import support
+from harness_mem.config.merge import (
+    PUBLIC_CONFIG_KEY_PATHS,
+    MergedConfig,
+    load_merged_config,
+)
 from harness_mem.config.writer import set_value
 
 
@@ -62,10 +68,9 @@ def test_user_delete_source_setting_is_overridden_by_project(
         ("autopilot.enabled", "false", False),
         ("capture.enabled", "false", False),
         ("capture.ignore_clients", '["codex", "cursor", "codex"]', ["codex", "cursor"]),
-        ("distill.auto.daily_job_budget", "12", 12),
+        ("distill.auto.enabled", "false", False),
         ("distill.delete_source_after_complete", "true", True),
-        ("dream.auto.trigger", "idle", "idle"),
-        ("cost_budget.wake_tokens", "1500", 1500),
+        ("dream.auto.enabled", "false", False),
     ],
 )
 def test_config_writer_preserves_typed_values(
@@ -91,6 +96,45 @@ def test_config_writer_preserves_typed_values(
         current = current[part]
     assert current == expected
     load_merged_config(project)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("distill.auto.daily_job_budget", "12"),
+        ("dream.auto.trigger", "idle"),
+        ("dream.handle.auto_apply", "false"),
+        ("cost_budget.wake_tokens", "1500"),
+    ],
+)
+def test_config_set_rejects_internal_runtime_tuning(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    key: str,
+    value: str,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+
+    assert cmd_config_set(key, value, "project", str(project)) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "internal compatibility key" in captured.err
+    assert not (project / ".harness-mem.toml").exists()
+
+
+def test_config_set_rejects_unknown_public_policy_key(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+
+    assert cmd_config_set("mystery.option", "true", "project", str(project)) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "mystery.option" in captured.err
+    assert not (project / ".harness-mem.toml").exists()
 
 
 def test_config_set_rejects_invalid_delete_source_boolean(
@@ -190,7 +234,7 @@ def test_disabling_delete_source_never_requires_confirmation(
     assert load_merged_config(project).distill_delete_source_after_complete is False
 
 
-def test_config_get_and_list_include_all_typed_groups(
+def test_config_get_and_list_include_only_public_policy_keys(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -216,4 +260,51 @@ def test_config_get_and_list_include_all_typed_groups(
     assert "distill.auto.enabled = true  (default)" in output
     assert "distill.delete_source_after_complete = true  (user)" in output
     assert "dream.auto.enabled = true  (default)" in output
-    assert "cost_budget.wake_tokens = 2000  (default)" in output
+    assert "cost_budget.wake_tokens" not in output
+    assert "dream.handle.auto_apply" not in output
+    listed = {
+        line.split(" =", 1)[0]
+        for line in output.splitlines()
+        if " = " in line
+    }
+    assert listed == set(PUBLIC_CONFIG_KEY_PATHS)
+
+
+def test_legacy_json_toml_and_project_config_share_one_merge_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    project.mkdir()
+    _redirect_home(monkeypatch, home)
+    config_dir = home / ".harness-mem"
+    config_dir.mkdir()
+    (config_dir / "config.json").write_text(
+        json.dumps(
+            {
+                "capture": {"enabled": False},
+                "wake": {"auto_ingest": False},
+                "embedding": {"model_id": "legacy-model"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (config_dir / "config.toml").write_text(
+        "[capture]\nenabled = true\n[dream.auto]\nenabled = false\n",
+        encoding="utf-8",
+    )
+    (project / ".harness-mem.toml").write_text(
+        "[capture]\nenabled = false\n",
+        encoding="utf-8",
+    )
+
+    merged = load_merged_config(project)
+    runtime = merged.to_reflection_config()
+    assert merged.capture_enabled is False
+    assert merged.dream_auto_enabled is False
+    assert runtime["wake"]["auto_ingest"] is False
+    assert runtime["embedding"]["model_id"] == "legacy-model"
+
+    monkeypatch.chdir(project)
+    assert support.get_config() == runtime

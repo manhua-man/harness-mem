@@ -59,10 +59,22 @@ async def retry_retained_source_cleanups(
     backend: LocalMemoryBackend,
     *,
     project_name: str,
+    authorized: bool,
     limit: int = 4,
     minimum_age_seconds: int = 300,
 ) -> dict[str, Any]:
     """Retry a bounded, cooled-down set through existing maintenance hooks."""
+
+    if not authorized:
+        return {
+            "attempted": 0,
+            "deleted": 0,
+            "retained": 0,
+            "partial_failure": 0,
+            "unsupported": 0,
+            "outcomes": [],
+            "reason": "source_cleanup_not_authorized",
+        }
 
     from harness_mem.native_source_cleanup import (
         apply_native_source_cleanup,
