@@ -59,8 +59,8 @@ async def _gather_project_status(*args, **kwargs):
     return await _core._gather_project_status(*args, **kwargs)
 
 
-def tool_ingest_sessions(*args, **kwargs):
-    return _core.tool_ingest_sessions(*args, **kwargs)
+def _ingest_sessions(*args, **kwargs):
+    return _core._ingest_sessions(*args, **kwargs)
 
 
 async def auto_review_candidates(*args, **kwargs):
@@ -317,7 +317,7 @@ def tool_prepare_session_distill(
         "reason": "run_ingest=false",
     }
     if run_ingest:
-        ingest_payload = tool_ingest_sessions(
+        ingest_payload = _ingest_sessions(
             project_name=resolved_project_name,
             client=normalized_client,
             limit=effective_limit,

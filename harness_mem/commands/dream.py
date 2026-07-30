@@ -390,7 +390,11 @@ async def _queue_supersede_for_review(
             "candidate_status": existing.status,
             "target_id": candidate.target_id,
             "replacement_id": candidate.replacement_id,
-            "review_tools": ["confirm_supersede", "reject_supersede"],
+            "review_action": {
+                "tool": "govern_memory",
+                "action": "supersede",
+                "decisions": ["confirm", "reject"],
+            },
             "auto_apply_requested": auto_apply_requested,
         },
     )

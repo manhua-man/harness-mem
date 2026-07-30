@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -786,6 +789,159 @@ def test_source_tombstone_blocks_recapture_from_moved_uri(
             )
             assert recapture.action == "ignored"
             assert recapture.reason == "hard_delete_tombstone"
+        finally:
+            await backend.close()
+
+    asyncio.run(run())
+
+
+def test_privacy_erase_removes_native_source_and_linked_truth(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HARNESS_MEM_DISABLE_EMBEDDINGS", "1")
+    project = tmp_path / "project"
+    project.mkdir()
+
+    async def run() -> None:
+        backend = LocalMemoryBackend(tmp_path / "data")
+        await backend.init()
+        try:
+            session_id = "019f0000-0000-7000-8000-000000000077"
+            private_text = "privacy erase native source sentinel"
+            snapshot = await persist_session_snapshot(
+                backend,
+                Observation(
+                    session_id=session_id,
+                    client="codex",
+                    raw_content=private_text,
+                    content_type="transcript",
+                    metadata={"project_name": "demo"},
+                ),
+                project_name="demo",
+                project_root=str(project),
+                client="codex",
+                session_id=session_id,
+                source_kind="jsonl",
+                source_uri="file:///placeholder.jsonl",
+                source_text=private_text,
+            )
+            native_root = tmp_path / ".codex" / "sessions"
+            native_path = native_root / f"rollout-2026-07-30-{session_id}.jsonl"
+            native_path.parent.mkdir(parents=True)
+            native_path.write_text(private_text, encoding="utf-8")
+            old = time.time() - 300
+            os.utime(native_path, (old, old))
+            source = snapshot.source
+            source.source_uri = native_path.absolute().as_uri()
+            source.metadata = {
+                **source.metadata,
+                "native_source_uri": source.source_uri,
+                "native_input_sha256": hashlib.sha256(
+                    private_text.encode("utf-8")
+                ).hexdigest(),
+                "native_cleanup_descriptor": {
+                    "version": 1,
+                    "allowed_root_uris": [native_root.absolute().as_uri()],
+                },
+            }
+            backend.transcript_store.save_source(source)
+            truth_id = await backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    id="privacy-native-truth",
+                    project_name="demo",
+                    category="decision",
+                    content="privacy erase removes this durable truth",
+                    source=str(snapshot.observation_id),
+                    distill_job_id=snapshot.distill_job_id,
+                    status="auto_confirmed",
+                )
+            )
+
+            preview = await hard_delete(
+                backend,
+                project_name="demo",
+                session_id=session_id,
+                native_source_mode="erase",
+                apply=False,
+            )
+            assert preview["plan"]["counts"]["native_sources"] == 1
+            assert native_path.exists()
+
+            applied = await hard_delete(
+                backend,
+                project_name="demo",
+                session_id=session_id,
+                native_source_mode="erase",
+                apply=True,
+            )
+
+            assert applied["success"] is True, applied
+            assert not native_path.exists()
+            assert await backend.structured_store.get_memory_entry(truth_id) is None
+            assert applied["receipt"]["native_cleanup"][0]["status"] == "deleted"
+            assert str(native_path) not in str(applied["receipt"])
+        finally:
+            await backend.close()
+
+    asyncio.run(run())
+
+
+def test_privacy_erase_reports_partial_for_shared_native_container(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HARNESS_MEM_DISABLE_EMBEDDINGS", "1")
+    project = tmp_path / "project"
+    project.mkdir()
+
+    async def run() -> None:
+        backend = LocalMemoryBackend(tmp_path / "data")
+        await backend.init()
+        try:
+            shared_path = tmp_path / "shared-sessions.sqlite"
+            shared_path.write_bytes(b"shared container must remain")
+            session_id = "shared-privacy-session"
+            snapshot = await persist_session_snapshot(
+                backend,
+                Observation(
+                    session_id=session_id,
+                    client="hermes",
+                    raw_content="shared private evidence",
+                    content_type="transcript",
+                    metadata={"project_name": "demo"},
+                ),
+                project_name="demo",
+                project_root=str(project),
+                client="hermes",
+                session_id=session_id,
+                source_kind="sqlite-session-export",
+                source_uri=shared_path.absolute().as_uri(),
+                source_text="shared private evidence",
+            )
+
+            result = await hard_delete(
+                backend,
+                project_name="demo",
+                session_id=session_id,
+                native_source_mode="erase",
+                apply=True,
+            )
+
+            assert result["success"] is False
+            assert result["partial"] is True
+            assert result["receipt"]["status"] == "partial_failure"
+            assert result["receipt"]["verification"]["remaining"][
+                "native_sources"
+            ] == 1
+            assert shared_path.exists()
+            assert (
+                backend.transcript_store.get_revision(
+                    snapshot.source.id,
+                    snapshot.source.source_revision,
+                )
+                is None
+            )
         finally:
             await backend.close()
 

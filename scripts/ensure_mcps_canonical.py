@@ -1,8 +1,7 @@
-"""Restore canonical mcps/ descriptors (idempotent PR0 hygiene).
+"""Verify and regenerate canonical harness-mem MCP descriptors.
 
-1. Revert incidental ``mcps/grok_com_github`` IDE/MCP header drift.
-2. Regenerate ``mcps/harness_mem/tools`` from ``tool_specs``.
-3. Fail if any path under ``mcps/`` still differs from HEAD.
+Router aggregate snapshots are retired: they mixed unrelated servers and stale
+harness-mem schemas. This script refuses their tracked or untracked return.
 """
 
 from __future__ import annotations
@@ -24,11 +23,14 @@ def _run_git(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _checkout_grok_mcps() -> None:
-    result = _run_git("checkout", "--", "mcps/grok_com_github")
-    if result.returncode != 0:
-        print(result.stderr or result.stdout, file=sys.stderr)
-        raise SystemExit(result.returncode)
+RETIRED_ROUTER_SNAPSHOT_DIRS = (
+    REPO_ROOT / "mcps" / "mcp-router",
+    REPO_ROOT / "mcps" / "mcp_router",
+)
+
+
+def _retired_router_snapshots() -> list[Path]:
+    return [path for path in RETIRED_ROUTER_SNAPSHOT_DIRS if path.exists()]
 
 
 def _regenerate_harness_mem_tools() -> None:
@@ -50,6 +52,15 @@ def _mcps_diff_names() -> list[str]:
 
 def main() -> int:
     print(f"repo: {REPO_ROOT}")
+    retired = _retired_router_snapshots()
+    if retired:
+        print(
+            "ERROR: retired Router snapshot directories must not exist:",
+            file=sys.stderr,
+        )
+        for path in retired:
+            print(f"  {path.relative_to(REPO_ROOT)}", file=sys.stderr)
+        return 1
     before = _mcps_diff_names()
     if before:
         print(f"mcps drift before repair: {len(before)} file(s)")
@@ -58,7 +69,6 @@ def main() -> int:
         if len(before) > 10:
             print(f"  ... and {len(before) - 10} more")
 
-    _checkout_grok_mcps()
     _regenerate_harness_mem_tools()
 
     remaining = _mcps_diff_names()

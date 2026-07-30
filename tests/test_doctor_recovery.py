@@ -4,7 +4,10 @@ import hashlib
 import sqlite3
 from pathlib import Path
 
-from harness_mem.commands.doctor import _doctor_recovery_plan_block
+from harness_mem.commands.doctor import (
+    _doctor_recovery_plan_block,
+    _doctor_storage_v2_block,
+)
 from harness_mem.commands.doctor_recovery import (
     build_doctor_recovery_plan,
     read_only_storage_v2_health,
@@ -113,6 +116,36 @@ def test_invalid_legacy_fails_closed_without_apply_command() -> None:
     assert plan["items"][0]["action_class"] == "manual_review"
     assert all(item["apply_command"] is None for item in plan["items"])
     assert "deleting" in (plan["items"][0]["no_automatic_action"] or "")
+
+
+def test_doctor_reports_legacy_reader_cutoff_and_migration_preview(capsys) -> None:
+    report = _report(
+        status="not_migrated",
+        runtime_state="degraded_fallback",
+        checksum_match=False,
+        checksum_relation="legacy_missing_in_canonical",
+        legacy_json_file_count=3,
+        canonical_row_count=0,
+        wal_size_bytes=0,
+        legacy_reader_policy={
+            "conversion_status": "migration_required",
+            "supported_through": "0.9.x",
+            "earliest_removal_version": "1.0.0",
+            "earliest_removal_date": "2027-01-31",
+            "migration_preview_command": (
+                "harness-mem maintenance migrate-store-v2 "
+                "--project <PROJECT_NAME> --dry-run"
+            ),
+        },
+    )
+
+    _doctor_storage_v2_block(report)
+    output = capsys.readouterr().out
+
+    assert "legacy reader: migration_required" in output
+    assert "supported through 0.9.x" in output
+    assert "1.0.0 and 2027-01-31" in output
+    assert "migration preview:" in output
 
 
 def test_unsafe_combined_states_never_offer_apply_commands() -> None:

@@ -1,4 +1,4 @@
-"""Official daily-memory guided flow (v5.13).
+"""Official daily-memory guided flow.
 
 Stable onboarding / drilldown narrative for MCP surfaces. Non-canonical:
 hints and step order only; never writes truth.
@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 GUIDED_FLOW_ID = "daily-memory-loop"
-GUIDED_FLOW_VERSION = "5.13"
+GUIDED_FLOW_VERSION = "1"
 
 EntryKind = Literal["context", "mcp", "slash"]
 
@@ -240,7 +240,7 @@ def _steps_for_phase(
                 "do not treat compact generated summaries as confirmed truth."
             ),
             entry="drilldown_hints",
-            entry_kind="mcp",
+            entry_kind="context",
             required=False,
         )
     )
@@ -252,10 +252,20 @@ def _steps_for_phase(
             order=order,
             title="Hand off at session end",
             description="Record progress, blockers, and next steps for the next session.",
-            entry=f"create_task_handoff({project_fragment})",
+            entry='govern_memory(action="handoff")',
             entry_kind="mcp",
             required=False,
-            arguments={"project_name": project_name} if project_name else {},
+            arguments={
+                "action": "handoff",
+                "arguments": {
+                    "project_name": project_name or "<project>",
+                    "task_id": "<task-id>",
+                    "summary": "<progress-summary>",
+                    "status": "in_progress",
+                    "next_steps": [],
+                    "blockers": [],
+                },
+            },
         )
     )
     return steps

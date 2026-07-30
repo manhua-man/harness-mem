@@ -21,7 +21,7 @@ Invocation paths installed by this plugin:
 
 | Path | Calls |
 |---|---|
-| `/hm:*` commands | Daily status, wake, search, distill, review, and dream. |
+| `/hm:*` commands | Daily status, wake, search, search-all, distill, review, and dream. |
 | Agent skills | Memory tool calls selected by the host Agent. |
 | Optional MCP registration | User-level `harness_mem` server entry for Claude Code. |
 
@@ -66,6 +66,12 @@ harness-mem integration commands list
 harness-mem integration commands sync
 ```
 
+Repair one host's project hook suite without reinstalling the package:
+
+```powershell
+harness-mem integration hooks sync --client codex --project-root . --force
+```
+
 Skip slash command and skill sync on headless machines:
 
 ```powershell
@@ -85,9 +91,9 @@ command mechanism. The action names are stable; only the host's prefix differs.
 
 | Host | Invocation |
 |---|---|
-| Claude Code | `/hm:status`, `/hm:wake`, `/hm:search`, `/hm:distill`, `/hm:review`, `/hm:dream` |
-| Codex | `$hm-status`, `$hm-wake`, `$hm-search`, `$hm-distill`, `$hm-review`, `$hm-dream` |
-| Cursor, Grok, Hermes, OpenCode, Antigravity | `/hm-status`, `/hm-wake`, `/hm-search`, `/hm-distill`, `/hm-review`, `/hm-dream` |
+| Claude Code | `/hm:status`, `/hm:wake`, `/hm:search`, `/hm:search-all`, `/hm:distill`, `/hm:review`, `/hm:dream` |
+| Codex | `$hm-status`, `$hm-wake`, `$hm-search`, `$hm-search-all`, `$hm-distill`, `$hm-review`, `$hm-dream` |
+| Cursor, Grok, Hermes, OpenCode, Antigravity | `/hm-status`, `/hm-wake`, `/hm-search`, `/hm-search-all`, `/hm-distill`, `/hm-review`, `/hm-dream` |
 
 The repo installer already performs the one-time all-host sync. To repair or
 refresh it independently:

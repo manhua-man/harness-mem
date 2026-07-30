@@ -6,9 +6,9 @@ TOML. The write model is a structured edit: read the existing file into a
 table back via :func:`tomli_w.dumps`. Comments and key ordering are NOT
 preserved.
 
-Recognized-key validation reuses :data:`harness_mem.config.merge._RECOGNIZED_KEYS`
-as the single source of truth so the writer can never disagree with the
-v2.4.1 loader about which values are allowed.
+Recognized-key validation reuses the merge module's typed key registry so the
+writer and loader cannot disagree about allowed values. Only public policy
+keys are writable; retained tuning keys are read-only compatibility input.
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ import tomli_w
 
 from harness_mem.config.errors import ConfigParseError, ConfigValidationError
 from harness_mem.config.merge import (
+    INTERNAL_CONFIG_KEY_PATHS,
+    PUBLIC_CONFIG_KEY_PATHS,
     _RECOGNIZED_KEYS,
     _REMOVED_CONFIG_KEYS,
     _TYPED_CONFIG_KEYS,
@@ -108,14 +110,22 @@ def _parse_str_list(value: str, *, key_path: str, target: Path) -> list[str]:
 
 
 def _validate(key_path: str, value: str, target: Path) -> Any:
-    """Reject Recognized_Key values outside the v2.4.1 allowed set (Req 2.5).
-
-    Non-recognized keys accept any string value (the runtime ignores them via
-    ``MergedConfig.extras``).
-    """
+    """Validate a public policy value and reject internal tuning keys."""
     if key_path in _REMOVED_CONFIG_KEYS or key_path.startswith("triggers."):
         raise ConfigValidationError(
             key_path=key_path, value=value, source_path=str(target)
+        )
+    if key_path in INTERNAL_CONFIG_KEY_PATHS:
+        raise ConfigValidationError(
+            key_path=key_path,
+            value="internal compatibility key",
+            source_path=str(target),
+        )
+    if key_path not in PUBLIC_CONFIG_KEY_PATHS:
+        raise ConfigValidationError(
+            key_path=key_path,
+            value="unknown public policy key",
+            source_path=str(target),
         )
     for recognized_path, _attr, allowed, _default in _RECOGNIZED_KEYS:
         if recognized_path == key_path and value not in allowed:

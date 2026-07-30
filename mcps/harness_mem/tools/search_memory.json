@@ -43,17 +43,17 @@
       },
       "include_history": {
         "type": "boolean",
-        "description": "v1.7.0: include historical structured truth. Default false returns current truth only.",
+        "description": "Include historical structured truth. Default false returns current truth only.",
         "default": false
       },
       "include_provisional": {
         "type": "boolean",
-        "description": "v0.8.8: include provisional auto-promoted truth (down-weighted). Default false.",
+        "description": "Include provisional auto-promoted truth (down-weighted). Default false.",
         "default": false
       },
       "deep_recall": {
         "type": "boolean",
-        "description": "v4.0.4: include cold/archive lifecycle tiers. Default false searches hot/warm only.",
+        "description": "Include cold/archive lifecycle tiers. Default false searches hot/warm only.",
         "default": false
       },
       "retrieval_profile": {
@@ -62,15 +62,15 @@
           "light",
           "quality"
         ],
-        "description": "v5.9.1: opt-in retrieval profile for this call. 'light' keeps the default path; 'quality' enables deterministic query rewrite/fanout metadata with a noop reranker. It does not enable HyDE or a heavy reranker by default."
+        "description": "Opt-in retrieval profile for this call. 'light' keeps the default path; 'quality' enables deterministic query rewrite/fanout metadata with a noop reranker. It does not enable HyDE or a heavy reranker by default."
       },
       "task": {
         "type": "string",
-        "description": "v4.1: optional current task used by context sufficiency checks."
+        "description": "Optional current task used by context sufficiency checks."
       },
       "budget_tokens": {
         "type": "integer",
-        "description": "v4.1: advisory context budget for ContextPlan / wake packet traces.",
+        "description": "Advisory context budget for ContextPlan / wake packet traces.",
         "default": 6000
       }
     },

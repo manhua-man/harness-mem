@@ -20,13 +20,7 @@ from harness_mem.commands import (
     cmd_doctor,
     cmd_export_json_snapshot,
     cmd_import,
-    cmd_install_claude_hook,
-    cmd_install_claude_wake_hook,
-    cmd_install_claude_suite,
     cmd_install_hook_suite,
-    cmd_install_cursor_hook,
-    cmd_install_cursor_wake_hook,
-    cmd_install_cursor_suite,
     cmd_list_command_profiles,
     cmd_migrate_store_v2,
     cmd_purge,
@@ -55,12 +49,6 @@ __all__ = [
     "cmd_doctor",
     "cmd_export_json_snapshot",
     "cmd_import",
-    "cmd_install_cursor_hook",
-    "cmd_install_claude_hook",
-    "cmd_install_cursor_wake_hook",
-    "cmd_install_claude_wake_hook",
-    "cmd_install_cursor_suite",
-    "cmd_install_claude_suite",
     "cmd_install_hook_suite",
     "cmd_list_command_profiles",
     "cmd_migrate_store_v2",
@@ -287,7 +275,7 @@ def main(argv: list[str] | None = None):
     config_set.add_argument("--project-root", help="Project directory (default: cwd)")
 
     config_list = config_sub.add_parser(
-        "list", help="Print every recognized key plus extras with source labels"
+        "list", help="Print public policy keys with merged source labels"
     )
     config_list.add_argument("--project-root", help="Project directory (default: cwd)")
 
@@ -300,110 +288,36 @@ def main(argv: list[str] | None = None):
 
     integration = sub.add_parser(
         "integration",
-        help="Install IDE hooks for wake injection and dream maintenance",
+        help="Inspect or repair supported IDE integrations",
         description=(
-            "Generate IDE hook scripts bound to the verified 'harness-mem-hook' "
-            "console entry. Session-start hooks print wake context; "
-            "after-turn hooks run gated dream maintenance."
+            "Repair project hooks, inspect transcript evidence, or synchronize "
+            "the seven host-native Daily command surfaces."
         ),
     )
     integration.set_defaults(command_name="integration")
     integration_sub = integration.add_subparsers(dest="integration_action")
 
-    install_cursor = integration_sub.add_parser(
-        "install-cursor-hook",
-        help="Generate the Cursor dream-end hook script",
+    hooks = integration_sub.add_parser(
+        "hooks",
+        help="Repair or refresh one host's hook suite",
         description=(
-            "Generate the Cursor after-agent hook at "
-            "<project_root>/.cursor/hooks/after-agent.sh. It runs a gated "
-            "dream maintenance tick after agent turns."
+            "Repair project hooks through the same idempotent suite installer "
+            "used by MCP bootstrap. Normal projects do not need this command."
         ),
     )
-    install_cursor.add_argument(
+    hooks_sub = hooks.add_subparsers(dest="hooks_action")
+    hooks_sync = hooks_sub.add_parser("sync", help="Synchronize one hook suite")
+    hooks_sync.add_argument(
+        "--client",
+        choices=SUPPORTED_HOOK_CLIENTS,
+        required=True,
+        help="Host whose hook suite should be repaired",
+    )
+    hooks_sync.add_argument(
         "--project-root", help="Project directory (default: cwd)"
     )
-    install_cursor.add_argument(
-        "--force", action="store_true", help="Overwrite an existing hook"
-    )
-
-    install_claude = integration_sub.add_parser(
-        "install-claude-hook",
-        help="Generate the Claude Code dream-end hook script",
-        description=(
-            "Generate the Claude Code after-turn hook at "
-            "<project_root>/.claude/hooks/after-turn.sh. It runs a gated "
-            "dream maintenance tick after turns."
-        ),
-    )
-    install_claude.add_argument(
-        "--project-root", help="Project directory (default: cwd)"
-    )
-    install_claude.add_argument(
-        "--force", action="store_true", help="Overwrite an existing hook"
-    )
-
-    install_cursor_wake = integration_sub.add_parser(
-        "install-cursor-wake-hook",
-        help="Generate the Cursor session-start wake hook script",
-        description=(
-            "Generate the Cursor session-start hook at "
-            "<project_root>/.cursor/hooks/session-start.sh. It prints wake "
-            "context for host injection."
-        ),
-    )
-    install_cursor_wake.add_argument(
-        "--project-root", help="Project directory (default: cwd)"
-    )
-    install_cursor_wake.add_argument(
-        "--force", action="store_true", help="Overwrite an existing hook"
-    )
-
-    install_cursor_suite = integration_sub.add_parser(
-        "install-cursor-suite",
-        help="Generate the Cursor wake + post-turn hook suite",
-        description=(
-            "Generate the Cursor session-start and after-agent hooks at "
-            "<project_root>/.cursor/hooks/. The suite is idempotent and can be "
-            "re-run with --force."
-        ),
-    )
-    install_cursor_suite.add_argument(
-        "--project-root", help="Project directory (default: cwd)"
-    )
-    install_cursor_suite.add_argument(
-        "--force", action="store_true", help="Overwrite existing hooks"
-    )
-
-    install_claude_wake = integration_sub.add_parser(
-        "install-claude-wake-hook",
-        help="Generate the Claude Code session-start wake hook script",
-        description=(
-            "Generate the Claude Code session-start hook at "
-            "<project_root>/.claude/hooks/session-start.sh. It prints wake "
-            "context for host injection."
-        ),
-    )
-    install_claude_wake.add_argument(
-        "--project-root", help="Project directory (default: cwd)"
-    )
-    install_claude_wake.add_argument(
-        "--force", action="store_true", help="Overwrite an existing hook"
-    )
-
-    install_claude_suite = integration_sub.add_parser(
-        "install-claude-suite",
-        help="Generate the Claude Code wake + post-turn hook suite",
-        description=(
-            "Generate the Claude Code session-start and after-turn hooks at "
-            "<project_root>/.claude/hooks/. The suite is idempotent and can be "
-            "re-run with --force."
-        ),
-    )
-    install_claude_suite.add_argument(
-        "--project-root", help="Project directory (default: cwd)"
-    )
-    install_claude_suite.add_argument(
-        "--force", action="store_true", help="Overwrite existing hooks"
+    hooks_sync.add_argument(
+        "--force", action="store_true", help="Overwrite existing harness-mem hooks"
     )
 
     transcript_evidence = integration_sub.add_parser(
@@ -576,18 +490,17 @@ def main(argv: list[str] | None = None):
         if args.integration_action is None:
             integration.print_help()
             return 0
-        if args.integration_action == "install-cursor-hook":
-            return cmd_install_cursor_hook(args.project_root, args.force)
-        if args.integration_action == "install-claude-hook":
-            return cmd_install_claude_hook(args.project_root, args.force)
-        if args.integration_action == "install-cursor-wake-hook":
-            return cmd_install_cursor_wake_hook(args.project_root, args.force)
-        if args.integration_action == "install-claude-wake-hook":
-            return cmd_install_claude_wake_hook(args.project_root, args.force)
-        if args.integration_action == "install-cursor-suite":
-            return cmd_install_cursor_suite(args.project_root, args.force)
-        if args.integration_action == "install-claude-suite":
-            return cmd_install_claude_suite(args.project_root, args.force)
+        if args.integration_action == "hooks":
+            if args.hooks_action is None:
+                hooks.print_help()
+                return 0
+            if args.hooks_action == "sync":
+                return cmd_install_hook_suite(
+                    args.client,
+                    args.project_root,
+                    args.force,
+                )
+            hooks.error(f"Unknown hooks action: {args.hooks_action}")
         if args.integration_action == "transcript-evidence":
             return cmd_transcript_evidence(args.client, args.project_root)
         if args.integration_action == "commands":

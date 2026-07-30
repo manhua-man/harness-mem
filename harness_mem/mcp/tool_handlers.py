@@ -1,9 +1,9 @@
 """MCP tool handler facade for harness-mem.
 
 ``server.py`` owns stdio protection, backend initialization, and JSON-RPC
-routing. This module owns dependency binding, compatibility re-exports, the
-small remaining ingest/candidate helpers, and the registry bound to
-``tool_specs``. Capability bodies live in bounded ``*_handlers.py`` modules.
+routing. This module owns dependency binding, the small remaining ingest
+helpers, and the public registry bound to ``tool_specs``. Capability bodies
+live in bounded ``*_handlers.py`` modules.
 """
 
 from __future__ import annotations
@@ -27,34 +27,15 @@ from harness_mem.commands.integration_cmds import (  # noqa: F401
 )
 from harness_mem.commands.support import (
     SUPPORTED_INGEST_CLIENTS,
-    get_active_project,
     normalize_client_name,
     resolve_project_context,
     resolve_host_source,
     resolve_ingest_client,
-    set_active_project,
 )
 from harness_mem.config.merge import load_merged_config
 from harness_mem.event_log import StateEventType, append_state_event
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-from harness_mem.mcp.governance_handlers import (
-    tool_confirm_memory_entry,
-    tool_confirm_relation_fact,
-    tool_confirm_rule,
-    tool_confirm_supersede,
-    tool_create_rule_candidate,
-    tool_create_task_handoff,
-    tool_govern_memory,
-    tool_reject_memory_entry,
-    tool_reject_relation_fact,
-    tool_reject_rule,
-    tool_reject_supersede,
-    tool_suggest_correction,
-    tool_suggest_memory_entry,
-    tool_suggest_relation_fact,
-    tool_suggest_rule,
-    tool_suggest_supersede,
-)
+from harness_mem.mcp.governance_handlers import tool_govern_memory
 
 BackendProvider = Callable[[], LocalMemoryBackend]
 ObserverDataDirProvider = Callable[[], Path]
@@ -148,26 +129,7 @@ def _record_state_event(
 # =============================================================================
 
 
-def tool_set_active_project(project_name: str) -> dict:
-    """Set the active project so wake/search/suggest defaults pick it up.
-
-    The active project is the implicit default for tools that take
-    ``project_name`` and is the only thing that keeps memory written in
-    different working directories from cross-contaminating.
-    """
-    name = (project_name or "").strip()
-    if not name:
-        return {"success": False, "error": "project_name must not be empty"}
-    previous = get_active_project()
-    set_active_project(name)
-    return {
-        "success": True,
-        "project_name": name,
-        "previous_active_project": previous,
-    }
-
-
-def tool_ingest_sessions(
+def _ingest_sessions(
     project_name: str | None = None,
     client: str = "auto",
     limit: int = 10,
@@ -551,26 +513,7 @@ def _normalize_semantic_claim(value: Any) -> Any:
 
 
 # Runtime modules keep the registry facade stable while owning separate handler domains.
-from harness_mem.mcp.read_handlers import (  # noqa: E402, F401
-    CONTEXT_OUTCOME_VALUES,
-    VALID_CONTEXT_OUTCOMES,
-    VALID_MEMORY_TYPES,
-    VALID_RETRIEVAL_PROFILES,
-    RetrievalProfile,
-    _action,
-    _autopilot_dx_metadata,
-    _extract_as_of_hint,
-    _is_historical_truth,
-    _is_superseded_truth,
-    _normalize_retrieval_profile,
-    _resolve_retrieval_profile,
-    _retrieval_profile_status,
-    _search_dx_metadata,
-    _temporal_intent_drilldown_hint,
-    _temporal_intent_mode,
-    _temporal_query_action,
-    _wake_dx_metadata,
-    _with_temporal_intent_hint,
+from harness_mem.mcp.read_handlers import (  # noqa: E402
     tool_autopilot_search_tick,
     tool_file_context,
     tool_get_confirmed_rules,
@@ -587,31 +530,19 @@ from harness_mem.mcp.read_handlers import (  # noqa: E402, F401
     tool_trace_relations,
     tool_wake,
 )
+# Distill resolves this callback through the facade proxy.
 from harness_mem.mcp.status_handlers import (  # noqa: E402, F401
-    _bootstrap_status_workspace,
     _gather_project_status,
     tool_get_project_status,
 )
-from harness_mem.mcp.dream_handlers import (  # noqa: E402, F401
-    _dream_budget_from_payload,
-    _dream_run_summary,
-    _highest_risk,
-    _maintenance_summary,
-    _resolve_project_for_dream,
-    _resolve_project_root_for_dream,
+from harness_mem.mcp.dream_handlers import (  # noqa: E402
     _run_command_to_payload,
     tool_dream_auto_tick,
     tool_dream_ledger,
     tool_dream_run,
     tool_undo_dream_item,
 )
-from harness_mem.mcp.distill_handlers import (  # noqa: E402, F401
-    _checkpoint_distill_structural_projection,
-    _distill_job_candidate_ids,
-    _load_distill_exchange_windows,
-    _load_distill_semantic_evidence,
-    _recent_project_observations,
-    _semantic_review_allows_promotion,
+from harness_mem.mcp.distill_handlers import (  # noqa: E402
     tool_finalize_session_distill,
     tool_prepare_session_distill,
     tool_submit_distill_chunk,
@@ -635,9 +566,7 @@ def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
         "get_project_profile": tool_get_project_profile,
         "file_context": tool_file_context,
         "get_project_status": tool_get_project_status,
-        "set_active_project": tool_set_active_project,
         "wake": tool_wake,
-        "ingest_sessions": tool_ingest_sessions,
         "prepare_session_distill": tool_prepare_session_distill,
         "submit_distill_chunk": tool_submit_distill_chunk,
         "finalize_session_distill": tool_finalize_session_distill,
@@ -649,20 +578,5 @@ def build_tool_handlers() -> dict[str, Callable[..., dict[str, Any]]]:
         "get_candidate_detail": tool_get_candidate_detail,
         "auto_review_candidates": tool_auto_review_candidates,
         "govern_memory": tool_govern_memory,
-        "suggest_supersede": tool_suggest_supersede,
-        "confirm_supersede": tool_confirm_supersede,
-        "reject_supersede": tool_reject_supersede,
-        "suggest_correction": tool_suggest_correction,
         "record_context_outcome": tool_record_context_outcome,
-        "create_rule_candidate": tool_create_rule_candidate,
-        "confirm_rule": tool_confirm_rule,
-        "reject_rule": tool_reject_rule,
-        "suggest_rule": tool_suggest_rule,
-        "suggest_memory_entry": tool_suggest_memory_entry,
-        "confirm_memory_entry": tool_confirm_memory_entry,
-        "reject_memory_entry": tool_reject_memory_entry,
-        "suggest_relation_fact": tool_suggest_relation_fact,
-        "confirm_relation_fact": tool_confirm_relation_fact,
-        "reject_relation_fact": tool_reject_relation_fact,
-        "create_task_handoff": tool_create_task_handoff,
     }

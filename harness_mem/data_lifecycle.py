@@ -5,13 +5,20 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import re
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 from harness_mem.storage.local_verbatim_store import LocalVerbatimStore
 from harness_mem.storage.derived_index import DerivedIndex
+from harness_mem.native_source_cleanup import (
+    NativeCleanupPlan,
+    apply_native_source_cleanup,
+    plan_native_source_cleanup,
+)
+
+NativeSourceMode = Literal["none", "erase"]
 
 _STRUCTURED_COLLECTIONS = (
     "memory_entries",
@@ -160,6 +167,7 @@ async def hard_delete(
     before: datetime | None = None,
     reason: str = "user_requested_erasure",
     apply: bool = False,
+    native_source_mode: NativeSourceMode = "none",
 ) -> dict[str, Any]:
     """Preview or execute a complete local erasure, defaulting to dry-run."""
 
@@ -170,6 +178,28 @@ async def hard_delete(
         source_id=source_id,
         before=before,
     )
+    native_plans: list[NativeCleanupPlan] = []
+    native_previews: list[dict[str, Any]] = []
+    if native_source_mode == "erase":
+        native_plans, native_previews = _privacy_native_cleanup_plans(
+            backend,
+            plan,
+        )
+        plan["native_cleanup"] = {
+            "mode": "erase",
+            "source_count": len(native_previews),
+            "actions_planned": sum(
+                int((item.get("counts") or {}).get("planned") or 0)
+                for item in native_previews
+            ),
+            "items": native_previews,
+        }
+        plan["counts"] = {
+            **dict(plan["counts"]),
+            "native_sources": len(native_previews),
+        }
+    elif native_source_mode != "none":
+        raise ValueError("native_source_mode must be none or erase")
     if not apply:
         return {"success": True, "applied": False, "plan": plan}
     structured_store = backend.structured_store
@@ -193,7 +223,7 @@ async def hard_delete(
                 if revision.get("client") and revision.get("session_id")
             }
         )
-    receipt = {
+    receipt: dict[str, Any] = {
         "id": str(uuid4()),
         "receipt_version": 1,
         "kind": "hard_delete",
@@ -277,9 +307,33 @@ async def hard_delete(
         "indexes": 0,
         "index_artifacts": 0,
         "raw_bytes": 0,
+        **({"native_sources": 0} if native_source_mode == "erase" else {}),
     }
     operation = "structured_records"
+    native_results: list[dict[str, Any]] = []
+    native_incomplete = sum(
+        "native_current_revision_not_selected"
+        in set(item.get("reason_codes") or [])
+        for item in native_previews
+    )
     try:
+        if native_source_mode == "erase":
+            operation = "native_sources"
+            for native_plan in native_plans:
+                native_result = apply_native_source_cleanup(native_plan)
+                sanitized = {
+                    "status": native_result.get("status"),
+                    "reason_codes": list(native_result.get("reason_codes") or []),
+                    "counts": dict(native_result.get("counts") or {}),
+                    "locator_sha256": native_result.get("locator_sha256"),
+                }
+                native_results.append(sanitized)
+                if native_result.get("status") == "deleted":
+                    actual["native_sources"] += 1
+                else:
+                    native_incomplete += 1
+
+        operation = "structured_records"
         for collection, entity_ids in plan["structured"].items():
             for entity_id in entity_ids:
                 deleted = int(structured_store.hard_delete_record(collection, entity_id))
@@ -311,6 +365,8 @@ async def hard_delete(
 
         operation = "post_delete_verification"
         remaining = await _verify_hard_delete(backend, plan)
+        if native_source_mode == "erase":
+            remaining["native_sources"] = native_incomplete
         _reconcile_actual_removal(actual, plan["counts"], remaining)
         passed = not any(remaining.values())
         receipt.update(
@@ -320,6 +376,11 @@ async def hard_delete(
                 "counts": dict(actual),
                 "actual_removal": actual,
                 "verification": {"passed": passed, "remaining": remaining},
+                **(
+                    {"native_cleanup": native_results}
+                    if native_source_mode == "erase"
+                    else {}
+                ),
             }
         )
         backend.transcript_store.save_deletion_receipt(receipt)
@@ -340,6 +401,11 @@ async def hard_delete(
             verification_error_type = type(verification_exc).__name__
         else:
             verification_error_type = None
+        if native_source_mode == "erase":
+            remaining["native_sources"] = max(
+                int(bool(native_previews)),
+                native_incomplete,
+            )
         _reconcile_actual_removal(actual, plan["counts"], remaining)
         receipt.update(
             {
@@ -348,6 +414,11 @@ async def hard_delete(
                 "counts": dict(actual),
                 "actual_removal": actual,
                 "verification": {"passed": False, "remaining": remaining},
+                **(
+                    {"native_cleanup": native_results}
+                    if native_source_mode == "erase"
+                    else {}
+                ),
                 "failure": {
                     "operation": operation,
                     "error_type": type(exc).__name__,
@@ -377,6 +448,59 @@ async def hard_delete(
             "audit": receipt,
             "receipt": receipt,
         }
+
+
+def _privacy_native_cleanup_plans(
+    backend: LocalMemoryBackend,
+    plan: dict[str, Any],
+) -> tuple[list[NativeCleanupPlan], list[dict[str, Any]]]:
+    """Plan native deletion only when the selector covers the current revision."""
+
+    selected_revisions = {
+        (str(source_id), str(source_revision))
+        for source_id, source_revision in plan["revision_keys"]
+    }
+    native_plans: list[NativeCleanupPlan] = []
+    previews: list[dict[str, Any]] = []
+    seen_locators: set[str] = set()
+    for source_id in map(str, plan["source_ids"]):
+        source = backend.transcript_store.get_source(source_id)
+        if source is None:
+            continue
+        source_digest = _digest_identifier(source_id)
+        current_selected = (source_id, source.source_revision) in selected_revisions
+        if not current_selected:
+            previews.append(
+                {
+                    "source_id_sha256": source_digest,
+                    "preflight_status": "unsupported",
+                    "reason_codes": ["native_current_revision_not_selected"],
+                    "counts": {"planned": 0},
+                }
+            )
+            continue
+        native_plan = plan_native_source_cleanup(source)
+        if native_plan.locator_sha256 in seen_locators:
+            continue
+        seen_locators.add(native_plan.locator_sha256)
+        native_plans.append(native_plan)
+        preview = native_plan.to_preview()
+        previews.append(
+            {
+                "source_id_sha256": source_digest,
+                "locator_sha256": native_plan.locator_sha256,
+                "preflight_status": (
+                    "unsupported"
+                    if not native_plan.supported
+                    else "retained"
+                    if native_plan.retained
+                    else "ready"
+                ),
+                "reason_codes": list(preview.get("reason_codes") or []),
+                "counts": dict(preview.get("counts") or {}),
+            }
+        )
+    return native_plans, previews
 
 
 async def enforce_transcript_retention(

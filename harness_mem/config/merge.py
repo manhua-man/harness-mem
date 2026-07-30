@@ -15,6 +15,7 @@ reads ``Path.home()`` so tests can isolate the lookup by monkeypatching
 from __future__ import annotations
 
 import copy
+import json
 import os
 import tomllib
 from dataclasses import dataclass, field
@@ -29,6 +30,7 @@ from harness_mem.config.errors import (
 
 __all__ = [
     "MergedConfig",
+    "PUBLIC_CONFIG_KEY_PATHS",
     "deep_merge",
     "load_merged_config",
 ]
@@ -81,7 +83,12 @@ class MergedConfig:
     extras: dict[str, Any] = field(default_factory=dict)
 
     def to_reflection_config(self) -> dict[str, Any]:
-        """Project to the nested-dict shape used by dream runtime config.
+        """Compatibility alias for :meth:`to_runtime_config`."""
+
+        return self.to_runtime_config()
+
+    def to_runtime_config(self) -> dict[str, Any]:
+        """Project to the nested-dict shape used by runtime policy readers.
 
         Rebuilds TOML key-path nesting from a deep copy of ``extras`` and
         overlays recognized runtime keys at their dotted paths. Recognized keys
@@ -191,6 +198,32 @@ _TYPED_CONFIG_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     *_DISTILL_KEYS,
     *_DREAM_KEYS,
     *_COST_BUDGET_KEYS,
+)
+
+# The public policy surface stays intentionally small. The remaining typed
+# keys are still read for 0.9.x compatibility, but they are internal runtime
+# tuning rather than user-facing product modes.
+PUBLIC_CONFIG_KEY_PATHS: tuple[str, ...] = (
+    "autopilot.enabled",
+    "capture.enabled",
+    "capture.private_tags",
+    "capture.ignore_clients",
+    "capture.ignore_session_ids",
+    "capture.ignore_source_globs",
+    "transcript.retention_days",
+    "distill.auto.enabled",
+    "distill.delete_source_after_complete",
+    "dream.auto.enabled",
+)
+_PUBLIC_CONFIG_KEY_SET = frozenset(PUBLIC_CONFIG_KEY_PATHS)
+_PUBLIC_TYPED_CONFIG_KEYS = tuple(
+    item for item in _TYPED_CONFIG_KEYS if item[0] in _PUBLIC_CONFIG_KEY_SET
+)
+_INTERNAL_TYPED_CONFIG_KEYS = tuple(
+    item for item in _TYPED_CONFIG_KEYS if item[0] not in _PUBLIC_CONFIG_KEY_SET
+)
+INTERNAL_CONFIG_KEY_PATHS = frozenset(
+    key_path for key_path, *_rest in _INTERNAL_TYPED_CONFIG_KEYS
 )
 
 
@@ -409,6 +442,10 @@ def _user_config_path() -> Path:
     return Path.home() / ".harness-mem" / "config.toml"
 
 
+def _legacy_user_config_path() -> Path:
+    return Path.home() / ".harness-mem" / "config.json"
+
+
 def _load_toml_file(path: Path) -> dict[str, Any]:
     """Parse a TOML file, treating a missing file as an empty table.
 
@@ -424,6 +461,34 @@ def _load_toml_file(path: Path) -> dict[str, Any]:
         raise ConfigParseError(source_path=str(path), cause=exc) from exc
 
 
+def _load_json_file(path: Path) -> dict[str, Any]:
+    """Parse a legacy JSON config as a compatibility base layer."""
+
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConfigParseError(source_path=str(path), cause=exc) from exc
+    if not isinstance(payload, dict):
+        raise ConfigParseError(
+            source_path=str(path),
+            cause=TypeError("config root must be an object"),
+        )
+    return payload
+
+
+def _load_user_config_files() -> tuple[Path, dict[str, Any]]:
+    """Return one merged user config with TOML overriding legacy JSON."""
+
+    toml_path = _user_config_path()
+    legacy_path = _legacy_user_config_path()
+    legacy = _load_json_file(legacy_path)
+    current = _load_toml_file(toml_path)
+    effective_path = toml_path if toml_path.is_file() else legacy_path
+    return effective_path, deep_merge(legacy, current)
+
+
 def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
     """Deep-merge the user-level and project-level config into a MergedConfig.
 
@@ -435,7 +500,7 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
     Raises:
         ConfigPathError: ``project_root`` is not absolute or is not an existing
             directory.
-        ConfigParseError: either source file exists but is not valid TOML.
+        ConfigParseError: a source file is invalid TOML/JSON.
         ConfigValidationError: a recognized key holds a value outside its
             declared allowed set.
     """
@@ -444,9 +509,8 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
         raise ConfigPathError(str(project_root))
 
     # ---- 2. read source files (Req 3.3, 3.4, 3.5, 3.8) ------------------
-    user_path = _user_config_path()
+    user_path, user_dict = _load_user_config_files()
     project_path = Path(project_root) / ".harness-mem.toml"
-    user_dict = _load_toml_file(user_path)
     project_dict = _load_toml_file(project_path)
 
     # ---- 3. deep-merge (project overrides user) (Req 3.3) ---------------

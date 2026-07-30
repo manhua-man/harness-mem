@@ -2,6 +2,72 @@
 
 ## Unreleased
 
+## [0.9.6] - 2026-07-30
+
+### Changed
+
+- Converged the MCP runtime to one exact 27-tool contract: schema, cluster,
+  handler, exported descriptor, guided-flow hint, and candidate action
+  surfaces now agree. The former 17 low-level orchestration schemas are no
+  longer registered or exported; `govern_memory` owns their public behavior.
+- Replaced six host-specific hook installer commands with
+  `harness-mem integration hooks sync --client <host>`, while retaining the
+  automatic seven-host bootstrap and one-time user command sync.
+- Reduced `harness-mem config list/set` to ten durable policy keys. Existing
+  tuning values and legacy JSON remain readable through one merge order:
+  legacy JSON, user TOML, then project TOML.
+- Removed obsolete Daily-work CLI modules for candidates, handoff, profile,
+  search, and status. Daily work continues through the seven host-native
+  actions and the stable `wake -> search -> distill -> review -> dream` loop.
+- Split the remaining oversized runtime modules without changing their public
+  contracts: structured persistence now composes memory, candidate, truth,
+  and ledger slices; read-side MCP handling separates query support, search,
+  evidence, and wake; Doctor separates classification, read-only probes,
+  rendering, and orchestration.
+- Removed the retired weak-link experiment recommendation from Doctor and
+  routed runtime repair guidance through current public tools only.
+- Removed 340 byte-duplicate, stale Router aggregate descriptor files. Live
+  `mcp__mcp_router__*` runtime aliases remain supported and canonical
+  harness-mem descriptors remain under `mcps/harness_mem/tools/`.
+- Deprecated legacy entity JSON readers in 0.9.6 while supporting them through
+  0.9.x. Removal is forbidden before both 1.0.0 and 2027-01-31 and still
+  requires a shipped converter, clean Doctor verification, and release notice.
+
+### Fixed
+
+- Candidate serializers and Dream review results no longer point Agents at
+  hidden confirm/reject tools; they emit complete `govern_memory` actions.
+- Claude Code command hints now use `/hm:*`, and all host documentation lists
+  the `search-all` action consistently.
+- Public schema descriptions no longer expose historical internal feature
+  version labels as if they were API versions.
+- Legacy-only startup no longer silently changes storage authority. Migration
+  preview now covers the same all-project scope as apply; apply writes a
+  content-free in-progress/succeeded/failed receipt and rolls back if receipt
+  finalization fails.
+- Existing canonical SQLite activation now commits into the live file under a
+  write-locking transaction, so already-open runtimes cannot keep writing to a
+  replaced database. New-database activation is create-if-absent and conflicts
+  or concurrent writes fail closed without an apply recommendation.
+- The compatibility rollback export now reads current canonical entity tables,
+  including rows created after migration, instead of the stale payload table.
+- Explicit privacy erase now attempts bounded CAS deletion of safe native host
+  session files before removing the internal reference closure. Shared or
+  unsafe containers remain untouched and produce an honest partial failure.
+- Processed-source cleanup retries now require explicit authorization from the
+  persistent delete-after-complete policy.
+- Storage migration rollback now compares the activated canonical generation
+  before restoring a snapshot, so post-activation concurrent writes are
+  preserved and rollback fails closed instead of overwriting them.
+- Bash, Zsh, and Fish completion now expose the same maintenance actions and
+  privacy-erase selectors; rapid migration retries use collision-free run IDs.
+
+### Tests
+
+- Added registry-equality, public-description, generated-descriptor,
+  candidate-action, config-surface, retired-CLI, completion, and documentation
+  guardrails so duplicate compatibility surfaces fail before release.
+
 ## [0.9.5] - 2026-07-29
 
 This release includes all work originally planned for 0.9.4; no separate

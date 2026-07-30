@@ -25,9 +25,12 @@ from harness_mem.config.errors import (
     ConfigValidationError,
 )
 from harness_mem.config.merge import (
+    INTERNAL_CONFIG_KEY_PATHS,
+    _PUBLIC_TYPED_CONFIG_KEYS,
     _RECOGNIZED_KEYS,
     _TYPED_CONFIG_KEYS,
     _get_dotted,
+    _load_user_config_files,
     _user_config_path,
     load_merged_config,
 )
@@ -154,6 +157,13 @@ def cmd_config_set(
     (see design.md "Error Handling" table).
     """
     resolved_root = _resolve_project_root(project_root)
+    if key in INTERNAL_CONFIG_KEY_PATHS:
+        print(
+            f"invalid value: {key} is an internal compatibility key and is not "
+            "part of the public configuration surface",
+            file=sys.stderr,
+        )
+        return 1
     if key == "distill.delete_source_after_complete" and value.strip().lower() in {
         "true",
         "1",
@@ -208,7 +218,7 @@ def cmd_config_set(
 
 
 def cmd_config_list(project_root: str | None) -> int:
-    """Print every Recognized_Key plus extras with source labels (Req 3).
+    """Print the public policy keys with merged source labels.
 
     Each line is ``<key> = <value>  (<source>)`` where source is one of
     ``default``, ``user``, or ``project``. When neither Config_File exists, a
@@ -217,9 +227,8 @@ def cmd_config_list(project_root: str | None) -> int:
     resolved_root = _resolve_project_root(project_root)
     merged = load_merged_config(resolved_root)
 
-    user_path = _user_config_path()
+    user_path, user_dict = _load_user_config_files()
     project_path = _project_config_path(resolved_root)
-    user_dict = _read_raw(user_path)
     project_dict = _read_raw(project_path)
 
     if not user_path.is_file() and not project_path.is_file():
@@ -231,20 +240,16 @@ def cmd_config_list(project_root: str | None) -> int:
         source = _source_label(key_path, project_dict, user_dict)
         print(f"{key_path} = {_format_config_value(value)}  ({source})")
 
-    for key_path, _attr, _kind, _default in _TYPED_CONFIG_KEYS:
+    for key_path, _attr, _kind, _default in _PUBLIC_TYPED_CONFIG_KEYS:
         _, value = _get_dotted(reflection, key_path)
         source = _source_label(key_path, project_dict, user_dict)
         print(f"{key_path} = {_format_config_value(value)}  ({source})")
-
-    for key_path, value in _flatten(merged.extras):
-        source = _source_label(key_path, project_dict, user_dict)
-        print(f"{key_path} = {value}  ({source})")
 
     return 0
 
 
 def cmd_config_validate(project_root: str | None) -> int:
-    """Run the v2.4.1 load_merged_config validation pipeline (Req 4).
+    """Run the shared ``load_merged_config`` validation pipeline.
 
     Shares its loader with the host entry and doctor surface so validation
     outcomes never disagree (Req 4.7). On success prints a one-line summary; on

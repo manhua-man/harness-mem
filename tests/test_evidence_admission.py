@@ -19,7 +19,7 @@ from harness_mem.commands.auto_review import (
 from harness_mem.core.schemas import EvidenceRef, MemoryEntry, RelationFact, RuleCandidate
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.mcp.distill_projection import render_distill_exchange_windows
-from harness_mem.mcp import tool_handlers
+from harness_mem.mcp import governance_handlers, tool_handlers
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -126,7 +126,7 @@ def test_new_public_suggestion_cannot_claim_legacy_bypass(
             cost_surface_budgets=lambda _project_name: None,
             logger_instance=logging.getLogger("test.evidence-admission"),
         )
-        suggested = tool_handlers.tool_suggest_memory_entry(
+        suggested = governance_handlers.tool_suggest_memory_entry(
             project_name="demo",
             category="decision",
             content="A new public suggestion must enter the evidence admission contract.",

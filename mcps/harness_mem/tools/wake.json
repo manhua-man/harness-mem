@@ -23,21 +23,21 @@
       },
       "current_task": {
         "type": "string",
-        "description": "v4.1: optional current task used to build a task-aware wake packet."
+        "description": "Optional current task used to build a task-aware wake packet."
       },
       "budget_tokens": {
         "type": "integer",
-        "description": "v4.1: advisory wake packet budget.",
+        "description": "Advisory wake packet budget.",
         "default": 6000
       },
       "deep_recall": {
         "type": "boolean",
-        "description": "v4.1: include cold/archive memory in task-aware wake planning.",
+        "description": "Include cold/archive memory in task-aware wake planning.",
         "default": false
       },
       "include_provisional": {
         "type": "boolean",
-        "description": "v0.8.8: include provisional auto-promoted truth in task-aware wake planning.",
+        "description": "Include provisional auto-promoted truth in task-aware wake planning.",
         "default": false
       }
     }

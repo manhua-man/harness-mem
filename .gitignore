@@ -41,3 +41,7 @@ inspect-current.png
 
 # Internal working notes (not shipped)
 docs/internal/
+
+# Retired non-canonical MCP Router aggregate snapshots
+mcps/mcp-router/
+mcps/mcp_router/

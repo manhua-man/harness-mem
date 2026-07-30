@@ -5,8 +5,9 @@ audit and one public write boundary. Runtime code lives in `harness_mem/governan
 `commands/auto_review.py`, read-path filters, and `state-events.log`.
 
 The public MCP write API is `govern_memory`; the former per-kind write-tool
-family is internal compatibility code only. Remaining follow-up is audit-inbox
-UX polish and measured long-running drainer telemetry.
+schemas and registry entries are retired. Their private implementations remain
+behind the composite boundary. Remaining follow-up is audit-inbox UX polish
+and measured long-running drainer telemetry.
 
 ```text
 immutable source revision -> complete ordered chunks -> final-session review

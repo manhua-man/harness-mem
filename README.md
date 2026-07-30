@@ -30,7 +30,7 @@ post-hoc audit/undo surface, and let dream maintain the ledger.
 
 Invocation surfaces (installed once at user scope, then visible in every project):
 
-- `/hm:*` commands: `status`, `wake`, `search`, `distill`, `review`, `dream`.
+- `/hm:*` commands: `status`, `wake`, `search`, `search-all`, `distill`, `review`, `dream`.
 - Agent MCP calls: plain language, skills, or hooks trigger `wake/search/distill/review`.
 - Hooks: inject wake context, enforce retention, and maintain a two-job Agent-active distill lane with 3:1 recent/oldest refill, failure backoff, and a daily new-job budget. Without an Agent the queue reports `waiting_for_agent`; it never claims background semantic work.
 - CLI: setup, doctor, config, integration, and maintenance only.
@@ -81,6 +81,12 @@ Transcript-only, missing, changed, or contradicted evidence cannot become
 durable truth. Relation facts use the same policy, and legacy truth is not
 retroactively reclassified.
 
+Version 0.9.6 converges the installed surface without changing that workflow:
+the MCP schema, handler, cluster, and descriptor registries now contain exactly
+the same 27 public tools; hook repair has one cross-host command; and public
+config is limited to ten durable policy choices while older tuning values stay
+readable for compatibility.
+
 Observations are evidence, never remembered facts. Wake labels their recent
 index as non-truth; L1/L2 contain only structured current facts and active
 handoffs. Version or release claims contradicted by the current repository are
@@ -109,9 +115,11 @@ containers that lack a safe transactional session deleter are left untouched
 and reported as unsupported; no whole shared history file is ever unlinked.
 `harness-mem maintenance erase --project NAME --session-id ID` previews a full
 hard delete; add `--apply` to erase raw revisions, chunks, jobs, Observations,
-linked candidates/truth, and FTS/vector rows. Apply first persists a content-free
-receipt, then reports planned versus actual counts and post-delete verification;
-receipt failure prevents deletion, and partial deletion returns a non-zero status.
+linked candidates/truth, FTS/vector rows, and eligible native host session
+files. Apply first persists a content-free receipt, then runs bounded native
+CAS deletion and the internal reference-closure delete. Unsafe or shared native
+containers remain untouched and make the result a partial failure; receipt
+failure prevents deletion, and partial deletion returns a non-zero status.
 
 Operational diagnosis is equally explicit. Doctor probes SQLite read-only and
 renders a recovery plan grouped as `safe_rebuild`, `snapshot_required`,
@@ -119,6 +127,10 @@ renders a recovery plan grouped as `safe_rebuild`, `snapshot_required`,
 project status preserves the decisions while full drilldown adds seven-day
 retrieval outcome/abstention/exclusion counts and concrete distill backlog
 reasons plus a conservative Agent-throughput drain estimate.
+Legacy entity JSON is deprecated in 0.9.6 but supported through 0.9.x; it will
+not be removed before both 1.0.0 and 2027-01-31. Existing legacy-only stores
+stay readable without silently changing authority. See
+[legacy storage lifecycle](docs/storage-legacy-lifecycle.md).
 
 <p align="center">
   <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="Native IDE transcripts are preserved as immutable revisions, processed through every ordered chunk, reviewed at session end, and only then promoted into memory" width="900" />
@@ -146,8 +158,8 @@ owns storage, candidates, review, retrieval, and local audit state.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.5 \
-  harness-mem==0.9.5
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.6 \
+  harness-mem==0.9.6
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -158,8 +170,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.5 \
-  "harness-mem[hybrid]==0.9.5"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.6 \
+  "harness-mem[hybrid]==0.9.6"
 ```
 
 Install every supported host's native Daily commands once for the current
@@ -205,6 +217,9 @@ existing files, and idempotently repairs the current host's user-level command
 surface. Users do not run a per-project command or hook installer. See
 [docs/ide-hook-adapter-matrix.md](docs/ide-hook-adapter-matrix.md) for the
 current adapter surface and install model for each host.
+
+For explicit operator repair, use the one cross-host path:
+`harness-mem integration hooks sync --client <host> --project-root . --force`.
 
 Codex applies an additional native security gate to project command hooks.
 After automatic installation, open **Codex Settings > Hooks**, review and trust
@@ -287,4 +302,4 @@ python scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.9.5**.
+Current package version: **0.9.6**.

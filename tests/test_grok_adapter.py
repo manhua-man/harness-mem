@@ -123,7 +123,7 @@ def test_tool_ingest_sessions_grok_uses_project_root_and_reports_resolved_client
     monkeypatch.setattr(ingest_module, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(grok_adapter_module, "DEFAULT_SESSIONS_DIR", sessions_dir)
 
-    payload = tool_handlers.tool_ingest_sessions(
+    payload = tool_handlers._ingest_sessions(
         client="grok",
         project_root=str(workspace),
     )

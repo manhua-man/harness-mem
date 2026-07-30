@@ -5,10 +5,12 @@ Agent-memory loop. 0.9.0 shipped the automation, storage-safety, and
 cross-host runtime baseline; 0.9.1 removed stale product vocabulary and locked
 the public governance contract. Version 0.9.3 shipped the complete 0.9.2 handler
 and deterministic-distill work together with explainable recovery and quality
-operations. Version 0.9.5 ships the completed-session/source-cleanup work
+operations. Version 0.9.5 shipped the completed-session/source-cleanup work
 originally planned for 0.9.4 together with evidence-grounded Dream admission,
-without adding another public tool, store, or scheduler. No separate 0.9.2 or
-0.9.4 package or tag was published. The stable loop is
+without adding another public tool, store, or scheduler. Version 0.9.6 removes
+duplicate compatibility surfaces while keeping stored data readable and the
+27-tool contract unchanged. No separate 0.9.2 or 0.9.4 package or tag was
+published. The stable loop is
 not a manual checklist:
 
 ```text
@@ -41,6 +43,34 @@ not pending work.
 | `0.9.3` | Explainable recovery and memory-quality operations, including all 0.9.2 work. | Doctor emits a risk-classified recovery plan, Storage v2 drift is explained with replay-tested recovery, privacy deletion has verifiable receipts, and status reports outcome-based retrieval quality rather than latency alone. | A second store, automatic destructive repair, new persistence roots, or autonomous semantic claims without an Agent. |
 | `0.9.4` | Folded into 0.9.5; not published separately. | Terminal distill outcomes and processed-source cleanup ship in the 0.9.5 package and tag. | A separate 0.9.4 release artifact. |
 | `0.9.5` | Terminal completion, opt-in processed-source cleanup, and evidence-grounded Dream admission. | Completed jobs are terminal and auditable; authorized cleanup is verified and truth-preserving; new candidates carry an evidence basis/outcome; repository claims need current repository proof; explicit user decisions can promote; contradicted claims route through historical governance. | A new MCP tool, manual daily promotion, generic web fact-checking, a second truth store/scheduler, silent deletion, whole shared-container deletion, or retroactive reclassification of legacy truth. |
+| `0.9.6` | Runtime, operator-surface, and compatibility-lifecycle convergence. | MCP registries contain exactly the same 27 public tools; hook/config each have one path; stale Router snapshots are removed; legacy storage stays readable behind an explicit support cutoff and receipt-first migration; privacy erase covers safe native sources. | A new public tool/scheduler, silent data authority change, immediate removal of legacy readers, or unsafe deletion of shared native containers. |
+
+## 0.9.6 — Runtime and Operator-Surface Convergence
+
+Goal: make the installed product match its declared surface, with guardrails
+that prevent compatibility helpers from leaking back into user workflows.
+
+- Register schemas, clusters, handlers, descriptors, hints, and candidate
+  actions against the same exact 27-tool allowlist.
+- Route every candidate decision and handoff through `govern_memory`; keep the
+  lower-level functions private to its implementation.
+- Replace six host-specific hook installer commands with one operator repair
+  path: `harness-mem integration hooks sync --client <host>`.
+- Keep only ten public policy keys in `config list/set`; continue reading old
+  tuning values through one JSON/TOML/project merge path.
+- Remove obsolete Daily-work CLI modules and the Doctor weak-link experiment
+  recommendation, while preserving the seven host-native Daily actions.
+- Deprecate legacy entity JSON in 0.9.6, support it through 0.9.x, and forbid
+  reader removal before both 1.0.0 and 2027-01-31. Existing legacy-only stores
+  stay on fallback until an operator previews and explicitly applies the
+  all-project, receipt-first migration.
+- Remove the two stale Router aggregate snapshot directories while preserving
+  live `mcp__mcp_router__*` discovery.
+- Keep processed-source cleanup truth-preserving and privacy erase
+  truth-removing; explicit erase additionally deletes safe native session files
+  and reports partial failure for shared/unsafe containers.
+- Lock the boundary with registry-driven contract, CLI, config, descriptor,
+  and documentation tests before full package and fresh-install verification.
 
 ## 0.9.4 — Terminal Completion and Source Cleanup (shipped in 0.9.5)
 
@@ -97,7 +127,10 @@ Functional iteration:
 Internal convergence:
 
 - Keep `tool_handlers.py` as the dependency-binding and registry facade.
-- Own evidence reads and wake in `read_handlers.py`; project/runtime status in
+- Keep `read_handlers.py` as a compatibility facade; own query interpretation
+  in `read_query_support.py`, retrieval calls in `read_search_handlers.py`,
+  evidence reads in `read_evidence_handlers.py`, and wake orchestration in
+  `read_wake_handlers.py`. Project/runtime status remains in
   `status_handlers.py`; audited maintenance in `dream_handlers.py`; lossless
   session processing in `distill_handlers.py`; durable governance writes in
   `governance_handlers.py`.
@@ -143,9 +176,10 @@ Functional iteration:
 
 Internal convergence:
 
-- Split Doctor into bounded probe, classification, rendering, and explicit
-  remediation modules; probes remain read-only unless the user selects a
-  documented repair command.
+- Split Doctor into bounded `doctor_probes.py`, `doctor_classification.py`,
+  `doctor_rendering.py`, and the `doctor.py` command orchestrator. Explicit
+  remediation remains in `doctor_recovery.py`; probes stay read-only unless
+  the user selects a documented repair command.
 - Classify canonical/legacy checksum differences as expected growth, actionable
   drift, or corruption using row counts, revision lineage, and migration state
   instead of presenting every mismatch as the same warning.

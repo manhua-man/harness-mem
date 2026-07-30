@@ -1,6 +1,6 @@
 {
   "name": "dream_auto_tick",
-  "description": "Run one host/client auto tick for v3.1 dream. The tick only enqueues a dream job when dream.auto.enabled and dream auto gates allow it.",
+  "description": "Run one host/client auto tick for dream. The tick only enqueues a dream job when dream.auto.enabled and dream auto gates allow it.",
   "inputSchema": {
     "type": "object",
     "properties": {

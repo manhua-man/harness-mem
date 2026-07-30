@@ -22,9 +22,11 @@ import {
 } from "cursor/canvas";
 
 const MODEL_VERSION = "v1";
-const AS_OF = "2026-07-26";
-const RUNTIME_VERSION = "0.9.5";
-const PYTEST_COUNT = 453;
+const AS_OF = "2026-07-30";
+const RUNTIME_VERSION = "0.9.6";
+const PYTEST_PASSED = 511;
+const PYTEST_SKIPPED = 9;
+const PYTEST_COUNT = PYTEST_PASSED + PYTEST_SKIPPED;
 
 type TrackId = "l1" | "l2" | "l3" | "l4" | "l5" | "l6";
 
@@ -49,7 +51,7 @@ const READINESS_TRACKS: ReadinessTrack[] = [
     score: 96,
     tone: "success",
     acceptance: "wake → search → distill → review → dream 端到端可跑",
-    signals: "guided flow v5.13 · 7 条 /hm:* Daily · phase=ready",
+    signals: "guided-flow contract · 7 条 /hm:* Daily · phase=ready",
     evidence: "MCP public surface contract · daily slash 齐套",
   },
   {
@@ -79,18 +81,18 @@ const READINESS_TRACKS: ReadinessTrack[] = [
     code: "L4",
     label: "证据与蒸馏",
     weight: 20,
-    score: 98,
+    score: 99,
     tone: "success",
     acceptance: "无损转写账本 · 可恢复 chunk job · revision 幂等",
-    signals: "exact offered-job claim · deletion receipt · backlog reason codes",
-    evidence: "0.9.3 migration failure injection · privacy lifecycle tests",
+    signals: "exact offered-job claim · distinct cleanup/erase · migration receipts",
+    evidence: "explicit migration rollback · native privacy lifecycle tests",
   },
   {
     id: "l5",
     code: "L5",
     label: "宿主集成",
     weight: 15,
-    score: 96,
+    score: 97,
     tone: "success",
     acceptance: "hooks + MCP 入口 + install drift + per-host ingest",
     signals: "harness-mem-mcp · install_drift=无 · 七宿主全局命令",
@@ -101,10 +103,10 @@ const READINESS_TRACKS: ReadinessTrack[] = [
     code: "L6",
     label: "运维与发布",
     weight: 5,
-    score: 97,
+    score: 98,
     tone: "success",
     acceptance: "GitHub Release 通道 · doctor/CLI · MCP export CI",
-    signals: "27 MCP tools · risk-classified Doctor · 384 pytest",
+    signals: "27 MCP tools · risk-classified Doctor · full Python/Rust gates",
     evidence: "public-smoke.yml · release-wheels 六目标 · Rust 6 tests",
   },
 ];
@@ -380,7 +382,7 @@ export default function HarnessMemReadinessV1Canvas() {
       <Grid columns={4} gap={12}>
         <Stat label="加权就绪度" value={`${WEIGHTED_READINESS}`} tone="success" />
         <Stat label="最低轨" value={`${BOTTLENECK.code} ${BOTTLENECK.score}`} tone="warning" />
-        <Stat label="Pytest" value={String(PYTEST_COUNT)} tone="info" />
+        <Stat label="Pytest" value={`${PYTEST_PASSED}/${PYTEST_COUNT}`} tone="info" />
         <Stat label="Claim 边界" value={`${CLAIM_CHECKS.filter((c) => c.ok).length}/${CLAIM_CHECKS.length}`} tone="success" />
       </Grid>
 
@@ -525,7 +527,7 @@ export default function HarnessMemReadinessV1Canvas() {
       <Card variant="borderless">
         <CardBody>
           <Text tone="secondary" size="small">
-            Source: get_project_status · CHANGELOG 0.9.5 · docs/maturity-model.md · {PYTEST_COUNT} pytest passed
+            Source: get_project_status · CHANGELOG 0.9.6 · docs/maturity-model.md · {PYTEST_PASSED} pytest passed / {PYTEST_SKIPPED} skipped ({PYTEST_COUNT} collected)
           </Text>
         </CardBody>
       </Card>

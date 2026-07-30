@@ -113,7 +113,8 @@ def test_dream_supersede_candidates_wait_for_explicit_review(
     assert run.handling_summary["applied"] == 0
     assert run.items[0].final_action == "pending_review"
     assert run.items[0].result["candidate_status"] == "pending"
-    assert run.items[0].result["review_tools"] == [
-        "confirm_supersede",
-        "reject_supersede",
-    ]
+    assert run.items[0].result["review_action"] == {
+        "tool": "govern_memory",
+        "action": "supersede",
+        "decisions": ["confirm", "reject"],
+    }

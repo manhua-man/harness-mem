@@ -20,7 +20,6 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.store_v2_migration import (
     StorageV2MigrationError,
     build_migration_plan,
-    export_store_v2_json_snapshot,
 )
 from harness_mem.storage.canonical_store import (
     export_json_snapshot,
@@ -152,7 +151,7 @@ async def cmd_migrate_store_v2(
     apply: bool,
     export_rollback: str | None = None,
 ) -> int:
-    """Run the explicit v4.0.0 Storage v2 migration contract."""
+    """Preview or explicitly apply the global Storage v2 migration."""
     resolved_project = resolve_project_name(
         project_name,
         required=True,
@@ -163,10 +162,12 @@ async def cmd_migrate_store_v2(
 
     try:
         if export_rollback:
-            result = export_store_v2_json_snapshot(
+            # Compatibility flag, current canonical exporter. Export all
+            # projects because migration authority is global per data dir.
+            result = export_json_snapshot(
                 DEFAULT_DATA_DIR,
                 Path(export_rollback),
-                project_name=resolved_project,
+                project_name=None,
                 apply=apply,
             )
             if apply:
@@ -176,7 +177,10 @@ async def cmd_migrate_store_v2(
             print(f"Export dir: {result['export_dir']}")
             print(f"Would export JSON files: {result['would_export_json_file_count']}")
             print(f"Exported JSON files: {result['exported_json_file_count']}")
-            print(f"Rollback checksum match: {str(result['rollback_checksum_match']).lower()}")
+            print(
+                "Rollback checksum match: "
+                f"{str(result['snapshot_checksum_match']).lower()}"
+            )
             if not apply:
                 print("No changes written. Use --apply to write the rollback snapshot.")
             print(json.dumps(result, indent=2, sort_keys=True))
@@ -190,14 +194,20 @@ async def cmd_migrate_store_v2(
                         "would_export_json_file_count"
                     ],
                     "exported_json_file_count": result["exported_json_file_count"],
-                    "rollback_checksum_match": result["rollback_checksum_match"],
+                    "rollback_checksum_match": result["snapshot_checksum_match"],
+                    "activation_scope": "all_projects",
                 },
             )
-            return 0 if result["rollback_checksum_match"] else 1
+            return 0 if result["snapshot_checksum_match"] else 1
 
         if not apply:
-            plan = build_migration_plan(DEFAULT_DATA_DIR, project_name=resolved_project)
+            # Apply activates one global canonical DB, so preview must inspect
+            # the identical all-project input set.
+            plan = build_migration_plan(DEFAULT_DATA_DIR, project_name=None)
+            plan["requested_project_name"] = resolved_project
+            plan["activation_scope"] = "all_projects"
             print(f"Storage v2 migration dry run: {resolved_project}")
+            print("Activation scope: all_projects")
             print(f"Legacy JSON files: {plan['legacy_json_file_count']}")
             print(f"Invalid JSON files: {plan['invalid_json_count']}")
             print(f"Logical checksum: {plan['logical_checksum']}")
@@ -229,6 +239,7 @@ async def cmd_migrate_store_v2(
         print(f"Checksum relation: {relation['relation']}")
         print(f"Canonical entity rows: {canonical['canonical_row_count']}")
         print("Canonical runtime active: true")
+        print(f"Migration receipt: {result['receipt']['path']}")
         print(json.dumps(result, indent=2, sort_keys=True))
         log_command_invoked(
             "maintenance.migrate-store-v2",
@@ -254,7 +265,7 @@ async def cmd_export_json_snapshot(
     *,
     apply: bool,
 ) -> int:
-    """Export the v4.0.1 canonical store to a human-readable JSON snapshot."""
+    """Export canonical storage to a human-readable JSON snapshot."""
     resolved_project = resolve_project_name(
         project_name,
         required=True,
@@ -393,6 +404,7 @@ async def run_post_turn_maintenance(
             await retry_retained_source_cleanups(
                 backend,
                 project_name=project_name,
+                authorized=config.distill_delete_source_after_complete,
             )
             if config.distill_delete_source_after_complete
             else {

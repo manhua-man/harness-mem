@@ -16,18 +16,20 @@ Tools:
   dream_run             — explicitly run one audited dream pass
   prepare_session_distill — /hm:distill backend: sync + evidence packet
   list_candidates       — pending/deferred/rejected governance candidates
-  auto_review_candidates — heuristic auto-confirm / auto-reject pass (preview or apply)
-  suggest_correction    — one-shot rule replacement (new rule + supersede chain)
-  create_rule_candidate — create a rule candidate
-  confirm_rule          — promote candidate to confirmed rule
+  auto_review_candidates — audited candidate review pass (preview or apply)
+  govern_memory         — composite suggestion, decision, handoff, and correction boundary
 
 Current module boundary:
   server.py        — stdio protection, backend singleton, JSON-RPC dispatch
   tool_specs.py    — MCP schemas, public surface membership, cluster metadata
   tool_registry.py — single-surface visibility and tools/list payloads
   executor.py      — tools/call execution policy and write gate enforcement
-  tool_handlers.py — dependency binding, compatibility facade, handler registry
-  read_handlers.py — retrieval, evidence reads, context, and wake
+  tool_handlers.py — dependency binding and public handler registry
+  read_handlers.py — compatibility facade for split read-side handlers
+  read_query_support.py — query interpretation and retrieval metadata
+  read_search_handlers.py — search and retrieval-feedback tools
+  read_evidence_handlers.py — evidence, timeline, skill, and relation reads
+  read_wake_handlers.py — wake orchestration
   status_handlers.py — project status, runtime health, host bootstrap
   dream_handlers.py — audited maintenance ledger, execution, and undo
   distill_handlers.py — lossless evidence, checkpoints, review, finalization
