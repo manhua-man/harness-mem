@@ -113,7 +113,7 @@ recurring daily prompt. `/hm:review` remains an optional correction, audit, and
 undo surface. Lower-level sync and chunk tools are internal Agent workflow, not user commands. Operator
 maintenance and skill lifecycle management are not public MCP tools.
 
-For 0.9.5 candidates, `govern_memory(action="suggest")` accepts
+New candidates use `govern_memory(action="suggest")` with
 `evidence_basis`, `verification_outcome`, and integrity-only
 `verification_refs` inside its existing `arguments` object. Repository claims
 use a project-relative locator plus current file SHA-256; explicit user
@@ -256,5 +256,7 @@ Search harness-mem for the relevant project decision.
 - Skill lifecycle governance is outside the public memory MCP and CLI product
   surface.
 - Daily use should happen through the Agent client and MCP tools.
-- `distill` creates candidates first and previews review decisions; review
-  decides what becomes confirmed memory.
+- `distill` creates candidates only after complete evidence review;
+  `finalize_session_distill` applies the shared automatic governance policy
+  and runs Dream. `/hm:review` is the post-hoc audit, correction, and undo
+  surface, not a required promotion gate.

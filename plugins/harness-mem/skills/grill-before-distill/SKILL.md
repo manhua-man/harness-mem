@@ -24,7 +24,8 @@ replace `/hm:review`.
 |---|---|
 | grill-me / grill-before-distill | Admission (depth by risk) |
 | session-distill | Extract candidates |
-| /hm:review + `govern_memory(action="decide")` | Durable confirmation |
+| `finalize_session_distill` | Scoped automatic governance + Dream |
+| /hm:review + `govern_memory(action="decide")` | Post-hoc audit, correction, undo, or trust upgrade |
 
 Runs automatically when distill or memory write is in play — user does not say
 「先拷问」. Pick the **lightest sufficient mode**; escalate when risk rises.
@@ -153,8 +154,8 @@ risk: low | medium | high
   -> grill-me 准入（A/B 按风险；对 draft claim，不是空会话先拷问）
   -> govern_memory(action="suggest")（admit；narrow 后可写；defer/reject 不写）
   -> 内部 search_memory / 代码检索；外部来源证据（smart-search 为参考候选）
-  -> auto_review preview + /hm:review
-  -> govern_memory(action="decide", decision="confirm") -> confirmed truth
+  -> finalize_session_distill（scoped auto-review + Dream）
+  -> /hm:review（事后 audit / correction / undo；需要时再 decide）
 
 已确认记忆维护 / dream / 抽查 -> Mode C lookback
 ```
@@ -165,7 +166,7 @@ risk: low | medium | high
 |---|---|
 | Scale admission depth by risk | Force heavy loop on every candidate |
 | Run automatically on distill path | Write candidates or confirmed truth |
-| Mode C for stale truth | Replace `/hm:review` gate |
+| Mode C for stale truth | Replace `/hm:review` audit and correction surface |
 
 ## Non-goals
 
