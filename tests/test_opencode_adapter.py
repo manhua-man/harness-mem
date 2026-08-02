@@ -97,6 +97,31 @@ def test_opencode_reads_sqlite_sessions_scoped_by_directory(tmp_path: Path) -> N
     assert observation.metadata["opencode_session_id"] == "ses-match"
 
 
+def test_opencode_normalizes_native_workspace_aliases(tmp_path: Path) -> None:
+    database = tmp_path / "opencode.db"
+    _build_database(database)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    alias_parent = tmp_path / "alias-parent"
+    alias_parent.mkdir()
+    aliased_workspace = alias_parent / ".." / workspace.name
+    with sqlite3.connect(database) as db:
+        db.execute(
+            "UPDATE session SET directory = ? WHERE id = ?",
+            (str(aliased_workspace), "ses-match"),
+        )
+
+    adapter = OpenCodeAdapter(
+        None,
+        database_path=database,
+        project_root=workspace,
+    )
+
+    assert [session["session_id"] for session in adapter.list_sessions()] == [
+        "ses-match"
+    ]
+
+
 def test_opencode_snapshots_complete_per_session_revisions(tmp_path: Path) -> None:
     async def exercise() -> None:
         database = tmp_path / "opencode.db"

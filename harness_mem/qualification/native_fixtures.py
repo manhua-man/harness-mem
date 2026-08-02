@@ -148,6 +148,7 @@ def build_native_fixture_adapter(
         )
 
     if host == "opencode":
+        resolved_project = project.resolve(strict=False)
         database = root / "opencode.db"
         database.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(database) as db:
@@ -169,7 +170,7 @@ def build_native_fixture_adapter(
             )
             db.execute(
                 "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
-                ("opencode-session", str(project), "Qualification", 1, 2),
+                ("opencode-session", str(resolved_project), "Qualification", 1, 2),
             )
             db.execute(
                 "INSERT INTO message VALUES (?, ?, ?, ?)",
@@ -187,6 +188,7 @@ def build_native_fixture_adapter(
         return OpenCodeAdapter(backend, database_path=database, project_root=project)
 
     if host == "antigravity":
+        resolved_project = project.resolve(strict=False)
         brain = root / "antigravity-brain"
         transcript = (
             brain
@@ -209,7 +211,7 @@ def build_native_fixture_adapter(
                     "source": "MODEL",
                     "type": "PLANNER_RESPONSE",
                     "tool_calls": [
-                        {"name": "list_dir", "args": {"Cwd": str(project)}}
+                        {"name": "list_dir", "args": {"Cwd": str(resolved_project)}}
                     ],
                 },
             ],
