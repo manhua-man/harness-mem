@@ -50,6 +50,10 @@ This release includes the reliability and index-integrity work developed as
 
 ### Tests
 
+- Split CI into a fast PR lane and a complete tagged-release lane. Only four
+  exhaustive 60-case retrieval replays leave the PR lane; the release gate
+  still runs every assertion. Shared seven-host contracts and native JSONL
+  builders remove duplicated fixture data without merging distinct boundaries.
 - Added release gates for seven-host installed-wheel replay on Windows, macOS,
   and Linux. Windows additionally qualifies a real v0.9.6 wheel upgrade,
   migration rollback/retry, legacy restore, Unicode/space paths, and processed

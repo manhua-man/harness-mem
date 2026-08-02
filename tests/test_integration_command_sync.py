@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.host_contracts import HOST_COMMAND_HINT_CASES, HOST_NAMES
+
 from harness_mem.commands.integration_cmds import cmd_sync_commands
 from harness_mem.integration.command_sync import (
     COMMAND_HOSTS,
@@ -180,18 +182,15 @@ def test_project_command_surfaces_use_native_paths_and_invocation_styles(
 
 @pytest.mark.parametrize(
     ("client", "expected"),
-    [
-        ("claude-code", "/hm:*"),
-        ("codex", "$hm-*"),
-        ("cursor", "/hm-*"),
-        ("grok", "/hm-*"),
-        ("hermes", "/hm-*"),
-        ("opencode", "/hm-*"),
-        ("antigravity", "/hm-*"),
-    ],
+    HOST_COMMAND_HINT_CASES,
 )
 def test_command_hint_uses_exact_host_native_syntax(client: str, expected: str) -> None:
     assert command_hint(client) == expected
+
+
+def test_command_host_matrix_matches_public_contract() -> None:
+    assert len(COMMAND_HOSTS) == len(HOST_NAMES)
+    assert set(COMMAND_HOSTS) == set(HOST_NAMES)
 
 
 def test_codex_distill_skill_preserves_router_and_direct_alias_resolution(

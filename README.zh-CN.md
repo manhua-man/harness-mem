@@ -205,10 +205,14 @@ procedural skill 生命周期治理不属于 public memory MCP 和 CLI 产品面
 python -m compileall harness_mem
 python -m ruff check harness_mem plugins tools
 python -m mypy harness_mem
-python -m pytest -q
+python -m pytest -q -m "not release_gate"  # PR 快速门
+python -m pytest -q                        # 完整发布门
 python -m harness_mem.cli --help
 cargo test --workspace
 ```
+
+快速门只跳过四个确定性的 60-case 穷举检索回放；全部断言仍会在 `main`
+和正式 tag 的发布门中执行。
 
 发布标签会构建六个平台 wheel 和 sdist，在 Windows、macOS、Linux 上完成
 全新安装验证，运行真实 sqlite-vec contract gate，并验证受支持的 Windows 升级

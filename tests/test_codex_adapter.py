@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 import harness_mem.adapters.codex.adapter as codex_adapter_module
@@ -11,14 +10,7 @@ import harness_mem.mcp.tool_handlers as tool_handlers
 from harness_mem.adapters.codex.adapter import CodexAdapter
 from harness_mem.adapters.parser import parse_codex_archive_jsonl_session
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-
-
-def _write_jsonl(path: Path, records: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n",
-        encoding="utf-8",
-    )
+from tests.support.native_sessions import write_jsonl
 
 
 def _codex_records_for_workspace(workspace: Path, *, session_id: str = "codex-session") -> list[dict]:
@@ -83,7 +75,7 @@ def test_parse_codex_rollout_reads_current_response_items(tmp_path: Path) -> Non
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     session_path = tmp_path / "rollout-2026-07-09T00-00-00-codex-session.jsonl"
-    _write_jsonl(session_path, _codex_records_for_workspace(workspace))
+    write_jsonl(session_path, _codex_records_for_workspace(workspace))
 
     meta, turns = parse_codex_archive_jsonl_session(session_path)
 
@@ -102,11 +94,11 @@ def test_codex_adapter_filters_sessions_by_project_root(tmp_path: Path) -> None:
     workspace.mkdir()
     other_workspace.mkdir()
 
-    _write_jsonl(
+    write_jsonl(
         sessions_dir / "2026" / "07" / "09" / "rollout-2026-07-09T00-00-00-match.jsonl",
         _codex_records_for_workspace(workspace, session_id="match"),
     )
-    _write_jsonl(
+    write_jsonl(
         sessions_dir / "2026" / "07" / "09" / "rollout-2026-07-09T00-00-01-other.jsonl",
         _codex_records_for_workspace(other_workspace, session_id="other"),
     )
@@ -129,7 +121,7 @@ def test_tool_ingest_sessions_codex_uses_project_root_and_reports_resolved_clien
     workspace.mkdir()
     (workspace / ".git").mkdir()
 
-    _write_jsonl(
+    write_jsonl(
         sessions_dir / "2026" / "07" / "09" / "rollout-2026-07-09T00-00-00-codex-session.jsonl",
         _codex_records_for_workspace(workspace),
     )

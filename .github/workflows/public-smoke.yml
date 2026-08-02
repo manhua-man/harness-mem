@@ -30,17 +30,21 @@ jobs:
       - name: Ensure canonical mcps descriptors
         run: python scripts/ensure_mcps_canonical.py
 
-      - name: MCP export consistency
-        run: python -m pytest tests/test_mcp_exported_tools.py tests/test_mcps_worktree_guard.py -q
-
       - name: Runtime smoke
         run: |
           python -m compileall harness_mem
           python -m ruff check harness_mem plugins tools
           python -c "import harness_mem_core_rs; assert harness_mem_core_rs.api_version()"
-          python -m pytest
           python -m harness_mem.cli --help
           python -m harness_mem.cli maintenance state-audit --help
+
+      - name: Fast Python contract suite
+        if: github.event_name == 'pull_request'
+        run: python -m pytest -m "not release_gate"
+
+      - name: Full Python contract suite
+        if: github.event_name == 'push'
+        run: python -m pytest
 
       - name: Rust smoke
         run: cargo test --workspace

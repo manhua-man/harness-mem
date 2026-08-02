@@ -182,6 +182,30 @@ jobs:
           tests/test_vec0_generation_failures.py
           tests/test_doctor_vec0.py
 
+  full-python-release-gate:
+    needs: [build-native-wheel]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - name: Install the release wheel and test dependencies
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          python -c "import os, subprocess, sys;
+          version=os.environ['RELEASE_TAG'].removeprefix('v');
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pytest', 'pytest-asyncio', 'PyYAML', 'numpy', 'sqlite-vec']);
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--find-links', 'dist', 'harness-mem==' + version])"
+      - name: Run the complete Python contract suite
+        run: python -m pytest
+
   publish-github-release:
     needs:
       - build-native-wheel
@@ -189,6 +213,7 @@ jobs:
       - fresh-install-smoke
       - windows-upgrade-lifecycle-smoke
       - hybrid-index-release-smoke
+      - full-python-release-gate
     runs-on: ubuntu-latest
     permissions:
       contents: write

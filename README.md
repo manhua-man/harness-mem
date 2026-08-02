@@ -300,10 +300,14 @@ product surface.
 python -m compileall harness_mem
 python -m ruff check harness_mem plugins tools
 python -m mypy harness_mem
-python -m pytest -q
+python -m pytest -q -m "not release_gate"  # fast PR lane
+python -m pytest -q                        # complete release lane
 python -m harness_mem.cli --help
 cargo test --workspace
 ```
+
+The fast lane skips only four exhaustive, deterministic 60-case retrieval
+replays. Every assertion still runs on `main` and in the tagged release gate.
 
 Repair or regenerate MCP descriptors when `tool_specs` changes (also reverts incidental `mcps/grok_com_github` IDE drift):
 

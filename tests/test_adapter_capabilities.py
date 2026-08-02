@@ -8,19 +8,12 @@ import pytest
 import harness_mem.adapters.capabilities as capabilities_module
 from harness_mem.adapters import AdapterRegistry
 from harness_mem.core.schemas.transcript import TranscriptSource
+from tests.support.host_contracts import HOST_CAPABILITY_CASES, HOST_NAMES
 
 
 @pytest.mark.parametrize(
     ("host", "capture_mode", "native_cleanup_mode"),
-    [
-        ("claude-code", "file", "file"),
-        ("codex", "file", "file"),
-        ("cursor", "file", "file"),
-        ("grok", "file", "file"),
-        ("hermes", "mixed", "source_dependent"),
-        ("opencode", "shared_container", "unsupported"),
-        ("antigravity", "mixed", "source_dependent"),
-    ],
+    HOST_CAPABILITY_CASES,
 )
 def test_registry_enumerates_seven_host_capability_rows(
     host: str,
@@ -30,15 +23,7 @@ def test_registry_enumerates_seven_host_capability_rows(
     rows = AdapterRegistry.list_capabilities()
 
     assert len(rows) == 7
-    assert set(rows) == {
-        "claude-code",
-        "codex",
-        "cursor",
-        "grok",
-        "hermes",
-        "opencode",
-        "antigravity",
-    }
+    assert set(rows) == set(HOST_NAMES)
     assert rows[host].to_dict() == {
         "capture_mode": capture_mode,
         "native_cleanup_mode": native_cleanup_mode,

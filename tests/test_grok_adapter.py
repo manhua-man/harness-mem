@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 import harness_mem.adapters.grok.adapter as grok_adapter_module
@@ -11,14 +10,7 @@ import harness_mem.mcp.tool_handlers as tool_handlers
 from harness_mem.adapters.grok.adapter import GrokAdapter, grok_project_bucket
 from harness_mem.adapters.parser import parse_grok_jsonl_session
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-
-
-def _write_jsonl(path: Path, records: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n",
-        encoding="utf-8",
-    )
+from tests.support.native_sessions import write_jsonl
 
 
 def _grok_records() -> list[dict]:
@@ -50,13 +42,13 @@ def _write_grok_session(sessions_dir: Path, workspace: Path, session_id: str) ->
         / session_id
         / "chat_history.jsonl"
     )
-    _write_jsonl(chat_history, _grok_records())
+    write_jsonl(chat_history, _grok_records())
     return chat_history
 
 
 def test_parse_grok_jsonl_session_reads_content_and_tools(tmp_path: Path) -> None:
     session_path = tmp_path / "chat_history.jsonl"
-    _write_jsonl(session_path, _grok_records())
+    write_jsonl(session_path, _grok_records())
 
     turns = parse_grok_jsonl_session(session_path)
 

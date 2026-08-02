@@ -570,6 +570,7 @@ def _suite_report(
     }
 
 
+@pytest.mark.release_gate
 def test_retrieval_quality_benchmark_report_is_stable(tmp_path: Path) -> None:
     fixture = Path(__file__).with_name("retrieval_quality_golden.yaml")
     cases = _load_cases(fixture)
@@ -611,6 +612,7 @@ def test_retrieval_quality_benchmark_report_is_stable(tmp_path: Path) -> None:
     assert len(report["query_artifacts"]) == 60
 
 
+@pytest.mark.release_gate
 def test_retrieval_quality_repeated_runs_keep_ids_and_outcomes_stable(
     tmp_path: Path,
 ) -> None:
@@ -648,6 +650,7 @@ def _p95(values: list[float]) -> float:
     return ordered[index]
 
 
+@pytest.mark.release_gate
 def test_retrieval_quality_v0_9_7_fixture_round_trip(tmp_path: Path) -> None:
     fixture = Path(__file__).with_name("retrieval_quality_golden.yaml")
     cases = _load_cases(fixture)
@@ -731,6 +734,7 @@ def test_retrieval_quality_loader_rejects_duplicate_keys(tmp_path: Path) -> None
         _load_cases(fixture)
 
 
+@pytest.mark.release_gate
 def test_retrieval_quality_golden_ab_gate_allows_only_non_regressing_candidates(
     tmp_path: Path,
 ) -> None:

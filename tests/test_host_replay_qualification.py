@@ -18,8 +18,14 @@ from harness_mem.qualification.native_fixtures import (
     build_native_fixture_adapter,
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from tests.support.host_contracts import HOST_NAMES
 
-@pytest.mark.parametrize("host", QUALIFICATION_HOSTS)
+
+def test_qualification_host_matrix_matches_public_contract() -> None:
+    assert tuple(QUALIFICATION_HOSTS) == HOST_NAMES
+
+
+@pytest.mark.parametrize("host", HOST_NAMES)
 def test_native_host_replay_reaches_dream_and_wake(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

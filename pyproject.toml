@@ -64,6 +64,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 markers = [
     "embedding_integration: explicitly loads the real embedding model; excluded from normal CI",
+    "release_gate: exhaustive deterministic replay reserved for the complete release lane",
 ]
 
 [tool.ruff.lint]
