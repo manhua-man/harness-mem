@@ -98,7 +98,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 - 新 Agent 不必每次从零翻旧聊天。
 - 长期项目里的决策、约定、handoff 和 review 结论可以被检索。
 - 写入默认先进入 candidate layer，避免把猜测、噪声、临时结论变成真值。
-- 同一套本地记忆后端可以接到 Codex、Claude Code、Cursor、Gemini CLI 或其它 MCP-capable Agent。
+- 同一套本地记忆后端可以接到 Claude Code、Codex、Cursor、Grok、Hermes、
+  OpenCode、Antigravity 或其它 MCP-capable Agent。
 
 ## 安装
 
@@ -144,7 +145,8 @@ project profile、安装匹配的项目 hooks，并幂等修复当前宿主的�
 见 [MCP setup](docs/mcp-setup.md)。
 
 需要显式修复时，七宿主统一使用
-`harness-mem integration hooks sync --client <host> --project-root . --force`。
+`harness-mem integration hooks sync --client all --project-root . --force`；
+只修复一个宿主时，再把 `all` 换成对应宿主名。
 
 仓库安装脚本会自动执行同一套“全部宿主、用户级”同步：
 

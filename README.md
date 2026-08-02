@@ -148,7 +148,8 @@ stay readable without silently changing authority. See
 - Local-first: project memory stays on your machine by default.
 - Agent-ready: MCP is the normal integration path for coding tools.
 - Reviewable: low-risk memory can be auto-promoted, while risk, evidence, and undo metadata stay auditable.
-- Pluggable: use it from Codex, Claude Code, Cursor, Gemini CLI, or any MCP-capable Agent client.
+- Pluggable: use it from Claude Code, Codex, Cursor, Grok, Hermes, OpenCode,
+  Antigravity, or another MCP-capable Agent client.
 
 <p align="center">
   <img src="docs/assets/harness-mem-candidate-governance.svg" alt="candidate-before-truth memory governance state machine" width="900" />
@@ -226,7 +227,8 @@ surface. Users do not run a per-project command or hook installer. See
 current adapter surface and install model for each host.
 
 For explicit operator repair, use the one cross-host path:
-`harness-mem integration hooks sync --client <host> --project-root . --force`.
+`harness-mem integration hooks sync --client all --project-root . --force`.
+Replace `all` with one host name when only that integration needs repair.
 
 Codex applies an additional native security gate to project command hooks.
 After automatic installation, open **Codex Settings > Hooks**, review and trust
