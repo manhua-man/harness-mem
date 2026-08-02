@@ -53,13 +53,15 @@ class MergedConfig:
     capture_ignore_source_globs: tuple[str, ...] = ()
     transcript_retention_days: int = 0
     distill_auto_enabled: bool = True
-    distill_auto_max_jobs_per_wake: int = 2
+    distill_auto_max_jobs_per_wake: int = 1
     distill_auto_target_backlog: int = 2
     distill_auto_recent_first: bool = True
     distill_auto_daily_job_budget: int = 8
     distill_delete_source_after_complete: bool = False
     dream_auto_enabled: bool = True
-    dream_auto_trigger: Literal["idle_or_interval", "interval", "idle"] = "idle_or_interval"
+    dream_auto_trigger: Literal["idle_or_interval", "interval", "idle"] = (
+        "idle_or_interval"
+    )
     dream_auto_min_interval_hours: int = 24
     dream_auto_idle_seconds: int = 900
     dream_auto_max_runtime_seconds: int = 120
@@ -131,7 +133,7 @@ _DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
         "distill.auto.max_jobs_per_wake",
         "distill_auto_max_jobs_per_wake",
         "int:min=1",
-        2,
+        1,
     ),
     (
         "distill.auto.target_backlog",
@@ -164,17 +166,37 @@ _DREAM_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     ),
     ("dream.auto.min_interval_hours", "dream_auto_min_interval_hours", "int:min=1", 24),
     ("dream.auto.idle_seconds", "dream_auto_idle_seconds", "int:min=0", 900),
-    ("dream.auto.max_runtime_seconds", "dream_auto_max_runtime_seconds", "int:min=1", 120),
+    (
+        "dream.auto.max_runtime_seconds",
+        "dream_auto_max_runtime_seconds",
+        "int:min=1",
+        120,
+    ),
     ("dream.parse.parse_all", "dream_parse_parse_all", "const:true", True),
     ("dream.parse.require_evidence", "dream_parse_require_evidence", "bool", True),
     ("dream.handle.handle_all", "dream_handle_handle_all", "const:true", True),
     ("dream.handle.auto_apply", "dream_handle_auto_apply", "bool", True),
-    ("dream.handle.auto_reject_uncertain", "dream_handle_auto_reject_uncertain", "bool", True),
-    ("dream.handle.auto_archive_unclassifiable", "dream_handle_auto_archive_unclassifiable", "bool", True),
+    (
+        "dream.handle.auto_reject_uncertain",
+        "dream_handle_auto_reject_uncertain",
+        "bool",
+        True,
+    ),
+    (
+        "dream.handle.auto_archive_unclassifiable",
+        "dream_handle_auto_archive_unclassifiable",
+        "bool",
+        True,
+    ),
     ("dream.handle.allow_supersede", "dream_handle_allow_supersede", "bool", True),
     ("dream.handle.allow_merge", "dream_handle_allow_merge", "bool", True),
     ("dream.handle.allow_mark_stale", "dream_handle_allow_mark_stale", "bool", True),
-    ("dream.handle.allow_delete_truth", "dream_handle_allow_delete_truth", "const:false", False),
+    (
+        "dream.handle.allow_delete_truth",
+        "dream_handle_allow_delete_truth",
+        "const:false",
+        False,
+    ),
     ("dream.handle.preserve_audit", "dream_handle_preserve_audit", "const:true", True),
     ("dream.handle.undo_window_days", "dream_handle_undo_window_days", "int:min=1", 30),
 )
@@ -319,7 +341,9 @@ def _coerce_int(
     minimum: int,
 ) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-        raise ConfigValidationError(key_path=key_path, value=value, source_path=source_path)
+        raise ConfigValidationError(
+            key_path=key_path, value=value, source_path=source_path
+        )
     return value
 
 
@@ -333,26 +357,38 @@ def _coerce_typed_value(
     if kind == "bool":
         return _coerce_bool(value, key_path=key_path, source_path=source_path)
     if kind == "str_list":
-        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
-            raise ConfigValidationError(key_path=key_path, value=value, source_path=source_path)
+        if not isinstance(value, list) or any(
+            not isinstance(item, str) for item in value
+        ):
+            raise ConfigValidationError(
+                key_path=key_path, value=value, source_path=source_path
+            )
         return tuple(dict.fromkeys(item.strip() for item in value if item.strip()))
     if kind == "const:true":
         coerced = _coerce_bool(value, key_path=key_path, source_path=source_path)
         if coerced is not True:
-            raise ConfigValidationError(key_path=key_path, value=value, source_path=source_path)
+            raise ConfigValidationError(
+                key_path=key_path, value=value, source_path=source_path
+            )
         return coerced
     if kind == "const:false":
         coerced = _coerce_bool(value, key_path=key_path, source_path=source_path)
         if coerced is not False:
-            raise ConfigValidationError(key_path=key_path, value=value, source_path=source_path)
+            raise ConfigValidationError(
+                key_path=key_path, value=value, source_path=source_path
+            )
         return coerced
     if kind.startswith("int:min="):
         minimum = int(kind.removeprefix("int:min="))
-        return _coerce_int(value, key_path=key_path, source_path=source_path, minimum=minimum)
+        return _coerce_int(
+            value, key_path=key_path, source_path=source_path, minimum=minimum
+        )
     if kind.startswith("enum:"):
         allowed = tuple(kind.removeprefix("enum:").split(","))
         if value not in allowed:
-            raise ConfigValidationError(key_path=key_path, value=value, source_path=source_path)
+            raise ConfigValidationError(
+                key_path=key_path, value=value, source_path=source_path
+            )
         return value
     raise ConfigValidationError(key_path=key_path, value=value, source_path=source_path)
 

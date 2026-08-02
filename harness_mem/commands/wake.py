@@ -745,18 +745,18 @@ async def build_wake_snapshot(
     return payload
 
 
-def _build_distill_maintenance_instruction(
+def _build_distill_maintenance_offer(
     backend: LocalMemoryBackend,
     project_name: str,
     *,
     record_offer: bool,
-) -> str:
-    """Build one truthful Agent-active drainer instruction for hook and MCP wake."""
+) -> dict[str, Any]:
+    """Build one truthful, machine-readable Agent-active wake offer."""
 
     from harness_mem.commands.distill_lifecycle import (
+        build_distill_maintenance_offer,
         pending_distill_jobs,
         distill_drainer_metrics,
-        render_pending_distill_instruction,
     )
 
     distill_config = MergedConfig()
@@ -782,13 +782,23 @@ def _build_distill_maintenance_instruction(
         project_name=project_name,
         daily_job_budget=distill_config.distill_auto_daily_job_budget,
     )
-    instruction = render_pending_distill_instruction(
+    offer = build_distill_maintenance_offer(
         jobs,
         max_jobs=distill_config.distill_auto_max_jobs_per_wake,
         target_backlog=distill_config.distill_auto_target_backlog,
         metrics=drainer_metrics,
-    ) if distill_config.distill_auto_enabled else ""
-    return instruction
+    )
+    offer["enabled"] = distill_config.distill_auto_enabled
+    if not distill_config.distill_auto_enabled:
+        offer.update(
+            {
+                "agent_execution_required": False,
+                "process_limit": 0,
+                "job_ids": [],
+                "instruction": "",
+            }
+        )
+    return offer
 
 
 async def build_wake_injection(
@@ -808,11 +818,12 @@ async def build_wake_injection(
         await _apply_surface_side_effects(backend, plan)
     recent_context = await build_recent_context(backend, project_name)
     rendered = render_recent_context(recent_context, plan, compact=True)
-    instruction = _build_distill_maintenance_instruction(
+    maintenance = _build_distill_maintenance_offer(
         backend,
         project_name,
         record_offer=apply_surface_side_effects,
     )
+    instruction = str(maintenance.get("instruction") or "")
     return f"{rendered}\n\n{instruction}" if instruction else rendered
 
 
@@ -823,6 +834,7 @@ async def cmd_wake_up(
     no_bucket_quota: bool = False,
     include_skill_hints: bool | None = None,
     skill_hint_limit: int | None = None,
+    maintenance_capture: dict[str, Any] | None = None,
 ) -> int:
     """Generate wake-up context for a project.
 
@@ -874,11 +886,14 @@ async def cmd_wake_up(
 
         recent_context = await build_recent_context(backend, project_name)
         print(render_recent_context(recent_context, plan, compact=False))
-        maintenance_instruction = _build_distill_maintenance_instruction(
+        maintenance = _build_distill_maintenance_offer(
             backend,
             project_name,
             record_offer=True,
         )
+        if maintenance_capture is not None:
+            maintenance_capture.update(maintenance)
+        maintenance_instruction = str(maintenance.get("instruction") or "")
         if maintenance_instruction:
             print(maintenance_instruction)
         if skill_hints_enabled:

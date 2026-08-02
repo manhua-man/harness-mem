@@ -22,7 +22,9 @@ def _observation(content: str, *, session_id: str = "session-1") -> Observation:
     )
 
 
-def test_project_capture_config_overrides_user_policy(tmp_path: Path, monkeypatch) -> None:
+def test_project_capture_config_overrides_user_policy(
+    tmp_path: Path, monkeypatch
+) -> None:
     home = tmp_path / "home"
     project = tmp_path / "project"
     (home / ".harness-mem").mkdir(parents=True)
@@ -42,14 +44,16 @@ def test_project_capture_config_overrides_user_policy(tmp_path: Path, monkeypatc
     assert config.capture_ignore_clients == ("codex",)
     assert config.capture_ignore_source_globs == ("*secret*.jsonl",)
     assert config.transcript_retention_days == 30
-    assert config.distill_auto_max_jobs_per_wake == 2
+    assert config.distill_auto_max_jobs_per_wake == 1
 
 
-def test_private_spans_never_reach_raw_revision_chunks_or_observation(tmp_path: Path) -> None:
+def test_private_spans_never_reach_raw_revision_chunks_or_observation(
+    tmp_path: Path,
+) -> None:
     project = tmp_path / "project"
     project.mkdir()
     secret = "do-not-store-this-value"
-    native = f'before <private>{secret}</private> after'
+    native = f"before <private>{secret}</private> after"
 
     async def run() -> None:
         backend = LocalMemoryBackend(tmp_path / "data")

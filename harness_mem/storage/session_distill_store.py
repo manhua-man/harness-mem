@@ -58,7 +58,9 @@ class SessionDistillStore:
                     raise KeyError(source_id)
                 source = TranscriptSource.from_dict(json.loads(source_row["data"]))
                 if source.coverage != "complete" or source.status != "synced":
-                    raise ValueError("only complete synced transcript sources can be queued")
+                    raise ValueError(
+                        "only complete synced transcript sources can be queued"
+                    )
                 chunk_rows = self._conn.execute(
                     """
                     SELECT id, chunk_index FROM transcript_chunks
@@ -70,18 +72,33 @@ class SessionDistillStore:
                 if len(chunk_rows) != source.chunk_count:
                     raise ValueError("transcript source chunk count is incomplete")
 
-                idempotency_key = f"{source.id}:{source.source_revision}:{pipeline_version}"
+                idempotency_key = (
+                    f"{source.id}:{source.source_revision}:{pipeline_version}"
+                )
                 existing_row = self._conn.execute(
                     "SELECT data FROM distill_jobs WHERE idempotency_key = ?",
                     (idempotency_key,),
                 ).fetchone()
                 if existing_row is not None:
-                    self._conn.rollback()
-                    return SessionDistillJob.from_dict(json.loads(existing_row["data"]))
+                    existing = SessionDistillJob.from_dict(
+                        json.loads(existing_row["data"])
+                    )
+                    self._mark_older_jobs_stale_locked(source)
+                    if active_limit is not None:
+                        self._rebalance_locked(
+                            source.project_name,
+                            target_active=max(0, active_limit),
+                            recent_first=recent_first,
+                        )
+                    refreshed = self._get_job_locked(existing.id) or existing
+                    self._conn.commit()
+                    return refreshed
 
                 self._mark_older_jobs_stale_locked(source)
                 job = SessionDistillJob(
-                    id=str(uuid5(NAMESPACE_URL, f"harness-mem://distill/{idempotency_key}")),
+                    id=str(
+                        uuid5(NAMESPACE_URL, f"harness-mem://distill/{idempotency_key}")
+                    ),
                     idempotency_key=idempotency_key,
                     project_name=source.project_name,
                     project_root=source.project_root,
@@ -154,8 +171,7 @@ class SessionDistillStore:
                 (job_id,),
             ).fetchall()
         return [
-            DistillChunkCheckpoint.from_dict(json.loads(row["data"]))
-            for row in rows
+            DistillChunkCheckpoint.from_dict(json.loads(row["data"])) for row in rows
         ]
 
     def reconcile(
@@ -234,7 +250,10 @@ class SessionDistillStore:
                             summary["failed_recovery_budget"] += 1
 
                     if job.status not in terminal:
-                        if completed_count == job.expected_chunk_count and job.expected_chunk_count > 0:
+                        if (
+                            completed_count == job.expected_chunk_count
+                            and job.expected_chunk_count > 0
+                        ):
                             if job.status != "reviewing":
                                 job.status = "reviewing"
                                 job.phase = "review"
@@ -274,7 +293,9 @@ class SessionDistillStore:
                                 job.updated_at = current
                                 changed = True
                                 summary["recovered"] += 1
-                                if job.recovery_count >= max(1, int(job.recovery_budget)):
+                                if job.recovery_count >= max(
+                                    1, int(job.recovery_budget)
+                                ):
                                     job.status = "failed"
                                     job.error = "distill recovery budget exhausted"
                                     job.recovery_exhausted_at = current
@@ -478,7 +499,9 @@ class SessionDistillStore:
                     checkpoint.status != "processing"
                     or checkpoint.lease_owner != lease_owner
                 ):
-                    raise PermissionError("distill chunk lease is not owned by this caller")
+                    raise PermissionError(
+                        "distill chunk lease is not owned by this caller"
+                    )
                 if checkpoint.lease_until is None or checkpoint.lease_until < now:
                     raise TimeoutError("distill chunk lease has expired")
                 checkpoint.status = "completed"
@@ -563,7 +586,9 @@ class SessionDistillStore:
                     "source_revision_current": True,
                 }
                 job.semantic_review = review.to_dict()
-                job.output_candidate_ids = list(dict.fromkeys(output_candidate_ids or []))
+                job.output_candidate_ids = list(
+                    dict.fromkeys(output_candidate_ids or [])
+                )
                 job.completed_chunk_count = complete_count
                 job.status = "completed"
                 job.phase = "done"
@@ -596,7 +621,9 @@ class SessionDistillStore:
                     (job_id,),
                 ).fetchall()
                 for row in rows:
-                    checkpoint = DistillChunkCheckpoint.from_dict(json.loads(row["data"]))
+                    checkpoint = DistillChunkCheckpoint.from_dict(
+                        json.loads(row["data"])
+                    )
                     if checkpoint.status == "processing":
                         checkpoint.status = "retryable"
                         checkpoint.lease_owner = None
@@ -638,7 +665,9 @@ class SessionDistillStore:
                 if job is None:
                     raise KeyError(job_id)
                 if job.status != "completed":
-                    raise ValueError("completion outcome requires a completed distill job")
+                    raise ValueError(
+                        "completion outcome requires a completed distill job"
+                    )
                 job.completion_disposition = disposition
                 job.completion_reason_codes = list(dict.fromkeys(reason_codes))
                 job.promotion_summary = dict(promotion_summary)
@@ -841,11 +870,15 @@ class SessionDistillStore:
         selected: List[SessionDistillJob] = []
         if len(currently_active) <= available_slots:
             selected.extend(currently_active)
-        pool = [job for job in candidates if job.id not in {item.id for item in selected}]
+        pool = [
+            job for job in candidates if job.id not in {item.id for item in selected}
+        ]
 
         history = sorted(
             (job for job in jobs if job.drainer_selected_at is not None),
-            key=lambda job: job.drainer_selected_at or datetime.min.replace(tzinfo=timezone.utc),
+            key=lambda job: (
+                job.drainer_selected_at or datetime.min.replace(tzinfo=timezone.utc)
+            ),
         )
         recent_streak = 0
         for historical in reversed(history):
@@ -863,9 +896,13 @@ class SessionDistillStore:
             healthy = [job for job in pool if job.error is None]
             lane_pool = healthy or pool
             choose_recent = recent_first and recent_streak < 3
-            chosen = max(lane_pool, key=age_key) if choose_recent else min(
-                lane_pool,
-                key=age_key,
+            chosen = (
+                max(lane_pool, key=age_key)
+                if choose_recent
+                else min(
+                    lane_pool,
+                    key=age_key,
+                )
             )
             lane: Literal["recent", "oldest"] = "recent" if choose_recent else "oldest"
             chosen.drainer_lane = lane

@@ -90,12 +90,12 @@ wireFormatVersion: hm-wire-v3.5
    - 自动应用 `grill-before-distill` 准入（深度/轻量按风险）；仅 `admit` / `narrow` 继续
    - 按 `references/distillation-rules.md` 判断价值
    - 用 MCP `govern_memory(action="suggest")` / `govern_memory(action="handoff")` 写入 pending 候选，并把当前 `distill_job_id` 传入写入参数
-   - 每条候选必须带 0.9.5 evidence envelope：`evidence_basis`、`verification_outcome`、`verification_refs`
+   - 每条候选必须带 evidence envelope：`evidence_basis`、`verification_outcome`、`verification_refs`
    - 代码、版本、发布、文件与测试状态只能使用 `repository + verified`，ref 使用项目相对路径与当前文件 SHA-256；绝不写绝对路径或证据正文
    - 用户明确偏好、纠正或决定使用 `user_statement + verified/not_applicable`，ref 指向 user role 的 exchange index 与完整窗口 SHA-256
    - 只有会话说法而无法由仓库或用户明确陈述验证时，必须写 `transcript + unverified`；runtime 会终结该 durable candidate，不能伪装为事实
 
-   不要退回旧的 heuristic fallback。v2.0 已移除正则提取式 distill；
+   不要退回旧的 heuristic fallback。正则提取式 distill 已移除；
    如果 `prepare_session_distill` 或 Skill 无法提供 lossless chunks，应把它当作
    runtime / 配置问题排障，而不是退回低质量自动提取。
 
@@ -114,7 +114,7 @@ wireFormatVersion: hm-wire-v3.5
    MCP 不可用时，直接说明 runtime 工具不可用；不要回退到独立 CLI、packet
    workspace 或本地 memory-drafts 流程。
 
-   候选判断必须复用 shared auto-review policy，而不是在命令文档里手写另一套规则。安全候选自动进入 truth layer；其余候选自动终结。`/hm-review` 是事后 audit、纠错和 undo 入口，不是日常晋升闸门。
+   候选判断必须复用 shared auto-review policy，而不是在 slash 文档里手写另一套规则。安全候选自动进入 truth layer；其余候选自动终结。`/hm-review` 是事后 audit、纠错和 undo 入口，不是日常晋升闸门。
 
    内部审计结果必须以 `finalize_session_distill` 返回的 scoped auto-review 结果为准：
    - `auto_confirmed`

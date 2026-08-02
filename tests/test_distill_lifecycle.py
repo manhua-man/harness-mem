@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.commands.distill_lifecycle import (
     _coarse_drain_estimate,
+    build_distill_maintenance_offer,
     distill_drainer_metrics,
     pending_distill_jobs,
     render_pending_distill_instruction,
@@ -47,6 +48,11 @@ def test_distill_job_is_deduplicated_and_rendered(tmp_path: Path) -> None:
         assert second.id == first.id
         assert pending_distill_jobs(backend, project_name="demo") == []
         assert render_pending_distill_instruction([]) == ""
+        empty_offer = build_distill_maintenance_offer([])
+        assert empty_offer["agent_execution_required"] is False
+        assert empty_offer["process_limit"] == 0
+        assert empty_offer["job_ids"] == []
+        assert empty_offer["instruction"] == ""
     finally:
         _run(backend.close())
 
@@ -99,6 +105,11 @@ def test_agent_active_drainer_enforces_daily_new_job_budget(tmp_path: Path) -> N
             now=now,
         )
         instruction = render_pending_distill_instruction(first, metrics=metrics)
+        offer = build_distill_maintenance_offer(
+            first,
+            max_jobs=1,
+            metrics=metrics,
+        )
 
         assert len(first) == 1
         assert [job.id for job in second] == [job.id for job in first]
@@ -112,11 +123,25 @@ def test_agent_active_drainer_enforces_daily_new_job_budget(tmp_path: Path) -> N
         assert "three recent jobs, then one oldest" in instruction
         assert f"process up to 1 now: {first[0].id}" in instruction
         assert "distill_job_id=<selected id>" in instruction
+        assert "run_ingest=false" in instruction
+        assert offer["contract_version"] == "agent-distill-offer-v1"
+        assert offer["agent_execution_required"] is True
+        assert offer["job_ids"] == [first[0].id]
+        assert offer["process_limit"] == 1
+        assert offer["prepare_arguments"] == {
+            "run_ingest": False,
+            "evidence_mode": "semantic",
+            "detail_level": "compact",
+            "budget_tokens": 3000,
+        }
+        assert offer["failure_policy"] == "defer_and_continue"
     finally:
         _run(backend.close())
 
 
-def test_agent_active_drainer_only_charges_jobs_emitted_to_agent(tmp_path: Path) -> None:
+def test_agent_active_drainer_only_charges_jobs_emitted_to_agent(
+    tmp_path: Path,
+) -> None:
     backend = LocalMemoryBackend(tmp_path / "data")
     _run(backend.init())
     now = datetime(2026, 7, 17, 8, 0, tzinfo=timezone.utc)
@@ -345,9 +370,7 @@ def test_drainer_estimate_includes_latest_retry_backoff() -> None:
         daily_job_budget=3,
         daily_budget_remaining=3,
         state="backoff",
-        retry_backoff=[
-            SimpleNamespace(retry_after=now + timedelta(days=10))
-        ],
+        retry_backoff=[SimpleNamespace(retry_after=now + timedelta(days=10))],
         current=now,
     )
 

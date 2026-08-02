@@ -170,6 +170,41 @@ def test_new_revision_marks_older_active_job_stale(tmp_path: Path) -> None:
     store.close()
 
 
+def test_existing_current_job_reconciles_legacy_active_older_revision(
+    tmp_path: Path,
+) -> None:
+    store = TranscriptStore(tmp_path)
+    first = _save_source(store, "turn one\nanswer one\n")
+    old_job = store.enqueue_distill_job(first.id)
+    second = _save_source(store, "turn one\nanswer one\nturn two\n")
+    current_job = store.enqueue_distill_job(second.id)
+
+    row = store._conn.execute(  # type: ignore[attr-defined]
+        "SELECT data FROM distill_jobs WHERE id = ?",
+        (old_job.id,),
+    ).fetchone()
+    assert row is not None
+    payload = json.loads(row["data"])
+    payload["status"] = "retryable"
+    store._conn.execute(  # type: ignore[attr-defined]
+        "UPDATE distill_jobs SET status = 'retryable', data = ? WHERE id = ?",
+        (json.dumps(payload), old_job.id),
+    )
+    store._conn.commit()  # type: ignore[attr-defined]
+
+    replayed = store.enqueue_distill_job(second.id, active_limit=2)
+
+    assert replayed.id == current_job.id
+    stored_current = store.get_distill_job(current_job.id)
+    assert stored_current is not None
+    assert replayed.status == stored_current.status
+    reconciled = store.get_distill_job(old_job.id)
+    assert reconciled is not None
+    assert reconciled.status == "stale"
+    assert reconciled.error == "superseded by a newer transcript source revision"
+    store.close()
+
+
 def test_defer_failed_job_releases_lease_and_keeps_it_retryable(tmp_path: Path) -> None:
     store = TranscriptStore(tmp_path)
     source = _save_source(store, "turn\nanswer\n")
@@ -366,7 +401,9 @@ def test_reconcile_advances_parent_when_checkpoints_are_complete(
     reviewing = store.get_distill_job(job.id)
     assert reviewing is not None and reviewing.status == "reviewing"
     payload = reviewing.to_dict()
-    payload.update({"status": "processing", "phase": "chunks", "completed_chunk_count": 0})
+    payload.update(
+        {"status": "processing", "phase": "chunks", "completed_chunk_count": 0}
+    )
     store._conn.execute(  # type: ignore[attr-defined]
         "UPDATE distill_jobs SET data = ?, status = 'processing', phase = 'chunks' WHERE id = ?",
         (json.dumps(payload), job.id),

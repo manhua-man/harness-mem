@@ -22,6 +22,7 @@ from harness_mem.commands.support import (
 from harness_mem.commands.distill_lifecycle import distill_drainer_metrics
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import MergedConfig, load_merged_config
+from harness_mem.adapters.projection_repair import repair_source_observation_projection
 from harness_mem.governance_status import CANDIDATE_LAYER_STATUSES, TRUTH_LAYER_STATUSES
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.transcript_chunking import sha256_text
@@ -107,9 +108,16 @@ def _load_distill_semantic_evidence(
 
     observation_id = str(uuid5(NAMESPACE_URL, f"{source_id}:observation"))
     observation = asyncio.run(backend.verbatim_store.get(observation_id))
+    if (
+        observation is None
+        or observation.metadata.get("source_revision") != source_revision
+    ):
+        observation = repair_source_observation_projection(
+            backend,
+            source_id=source_id,
+            source_revision=source_revision,
+        )
     if observation is None:
-        return None
-    if observation.metadata.get("source_revision") != source_revision:
         return None
 
     parser_content = observation.raw_content
@@ -177,6 +185,12 @@ def _load_distill_exchange_windows(
         observation is None
         or observation.metadata.get("source_revision") != source_revision
     ):
+        observation = repair_source_observation_projection(
+            backend,
+            source_id=source_id,
+            source_revision=source_revision,
+        )
+    if observation is None:
         return []
     return render_distill_exchange_windows(observation.raw_content, indexes)
 
@@ -404,9 +418,13 @@ def tool_prepare_session_distill(
                 else None
             ),
         }
-    if requested_job_id and requested_job and (
-        requested_job.agent_offer_day != now.date().isoformat()
-        or requested_job.agent_offer_count <= 0
+    if (
+        requested_job_id
+        and requested_job
+        and (
+            requested_job.agent_offer_day != now.date().isoformat()
+            or requested_job.agent_offer_count <= 0
+        )
     ):
         return {
             "success": False,

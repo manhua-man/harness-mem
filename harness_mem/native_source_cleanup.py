@@ -343,9 +343,7 @@ def apply_native_source_cleanup(plan: NativeCleanupPlan) -> dict:
 
     primary_action = plan.actions[primary_index]
     companions = [
-        action
-        for index, action in enumerate(plan.actions)
-        if index != primary_index
+        action for index, action in enumerate(plan.actions) if index != primary_index
     ]
     claims: list[tuple[NativeCleanupAction, Path]] = []
     skipped_actions: list[NativeCleanupAction] = []
@@ -353,8 +351,7 @@ def apply_native_source_cleanup(plan: NativeCleanupPlan) -> dict:
         primary_claim = _claim_action(plan, primary_action)
         if primary_claim is None:
             if all(
-                not action.target.exists()
-                and not _claim_path(plan, action).exists()
+                not action.target.exists() and not _claim_path(plan, action).exists()
                 for action in plan.actions
             ):
                 return _result(plan, "deleted", skipped=len(plan.actions))
@@ -539,9 +536,8 @@ def _claimed_source_mismatch(
     claimed_verification: Path,
 ) -> str | None:
     try:
-        if (
-            not claimed_verification.is_file()
-            or _is_link_or_reparse(claimed_verification)
+        if not claimed_verification.is_file() or _is_link_or_reparse(
+            claimed_verification
         ):
             return "native_source_not_regular_file"
         stat_result = claimed_verification.stat()
@@ -619,9 +615,7 @@ def _action_manifest(
     entries = [_manifest_entry(root, ".")]
     for path in descendants:
         entries.append(_manifest_entry(path, path.relative_to(root).as_posix()))
-    after_paths = sorted(
-        path.relative_to(root).as_posix() for path in root.rglob("*")
-    )
+    after_paths = sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
     after = root.stat()
     if (
         after_paths != [path.relative_to(root).as_posix() for path in descendants]
@@ -712,6 +706,12 @@ def cleanup_native_source(
 
     plan = plan_native_source_cleanup(source, quiet_seconds=quiet_seconds)
     return apply_native_source_cleanup(plan)
+
+
+def path_from_local_file_uri(uri: str, *, allow_fragment: bool = False) -> Path:
+    """Decode one absolute local ``file:`` URI without relaxing safety checks."""
+
+    return _path_from_file_uri(uri, allow_fragment=allow_fragment)
 
 
 def build_native_cleanup_descriptor(
@@ -806,7 +806,9 @@ def _actions_for_source(
         artifact_dir = path.with_suffix("")
         artifact_root = _containing_root(artifact_dir, roots)
         if artifact_root is not None and artifact_dir.is_dir():
-            actions.insert(0, NativeCleanupAction("directory", artifact_dir, artifact_root))
+            actions.insert(
+                0, NativeCleanupAction("directory", artifact_dir, artifact_root)
+            )
         for candidate_root in roots:
             if candidate_root.name != "file-history":
                 continue
@@ -821,7 +823,9 @@ def _actions_for_source(
         for companion in path.parent.glob(f"request_dump_{session_tail}_*.json"):
             companion_root = _containing_root(companion, roots)
             if companion_root is not None and companion.is_file():
-                actions.insert(0, NativeCleanupAction("file", companion, companion_root))
+                actions.insert(
+                    0, NativeCleanupAction("file", companion, companion_root)
+                )
     return _dedupe_actions(actions)
 
 
@@ -877,7 +881,9 @@ def _allowed_roots(source: TranscriptSource) -> tuple[Path, ...]:
             for value in values:
                 try:
                     if isinstance(value, str) and value.startswith("file:"):
-                        configured.append(_path_from_file_uri(value, allow_fragment=False))
+                        configured.append(
+                            _path_from_file_uri(value, allow_fragment=False)
+                        )
                     elif isinstance(value, str):
                         configured.append(Path(value).expanduser().absolute())
                 except ValueError:
@@ -990,7 +996,9 @@ def _is_link_or_reparse(path: Path) -> bool:
 def _remove_directory_tree(path: Path) -> None:
     if _is_link_or_reparse(path):
         raise OSError("link or reparse point appeared after preflight")
-    children = sorted(path.iterdir(), key=lambda item: (item.is_dir(), str(item)), reverse=True)
+    children = sorted(
+        path.iterdir(), key=lambda item: (item.is_dir(), str(item)), reverse=True
+    )
     for child in children:
         if _is_link_or_reparse(child):
             raise OSError("link or reparse point appeared after preflight")
@@ -1014,7 +1022,9 @@ def _locator_digest(path: Path) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
-def _dedupe_actions(actions: Sequence[NativeCleanupAction]) -> list[NativeCleanupAction]:
+def _dedupe_actions(
+    actions: Sequence[NativeCleanupAction],
+) -> list[NativeCleanupAction]:
     seen: set[tuple[str, str]] = set()
     result: list[NativeCleanupAction] = []
     for action in actions:
@@ -1059,7 +1069,9 @@ def _result(
             "planned": len(plan.actions),
             "deleted": deleted,
             "skipped": skipped,
-            "failed": sum(1 for item in action_receipts if item.get("status") == "failed"),
+            "failed": sum(
+                1 for item in action_receipts if item.get("status") == "failed"
+            ),
         },
         "locator_sha256": plan.locator_sha256,
         "actions": list(action_receipts),
@@ -1072,6 +1084,7 @@ __all__ = [
     "NativeCleanupPlan",
     "apply_native_source_cleanup",
     "build_native_cleanup_descriptor",
+    "path_from_local_file_uri",
     "cleanup_native_source",
     "plan_native_source_cleanup",
 ]
