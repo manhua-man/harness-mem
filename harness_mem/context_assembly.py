@@ -125,10 +125,34 @@ async def assemble_context_plan(
         l1.entries,
     )
 
+    summary_tokens = sum(
+        max(0, len(entry.summary) // 4)
+        for layer in (l0, l1, l2, l3, l4)
+        for entry in layer.entries
+        if layer.layer != "L4"
+    )
+    context_budget = {
+        "raw_tokens": 0,
+        "summary_tokens": summary_tokens,
+        "retrieved_tokens": summary_tokens,
+        "total_tokens": summary_tokens,
+        "budget_tokens": sum(
+            layer.budget.max_chars or layer.budget.max_entries * 200
+            for layer in (l0, l1, l2, l3, l4)
+        )
+        // 4,
+    }
+    compaction_outcome = (
+        "layer_budget_truncated"
+        if any(layer.truncation.dropped for layer in (l0, l1, l2, l3, l4))
+        else "none"
+    )
     return ContextAssemblyPlan(
         project_name=resolved,
         query=query,
         layers=[l0, l1, l2, l3, l4],
+        context_budget=context_budget,
+        compaction_outcome=compaction_outcome,
     )
 
 

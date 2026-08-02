@@ -172,6 +172,8 @@ class ContextAssemblyPlan(BaseModel):
     query: str | None = None
     layers: list[Layer]  # exactly 5, ordered L0..L4 (Req 1.1, 1.2)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    context_budget: dict[str, int] = Field(default_factory=dict)
+    compaction_outcome: str = "none"
 
     model_config = {"extra": "allow"}
 
@@ -181,6 +183,8 @@ class ContextAssemblyPlan(BaseModel):
             "query": self.query,
             "layers": [layer.to_dict() for layer in self.layers],
             "created_at": self.created_at.isoformat(),
+            "context_budget": dict(self.context_budget),
+            "compaction_outcome": self.compaction_outcome,
         }
 
     @classmethod
