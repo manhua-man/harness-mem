@@ -4,6 +4,19 @@
 
 ### Changed
 
+- Zero-candidate completion is now a runtime-enforced v1 challenge instead of
+  a Skill-only promise. The semantic manifest selects at most eight required
+  exchanges; finalization verifies their current-revision content hashes and
+  keeps incomplete or inconsistent jobs in `reviewing`.
+- Memory admission now records Evidence fidelity and Future utility separately
+  and explicitly checks corrections, decisions, successful solutions, repeated
+  failures, rules/preferences, reusable workflows/facts, version/migration, and
+  unfinished handoffs before accepting `no_candidate`.
+- Added an explicit, optional `grill-with-docs` plugin Skill, adapted from the
+  MIT-licensed `mattpocock/skills` interview and domain-modeling discipline.
+  It remains user-invoked and outside unattended wake/distill processing.
+- OpenCode qualification fixtures now explicitly close their SQLite writer
+  connection, so Windows release tests can delete native databases reliably.
 - Agent-active wake now returns one machine-readable distill offer per task and
   the seven host command surfaces execute that exact job automatically. Failed
   history is deferred without blocking current work; status remains read-only.

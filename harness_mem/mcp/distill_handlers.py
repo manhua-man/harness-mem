@@ -1,7 +1,7 @@
 """Lossless session-distill MCP handlers.
 
 This module owns evidence projection, chunk checkpointing, semantic review,
-finalization, and bounded legacy fallback. Public schemas remain unchanged.
+finalization, and bounded legacy fallback.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
+
+from pydantic import ValidationError
 
 from harness_mem.commands.support import (
     SUPPORTED_INGEST_CLIENTS,
@@ -24,6 +26,10 @@ from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.adapters.projection_repair import repair_source_observation_projection
 from harness_mem.governance_status import CANDIDATE_LAYER_STATUSES, TRUTH_LAYER_STATUSES
+from harness_mem.core.schemas.session_distill import (
+    SessionDistillJob,
+    ZeroCandidateChallenge,
+)
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.transcript_chunking import sha256_text
 from harness_mem.mcp.distill_projection import (
@@ -470,6 +476,9 @@ def tool_prepare_session_distill(
             "evidence_mode": evidence_mode,
             "detail_level": detail_level,
             "budget_tokens": resolved_budget_tokens,
+            "zero_candidate_challenge_version": (
+                lossless_job.zero_candidate_challenge_version
+            ),
         }
         if _distill_source == "ide_hook":
             base_payload.update(
@@ -497,6 +506,7 @@ def tool_prepare_session_distill(
                         "semantic_drilldown_exchange_count": len(semantic_windows),
                         "distill_instructions": [
                             "Use these complete semantic windows to choose precise raw proof queries.",
+                            "For a zero-candidate challenge, return each required exchange_index and content_sha256.",
                             "Verify durable candidates against raw chunks before final review.",
                         ],
                     }
@@ -569,6 +579,14 @@ def tool_prepare_session_distill(
                     budget_tokens=semantic_budget_tokens,
                 )
                 if semantic_evidence is not None:
+                    lossless_job = (
+                        backend.transcript_store.enable_zero_candidate_challenge(
+                            lossless_job.id
+                        )
+                    )
+                    base_payload["zero_candidate_challenge_version"] = (
+                        lossless_job.zero_candidate_challenge_version
+                    )
                     checkpoints = backend.transcript_store.list_distill_checkpoints(
                         lossless_job.id
                     )
@@ -590,6 +608,7 @@ def tool_prepare_session_distill(
                                 "Read the complete indexed semantic outline in order.",
                                 "Runtime already hash-verified and checkpointed every raw chunk.",
                                 "Select semantic windows with drilldown_exchange_indexes, then verify candidates with raw drilldown.",
+                                "If no candidates remain, inspect every zero_candidate_required_exchange_index before finalization.",
                                 "Create only warranted candidates through govern_memory(action=suggest), then call finalize_session_distill.",
                             ],
                         }
@@ -636,6 +655,12 @@ def tool_prepare_session_distill(
                 budget_tokens=semantic_budget_tokens,
             )
             if semantic_evidence is not None:
+                lossless_job = backend.transcript_store.enable_zero_candidate_challenge(
+                    lossless_job.id
+                )
+                base_payload["zero_candidate_challenge_version"] = (
+                    lossless_job.zero_candidate_challenge_version
+                )
                 updated_job = _checkpoint_distill_structural_projection(
                     backend,
                     job_id=lossless_job.id,
@@ -659,6 +684,7 @@ def tool_prepare_session_distill(
                                 "Read the complete indexed semantic outline in order.",
                                 "Runtime already hash-verified and checkpointed every raw chunk.",
                                 "Select semantic windows with drilldown_exchange_indexes, then verify candidates with raw drilldown.",
+                                "If no candidates remain, inspect every zero_candidate_required_exchange_index before finalization.",
                                 "Create only warranted candidates, then call finalize_session_distill.",
                             ],
                         }
@@ -864,6 +890,12 @@ def tool_finalize_session_distill(
         candidate_ids = list(job.output_candidate_ids)
         completed = job
     else:
+        checkpoints = backend.transcript_store.list_distill_checkpoints(job.id)
+        completed_checkpoints = sum(
+            item.status == "completed" for item in checkpoints
+        )
+        if completed_checkpoints != job.expected_chunk_count:
+            raise ValueError("not all distill chunks are complete")
         candidate_ids = asyncio.run(
             _distill_job_candidate_ids(
                 backend,
@@ -871,6 +903,20 @@ def tool_finalize_session_distill(
                 distill_job_id=job_id,
             )
         )
+        challenge_error = _validate_zero_candidate_challenge(
+            backend,
+            job=job,
+            semantic_review=semantic_review,
+            candidate_ids=candidate_ids,
+        )
+        if challenge_error is not None:
+            return {
+                "success": False,
+                "project_name": project_name,
+                "distill_job_id": job.id,
+                "distill_status": job.status,
+                **challenge_error,
+            }
         completed = backend.transcript_store.finalize_distill_job(
             job_id,
             semantic_review=semantic_review,
@@ -952,13 +998,22 @@ def tool_finalize_session_distill(
         "evidence_admission": evidence_admission,
     }
     disposition = "promoted" if promotion["promoted"] else "no_candidate"
+    challenge_passed = bool(
+        not candidate_ids
+        and completed.zero_candidate_challenge_version == "v1"
+        and completed.semantic_review.get("zero_candidate_challenge")
+    )
     reason_codes = (
         ["durable_memory_promoted"]
         if disposition == "promoted"
         else [
-            "semantic_review_blocked"
-            if not semantic_allows_promotion
-            else "no_durable_candidate"
+            "zero_candidate_challenge_passed"
+            if challenge_passed
+            else (
+                "semantic_review_blocked"
+                if not semantic_allows_promotion
+                else "no_durable_candidate"
+            )
         ]
     )
     if dream_result is not None and dream_result.get("success") is False:
@@ -1178,6 +1233,137 @@ async def _distill_job_candidate_ids(
         for candidate in [*entries, *rules, *facts]
         if getattr(candidate, "distill_job_id", None) == distill_job_id
     ]
+
+
+def _validate_zero_candidate_challenge(
+    backend: LocalMemoryBackend,
+    *,
+    job: SessionDistillJob,
+    semantic_review: dict[str, Any],
+    candidate_ids: list[str],
+) -> dict[str, Any] | None:
+    """Fail closed before an Agent can bury a v1 job as no-candidate."""
+
+    if candidate_ids or job.zero_candidate_challenge_version != "v1":
+        return None
+
+    raw_challenge = semantic_review.get("zero_candidate_challenge")
+    if not isinstance(raw_challenge, dict):
+        return {
+            "error": "zero_candidate_challenge_required",
+            "reason_codes": ["zero_candidate_challenge_missing"],
+            "next_step": (
+                "Inspect the required semantic exchanges, complete the v1 "
+                "zero-candidate checks, then retry finalization."
+            ),
+        }
+    try:
+        challenge = ZeroCandidateChallenge(**raw_challenge)
+    except ValidationError as exc:
+        return {
+            "error": "zero_candidate_challenge_invalid",
+            "reason_codes": ["zero_candidate_challenge_schema_invalid"],
+            "validation_errors": exc.errors(include_url=False),
+        }
+    if challenge.source_revision != job.source_revision:
+        return {
+            "error": "zero_candidate_challenge_revision_mismatch",
+            "reason_codes": ["source_revision_changed"],
+        }
+    if challenge.conclusion == "candidate_required":
+        return {
+            "error": "zero_candidate_challenge_requires_candidate",
+            "reason_codes": ["durable_signal_requires_candidate"],
+            "next_step": (
+                "Create a scoped candidate or handoff for the durable signal, "
+                "then retry finalization."
+            ),
+        }
+    if semantic_review.get("promotion_decision") != "no_promotion":
+        return {
+            "error": "zero_candidate_review_inconsistent",
+            "reason_codes": ["zero_candidate_requires_no_promotion"],
+        }
+
+    evidence = _load_distill_semantic_evidence(
+        backend,
+        source_id=job.source_id,
+        source_revision=job.source_revision,
+        detail_level="compact",
+        budget_tokens=256,
+    )
+    if evidence is None:
+        return {
+            "error": "zero_candidate_evidence_unavailable",
+            "reason_codes": ["semantic_evidence_unavailable"],
+        }
+    required_indexes = [
+        int(index)
+        for index in evidence.get("zero_candidate_required_exchange_indexes", [])
+    ]
+    basis = evidence.get("zero_candidate_review_basis")
+    if basis == "complete_raw_checkpoint" and not required_indexes:
+        checkpoints = backend.transcript_store.list_distill_checkpoints(job.id)
+        raw_reviewed = bool(checkpoints) and all(
+            checkpoint.status == "completed"
+            and not checkpoint.result.get("structural_verified")
+            for checkpoint in checkpoints
+        )
+        if not raw_reviewed:
+            return {
+                "error": "zero_candidate_raw_review_required",
+                "reason_codes": ["complete_raw_checkpoint_not_agent_reviewed"],
+            }
+        return None
+
+    windows = _load_distill_exchange_windows(
+        backend,
+        source_id=job.source_id,
+        source_revision=job.source_revision,
+        indexes=required_indexes,
+    )
+    expected_refs = {
+        int(window["exchange_index"]): str(window["content_sha256"])
+        for window in windows
+    }
+    supplied_refs = {
+        item.exchange_index: item.content_sha256
+        for item in challenge.inspected_exchange_refs
+    }
+    missing_or_changed = [
+        index
+        for index, content_sha256 in expected_refs.items()
+        if supplied_refs.get(index) != content_sha256
+    ]
+    if missing_or_changed or set(expected_refs) != set(required_indexes):
+        return {
+            "error": "zero_candidate_exchange_proof_incomplete",
+            "reason_codes": ["required_exchange_proof_missing_or_changed"],
+            "required_exchange_indexes": required_indexes,
+            "missing_or_changed_exchange_indexes": missing_or_changed,
+        }
+
+    checks = challenge.checks.model_dump()
+    required_reasons = evidence.get(
+        "zero_candidate_required_exchange_reasons",
+        {},
+    )
+    challenged_signals = {
+        reason
+        for reasons in required_reasons.values()
+        for reason in reasons
+        if reason in checks
+    }
+    incorrectly_absent = sorted(
+        signal for signal in challenged_signals if checks.get(signal) == "absent"
+    )
+    if incorrectly_absent:
+        return {
+            "error": "zero_candidate_signal_check_inconsistent",
+            "reason_codes": ["detected_signal_marked_absent"],
+            "signals": incorrectly_absent,
+        }
+    return None
 
 
 def _semantic_review_allows_promotion(review: dict[str, Any]) -> bool:

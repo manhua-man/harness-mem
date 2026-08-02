@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from harness_mem.adapters.antigravity import AntigravityAdapter
@@ -151,7 +152,7 @@ def build_native_fixture_adapter(
         resolved_project = project.resolve(strict=False)
         database = root / "opencode.db"
         database.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(database) as db:
+        with closing(sqlite3.connect(database)) as db:
             db.executescript(
                 """
                 CREATE TABLE session (
@@ -185,6 +186,7 @@ def build_native_fixture_adapter(
                     json.dumps({"type": "text", "text": fact}),
                 ),
             )
+            db.commit()
         return OpenCodeAdapter(backend, database_path=database, project_root=project)
 
     if host == "antigravity":

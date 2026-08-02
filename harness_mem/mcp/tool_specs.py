@@ -842,6 +842,100 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                             "type": "string",
                             "enum": ["promote", "partial", "no_promotion", "blocked"],
                         },
+                        "zero_candidate_challenge": {
+                            "type": "object",
+                            "description": (
+                                "Required for v1 jobs that produced no candidates. "
+                                "Use the content hashes returned by semantic exchange drilldown."
+                            ),
+                            "properties": {
+                                "version": {"type": "string", "enum": ["v1"]},
+                                "source_revision": {"type": "string"},
+                                "evidence_fidelity": {
+                                    "type": "string",
+                                    "enum": ["complete", "partial", "contradicted"],
+                                },
+                                "future_utility": {
+                                    "type": "string",
+                                    "enum": ["none", "session_only", "durable"],
+                                },
+                                "checks": {
+                                    "type": "object",
+                                    "properties": {
+                                        name: {
+                                            "type": "string",
+                                            "enum": [
+                                                "absent",
+                                                "not_durable",
+                                                "candidate_required",
+                                            ],
+                                        }
+                                        for name in (
+                                            "user_correction",
+                                            "explicit_decision",
+                                            "successful_solution",
+                                            "repeated_failure",
+                                            "rule_or_preference",
+                                            "reusable_workflow_or_fact",
+                                            "version_or_migration",
+                                            "unfinished_handoff",
+                                        )
+                                    },
+                                    "required": [
+                                        "user_correction",
+                                        "explicit_decision",
+                                        "successful_solution",
+                                        "repeated_failure",
+                                        "rule_or_preference",
+                                        "reusable_workflow_or_fact",
+                                        "version_or_migration",
+                                        "unfinished_handoff",
+                                    ],
+                                    "additionalProperties": False,
+                                },
+                                "inspected_exchange_refs": {
+                                    "type": "array",
+                                    "maxItems": 8,
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "exchange_index": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                            },
+                                            "content_sha256": {
+                                                "type": "string",
+                                                "pattern": "^[0-9a-f]{64}$",
+                                            },
+                                        },
+                                        "required": [
+                                            "exchange_index",
+                                            "content_sha256",
+                                        ],
+                                        "additionalProperties": False,
+                                    },
+                                },
+                                "conclusion": {
+                                    "type": "string",
+                                    "enum": [
+                                        "no_durable_candidate",
+                                        "candidate_required",
+                                    ],
+                                },
+                                "rationale": {"type": "string", "minLength": 12},
+                            },
+                            "required": [
+                                "version",
+                                "source_revision",
+                                "evidence_fidelity",
+                                "future_utility",
+                                "checks",
+                                "inspected_exchange_refs",
+                                "conclusion",
+                                "rationale",
+                            ],
+                            "additionalProperties": False,
+                        },
                     },
                     "required": [
                         "final_user_request",

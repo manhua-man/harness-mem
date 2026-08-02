@@ -52,6 +52,13 @@ def test_compact_outline_covers_every_exchange_within_soft_budget() -> None:
     assert summary["budget_state"] == "within_budget"
     assert summary["output_tokens"] <= 3000
     assert summary["exchange_count"] == 60
+    assert summary["zero_candidate_challenge_version"] == "v1"
+    assert summary["zero_candidate_required_exchange_indexes"][-1] == 60
+    assert 19 in summary["zero_candidate_required_exchange_indexes"]
+    assert len(summary["zero_candidate_required_exchange_indexes"]) <= 8
+    assert "version_or_migration" in summary[
+        "zero_candidate_required_exchange_reasons"
+    ]["19"]
     assert compact.count("## E") == 60
     assert "s=VMPFC" in compact
     assert "PRIVATE-PROOF-ALPHA" in compact
@@ -70,6 +77,7 @@ def test_semantic_window_restores_complete_selected_exchange() -> None:
     assert "PRIVATE-PROOF-ALPHA" in windows[0]["content"]
     assert "PRIVATE-PROOF-OMEGA" in windows[0]["content"]
     assert "migration_storage" in windows[0]["risk_flags"]
+    assert "version_or_migration" in windows[0]["memory_signals"]
 
 
 def test_compact_outline_preserves_evidence_anchors_with_fallback_counter(

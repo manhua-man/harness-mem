@@ -171,6 +171,7 @@ def test_active_governance_docs_use_single_public_write_surface() -> None:
         Path("plugins/harness-mem/skills/harness-mem/SKILL.md"),
         Path("plugins/harness-mem/skills/harness-mem-autopilot/SKILL.md"),
         Path("plugins/harness-mem/skills/grill-before-distill/SKILL.md"),
+        Path("plugins/harness-mem/skills/grill-with-docs/SKILL.md"),
         Path("tools/session-distill/SKILL.md"),
         Path("tools/session-distill/SYNC_POLICY.md"),
         Path("tools/session-distill/references/distillation-rules.md"),
@@ -197,6 +198,20 @@ def test_active_governance_docs_use_single_public_write_surface() -> None:
     assert 'govern_memory(action="suggest")' in combined
     assert 'govern_memory(action="decide")' in combined
     assert 'govern_memory(action="handoff")' in combined
+
+
+def test_grill_with_docs_is_explicit_and_provenance_pinned() -> None:
+    skill_root = Path("plugins/harness-mem/skills/grill-with-docs")
+    skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    metadata = (skill_root / "agents/openai.yaml").read_text(encoding="utf-8")
+    provenance = (skill_root / "references/upstream.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Do not run this interactive flow inside wake" in skill
+    assert "allow_implicit_invocation: false" in metadata
+    assert "2ab958093e83e0ec752e6c1c5932da465bf23e0c" in provenance
+    assert "MIT" in provenance
 
 
 def test_current_roadmap_is_0_9_x_and_internal_doc_duplicates_are_removed() -> None:

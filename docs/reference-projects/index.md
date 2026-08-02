@@ -1,6 +1,6 @@
 # Reference projects catalog
 
-Checked: 2026-08-01. This index is the entry point for the reference-source
+Checked: 2026-08-02. This index is the entry point for the reference-source
 catalog. Each project has a separate page with its upstream marker, local
 mirror, source evidence, adoption decision, and review trigger.
 
@@ -25,6 +25,7 @@ from harness-mem gaps and proposed work.
 | [LongMemEval](longmemeval.md) | trigger-based evaluation | Retrieval, answer, and abstention score lines |
 | [BEAM](beam.md) | trigger-based evaluation | Adapter contracts, capability gaps, failure artifacts |
 | [smartsearch](smartsearch.md) | evidence retrieval | Source extraction and visible fallback/degraded paths |
+| [mattpocock/skills](mattpocock-skills.md) | workflow/skills | Explicit grilling, domain modeling, composable skill boundaries |
 | [vstash](vstash.md) | paper-only research | Revisit only when implementation evidence appears |
 
 ## Architecture reading order
@@ -40,7 +41,8 @@ retrieval/index trio, then the evaluation and host-compatibility pages:
    [LongMemEval](longmemeval.md), [LoCoMo](locomo.md), and [BEAM](beam.md)
    explain evaluation and behavior contracts.
 4. [Letta](letta.md) and [smartsearch](smartsearch.md) cover budget and evidence
-   UX; [vstash](vstash.md) remains paper-only.
+   UX; [mattpocock/skills](mattpocock-skills.md) covers optional workflow
+   composition; [vstash](vstash.md) remains paper-only.
 
 ## Version and evidence rules
 
@@ -83,6 +85,7 @@ on an archive branch before an authorized reset.
 | `LongMemEval` | `main` | `9e0b455f4ef0` |
 | `BEAM-LongHorizonMemBench` | `main` | `c3d608d5fc7c` |
 | `smartsearch` | `main` | `667c465d0f6e` |
+| `mattpocock-skills` | `main` | `2ab958093e83` |
 
 Older local repositories in the same parent are a research pool, not active
 baselines. They should not silently become release requirements; add a page

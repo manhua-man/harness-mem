@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 DistillJobStatus = Literal[
@@ -27,6 +27,65 @@ SourceCleanupStatus = Literal[
     "partial_failure",
     "unsupported",
 ]
+ZeroCandidateFinding = Literal["absent", "not_durable", "candidate_required"]
+
+
+class ZeroCandidateExchangeRef(BaseModel):
+    """Content-addressed proof that one required exchange was inspected."""
+
+    exchange_index: int = Field(ge=1)
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    model_config = {"extra": "forbid"}
+
+
+class ZeroCandidateChecks(BaseModel):
+    """Exhaustive memory-value checks for a zero-candidate conclusion."""
+
+    user_correction: ZeroCandidateFinding
+    explicit_decision: ZeroCandidateFinding
+    successful_solution: ZeroCandidateFinding
+    repeated_failure: ZeroCandidateFinding
+    rule_or_preference: ZeroCandidateFinding
+    reusable_workflow_or_fact: ZeroCandidateFinding
+    version_or_migration: ZeroCandidateFinding
+    unfinished_handoff: ZeroCandidateFinding
+
+    model_config = {"extra": "forbid"}
+
+
+class ZeroCandidateChallenge(BaseModel):
+    """Machine-checkable pressure test before a zero-candidate completion."""
+
+    version: Literal["v1"]
+    source_revision: str = Field(min_length=1)
+    evidence_fidelity: Literal["complete", "partial", "contradicted"]
+    future_utility: Literal["none", "session_only", "durable"]
+    checks: ZeroCandidateChecks
+    inspected_exchange_refs: list[ZeroCandidateExchangeRef] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+    conclusion: Literal["no_durable_candidate", "candidate_required"]
+    rationale: str = Field(min_length=12, max_length=2000)
+
+    model_config = {"extra": "forbid"}
+
+    @model_validator(mode="after")
+    def validate_conclusion(self) -> "ZeroCandidateChallenge":
+        findings = self.checks.model_dump().values()
+        if "candidate_required" in findings or self.future_utility == "durable":
+            if self.conclusion != "candidate_required":
+                raise ValueError("durable utility requires candidate_required")
+        if (
+            self.conclusion == "no_durable_candidate"
+            and self.evidence_fidelity != "complete"
+        ):
+            raise ValueError("no_durable_candidate requires complete evidence fidelity")
+        indexes = [item.exchange_index for item in self.inspected_exchange_refs]
+        if len(indexes) != len(set(indexes)):
+            raise ValueError("inspected exchange references must be unique")
+        return self
 
 
 class SessionSemanticReview(BaseModel):
@@ -49,11 +108,12 @@ class SessionSemanticReview(BaseModel):
         "no_promotion",
         "blocked",
     ]
+    zero_candidate_challenge: ZeroCandidateChallenge | None = None
 
     model_config = {"extra": "allow"}
 
     def to_dict(self) -> dict:
-        return self.model_dump(mode="json")
+        return self.model_dump(mode="json", exclude_none=True)
 
 
 class SessionDistillJob(BaseModel):
@@ -75,6 +135,7 @@ class SessionDistillJob(BaseModel):
     output_candidate_ids: list[str] = Field(default_factory=list)
     structural_audit: dict = Field(default_factory=dict)
     semantic_review: dict = Field(default_factory=dict)
+    zero_candidate_challenge_version: Literal["v1"] | None = None
     completion_disposition: CompletionDisposition | None = None
     completion_reason_codes: list[str] = Field(default_factory=list)
     promotion_summary: dict = Field(default_factory=dict)
@@ -145,4 +206,8 @@ __all__ = [
     "SessionDistillJob",
     "SessionSemanticReview",
     "SourceCleanupStatus",
+    "ZeroCandidateChallenge",
+    "ZeroCandidateChecks",
+    "ZeroCandidateExchangeRef",
+    "ZeroCandidateFinding",
 ]

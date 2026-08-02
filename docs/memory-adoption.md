@@ -7,12 +7,20 @@ MCP surface; the task-aware runtime scheduler lives in
 — automatic, depth by risk (not a forced heavy loop every time). Other helpers
 stay opt-in.
 
+Matt Pocock's upstream does include an open-source `grill-me`; it is currently
+a thin explicit alias for `grilling`. The current `grill-before-distill` was
+built inside harness-mem for memory admission and is not a vendored copy of
+that upstream alias or its interactive workflow.
+The optional `grill-with-docs` integration borrows the upstream interview and
+domain-modeling discipline under a pinned MIT-licensed provenance record.
+
 ## Conclusion
 
 | Helper | Verdict |
 |---|---|
 | **smart-search** | Reference project for future evidence-backed knowledge review; not adopted yet |
 | **grill-me / grill-before-distill** | Standard admission; depth by risk |
+| **grill-with-docs** | Explicit optional design interrogation; never part of unattended distill |
 | **Trellis** | Borrow patterns only; do not embed in harness-mem |
 
 ## Introduction rules
@@ -22,6 +30,8 @@ stay opt-in.
 | MCP = tools | Memory surface stays hm MCP |
 | Workflow = Skills | grill-before-distill now; smart-search and Trellis remain reference/optional layers |
 | grill-me standard admission | Auto on distill; deep vs light vs lookback by risk |
+| zero-candidate challenge | Runtime-verifiable exchange hashes before a v1 job may finish with no candidates |
+| grill-with-docs | User-invoked only; confirmed glossary/ADR updates, no tentative memory writes |
 | Other helpers opt-in | smart-search / Trellis: reference only unless a project explicitly enables them |
 | One truth layer | confirmed memory + ledger; **no** Trellis journal dual-write |
 
@@ -49,6 +59,8 @@ two truth sources.
   → 必须执行 final-session review
   → grill-me 准入（高风险深度 / 普通轻量 checklist）
   → admit/narrow 才幂等 govern_memory(action="suggest") → pending；defer/reject 不写
+  → 如果没有候选：required exchange drilldown → Evidence fidelity + Future utility
+    → durable signal 返回候选/handoff；否则 runtime-verified no_candidate
   → 内部 search_memory；外部证据工具（smart-search 为参考候选，确认前必须补证）
   → finalize_session_distill → auto-review + Dream
   → auto_confirmed / provisional truth
@@ -58,6 +70,10 @@ two truth sources.
 ```
 
 Automatic; depth scales by risk — not a heavy re-flow every time.
+
+`grill-with-docs` 是独立的人机协作入口：一次只问一个真正需要用户决定的问题，
+同步收敛 glossary/ADR；它不被 wake、drainer 或普通 distill 自动调用。来源与采用边界
+见 [mattpocock/skills reference](reference-projects/mattpocock-skills.md)。
 
 The immutable source revision, not an Observation or derived evidence bundle,
 is authoritative for session text. Its ordered chunks must reconstruct the

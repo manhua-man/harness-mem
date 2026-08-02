@@ -480,6 +480,12 @@ class TranscriptStore:
     def get_distill_job(self, job_id: str) -> SessionDistillJob | None:
         return self._distill.get(job_id)
 
+    def enable_zero_candidate_challenge(
+        self,
+        job_id: str,
+    ) -> SessionDistillJob:
+        return self._distill.enable_zero_candidate_challenge(job_id)
+
     def defer_distill_job(self, job_id: str, *, error: str) -> SessionDistillJob:
         return self._distill.defer(job_id, error=error)
 

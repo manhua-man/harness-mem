@@ -110,6 +110,7 @@ class SessionDistillStore:
                     status="queued",
                     phase="chunks",
                     expected_chunk_count=len(chunk_rows),
+                    zero_candidate_challenge_version="v1",
                     last_progress_at=datetime.now(timezone.utc),
                 )
                 self._upsert_job_locked(job)
@@ -136,6 +137,31 @@ class SessionDistillStore:
     def get(self, job_id: str) -> SessionDistillJob | None:
         with self._lock:
             return self._get_job_locked(job_id)
+
+    def enable_zero_candidate_challenge(
+        self,
+        job_id: str,
+    ) -> SessionDistillJob:
+        """Upgrade an active legacy job once semantic v1 evidence is available."""
+
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                job = self._get_job_locked(job_id)
+                if job is None:
+                    raise KeyError(job_id)
+                if (
+                    job.status != "completed"
+                    and job.zero_candidate_challenge_version is None
+                ):
+                    job.zero_candidate_challenge_version = "v1"
+                    job.updated_at = datetime.now(timezone.utc)
+                    self._upsert_job_locked(job)
+                self._conn.commit()
+                return job
+            except Exception:
+                self._conn.rollback()
+                raise
 
     def list(
         self,

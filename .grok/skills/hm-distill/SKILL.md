@@ -87,6 +87,10 @@ This is a user-invocable harness-mem Daily command. Follow the action below thro
    - 默认读取并遵循 `tools/session-distill/SKILL.md`（Step 3–4）
    - semantic 模式按 `semantic_chunk_index` 汇总 evidence；raw 兼容模式按 `chunk_index` 汇总 checkpoint result
    - semantic review 必须填写 `final_user_request`、`final_outcome`、`last_turn_status`、`contradictions`、`unfinished_work`、`evidence_status`、`promotion_decision`
+   - v1 job 没有候选时，必须读取 manifest 的 `zero_candidate_required_exchange_indexes`，drilldown 全部完整窗口，并提交带 `content_sha256` 的 `zero_candidate_challenge`
+   - challenge 分开记录 `evidence_fidelity` 与 `future_utility`，逐项检查 correction、decision、solution、repeated failure、rule/preference、reusable workflow/fact、version/migration 和 unfinished handoff
+   - 任一检查为 `candidate_required` 就返回候选/handoff 路径；只有完整证据且没有 durable utility 才能 `no_durable_candidate`
+   - 无 exchange 边界的 raw fallback 以 Agent 完整读取的全部 raw checkpoints 为 challenge basis，不虚构 exchange hash
    - 只有 job 进入 `reviewing` 后才能形成 candidate claim
    - 自动应用 `grill-before-distill` 准入（深度/轻量按风险）；仅 `admit` / `narrow` 继续
    - 按 `references/distillation-rules.md` 判断价值
@@ -107,7 +111,8 @@ This is a user-invocable harness-mem Daily command. Follow the action below thro
    - `semantic_review=<Step 3 的完整会话末尾审查>`
 
    `finalize_session_distill` 会重新验证 source revision 与全部 checkpoint，
-   只治理当前 job 产生的候选。`promotion_decision` 不是 `promote`、证据或末轮
+   并重算 zero-candidate exchange hash，只治理当前 job 产生的候选。缺少 challenge
+   或 hash 不匹配时 job 保持 `reviewing`。`promotion_decision` 不是 `promote`、证据或末轮
    未回答、存在 contradictions 或 unfinished work 时，候选会终结为 rejected，
    该 job 记录 `completion.disposition=no_candidate`，且不运行 Dream；不会留下
    反复出现的人工待办。
