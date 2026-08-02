@@ -20,7 +20,7 @@
 
 Agent 会读代码，但它通常不知道项目为什么变成现在这样：发布边界、历史决策、handoff、上轮 review 结论、哪些 claim 还不能写。
 
-`harness-mem` 把这些内容变成本地记忆，通过单一 MCP memory surface 接给 Codex、Claude Code、Cursor、Gemini CLI 和其它 Agent 客户端。新 Agent 用 `wake` 和按任务触发的 `search` 找回上下文，用 `distill` 整理近期 evidence，低风险内容可自动提升为可读记忆；`review` 是事后审计、纠错和 undo 入口，`dream` 负责维护 ledger。
+`harness-mem` 把这些内容变成本地记忆，通过单一 MCP memory surface 接给 Claude Code、Codex、Cursor、Grok、Hermes、OpenCode 和 Antigravity。新 Agent 用 `wake` 和按任务触发的 `search` 找回上下文，用 `distill` 整理近期 evidence，低风险内容可自动提升为可读记忆；`review` 是事后审计、纠错和 undo 入口，`dream` 负责维护 ledger。
 
 触发入口（用户级安装一次，之后所有项目可见）：
 
@@ -58,9 +58,14 @@ Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 摘要。只有 transcript 说法、证据缺失/变化或已冲突的候选不能进入长期 truth；
 RelationFact 也走同一准入规则，旧 truth 不会被追溯重分类。
 
-0.9.6 在不改变主流程的前提下收敛安装面：MCP schema、handler、cluster 和
+0.9.6 在不改变主流程的前提下收敛了安装面：MCP schema、handler、cluster 和
 descriptor 注册表严格对应同一组 27 个公开工具；七宿主 hook 修复统一为一个
 命令；公开配置只保留 10 个持久策略选择，旧 tuning 值仍可兼容读取。
+
+0.9.9 不增加第二条产品路径，而是在现有边界上加固：有界的重启恢复、派生索引
+原子重建、七宿主原生回放，以及安装、升级和恢复验收，都继续复用本地 SQLite、
+Adapter、Dream 和 Doctor。详细回放指标只进入维护工件；日常 wake、status 和
+distill 仍保持 compact。
 
 Observation 只是证据，不是被记住的事实。wake 的近期索引会明确标成“非事实证据”；L1/L2 只展示结构化当前事实和仍有效的 handoff。被当前仓库版本推翻的旧发布/版本说法会标记冲突，或从 truth/active 层移除。
 
@@ -99,8 +104,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.6 \
-  harness-mem==0.9.6
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.9 \
+  harness-mem==0.9.9
 ```
 
 `harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
@@ -110,8 +115,8 @@ Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.6 \
-  "harness-mem[hybrid]==0.9.6"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.9 \
+  "harness-mem[hybrid]==0.9.9"
 ```
 
 在当前设备一次性安装全部宿主的原生 Daily 命令。默认参数就是
@@ -160,6 +165,10 @@ Antigravity `~/.gemini/antigravity/global_workflows`。
 MCP Router 接入时，内部前缀可以不同，但用户入口不变。修改 MCP 注册或更新
 工具 schema 后，需要重启对应 server 并新开 task，旧 task 不会热更新工具清单。
 
+`codex-archive` 只是 Codex 历史归档会话的兼容 source identifier，不是第八个
+宿主。旧配置和既有记录仍可读取，但 capability、status 和 qualification 统计
+都会把它归入 Codex。
+
 终端 CLI 是 operator console，不是日常 memory workflow。顶层只保留
 `init`、`quickstart`/`qs`、`doctor`、`config`、`integration` 和
 `maintenance`。导入和清理走 `harness-mem maintenance ...`，默认都是
@@ -185,6 +194,9 @@ procedural skill 生命周期治理不属于 public memory MCP 和 CLI 产品面
 - [Cold-start demo](docs/demo-cold-start.md)
 - [Recall audit contract](docs/recall-audit.md)
 - [自动检索策略](docs/autopilot-search-policy.md)
+- [Compatibility inventory](docs/compatibility-inventory.md)
+- [参考项目证据目录](docs/reference-projects/index.md)
+- [Roadmap](docs/roadmap.md)
 - [Changelog](CHANGELOG.md)
 
 ## 开发检查
@@ -192,11 +204,14 @@ procedural skill 生命周期治理不属于 public memory MCP 和 CLI 产品面
 ```bash
 python -m compileall harness_mem
 python -m ruff check harness_mem plugins tools
+python -m mypy harness_mem
+python -m pytest -q
 python -m harness_mem.cli --help
 cargo test --workspace
 ```
 
 发布标签会构建六个平台 wheel 和 sdist，在 Windows、macOS、Linux 上完成
-全新安装验证后上传到 GitHub Release。本项目不发布到 PyPI。
+全新安装验证，运行真实 sqlite-vec contract gate，并验证受支持的 Windows 升级
+路径后再上传到 GitHub Release。本项目不发布到 PyPI。
 
-当前包版本：**0.9.6**。
+当前包版本：**0.9.9**。
