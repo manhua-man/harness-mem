@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## [0.9.9.1] - 2026-08-02
+
+### Fixed
+
+- Normalize native POSIX workspace aliases before OpenCode and Antigravity
+  project matching. This keeps macOS `/var` and `/private/var` identities
+  equivalent while preserving opaque Windows transcript paths on non-Windows
+  hosts.
+- Resolve qualification fixture workspace paths before writing native
+  OpenCode and Antigravity records, so installed-wheel replay exercises the
+  same canonical identity on Windows, Linux, and macOS.
+
+### Tests
+
+- Added path-alias regression tests for both adapters. The complete tagged
+  release gate continues to run all Python contracts and the seven-host
+  installed-wheel matrix before publishing assets.
+
 ## [0.9.9] - 2026-08-02
 
 This release includes the reliability and index-integrity work developed as

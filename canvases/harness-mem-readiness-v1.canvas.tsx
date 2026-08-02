@@ -23,8 +23,8 @@ import {
 
 const MODEL_VERSION = "v1";
 const AS_OF = "2026-08-02";
-const RUNTIME_VERSION = "0.9.9";
-const PYTEST_PASSED = 595;
+const RUNTIME_VERSION = "0.9.9.1";
+const PYTEST_PASSED = 597;
 const PYTEST_SKIPPED = 2;
 const PYTEST_COUNT = PYTEST_PASSED + PYTEST_SKIPPED;
 
@@ -527,7 +527,7 @@ export default function HarnessMemReadinessV1Canvas() {
       <Card variant="borderless">
         <CardBody>
           <Text tone="secondary" size="small">
-            Source: get_project_status · CHANGELOG 0.9.9 · docs/maturity-model.md · {PYTEST_PASSED} pytest passed / {PYTEST_SKIPPED} skipped ({PYTEST_COUNT} collected)
+            Source: get_project_status · CHANGELOG 0.9.9.1 · docs/maturity-model.md · {PYTEST_PASSED} pytest passed / {PYTEST_SKIPPED} skipped ({PYTEST_COUNT} collected)
           </Text>
         </CardBody>
       </Card>
