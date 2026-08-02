@@ -189,6 +189,27 @@ def test_hook_suite_installer_is_idempotent(tmp_path: Path) -> None:
     assert [item.status for item in second] == ["exists", "exists"]
 
 
+def test_hook_suite_force_reports_existing_targets_as_updated(tmp_path: Path) -> None:
+    target = tmp_path / ".cursor" / "hooks" / "after-agent.sh"
+    specs = (HookSpec("cursor_after_agent.sh.template", target),)
+    install_hook_suite(
+        specs=specs,
+        project_root=tmp_path,
+        harness_mem_version="test",
+        generated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+
+    results = install_hook_suite(
+        specs=specs,
+        project_root=tmp_path,
+        force=True,
+        harness_mem_version="test",
+        generated_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+    )
+
+    assert [item.status for item in results] == ["updated"]
+
+
 def test_cmd_install_hook_suite_supports_project_local_clients(tmp_path: Path, hook_runner: Path) -> None:
     assert cmd_install_hook_suite("grok", str(tmp_path), False) == 0
     grok_body = (tmp_path / ".grok" / "hooks" / "harness-mem.json").read_text(encoding="utf-8")

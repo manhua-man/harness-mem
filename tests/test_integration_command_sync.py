@@ -114,6 +114,32 @@ def test_sync_slash_commands_dry_run_does_not_mutate_target(tmp_path: Path) -> N
     assert not (target_dir / "status.md").exists()
 
 
+def test_command_sync_reports_install_update_and_unchanged(tmp_path: Path) -> None:
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "target"
+    _write_command_sources(source_dir)
+
+    installed = sync_slash_commands(
+        source_dir=source_dir,
+        destination_dir=target_dir,
+    )
+    unchanged = sync_slash_commands(
+        source_dir=source_dir,
+        destination_dir=target_dir,
+    )
+    (source_dir / "daily" / "wake.md").write_text(
+        "# updated /hm:wake\n", encoding="utf-8"
+    )
+    updated = sync_slash_commands(
+        source_dir=source_dir,
+        destination_dir=target_dir,
+    )
+
+    assert installed.status == "installed"
+    assert unchanged.status == "unchanged"
+    assert updated.status == "updated"
+
+
 def test_project_command_surfaces_use_native_paths_and_invocation_styles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

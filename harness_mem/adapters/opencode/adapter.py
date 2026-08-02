@@ -13,6 +13,7 @@ import json
 import math
 import re
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -79,7 +80,7 @@ class OpenCodeAdapter:
         if self.database_path is None:
             return []
         try:
-            with self._connect() as db:
+            with closing(self._connect()) as db:
                 rows = db.execute(
                     "SELECT id, directory, title, time_created, time_updated "
                     "FROM session ORDER BY time_updated DESC, id DESC"
@@ -122,7 +123,7 @@ class OpenCodeAdapter:
         issues: list[Issue] | None = None,
     ) -> Observation:
         del issues
-        with _connect_readonly(session_path) as db:
+        with closing(_connect_readonly(session_path)) as db:
             exported = _export_session(db, session_id)
 
         return self._export_to_observation(
@@ -210,7 +211,7 @@ class OpenCodeAdapter:
             raise RuntimeError(
                 "OpenCodeAdapter.sync_session requires an initialized backend"
             )
-        with _connect_readonly(session_path) as db:
+        with closing(_connect_readonly(session_path)) as db:
             exported = _export_session(db, session_id)
 
         observation = self._export_to_observation(

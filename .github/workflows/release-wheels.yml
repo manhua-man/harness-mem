@@ -98,9 +98,97 @@ jobs:
         run: >-
           python scripts/smoke_fresh_install.py
           --expected-version ${{ github.ref_name }}
+      - name: Verify seven-host transcript-to-wake replay
+        run: python scripts/smoke_host_replay.py --require-installed-wheel
+
+  windows-upgrade-lifecycle-smoke:
+    needs: [build-native-wheel]
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    env:
+      UPGRADE_BASE_TAG: v0.9.6
+      UPGRADE_STATE_DIR: upgrade state/项目
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - name: Download the supported upgrade baseline wheel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release download "${{ env.UPGRADE_BASE_TAG }}"
+          --repo "${{ github.repository }}"
+          --pattern "*win_amd64.whl"
+          --dir upgrade-dist
+      - name: Install baseline wheel
+        run: >-
+          python -c "import pathlib, subprocess, sys;
+          wheels=list(pathlib.Path('upgrade-dist').glob('*win_amd64.whl'));
+          assert len(wheels) == 1, wheels;
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheels[0])])"
+      - name: Prepare baseline canonical and legacy state
+        run: >-
+          python scripts/smoke_install_lifecycle.py prepare-upgrade
+          --expected-version "${{ env.UPGRADE_BASE_TAG }}"
+          --state-dir "${{ env.UPGRADE_STATE_DIR }}"
+          --require-installed-wheel
+      - name: Install release wheel over baseline
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          python -c "import os, subprocess, sys;
+          version=os.environ['RELEASE_TAG'].removeprefix('v');
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--force-reinstall', '--no-deps', '--find-links', 'dist', 'harness-mem==' + version])"
+      - name: Verify migration rollback, legacy restore, and cleanup retry
+        run: >-
+          python scripts/smoke_install_lifecycle.py verify-upgrade
+          --expected-version "${{ github.ref_name }}"
+          --state-dir "${{ env.UPGRADE_STATE_DIR }}"
+          --require-installed-wheel
+
+  hybrid-index-release-smoke:
+    needs: [build-native-wheel]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - name: Install release wheel with real vector dependencies
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          python -c "import os, subprocess, sys;
+          version=os.environ['RELEASE_TAG'].removeprefix('v');
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pytest', 'numpy', 'sqlite-vec']);
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--find-links', 'dist', 'harness-mem==' + version])"
+      - name: Verify packaged embedding and sqlite-vec generation contracts
+        run: >-
+          python -m pytest -q
+          tests/test_embedding_batch_rebuild.py
+          tests/test_sqlite_vec_index.py
+          tests/test_vec0_generation_failures.py
+          tests/test_doctor_vec0.py
 
   publish-github-release:
-    needs: [build-native-wheel, build-sdist, fresh-install-smoke]
+    needs:
+      - build-native-wheel
+      - build-sdist
+      - fresh-install-smoke
+      - windows-upgrade-lifecycle-smoke
+      - hybrid-index-release-smoke
     runs-on: ubuntu-latest
     permissions:
       contents: write
