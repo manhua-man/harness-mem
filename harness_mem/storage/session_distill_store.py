@@ -93,6 +93,7 @@ class SessionDistillStore:
                     status="queued",
                     phase="chunks",
                     expected_chunk_count=len(chunk_rows),
+                    last_progress_at=datetime.now(timezone.utc),
                 )
                 self._upsert_job_locked(job)
                 for row in chunk_rows:
@@ -156,6 +157,152 @@ class SessionDistillStore:
             DistillChunkCheckpoint.from_dict(json.loads(row["data"]))
             for row in rows
         ]
+
+    def reconcile(
+        self,
+        *,
+        project_name: str | None = None,
+        now: datetime | None = None,
+        recovery_budget: int | None = None,
+    ) -> dict[str, int]:
+        """Reconcile job state from durable checkpoints after a restart.
+
+        Chunk lease reclamation alone can leave a parent job looking active
+        forever. This pass is intentionally synchronous and bounded: it only
+        repairs durable state, never performs semantic work or claims a new
+        Agent lease. Repeated recovery events exhaust a per-job budget and
+        become an explicit terminal failure.
+        """
+
+        current = now or datetime.now(timezone.utc)
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                clauses: list[str] = []
+                params: list[Any] = []
+                if project_name is not None:
+                    clauses.append("project_name = ?")
+                    params.append(project_name)
+                sql = "SELECT data FROM distill_jobs"
+                if clauses:
+                    sql += " WHERE " + " AND ".join(clauses)
+                rows = self._conn.execute(sql, params).fetchall()
+                summary = {
+                    "inspected": 0,
+                    "recovered": 0,
+                    "advanced_to_review": 0,
+                    "failed_recovery_budget": 0,
+                }
+                terminal = {"completed", "failed", "stale"}
+                for row in rows:
+                    job = SessionDistillJob.from_dict(json.loads(row["data"]))
+                    summary["inspected"] += 1
+                    if job.status in terminal:
+                        continue
+                    checkpoint_rows = self._conn.execute(
+                        """
+                        SELECT data FROM distill_job_chunks
+                        WHERE job_id = ? ORDER BY chunk_index ASC
+                        """,
+                        (job.id,),
+                    ).fetchall()
+                    checkpoints = [
+                        DistillChunkCheckpoint.from_dict(json.loads(item["data"]))
+                        for item in checkpoint_rows
+                    ]
+                    completed_count = sum(
+                        checkpoint.status == "completed" for checkpoint in checkpoints
+                    )
+                    expired = [
+                        checkpoint
+                        for checkpoint in checkpoints
+                        if checkpoint.status == "processing"
+                        and checkpoint.lease_until is not None
+                        and checkpoint.lease_until <= current
+                    ]
+                    changed = False
+                    if expired:
+                        self._recover_expired_checkpoints_locked(
+                            job,
+                            checkpoints,
+                            now=current,
+                            recovery_budget=recovery_budget,
+                        )
+                        changed = True
+                        summary["recovered"] += len(expired)
+                        if job.status == "failed":
+                            summary["failed_recovery_budget"] += 1
+
+                    if job.status not in terminal:
+                        if completed_count == job.expected_chunk_count and job.expected_chunk_count > 0:
+                            if job.status != "reviewing":
+                                job.status = "reviewing"
+                                job.phase = "review"
+                                summary["advanced_to_review"] += 1
+                            job.completed_chunk_count = completed_count
+                            job.last_progress_at = current
+                            job.updated_at = current
+                            job.retry_after = None
+                            changed = True
+                        elif job.status == "processing":
+                            active = [
+                                checkpoint
+                                for checkpoint in checkpoints
+                                if checkpoint.status == "processing"
+                                and checkpoint.lease_until is not None
+                                and checkpoint.lease_until > current
+                            ]
+                            pending = [
+                                checkpoint
+                                for checkpoint in checkpoints
+                                if checkpoint.status in {"pending", "retryable"}
+                            ]
+                            if not active and pending and not expired:
+                                job.recovery_count += 1
+                                if recovery_budget is not None:
+                                    job.recovery_budget = max(1, int(recovery_budget))
+                                job.recovery_reason_codes = list(
+                                    dict.fromkeys(
+                                        [
+                                            *job.recovery_reason_codes,
+                                            "processing_without_active_lease",
+                                        ]
+                                    )
+                                )
+                                job.last_recovery_at = current
+                                job.last_progress_at = current
+                                job.updated_at = current
+                                changed = True
+                                summary["recovered"] += 1
+                                if job.recovery_count >= max(1, int(job.recovery_budget)):
+                                    job.status = "failed"
+                                    job.error = "distill recovery budget exhausted"
+                                    job.recovery_exhausted_at = current
+                                    for checkpoint in checkpoints:
+                                        if checkpoint.status == "completed":
+                                            continue
+                                        checkpoint.status = "failed"
+                                        checkpoint.lease_owner = None
+                                        checkpoint.lease_until = None
+                                        checkpoint.error = "recovery budget exhausted"
+                                        checkpoint.updated_at = current
+                                        self._upsert_checkpoint_locked(checkpoint)
+                                    summary["failed_recovery_budget"] += 1
+                                else:
+                                    job.status = "retryable"
+                                    job.retry_after = current + timedelta(
+                                        seconds=min(
+                                            6 * 3600,
+                                            300 * (2 ** min(job.recovery_count - 1, 7)),
+                                        )
+                                    )
+                    if changed:
+                        self._upsert_job_locked(job)
+                self._conn.commit()
+                return summary
+            except Exception:
+                self._conn.rollback()
+                raise
 
     def rebalance(
         self,
@@ -244,9 +391,6 @@ class SessionDistillStore:
                 if job.status in {"completed", "failed", "stale", "parked"}:
                     self._conn.rollback()
                     return []
-                if job.retry_after is not None and job.retry_after > now:
-                    self._conn.rollback()
-                    return []
                 rows = self._conn.execute(
                     """
                     SELECT data FROM distill_job_chunks
@@ -258,14 +402,19 @@ class SessionDistillStore:
                     DistillChunkCheckpoint.from_dict(json.loads(row["data"]))
                     for row in rows
                 ]
+                if self._recover_expired_checkpoints_locked(
+                    job,
+                    checkpoints,
+                    now=now,
+                ):
+                    self._conn.commit()
+                    return []
+                if job.retry_after is not None and job.retry_after > now:
+                    self._conn.rollback()
+                    return []
                 eligible = []
                 for checkpoint in checkpoints:
-                    expired = bool(
-                        checkpoint.status == "processing"
-                        and checkpoint.lease_until is not None
-                        and checkpoint.lease_until <= now
-                    )
-                    if checkpoint.status in {"pending", "retryable"} or expired:
+                    if checkpoint.status in {"pending", "retryable"}:
                         eligible.append(checkpoint)
                 for checkpoint in eligible[: max(1, limit)]:
                     checkpoint.status = "processing"
@@ -286,6 +435,7 @@ class SessionDistillStore:
                     job.phase = "chunks"
                     job.attempt_count += 1
                     job.retry_after = None
+                    job.last_progress_at = now
                     job.updated_at = now
                     self._upsert_job_locked(job)
                 self._conn.commit()
@@ -349,6 +499,7 @@ class SessionDistillStore:
                     ).fetchone()[0]
                 )
                 job.completed_chunk_count = completed_count
+                job.last_progress_at = now
                 job.updated_at = now
                 if completed_count == job.expected_chunk_count:
                     job.status = "reviewing"
@@ -418,6 +569,7 @@ class SessionDistillStore:
                 job.phase = "done"
                 job.error = None
                 job.completed_at = now
+                job.last_progress_at = now
                 job.updated_at = now
                 self._upsert_job_locked(job)
                 self._conn.commit()
@@ -457,6 +609,7 @@ class SessionDistillStore:
                 retry_number = max(1, job.attempt_count)
                 backoff_seconds = min(6 * 3600, 300 * (2 ** min(retry_number - 1, 7)))
                 job.retry_after = now + timedelta(seconds=backoff_seconds)
+                job.last_progress_at = now
                 job.updated_at = now
                 self._upsert_job_locked(job)
                 self._conn.commit()
@@ -491,6 +644,7 @@ class SessionDistillStore:
                 job.promotion_summary = dict(promotion_summary)
                 job.source_cleanup_status = source_cleanup_status
                 job.source_cleanup_receipt_id = source_cleanup_receipt_id
+                job.last_progress_at = now
                 job.updated_at = now
                 self._upsert_job_locked(job)
                 self._conn.commit()
@@ -569,6 +723,67 @@ class SessionDistillStore:
         if row is None:
             return None
         return TranscriptChunk.from_dict(json.loads(row["data"]))
+
+    def _recover_expired_checkpoints_locked(
+        self,
+        job: SessionDistillJob,
+        checkpoints: List[DistillChunkCheckpoint],
+        *,
+        now: datetime,
+        recovery_budget: int | None = None,
+    ) -> bool:
+        expired = [
+            checkpoint
+            for checkpoint in checkpoints
+            if checkpoint.status == "processing"
+            and checkpoint.lease_until is not None
+            and checkpoint.lease_until <= now
+        ]
+        if not expired:
+            return False
+
+        for checkpoint in expired:
+            checkpoint.status = "retryable"
+            checkpoint.lease_owner = None
+            checkpoint.lease_until = None
+            checkpoint.error = "chunk lease expired during recovery"
+            checkpoint.updated_at = now
+            self._upsert_checkpoint_locked(checkpoint)
+
+        job.recovery_count += 1
+        if recovery_budget is not None:
+            job.recovery_budget = max(1, int(recovery_budget))
+        job.recovery_reason_codes = list(
+            dict.fromkeys([*job.recovery_reason_codes, "expired_chunk_lease"])
+        )
+        job.last_recovery_at = now
+        job.last_progress_at = now
+        job.updated_at = now
+
+        if job.recovery_count >= max(1, int(job.recovery_budget)):
+            job.status = "failed"
+            job.error = "distill recovery budget exhausted"
+            job.retry_after = None
+            job.recovery_exhausted_at = now
+            for checkpoint in checkpoints:
+                if checkpoint.status == "completed":
+                    continue
+                checkpoint.status = "failed"
+                checkpoint.lease_owner = None
+                checkpoint.lease_until = None
+                checkpoint.error = "recovery budget exhausted"
+                checkpoint.updated_at = now
+                self._upsert_checkpoint_locked(checkpoint)
+        else:
+            job.status = "retryable"
+            job.retry_after = now + timedelta(
+                seconds=min(
+                    6 * 3600,
+                    300 * (2 ** min(job.recovery_count - 1, 7)),
+                )
+            )
+        self._upsert_job_locked(job)
+        return True
 
     def _mark_older_jobs_stale_locked(self, source: TranscriptSource) -> None:
         rows = self._conn.execute(

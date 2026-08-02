@@ -74,6 +74,13 @@ def pending_distill_jobs(
 
     current = now or datetime.now(timezone.utc)
 
+    # Reconcile abandoned leases before lane selection. This only repairs
+    # durable state; semantic work still requires the offered Agent job.
+    backend.transcript_store.reconcile_distill_jobs(
+        project_name=project_name,
+        now=current,
+        recovery_budget=3,
+    )
     backend.transcript_store.rebalance_distill_jobs(
         project_name,
         target_active=target_backlog,
@@ -170,6 +177,19 @@ def distill_drainer_metrics(
     cleanup_unsupported = [
         job for job in jobs if job.source_cleanup_status == "unsupported"
     ]
+    recovery_exhausted = [
+        job for job in jobs if job.recovery_exhausted_at is not None
+    ]
+    recovery_attempts = sum(max(0, int(job.recovery_count)) for job in jobs)
+    recovery_timestamps = [
+        job.last_recovery_at for job in jobs if job.last_recovery_at is not None
+    ]
+    stalled_progress = [
+        job.last_progress_at
+        for job in jobs
+        if job.status in {"processing", "reviewing"}
+        and isinstance(job.last_progress_at, datetime)
+    ]
     active = [job for job in jobs if job.status in {"queued", "processing", "reviewing"}]
     parked = [job for job in jobs if job.status == "parked"]
     retry_backoff = [
@@ -243,6 +263,21 @@ def distill_drainer_metrics(
         "evidence_admission_7d": evidence_admission_7d,
         "source_cleanup_partial_failure": len(cleanup_partial),
         "source_cleanup_unsupported": len(cleanup_unsupported),
+        "recovery_attempts_total": recovery_attempts,
+        "recovery_exhausted": len(recovery_exhausted),
+        "last_recovery_at": (
+            max(recovery_timestamps).isoformat() if recovery_timestamps else None
+        ),
+        "oldest_stalled_age_hours": round(
+            max(
+                0.0,
+                (current - min(stalled_progress)).total_seconds()
+                / 3600,
+            ),
+            1,
+        )
+        if stalled_progress
+        else 0.0,
         "throughput_per_day_7d": throughput_per_day,
         "oldest_parked_age_hours": round(
             (current - oldest_parked).total_seconds() / 3600,

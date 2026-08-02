@@ -88,6 +88,15 @@ class SessionDistillJob(BaseModel):
     agent_offer_day: str | None = None
     agent_offer_count: int = 0
     last_agent_offered_at: datetime | None = None
+    # Job-level recovery state is separate from per-chunk attempt_count. It
+    # records reconciliation events after restart/lease expiry and bounds
+    # repeated recovery without inventing a background semantic worker.
+    recovery_count: int = 0
+    recovery_budget: int = 3
+    recovery_reason_codes: list[str] = Field(default_factory=list)
+    last_recovery_at: datetime | None = None
+    last_progress_at: datetime | None = None
+    recovery_exhausted_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None

@@ -46,6 +46,7 @@ class SearchFilters:
     memory_type: list[str] | None = None
     include_history: bool = False
     time_window: tuple[datetime | None, datetime | None] | None = None
+    as_of: datetime | None = None
     corpus_id: str | None = None
     tier: list[str] | None = None
     truth_status: list[str] | None = None
@@ -66,6 +67,7 @@ class SearchFilters:
                 if self.time_window
                 else None
             ),
+            "as_of": self.as_of.isoformat() if self.as_of else None,
             "corpus_id": self.corpus_id,
             "tier": list(self.tier or []),
             "truth_status": list(self.truth_status or []),
@@ -104,6 +106,7 @@ class SearchBackendResponse:
     source_coverage: dict[str, int]
     drilldown_hints: list[dict[str, Any]]
     retrieval_quality: dict[str, Any] = field(default_factory=dict)
+    retrieval_plan: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -117,6 +120,31 @@ class SearchBackendResponse:
             "source_coverage": dict(self.source_coverage),
             "drilldown_hints": list(self.drilldown_hints),
             "retrieval_quality": dict(self.retrieval_quality),
+            "retrieval_plan": dict(self.retrieval_plan),
+        }
+
+
+@dataclass(frozen=True)
+class SearchPlan:
+    """Internal candidate and temporal contract for one deterministic search."""
+
+    candidate_channels: tuple[str, ...]
+    executed_channels: tuple[str, ...]
+    temporal_policy: str
+    as_of: str | None
+    exclusion_reason_codes: tuple[str, ...]
+    deduplication: str = "source_kind_and_id"
+    fusion: str = "stable_source_order"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "candidate_channels": list(self.candidate_channels),
+            "executed_channels": list(self.executed_channels),
+            "temporal_policy": self.temporal_policy,
+            "as_of": self.as_of,
+            "exclusion_reason_codes": list(self.exclusion_reason_codes),
+            "deduplication": self.deduplication,
+            "fusion": self.fusion,
         }
 
 
@@ -150,8 +178,13 @@ class SQLiteSearchBackend:
     ) -> SearchBackendResponse:
         source_limit = max(1, limit)
         project_filter = None if filters.scope == "all" else filters.project_name
-        include_history = filters.include_history or filters.deep_recall
-
+        include_history = (
+            filters.include_history or filters.deep_recall or filters.as_of is not None
+        )
+        candidate_channels = ["lexical"]
+        if mode == "hybrid":
+            candidate_channels.append("vector")
+        candidate_channels.append("relation")
         entries = await self.backend.structured_store.search_memory_entries(
             query,
             project_name=project_filter,
@@ -162,7 +195,9 @@ class SQLiteSearchBackend:
             deep_recall=filters.deep_recall,
             time_window=filters.time_window,
             include_provisional=filters.include_provisional,
+            as_of=filters.as_of,
         )
+        entries, entry_exclusions = _apply_temporal_filter(entries, filters)
         entries = await _apply_signal_influence(
             self.backend,
             entries,
@@ -174,6 +209,7 @@ class SQLiteSearchBackend:
             limit=source_limit,
             mode=mode,
             time_window=filters.time_window,
+            as_of=filters.as_of,
         )
         relation_facts = await self.backend.structured_store.search_relation_facts(
             query,
@@ -182,16 +218,50 @@ class SQLiteSearchBackend:
             include_history=include_history,
             time_window=filters.time_window,
             include_provisional=filters.include_provisional,
+            as_of=filters.as_of,
+        )
+        relation_facts, relation_exclusions = _apply_temporal_filter(
+            relation_facts,
+            filters,
         )
         entries, relation_boost_count = _apply_relation_decision_boost(
             entries,
             relation_facts,
             query,
         )
-        skills = await self.backend.structured_store.search_skills(
-            query,
-            project_name=project_filter,
-            limit=min(source_limit, 10),
+        skills = (
+            []
+            if filters.as_of is not None
+            else await self.backend.structured_store.search_skills(
+                query,
+                project_name=project_filter,
+                limit=min(source_limit, 10),
+            )
+        )
+        executed_channels = ["lexical"]
+        if any(
+            getattr(record, "_search_mode", None) == "hybrid"
+            for record in [*entries, *observations]
+        ):
+            executed_channels.append("vector")
+        executed_channels.append("relation")
+        search_plan = SearchPlan(
+            candidate_channels=tuple(candidate_channels),
+            executed_channels=tuple(executed_channels),
+            temporal_policy=(
+                "as_of"
+                if filters.as_of is not None
+                else "history"
+                if include_history
+                else "current_only"
+            ),
+            as_of=filters.as_of.isoformat() if filters.as_of else None,
+            exclusion_reason_codes=(
+                "future_validity",
+                "outside_as_of_window",
+                "historical",
+                "superseded",
+            ),
         )
 
         results: list[BackendSearchResult] = []
@@ -245,6 +315,7 @@ class SQLiteSearchBackend:
                             getattr(entry, "_last_context_outcome_at", None)
                         ),
                         "ranking_explanation": _ranking_explanation(entry),
+                        "candidate_channel": _candidate_channel(entry, mode),
                     },
                 )
             )
@@ -281,6 +352,7 @@ class SQLiteSearchBackend:
                         "search_requested_mode": mode,
                         "fallback_reason": None,
                         "score_details": _score_details(fact),
+                        "candidate_channel": "relation",
                     },
                 )
             )
@@ -302,6 +374,7 @@ class SQLiteSearchBackend:
                         "search_requested_mode": mode,
                         "fallback_reason": None,
                         "score_details": _score_details(skill),
+                        "candidate_channel": "lexical",
                     },
                 )
             )
@@ -325,10 +398,13 @@ class SQLiteSearchBackend:
                         "search_requested_mode": getattr(observation, "_search_requested_mode", mode),
                         "fallback_reason": getattr(observation, "_search_fallback_reason", None),
                         "score_details": _score_details(observation),
+                        "candidate_channel": _candidate_channel(observation, mode),
                     },
                 )
             )
 
+        results, deduplicated_count = _deduplicate_results(results)
+        results = _stable_sort_results(results)
         results, abstention_quality = _apply_low_confidence_abstention(results, query)
         selected = _select_balanced_results(results, limit)
         truncated = len(results) > len(selected)
@@ -367,6 +443,20 @@ class SQLiteSearchBackend:
                 for result in selected
             ],
             retrieval_quality=retrieval_quality,
+            retrieval_plan={
+                **search_plan.to_dict(),
+                "temporal_filter_stage": "candidate_query_pre_limit",
+                "skill_temporal_policy": (
+                    "excluded_no_historical_versions"
+                    if filters.as_of is not None
+                    else "current_snapshot"
+                ),
+                "deduplicated_results": deduplicated_count,
+                "temporal_exclusions": _merge_exclusion_counts(
+                    entry_exclusions,
+                    relation_exclusions,
+                ),
+            },
         )
 
 
@@ -509,6 +599,9 @@ def _apply_result_metadata(
     ranking_explanation = result.metadata.get("ranking_explanation")
     if isinstance(ranking_explanation, list):
         setattr(target, "_ranking_explanation", list(ranking_explanation))
+    candidate_channel = result.metadata.get("candidate_channel")
+    if isinstance(candidate_channel, str) and candidate_channel:
+        setattr(target, "_candidate_channel", candidate_channel)
     history_included_reason = result.metadata.get("history_included_reason")
     if isinstance(history_included_reason, str) and history_included_reason:
         setattr(target, "_history_included_reason", history_included_reason)
@@ -589,6 +682,90 @@ def _apply_score_delta(entry: MemoryEntry, delta: float) -> None:
             setattr(entry, attr, float(current) + delta)
             return
     setattr(entry, "_score", delta)
+
+
+def _candidate_channel(record: object, mode: str) -> str:
+    """Expose the bounded candidate source without leaking backend internals."""
+
+    recorded = getattr(record, "_search_mode", None)
+    if recorded == "hybrid":
+        return "lexical+vector"
+    if recorded == "fts":
+        return "lexical"
+    if mode == "hybrid":
+        return "lexical+vector"
+    return "lexical"
+
+
+def _apply_temporal_filter(
+    records: list[Any],
+    filters: SearchFilters,
+) -> tuple[list[Any], dict[str, int]]:
+    """Apply explicit as-of/current-only policy and count exclusions."""
+
+    if (filters.include_history or filters.deep_recall) and filters.as_of is None:
+        return records, {}
+    now = datetime.now(timezone.utc)
+    kept: list[Any] = []
+    excluded: dict[str, int] = {}
+    for record in records:
+        valid_from = getattr(record, "valid_from", None)
+        valid_to = getattr(record, "valid_to", None)
+        superseded_by = list(getattr(record, "superseded_by", []) or [])
+        reason: str | None = None
+        if filters.as_of is not None:
+            as_of = (
+                filters.as_of.replace(tzinfo=timezone.utc)
+                if filters.as_of.tzinfo is None
+                else filters.as_of.astimezone(timezone.utc)
+            )
+            if isinstance(valid_from, datetime) and valid_from > as_of:
+                reason = "future_validity"
+            elif isinstance(valid_to, datetime) and valid_to <= as_of:
+                reason = "outside_as_of_window"
+            elif superseded_by and valid_to is None:
+                reason = "superseded"
+        else:
+            if isinstance(valid_to, datetime) and valid_to <= now:
+                reason = "historical"
+            elif superseded_by:
+                reason = "superseded"
+        if reason is None:
+            kept.append(record)
+        else:
+            excluded[reason] = excluded.get(reason, 0) + 1
+    return kept, excluded
+
+
+def _merge_exclusion_counts(*counts: dict[str, int]) -> dict[str, int]:
+    merged: dict[str, int] = {}
+    for group in counts:
+        for key, value in group.items():
+            merged[key] = merged.get(key, 0) + int(value)
+    return merged
+
+
+def _deduplicate_results(
+    results: list[BackendSearchResult],
+) -> tuple[list[BackendSearchResult], int]:
+    seen: set[tuple[str, str]] = set()
+    deduplicated: list[BackendSearchResult] = []
+    removed = 0
+    for result in results:
+        key = (result.source_kind, result.source_id)
+        if key in seen:
+            removed += 1
+            continue
+        seen.add(key)
+        deduplicated.append(result)
+    return deduplicated, removed
+
+
+def _stable_sort_results(results: list[BackendSearchResult]) -> list[BackendSearchResult]:
+    # Storage backends already return deterministic per-channel order. Keep
+    # that order after de-duplication so historical/current tie behavior stays
+    # compatible while the fusion step remains stable across repeated runs.
+    return list(results)
 
 
 def _clamp(value: float, minimum: float, maximum: float) -> float:
@@ -1038,6 +1215,7 @@ __all__ = [
     "SearchBackendResponse",
     "SearchFacade",
     "SearchFilters",
+    "SearchPlan",
     "SQLiteSearchBackend",
     "hydrate_backend_results",
 ]

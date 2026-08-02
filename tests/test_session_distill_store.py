@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 
 import pytest
@@ -183,6 +184,202 @@ def test_defer_failed_job_releases_lease_and_keeps_it_retryable(tmp_path: Path) 
     assert checkpoints[0].status == "retryable"
     assert checkpoints[0].lease_owner is None
     assert checkpoints[0].lease_until is None
+    store.close()
+
+
+def test_reconcile_expired_lease_records_recovery_and_bounds_retries(
+    tmp_path: Path,
+) -> None:
+    store = TranscriptStore(tmp_path)
+    source = _save_source(store, "turn\nanswer\n")
+    job = store.enqueue_distill_job(source.id)
+    store.claim_distill_chunks(job.id, lease_owner="crashed-agent")
+
+    expired_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    row = store._conn.execute(  # type: ignore[attr-defined]
+        "SELECT data FROM distill_job_chunks WHERE job_id = ?",
+        (job.id,),
+    ).fetchone()
+    assert row is not None
+    payload = json.loads(row["data"])
+    payload["lease_until"] = expired_at.isoformat()
+    store._conn.execute(  # type: ignore[attr-defined]
+        "UPDATE distill_job_chunks SET data = ?, lease_until = ? WHERE job_id = ?",
+        (json.dumps(payload), expired_at.isoformat(), job.id),
+    )
+    store._conn.commit()  # type: ignore[attr-defined]
+
+    first = store.reconcile_distill_jobs(
+        project_name="demo",
+        now=datetime.now(timezone.utc),
+        recovery_budget=2,
+    )
+    recovered = store.get_distill_job(job.id)
+    assert first["recovered"] == 1
+    assert recovered is not None
+    assert recovered.status == "retryable"
+    assert recovered.recovery_count == 1
+    assert "expired_chunk_lease" in recovered.recovery_reason_codes
+    assert recovered.retry_after is not None
+    assert store.list_distill_checkpoints(job.id)[0].status == "retryable"
+
+    # A second restart/lease expiry consumes the bounded budget and becomes a
+    # terminal failure instead of remaining active forever.
+    row = store._conn.execute(  # type: ignore[attr-defined]
+        "SELECT data FROM distill_job_chunks WHERE job_id = ?",
+        (job.id,),
+    ).fetchone()
+    assert row is not None
+    payload = json.loads(row["data"])
+    payload.update(
+        {
+            "status": "processing",
+            "lease_owner": "second-crashed-agent",
+            "lease_until": expired_at.isoformat(),
+        }
+    )
+    store._conn.execute(  # type: ignore[attr-defined]
+        "UPDATE distill_job_chunks SET data = ?, status = 'processing', lease_owner = ?, lease_until = ? WHERE job_id = ?",
+        (
+            json.dumps(payload),
+            "second-crashed-agent",
+            expired_at.isoformat(),
+            job.id,
+        ),
+    )
+    store._conn.commit()  # type: ignore[attr-defined]
+    second = store.reconcile_distill_jobs(
+        project_name="demo",
+        now=datetime.now(timezone.utc),
+        recovery_budget=2,
+    )
+    exhausted = store.get_distill_job(job.id)
+    assert second["failed_recovery_budget"] == 1
+    assert exhausted is not None
+    assert exhausted.status == "failed"
+    assert exhausted.recovery_exhausted_at is not None
+    assert store.list_distill_checkpoints(job.id)[0].status == "failed"
+    store.close()
+
+
+def test_direct_claim_counts_expired_leases_and_exhausts_recovery_budget(
+    tmp_path: Path,
+) -> None:
+    store = TranscriptStore(tmp_path)
+    source = _save_source(
+        store,
+        "turn one\nanswer one\nturn two\nanswer two\n",
+    )
+    job = store.enqueue_distill_job(source.id)
+
+    def expire_current_claim() -> None:
+        expired_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        row = store._conn.execute(  # type: ignore[attr-defined]
+            "SELECT data FROM distill_job_chunks WHERE job_id = ? AND status = 'processing'",
+            (job.id,),
+        ).fetchone()
+        assert row is not None
+        payload = json.loads(row["data"])
+        payload["lease_until"] = expired_at.isoformat()
+        store._conn.execute(  # type: ignore[attr-defined]
+            "UPDATE distill_job_chunks SET data = ?, lease_until = ? "
+            "WHERE job_id = ? AND status = 'processing'",
+            (json.dumps(payload), expired_at.isoformat(), job.id),
+        )
+        store._conn.commit()  # type: ignore[attr-defined]
+
+    def release_backoff() -> None:
+        current = store.get_distill_job(job.id)
+        assert current is not None
+        payload = current.to_dict()
+        payload["retry_after"] = None
+        store._conn.execute(  # type: ignore[attr-defined]
+            "UPDATE distill_jobs SET data = ? WHERE id = ?",
+            (json.dumps(payload), job.id),
+        )
+        store._conn.commit()  # type: ignore[attr-defined]
+
+    assert store.claim_distill_chunks(job.id, lease_owner="agent-1")
+    for recovery_number in range(1, 4):
+        expire_current_claim()
+
+        # The recovery call only records the expired lease. It must never
+        # reclaim semantic work in the same transaction.
+        assert store.claim_distill_chunks(job.id, lease_owner="recovery") == []
+        recovered = store.get_distill_job(job.id)
+        assert recovered is not None
+        assert recovered.recovery_count == recovery_number
+
+        if recovery_number < recovered.recovery_budget:
+            assert recovered.status == "retryable"
+            assert recovered.retry_after is not None
+            checkpoint = store.list_distill_checkpoints(job.id)[0]
+            assert checkpoint.status == "retryable"
+            assert checkpoint.lease_owner is None
+
+            # Backoff blocks an immediate direct claim. Advancing it here
+            # simulates the scheduler returning after the durable delay.
+            assert store.claim_distill_chunks(job.id, lease_owner="too-soon") == []
+            release_backoff()
+            assert store.claim_distill_chunks(
+                job.id,
+                lease_owner=f"agent-{recovery_number + 1}",
+            )
+
+    exhausted = store.get_distill_job(job.id)
+    assert exhausted is not None
+    assert exhausted.status == "failed"
+    assert exhausted.recovery_count == exhausted.recovery_budget == 3
+    assert exhausted.recovery_exhausted_at is not None
+    terminal_checkpoints = store.list_distill_checkpoints(job.id)
+    assert len(terminal_checkpoints) > 1
+    assert all(checkpoint.status == "failed" for checkpoint in terminal_checkpoints)
+    assert all(checkpoint.lease_owner is None for checkpoint in terminal_checkpoints)
+    assert all(checkpoint.lease_until is None for checkpoint in terminal_checkpoints)
+
+    # A terminal job cannot be claimed or consume a fourth recovery event.
+    assert store.claim_distill_chunks(job.id, lease_owner="agent-4") == []
+    terminal = store.get_distill_job(job.id)
+    assert terminal is not None
+    assert terminal.recovery_count == 3
+    store.close()
+
+
+def test_reconcile_advances_parent_when_checkpoints_are_complete(
+    tmp_path: Path,
+) -> None:
+    store = TranscriptStore(tmp_path)
+    source = _save_source(store, "turn one\nanswer one\nturn two\nanswer two\n")
+    job = store.enqueue_distill_job(source.id)
+    for chunk, checkpoint in store.claim_distill_chunks(
+        job.id,
+        lease_owner="agent",
+        limit=20,
+    ):
+        store.checkpoint_distill_chunk(
+            job.id,
+            chunk.id,
+            lease_owner="agent",
+            result={"summary": f"chunk {checkpoint.chunk_index}"},
+        )
+
+    reviewing = store.get_distill_job(job.id)
+    assert reviewing is not None and reviewing.status == "reviewing"
+    payload = reviewing.to_dict()
+    payload.update({"status": "processing", "phase": "chunks", "completed_chunk_count": 0})
+    store._conn.execute(  # type: ignore[attr-defined]
+        "UPDATE distill_jobs SET data = ?, status = 'processing', phase = 'chunks' WHERE id = ?",
+        (json.dumps(payload), job.id),
+    )
+    store._conn.commit()  # type: ignore[attr-defined]
+
+    result = store.reconcile_distill_jobs(project_name="demo")
+    reloaded = store.get_distill_job(job.id)
+    assert result["advanced_to_review"] == 1
+    assert reloaded is not None
+    assert reloaded.status == "reviewing"
+    assert reloaded.completed_chunk_count == reloaded.expected_chunk_count
+    assert reloaded.last_progress_at is not None
     store.close()
 
 
