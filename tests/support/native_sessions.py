@@ -4,15 +4,37 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 
-def write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
-    """Write deterministic UTF-8 JSONL without borrowing production fixtures."""
+def jsonl_bytes(
+    records: Iterable[dict[str, Any]],
+    *,
+    newline: str = "\n",
+    bom: bool = False,
+) -> bytes:
+    """Render deterministic native JSONL with explicit byte-shape controls."""
+
+    text = (
+        newline.join(json.dumps(record, ensure_ascii=False) for record in records)
+        + newline
+    )
+    prefix = b"\xef\xbb\xbf" if bom else b""
+    return prefix + text.encode("utf-8")
+
+
+def write_jsonl(
+    path: Path,
+    records: Iterable[dict[str, Any]],
+    *,
+    newline: str = "\n",
+    bom: bool = False,
+    append: bool = False,
+) -> None:
+    """Write deterministic JSONL without borrowing production fixtures."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "\n".join(json.dumps(record, ensure_ascii=False) for record in records)
-        + "\n",
-        encoding="utf-8",
-    )
+    payload = jsonl_bytes(records, newline=newline, bom=bom)
+    mode = "ab" if append else "wb"
+    with path.open(mode) as handle:
+        handle.write(payload)
