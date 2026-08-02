@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 
-STATUS_CONTRACT_VERSION = "project-status-v3"
+STATUS_CONTRACT_VERSION = "project-status-v4"
 STATUS_DETAIL_LEVELS = frozenset({"compact", "full"})
 
 
@@ -224,7 +224,6 @@ def render_project_status(
         "active_project": full.get("active_project"),
         "phase": full.get("phase"),
         **counts,
-        "counts": counts,
         "integration_bootstrap": bootstrap,
         "truth_runtime_state": full.get("truth_runtime_state"),
         "truth_runtime_error": full.get("truth_runtime_error"),
@@ -234,7 +233,9 @@ def render_project_status(
         "repair_hint": full.get("repair_hint"),
         "repair_reason": full.get("repair_reason"),
         "suggested_slash": full.get("suggested_slash"),
-        "temporal_summary": dict(full.get("temporal_summary") or {}),
+        "temporal_summary": _compact_temporal_summary(
+            full.get("temporal_summary")
+        ),
         "retrieval_profiles": _compact_retrieval_profiles(
             full.get("retrieval_profiles")
         ),
@@ -250,8 +251,8 @@ def render_project_status(
         ),
         "pending_distill": _compact_pending_distill(full.get("pending_distill")),
         "guided_flow": compact_guided_flow,
-        "why_this_result": full.get("why_this_result"),
-        "next_actions": list(full.get("next_actions") or []),
+        "why_this_result": _compact_status_reason(full),
+        "next_actions": _compact_next_actions(full.get("next_actions")),
         "details_available": [
             "retrieval_health",
             "cost_budget",
@@ -267,7 +268,7 @@ def render_project_status(
             }
         ],
     }
-    return compact
+    return _prune_compact(compact)
 
 
 def project_status_decision_fingerprint(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -286,7 +287,7 @@ def project_status_decision_fingerprint(payload: Mapping[str, Any]) -> dict[str,
         "degraded_reason": payload.get("degraded_reason"),
         "suggested_slash": payload.get("suggested_slash"),
         "repair_hint": payload.get("repair_hint"),
-        "next_actions": list(payload.get("next_actions") or []),
+        "next_actions": _next_action_fingerprint(payload.get("next_actions")),
         "pending_distill": _compact_pending_distill(payload.get("pending_distill")),
     }
 
@@ -301,6 +302,18 @@ def _compact_retrieval_profiles(value: Any) -> dict[str, Any]:
     }
 
 
+def _compact_temporal_summary(value: Any) -> dict[str, Any]:
+    payload = dict(value or {})
+    historical_total = int(payload.get("historical_total", 0) or 0)
+    superseded_total = int(payload.get("superseded_total", 0) or 0)
+    if historical_total == 0 and superseded_total == 0:
+        return {}
+    return {
+        "historical_total": historical_total,
+        "superseded_total": superseded_total,
+    }
+
+
 def _compact_runtime_versions(value: Any) -> dict[str, Any]:
     payload = dict(value or {})
     return {
@@ -312,6 +325,14 @@ def _compact_runtime_versions(value: Any) -> dict[str, Any]:
 def _compact_job_health(value: Any) -> dict[str, Any]:
     payload = dict(value or {})
     dream = dict(payload.get("dream") or {})
+    if not any(
+        (
+            int(dream.get("failure_count", 0) or 0),
+            int(dream.get("retryable_count", 0) or 0),
+            dream.get("latest_error"),
+        )
+    ):
+        return {}
     return {
         "dream": {
             "last_status": dream.get("last_status"),
@@ -354,24 +375,28 @@ def _compact_cost_budget(value: Any) -> dict[str, Any]:
     policy = dict(payload.get("policy") or {})
     budgets = dict(policy.get("budgets") or {})
     return {
-        "policy_version": policy.get("policy_version"),
         "status_budget_tokens": budgets.get("status"),
         "distill_budget_tokens": budgets.get("distill"),
-        "summary": dict(payload.get("summary") or {}),
-        "top_opportunities": list(payload.get("top_opportunities") or [])[:3],
+        "high_output_calls": dict(payload.get("summary") or {}).get(
+            "high_output_calls"
+        ),
+        "top_opportunities": list(payload.get("top_opportunities") or [])[:2],
     }
 
 
 def _compact_install_drift(value: Any) -> dict[str, Any]:
     payload = dict(value or {})
     issues = list(payload.get("issues") or [])
-    return {
+    compact = {
         "runtime_version": payload.get("runtime_version"),
         "wire_format_version": payload.get("wire_format_version"),
         "has_drift": bool(payload.get("has_drift")),
         "issue_count": len(issues),
         "issues": issues[:3],
     }
+    if not compact["has_drift"]:
+        return {"has_drift": False}
+    return compact
 
 
 def _compact_integration_health(value: Any) -> dict[str, Any]:
@@ -382,10 +407,8 @@ def _compact_integration_health(value: Any) -> dict[str, Any]:
     transcript = dict(payload.get("transcript") or {})
     distill = dict(payload.get("pending_distill") or {})
     return {
-        "summary": payload.get("summary"),
         "project": {
             "status": project.get("status"),
-            "name": project.get("name"),
         },
         "host": {
             "status": host.get("status"),
@@ -393,8 +416,6 @@ def _compact_integration_health(value: Any) -> dict[str, Any]:
         },
         "hooks": {
             "status": hooks.get("status"),
-            "installed": hooks.get("installed"),
-            "expected": hooks.get("expected"),
             "wake_verified": hooks.get("wake_verified"),
             "maintenance_verified": hooks.get("maintenance_verified"),
             "action_required": hooks.get("action_required"),
@@ -402,21 +423,13 @@ def _compact_integration_health(value: Any) -> dict[str, Any]:
         "transcript": {
             "status": transcript.get("status"),
             "session_count": transcript.get("session_count"),
-            "observation_count": transcript.get("observation_count"),
             "missing_source_count": transcript.get("missing_source_count"),
             "failed_source_count": transcript.get("failed_source_count"),
             "retry_source_count": transcript.get("retry_source_count"),
         },
         "pending_distill": {
             "status": distill.get("status"),
-            "queued": distill.get("queued"),
-            "processing": distill.get("processing"),
-            "parked": distill.get("parked"),
-            "retry_backoff": distill.get("retry_backoff"),
-            "offered_today": distill.get("offered_today"),
-            "daily_job_budget": distill.get("daily_job_budget"),
             "throughput_per_day_7d": distill.get("throughput_per_day_7d"),
-            "pending_total": distill.get("pending_total"),
             "stuck_reason_codes": [
                 reason.get("code")
                 for reason in list(distill.get("stuck_reasons") or [])[:3]
@@ -431,6 +444,48 @@ def _compact_integration_health(value: Any) -> dict[str, Any]:
             "agent_required": distill.get("agent_required"),
         },
     }
+
+
+def _compact_next_actions(value: Any) -> list[dict[str, Any]]:
+    return [
+        {
+            "label": row.get("label"),
+            "surface": row.get("surface"),
+        }
+        for row in list(value or [])
+        if isinstance(row, Mapping)
+    ]
+
+
+def _next_action_fingerprint(value: Any) -> list[dict[str, Any]]:
+    return _compact_next_actions(value)
+
+
+def _compact_status_reason(payload: Mapping[str, Any]) -> str:
+    pending = _compact_pending_distill(payload.get("pending_distill"))
+    return (
+        f"{payload.get('phase')}: {int(pending.get('pending_total') or 0)} distill, "
+        f"{int(payload.get('pending_candidate_count', 0) or 0)} candidates."
+    )
+
+
+def _prune_compact(value: Any) -> Any:
+    """Drop empty diagnostics from compact views while preserving false/zero."""
+
+    if isinstance(value, Mapping):
+        result = {
+            key: _prune_compact(item)
+            for key, item in value.items()
+            if item is not None
+        }
+        return {
+            key: item
+            for key, item in result.items()
+            if item not in ({}, [])
+        }
+    if isinstance(value, list):
+        return [_prune_compact(item) for item in value]
+    return value
 
 
 def _compact_pending_distill(value: Any) -> dict[str, Any]:
