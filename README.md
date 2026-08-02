@@ -32,7 +32,7 @@ Invocation surfaces (installed once at user scope, then visible in every project
 
 - `/hm:*` commands: `status`, `wake`, `search`, `search-all`, `distill`, `review`, `dream`.
 - Agent MCP calls: plain language, skills, or hooks trigger `wake/search/distill/review`.
-- Hooks: inject wake context, enforce retention, and maintain a two-job Agent-active distill lane with 3:1 recent/oldest refill, failure backoff, and a daily new-job budget. Without an Agent the queue reports `waiting_for_agent`; it never claims background semantic work.
+- Hooks: inject wake context, enforce retention, and maintain a two-job Agent-active distill lane with 3:1 recent/oldest refill, failure backoff, and a daily new-job budget. Each Agent task consumes at most one machine-readable wake offer; without an Agent the queue reports `waiting_for_agent` and never claims background semantic work.
 - CLI: setup, doctor, config, integration, and maintenance only.
 
 <p align="center">

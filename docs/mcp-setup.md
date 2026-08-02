@@ -85,6 +85,11 @@ preserves recency without starving parked history.
 Wake includes the selected IDs; the Agent passes each one back as
 `prepare_session_distill(distill_job_id=...)`. Exact targeting cannot claim a
 parked, cross-project, completed, stale, or retry-backoff job.
+The MCP response also exposes `distill_maintenance` as an
+`agent-distill-offer-v1` contract. It contains at most one job for the current
+Agent task plus fixed semantic/compact, 3,000-token, `run_ingest=false`
+arguments. Host commands consume that offer privately; `get_project_status`
+remains read-only and never records or executes an offer.
 
 `autopilot_search_tick` is the event-level scheduler. PI
 `transformContext` / `tool_result` / `prepareNextTurn`, Claude Code
@@ -101,8 +106,11 @@ returning a deterministic indexed manifest. The Agent selects complete semantic
 windows with `drilldown_exchange_indexes`, then reads raw chunk proof only when
 a candidate needs it. Explicit `detail_level="full"` or `evidence_mode="raw"`
 keeps the original resumable lease loop: chunks are never shortened to fit one
-MCP response, and long sessions continue over multiple calls. After structural
-coverage and semantic reading complete, the Agent submits a structured
+MCP response, and long sessions continue over multiple calls. For older
+datasets, a missing derived Observation is reconstructed on demand
+from the byte-verified immutable transcript revision. Historical projections
+remain in-memory so they cannot replace a newer canonical search projection.
+After structural coverage and semantic reading complete, the Agent submits a structured
 end-of-session review. Candidate writes
 bound to that job use stable IDs so retries do not duplicate memory.
 `finalize_session_distill` applies the shared automatic policy, completes that

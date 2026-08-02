@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Changed
+
+- Agent-active wake now returns one machine-readable distill offer per task and
+  the seven host command surfaces execute that exact job automatically. Failed
+  history is deferred without blocking current work; status remains read-only.
+- Historical lossless jobs can rebuild a missing semantic projection from the
+  byte-verified transcript ledger, keeping hundreds of raw chunks behind
+  drilldown while preserving a newer canonical search projection.
+- Post-turn hooks now report the real lossless transcript job state instead of
+  looking in the legacy reflection-job store.
+- Re-syncing a session now marks older active revision jobs stale even when the
+  current revision's job already exists, so growing sessions cannot keep
+  obsolete work in the Agent lane.
+- Compact project status now removes duplicated counters, healthy empty
+  diagnostics, verbose action explanations, and repeated distill health while
+  preserving its decision fingerprint and exact full-status drilldown. The
+  `project-status-v4` compact contract keeps a realistic high-cardinality
+  snapshot below 1,000 tokens, leaving headroom under the 1,200-token budget.
+- Lossless adapter tests now share one byte-exact JSONL fixture builder for
+  UTF-8, BOM, CRLF, and append shapes. CI guardrails explicitly preserve the
+  fast PR lane and complete tagged-release lane without deleting assertions.
+
 ## [0.9.9.1] - 2026-08-02
 
 ### Fixed

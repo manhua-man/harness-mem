@@ -171,12 +171,15 @@ wake -> search -> distill -> review -> dream ledger
 
 Dream is the final stage of the audited maintenance pipeline. A Stop hook
 captures an immutable transcript revision and queues every ordered chunk. The
-next Agent-capable wake offers an active lane of at most two jobs. Refills use
+next Agent-capable wake keeps an active lane of at most two jobs and returns one
+machine-readable job offer for the current Agent task. Refills use
 three recent jobs followed by one oldest eligible job, with exponential failure
 backoff and a daily new-job budget; older evidence stays parked without deletion.
 Each offered job is claimed through
 `prepare_session_distill(distill_job_id=...)`, so the Agent processes the exact
 bounded IDs selected by the drainer instead of reselecting by timestamp.
+Automatic wake claims set `run_ingest=false` because wake already synchronized
+the task; a failed offer is deferred and does not block the user's work.
 Without an Agent, status is `waiting_for_agent`, not background processing;
 the user does not need to keep invoking `/hm:distill`. That command remains an
 explicit immediate/deep-audit entry. In the daily semantic fast path, runtime hash-verifies and checkpoints
@@ -192,6 +195,10 @@ completion block says whether durable knowledge was `promoted` or the session
 ended as `no_candidate`; non-promoted candidates are terminally rejected so a
 completed low-value session does not return as daily review work. Merely
 preparing or partially reading a packet is never reported as completed.
+If an older canonical Storage v2 dataset lacks a derived Observation, the
+semantic path rebuilds that projection from the hash-verified immutable
+transcript revision. It does not force the Agent back through hundreds of raw
+chunks, and a historical repair never replaces a newer canonical projection.
 
 Each new candidate also carries an evidence envelope. Repository claims use a
 current project-relative file digest; explicit user preferences/decisions use
