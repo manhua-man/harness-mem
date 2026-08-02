@@ -367,6 +367,13 @@ class AntigravityAdapter:
             if issues is not None:
                 issues.append({"level": "warning", "code": "transcript_unreadable", "message": str(exc), "path": str(path)})
             return False
+        records = _read_records(path)
+        if any(
+            _workspace_matches(workspace, self.project_root or "")
+            for record in records
+            for workspace in _workspace_values(record)
+        ):
+            return True
         lowered = text.lower().replace("/", "\\").replace("\\\\", "\\")
         return any(variant.replace("/", "\\") in lowered for variant in _path_variants(self.project_root))
 
@@ -487,6 +494,25 @@ def _history_workspace(records: list[dict[str, Any]]) -> str:
     return ""
 
 
+def _workspace_values(value: object) -> list[str]:
+    """Collect structured workspace identities from nested transcript records."""
+
+    results: list[str] = []
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if (
+                key.casefold() in {"cwd", "workspace", "project_root"}
+                and isinstance(nested, str)
+                and nested.strip()
+            ):
+                results.append(nested)
+            results.extend(_workspace_values(nested))
+    elif isinstance(value, list):
+        for nested in value:
+            results.extend(_workspace_values(nested))
+    return results
+
+
 def _history_timestamp_ms(records: list[dict[str, Any]]) -> int | None:
     values = [
         int(record["timestamp"])
@@ -525,7 +551,8 @@ def _workspace_matches(workspace: str, project_root: str) -> bool:
 
 
 def _normalized_path(value: str) -> str:
-    return value.replace("\\", "/").rstrip("/").casefold()
+    normalized = _normalize_workspace_path(Path(value)) or value
+    return normalized.replace("\\", "/").rstrip("/").casefold()
 
 
 def _epoch_millis(value: int | None) -> datetime | None:
@@ -549,7 +576,7 @@ def _normalize_workspace_path(path: Path | None) -> str | None:
     # Transcript metadata can contain a Windows workspace while the adapter is
     # inspected on a non-Windows machine (for example in CI). Do not resolve
     # that opaque identity against the host cwd.
-    if re.match(r"^[A-Za-z]:[\\/]", raw):
+    if re.match(r"^[A-Za-z]:[\\/]", raw) and not Path(raw).is_absolute():
         return raw
     return str(normalize_project_root(Path(raw)))
 

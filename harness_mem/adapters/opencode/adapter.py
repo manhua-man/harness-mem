@@ -441,13 +441,16 @@ def _normalize_workspace_path(path: Path | None) -> str | None:
     if path is None:
         return None
     raw = str(path.expanduser())
-    if re.match(r"^[A-Za-z]:[\\/]", raw):
+    if re.match(r"^[A-Za-z]:[\\/]", raw) and not Path(raw).is_absolute():
         return raw
     return str(normalize_project_root(Path(raw)))
 
 
 def _same_or_child_path(value: Path, root: str) -> bool:
-    value_text = str(value).replace("/", "\\").rstrip("\\").lower()
+    normalized_value = _normalize_workspace_path(value)
+    if normalized_value is None:
+        return False
+    value_text = normalized_value.replace("/", "\\").rstrip("\\").lower()
     root_text = str(root).replace("/", "\\").rstrip("\\").lower()
     return value_text == root_text or value_text.startswith(root_text + "\\")
 

@@ -46,3 +46,40 @@ def test_antigravity_reads_real_transcript_shape_and_matches_cwd(tmp_path: Path)
     assert observation.client == "antigravity"
     assert "Find the update script" in observation.raw_content
     assert "list_dir" in observation.raw_content
+
+
+def test_antigravity_normalizes_native_workspace_aliases(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    alias_parent = tmp_path / "alias-parent"
+    alias_parent.mkdir()
+    aliased_workspace = alias_parent / ".." / workspace.name
+    brain = tmp_path / "brain"
+    transcript = (
+        brain
+        / "alias-session"
+        / ".system_generated"
+        / "logs"
+        / "transcript.jsonl"
+    )
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text(
+        json.dumps(
+            {
+                "step_index": 0,
+                "source": "MODEL",
+                "type": "PLANNER_RESPONSE",
+                "tool_calls": [
+                    {"name": "list_dir", "args": {"Cwd": str(aliased_workspace)}}
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    adapter = AntigravityAdapter(None, brain_dir=brain, project_root=workspace)
+
+    assert [session["session_id"] for session in adapter.list_sessions()] == [
+        "alias-session"
+    ]
