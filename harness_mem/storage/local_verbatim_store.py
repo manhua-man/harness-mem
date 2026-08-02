@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import builtins
+import hashlib
 import json
 import asyncio
 import re
@@ -114,10 +115,14 @@ class LocalVerbatimStore:
     async def init_runtime(self) -> None:
         if not self.canonical_mode or self._canonical is None:
             return
-        canonical_count = self._canonical.count("observations")
+        payloads = [
+            payload
+            for payload in self._canonical.list_payloads("observations")
+            if not bool(payload.get("compacted", False))
+        ]
+        canonical_count = len(payloads)
         if canonical_count <= 0:
             return
-        payloads = self._canonical.list_payloads("observations")
         indexed_count = await asyncio.to_thread(self._index.count, "observations")
         if indexed_count < canonical_count:
             for payload in payloads:
@@ -195,11 +200,17 @@ class LocalVerbatimStore:
                 "compacted": observation.compacted,
             },
         )
-        await asyncio.to_thread(
-            self._index.replace_observation_trigrams,
-            observation.id,
-            observation.raw_content,
-        )
+        if observation.compacted:
+            await asyncio.to_thread(
+                self._index.delete_observation_trigrams,
+                observation.id,
+            )
+        else:
+            await asyncio.to_thread(
+                self._index.replace_observation_trigrams,
+                observation.id,
+                observation.raw_content,
+            )
 
         # Persist embedding vector (v1.6.2)
         try:
@@ -267,6 +278,7 @@ class LocalVerbatimStore:
         limit: int = 20,
         mode: str = "auto",
         time_window: tuple[datetime | None, datetime | None] | None = None,
+        as_of: datetime | None = None,
     ) -> builtins.list[Observation]:
         """Full-text search observations, optionally filtered by session_id or project_name."""
         extra_where_parts = ["COALESCE(compacted, 0) = 0"]
@@ -289,6 +301,11 @@ class LocalVerbatimStore:
                 extra_where_parts.append("timestamp < ?")
                 extra_params = (*extra_params, end.isoformat())
 
+        normalized_as_of = _normalize_datetime(as_of)
+        if normalized_as_of is not None:
+            extra_where_parts.append("julianday(timestamp) <= julianday(?)")
+            extra_params = (*extra_params, normalized_as_of.isoformat())
+
         extra_where = " AND ".join(extra_where_parts) if extra_where_parts else None
 
         search_result = await asyncio.to_thread(
@@ -308,6 +325,15 @@ class LocalVerbatimStore:
                 if data.get("compacted", False):
                     continue
                 if time_window and not _timestamp_in_window(data.get("timestamp"), time_window):
+                    continue
+                observation_timestamp = _normalize_datetime(data.get("timestamp"))
+                if (
+                    normalized_as_of is not None
+                    and (
+                        observation_timestamp is None
+                        or observation_timestamp > normalized_as_of
+                    )
+                ):
                     continue
                 data.update({
                     "_search_mode": search_result.effective_mode,
@@ -497,20 +523,163 @@ class LocalVerbatimStore:
         )
 
     async def rebuild_exact_index(self, project_name: str | None = None) -> tuple[int, int]:
-        """Rebuild exact-search trigram postings for observations."""
-        observations = await self.list(limit=100000)
-        indexed = 0
-        postings = 0
-        for observation in observations:
-            if project_name and observation.metadata.get("project_name") != project_name:
-                continue
-            postings += await asyncio.to_thread(
-                self._index.replace_observation_trigrams,
-                observation.id,
-                observation.raw_content,
+        """Atomically rebuild the global exact index from canonical truth.
+
+        The physical trigram table is shared by every project, so publishing a
+        project-only staging table would erase other projects. The operator
+        argument remains a scope/audit selector; publication always snapshots
+        every observation and the returned counters describe the requested
+        project.
+        """
+
+        records, source_generation, source_id_hash = self._exact_source_snapshot()
+        selected = [
+            (observation_id, raw_content)
+            for observation_id, raw_content, record_project in records
+            if project_name is None or record_project == project_name
+        ]
+
+        def verify_source() -> bool:
+            _, current_generation, current_id_hash = self._exact_source_snapshot()
+            return (
+                current_generation == source_generation
+                and current_id_hash == source_id_hash
             )
-            indexed += 1
-        return indexed, postings
+
+        await asyncio.to_thread(
+            self._index.rebuild_observation_trigrams,
+            [(observation_id, raw_content) for observation_id, raw_content, _ in records],
+            source_generation=source_generation,
+            source_id_hash=source_id_hash,
+            verify_source=verify_source,
+        )
+        selected_postings = sum(
+            len(_observation_trigrams(raw_content)) for _, raw_content in selected
+        )
+        return len(selected), selected_postings
+
+    def exact_index_generation_report(self) -> dict[str, Any]:
+        """Compare canonical content identity with the active trigram generation."""
+
+        records, source_generation, source_id_hash = self._exact_source_snapshot()
+        expected_postings = [
+            (ngram, observation_id)
+            for observation_id, raw_content, _ in records
+            for ngram in sorted(_observation_trigrams(raw_content))
+        ]
+        expected_indexed_ids = {observation_id for _, observation_id in expected_postings}
+        expected_posting_count = len(expected_postings)
+        expected_postings_hash = self._index.stable_trigram_postings_hash(
+            expected_postings
+        )
+        actual_indexed_ids = self._index.observation_ids_with_trigrams()
+        physical = self._index.observation_trigram_identity()
+        manifest = self._index.validate_index_generation(
+            "trigram:observations",
+            row_count=len(records),
+            id_hash=source_id_hash,
+            source_generation=source_generation,
+        )
+        membership_mismatch = expected_indexed_ids != actual_indexed_ids
+        active = manifest.get("active") or {}
+        metadata = active.get("metadata") or {}
+        manifest_posting_count = metadata.get("posting_count")
+        manifest_postings_hash = metadata.get("postings_hash")
+        manifest_has_content_proof = (
+            isinstance(manifest_posting_count, int)
+            and isinstance(manifest_postings_hash, str)
+            and bool(manifest_postings_hash)
+        )
+        physical_matches_expected = (
+            not membership_mismatch
+            and physical["posting_count"] == expected_posting_count
+            and physical["postings_hash"] == expected_postings_hash
+        )
+        physical_matches_manifest = bool(
+            manifest_has_content_proof
+            and physical["posting_count"] == manifest_posting_count
+            and physical["postings_hash"] == manifest_postings_hash
+        )
+        manifest_current = bool(
+            not manifest["has_issue"]
+            and manifest_has_content_proof
+            and physical_matches_manifest
+        )
+        if physical_matches_expected and manifest_current:
+            assessment = "healthy"
+            reason = "ok"
+        elif physical_matches_expected:
+            assessment = "expected_growth"
+            reason = "manifest_refresh_required"
+        elif physical_matches_manifest and active.get("source_generation") != source_generation:
+            assessment = "actionable_drift"
+            reason = "canonical_ahead_of_index"
+        else:
+            assessment = "corruption"
+            reason = "physical_postings_mismatch"
+        return {
+            "has_issue": assessment != "healthy",
+            "assessment": assessment,
+            "reason": reason,
+            "manifest": manifest,
+            "source_generation": source_generation,
+            "source_row_count": len(records),
+            "expected_indexed_count": len(expected_indexed_ids),
+            "actual_indexed_count": len(actual_indexed_ids),
+            "expected_posting_count": expected_posting_count,
+            "expected_postings_hash": expected_postings_hash,
+            "physical": physical,
+        }
+
+    def _exact_source_snapshot(
+        self,
+    ) -> tuple[builtins.list[tuple[str, str, str]], str, str]:
+        """Return stable global records plus content and membership identities."""
+
+        records: builtins.list[tuple[str, str, str]] = []
+        identities: builtins.list[str] = []
+        if self.canonical_mode and self._canonical is not None:
+            for row in self._canonical.list_rows("observations"):
+                payload = json.loads(row.payload_json)
+                if bool(payload.get("compacted", False)):
+                    continue
+                observation_id = str(payload.get("id") or row.entity_id)
+                records.append(
+                    (
+                        observation_id,
+                        str(payload.get("raw_content") or ""),
+                        str((payload.get("metadata") or {}).get("project_name") or ""),
+                    )
+                )
+                identities.append(f"{row.row_key}:{row.payload_sha256}")
+        else:
+            for payload in self.list_record_payloads_for_lifecycle():
+                if bool(payload.get("compacted", False)):
+                    continue
+                observation_id = str(payload.get("id") or "")
+                if not observation_id:
+                    continue
+                stable_payload = json.dumps(
+                    payload,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                )
+                payload_hash = hashlib.sha256(stable_payload.encode("utf-8")).hexdigest()
+                records.append(
+                    (
+                        observation_id,
+                        str(payload.get("raw_content") or ""),
+                        str((payload.get("metadata") or {}).get("project_name") or ""),
+                    )
+                )
+                identities.append(f"{observation_id}:{payload_hash}")
+        records.sort(key=lambda item: item[0])
+        source_digest = hashlib.sha256(
+            "\n".join(sorted(identities)).encode("utf-8")
+        ).hexdigest()
+        source_id_hash = self._index.stable_id_hash(item[0] for item in records)
+        return records, f"observations:{source_digest}", source_id_hash
 
     def exact_index_stats(self) -> dict[str, int]:
         return self._index.observation_trigram_stats()
@@ -536,6 +705,16 @@ def _normalize_observation_search_text(text: str) -> str:
     """Add token boundaries for mixed CJK/ASCII text before FTS indexing."""
     text = _CJK_ASCII_LEFT_BOUNDARY.sub(r"\1 \2", text)
     return _CJK_ASCII_RIGHT_BOUNDARY.sub(r"\1 \2", text)
+
+
+def _observation_trigrams(text: str) -> set[str]:
+    normalized = re.sub(r"\s+", " ", text.lower())
+    if len(normalized) < 3:
+        return {normalized} if normalized else set()
+    return {
+        normalized[index : index + 3]
+        for index in range(len(normalized) - 2)
+    }
 
 
 def _normalize_time_window(

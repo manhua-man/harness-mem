@@ -79,19 +79,19 @@ Binary yes/no: public docs and agent skills must stay inside verified capability
 | ⑨ Maintenance | L1 dream + L4 distill maintenance |
 | ⑩ Evidence | L6 + per-track contract tests |
 
-## Current snapshot (v0.9.6)
+## Current snapshot (v0.9.9)
 
 See `canvases/harness-mem-readiness-v1.canvas.tsx` for the living panel. As of
-2026-07-30:
+2026-08-02:
 
 | Track | Score | Primary gap |
 |-------|------:|-------------|
 | L1 | 96 | — |
 | L2 | 97 | — |
-| L3 | 95 | Seven-day outcome/abstention/exclusion scorecard ships; ranking diversity remains iterative |
-| L4 | 99 | Exact offered-job claims, terminal outcomes, separate truth-preserving/full-erasure paths, native privacy deletion, and receipt-first explicit Storage v2 migration are verified |
-| L5 | 97 | Seven-host global command discovery, one hook-repair path, and cross-host transcript→wake contract verified |
-| L6 | 98 | Risk-classified Doctor recovery, compact/full status parity, exact 27-tool registry equality, and release gates verified |
+| L3 | 97 | 60-case replay, pre-limit `as_of` filtering, content-hashed batch-index generations, and context-budget traces ship; ranking diversity remains iterative |
+| L4 | 99 | Exact offered-job claims, bounded restart recovery, separate truth-preserving/full-erasure paths, native privacy deletion, and receipt-first Storage v2 migration are verified |
+| L5 | 99 | Seven-host native transcript→Dream→wake replay, explicit capabilities, and one all-host repair path are verified |
+| L6 | 99 | Risk-classified Doctor recovery, compact/full parity, exact 27-tool equality, real sqlite-vec, and install/upgrade/restore release gates are verified |
 | **Weighted** | **~98** | **Retrieval ranking remains the main iterative quality track** |
 
 The public MCP contract currently contains 27 tools (~27.8 KiB compact

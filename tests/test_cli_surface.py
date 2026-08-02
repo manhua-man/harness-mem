@@ -109,6 +109,34 @@ def test_integration_hook_sync_dispatches_one_suite_installer(
     assert calls == [("codex", str(tmp_path), True)]
 
 
+def test_integration_hook_sync_dispatches_all_hosts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str, bool]] = []
+    monkeypatch.setattr(
+        cli,
+        "cmd_install_hook_suite",
+        lambda client, root, force: calls.append((client, root, force)) or 0,
+    )
+
+    assert (
+        cli.main(
+            [
+                "integration",
+                "hooks",
+                "sync",
+                "--client",
+                "all",
+                "--project-root",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+    assert calls == [("all", str(tmp_path), False)]
+
+
 def test_maintenance_import_and_purge_help_succeeds(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
+import threading
 
 import pytest
 
@@ -25,6 +27,17 @@ class FakeBatchLoader:
             [[float(len(text)), float(index + 1)] for index, text in enumerate(values)],
             dtype=np.float32,
         )
+
+
+class CallbackBatchLoader(FakeBatchLoader):
+    def __init__(self, callback) -> None:
+        super().__init__()
+        self.callback = callback
+
+    def encode(self, texts):
+        result = super().encode(texts)
+        self.callback()
+        return result
 
 
 def _seed_old_row(index: SQLiteIndex, entry_id: str = "old") -> None:
@@ -105,3 +118,109 @@ def test_batch_rebuild_failure_preserves_old_embeddings(
     assert [(str(row[0]), str(row[1])) for row in rows] == [("old", "old")]
     assert staging is None
     index.close()
+
+
+def test_batch_rebuild_rejects_concurrent_target_update(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HARNESS_MEM_DISABLE_EMBEDDINGS", raising=False)
+    db_path = tmp_path / "index.sqlite"
+    index = SQLiteIndex(db_path)
+    index.init_db()
+    _seed_old_row(index, "target")
+    concurrent = SQLiteIndex(db_path)
+    concurrent.init_db()
+
+    def overwrite_target() -> None:
+        with concurrent.locked_connection() as conn:
+            conn.execute(
+                """
+                UPDATE vec_embeddings
+                SET model_version = 'concurrent', embedding = ?, created_at = 2
+                WHERE entry_id = 'target'
+                """,
+                (np.asarray([7.0, 7.0], dtype=np.float32).tobytes(),),
+            )
+            conn.commit()
+
+    loader = CallbackBatchLoader(overwrite_target)
+    monkeypatch.setattr("harness_mem.embedding.get_model_loader", lambda _id: loader)
+
+    with pytest.raises(sqlite3.IntegrityError, match="targets changed"):
+        index.replace_embeddings_batch(
+            [("target", "old batch input")],
+            model_id="demo-model",
+        )
+
+    with index.locked_connection() as conn:
+        row = conn.execute(
+            "SELECT model_version, embedding FROM vec_embeddings WHERE entry_id='target'"
+        ).fetchone()
+        staging = conn.execute(
+            "SELECT name FROM sqlite_master WHERE name LIKE 'vec_embeddings_staging_%'"
+        ).fetchall()
+    assert str(row[0]) == "concurrent"
+    assert bytes(row[1]) == np.asarray([7.0, 7.0], dtype=np.float32).tobytes()
+    assert staging == []
+    concurrent.close()
+    index.close()
+
+
+def test_parallel_batch_rebuilds_use_isolated_staging_tables(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HARNESS_MEM_DISABLE_EMBEDDINGS", raising=False)
+    db_path = tmp_path / "parallel.sqlite"
+    bootstrap = SQLiteIndex(db_path)
+    bootstrap.init_db()
+    bootstrap.close()
+    barrier = threading.Barrier(2)
+    monkeypatch.setattr(
+        "harness_mem.embedding.get_model_loader",
+        lambda _id: FakeBatchLoader(),
+    )
+    results: list[dict] = []
+    errors: list[BaseException] = []
+
+    def worker(entry_id: str) -> None:
+        local = SQLiteIndex(db_path)
+        local.init_db()
+        try:
+            results.append(
+                local.replace_embeddings_batch(
+                    [(entry_id, entry_id)],
+                    model_id="demo-model",
+                    progress=lambda _done, _total: barrier.wait(timeout=5),
+                )
+            )
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            local.close()
+
+    threads = [
+        threading.Thread(target=worker, args=("parallel-a",)),
+        threading.Thread(target=worker, args=("parallel-b",)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert not errors
+    assert len(results) == 2
+    check = SQLiteIndex(db_path)
+    check.init_db()
+    with check.locked_connection() as conn:
+        ids = {
+            str(row[0])
+            for row in conn.execute("SELECT entry_id FROM vec_embeddings").fetchall()
+        }
+        staging = conn.execute(
+            "SELECT name FROM sqlite_master WHERE name LIKE 'vec_embeddings_staging_%'"
+        ).fetchall()
+    assert ids == {"parallel-a", "parallel-b"}
+    assert staging == []
+    check.close()

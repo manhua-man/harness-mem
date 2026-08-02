@@ -42,6 +42,7 @@ class VerbatimStore(Protocol):
         limit: int = 20,
         mode: str = "auto",
         time_window: tuple[datetime | None, datetime | None] | None = None,
+        as_of: datetime | None = None,
     ) -> builtins.list[Observation]:
         """Full-text search observations, optionally filtered by session_id or project_name."""
         ...

@@ -309,9 +309,9 @@ def main(argv: list[str] | None = None):
     hooks_sync = hooks_sub.add_parser("sync", help="Synchronize one hook suite")
     hooks_sync.add_argument(
         "--client",
-        choices=SUPPORTED_HOOK_CLIENTS,
+        choices=["all", *SUPPORTED_HOOK_CLIENTS],
         required=True,
-        help="Host whose hook suite should be repaired",
+        help="Host whose hooks and Daily commands should be repaired",
     )
     hooks_sync.add_argument(
         "--project-root", help="Project directory (default: cwd)"

@@ -1,18 +1,8 @@
 """Handlers for the ``harness-mem integration`` maintenance subcommands.
 
-These two handlers generate IDE hook scripts that invoke the host entry. They
-are deliberately thin: both compute the IDE-specific
-``target_path`` + ``template_name`` and delegate the rendering, boundary
-self-check, and overwrite policy to
-:func:`harness_mem.integration.installer.install_hook`.
-
-Output contract: the generated file path and success confirmation go to stdout
-via :func:`print`; diagnostics go to stderr. Exit codes are returned as ``int``
-for the CLI dispatcher to propagate.
-
-``FileExistsError`` is a subclass of ``OSError``, so the existing-hook case is
-caught before the generic filesystem-error case to keep the two diagnostics
-distinct (Req 5.5/5.7, Req 6.5/6.7).
+The hook sync handler is the operator repair boundary: it repairs project hooks
+and user-level Daily commands, emits one structured report, and returns a
+nonzero exit code when any independently executed stage fails.
 """
 
 from __future__ import annotations
@@ -20,10 +10,8 @@ from __future__ import annotations
 import json
 import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
-from harness_mem import __version__
 from harness_mem.integration.command_sync import (
     COMMAND_HOSTS,
     VALID_COMMAND_PROFILES,
@@ -33,13 +21,8 @@ from harness_mem.integration.command_sync import (
     sync_host_commands,
     sync_slash_commands,
 )
-from harness_mem.integration.installer import (
-    HookSpec,
-    install_antigravity_hook_suite,
-    install_hermes_hook_suite,
-    install_hook_suite,
-    verified_hook_runner,
-)
+from harness_mem.integration.installer import verified_hook_runner as verified_hook_runner
+from harness_mem.integration.repair import repair_integrations
 from harness_mem.transcript_evidence import (
     EVIDENCE_CLIENTS,
     collect_transcript_evidence,
@@ -54,8 +37,6 @@ __all__ = [
     "cmd_transcript_evidence",
 ]
 
-# Canonical operator-facing doc the generated hook headers point at.
-_DOC_POINTER = "docs/quickstart.md"
 SUPPORTED_HOOK_CLIENTS = (
     "cursor",
     "claude-code",
@@ -74,182 +55,28 @@ def _resolve_project_root(project_root: str | None) -> Path:
     return Path(project_root).resolve()
 
 
-def _quote_hook_arg(value: str) -> str:
-    import shlex
-
-    return shlex.quote(value)
-
-
-def _hook_command(hook_runner: Path, *args: str) -> str:
-    return " ".join(_quote_hook_arg(value) for value in (hook_runner.as_posix(), *args))
-
-
-def _host_entry_command(
-    hook_runner: Path,
-    action: str,
-    root: Path,
-    trigger_id: str,
-    client: str,
-) -> str:
-    return " ".join(
-        [
-            _quote_hook_arg(hook_runner.as_posix()),
-            "--action",
-            action,
-            "--project-root",
-            _quote_hook_arg(root.resolve().as_posix()),
-            "--source",
-            "ide_hook",
-            "--trigger-id",
-            _quote_hook_arg(trigger_id),
-            "--client",
-            client,
-        ]
-    )
-
-
-def _suite_specs(client: str, root: Path, hook_runner: Path) -> tuple[HookSpec, ...]:
-    if client == "cursor":
-        return (
-            HookSpec(
-                "cursor_session_start.sh.template",
-                root / ".cursor" / "hooks" / "session-start.sh",
-            ),
-            HookSpec(
-                "cursor_after_agent.sh.template",
-                root / ".cursor" / "hooks" / "after-agent.sh",
-            ),
-        )
-    if client == "claude-code":
-        return (
-            HookSpec(
-                "claude_code_session_start.sh.template",
-                root / ".claude" / "hooks" / "session-start.sh",
-            ),
-            HookSpec(
-                "claude_code_hook.sh.template",
-                root / ".claude" / "hooks" / "after-turn.sh",
-            ),
-        )
-    if client == "grok":
-        return (
-            HookSpec(
-                "grok_hooks.json.template",
-                root / ".grok" / "hooks" / "harness-mem.json",
-                template_vars={
-                    "WAKE_COMMAND_JSON": json.dumps(
-                        _host_entry_command(
-                            hook_runner,
-                            "wake-start",
-                            root,
-                            "grok-session-start",
-                            "grok",
-                        )
-                    ),
-                    "POST_TURN_COMMAND_JSON": json.dumps(
-                        _host_entry_command(
-                            hook_runner,
-                            "post-turn-maintenance",
-                            root,
-                            "grok-stop",
-                            "grok",
-                        )
-                    ),
-                },
-            ),
-        )
-    if client == "codex":
-        return (
-            HookSpec(
-                "codex_hooks.json.template",
-                root / ".codex" / "hooks.json",
-                template_vars={
-                    "WAKE_COMMAND_JSON": json.dumps(
-                        _host_entry_command(
-                            hook_runner,
-                            "wake-start",
-                            root,
-                            "codex-session-start",
-                            "codex",
-                        )
-                    ),
-                    "STOP_COMMAND_JSON": json.dumps(
-                        _hook_command(
-                            hook_runner,
-                            "--adapter",
-                            "codex-stop",
-                            "--project-root",
-                            root.resolve().as_posix(),
-                        )
-                    ),
-                },
-            ),
-        )
-    if client == "opencode":
-        return (
-            HookSpec(
-                "opencode_plugin.ts.template",
-                root / ".opencode" / "plugins" / "harness-mem.ts",
-            ),
-        )
-    raise ValueError(f"unsupported hook client: {client}")
-
-
 def _install_suite(client: str, project_root: str | None, force: bool) -> int:
     root = _resolve_project_root(project_root)
-    try:
-        hook_runner = verified_hook_runner()
-        if client == "hermes":
-            results = install_hermes_hook_suite(
-                project_root=root,
-                force=force,
-                harness_mem_version=__version__,
-                generated_at=datetime.now(timezone.utc),
-                doc_pointer=_DOC_POINTER,
-                hook_runner=hook_runner,
-            )
-        elif client == "antigravity":
-            results = install_antigravity_hook_suite(
-                project_root=root,
-                force=force,
-                harness_mem_version=__version__,
-                generated_at=datetime.now(timezone.utc),
-                doc_pointer=_DOC_POINTER,
-                hook_runner=hook_runner,
-            )
-        else:
-            results = install_hook_suite(
-                specs=_suite_specs(client, root, hook_runner),
-                project_root=root,
-                force=force,
-                harness_mem_version=__version__,
-                generated_at=datetime.now(timezone.utc),
-                doc_pointer=_DOC_POINTER,
-                hook_runner=hook_runner,
-            )
-        command_result = sync_host_commands(
-            client=client,  # type: ignore[arg-type]
-            scope="user",
-        )
-    except (KeyError, OSError, RuntimeError, ValueError) as exc:
-        print(f"install failed: {root}: {exc}", file=sys.stderr)
-        return 1
-    for result in results:
-        if result.status == "installed":
-            print(f"installed: {result.target_path}")
-        elif result.status == "updated":
-            print(f"updated: {result.target_path}")
-        else:
-            print(f"exists: {result.target_path}")
-    print(
-        f"synced: {len(command_result.selected_commands)} {client} Daily commands "
-        f"to {command_result.destination_dir}"
+    clients = COMMAND_HOSTS if client == "all" else (client,)
+    report = repair_integrations(
+        clients=clients,  # type: ignore[arg-type]
+        project_root=root,
+        force=force,
+        hook_runner_provider=verified_hook_runner,
     )
-    return 0
+    payload = report.to_dict()
+    payload["messages"] = [
+        f"{result.status}: {artifact}"
+        for result in report.results
+        if result.stage == "hooks" and result.status in {"installed", "updated"}
+        for artifact in result.artifacts
+    ]
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 1 if any(result.status == "failed" for result in report.results) else 0
 
 
 def cmd_install_hook_suite(client: str, project_root: str | None, force: bool) -> int:
-    """Generate the complete hook suite for one supported client."""
+    """Repair hooks and Daily commands for one host or all supported hosts."""
     return _install_suite(client, project_root, force)
 
 

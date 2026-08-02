@@ -25,6 +25,7 @@ class CommandSyncResult:
     selected_commands: tuple[str, ...]
     removed_commands: tuple[str, ...]
     dry_run: bool = False
+    status: Literal["installed", "updated", "unchanged"] = "unchanged"
 
 
 CommandHost = Literal[
@@ -171,6 +172,8 @@ def sync_slash_commands(
     selected = resolve_command_names(profile=profile, include=include)
     selected_set = set(selected)
     removed: list[str] = []
+    changed = False
+    replaced = False
 
     for command in selected:
         source = source_path_for_command(resolved_source, command)
@@ -184,13 +187,20 @@ def sync_slash_commands(
         target = destination / f"{command}.md"
         if command not in selected_set and target.exists():
             removed.append(command)
+            changed = True
+            replaced = True
             if not dry_run:
                 target.unlink()
 
     for command in selected:
         source = source_path_for_command(resolved_source, command)
         target = destination / f"{command}.md"
-        if not dry_run:
+        target_exists = target.exists()
+        target_changed = not target_exists or target.read_bytes() != source.read_bytes()
+        if target_changed:
+            changed = True
+            replaced = replaced or target_exists
+        if not dry_run and target_changed:
             shutil.copy2(source, target)
 
     return CommandSyncResult(
@@ -198,6 +208,7 @@ def sync_slash_commands(
         selected_commands=selected,
         removed_commands=tuple(removed),
         dry_run=dry_run,
+        status="unchanged" if not changed else ("updated" if replaced else "installed"),
     )
 
 
@@ -244,6 +255,9 @@ def sync_host_commands(
         )
     destination = default_host_commands_dir(client, project_root, scope=scope)
     selected = resolve_command_names()
+    rendered_targets: list[tuple[Path, str]] = []
+    changed = False
+    replaced = False
     if not dry_run:
         destination.mkdir(parents=True, exist_ok=True)
     for command in selected:
@@ -254,19 +268,30 @@ def sync_host_commands(
         if use_skill:
             target = destination / f"hm-{command}" / "SKILL.md"
             rendered = _render_skill_command(command, source, client)
-            if not dry_run:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(rendered, encoding="utf-8")
         else:
             filename = (
                 f"{command}.md" if client == "claude-code" else f"hm-{command}.md"
             )
             target = destination / filename
-            if not dry_run:
-                target.write_text(_render_command_body(source, client), encoding="utf-8")
+            rendered = _render_command_body(source, client)
+        rendered_targets.append((target, rendered))
+
+    for target, rendered in rendered_targets:
+        target_exists = target.exists()
+        target_changed = (
+            not target_exists or target.read_text(encoding="utf-8") != rendered
+        )
+        if not target_changed:
+            continue
+        changed = True
+        replaced = replaced or target_exists
+        if not dry_run:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(rendered, encoding="utf-8")
     return CommandSyncResult(
         destination_dir=destination,
         selected_commands=selected,
         removed_commands=(),
         dry_run=dry_run,
+        status="unchanged" if not changed else ("updated" if replaced else "installed"),
     )

@@ -496,6 +496,21 @@ class TranscriptStore:
             recent_first=recent_first,
         )
 
+    def reconcile_distill_jobs(
+        self,
+        *,
+        project_name: str | None = None,
+        now: datetime | None = None,
+        recovery_budget: int | None = None,
+    ) -> dict[str, int]:
+        """Recompute job state from durable checkpoints after a restart."""
+
+        return self._distill.reconcile(
+            project_name=project_name,
+            now=now,
+            recovery_budget=recovery_budget,
+        )
+
     def mark_distill_jobs_agent_offered(
         self,
         project_name: str,

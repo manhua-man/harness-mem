@@ -11,11 +11,12 @@ from harness_mem.commands.wake import build_wake_injection
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from tests.support.host_contracts import HOST_NAMES
 
 
 @pytest.mark.parametrize(
     "client",
-    ["claude-code", "codex", "cursor", "grok", "hermes", "opencode", "antigravity"],
+    HOST_NAMES,
 )
 def test_cross_host_transcript_distill_fact_wake_contract(
     tmp_path: Path,

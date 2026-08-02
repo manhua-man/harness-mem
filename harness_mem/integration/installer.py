@@ -229,7 +229,8 @@ def install_hook_suite(
     resolved_runner = Path(hook_runner).resolve() if hook_runner is not None else verified_hook_runner()
     results: list[HookInstallResult] = []
     for spec in specs:
-        if spec.target_path.exists() and not force:
+        target_existed = spec.target_path.exists()
+        if target_existed and not force:
             if _is_legacy_hook(spec.target_path):
                 written = install_hook(
                     template_name=spec.template_name,
@@ -262,7 +263,12 @@ def install_hook_suite(
             template_vars=spec.template_vars,
             hook_runner=resolved_runner,
         )
-        results.append(HookInstallResult(target_path=written, status="installed"))
+        results.append(
+            HookInstallResult(
+                target_path=written,
+                status="updated" if target_existed else "installed",
+            )
+        )
     return results
 
 

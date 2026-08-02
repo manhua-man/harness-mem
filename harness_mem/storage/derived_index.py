@@ -77,3 +77,54 @@ class DerivedIndex(Protocol):
     def rebuild_vec0_index(self, *, model_id: str) -> int: ...
 
     def vec0_coverage_report(self, *, model_id: str) -> dict[str, int]: ...
+
+    def vec0_content_identity(self, *, model_id: str) -> dict[str, Any]: ...
+
+    def embedding_source_identity(self, *, model_id: str) -> dict[str, Any]: ...
+
+    def rebuild_observation_trigrams(
+        self,
+        records: Iterable[tuple[str, str]],
+        *,
+        source_generation: str,
+        source_id_hash: str,
+        verify_source: Callable[[], bool] | None = None,
+        failpoint: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]: ...
+
+    def record_index_generation(
+        self,
+        *,
+        index_name: str,
+        source_generation: str,
+        row_count: int,
+        id_hash: str,
+        model_id: str | None = None,
+        model_version: str | None = None,
+        dimensions: int | None = None,
+        metadata: dict[str, Any] | None = None,
+        activate: bool = False,
+    ) -> dict[str, Any]: ...
+
+    def get_active_index_generation(self, index_name: str) -> dict[str, Any] | None: ...
+
+    def validate_index_generation(
+        self,
+        index_name: str,
+        *,
+        row_count: int,
+        id_hash: str,
+        source_generation: str | None = None,
+        model_id: str | None = None,
+        dimensions: int | None = None,
+    ) -> dict[str, Any]: ...
+
+    @staticmethod
+    def stable_id_hash(ids: Iterable[str]) -> str: ...
+
+    @staticmethod
+    def stable_trigram_postings_hash(
+        postings: Iterable[tuple[str, str]],
+    ) -> str: ...
+
+    def observation_trigram_identity(self) -> dict[str, Any]: ...

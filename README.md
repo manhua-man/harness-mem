@@ -23,8 +23,8 @@ last ten sessions: release boundaries, decisions, handoffs, review outcomes,
 and "do not claim this yet" rules.
 
 `harness-mem` turns that project memory into a local backend exposed through
-one MCP memory surface. Codex, Claude Code, Cursor, Gemini CLI, and other Agent
-clients recover context with `wake` and task-aware `search`, distill recent
+one MCP memory surface. Claude Code, Codex, Cursor, Grok, Hermes, OpenCode, and
+Antigravity recover context with `wake` and task-aware `search`, distill recent
 session evidence, auto-promote low-risk memory, keep human review as a
 post-hoc audit/undo surface, and let dream maintain the ledger.
 
@@ -81,11 +81,18 @@ Transcript-only, missing, changed, or contradicted evidence cannot become
 durable truth. Relation facts use the same policy, and legacy truth is not
 retroactively reclassified.
 
-Version 0.9.6 converges the installed surface without changing that workflow:
+Version 0.9.6 converged the installed surface without changing that workflow:
 the MCP schema, handler, cluster, and descriptor registries now contain exactly
 the same 27 public tools; hook repair has one cross-host command; and public
 config is limited to ten durable policy choices while older tuning values stay
 readable for compatibility.
+
+Version 0.9.9 hardens that surface rather than adding another product path:
+bounded restart recovery, atomic derived-index rebuilds, seven-host native
+replay, and install/upgrade/restore qualification all use the existing local
+SQLite, Adapter, Dream, and Doctor boundaries. Detailed replay metrics remain
+maintenance artifacts; everyday wake, status, and distill responses stay
+compact.
 
 Observations are evidence, never remembered facts. Wake labels their recent
 index as non-truth; L1/L2 contain only structured current facts and active
@@ -158,8 +165,8 @@ owns storage, candidates, review, retrieval, and local audit state.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.6 \
-  harness-mem==0.9.6
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.9 \
+  harness-mem==0.9.9
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -170,8 +177,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.6 \
-  "harness-mem[hybrid]==0.9.6"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.9 \
+  "harness-mem[hybrid]==0.9.9"
 ```
 
 Install every supported host's native Daily commands once for the current
@@ -248,6 +255,11 @@ The generated commands resolve MCP tools by logical name. Direct
 internal prefixes; users keep invoking the same host-native command. Restart
 the MCP server and open a new task after a registration or tool-schema change.
 
+`codex-archive` is a backward-compatible source identifier for archived Codex
+rollouts, not an eighth host. Old configuration and stored source records remain
+readable, while capability, status, and qualification counts group the alias
+under Codex.
+
 The terminal CLI is an operator console, not the daily memory workflow. Its
 top-level surface is `init`, `quickstart`/`qs`, `doctor`, `config`,
 `integration`, and `maintenance`. Import and purge operations live under
@@ -276,6 +288,7 @@ product surface.
 - [Recall audit contract](docs/recall-audit.md)
 - [Autopilot search policy](docs/autopilot-search-policy.md)
 - [Compatibility inventory](docs/compatibility-inventory.md)
+- [Reference-project evidence index](docs/reference-projects/index.md)
 - [Memory adoption: optional helpers (analysis)](docs/memory-adoption.md)
 - [Agent memory & retrieval research (2026)](docs/agent-memory-retrieval-research-2026.md)
 - [Roadmap](docs/roadmap.md)
@@ -286,10 +299,15 @@ product surface.
 ```bash
 python -m compileall harness_mem
 python -m ruff check harness_mem plugins tools
-python -m pytest tests/test_mcp_exported_tools.py -q
+python -m mypy harness_mem
+python -m pytest -q -m "not release_gate"  # fast PR lane
+python -m pytest -q                        # complete release lane
 python -m harness_mem.cli --help
 cargo test --workspace
 ```
+
+The fast lane skips only four exhaustive, deterministic 60-case retrieval
+replays. Every assertion still runs on `main` and in the tagged release gate.
 
 Repair or regenerate MCP descriptors when `tool_specs` changes (also reverts incidental `mcps/grok_com_github` IDE drift):
 
@@ -300,6 +318,6 @@ python scripts/ensure_mcps_canonical.py
 ## Releases
 
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
-- Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
+- Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, runs a real sqlite-vec contract gate, qualifies the supported Windows upgrade path, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.9.6**.
+Current package version: **0.9.9**.

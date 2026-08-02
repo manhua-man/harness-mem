@@ -30,17 +30,47 @@ jobs:
       - name: Ensure canonical mcps descriptors
         run: python scripts/ensure_mcps_canonical.py
 
-      - name: MCP export consistency
-        run: python -m pytest tests/test_mcp_exported_tools.py tests/test_mcps_worktree_guard.py -q
-
       - name: Runtime smoke
         run: |
           python -m compileall harness_mem
           python -m ruff check harness_mem plugins tools
           python -c "import harness_mem_core_rs; assert harness_mem_core_rs.api_version()"
-          python -m pytest
           python -m harness_mem.cli --help
           python -m harness_mem.cli maintenance state-audit --help
 
+      - name: Fast Python contract suite
+        if: github.event_name == 'pull_request'
+        run: python -m pytest -m "not release_gate"
+
+      - name: Full Python contract suite
+        if: github.event_name == 'push'
+        run: python -m pytest
+
       - name: Rust smoke
         run: cargo test --workspace
+
+  hybrid-index-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build and install wheel with real vector dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest maturin numpy sqlite-vec
+          maturin build --release --features python-extension -o dist/wheel
+          python -m pip install dist/wheel/*.whl --force-reinstall
+
+      - name: Verify embedding and sqlite-vec generation contracts
+        run: >-
+          python -m pytest -q
+          tests/test_embedding_batch_rebuild.py
+          tests/test_sqlite_vec_index.py
+          tests/test_vec0_generation_failures.py
+          tests/test_doctor_vec0.py

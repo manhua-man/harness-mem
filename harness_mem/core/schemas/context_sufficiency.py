@@ -151,6 +151,8 @@ class WakePacket(BaseModel):
     why_included: list[dict[str, str]] = Field(default_factory=list)
     why_omitted: list[dict[str, str]] = Field(default_factory=list)
     budget_trace: dict[str, Any] = Field(default_factory=dict)
+    context_budget: dict[str, int] = Field(default_factory=dict)
+    compaction_outcome: str = "none"
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
@@ -167,6 +169,8 @@ class ContextPlan(BaseModel):
     context_sufficiency: SufficiencyReport
     retrieval_plan: RetrievalPlan
     iterative_retrieval_trace: IterativeRetrievalTrace
+    context_budget: dict[str, int] = Field(default_factory=dict)
+    compaction_outcome: str = "none"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     def to_dict(self) -> dict[str, Any]:
@@ -181,6 +185,8 @@ class ContextPlan(BaseModel):
             "context_sufficiency": self.context_sufficiency.to_dict(),
             "retrieval_plan": self.retrieval_plan.to_dict(),
             "iterative_retrieval_trace": self.iterative_retrieval_trace.to_dict(),
+            "context_budget": dict(self.context_budget),
+            "compaction_outcome": self.compaction_outcome,
             "created_at": self.created_at.isoformat(),
         }
 
@@ -356,6 +362,28 @@ def context_plan_from_response(
     )
     used_tokens = int(response.budget.get("estimated_tokens") or 0)
     budget_tokens = retrieval_plan.budget_tokens
+    raw_tokens = sum(
+        max(0, len(result.preview) // 4)
+        for result in response.results
+        if result.source_kind == "observation"
+    )
+    summary_tokens = sum(
+        max(0, len(result.preview) // 4)
+        for result in response.results
+        if result.source_kind != "observation"
+    )
+    context_budget = {
+        "raw_tokens": raw_tokens,
+        "summary_tokens": summary_tokens,
+        "retrieved_tokens": used_tokens,
+        "total_tokens": used_tokens,
+        "budget_tokens": budget_tokens,
+    }
+    compaction_outcome = (
+        "result_truncated"
+        if response.truncation.get("truncated")
+        else "none"
+    )
     included = [
         {"source_id": result.source_id, "reason": _include_reason(result)}
         for result in response.results
@@ -392,6 +420,8 @@ def context_plan_from_response(
             "truncated": bool(response.truncation.get("truncated")),
             "available": response.truncation.get("available", len(response.results)),
         },
+        context_budget=context_budget,
+        compaction_outcome=compaction_outcome,
     )
     return ContextPlan(
         project_name=project_name,
@@ -406,6 +436,8 @@ def context_plan_from_response(
         iterative_retrieval_trace=iterative_trace or IterativeRetrievalTrace(
             stopped_reason="sufficient" if report.safe_to_answer else "budget_or_evidence_limit"
         ),
+        context_budget=context_budget,
+        compaction_outcome=compaction_outcome,
     )
 
 

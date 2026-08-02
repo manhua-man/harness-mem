@@ -6,8 +6,8 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.6 \
-  harness-mem==0.9.6
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.9 \
+  harness-mem==0.9.9
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Pip uses
@@ -17,8 +17,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.6 \
-  "harness-mem[hybrid]==0.9.6"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.9 \
+  "harness-mem[hybrid]==0.9.9"
 ```
 
 Check the CLI:

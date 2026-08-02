@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 
@@ -15,14 +14,7 @@ from harness_mem.adapters.cursor.adapter import (
 )
 from harness_mem.adapters.parser import parse_cursor_jsonl_session
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-
-
-def _write_jsonl(path: Path, records: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n",
-        encoding="utf-8",
-    )
+from tests.support.native_sessions import write_jsonl
 
 
 def _cursor_records_for_workspace(workspace: Path) -> list[dict]:
@@ -74,7 +66,7 @@ def test_cursor_project_name_candidates_from_path() -> None:
 
 def test_parse_cursor_jsonl_session_reads_role_message_content(tmp_path: Path) -> None:
     session_path = tmp_path / "cursor.jsonl"
-    _write_jsonl(
+    write_jsonl(
         session_path,
         [
             {
@@ -154,7 +146,7 @@ def test_cursor_observation_renderer_keeps_all_turns_and_content(
                 {"type": "turn_ended", "status": "success"},
             ]
         )
-    _write_jsonl(session_path, records)
+    write_jsonl(session_path, records)
 
     observation = CursorAdapter(None, projects_dir=tmp_path).session_to_observation(
         session_path,
@@ -177,7 +169,7 @@ def test_cursor_adapter_lists_sessions_from_slugged_project_dir(tmp_path: Path) 
     session_path = (
         projects_dir / slug / "agent-transcripts" / "session-1" / "session-1.jsonl"
     )
-    _write_jsonl(session_path, _cursor_records_for_workspace(workspace))
+    write_jsonl(session_path, _cursor_records_for_workspace(workspace))
 
     adapter = CursorAdapter(None, projects_dir=projects_dir, project_root=workspace)
     sessions = adapter.list_sessions(project_name="harness-mem", min_size_kb=0)
@@ -196,7 +188,7 @@ def test_cursor_adapter_falls_back_to_transcript_content_match(tmp_path: Path) -
         / "session-2"
         / "session-2.jsonl"
     )
-    _write_jsonl(session_path, _cursor_records_for_workspace(workspace))
+    write_jsonl(session_path, _cursor_records_for_workspace(workspace))
 
     adapter = CursorAdapter(None, projects_dir=projects_dir, project_root=workspace)
     sessions = adapter.list_sessions(project_name="servers", min_size_kb=0)
@@ -211,11 +203,11 @@ def test_cursor_adapter_excludes_other_workspace_transcripts(tmp_path: Path) -> 
     other_workspace = tmp_path / "other"
     workspace.mkdir()
     other_workspace.mkdir()
-    _write_jsonl(
+    write_jsonl(
         projects_dir / "wanted" / "agent-transcripts" / "wanted" / "wanted.jsonl",
         _cursor_records_for_workspace(workspace),
     )
-    _write_jsonl(
+    write_jsonl(
         projects_dir / "other" / "agent-transcripts" / "other" / "other.jsonl",
         _cursor_records_for_workspace(other_workspace),
     )
@@ -251,7 +243,7 @@ def test_tool_ingest_sessions_cursor_uses_project_root_and_reports_resolved_clie
         / "cursor-session"
         / "cursor-session.jsonl"
     )
-    _write_jsonl(session_path, _cursor_records_for_workspace(workspace))
+    write_jsonl(session_path, _cursor_records_for_workspace(workspace))
 
     monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(ingest_module, "DEFAULT_DATA_DIR", data_dir)
@@ -304,7 +296,7 @@ def test_tool_ingest_sessions_cursor_resolves_project_from_project_root_only(
         / "cursor-session"
         / "cursor-session.jsonl"
     )
-    _write_jsonl(session_path, _cursor_records_for_workspace(workspace))
+    write_jsonl(session_path, _cursor_records_for_workspace(workspace))
 
     monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(ingest_module, "DEFAULT_DATA_DIR", data_dir)
@@ -345,7 +337,7 @@ def test_tool_ingest_sessions_cursor_updates_growing_session_revision(
         / "cursor-session"
         / "cursor-session.jsonl"
     )
-    _write_jsonl(session_path, _cursor_records_for_workspace(workspace))
+    write_jsonl(session_path, _cursor_records_for_workspace(workspace))
 
     monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(ingest_module, "DEFAULT_DATA_DIR", data_dir)
@@ -373,7 +365,7 @@ def test_tool_ingest_sessions_cursor_updates_growing_session_revision(
             {"type": "turn_ended", "status": "success"},
         ]
     )
-    _write_jsonl(session_path, updated_records)
+    write_jsonl(session_path, updated_records)
     expected_bytes = session_path.read_bytes()
     second = tool_handlers._ingest_sessions(
         client="cursor",
@@ -433,7 +425,7 @@ def test_tool_prepare_session_distill_cursor_resolves_project_from_project_root_
         / "cursor-session"
         / "cursor-session.jsonl"
     )
-    _write_jsonl(session_path, _cursor_records_for_workspace(workspace))
+    write_jsonl(session_path, _cursor_records_for_workspace(workspace))
 
     monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.setattr(ingest_module, "DEFAULT_DATA_DIR", data_dir)

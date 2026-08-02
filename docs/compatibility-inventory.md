@@ -62,7 +62,7 @@ extras remain preserved when a public key is edited.
 | Facade dependency callbacks used by read/status/distill/dream modules | They provide one backend/runtime binding and established test seams. | Introduce one typed runtime context without adding a second registry or scheduler, then pass full parity tests. |
 | Storage v2 legacy JSON readers and migration recovery | Deprecated in 0.9.6; supported through 0.9.x so existing entity JSON remains readable without an implicit authority change. | Not before both 1.0.0 and 2027-01-31; converter shipped, Doctor canonical verification clean, and release notes explicitly announcing removal are also required. |
 | Literal `status=accepted` governance migration | Older data may still contain accepted candidates. | End the documented migration window only after fixture-backed repeated migration and audit tests. |
-| Codex archived-rollout and supported import bridges | Historical inputs must remain importable through explicit maintenance. | Provide a replacement converter with fixture parity. |
+| Codex archived-rollout and supported import bridges | Historical inputs must remain importable through explicit maintenance. `codex-archive` is a Codex source/client alias with a dedicated parser, not an eighth host or capability row. | Provide a replacement converter with fixture parity. |
 
 ## Descriptors and Router aliases
 

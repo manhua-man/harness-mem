@@ -10,6 +10,7 @@ from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
+from harness_mem.core.schemas.skill import Skill
 from harness_mem.read_api import (
     query_temporal_truth,
     search_memory as read_search_memory,
@@ -269,6 +270,16 @@ def test_vector_disabled_hybrid_search_falls_back_to_fts(backend) -> None:
     assert response.fallback_metadata["fallback_reason"] == "embedding not available"
     assert [result.source_id for result in response.results] == [entry_id]
     assert response.results[0].metadata["search_mode"] == "fts"
+    assert response.results[0].metadata["candidate_channel"] == "lexical"
+    assert response.retrieval_plan["candidate_channels"] == [
+        "lexical",
+        "vector",
+        "relation",
+    ]
+    assert response.retrieval_plan["executed_channels"] == [
+        "lexical",
+        "relation",
+    ]
 
 
 def test_include_history_deep_recall_and_truth_status_control_historical_visibility(
@@ -328,6 +339,213 @@ def test_include_history_deep_recall_and_truth_status_control_historical_visibil
         current_id,
         historical_id,
     }
+
+
+def test_search_plan_exposes_as_of_policy_and_pre_limit_filter(backend) -> None:
+    as_of = _now() - timedelta(days=2)
+    valid_then = MemoryEntry(
+        id="as-of-valid",
+        project_name="demo",
+        category="decision",
+        content="asof temporal token was valid at the requested time",
+        source="test",
+        status="user_confirmed",
+        valid_from=as_of - timedelta(days=3),
+        valid_to=as_of + timedelta(days=1),
+    )
+    valid_later = MemoryEntry(
+        id="as-of-future",
+        project_name="demo",
+        category="decision",
+        content="asof temporal token became valid later",
+        source="test",
+        status="user_confirmed",
+        valid_from=as_of + timedelta(days=1),
+    )
+    _run(backend.structured_store.save_memory_entry(valid_then))
+    _run(backend.structured_store.save_memory_entry(valid_later))
+
+    response = _run(
+        SearchFacade(backend).search(
+            "asof temporal token",
+            filters=SearchFilters(project_name="demo", as_of=as_of),
+            mode="fts",
+            limit=10,
+        )
+    )
+
+    assert [result.source_id for result in response.results] == ["as-of-valid"]
+    assert response.retrieval_plan["temporal_policy"] == "as_of"
+    assert response.retrieval_plan["as_of"] == as_of.isoformat()
+    assert response.retrieval_plan["candidate_channels"] == ["lexical", "relation"]
+    assert response.retrieval_plan["temporal_filter_stage"] == "candidate_query_pre_limit"
+    assert response.retrieval_plan["skill_temporal_policy"] == (
+        "excluded_no_historical_versions"
+    )
+    assert response.results[0].metadata["candidate_channel"] == "lexical"
+
+
+def test_as_of_filters_memory_and_relation_candidates_before_limit(backend) -> None:
+    as_of = _now() - timedelta(days=2)
+    future = as_of + timedelta(days=1)
+    past = as_of - timedelta(days=1)
+    for index in range(5):
+        _run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    id=f"future-memory-{index}",
+                    project_name="demo",
+                    category="decision",
+                    content="prelimitmemorytoken future candidate",
+                    source="test",
+                    status="user_confirmed",
+                    valid_from=future,
+                )
+            )
+        )
+        _run(
+            backend.structured_store.save_relation_fact(
+                RelationFact(
+                    id=f"future-relation-{index}",
+                    project_name="demo",
+                    source_entity="prelimitrelationtoken-future",
+                    target_entity="index",
+                    relation_type="precedes",
+                    evidence="prelimitrelationtoken future candidate",
+                    source="test",
+                    status="user_confirmed",
+                    valid_from=future,
+                )
+            )
+        )
+
+    valid_memory_id = _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                id="valid-memory-at-cutoff",
+                project_name="demo",
+                category="decision",
+                content="prelimitmemorytoken valid candidate",
+                source="test",
+                status="user_confirmed",
+                valid_from=past,
+                valid_to=as_of + timedelta(hours=1),
+            )
+        )
+    )
+    valid_relation_id = _run(
+        backend.structured_store.save_relation_fact(
+            RelationFact(
+                id="valid-relation-at-cutoff",
+                project_name="demo",
+                source_entity="prelimitrelationtoken-valid",
+                target_entity="index",
+                relation_type="precedes",
+                evidence="prelimitrelationtoken valid candidate",
+                source="test",
+                status="user_confirmed",
+                valid_from=past,
+                valid_to=as_of + timedelta(hours=1),
+            )
+        )
+    )
+
+    memories = _run(
+        backend.structured_store.search_memory_entries(
+            "prelimitmemorytoken",
+            project_name="demo",
+            limit=1,
+            mode="fts",
+            as_of=as_of,
+        )
+    )
+    relations = _run(
+        backend.structured_store.search_relation_facts(
+            "prelimitrelationtoken",
+            project_name="demo",
+            limit=1,
+            as_of=as_of,
+        )
+    )
+
+    assert [entry.id for entry in memories] == [valid_memory_id]
+    assert [fact.id for fact in relations] == [valid_relation_id]
+
+
+def test_as_of_excludes_future_observations_before_limit(backend) -> None:
+    as_of = _now() - timedelta(days=2)
+    for index in range(5):
+        _run(
+            backend.verbatim_store.save(
+                Observation(
+                    id=f"future-observation-{index}",
+                    session_id="future-session",
+                    client="codex",
+                    raw_content="prelimitobservationtoken future evidence",
+                    content_type="turn",
+                    timestamp=as_of + timedelta(days=1),
+                    metadata={"project_name": "demo"},
+                )
+            )
+        )
+    valid_id = _run(
+        backend.verbatim_store.save(
+            Observation(
+                id="valid-observation-at-cutoff",
+                session_id="past-session",
+                client="codex",
+                raw_content="prelimitobservationtoken valid evidence",
+                content_type="turn",
+                timestamp=as_of - timedelta(days=1),
+                metadata={"project_name": "demo"},
+            )
+        )
+    )
+
+    response = _run(
+        SearchFacade(backend).search(
+            "prelimitobservationtoken",
+            filters=SearchFilters(project_name="demo", as_of=as_of),
+            mode="fts",
+            limit=1,
+        )
+    )
+
+    assert [result.source_id for result in response.results] == [valid_id]
+    assert response.results[0].source_kind == "observation"
+
+
+def test_as_of_explicitly_excludes_unversioned_skills(backend) -> None:
+    _run(
+        backend.structured_store.save_skill(
+            Skill(
+                id="current-only-skill",
+                project_name="demo",
+                name="Temporal skill",
+                activation_condition="temporalskilltoken is requested",
+                steps=["Run the current workflow"],
+                termination_condition="Workflow completes",
+            )
+        )
+    )
+
+    response = _run(
+        SearchFacade(backend).search(
+            "temporalskilltoken",
+            filters=SearchFilters(
+                project_name="demo",
+                as_of=_now() - timedelta(days=1),
+            ),
+            mode="fts",
+            limit=5,
+        )
+    )
+
+    assert response.results == []
+    assert response.retrieval_plan["temporal_policy"] == "as_of"
+    assert response.retrieval_plan["skill_temporal_policy"] == (
+        "excluded_no_historical_versions"
+    )
 
 
 def test_superseded_by_links_are_current_hard_filters_even_without_valid_to(
@@ -1030,3 +1248,154 @@ def test_soft_deleted_memory_and_observations_are_absent_from_search_and_regex(
     assert entries == []
     assert observations == []
     assert regex_matches == []
+
+
+def test_memory_and_relation_updates_replace_old_fts_content(backend) -> None:
+    memory_id = "update-visible-memory"
+    relation_id = "update-visible-relation"
+    _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                id=memory_id,
+                project_name="demo",
+                category="decision",
+                content="obsoleteuniquetoken old decision",
+                source="test",
+                status="user_confirmed",
+            )
+        )
+    )
+    _run(
+        backend.structured_store.save_relation_fact(
+            RelationFact(
+                id=relation_id,
+                project_name="demo",
+                source_entity="old-source",
+                target_entity="search",
+                relation_type="supports",
+                evidence="obsoleteuniquetoken old relation",
+                source="test",
+                status="user_confirmed",
+            )
+        )
+    )
+
+    _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                id=memory_id,
+                project_name="demo",
+                category="decision",
+                content="replacementuniquetoken current decision",
+                source="test",
+                status="user_confirmed",
+            )
+        )
+    )
+    _run(
+        backend.structured_store.save_relation_fact(
+            RelationFact(
+                id=relation_id,
+                project_name="demo",
+                source_entity="new-source",
+                target_entity="search",
+                relation_type="supports",
+                evidence="replacementuniquetoken current relation",
+                source="test",
+                status="user_confirmed",
+            )
+        )
+    )
+
+    old_memories, _ = _run(
+        read_search_memory(
+            backend,
+            project_name="demo",
+            query="obsoleteuniquetoken",
+            record_signals=False,
+        )
+    )
+    old_relations = _run(
+        read_search_relation_facts(
+            backend, project_name="demo", query="obsoleteuniquetoken"
+        )
+    )
+    new_memories, _ = _run(
+        read_search_memory(
+            backend,
+            project_name="demo",
+            query="replacementuniquetoken",
+            record_signals=False,
+        )
+    )
+    new_relations = _run(
+        read_search_relation_facts(
+            backend, project_name="demo", query="replacementuniquetoken"
+        )
+    )
+
+    assert old_memories == []
+    assert old_relations == []
+    assert _ids(new_memories) == {memory_id}
+    assert _ids(new_relations) == {relation_id}
+
+
+def test_hard_delete_is_idempotent_and_survives_restart_without_cross_project_loss(
+    backend,
+) -> None:
+    deleted_id = _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                id="delete-lifecycle-memory",
+                project_name="demo",
+                category="decision",
+                content="harddeleteuniquetoken remove permanently",
+                source="test",
+                status="user_confirmed",
+            )
+        )
+    )
+    retained_id = _run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                id="other-project-memory",
+                project_name="other-project",
+                category="decision",
+                content="crossprojectretainedtoken remains searchable",
+                source="test",
+                status="user_confirmed",
+            )
+        )
+    )
+
+    assert backend.structured_store.hard_delete_record(
+        "memory_entries", deleted_id
+    ) is True
+    assert backend.structured_store.hard_delete_record(
+        "memory_entries", deleted_id
+    ) is False
+
+    data_dir = backend.data_dir
+    _run(backend.close())
+    reopened = _run(_new_backend(data_dir))
+    try:
+        deleted, _ = _run(
+            read_search_memory(
+                reopened,
+                project_name="demo",
+                query="harddeleteuniquetoken",
+                record_signals=False,
+            )
+        )
+        retained, _ = _run(
+            read_search_memory(
+                reopened,
+                project_name="other-project",
+                query="crossprojectretainedtoken",
+                record_signals=False,
+            )
+        )
+        assert deleted == []
+        assert _ids(retained) == {retained_id}
+    finally:
+        _run(reopened.close())

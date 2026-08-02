@@ -9,8 +9,10 @@ operations. Version 0.9.5 shipped the completed-session/source-cleanup work
 originally planned for 0.9.4 together with evidence-grounded Dream admission,
 without adding another public tool, store, or scheduler. Version 0.9.6 removes
 duplicate compatibility surfaces while keeping stored data readable and the
-27-tool contract unchanged. No separate 0.9.2 or 0.9.4 package or tag was
-published. The stable loop is
+27-tool contract unchanged. Version 0.9.9 ships the retrieval/lifecycle,
+derived-index, and seven-host qualification work developed as 0.9.7-0.9.9.
+No separate 0.9.2, 0.9.4, 0.9.7, or 0.9.8 package or tag was published. The
+stable loop is
 not a manual checklist:
 
 ```text
@@ -44,6 +46,9 @@ not pending work.
 | `0.9.4` | Folded into 0.9.5; not published separately. | Terminal distill outcomes and processed-source cleanup ship in the 0.9.5 package and tag. | A separate 0.9.4 release artifact. |
 | `0.9.5` | Terminal completion, opt-in processed-source cleanup, and evidence-grounded Dream admission. | Completed jobs are terminal and auditable; authorized cleanup is verified and truth-preserving; new candidates carry an evidence basis/outcome; repository claims need current repository proof; explicit user decisions can promote; contradicted claims route through historical governance. | A new MCP tool, manual daily promotion, generic web fact-checking, a second truth store/scheduler, silent deletion, whole shared-container deletion, or retroactive reclassification of legacy truth. |
 | `0.9.6` | Runtime, operator-surface, and compatibility-lifecycle convergence. | MCP registries contain exactly the same 27 public tools; hook/config each have one path; stale Router snapshots are removed; legacy storage stays readable behind an explicit support cutoff and receipt-first migration; privacy erase covers safe native sources. | A new public tool/scheduler, silent data authority change, immediate removal of legacy readers, or unsafe deletion of shared native containers. |
+| `0.9.7` | Folded into 0.9.9; not published separately. | Deterministic long-session fixtures, explicit skipped/error outcomes, bounded job recovery, and no false healthy state after lease or restart failures ship in 0.9.9. | A separate 0.9.7 release artifact. |
+| `0.9.8` | Folded into 0.9.9; not published separately. | Staged batch-index generations, transactional incremental indexes, Doctor source/index verification, and compact budget/compaction telemetry ship in 0.9.9. | A separate 0.9.8 release artifact. |
+| `0.9.9` | Retrieval, index, seven-host, and compatibility qualification. | Native adapter capture through Dream and wake is replay-tested on all supported hosts; recovery/index failures fail closed; fresh install, upgrade, legacy restore, and operator repair paths are qualified. | A new MCP profile, silent native-container deletion, removing legacy readers before the support cutoff, or adding an autonomous semantic worker. |
 
 ## 0.9.6 — Runtime and Operator-Surface Convergence
 
@@ -71,6 +76,21 @@ that prevent compatibility helpers from leaking back into user workflows.
   and reports partial failure for shared/unsafe containers.
 - Lock the boundary with registry-driven contract, CLI, config, descriptor,
   and documentation tests before full package and fresh-install verification.
+
+## 0.9.7-0.9.9 delivery
+
+These three evidence-driven hardening waves ship together in 0.9.9 rather than
+replaying features already delivered in 0.9.0-0.9.6. Each wave keeps its
+separate execution record:
+
+- [0.9.7 - retrieval quality and lifecycle](roadmap/0.9.7-retrieval-lifecycle.md)
+- [0.9.8 - index integrity and context budgets](roadmap/0.9.8-index-context.md)
+- [0.9.9 - host replay and compatibility](roadmap/0.9.9-host-compatibility.md)
+
+The implementation order was strict: 0.9.7 establishes trustworthy fixtures and
+recovery evidence; 0.9.8 consumes those fixtures to harden derived indexes and
+budget telemetry; 0.9.9 uses both as the qualification matrix for real host
+transcripts. The combined release does not expand the public MCP contract.
 
 ## 0.9.4 — Terminal Completion and Source Cleanup (shipped in 0.9.5)
 

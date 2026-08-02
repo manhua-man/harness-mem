@@ -2,6 +2,66 @@
 
 ## Unreleased
 
+## [0.9.9] - 2026-08-02
+
+This release includes the reliability and index-integrity work developed as
+0.9.7 and 0.9.8; no separate 0.9.7 or 0.9.8 package or tag is published.
+
+### Added
+
+- Added a 60-case, LLM-free retrieval replay suite across single-hop,
+  cross-session, temporal, update, preference, no-evidence, and conflict tasks.
+  Maintenance reports preserve scored, skipped, and error outcomes separately
+  with replayable gold/retrieved IDs and retrieval traces.
+- Added bounded distill-job reconciliation after restart or expired chunk
+  leases, including last progress, recovery reason/count, retry backoff, and an
+  explicit terminal outcome when the recovery budget is exhausted. Direct
+  distill claims use the same recovery budget and cannot reclaim an expired
+  lease in the same call that records recovery.
+- Added generation manifests and failure-injected atomic publication for
+  embedding, vec0, and trigram batch rebuilds. Each rebuild uses an isolated
+  staging generation, compare-before-publish checks, and stable content hashes;
+  FTS and relation postings retain their same-SQLite-transaction update/delete
+  contract.
+- Added internal context-budget and compaction telemetry without expanding the
+  compact MCP response or the exact 27-tool public contract.
+- Added native transcript-to-Dream-to-wake qualification for Claude Code,
+  Codex, Cursor, Grok, Hermes, OpenCode, and Antigravity, with content-free
+  per-stage failure artifacts and explicit host capability rows.
+- Added one all-host operator repair path:
+  `harness-mem integration hooks sync --client all`.
+
+### Fixed
+
+- Doctor now fails closed when vec0 or exact-index integrity cannot be proven,
+  including a missing manifest or same-ID vector/posting corruption. Rebuild
+  guidance uses a safe project placeholder rather than interpolating untrusted
+  project names into commands.
+- Historical `as_of` search now filters Memory, Relation, and Observation
+  candidates before storage limits are applied, excludes unversioned Skills,
+  and reports the channels actually executed after hybrid fallback.
+- Global trigram rebuilds preserve other projects, reject source changes before
+  publication, exclude compacted evidence, and restore the prior readable
+  generation after injected activation failures or restart.
+- OpenCode and Hermes read-only SQLite adapters explicitly close connections,
+  preventing locked native databases during Windows cleanup and qualification.
+- Retrieval benchmark fixtures reject duplicate YAML keys instead of silently
+  accepting an overridden case definition.
+
+### Tests
+
+- Split CI into a fast PR lane and a complete tagged-release lane. Only four
+  exhaustive 60-case retrieval replays leave the PR lane; the release gate
+  still runs every assertion. Shared seven-host contracts and native JSONL
+  builders remove duplicated fixture data without merging distinct boundaries.
+- Added release gates for seven-host installed-wheel replay on Windows, macOS,
+  and Linux. Windows additionally qualifies a real v0.9.6 wheel upgrade,
+  migration rollback/retry, legacy restore, Unicode/space paths, and processed
+  source cleanup retry before release assets can be published.
+- Added a real `sqlite-vec` and NumPy CI/release job so embedding batches,
+  virtual-table publication, content fingerprints, and Doctor repair behavior
+  cannot pass only through dependency-skipped tests.
+
 ## [0.9.6] - 2026-07-30
 
 ### Changed

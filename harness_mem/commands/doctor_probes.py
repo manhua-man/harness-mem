@@ -55,6 +55,12 @@ _SIGNAL_FRESHNESS_TYPES: tuple[str, ...] = (
 _STRUCTURED_INDEX_WAL_NAME = "structured_index.sqlite-wal"
 _WAL_HINT_CODE = "HM-402"
 _WAL_FIX_COMMAND = "harness-mem maintenance checkpoint-wal"
+_VECTOR_REBUILD_COMMAND = (
+    "harness-mem maintenance rebuild-vector-index --project <PROJECT_NAME>"
+)
+_VERBATIM_REBUILD_COMMAND = (
+    "harness-mem maintenance rebuild-verbatim-index --project <PROJECT_NAME>"
+)
 
 
 def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -> dict:
@@ -77,6 +83,7 @@ def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -
         matching_count = 0
         stored_models: set[str] = set()
         vec0_missing = 0
+        manifest_reports: list[dict] = []
 
         for index in indexes:
             with index.locked_connection() as conn:
@@ -117,26 +124,65 @@ def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -
                                 f"(entry={entry_id}, stored={stored_dim}, "
                                 f"current={expected_dim})"
                             ),
-                            "fix_command": (
-                                "harness-mem maintenance rebuild-vector-index "
-                                f"--project {project_name}"
-                            ),
+                            "fix_command": _VECTOR_REBUILD_COMMAND,
                         }
             coverage = index.vec0_coverage_report(model_id=model_id)
             vec0_missing += int(coverage.get("vec0_missing", 0))
+            active_manifest = index.get_active_index_generation("vec0")
+            indexed_count = int(coverage.get("vec0_indexed", 0))
+            if indexed_count > 0 and active_manifest is None:
+                return {
+                    "has_issue": True,
+                    "message": "HM-205: derived vec0 generation manifest is missing",
+                    "fix_command": _VECTOR_REBUILD_COMMAND,
+                    "verification_status": "missing",
+                }
+            if active_manifest is not None and indexed_count > 0:
+                physical = index.vec0_content_identity(model_id=model_id)
+                source = index.embedding_source_identity(model_id=model_id)
+                manifest_report = index.validate_index_generation(
+                    "vec0",
+                    row_count=int(physical["row_count"]),
+                    id_hash=str(physical["id_hash"]),
+                    source_generation=f"embeddings-content:{source['content_hash']}",
+                    model_id=model_id,
+                    dimensions=expected_dim,
+                )
+                metadata = active_manifest.get("metadata") or {}
+                if metadata.get("content_hash") != physical["content_hash"]:
+                    manifest_report["has_issue"] = True
+                    manifest_report["reason"] = "manifest_mismatch"
+                    manifest_report.setdefault("mismatches", []).append("content_hash")
+                if physical["content_hash"] != source["content_hash"]:
+                    manifest_report["has_issue"] = True
+                    manifest_report["reason"] = "manifest_mismatch"
+                    manifest_report.setdefault("mismatches", []).append(
+                        "source_content"
+                    )
+                manifest_reports.append(manifest_report)
+                if manifest_report.get("has_issue"):
+                    return {
+                        "has_issue": True,
+                        "message": (
+                            "HM-205: derived vec0 generation manifest mismatch "
+                            f"({', '.join(manifest_report.get('mismatches', []))})"
+                        ),
+                        "fix_command": _VECTOR_REBUILD_COMMAND,
+                        "manifest": manifest_report,
+                    }
 
         if table_count == 0:
             return {
                 "has_issue": True,
                 "message": "HM-201: Vector index not built",
-                "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}",
+                "fix_command": _VECTOR_REBUILD_COMMAND,
             }
 
         if vector_count == 0:
             return {
                 "has_issue": True,
                 "message": "HM-201: Vector index is empty",
-                "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}",
+                "fix_command": _VECTOR_REBUILD_COMMAND,
             }
 
         if matching_count == 0:
@@ -144,7 +190,7 @@ def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -
             return {
                 "has_issue": True,
                 "message": f"Vector index uses different model ({stored_model_id}), current config is {model_id}",
-                "fix_command": f"harness-mem maintenance rebuild-vector-index --project {project_name}",
+                "fix_command": _VECTOR_REBUILD_COMMAND,
             }
 
         if vec0_missing > 0:
@@ -155,16 +201,25 @@ def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -
                     f"({vec0_missing} missing); KNN will lazy-backfill "
                     "or fall back to batch cosine"
                 ),
-                "fix_command": (
-                    f"harness-mem maintenance rebuild-vector-index --project {project_name}"
-                ),
+                "fix_command": _VECTOR_REBUILD_COMMAND,
             }
 
-        return {"has_issue": False, "message": "", "fix_command": ""}
+        return {
+            "has_issue": False,
+            "message": "",
+            "fix_command": "",
+            "manifest_reports": manifest_reports,
+        }
 
-    except (sqlite3.Error, ValueError):
-        # If check fails, assume no issue (table might not exist yet)
-        return {"has_issue": False, "message": "", "fix_command": ""}
+    except (sqlite3.Error, ValueError) as exc:
+        # A read-only probe that cannot verify the index is not proof of
+        # health. Fail closed while keeping remediation non-destructive.
+        return {
+            "has_issue": True,
+            "message": f"HM-206: vector index health could not be verified ({exc})",
+            "fix_command": _VECTOR_REBUILD_COMMAND,
+            "verification_status": "unknown",
+        }
 
 
 async def _check_verbatim_exact_index_health(
@@ -186,11 +241,29 @@ async def _check_verbatim_exact_index_health(
             return {
                 "has_issue": True,
                 "message": "HM-301: Verbatim exact index is empty",
-                "fix_command": f"harness-mem maintenance rebuild-verbatim-index --project {project_name}",
+                "fix_command": _VERBATIM_REBUILD_COMMAND,
+            }
+        generation = verbatim_store.exact_index_generation_report()
+        if generation["has_issue"]:
+            assessment = str(generation.get("assessment") or "unknown")
+            return {
+                "has_issue": True,
+                "message": (
+                    "HM-302: Verbatim exact index generation does not match "
+                    f"canonical evidence ({assessment}: {generation['reason']})"
+                ),
+                "fix_command": _VERBATIM_REBUILD_COMMAND,
+                "generation_report": generation,
+                "assessment": assessment,
             }
         return {"has_issue": False, "message": "", "fix_command": ""}
-    except Exception:
-        return {"has_issue": False, "message": "", "fix_command": ""}
+    except Exception as exc:
+        return {
+            "has_issue": True,
+            "message": f"HM-303: Verbatim exact index health could not be verified ({exc})",
+            "fix_command": _VERBATIM_REBUILD_COMMAND,
+            "verification_status": "unknown",
+        }
 
 
 async def candidate_health(structured_store: Any, project_name: str) -> dict[str, Any]:

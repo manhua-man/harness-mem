@@ -106,9 +106,11 @@ Question routing:
 
 ## smart-search reference project
 
-Status: reference only. A local workspace mirror can live under
-`.tmp/reference-projects/smartsearch`; that path is ignored by git and is not
-part of the product surface.
+The maintained project note is [reference-projects/smartsearch.md](reference-projects/smartsearch.md).
+
+Status: reference only. The canonical local workspace mirror is
+`F:\AIInfra\upstreams\harness-mem\smartsearch`; it is
+local-only and is not part of the product surface.
 
 - Models guess; they do not cite.
 - External claims in candidates (API, version, policy, papers) need sources.

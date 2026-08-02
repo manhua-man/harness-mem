@@ -22,10 +22,10 @@ import {
 } from "cursor/canvas";
 
 const MODEL_VERSION = "v1";
-const AS_OF = "2026-07-30";
-const RUNTIME_VERSION = "0.9.6";
-const PYTEST_PASSED = 511;
-const PYTEST_SKIPPED = 9;
+const AS_OF = "2026-08-02";
+const RUNTIME_VERSION = "0.9.9";
+const PYTEST_PASSED = 595;
+const PYTEST_SKIPPED = 2;
 const PYTEST_COUNT = PYTEST_PASSED + PYTEST_SKIPPED;
 
 type TrackId = "l1" | "l2" | "l3" | "l4" | "l5" | "l6";
@@ -70,7 +70,7 @@ const READINESS_TRACKS: ReadinessTrack[] = [
     code: "L3",
     label: "检索与召回",
     weight: 15,
-    score: 95,
+    score: 97,
     tone: "success",
     acceptance: "filter-first hybrid；vec0 KNN + batch cosine 回退",
     signals: "recall.steps 稳定 · 7 日 quality scorecard · abstention/exclusion",
@@ -92,7 +92,7 @@ const READINESS_TRACKS: ReadinessTrack[] = [
     code: "L5",
     label: "宿主集成",
     weight: 15,
-    score: 97,
+    score: 99,
     tone: "success",
     acceptance: "hooks + MCP 入口 + install drift + per-host ingest",
     signals: "harness-mem-mcp · install_drift=无 · 七宿主全局命令",
@@ -103,7 +103,7 @@ const READINESS_TRACKS: ReadinessTrack[] = [
     code: "L6",
     label: "运维与发布",
     weight: 5,
-    score: 98,
+    score: 99,
     tone: "success",
     acceptance: "GitHub Release 通道 · doctor/CLI · MCP export CI",
     signals: "27 MCP tools · risk-classified Doctor · full Python/Rust gates",
@@ -527,7 +527,7 @@ export default function HarnessMemReadinessV1Canvas() {
       <Card variant="borderless">
         <CardBody>
           <Text tone="secondary" size="small">
-            Source: get_project_status · CHANGELOG 0.9.6 · docs/maturity-model.md · {PYTEST_PASSED} pytest passed / {PYTEST_SKIPPED} skipped ({PYTEST_COUNT} collected)
+            Source: get_project_status · CHANGELOG 0.9.9 · docs/maturity-model.md · {PYTEST_PASSED} pytest passed / {PYTEST_SKIPPED} skipped ({PYTEST_COUNT} collected)
           </Text>
         </CardBody>
       </Card>

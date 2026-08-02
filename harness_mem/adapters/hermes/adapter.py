@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -466,7 +467,7 @@ def _state_db_session_records(
     issues: list[Issue] | None,
 ) -> list[SessionRecord]:
     try:
-        with _connect_readonly(path) as db:
+        with closing(_connect_readonly(path)) as db:
             rows = db.execute(
                 "SELECT * FROM sessions WHERE COALESCE(archived, 0) = 0 "
                 "ORDER BY started_at DESC, id DESC"
@@ -512,7 +513,7 @@ def _state_db_session_records(
 
 
 def _export_state_db_session(path: Path, session_id: str) -> dict[str, Any]:
-    with _connect_readonly(path) as db:
+    with closing(_connect_readonly(path)) as db:
         db.execute("BEGIN")
         session_row = db.execute(
             "SELECT * FROM sessions WHERE id = ?",

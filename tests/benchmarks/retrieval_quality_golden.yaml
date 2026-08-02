@@ -1,15 +1,15 @@
-suite: retrieval_quality_v0_8_24
-version: 0.8.24
+suite: retrieval_quality_v0_9_7
+version: 0.9.7
 backend: LocalMemoryBackend
 mode: read_path_only
 llm_free: true
 declared_case_count: 60
 generated_matrix:
-  # 51 deterministic isolated cases plus the 9 hand-authored edge cases below.
+  # 42 deterministic isolated cases plus 18 hand-authored task/evidence cases below.
   # Expansion lives in the benchmark loader so the fixture stays reviewable.
-  memory: 17
-  observation: 17
-  relation: 17
+  memory: 14
+  observation: 14
+  relation: 14
 queries:
   - id: project_alpha_memory
     project_name: retrieval-quality-alpha
@@ -277,3 +277,226 @@ queries:
       memory_entry_limit: 5
       observation_limit: 5
       relation_fact_limit: 5
+  - id: single_hop_decision
+    task_type: single_hop
+    project_name: retrieval-quality-long-session
+    query: single hop deploy token
+    memory_entries:
+      - id: single-hop-decision
+        project_name: retrieval-quality-long-session
+        category: decision
+        content: single hop deploy token uses the staging rollout
+        source: benchmark:gold
+        status: user_confirmed
+    expected:
+      memory_entry_ids:
+        - single-hop-decision
+      observation_ids: []
+      relation_fact_ids: []
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: cross_session_synthesis
+    task_type: cross_session_synthesis
+    project_name: retrieval-quality-long-session
+    query: cross session migration token
+    observations:
+      - id: cross-session-a
+        project_name: retrieval-quality-long-session
+        session_id: session-a
+        client: codex
+        raw_content: cross session migration token records the schema change
+        content_type: turn
+        metadata:
+          project_name: retrieval-quality-long-session
+      - id: cross-session-b
+        project_name: retrieval-quality-long-session
+        session_id: session-b
+        client: codex
+        raw_content: cross session migration token records the rollback check
+        content_type: turn
+        metadata:
+          project_name: retrieval-quality-long-session
+    expected:
+      memory_entry_ids: []
+      observation_ids:
+        - cross-session-a
+        - cross-session-b
+      relation_fact_ids: []
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: temporal_reasoning_current
+    task_type: temporal_reasoning
+    project_name: retrieval-quality-temporal
+    query: temporal rollout token
+    memory_entries:
+      - id: temporal-current
+        project_name: retrieval-quality-temporal
+        category: decision
+        content: temporal rollout token is current after the migration
+        source: benchmark:gold
+        status: user_confirmed
+    noise_memory_entries:
+      - id: temporal-history
+        project_name: retrieval-quality-temporal
+        category: decision
+        content: temporal rollout token used the retired migration
+        source: benchmark:noise
+        status: user_confirmed
+        valid_to: 2024-01-01T00:00:00+00:00
+    expected:
+      memory_entry_ids:
+        - temporal-current
+      observation_ids: []
+      relation_fact_ids: []
+      forbidden_memory_entry_ids:
+        - temporal-history
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: knowledge_update_current
+    task_type: knowledge_update
+    project_name: retrieval-quality-update
+    query: update rollout token
+    memory_entries:
+      - id: update-current
+        project_name: retrieval-quality-update
+        category: decision
+        content: update rollout token now uses the canary path
+        source: benchmark:gold
+        status: user_confirmed
+        supersedes:
+          - update-old
+    noise_memory_entries:
+      - id: update-old
+        project_name: retrieval-quality-update
+        category: decision
+        content: update rollout token used the retired path
+        source: benchmark:noise
+        status: user_confirmed
+        superseded_by:
+          - update-current
+    expected:
+      memory_entry_ids:
+        - update-current
+      observation_ids: []
+      relation_fact_ids: []
+      forbidden_memory_entry_ids:
+        - update-old
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: user_preference_memory
+    task_type: preference
+    project_name: retrieval-quality-preference
+    query: preference format token
+    memory_entries:
+      - id: preference-format
+        project_name: retrieval-quality-preference
+        category: preference
+        content: preference format token means the user prefers concise output
+        source: benchmark:gold
+        status: user_confirmed
+    expected:
+      memory_entry_ids:
+        - preference-format
+      observation_ids: []
+      relation_fact_ids: []
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: no_evidence_abstention
+    task_type: no_evidence
+    project_name: retrieval-quality-abstention
+    query: absent evidence token
+    noise_memory_entries:
+      - id: abstention-unrelated
+        project_name: retrieval-quality-abstention
+        category: note
+        content: unrelated benchmark material about a completed local task
+        source: benchmark:noise
+        status: user_confirmed
+    expected:
+      memory_entry_ids: []
+      observation_ids: []
+      relation_fact_ids: []
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: contradictory_current_fact
+    task_type: conflict
+    project_name: retrieval-quality-conflict
+    query: conflict release token
+    memory_entries:
+      - id: conflict-current
+        project_name: retrieval-quality-conflict
+        category: decision
+        content: conflict release token is the current release state
+        source: benchmark:gold
+        status: user_confirmed
+    noise_memory_entries:
+      - id: conflict-old
+        project_name: retrieval-quality-conflict
+        category: decision
+        content: conflict release token described an obsolete release state
+        source: benchmark:noise
+        status: user_confirmed
+        valid_to: 2024-01-01T00:00:00+00:00
+    expected:
+      memory_entry_ids:
+        - conflict-current
+      observation_ids: []
+      relation_fact_ids: []
+      forbidden_memory_entry_ids:
+        - conflict-old
+    search:
+      scope: project
+      mode: fts
+      memory_entry_limit: 5
+      observation_limit: 5
+      relation_fact_limit: 5
+  - id: missing_gold_skipped
+    task_type: unsupported_fixture
+    project_name: retrieval-quality-evaluation
+    query: missing gold token
+    expected:
+      evaluation_status: skipped
+      evaluation_reason: missing_gold
+      memory_entry_ids: []
+      observation_ids: []
+      relation_fact_ids: []
+    search:
+      scope: project
+      mode: fts
+  - id: fixture_error_recorded
+    task_type: fixture_error
+    project_name: retrieval-quality-evaluation
+    query: fixture error token
+    expected:
+      evaluation_status: error
+      evaluation_reason: fixture_error
+      memory_entry_ids: []
+      observation_ids: []
+      relation_fact_ids: []
+    search:
+      scope: project
+      mode: fts

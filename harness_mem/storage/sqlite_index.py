@@ -6,6 +6,8 @@ Each entity type gets its own table + FTS virtual table.
 
 from __future__ import annotations
 import builtins
+from datetime import datetime, timezone
+import hashlib
 import json
 import logging
 import re
@@ -15,6 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any
+from uuid import uuid4
 
 from harness_mem.storage.sqlite_vec_index import SqliteVecIndex
 
@@ -188,6 +191,20 @@ _TABLE_SCHEMAS = {
         embedding BLOB NOT NULL,
         created_at INTEGER NOT NULL
     """,
+    "derived_index_manifests": """
+        generation_id TEXT PRIMARY KEY,
+        index_name TEXT NOT NULL,
+        source_generation TEXT NOT NULL,
+        row_count INTEGER NOT NULL,
+        id_hash TEXT NOT NULL,
+        model_id TEXT,
+        model_version TEXT,
+        dimensions INTEGER,
+        status TEXT NOT NULL DEFAULT 'staged',
+        created_at TEXT NOT NULL,
+        activated_at TEXT,
+        metadata TEXT NOT NULL DEFAULT '{}'
+    """,
     "metabolism_runs": """
         id TEXT PRIMARY KEY,
         project_name TEXT NOT NULL,
@@ -341,7 +358,7 @@ class SQLiteIndex:
                 f"CREATE TABLE IF NOT EXISTS {table_name} ({columns})"
             )
             # Skip FTS for vec_embeddings (vector table doesn't need full-text search)
-            if table_name == "vec_embeddings":
+            if table_name in {"vec_embeddings", "derived_index_manifests"}:
                 continue
             # Skip FTS for metabolism_runs / dream_runs / retrieval_signals / reflection_jobs —
             # they index structured rows, not full-text content.
@@ -397,6 +414,187 @@ class SQLiteIndex:
         self._ensure_verbatim_exact_index(conn)
         self._ensure_suggestion_candidate_indexes(conn)
         conn.commit()
+
+    def record_index_generation(
+        self,
+        *,
+        index_name: str,
+        source_generation: str,
+        row_count: int,
+        id_hash: str,
+        model_id: str | None = None,
+        model_version: str | None = None,
+        dimensions: int | None = None,
+        metadata: dict[str, Any] | None = None,
+        activate: bool = False,
+    ) -> dict[str, Any]:
+        """Persist a derived-index generation and optionally publish it.
+
+        The manifest lives beside the existing derived tables. It is a
+        verification contract, not a second source of truth: canonical rows
+        remain authoritative and only an explicit activation changes the
+        active pointer.
+        """
+
+        if not index_name.strip() or not source_generation.strip() or not id_hash.strip():
+            raise ValueError("index_name, source_generation, and id_hash are required")
+        conn = self._conn_write()
+        with self._lock:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                payload = self._insert_index_generation(
+                    conn,
+                    index_name=index_name,
+                    source_generation=source_generation,
+                    row_count=row_count,
+                    id_hash=id_hash,
+                    model_id=model_id,
+                    model_version=model_version,
+                    dimensions=dimensions,
+                    metadata=metadata,
+                    activate=activate,
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return payload
+
+    def _insert_index_generation(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        index_name: str,
+        source_generation: str,
+        row_count: int,
+        id_hash: str,
+        model_id: str | None = None,
+        model_version: str | None = None,
+        dimensions: int | None = None,
+        metadata: dict[str, Any] | None = None,
+        activate: bool = False,
+    ) -> dict[str, Any]:
+        """Write one manifest inside the caller-owned transaction."""
+
+        if not index_name.strip() or not source_generation.strip() or not id_hash.strip():
+            raise ValueError(
+                "index_name, source_generation, and id_hash are required"
+            )
+        generation_id = uuid4().hex
+        created_at = datetime.now(timezone.utc)
+        payload = {
+            "generation_id": generation_id,
+            "index_name": index_name,
+            "source_generation": source_generation,
+            "row_count": max(0, int(row_count)),
+            "id_hash": id_hash,
+            "model_id": model_id,
+            "model_version": model_version,
+            "dimensions": dimensions,
+            "status": "active" if activate else "staged",
+            "created_at": created_at.isoformat(),
+            "activated_at": created_at.isoformat() if activate else None,
+            "metadata": dict(metadata or {}),
+        }
+        conn.execute(
+            """
+            INSERT INTO derived_index_manifests (
+                generation_id, index_name, source_generation, row_count,
+                id_hash, model_id, model_version, dimensions, status,
+                created_at, activated_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                generation_id, index_name, source_generation, payload["row_count"],
+                id_hash, model_id, model_version, dimensions, payload["status"],
+                payload["created_at"], payload["activated_at"],
+                json.dumps(payload["metadata"], ensure_ascii=False),
+            ),
+        )
+        if activate:
+            conn.execute(
+                """
+                UPDATE derived_index_manifests
+                SET status = 'superseded'
+                WHERE index_name = ? AND generation_id != ?
+                """,
+                (index_name, generation_id),
+            )
+        return payload
+
+    def get_active_index_generation(self, index_name: str) -> dict[str, Any] | None:
+        conn = self._conn_write()
+        with self._lock:
+            row = conn.execute(
+                """
+                SELECT generation_id, index_name, source_generation, row_count,
+                       id_hash, model_id, model_version, dimensions, status,
+                       created_at, activated_at, metadata
+                FROM derived_index_manifests
+                WHERE index_name = ? AND status = 'active'
+                ORDER BY activated_at DESC LIMIT 1
+                """,
+                (index_name,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._manifest_row_to_dict(row)
+
+    def validate_index_generation(
+        self,
+        index_name: str,
+        *,
+        row_count: int,
+        id_hash: str,
+        source_generation: str | None = None,
+        model_id: str | None = None,
+        dimensions: int | None = None,
+    ) -> dict[str, Any]:
+        """Compare observed derived-index identity with its active manifest."""
+
+        active = self.get_active_index_generation(index_name)
+        if active is None:
+            return {
+                "has_issue": True,
+                "reason": "missing_active_generation",
+                "active": None,
+            }
+        mismatches: list[str] = []
+        if int(active["row_count"]) != int(row_count):
+            mismatches.append("row_count")
+        if str(active["id_hash"]) != str(id_hash):
+            mismatches.append("id_hash")
+        if (
+            source_generation is not None
+            and str(active["source_generation"]) != str(source_generation)
+        ):
+            mismatches.append("source_generation")
+        if model_id is not None and active.get("model_id") != model_id:
+            mismatches.append("model_id")
+        if dimensions is not None and active.get("dimensions") != dimensions:
+            mismatches.append("dimensions")
+        return {
+            "has_issue": bool(mismatches),
+            "reason": "manifest_mismatch" if mismatches else "ok",
+            "mismatches": mismatches,
+            "active": active,
+        }
+
+    @staticmethod
+    def stable_id_hash(ids: Iterable[str]) -> str:
+        """Return an order-independent hash for canonical membership checks."""
+
+        normalized = sorted({str(item) for item in ids if str(item)})
+        return hashlib.sha256("\n".join(normalized).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _manifest_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+        payload = dict(row)
+        try:
+            payload["metadata"] = json.loads(payload.get("metadata") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            payload["metadata"] = {}
+        return payload
 
     def _conn_write(self) -> sqlite3.Connection:
         if self._conn is None:
@@ -610,10 +808,13 @@ class SQLiteIndex:
             }
         loader = get_model_loader(model_id)
         size = max(1, int(batch_size))
-        staging = "vec_embeddings_staging"
+        entry_ids = [str(entry_id) for entry_id, _text in items]
+        if len(entry_ids) != len(set(entry_ids)):
+            raise ValueError("embedding batch entry ids must be unique")
+        staging = f"vec_embeddings_staging_{uuid4().hex}"
         conn = self._conn_write()
         with self._lock:
-            conn.execute(f"DROP TABLE IF EXISTS {staging}")
+            source_fingerprint = self._embedding_target_fingerprint(conn, entry_ids)
             conn.execute(
                 f"""
                 CREATE TABLE {staging} (
@@ -627,6 +828,7 @@ class SQLiteIndex:
             )
             conn.commit()
         processed = 0
+        last_rows: list[tuple[Any, ...]] = []
         try:
             for start in range(0, total, size):
                 batch = items[start : start + size]
@@ -652,6 +854,7 @@ class SQLiteIndex:
                     )
                     for (entry_id, _text), vector in zip(batch, vectors)
                 ]
+                last_rows = rows
                 with self._lock:
                     conn.executemany(
                         f"""
@@ -667,16 +870,37 @@ class SQLiteIndex:
                     progress(processed, total)
 
             with self._lock:
-                staged = int(conn.execute(f"SELECT COUNT(*) FROM {staging}").fetchone()[0])
+                staged_rows = conn.execute(
+                    f"""
+                    SELECT entry_id, model_id, model_version, embedding, created_at
+                    FROM {staging} ORDER BY entry_id
+                    """
+                ).fetchall()
+                staged = len(staged_rows)
                 if staged != total:
                     raise ValueError(f"embedding staging row mismatch: {staged} != {total}")
+                staged_fingerprint = self.stable_embedding_rows_hash(staged_rows)
+                conn.execute("BEGIN IMMEDIATE")
+                if self._embedding_target_fingerprint(conn, entry_ids) != source_fingerprint:
+                    raise sqlite3.IntegrityError(
+                        "embedding targets changed during batch rebuild"
+                    )
+                publish_rows = conn.execute(
+                    f"""
+                    SELECT entry_id, model_id, model_version, embedding, created_at
+                    FROM {staging} ORDER BY entry_id
+                    """
+                ).fetchall()
+                if self.stable_embedding_rows_hash(publish_rows) != staged_fingerprint:
+                    raise sqlite3.IntegrityError(
+                        "embedding staging content changed before publish"
+                    )
                 old_count = int(
                     conn.execute(
                         f"SELECT COUNT(*) FROM vec_embeddings "
                         f"WHERE entry_id IN (SELECT entry_id FROM {staging})"
                     ).fetchone()[0]
                 )
-                conn.execute("BEGIN IMMEDIATE")
                 conn.execute(
                     f"""
                     INSERT OR REPLACE INTO vec_embeddings
@@ -686,10 +910,27 @@ class SQLiteIndex:
                     """
                 )
                 conn.execute(f"DROP TABLE {staging}")
-                conn.commit()
                 new_count = int(
                     conn.execute("SELECT COUNT(*) FROM vec_embeddings").fetchone()[0]
                 )
+                id_hash = self.stable_id_hash(entry_id for entry_id, _ in items)
+                generation = self._insert_index_generation(
+                    conn,
+                    index_name="embeddings",
+                    source_generation=f"canonical-ids:{id_hash}",
+                    row_count=processed,
+                    id_hash=id_hash,
+                    model_id=model_id,
+                    model_version=loader.model_version,
+                    dimensions=(len(last_rows[0][3]) // 4 if last_rows else None),
+                    metadata={
+                        "batch_size": size,
+                        "new_count": new_count,
+                        "content_hash": staged_fingerprint,
+                    },
+                    activate=True,
+                )
+                conn.commit()
             return {
                 "status": "replaced",
                 "total": total,
@@ -699,6 +940,7 @@ class SQLiteIndex:
                 "batch_size": size,
                 "model_id": model_id,
                 "model_version": loader.model_version,
+                "generation_id": generation["generation_id"],
             }
         except Exception:
             with self._lock:
@@ -706,6 +948,50 @@ class SQLiteIndex:
                 conn.execute(f"DROP TABLE IF EXISTS {staging}")
                 conn.commit()
             raise
+
+    def _embedding_target_fingerprint(
+        self,
+        conn: sqlite3.Connection,
+        entry_ids: Iterable[str],
+    ) -> str:
+        """Hash current target rows, including explicit markers for missing ids."""
+
+        normalized = sorted({str(entry_id) for entry_id in entry_ids})
+        rows_by_id: dict[str, tuple[Any, ...]] = {}
+        for start in range(0, len(normalized), 500):
+            batch = normalized[start : start + 500]
+            if not batch:
+                continue
+            placeholders = ",".join("?" for _ in batch)
+            rows = conn.execute(
+                f"""
+                SELECT entry_id, model_id, model_version, embedding, created_at
+                FROM vec_embeddings WHERE entry_id IN ({placeholders})
+                """,
+                batch,
+            ).fetchall()
+            rows_by_id.update({str(row[0]): tuple(row) for row in rows})
+        fingerprint_rows = [
+            rows_by_id.get(entry_id, (entry_id, "<missing>", "", b"", -1))
+            for entry_id in normalized
+        ]
+        return self.stable_embedding_rows_hash(fingerprint_rows)
+
+    @staticmethod
+    def stable_embedding_rows_hash(rows: Iterable[tuple[Any, ...]]) -> str:
+        """Return a stable content identity for persisted embedding rows."""
+
+        digest = hashlib.sha256()
+        normalized = sorted((tuple(row) for row in rows), key=lambda row: str(row[0]))
+        for entry_id, model_id, model_version, embedding, created_at in normalized:
+            for value in (entry_id, model_id, model_version, created_at):
+                encoded = str(value).encode("utf-8")
+                digest.update(len(encoded).to_bytes(8, "big"))
+                digest.update(encoded)
+            blob = bytes(embedding or b"")
+            digest.update(len(blob).to_bytes(8, "big"))
+            digest.update(blob)
+        return digest.hexdigest()
 
     def knn_vec_embeddings(
         self,
@@ -737,12 +1023,108 @@ class SQLiteIndex:
         with self._lock:
             return self._vec_index.vec0_coverage_report(conn, model_id=model_id)
 
+    def vec0_content_identity(self, *, model_id: str) -> dict[str, Any]:
+        """Return active vec0 membership and vector-byte identity."""
+
+        conn = self._conn_write()
+        with self._lock:
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT entry_id, embedding, model_id
+                    FROM vec_embeddings_vec0 WHERE model_id = ?
+                    """,
+                    (model_id,),
+                ).fetchall()
+            except sqlite3.Error:
+                rows = []
+        normalized = [
+            (str(row[0]), bytes(row[1]), str(row[2])) for row in rows
+        ]
+        return {
+            "row_count": len(normalized),
+            "id_hash": self.stable_id_hash(row[0] for row in normalized),
+            "content_hash": SqliteVecIndex.stable_vector_fingerprint(normalized),
+        }
+
+    def embedding_source_identity(self, *, model_id: str) -> dict[str, Any]:
+        """Return canonical persisted-embedding identity for vec0 validation."""
+
+        conn = self._conn_write()
+        with self._lock:
+            rows = conn.execute(
+                """
+                SELECT entry_id, embedding, model_id
+                FROM vec_embeddings WHERE model_id = ?
+                """,
+                (model_id,),
+            ).fetchall()
+        normalized = [
+            (str(row[0]), bytes(row[1]), str(row[2])) for row in rows if row[1]
+        ]
+        return {
+            "row_count": len(normalized),
+            "id_hash": self.stable_id_hash(row[0] for row in normalized),
+            "content_hash": SqliteVecIndex.stable_vector_fingerprint(normalized),
+        }
+
     def rebuild_vec0_index(self, *, model_id: str) -> int:
         """Backfill vec0 from persisted ``vec_embeddings`` rows."""
 
         conn = self._conn_write()
         with self._lock:
-            return self._vec_index.rebuild_from_embeddings(conn, model_id=model_id)
+            rows = conn.execute(
+                """
+                SELECT entry_id, embedding, model_version
+                FROM vec_embeddings WHERE model_id = ?
+                """,
+                (model_id,),
+            ).fetchall()
+            ids = [str(row[0]) for row in rows]
+            dimensions = len(bytes(rows[0][1])) // 4 if rows and rows[0][1] else None
+            model_version = str(rows[0][2]) if rows else None
+            source_hash = self.stable_id_hash(ids)
+            source_content_hash = SqliteVecIndex.stable_vector_fingerprint(
+                (str(row[0]), bytes(row[1]), model_id) for row in rows if row[1]
+            )
+
+            def publish_generation(
+                publish_conn: sqlite3.Connection,
+                indexed: int,
+                published_ids: tuple[str, ...],
+                published_dimensions: int,
+                published_content_hash: str,
+            ) -> None:
+                published_hash = self.stable_id_hash(published_ids)
+                if (
+                    published_hash != source_hash
+                    or published_dimensions != dimensions
+                    or published_content_hash != source_content_hash
+                ):
+                    raise sqlite3.IntegrityError(
+                        "vec0 source identity changed before generation publish"
+                    )
+                self._insert_index_generation(
+                    publish_conn,
+                    index_name="vec0",
+                    source_generation=f"embeddings-content:{published_content_hash}",
+                    row_count=indexed,
+                    id_hash=published_hash,
+                    model_id=model_id,
+                    model_version=model_version,
+                    dimensions=published_dimensions,
+                    metadata={
+                        "vec0_indexed": indexed,
+                        "content_hash": published_content_hash,
+                    },
+                    activate=True,
+                )
+
+            return self._vec_index.rebuild_from_embeddings(
+                conn,
+                model_id=model_id,
+                publish_generation=publish_generation,
+            )
 
     def insert(self, table: str, data: dict[str, Any]) -> str:
         """Insert a row into table. Returns the row id."""
@@ -1014,6 +1396,155 @@ class SQLiteIndex:
             )
             conn.commit()
         return len(trigrams)
+
+    def rebuild_observation_trigrams(
+        self,
+        records: Iterable[tuple[str, str]],
+        *,
+        source_generation: str,
+        source_id_hash: str,
+        verify_source: Callable[[], bool] | None = None,
+        failpoint: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
+        """Stage and atomically publish a complete observation trigram generation."""
+
+        items = [(str(observation_id), str(text)) for observation_id, text in records]
+        observed_id_hash = self.stable_id_hash(observation_id for observation_id, _ in items)
+        if observed_id_hash != source_id_hash:
+            raise ValueError("trigram source id hash does not match staged records")
+        staging = f"observation_trigrams_staging_{uuid4().hex}"
+        conn = self._conn_write()
+        with self._lock:
+            try:
+                conn.execute(
+                    f"""
+                    CREATE TABLE {staging} (
+                        ngram TEXT NOT NULL,
+                        observation_id TEXT NOT NULL,
+                        PRIMARY KEY (ngram, observation_id)
+                    )
+                    """
+                )
+                postings = [
+                    (ngram, observation_id)
+                    for observation_id, text in items
+                    for ngram in sorted(_trigrams(text))
+                ]
+                conn.executemany(
+                    f"INSERT OR IGNORE INTO {staging} (ngram, observation_id) VALUES (?, ?)",
+                    postings,
+                )
+                staged_ids = {
+                    str(row[0])
+                    for row in conn.execute(
+                        f"SELECT DISTINCT observation_id FROM {staging}"
+                    ).fetchall()
+                }
+                expected_ids = {observation_id for observation_id, text in items if _trigrams(text)}
+                if staged_ids != expected_ids:
+                    raise sqlite3.IntegrityError("staged trigram membership mismatch")
+                postings_hash = self.stable_trigram_postings_hash(postings)
+                staged_identity = self._trigram_table_identity(conn, staging)
+                if staged_identity != (len(postings), postings_hash):
+                    raise sqlite3.IntegrityError("staged trigram content mismatch")
+                conn.commit()
+                if failpoint is not None:
+                    failpoint("after_staging_validation")
+                conn.execute("BEGIN IMMEDIATE")
+                if verify_source is not None and not verify_source():
+                    raise sqlite3.IntegrityError(
+                        "observation source changed during trigram rebuild"
+                    )
+                if self._trigram_table_identity(conn, staging) != (
+                    len(postings),
+                    postings_hash,
+                ):
+                    raise sqlite3.IntegrityError(
+                        "trigram staging content changed before publish"
+                    )
+                conn.execute("DELETE FROM observation_trigrams")
+                if failpoint is not None:
+                    failpoint("after_active_clear")
+                conn.execute(
+                    f"""
+                    INSERT INTO observation_trigrams (ngram, observation_id)
+                    SELECT ngram, observation_id FROM {staging}
+                    """
+                )
+                if self._trigram_table_identity(
+                    conn, "observation_trigrams"
+                ) != (len(postings), postings_hash):
+                    raise sqlite3.IntegrityError(
+                        "published trigram content does not match staging"
+                    )
+                generation = self._insert_index_generation(
+                    conn,
+                    index_name="trigram:observations",
+                    source_generation=source_generation,
+                    row_count=len(items),
+                    id_hash=source_id_hash,
+                    metadata={
+                        "indexed_observations": len(items),
+                        "posting_count": len(postings),
+                        "postings_hash": postings_hash,
+                    },
+                    activate=True,
+                )
+                if failpoint is not None:
+                    failpoint("before_publish_commit")
+                conn.execute(f"DROP TABLE {staging}")
+                conn.commit()
+                return {
+                    "status": "published",
+                    "indexed_observations": len(items),
+                    "postings": len(postings),
+                    "generation_id": generation["generation_id"],
+                }
+            except Exception:
+                conn.rollback()
+                try:
+                    conn.execute(f"DROP TABLE IF EXISTS {staging}")
+                    conn.commit()
+                except sqlite3.Error:
+                    conn.rollback()
+                raise
+
+    @staticmethod
+    def stable_trigram_postings_hash(
+        postings: Iterable[tuple[str, str]],
+    ) -> str:
+        """Return a stable content identity for exact-index postings."""
+
+        digest = hashlib.sha256()
+        for ngram, observation_id in sorted(
+            {(str(ngram), str(observation_id)) for ngram, observation_id in postings}
+        ):
+            for value in (ngram, observation_id):
+                encoded = value.encode("utf-8")
+                digest.update(len(encoded).to_bytes(8, "big"))
+                digest.update(encoded)
+        return digest.hexdigest()
+
+    def _trigram_table_identity(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+    ) -> tuple[int, str]:
+        rows = conn.execute(
+            f"SELECT ngram, observation_id FROM {table_name}"
+        ).fetchall()
+        postings = [(str(row[0]), str(row[1])) for row in rows]
+        return len(postings), self.stable_trigram_postings_hash(postings)
+
+    def observation_trigram_identity(self) -> dict[str, Any]:
+        """Return exact posting count and content hash for health verification."""
+
+        conn = self._conn_write()
+        with self._lock:
+            posting_count, postings_hash = self._trigram_table_identity(
+                conn, "observation_trigrams"
+            )
+        return {"posting_count": posting_count, "postings_hash": postings_hash}
 
     def observation_ids_with_trigrams(self) -> set[str]:
         """Return observations that already have exact-search postings."""
