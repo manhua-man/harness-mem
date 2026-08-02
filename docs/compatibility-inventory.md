@@ -20,7 +20,7 @@ pass. It is an ownership ledger, not a second API definition.
 | Surface | Replacement | Evidence gate |
 |---|---|---|
 | Hidden MCP schemas and registry entries for low-level suggest/confirm/reject, direct ingest/project mutation, and handoff helpers | `govern_memory`, `prepare_session_distill`, and directory-first project resolution | Registry equality tests and generated-descriptor tests require exactly 27 public entries. |
-| Six host-specific hook installer commands | `harness-mem integration hooks sync --client <host>` | CLI parser, dispatch, completion, and seven-host integration tests. |
+| Six host-specific hook installer commands | `harness-mem integration hooks sync --client <host|all>` | CLI parser, per-host/all-host dispatch, completion, and seven-host integration tests. |
 | Daily-work CLI modules for candidate, handoff, profile, search, and status flows | MCP plus the seven host-native Daily actions | Public CLI surface and documentation lifecycle tests. |
 | Doctor's weak-link experiment recommendation | Normal retrieval quality/status diagnostics | Doctor output contract rejects the retired recommendation. |
 | Public writes to 25 low-level tuning keys | Ten user-facing policy keys; existing values remain readable | Config list/set and merged-loader compatibility tests. |

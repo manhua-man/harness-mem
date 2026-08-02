@@ -130,11 +130,12 @@ The user-level locations are `~/.claude/commands/hm`, `~/.codex/skills`,
 `~/.gemini/antigravity/global_workflows`, respectively.
 
 Project hooks are normally bootstrapped during first MCP initialization. For
-explicit operator repair, use the single cross-host command:
+explicit operator repair, use the single all-host command:
 
 ```bash
-harness-mem integration hooks sync --client <host> --project-root . --force
+harness-mem integration hooks sync --client all --project-root . --force
 ```
+Replace `all` with one host name when only that integration needs repair.
 For the current host support matrix and where each host expects hooks to live,
 see [IDE hook adapter matrix](ide-hook-adapter-matrix.md).
 Session-start wake shows a compact recent-context index first, including recent
