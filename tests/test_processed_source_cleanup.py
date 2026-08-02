@@ -20,6 +20,10 @@ from harness_mem.processed_source_cleanup import (
     retry_retained_source_cleanups,
 )
 from harness_mem.commands.wake import build_wake_injection
+from harness_mem.mcp.distill_projection import (
+    DISTILL_INCREMENTAL_PROJECTION,
+    build_append_aware_distill_projection,
+)
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.canonical_store import canonical_store_path
 
@@ -401,7 +405,6 @@ def test_cleanup_completes_no_candidate_session_without_creating_truth(
                 promotion_summary={"promoted": 0},
                 source_cleanup_status="retained",
             )
-
             result = await cleanup_processed_source(
                 backend,
                 job_id=snapshot.distill_job_id,
@@ -738,6 +741,13 @@ def test_cleanup_prunes_every_historical_revision_for_logical_source(
                 promotion_summary={},
                 source_cleanup_status="retained",
             )
+            _content, _summary, projection = build_append_aware_distill_projection(
+                "new revision secret",
+                source_revision=second.source.source_revision,
+                source_bytes=b"new revision secret",
+            )
+            projection["source_id"] = second.source.id
+            backend.transcript_store.save_distill_projection(projection)
 
             result = await cleanup_processed_source(
                 backend,
@@ -747,6 +757,12 @@ def test_cleanup_prunes_every_historical_revision_for_logical_source(
 
             assert result["success"] is True
             assert result["counts"]["revisions_pruned"] == 2
+            assert result["counts"]["semantic_projections_deleted"] == 1
+            assert backend.transcript_store.get_distill_projection(
+                second.source.id,
+                second.source.source_revision,
+                record_version=DISTILL_INCREMENTAL_PROJECTION,
+            ) is None
             assert backend.transcript_store.reconstruct_raw(
                 first.source.id,
                 source_revision=first.source.source_revision,

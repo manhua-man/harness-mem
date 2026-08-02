@@ -26,6 +26,7 @@ from harness-mem gaps and proposed work.
 | [BEAM](beam.md) | trigger-based evaluation | Adapter contracts, capability gaps, failure artifacts |
 | [smartsearch](smartsearch.md) | evidence retrieval | Source extraction and visible fallback/degraded paths |
 | [mattpocock/skills](mattpocock-skills.md) | workflow/skills | Explicit grilling, domain modeling, composable skill boundaries |
+| [Pi](pi.md) | host/session architecture | Append-aware context, tool-safe cut points, branch lineage |
 | [vstash](vstash.md) | paper-only research | Revisit only when implementation evidence appears |
 
 ## Architecture reading order
@@ -40,8 +41,9 @@ retrieval/index trio, then the evaluation and host-compatibility pages:
 3. [PrecisionMemBench](precisionmembench.md), [MemoryData](memorydata.md),
    [LongMemEval](longmemeval.md), [LoCoMo](locomo.md), and [BEAM](beam.md)
    explain evaluation and behavior contracts.
-4. [Letta](letta.md) and [smartsearch](smartsearch.md) cover budget and evidence
-   UX; [mattpocock/skills](mattpocock-skills.md) covers optional workflow
+4. [Letta](letta.md), [smartsearch](smartsearch.md), and [Pi](pi.md) cover
+   budget, evidence UX, and session-context lineage;
+   [mattpocock/skills](mattpocock-skills.md) covers optional workflow
    composition; [vstash](vstash.md) remains paper-only.
 
 ## Version and evidence rules

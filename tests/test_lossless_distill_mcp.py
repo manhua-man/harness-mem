@@ -13,7 +13,7 @@ import pytest
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.core.schemas.observation import Observation
-from harness_mem.mcp import governance_handlers, tool_handlers
+from harness_mem.mcp import distill_handlers, governance_handlers, tool_handlers
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -26,6 +26,87 @@ SEMANTIC_REVIEW = {
     "evidence_status": "answered",
     "promotion_decision": "promote",
 }
+
+
+def test_semantic_evidence_reuses_a_verified_appended_revision(tmp_path: Path) -> None:
+    backend = LocalMemoryBackend(tmp_path / "append-projection-data")
+    asyncio.run(backend.init())
+    source_uri = "file:///append-projection.jsonl"
+    base_native = b'{"event":"base"}\n'
+    tail_native = b'{"event":"tail"}\n'
+    base_parser = "User: inspect base\n\nAssistant: base verified\n\n"
+    tail_parser = "User: inspect tail\n\nAssistant: tail verified\n\n"
+
+    base = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id="append-projection",
+                client="codex",
+                raw_content=base_parser,
+                content_type="transcript",
+                timestamp=datetime.now(timezone.utc),
+                metadata={},
+            ),
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            session_id="append-projection",
+            source_kind="jsonl",
+            source_uri=source_uri,
+            source_text=base_native.decode(),
+            raw_bytes=base_native,
+            sequence_count=1,
+        )
+    )
+    assert base.source is not None
+    base_evidence = distill_handlers._load_distill_semantic_evidence(
+        backend,
+        source_id=base.source.id,
+        source_revision=base.source.source_revision,
+        detail_level="compact",
+        budget_tokens=3000,
+    )
+    assert base_evidence is not None
+    assert base_evidence["projection_build_mode"] == "full"
+
+    appended_native = base_native + tail_native
+    appended = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id="append-projection",
+                client="codex",
+                raw_content=base_parser + tail_parser,
+                content_type="transcript",
+                timestamp=datetime.now(timezone.utc),
+                metadata={},
+            ),
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            session_id="append-projection",
+            source_kind="jsonl",
+            source_uri=source_uri,
+            source_text=appended_native.decode(),
+            raw_bytes=appended_native,
+            sequence_count=2,
+        )
+    )
+    assert appended.source is not None
+    appended_evidence = distill_handlers._load_distill_semantic_evidence(
+        backend,
+        source_id=appended.source.id,
+        source_revision=appended.source.source_revision,
+        detail_level="compact",
+        budget_tokens=3000,
+    )
+
+    assert appended_evidence is not None
+    assert appended_evidence["projection_build_mode"] == "append"
+    assert appended_evidence["projection_base_revision"] == base.source.source_revision
+    assert appended_evidence["covered_sequence_count"] == 2
+    asyncio.run(backend.close())
 
 
 def _zero_candidate_challenge(

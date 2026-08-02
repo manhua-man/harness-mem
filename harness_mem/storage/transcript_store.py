@@ -27,7 +27,7 @@ from harness_mem.transcript_chunking import (
 )
 from harness_mem.storage.session_distill_store import SessionDistillStore
 
-TRANSCRIPT_LEDGER_SCHEMA_VERSION = 6
+TRANSCRIPT_LEDGER_SCHEMA_VERSION = 7
 
 
 class TranscriptStore:
@@ -332,6 +332,145 @@ class TranscriptStore:
         if sha256_bytes(value) != row["raw_sha256"]:
             raise ValueError("stored transcript source bytes failed hash validation")
         return value
+
+    def save_distill_projection(self, record: dict[str, Any]) -> None:
+        """Persist the latest disposable semantic projection cache for a source."""
+
+        source_id = str(record.get("source_id") or "")
+        source_revision = str(record.get("source_revision") or "")
+        record_version = str(record.get("record_version") or "")
+        projection_sha256 = str(record.get("projection_sha256") or "")
+        if not all(
+            (source_id, source_revision, record_version, projection_sha256)
+        ):
+            raise ValueError("distill projection record is missing identity fields")
+        if self.get_revision(source_id, source_revision) is None:
+            raise KeyError(f"{source_id}@{source_revision}")
+        now = datetime.now(timezone.utc).isoformat()
+        payload = json.dumps(record, ensure_ascii=False)
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                current_row = self._conn.execute(
+                    """
+                    SELECT rowid FROM transcript_source_revisions
+                    WHERE source_id = ? AND source_revision = ?
+                    """,
+                    (source_id, source_revision),
+                ).fetchone()
+                latest_cached_row = self._conn.execute(
+                    """
+                    SELECT MAX(revision.rowid) AS revision_rowid
+                    FROM distill_semantic_projections projection
+                    JOIN transcript_source_revisions revision
+                      ON revision.source_id = projection.source_id
+                     AND revision.source_revision = projection.source_revision
+                    WHERE projection.source_id = ?
+                      AND projection.record_version = ?
+                    """,
+                    (source_id, record_version),
+                ).fetchone()
+                if (
+                    current_row is None
+                    or (
+                        latest_cached_row is not None
+                        and latest_cached_row["revision_rowid"] is not None
+                        and int(latest_cached_row["revision_rowid"])
+                        > int(current_row["rowid"])
+                    )
+                ):
+                    # An older parked job may finish after a newer revision.
+                    # Never let it replace the cumulative cache that the next
+                    # append needs; the old job already has its rendered result.
+                    self._conn.commit()
+                    return
+                # Parse state is cumulative, so retaining every revision would
+                # grow quadratically for an active append-only session. One
+                # latest cache per source/version is sufficient: older jobs can
+                # always rebuild from their immutable raw revision.
+                self._conn.execute(
+                    """
+                    DELETE FROM distill_semantic_projections
+                    WHERE source_id = ? AND record_version = ?
+                      AND source_revision != ?
+                    """,
+                    (source_id, record_version, source_revision),
+                )
+                self._conn.execute(
+                    """
+                    INSERT INTO distill_semantic_projections (
+                        source_id, source_revision, record_version,
+                        projection_sha256, updated_at, data
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(source_id, source_revision, record_version) DO UPDATE SET
+                        projection_sha256=excluded.projection_sha256,
+                        updated_at=excluded.updated_at,
+                        data=excluded.data
+                    """,
+                    (
+                        source_id,
+                        source_revision,
+                        record_version,
+                        projection_sha256,
+                        now,
+                        payload,
+                    ),
+                )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def get_distill_projection(
+        self,
+        source_id: str,
+        source_revision: str,
+        *,
+        record_version: str,
+    ) -> dict[str, Any] | None:
+        """Load one derived projection record without treating it as evidence."""
+
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT data FROM distill_semantic_projections
+                WHERE source_id = ? AND source_revision = ? AND record_version = ?
+                """,
+                (source_id, source_revision, record_version),
+            ).fetchone()
+        return None if row is None else dict(json.loads(row["data"]))
+
+    def get_latest_prior_distill_projection(
+        self,
+        source_id: str,
+        source_revision: str,
+        *,
+        record_version: str,
+    ) -> dict[str, Any] | None:
+        """Return the nearest captured projection before ``source_revision``."""
+
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT p.data
+                FROM transcript_source_revisions prior
+                JOIN distill_semantic_projections p
+                  ON p.source_id = prior.source_id
+                 AND p.source_revision = prior.source_revision
+                 AND p.record_version = ?
+                WHERE prior.source_id = ?
+                  AND prior.rowid < (
+                      SELECT current.rowid
+                      FROM transcript_source_revisions current
+                      WHERE current.source_id = ?
+                        AND current.source_revision = ?
+                  )
+                ORDER BY prior.rowid DESC
+                LIMIT 1
+                """,
+                (record_version, source_id, source_id, source_revision),
+            ).fetchone()
+        return None if row is None else dict(json.loads(row["data"]))
 
     def get_scan_frontier(
         self,
@@ -672,6 +811,13 @@ class TranscriptStore:
                     ).fetchone()[0]
                     or 0
                 )
+                semantic_projection_count = int(
+                    self._conn.execute(
+                        "SELECT COUNT(*) FROM distill_semantic_projections "
+                        "WHERE source_id = ?",
+                        (job.source_id,),
+                    ).fetchone()[0]
+                )
 
                 # Checkpoints reference chunks without ON DELETE CASCADE, so the
                 # job-owned checkpoints must be removed first.
@@ -682,6 +828,10 @@ class TranscriptStore:
                 )
                 self._conn.execute(
                     "DELETE FROM transcript_chunks WHERE source_id = ?",
+                    (job.source_id,),
+                )
+                self._conn.execute(
+                    "DELETE FROM distill_semantic_projections WHERE source_id = ?",
                     (job.source_id,),
                 )
 
@@ -780,6 +930,7 @@ class TranscriptStore:
                     "raw_bytes_pruned": raw_bytes,
                     "chunks_deleted": chunk_count,
                     "checkpoints_deleted": checkpoint_count,
+                    "semantic_projections_deleted": semantic_projection_count,
                     "completed_jobs_retained": completed_jobs,
                 }
             except Exception:
@@ -792,7 +943,13 @@ class TranscriptStore:
         with self._lock:
             job = self._distill._get_job_locked(job_id)
             if job is None:
-                return {"completed_job": 0, "raw_bytes": 1, "chunks": 1, "checkpoints": 1}
+                return {
+                    "completed_job": 0,
+                    "raw_bytes": 1,
+                    "chunks": 1,
+                    "checkpoints": 1,
+                    "semantic_projections": 1,
+                }
             revision = self._conn.execute(
                 "SELECT COUNT(*), COALESCE(SUM(length(raw_bytes)), 0), "
                 "COALESCE(SUM(raw_size_bytes), 0), "
@@ -823,11 +980,19 @@ class TranscriptStore:
                     (job.source_id,),
                 ).fetchone()[0]
             )
+            semantic_projections = int(
+                self._conn.execute(
+                    "SELECT COUNT(*) FROM distill_semantic_projections "
+                    "WHERE source_id = ?",
+                    (job.source_id,),
+                ).fetchone()[0]
+            )
         return {
             "completed_job": int(job.status == "completed"),
             "raw_bytes": raw_residual,
             "chunks": chunks,
             "checkpoints": checkpoints,
+            "semantic_projections": semantic_projections,
         }
 
     def plan_hard_delete(
@@ -865,11 +1030,19 @@ class TranscriptStore:
             revisions = [dict(row) for row in self._conn.execute(sql, params).fetchall()]
             keys = [(str(row["source_id"]), str(row["source_revision"])) for row in revisions]
             chunk_count = 0
+            projection_count = 0
             jobs: list[dict[str, Any]] = []
             for selected_source_id, selected_revision in keys:
                 chunk_count += int(
                     self._conn.execute(
                         "SELECT COUNT(*) FROM transcript_chunks "
+                        "WHERE source_id = ? AND source_revision = ?",
+                        (selected_source_id, selected_revision),
+                    ).fetchone()[0]
+                )
+                projection_count += int(
+                    self._conn.execute(
+                        "SELECT COUNT(*) FROM distill_semantic_projections "
                         "WHERE source_id = ? AND source_revision = ?",
                         (selected_source_id, selected_revision),
                     ).fetchone()[0]
@@ -895,6 +1068,7 @@ class TranscriptStore:
             "job_ids": sorted({str(row["id"]) for row in jobs}),
             "revision_count": len(revisions),
             "chunk_count": chunk_count,
+            "semantic_projection_count": projection_count,
             "raw_bytes": sum(int(row["raw_size_bytes"]) for row in revisions),
         }
 
@@ -913,6 +1087,7 @@ class TranscriptStore:
         deleted_revisions = 0
         deleted_jobs = 0
         deleted_chunks = 0
+        deleted_semantic_projections = 0
         affected_sources = {source_id for source_id, _revision in unique_keys}
         with self._lock:
             try:
@@ -928,6 +1103,13 @@ class TranscriptStore:
                     deleted_jobs += int(
                         self._conn.execute(
                             "SELECT COUNT(*) FROM distill_jobs "
+                            "WHERE source_id = ? AND source_revision = ?",
+                            (selected_source_id, selected_revision),
+                        ).fetchone()[0]
+                    )
+                    deleted_semantic_projections += int(
+                        self._conn.execute(
+                            "SELECT COUNT(*) FROM distill_semantic_projections "
                             "WHERE source_id = ? AND source_revision = ?",
                             (selected_source_id, selected_revision),
                         ).fetchone()[0]
@@ -987,6 +1169,7 @@ class TranscriptStore:
                     "revisions": deleted_revisions,
                     "chunks": deleted_chunks,
                     "distill_jobs": deleted_jobs,
+                    "semantic_projections": deleted_semantic_projections,
                     "sources": deleted_sources,
                     **(audit_counts or {}),
                 }
@@ -1065,7 +1248,12 @@ class TranscriptStore:
     ) -> dict[str, int]:
         """Count selected ledger records that still exist after erasure."""
 
-        remaining = {"revisions": 0, "chunks": 0, "distill_jobs": 0}
+        remaining = {
+            "revisions": 0,
+            "chunks": 0,
+            "distill_jobs": 0,
+            "semantic_projections": 0,
+        }
         unique_keys = list(dict.fromkeys((str(a), str(b)) for a, b in revision_keys))
         with self._lock:
             for source_id, source_revision in unique_keys:
@@ -1079,6 +1267,13 @@ class TranscriptStore:
                 remaining["chunks"] += int(
                     self._conn.execute(
                         "SELECT COUNT(*) FROM transcript_chunks "
+                        "WHERE source_id = ? AND source_revision = ?",
+                        (source_id, source_revision),
+                    ).fetchone()[0]
+                )
+                remaining["semantic_projections"] += int(
+                    self._conn.execute(
+                        "SELECT COUNT(*) FROM distill_semantic_projections "
                         "WHERE source_id = ? AND source_revision = ?",
                         (source_id, source_revision),
                     ).fetchone()[0]
@@ -1263,6 +1458,19 @@ class TranscriptStore:
             );
             CREATE INDEX IF NOT EXISTS idx_transcript_chunks_source_revision
                 ON transcript_chunks(source_id, source_revision, chunk_index);
+
+            CREATE TABLE IF NOT EXISTS distill_semantic_projections (
+                source_id TEXT NOT NULL,
+                source_revision TEXT NOT NULL,
+                record_version TEXT NOT NULL,
+                projection_sha256 TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                data TEXT NOT NULL,
+                PRIMARY KEY(source_id, source_revision, record_version),
+                FOREIGN KEY(source_id, source_revision)
+                    REFERENCES transcript_source_revisions(source_id, source_revision)
+                    ON DELETE CASCADE
+            );
 
             CREATE TABLE IF NOT EXISTS distill_jobs (
                 id TEXT PRIMARY KEY,

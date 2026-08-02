@@ -110,6 +110,13 @@ class TranscriptChunk(BaseModel):
     size_bytes: int
     starts_on_boundary: bool = True
     ends_on_boundary: bool = True
+    # Semantic-boundary metadata is additive. sequence_start/sequence_end are
+    # the half-open logical-unit range touched by this exact raw chunk.
+    boundary_strategy: Literal["newline", "logical_unit", "hard_limit"] = "newline"
+    logical_unit_ids: list[str] = Field(default_factory=list)
+    logical_unit_kinds: list[str] = Field(default_factory=list)
+    starts_with_continuation: bool = False
+    ends_with_continuation: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     model_config = {"extra": "allow"}

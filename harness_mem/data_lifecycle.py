@@ -142,6 +142,7 @@ async def plan_hard_delete(
             "revisions": ledger["revision_count"],
             "chunks": ledger["chunk_count"],
             "distill_jobs": len(ledger["job_ids"]),
+            "semantic_projections": ledger["semantic_projection_count"],
             "observations": len(observation_ids),
             "candidates": sum(
                 len(ids) for collection, ids in structured.items()
@@ -301,6 +302,7 @@ async def hard_delete(
         "revisions": 0,
         "chunks": 0,
         "distill_jobs": 0,
+        "semantic_projections": 0,
         "observations": 0,
         "candidates": 0,
         "structured_truth": 0,
@@ -360,7 +362,12 @@ async def hard_delete(
             },
             receipt=receipt,
         )
-        for key in ("revisions", "chunks", "distill_jobs"):
+        for key in (
+            "revisions",
+            "chunks",
+            "distill_jobs",
+            "semantic_projections",
+        ):
             actual[key] = int(audit["counts"].get(key, 0))
 
         operation = "post_delete_verification"

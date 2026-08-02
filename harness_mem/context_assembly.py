@@ -18,8 +18,12 @@ end-to-end with no orphaned code.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
+from harness_mem.commands import token_estimator
 from harness_mem.commands.support import resolve_project_name
 from harness_mem.governance_status import READABLE_TRUTH_FILTER, is_readable_truth
 from harness_mem.core.schemas.confirmed_rule import ConfirmedRule
@@ -27,10 +31,13 @@ from harness_mem.core.schemas.context_assembly_plan import (
     LAYER_ORDER,
     Budget,
     ContextAssemblyPlan,
+    ContextProjectionReceipt,
     DrilldownPointer,
     Layer,
     LayerId,
     PlanEntry,
+    ProjectionOutcome,
+    TokenCountBasis,
     TruncationAccounting,
 )
 from harness_mem.core.schemas.memory_entry import MemoryEntry
@@ -64,12 +71,214 @@ DEFAULT_BUDGETS: dict[str, int] = {
 RECENTLY_SURFACED_WINDOW_DAYS = 7
 
 
+@dataclass(slots=True)
+class _BudgetTrace:
+    """Internal, content-bearing trace discarded after receipt construction."""
+
+    before_text: str = ""
+    after_text: str = ""
+    evicted_source_ids: list[str] = field(default_factory=list)
+    truncated_source_ids: list[str] = field(default_factory=list)
+
+
+def _coerce_budget(
+    value: int | Budget | dict[str, int | None],
+    *,
+    default_max_entries: int,
+) -> Budget:
+    if isinstance(value, Budget):
+        return value.model_copy(deep=True)
+    if isinstance(value, int):
+        return Budget(max_entries=value)
+    payload = dict(value)
+    payload.setdefault("max_entries", default_max_entries)
+    return Budget.from_dict(payload)
+
+
+def _truncate_to_char_budget(value: str, max_chars: int) -> str:
+    if max_chars <= 0:
+        return ""
+    if len(value) <= max_chars:
+        return value
+    if max_chars == 1:
+        return "\u2026"
+    return value[: max_chars - 1].rstrip() + "\u2026"
+
+
+def _projection_text(entries: list[PlanEntry]) -> str:
+    return "\n".join(entry.summary for entry in entries if entry.summary)
+
+
+def _source_ids(entries: list[PlanEntry]) -> list[str]:
+    return _dedupe(
+        source_id
+        for entry in entries
+        for source_id in entry.source_ids
+        if source_id
+    )
+
+
+def _dedupe(values: Iterable[object]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if isinstance(value, str) and value and value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
+
+
+def _estimated_tokens(value: str) -> tuple[int, str]:
+    if not value:
+        return 0, "tokenizer_estimate"
+    count = token_estimator.count_tokens(value)
+    basis = (
+        "character_estimate"
+        if token_estimator.tokenizer_kind == "char-heuristic"
+        else "tokenizer_estimate"
+    )
+    return count, basis
+
+
+def _observed_usage_total(value: int | Mapping[str, Any] | None) -> int | None:
+    """Resolve Pi/OpenAI-style usage without tying the plan to one host."""
+
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if not isinstance(value, Mapping):
+        return None
+
+    nested = value.get("usage")
+    if isinstance(nested, Mapping):
+        resolved = _observed_usage_total(nested)
+        if resolved is not None:
+            return resolved
+
+    for key in ("total_tokens", "totalTokens"):
+        total = value.get(key)
+        if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
+            return total
+
+    component_groups = (
+        ("input_tokens", "inputTokens"),
+        ("output_tokens", "outputTokens"),
+        ("cache_read_tokens", "cacheReadTokens"),
+        ("cache_write_tokens", "cacheWriteTokens"),
+    )
+    components: list[int] = []
+    found = False
+    for aliases in component_groups:
+        component = next(
+            (
+                value[key]
+                for key in aliases
+                if isinstance(value.get(key), int)
+                and not isinstance(value.get(key), bool)
+                and value[key] >= 0
+            ),
+            0,
+        )
+        if any(key in value for key in aliases):
+            found = True
+        components.append(component)
+    return sum(components) if found else None
+
+
+def _receipt_source_revision(
+    layers: list[Layer],
+    explicit_revision: str | None,
+) -> str | None:
+    if explicit_revision:
+        return explicit_revision
+    revisions = {
+        str(entry.drilldown.locator["source_revision"])
+        for layer in layers
+        for entry in layer.entries
+        if entry.drilldown is not None
+        and entry.drilldown.locator.get("source_revision")
+    }
+    return next(iter(revisions)) if len(revisions) == 1 else None
+
+
+def _projection_receipt(
+    layers: list[Layer],
+    traces: list[_BudgetTrace],
+    *,
+    observed_usage: int | Mapping[str, Any] | None,
+    source_revision: str | None,
+) -> ContextProjectionReceipt:
+    before_text = "\n".join(trace.before_text for trace in traces if trace.before_text)
+    after_text = "\n".join(trace.after_text for trace in traces if trace.after_text)
+    before_tokens, before_basis = _estimated_tokens(before_text)
+    after_tokens, after_basis = _estimated_tokens(after_text)
+
+    observed_total = _observed_usage_total(observed_usage)
+    if observed_total is not None:
+        after_tokens = observed_total
+        if any(trace.evicted_source_ids or trace.truncated_source_ids for trace in traces):
+            before_tokens = max(before_tokens, observed_total)
+        else:
+            before_tokens = observed_total
+        token_basis: TokenCountBasis = "observed_usage"
+    elif "character_estimate" in {before_basis, after_basis}:
+        token_basis = "character_estimate"
+    else:
+        token_basis = "tokenizer_estimate"
+
+    kept_source_ids = _source_ids(
+        [entry for layer in layers for entry in layer.entries]
+    )
+    kept_id_set = set(kept_source_ids)
+    evicted_source_ids = [
+        source_id
+        for source_id in _dedupe(
+            source_id
+            for trace in traces
+            for source_id in trace.evicted_source_ids
+        )
+        if source_id not in kept_id_set
+    ]
+    truncated_source_ids = _dedupe(
+        source_id
+        for trace in traces
+        for source_id in trace.truncated_source_ids
+    )
+    outcome: ProjectionOutcome = (
+        "truncated"
+        if truncated_source_ids
+        else "evicted"
+        if evicted_source_ids
+        else "none"
+    )
+    drilldown = [
+        entry.drilldown.model_copy(deep=True)
+        for layer in layers
+        for entry in layer.entries
+        if entry.drilldown is not None
+    ]
+    return ContextProjectionReceipt(
+        source_revision=_receipt_source_revision(layers, source_revision),
+        before_tokens=before_tokens,
+        after_tokens=after_tokens,
+        kept_source_ids=kept_source_ids,
+        evicted_source_ids=evicted_source_ids,
+        token_basis=token_basis,
+        outcome=outcome,
+        summary_generated=False,
+        drilldown=drilldown,
+    )
+
+
 async def assemble_context_plan(
     backend: LocalMemoryBackend,
     *,
     project_name: str | None,
     query: str | None = None,
-    budgets: dict[str, int] | None = None,
+    budgets: dict[str, int | Budget | dict[str, int | None]] | None = None,
+    observed_usage: int | Mapping[str, Any] | None = None,
+    source_revision: str | None = None,
 ) -> ContextAssemblyPlan:
     """Build a read-only ContextAssemblyPlan from existing read surfaces.
 
@@ -95,15 +304,28 @@ async def assemble_context_plan(
 
     # When ``budgets`` is supplied, its values override the defaults per layer;
     # any layer it omits keeps the default (Req 6.1).
-    effective_budgets = {**DEFAULT_BUDGETS, **(budgets or {})}
+    effective_budgets: dict[str, int | Budget | dict[str, int | None]] = {
+        **DEFAULT_BUDGETS,
+        **(budgets or {}),
+    }
     budget_by_layer: dict[LayerId, Budget] = {
-        layer_id: Budget(max_entries=effective_budgets[layer_id])
+        layer_id: _coerce_budget(
+            effective_budgets[layer_id],
+            default_max_entries=DEFAULT_BUDGETS[layer_id],
+        )
         for layer_id in LAYER_ORDER
     }
 
-    l0 = await _build_l0(backend, resolved, budget_by_layer["L0"])
-    l1 = await _build_l1(backend, resolved, budget_by_layer["L1"])
-    l2 = await _build_l2(backend, resolved, budget_by_layer["L2"])
+    budget_trace: list[_BudgetTrace] = []
+    l0 = await _build_l0(
+        backend, resolved, budget_by_layer["L0"], budget_trace=budget_trace
+    )
+    l1 = await _build_l1(
+        backend, resolved, budget_by_layer["L1"], budget_trace=budget_trace
+    )
+    l2 = await _build_l2(
+        backend, resolved, budget_by_layer["L2"], budget_trace=budget_trace
+    )
     query_response = await _query_driven_backend_response(
         backend,
         project_name=resolved,
@@ -115,7 +337,13 @@ async def assemble_context_plan(
         if query_response is not None
         else None
     )
-    l3 = await _build_l3(backend, resolved, query_response, budget_by_layer["L3"])
+    l3 = await _build_l3(
+        backend,
+        resolved,
+        query_response,
+        budget_by_layer["L3"],
+        budget_trace=budget_trace,
+    )
     l4 = await _build_l4(
         backend,
         resolved,
@@ -123,36 +351,36 @@ async def assemble_context_plan(
         hydrated_results,
         budget_by_layer["L4"],
         l1.entries,
+        budget_trace=budget_trace,
     )
 
-    summary_tokens = sum(
-        max(0, len(entry.summary) // 4)
-        for layer in (l0, l1, l2, l3, l4)
-        for entry in layer.entries
-        if layer.layer != "L4"
+    layers = [l0, l1, l2, l3, l4]
+    receipt = _projection_receipt(
+        layers,
+        budget_trace,
+        observed_usage=observed_usage,
+        source_revision=source_revision,
     )
     context_budget = {
         "raw_tokens": 0,
-        "summary_tokens": summary_tokens,
-        "retrieved_tokens": summary_tokens,
-        "total_tokens": summary_tokens,
+        "summary_tokens": receipt.after_tokens,
+        "retrieved_tokens": receipt.after_tokens,
+        "total_tokens": receipt.after_tokens,
         "budget_tokens": sum(
-            layer.budget.max_chars or layer.budget.max_entries * 200
-            for layer in (l0, l1, l2, l3, l4)
+            layer.budget.max_chars
+            if layer.budget.max_chars is not None
+            else layer.budget.max_entries * 200
+            for layer in layers
         )
         // 4,
     }
-    compaction_outcome = (
-        "layer_budget_truncated"
-        if any(layer.truncation.dropped for layer in (l0, l1, l2, l3, l4))
-        else "none"
-    )
     return ContextAssemblyPlan(
         project_name=resolved,
         query=query,
-        layers=[l0, l1, l2, l3, l4],
+        layers=layers,
         context_budget=context_budget,
-        compaction_outcome=compaction_outcome,
+        compaction_outcome=receipt.outcome,
+        projection_receipt=receipt,
     )
 
 
@@ -176,18 +404,69 @@ def _apply_budget(
     layer_id: LayerId,
     candidates: list[PlanEntry],
     budget: Budget,
+    *,
+    budget_trace: list["_BudgetTrace"] | None = None,
 ) -> Layer:
-    """Cap candidates at ``budget.max_entries`` and compute the accounting.
+    """Apply entry and character caps without inventing a compaction summary.
 
-    ``included = min(available, max_entries)``;
-    ``dropped = available - included`` (Req 6.2, 6.3, 6.4, 6.5). Whenever
-    ``available <= max_entries`` this yields ``dropped == 0`` (Req 6.5).
+    Character limits apply to inline summaries. Drilldown-only entries carry
+    no source text and therefore consume no character budget. A summary that
+    crosses the remaining boundary is visibly truncated; whole entries lost
+    to either cap are recorded as evicted, never as compacted.
     """
     available = len(candidates)
-    included = min(available, budget.max_entries)
+    selected: list[PlanEntry] = []
+    evicted: list[PlanEntry] = []
+    truncated_source_ids: list[str] = []
+    remaining_chars = budget.max_chars
+
+    for candidate in candidates:
+        if len(selected) >= budget.max_entries:
+            evicted.append(candidate)
+            continue
+
+        summary = candidate.summary
+        if remaining_chars is None or not summary:
+            selected.append(candidate)
+            continue
+
+        separator_chars = 1 if any(entry.summary for entry in selected) else 0
+        required_chars = separator_chars + len(summary)
+        if remaining_chars <= separator_chars:
+            evicted.append(candidate)
+            continue
+        if required_chars <= remaining_chars:
+            selected.append(candidate)
+            remaining_chars -= required_chars
+            continue
+
+        available_summary_chars = remaining_chars - separator_chars
+        selected.append(
+            candidate.model_copy(
+                update={
+                    "summary": _truncate_to_char_budget(
+                        summary, available_summary_chars
+                    )
+                }
+            )
+        )
+        truncated_source_ids.extend(candidate.source_ids)
+        remaining_chars = 0
+
+    if budget_trace is not None:
+        budget_trace.append(
+            _BudgetTrace(
+                before_text=_projection_text(candidates),
+                after_text=_projection_text(selected),
+                evicted_source_ids=_source_ids(evicted),
+                truncated_source_ids=truncated_source_ids,
+            )
+        )
+
+    included = len(selected)
     return Layer(
         layer=layer_id,
-        entries=candidates[:included],
+        entries=selected,
         budget=budget,
         truncation=TruncationAccounting(
             available=available,
@@ -201,6 +480,8 @@ async def _build_l0(
     backend: LocalMemoryBackend,
     project_name: str,
     budget: Budget,
+    *,
+    budget_trace: list[_BudgetTrace] | None = None,
 ) -> Layer:
     """L0 profile / identity (Req 2.1-2.5, 8.2-8.3).
 
@@ -224,7 +505,7 @@ async def _build_l0(
                 summary=_profile_identity_summary(profile),
             )
         )
-    return _apply_budget("L0", candidates, budget)
+    return _apply_budget("L0", candidates, budget, budget_trace=budget_trace)
 
 
 def _profile_identity_summary(profile: ProjectProfile) -> str:
@@ -245,6 +526,8 @@ async def _build_l1(
     backend: LocalMemoryBackend,
     project_name: str,
     budget: Budget,
+    *,
+    budget_trace: list[_BudgetTrace] | None = None,
 ) -> Layer:
     """L1 essential truth (Req 3.1-3.6, 10.1, 10.2, 10.4).
 
@@ -315,7 +598,7 @@ async def _build_l1(
             )
         )
 
-    return _apply_budget("L1", candidates, budget)
+    return _apply_budget("L1", candidates, budget, budget_trace=budget_trace)
 
 
 def _truncate_summary(text: str, *, max_chars: int = 200) -> str:
@@ -334,6 +617,8 @@ async def _build_l2(
     backend: LocalMemoryBackend,
     project_name: str,
     budget: Budget,
+    *,
+    budget_trace: list[_BudgetTrace] | None = None,
 ) -> Layer:
     """L2 active task (Req 4.1-4.6, 10.1).
 
@@ -398,7 +683,7 @@ async def _build_l2(
             )
         )
 
-    return _apply_budget("L2", candidates, budget)
+    return _apply_budget("L2", candidates, budget, budget_trace=budget_trace)
 
 
 async def _recently_surfaced_entries(
@@ -467,6 +752,8 @@ async def _build_l3(
     project_name: str,
     query_response: SearchBackendResponse | None,
     budget: Budget,
+    *,
+    budget_trace: list[_BudgetTrace] | None = None,
 ) -> Layer:
     """L3 topic recall (Req 5.1-5.6).
 
@@ -502,7 +789,7 @@ async def _build_l3(
     # Short-circuit on absent / blank query — no search surface is touched
     # (Req 5.5).
     if query_response is None:
-        return _apply_budget("L3", [], budget)
+        return _apply_budget("L3", [], budget, budget_trace=budget_trace)
 
     candidates: list[PlanEntry] = []
     for result in query_response.results:
@@ -534,7 +821,7 @@ async def _build_l3(
                 )
             )
 
-    return _apply_budget("L3", candidates, budget)
+    return _apply_budget("L3", candidates, budget, budget_trace=budget_trace)
 
 
 def _skill_hint_summary(skill: Skill) -> str:
@@ -557,6 +844,8 @@ async def _build_l4(
     hydrated_results: dict[str, list[object]] | None,
     budget: Budget,
     l1_entries: list[PlanEntry],
+    *,
+    budget_trace: list[_BudgetTrace] | None = None,
 ) -> Layer:
     """L4 raw evidence drilldown (Req 7.1-7.6, 8.2-8.3, 10.1).
 
@@ -652,7 +941,7 @@ async def _build_l4(
             )
         )
 
-    return _apply_budget("L4", candidates, budget)
+    return _apply_budget("L4", candidates, budget, budget_trace=budget_trace)
 
 
 async def _resolve_l1_memory_entries(
@@ -720,6 +1009,14 @@ def _observation_drilldown_entry(
     ``read_api.get_observations`` without re-reading the plan (Req 7.1, 7.2,
     7.6). ``summary`` is left empty so no raw observation text leaks into L4.
     """
+    locator = {
+        "session_id": observation.session_id,
+        "project_name": project_name,
+    }
+    source_revision = observation.metadata.get("source_revision")
+    if isinstance(source_revision, str) and source_revision:
+        locator["source_revision"] = source_revision
+
     return PlanEntry(
         layer="L4",
         source_ids=[observation.id],
@@ -727,9 +1024,6 @@ def _observation_drilldown_entry(
         drilldown=DrilldownPointer(
             source_id=observation.id,
             read_surface="read_api.get_observations",
-            locator={
-                "session_id": observation.session_id,
-                "project_name": project_name,
-            },
+            locator=locator,
         ),
     )

@@ -87,6 +87,7 @@ def test_hard_delete_removes_raw_chunks_observation_candidates_truth_and_indexes
                 "revisions": 1,
                 "chunks": 1,
                 "distill_jobs": 1,
+                "semantic_projections": 0,
                 "observations": 1,
                 "candidates": 1,
                 "structured_truth": 1,

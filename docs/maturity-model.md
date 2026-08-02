@@ -79,7 +79,7 @@ Binary yes/no: public docs and agent skills must stay inside verified capability
 | ⑨ Maintenance | L1 dream + L4 distill maintenance |
 | ⑩ Evidence | L6 + per-track contract tests |
 
-## Current snapshot (v0.9.9.1)
+## Current snapshot (v0.9.10)
 
 See `canvases/harness-mem-readiness-v1.canvas.tsx` for the living panel. As of
 2026-08-02:

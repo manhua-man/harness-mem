@@ -33,8 +33,8 @@ from harness_mem.core.schemas.session_distill import (
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.transcript_chunking import sha256_text
 from harness_mem.mcp.distill_projection import (
-    build_distill_compact_outline,
-    build_distill_semantic_outline,
+    DISTILL_INCREMENTAL_PROJECTION,
+    build_append_aware_distill_projection,
     render_distill_exchange_windows,
     split_distill_semantic_content,
 )
@@ -127,19 +127,50 @@ def _load_distill_semantic_evidence(
         return None
 
     parser_content = observation.raw_content
-    if detail_level == "full":
-        content, projection_summary = build_distill_semantic_outline(parser_content)
-        projection_summary = {
-            **projection_summary,
-            "detail_level": "full",
-            "budget_tokens": max(256, int(budget_tokens or 3000)),
-            "budget_state": "full_requested",
-            "budget_reason": "caller explicitly requested complete semantic evidence",
-        }
-    else:
-        content, projection_summary = build_distill_compact_outline(
+    revision = backend.transcript_store.get_revision(source_id, source_revision)
+    if revision is None:
+        return None
+    source_bytes = backend.transcript_store.reconstruct_raw(
+        source_id,
+        source_revision=source_revision,
+    )
+    prior_projection = backend.transcript_store.get_latest_prior_distill_projection(
+        source_id,
+        source_revision,
+        record_version=DISTILL_INCREMENTAL_PROJECTION,
+    )
+    prior_source_bytes: bytes | None = None
+    if prior_projection is not None:
+        prior_revision = str(prior_projection.get("source_revision") or "")
+        try:
+            prior_source_bytes = backend.transcript_store.reconstruct_raw(
+                source_id,
+                source_revision=prior_revision,
+            )
+        except (KeyError, ValueError):
+            # A projection cache is disposable. Missing or invalid prior bytes
+            # disable reuse; the current immutable revision still rebuilds in
+            # full and remains the only evidence authority.
+            prior_projection = None
+
+    content, projection_summary, projection_lineage = (
+        build_append_aware_distill_projection(
             parser_content,
+            source_revision=source_revision,
+            source_bytes=source_bytes,
+            covered_sequence_count=revision.sequence_count,
+            detail_level=detail_level,
             budget_tokens=budget_tokens,
+            previous_projection=prior_projection,
+            previous_source_bytes=prior_source_bytes,
+        )
+    )
+    backend.transcript_store.save_distill_projection(
+        {**projection_lineage, "source_id": source_id}
+    )
+    if detail_level == "full":
+        projection_summary["budget_reason"] = (
+            "caller explicitly requested complete semantic evidence"
         )
     source = backend.transcript_store.get_source(source_id)
     raw_char_count = sum(

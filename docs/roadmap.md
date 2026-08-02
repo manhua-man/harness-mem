@@ -11,6 +11,8 @@ without adding another public tool, store, or scheduler. Version 0.9.6 removes
 duplicate compatibility surfaces while keeping stored data readable and the
 27-tool contract unchanged. Version 0.9.9 ships the retrieval/lifecycle,
 derived-index, and seven-host qualification work developed as 0.9.7-0.9.9.
+Version 0.9.10 adds evidence-safe incremental context lineage without changing
+the public loop or tool contract.
 No separate 0.9.2, 0.9.4, 0.9.7, or 0.9.8 package or tag was published. The
 stable loop is
 not a manual checklist:
@@ -49,6 +51,16 @@ not pending work.
 | `0.9.7` | Folded into 0.9.9; not published separately. | Deterministic long-session fixtures, explicit skipped/error outcomes, bounded job recovery, and no false healthy state after lease or restart failures ship in 0.9.9. | A separate 0.9.7 release artifact. |
 | `0.9.8` | Folded into 0.9.9; not published separately. | Staged batch-index generations, transactional incremental indexes, Doctor source/index verification, and compact budget/compaction telemetry ship in 0.9.9. | A separate 0.9.8 release artifact. |
 | `0.9.9` | Retrieval, index, seven-host, and compatibility qualification. | Native adapter capture through Dream and wake is replay-tested on all supported hosts; recovery/index failures fail closed; fresh install, upgrade, legacy restore, and operator repair paths are qualified. | A new MCP profile, silent native-container deletion, removing legacy readers before the support cutoff, or adding an autonomous semantic worker. |
+| `0.9.10` | Incremental context lineage and evidence-safe projection. | Hash-verified appended revisions reuse prior semantic work; tool/result boundaries remain intact; context receipts report real budget outcomes and token basis. | A Pi SessionManager, second truth store, Pi host adapter, fixed model budgets, or treating summaries as durable truth. |
+
+## 0.9.10 - Incremental Context Lineage
+
+This release reduces repeated work on growing transcripts while strengthening
+semantic boundary and context-budget evidence. It adds no public command, MCP
+tool, configuration key, persistence root, or autonomous semantic worker.
+
+The detailed design, acceptance gates, and Pi adoption boundary are in
+[0.9.10-context-lineage.md](roadmap/0.9.10-context-lineage.md).
 
 ## 0.9.6 — Runtime and Operator-Surface Convergence
 

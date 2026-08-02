@@ -2,8 +2,30 @@
 
 ## Unreleased
 
+## [0.9.10] - 2026-08-02
+
+### Added
+
+- Added hash-verified append-aware semantic projection lineage. Growing native
+  sessions reuse only a proven parser prefix, record the base revision and
+  projection hashes, and fall back to a full rebuild on any source, parser, or
+  cache mismatch.
+- Added tool/exchange-safe derived chunk boundaries with explicit continuation
+  metadata for oversized logical units while preserving exact transcript
+  reconstruction and legacy chunk compatibility.
+- Added `Context Projection Receipt v1`, a content-free read receipt carrying
+  before/after tokens, token-count basis, kept/evicted source IDs, outcome, and
+  drilldown pointers without creating another truth or persistence surface.
+
 ### Changed
 
+- Context character budgets now apply to rendered summaries, observed usage is
+  preferred when supplied, tokenizer and character fallbacks are explicit,
+  and selection-only loss is reported as truncation/eviction rather than
+  compaction.
+- Distill projection caches are disposable, revision-bound, cascade with raw
+  revision deletion, and cannot be rolled back by an older parked job that
+  finishes after a newer revision.
 - Zero-candidate completion is now a runtime-enforced v1 challenge instead of
   a Skill-only promise. The semantic manifest selects at most eight required
   exchanges; finalization verifies their current-revision content hashes and

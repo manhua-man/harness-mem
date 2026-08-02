@@ -16,7 +16,7 @@ records serialize to JSON-compatible structures (Req 1.5).
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -27,6 +27,18 @@ LAYER_ORDER: tuple[LayerId, ...] = ("L0", "L1", "L2", "L3", "L4")
 # Truth-status indicator carried by each Plan_Entry so pending / historical
 # references are never presented as confirmed current truth (Req 10.3).
 TruthStatus = Literal["confirmed_current", "pending", "historical"]
+TokenCountBasis = Literal[
+    "observed_usage",
+    "tokenizer_estimate",
+    "character_estimate",
+]
+ProjectionOutcome = Literal[
+    "none",
+    "truncated",
+    "evicted",
+    "compacted",
+    "fallback",
+]
 
 
 def _validate_layer_id(value: object) -> None:
@@ -44,7 +56,7 @@ class Budget(BaseModel):
     """Per-layer limit applied while assembling the plan (Req 6.1)."""
 
     max_entries: int = Field(gt=0)  # per-layer hard limit
-    max_chars: int | None = Field(default=None)  # optional estimated size cap
+    max_chars: int | None = Field(default=None, ge=0)  # optional hard text cap
 
     def to_dict(self) -> dict:
         return {
@@ -92,6 +104,59 @@ class DrilldownPointer(BaseModel):
 
     @classmethod
     def from_dict(cls, data: dict) -> "DrilldownPointer":
+        return cls(**data)
+
+
+class ContextProjectionReceipt(BaseModel):
+    """Content-free audit record for one read-only context projection.
+
+    The receipt describes selection and budgeting only. It is not durable
+    truth and never embeds source text. ``compacted`` is valid only when a
+    caller explicitly records that it created a summary.
+    """
+
+    schema_version: Literal["context_projection_receipt.v1"] = (
+        "context_projection_receipt.v1"
+    )
+    source_revision: str | None = None
+    before_tokens: int = Field(ge=0)
+    after_tokens: int = Field(ge=0)
+    kept_source_ids: list[str] = Field(default_factory=list)
+    evicted_source_ids: list[str] = Field(default_factory=list)
+    token_basis: TokenCountBasis
+    outcome: ProjectionOutcome = "none"
+    summary_generated: bool = False
+    drilldown: list[DrilldownPointer] = Field(default_factory=list)
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.outcome == "compacted" and not self.summary_generated:
+            raise ValueError(
+                "outcome: 'compacted' requires summary_generated=true"
+            )
+
+    def to_dict(self) -> dict:
+        return {
+            "schema_version": self.schema_version,
+            "source_revision": self.source_revision,
+            "before_tokens": self.before_tokens,
+            "after_tokens": self.after_tokens,
+            "kept_source_ids": list(self.kept_source_ids),
+            "evicted_source_ids": list(self.evicted_source_ids),
+            "token_basis": self.token_basis,
+            "outcome": self.outcome,
+            "summary_generated": self.summary_generated,
+            "drilldown": [pointer.to_dict() for pointer in self.drilldown],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ContextProjectionReceipt":
+        data = dict(data)
+        data["drilldown"] = [
+            DrilldownPointer.from_dict(pointer)
+            if isinstance(pointer, dict)
+            else pointer
+            for pointer in list(data.get("drilldown") or [])
+        ]
         return cls(**data)
 
 
@@ -174,6 +239,7 @@ class ContextAssemblyPlan(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     context_budget: dict[str, int] = Field(default_factory=dict)
     compaction_outcome: str = "none"
+    projection_receipt: ContextProjectionReceipt | None = None
 
     model_config = {"extra": "allow"}
 
@@ -185,6 +251,11 @@ class ContextAssemblyPlan(BaseModel):
             "created_at": self.created_at.isoformat(),
             "context_budget": dict(self.context_budget),
             "compaction_outcome": self.compaction_outcome,
+            "projection_receipt": (
+                self.projection_receipt.to_dict()
+                if self.projection_receipt is not None
+                else None
+            ),
         }
 
     @classmethod
@@ -198,6 +269,9 @@ class ContextAssemblyPlan(BaseModel):
                 Layer.from_dict(layer) if isinstance(layer, dict) else layer
                 for layer in raw_layers
             ]
+        receipt = data.get("projection_receipt")
+        if isinstance(receipt, dict):
+            data["projection_receipt"] = ContextProjectionReceipt.from_dict(receipt)
         return cls(**data)
 
     def layer(self, layer_id: LayerId) -> Layer:

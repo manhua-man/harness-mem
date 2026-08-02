@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
+import copy
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
-from harness_mem.transcript_chunking import sha256_text
+from harness_mem.transcript_chunking import (
+    TranscriptLogicalUnit,
+    chunk_transcript_text,
+    sha256_bytes,
+    sha256_text,
+)
 
 
 DISTILL_SEMANTIC_CHUNK_CHARS = 32_000
 DISTILL_SEMANTIC_PROJECTION = "exchange-outline-v1"
 DISTILL_COMPACT_PROJECTION = "exchange-outline-v2"
+DISTILL_INCREMENTAL_PROJECTION = "exchange-projection-lineage-v1"
 
 _TURN_HEADING_RE = re.compile(r"(?m)^## Turn \d+ \([^\n]*\)\s*$")
+_SEMANTIC_EXCHANGE_HEADING_RE = re.compile(r"(?m)^## E\d+\b[^\n]*$")
 _ENTRY_RE = re.compile(r"(?:\A|\n\n)(User|Assistant|Tool): ")
 _EVIDENCE_ANCHOR_RE = re.compile(r"\b[A-Z][A-Z0-9]*(?:[-_][A-Z0-9]+)+\b")
 _PASSIVE_TOOL_NAMES = frozenset({"wait", "wait_agent"})
@@ -192,6 +200,299 @@ def build_distill_compact_outline(
     }
 
 
+def build_append_aware_distill_projection(
+    value: str,
+    *,
+    source_revision: str,
+    source_bytes: bytes,
+    covered_sequence_count: int = 0,
+    detail_level: str = "compact",
+    budget_tokens: int = 3000,
+    previous_projection: Mapping[str, Any] | None = None,
+    previous_source_bytes: bytes | None = None,
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    """Build a semantic projection, reusing only a cryptographically proven prefix.
+
+    The returned lineage record is a disposable derived cache. ``source_bytes``
+    remains the authority and callers must retain the transcript ledger's
+    byte-exact revision proof. Incremental reuse is allowed only when the new
+    native source strictly appends the previous revision, the parser rendering
+    retains the previous rendering byte-for-byte, and the cached semantic state
+    still reproduces its recorded projection hash.
+    """
+
+    source_digest = sha256_bytes(source_bytes)
+    if source_revision != f"sha256:{source_digest}":
+        raise ValueError("source revision does not match exact native source bytes")
+    fallback_reason = "no_previous_projection"
+    parsed: tuple[str, list[dict[str, Any]], dict[str, Any]] | None = None
+    base_revision: str | None = None
+    previous_projection_sha256: str | None = None
+    verified_prefix_sha256: str | None = None
+    appended_raw_bytes = 0
+    appended_parser_chars = 0
+    normalized_sequence_count = max(0, int(covered_sequence_count or 0))
+
+    if previous_projection is not None:
+        fallback_reason = "previous_source_bytes_unavailable"
+        if previous_source_bytes is not None:
+            parsed, fallback_reason = _reuse_append_projection(
+                value,
+                source_bytes=source_bytes,
+                previous_projection=previous_projection,
+                previous_source_bytes=previous_source_bytes,
+            )
+            if parsed is not None:
+                boundary = dict(previous_projection.get("covered_boundary") or {})
+                base_revision = str(previous_projection["source_revision"])
+                previous_projection_sha256 = str(
+                    previous_projection["projection_sha256"]
+                )
+                verified_prefix_sha256 = sha256_bytes(previous_source_bytes)
+                appended_raw_bytes = len(source_bytes) - len(previous_source_bytes)
+                appended_parser_chars = len(value) - int(
+                    boundary.get("parser_chars") or 0
+                )
+
+    build_mode = "append" if parsed is not None else "full"
+    if parsed is None:
+        parsed = _parse_exchanges(value)
+    header, exchanges, parse_summary = parsed
+    if not exchanges and not header:
+        header = value
+    content, summary = _render_projection_from_parsed(
+        header,
+        exchanges,
+        parse_summary,
+        detail_level=detail_level,
+        budget_tokens=budget_tokens,
+    )
+    full_projection = _render_exchanges(
+        header,
+        exchanges,
+        projection=DISTILL_SEMANTIC_PROJECTION,
+        compact=False,
+    ) if exchanges else value
+    projection_sha256 = sha256_text(full_projection)
+    lineage = {
+        "record_version": DISTILL_INCREMENTAL_PROJECTION,
+        "source_revision": source_revision,
+        "source_sha256": source_digest,
+        "base_revision": base_revision,
+        "build_mode": build_mode,
+        "fallback_reason": None if build_mode == "append" else fallback_reason,
+        "covered_boundary": {
+            "raw_bytes": len(source_bytes),
+            "parser_chars": len(value),
+            "sequence_count": normalized_sequence_count,
+        },
+        "verified_prefix_sha256": verified_prefix_sha256,
+        "parser_prefix_sha256": sha256_text(value),
+        "previous_projection_sha256": previous_projection_sha256,
+        "projection_sha256": projection_sha256,
+        "output_sha256": sha256_text(content),
+        "appended_raw_bytes": appended_raw_bytes,
+        "appended_parser_chars": appended_parser_chars,
+        "parse_state": {
+            "header": header,
+            "exchanges": copy.deepcopy(exchanges),
+            "summary": dict(parse_summary),
+        },
+    }
+    summary.update(
+        {
+            "projection_build_mode": build_mode,
+            "projection_base_revision": base_revision,
+            "projection_sha256": projection_sha256,
+            "projection_fallback_reason": lineage["fallback_reason"],
+            "covered_sequence_count": normalized_sequence_count,
+        }
+    )
+    return content, summary, lineage
+
+
+def _reuse_append_projection(
+    value: str,
+    *,
+    source_bytes: bytes,
+    previous_projection: Mapping[str, Any],
+    previous_source_bytes: bytes,
+) -> tuple[
+    tuple[str, list[dict[str, Any]], dict[str, Any]] | None,
+    str,
+]:
+    if previous_projection.get("record_version") != DISTILL_INCREMENTAL_PROJECTION:
+        return None, "projection_version_mismatch"
+    previous_revision = str(previous_projection.get("source_revision") or "")
+    previous_source_digest = sha256_bytes(previous_source_bytes)
+    if previous_revision != f"sha256:{previous_source_digest}":
+        return None, "base_revision_hash_mismatch"
+    if str(previous_projection.get("source_sha256") or "") != previous_source_digest:
+        return None, "base_source_hash_mismatch"
+    if len(source_bytes) <= len(previous_source_bytes) or not source_bytes.startswith(
+        previous_source_bytes
+    ):
+        return None, "source_prefix_mismatch"
+
+    boundary = previous_projection.get("covered_boundary")
+    if not isinstance(boundary, Mapping):
+        return None, "covered_boundary_missing"
+    previous_parser_chars = int(boundary.get("parser_chars") or -1)
+    if previous_parser_chars < 0 or previous_parser_chars > len(value):
+        return None, "parser_boundary_invalid"
+    parser_prefix = value[:previous_parser_chars]
+    if sha256_text(parser_prefix) != previous_projection.get("parser_prefix_sha256"):
+        return None, "parser_prefix_mismatch"
+
+    state = previous_projection.get("parse_state")
+    if not isinstance(state, Mapping):
+        return None, "parse_state_missing"
+    header = str(state.get("header") or "")
+    exchanges_value = state.get("exchanges")
+    summary_value = state.get("summary")
+    if not isinstance(exchanges_value, list) or not isinstance(summary_value, Mapping):
+        return None, "parse_state_invalid"
+    exchanges = copy.deepcopy(exchanges_value)
+    old_full = (
+        _render_exchanges(
+            header,
+            exchanges,
+            projection=DISTILL_SEMANTIC_PROJECTION,
+            compact=False,
+        )
+        if exchanges
+        else parser_prefix
+    )
+    if sha256_text(old_full) != previous_projection.get("projection_sha256"):
+        return None, "projection_hash_mismatch"
+
+    tail = value[previous_parser_chars:]
+    if not tail:
+        return (header, exchanges, dict(summary_value)), ""
+    tail_header, tail_exchanges, tail_summary = _parse_exchanges(tail)
+    if not tail_exchanges and tail.strip():
+        return None, "appended_parser_tail_unparseable"
+    del tail_header
+
+    if tail_exchanges and exchanges and not tail_exchanges[0]["user"]:
+        exchanges[-1] = _merge_exchanges(exchanges[-1], tail_exchanges.pop(0))
+    exchanges.extend(tail_exchanges)
+    combined_summary = dict(summary_value)
+    for key in (
+        "input_message_count",
+        "duplicate_message_count",
+        "collapsed_assistant_message_count",
+        "omitted_passive_tool_count",
+    ):
+        combined_summary[key] = int(combined_summary.get(key) or 0) + int(
+            tail_summary.get(key) or 0
+        )
+    combined_summary["projection"] = DISTILL_SEMANTIC_PROJECTION
+    combined_summary["output_exchange_count"] = len(exchanges)
+    return (header, exchanges, combined_summary), ""
+
+
+def _merge_exchanges(
+    previous: Mapping[str, Any],
+    appended: Mapping[str, Any],
+) -> dict[str, Any]:
+    user = [*previous.get("user", []), *appended.get("user", [])]
+    assistant = [
+        *previous.get("assistant", []),
+        *appended.get("assistant", []),
+    ]
+    tools = [*previous.get("tools", []), *appended.get("tools", [])]
+    combined = "\n".join([*user, *assistant])
+    return {
+        "user": user,
+        "assistant": assistant,
+        "tools": tools,
+        "risk_flags": _risk_flags(combined),
+        "memory_signals": _memory_signals(combined),
+    }
+
+
+def _render_projection_from_parsed(
+    header: str,
+    exchanges: list[dict[str, Any]],
+    parse_summary: Mapping[str, Any],
+    *,
+    detail_level: str,
+    budget_tokens: int,
+) -> tuple[str, dict[str, Any]]:
+    if detail_level == "full":
+        if not exchanges:
+            return header, {
+                **parse_summary,
+                **_zero_candidate_challenge_manifest(exchanges),
+                "detail_level": "full",
+                "budget_tokens": max(256, int(budget_tokens or 3000)),
+                "budget_state": "full_requested",
+            }
+        return _render_exchanges(
+            header,
+            exchanges,
+            projection=DISTILL_SEMANTIC_PROJECTION,
+            compact=False,
+        ), {
+            **parse_summary,
+            **_zero_candidate_challenge_manifest(exchanges),
+            "detail_level": "full",
+            "budget_tokens": max(256, int(budget_tokens or 3000)),
+            "budget_state": "full_requested",
+        }
+
+    target = max(256, int(budget_tokens or 3000))
+    if not exchanges:
+        tokens = _count_tokens(header)
+        return header, {
+            **parse_summary,
+            **_zero_candidate_challenge_manifest(exchanges),
+            "detail_level": "full",
+            "budget_tokens": target,
+            "output_tokens": tokens,
+            "budget_state": "full_fallback",
+            "budget_reason": "parser rendering has no exchange boundaries",
+        }
+    profiles = (
+        (240, 320, 600, 900), (160, 220, 450, 650), (100, 140, 320, 480),
+        (72, 96, 240, 360), (48, 64, 96, 128), (32, 48, 64, 96),
+        (20, 28, 40, 56), (12, 18, 24, 36), (8, 12, 16, 24),
+        (4, 8, 8, 12), (2, 4, 4, 8),
+    )
+    content = ""
+    output_tokens = 0
+    for user_limit, outcome_limit, risk_user_limit, risk_outcome_limit in profiles:
+        content = _render_exchanges(
+            header,
+            exchanges,
+            projection=DISTILL_COMPACT_PROJECTION,
+            compact=True,
+            user_limit=user_limit,
+            outcome_limit=outcome_limit,
+            risk_user_limit=risk_user_limit,
+            risk_outcome_limit=risk_outcome_limit,
+        )
+        output_tokens = _count_tokens(content)
+        if output_tokens <= target:
+            break
+    budget_state = "within_budget" if output_tokens <= target else "expanded_for_manifest"
+    return content, {
+        **parse_summary,
+        **_zero_candidate_challenge_manifest(exchanges),
+        "projection": DISTILL_COMPACT_PROJECTION,
+        "detail_level": "compact",
+        "exchange_count": len(exchanges),
+        "risk_exchange_count": sum(bool(item["risk_flags"]) for item in exchanges),
+        "budget_tokens": target,
+        "output_tokens": output_tokens,
+        "budget_state": budget_state,
+        "budget_reason": None if budget_state == "within_budget" else (
+            "the minimum complete indexed manifest exceeds the advisory budget"
+        ),
+    }
+
+
 def render_distill_exchange_windows(
     value: str,
     indexes: Iterable[int],
@@ -219,33 +520,58 @@ def render_distill_exchange_windows(
 
 
 def split_distill_semantic_content(value: str) -> list[dict[str, Any]]:
-    """Split derived semantic evidence without rewriting its content."""
+    """Split derived evidence at complete exchange/tool-group boundaries."""
 
-    chunks: list[dict[str, Any]] = []
-    start = 0
-    index = 0
-    while start < len(value):
-        hard_end = min(start + DISTILL_SEMANTIC_CHUNK_CHARS, len(value))
-        end = hard_end
-        if hard_end < len(value):
-            boundary = value.rfind("\n", start + 1, hard_end + 1)
-            if boundary >= start:
-                end = boundary + 1
-        if end <= start:
-            end = hard_end
-        content = value[start:end]
-        chunks.append(
-            {
-                "semantic_chunk_index": index,
-                "char_start": start,
-                "char_end": end,
-                "content_sha256": sha256_text(content),
-                "content": content,
-            }
-        )
-        start = end
-        index += 1
-    return chunks
+    if not value:
+        return []
+    headings = list(_SEMANTIC_EXCHANGE_HEADING_RE.finditer(value))
+    logical_units: list[TranscriptLogicalUnit] | None = None
+    if headings:
+        logical_units = []
+        if headings[0].start() > 0:
+            logical_units.append(
+                TranscriptLogicalUnit(
+                    0,
+                    headings[0].start(),
+                    "semantic-header",
+                    "manifest-header",
+                )
+            )
+        for index, heading in enumerate(headings):
+            end = headings[index + 1].start() if index + 1 < len(headings) else len(value)
+            logical_units.append(
+                TranscriptLogicalUnit(
+                    heading.start(),
+                    end,
+                    f"exchange-{index + 1}",
+                    "tool-exchange",
+                )
+            )
+
+    exact_chunks = chunk_transcript_text(
+        value,
+        source_id="semantic-projection",
+        project_name="derived",
+        client="harness-mem",
+        session_id="semantic-projection",
+        max_chars=DISTILL_SEMANTIC_CHUNK_CHARS,
+        logical_units=logical_units,
+    )
+    return [
+        {
+            "semantic_chunk_index": chunk.chunk_index,
+            "char_start": chunk.char_start,
+            "char_end": chunk.char_end,
+            "content_sha256": chunk.content_sha256,
+            "boundary_strategy": chunk.boundary_strategy,
+            "logical_unit_ids": list(chunk.logical_unit_ids),
+            "logical_unit_kinds": list(chunk.logical_unit_kinds),
+            "starts_with_continuation": chunk.starts_with_continuation,
+            "ends_with_continuation": chunk.ends_with_continuation,
+            "content": chunk.raw_content,
+        }
+        for chunk in exact_chunks
+    ]
 
 
 def _parse_exchanges(value: str) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
@@ -295,7 +621,7 @@ def _parse_exchanges(value: str) -> tuple[str, list[dict[str, Any]], dict[str, A
 
     for role, content in entries:
         if role == "User":
-            if current["user"] or current["assistant"]:
+            if any(current.values()):
                 flush_exchange()
             current["user"].append(content)
             continue
@@ -530,8 +856,10 @@ def _count_tokens(value: str) -> int:
 
 __all__ = [
     "DISTILL_COMPACT_PROJECTION",
+    "DISTILL_INCREMENTAL_PROJECTION",
     "DISTILL_SEMANTIC_CHUNK_CHARS",
     "DISTILL_SEMANTIC_PROJECTION",
+    "build_append_aware_distill_projection",
     "build_distill_compact_outline",
     "build_distill_semantic_outline",
     "render_distill_exchange_windows",
