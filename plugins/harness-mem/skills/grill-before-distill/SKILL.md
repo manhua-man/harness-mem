@@ -3,8 +3,8 @@ name: grill-before-distill
 description: |
   Standard memory admission mode for harness-mem (grill-me role). Runs
   automatically on distill — depth scales by risk, not a forced heavy loop every
-  time. Three modes: deep interrogation, light checklist, lookback for stale
-  truth. No writes. More than a review-stage helper: admission plus lookback.
+  time. Candidate admission uses deep/light modes, stale truth uses lookback,
+  and zero-candidate completion uses a runtime-verifiable challenge. No writes.
 allowed-tools:
   - Read
   - Grep
@@ -81,6 +81,29 @@ unless an item fails). Tag `risk: low`; `admit` if all pass.
 Fail any → route the unresolved question, then either `narrow`, escalate to
 Mode A for that item only, `defer`, or `reject`.
 
+### Mode Z — Zero-candidate challenge (无候选强制分支)
+
+**When:** a v1 distill job has no candidate IDs and would otherwise finish as
+`no_candidate`.
+
+This is an unattended evidence check, not an AskMe loop. Read
+`zero_candidate_required_exchange_indexes` from the semantic manifest, fetch
+every required complete window with `drilldown_exchange_indexes`, and submit
+its `exchange_index` plus `content_sha256` in `zero_candidate_challenge`.
+
+Keep two judgments separate:
+
+- `evidence_fidelity`: whether the fixed source revision and required windows
+  were reviewed completely;
+- `future_utility`: whether anything is stable and reusable beyond this session.
+
+Check user correction, explicit decision, successful solution, repeated
+failure, rule/preference, reusable workflow/fact, version/migration, and
+unfinished handoff. A durable finding requires a candidate or handoff. Only a
+complete review with `future_utility=none|session_only` may conclude
+`no_durable_candidate`. Runtime rejects missing or changed exchange hashes and
+keeps the job in `reviewing`.
+
 ### Mode C — Lookback (已确认记忆回看，grill-me 主力)
 
 **When:**
@@ -100,6 +123,7 @@ evidence tool such as smart-search to re-verify. Output:
 | Situation | Mode |
 |---|---|
 | `/hm:distill` bulk candidates | **B** per item; **A** if rule/high-impact |
+| No draft candidates on a v1 job | **Z** runtime challenge |
 | User「记住这个」| **A** |
 | Autopilot boundary suggest | **B**; **A** if rule candidate |
 | Confirmed memory audit | **C** |
@@ -152,6 +176,7 @@ risk: low | medium | high
   -> prepare_session_distill
   -> 读 packet + draft candidate claims
   -> grill-me 准入（A/B 按风险；对 draft claim，不是空会话先拷问）
+  -> 无 draft claim 时执行 Mode Z；发现 durable signal 则返回候选路径
   -> govern_memory(action="suggest")（admit；narrow 后可写；defer/reject 不写）
   -> 内部 search_memory / 代码检索；外部来源证据（smart-search 为参考候选）
   -> finalize_session_distill（scoped auto-review + Dream）

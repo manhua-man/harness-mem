@@ -143,6 +143,23 @@ final-session review 必须包含：`final_user_request`、`final_outcome`、
 `last_turn_status`、`contradictions`、`unfinished_work`、`evidence_status`、
 `promotion_decision`。不得从局部 chunk 推断这些整场字段。
 
+如果当前 v1 job 没有产生候选，不能直接写 `no_promotion` 收尾。读取 semantic
+manifest 的 `zero_candidate_required_exchange_indexes`，通过 exchange drilldown
+取得每个完整窗口的 `content_sha256`，再填写 `zero_candidate_challenge`：
+
+- Evidence fidelity 与 Future utility 必须分开判断；
+- 必须逐项检查 correction、decision、solution、repeated failure、rule/preference、
+  reusable workflow/fact、version/migration 和 unfinished handoff；
+- 任一项为 `candidate_required` 时，先创建候选或 handoff；
+- 只有 complete evidence、`future_utility=none|session_only` 和
+  `conclusion=no_durable_candidate` 才能 finalize；
+- 不询问用户可由 transcript、仓库或工具查明的事实。
+
+Runtime 会按当前 source revision 重算窗口 hash。缺失、过期或伪造引用会保持 job
+为 `reviewing`，不会完成、Dream 或清理原文。
+如果 runtime 明确回退到无 exchange 边界的 raw 模式，则完整读取并 checkpoint
+全部 raw chunks；challenge 使用 `complete_raw_checkpoint` basis，不虚构 exchange ref。
+
 **按风险选深度，不要每次都走重流程：**
 
 | 场景 | 模式 |
@@ -219,6 +236,7 @@ durable candidate。smart-search 只是参考候选，不是当前 hm 依赖或�
 - native transcript revision 是权威证据；compact manifest 和 semantic window 都是同 revision 的 parser-derived 消费视图，不是第二份 truth，也不能替代候选所需的精确 raw proof。
 - 每个 expected raw chunk 都必须有 durable checkpoint，才能进入 final review；semantic 快路径由 runtime 完成 hash 校验和 checkpoint。
 - final review 未通过时，不 auto-review、不 Dream，候选终结为 rejected，job 记为 `no_candidate`。
+- 零候选 v1 job 必须通过 content-addressed challenge；旧 completed receipt 不追溯重写。
 - distill 默认保留宿主 transcript 和 raw revision。只有持久配置
   `distill.delete_source_after_complete=true` 时，完成链才执行 receipt-first
   source cleanup；长期 truth 保留并标记 `source_pruned` provenance，实际结果

@@ -28,6 +28,35 @@ SEMANTIC_REVIEW = {
 }
 
 
+def _zero_candidate_challenge(
+    *,
+    source_revision: str,
+    exchange_refs: list[dict] | None = None,
+    check_overrides: dict[str, str] | None = None,
+) -> dict:
+    checks = {
+        "user_correction": "absent",
+        "explicit_decision": "absent",
+        "successful_solution": "absent",
+        "repeated_failure": "absent",
+        "rule_or_preference": "absent",
+        "reusable_workflow_or_fact": "absent",
+        "version_or_migration": "absent",
+        "unfinished_handoff": "absent",
+    }
+    checks.update(check_overrides or {})
+    return {
+        "version": "v1",
+        "source_revision": source_revision,
+        "evidence_fidelity": "complete",
+        "future_utility": "session_only",
+        "checks": checks,
+        "inspected_exchange_refs": exchange_refs or [],
+        "conclusion": "no_durable_candidate",
+        "rationale": "The complete review found only session-local execution detail.",
+    }
+
+
 @pytest.mark.parametrize("root_state", ["invalid_config", "missing_root"])
 def test_completed_finalize_replay_recovers_missing_outcome_when_config_unavailable(
     tmp_path: Path,
@@ -498,7 +527,13 @@ def test_finalize_delete_toggle_runs_audited_source_cleanup(
         finalized = tool_handlers.tool_finalize_session_distill(
             project_name="demo",
             job_id=result.distill_job_id,
-            semantic_review=SEMANTIC_REVIEW,
+            semantic_review={
+                **SEMANTIC_REVIEW,
+                "promotion_decision": "no_promotion",
+                "zero_candidate_challenge": _zero_candidate_challenge(
+                    source_revision=result.source.source_revision
+                ),
+            },
         )
 
         assert finalized["completion"]["disposition"] == "no_candidate"
@@ -587,6 +622,7 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
 
         assert packet["distill_job_id"] == result.distill_job_id
         assert packet["distill_status"] == "reviewing"
+        assert packet["zero_candidate_challenge_version"] == "v1"
         assert packet["chunks"] == []
         assert packet["completed_chunk_count"] == packet["expected_chunk_count"]
         evidence = packet["semantic_evidence"]
@@ -674,13 +710,62 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
             for chunk in query_drilldown["raw_drilldown_chunks"]
         )
 
+        missing_challenge = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=result.distill_job_id,
+            semantic_review={
+                **SEMANTIC_REVIEW,
+                "promotion_decision": "no_promotion",
+            },
+        )
+        assert missing_challenge["success"] is False
+        assert missing_challenge["error"] == "zero_candidate_challenge_required"
+        assert (
+            backend.transcript_store.get_distill_job(result.distill_job_id).status
+            == "reviewing"
+        )
+
+        wrong_hash = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=result.distill_job_id,
+            semantic_review={
+                **SEMANTIC_REVIEW,
+                "promotion_decision": "no_promotion",
+                "zero_candidate_challenge": _zero_candidate_challenge(
+                    source_revision=result.source.source_revision,
+                    exchange_refs=[
+                        {
+                            "exchange_index": item["exchange_index"],
+                            "content_sha256": "0" * 64,
+                        }
+                        for item in semantic_drilldown[
+                            "semantic_drilldown_exchanges"
+                        ]
+                    ],
+                ),
+            },
+        )
+        assert wrong_hash["success"] is False
+        assert wrong_hash["error"] == "zero_candidate_exchange_proof_incomplete"
+
         finalized = tool_handlers.tool_finalize_session_distill(
             project_name="demo",
             job_id=result.distill_job_id,
             semantic_review={
                 **SEMANTIC_REVIEW,
-                "evidence_status": "partial",
                 "promotion_decision": "no_promotion",
+                "zero_candidate_challenge": _zero_candidate_challenge(
+                    source_revision=result.source.source_revision,
+                    exchange_refs=[
+                        {
+                            "exchange_index": item["exchange_index"],
+                            "content_sha256": item["content_sha256"],
+                        }
+                        for item in semantic_drilldown[
+                            "semantic_drilldown_exchanges"
+                        ]
+                    ],
+                ),
             },
         )
         assert finalized["success"] is True

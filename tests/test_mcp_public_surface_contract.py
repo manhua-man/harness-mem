@@ -354,6 +354,12 @@ def test_public_mcp_surface_is_single_memory_entrypoint(backend) -> None:
         "distill_job_id"
         in tool_by_name["prepare_session_distill"]["inputSchema"]["properties"]
     )
+    semantic_review = tool_by_name["finalize_session_distill"]["inputSchema"][
+        "properties"
+    ]["semantic_review"]
+    challenge = semantic_review["properties"]["zero_candidate_challenge"]
+    assert challenge["properties"]["version"]["enum"] == ["v1"]
+    assert challenge["properties"]["inspected_exchange_refs"]["maxItems"] == 8
     assert "ingest_sessions" not in tool_by_name
     assert "set_active_project" not in tool_by_name
 

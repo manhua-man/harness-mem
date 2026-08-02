@@ -25,6 +25,15 @@ _RISK_FLAG_CODES = {
     "conflict_stale": "C",
     "unfinished": "U",
 }
+_MEMORY_SIGNAL_CODES = {
+    "user_correction": "C",
+    "explicit_decision": "Q",
+    "successful_solution": "S",
+    "rule_or_preference": "P",
+    "reusable_workflow_or_fact": "R",
+    "version_or_migration": "V",
+    "unfinished_handoff": "U",
+}
 _RISK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("version_release", re.compile(r"\b(?:v?\d+\.\d+\.\d+|version|release|publish)\b|版本|发布", re.I)),
     ("migration_storage", re.compile(r"\b(?:migration|migrate|checksum|storage|rollback)\b|迁移|校验和|存储|回滚", re.I)),
@@ -34,6 +43,64 @@ _RISK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("conflict_stale", re.compile(r"\b(?:conflict|stale|supersed|outdated)\w*\b|冲突|过期|取代", re.I)),
     ("unfinished", re.compile(r"\b(?:unfinished|blocked|blocker|todo|remaining)\b|未完成|阻塞|待办|剩余", re.I)),
 )
+_MEMORY_SIGNAL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "user_correction",
+        re.compile(
+            r"\b(?:correction|corrected|actually|instead|rather than)\b|"
+            r"更正|纠正|改为|不是.{0,40}而是",
+            re.I,
+        ),
+    ),
+    (
+        "explicit_decision",
+        re.compile(
+            r"\b(?:we decided|decision is|chosen|approved|agreed to|standardize on)\b|"
+            r"决定|最终选择|确认采用|统一(?:使用|为)",
+            re.I,
+        ),
+    ),
+    (
+        "successful_solution",
+        re.compile(
+            r"\b(?:root cause|fixed by|resolved by|solution|workaround)\b|"
+            r"根因|解决方案|已修复|通过.{0,40}修复",
+            re.I,
+        ),
+    ),
+    (
+        "rule_or_preference",
+        re.compile(
+            r"\b(?:always|never|from now on|default(?:s)? to|prefer|policy|rule|must)\b|"
+            r"以后|一律|默认|偏好|规则|必须|禁止",
+            re.I,
+        ),
+    ),
+    (
+        "reusable_workflow_or_fact",
+        re.compile(
+            r"\b(?:workflow|procedure|runbook|invariant|architecture|reusable)\b|"
+            r"流程|步骤|不变量|架构|可复用",
+            re.I,
+        ),
+    ),
+    (
+        "version_or_migration",
+        re.compile(
+            r"\b(?:v?\d+\.\d+\.\d+|version|release|publish|migration|migrate|storage)\b|"
+            r"版本|发布|迁移|存储",
+            re.I,
+        ),
+    ),
+    (
+        "unfinished_handoff",
+        re.compile(
+            r"\b(?:unfinished|blocked|blocker|todo|remaining|next step|handoff)\b|"
+            r"未完成|阻塞|待办|剩余|下一步|交接",
+            re.I,
+        ),
+    ),
+)
 
 
 def build_distill_semantic_outline(value: str) -> tuple[str, dict[str, Any]]:
@@ -41,13 +108,13 @@ def build_distill_semantic_outline(value: str) -> tuple[str, dict[str, Any]]:
 
     header, exchanges, summary = _parse_exchanges(value)
     if not exchanges:
-        return value, summary
+        return value, {**summary, **_zero_candidate_challenge_manifest(exchanges)}
     return _render_exchanges(
         header,
         exchanges,
         projection=DISTILL_SEMANTIC_PROJECTION,
         compact=False,
-    ), summary
+    ), {**summary, **_zero_candidate_challenge_manifest(exchanges)}
 
 
 def build_distill_compact_outline(
@@ -63,6 +130,7 @@ def build_distill_compact_outline(
         tokens = _count_tokens(value)
         return value, {
             **summary,
+            **_zero_candidate_challenge_manifest(exchanges),
             "detail_level": "full",
             "budget_tokens": target,
             "output_tokens": tokens,
@@ -112,6 +180,7 @@ def build_distill_compact_outline(
         )
     return content, {
         **summary,
+        **_zero_candidate_challenge_manifest(exchanges),
         "projection": DISTILL_COMPACT_PROJECTION,
         "detail_level": "compact",
         "exchange_count": len(exchanges),
@@ -142,6 +211,7 @@ def render_distill_exchange_windows(
                 "exchange_index": index,
                 "content_sha256": sha256_text(content),
                 "risk_flags": list(exchange["risk_flags"]),
+                "memory_signals": list(exchange["memory_signals"]),
                 "content": content,
             }
         )
@@ -218,6 +288,7 @@ def _parse_exchanges(value: str) -> tuple[str, list[dict[str, Any]], dict[str, A
                 {
                     **current,
                     "risk_flags": _risk_flags(combined),
+                    "memory_signals": _memory_signals(combined),
                 }
             )
         current = {"user": [], "assistant": [], "tools": []}
@@ -283,6 +354,12 @@ def _render_exchanges(
             "P=privacy/security; D=deletion; F=failure; C=conflict/stale; "
             "U=unfinished."
         )
+    if compact and any(exchange["memory_signals"] for exchange in exchanges):
+        lines.append(
+            "Memory-value legend: C=correction; Q=decision; S=solution; "
+            "P=rule/preference; R=reusable workflow/fact; "
+            "V=version/migration; U=unfinished/handoff."
+        )
     final_index = len(exchanges)
     for index, exchange in enumerate(exchanges, 1):
         risky = bool(exchange["risk_flags"]) or index == final_index
@@ -307,13 +384,26 @@ def _render_exchange(
     limits: tuple[int, int] = (0, 0),
 ) -> str:
     risk_flags = list(exchange["risk_flags"])
+    memory_signals = list(exchange["memory_signals"])
     rendered_flags = (
         [_RISK_FLAG_CODES[flag] for flag in risk_flags] if compact else risk_flags
     )
-    if compact and rendered_flags:
-        suffix = f" [s={''.join(rendered_flags)}]"
+    if compact:
+        suffix_parts = []
+        if rendered_flags:
+            suffix_parts.append(f"s={''.join(rendered_flags)}")
+        if memory_signals:
+            suffix_parts.append(
+                "m=" + "".join(_MEMORY_SIGNAL_CODES[item] for item in memory_signals)
+            )
+        suffix = f" [{' '.join(suffix_parts)}]" if suffix_parts else ""
     else:
-        suffix = f" [signals={','.join(rendered_flags)}]" if rendered_flags else ""
+        suffix_parts = []
+        if rendered_flags:
+            suffix_parts.append(f"signals={','.join(rendered_flags)}")
+        if memory_signals:
+            suffix_parts.append(f"memory={','.join(memory_signals)}")
+        suffix = f" [{'; '.join(suffix_parts)}]" if suffix_parts else ""
     heading = f"## E{index}" if compact else f"## Exchange {index}"
     lines = [f"{heading}{suffix}"]
     if exchange["user"]:
@@ -356,6 +446,80 @@ def _preview(value: str, limit: int) -> str:
 
 def _risk_flags(value: str) -> list[str]:
     return [name for name, pattern in _RISK_PATTERNS if pattern.search(value)]
+
+
+def _memory_signals(value: str) -> list[str]:
+    return [
+        name for name, pattern in _MEMORY_SIGNAL_PATTERNS if pattern.search(value)
+    ]
+
+
+def _zero_candidate_challenge_manifest(
+    exchanges: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Select a bounded, deterministic proof set for a no-candidate verdict."""
+
+    if not exchanges:
+        return {
+            "zero_candidate_challenge_version": "v1",
+            "zero_candidate_required_exchange_indexes": [],
+            "zero_candidate_required_exchange_reasons": {},
+            "zero_candidate_review_basis": "complete_raw_checkpoint",
+        }
+
+    reasons: dict[int, set[str]] = {}
+    by_signal: dict[str, list[int]] = {}
+    failure_indexes: list[int] = []
+    for index, exchange in enumerate(exchanges, 1):
+        for signal in exchange["memory_signals"]:
+            by_signal.setdefault(signal, []).append(index)
+        if "failure" in exchange["risk_flags"]:
+            failure_indexes.append(index)
+
+    final_index = len(exchanges)
+    reasons.setdefault(final_index, set()).add("final_exchange")
+    if len(failure_indexes) >= 2:
+        for index in {failure_indexes[0], failure_indexes[-1]}:
+            reasons.setdefault(index, set()).add("repeated_failure")
+
+    priority = (
+        "user_correction",
+        "explicit_decision",
+        "successful_solution",
+        "rule_or_preference",
+        "reusable_workflow_or_fact",
+        "version_or_migration",
+        "unfinished_handoff",
+    )
+    for signal in priority:
+        indexes = by_signal.get(signal, [])
+        if indexes:
+            reasons.setdefault(indexes[-1], set()).add(signal)
+
+    selected = [final_index]
+    for signal in priority:
+        indexes = by_signal.get(signal, [])
+        if indexes and indexes[-1] not in selected and len(selected) < 8:
+            selected.append(indexes[-1])
+    for index in (failure_indexes[:1] + failure_indexes[-1:]):
+        if index not in selected and len(selected) < 8:
+            selected.append(index)
+    if len(selected) < 8:
+        for index in sorted(reasons, reverse=True):
+            if index not in selected:
+                selected.append(index)
+            if len(selected) >= 8:
+                break
+    selected = sorted(selected)
+    return {
+        "zero_candidate_challenge_version": "v1",
+        "zero_candidate_required_exchange_indexes": selected,
+        "zero_candidate_required_exchange_reasons": {
+            str(index): sorted(reasons.get(index, {"final_exchange"}))
+            for index in selected
+        },
+        "zero_candidate_review_basis": "semantic_exchange_refs",
+    }
 
 
 def _count_tokens(value: str) -> int:

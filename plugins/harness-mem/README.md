@@ -15,6 +15,8 @@ plugin manifest, skills, and slash command assets mirror that contract.
 - MCP server config for the installed `harness-mem-mcp` command.
 - Claude Code `/hm:*` command files for common memory actions.
 - Agent skills that teach the client when to wake, search, distill, and review.
+- Optional `grill-with-docs` for explicit, user-led design clarification and
+  confirmed glossary/ADR maintenance; it is not part of unattended distill.
 - PowerShell install and doctor helpers.
 
 Invocation paths installed by this plugin:
@@ -130,7 +132,7 @@ The underlying actions are:
 | `hm-wake` | Recover confirmed project context. |
 | `hm-search "query"` | Search current-project memory. |
 | `hm-search-all "query"` | Explicit cross-project memory search. |
-| `hm-distill <project> <n>` | Immediately consume recent evidence, record promoted/no-candidate completion, and run Dream. |
+| `hm-distill <project> <n>` | Consume recent evidence, runtime-challenge zero-candidate conclusions, record completion, and run Dream only when warranted. |
 | `hm-review` | Audit, correct, undo, or replace automatically governed memory. |
 | `hm-dream` | Inspect or explicitly trigger the default dream maintenance ledger. |
 
