@@ -149,12 +149,13 @@ At save points or session end, the hook/runtime path only:
 Observations remain derived search aids. They are not the authoritative
 transcript source and cannot replace the immutable source revision.
 
-When that Agent invocation occurs, or when `/hm:distill` is explicitly used,
-the pipeline continues:
+When that Agent invocation occurs, wake returns at most one structured offer for
+the current task. `/hm:distill` remains the explicit immediate/deep path. The
+pipeline continues:
 
 1. Claim each offered job by passing its `distill_job_id` to
-   `prepare_session_distill`, preserving bounded selection, full text, and
-   source-revision order.
+   `prepare_session_distill` with `run_ingest=false`, preserving bounded
+   selection, full text, and source-revision order.
 2. Process and checkpoint each chunk so interruption resumes after the last
    completed chunk without duplicate writes.
 3. After every expected chunk is checkpointed and the source revision is still

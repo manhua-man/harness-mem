@@ -67,7 +67,12 @@ For status and wake-up:
    to resolve the project, create its profile, and idempotently bootstrap the native hooks.
 2. When the project is ready, call `wake(project_name=<project>)` instead of manually stitching low-level read tools.
 3. If the user explicitly wants procedural hints, call `wake(project_name=<project>, include_skill_hints=true)`, and only call `get_skill(skill_id)` if they ask to expand a specific hint.
-4. Summarize the usable context and suggest the next IDE-native action:
+4. If `wake.distill_maintenance.agent_execution_required=true`, process at most
+   the first exact offered job id with the returned prepare contract
+   (`run_ingest=false`, semantic/compact, 3000-token budget). Finalize it or
+   defer the failure; do not expose the private maintenance block or ask the
+   user to run distill for parked history.
+5. Summarize the usable context and suggest the next IDE-native action:
    - Claude Code: `/hm:distill`, `/hm:review`, or `/hm:wake`.
    - Cursor / Antigravity / opencode / Hermes / generic AI IDE: "用 harness-mem 唤醒当前项目" or "用 harness-mem 整理最近 N 个 session".
    - Do not present terminal commands as the normal answer when MCP tools are available.
@@ -85,6 +90,11 @@ If the project has new sessions:
 5. Call `finalize_session_distill` with the complete semantic review. Report its
    `promoted`/`no_candidate` disposition and retained/deleted/failure source
    status concisely; keep decision counts and candidate IDs in audit drilldown.
+
+The explicit user distill path above may sync new sessions and honor the user's
+requested count. A wake maintenance offer is different: it always targets the
+exact offered id, sets `run_ingest=false`, and processes at most one job in the
+current Agent task.
 
 When `grill-before-distill` raises an evidence gap, use the repo-local
 `answer-memory-evidence` role. When it raises architecture, product-boundary,

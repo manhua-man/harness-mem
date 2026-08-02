@@ -146,10 +146,14 @@ def distill_drainer_metrics(
     offered_today = [job for job in jobs if job.agent_offer_day == today]
     completed = [job for job in jobs if job.completed_at is not None]
     completed_24h = [
-        job for job in completed if job.completed_at and job.completed_at >= current - timedelta(days=1)
+        job
+        for job in completed
+        if job.completed_at and job.completed_at >= current - timedelta(days=1)
     ]
     completed_7d = [
-        job for job in completed if job.completed_at and job.completed_at >= current - timedelta(days=7)
+        job
+        for job in completed
+        if job.completed_at and job.completed_at >= current - timedelta(days=7)
     ]
     promoted_7d = [
         job for job in completed_7d if job.completion_disposition == "promoted"
@@ -177,9 +181,7 @@ def distill_drainer_metrics(
     cleanup_unsupported = [
         job for job in jobs if job.source_cleanup_status == "unsupported"
     ]
-    recovery_exhausted = [
-        job for job in jobs if job.recovery_exhausted_at is not None
-    ]
+    recovery_exhausted = [job for job in jobs if job.recovery_exhausted_at is not None]
     recovery_attempts = sum(max(0, int(job.recovery_count)) for job in jobs)
     recovery_timestamps = [
         job.last_recovery_at for job in jobs if job.last_recovery_at is not None
@@ -190,7 +192,9 @@ def distill_drainer_metrics(
         if job.status in {"processing", "reviewing"}
         and isinstance(job.last_progress_at, datetime)
     ]
-    active = [job for job in jobs if job.status in {"queued", "processing", "reviewing"}]
+    active = [
+        job for job in jobs if job.status in {"queued", "processing", "reviewing"}
+    ]
     parked = [job for job in jobs if job.status == "parked"]
     retry_backoff = [
         job
@@ -207,9 +211,7 @@ def distill_drainer_metrics(
     ]
     oldest_parked = min((job.created_at for job in parked), default=None)
     budget_remaining = max(0, int(daily_job_budget) - len(offered_today))
-    offered_active_ids = {
-        job.id for job in active if job.agent_offer_day == today
-    }
+    offered_active_ids = {job.id for job in active if job.agent_offer_day == today}
     state = (
         "waiting_for_agent"
         if active and (budget_remaining > 0 or bool(offered_active_ids))
@@ -271,8 +273,7 @@ def distill_drainer_metrics(
         "oldest_stalled_age_hours": round(
             max(
                 0.0,
-                (current - min(stalled_progress)).total_seconds()
-                / 3600,
+                (current - min(stalled_progress)).total_seconds() / 3600,
             ),
             1,
         )
@@ -382,7 +383,9 @@ def _coarse_drain_estimate(
     if pending_total == 0:
         return {**base, "status": "drained", "estimated_calendar_days": 0}
     if throughput_per_day <= 0 or daily_job_budget <= 0:
-        reason = "zero_7d_throughput" if throughput_per_day <= 0 else "zero_daily_budget"
+        reason = (
+            "zero_7d_throughput" if throughput_per_day <= 0 else "zero_daily_budget"
+        )
         return {
             **base,
             "status": "unavailable",
@@ -419,8 +422,8 @@ def _coarse_drain_estimate(
     }
     if delay_days:
         next_budget_day = (
-            current.astimezone(timezone.utc) + timedelta(days=1)
-        ).date().isoformat()
+            (current.astimezone(timezone.utc) + timedelta(days=1)).date().isoformat()
+        )
         estimate["starts_after"] = f"{next_budget_day}T00:00:00+00:00"
     if retry_backoff:
         estimate["next_retry_after"] = min(
@@ -489,7 +492,7 @@ def render_pending_distill_instruction(
             "Do this automatically without asking the user to run /hm:distill.",
             "For each selected id, call prepare_session_distill with",
             "distill_job_id=<selected id>, evidence_mode=semantic,",
-            "detail_level=compact, budget_tokens=3000; read the",
+            "detail_level=compact, budget_tokens=3000, run_ingest=false; read the",
             "indexed manifest, select semantic windows, then drill into raw proof only",
             "when a candidate needs it. Review the complete session and write only",
             "warranted govern_memory(action=suggest) candidates, then call finalize_session_distill.",
@@ -502,8 +505,56 @@ def render_pending_distill_instruction(
     )
 
 
+def build_distill_maintenance_offer(
+    jobs: list[ReflectionJob | SessionDistillJob],
+    *,
+    max_jobs: int = 2,
+    target_backlog: int = 2,
+    metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return the machine-readable contract for one Agent-active wake.
+
+    The offer does not perform semantic work.  It gives the current Agent the
+    exact bounded job ids and fixed prepare parameters so host skills do not
+    have to scrape ids from rendered wake text.
+    """
+
+    selected = jobs[: max(1, int(max_jobs))]
+    queue = metrics or {}
+    return {
+        "contract_version": "agent-distill-offer-v1",
+        "agent_execution_required": bool(selected),
+        "user_confirmation_required": False,
+        "process_limit": len(selected),
+        "job_ids": [job.id for job in selected],
+        "prepare_arguments": {
+            "run_ingest": False,
+            "evidence_mode": "semantic",
+            "detail_level": "compact",
+            "budget_tokens": 3000,
+        },
+        "failure_policy": "defer_and_continue",
+        "queue": {
+            "state": queue.get("state", "idle"),
+            "active": int(queue.get("active", len(jobs)) or 0),
+            "parked": int(queue.get("parked", 0) or 0),
+            "retry_backoff": int(queue.get("retry_backoff", 0) or 0),
+            "offered_today": int(queue.get("offered_today", len(selected)) or 0),
+            "daily_job_budget": int(queue.get("daily_job_budget", len(selected)) or 0),
+            "target_active": max(0, int(target_backlog)),
+        },
+        "instruction": render_pending_distill_instruction(
+            jobs,
+            max_jobs=max_jobs,
+            target_backlog=target_backlog,
+            metrics=metrics,
+        ),
+    }
+
+
 __all__ = [
     "complete_pending_distill_jobs",
+    "build_distill_maintenance_offer",
     "distill_drainer_metrics",
     "pending_distill_jobs",
     "render_pending_distill_instruction",

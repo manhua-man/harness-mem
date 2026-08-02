@@ -9,14 +9,11 @@ from pathlib import Path
 from harness_mem.adapters.grok.adapter import GrokAdapter, grok_project_bucket
 from harness_mem.adapters.hermes.adapter import HermesAdapter
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from tests.support.native_sessions import jsonl_bytes
 
 
 def _jsonl_bytes(records: list[dict]) -> bytes:
-    text = (
-        "\r\n".join(json.dumps(record, ensure_ascii=False) for record in records)
-        + "\r\n"
-    )
-    return b"\xef\xbb\xbf" + text.encode("utf-8")
+    return jsonl_bytes(records, newline="\r\n", bom=True)
 
 
 def _grok_path(sessions_dir: Path, workspace: Path, session_id: str) -> Path:
@@ -309,12 +306,15 @@ def test_hermes_state_db_is_project_scoped_lossless_and_revision_aware(
             assert first.source.id == updated.source.id
             assert updated.source.source_kind == "sqlite-session-export"
             assert len(backend.transcript_store.list_revisions(updated.source.id)) == 3
-            assert len(
-                backend.transcript_store.list_sources(
-                    project_name="demo",
-                    client="hermes",
+            assert (
+                len(
+                    backend.transcript_store.list_sources(
+                        project_name="demo",
+                        client="hermes",
+                    )
                 )
-            ) == 1
+                == 1
+            )
             raw = backend.transcript_store.reconstruct_raw(updated.source.id)
             assert b"assistant-added" in raw
             observation = await backend.verbatim_store.get(updated.observation_id)
@@ -508,7 +508,9 @@ def test_grok_and_hermes_exclude_other_workspace_sessions(tmp_path: Path) -> Non
     wanted_grok.write_bytes(_jsonl_bytes(_grok_records("wanted")))
     other_grok.write_bytes(_jsonl_bytes(_grok_records("other")))
     grok = GrokAdapter(None, sessions_dir=grok_root, project_root=workspace)
-    assert [item["session_id"] for item in grok.list_sessions(min_size_kb=0)] == ["wanted-grok"]
+    assert [item["session_id"] for item in grok.list_sessions(min_size_kb=0)] == [
+        "wanted-grok"
+    ]
 
     hermes_root = tmp_path / ".hermes" / "sessions"
     hermes_root.mkdir(parents=True)
@@ -522,4 +524,6 @@ def test_grok_and_hermes_exclude_other_workspace_sessions(tmp_path: Path) -> Non
         project_root=workspace,
         scope="project",
     )
-    assert [item["session_id"] for item in hermes.list_sessions(min_size_kb=0)] == ["session_wanted"]
+    assert [item["session_id"] for item in hermes.list_sessions(min_size_kb=0)] == [
+        "session_wanted"
+    ]

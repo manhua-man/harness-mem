@@ -90,13 +90,27 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_name": {"type": "string", "description": "Project name (required when scope=project)"},
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (required when scope=project)",
+                },
                 "query": {"type": "string", "description": "Search query"},
-                "scope": {"type": "string", "enum": ["project", "all"], "description": "Search scope: project or all (default: project)"},
-                "mode": {"type": "string", "enum": ["auto", "fts", "hybrid"], "description": "Search mode (default: auto)"},
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "all"],
+                    "description": "Search scope: project or all (default: project)",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["auto", "fts", "hybrid"],
+                    "description": "Search mode (default: auto)",
+                },
                 "memory_type": {
                     "type": "array",
-                    "items": {"type": "string", "enum": ["episodic", "semantic", "procedural"]},
+                    "items": {
+                        "type": "string",
+                        "enum": ["episodic", "semantic", "procedural"],
+                    },
                     "description": "Optional MemoryEntry.memory_type filter; multiple values are OR-ed.",
                 },
                 "include_history": {
@@ -253,7 +267,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "type": "object",
             "properties": {
                 "project_name": {"type": "string", "description": "Project name"},
-                "source_entity": {"type": "string", "description": "Relation source entity"},
+                "source_entity": {
+                    "type": "string",
+                    "description": "Relation source entity",
+                },
                 "relation_type": {
                     "type": "string",
                     "description": "Optional relation type filter, e.g. depends_on",
@@ -356,7 +373,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_name": {"type": "string", "description": "Project name (required when scope=project)"},
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (required when scope=project)",
+                },
                 "pattern": {"type": "string", "description": "Python regex pattern"},
                 "scope": {
                     "type": "string",
@@ -378,7 +398,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "project_name": {"type": "string", "description": "Project name (required when scope=project)"},
+                "project_name": {
+                    "type": "string",
+                    "description": "Project name (required when scope=project)",
+                },
                 "query": {"type": "string", "description": "Task or workflow query"},
                 "scope": {
                     "type": "string",
@@ -425,7 +448,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "type": "object",
             "properties": {
                 "project_name": {"type": "string", "description": "Project name"},
-                "session_id": {"type": "string", "description": "Session ID to filter by"},
+                "session_id": {
+                    "type": "string",
+                    "description": "Session ID to filter by",
+                },
                 "observation_ids": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -564,7 +590,8 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "Generate a recent-context index plus stable truth and active "
             "handoffs for the given project, or the active project when "
             "project_name is omitted. Returns the wake-up text in `output` so "
-            "the agent can ingest it directly."
+            "the agent can ingest it directly, plus a structured bounded "
+            "distill maintenance offer when Agent work is eligible."
         ),
         "input_schema": {
             "type": "object",
@@ -754,8 +781,14 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "type": "object",
             "properties": {
                 "job_id": {"type": "string", "description": "Distill job id"},
-                "chunk_id": {"type": "string", "description": "Claimed transcript chunk id"},
-                "lease_owner": {"type": "string", "description": "Lease token returned with the chunk"},
+                "chunk_id": {
+                    "type": "string",
+                    "description": "Claimed transcript chunk id",
+                },
+                "lease_owner": {
+                    "type": "string",
+                    "description": "Lease token returned with the chunk",
+                },
                 "result": {
                     "type": "object",
                     "description": "Structured chunk findings, including outcomes, claims, failures, and unresolved work",
@@ -774,7 +807,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "type": "object",
             "properties": {
                 "project_name": {"type": "string", "description": "Project name"},
-                "job_id": {"type": "string", "description": "Review-ready distill job id"},
+                "job_id": {
+                    "type": "string",
+                    "description": "Review-ready distill job id",
+                },
                 "semantic_review": {
                     "type": "object",
                     "description": "Final outcome, contradictions, unfinished work, and evidence assessment",
@@ -785,11 +821,22 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                             "type": "string",
                             "enum": ["answered", "unfinished", "unknown"],
                         },
-                        "contradictions": {"type": "array", "items": {"type": "string"}},
-                        "unfinished_work": {"type": "array", "items": {"type": "string"}},
+                        "contradictions": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "unfinished_work": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
                         "evidence_status": {
                             "type": "string",
-                            "enum": ["answered", "partial", "contradicted", "not_applicable"],
+                            "enum": [
+                                "answered",
+                                "partial",
+                                "contradicted",
+                                "not_applicable",
+                            ],
                         },
                         "promotion_decision": {
                             "type": "string",
@@ -841,7 +888,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "candidate_id": {"type": "string", "description": "Candidate or reviewable item id"},
+                "candidate_id": {
+                    "type": "string",
+                    "description": "Candidate or reviewable item id",
+                },
                 "candidate_kind": {
                     "type": "string",
                     "enum": [
@@ -875,7 +925,13 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["suggest", "decide", "handoff", "correct_rule", "supersede"],
+                    "enum": [
+                        "suggest",
+                        "decide",
+                        "handoff",
+                        "correct_rule",
+                        "supersede",
+                    ],
                 },
                 "arguments": {
                     "type": "object",
@@ -1141,9 +1197,13 @@ def build_tools(
         unknown_clusters = cluster_keys - schema_keys
         details = []
         if unclassified_schemas:
-            details.append(f"unclassified schemas registered: {sorted(unclassified_schemas)}")
+            details.append(
+                f"unclassified schemas registered: {sorted(unclassified_schemas)}"
+            )
         if missing_registered_schemas:
-            details.append(f"missing registered schemas for: {sorted(missing_registered_schemas)}")
+            details.append(
+                f"missing registered schemas for: {sorted(missing_registered_schemas)}"
+            )
         if missing_handlers:
             details.append(f"missing handlers for: {sorted(missing_handlers)}")
         if unknown_handlers:

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from tests.support.native_sessions import write_jsonl
 
 
 def _write_session(path: Path, turns: int) -> None:
@@ -20,16 +20,15 @@ def _write_session(path: Path, turns: int) -> None:
                 {
                     "type": "assistant",
                     "message": {
-                        "content": [{"type": "text", "text": f"answer-{index}-" + "a" * 700}],
+                        "content": [
+                            {"type": "text", "text": f"answer-{index}-" + "a" * 700}
+                        ],
                         "stop_reason": "end_turn",
                     },
                 },
             ]
         )
-    path.write_text(
-        "".join(json.dumps(row) + "\n" for row in rows),
-        encoding="utf-8",
-    )
+    write_jsonl(path, rows)
 
 
 def test_claude_growing_session_updates_lossless_revision(tmp_path: Path) -> None:
@@ -62,11 +61,17 @@ def test_claude_growing_session_updates_lossless_revision(tmp_path: Path) -> Non
 
             assert first.action == "ingested"
             assert second.action == "updated"
-            assert backend.transcript_store.reconstruct_raw(
-                first.source.id,
-                source_revision=first.source.source_revision,
-            ) == first_bytes
-            assert backend.transcript_store.reconstruct_raw(second.source.id) == second_bytes
+            assert (
+                backend.transcript_store.reconstruct_raw(
+                    first.source.id,
+                    source_revision=first.source.source_revision,
+                )
+                == first_bytes
+            )
+            assert (
+                backend.transcript_store.reconstruct_raw(second.source.id)
+                == second_bytes
+            )
             observation = await backend.verbatim_store.get(second.observation_id)
             assert observation is not None
             assert "request-0-" in observation.raw_content
@@ -90,4 +95,6 @@ def test_claude_adapter_does_not_read_another_project_directory(tmp_path: Path) 
 
     adapter = ClaudeCodeAdapter(None, sessions_dir=sessions_root)
 
-    assert [item["session_id"] for item in adapter.list_sessions("wanted", min_size_kb=0)] == ["wanted"]
+    assert [
+        item["session_id"] for item in adapter.list_sessions("wanted", min_size_kb=0)
+    ] == ["wanted"]

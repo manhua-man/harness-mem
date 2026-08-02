@@ -12,6 +12,7 @@ from harness_mem.adapters.antigravity.adapter import AntigravityAdapter
 from harness_mem.adapters.codex.adapter import CodexAdapter
 from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from tests.support.native_sessions import write_jsonl
 
 
 def _json_line(value: dict[str, Any]) -> bytes:
@@ -21,31 +22,37 @@ def _json_line(value: dict[str, Any]) -> bytes:
 def _codex_bytes(workspace: Path, session_id: str, text: str) -> bytes:
     return b"\xef\xbb\xbf" + b"".join(
         (
-            _json_line({
-                "type": "session_meta",
-                "payload": {
-                    "id": session_id,
-                    "cwd": str(workspace),
-                    "timestamp": "2026-07-15T00:00:00Z",
-                },
-            }),
-            _json_line({
-                "type": "event_msg",
-                "payload": {
-                    "turn_id": "turn-1",
-                    "type": "user_message",
-                    "message": text,
-                },
-            }),
-            _json_line({
-                "type": "response_item",
-                "payload": {
-                    "turn_id": "turn-1",
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [{"type": "output_text", "text": "complete"}],
-                },
-            }),
+            _json_line(
+                {
+                    "type": "session_meta",
+                    "payload": {
+                        "id": session_id,
+                        "cwd": str(workspace),
+                        "timestamp": "2026-07-15T00:00:00Z",
+                    },
+                }
+            ),
+            _json_line(
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "turn_id": "turn-1",
+                        "type": "user_message",
+                        "message": text,
+                    },
+                }
+            ),
+            _json_line(
+                {
+                    "type": "response_item",
+                    "payload": {
+                        "turn_id": "turn-1",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "complete"}],
+                    },
+                }
+            ),
         )
     )
 
@@ -53,18 +60,22 @@ def _codex_bytes(workspace: Path, session_id: str, text: str) -> bytes:
 def _antigravity_bytes(text: str) -> bytes:
     return b"\xef\xbb\xbf" + b"".join(
         (
-            _json_line({
-                "step_index": 0,
-                "source": "USER_EXPLICIT",
-                "type": "USER_INPUT",
-                "content": text,
-            }),
-            _json_line({
-                "step_index": 1,
-                "source": "MODEL",
-                "type": "PLANNER_RESPONSE",
-                "content": "complete",
-            }),
+            _json_line(
+                {
+                    "step_index": 0,
+                    "source": "USER_EXPLICIT",
+                    "type": "USER_INPUT",
+                    "content": text,
+                }
+            ),
+            _json_line(
+                {
+                    "step_index": 1,
+                    "source": "MODEL",
+                    "type": "PLANNER_RESPONSE",
+                    "content": "complete",
+                }
+            ),
         )
     )
 
@@ -77,7 +88,6 @@ def _write_antigravity_history(
     prompts: list[str],
     start_timestamp: int = 1_700_000_000_000,
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
     records = [
         {
             "conversationId": session_id,
@@ -87,9 +97,7 @@ def _write_antigravity_history(
         }
         for index, prompt in enumerate(prompts)
     ]
-    with path.open("a", encoding="utf-8") as handle:
-        for record in records:
-            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    write_jsonl(path, records, append=True)
 
 
 def _write_session(
@@ -202,22 +210,30 @@ def test_ingest_updates_growth_and_scans_past_unchanged_sessions(
 
             with older.open("ab") as handle:
                 if kind.startswith("codex"):
-                    handle.write(_json_line({
-                        "type": "event_msg",
-                        "payload": {
-                            "turn_id": "turn-1",
-                            "type": "agent_message",
-                            "phase": "final_answer",
-                            "message": "grown revision",
-                        },
-                    }))
+                    handle.write(
+                        _json_line(
+                            {
+                                "type": "event_msg",
+                                "payload": {
+                                    "turn_id": "turn-1",
+                                    "type": "agent_message",
+                                    "phase": "final_answer",
+                                    "message": "grown revision",
+                                },
+                            }
+                        )
+                    )
                 else:
-                    handle.write(_json_line({
-                        "step_index": 2,
-                        "source": "MODEL",
-                        "type": "PLANNER_RESPONSE",
-                        "content": "grown revision",
-                    }))
+                    handle.write(
+                        _json_line(
+                            {
+                                "step_index": 2,
+                                "source": "MODEL",
+                                "type": "PLANNER_RESPONSE",
+                                "content": "grown revision",
+                            }
+                        )
+                    )
             os.utime(older, ns=(1_700_000_050_000_000_000,) * 2)
 
             second = await _ingest(kind, adapter, workspace, limit=1)
@@ -370,7 +386,9 @@ def test_antigravity_cli_history_is_project_scoped_lossless_and_revision_aware(
             assert b"other-one" not in raw
             normalized = backend.transcript_store.reconstruct(updated.source.id)
             assert "transcript-complete" in normalized
-            observation = await backend.verbatim_store.get(with_transcript.observation_id)
+            observation = await backend.verbatim_store.get(
+                with_transcript.observation_id
+            )
             assert observation is not None
             assert "wanted-two" in observation.raw_content
             assert "transcript-complete" in observation.raw_content
@@ -393,8 +411,12 @@ def test_codex_and_antigravity_exclude_other_workspace_sources(tmp_path: Path) -
             codex_root = tmp_path / "codex"
             _write_session(codex_root, "codex", workspace, "wanted", "wanted work")
             _write_session(codex_root, "codex", other_workspace, "other", "other work")
-            codex = CodexAdapter(backend, sessions_dir=codex_root, project_root=workspace)
-            assert [item["session_id"] for item in codex.list_sessions(min_size_kb=0)] == ["wanted"]
+            codex = CodexAdapter(
+                backend, sessions_dir=codex_root, project_root=workspace
+            )
+            assert [
+                item["session_id"] for item in codex.list_sessions(min_size_kb=0)
+            ] == ["wanted"]
 
             antigravity_root = tmp_path / "antigravity"
             wanted_path = _write_session(
@@ -413,13 +435,17 @@ def test_codex_and_antigravity_exclude_other_workspace_sources(tmp_path: Path) -
             )
             for path, root in ((wanted_path, workspace), (other_path, other_workspace)):
                 with path.open("ab") as handle:
-                    handle.write(_json_line({"tool_calls": [{"args": {"cwd": str(root)}}]}))
+                    handle.write(
+                        _json_line({"tool_calls": [{"args": {"cwd": str(root)}}]})
+                    )
             antigravity = AntigravityAdapter(
                 backend,
                 brain_dir=antigravity_root,
                 project_root=workspace,
             )
-            assert [item["session_id"] for item in antigravity.list_sessions()] == ["wanted-antigravity"]
+            assert [item["session_id"] for item in antigravity.list_sessions()] == [
+                "wanted-antigravity"
+            ]
         finally:
             await backend.close()
 

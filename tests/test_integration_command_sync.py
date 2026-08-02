@@ -22,7 +22,15 @@ from harness_mem.integration.command_sync import (
 
 def _write_command_sources(source_dir: Path) -> None:
     groups = {
-        "daily": ("status", "wake", "search", "search-all", "distill", "review", "dream"),
+        "daily": (
+            "status",
+            "wake",
+            "search",
+            "search-all",
+            "distill",
+            "review",
+            "dream",
+        ),
     }
     for command in known_command_names():
         for group, commands in groups.items():
@@ -68,19 +76,31 @@ def test_source_path_for_command_uses_profile_subdirectories(tmp_path: Path) -> 
     source_dir = tmp_path / "source"
     _write_command_sources(source_dir)
 
-    assert source_path_for_command(source_dir, "status") == source_dir / "daily" / "status.md"
-    assert source_path_for_command(source_dir, "dream") == source_dir / "daily" / "dream.md"
+    assert (
+        source_path_for_command(source_dir, "status")
+        == source_dir / "daily" / "status.md"
+    )
+    assert (
+        source_path_for_command(source_dir, "dream")
+        == source_dir / "daily" / "dream.md"
+    )
     with pytest.raises(ValueError, match="unknown slash command"):
         source_path_for_command(source_dir, "mark")
 
 
-def test_sync_slash_commands_removes_commands_outside_selected_profile(tmp_path: Path) -> None:
+def test_sync_slash_commands_removes_commands_outside_selected_profile(
+    tmp_path: Path,
+) -> None:
     source_dir = tmp_path / "source"
     target_dir = tmp_path / "target"
     _write_command_sources(source_dir)
     target_dir.mkdir()
-    (target_dir / "mark.md").write_text("# optional maintenance command\n", encoding="utf-8")
-    (target_dir / "prune.md").write_text("# optional maintenance command\n", encoding="utf-8")
+    (target_dir / "mark.md").write_text(
+        "# optional maintenance command\n", encoding="utf-8"
+    )
+    (target_dir / "prune.md").write_text(
+        "# optional maintenance command\n", encoding="utf-8"
+    )
 
     result = sync_slash_commands(
         source_dir=source_dir,
@@ -101,7 +121,9 @@ def test_sync_slash_commands_dry_run_does_not_mutate_target(tmp_path: Path) -> N
     target_dir = tmp_path / "target"
     _write_command_sources(source_dir)
     target_dir.mkdir()
-    (target_dir / "mark.md").write_text("# optional maintenance command\n", encoding="utf-8")
+    (target_dir / "mark.md").write_text(
+        "# optional maintenance command\n", encoding="utf-8"
+    )
 
     result = sync_slash_commands(
         source_dir=source_dir,
@@ -250,13 +272,44 @@ def test_user_command_sync_is_visible_from_unrelated_projects(
             scope="user",
             source_dir=source_dir,
         )
-        second_destination = default_host_commands_dir(
-            client, project_b, scope="user"
-        )
+        second_destination = default_host_commands_dir(client, project_b, scope="user")
         assert first.destination_dir == second_destination
         assert expected[client].exists()
         assert not (project_a / ".agents").exists()
         assert not (project_b / ".agents").exists()
+
+
+@pytest.mark.parametrize("client", COMMAND_HOSTS)
+def test_all_host_wake_entries_execute_one_bounded_agent_offer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    client: str,
+) -> None:
+    source_dir = Path("plugins/harness-mem/commands/hm")
+    home = tmp_path / "home"
+    local_appdata = tmp_path / "local-appdata"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+
+    result = sync_host_commands(
+        client=client,
+        scope="user",
+        source_dir=source_dir,
+    )
+    if client in {"codex", "cursor", "grok", "hermes"}:
+        wake_path = result.destination_dir / "hm-wake" / "SKILL.md"
+    elif client == "claude-code":
+        wake_path = result.destination_dir / "wake.md"
+    else:
+        wake_path = result.destination_dir / "hm-wake.md"
+    rendered = wake_path.read_text(encoding="utf-8")
+
+    assert "agent_execution_required=true" in rendered
+    assert "distill_job_id=<offered id>" in rendered
+    assert "run_ingest=false" in rendered
+    assert "defer_job_id=<offered id>" in rendered
+    assert "这是只读操作" not in rendered
 
 
 def test_generated_skill_strips_bom_and_uses_host_native_invocations(
@@ -284,11 +337,7 @@ def test_generated_skill_strips_bom_and_uses_host_native_invocations(
 
     sync_host_commands(client="antigravity", scope="user", source_dir=source_dir)
     workflow = (
-        home
-        / ".gemini"
-        / "antigravity"
-        / "global_workflows"
-        / "hm-status.md"
+        home / ".gemini" / "antigravity" / "global_workflows" / "hm-status.md"
     ).read_text(encoding="utf-8")
     assert "/hm-wake" in workflow
     assert 'host_client="antigravity"' in workflow

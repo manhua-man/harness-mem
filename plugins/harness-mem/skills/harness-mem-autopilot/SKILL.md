@@ -21,7 +21,7 @@ suggest before writing
 candidate before truth
 summary before raw evidence
 learn through candidates, not silent truth writes
-no hook or dream auto-maintenance unless the user opted in
+runtime-gated maintenance only; no background semantic claims
 ```
 
 ## Configuration contract
@@ -55,7 +55,7 @@ Users can opt out with `dream.auto.enabled=false`.
 
 | Situation | Action |
 |---|---|
-| New task, resume, continue, pick up where we left off | If enabled, call project status, then `wake`; only use readable truth (`auto_confirmed` / `user_confirmed`). |
+| New task, resume, continue, pick up where we left off | If enabled, call project status, then `wake`; only use readable truth (`auto_confirmed` / `user_confirmed`). If wake returns a structured distill maintenance offer, consume at most its first exact job ID with semantic/compact, `budget_tokens=3000`, and `run_ingest=false`; finalize or defer it before continuing, without asking the user to run distill. |
 | Runtime context/tool/save-point event has uncertainty, conflict, failure, durable-claim grounding, or long-horizon task switch | If enabled, call `autopilot_search_tick`; inject returned `context_injection` into the next context when search runs. |
 | User asks “previously”, “last time”, “why did we decide”, “history” | If enabled, use `autopilot_search_tick` when inside a runtime event; use `search_memory` as the explicit fallback path. Drill down with `timeline` or observations only when needed. |
 | User explicitly says “remember this”, “make this a rule”, “以后都这样” | **Deep** grill-me admission, then `govern_memory(action="suggest")` on `admit` / narrowed `narrow`; let the shared automatic policy govern it and never direct-confirm it. |
@@ -82,6 +82,7 @@ Do not:
 - treat generated prose as truth;
 - inject every memory into wake;
 - run hook or daemon maintenance outside the runtime gates;
+- consume more than one wake-offered distill job in one Agent task;
 - bypass `dream.auto.enabled` when handing eligible candidates or memories to dream maintenance;
 - present CLI as the normal daily workflow when MCP or Slash/Skill is available.
 

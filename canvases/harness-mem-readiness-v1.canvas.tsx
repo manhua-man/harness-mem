@@ -24,7 +24,7 @@ import {
 const MODEL_VERSION = "v1";
 const AS_OF = "2026-08-02";
 const RUNTIME_VERSION = "0.9.9.1";
-const PYTEST_PASSED = 597;
+const PYTEST_PASSED = 616;
 const PYTEST_SKIPPED = 2;
 const PYTEST_COUNT = PYTEST_PASSED + PYTEST_SKIPPED;
 

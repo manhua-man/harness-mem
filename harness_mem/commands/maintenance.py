@@ -65,6 +65,7 @@ async def cmd_rebuild_vector_index(
             for observation in observations
             if observation.metadata.get("project_name") == resolved_project
         ]
+
         def progress(label: str):
             return lambda done, total: print(
                 f"Embedding batch ({label}): {done}/{total}"
@@ -212,7 +213,9 @@ async def cmd_migrate_store_v2(
             print(f"Invalid JSON files: {plan['invalid_json_count']}")
             print(f"Logical checksum: {plan['logical_checksum']}")
             print("Default storage changed: false")
-            print("No changes written. Use --apply to write the side-by-side canonical DB.")
+            print(
+                "No changes written. Use --apply to write the side-by-side canonical DB."
+            )
             print(json.dumps(plan, indent=2, sort_keys=True))
             log_command_invoked(
                 "maintenance.migrate-store-v2",
@@ -391,9 +394,15 @@ async def run_post_turn_maintenance(
     from harness_mem.mcp import tool_handlers as mcp_tool_handlers
 
     previous_backend_provider = getattr(mcp_tool_handlers, "_backend_provider", None)
-    previous_observer_data_dir = getattr(mcp_tool_handlers, "_observer_data_dir_provider", None)
-    previous_cost_surface_budgets = getattr(mcp_tool_handlers, "_cost_surface_budgets_provider", None)
-    previous_logger = getattr(mcp_tool_handlers, "logger", logging.getLogger("harness_mem.host_entry"))
+    previous_observer_data_dir = getattr(
+        mcp_tool_handlers, "_observer_data_dir_provider", None
+    )
+    previous_cost_surface_budgets = getattr(
+        mcp_tool_handlers, "_cost_surface_budgets_provider", None
+    )
+    previous_logger = getattr(
+        mcp_tool_handlers, "logger", logging.getLogger("harness_mem.host_entry")
+    )
     try:
         from harness_mem.data_lifecycle import enforce_transcript_retention
         from harness_mem.processed_source_cleanup import (
@@ -460,7 +469,9 @@ async def run_post_turn_maintenance(
             }
 
         job_id = evidence_packet.get("distill_job_id")
-        job = backend.reflection_job_store.get(str(job_id)) if job_id else None
+        job = backend.transcript_store.get_distill_job(str(job_id)) if job_id else None
+        queued_statuses = {"queued", "parked", "retryable"}
+        processing_statuses = {"processing", "reviewing"}
         return {
             "action": "post-turn-maintenance",
             "success": bool(evidence_packet.get("success", False)),
@@ -468,9 +479,9 @@ async def run_post_turn_maintenance(
                 "failed"
                 if not evidence_packet.get("success", False)
                 else "queued"
-                if job is not None and job.status == "needs_distill"
+                if job is not None and job.status in queued_statuses
                 else "in_progress"
-                if job is not None and job.status == "processing"
+                if job is not None and job.status in processing_statuses
                 else "completed"
             ),
             "project_name": project_name,
@@ -484,18 +495,20 @@ async def run_post_turn_maintenance(
             "summary": {
                 "evidence_packet_ready": bool(evidence_packet.get("success", False)),
                 "observation_count": evidence_packet.get("observation_count", 0),
-                "distill_queued": job is not None and job.status == "needs_distill",
+                "distill_queued": job is not None and job.status in queued_statuses,
                 "distill_job_id": job.id if job is not None else None,
                 "source_cleanup_deleted": source_cleanup["deleted"],
                 "source_cleanup_retained": source_cleanup["retained"],
-                "source_cleanup_failures": int(
-                    source_cleanup["partial_failure"]
-                )
+                "source_cleanup_failures": int(source_cleanup["partial_failure"])
                 + int(source_cleanup["unsupported"]),
             },
         }
     finally:
-        if previous_backend_provider is None or previous_observer_data_dir is None or previous_cost_surface_budgets is None:
+        if (
+            previous_backend_provider is None
+            or previous_observer_data_dir is None
+            or previous_cost_surface_budgets is None
+        ):
             mcp_tool_handlers.reset_tool_handler_dependencies()
         else:
             mcp_tool_handlers.configure_tool_handler_dependencies(

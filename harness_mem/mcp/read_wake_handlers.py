@@ -94,12 +94,14 @@ def tool_wake(
             "degraded_reason": "missing_project",
             "drilldown_hints": [],
         }
+    distill_maintenance: dict[str, Any] = {}
     command_payload = _run_command_to_payload(
         cmd_wake_up(
             resolved,
             no_auto_ingest=no_auto_ingest,
             include_skill_hints=include_skill_hints,
             skill_hint_limit=skill_hint_limit,
+            maintenance_capture=distill_maintenance,
         )
     )
     snapshot_payload: dict[str, Any] = {}
@@ -201,5 +203,6 @@ def tool_wake(
         "current_task": current_task,
         "budget_tokens": budget_tokens,
         "deep_recall": deep_recall,
+        "distill_maintenance": distill_maintenance,
         **command_payload,
     }

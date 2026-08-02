@@ -3,8 +3,8 @@
 # Generated at: ${GENERATED_AT}
 # Docs: ${DOC_POINTER}
 #
-# This hook prints wake context for session-start injection. It is read-only
-# apart from wake-surfaced usage signals and never runs dream maintenance.
+# This hook prints wake context plus a bounded Agent maintenance offer. The
+# hook never performs semantic distill or dream work itself.
 
 set -e
 

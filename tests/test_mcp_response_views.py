@@ -121,8 +121,26 @@ def _status_snapshot() -> dict:
         "repair_reason": "Pending candidates remain.",
         "why_this_result": "Project is ready.",
         "next_actions": [
-            {"label": "wake", "surface": "/hm:wake", "reason": "Resume context."},
-            {"label": "review", "surface": "/hm:review", "reason": "Review pending."},
+            {
+                "label": "run_suggested_entry",
+                "surface": "/hm:distill",
+                "reason": "Captured sessions are waiting for distill before the next wake.",
+            },
+            {
+                "label": "review_pending_when_needed",
+                "surface": "/hm:review",
+                "reason": "Review only when correcting or rechecking candidates.",
+            },
+            {
+                "label": "search_before_task",
+                "surface": '/hm:search "<topic>"',
+                "reason": "Search narrows the wake context to the current task.",
+            },
+            {
+                "label": "consider_retrieval_quality_profile",
+                "surface": "operator_profile_edit",
+                "reason": "The quality profile is available but remains opt-in.",
+            },
         ],
         "degraded_reason": None,
         "drilldown_hints": [{"why": "legacy full hint"}],
@@ -198,7 +216,11 @@ def test_compact_status_preserves_decisions_and_stays_within_budget() -> None:
         project_status_decision_fingerprint(full)
     )
     payload = json.dumps(compact, ensure_ascii=False, sort_keys=True)
-    assert token_estimator.count_tokens(payload) <= 1200
+    assert token_estimator.count_tokens(payload) <= 1000
+    assert compact["contract_version"] == "project-status-v4"
+    assert "counts" not in compact
+    assert "job_health" not in compact
+    assert all("reason" not in action for action in compact["next_actions"])
     assert compact["retrieval_health"]["high_output_calls"] == 40
     assert compact["retrieval_health"]["quality_scorecard"] == {
         "assessment": "poor_feedback",
@@ -244,6 +266,8 @@ def test_full_status_keeps_complete_diagnostics() -> None:
     assert full["detail_level"] == "full"
     assert len(full["cost_budget"]["recent_high_output_calls"]) == 40
     assert full["install_drift"]["surfaces"]["skill"]["text"] == "x" * 4000
+    assert full["integration_health"]["project"]["root"] == "F:/demo"
+    assert full["next_actions"][0]["reason"].startswith("Captured sessions")
 
 
 def test_status_triage_uses_distill_jobs_instead_of_observation_count() -> None:

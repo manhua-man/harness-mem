@@ -26,7 +26,7 @@ Agent 会读代码，但它通常不知道项目为什么变成现在这样：�
 
 - `/hm:*` 命令：`status`、`wake`、`search`、`search-all`、`distill`、`review`、`dream`。
 - Agent MCP 调用：自然语言、skill 或 hook 触发 `wake/search/distill/review`。
-- Hook：会话开始注入 wake context；任务过程中按需 search；save point / 会话结束执行 retention。distill 活跃槽最多 2 条，按 3:1 recent/oldest 公平补位，带失败退避和每日新 job 上限；没有 Agent 时明确显示 `waiting_for_agent`，不会声称后台已完成语义处理。
+- Hook：会话开始注入 wake context；任务过程中按需 search；save point / 会话结束执行 retention。distill 活跃槽最多 2 条，按 3:1 recent/oldest 公平补位，带失败退避和每日新 job 上限；每个 Agent task 最多自动处理 1 条机器可读 wake offer。没有 Agent 时明确显示 `waiting_for_agent`，不会声称后台已完成语义处理。
 - CLI：只做 setup、doctor、config、integration 和 maintenance。
 
 <p align="center">
