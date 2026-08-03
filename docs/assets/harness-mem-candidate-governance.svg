@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1050" viewBox="0 0 1440 1050" role="img" aria-labelledby="title desc">
   <title id="title">Harness-Mem 候选治理与记忆状态机</title>
-  <desc id="desc">从原始会话证据到候选层、自动预审、审计 inbox、已确认真值、运行时消费和信号回流的状态机。</desc>
+  <desc id="desc">从原始会话证据到候选层，经 evidence gate 与 Dream 自动治理后进入已确认真值或完成处置；hm-review 仅作为事后审计、纠错、撤销和替换支路。</desc>
   <defs>
     <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
       <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e8f2fb" stroke-width="1"/>
@@ -58,14 +58,14 @@
   <rect x="0" y="0" width="1440" height="13" fill="url(#header)"/>
 
   <text class="title" x="70" y="72">Harness-Mem：候选治理与记忆状态机</text>
-  <text class="subtitle" x="72" y="106">核心不是“自动记住一切”，而是把 AI 生成内容先变成可审计候选，再进入受控 truth surface。</text>
+  <text class="subtitle" x="72" y="106">Dream 自动验证、晋升或判定无需记忆；/hm:review 是事后纠错支路，不是日常人工必经门。</text>
 
   <g transform="translate(76 172)">
     <rect class="panel" width="260" height="170"/>
     <rect class="chip" x="22" y="22" width="128" height="32"/>
     <text class="chipText" x="40" y="44">Raw Source</text>
     <text class="label" x="24" y="88">原始证据</text>
-    <text class="body" x="24" y="120">Codex / Claude / Cursor</text>
+    <text class="body" x="24" y="120">七宿主 native transcript</text>
     <text class="body" x="24" y="146">immutable bytes + revisions</text>
   </g>
 
@@ -73,91 +73,96 @@
     <rect class="panelBlue" width="286" height="170"/>
     <rect class="chip" x="22" y="22" width="150" height="32"/>
     <text class="chipText" x="40" y="44">Lossless Packet</text>
-    <text class="label" x="24" y="88">有序完整分块</text>
-    <text class="code" x="24" y="120">prepare_session_distill</text>
-    <text class="body" x="24" y="146">lease / checkpoint / no gaps</text>
+    <text class="label" x="24" y="88">可追溯语义窗口</text>
+    <text class="body" x="24" y="120">append projection / tool-safe</text>
+    <text class="body" x="24" y="146">receipt / source ids / drilldown</text>
   </g>
 
   <g transform="translate(760 172)">
     <rect class="panelBlue" width="286" height="170"/>
     <rect class="chip" x="22" y="22" width="130" height="32"/>
-    <text class="chipText" x="40" y="44">LLM Agent</text>
-    <text class="label" x="24" y="88">AI 提炼者</text>
-    <text class="body" x="24" y="120">全部读完后做末尾审查</text>
-    <text class="body" x="24" y="146">幂等候选，不直接写 truth</text>
+    <text class="chipText" x="40" y="44">Distill Agent</text>
+    <text class="label" x="24" y="88">提炼候选或无候选</text>
+    <text class="body" x="24" y="120">outline → relevant evidence</text>
+    <text class="body" x="24" y="146">幂等输出，不直接写 truth</text>
   </g>
 
   <g transform="translate(390 412)">
     <rect class="panelCand" width="500" height="310"/>
     <rect class="chip" x="24" y="24" width="152" height="32"/>
     <text class="chipText" x="42" y="46">Candidate Layer</text>
-    <text class="label" x="26" y="92">候选层：pending / reviewable</text>
-    <text class="body" x="26" y="122">所有 AI 提炼、纠错、合并、过期建议都先进这里。</text>
+    <text class="label" x="26" y="92">候选层：pending / traceable</text>
+    <text class="body" x="26" y="122">候选携带 source ids、evidence basis、冲突与新鲜度信息。</text>
 
     <g transform="translate(26 150)">
       <rect class="card" width="212" height="68"/>
-      <text class="status" x="16" y="28">RuleCandidate</text>
-      <text class="body" x="16" y="50">协作规则 / 偏好</text>
+      <text class="status" x="16" y="28">Memory Candidate</text>
+      <text class="body" x="16" y="50">长期事实 / 决策 / 状态</text>
     </g>
     <g transform="translate(262 150)">
       <rect class="card" width="212" height="68"/>
-      <text class="status" x="16" y="28">MemoryEntry pending</text>
-      <text class="body" x="16" y="50">长期事实 / 任务状态</text>
+      <text class="status" x="16" y="28">Rule Candidate</text>
+      <text class="body" x="16" y="50">用户偏好 / 协作规则</text>
     </g>
     <g transform="translate(26 236)">
       <rect class="card" width="212" height="68"/>
-      <text class="status" x="16" y="28">RelationFact pending</text>
-      <text class="body" x="16" y="50">实体关系 / provenance</text>
+      <text class="status" x="16" y="28">Evidence Basis</text>
+      <text class="body" x="16" y="50">repo_verified / user_stated</text>
     </g>
     <g transform="translate(262 236)">
       <rect class="cardWarn" width="212" height="68"/>
-      <text class="status" x="16" y="28">Merge / Stale / Skill</text>
-      <text class="body" x="16" y="50">治理建议，不自动 apply</text>
+      <text class="status" x="16" y="28">Conflict / Freshness</text>
+      <text class="body" x="16" y="50">dedupe / contradicted / stale</text>
     </g>
   </g>
 
   <g transform="translate(982 412)">
-    <rect class="panelBlue" width="300" height="152"/>
+    <rect class="panelBlue" width="300" height="178"/>
     <rect class="chip" x="22" y="22" width="136" height="32"/>
-    <text class="chipText" x="40" y="44">Auto Review</text>
-    <text class="label" x="24" y="88">自动预审</text>
-    <text class="code" x="24" y="120">finalize_session_distill</text>
+    <text class="chipText" x="40" y="44">Evidence Gate</text>
+    <text class="label" x="24" y="88">Dream + auto-review</text>
+    <text class="body" x="24" y="118">验证来源、时序、冲突、完成度</text>
+    <text class="body" x="24" y="144">自动决定晋升或完成处置</text>
+    <text class="code" x="24" y="166">repo / user / transcript / conflict</text>
   </g>
 
-  <g transform="translate(982 624)">
-    <rect class="panelOrange" width="300" height="146"/>
-    <rect class="chip" x="22" y="22" width="148" height="32"/>
-    <text class="chipText" x="40" y="44">Human Gate</text>
-    <text class="label" x="24" y="88">/hm:review audit inbox</text>
-    <text class="body" x="24" y="120">确认 / 拒绝 / 替换 / undo</text>
+  <g transform="translate(982 632)">
+    <rect class="panelOrange" width="300" height="138"/>
+    <rect class="chip" x="22" y="22" width="184" height="32"/>
+    <text class="chipText" x="40" y="44">Completion Disposition</text>
+    <text class="label" x="24" y="84">完成处置</text>
+    <text class="body" x="24" y="110">provisional / no_candidate</text>
+    <text class="body" x="24" y="132">rejected / deferred（不进 wake）</text>
   </g>
 
-  <g transform="translate(994 814)">
-    <rect class="panelOrange" width="250" height="94"/>
-    <text class="label" x="24" y="40">拒绝 / 噪声</text>
-    <text class="body" x="24" y="68">重复、跨项目、证据薄弱</text>
+  <g transform="translate(972 808)">
+    <rect class="panelOrange" width="330" height="112"/>
+    <rect class="chip" x="22" y="18" width="146" height="30"/>
+    <text class="chipText" x="38" y="39">Post-hoc Review</text>
+    <text class="label" x="22" y="76">/hm:review 事后审计</text>
+    <text class="body" x="22" y="100">correct / undo / supersede / reject</text>
   </g>
 
   <g transform="translate(390 792)">
     <rect class="panelGreen" width="500" height="150"/>
     <rect class="chip" x="24" y="22" width="158" height="32"/>
     <text class="chipText" x="42" y="44">Confirmed Truth</text>
-    <text class="label" x="26" y="86">已确认真值层</text>
+    <text class="label" x="26" y="86">已确认真值层：auto_confirmed</text>
     <g transform="translate(26 104)">
       <rect class="cardDone" width="106" height="40"/>
-      <text class="body" x="14" y="26">ConfirmedRule</text>
+      <text class="body" x="14" y="26">Rule</text>
     </g>
     <g transform="translate(148 104)">
       <rect class="cardDone" width="116" height="40"/>
-      <text class="body" x="14" y="26">MemoryEntry</text>
+      <text class="body" x="14" y="26">Memory</text>
     </g>
     <g transform="translate(280 104)">
       <rect class="cardDone" width="104" height="40"/>
-      <text class="body" x="14" y="26">RelationFact</text>
+      <text class="body" x="14" y="26">Provenance</text>
     </g>
     <g transform="translate(400 104)">
       <rect class="cardDone" width="72" height="40"/>
-      <text class="body" x="14" y="26">Skill</text>
+      <text class="body" x="14" y="26">State</text>
     </g>
   </g>
 
@@ -176,16 +181,17 @@
     <text class="chipText" x="40" y="44">Signals</text>
     <text class="label" x="24" y="86">使用信号</text>
     <text class="body" x="24" y="118">wake_surfaced / search_hit</text>
-    <text class="body" x="24" y="140">confirmed / rejected / skill_result</text>
+    <text class="body" x="24" y="140">used / ignored / corrected</text>
   </g>
 
   <path class="arrow" d="M 336 257 L 416 257"/>
   <path class="arrow" d="M 704 257 L 758 257"/>
   <path class="arrow" d="M 900 342 C 900 380 824 386 766 410"/>
   <path class="arrow" d="M 890 564 L 980 500"/>
-  <path class="arrowGreen" d="M 1132 564 L 1132 622"/>
-  <path class="arrowGreen" d="M 982 697 C 928 764 886 808 890 868"/>
-  <path class="arrowOrange" d="M 1132 770 L 1132 812"/>
+  <path class="arrowGreen" d="M 1042 590 C 1028 704 928 764 890 838"/>
+  <path class="arrowOrange" d="M 1132 590 L 1132 630"/>
+  <path class="dash" d="M 1132 770 L 1132 806"/>
+  <path class="dash" d="M 890 888 C 926 892 944 884 970 870"/>
   <path class="arrowGreen" d="M 390 867 L 336 867"/>
   <path class="dash" d="M 206 792 L 206 668"/>
   <path class="dash" d="M 336 592 C 394 548 380 504 390 474"/>
@@ -193,12 +199,13 @@
 
   <g transform="translate(1030 188)">
     <rect class="panelOrange" width="312" height="112"/>
-    <text class="label" x="24" y="40">红线</text>
-    <text class="body" x="24" y="72">AI 可以提出候选和建议</text>
-    <text class="body" x="24" y="96">不能自治删除或改写 truth</text>
+    <text class="label" x="24" y="40">证据边界</text>
+    <text class="body" x="24" y="72">Observation / transcript 只是 evidence</text>
+    <text class="body" x="24" y="96">不等于长期事实，也不能直接进入 wake</text>
   </g>
 
   <g transform="translate(70 980)">
-    <text class="small" x="0" y="0">这张图把候选层画成系统核心：它让长期记忆可以被 AI 提炼、自动低风险审核、人工最终复核，同时仍保留 source ids 和可回滚的治理路径。</text>
+    <text class="small" x="0" y="0">主链：evidence → candidate → Evidence Gate + Dream → auto_confirmed 或完成处置。</text>
+    <text class="small" x="0" y="22">/hm:review 仅在用户需要审计、纠错、撤销或替换时介入；Observation / evidence 从不等同长期事实。</text>
   </g>
 </svg>

@@ -81,18 +81,22 @@ Binary yes/no: public docs and agent skills must stay inside verified capability
 
 ## Current snapshot (v0.9.10)
 
-See `canvases/harness-mem-readiness-v1.canvas.tsx` for the living panel. As of
-2026-08-02:
+See `canvases/harness-mem-readiness-0-9-10.canvas.tsx` for the living panel.
+It deliberately does not publish one combined readiness score: repository
+release maturity and one device's live operations are different facts.
 
-| Track | Score | Primary gap |
-|-------|------:|-------------|
-| L1 | 96 | — |
-| L2 | 97 | — |
-| L3 | 97 | 60-case replay, pre-limit `as_of` filtering, content-hashed batch-index generations, and context-budget traces ship; ranking diversity remains iterative |
-| L4 | 99 | Exact offered-job claims, bounded restart recovery, separate truth-preserving/full-erasure paths, native privacy deletion, and receipt-first Storage v2 migration are verified |
-| L5 | 99 | Seven-host native transcript→Dream→wake replay, explicit capabilities, and one all-host repair path are verified |
-| L6 | 99 | Risk-classified Doctor recovery, compact/full parity, exact 27-tool equality, real sqlite-vec, and install/upgrade/restore release gates are verified |
-| **Weighted** | **~98** | **Retrieval ranking remains the main iterative quality track** |
+As of 2026-08-02:
+
+| View | Evidence | Current result |
+|------|----------|----------------|
+| Release maturity | package 0.9.10, 637 passed / 2 skipped, Rust 6 passed, exact 27-tool contract, seven-host qualification | release gates passed |
+| Runtime alignment | repository/plugin 0.9.10 versus running MCP 0.9.9.1 | install drift; refresh and restart required |
+| Distill operations | active 2, parked 198, 0.43 completed/day over seven days | `needs-distill`; throughput is the primary operational gap |
+| Retrieval feedback | 2 surfaced, no used/ignored/misleading outcomes | insufficient live feedback |
+
+The historical six-track score panel remains in
+`canvases/harness-mem-readiness-v1.canvas.tsx`; it is no longer the current
+operational dashboard.
 
 The public MCP contract currently contains 27 tools (~27.8 KiB compact
 `tools/list` JSON). The former low-level suggest/confirm/reject schemas and

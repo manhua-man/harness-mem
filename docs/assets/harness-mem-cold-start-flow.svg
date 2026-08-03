@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 540" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 620" role="img" aria-labelledby="title desc">
   <title id="title">harness-mem cold-start flow</title>
-  <desc id="desc">A fresh Agent wakes, searches when uncertain, distills session evidence, reviews candidates, and runs dream maintenance against a local auditable memory backend.</desc>
+  <desc id="desc">The user-facing loop remains wake, search, distill, review, and dream. Internally, distill finalization uses automatic review and Dream to promote verified candidates or record no-candidate; manual review is a post-hoc correction and undo path.</desc>
   <defs>
     <style>
       .bg { fill: #f8fafc; }
@@ -8,82 +8,105 @@
       .muted { fill: #475569; }
       .card { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; }
       .card-accent { fill: #effaf6; stroke: #8ad1b2; stroke-width: 2; }
+      .card-review { fill: #fff7ed; stroke: #e9a85e; stroke-width: 2; }
       .store { fill: #0f172a; }
       .teal { fill: #0ea5a4; }
-      .amber { fill: #f59e0b; }
       .line { fill: none; stroke: #0ea5a4; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
       .line-muted { fill: none; stroke: #94a3b8; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .line-auto { fill: none; stroke: #0ea5a4; stroke-width: 3; stroke-dasharray: 7 5; stroke-linecap: round; stroke-linejoin: round; }
       text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
       .title { font-size: 30px; font-weight: 750; letter-spacing: 0; }
       .body { font-size: 20px; letter-spacing: 0; }
       .small { font-size: 16px; letter-spacing: 0; }
-      .step { font-size: 28px; font-weight: 750; letter-spacing: 0; }
-      .step-body { font-size: 16px; letter-spacing: 0; }
+      .step { font-size: 26px; font-weight: 750; letter-spacing: 0; }
+      .step-body { font-size: 15px; letter-spacing: 0; }
       .note { font-size: 15px; letter-spacing: 0; }
+      .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
     </style>
     <marker id="arrow" markerHeight="12" markerWidth="12" orient="auto" refX="10" refY="6">
       <path d="M1 1l10 5-10 5z" fill="#0ea5a4"/>
     </marker>
+    <marker id="mutedArrow" markerHeight="12" markerWidth="12" orient="auto" refX="10" refY="6">
+      <path d="M1 1l10 5-10 5z" fill="#94a3b8"/>
+    </marker>
   </defs>
-  <rect class="bg" width="1280" height="540" rx="30"/>
+  <rect class="bg" width="1280" height="620" rx="30"/>
 
-  <text x="70" y="72" class="title ink">Cold-start memory loop</text>
-  <text x="70" y="106" class="body muted">A fresh Agent recovers decisions, routes uncertainty into search, and keeps evidence, review, and maintenance honest.</text>
+  <text x="55" y="60" class="title ink">Cold-start memory loop</text>
+  <text x="55" y="92" class="body muted">Five-step core loop, seven Daily actions total; automatic evidence governance inside.</text>
+  <text x="55" y="125" class="eyebrow muted">USER-VISIBLE LOOP</text>
 
-  <rect x="70" y="154" width="155" height="150" rx="22" class="card"/>
-  <circle cx="118" cy="206" r="22" class="teal"/>
-  <path d="M108 206h20M118 196v20" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
-  <text x="98" y="258" class="step ink">Agent</text>
-  <text x="95" y="286" class="step-body muted">fresh session</text>
+  <rect x="55" y="145" width="145" height="130" rx="20" class="card"/>
+  <circle cx="98" cy="188" r="20" class="teal"/>
+  <path d="M89 188h18M98 179v18" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+  <text x="78" y="232" class="step ink">Agent</text>
+  <text x="75" y="257" class="step-body muted">fresh task</text>
 
-  <path d="M245 229h48" class="line" marker-end="url(#arrow)"/>
+  <path d="M207 210h34" class="line" marker-end="url(#arrow)"/>
 
-  <rect x="303" y="154" width="145" height="150" rx="22" class="card"/>
-  <text x="349" y="206" class="step ink">wake</text>
-  <text x="330" y="236" class="step-body muted">confirmed</text>
-  <text x="327" y="258" class="step-body muted">project brief</text>
+  <rect x="250" y="145" width="145" height="130" rx="20" class="card"/>
+  <text x="289" y="196" class="step ink">wake</text>
+  <text x="270" y="226" class="step-body muted">confirmed project</text>
+  <text x="284" y="249" class="step-body muted">brief + handoff</text>
 
-  <path d="M448 229h48" class="line" marker-end="url(#arrow)"/>
+  <path d="M402 210h34" class="line" marker-end="url(#arrow)"/>
 
-  <rect x="506" y="154" width="145" height="150" rx="22" class="card"/>
-  <text x="544" y="206" class="step ink">search</text>
-  <text x="522" y="236" class="step-body muted">triggered by</text>
-  <text x="522" y="258" class="step-body muted">uncertainty</text>
-  <circle cx="548" cy="286" r="8" class="teal"/>
-  <circle cx="575" cy="286" r="8" class="teal"/>
-  <circle cx="602" cy="286" r="8" class="teal"/>
+  <rect x="445" y="145" width="145" height="130" rx="20" class="card"/>
+  <text x="482" y="196" class="step ink">search</text>
+  <text x="464" y="226" class="step-body muted">task-aware;</text>
+  <text x="462" y="249" class="step-body muted">when uncertain</text>
 
-  <path d="M651 229h48" class="line" marker-end="url(#arrow)"/>
+  <path d="M597 210h34" class="line" marker-end="url(#arrow)"/>
 
-  <rect x="709" y="154" width="155" height="150" rx="22" class="card"/>
-  <text x="749" y="206" class="step ink">distill</text>
-  <text x="725" y="236" class="step-body muted">reads every</text>
-  <text x="729" y="258" class="step-body muted">ordered chunk</text>
+  <rect x="640" y="145" width="145" height="130" rx="20" class="card-accent"/>
+  <text x="675" y="196" class="step ink">distill</text>
+  <text x="659" y="226" class="step-body muted">bounded evidence</text>
+  <text x="661" y="249" class="step-body muted">automatic finalize</text>
 
-  <path d="M864 229h48" class="line" marker-end="url(#arrow)"/>
+  <path d="M792 210h34" class="line" marker-end="url(#arrow)"/>
 
-  <rect x="922" y="154" width="145" height="150" rx="22" class="card"/>
-  <text x="960" y="206" class="step ink">review</text>
-  <text x="942" y="236" class="step-body muted">audit inbox,</text>
-  <text x="940" y="258" class="step-body muted">undo/supersede</text>
+  <rect x="835" y="145" width="145" height="130" rx="20" class="card-review"/>
+  <text x="871" y="196" class="step ink">review</text>
+  <text x="856" y="226" class="step-body muted">post-hoc audit</text>
+  <text x="855" y="249" class="step-body muted">correct / undo</text>
 
-  <path d="M1067 229h48" class="line" marker-end="url(#arrow)"/>
+  <path d="M987 210h34" class="line" marker-end="url(#arrow)"/>
 
-  <rect x="1125" y="154" width="145" height="150" rx="22" class="card-accent"/>
-  <text x="1162" y="206" class="step ink">dream</text>
-  <text x="1145" y="236" class="step-body muted">after candidate</text>
-  <text x="1141" y="258" class="step-body muted">review completes</text>
+  <rect x="1030" y="145" width="145" height="130" rx="20" class="card-accent"/>
+  <text x="1065" y="196" class="step ink">dream</text>
+  <text x="1049" y="226" class="step-body muted">maintenance +</text>
+  <text x="1048" y="249" class="step-body muted">truth lifecycle</text>
 
-  <path d="M1198 304v38" class="line" marker-end="url(#arrow)"/>
+  <text x="55" y="318" class="eyebrow muted">DISTILL FINALIZE — INTERNAL AND AUTOMATIC</text>
+  <path d="M712 275v40H410v23" class="line-auto" marker-end="url(#arrow)"/>
 
-  <rect x="228" y="364" width="824" height="104" rx="24" class="store"/>
-  <text x="258" y="408" class="body" fill="#e5e7eb">lossless transcript ledger</text>
-  <text x="548" y="408" class="body" fill="#99f6e4">canonical memory / review / Dream</text>
-  <text x="258" y="430" class="note" fill="#94a3b8">Hooks save immutable revisions and queue every chunk; the next Agent</text>
-  <text x="258" y="452" class="note" fill="#94a3b8">checkpoints all chunks, reviews the final outcome, then promotes.</text>
+  <rect x="300" y="345" width="220" height="105" rx="18" class="card"/>
+  <text x="322" y="380" class="step-body ink" font-weight="700">candidate or zero-candidate</text>
+  <text x="322" y="408" class="step-body muted">challenge unsupported claims</text>
+  <text x="322" y="432" class="step-body muted">keep complete evidence groups</text>
 
-  <path d="M1198 364v-22" class="line-muted"/>
-  <path d="M1198 342 C 1198 330 1104 330 1090 330" class="line-muted" marker-end="url(#arrow)"/>
+  <path d="M520 398h55" class="line-auto" marker-end="url(#arrow)"/>
 
-  <text x="74" y="500" class="small muted">The user sees one loop: wake, task-aware search, distill, review, and dream. Nothing becomes hidden truth.</text>
+  <rect x="585" y="345" width="220" height="105" rx="18" class="card-accent"/>
+  <text x="608" y="380" class="step-body ink" font-weight="700">auto-review + Dream</text>
+  <text x="608" y="408" class="step-body muted">verify basis + conflicts</text>
+  <text x="608" y="432" class="step-body muted">no manual approval gate</text>
+
+  <path d="M805 398h55" class="line-auto" marker-end="url(#arrow)"/>
+
+  <rect x="870" y="345" width="210" height="105" rx="18" class="card-accent"/>
+  <text x="893" y="380" class="step-body ink" font-weight="700">finalize once</text>
+  <text x="893" y="408" class="step-body muted">promoted</text>
+  <text x="893" y="432" class="step-body muted">or no_candidate</text>
+
+  <path d="M940 345 C 940 315 907 310 907 282" class="line-muted" marker-end="url(#mutedArrow)"/>
+  <text x="947" y="318" class="note muted">later correction</text>
+
+  <rect x="175" y="485" width="930" height="82" rx="22" class="store"/>
+  <text x="205" y="520" class="body" fill="#e5e7eb">immutable transcript ledger</text>
+  <text x="500" y="520" class="body" fill="#99f6e4">rebuildable projections</text>
+  <text x="755" y="520" class="body" fill="#dcfce7">governed Memory / Rule</text>
+  <text x="205" y="547" class="note" fill="#94a3b8">Hooks save immutable revisions and queue every chunk; automatic finalization stays auditable.</text>
+
+  <text x="58" y="598" class="small muted">The user keeps the same loop: wake → search → distill → review → dream. Review corrects decisions; it does not unblock Dream.</text>
 </svg>

@@ -131,6 +131,32 @@ def test_runtime_diagram_matches_current_storage_and_truth_contract() -> None:
     assert "current package version 0.8.9" not in diagram
 
 
+def test_current_canvases_match_0910_automation_and_live_status_contract() -> None:
+    catalog = Path("canvases/README.md").read_text(encoding="utf-8")
+    how_it_works = Path(
+        "canvases/harness-mem-how-it-works-0-9-10.canvas.tsx"
+    ).read_text(encoding="utf-8")
+    readiness = Path(
+        "canvases/harness-mem-readiness-0-9-10.canvas.tsx"
+    ).read_text(encoding="utf-8")
+
+    assert "harness-mem-how-it-works-0-9-10.canvas.tsx" in catalog
+    assert "harness-mem-readiness-0-9-10.canvas.tsx" in catalog
+    assert "7 Daily actions" in how_it_works
+    assert "27 public MCP tools" in how_it_works
+    assert "promoted / no_candidate" in how_it_works
+    assert "review 是用户主动审计与纠错支路" in how_it_works
+    assert "suggest_*" not in how_it_works
+    assert "reflection_once" not in how_it_works
+    assert "worker.mode" not in how_it_works
+    assert 'const RELEASE_VERSION = "0.9.10"' in readiness
+    assert 'const RUNNING_MCP_VERSION = "0.9.9.1"' in readiness
+    assert "Release maturity" in readiness
+    assert "Live operations" in readiness
+    assert "BACKLOG_PARKED = 198" in readiness
+    assert "不提供一个掩盖运营问题的综合分" in readiness
+
+
 def test_distill_agent_surfaces_use_lossless_finalize_contract() -> None:
     skill = Path("tools/session-distill/SKILL.md").read_text(encoding="utf-8")
     command = Path("plugins/harness-mem/commands/hm/daily/distill.md").read_text(

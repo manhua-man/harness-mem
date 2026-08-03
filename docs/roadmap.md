@@ -29,9 +29,9 @@ rejected, and supersede items; it is not the everyday write gate. `dream` is
 the default audited maintenance side path and must keep undoable audit records
 when durable truth changes.
 
-See [maturity-model.md](maturity-model.md) for the **Readiness Ladder v1** scoring
-model (six tracks + scope ledger + claim boundary). Canvas:
-`canvases/harness-mem-readiness-v1.canvas.tsx`.
+See [maturity-model.md](maturity-model.md) for the release/readiness evidence
+model. The current Canvas separates release maturity from live operations:
+`canvases/harness-mem-readiness-0-9-10.canvas.tsx`.
 
 ## Current Version Line
 

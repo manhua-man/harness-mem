@@ -26,6 +26,10 @@
 - Distill projection caches are disposable, revision-bound, cascade with raw
   revision deletion, and cannot be rolled back by an older parked job that
   finishes after a newer revision.
+- Refreshed the four README architecture diagrams for incremental projections,
+  tool-safe semantic windows, automatic Dream/no-candidate completion, and
+  post-hoc review. Added versioned 0.9.10 How-it-works and Readiness canvases;
+  the latter separates release evidence from live install drift and backlog.
 - Zero-candidate completion is now a runtime-enforced v1 challenge instead of
   a Skill-only promise. The semantic manifest selects at most eight required
   exchanges; finalization verifies their current-revision content hashes and

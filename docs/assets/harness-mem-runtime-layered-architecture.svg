@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1510" height="1000" viewBox="0 0 1510 1000" role="img" aria-labelledby="title desc">
   <title id="title">Harness-Mem Runtime 分层架构图</title>
-  <desc id="desc">从用户入口、Agent 编排、MCP 传输、运行时命令、数据索引到真值边界的分层架构。</desc>
+  <desc id="desc">从七宿主入口、Agent 编排、27 个公开 MCP 工具、增量语义投影、可重建索引到 canonical SQLite 长期真值边界的分层架构。</desc>
   <defs>
     <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
       <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e8f2fb" stroke-width="1"/>
@@ -47,7 +47,7 @@
   <rect x="0" y="0" width="1440" height="13" fill="url(#blueGreen)"/>
 
   <text class="title" x="70" y="72">Harness-Mem：Local-first Memory Runtime 分层架构</text>
-  <text class="subtitle" x="72" y="106">用户入口保持简单；Agent 背后通过 MCP 调度 runtime；CLI 退回维护控制台。</text>
+  <text class="subtitle" x="72" y="106">七宿主共享 7 个日常动作；Agent 通过紧凑 MCP 调度 runtime；CLI 只承担安装、自检和维护。</text>
 
   <g transform="translate(68 152)">
     <rect class="layer" width="1080" height="128"/>
@@ -56,8 +56,8 @@
     <text class="label" x="28" y="92">用户可见入口</text>
     <g transform="translate(230 24)">
       <rect class="cardBlue" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Slash 命令</text>
-      <text class="code" x="18" y="56">/hm:distill / wake</text>
+      <text class="cardTitle" x="18" y="30">7 个 Daily 动作</text>
+      <text class="code" x="18" y="56">wake → dream</text>
     </g>
     <g transform="translate(450 24)">
       <rect class="cardBlue" width="190" height="80"/>
@@ -66,8 +66,9 @@
     </g>
     <g transform="translate(670 24)">
       <rect class="cardBlue" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Repo-local Skill</text>
-      <text class="body" x="18" y="56">harness-mem skill</text>
+      <text class="cardTitle" x="18" y="30">七宿主适配</text>
+      <text class="body" x="18" y="52">Codex / Claude / Cursor</text>
+      <text class="small" x="18" y="70">Grok / Hermes / OpenCode / AG</text>
     </g>
     <g transform="translate(890 24)">
       <rect class="cardOrange" width="190" height="80"/>
@@ -83,18 +84,21 @@
     <text class="label" x="28" y="92">Agent 编排层</text>
     <g transform="translate(230 24)">
       <rect class="card" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">session-distill</text>
-      <text class="body" x="18" y="56">逐块读取 + checkpoint</text>
+      <text class="cardTitle" x="18" y="30">semantic distill</text>
+      <text class="body" x="18" y="52">增量投影 + tool-safe</text>
+      <text class="small" x="18" y="70">outline → evidence window</text>
     </g>
     <g transform="translate(450 24)">
       <rect class="card" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">auto-review</text>
-      <text class="body" x="18" y="56">低风险自动处理</text>
+      <text class="cardTitle" x="18" y="30">Dream / auto-review</text>
+      <text class="body" x="18" y="52">证据门禁后自动治理</text>
+      <text class="small" x="18" y="70">promote / no_candidate</text>
     </g>
     <g transform="translate(670 24)">
       <rect class="card" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">可选协作者</text>
-      <text class="body" x="18" y="56">mem / grill / answer</text>
+      <text class="cardTitle" x="18" y="30">Grill 挑战</text>
+      <text class="body" x="18" y="52">候选稀薄时主动质询</text>
+      <text class="small" x="18" y="70">不把摘要直接当事实</text>
     </g>
     <g transform="translate(890 24)">
       <rect class="cardGreen" width="190" height="80"/>
@@ -111,17 +115,20 @@
     <g transform="translate(230 24)">
       <rect class="cardBlue" width="210" height="80"/>
       <text class="cardTitle" x="18" y="30">MCP Server</text>
-      <text class="body" x="18" y="56">隐藏在 IDE / Agent 后</text>
+      <text class="body" x="18" y="52">27 个公开工具（锁定）</text>
+      <text class="small" x="18" y="70">默认 compact + drilldown</text>
     </g>
     <g transform="translate(470 24)">
       <rect class="cardBlue" width="210" height="80"/>
-      <text class="cardTitle" x="18" y="30">一等 read surface</text>
-      <text class="code" x="18" y="56">wake / search_memory</text>
+      <text class="cardTitle" x="18" y="30">读取主面</text>
+      <text class="code" x="18" y="52">wake / search_memory</text>
+      <text class="small" x="18" y="70">status / drilldown</text>
     </g>
     <g transform="translate(710 24)">
       <rect class="cardBlue" width="210" height="80"/>
-      <text class="cardTitle" x="18" y="30">候选写入工具</text>
-      <text class="code" x="18" y="56">govern_memory / review</text>
+      <text class="cardTitle" x="18" y="30">治理主面</text>
+      <text class="code" x="18" y="52">distill / govern_memory</text>
+      <text class="small" x="18" y="70">review 是事后审计支路</text>
     </g>
     <g transform="translate(950 24)">
       <rect class="cardOrange" width="80" height="80"/>
@@ -137,23 +144,27 @@
     <text class="label" x="28" y="92">命令与运行时编排</text>
     <g transform="translate(230 24)">
       <rect class="card" width="170" height="80"/>
-      <text class="cardTitle" x="18" y="30">commands/</text>
-      <text class="body" x="18" y="56">wake sync search</text>
+      <text class="cardTitle" x="18" y="30">ingest + lineage</text>
+      <text class="body" x="18" y="52">revision / append hash</text>
+      <text class="small" x="18" y="70">非前缀改写则全量回退</text>
     </g>
     <g transform="translate(430 24)">
       <rect class="card" width="170" height="80"/>
-      <text class="cardTitle" x="18" y="30">candidates</text>
-      <text class="body" x="18" y="56">confirm reject hold</text>
+      <text class="cardTitle" x="18" y="30">projection receipt</text>
+      <text class="body" x="18" y="52">覆盖范围 / hash / 去留</text>
+      <text class="small" x="18" y="70">可解释、可重建、可清理</text>
     </g>
     <g transform="translate(630 24)">
       <rect class="card" width="170" height="80"/>
       <text class="cardTitle" x="18" y="30">context plan</text>
-      <text class="body" x="18" y="56">L0-L4 分层组装</text>
+      <text class="body" x="18" y="52">usage → tokenizer → char</text>
+      <text class="small" x="18" y="70">明确 token_count_basis</text>
     </g>
     <g transform="translate(830 24)">
       <rect class="card" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">dream job ledger</text>
-      <text class="body" x="18" y="56">gated maintenance job</text>
+      <text class="cardTitle" x="18" y="30">job + cleanup ledger</text>
+      <text class="body" x="18" y="52">退避 / 防饥饿 / receipt</text>
+      <text class="small" x="18" y="70">删除级联到派生缓存</text>
     </g>
   </g>
 
@@ -164,23 +175,27 @@
     <text class="label" x="28" y="92">数据与索引层</text>
     <g transform="translate(230 24)">
       <rect class="cardGreen" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Structured Store</text>
-      <text class="body" x="18" y="56">canonical SQLite / profiles</text>
+      <text class="cardTitle" x="18" y="30">Canonical SQLite</text>
+      <text class="body" x="18" y="52">canonical SQLite / profiles</text>
+      <text class="small" x="18" y="70">auto/user confirmed truth</text>
     </g>
     <g transform="translate(450 24)">
       <rect class="cardGreen" width="190" height="80"/>
       <text class="cardTitle" x="18" y="30">Transcript Ledger</text>
-      <text class="body" x="18" y="56">raw revisions / chunks</text>
+      <text class="body" x="18" y="52">raw revisions / chunks</text>
+      <text class="small" x="18" y="70">原始证据，不是长期事实</text>
     </g>
     <g transform="translate(670 24)">
       <rect class="cardGreen" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Observation Index</text>
-      <text class="body" x="18" y="56">FTS / optional vectors</text>
+      <text class="cardTitle" x="18" y="30">Derived Indexes</text>
+      <text class="body" x="18" y="52">FTS / vector / trigram</text>
+      <text class="small" x="18" y="70">绑定 revision，可重建</text>
     </g>
     <g transform="translate(890 24)">
       <rect class="cardGreen" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Signals / Events</text>
-      <text class="body" x="18" y="56">dream 审计和维护证据</text>
+      <text class="cardTitle" x="18" y="30">Semantic Projections</text>
+      <text class="body" x="18" y="52">outline / windows / receipts</text>
+      <text class="small" x="18" y="70">派生缓存，删除随 revision 级联</text>
     </g>
   </g>
 
@@ -197,35 +212,36 @@
 
     <g transform="translate(24 126)">
       <rect class="cardOrange" width="254" height="104"/>
-      <text class="rule" x="18" y="30">Pending 不进 wake</text>
-      <text class="body" x="18" y="58">RuleCandidate / MemoryEntry</text>
-      <text class="body" x="18" y="80">必须先经 review</text>
+      <text class="rule" x="18" y="30">Evidence 不等于 Truth</text>
+      <text class="body" x="18" y="58">raw / Observation / projection</text>
+      <text class="body" x="18" y="80">只能支撑验证，不能直接进 wake</text>
     </g>
     <g transform="translate(24 252)">
       <rect class="cardGreen" width="254" height="104"/>
-      <text class="rule" x="18" y="30">Confirmed 才能消费</text>
-      <text class="body" x="18" y="58">auto/user confirmed truth</text>
-      <text class="body" x="18" y="80">进入 wake / search</text>
+      <text class="rule" x="18" y="30">Dream 自动完成治理</text>
+      <text class="body" x="18" y="58">auto-confirmed 或 no_candidate</text>
+      <text class="body" x="18" y="80">review 用于纠错 / undo / supersede</text>
     </g>
     <g transform="translate(24 378)">
       <rect class="cardBlue" width="254" height="104"/>
-      <text class="rule" x="18" y="30">Read model 按需生成</text>
-      <text class="body" x="18" y="58">context plan / drilldown</text>
-      <text class="body" x="18" y="80">不维护独立 cache 层</text>
+      <text class="rule" x="18" y="30">Derived Cache 可重建</text>
+      <text class="body" x="18" y="58">projection / FTS / vector / trigram</text>
+      <text class="body" x="18" y="80">绑定 revision；清理级联；不是真值</text>
     </g>
     <g transform="translate(24 504)">
       <rect class="cardBlue" width="254" height="104"/>
-      <text class="rule" x="18" y="30">Signals 不改主行为</text>
-      <text class="body" x="18" y="58">search_hit / wake_surfaced</text>
-      <text class="body" x="18" y="80">作为 replay 证据</text>
+      <text class="rule" x="18" y="30">Receipt 可审计</text>
+      <text class="body" x="18" y="58">Context Projection Receipt</text>
+      <text class="body" x="18" y="80">范围 / hash / token basis / 去留</text>
     </g>
     <g transform="translate(24 630)">
       <rect class="cardOrange" width="254" height="104"/>
-      <text class="rule" x="18" y="30">无默认自学习</text>
-      <text class="body" x="18" y="58">dream hook 受 gate 约束</text>
-      <text class="body" x="18" y="80">worker 不是 always-on daemon</text>
+      <text class="rule" x="18" y="30">唯一长期真值边界</text>
+      <text class="body" x="18" y="58">canonical SQLite 内已治理的</text>
+      <text class="body" x="18" y="80">Memory / Rule 才供 wake 消费</text>
     </g>
   </g>
 
-  <text class="small" x="72" y="962">公开基线：README、Quickstart、MCP setup、cold-start demo；发布版本随 package metadata 更新。CLI 是安装、自检和维护侧车，日常工作流通过 Agent / MCP。</text>
+  <text class="small" x="72" y="956">边界：raw ledger 保存证据；projection / index cache 可删除并重建；canonical SQLite 是唯一长期真值。</text>
+  <text class="small" x="72" y="978">七宿主日常工作流统一通过 Agent / MCP；CLI 仅用于 setup、doctor、config、integration 与 maintenance。</text>
 </svg>
