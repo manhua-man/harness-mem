@@ -6,8 +6,8 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.10 \
-  harness-mem==0.9.10
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.11 \
+  harness-mem==0.9.11
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Pip uses
@@ -17,8 +17,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.10 \
-  "harness-mem[hybrid]==0.9.10"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.11 \
+  "harness-mem[hybrid]==0.9.11"
 ```
 
 Check the CLI:
@@ -198,11 +198,19 @@ raw mode retains the full per-chunk lease loop. The Agent then performs an
 end-of-session review covering the final request, outcome, contradictions,
 unfinished work, and evidence status. Only review-ready jobs may create
 idempotent `govern_memory(action="suggest")` candidates.
-`finalize_session_distill` applies automatic governance and then Dream. Its
+Detected durable-value signals start as `candidate_required`; an Agent may
+downgrade one only after reading its complete window and recording a
+signal-specific session-only explanation. `finalize_session_distill` applies
+scoped automatic governance and then Dream only after a fully completed review. An
+answered candidate may promote beside an unrelated unfinished handoff without
+running Dream. Its
 completion block says whether durable knowledge was `promoted` or the session
 ended as `no_candidate`; non-promoted candidates are terminally rejected so a
 completed low-value session does not return as daily review work. Merely
 preparing or partially reading session evidence is never reported as completed.
+Readable results and Session Notes list each durable memory as a title, one
+verifiable fact, and its verification date/status. Internal IDs remain available
+only through explicit audit detail.
 If an older canonical Storage v2 dataset lacks a derived Observation, the
 semantic path rebuilds that projection from the hash-verified immutable
 transcript revision. It does not force the Agent back through hundreds of raw

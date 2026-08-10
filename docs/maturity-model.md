@@ -79,24 +79,23 @@ Binary yes/no: public docs and agent skills must stay inside verified capability
 | ⑨ Maintenance | L1 dream + L4 distill maintenance |
 | ⑩ Evidence | L6 + per-track contract tests |
 
-## Current snapshot (v0.9.10)
+## Current snapshot (v0.9.11)
 
-See `canvases/harness-mem-readiness-0-9-10.canvas.tsx` for the living panel.
+See `canvases/harness-mem-readiness-v1.canvas.tsx` for the living panel.
 It deliberately does not publish one combined readiness score: repository
 release maturity and one device's live operations are different facts.
 
-As of 2026-08-02:
+As of 2026-08-11:
 
 | View | Evidence | Current result |
 |------|----------|----------------|
-| Release maturity | package 0.9.10, 637 passed / 2 skipped, Rust 6 passed, exact 27-tool contract, seven-host qualification | release gates passed |
-| Runtime alignment | repository/plugin 0.9.10 versus running MCP 0.9.9.1 | install drift; refresh and restart required |
+| Release maturity | package 0.9.11, 686 passed / 2 skipped, Rust 6 passed, exact 27-tool contract, seven-host qualification | local release gates passed; tag CI requalifies built artifacts |
+| Runtime alignment | repository/plugin 0.9.11; each installed MCP reports its own version | refresh and restart any older live installation |
 | Distill operations | active 2, parked 198, 0.43 completed/day over seven days | `needs-distill`; throughput is the primary operational gap |
 | Retrieval feedback | 2 surfaced, no used/ignored/misleading outcomes | insufficient live feedback |
 
-The historical six-track score panel remains in
-`canvases/harness-mem-readiness-v1.canvas.tsx`; it is no longer the current
-operational dashboard.
+The versioned 0.9.10 canvases remain historical snapshots; the unversioned v1
+panel carries the current release evidence.
 
 The public MCP contract currently contains 27 tools (~27.8 KiB compact
 `tools/list` JSON). The former low-level suggest/confirm/reject schemas and

@@ -11,11 +11,10 @@ without adding another public tool, store, or scheduler. Version 0.9.6 removes
 duplicate compatibility surfaces while keeping stored data readable and the
 27-tool contract unchanged. Version 0.9.9 ships the retrieval/lifecycle,
 derived-index, and seven-host qualification work developed as 0.9.7-0.9.9.
-Version 0.9.10 adds evidence-safe incremental context lineage without changing
-the public loop or tool contract. Version 0.9.11 closes the measurable value
-loop with honest complete-response budgets, bounded Agent batches, and a
-content-free captured-to-feedback funnel.
-No separate 0.9.2, 0.9.4, 0.9.7, or 0.9.8 package or tag was published. The
+The incremental context-lineage work planned as 0.9.10 ships in 0.9.11 together
+with honest complete-response budgets, bounded Agent batches, a content-free
+captured-to-feedback funnel, and fail-closed distill admission.
+No separate 0.9.2, 0.9.4, 0.9.7, 0.9.8, or 0.9.10 package or tag was published. The
 stable loop is
 not a manual checklist:
 

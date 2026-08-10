@@ -4,9 +4,9 @@ Cursor Canvas 交互面板源码。入门与历史快照见下表；**当前成�
 
 | 文件 | 用途 |
 |------|------|
-| `harness-mem-readiness-0-9-10.canvas.tsx` | **当前**：0.9.10 发布成熟度与本机实时运营健康度分栏，不用综合分掩盖 drift/backlog |
-| `harness-mem-how-it-works-0-9-10.canvas.tsx` | **当前**：七宿主、7 Daily、27 MCP tools 与自动 distill/Dream 主链 |
-| `harness-mem-readiness-v1.canvas.tsx` | 历史快照：六轨 Readiness + Scope Ledger（v0.9.0–0.9.9） |
+| `harness-mem-readiness-v1.canvas.tsx` | **当前**：0.9.11 六轨 Readiness + Scope Ledger，不用综合分掩盖 live drift/backlog |
+| `harness-mem-readiness-0-9-10.canvas.tsx` | 历史快照：0.9.10 仓库成熟度与当时本机运营状态 |
+| `harness-mem-how-it-works-0-9-10.canvas.tsx` | 历史快照：0.9.10 七宿主、7 Daily、27 MCP tools 与 distill/Dream 主链 |
 | `harness-mem-how-it-works.canvas.tsx` | 历史快照：早期入门流程与旧内部产品面 |
 | `harness-mem-convergence-before-after.canvas.tsx` | **历史** 外部分享：十维收敛前后对比（不再作 headline 分） |
 | `harness-mem-completion-0-8x.canvas.tsx` | 历史快照：五维评估（v0.8.3） |
