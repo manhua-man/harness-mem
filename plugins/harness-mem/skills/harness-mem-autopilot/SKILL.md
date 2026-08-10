@@ -55,10 +55,10 @@ Users can opt out with `dream.auto.enabled=false`.
 
 | Situation | Action |
 |---|---|
-| New task, resume, continue, pick up where we left off | If enabled, call project status, then `wake`; only use readable truth (`auto_confirmed` / `user_confirmed`). If wake returns a structured distill maintenance offer, consume at most its first exact job ID with semantic/compact, `budget_tokens=3000`, and `run_ingest=false`; finalize or defer it before continuing, without asking the user to run distill. |
+| New task, resume, continue, pick up where we left off | If enabled, call project status, then `wake`; only use readable truth (`auto_confirmed` / `user_confirmed`). If wake returns a structured distill maintenance offer, consume its ordered exact job IDs sequentially up to `process_limit`, using the returned semantic/compact prepare budget and `run_ingest=false`; finalize or defer each owned job before continuing, without asking the user to run distill. |
 | Runtime context/tool/save-point event has uncertainty, conflict, failure, durable-claim grounding, or long-horizon task switch | If enabled, call `autopilot_search_tick`; inject returned `context_injection` into the next context when search runs. |
 | User asks “previously”, “last time”, “why did we decide”, “history” | If enabled, use `autopilot_search_tick` when inside a runtime event; use `search_memory` as the explicit fallback path. Drill down with `timeline` or observations only when needed. |
-| User explicitly says “remember this”, “make this a rule”, “以后都这样” | **Deep** grill-me admission, then `govern_memory(action="suggest")` on `admit` / narrowed `narrow`; let the shared automatic policy govern it and never direct-confirm it. |
+| User explicitly says “remember this”, “make this a rule”, “以后都这样” | Run the high-impact candidate admission check, then `govern_memory(action="suggest")` on `admit` / narrowed `narrow`; let the shared automatic policy govern it and never direct-confirm it. |
 | User asks to organize, distill, archive, or close recent sessions | `/hm:distill` path with **light** checklist default; deep for high-impact items. |
 | Work reaches a stable, reusable boundary | Light admission then suggest distill or handoff. |
 | Repeated mistakes or durable workflow patterns appear | **Deep** admission then suggest rule candidate. |
@@ -66,10 +66,10 @@ Users can opt out with `dream.auto.enabled=false`.
 
 ## Candidate-worthy test
 
-Before any `govern_memory(action="suggest")`, run grill-me admission: **deep** for explicit rules /
-high-impact, **light checklist** for ordinary candidates (inline if skill
-unavailable). Continue on `admit`; rewrite and continue on `narrow`; do not
-write on `reject` or `defer` without an evidence plan.
+Before any `govern_memory(action="suggest")`, run the candidate admission check
+defined by `hm-distill`: verify high-impact rules against current evidence and
+use one inline pass for ordinary candidates. Continue on `admit`; rewrite and
+continue on `narrow`; do not write on `reject` or `defer` without an evidence plan.
 
 ## Forbidden behaviors
 
@@ -82,7 +82,7 @@ Do not:
 - treat generated prose as truth;
 - inject every memory into wake;
 - run hook or daemon maintenance outside the runtime gates;
-- consume more than one wake-offered distill job in one Agent task;
+- exceed the wake offer's bounded `process_limit`, process jobs concurrently, or let one job's failure mutate another job;
 - bypass `dream.auto.enabled` when handing eligible candidates or memories to dream maintenance;
 - present CLI as the normal daily workflow when MCP or Slash/Skill is available.
 

@@ -16,6 +16,12 @@
         "type": "object",
         "description": "Final outcome, contradictions, unfinished work, and evidence assessment",
         "properties": {
+          "session_summary": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 2000,
+            "description": "Concise human-readable account of what the session was about, independent of memory promotion"
+          },
           "final_user_request": {
             "type": "string"
           },

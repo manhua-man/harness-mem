@@ -149,8 +149,10 @@ At save points or session end, the hook/runtime path only:
 Observations remain derived search aids. They are not the authoritative
 transcript source and cannot replace the immutable source revision.
 
-When that Agent invocation occurs, wake returns at most one structured offer for
-the current task. `/hm:distill` remains the explicit immediate/deep path. The
+When that Agent invocation occurs, wake returns an ordered structured offer of
+up to two jobs for the current task; jobs execute sequentially with independent
+failure boundaries. `/hm:distill` remains the explicit immediate/deep path and
+may process up to three jobs. The
 pipeline continues:
 
 1. Claim each offered job by passing its `distill_job_id` to

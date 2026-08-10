@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-import json
 import logging
 import time
 from pathlib import Path
@@ -16,6 +15,10 @@ from harness_mem.mcp.tool_registry import (
 )
 from harness_mem.mcp.tool_specs import ToolSpec
 from harness_mem.runtime_cost import observe_mcp_surface_cost
+from harness_mem.mcp.response_budget import (
+    refresh_response_budget_receipt,
+    serialize_mcp_result,
+)
 
 CostBudgetResolver = Callable[[str | None], dict[str, int] | None]
 DataDirResolver = Callable[[], Path]
@@ -148,6 +151,8 @@ def execute_tool_call(
         result = spec["handler"](**tool_args)
         if surface_enforcement is not None and isinstance(result, dict):
             result["surface_enforcement"] = surface_enforcement
+        if isinstance(result, dict):
+            refresh_response_budget_receipt(result)
         duration_ms = int((time.perf_counter() - started_at) * 1000)
         try:
             observe_mcp_surface_cost(
@@ -169,7 +174,7 @@ def execute_tool_call(
                 "content": [
                     {
                         "type": "text",
-                        "text": json.dumps(result, indent=2, ensure_ascii=False),
+                        "text": serialize_mcp_result(result),
                     }
                 ]
             },

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from harness_mem.event_log import EventType, get_event_logger
+from harness_mem.mcp.response_budget import serialize_mcp_result
 
 _COST_EVENT_VERSION = 1
 _BUDGET_POLICY_VERSION = "cost-budget-v3.4.4"
@@ -82,7 +83,9 @@ def analyze_mcp_surface_cost(
     # runtime_cost -> commands.__init__ -> doctor -> runtime_health -> runtime_cost.
     from harness_mem.commands import token_estimator
 
-    output_text = json.dumps(result, ensure_ascii=False, default=str, sort_keys=True)
+    # Keep accounting byte-for-byte aligned with the text the MCP executor sends
+    # to the Agent.  Compact/sorted JSON under-reported real protocol overhead.
+    output_text = serialize_mcp_result(result)
     output_tokens = token_estimator.count_tokens(output_text)
     surface = _SURFACE_FOR_TOOL.get(tool_name, tool_name)
     budgets = dict(_DEFAULT_SURFACE_BUDGETS)
@@ -93,7 +96,7 @@ def analyze_mcp_surface_cost(
             except (TypeError, ValueError):
                 continue
     threshold = budgets.get(surface, _DEFAULT_THRESHOLD)
-    high_output = output_tokens >= threshold
+    high_output = output_tokens > threshold
     result_shape = _result_shape(result)
     argument_shape = _argument_shape(arguments)
     truncation = _truncation_metadata(result, result_shape, high_output=high_output)

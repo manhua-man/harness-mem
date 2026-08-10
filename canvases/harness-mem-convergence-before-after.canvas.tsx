@@ -74,7 +74,7 @@ const REMOVED = [
   { item: "Skill governance MCP/CLI 面", why: "避免变成 skill lifecycle manager" },
   { item: "MCP 多 profile (full/minimal/labs…)", why: "用户心智负担；public contract 不清晰" },
   { item: "/hm:mark · /hm:prune 用户入口", why: "artifact 维护不应进 Daily 面" },
-  { item: "session-distill KB/PRD 管理", why: "第二产品能力；改走 candidate + review" },
+  { item: "旧版 distill KB/PRD 管理", why: "第二产品能力；改走 candidate + review" },
   { item: "31 accepted runs 公开叙事", why: "maintainer 证据留在内部；公开改 pytest + smoke" },
 ];
 

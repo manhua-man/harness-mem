@@ -414,6 +414,47 @@ class SessionDistillStore:
                 self._conn.rollback()
                 raise
 
+    def activate_parked_for_agent(
+        self,
+        job_id: str,
+        *,
+        offered_at: datetime | None = None,
+    ) -> SessionDistillJob:
+        """Activate one explicitly selected parked job and record its offer.
+
+        Automatic lane refill remains bounded.  This path is only for an Agent
+        call that names the exact durable job, such as a user asking to process
+        one known session instead of waiting for backlog rotation.
+        """
+
+        now = offered_at or datetime.now(timezone.utc)
+        day = now.date().isoformat()
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                job = self._get_job_locked(job_id)
+                if job is None:
+                    raise KeyError(job_id)
+                if job.status != "parked":
+                    self._conn.rollback()
+                    return job
+                if job.retry_after is not None and job.retry_after > now:
+                    self._conn.rollback()
+                    return job
+                job.status = "queued"
+                if job.agent_offer_day != day:
+                    job.agent_offer_day = day
+                    job.agent_offer_count = 0
+                job.agent_offer_count += 1
+                job.last_agent_offered_at = now
+                job.updated_at = now
+                self._upsert_job_locked(job)
+                self._conn.commit()
+                return job
+            except Exception:
+                self._conn.rollback()
+                raise
+
     def claim_chunks(
         self,
         job_id: str,

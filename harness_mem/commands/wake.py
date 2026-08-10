@@ -541,7 +541,9 @@ _SIGNAL_TARGET_BY_WHY: dict[str, str] = {
 async def _apply_surface_side_effects(
     backend: LocalMemoryBackend,
     plan: ContextAssemblyPlan,
-) -> None:
+    *,
+    retrieval_id: str | None = None,
+) -> dict[str, Any]:
     """Apply wake's existing per-record side effects over the rendered entries.
 
     Walks the surfaced layers (L0/L1/L2) in render order, selecting the same
@@ -555,6 +557,9 @@ async def _apply_surface_side_effects(
     ``RetrievalSignal`` is emitted (Req 7.4).
     """
     seen_ids: set[str] = set()
+    recorded_ids: set[str] = set()
+    attempted = 0
+    recorded = 0
     for layer_id in SURFACED_LAYERS:
         layer = plan.layer(layer_id)
         for entry in select_rendered_entries(layer):
@@ -569,14 +574,34 @@ async def _apply_surface_side_effects(
                 await backend.structured_store.touch_confirmed_rule(record_id)
             else:
                 await backend.structured_store.touch_memory_entry(record_id)
-            await record_retrieval_signal(
+            attempted += 1
+            signal = await record_retrieval_signal(
                 backend,
                 project_name=plan.project_name,
                 signal_type="wake_surfaced",
                 target_kind=target_kind,
                 target_id=record_id,
-                context={"source": "wake"},
+                context={
+                    "source": "wake",
+                    "surface": "wake",
+                    "retrieval_id": retrieval_id,
+                },
             )
+            if signal is not None:
+                recorded += 1
+                recorded_ids.add(record_id)
+    failed = attempted - recorded
+    return {
+        "contract_version": "retrieval-signal-receipt-v1",
+        "retrieval_id": retrieval_id,
+        "surface": "wake",
+        "attempted": attempted,
+        "recorded": recorded,
+        "failed": failed,
+        "state": "degraded" if failed else "ok",
+        "source_ids": sorted(recorded_ids),
+        "content_recorded": False,
+    }
 
 
 def _disclosure_level_for_plan(plan: ContextAssemblyPlan) -> tuple[int, str]:
@@ -768,14 +793,19 @@ def _build_distill_maintenance_offer(
         root = Path(sources[0].project_root)
         if root.is_absolute() and root.is_dir():
             distill_config = load_merged_config(root)
+    max_jobs = (
+        distill_config.distill_auto_max_jobs_per_wake
+        if distill_config.distill_auto_enabled
+        else 0
+    )
     jobs = pending_distill_jobs(
         backend,
         project_name=project_name,
         recent_first=distill_config.distill_auto_recent_first,
         target_backlog=distill_config.distill_auto_target_backlog,
-        max_jobs=distill_config.distill_auto_max_jobs_per_wake,
+        max_jobs=max_jobs,
         daily_job_budget=distill_config.distill_auto_daily_job_budget,
-        record_offer=record_offer,
+        record_offer=record_offer and distill_config.distill_auto_enabled,
     )
     drainer_metrics = distill_drainer_metrics(
         backend,
@@ -784,8 +814,9 @@ def _build_distill_maintenance_offer(
     )
     offer = build_distill_maintenance_offer(
         jobs,
-        max_jobs=distill_config.distill_auto_max_jobs_per_wake,
+        max_jobs=max_jobs,
         target_backlog=distill_config.distill_auto_target_backlog,
+        budget_tokens=distill_config.cost_budget_distill_tokens,
         metrics=drainer_metrics,
     )
     offer["enabled"] = distill_config.distill_auto_enabled
@@ -835,6 +866,8 @@ async def cmd_wake_up(
     include_skill_hints: bool | None = None,
     skill_hint_limit: int | None = None,
     maintenance_capture: dict[str, Any] | None = None,
+    retrieval_id: str | None = None,
+    retrieval_capture: dict[str, Any] | None = None,
 ) -> int:
     """Generate wake-up context for a project.
 
@@ -905,7 +938,13 @@ async def cmd_wake_up(
             print(_render_skill_hint_block(skill_hints))
 
         # Req 7 — wake's existing per-record signals/touches, de-duplicated.
-        await _apply_surface_side_effects(backend, plan)
+        retrieval_receipt = await _apply_surface_side_effects(
+            backend,
+            plan,
+            retrieval_id=retrieval_id,
+        )
+        if retrieval_capture is not None:
+            retrieval_capture.update(retrieval_receipt)
 
         # Req 1.6 — preserve the Disclosure_Level token-budget summary line.
         total_tokens, level = _disclosure_level_for_plan(plan)

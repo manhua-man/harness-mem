@@ -24,6 +24,7 @@ from harness_mem.mcp.read_query_support import (
     _action,
     _autopilot_dx_metadata,
     _count_mainline_historical_exclusions,
+    _new_retrieval_id,
     _record_search_quality_signals,
     _resolve_retrieval_profile,
     _search_dx_metadata,
@@ -142,6 +143,18 @@ def tool_search_memory(
     entries = runtime.entries
     obs_list = runtime.observations
     relation_facts = runtime.relation_facts
+    retrieval_id = _new_retrieval_id()
+    retrieval_receipt: dict[str, Any] = {
+        "contract_version": "retrieval-signal-receipt-v1",
+        "retrieval_id": retrieval_id,
+        "surface": "search_memory",
+        "attempted": 0,
+        "recorded": 0,
+        "failed": 0,
+        "state": "not_applicable",
+        "source_ids": [],
+        "content_recorded": False,
+    }
     if scope == "project" and project_name:
         historical_excluded = 0
         if not include_history and not deep_recall:
@@ -156,15 +169,18 @@ def tool_search_memory(
                     time_window=parsed_time.time_window,
                 )
             )
-        asyncio.run(
+        retrieval_receipt = asyncio.run(
             _record_search_quality_signals(
                 backend,
                 project_name=project_name,
                 query=query,
                 entries=entries,
+                relation_facts=relation_facts,
+                observations=obs_list,
                 response=response,
                 context_plan=runtime.context_plan,
                 historical_excluded=historical_excluded,
+                retrieval_id=retrieval_id,
             )
         )
     tech_stack_by_project = runtime.tech_stack_by_project
@@ -238,9 +254,27 @@ def tool_search_memory(
         warnings=[fallback_reason] if fallback_reason else [],
         effort="dynamic",
     )
+    source_ids = list(retrieval_receipt.get("source_ids") or [])
+    record_outcome_call = (
+        {
+            "tool": "record_context_outcome",
+            "arguments": {
+                "project_name": project_name,
+                "surface": "search_memory",
+                "source_ids": source_ids,
+                "retrieval_id": retrieval_id,
+            },
+            "required_argument": "outcome",
+            "allowed_outcomes": sorted(VALID_CONTEXT_OUTCOMES),
+        }
+        if project_name and source_ids
+        else None
+    )
 
     return {
         "project_name": project_name,
+        "retrieval_id": retrieval_id,
+        "retrieval_receipt": retrieval_receipt,
         "query": query,
         "effective_query": parsed_time.query,
         "scope": scope,
@@ -286,6 +320,7 @@ def tool_search_memory(
         "supporting_evidence": runtime.supporting_evidence,
         "answer_ready_context": runtime.answer_ready_context,
         "recall": recall_result.to_dict(),
+        "record_outcome_call": record_outcome_call,
         **context_payload,
     }
 
@@ -376,6 +411,11 @@ def tool_autopilot_search_tick(
         for source_id in search_payload.get("context_plan", {}).get("source_ids", [])
         if isinstance(source_id, str)
     ]
+    search_outcome_call = dict(search_payload.get("record_outcome_call") or {})
+    search_outcome_arguments = dict(search_outcome_call.get("arguments") or {})
+    if search_outcome_arguments:
+        search_outcome_arguments["surface"] = "autopilot_search_tick"
+        search_outcome_call["arguments"] = search_outcome_arguments
     context_injection = {
         "target": decision.injection_target,
         "trigger": decision.trigger,
@@ -385,15 +425,8 @@ def tool_autopilot_search_tick(
         "context_plan": search_payload.get("context_plan"),
         "supporting_evidence": search_payload.get("supporting_evidence", []),
         "drilldown_hints": search_payload.get("drilldown_hints", []),
-        "record_outcome_call": {
-            "tool": "record_context_outcome",
-            "arguments": {
-                "project_name": resolved_project,
-                "surface": "autopilot_search_tick",
-                "source_ids": source_ids,
-                "outcome": "used",
-            },
-        },
+        "retrieval_id": search_payload.get("retrieval_id"),
+        "record_outcome_call": search_outcome_call or None,
     }
     return {
         "success": True,
@@ -416,6 +449,7 @@ def tool_record_context_outcome(
     source_ids: list[str],
     outcome: str,
     reason: str | None = None,
+    retrieval_id: str | None = None,
 ) -> dict:
     """Record whether surfaced context helped the task without mutating truth."""
     resolved_project = (project_name or "").strip()
@@ -450,6 +484,7 @@ def tool_record_context_outcome(
             "error": "source_ids must contain at least one id",
             "truth_mutated": False,
         }
+    normalized_retrieval_id = (retrieval_id or "").strip()[:128] or None
 
     backend = _get_backend()
     signal_ids: list[str] = []
@@ -458,6 +493,7 @@ def tool_record_context_outcome(
         "surface": normalized_surface,
         "outcome": normalized_outcome,
         "reason": (reason or "").strip()[:500] or None,
+        "retrieval_id": normalized_retrieval_id,
     }
     value = CONTEXT_OUTCOME_VALUES[normalized_outcome]
     for source_id in cleaned_source_ids:
@@ -482,6 +518,7 @@ def tool_record_context_outcome(
         "project_name": resolved_project,
         "surface": normalized_surface,
         "outcome": normalized_outcome,
+        "retrieval_id": normalized_retrieval_id,
         "recorded_count": len(signal_ids),
         "failed_count": len(failed_source_ids),
         "signal_ids": signal_ids,

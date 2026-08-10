@@ -21,11 +21,13 @@ The pass is fully read-only: it selects suggestions but leaves
 
 from __future__ import annotations
 
+import asyncio
 import itertools
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, TypeVar, cast
 
 from harness_mem.commands.replay_window import (
     ReplayBudget,
@@ -40,6 +42,45 @@ from harness_mem.core.schemas.stale_truth_suggestion_candidate import (
 from harness_mem.core.schemas.supersede_candidate import SupersedeCandidate
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_structured_store import LocalStructuredStore
+
+
+_T = TypeVar("_T")
+
+
+async def _run_in_daemon_thread(
+    function: Callable[..., _T],
+    *args: Any,
+) -> _T:
+    """Run blocking model work without pinning asyncio shutdown on timeout."""
+
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[_T] = loop.create_future()
+
+    def publish_result(value: _T) -> None:
+        if not future.done():
+            future.set_result(value)
+
+    def publish_error(exc: BaseException) -> None:
+        if not future.done():
+            future.set_exception(exc)
+
+    def worker() -> None:
+        try:
+            value = function(*args)
+        except BaseException as exc:  # noqa: BLE001 - propagate through Future.
+            try:
+                loop.call_soon_threadsafe(publish_error, exc)
+            except RuntimeError:
+                return
+        else:
+            try:
+                loop.call_soon_threadsafe(publish_result, value)
+            except RuntimeError:
+                # A timed-out caller may have closed its short-lived loop.
+                return
+
+    threading.Thread(target=worker, daemon=True).start()
+    return await future
 
 if TYPE_CHECKING:  # pragma: no cover - import-time only
     import numpy as np
@@ -288,7 +329,8 @@ async def _load_pool_embeddings(
     """Resolve embeddings for the merge pool, model-consistently.
 
     Reads from ``vec_embeddings`` filtered to the active ``model_id`` and
-    falls back to in-memory encoding for misses or mismatches. Returns
+    falls back to in-memory encoding for misses or mismatches unless embedding
+    work is disabled by a latency-sensitive host hook. Returns
     a map from entry id to a unit-normalized vector (so dot product
     equals cosine similarity downstream).
 
@@ -305,13 +347,19 @@ async def _load_pool_embeddings(
     import numpy as np
 
     from harness_mem.commands.support import get_embedding_model_id
-    from harness_mem.embedding import get_model_loader
+    from harness_mem.embedding import embeddings_disabled, get_model_loader
 
     model_id = get_embedding_model_id()
-    loader = get_model_loader(model_id)
-    expected_dim = loader.dimensions
+    encoding_allowed = not embeddings_disabled()
+    loader = (
+        await _run_in_daemon_thread(get_model_loader, model_id)
+        if encoding_allowed
+        else None
+    )
+    expected_dim = loader.dimensions if loader is not None else None
 
     persisted: dict[str, np.ndarray] = {}
+    persisted_dim: int | None = expected_dim
     try:
         with store.index.locked_connection() as conn:
             placeholders = ",".join("?" * len(pool_ids))
@@ -322,10 +370,11 @@ async def _load_pool_embeddings(
             ).fetchall()
         for entry_id, blob in rows:
             arr = np.frombuffer(blob, dtype=np.float32)
-            if arr.size != expected_dim:
+            if not arr.size or (persisted_dim is not None and arr.size != persisted_dim):
                 # Dimension mismatch — treat as miss; the consistency check
                 # already filtered on model_id so this is rare.
                 continue
+            persisted_dim = arr.size
             persisted[entry_id] = _normalize(arr)
     except Exception:
         # Missing table, locked db, or any read-side failure: degrade to
@@ -336,13 +385,19 @@ async def _load_pool_embeddings(
         entry_id: vec.tolist() for entry_id, vec in persisted.items()
     }
 
+    # Stop/after-agent hooks must never load or invoke an embedding model. They
+    # may still use already-persisted vectors; missing rows wait for explicit
+    # vector maintenance or an interactive Dream run.
+    if not encoding_allowed or loader is None or expected_dim is None:
+        return embeddings
+
     missing = [entry_id for entry_id in pool_ids if entry_id not in embeddings]
     for entry_id in missing:
         entry = await store.get_memory_entry(entry_id)
         if entry is None or not entry.content:
             continue
         try:
-            raw = loader.encode(entry.content)
+            raw = await _run_in_daemon_thread(loader.encode, entry.content)
         except Exception:
             # Encoding failure on one entry shouldn't kill the whole pass.
             continue

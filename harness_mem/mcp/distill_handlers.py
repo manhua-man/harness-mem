@@ -1,4 +1,4 @@
-"""Lossless session-distill MCP handlers.
+"""Lossless session distillation MCP handlers.
 
 This module owns evidence projection, chunk checkpointing, semantic review,
 finalization, and bounded legacy fallback.
@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from functools import wraps
+from inspect import signature
 from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -37,6 +39,11 @@ from harness_mem.mcp.distill_projection import (
     build_append_aware_distill_projection,
     render_distill_exchange_windows,
     split_distill_semantic_content,
+)
+from harness_mem.mcp.response_budget import (
+    attach_response_budget_receipt,
+    distill_response_budget_hints,
+    serialized_result_tokens,
 )
 
 from .handler_facade_proxy import tool_handlers_facade as _core
@@ -100,6 +107,32 @@ async def _recent_project_observations(
 
 
 # Deterministic semantic projections live in distill_projection.py.
+
+
+def _with_complete_response_budget(handler):
+    """Measure the complete handler result without clipping any evidence."""
+
+    handler_signature = signature(handler)
+
+    @wraps(handler)
+    def wrapped(*args, **kwargs):
+        result = handler(*args, **kwargs)
+        if not isinstance(result, dict) or not bool(result.get("success")):
+            return result
+        bound = handler_signature.bind_partial(*args, **kwargs)
+        requested_tokens = int(bound.arguments.get("budget_tokens") or 3000)
+        evidence_tokens, outcome_hint, reason_hint = distill_response_budget_hints(
+            result
+        )
+        return attach_response_budget_receipt(
+            result,
+            requested_tokens=requested_tokens,
+            evidence_tokens=evidence_tokens,
+            outcome_hint=outcome_hint,
+            reason_hint=reason_hint,
+        )
+
+    return wrapped
 
 
 def _load_distill_semantic_evidence(
@@ -232,6 +265,149 @@ def _load_distill_exchange_windows(
     return render_distill_exchange_windows(observation.raw_content, indexes)
 
 
+def _load_response_budgeted_semantic_evidence(
+    backend: LocalMemoryBackend,
+    *,
+    source_id: str,
+    source_revision: str,
+    detail_level: str,
+    requested_tokens: int,
+    base_payload: dict[str, Any],
+    response_fields: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Allocate semantic detail from the measured complete response shell."""
+
+    if detail_level == "full":
+        return _load_distill_semantic_evidence(
+            backend,
+            source_id=source_id,
+            source_revision=source_revision,
+            detail_level=detail_level,
+            budget_tokens=requested_tokens,
+        )
+
+    minimum = _load_distill_semantic_evidence(
+        backend,
+        source_id=source_id,
+        source_revision=source_revision,
+        detail_level=detail_level,
+        budget_tokens=256,
+    )
+    if minimum is None:
+        return None
+    probe = {
+        **base_payload,
+        **response_fields,
+        "semantic_evidence": minimum,
+    }
+    attach_response_budget_receipt(
+        probe,
+        requested_tokens=requested_tokens,
+        evidence_tokens=int(minimum.get("output_tokens") or 0),
+    )
+    measured_tokens, _tokenizer, _chars = serialized_result_tokens(probe)
+    protocol_tokens = max(
+        0,
+        measured_tokens - int(minimum.get("output_tokens") or 0),
+    )
+    evidence_target = max(256, requested_tokens - protocol_tokens)
+    if evidence_target == 256:
+        return minimum
+    return _load_distill_semantic_evidence(
+        backend,
+        source_id=source_id,
+        source_revision=source_revision,
+        detail_level=detail_level,
+        budget_tokens=evidence_target,
+    )
+
+
+def _attach_semantic_decision_bundle(
+    backend: LocalMemoryBackend,
+    *,
+    payload: dict[str, Any],
+    source_id: str,
+    source_revision: str,
+    semantic_evidence: dict[str, Any],
+) -> None:
+    """Bundle the bounded decision windows needed by the common fast path."""
+
+    requested_indexes = [
+        int(index)
+        for index in semantic_evidence.get(
+            "zero_candidate_required_exchange_indexes",
+            [],
+        )
+        if int(index) >= 1
+    ][:8]
+    windows = _load_distill_exchange_windows(
+        backend,
+        source_id=source_id,
+        source_revision=source_revision,
+        indexes=requested_indexes,
+    )
+    exchange_refs = [
+        {
+            "exchange_index": int(window["exchange_index"]),
+            "content_sha256": str(window["content_sha256"]),
+        }
+        for window in windows
+    ]
+    check_names = (
+        "user_correction",
+        "explicit_decision",
+        "successful_solution",
+        "repeated_failure",
+        "rule_or_preference",
+        "reusable_workflow_or_fact",
+        "version_or_migration",
+        "unfinished_handoff",
+    )
+    signaled_checks = {
+        str(reason)
+        for reasons in semantic_evidence.get(
+            "zero_candidate_required_exchange_reasons",
+            {},
+        ).values()
+        for reason in reasons
+    }
+    challenge_template = {
+        "version": "v1",
+        "source_revision": source_revision,
+        "evidence_fidelity": "complete",
+        "future_utility": "session_only",
+        "checks": {
+            name: "not_durable" if name in signaled_checks else "absent"
+            for name in check_names
+        },
+        "inspected_exchange_refs": exchange_refs,
+        "conclusion": "no_durable_candidate",
+        "rationale": (
+            "Bundled decision exchanges contain no durable candidate after review."
+        ),
+    }
+    payload.update(
+        {
+            "semantic_decision_exchanges": windows,
+            "semantic_decision_exchange_count": len(windows),
+            "zero_candidate_exchange_refs": exchange_refs,
+            "zero_candidate_challenge_template": challenge_template,
+            "agent_execution": {
+                "contract_version": "agent-distill-fast-path-v1",
+                "path": "prepare_then_finalize",
+                "target_mcp_calls": 2,
+                "completed_mcp_calls": 1,
+                "next_tool": "finalize_session_distill",
+                "additional_prepare_required": False,
+                "additional_prepare_allowed_when": [
+                    "candidate_needs_raw_proof",
+                    "legacy_raw_fallback",
+                ],
+            },
+        }
+    )
+
+
 def _checkpoint_distill_structural_projection(
     backend: LocalMemoryBackend,
     *,
@@ -273,6 +449,7 @@ def _checkpoint_distill_structural_projection(
             )
 
 
+@_with_complete_response_budget
 def tool_prepare_session_distill(
     project_name: str | None = None,
     client: str = "auto",
@@ -292,6 +469,7 @@ def tool_prepare_session_distill(
     run_ingest: bool = True,
     defer_job_id: str | None = None,
     defer_reason: str | None = None,
+    session_id: str | None = None,
     distill_job_id: str | None = None,
     _distill_source: str = "agent",
 ) -> dict:
@@ -320,14 +498,7 @@ def tool_prepare_session_distill(
             "success": False,
             "error": "detail_level must be one of: compact, full",
         }
-    resolved_budget_tokens = max(256, min(int(budget_tokens or 3000), 12000))
-    # The caller budget applies to the whole MCP result, not only the semantic
-    # text. Reserve room for provenance, job state, hashes, and drilldown hints.
-    semantic_budget_tokens = (
-        resolved_budget_tokens
-        if detail_level == "full"
-        else max(256, resolved_budget_tokens - 1100)
-    )
+    resolved_budget_tokens = max(256, int(budget_tokens or 3000))
     requested_exchange_indexes = sorted(
         {int(index) for index in (drilldown_exchange_indexes or []) if int(index) >= 1}
     )[:8]
@@ -335,6 +506,7 @@ def tool_prepare_session_distill(
         {int(index) for index in (drilldown_chunk_indexes or []) if int(index) >= 0}
     )[:8]
     requested_drilldown_query = str(drilldown_query or "").strip()[:200]
+    requested_session_id = str(session_id or "").strip() or None
     requested_job_id = str(distill_job_id or "").strip() or None
     host_source = resolve_host_source(normalized_client)
     project_context = resolve_project_context(
@@ -409,6 +581,87 @@ def tool_prepare_session_distill(
         target_active=distill_config.distill_auto_target_backlog,
         recent_first=distill_config.distill_auto_recent_first,
     )
+    if requested_session_id:
+        matching_jobs = [
+            job
+            for job in backend.transcript_store.list_distill_jobs(
+                project_name=resolved_project_name,
+                limit=100_000,
+            )
+            if job.session_id == requested_session_id
+        ]
+        if not matching_jobs:
+            return {
+                "success": False,
+                "error": "session_id is not available for this project",
+                "session_id": requested_session_id,
+            }
+        session_job = max(
+            matching_jobs,
+            key=lambda item: (item.created_at, item.updated_at),
+        )
+        if requested_job_id and requested_job_id != session_job.id:
+            return {
+                "success": False,
+                "error": "session_id and distill_job_id refer to different jobs",
+                "session_id": requested_session_id,
+                "distill_job_id": requested_job_id,
+            }
+        requested_job_id = session_job.id
+    requested_job = (
+        backend.transcript_store.get_distill_job(requested_job_id)
+        if requested_job_id
+        else None
+    )
+    if requested_job_id and (
+        requested_job is None or requested_job.project_name != resolved_project_name
+    ):
+        return {
+            "success": False,
+            "error": "distill_job_id does not belong to this project",
+            "distill_job_id": requested_job_id,
+        }
+    if requested_job and requested_job.status == "completed":
+        return {
+            "success": True,
+            "project_name": resolved_project_name,
+            "project_root": resolved_project_root,
+            "session_id": requested_job.session_id,
+            "distill_job_id": requested_job.id,
+            "selection_source": (
+                "explicit_session" if requested_session_id else "explicit"
+            ),
+            "distill_status": requested_job.status,
+            "completion": {
+                "disposition": requested_job.completion_disposition,
+                "reason_codes": requested_job.completion_reason_codes,
+            },
+            "session_summary": _session_summary_payload(requested_job),
+            "promotion": dict(requested_job.promotion_summary),
+            "source_cleanup": {
+                "status": requested_job.source_cleanup_status,
+                "receipt_id": requested_job.source_cleanup_receipt_id,
+            },
+            "agent_execution": {
+                "contract_version": "agent-distill-fast-path-v1",
+                "path": "already_completed",
+                "target_mcp_calls": 1,
+                "completed_mcp_calls": 1,
+                "next_tool": None,
+                "additional_prepare_required": False,
+            },
+        }
+    explicitly_activated = bool(requested_job and requested_job.status == "parked")
+    if requested_job_id and explicitly_activated:
+        requested_job = backend.transcript_store.activate_parked_distill_job_for_agent(
+            requested_job_id,
+        )
+    elif requested_session_id and requested_job_id:
+        backend.transcript_store.mark_distill_jobs_agent_offered(
+            resolved_project_name,
+            [requested_job_id],
+        )
+        requested_job = backend.transcript_store.get_distill_job(requested_job_id)
     lossless_jobs = []
     for job_status in ("processing", "queued", "retryable", "reviewing"):
         lossless_jobs.extend(
@@ -428,19 +681,6 @@ def tool_prepare_session_distill(
         or job.retry_after is None
         or job.retry_after <= now
     ]
-    requested_job = (
-        backend.transcript_store.get_distill_job(requested_job_id)
-        if requested_job_id
-        else None
-    )
-    if requested_job_id and (
-        requested_job is None or requested_job.project_name != resolved_project_name
-    ):
-        return {
-            "success": False,
-            "error": "distill_job_id does not belong to this project",
-            "distill_job_id": requested_job_id,
-        }
     if requested_job_id and not any(
         job.id == requested_job_id for job in lossless_jobs
     ):
@@ -498,7 +738,18 @@ def tool_prepare_session_distill(
             "ingest": ingest_payload,
             "distill_mode": "lossless_chunks",
             "distill_job_id": lossless_job.id,
-            "selection_source": "explicit" if requested_job_id else "queue_policy",
+            "session_id": lossless_job.session_id,
+            "selection_source": (
+                "explicit_session_parked"
+                if requested_session_id and explicitly_activated
+                else "explicit_session"
+                if requested_session_id
+                else "explicit_parked"
+                if explicitly_activated
+                else "explicit"
+                if requested_job_id
+                else "queue_policy"
+            ),
             "distill_status": lossless_job.status,
             "source_id": lossless_job.source_id,
             "source_revision": lossless_job.source_revision,
@@ -602,12 +853,39 @@ def tool_prepare_session_distill(
                 )
                 return base_payload
             if evidence_mode == "semantic":
-                semantic_evidence = _load_distill_semantic_evidence(
+                checkpoints = backend.transcript_store.list_distill_checkpoints(
+                    lossless_job.id
+                )
+                structurally_verified = sum(
+                    bool(checkpoint.result.get("structural_verified"))
+                    for checkpoint in checkpoints
+                )
+                distill_instructions = [
+                    "Read the complete indexed semantic outline in order.",
+                    "Runtime already hash-verified and checkpointed every raw chunk.",
+                    "Use the bundled semantic_decision_exchanges for the final decision.",
+                    "Do not call prepare again unless a durable candidate needs precise raw proof.",
+                    "If no candidates remain, verify and reuse zero_candidate_challenge_template in finalization.",
+                    "Create only warranted candidates through govern_memory(action=suggest), then call finalize_session_distill.",
+                ]
+                response_fields = {
+                    "chunks": [],
+                    "chunk_count": 0,
+                    "structural_checkpoint_summary": {
+                        "expected": lossless_job.expected_chunk_count,
+                        "completed": lossless_job.completed_chunk_count,
+                        "runtime_verified": structurally_verified,
+                    },
+                    "distill_instructions": distill_instructions,
+                }
+                semantic_evidence = _load_response_budgeted_semantic_evidence(
                     backend,
                     source_id=lossless_job.source_id,
                     source_revision=lossless_job.source_revision,
                     detail_level=detail_level,
-                    budget_tokens=semantic_budget_tokens,
+                    requested_tokens=resolved_budget_tokens,
+                    base_payload=base_payload,
+                    response_fields=response_fields,
                 )
                 if semantic_evidence is not None:
                     lossless_job = (
@@ -618,31 +896,15 @@ def tool_prepare_session_distill(
                     base_payload["zero_candidate_challenge_version"] = (
                         lossless_job.zero_candidate_challenge_version
                     )
-                    checkpoints = backend.transcript_store.list_distill_checkpoints(
-                        lossless_job.id
-                    )
-                    structurally_verified = sum(
-                        bool(checkpoint.result.get("structural_verified"))
-                        for checkpoint in checkpoints
-                    )
                     base_payload.update(
-                        {
-                            "chunks": [],
-                            "chunk_count": 0,
-                            "semantic_evidence": semantic_evidence,
-                            "structural_checkpoint_summary": {
-                                "expected": lossless_job.expected_chunk_count,
-                                "completed": lossless_job.completed_chunk_count,
-                                "runtime_verified": structurally_verified,
-                            },
-                            "distill_instructions": [
-                                "Read the complete indexed semantic outline in order.",
-                                "Runtime already hash-verified and checkpointed every raw chunk.",
-                                "Select semantic windows with drilldown_exchange_indexes, then verify candidates with raw drilldown.",
-                                "If no candidates remain, inspect every zero_candidate_required_exchange_index before finalization.",
-                                "Create only warranted candidates through govern_memory(action=suggest), then call finalize_session_distill.",
-                            ],
-                        }
+                        {**response_fields, "semantic_evidence": semantic_evidence}
+                    )
+                    _attach_semantic_decision_bundle(
+                        backend,
+                        payload=base_payload,
+                        source_id=lossless_job.source_id,
+                        source_revision=lossless_job.source_revision,
+                        semantic_evidence=semantic_evidence,
                     )
                     return base_payload
                 base_payload.update(
@@ -678,12 +940,34 @@ def tool_prepare_session_distill(
             )
             return base_payload
         if evidence_mode == "semantic":
-            semantic_evidence = _load_distill_semantic_evidence(
+            distill_instructions = [
+                "Read the complete indexed semantic outline in order.",
+                "Runtime already hash-verified and checkpointed every raw chunk.",
+                "Use the bundled semantic_decision_exchanges for the final decision.",
+                "Do not call prepare again unless a durable candidate needs precise raw proof.",
+                "If no candidates remain, verify and reuse zero_candidate_challenge_template in finalization.",
+                "Create only warranted candidates, then call finalize_session_distill.",
+            ]
+            response_fields = {
+                "distill_status": "reviewing",
+                "completed_chunk_count": lossless_job.expected_chunk_count,
+                "chunks": [],
+                "chunk_count": 0,
+                "structural_checkpoint_summary": {
+                    "expected": lossless_job.expected_chunk_count,
+                    "completed": lossless_job.expected_chunk_count,
+                    "runtime_verified": lossless_job.expected_chunk_count,
+                },
+                "distill_instructions": distill_instructions,
+            }
+            semantic_evidence = _load_response_budgeted_semantic_evidence(
                 backend,
                 source_id=lossless_job.source_id,
                 source_revision=lossless_job.source_revision,
                 detail_level=detail_level,
-                budget_tokens=semantic_budget_tokens,
+                requested_tokens=resolved_budget_tokens,
+                base_payload=base_payload,
+                response_fields=response_fields,
             )
             if semantic_evidence is not None:
                 lossless_job = backend.transcript_store.enable_zero_candidate_challenge(
@@ -699,26 +983,24 @@ def tool_prepare_session_distill(
                     semantic_content_sha256=semantic_evidence["content_sha256"],
                 )
                 if updated_job.status == "reviewing":
+                    response_fields["distill_status"] = updated_job.status
+                    response_fields["completed_chunk_count"] = (
+                        updated_job.completed_chunk_count
+                    )
+                    response_fields["structural_checkpoint_summary"] = {
+                        "expected": updated_job.expected_chunk_count,
+                        "completed": updated_job.completed_chunk_count,
+                        "runtime_verified": updated_job.completed_chunk_count,
+                    }
                     base_payload.update(
-                        {
-                            "distill_status": updated_job.status,
-                            "completed_chunk_count": updated_job.completed_chunk_count,
-                            "chunks": [],
-                            "chunk_count": 0,
-                            "semantic_evidence": semantic_evidence,
-                            "structural_checkpoint_summary": {
-                                "expected": updated_job.expected_chunk_count,
-                                "completed": updated_job.completed_chunk_count,
-                                "runtime_verified": updated_job.completed_chunk_count,
-                            },
-                            "distill_instructions": [
-                                "Read the complete indexed semantic outline in order.",
-                                "Runtime already hash-verified and checkpointed every raw chunk.",
-                                "Select semantic windows with drilldown_exchange_indexes, then verify candidates with raw drilldown.",
-                                "If no candidates remain, inspect every zero_candidate_required_exchange_index before finalization.",
-                                "Create only warranted candidates, then call finalize_session_distill.",
-                            ],
-                        }
+                        {**response_fields, "semantic_evidence": semantic_evidence}
+                    )
+                    _attach_semantic_decision_bundle(
+                        backend,
+                        payload=base_payload,
+                        source_id=lossless_job.source_id,
+                        source_revision=lossless_job.source_revision,
+                        semantic_evidence=semantic_evidence,
                     )
                     return base_payload
                 base_payload.update(
@@ -825,7 +1107,7 @@ def tool_prepare_session_distill(
         "coverage": "legacy_partial",
         "distill_instructions": [
             "No complete native transcript revision is available for these legacy observations.",
-            "Treat them as a searchable audit view, not as a lossless session-distill packet.",
+            "Treat them as a searchable audit view, not as complete lossless session evidence.",
             "Do not claim the session was completely read, automatically summarized, or eligible for automatic promotion.",
             "When the native transcript is available, synchronize it to create a lossless distill job instead.",
         ],
@@ -859,6 +1141,27 @@ def tool_submit_distill_chunk(
             if job.status == "reviewing"
             else "call prepare_session_distill for the next chunk"
         ),
+    }
+
+
+def _session_summary_payload(job: SessionDistillJob) -> dict[str, Any]:
+    """Return the human-readable result independently from memory promotion."""
+
+    review = dict(job.semantic_review or {})
+    final_request = str(review.get("final_user_request") or "").strip()
+    final_outcome = str(review.get("final_outcome") or "").strip()
+    summary = str(review.get("session_summary") or "").strip()
+    if not summary:
+        summary = final_request
+        if final_outcome and final_outcome != final_request:
+            summary = f"{summary}; outcome: {final_outcome}" if summary else final_outcome
+    return {
+        "session_id": job.session_id,
+        "summary": summary,
+        "final_outcome": final_outcome,
+        "last_turn_status": review.get("last_turn_status", "unknown"),
+        "unfinished_work": list(review.get("unfinished_work") or []),
+        "memory_disposition": job.completion_disposition,
     }
 
 
@@ -897,6 +1200,7 @@ def tool_finalize_session_distill(
             "distill_status": job.status,
             "structural_audit": job.structural_audit,
             "semantic_review": job.semantic_review,
+            "session_summary": _session_summary_payload(job),
             "completion": {
                 "disposition": job.completion_disposition,
                 "reason_codes": job.completion_reason_codes,
@@ -978,6 +1282,14 @@ def tool_finalize_session_distill(
         "contradicted": 0,
         "legacy_or_unknown": 0,
     }
+    answer_gate = {
+        "ANSWERED": 0,
+        "PARTIAL": 0,
+        "UNANSWERED": 0,
+        "CONTRADICTED": 0,
+        "STALE": 0,
+        "NOT_APPLICABLE": 0,
+    }
     if semantic_allows_promotion:
         summary = asyncio.run(
             auto_review_candidates(
@@ -990,6 +1302,7 @@ def tool_finalize_session_distill(
         auto_review_payload = summary.to_dict()
         payload["auto_review"] = auto_review_payload
         evidence_admission = dict(auto_review_payload["evidence_admission"])
+        answer_gate = dict(auto_review_payload["answer_gate"])
     else:
         payload["auto_review"] = {
             "skipped": True,
@@ -1027,6 +1340,7 @@ def tool_finalize_session_distill(
     promotion: dict[str, Any] = {
         **promotion_counts,
         "evidence_admission": evidence_admission,
+        "answer_gate": answer_gate,
     }
     disposition = "promoted" if promotion["promoted"] else "no_candidate"
     challenge_passed = bool(
@@ -1094,6 +1408,7 @@ def tool_finalize_session_distill(
         "pending_total_after": queue["pending_total"],
     }
     payload["source_cleanup"] = source_cleanup
+    payload["session_summary"] = _session_summary_payload(stored)
     return payload
 
 

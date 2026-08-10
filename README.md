@@ -32,8 +32,13 @@ Invocation surfaces (installed once at user scope, then visible in every project
 
 - `/hm:*` commands: `status`, `wake`, `search`, `search-all`, `distill`, `review`, `dream`.
 - Agent MCP calls: plain language, skills, or hooks trigger `wake/search/distill/review`.
-- Hooks: inject wake context, enforce retention, and maintain a two-job Agent-active distill lane with 3:1 recent/oldest refill, failure backoff, and a daily new-job budget. Each Agent task consumes at most one machine-readable wake offer; without an Agent the queue reports `waiting_for_agent` and never claims background semantic work.
+- Hooks: inject wake context, enforce retention, and maintain a two-job Agent-active distill lane with 3:1 recent/oldest refill, failure backoff, and a daily new-job budget. Each Agent task may consume up to two ordered jobs sequentially; without an Agent the queue reports `waiting_for_agent` and never claims background semantic work.
 - CLI: setup, doctor, config, integration, and maintenance only.
+
+Everyday use reduces to three intents: continue work with `wake/search`, remember
+a reusable result through the distill/governance path, or review/undo an
+incorrect memory. Status and Dream remain compatible diagnostics and maintenance,
+not extra steps the user must manually perform every day.
 
 <p align="center">
   <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="A fresh Agent uses wake, search, distill, review, and dream against a local auditable memory backend" width="900" />
@@ -49,7 +54,7 @@ wake -> search -> distill -> review -> dream
 |---|---|
 | `wake` | Load a compact project brief from readable memory at session start. |
 | `search` | Retrieve prior decisions, rules, and handoffs when `autopilot_search_tick` detects concrete uncertainty, conflict, tool failure, durable-claim grounding, or a long-horizon task switch. |
-| `distill` | Verify every ordered raw chunk, read a ≤3k-token indexed manifest, select complete semantic windows, drill into candidate-grade raw proof, then run end-of-session review, governance, and Dream. |
+| `distill` | Verify every ordered raw chunk, read a coverage-first indexed manifest under an adaptive complete-response target, select complete semantic windows, drill into candidate-grade raw proof, then run end-of-session review, governance, and Dream. |
 | `review` | Audit, confirm, reject, undo, or supersede auto-promoted and pending items after the fact. |
 | `dream` | Maintain the ledger, compact stale state, and keep reversible cleanup metadata current after save points or session end. |
 
@@ -59,9 +64,12 @@ The runtime search scheduler is event-driven, not always-on. PI-style
 can send the same event payload shape. `/hm:search` remains the manual fallback
 when a client cannot expose those hooks. Stop hooks capture an immutable native
 transcript revision and queue its complete ordered chunk set. Daily
-`prepare_session_distill(evidence_mode="semantic", detail_level="compact",
-budget_tokens=3000)` keeps the raw revision intact, hash-verifies and checkpoints
-every chunk, then returns an indexed exchange manifest. The Agent selects up to
+`prepare_session_distill(evidence_mode="semantic", detail_level="compact")`
+keeps the raw revision intact, hash-verifies and checkpoints every chunk, then
+returns an indexed exchange manifest. Its budget is a caller-configurable soft
+target for the complete serialized MCP response, not a fixed 3k limit. Every
+exchange remains indexed; if coverage or explicit drilldown needs more space,
+`response_budget` reports the actual token count and expansion reason. The Agent selects up to
 eight complete semantic windows and only then drills into candidate-grade raw
 proof. `detail_level="full"` and the compatible `raw` mode remain explicit audit paths; raw mode claims bounded
 chunks without truncating them for explicit deep audit. The Agent performs an
@@ -131,9 +139,10 @@ failure prevents deletion, and partial deletion returns a non-zero status.
 Operational diagnosis is equally explicit. Doctor probes SQLite read-only and
 renders a recovery plan grouped as `safe_rebuild`, `snapshot_required`,
 `manual_review`, or `destructive`; it never auto-applies a repair. Compact
-project status preserves the decisions while full drilldown adds seven-day
-retrieval outcome/abstention/exclusion counts and concrete distill backlog
-reasons plus a conservative Agent-throughput drain estimate.
+project status preserves the decisions while full drilldown adds the
+content-free captured-to-feedback funnel, including explicit
+`missing_feedback`, retrieval outcome/abstention/exclusion counts, concrete
+distill backlog reasons, and a conservative Agent-throughput drain estimate.
 Legacy entity JSON is deprecated in 0.9.6 but supported through 0.9.x; it will
 not be removed before both 1.0.0 and 2027-01-31. Existing legacy-only stores
 stay readable without silently changing authority. See
@@ -275,7 +284,7 @@ product surface.
 
 - `harness_mem/`: runtime package.
 - `plugins/harness-mem/`: Agent client integration.
-- `tools/session-distill/SKILL.md`: instruction-only Agent playbook for the supported MCP distill flow; runtime code lives exclusively under `harness_mem/`.
+- `tools/hm-distill/SKILL.md`: instruction-only Agent playbook for the supported MCP distill flow; runtime code lives exclusively under `harness_mem/`.
 - `docs/quickstart.md`: minimal setup path.
 - `docs/mcp-setup.md`: MCP setup notes.
 - `docs/demo-cold-start.md`: reproducible cold-start demo.
@@ -291,7 +300,6 @@ product surface.
 - [Autopilot search policy](docs/autopilot-search-policy.md)
 - [Compatibility inventory](docs/compatibility-inventory.md)
 - [Reference-project evidence index](docs/reference-projects/index.md)
-- [Memory adoption: optional helpers (analysis)](docs/memory-adoption.md)
 - [Agent memory & retrieval research (2026)](docs/agent-memory-retrieval-research-2026.md)
 - [Roadmap](docs/roadmap.md)
 - [Changelog](CHANGELOG.md)

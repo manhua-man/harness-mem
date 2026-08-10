@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from harness_mem.config.merge import MergedConfig
+from harness_mem.commands.dream import DreamSource, dream_auto_tick
 from harness_mem.commands.support import (
     DEFAULT_DATA_DIR,
     log_command_invoked,
@@ -405,6 +406,7 @@ async def run_post_turn_maintenance(
     )
     try:
         from harness_mem.data_lifecycle import enforce_transcript_retention
+        from harness_mem.embedding import temporarily_disable_embeddings
         from harness_mem.processed_source_cleanup import (
             retry_retained_source_cleanups,
         )
@@ -432,6 +434,27 @@ async def run_post_turn_maintenance(
             retention_days=config.transcript_retention_days,
             apply=True,
         )
+        # Evaluate Dream before ingesting the current Stop transcript. Otherwise
+        # the new observation resets the idle clock and an idle-only policy can
+        # never become eligible from a post-turn trigger.
+        try:
+            with temporarily_disable_embeddings():
+                dream_tick = await dream_auto_tick(
+                    backend,
+                    project_name=project_name,
+                    project_root=project_root,
+                    config=config,
+                    source=cast(DreamSource, source),
+                    trigger_id=trigger_id,
+                )
+        except Exception as exc:  # noqa: BLE001 - transcript staging must survive Dream.
+            dream_tick = {
+                "success": False,
+                "status": "failed",
+                "project_name": project_name,
+                "reason": f"{type(exc).__name__}: {exc}"[:512],
+                "tick_receipt": {"state": "degraded"},
+            }
         mcp_tool_handlers.configure_tool_handler_dependencies(
             backend_provider=lambda: backend,
             observer_data_dir=lambda: backend.data_dir,
@@ -453,8 +476,6 @@ async def run_post_turn_maintenance(
             )
 
         try:
-            from harness_mem.embedding import temporarily_disable_embeddings
-
             # Stop hooks must not load torch or encode transcript vectors while
             # the host is waiting. Exact/FTS indexes remain immediately usable;
             # vector maintenance can backfill these best-effort rows later.
@@ -492,6 +513,7 @@ async def run_post_turn_maintenance(
             "retention": retention,
             "evidence_packet": evidence_packet,
             "distill_job": job.to_dict() if job is not None else None,
+            "dream_tick": dream_tick,
             "summary": {
                 "evidence_packet_ready": bool(evidence_packet.get("success", False)),
                 "observation_count": evidence_packet.get("observation_count", 0),
@@ -501,6 +523,14 @@ async def run_post_turn_maintenance(
                 "source_cleanup_retained": source_cleanup["retained"],
                 "source_cleanup_failures": int(source_cleanup["partial_failure"])
                 + int(source_cleanup["unsupported"]),
+                "dream_tick_status": dream_tick.get("status"),
+                "dream_tick_reason": dream_tick.get("reason"),
+                "dream_run_id": dream_tick.get("run_id"),
+                "dream_tick_receipt_state": (
+                    dream_tick.get("tick_receipt", {}).get("state")
+                    if isinstance(dream_tick.get("tick_receipt"), dict)
+                    else None
+                ),
             },
         }
     finally:

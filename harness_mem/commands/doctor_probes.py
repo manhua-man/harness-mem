@@ -548,7 +548,7 @@ async def local_health_summary(
 # ---- CLI print blocks --------------------------------------------------
 
 # Fix-command pointers for the candidate-health block. Stale and high-risk
-# candidates both go through the review audit surface; session-distill no
+# candidates both go through the review audit surface; hm-distill no
 # longer owns a separate KB verification surface.
 _CANDIDATE_STALE_FIX = "/hm:review"
 _CANDIDATE_HIGH_RISK_FIX = "/hm:review"

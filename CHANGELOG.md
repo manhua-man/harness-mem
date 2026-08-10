@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+### Added
+
+- Added complete-response token receipts for compact distill output, with an
+  explicit reason whenever lossless manifest coverage expands past the caller's
+  soft target instead of clipping later exchanges.
+- Added bounded multi-job Agent offers, content-free memory-value funnel
+  metrics, retrieval outcome correlation, and health checks based on recent
+  successful native Hook execution.
+- Added a runtime-derived Answer Gate. Only current-source `ANSWERED` evidence
+  can enter the truth layer; partial, unanswered, contradicted, and stale claims
+  remain blocked and auditable.
+
+### Changed
+
+- Consolidated session processing under the single public `hm-distill` entry,
+  including explicit session-ID selection, compact semantic decision windows,
+  readable session Notes, and the common two-call `prepare -> finalize` path.
+- Made answer, pressure-test, and boundary collaborators conditionally automatic
+  by candidate risk instead of mandatory or user-invoked steps. They remain
+  non-writing helpers; runtime evidence validation owns promotion.
+- Dream and wake maintenance now close selected work to explicit terminal or
+  degraded outcomes, preserve project isolation, and report effective progress
+  without presenting internal lifecycle detail as user workflow.
+
+### Removed
+
+- Removed the obsolete duplicate distill Skill product surface, duplicate
+  alignment documents, packet-workspace terminology, and experimental
+  smart-search/Trellis layering. Runtime evidence and confirmed memory remain
+  the only truth path.
+
 ## [0.9.10] - 2026-08-02
 
 ### Added
@@ -493,8 +524,7 @@ This release includes all work originally planned for 0.9.2; no separate
   `python` selected from an IDE's `PATH`.
 - Transcript source persistence and distill job persistence now have separate
   storage components while sharing one transactional SQLite ledger.
-- Removed the repo-local `tools/session-distill/lib` and
-  `bin/session-distill.py` duplicate implementation after porting its useful
+- Removed the repo-local duplicate distill implementation after porting its useful
   lossless, isolation, review-gate, and idempotency coverage to `harness_mem`.
   `/hm:distill`, the instruction-only skill, and MCP
   `prepare` / `submit` / `finalize` operations are the only lifecycle.
@@ -666,7 +696,7 @@ This release includes all work originally planned for 0.9.2; no separate
 
 ### Added
 
-- Directory-first project resolution across CLI, MCP ingest/session-distill,
+- Directory-first project resolution across CLI, MCP ingest/distill,
   wake, and host-entry flows; new workspaces can auto-create project profile
   metadata from the current root.
 - Real Cursor transcript ingest for
@@ -854,7 +884,7 @@ This release includes all work originally planned for 0.9.2; no separate
 
 ### Changed
 
-- Aligned README, MCP setup, `/hm:distill`, `session-distill`, and MCP tool
+- Aligned README, MCP setup, `/hm:distill`, `hm-distill`, and MCP tool
   descriptions around low-risk auto-review apply mode instead of a manual-only
   review gate.
 
@@ -882,22 +912,15 @@ This release includes all work originally planned for 0.9.2; no separate
 
 ### Added
 
-- Added `plugins/harness-mem/skills/grill-before-distill/SKILL.md`, grill-me
-  standard admission on distill: deep interrogation for high-impact items, light
-  checklist for ordinary candidates, lookback mode for confirmed truth (no MCP
-  change).
-- Added repo-local `answer-memory-evidence` and `ask-memory-boundary` skills as
-  non-writing answerers for grill admission and review questions.
-- Added `docs/memory-adoption.md`, operator policy for layered helpers
-  (grill-before-distill, smart-search as a reference evidence pattern, Trellis
-  pattern playbook) beside the default distill chain.
+- Added risk-scaled candidate admission: evidence-first review for high-impact
+  items and an inline checklist for ordinary candidates.
 
 ### Changed
 
-- Updated `tools/session-distill`, `harness-mem`, and `harness-mem-autopilot`
-  skills so distill runs prepare → draft claims → risk-scaled grill admission →
-  `suggest_*`, with external evidence required before `confirm_*`.
-- Updated `/hm:distill` command steps to match the aligned session-distill chain.
+- Updated `tools/hm-distill`, `harness-mem`, and `harness-mem-autopilot`
+  skills so distill runs prepare → candidate admission → `suggest_*`, with
+  sufficient evidence required before `confirm_*`.
+- Updated `/hm:distill` command steps to match the aligned hm-distill chain.
 
 ## [0.8.6] - 2026-06-29
 
@@ -967,7 +990,7 @@ This release includes all work originally planned for 0.9.2; no separate
   removed from the runtime package.
 - Grouped plugin slash command sources by physical profile directory while
   keeping installed `/hm:*` command names flat.
-- Removed the session-distill KB/PRD management surface; durable project,
+- Removed the legacy distill KB/PRD management surface; durable project,
   architecture, and product knowledge now flows through candidates and
   `/hm:review` instead of `knowledge-base.md` or PRD sync notes.
 - Balanced SearchFacade result truncation across source kinds so memory hits do
@@ -1006,7 +1029,7 @@ This release includes all work originally planned for 0.9.2; no separate
 - Added an explicit `review-read` MCP profile for deeper read drilldowns such as
   `trace_relations`, `search_raw`, `search_skills`, and `get_skill` while
   keeping the default `core-read` surface narrow.
-- Split `tools/session-distill/lib/cli.py` command implementations into
+- Split the legacy distill CLI command implementations into
   project, lifecycle, knowledge, and PRD handler modules while preserving the
   CLI compatibility wrappers.
 
@@ -1036,8 +1059,7 @@ This release includes all work originally planned for 0.9.2; no separate
   **local-first, auditable, pluggable Agent memory backend**.
 - Kept the runtime source code public under `harness_mem/`.
 - Kept the Agent integration layer public under `plugins/harness-mem/`.
-- Kept the session distillation reference skill public under
-  `tools/session-distill/`.
+- Kept the session distillation reference skill public under `tools/hm-distill/`.
 - Reduced public documentation to the README, Chinese README, quickstart, MCP
   setup notes, changelog, license, security policy, and public README assets.
 - Pruned non-product repository materials from the public baseline.

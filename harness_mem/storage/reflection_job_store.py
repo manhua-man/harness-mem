@@ -87,22 +87,28 @@ class ReflectionJobStore:
         SQLite write lock so dream auto ticks cannot both start a dream run.
         """
         with self._index.locked_connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT data FROM reflection_jobs
-                WHERE project_name = ? AND kind = ? AND status = 'processing'
-                ORDER BY updated_at DESC
-                """,
-                (job.project_name, job.kind),
-            ).fetchall()
-            for row in rows:
-                active = ReflectionJob.from_dict(json.loads(row["data"]))
-                updated_at = active.updated_at
-                if updated_at.tzinfo is None:
-                    updated_at = updated_at.replace(tzinfo=timezone.utc)
-                if updated_at >= stale_before:
-                    return active
-            self._save_locked(conn, job)
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT data FROM reflection_jobs
+                    WHERE project_name = ? AND kind = ? AND status = 'processing'
+                    ORDER BY updated_at DESC
+                    """,
+                    (job.project_name, job.kind),
+                ).fetchall()
+                for row in rows:
+                    active = ReflectionJob.from_dict(json.loads(row["data"]))
+                    updated_at = active.updated_at
+                    if updated_at.tzinfo is None:
+                        updated_at = updated_at.replace(tzinfo=timezone.utc)
+                    if updated_at >= stale_before:
+                        conn.commit()
+                        return active
+                self._save_locked(conn, job)
+            except Exception:
+                conn.rollback()
+                raise
         return None
 
     # ---- get --------------------------------------------------------------

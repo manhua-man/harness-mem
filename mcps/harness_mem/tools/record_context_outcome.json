@@ -31,6 +31,10 @@
       "reason": {
         "type": "string",
         "description": "Optional short note. Avoid raw task content."
+      },
+      "retrieval_id": {
+        "type": "string",
+        "description": "Opaque id returned by wake/search for exact surface-to-outcome correlation. Contains no query or memory content."
       }
     },
     "required": [

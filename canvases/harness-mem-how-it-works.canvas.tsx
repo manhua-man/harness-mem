@@ -78,7 +78,7 @@ function EntryMapDiagram() {
     { x: 490, y: 30, w: 120, h: 56, label: "MCP", sub: "工具协议层", accent: true },
     { x: 640, y: 30, w: 100, h: 56, label: "harness-mem", sub: "本地运行时" },
     { x: 170, y: 130, w: 140, h: 56, label: "/hm:wake 等", sub: "Slash 快捷入口" },
-    { x: 340, y: 130, w: 120, h: 56, label: "Skills", sub: "session-distill" },
+    { x: 340, y: 130, w: 120, h: 56, label: "Skills", sub: "hm-distill" },
     { x: 490, y: 130, w: 250, h: 56, label: "CLI（排障用）", sub: "doctor · purge · maintenance" },
   ];
   return (
@@ -131,7 +131,7 @@ function DistillFlowDiagram() {
   const boxes: BoxSpec[] = [
     { x: 20, y: 30, w: 120, h: 52, label: "/hm:distill", sub: "你发起提炼" },
     { x: 160, y: 30, w: 140, h: 52, label: "prepare_session_distill", sub: "收集会话证据包" },
-    { x: 320, y: 30, w: 120, h: 52, label: "session-distill", sub: "AI 阅读理解" },
+    { x: 320, y: 30, w: 120, h: 52, label: "hm-distill", sub: "AI 阅读理解" },
     { x: 460, y: 30, w: 120, h: 52, label: "suggest_*", sub: "写入候选层" },
     { x: 600, y: 30, w: 130, h: 52, label: "auto_review", sub: "自动处理低风险" },
     { x: 160, y: 120, w: 140, h: 52, label: "Codex/Claude 归档", sub: "自动识别来源" },
@@ -219,7 +219,7 @@ function ModuleMapDiagram() {
     { x: 20, y: 110, w: 160, h: 64, label: "adapters/", sub: "解析 Claude/Codex\n会话归档" },
     { x: 200, y: 110, w: 160, h: 64, label: "core/schemas/", sub: "数据结构定义\nMemoryEntry Rule" },
     { x: 380, y: 110, w: 160, h: 64, label: "index_fabric/", sub: "派生索引 sidecar" },
-    { x: 560, y: 110, w: 180, h: 64, label: "tools/session-distill/", sub: "提炼 Skill\n（仓库 tools/）" },
+    { x: 560, y: 110, w: 180, h: 64, label: "tools/hm-distill/", sub: "提炼 Skill\n（仓库 tools/）" },
     { x: 200, y: 200, w: 360, h: 52, label: "plugins/harness-mem/", sub: "Slash 命令 · 安装脚本 · IDE 集成", accent: true },
   ];
   return (
@@ -267,7 +267,7 @@ const GLOSSARY_CORE = [
   ["Distill", "从旧会话里提炼可长期记住的知识", "/hm:distill"],
   ["MCP", "AI 客户端调本地工具的标准协议", "Cursor 设置里注册 harness-mem"],
   ["Slash", "聊天输入 /hm:xxx 触发的快捷命令", "/hm:wake /hm:distill"],
-  ["Skill", "给 AI 的操作说明书（如 session-distill）", "tools/session-distill/"],
+  ["Skill", "给 AI 的操作说明书（如 hm-distill）", "tools/hm-distill/"],
   ["CLI", "终端命令；日常不用，装/修/维护时用", "harness-mem doctor"],
 ];
 

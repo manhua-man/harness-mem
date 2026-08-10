@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import argparse
+import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.integration_health import build_integration_health
 from harness_mem.hook_receipts import record_hook_execution
+from harness_mem.host_entry.__main__ import _adapter_request
+from harness_mem.integration.repair import _suite_specs
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -99,7 +104,7 @@ def test_integration_health_does_not_guess_host(tmp_path: Path, monkeypatch) -> 
     assert health["transcript"]["status"] == "unknown"
 
 
-def test_codex_health_requires_current_hook_execution_proof(
+def test_codex_health_requires_fresh_execution_proof_for_both_actions(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -112,7 +117,7 @@ def test_codex_health_requires_current_hook_execution_proof(
     )
     monkeypatch.setenv("HARNESS_MEM_CLIENT", "codex")
 
-    async def run() -> tuple[dict, dict]:
+    async def run() -> tuple[dict, dict, dict, dict]:
         backend = LocalMemoryBackend(tmp_path / "data")
         await backend.init()
         try:
@@ -135,15 +140,183 @@ def test_codex_health_requires_current_hook_execution_proof(
                 project_name="project",
                 project_root=workspace,
             )
-            return before, after
+            record_hook_execution(
+                backend.data_dir,
+                project_root=workspace,
+                project_name="project",
+                client="codex",
+                action="post-turn-maintenance",
+                source="ide_hook",
+                trigger_id="session-2",
+            )
+            mismatched = await build_integration_health(
+                backend,
+                project_name="project",
+                project_root=workspace,
+            )
+            record_hook_execution(
+                backend.data_dir,
+                project_root=workspace,
+                project_name="project",
+                client="codex",
+                action="post-turn-maintenance",
+                source="ide_hook",
+                trigger_id="session-1",
+            )
+            complete = await build_integration_health(
+                backend,
+                project_name="project",
+                project_root=workspace,
+            )
+            return before, after, mismatched, complete
         finally:
             await backend.close()
 
-    before, after = asyncio.run(run())
+    before, after, mismatched, complete = asyncio.run(run())
 
     assert before["hooks"]["status"] == "review_required"
     assert before["hooks"]["wake_verified"] is False
+    assert before["hooks"]["freshness"] == "never"
+    assert before["hooks"]["last_success_at"] is None
+    assert before["hooks"]["actions"]["wake_start"]["freshness"] == "never"
     assert "Settings > Hooks" in before["hooks"]["action_required"]
-    assert after["hooks"]["status"] == "ok"
+    assert after["hooks"]["status"] == "degraded"
     assert after["hooks"]["wake_verified"] is True
-    assert after["hooks"]["action_required"] is None
+    assert after["hooks"]["maintenance_verified"] is False
+    assert after["hooks"]["freshness"] == "stale"
+    assert after["hooks"]["last_success_at"] is not None
+    assert after["hooks"]["action_required"] is not None
+    assert after["hooks"]["session_pair_status"] == "incomplete"
+    assert mismatched["hooks"]["status"] == "degraded"
+    assert mismatched["hooks"]["freshness"] == "fresh"
+    assert mismatched["hooks"]["session_pair_status"] == "mismatched"
+    assert mismatched["hooks"]["lifecycle_verified"] is False
+    assert complete["hooks"]["status"] == "ok"
+    assert complete["hooks"]["wake_verified"] is True
+    assert complete["hooks"]["maintenance_verified"] is True
+    assert complete["hooks"]["freshness"] == "fresh"
+    assert complete["hooks"]["session_pair_status"] == "matched"
+    assert complete["hooks"]["lifecycle_verified"] is True
+    assert complete["hooks"]["actions"]["wake_start"]["trigger_id"] == "session-1"
+    assert complete["hooks"]["actions"]["post_turn_maintenance"]["trigger_id"] == "session-1"
+    assert complete["hooks"]["action_required"] is None
+
+
+def test_codex_adapters_bind_both_lifecycle_actions_to_session_id(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    args = argparse.Namespace(adapter="codex-start", project_root=str(workspace))
+    payload = {"session_id": "thread-1", "turn_id": "turn-1", "cwd": str(workspace)}
+
+    start = _adapter_request(args, payload)
+    args.adapter = "codex-stop"
+    stop = _adapter_request(args, payload)
+
+    assert start.action == "wake-start"
+    assert stop.action == "post-turn-maintenance"
+    assert start.trigger_id == stop.trigger_id == "thread-1"
+
+    specs = _suite_specs("codex", workspace, tmp_path / "harness-mem-hook")
+    wake_command = json.loads(specs[0].template_vars["WAKE_COMMAND_JSON"])
+    assert "--adapter codex-start" in wake_command
+    assert "--trigger-id codex-session-start" not in wake_command
+
+
+def test_codex_health_marks_old_execution_receipts_stale(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / "project"
+    hook_path = workspace / ".codex" / "hooks.json"
+    hook_path.parent.mkdir(parents=True)
+    hook_path.write_text(
+        '{"hooks":{"SessionStart":[{"command":"harness-mem-hook"}],"Stop":[]}}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HARNESS_MEM_CLIENT", "codex")
+
+    async def run() -> dict:
+        backend = LocalMemoryBackend(tmp_path / "data")
+        await backend.init()
+        try:
+            old_completed_at = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+            for action in ("wake-start", "post-turn-maintenance"):
+                receipt_path = record_hook_execution(
+                    backend.data_dir,
+                    project_root=workspace,
+                    project_name="project",
+                    client="codex",
+                    action=action,
+                    source="ide_hook",
+                    trigger_id=f"old-{action}",
+                )
+                assert receipt_path is not None
+                payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+                payload["completed_at"] = old_completed_at
+                receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+            return await build_integration_health(
+                backend,
+                project_name="project",
+                project_root=workspace,
+            )
+        finally:
+            await backend.close()
+
+    health = asyncio.run(run())
+
+    assert health["hooks"]["status"] == "degraded"
+    assert health["hooks"]["freshness"] == "stale"
+    assert health["hooks"]["wake_verified"] is False
+    assert health["hooks"]["maintenance_verified"] is False
+    assert health["hooks"]["actions"]["wake_start"]["age_seconds"] >= 172800
+    assert health["hooks"]["actions"]["post_turn_maintenance"]["freshness"] == "stale"
+
+
+def test_codex_health_marks_changed_hook_configuration_invalid(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / "project"
+    hook_path = workspace / ".codex" / "hooks.json"
+    hook_path.parent.mkdir(parents=True)
+    hook_path.write_text(
+        '{"hooks":{"SessionStart":[{"command":"harness-mem-hook"}]}}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HARNESS_MEM_CLIENT", "codex")
+
+    async def run() -> dict:
+        backend = LocalMemoryBackend(tmp_path / "data")
+        await backend.init()
+        try:
+            record_hook_execution(
+                backend.data_dir,
+                project_root=workspace,
+                project_name="project",
+                client="codex",
+                action="wake-start",
+                source="ide_hook",
+                trigger_id="before-change",
+            )
+            hook_path.write_text(
+                '{"hooks":{"SessionStart":[{"command":"harness-mem-hook --changed"}]}}\n',
+                encoding="utf-8",
+            )
+            return await build_integration_health(
+                backend,
+                project_name="project",
+                project_root=workspace,
+            )
+        finally:
+            await backend.close()
+
+    health = asyncio.run(run())
+
+    assert health["hooks"]["status"] == "invalid"
+    wake = health["hooks"]["actions"]["wake_start"]
+    assert wake["receipt_status"] == "config_mismatch"
+    assert wake["config_match"] is False
+    assert wake["freshness"] == "never"
+    assert wake["last_success_at"] is not None

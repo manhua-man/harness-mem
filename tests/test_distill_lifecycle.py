@@ -52,6 +52,8 @@ def test_distill_job_is_deduplicated_and_rendered(tmp_path: Path) -> None:
         assert empty_offer["agent_execution_required"] is False
         assert empty_offer["process_limit"] == 0
         assert empty_offer["job_ids"] == []
+        assert empty_offer["distill_job_id"] is None
+        assert empty_offer["jobs"] == []
         assert empty_offer["instruction"] == ""
     finally:
         _run(backend.close())
@@ -124,10 +126,12 @@ def test_agent_active_drainer_enforces_daily_new_job_budget(tmp_path: Path) -> N
         assert f"process up to 1 now: {first[0].id}" in instruction
         assert "distill_job_id=<selected id>" in instruction
         assert "run_ingest=false" in instruction
-        assert offer["contract_version"] == "agent-distill-offer-v1"
+        assert offer["contract_version"] == "agent-distill-offer-v2"
         assert offer["agent_execution_required"] is True
         assert offer["job_ids"] == [first[0].id]
         assert offer["process_limit"] == 1
+        assert offer["distill_job_id"] == first[0].id
+        assert offer["execution_order"] == "sequential"
         assert offer["prepare_arguments"] == {
             "run_ingest": False,
             "evidence_mode": "semantic",
@@ -135,6 +139,20 @@ def test_agent_active_drainer_enforces_daily_new_job_budget(tmp_path: Path) -> N
             "budget_tokens": 3000,
         }
         assert offer["failure_policy"] == "defer_and_continue"
+        assert offer["per_job_failure_policy"] == {
+            "on_failure": "defer_job",
+            "on_owned_failure": "defer_job",
+            "on_busy": "skip_without_defer",
+            "on_completed_finalize_retry": "replay_finalize",
+            "continue_with_next": True,
+        }
+        assert offer["budget"] == {
+            "scope": "complete_serialized_responses",
+            "per_job_target_tokens": 3000,
+            "maximum_jobs": 1,
+            "maximum_target_tokens": 3000,
+        }
+        assert offer["jobs"][0]["distill_job_id"] == first[0].id
     finally:
         _run(backend.close())
 
@@ -187,6 +205,202 @@ def test_agent_active_drainer_only_charges_jobs_emitted_to_agent(
         assert metrics["active"] == 3
         assert metrics["offered_today"] == 1
         assert metrics["daily_budget_remaining"] == 2
+    finally:
+        _run(backend.close())
+
+
+def test_bounded_batch_covers_backlog_sizes_caps_and_repeated_offers(
+    tmp_path: Path,
+) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    now = datetime(2026, 7, 17, 8, 0, tzinfo=timezone.utc)
+    try:
+        assert pending_distill_jobs(
+            backend,
+            project_name="demo",
+            target_backlog=4,
+            max_jobs=99,
+            record_offer=False,
+            now=now,
+        ) == []
+
+        for count in range(1, 5):
+            _run(
+                persist_session_snapshot(
+                    backend,
+                    Observation(
+                        session_id=f"batch-session-{count}",
+                        client="codex",
+                        raw_content=f"User: request {count}\n\nAssistant: done {count}",
+                        content_type="transcript",
+                        timestamp=now + timedelta(seconds=count),
+                        metadata={},
+                    ),
+                    project_name="demo",
+                    project_root=str(tmp_path),
+                    client="codex",
+                    session_id=f"batch-session-{count}",
+                    source_kind="jsonl",
+                    source_uri=f"file:///batch-session-{count}.jsonl",
+                    source_text=f"source {count}",
+                )
+            )
+            preview = pending_distill_jobs(
+                backend,
+                project_name="demo",
+                target_backlog=4,
+                max_jobs=99,
+                daily_job_budget=8,
+                record_offer=False,
+                now=now,
+            )
+            assert len(preview) == min(count, 3)
+
+        first_offer = pending_distill_jobs(
+            backend,
+            project_name="demo",
+            target_backlog=4,
+            max_jobs=3,
+            daily_job_budget=2,
+            now=now,
+        )
+        repeated_offer = pending_distill_jobs(
+            backend,
+            project_name="demo",
+            target_backlog=4,
+            max_jobs=3,
+            daily_job_budget=2,
+            now=now,
+        )
+        assert len(first_offer) == 2
+        assert [job.id for job in repeated_offer] == [job.id for job in first_offer]
+        assert distill_drainer_metrics(
+            backend,
+            project_name="demo",
+            daily_job_budget=2,
+            now=now,
+        )["offered_today"] == 2
+
+        explicit_offer = pending_distill_jobs(
+            backend,
+            project_name="demo",
+            target_backlog=4,
+            max_jobs=3,
+            daily_job_budget=3,
+            now=now + timedelta(days=1),
+        )
+        contract = build_distill_maintenance_offer(
+            explicit_offer,
+            max_jobs=99,
+            budget_tokens=6400,
+        )
+        assert len(explicit_offer) == 3
+        assert build_distill_maintenance_offer(explicit_offer)["process_limit"] == 2
+        assert contract["process_limit"] == 3
+        assert contract["job_ids"] == [job.id for job in explicit_offer]
+        assert contract["distill_job_id"] == explicit_offer[0].id
+        assert contract["prepare_arguments"]["budget_tokens"] == 6400
+        assert contract["budget"] == {
+            "scope": "complete_serialized_responses",
+            "per_job_target_tokens": 6400,
+            "maximum_jobs": 3,
+            "maximum_target_tokens": 19200,
+        }
+        assert [item["ordinal"] for item in contract["jobs"]] == [1, 2, 3]
+        assert all(
+            item["failure_policy"]["continue_with_next"]
+            for item in contract["jobs"]
+        )
+        assert "budget_tokens=6400" in contract["instruction"]
+    finally:
+        _run(backend.close())
+
+
+def test_thirty_two_session_burst_drains_in_sixteen_two_job_opportunities(
+    tmp_path: Path,
+) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    now = datetime(2026, 7, 20, 8, 0, tzinfo=timezone.utc)
+    review = {
+        "final_user_request": "capture the completed task",
+        "final_outcome": "no durable candidate",
+        "last_turn_status": "answered",
+        "contradictions": [],
+        "unfinished_work": [],
+        "evidence_status": "answered",
+        "promotion_decision": "no_promotion",
+    }
+    try:
+        for index in range(32):
+            _run(
+                persist_session_snapshot(
+                    backend,
+                    Observation(
+                        session_id=f"burst-{index:02d}",
+                        client="codex",
+                        raw_content=f"User: task {index}\nAssistant: done",
+                        content_type="transcript",
+                        timestamp=now + timedelta(seconds=index),
+                        metadata={},
+                    ),
+                    project_name="demo",
+                    project_root=str(tmp_path),
+                    client="codex",
+                    session_id=f"burst-{index:02d}",
+                    source_kind="jsonl",
+                    source_uri=f"file:///burst-{index:02d}.jsonl",
+                    source_text=f"source {index}\n",
+                )
+            )
+
+        completed: list[str] = []
+        for opportunity in range(16):
+            offered = pending_distill_jobs(
+                backend,
+                project_name="demo",
+                target_backlog=2,
+                max_jobs=2,
+                daily_job_budget=32,
+                now=now,
+            )
+            assert len(offered) == 2, opportunity
+            for job in offered:
+                for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
+                    job.id,
+                    lease_owner=f"burst-agent-{opportunity}",
+                    limit=100,
+                ):
+                    backend.transcript_store.checkpoint_distill_chunk(
+                        job.id,
+                        chunk.id,
+                        lease_owner=f"burst-agent-{opportunity}",
+                        result={"inspected": True},
+                    )
+                backend.transcript_store.finalize_distill_job(
+                    job.id,
+                    semantic_review=review,
+                    output_candidate_ids=[],
+                )
+                backend.transcript_store.record_distill_completion_outcome(
+                    job.id,
+                    disposition="no_candidate",
+                    reason_codes=["no_durable_candidate"],
+                    promotion_summary={"promoted": 0},
+                    source_cleanup_status="retained",
+                )
+                completed.append(job.id)
+
+        assert len(set(completed)) == 32
+        assert pending_distill_jobs(
+            backend,
+            project_name="demo",
+            target_backlog=2,
+            max_jobs=2,
+            daily_job_budget=32,
+            now=now,
+        ) == []
     finally:
         _run(backend.close())
 

@@ -1,6 +1,6 @@
 {
   "name": "prepare_session_distill",
-  "description": "Low-level /hm:distill stage: sync recent transcripts, claim queued distill work, then return evidence for AI-led candidate drafting. This tool does not synthesize or summarize by itself.",
+  "description": "Prepare one /hm:distill decision packet. An explicit session_id selects that session directly, including parked work. Semantic mode bundles the bounded decision windows so the common path can finalize without another prepare call.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -67,6 +67,10 @@
         "type": "string",
         "description": "Optional active job id to claim exactly. Used by bounded automatic maintenance so offered jobs are processed deterministically."
       },
+      "session_id": {
+        "type": "string",
+        "description": "Optional user-facing session id to select directly. The latest matching project job is activated when parked."
+      },
       "defer_job_id": {
         "type": "string",
         "description": "Failed job to release as retryable and skip for this call."
@@ -101,8 +105,7 @@
       "budget_tokens": {
         "type": "integer",
         "minimum": 256,
-        "maximum": 12000,
-        "description": "Advisory token budget for compact semantic evidence.",
+        "description": "Advisory target for the complete serialized response. Compact evidence adapts to the remaining space; complete coverage or explicit drilldown may expand with a receipt.",
         "default": 3000
       },
       "drilldown_exchange_indexes": {

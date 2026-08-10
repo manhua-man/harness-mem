@@ -58,6 +58,7 @@ _VALID_CLIENTS = (
 _VALID_ADAPTERS = (
     "antigravity-pre",
     "antigravity-stop",
+    "codex-start",
     "codex-stop",
     "hermes-pre",
     "hermes-post",
@@ -218,9 +219,15 @@ def _adapter_request(args: argparse.Namespace, payload: dict[str, Any]) -> argpa
     elif adapter == "antigravity-stop":
         action, client, default_trigger = "post-turn-maintenance", "antigravity", "antigravity-stop"
         trigger_id = payload.get("conversationId") or default_trigger
+    elif adapter == "codex-start":
+        action, client, default_trigger = "wake-start", "codex", "codex-session-start"
+        trigger_id = payload.get("session_id") or default_trigger
     elif adapter == "codex-stop":
         action, client, default_trigger = "post-turn-maintenance", "codex", "codex-stop"
-        trigger_id = payload.get("turn_id") or payload.get("session_id") or default_trigger
+        # Use Codex's session id for both SessionStart and Stop receipts.  This
+        # lets health prove that both lifecycle actions came from one actual
+        # session instead of combining unrelated CLI/Desktop executions.
+        trigger_id = payload.get("session_id") or payload.get("turn_id") or default_trigger
     else:
         action = "wake-start" if adapter == "hermes-pre" else "post-turn-maintenance"
         client, default_trigger = "hermes", f"{adapter}-llm"
@@ -248,7 +255,10 @@ def _run_adapter(args: argparse.Namespace) -> int:
 
     adapter = args.adapter
     assert adapter is not None
-    if adapter == "antigravity-pre":
+    if adapter == "codex-start":
+        context = stdout_payload.rstrip("\n") if exit_code == ExitCode.SUCCESS and stdout_payload else ""
+        sys.stdout.write(context + "\n")
+    elif adapter == "antigravity-pre":
         message = stdout_payload.strip() if exit_code == ExitCode.SUCCESS and stdout_payload else ""
         response: dict[str, Any] = (
             {"injectSteps": [{"ephemeralMessage": message}]} if message else {"injectSteps": []}

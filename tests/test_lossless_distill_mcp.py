@@ -15,9 +15,11 @@ from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.mcp import distill_handlers, governance_handlers, tool_handlers
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.mcp.response_budget import serialized_result_tokens
 
 
 SEMANTIC_REVIEW = {
+    "session_summary": "The session completed the requested implementation and verification.",
     "final_user_request": "finish the task",
     "final_outcome": "complete",
     "last_turn_status": "answered",
@@ -397,6 +399,14 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
                 "contradicted": 0,
                 "legacy_or_unknown": 0,
             },
+            "answer_gate": {
+                "ANSWERED": 0,
+                "PARTIAL": 0,
+                "UNANSWERED": 3,
+                "CONTRADICTED": 0,
+                "STALE": 0,
+                "NOT_APPLICABLE": 0,
+            },
         }
         assert finalized["queue_effect"]["removed_from_pending"] is True
         assert finalized["source_cleanup"] == {
@@ -510,6 +520,14 @@ def test_finalize_records_promoted_disposition_without_manual_review(
             "reason_codes": ["durable_memory_promoted"],
         }
         assert finalized["promotion"]["promoted"] == 1
+        assert finalized["promotion"]["answer_gate"] == {
+            "ANSWERED": 1,
+            "PARTIAL": 0,
+            "UNANSWERED": 0,
+            "CONTRADICTED": 0,
+            "STALE": 0,
+            "NOT_APPLICABLE": 0,
+        }
         stored = asyncio.run(
             backend.structured_store.get_memory_entry(candidate["entry_id"])
         )
@@ -712,6 +730,23 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
         assert evidence["detail_level"] == "compact"
         assert evidence["budget_state"] == "within_budget"
         assert evidence["output_tokens"] <= evidence["budget_tokens"]
+        serialized_tokens, tokenizer, serialized_chars = serialized_result_tokens(
+            packet
+        )
+        assert packet["response_budget"] == {
+            "contract_version": "serialized-response-budget-v1",
+            "scope": "mcp_content_text",
+            "requested_target_tokens": 3000,
+            "evidence_tokens": evidence["output_tokens"],
+            "protocol_tokens": serialized_tokens - evidence["output_tokens"],
+            "protocol_tokens_basis": "serialized_minus_evidence_estimate",
+            "serialized_tokens": serialized_tokens,
+            "serialized_chars": serialized_chars,
+            "tokenizer": tokenizer,
+            "outcome": "within_target",
+            "reason": None,
+            "hard_truncation_applied": False,
+        }
         assert evidence["parser_render_char_count"] == len(semantic_content)
         assert evidence["duplicate_message_count"] == 1
         assert evidence["collapsed_assistant_message_count"] == 1
@@ -725,6 +760,49 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
         assert evidence["projection_reduction_ratio"] < 1.0
         assert evidence["raw_char_count"] == len(source_text)
         assert evidence["reduction_ratio"] < 0.01
+        decision_indexes = [
+            item["exchange_index"]
+            for item in packet["semantic_decision_exchanges"]
+        ]
+        assert decision_indexes == evidence[
+            "zero_candidate_required_exchange_indexes"
+        ]
+        assert packet["semantic_decision_exchange_count"] == len(decision_indexes)
+        assert packet["zero_candidate_exchange_refs"] == [
+            {
+                "exchange_index": item["exchange_index"],
+                "content_sha256": item["content_sha256"],
+            }
+            for item in packet["semantic_decision_exchanges"]
+        ]
+        challenge_template = packet["zero_candidate_challenge_template"]
+        assert challenge_template["source_revision"] == result.source.source_revision
+        assert challenge_template["inspected_exchange_refs"] == packet[
+            "zero_candidate_exchange_refs"
+        ]
+        signaled_checks = {
+            reason
+            for reasons in evidence[
+                "zero_candidate_required_exchange_reasons"
+            ].values()
+            for reason in reasons
+        }
+        for check_name, finding in challenge_template["checks"].items():
+            assert finding == (
+                "not_durable" if check_name in signaled_checks else "absent"
+            )
+        assert packet["agent_execution"] == {
+            "contract_version": "agent-distill-fast-path-v1",
+            "path": "prepare_then_finalize",
+            "target_mcp_calls": 2,
+            "completed_mcp_calls": 1,
+            "next_tool": "finalize_session_distill",
+            "additional_prepare_required": False,
+            "additional_prepare_allowed_when": [
+                "candidate_needs_raw_proof",
+                "legacy_raw_fallback",
+            ],
+        }
         checkpoints = backend.transcript_store.list_distill_checkpoints(
             result.distill_job_id
         )
@@ -835,22 +913,39 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
             semantic_review={
                 **SEMANTIC_REVIEW,
                 "promotion_decision": "no_promotion",
-                "zero_candidate_challenge": _zero_candidate_challenge(
-                    source_revision=result.source.source_revision,
-                    exchange_refs=[
-                        {
-                            "exchange_index": item["exchange_index"],
-                            "content_sha256": item["content_sha256"],
-                        }
-                        for item in semantic_drilldown[
-                            "semantic_drilldown_exchanges"
-                        ]
-                    ],
-                ),
+                "zero_candidate_challenge": challenge_template,
             },
         )
         assert finalized["success"] is True
         assert finalized["structural_audit"]["coverage"] == "complete"
+        assert finalized["session_summary"] == {
+            "session_id": "semantic-session",
+            "summary": SEMANTIC_REVIEW["session_summary"],
+            "final_outcome": "complete",
+            "last_turn_status": "answered",
+            "unfinished_work": [],
+            "memory_disposition": "no_candidate",
+        }
+        completed_replay = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="codex",
+            run_ingest=False,
+            evidence_mode="semantic",
+            session_id="semantic-session",
+        )
+        assert completed_replay["success"] is True, completed_replay
+        assert completed_replay["distill_status"] == "completed"
+        assert completed_replay["selection_source"] == "explicit_session"
+        assert completed_replay["session_summary"] == finalized["session_summary"]
+        assert completed_replay["agent_execution"] == {
+            "contract_version": "agent-distill-fast-path-v1",
+            "path": "already_completed",
+            "target_mcp_calls": 1,
+            "completed_mcp_calls": 1,
+            "next_tool": None,
+            "additional_prepare_required": False,
+        }
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider
@@ -955,7 +1050,7 @@ def test_legacy_observations_do_not_create_a_lossless_distill_job(tmp_path: Path
         assert payload["coverage"] == "legacy_partial"
         assert payload["distill_job_id"] is None
         assert payload["distill_status"] == "not_queued"
-        assert "not as a lossless session-distill packet" in payload["distill_instructions"][1]
+        assert "not as complete lossless session evidence" in payload["distill_instructions"][1]
         assert backend.reflection_job_store.list(project_name="demo", limit=10) == []
     finally:
         tool_handlers._backend_provider = previous_backend_provider
@@ -1085,6 +1180,14 @@ def test_semantic_review_blocks_promotion_and_dream(
                 "unverified_blocked": 0,
                 "contradicted": 0,
                 "legacy_or_unknown": 0,
+            },
+            "answer_gate": {
+                "ANSWERED": 0,
+                "PARTIAL": 0,
+                "UNANSWERED": 0,
+                "CONTRADICTED": 0,
+                "STALE": 0,
+                "NOT_APPLICABLE": 0,
             },
         }
         assert completed.source_cleanup_status == "retained"
@@ -1263,6 +1366,88 @@ def test_prepare_session_distill_claims_explicit_active_job(tmp_path: Path) -> N
         assert selected["success"] is True
         assert selected["distill_job_id"] == older_job_id
         assert selected["selection_source"] == "explicit"
+    finally:
+        tool_handlers._backend_provider = previous_backend_provider
+        tool_handlers._observer_data_dir_provider = previous_observer_provider
+        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
+        tool_handlers.logger = previous_logger
+        asyncio.run(backend.close())
+
+
+def test_prepare_session_distill_activates_explicit_parked_session(tmp_path: Path) -> None:
+    async def save(backend: LocalMemoryBackend, session_id: str) -> str:
+        result = await persist_session_snapshot(
+            backend,
+            Observation(
+                session_id=session_id,
+                client="cursor",
+                raw_content=f"evidence for {session_id}",
+                content_type="transcript",
+                timestamp=datetime.now(timezone.utc),
+                metadata={},
+            ),
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            session_id=session_id,
+            source_kind="jsonl",
+            source_uri=f"file:///{session_id}.jsonl",
+            source_text=f"evidence for {session_id}",
+        )
+        assert result.distill_job_id is not None
+        return result.distill_job_id
+
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    parked_job_id = asyncio.run(save(backend, "explicit-parked-oldest"))
+    active_job_id = asyncio.run(save(backend, "active-newer-1"))
+    asyncio.run(save(backend, "active-newer-2"))
+    backend.transcript_store.rebalance_distill_jobs(
+        "demo",
+        target_active=2,
+        recent_first=True,
+    )
+    parked = backend.transcript_store.get_distill_job(parked_job_id)
+    assert parked is not None
+    assert parked.status == "parked"
+
+    previous_backend_provider = tool_handlers._backend_provider
+    previous_observer_provider = tool_handlers._observer_data_dir_provider
+    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
+    previous_logger = tool_handlers.logger
+    tool_handlers.configure_tool_handler_dependencies(
+        backend_provider=lambda: backend,
+        observer_data_dir=lambda: backend.data_dir,
+        cost_surface_budgets=lambda _project_name: None,
+        logger_instance=logging.getLogger("test.explicit-parked-distill"),
+    )
+    try:
+        active_selected = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            run_ingest=False,
+            session_id="active-newer-1",
+        )
+        assert active_selected["success"] is True
+        assert active_selected["distill_job_id"] == active_job_id
+        assert active_selected["selection_source"] == "explicit_session"
+        selected = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            run_ingest=False,
+            session_id="explicit-parked-oldest",
+        )
+        assert selected["success"] is True
+        assert selected["distill_job_id"] == parked_job_id
+        assert selected["session_id"] == "explicit-parked-oldest"
+        assert selected["selection_source"] == "explicit_session_parked"
+        activated = backend.transcript_store.get_distill_job(parked_job_id)
+        assert activated is not None
+        assert activated.status in {"processing", "reviewing"}
+        assert activated.agent_offer_count == 1
+        assert activated.agent_offer_day == datetime.now(timezone.utc).date().isoformat()
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider

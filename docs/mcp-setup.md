@@ -86,9 +86,10 @@ Wake includes the selected IDs; the Agent passes each one back as
 `prepare_session_distill(distill_job_id=...)`. Exact targeting cannot claim a
 parked, cross-project, completed, stale, or retry-backoff job.
 The MCP response also exposes `distill_maintenance` as an
-`agent-distill-offer-v1` contract. It contains at most one job for the current
-Agent task plus fixed semantic/compact, 3,000-token, `run_ingest=false`
-arguments. Host commands consume that offer privately; `get_project_status`
+`agent-distill-offer-v2` contract. It contains up to two ordered jobs for an
+automatic wake (explicit distill may request up to three), sequential per-job
+failure boundaries, and semantic/compact `run_ingest=false` arguments using
+the configured response target. Host commands consume that offer privately; `get_project_status`
 remains read-only and never records or executes an offer.
 
 `autopilot_search_tick` is the event-level scheduler. PI
@@ -100,9 +101,12 @@ a second `wake`.
 
 `prepare_session_distill` optionally claims one active `distill_job_id`,
 syncs native transcript revisions, and preserves every
-ordered raw chunk. Daily `evidence_mode="semantic", detail_level="compact",
-budget_tokens=3000` lets runtime hash-verify and checkpoint each chunk before
-returning a deterministic indexed manifest. The Agent selects complete semantic
+ordered raw chunk. Daily `evidence_mode="semantic", detail_level="compact"`
+lets runtime hash-verify and checkpoint each chunk before returning a
+deterministic indexed manifest. `budget_tokens` is an advisory target for the
+complete serialized response. The runtime measures the exact Agent-visible JSON
+and reports any coverage/full/drilldown expansion; it never clips the final JSON
+or drops later exchanges. The Agent selects complete semantic
 windows with `drilldown_exchange_indexes`, then reads raw chunk proof only when
 a candidate needs it. Explicit `detail_level="full"` or `evidence_mode="raw"`
 keeps the original resumable lease loop: chunks are never shortened to fit one
@@ -128,7 +132,10 @@ use a project-relative locator plus current file SHA-256; explicit user
 preferences/decisions use a user-role exchange index plus semantic-window
 SHA-256. The runtime rechecks reference integrity before admission.
 Transcript-only, outside-project, missing, changed, or contradicted evidence
-cannot enter readable truth. Relation facts use the same scoped policy and the
+cannot enter readable truth. It derives an `answer_gate` status from that
+recheck; only `ANSWERED` is promotion-eligible, while `PARTIAL`,
+`UNANSWERED`, `CONTRADICTED`, `STALE`, and `NOT_APPLICABLE` are blocked.
+Relation facts use the same scoped policy and the
 public MCP allowlist remains exactly 27 tools.
 
 `distill.delete_source_after_complete` is a persistent user/project config

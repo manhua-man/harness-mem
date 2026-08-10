@@ -669,6 +669,17 @@ class TranscriptStore:
             offered_at=offered_at,
         )
 
+    def activate_parked_distill_job_for_agent(
+        self,
+        job_id: str,
+        *,
+        offered_at: datetime | None = None,
+    ) -> SessionDistillJob:
+        return self._distill.activate_parked_for_agent(
+            job_id,
+            offered_at=offered_at,
+        )
+
     def list_distill_jobs(
         self,
         *,

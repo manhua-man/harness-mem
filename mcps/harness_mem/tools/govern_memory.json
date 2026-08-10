@@ -1,6 +1,6 @@
 {
   "name": "govern_memory",
-  "description": "Composite write surface for candidate creation, review decisions, task handoffs, corrections, and supersede governance. Use action=suggest with arguments.kind=memory|rule|relation; action=decide with kind, decision=confirm|reject, and candidate_id; action=handoff; action=correct_rule; or action=supersede. This replaces the former family of low-level suggest_*/confirm_*/reject_* MCP tools. Distill-bound suggestions should include evidence_basis, verification_outcome, and content-free verification_refs so Dream can verify repository or explicit user-statement evidence.",
+  "description": "Composite write surface for candidate creation, review decisions, task handoffs, corrections, and supersede governance. Use action=suggest with arguments.kind=memory|rule|relation; action=decide with kind, decision=confirm|reject, and candidate_id; action=handoff; action=correct_rule; or action=supersede. This replaces the former family of low-level suggest_*/confirm_*/reject_* MCP tools. Distill-bound suggestions should include evidence_basis, verification_outcome, and content-free verification_refs so Dream can verify repository or explicit user-statement evidence. The runtime derives the Answer Gate status; only ANSWERED candidates may enter the truth layer.",
   "inputSchema": {
     "type": "object",
     "properties": {

@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import NAMESPACE_URL, uuid5
 
 from harness_mem.core.schemas import EvidenceRef
@@ -16,6 +16,23 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 _SAFE_REASON = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+AnswerGateStatus = Literal[
+    "ANSWERED",
+    "PARTIAL",
+    "UNANSWERED",
+    "CONTRADICTED",
+    "STALE",
+    "NOT_APPLICABLE",
+]
+ANSWER_GATE_STATUSES: tuple[AnswerGateStatus, ...] = (
+    "ANSWERED",
+    "PARTIAL",
+    "UNANSWERED",
+    "CONTRADICTED",
+    "STALE",
+    "NOT_APPLICABLE",
+)
 
 
 @dataclass(frozen=True)
@@ -132,6 +149,41 @@ def evidence_summary_key(candidate: Any) -> str:
     if basis == "repository" and outcome == "verified":
         return "repository_verified"
     return "legacy_or_unknown"
+
+
+def answer_gate_status(candidate: Any) -> AnswerGateStatus:
+    """Project the validated evidence envelope onto the promotion question gate.
+
+    This status is derived by the runtime after current-source validation.  It
+    is deliberately not accepted as an Agent-supplied field: an Agent may
+    propose evidence, but cannot declare its own question ``ANSWERED``.
+    """
+
+    basis = getattr(candidate, "evidence_basis", None)
+    outcome = getattr(candidate, "verification_outcome", None)
+    reasons = set(getattr(candidate, "verification_reason_codes", None) or [])
+    refs = list(getattr(candidate, "verification_refs", None) or [])
+
+    if outcome == "contradicted":
+        if reasons.intersection(
+            {
+                "repository_digest_changed",
+                "user_statement_digest_changed",
+                "transcript_digest_changed",
+                "source_revision_changed",
+            }
+        ):
+            return "STALE"
+        return "CONTRADICTED"
+    if basis == "repository" and outcome == "verified":
+        return "ANSWERED"
+    if basis == "user_statement" and outcome in {"verified", "not_applicable"}:
+        return "ANSWERED"
+    if outcome == "not_applicable":
+        return "NOT_APPLICABLE"
+    if outcome == "unverified":
+        return "PARTIAL" if refs else "UNANSWERED"
+    return "UNANSWERED"
 
 
 def _validate_repository_refs(
@@ -270,7 +322,10 @@ def _is_relative_to(path: Path, root: Path) -> bool:
 
 
 __all__ = [
+    "ANSWER_GATE_STATUSES",
+    "AnswerGateStatus",
     "EvidenceValidation",
+    "answer_gate_status",
     "apply_validation",
     "evidence_summary_key",
     "sanitize_evidence_refs",

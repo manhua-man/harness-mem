@@ -35,6 +35,15 @@
         "description": "Include cold/archive memory in task-aware wake planning.",
         "default": false
       },
+      "detail_level": {
+        "type": "string",
+        "enum": [
+          "compact",
+          "full"
+        ],
+        "description": "Compact returns one authoritative answer-ready context; full retains all diagnostic projections.",
+        "default": "compact"
+      },
       "include_provisional": {
         "type": "boolean",
         "description": "Include provisional auto-promoted truth in task-aware wake planning.",

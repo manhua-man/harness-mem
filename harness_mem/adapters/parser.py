@@ -646,7 +646,7 @@ def parse_codex_jsonl_session(
 
 
 # ---------------------------------------------------------------------------
-# Codex Archive .jsonl parser (from session-distill)
+# Codex Archive .jsonl parser
 # ---------------------------------------------------------------------------
 
 BOILERPLATE_USER_PREFIXES = (

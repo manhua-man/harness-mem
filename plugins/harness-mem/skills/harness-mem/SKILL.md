@@ -14,7 +14,7 @@ Treat the project as real production context:
 
 - Prefer MCP tools (`get_project_status`, `wake`, `search_memory`, `timeline`) before guessing from memory.
 - Use `prepare_session_distill` for stale project state; it syncs immutable transcript revisions and claims complete ordered chunks.
-- Use repo-local `tools/session-distill/SKILL.md` as the instruction-only Agent playbook; all runtime behavior remains in `harness_mem` MCP tools.
+- Use repo-local `tools/hm-distill/SKILL.md` as the instruction-only Agent playbook; all runtime behavior remains in `harness_mem` MCP tools.
 - Distilled memory is governed automatically. Low-risk items may become readable memory; review is the post-hoc audit and correction surface.
 - Use `govern_memory(action="suggest")`, `list_candidates`, and
   `govern_memory(action="decide")` for stable facts or rules the user explicitly
@@ -44,9 +44,9 @@ until the active Router/direct namespace has been checked.
   `project_root=<current workspace root>` and `host_client=<current IDE/Agent>` so
   a global MCP Router can idempotently install the correct native hooks.
 - `ingest_sessions`: low-level transcript sync for `/hm:distill` internals and diagnostics; do not present it as the user workflow.
-- `prepare_session_distill`: syncs native revisions. Daily `evidence_mode="semantic", detail_level="compact", budget_tokens=3000` hash-verifies/checkpoints every raw chunk and returns an indexed manifest; selected semantic windows and raw proof are separate drilldowns. `detail_level="full"` and `evidence_mode="raw"` are explicit audit paths.
+- `prepare_session_distill`: syncs native revisions. Daily `evidence_mode="semantic", detail_level="compact"` hash-verifies/checkpoints every raw chunk and returns an all-indexed manifest; `budget_tokens` is a configurable soft target for the complete Agent-visible response (3000 is only the default), and `response_budget` reports actual cost/expansion. Selected semantic windows and raw proof are separate drilldowns. `detail_level="full"` and `evidence_mode="raw"` are explicit audit paths.
 - `submit_distill_chunk`: checkpoints one completely read chunk so interrupted work can resume without skipping content.
-- `tools/session-distill/SKILL.md`: instruction-only Agent playbook for final review and candidate drafting.
+- `tools/hm-distill/SKILL.md`: instruction-only Agent playbook for final review and candidate drafting.
 - `finalize_session_distill`: verifies revision currency, complete chunk coverage, and semantic promotion gates, then reviews only the current job's candidates and runs Dream.
 - `auto_review_candidates`: project-level audit/maintenance tool, not the lossless session finalization stage.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
@@ -67,10 +67,11 @@ For status and wake-up:
    to resolve the project, create its profile, and idempotently bootstrap the native hooks.
 2. When the project is ready, call `wake(project_name=<project>)` instead of manually stitching low-level read tools.
 3. If the user explicitly wants procedural hints, call `wake(project_name=<project>, include_skill_hints=true)`, and only call `get_skill(skill_id)` if they ask to expand a specific hint.
-4. If `wake.distill_maintenance.agent_execution_required=true`, process at most
-   the first exact offered job id with the returned prepare contract
-   (`run_ingest=false`, semantic/compact, 3000-token budget). Finalize it or
-   defer the failure; do not expose the private maintenance block or ask the
+4. If `wake.distill_maintenance.agent_execution_required=true`, process the
+   ordered exact offered job ids sequentially up to `process_limit`, using the
+   returned prepare contract (`run_ingest=false`, semantic/compact, configured
+   response target). Finalize or defer each owned job independently; skip a
+   busy lease without deferring it. Do not expose the private maintenance block or ask the
    user to run distill for parked history.
 5. Summarize the usable context and suggest the next IDE-native action:
    - Claude Code: `/hm:distill`, `/hm:review`, or `/hm:wake`.
@@ -79,9 +80,9 @@ For status and wake-up:
 
 If the project has new sessions:
 
-1. Call `prepare_session_distill(project_name=<project>, client="auto", scope="project", project_root=<current project root>, evidence_mode="semantic", detail_level="compact", budget_tokens=3000)`.
+1. Call `prepare_session_distill(project_name=<project>, client="auto", scope="project", project_root=<current project root>, evidence_mode="semantic", detail_level="compact", budget_tokens=<configured or user target>)`.
 2. Read the complete indexed manifest in order. Select likely candidate windows with `drilldown_exchange_indexes=[...]`, then obtain candidate-grade raw proof with `drilldown_query="<term>"` or known `drilldown_chunk_indexes=[...]`. Runtime has already hash-verified and checkpointed every raw chunk; use `detail_level="full"` or `evidence_mode="raw"` only for explicit audit or runtime fallback.
-3. Activate repo-local `tools/session-distill/SKILL.md`: review the complete indexed manifest plus selected semantic windows and raw proof (or raw checkpoint results), apply `grill-before-distill`, then apply `references/distillation-rules.md`.
+3. Activate repo-local `tools/hm-distill/SKILL.md`: review the complete indexed manifest plus selected semantic windows and raw proof (or raw checkpoint results), then apply its inline candidate admission check and `references/distillation-rules.md`.
 4. Write pending candidates only for admitted items through
    `govern_memory(action="suggest", arguments={kind: "memory|rule|relation", ...})`,
    passing the current `distill_job_id` in `arguments`. For external claims,
@@ -92,14 +93,13 @@ If the project has new sessions:
    status concisely; keep decision counts and candidate IDs in audit drilldown.
 
 The explicit user distill path above may sync new sessions and honor the user's
-requested count. A wake maintenance offer is different: it always targets the
-exact offered id, sets `run_ingest=false`, and processes at most one job in the
-current Agent task.
+requested count, with a hard maximum of three sequential jobs per invocation.
+A wake maintenance offer is different: it targets the ordered exact offered
+ids, sets `run_ingest=false`, and obeys its bounded `process_limit` (default two).
 
-When `grill-before-distill` raises an evidence gap, use the repo-local
-`answer-memory-evidence` role. When it raises architecture, product-boundary,
-roadmap, or long-lived-rule ambiguity, use `ask-memory-boundary`. Both roles
-answer questions only; they do not write or confirm memory.
+Resolve evidence gaps from the transcript, repository, tests, and current docs.
+Ask the user only when the remaining uncertainty is their preference, intent,
+or product direction; do not create a separate question-routing workflow.
 
 When looking for prior work:
 
@@ -116,13 +116,9 @@ Use maintenance Slash entries only when the user explicitly asks for session
 artifact cleanup. KB and PRD semantics are normal memory candidates; this
 plugin does not expose a separate KB audit or PRD sync product surface.
 
-For Trellis-inspired closeout, keep the surfaces separate:
-
-- Code check: run the repo's normal tests, lint, build, or app-specific checks.
-- Memory check: finalize a lossless session only through `finalize_session_distill`; reserve `auto_review_candidates(apply=True)` for explicit project-level maintenance, then use review tools for post-hoc audit/undo/correction.
-- Update-spec equivalent: use `govern_memory(action="suggest")` for repeated lessons; update repo guidance only after confirmation and only for repo-wide rules.
-- Finish-work equivalent: use `govern_memory(action="handoff")` for current state, blockers, and next steps; inspect `/hm:dream` or dream ledger when maintenance context matters.
-- Journal equivalent: use harness-mem audit/event/timeline/handoff/dream ledger surfaces. Do not create a Trellis journal or second truth store for memory.
+At closeout, run the repository's normal checks, use
+`govern_memory(action="handoff")` for resumable work, and finalize memory only
+through `finalize_session_distill`. Do not create a parallel journal or spec truth store.
 
 When the user states a durable project rule:
 

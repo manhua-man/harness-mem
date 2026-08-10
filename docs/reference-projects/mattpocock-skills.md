@@ -62,7 +62,7 @@ policy 和领域术语讨论。事实先查，用户决策一次一问，确认�
   实现。
 - 将 diagnosing-bugs 的 replay-first 方法用于误晋升和漏候选评测。
 
-**Reject**：直接替换 `grill-before-distill`；将交互访谈放进 wake/backlog；引入
+**Reject**：用交互访谈替换 `hm-distill` 的内联候选准入；将访谈放进 wake/backlog；引入
 上游 issue tracker、handoff、implement 或 wayfinder 整条产品面；让未确认讨论
 自动写入项目文档或长期记忆。
 

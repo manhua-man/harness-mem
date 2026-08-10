@@ -132,12 +132,12 @@ def _suite_specs(
                 root / ".codex" / "hooks.json",
                 template_vars={
                     "WAKE_COMMAND_JSON": json.dumps(
-                        _host_entry_command(
-                            hook_runner,
-                            "wake-start",
-                            root,
-                            "codex-session-start",
-                            client,
+                        _quote_command(
+                            hook_runner.as_posix(),
+                            "--adapter",
+                            "codex-start",
+                            "--project-root",
+                            root.resolve().as_posix(),
                         )
                     ),
                     "STOP_COMMAND_JSON": json.dumps(
