@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.9.11] - 2026-08-11
+
 ### Added
 
 - Added complete-response token receipts for compact distill output, with an
@@ -25,6 +27,22 @@
 - Dream and wake maintenance now close selected work to explicit terminal or
   degraded outcomes, preserve project isolation, and report effective progress
   without presenting internal lifecycle detail as user workflow.
+- Default distill summaries and readable Session Notes now present each durable
+  memory as a title, one verifiable fact, and its verification date/status.
+  Internal session, job, candidate, memory, evidence, and source IDs remain in
+  explicit audit detail only.
+
+### Fixed
+
+- Durable-value signals now start fail-closed as `candidate_required`; an Agent
+  can downgrade one only after reading its complete window and recording both
+  the signal key and a session-only explanation.
+- Answered candidates can be governed independently from unrelated unfinished
+  handoffs. Partial completion keeps Dream blocked without incorrectly rejecting
+  the verified candidate.
+- Explicitly revisiting a legacy false-negative `no_candidate` session creates
+  a policy-recheck job while preserving the original completion as immutable
+  audit history.
 
 ### Removed
 
@@ -32,6 +50,9 @@
   alignment documents, packet-workspace terminology, and experimental
   smart-search/Trellis layering. Runtime evidence and confirmed memory remain
   the only truth path.
+
+This release also includes the incremental context-lineage work previously
+documented as 0.9.10; no separate 0.9.10 package or tag was published.
 
 ## [0.9.10] - 2026-08-02
 

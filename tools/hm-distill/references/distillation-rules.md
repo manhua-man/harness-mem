@@ -56,8 +56,13 @@ never a truth store.
 - Mark unfinished work explicitly in final-session review.
 - External, date-sensitive, security-sensitive, or policy claims require
   traceable external evidence before confirmation.
-- `promotion_decision=promote` is valid only when evidence and the last turn are
-  answered and contradictions/unfinished work are empty.
+- Use `promotion_decision=promote` only when evidence and the last turn are answered
+  and contradictions/unfinished work are empty.
+- Use `promotion_decision=partial` when Answered durable candidates coexist with
+  unrelated unfinished work. Candidate auto-review may proceed, but Dream must not run;
+  record the unfinished state as a scoped handoff.
+- Missing current repository proof is an answer-evidence route, not a zero-candidate
+  justification. A detected signal may be downgraded only with a signal-specific reason.
 
 ## Candidate Quality
 
@@ -69,6 +74,10 @@ never a truth store.
 - Use module docs/tests for code behavior rather than turning implementation
   facts into collaboration rules.
 - Do not call confirm/reject/replace tools from the default distill path.
+- In the default user-visible result and readable session note, render each
+  promoted memory as `title + one verifiable fact + verification date/status`.
+- Keep session, job, candidate, memory, evidence, and source IDs out of readable
+  memory prose. Preserve them only in the audit record and explicit audit views.
 
 ## Review Outcomes
 

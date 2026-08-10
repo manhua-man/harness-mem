@@ -55,7 +55,7 @@ wake -> search -> distill -> review -> dream
 `tool_result`、`prepareNextTurn`，Claude Code 的 `PostToolUse`，以及
 Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 事件入口；`/hm:search` 只是客户端没有这类 hook 时的手动兜底。
-`Stop` Hook 会保存不可变的原始 transcript revision，并排队它的全部有序 chunk。日常 `prepare_session_distill(evidence_mode="semantic", detail_level="compact")` 保留完整原文，由 runtime 校验并 checkpoint 每个 raw chunk，再返回包含全部 exchange 索引和风险信号的 compact manifest。预算约束的是 Agent 实际接收的完整序列化 MCP 响应，3k 只是兼容默认软目标；允许因完整覆盖或显式 drilldown 扩张，但 `response_budget` 必须报告真实 token 数与原因，绝不静默丢弃后半段 exchange。Agent 先选择最多 8 个完整语义窗口，再只为候选主张钻取 raw proof。`detail_level="full"` 与兼容 `raw` 模式只用于显式完整审计，raw chunk 不截断内容。完成会话末尾审查后才可用稳定幂等 ID 生成候选，`finalize_session_distill` 随后执行自动治理和 Dream，记录 `promoted` 或 `no_candidate`，并终结未晋升候选，低价值会话不会变成反复出现的人工待办。`/hm:review` 是纠错和 undo 入口，不是日常晋升闸门。`/hm:distill` 是同一条可恢复管线的立即执行入口。Hook 只负责同步、排队和注入 Agent 工作，不能声称没有 Agent 时已完成总结；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
+`Stop` Hook 会保存不可变的原始 transcript revision，并排队它的全部有序 chunk。日常 `prepare_session_distill(evidence_mode="semantic", detail_level="compact")` 保留完整原文，由 runtime 校验并 checkpoint 每个 raw chunk，再返回包含全部 exchange 索引和风险信号的 compact manifest。预算约束的是 Agent 实际接收的完整序列化 MCP 响应，3k 只是兼容默认软目标；允许因完整覆盖或显式 drilldown 扩张，但 `response_budget` 必须报告真实 token 数与原因，绝不静默丢弃后半段 exchange。Agent 先选择最多 8 个完整语义窗口，再只为候选主张钻取 raw proof。`detail_level="full"` 与兼容 `raw` 模式只用于显式完整审计，raw chunk 不截断内容。完成会话末尾审查后才可用稳定幂等 ID 生成候选。检测到 decision、solution、preference、workflow、migration 或 handoff 信号时默认 fail-closed 为 `candidate_required`；只有读完完整窗口并给出针对该信号的 session-only 理由才能降级。`finalize_session_distill` 对当前 job 执行 scoped 自动治理并记录 `promoted` 或 `no_candidate`。已回答候选可以与无关的未完成 handoff 分开治理，但 review 未完整结束时不运行 Dream。默认结果与 Session Note 使用“标题 + 单一可验证事实 + 验证日期/状态”，内部 ID 只进入显式审计详情。`/hm:review` 是纠错和 undo 入口，不是日常晋升闸门。`/hm:distill` 是同一条可恢复管线的立即执行入口。Hook 只负责同步、排队和注入 Agent 工作，不能声称没有 Agent 时已完成总结；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
 
 新候选带 evidence basis 和 verification outcome。仓库事实必须引用
 当前项目相对文件及其 SHA-256；用户偏好或决定引用 user role 的 exchange
@@ -109,8 +109,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.10 \
-  harness-mem==0.9.10
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.11 \
+  harness-mem==0.9.11
 ```
 
 `harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
@@ -120,8 +120,8 @@ Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.10 \
-  "harness-mem[hybrid]==0.9.10"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.11 \
+  "harness-mem[hybrid]==0.9.11"
 ```
 
 在当前设备一次性安装全部宿主的原生 Daily 命令。默认参数就是
@@ -224,4 +224,5 @@ cargo test --workspace
 全新安装验证，运行真实 sqlite-vec contract gate，并验证受支持的 Windows 升级
 路径后再上传到 GitHub Release。本项目不发布到 PyPI。
 
-当前包版本：**0.9.10**。
+当前包版本：**0.9.11**。它累计包含此前按 0.9.10 记录的增量上下文 lineage
+工作；0.9.10 没有单独发布 package 或 tag。

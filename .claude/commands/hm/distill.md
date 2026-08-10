@@ -38,7 +38,8 @@ wireFormatVersion: hm-wire-v3.5
 
 - 不要启动额外旁路或生成中间推广文件，也不要先用 shell 搜索 job id。完成后基于本次 `semantic_review` 生成一份可读 session note；不得为写 Note 重新读取或处理 transcript。
 - 直接调用一次 `prepare_session_distill(session_id=<用户给出的 id>, project_root=<当前项目根>, client="auto", evidence_mode="semantic", detail_level="compact")`。
-- runtime 会直接选择并激活该 session 的最新 job，同时在同一响应中返回 `semantic_decision_exchanges` 和可验证后直接复用的 `zero_candidate_challenge_template`。
+- runtime 会直接选择并激活该 session 的最新 job，同时在同一响应中返回 `semantic_decision_exchanges` 和 fail-closed 的 `zero_candidate_challenge_template`；检测到的价值信号默认是 `candidate_required`，不能原样当作零候选结论提交。
+- 如果旧版已完成的 `no_candidate` 对检测信号没有逐项解释，显式再次传入同一 session id 时 runtime 会创建新的 policy-recheck job；旧 completion 保持不可变审计记录。
 - 无候选时，下一次 MCP 调用必须是 `finalize_session_distill`。只有已确认的 durable candidate 需要精确 raw proof 时，才允许再次 prepare；不要调用 status、list、export 或本地诊断命令。
 - 目标是常见零候选路径总计 2 次 MCP 调用。若 host 支持无历史隔离 worker，并且当前会话已很长，把这条有界主链交给 fresh/no-history worker；只回传最终摘要，不继承整段聊天历史。
 
@@ -100,7 +101,7 @@ wireFormatVersion: hm-wire-v3.5
    - semantic review 必须填写 `session_summary`、`final_user_request`、`final_outcome`、`last_turn_status`、`contradictions`、`unfinished_work`、`evidence_status`、`promotion_decision`
    - `session_summary` 用 1–3 句话说明会话主题、实际结果和关键未完成项；它是用户可读摘要，与是否产生长期记忆候选无关
    - v1 job 没有候选时，必须读取 manifest 的 `zero_candidate_required_exchange_indexes`，drilldown 全部完整窗口，并提交带 `content_sha256` 的 `zero_candidate_challenge`
-   - challenge 分开记录 `evidence_fidelity` 与 `future_utility`，逐项检查 correction、decision、solution、repeated failure、rule/preference、reusable workflow/fact、version/migration 和 unfinished handoff
+   - challenge 分开记录 `evidence_fidelity` 与 `future_utility`，逐项检查 correction、decision、solution、repeated failure、rule/preference、reusable workflow/fact、version/migration 和 unfinished handoff；检测到的信号默认 `candidate_required`，只有读完完整窗口并在 rationale 点名该 signal key 与 session-only 原因后才可降级为 `not_durable`
    - 任一检查为 `candidate_required` 就返回候选/handoff 路径；只有完整证据且没有 durable utility 才能 `no_durable_candidate`
    - 无 exchange 边界的 raw fallback 以 Agent 完整读取的全部 raw checkpoints 为 challenge basis，不虚构 exchange hash
    - 只有 job 进入 `reviewing` 后才能形成 candidate claim
@@ -109,7 +110,8 @@ wireFormatVersion: hm-wire-v3.5
    - 用 MCP `govern_memory(action="suggest")` / `govern_memory(action="handoff")` 写入 pending 候选，并把当前 `distill_job_id` 传入写入参数
    - 每条候选必须带 evidence envelope：`evidence_basis`、`verification_outcome`、`verification_refs`
    - 把每条候选视为一个证据问题；runtime 重验 refs 后派生 `answer_gate`，只有 `ANSWERED` 能进入 truth layer。Agent 不能自行声明 `ANSWERED`，普通已闭合证据不增加额外 MCP 调用
-   - 条件自动路由，不等用户点名，也不预先串行调用全部协作者：缺少、冲突或过期证据时调用 `answer-memory-evidence`；高风险、全局或可能过度概括时调用 `grill-before-distill`；证据仍无法决定产品/架构边界时调用 `ask-memory-boundary`
+   - 条件自动路由，不等用户点名，也不预先串行调用全部协作者：semantic exchange 一旦显示潜在 durable value 就视为存活 claim；缺少、冲突或过期证据时先调用 `answer-memory-evidence`，不能因缺仓库证据直接拒绝；高风险、全局或可能过度概括时调用 `grill-before-distill`；证据仍无法决定产品/架构边界时调用 `ask-memory-boundary`
+   - 已完成的 durable claim 与未完成事项并存时，分别写候选与 scoped handoff，并使用 `promotion_decision="partial"`；finalize 仍可 auto-review Answered 候选，但不运行 Dream
    - 路由彼此独立，每个候选的每条路由默认最多一轮；宿主未暴露对应 Skill 时执行同一合同的内联检查。协作者本身不写记忆、不决定晋升，也不产生 MCP 调用
    - 实际运行过的路由分别在 `verification_reason_codes` 记录 `collaborator_answer`、`collaborator_grill`、`collaborator_boundary`
    - 代码、版本、发布、文件与测试状态只能使用 `repository + verified`，ref 使用项目相对路径与当前文件 SHA-256；绝不写绝对路径或证据正文
@@ -128,10 +130,10 @@ wireFormatVersion: hm-wire-v3.5
 
    `finalize_session_distill` 会重新验证 source revision 与全部 checkpoint，
    并重算 zero-candidate exchange hash，只治理当前 job 产生的候选。缺少 challenge
-   或 hash 不匹配时 job 保持 `reviewing`。`promotion_decision` 不是 `promote`、证据或末轮
-   未回答、存在 contradictions 或 unfinished work 时，候选会终结为 rejected，
-   该 job 记录 `completion.disposition=no_candidate`，且不运行 Dream；不会留下
-   反复出现的人工待办。
+   或 hash 不匹配时 job 保持 `reviewing`。`promotion_decision="partial"` 时仅对证据门
+   已回答的候选运行 scoped auto-review，未完成事项保留为 handoff，且不运行 Dream。
+   `no_promotion` / `blocked`、contradicted evidence，或没有任何 surviving candidate
+   时才终结为 `no_candidate`；不会让一个无关 handoff 否决其他已回答候选。
 
    MCP 不可用时，直接说明 runtime 工具不可用；不要回退到独立 CLI 或本地推广文件流程。
 
@@ -158,7 +160,7 @@ wireFormatVersion: hm-wire-v3.5
    项目真相。只复用已经提交的 semantic review，不启动额外导出，不重新消耗模型
    阅读原文。
 
-   默认给简短但可理解的结果，不展示 transcript、candidate/evidence ID 或详细计数：
+   默认给简短但可理解的结果，不展示 transcript、session/job/candidate/memory/evidence/source ID 或详细计数：
 
    ```text
    会话：<session_summary>
@@ -168,7 +170,13 @@ wireFormatVersion: hm-wire-v3.5
    Note：<路径>。
    ```
 
-   只有用户要求审计详情时，才展示计数、candidate/evidence ID 和 `/hm:review` 入口。
+   如果形成长期记忆，在摘要和 Note 中按“一条记忆一个可验证事实”列出：
+
+   ```text
+   - **<标题>**：<精确、可验证的单一事实>（<验证日期；仓库已验证 / 用户已确认>）。
+   ```
+
+   ID 只用于内部去重、审计、纠错和 undo，不附加在默认记忆正文中。只有用户要求审计详情时，才展示计数、session/job/candidate/memory/evidence/source ID、verification refs 和 `/hm:review` 入口。
 
    如果用户要求处理多个 session，逐 job 完成 prepare → candidate/no-candidate →
    finalize/defer；一次显式 distill 最多处理 3 条，任一 job 的失败不得污染其他 job。
