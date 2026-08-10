@@ -50,7 +50,7 @@ const CAPABILITIES = [
   { area: "CLI", status: "operator console", note: "init/doctor/config/integration/maintenance；import/purge 下沉且默认 dry-run" },
   { area: "State Audit", status: "0.8.2 新增", note: "append-only governance ledger；maintenance state-audit" },
   { area: "Storage 边界", status: "进行中", note: "TruthStore / CandidateStore / DerivedIndex 不变量测试已落；facade 继续下沉" },
-  { area: "session-distill", status: "P1 专项", note: "KB/PRD 已删；packet→candidate→suggest-only export" },
+  { area: "hm-distill", status: "P1 专项", note: "KB/PRD 已删；packet→candidate→suggest-only export" },
   { area: "Skill governance", status: "已移出", note: "不进 MCP / CLI / Daily slash；迁出 memory 产品面" },
   { area: "Optional Rust", status: "可选加速", note: "Python-only path 可跑 core loop；不污染 package version 叙事" },
 ];

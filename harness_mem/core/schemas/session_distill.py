@@ -1,4 +1,4 @@
-"""Resumable lossless session-distillation job schemas."""
+"""Resumable lossless session distillation job schemas."""
 
 from __future__ import annotations
 
@@ -91,6 +91,7 @@ class ZeroCandidateChallenge(BaseModel):
 class SessionSemanticReview(BaseModel):
     """Required end-of-session judgment before candidate promotion completes."""
 
+    session_summary: str | None = Field(default=None, min_length=12, max_length=2000)
     final_user_request: str
     final_outcome: str
     last_turn_status: Literal["answered", "unfinished", "unknown"]

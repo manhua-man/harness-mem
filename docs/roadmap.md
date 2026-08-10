@@ -12,7 +12,9 @@ duplicate compatibility surfaces while keeping stored data readable and the
 27-tool contract unchanged. Version 0.9.9 ships the retrieval/lifecycle,
 derived-index, and seven-host qualification work developed as 0.9.7-0.9.9.
 Version 0.9.10 adds evidence-safe incremental context lineage without changing
-the public loop or tool contract.
+the public loop or tool contract. Version 0.9.11 closes the measurable value
+loop with honest complete-response budgets, bounded Agent batches, and a
+content-free captured-to-feedback funnel.
 No separate 0.9.2, 0.9.4, 0.9.7, or 0.9.8 package or tag was published. The
 stable loop is
 not a manual checklist:
@@ -52,6 +54,18 @@ not pending work.
 | `0.9.8` | Folded into 0.9.9; not published separately. | Staged batch-index generations, transactional incremental indexes, Doctor source/index verification, and compact budget/compaction telemetry ship in 0.9.9. | A separate 0.9.8 release artifact. |
 | `0.9.9` | Retrieval, index, seven-host, and compatibility qualification. | Native adapter capture through Dream and wake is replay-tested on all supported hosts; recovery/index failures fail closed; fresh install, upgrade, legacy restore, and operator repair paths are qualified. | A new MCP profile, silent native-container deletion, removing legacy readers before the support cutoff, or adding an autonomous semantic worker. |
 | `0.9.10` | Incremental context lineage and evidence-safe projection. | Hash-verified appended revisions reuse prior semantic work; tool/result boundaries remain intact; context receipts report real budget outcomes and token basis. | A Pi SessionManager, second truth store, Pi host adapter, fixed model budgets, or treating summaries as durable truth. |
+| `0.9.11` | Effective memory closure. | Complete MCP responses report actual serialized cost; automatic wake can process two isolated jobs and explicit distill up to three; status exposes distinct-job and explicit-feedback funnels without storing content. | A fixed 3k cap, sequential first-N clipping, background semantic workers, another store/tool, or inferred positive feedback. |
+
+## 0.9.11 - Effective Memory Closure
+
+This iteration treats `3000` as a compatibility default, not a product
+invariant. The compact manifest keeps every exchange indexed and measures the
+complete JSON the Agent receives. Bounded batching improves freshness without
+changing per-job leases/finalization, while status distinguishes explicit
+`used` / `ignored` / `misleading` outcomes from `missing_feedback`.
+
+The detailed design and acceptance gates are in
+[0.9.11-effective-memory-closure.md](roadmap/0.9.11-effective-memory-closure.md).
 
 ## 0.9.10 - Incremental Context Lineage
 
@@ -301,26 +315,17 @@ Status: complete for the public surface. Dream records supersede candidates as
 structured action hints; and public MCP tools are exact-allowlisted to preserve
 the single memory surface.
 
-## 0.8.7.x — Memory Adoption Playbook
+## 0.8.7.x — Candidate Admission
 
-- Add `grill-before-distill` as the standard admission mode on distill: deep
-  interrogation for high-impact items, light checklist for ordinary candidates,
-  lookback for confirmed truth.
-- Add non-writing answerers: `answer-memory-evidence` for proof gaps and
-  `ask-memory-boundary` for architecture/product-scope questions.
-- Document layered helper patterns for smart-search external evidence and
-  optional project-level orchestration (`check`, `update-spec`, `finish-work`,
-  `journal` mapped to existing hm surfaces).
-- Align `session-distill`, `/hm:distill`, and harness-mem skills to:
-  `prepare` → draft claims → risk-scaled admission →
-  `govern_memory(action="suggest")` → evidence before
-  `govern_memory(action="decide", decision="confirm")`.
+- Keep candidate admission inside `hm-distill`: one inline pass for ordinary
+  candidates and evidence-first review for high-impact rules or architecture.
+- Ask the user only when preference, intent, or product direction cannot be
+  resolved from the transcript, repository, tests, or current documentation.
+- Use `admit`, `narrow`, `defer`, and `reject` as internal outcomes before
+  `govern_memory(action="suggest")`.
 
-Status: complete for the Skill/doc layer. Admission runs automatically with
-depth by risk; external evidence is required before confirmation but not before
-candidate creation; Trellis and smart-search stay outside hm MCP/runtime. Next
-hardening step (Later / Labs) is optional CLI preflight or tests — not a second
-harness.
+Status: complete. The admission policy is part of the single distill flow and
+does not add helper products, question routers, or a second runtime harness.
 
 ## 0.8.8 — Auto-Promoted Governance
 
@@ -344,7 +349,7 @@ harness.
   that resembles a prior issue, file/module boundary question, or pre-write
   claim that must be grounded.
 - At save points or session end, sync evidence and queue a durable distill task.
-  An Agent-capable invocation consumes the packet, creates candidates, applies
+  An Agent-capable invocation consumes the complete evidence view, creates candidates, applies
   auto-review, then runs Dream. Keep high-risk, conflicting, or weak-evidence
   items out of normal wake/search until audit.
 
@@ -386,9 +391,7 @@ These are not roadmap promises. They are gated experiments:
   traversal. Do not make it the default truth or retrieval engine unless the
   simple 1-hop boost stops being enough under benchmarks.
 - **Admission/evidence enforcement**: keep it in the existing Skill and
-  `govern_memory` contract; do not add a second runtime harness.
-- **smart-search adoption**: install as user-level CLI Skill when a project
-  wants fetched/source-backed external evidence; keep out of default hm MCP.
+  `govern_memory` contract; do not add helper products or a second runtime harness.
 
 ## Stable Boundaries
 
@@ -398,5 +401,4 @@ These are not roadmap promises. They are gated experiments:
 - No unaudited durable write; auto-promoted writes must carry evidence, status,
   policy reason, and undo metadata.
 - No retrieval-quality claim without retrieval-isolated tests.
-- No Trellis journal or parallel spec truth inside harness-mem.
-- No smart-search or Trellis hard-coded into public MCP; workflow stays Skills.
+- No parallel journal, spec, or external-evidence truth store inside harness-mem.

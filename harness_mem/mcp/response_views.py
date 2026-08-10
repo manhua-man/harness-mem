@@ -244,6 +244,7 @@ def render_project_status(
         "retrieval_health": _compact_retrieval_health(
             full.get("retrieval_health")
         ),
+        "memory_funnel": _compact_memory_funnel(full.get("memory_funnel")),
         "cost_budget": _compact_cost_budget(full.get("cost_budget")),
         "install_drift": _compact_install_drift(full.get("install_drift")),
         "integration_health": _compact_integration_health(
@@ -289,6 +290,7 @@ def project_status_decision_fingerprint(payload: Mapping[str, Any]) -> dict[str,
         "repair_hint": payload.get("repair_hint"),
         "next_actions": _next_action_fingerprint(payload.get("next_actions")),
         "pending_distill": _compact_pending_distill(payload.get("pending_distill")),
+        "memory_funnel": _compact_memory_funnel(payload.get("memory_funnel")),
     }
 
 
@@ -364,9 +366,41 @@ def _compact_retrieval_health(value: Any) -> dict[str, Any]:
             "used": scorecard.get("used"),
             "ignored": scorecard.get("ignored"),
             "misleading": scorecard.get("misleading"),
+            "missing_feedback": scorecard.get("missing_feedback"),
             "insufficient_feedback": scorecard.get("insufficient_feedback"),
         },
         "top_opportunities": list(payload.get("top_opportunities") or [])[:3],
+    }
+
+
+def _compact_memory_funnel(value: Any) -> dict[str, Any]:
+    payload = dict(value or {})
+    stages = dict(payload.get("distinct_jobs") or {})
+    feedback = dict(payload.get("retrieval_feedback") or {})
+    if not stages and not feedback:
+        return {}
+    return {
+        "distinct_jobs": {
+            key: int(stages.get(key) or 0)
+            for key in (
+                "offered",
+                "claimed",
+                "checkpointed",
+                "finalized",
+                "searchable",
+                "surfaced",
+            )
+        },
+        "retrieval_feedback": {
+            key: int(feedback.get(key) or 0)
+            for key in (
+                "surfaced",
+                "used",
+                "ignored",
+                "misleading",
+                "missing_feedback",
+            )
+        },
     }
 
 
@@ -406,6 +440,19 @@ def _compact_integration_health(value: Any) -> dict[str, Any]:
     hooks = dict(payload.get("hooks") or {})
     transcript = dict(payload.get("transcript") or {})
     distill = dict(payload.get("pending_distill") or {})
+    compact_hooks = {
+        "status": hooks.get("status"),
+        "action_required": hooks.get("action_required"),
+    }
+    if hooks.get("status") != "ok":
+        compact_hooks.update(
+            {
+                "freshness": hooks.get("freshness"),
+                "last_success_at": hooks.get("last_success_at"),
+                "wake_verified": hooks.get("wake_verified"),
+                "maintenance_verified": hooks.get("maintenance_verified"),
+            }
+        )
     return {
         "project": {
             "status": project.get("status"),
@@ -414,12 +461,7 @@ def _compact_integration_health(value: Any) -> dict[str, Any]:
             "status": host.get("status"),
             "client": host.get("client"),
         },
-        "hooks": {
-            "status": hooks.get("status"),
-            "wake_verified": hooks.get("wake_verified"),
-            "maintenance_verified": hooks.get("maintenance_verified"),
-            "action_required": hooks.get("action_required"),
-        },
+        "hooks": compact_hooks,
         "transcript": {
             "status": transcript.get("status"),
             "session_count": transcript.get("session_count"),

@@ -13,7 +13,7 @@ This module is the **single source of truth** for low-risk auto-review
 judgment across every entrypoint that writes candidates:
 
 - the ``/hm:distill`` slash command (Claude Code ``plugins/harness-mem/commands/hm/daily/distill.md``),
-- the ``session-distill`` skill (``tools/session-distill/SKILL.md``), and
+- the ``hm-distill`` skill (``tools/hm-distill/SKILL.md``), and
 - the MCP ``auto_review_candidates`` tool exposed by
   ``harness_mem/mcp/tool_handlers.py::tool_auto_review_candidates``.
 
@@ -82,6 +82,8 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from harness_mem.commands.evidence_admission import (
+    ANSWER_GATE_STATUSES,
+    answer_gate_status,
     apply_validation,
     evidence_summary_key,
     uses_evidence_admission,
@@ -198,12 +200,12 @@ search results when treated as memory."""
 
 DISTILL_SELF_REFERENCE_PATTERN = re.compile(
     r"\bprepare_session_distill\b"
-    r"|\bsession-distill\b"
+    r"|\bhm-distill\b"
     r"|\bdistill\s+process\b",
     re.IGNORECASE,
 )
 """Entries about the distill mechanism itself (``prepare_session_distill``,
-the ``session-distill`` skill, "the distill process"). Recording the
+the ``hm-distill`` skill, "the distill process"). Recording the
 distill workflow as project memory is a recursive trap that fills the
 review queue without producing project understanding."""
 
@@ -273,6 +275,9 @@ class AutoReviewSummary:
     unverified_blocked: int = 0
     contradicted: int = 0
     legacy_or_unknown: int = 0
+    answer_gate: dict[str, int] = field(
+        default_factory=lambda: {status: 0 for status in ANSWER_GATE_STATUSES}
+    )
     next_user_action: str = ""
     applied_decisions: list[AutoReviewDecision] = field(default_factory=list)
 
@@ -292,6 +297,7 @@ class AutoReviewSummary:
                 "contradicted": self.contradicted,
                 "legacy_or_unknown": self.legacy_or_unknown,
             },
+            "answer_gate": dict(self.answer_gate),
             "next_user_action": self.next_user_action,
             "applied_decisions": [
                 {
@@ -521,21 +527,22 @@ def _evidence_policy_decision(
         return None
     basis = getattr(candidate, "evidence_basis", None)
     outcome = getattr(candidate, "verification_outcome", None)
-    if outcome == "contradicted":
+    gate_status = answer_gate_status(candidate)
+    if gate_status in {"CONTRADICTED", "STALE"}:
         return AutoReviewDecision(
             candidate.id,
             kind,
             "auto_reject",
-            "evidence contradicted by current source",
+            f"answer gate is {gate_status}: evidence conflicts with current source",
             evidence_id=evidence_id,
             is_high_risk=True,
         )
-    if outcome == "unverified" or basis == "transcript":
+    if gate_status != "ANSWERED":
         return AutoReviewDecision(
             candidate.id,
             kind,
             "auto_reject",
-            "durable truth requires verified repository or user-statement evidence",
+            f"answer gate is {gate_status}: durable truth requires an answered evidence question",
             evidence_id=evidence_id,
             is_high_risk=kind in {"rule_candidate", "relation_fact"},
         )
@@ -702,6 +709,8 @@ async def auto_review_candidates(
         if candidate is not None:
             summary_key = evidence_summary_key(candidate)
             setattr(summary, summary_key, getattr(summary, summary_key) + 1)
+            if uses_evidence_admission(candidate):
+                summary.answer_gate[answer_gate_status(candidate)] += 1
 
         if decision.action == "auto_confirm":
             target_status = resolve_promotion_status(

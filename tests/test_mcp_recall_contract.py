@@ -85,6 +85,9 @@ def test_search_memory_adds_recall_without_removing_legacy_arrays(backend) -> No
         )
     )
     assert [signal.target_id for signal in signals] == [evidence["source_id"]]
+    assert signals[0].context["retrieval_id"] == payload["retrieval_id"]
+    assert payload["record_outcome_call"]["arguments"]["retrieval_id"] == payload["retrieval_id"]
+    assert "outcome" not in payload["record_outcome_call"]["arguments"]
 
 
 def test_search_memory_records_content_free_abstention_signal(backend) -> None:
@@ -106,8 +109,48 @@ def test_search_memory_records_content_free_abstention_signal(backend) -> None:
         "surface": "search_memory",
         "reason": "no_evidence",
         "result_count": 0,
+        "retrieval_id": payload["retrieval_id"],
     }
     assert query not in signals[0].target_id
+
+
+def test_context_outcome_keeps_retrieval_correlation_without_prefilling_use(
+    backend,
+) -> None:
+    import asyncio
+
+    asyncio.run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content="Correlated retrieval feedback remains content free.",
+                source="test",
+                status="user_confirmed",
+            )
+        )
+    )
+    search = server.tool_search_memory(query="correlated retrieval", project_name="demo")
+    call = search["record_outcome_call"]
+
+    assert "outcome" not in call["arguments"]
+    recorded = server.tool_record_context_outcome(
+        **call["arguments"],
+        outcome="ignored",
+    )
+    outcomes = asyncio.run(
+        backend.structured_store.query_retrieval_signals(
+            "demo",
+            signal_type="context_outcome",
+            limit=20,
+        )
+    )
+
+    assert recorded["retrieval_id"] == search["retrieval_id"]
+    assert recorded["outcome"] == "ignored"
+    assert {signal.context["retrieval_id"] for signal in outcomes} == {
+        search["retrieval_id"]
+    }
 
 
 def test_trace_relations_adds_weighted_recall(backend) -> None:
@@ -216,6 +259,7 @@ def test_mcp_search_memory_deep_recall_surfaces_history_opt_in(backend) -> None:
     assert exclusions[0].context == {
         "surface": "search_memory",
         "reason": "historical",
+        "retrieval_id": default_payload["retrieval_id"],
     }
 
 

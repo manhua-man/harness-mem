@@ -627,6 +627,15 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "description": "Include cold/archive memory in task-aware wake planning.",
                     "default": False,
                 },
+                "detail_level": {
+                    "type": "string",
+                    "enum": ["compact", "full"],
+                    "description": (
+                        "Compact returns one authoritative answer-ready context; "
+                        "full retains all diagnostic projections."
+                    ),
+                    "default": "compact",
+                },
                 "include_provisional": {
                     "type": "boolean",
                     "description": "Include provisional auto-promoted truth in task-aware wake planning.",
@@ -637,9 +646,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "prepare_session_distill": {
         "description": (
-            "Low-level /hm:distill stage: sync recent transcripts, claim queued "
-            "distill work, then return evidence for AI-led candidate drafting. "
-            "This tool does not synthesize or summarize by itself."
+            "Prepare one /hm:distill decision packet. An explicit session_id "
+            "selects that session directly, including parked work. Semantic mode "
+            "bundles the bounded decision windows so the common path can finalize "
+            "without another prepare call."
         ),
         "input_schema": {
             "type": "object",
@@ -704,6 +714,13 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                         "automatic maintenance so offered jobs are processed deterministically."
                     ),
                 },
+                "session_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional user-facing session id to select directly. The "
+                        "latest matching project job is activated when parked."
+                    ),
+                },
                 "defer_job_id": {
                     "type": "string",
                     "description": "Failed job to release as retryable and skip for this call.",
@@ -739,8 +756,11 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "budget_tokens": {
                     "type": "integer",
                     "minimum": 256,
-                    "maximum": 12000,
-                    "description": "Advisory token budget for compact semantic evidence.",
+                    "description": (
+                        "Advisory target for the complete serialized response. "
+                        "Compact evidence adapts to the remaining space; complete "
+                        "coverage or explicit drilldown may expand with a receipt."
+                    ),
                     "default": 3000,
                 },
                 "drilldown_exchange_indexes": {
@@ -815,6 +835,15 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     "type": "object",
                     "description": "Final outcome, contradictions, unfinished work, and evidence assessment",
                     "properties": {
+                        "session_summary": {
+                            "type": "string",
+                            "minLength": 12,
+                            "maxLength": 2000,
+                            "description": (
+                                "Concise human-readable account of what the session "
+                                "was about, independent of memory promotion"
+                            ),
+                        },
                         "final_user_request": {"type": "string"},
                         "final_outcome": {"type": "string"},
                         "last_turn_status": {
@@ -1012,7 +1041,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
             "family of low-level suggest_*/confirm_*/reject_* MCP tools. "
             "Distill-bound suggestions should include evidence_basis, "
             "verification_outcome, and content-free verification_refs so Dream "
-            "can verify repository or explicit user-statement evidence."
+            "can verify repository or explicit user-statement evidence. The "
+            "runtime derives the Answer Gate status; only ANSWERED candidates "
+            "may enter the truth layer."
         ),
         "input_schema": {
             "type": "object",
@@ -1094,6 +1125,13 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "reason": {
                     "type": "string",
                     "description": "Optional short note. Avoid raw task content.",
+                },
+                "retrieval_id": {
+                    "type": "string",
+                    "description": (
+                        "Opaque id returned by wake/search for exact surface-to-outcome "
+                        "correlation. Contains no query or memory content."
+                    ),
                 },
             },
             "required": ["project_name", "surface", "source_ids", "outcome"],

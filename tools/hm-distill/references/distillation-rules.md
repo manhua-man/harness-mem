@@ -20,8 +20,9 @@ Do not ask whether text should be promoted until its destination is clear.
   - one-off narration, transient output, unsupported guesses, and duplicated
     instructions
 
-The session-distill skill does not maintain session notes, `knowledge-base.md`,
-packet manifests, or memory-drafts as parallel truth stores.
+The hm-distill skill does not maintain a parallel knowledge base, promotion
+workspace, or draft-file truth store. A session note is a readability artifact,
+never a truth store.
 
 ## Suggest
 
@@ -49,7 +50,7 @@ packet manifests, or memory-drafts as parallel truth stores.
 ## Evidence Gate
 
 - Read and checkpoint every expected chunk before creating final candidates.
-- Cite source revision, session id, and chunk evidence for each candidate.
+- Cite source revision and content-addressed session evidence for each candidate.
 - Reconcile contradictions across chunks instead of choosing the convenient
   version.
 - Mark unfinished work explicitly in final-session review.

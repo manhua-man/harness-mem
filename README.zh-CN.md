@@ -26,8 +26,12 @@ Agent 会读代码，但它通常不知道项目为什么变成现在这样：�
 
 - `/hm:*` 命令：`status`、`wake`、`search`、`search-all`、`distill`、`review`、`dream`。
 - Agent MCP 调用：自然语言、skill 或 hook 触发 `wake/search/distill/review`。
-- Hook：会话开始注入 wake context；任务过程中按需 search；save point / 会话结束执行 retention。distill 活跃槽最多 2 条，按 3:1 recent/oldest 公平补位，带失败退避和每日新 job 上限；每个 Agent task 最多自动处理 1 条机器可读 wake offer。没有 Agent 时明确显示 `waiting_for_agent`，不会声称后台已完成语义处理。
+- Hook：会话开始注入 wake context；任务过程中按需 search；save point / 会话结束执行 retention。distill 活跃槽最多 2 条，按 3:1 recent/oldest 公平补位，带失败退避和每日新 job 上限；每个 Agent task 可按顺序处理最多 2 条 job。没有 Agent 时明确显示 `waiting_for_agent`，不会声称后台已完成语义处理。
 - CLI：只做 setup、doctor、config、integration 和 maintenance。
+
+日常使用只需要三个意图：用 `wake/search` 继续工作，把可复用结果记住，或
+review/undo 一条错误记忆。status 与 Dream 继续作为兼容的诊断和维护能力，
+不是用户每天必须手工完成的额外步骤。
 
 <p align="center">
   <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="新 Agent 通过 wake、search、distill、review、dream 恢复跨会话项目上下文" width="900" />
@@ -43,7 +47,7 @@ wake -> search -> distill -> review -> dream
 |---|---|
 | `wake` | 会话开始从可读记忆生成项目简报。 |
 | `search` | 当 `autopilot_search_tick` 检测到具体不确定性、冲突、工具失败、待写入 durable claim 需要 grounding、或长周期任务切换时，找回历史决策、规则和 handoff。 |
-| `distill` | 校验全部原始 chunk，读取不超过 3k token 的索引清单，选择完整语义窗口，再钻取候选级原文证据，最后做末尾审查、候选治理和 Dream。 |
+| `distill` | 校验全部原始 chunk，在自适应完整响应目标下读取覆盖优先的索引清单，选择完整语义窗口，再钻取候选级原文证据，最后做末尾审查、候选治理和 Dream。 |
 | `review` | 事后审计、确认、拒绝、undo 或替代自动处理过的条目。 |
 | `dream` | 维护 ledger、压缩过期状态，并在 save point / 会话结束后保留可回滚治理记录。 |
 
@@ -51,7 +55,7 @@ wake -> search -> distill -> review -> dream
 `tool_result`、`prepareNextTurn`，Claude Code 的 `PostToolUse`，以及
 Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 事件入口；`/hm:search` 只是客户端没有这类 hook 时的手动兜底。
-`Stop` Hook 会保存不可变的原始 transcript revision，并排队它的全部有序 chunk。日常 `prepare_session_distill(evidence_mode="semantic", detail_level="compact", budget_tokens=3000)` 保留完整原文，由 runtime 校验并 checkpoint 每个 raw chunk，再返回包含全部 exchange 索引和风险信号的 compact manifest；Agent 先选择最多 8 个完整语义窗口，再只为候选主张钻取 raw proof。`detail_level="full"` 与兼容 `raw` 模式只用于显式完整审计，raw chunk 不截断内容。完成会话末尾审查后才可用稳定幂等 ID 生成候选，`finalize_session_distill` 随后执行自动治理和 Dream，记录 `promoted` 或 `no_candidate`，并终结未晋升候选，低价值会话不会变成反复出现的人工待办。`/hm:review` 是纠错和 undo 入口，不是日常晋升闸门。`/hm:distill` 是同一条可恢复管线的立即执行入口。Hook 只负责同步、排队和注入 Agent 工作，不能声称没有 Agent 时已完成总结；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
+`Stop` Hook 会保存不可变的原始 transcript revision，并排队它的全部有序 chunk。日常 `prepare_session_distill(evidence_mode="semantic", detail_level="compact")` 保留完整原文，由 runtime 校验并 checkpoint 每个 raw chunk，再返回包含全部 exchange 索引和风险信号的 compact manifest。预算约束的是 Agent 实际接收的完整序列化 MCP 响应，3k 只是兼容默认软目标；允许因完整覆盖或显式 drilldown 扩张，但 `response_budget` 必须报告真实 token 数与原因，绝不静默丢弃后半段 exchange。Agent 先选择最多 8 个完整语义窗口，再只为候选主张钻取 raw proof。`detail_level="full"` 与兼容 `raw` 模式只用于显式完整审计，raw chunk 不截断内容。完成会话末尾审查后才可用稳定幂等 ID 生成候选，`finalize_session_distill` 随后执行自动治理和 Dream，记录 `promoted` 或 `no_candidate`，并终结未晋升候选，低价值会话不会变成反复出现的人工待办。`/hm:review` 是纠错和 undo 入口，不是日常晋升闸门。`/hm:distill` 是同一条可恢复管线的立即执行入口。Hook 只负责同步、排队和注入 Agent 工作，不能声称没有 Agent 时已完成总结；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
 
 新候选带 evidence basis 和 verification outcome。仓库事实必须引用
 当前项目相对文件及其 SHA-256；用户偏好或决定引用 user role 的 exchange
@@ -183,7 +187,7 @@ procedural skill 生命周期治理不属于 public memory MCP 和 CLI 产品面
 
 - `harness_mem/`：runtime package。
 - `plugins/harness-mem/`：Agent 客户端接入层。
-- `tools/session-distill/SKILL.md`：正式 MCP distill 主链的纯 Agent 指令；全部 runtime 实现统一位于 `harness_mem/`。
+- `tools/hm-distill/SKILL.md`：正式 MCP distill 主链的纯 Agent 指令；全部 runtime 实现统一位于 `harness_mem/`。
 - `docs/quickstart.md`：最小启动路径。
 - `docs/mcp-setup.md`：MCP client 接入说明。
 - `docs/demo-cold-start.md`：可复现 cold-start demo。

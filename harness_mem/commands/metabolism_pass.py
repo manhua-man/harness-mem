@@ -21,11 +21,16 @@ The pass is fully read-only: it selects suggestions but leaves
 
 from __future__ import annotations
 
+import asyncio
+from array import array
+from collections.abc import Iterable
 import itertools
+from math import fsum, sqrt
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
-from typing import TYPE_CHECKING, Literal, cast
+from typing import Any, Callable, Literal, TypeVar, cast
 
 from harness_mem.commands.replay_window import (
     ReplayBudget,
@@ -41,8 +46,44 @@ from harness_mem.core.schemas.supersede_candidate import SupersedeCandidate
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 
-if TYPE_CHECKING:  # pragma: no cover - import-time only
-    import numpy as np
+
+_T = TypeVar("_T")
+
+
+async def _run_in_daemon_thread(
+    function: Callable[..., _T],
+    *args: Any,
+) -> _T:
+    """Run blocking model work without pinning asyncio shutdown on timeout."""
+
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[_T] = loop.create_future()
+
+    def publish_result(value: _T) -> None:
+        if not future.done():
+            future.set_result(value)
+
+    def publish_error(exc: BaseException) -> None:
+        if not future.done():
+            future.set_exception(exc)
+
+    def worker() -> None:
+        try:
+            value = function(*args)
+        except BaseException as exc:  # noqa: BLE001 - propagate through Future.
+            try:
+                loop.call_soon_threadsafe(publish_error, exc)
+            except RuntimeError:
+                return
+        else:
+            try:
+                loop.call_soon_threadsafe(publish_result, value)
+            except RuntimeError:
+                # A timed-out caller may have closed its short-lived loop.
+                return
+
+    threading.Thread(target=worker, daemon=True).start()
+    return await future
 
 # Per-candidate cap on supporting signal ids. Each persisted blob carries
 # its evidence list; capping keeps the JSON small and bounded — the
@@ -288,7 +329,8 @@ async def _load_pool_embeddings(
     """Resolve embeddings for the merge pool, model-consistently.
 
     Reads from ``vec_embeddings`` filtered to the active ``model_id`` and
-    falls back to in-memory encoding for misses or mismatches. Returns
+    falls back to in-memory encoding for misses or mismatches unless embedding
+    work is disabled by a latency-sensitive host hook. Returns
     a map from entry id to a unit-normalized vector (so dot product
     equals cosine similarity downstream).
 
@@ -299,19 +341,20 @@ async def _load_pool_embeddings(
     if not pool_ids:
         return {}
 
-    # Local imports keep the module cheap to import for callers that
-    # don't trigger a metabolism pass (e.g. ``commands.replay_window``
-    # importers). They mirror the lazy-load pattern in ``HybridSearchLayer``.
-    import numpy as np
-
     from harness_mem.commands.support import get_embedding_model_id
-    from harness_mem.embedding import get_model_loader
+    from harness_mem.embedding import embeddings_disabled, get_model_loader
 
     model_id = get_embedding_model_id()
-    loader = get_model_loader(model_id)
-    expected_dim = loader.dimensions
+    encoding_allowed = not embeddings_disabled()
+    loader = (
+        await _run_in_daemon_thread(get_model_loader, model_id)
+        if encoding_allowed
+        else None
+    )
+    expected_dim = loader.dimensions if loader is not None else None
 
-    persisted: dict[str, np.ndarray] = {}
+    persisted: dict[str, list[float]] = {}
+    persisted_dim: int | None = expected_dim
     try:
         with store.index.locked_connection() as conn:
             placeholders = ",".join("?" * len(pool_ids))
@@ -321,20 +364,33 @@ async def _load_pool_embeddings(
                 (*pool_ids, model_id),
             ).fetchall()
         for entry_id, blob in rows:
-            arr = np.frombuffer(blob, dtype=np.float32)
-            if arr.size != expected_dim:
+            vector = array("f")
+            vector.frombytes(bytes(blob))
+            if not vector or (
+                persisted_dim is not None and len(vector) != persisted_dim
+            ):
                 # Dimension mismatch — treat as miss; the consistency check
                 # already filtered on model_id so this is rare.
                 continue
-            persisted[entry_id] = _normalize(arr)
+            persisted_dim = len(vector)
+            persisted[entry_id] = _normalize(vector)
     except Exception:
         # Missing table, locked db, or any read-side failure: degrade to
         # full in-memory encode. The pass is best-effort, never fatal.
         persisted = {}
 
-    embeddings: dict[str, list[float]] = {
-        entry_id: vec.tolist() for entry_id, vec in persisted.items()
-    }
+    embeddings = dict(persisted)
+
+    # Stop/after-agent hooks must never load or invoke an embedding model. They
+    # may still use already-persisted vectors; missing rows wait for explicit
+    # vector maintenance or an interactive Dream run.
+    if not encoding_allowed or loader is None or expected_dim is None:
+        return embeddings
+
+    # In-memory encoding is an optional hybrid-search feature. Keep numpy out of
+    # the persisted-vector path so core installs and latency-sensitive hooks can
+    # reuse existing vectors without installing the embedding stack.
+    import numpy as np
 
     missing = [entry_id for entry_id in pool_ids if entry_id not in embeddings]
     for entry_id in missing:
@@ -342,30 +398,29 @@ async def _load_pool_embeddings(
         if entry is None or not entry.content:
             continue
         try:
-            raw = loader.encode(entry.content)
+            raw = await _run_in_daemon_thread(loader.encode, entry.content)
         except Exception:
             # Encoding failure on one entry shouldn't kill the whole pass.
             continue
         vec = np.asarray(raw, dtype=np.float32).ravel()
         if vec.size != expected_dim or not np.any(vec):
             continue
-        embeddings[entry_id] = _normalize(vec).tolist()
+        embeddings[entry_id] = _normalize(vec)
 
     return embeddings
 
 
-def _normalize(vec: np.ndarray) -> np.ndarray:
+def _normalize(vec: Iterable[float]) -> list[float]:
     """L2-normalize a 1-D vector so cosine similarity reduces to dot product.
 
     Returning the input untouched on a zero vector is the conservative
     choice; downstream cosine then evaluates to 0 against any other vector.
     """
-    import numpy as np
-
-    norm = float(np.linalg.norm(vec))
+    values = [float(value) for value in vec]
+    norm = sqrt(fsum(value * value for value in values))
     if norm == 0.0:
-        return vec
-    return vec / norm
+        return values
+    return [value / norm for value in values]
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:

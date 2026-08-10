@@ -249,7 +249,8 @@ def test_get_project_status_bootstraps_router_workspace_and_codex_hooks(
     hook_config = json.loads(hook_path.read_text(encoding="utf-8"))
     wake_command = hook_config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     stop_command = hook_config["hooks"]["Stop"][0]["hooks"][0]["command"]
-    assert "wake-start" in wake_command
+    assert "--adapter codex-start" in wake_command
+    assert "--trigger-id codex-session-start" not in wake_command
     assert "codex-stop" in stop_command
 
     second_response = server.handle_request(

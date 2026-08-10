@@ -27,17 +27,19 @@ def test_plugin_mcp_config_uses_installed_console_script() -> None:
     assert server.get("args", []) == []
 
 
-def test_distill_instructions_resolve_router_and_direct_mcp_aliases() -> None:
+def test_distill_command_resolves_aliases_and_canonical_skill_uses_logical_names() -> None:
     command = Path(
         "plugins/harness-mem/commands/hm/daily/distill.md"
     ).read_text(encoding="utf-8")
-    skill = Path("tools/session-distill/SKILL.md").read_text(encoding="utf-8")
+    skill = Path("tools/hm-distill/SKILL.md").read_text(encoding="utf-8")
 
     assert "mcp__mcp_router__prepare_session_distill" in command
     assert "mcp__harness_mem__prepare_session_distill" in command
     assert "先检查当前 task 的可调用工具" in command
-    assert "mcp__mcp_router__prepare_session_distill" in skill
-    assert "mcp__mcp_router__finalize_session_distill" in skill
+    assert "prepare_session_distill" in skill
+    assert "finalize_session_distill" in skill
+    assert "mcp__mcp_router__" not in skill
+    assert "mcp__harness_mem__" not in skill
 
 
 def test_mcp_setup_explains_router_namespace_and_task_refresh() -> None:

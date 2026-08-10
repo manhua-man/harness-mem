@@ -92,6 +92,37 @@ def _status_snapshot() -> dict:
             "recent_high_output_calls": high_output_calls,
             "top_opportunities": [{"kind": "compact_status", "count": 40}],
         },
+        "memory_funnel": {
+            "schema_version": "harness_mem.memory_funnel.v1",
+            "distill_window_days": 7,
+            "retrieval_window_days": 7,
+            "distinct_jobs": {
+                "captured": 20,
+                "offered": 15,
+                "claimed": 14,
+                "checkpointed": 12,
+                "verified": 10,
+                "finalized": 10,
+                "promoted": 6,
+                "searchable": 6,
+                "surfaced": 4,
+            },
+            "finalized": {
+                "total": 10,
+                "promoted": 6,
+                "no_candidate": 4,
+                "unsettled": 0,
+                "successful_terminal": 10,
+            },
+            "retrieval_feedback": {
+                "surfaced": 8,
+                "used": 3,
+                "ignored": 1,
+                "misleading": 1,
+                "missing_feedback": 3,
+                "legacy_uncorrelated": 2,
+            },
+        },
         "cost_budget": {
             "policy": {
                 "policy_version": "cost-budget-v3.4.4",
@@ -164,11 +195,29 @@ def _status_snapshot() -> dict:
             "host": {"status": "ok", "client": "codex"},
             "hooks": {
                 "status": "ok",
+                "freshness": "fresh",
+                "last_success_at": "2026-08-10T12:00:00+00:00",
                 "installed": 1,
                 "expected": 1,
                 "files": ["F:/demo/.codex/hooks.json"],
                 "wake_verified": True,
                 "maintenance_verified": True,
+                "actions": {
+                    "wake_start": {
+                        "freshness": "fresh",
+                        "last_success_at": "2026-08-10T12:00:00+00:00",
+                        "age_seconds": 30,
+                        "receipt_status": "current",
+                        "config_match": True,
+                    },
+                    "post_turn_maintenance": {
+                        "freshness": "fresh",
+                        "last_success_at": "2026-08-10T12:00:05+00:00",
+                        "age_seconds": 25,
+                        "receipt_status": "current",
+                        "config_match": True,
+                    },
+                },
                 "action_required": None,
             },
             "transcript": {
@@ -239,6 +288,38 @@ def test_compact_status_preserves_decisions_and_stays_within_budget() -> None:
     assert compact["pending_distill"]["evidence_admission_attention_7d"] == {
         "unverified_blocked": 1,
         "contradicted": 1,
+    }
+    assert compact["memory_funnel"]["retrieval_feedback"] == {
+        "surfaced": 8,
+        "used": 3,
+        "ignored": 1,
+        "misleading": 1,
+        "missing_feedback": 3,
+    }
+    assert "freshness" not in compact["integration_health"]["hooks"]
+    assert "last_success_at" not in compact["integration_health"]["hooks"]
+    assert "actions" not in compact["integration_health"]["hooks"]
+
+
+def test_compact_status_keeps_hook_last_success_when_health_is_not_ok() -> None:
+    snapshot = _status_snapshot()
+    hooks = snapshot["integration_health"]["hooks"]
+    hooks["status"] = "degraded"
+    hooks["freshness"] = "stale"
+    hooks["last_success_at"] = "2026-08-08T12:00:00+00:00"
+    hooks["wake_verified"] = False
+    hooks["maintenance_verified"] = False
+    hooks["action_required"] = "Start a new task and complete one turn."
+
+    compact = render_project_status(snapshot, detail_level="compact")
+
+    assert compact["integration_health"]["hooks"] == {
+        "status": "degraded",
+        "freshness": "stale",
+        "last_success_at": "2026-08-08T12:00:00+00:00",
+        "wake_verified": False,
+        "maintenance_verified": False,
+        "action_required": "Start a new task and complete one turn.",
     }
 
 

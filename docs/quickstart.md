@@ -155,6 +155,10 @@ always separate commands.
 
 Use the matching host-native command. Plain language remains an optional fallback:
 
+- Continue work: wake/search the current project.
+- Remember a reusable result: let distill create evidence-backed candidates.
+- Correct memory: review or undo the affected item.
+
 ```text
 Use harness-mem to wake this project.
 Search harness-mem for the current project convention.
@@ -171,8 +175,10 @@ wake -> search -> distill -> review -> dream ledger
 
 Dream is the final stage of the audited maintenance pipeline. A Stop hook
 captures an immutable transcript revision and queues every ordered chunk. The
-next Agent-capable wake keeps an active lane of at most two jobs and returns one
-machine-readable job offer for the current Agent task. Refills use
+next Agent-capable wake keeps an active lane of at most two jobs and returns an
+ordered machine-readable batch for the current Agent task. The Agent handles
+up to two jobs sequentially, with an independent stop/failure boundary after
+each job. Refills use
 three recent jobs followed by one oldest eligible job, with exponential failure
 backoff and a daily new-job budget; older evidence stays parked without deletion.
 Each offered job is claimed through
@@ -183,7 +189,9 @@ the task; a failed offer is deferred and does not block the user's work.
 Without an Agent, status is `waiting_for_agent`, not background processing;
 the user does not need to keep invoking `/hm:distill`. That command remains an
 explicit immediate/deep-audit entry. In the daily semantic fast path, runtime hash-verifies and checkpoints
-each chunk while the Agent reads a ≤3k-token indexed exchange manifest. It then
+each chunk while the Agent reads a coverage-first indexed exchange manifest.
+The configured token value is a soft target for the complete serialized MCP
+response; it may expand with an explicit receipt rather than clip exchanges. It then
 selects complete semantic windows by exchange index; candidate-grade claims
 drill into raw proof only after that selection. Explicit
 raw mode retains the full per-chunk lease loop. The Agent then performs an
@@ -194,7 +202,7 @@ idempotent `govern_memory(action="suggest")` candidates.
 completion block says whether durable knowledge was `promoted` or the session
 ended as `no_candidate`; non-promoted candidates are terminally rejected so a
 completed low-value session does not return as daily review work. Merely
-preparing or partially reading a packet is never reported as completed.
+preparing or partially reading session evidence is never reported as completed.
 If an older canonical Storage v2 dataset lacks a derived Observation, the
 semantic path rebuilds that projection from the hash-verified immutable
 transcript revision. It does not force the Agent back through hundreds of raw

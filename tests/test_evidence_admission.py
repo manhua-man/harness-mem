@@ -16,6 +16,7 @@ from harness_mem.commands.auto_review import (
     decide_relation_fact,
     decide_rule_candidate,
 )
+from harness_mem.commands.evidence_admission import answer_gate_status
 from harness_mem.core.schemas import EvidenceRef, MemoryEntry, RelationFact, RuleCandidate
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.mcp.distill_projection import render_distill_exchange_windows
@@ -177,6 +178,7 @@ def test_repository_evidence_promotes_only_while_digest_is_current(
     stored = _run(backend.structured_store.get_memory_entry(candidate.id))
 
     assert summary.repository_verified == 1
+    assert summary.answer_gate["ANSWERED"] == 1
     assert summary.auto_confirmed == 1
     assert stored is not None
     assert stored.status == "auto_confirmed"
@@ -226,6 +228,7 @@ def test_repository_change_rejects_candidate_and_proposes_matching_truth_history
     )
 
     assert summary.contradicted == 1
+    assert summary.answer_gate["STALE"] == 1
     assert stored is not None and stored.status == "rejected"
     assert stored.verification_reason_codes == ["repository_digest_changed"]
     assert [(item.target_kind, item.target_id) for item in stale] == [
@@ -312,6 +315,7 @@ def test_repository_path_escape_is_blocked(
     stored = _run(backend.structured_store.get_memory_entry(candidate.id))
 
     assert summary.unverified_blocked == 1
+    assert summary.answer_gate["PARTIAL"] == 1
     assert stored is not None and stored.status == "rejected"
     assert stored.verification_reason_codes == ["repository_ref_outside_project"]
 
@@ -420,6 +424,8 @@ def test_explicit_user_statement_can_promote_but_transcript_only_cannot(
 
     assert summary.user_stated == 1
     assert summary.unverified_blocked == 1
+    assert summary.answer_gate["ANSWERED"] == 1
+    assert summary.answer_gate["PARTIAL"] == 1
     assert user_stored is not None and user_stored.status == "auto_confirmed"
     assert transcript_stored is not None and transcript_stored.status == "rejected"
     assert "transcript_cannot_verify_durable_truth" in (
@@ -464,6 +470,42 @@ def test_verified_relation_uses_same_admission_contract(
     assert summary.repository_verified == 1
     assert summary.auto_provisional == 1
     assert stored is not None and stored.status == "provisional"
+
+
+@pytest.mark.parametrize(
+    ("basis", "outcome", "reason_codes", "with_ref", "expected"),
+    [
+        ("repository", "verified", ["repository_refs_current"], True, "ANSWERED"),
+        ("user_statement", "verified", ["user_statement_refs_current"], True, "ANSWERED"),
+        ("repository", "unverified", ["repository_ref_incomplete"], True, "PARTIAL"),
+        ("repository", "unverified", ["evidence_envelope_missing"], False, "UNANSWERED"),
+        ("repository", "contradicted", ["claim_conflicts"], True, "CONTRADICTED"),
+        ("repository", "contradicted", ["repository_digest_changed"], True, "STALE"),
+        ("repository", "not_applicable", [], False, "NOT_APPLICABLE"),
+    ],
+)
+def test_answer_gate_status_is_runtime_derived(
+    basis: str,
+    outcome: str,
+    reason_codes: list[str],
+    with_ref: bool,
+    expected: str,
+) -> None:
+    candidate = MemoryEntry(
+        project_name="demo",
+        category="decision",
+        content="A candidate with an explicitly classified verification question.",
+        source="distill-job:test",
+        distill_job_id="test",
+        evidence_basis=basis,
+        verification_outcome=outcome,
+        verification_reason_codes=reason_codes,
+        verification_refs=(
+            [EvidenceRef(kind=basis, content_sha256="a" * 64)] if with_ref else []
+        ),
+    )
+
+    assert answer_gate_status(candidate) == expected
 
 
 def test_evidence_admission_golden_policy_matrix() -> None:

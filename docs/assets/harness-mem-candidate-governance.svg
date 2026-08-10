@@ -72,7 +72,7 @@
   <g transform="translate(418 172)">
     <rect class="panelBlue" width="286" height="170"/>
     <rect class="chip" x="22" y="22" width="150" height="32"/>
-    <text class="chipText" x="40" y="44">Lossless Packet</text>
+    <text class="chipText" x="40" y="44">Lossless Evidence</text>
     <text class="label" x="24" y="88">可追溯语义窗口</text>
     <text class="body" x="24" y="120">append projection / tool-safe</text>
     <text class="body" x="24" y="146">receipt / source ids / drilldown</text>

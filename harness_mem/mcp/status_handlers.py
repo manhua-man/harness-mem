@@ -205,6 +205,7 @@ async def _gather_project_status(
         "runtime_versions": runtime_version_payload(),
         "job_health": runtime_report.get("job_health", {}),
         "retrieval_health": runtime_report.get("retrieval_health", {}),
+        "memory_funnel": runtime_report.get("memory_funnel", {}),
         "cost_budget": {
             "policy": cost_budget_policy(_cost_surface_budgets(project_name)),
             "summary": cost_report.get("summary", {}),

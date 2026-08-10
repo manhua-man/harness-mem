@@ -53,7 +53,7 @@ class MergedConfig:
     capture_ignore_source_globs: tuple[str, ...] = ()
     transcript_retention_days: int = 0
     distill_auto_enabled: bool = True
-    distill_auto_max_jobs_per_wake: int = 1
+    distill_auto_max_jobs_per_wake: int = 2
     distill_auto_target_backlog: int = 2
     distill_auto_recent_first: bool = True
     distill_auto_daily_job_budget: int = 8
@@ -132,8 +132,8 @@ _DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     (
         "distill.auto.max_jobs_per_wake",
         "distill_auto_max_jobs_per_wake",
-        "int:min=1",
-        1,
+        "int:min=1:max=3",
+        2,
     ),
     (
         "distill.auto.target_backlog",
@@ -339,8 +339,14 @@ def _coerce_int(
     key_path: str,
     source_path: str,
     minimum: int,
+    maximum: int | None = None,
 ) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < minimum
+        or (maximum is not None and value > maximum)
+    ):
         raise ConfigValidationError(
             key_path=key_path, value=value, source_path=source_path
         )
@@ -379,9 +385,15 @@ def _coerce_typed_value(
             )
         return coerced
     if kind.startswith("int:min="):
-        minimum = int(kind.removeprefix("int:min="))
+        bounds = kind.removeprefix("int:min=").split(":max=", maxsplit=1)
+        minimum = int(bounds[0])
+        maximum = int(bounds[1]) if len(bounds) == 2 else None
         return _coerce_int(
-            value, key_path=key_path, source_path=source_path, minimum=minimum
+            value,
+            key_path=key_path,
+            source_path=source_path,
+            minimum=minimum,
+            maximum=maximum,
         )
     if kind.startswith("enum:"):
         allowed = tuple(kind.removeprefix("enum:").split(","))

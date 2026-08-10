@@ -12,6 +12,14 @@ from harness_mem.core.schemas.session_distill import SessionDistillJob
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 DistillSource = Literal["user", "agent", "ide_hook", "scheduler"]
+MAX_DISTILL_JOBS_PER_OFFER = 3
+DEFAULT_DISTILL_BUDGET_TOKENS = 3000
+
+
+def _bounded_job_limit(max_jobs: int) -> int:
+    """Clamp every offer path to the shared, sequential batch safety limit."""
+
+    return min(MAX_DISTILL_JOBS_PER_OFFER, max(0, int(max_jobs)))
 
 
 def stage_distill_job(
@@ -108,9 +116,10 @@ def pending_distill_jobs(
         key=lambda item: item.created_at,
         reverse=recent_first,
     )
+    job_limit = _bounded_job_limit(max_jobs)
     selected: list[SessionDistillJob] = []
     for job in ordered:
-        if len(selected) >= max(0, int(max_jobs)):
+        if len(selected) >= job_limit:
             break
         if job.id in offered_today:
             selected.append(job)
@@ -471,13 +480,16 @@ def render_pending_distill_instruction(
     *,
     max_jobs: int = 2,
     target_backlog: int = 2,
+    budget_tokens: int = DEFAULT_DISTILL_BUDGET_TOKENS,
     metrics: dict[str, Any] | None = None,
 ) -> str:
     """Render bounded automatic Agent work; no user command is required."""
 
     if not jobs:
         return ""
-    selected = jobs[: max(1, max_jobs)]
+    selected = jobs[: _bounded_job_limit(max_jobs)]
+    if not selected:
+        return ""
     job_ids = ", ".join(job.id for job in selected)
     queue = metrics or {}
     return "\n".join(
@@ -490,9 +502,10 @@ def render_pending_distill_instruction(
             f"Steady-state target: at most {max(0, target_backlog)} queued task(s).",
             "Older cold evidence is parked, not deleted, and refills this active lane after completion.",
             "Do this automatically without asking the user to run /hm:distill.",
+            "Process the selected ids sequentially, in the order shown.",
             "For each selected id, call prepare_session_distill with",
             "distill_job_id=<selected id>, evidence_mode=semantic,",
-            "detail_level=compact, budget_tokens=3000, run_ingest=false; read the",
+            f"detail_level=compact, budget_tokens={max(1, int(budget_tokens))}, run_ingest=false; read the",
             "indexed manifest, select semantic windows, then drill into raw proof only",
             "when a candidate needs it. Review the complete session and write only",
             "warranted govern_memory(action=suggest) candidates, then call finalize_session_distill.",
@@ -510,30 +523,63 @@ def build_distill_maintenance_offer(
     *,
     max_jobs: int = 2,
     target_backlog: int = 2,
+    budget_tokens: int = DEFAULT_DISTILL_BUDGET_TOKENS,
     metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return the machine-readable contract for one Agent-active wake.
 
     The offer does not perform semantic work.  It gives the current Agent the
-    exact bounded job ids and fixed prepare parameters so host skills do not
+    exact bounded job ids and shared prepare parameters so host skills do not
     have to scrape ids from rendered wake text.
     """
 
-    selected = jobs[: max(1, int(max_jobs))]
+    selected = jobs[: _bounded_job_limit(max_jobs)]
+    job_ids = [job.id for job in selected]
+    normalized_budget = max(1, int(budget_tokens))
+    prepare_arguments = {
+        "run_ingest": False,
+        "evidence_mode": "semantic",
+        "detail_level": "compact",
+        "budget_tokens": normalized_budget,
+    }
+    per_job_failure_policy = {
+        "on_failure": "defer_job",
+        "on_owned_failure": "defer_job",
+        "on_busy": "skip_without_defer",
+        "on_completed_finalize_retry": "replay_finalize",
+        "continue_with_next": True,
+    }
     queue = metrics or {}
     return {
-        "contract_version": "agent-distill-offer-v1",
+        "contract_version": "agent-distill-offer-v2",
         "agent_execution_required": bool(selected),
         "user_confirmation_required": False,
         "process_limit": len(selected),
-        "job_ids": [job.id for job in selected],
-        "prepare_arguments": {
-            "run_ingest": False,
-            "evidence_mode": "semantic",
-            "detail_level": "compact",
-            "budget_tokens": 3000,
+        "job_ids": job_ids,
+        # Compatibility for consumers that only understand a single job.
+        "distill_job_id": job_ids[0] if job_ids else None,
+        "execution_order": "sequential",
+        "prepare_arguments": prepare_arguments,
+        "budget": {
+            "scope": "complete_serialized_responses",
+            "per_job_target_tokens": normalized_budget,
+            "maximum_jobs": len(selected),
+            "maximum_target_tokens": normalized_budget * len(selected),
         },
         "failure_policy": "defer_and_continue",
+        "per_job_failure_policy": per_job_failure_policy,
+        "jobs": [
+            {
+                "distill_job_id": job_id,
+                "ordinal": index,
+                "prepare_arguments": {
+                    **prepare_arguments,
+                    "distill_job_id": job_id,
+                },
+                "failure_policy": dict(per_job_failure_policy),
+            }
+            for index, job_id in enumerate(job_ids, start=1)
+        ],
         "queue": {
             "state": queue.get("state", "idle"),
             "active": int(queue.get("active", len(jobs)) or 0),
@@ -547,6 +593,7 @@ def build_distill_maintenance_offer(
             jobs,
             max_jobs=max_jobs,
             target_backlog=target_backlog,
+            budget_tokens=normalized_budget,
             metrics=metrics,
         ),
     }

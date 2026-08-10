@@ -19,9 +19,9 @@ The source revision is the authoritative session record. Observations are
 derived search material, not a substitute for transcript text or proof that
 distillation completed.
 
-`/hm:review` is an **audit inbox**, not a write gate. Helpers (grill, answer,
-smart-search, `auto_review_candidates`) improve write quality on the main path;
-human review is post-hoc governance.
+`/hm:review` is an **audit inbox**, not a write gate. Inline candidate admission
+and `auto_review_candidates` improve write quality on the main path; human
+review is post-hoc governance.
 
 ---
 
@@ -56,32 +56,22 @@ flowchart TD
     SD --> AUDIT["structural completeness audit"]
     AUDIT --> REVIEW["required final-session semantic review"]
 
-    subgraph ADMISSION["Admission / narrow (main path, non-blocking)"]
-        G["grill-before-distill: admit / narrow / defer / reject"]
+    subgraph ADMISSION["Candidate admission (main path, non-blocking)"]
+        G["inline check: admit / narrow / defer / reject"]
     end
 
     REVIEW --> G
     G -->|admit / narrow| CAND["govern_memory suggest -> candidate pending"]
     CAND --> FINAL["finalize_session_distill"]
-    FINAL --> PREF["auto-review + evidence checks"]
+    FINAL --> PREF["runtime Answer Gate + auto-review"]
     FINAL --> DREAM["Dream maintenance"]
     G -->|defer| DEFERRED["deferred / note"]
     G -->|reject| REJECTED["rejected"]
 
-    subgraph HELPERS["Optional collaborators (quality, not a gate)"]
-        H1["grill-me deep / light"]
-        H2["answer-me / smart-search evidence"]
-        H3["ask-me boundary clarify"]
-    end
-
-    PREF -.optional.-> H1
-    PREF -.optional.-> H2
-    PREF -.optional.-> H3
-    H1 & H2 & H3 -.evidence / risk.-> PREF
-
-    PREF -->|low risk + sufficient evidence| AUTO["auto_confirmed truth"]
+    PREF -->|ANSWERED + policy pass| AUTO["auto_confirmed truth"]
     PREF -->|writable but risky| PROV["provisional truth"]
-    PREF -->|insufficient evidence| DEFERRED
+    PREF -->|PARTIAL / UNANSWERED| DEFERRED
+    PREF -->|CONTRADICTED / STALE| REJECTED
     PREF -->|noise / dangerous| REJECTED
 
     AUTO --> LEDGER["state-events.log"]

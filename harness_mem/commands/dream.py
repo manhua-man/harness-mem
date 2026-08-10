@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -17,6 +18,7 @@ from harness_mem.core.schemas.stale_truth_suggestion_candidate import (
     StaleTruthSuggestionCandidate,
 )
 from harness_mem.core.schemas.supersede_candidate import SupersedeCandidate
+from harness_mem.event_log import EventType, get_event_logger
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_structured_store import LocalStructuredStore
 
@@ -625,9 +627,27 @@ async def latest_dream_ledger(
     else:
         runs = await store.list_dream_runs(project_name, limit=1)
         run = runs[0] if runs else None
+    recent_ticks = _dream_tick_receipts(
+        backend,
+        project_name=project_name,
+        limit=10,
+    )
+    latest_tick = recent_ticks[-1] if recent_ticks else None
     if run is None:
-        return {"success": True, "project_name": project_name, "run": None}
-    return {"success": True, "project_name": project_name, "run": run.to_dict()}
+        return {
+            "success": True,
+            "project_name": project_name,
+            "run": None,
+            "last_tick": latest_tick,
+            "recent_ticks": recent_ticks,
+        }
+    return {
+        "success": True,
+        "project_name": project_name,
+        "run": run.to_dict(),
+        "last_tick": latest_tick,
+        "recent_ticks": recent_ticks,
+    }
 
 
 async def dream_status_snapshot(
@@ -646,8 +666,13 @@ async def dream_status_snapshot(
         failed_items = int(last_run.handling_summary.get("failed", 0))
         processed_items = int(last_run.handling_summary.get("processed", 0))
 
+    latest_tick = _latest_dream_tick_receipt(backend, project_name=project_name)
     payload: dict[str, Any] = {
         "enabled": bool(config.dream_auto_enabled) if config is not None else False,
+        "last_tick": latest_tick,
+        "last_tick_at": latest_tick.get("timestamp") if latest_tick else None,
+        "last_tick_status": latest_tick.get("status") if latest_tick else None,
+        "last_tick_reason": latest_tick.get("reason") if latest_tick else None,
         "last_run_id": last_run.id if last_run else None,
         "last_status": last_run.status if last_run else None,
         "last_started_at": _iso(last_run.started_at) if last_run else None,
@@ -721,10 +746,8 @@ async def _latest_project_activity(
     project_name: str,
 ) -> datetime | None:
     latest: datetime | None = None
-    observations = await backend.verbatim_store.list(limit=10000)
+    observations = await backend.verbatim_store.timeline(project_name, limit=1)
     for observation in observations:
-        if observation.metadata.get("project_name") != project_name:
-            continue
         ts = observation.timestamp
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
@@ -766,8 +789,10 @@ async def dream_scheduler_decision(
 
     now = _now()
     min_interval = timedelta(hours=config.dream_auto_min_interval_hours)
-    interval_elapsed = last_run is None or now - last_run.started_at >= min_interval
-    idle_elapsed = now - latest_activity >= timedelta(seconds=config.dream_auto_idle_seconds)
+    interval_at = last_run.started_at + min_interval if last_run is not None else now
+    idle_at = latest_activity + timedelta(seconds=config.dream_auto_idle_seconds)
+    interval_elapsed = now >= interval_at
+    idle_elapsed = now >= idle_at
     if config.dream_auto_trigger == "interval":
         eligible = interval_elapsed
     elif config.dream_auto_trigger == "idle":
@@ -775,9 +800,12 @@ async def dream_scheduler_decision(
     else:
         eligible = interval_elapsed or idle_elapsed
 
-    next_eligible_at = None
-    if last_run is not None:
-        next_eligible_at = last_run.started_at + min_interval
+    if config.dream_auto_trigger == "interval":
+        next_eligible_at = interval_at
+    elif config.dream_auto_trigger == "idle":
+        next_eligible_at = idle_at
+    else:
+        next_eligible_at = min(interval_at, idle_at)
     if not eligible:
         return DreamSchedulerDecision(
             False,
@@ -800,6 +828,7 @@ async def dream_auto_tick(
     project_root: str,
     config: MergedConfig,
     source: DreamSource = "agent",
+    trigger_id: str | None = None,
 ) -> dict[str, Any]:
     decision = await dream_scheduler_decision(
         backend,
@@ -807,14 +836,20 @@ async def dream_auto_tick(
         config=config,
     )
     if not decision.eligible:
-        return {
-            "success": True,
-            "status": "skipped",
-            "project_name": project_name,
-            "reason": decision.reason,
-            "last_run_id": decision.last_run_id,
-            "next_eligible_at": _iso(decision.next_eligible_at),
-        }
+        return await _record_dream_tick(
+            backend,
+            project_name=project_name,
+            source=source,
+            trigger_id=trigger_id,
+            payload={
+                "success": True,
+                "status": "skipped",
+                "project_name": project_name,
+                "reason": decision.reason,
+                "last_run_id": decision.last_run_id,
+                "next_eligible_at": _iso(decision.next_eligible_at),
+            },
+        )
 
     started_at = _now()
     job = ReflectionJob(
@@ -836,13 +871,47 @@ async def dream_auto_tick(
         stale_before=stale_before,
     )
     if active_job is not None:
-        return {
-            "success": True,
-            "status": "skipped",
-            "project_name": project_name,
-            "reason": "dream job already processing",
-            "job_id": active_job.id,
-        }
+        return await _record_dream_tick(
+            backend,
+            project_name=project_name,
+            source=source,
+            trigger_id=trigger_id,
+            payload={
+                "success": True,
+                "status": "skipped",
+                "project_name": project_name,
+                "reason": "dream job already processing",
+                "job_id": active_job.id,
+            },
+        )
+    # Another process may have completed a very short Dream between our first
+    # gate decision and this transaction. Re-check after winning the durable
+    # claim so a stale eligible decision cannot launch a duplicate run.
+    confirmed_decision = await dream_scheduler_decision(
+        backend,
+        project_name=project_name,
+        config=config,
+    )
+    if not confirmed_decision.eligible:
+        job.phase = "done"
+        job.status = "completed"
+        job.completed_at = _now()
+        backend.reflection_job_store.save(job)
+        return await _record_dream_tick(
+            backend,
+            project_name=project_name,
+            source=source,
+            trigger_id=trigger_id,
+            payload={
+                "success": True,
+                "status": "skipped",
+                "project_name": project_name,
+                "reason": confirmed_decision.reason,
+                "job_id": job.id,
+                "last_run_id": confirmed_decision.last_run_id,
+                "next_eligible_at": _iso(confirmed_decision.next_eligible_at),
+            },
+        )
     try:
         run = await _run_dream_with_progress_timeout(
             backend,
@@ -859,27 +928,133 @@ async def dream_auto_tick(
         if run.status == "failed":
             job.error = "dream: one or more dream items failed"
         backend.reflection_job_store.save(job)
-        return {
-            "success": True,
-            "status": "completed",
-            "project_name": project_name,
-            "job_id": job.id,
-            "run_id": run.id,
-            "summary": run.handling_summary,
-        }
+        return await _record_dream_tick(
+            backend,
+            project_name=project_name,
+            source=source,
+            trigger_id=trigger_id,
+            payload={
+                "success": True,
+                "status": "completed",
+                "project_name": project_name,
+                "job_id": job.id,
+                "run_id": run.id,
+                "summary": run.handling_summary,
+            },
+        )
     except Exception as exc:
         job.phase = "done"
         job.status = "failed"
         job.error = f"dream: {type(exc).__name__}: {exc}"
         job.completed_at = _now()
         backend.reflection_job_store.save(job)
-        return {
-            "success": False,
-            "status": "failed",
-            "project_name": project_name,
-            "job_id": job.id,
-            "error": str(exc) or exc.__class__.__name__,
+        return await _record_dream_tick(
+            backend,
+            project_name=project_name,
+            source=source,
+            trigger_id=trigger_id,
+            payload={
+                "success": False,
+                "status": "failed",
+                "project_name": project_name,
+                "job_id": job.id,
+                "error": str(exc) or exc.__class__.__name__,
+            },
+        )
+
+
+def _latest_dream_tick_receipt(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+) -> dict[str, Any] | None:
+    receipts = _dream_tick_receipts(backend, project_name=project_name, limit=1)
+    return receipts[-1] if receipts else None
+
+
+def _dream_tick_receipts(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    path = backend.data_dir / "events.log"
+    events: list[dict[str, Any]] = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    candidate = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(candidate, dict):
+                    continue
+                if (
+                    candidate.get("type") == EventType.COMMAND_INVOKED.value
+                    and candidate.get("command") == "dream.auto_tick"
+                    and candidate.get("project_name") == project_name
+                ):
+                    events.append(candidate)
+    except OSError:
+        return []
+    receipts: list[dict[str, Any]] = []
+    for event in events[-max(1, limit) :]:
+        extra_value = event.get("extra")
+        extra = extra_value if isinstance(extra_value, dict) else {}
+        receipts.append(
+            {
+                "timestamp": event.get("timestamp"),
+                "status": extra.get("status"),
+                "reason": extra.get("reason"),
+                "source": extra.get("source"),
+                "trigger_id": extra.get("trigger_id"),
+                "job_id": extra.get("job_id"),
+                "run_id": extra.get("run_id"),
+                "last_run_id": extra.get("last_run_id"),
+                "next_eligible_at": extra.get("next_eligible_at"),
+                "receipt_state": "recorded",
+            }
+        )
+    return receipts
+
+
+async def _record_dream_tick(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    source: DreamSource,
+    trigger_id: str | None,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist one content-free auto-tick receipt without failing maintenance."""
+
+    receipt = {
+        "status": payload.get("status"),
+        "reason": payload.get("reason") or payload.get("error"),
+        "source": source,
+        "trigger_id": trigger_id,
+        "job_id": payload.get("job_id"),
+        "run_id": payload.get("run_id"),
+        "last_run_id": payload.get("last_run_id"),
+        "next_eligible_at": payload.get("next_eligible_at"),
+    }
+    result = dict(payload)
+    try:
+        await get_event_logger(backend.data_dir).log(
+            EventType.COMMAND_INVOKED,
+            project_name=project_name,
+            command="dream.auto_tick",
+            extra=receipt,
+        )
+        result["tick_receipt"] = {"state": "recorded"}
+    except Exception as exc:  # noqa: BLE001 - observability must fail open.
+        result["tick_receipt"] = {
+            "state": "degraded",
+            "reason": f"{type(exc).__name__}: {exc}"[:512],
         }
+    return result
 
 
 async def _run_dream_with_progress_timeout(
@@ -891,15 +1066,43 @@ async def _run_dream_with_progress_timeout(
     reflection_job_id: str,
     timeout_seconds: int,
 ) -> DreamRun:
-    deadline = _now() + timedelta(seconds=max(1, timeout_seconds))
-    return await dream_once(
-        backend,
-        project_name=project_name,
-        config=config,
-        source=source,
-        reflection_job_id=reflection_job_id,
-        deadline=deadline,
-    )
+    seconds = max(1, timeout_seconds)
+    deadline = _now() + timedelta(seconds=seconds)
+    try:
+        return await asyncio.wait_for(
+            dream_once(
+                backend,
+                project_name=project_name,
+                config=config,
+                source=source,
+                reflection_job_id=reflection_job_id,
+                deadline=deadline,
+            ),
+            timeout=seconds,
+        )
+    except TimeoutError:
+        store = cast(LocalStructuredStore, backend.structured_store)
+        runs = await store.list_dream_runs(project_name, limit=20)
+        run = next(
+            (
+                item
+                for item in runs
+                if item.reflection_job_id == reflection_job_id
+                and item.status == "processing"
+            ),
+            None,
+        )
+        if run is not None:
+            completed_at = _now()
+            run.status = "failed"
+            run.completed_at = completed_at
+            run.duration_ms = int(
+                (completed_at - run.started_at).total_seconds() * 1000
+            )
+            run.notes = list(run.notes or [])
+            run.notes.append("dream runtime exceeded max_runtime_seconds")
+            await store.save_dream_run(run)
+        raise TimeoutError("dream runtime exceeded max_runtime_seconds") from None
 
 
 async def cmd_dream(

@@ -22,6 +22,7 @@ from harness_mem.mcp.response_views import (
 from .handler_facade_proxy import tool_handlers_facade as _core
 from .read_query_support import (
     _action,
+    _new_retrieval_id,
     _temporal_intent_mode,
     _wake_dx_metadata,
     _with_temporal_intent_hint,
@@ -72,12 +73,18 @@ def tool_wake(
     budget_tokens: int = 6000,
     deep_recall: bool = False,
     include_provisional: bool = False,
+    detail_level: str = "compact",
 ) -> dict:
     """Generate recent context plus stable truth and active handoffs.
 
     Captures the printed wake-up summary as ``output`` so the agent can
     ingest it directly without spawning a CLI subprocess.
     """
+    if detail_level not in {"compact", "full"}:
+        return {
+            "success": False,
+            "error": "detail_level must be one of: compact, full",
+        }
     resolved = project_name or get_active_project()
     if not resolved:
         return {
@@ -95,6 +102,18 @@ def tool_wake(
             "drilldown_hints": [],
         }
     distill_maintenance: dict[str, Any] = {}
+    retrieval_id = _new_retrieval_id()
+    retrieval_receipt: dict[str, Any] = {
+        "contract_version": "retrieval-signal-receipt-v1",
+        "retrieval_id": retrieval_id,
+        "surface": "wake",
+        "attempted": 0,
+        "recorded": 0,
+        "failed": 0,
+        "state": "not_recorded",
+        "source_ids": [],
+        "content_recorded": False,
+    }
     command_payload = _run_command_to_payload(
         cmd_wake_up(
             resolved,
@@ -102,6 +121,8 @@ def tool_wake(
             include_skill_hints=include_skill_hints,
             skill_hint_limit=skill_hint_limit,
             maintenance_capture=distill_maintenance,
+            retrieval_id=retrieval_id,
+            retrieval_capture=retrieval_receipt,
         )
     )
     snapshot_payload: dict[str, Any] = {}
@@ -162,6 +183,7 @@ def tool_wake(
         ]
         snapshot_payload.update(
             {
+                "retrieval_id": retrieval_id,
                 "context_sufficiency": context_plan.context_sufficiency.to_dict(),
                 "retrieval_plan": context_plan.retrieval_plan.to_dict(),
                 "iterative_retrieval_trace": (
@@ -186,8 +208,28 @@ def tool_wake(
                 "answer_ready_context": runtime.answer_ready_context,
                 "effective_deep_recall": runtime.effective_deep_recall,
                 "orchestration_actions": runtime.orchestration_actions,
+                "record_outcome_call": (
+                    {
+                        "tool": "record_context_outcome",
+                        "arguments": {
+                            "project_name": resolved,
+                            "surface": "wake",
+                            "source_ids": list(
+                                retrieval_receipt.get("source_ids") or []
+                            ),
+                            "retrieval_id": retrieval_id,
+                        },
+                        "required_argument": "outcome",
+                        "allowed_outcomes": sorted(VALID_CONTEXT_OUTCOMES),
+                    }
+                    if retrieval_receipt.get("source_ids")
+                    else None
+                ),
             }
         )
+        if detail_level == "compact":
+            snapshot_payload = _compact_wake_snapshot(snapshot_payload)
+            command_payload = _compact_wake_command_payload(command_payload)
     wake_dx = _wake_dx_metadata(
         success=bool(command_payload.get("success")),
         fallback_reason=snapshot_payload.get("fallback_reason"),
@@ -203,6 +245,66 @@ def tool_wake(
         "current_task": current_task,
         "budget_tokens": budget_tokens,
         "deep_recall": deep_recall,
+        "detail_level": detail_level,
+        "retrieval_receipt": retrieval_receipt,
         "distill_maintenance": distill_maintenance,
         **command_payload,
+    }
+
+
+def _compact_wake_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Project one authoritative wake context without repeated content trees."""
+
+    context_plan = dict(snapshot.get("context_plan") or {})
+    answer_ready = snapshot.get("answer_ready_context")
+    diagnostics = {
+        key: context_plan.get(key)
+        for key in (
+            "context_sufficiency",
+            "retrieval_plan",
+            "iterative_retrieval_trace",
+            "context_budget",
+            "compaction_outcome",
+        )
+        if context_plan.get(key) is not None
+    }
+    return {
+        "context_contract_version": "wake-context-v2",
+        "retrieval_id": snapshot.get("retrieval_id"),
+        "authoritative_context_field": "answer_ready_context",
+        "answer_ready_context": answer_ready,
+        "context_diagnostics": diagnostics,
+        "requested_mode": snapshot.get("requested_mode"),
+        "effective_mode": snapshot.get("effective_mode"),
+        "fallback_reason": snapshot.get("fallback_reason"),
+        "backend_budget": snapshot.get("backend_budget"),
+        "backend_truncation": snapshot.get("backend_truncation"),
+        "source_coverage": snapshot.get("source_coverage"),
+        "guided_flow": snapshot.get("guided_flow"),
+        "effective_deep_recall": snapshot.get("effective_deep_recall"),
+        "orchestration_actions": snapshot.get("orchestration_actions"),
+        "record_outcome_call": snapshot.get("record_outcome_call"),
+        "details_available": [
+            "context_plan",
+            "wake_packet",
+            "supporting_evidence",
+            "iterative_retrieval_trace",
+        ],
+        "full_detail_hint": {
+            "tool": "wake",
+            "arguments": {"detail_level": "full"},
+            "why": "Request full diagnostics only when compact wake needs investigation.",
+        },
+    }
+
+
+def _compact_wake_command_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep command status while removing a duplicate rendered context block."""
+
+    if not bool(payload.get("success")):
+        return dict(payload)
+    return {
+        "success": True,
+        "exit_code": payload.get("exit_code"),
+        "rendered_output_available_in_full": bool(payload.get("output")),
     }

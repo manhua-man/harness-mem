@@ -79,7 +79,6 @@ def test_legacy_lifecycle_docs_use_lossless_session_distill_contract() -> None:
             "docs/autopilot-search-policy.md",
             "docs/demo-cold-start.md",
             "docs/auto-promoted-memory-governance.md",
-            "docs/memory-adoption.md",
         )
     }
     combined = "\n".join(docs.values())
@@ -158,7 +157,7 @@ def test_current_canvases_match_0910_automation_and_live_status_contract() -> No
 
 
 def test_distill_agent_surfaces_use_lossless_finalize_contract() -> None:
-    skill = Path("tools/session-distill/SKILL.md").read_text(encoding="utf-8")
+    skill = Path("tools/hm-distill/SKILL.md").read_text(encoding="utf-8")
     command = Path("plugins/harness-mem/commands/hm/daily/distill.md").read_text(
         encoding="utf-8"
     )
@@ -174,33 +173,77 @@ def test_distill_agent_surfaces_use_lossless_finalize_contract() -> None:
     assert "max_chars_per_observation=6000" not in combined
     assert "auto_review_candidates(project_name=<project>, apply=True)" not in combined
     assert "auto_review_candidates` is the final `/hm:distill` stage" not in combined
+    assert "session_summary" in combined
+    legacy_tool_path = str(Path("tools") / ("session" + "-distill")).replace("\\", "/")
+    assert legacy_tool_path not in combined
 
 
 def test_repo_local_duplicate_distill_runtime_is_removed() -> None:
-    skill = Path("tools/session-distill/SKILL.md").read_text(encoding="utf-8")
-    sync_policy = Path("tools/session-distill/SYNC_POLICY.md").read_text(
-        encoding="utf-8"
+    skill = Path("tools/hm-distill/SKILL.md").read_text(encoding="utf-8")
+
+    assert not Path("tools/hm-distill/lib").exists()
+    assert not Path("tools/hm-distill/bin").exists()
+    assert not (Path("tools") / ("session" + "-distill")).exists()
+    assert not Path("tools/hm-distill/SYNC_POLICY.md").exists()
+    assert not Path("tools/hm-distill/UPSTREAM_ALIGNMENT.md").exists()
+    assert "name: hm-distill" in skill
+    assert "Use one public flow" in skill
+
+
+def test_hm_distill_keeps_one_public_flow_with_optional_internal_helpers() -> None:
+    skill = Path("tools/hm-distill/SKILL.md").read_text(encoding="utf-8").lower()
+    retired_terms = (
+        "packet",
+        "draft claim",
+        "smart-search",
+        "trellis",
+    )
+    optional_skill_dirs = (
+        "grill-before-distill",
+        "answer-memory-evidence",
+        "ask-memory-boundary",
     )
 
-    assert not Path("tools/session-distill/lib").exists()
-    assert not Path("tools/session-distill/bin").exists()
-    assert "不包含独立 CLI" in skill
-    assert "contains no executable runtime" in sync_policy
+    assert "candidate admission" in skill
+    assert "only runtime-derived `answered`" in skill
+    assert "conditional collaborator routing" in skill
+    assert "do not wait for the user to invoke them" in skill
+    assert "do not load all three pre-emptively" in skill
+    assert not any(term in skill for term in retired_terms)
+    for name in optional_skill_dirs:
+        helper = Path("plugins/harness-mem/skills") / name / "SKILL.md"
+        assert helper.is_file()
+        assert "do not wait for explicit user invocation" in helper.read_text(
+            encoding="utf-8"
+        ).lower()
+
+
+def test_active_docs_do_not_restore_legacy_distill_product_name() -> None:
+    legacy_name = "session" + "-distill"
+    paths = [
+        Path("README.md"),
+        Path("README.zh-CN.md"),
+        Path("CHANGELOG.md"),
+        *Path("docs").rglob("*.md"),
+        *Path("tools/hm-distill").rglob("*.md"),
+        *Path("plugins/harness-mem").rglob("*.md"),
+        *Path("canvases").rglob("*.tsx"),
+    ]
+
+    for path in paths:
+        assert legacy_name not in path.read_text(encoding="utf-8"), path
 
 
 def test_active_governance_docs_use_single_public_write_surface() -> None:
     active_paths = [
         Path("docs/auto-promoted-memory-governance.md"),
-        Path("docs/memory-adoption.md"),
         Path("docs/roadmap.md"),
         Path("plugins/harness-mem/commands/hm/daily/distill.md"),
         Path("plugins/harness-mem/skills/harness-mem/SKILL.md"),
         Path("plugins/harness-mem/skills/harness-mem-autopilot/SKILL.md"),
-        Path("plugins/harness-mem/skills/grill-before-distill/SKILL.md"),
         Path("plugins/harness-mem/skills/grill-with-docs/SKILL.md"),
-        Path("tools/session-distill/SKILL.md"),
-        Path("tools/session-distill/SYNC_POLICY.md"),
-        Path("tools/session-distill/references/distillation-rules.md"),
+        Path("tools/hm-distill/SKILL.md"),
+        Path("tools/hm-distill/references/distillation-rules.md"),
     ]
     generated_roots = [
         Path(".agents"),
@@ -251,6 +294,10 @@ def test_current_roadmap_is_0_9_x_and_internal_doc_duplicates_are_removed() -> N
     assert "current 0.9.x scope ledger" in scope_ledger
     assert not Path("docs/internal/roadmap.md").exists()
     assert not Path("docs/internal/memory-adoption.md").exists()
+    evidence_policy = Path("docs/memory-adoption.md").read_text(encoding="utf-8")
+    assert "runtime Answer Gate" in evidence_policy
+    assert "Trellis" not in evidence_policy
+    assert "smart-search" not in evidence_policy
     assert not Path("docs/internal/agent-memory-retrieval-research-2026.md").exists()
 
 

@@ -28,9 +28,10 @@ docs canonical; harness-mem stores evidence-backed pointers, not a second copy.
      durable term has actually been agreed;
    - create an ADR only when the decision is hard to reverse, surprising
      without context, and the result of a real trade-off.
-7. Run the project's normal documentation checks. Then route durable memory
-   through `grill-before-distill` and `govern_memory(action="suggest")` with a
-   project-relative document path and current content hash.
+7. Run the project's normal documentation checks. Then apply the candidate
+   admission check defined by `hm-distill` and call
+   `govern_memory(action="suggest")` with a project-relative document path and
+   current content hash.
 
 ## Boundaries
 

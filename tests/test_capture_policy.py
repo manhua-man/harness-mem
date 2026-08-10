@@ -4,8 +4,11 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.capture_policy import PRIVATE_REDACTION
+from harness_mem.config.errors import ConfigValidationError
 from harness_mem.config.merge import load_merged_config
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -44,7 +47,32 @@ def test_project_capture_config_overrides_user_policy(
     assert config.capture_ignore_clients == ("codex",)
     assert config.capture_ignore_source_globs == ("*secret*.jsonl",)
     assert config.transcript_retention_days == 30
-    assert config.distill_auto_max_jobs_per_wake == 1
+    assert config.distill_auto_max_jobs_per_wake == 2
+
+
+def test_distill_auto_batch_config_accepts_three_and_rejects_larger_values(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    (home / ".harness-mem").mkdir(parents=True)
+    project.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda _cls: home))
+    config_path = project / ".harness-mem.toml"
+    config_path.write_text(
+        "[distill.auto]\nmax_jobs_per_wake = 3\n",
+        encoding="utf-8",
+    )
+
+    assert load_merged_config(project).distill_auto_max_jobs_per_wake == 3
+
+    config_path.write_text(
+        "[distill.auto]\nmax_jobs_per_wake = 4\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigValidationError):
+        load_merged_config(project)
 
 
 def test_private_spans_never_reach_raw_revision_chunks_or_observation(
