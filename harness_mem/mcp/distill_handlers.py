@@ -49,6 +49,9 @@ from harness_mem.mcp.response_budget import (
 from .handler_facade_proxy import tool_handlers_facade as _core
 
 
+_SIGNAL_GATE_RECHECK_PIPELINE_VERSION = "lossless-distill-v1-signal-gate-v2"
+
+
 def _get_backend():
     return _core._get_backend()
 
@@ -371,19 +374,25 @@ def _attach_semantic_decision_bundle(
         ).values()
         for reason in reasons
     }
+    detected_checks = signaled_checks & set(check_names)
+    requires_candidate = bool(detected_checks)
     challenge_template = {
         "version": "v1",
         "source_revision": source_revision,
         "evidence_fidelity": "complete",
-        "future_utility": "session_only",
+        "future_utility": "durable" if requires_candidate else "session_only",
         "checks": {
-            name: "not_durable" if name in signaled_checks else "absent"
+            name: "candidate_required" if name in detected_checks else "absent"
             for name in check_names
         },
         "inspected_exchange_refs": exchange_refs,
-        "conclusion": "no_durable_candidate",
+        "conclusion": (
+            "candidate_required" if requires_candidate else "no_durable_candidate"
+        ),
         "rationale": (
-            "Bundled decision exchanges contain no durable candidate after review."
+            "Detected memory-value signals require a scoped candidate or handoff."
+            if requires_candidate
+            else "Bundled decision exchanges contain no durable candidate after review."
         ),
     }
     payload.update(
@@ -600,6 +609,16 @@ def tool_prepare_session_distill(
             matching_jobs,
             key=lambda item: (item.created_at, item.updated_at),
         )
+        if (
+            requested_job_id is None
+            and _completed_job_requires_signal_gate_recheck(session_job)
+        ):
+            session_job = backend.transcript_store.enqueue_distill_job(
+                session_job.source_id,
+                pipeline_version=_SIGNAL_GATE_RECHECK_PIPELINE_VERSION,
+                active_limit=distill_config.distill_auto_target_backlog,
+                recent_first=distill_config.distill_auto_recent_first,
+            )
         if requested_job_id and requested_job_id != session_job.id:
             return {
                 "success": False,
@@ -1271,7 +1290,10 @@ def tool_finalize_session_distill(
     if completed.status != "completed":
         payload["error"] = completed.error
         return payload
-    semantic_allows_promotion = _semantic_review_allows_promotion(
+    semantic_allows_candidate_review = _semantic_review_allows_candidate_review(
+        completed.semantic_review
+    )
+    semantic_allows_dream = _semantic_review_allows_promotion(
         completed.semantic_review
     )
     dream_result: dict[str, Any] | None = None
@@ -1290,7 +1312,7 @@ def tool_finalize_session_distill(
         "STALE": 0,
         "NOT_APPLICABLE": 0,
     }
-    if semantic_allows_promotion:
+    if semantic_allows_candidate_review:
         summary = asyncio.run(
             auto_review_candidates(
                 backend,
@@ -1306,11 +1328,11 @@ def tool_finalize_session_distill(
     else:
         payload["auto_review"] = {
             "skipped": True,
-            "reason": "semantic_review_blocks_promotion",
+            "reason": "semantic_review_blocks_candidate_review",
             "candidate_ids": candidate_ids,
         }
     try:
-        if semantic_allows_promotion:
+        if semantic_allows_dream:
             dream_result = asyncio.run(
                 dream_auto_tick(
                     backend,
@@ -1356,7 +1378,7 @@ def tool_finalize_session_distill(
             if challenge_passed
             else (
                 "semantic_review_blocked"
-                if not semantic_allows_promotion
+                if not semantic_allows_candidate_review
                 else "no_durable_candidate"
             )
         ]
@@ -1709,11 +1731,83 @@ def _validate_zero_candidate_challenge(
             "reason_codes": ["detected_signal_marked_absent"],
             "signals": incorrectly_absent,
         }
+    rationale = challenge.rationale.lower()
+    downgraded_signals = sorted(
+        signal
+        for signal in challenged_signals
+        if checks.get(signal) == "not_durable"
+    )
+    rationale_without_signal_keys = rationale
+    for signal in downgraded_signals:
+        rationale_without_signal_keys = rationale_without_signal_keys.replace(
+            signal.lower(), ""
+        )
+    has_session_only_explanation = (
+        challenge.future_utility == "session_only"
+        and sum(character.isalnum() for character in rationale_without_signal_keys)
+        >= 12
+    )
+    unjustified_downgrades = [
+        signal for signal in downgraded_signals if signal.lower() not in rationale
+    ]
+    if downgraded_signals and not has_session_only_explanation:
+        unjustified_downgrades = downgraded_signals
+    if unjustified_downgrades:
+        return {
+            "error": "zero_candidate_signal_downgrade_unjustified",
+            "reason_codes": ["detected_signal_downgrade_requires_rationale"],
+            "signals": unjustified_downgrades,
+            "next_step": (
+                "Name each downgraded signal key in the rationale and explain why "
+                "it is session-only, or create a scoped candidate or handoff."
+            ),
+        }
     return None
 
 
+def _semantic_review_allows_candidate_review(review: dict[str, Any]) -> bool:
+    """Review answered candidates even when unrelated handoff work remains."""
+
+    if review.get("contradictions"):
+        return False
+    decision = review.get("promotion_decision")
+    if decision == "promote":
+        return _semantic_review_allows_promotion(review)
+    return bool(
+        decision == "partial"
+        and review.get("evidence_status") in {"answered", "partial"}
+        and review.get("last_turn_status") in {"answered", "unfinished"}
+    )
+
+
+def _completed_job_requires_signal_gate_recheck(job: Any) -> bool:
+    """Re-open legacy false negatives without rewriting their audit record."""
+
+    if (
+        job.status != "completed"
+        or job.pipeline_version == _SIGNAL_GATE_RECHECK_PIPELINE_VERSION
+        or job.completion_disposition != "no_candidate"
+        or "zero_candidate_challenge_passed" not in job.completion_reason_codes
+    ):
+        return False
+    review = job.semantic_review
+    if not str(review.get("session_summary") or "").strip():
+        return True
+    challenge = review.get("zero_candidate_challenge")
+    if not isinstance(challenge, dict) or challenge.get("version") != "v1":
+        return False
+    checks = challenge.get("checks")
+    if not isinstance(checks, dict):
+        return False
+    rationale = str(challenge.get("rationale") or "").lower()
+    return any(
+        value == "not_durable" and str(signal).lower() not in rationale
+        for signal, value in checks.items()
+    )
+
+
 def _semantic_review_allows_promotion(review: dict[str, Any]) -> bool:
-    """Require an internally consistent, completed review before promotion."""
+    """Require a fully completed review before the post-distill Dream pass."""
 
     return bool(
         review.get("promotion_decision") == "promote"

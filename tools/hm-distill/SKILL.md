@@ -25,6 +25,15 @@ For a user-provided session ID:
 5. Call `finalize_session_distill` once.
 6. Return the readable summary and write `~/.codex/hm-distill/sessions/<session_id>.md` from the same review without rereading the transcript.
 
+The bundled zero-candidate template is fail-closed. Detected decision, solution,
+workflow, preference, migration, or handoff signals start as `candidate_required`;
+do not submit that template unchanged as a no-candidate verdict. Missing current
+repository proof is an evidence gap, not a reason to discard the claim.
+
+When an explicit session ID points to a legacy completed `no_candidate` job whose
+detected signals were downgraded without signal-specific reasons, prepare creates a
+new policy-recheck job. The old completion remains immutable audit history.
+
 The common no-candidate path is exactly `prepare → finalize`. Do not add status, list, export, or local diagnostic calls unless the MCP result reports an error or compatibility fallback.
 
 ## Project or batch path
@@ -88,7 +97,13 @@ Route collaborators automatically after the first-pass check; do not wait for th
 
 Routes are independent: answer and grill may both fire; ask fires only for a remaining boundary decision. Run at most one pass of each route per candidate unless it identifies one new concrete question. If the current host does not expose the named collaborator, apply that collaborator's contract inline. A collaborator never writes or promotes memory and does not add an MCP call by itself. When a route ran, include `collaborator_answer`, `collaborator_grill`, or `collaborator_boundary` in `verification_reason_codes` for audit.
 
-When no candidate remains, use the bundled `zero_candidate_challenge_template`. Check corrections, decisions, successful solutions, repeated failures, preferences, reusable workflows or facts, migrations, and unfinished handoffs. Submit the returned exchange hashes unchanged. A durable finding requires a candidate or handoff; otherwise conclude `no_durable_candidate`.
+A claim survives long enough to route as soon as a bundled exchange exposes plausible
+durable value. Do not reject it merely because current-source proof is missing; route
+answer first. If completed durable claims coexist with unfinished work, write the
+durable candidates plus a scoped handoff and use `promotion_decision="partial"`.
+Finalize may auto-review Answered candidates in that state, while Dream remains blocked.
+
+When no candidate remains, use the bundled `zero_candidate_challenge_template`. Check corrections, decisions, successful solutions, repeated failures, preferences, reusable workflows or facts, migrations, and unfinished handoffs. Submit the returned exchange hashes unchanged. Detected signals are prefilled as `candidate_required`. Downgrade one to `not_durable` only after reviewing its complete window, and name that exact signal key plus the session-only reason in `rationale`. A durable finding requires a candidate or handoff; otherwise conclude `no_durable_candidate`.
 
 Apply [distillation-rules.md](references/distillation-rules.md) for claim classification and noise rejection.
 
@@ -132,7 +147,15 @@ Return a short result that includes:
 Note：<path>
 ```
 
-Keep candidate IDs, evidence IDs, token counts, and policy reasons in audit detail unless the user asks for them.
+When durable memories were formed, add one bullet per memory in this shape:
+
+```text
+- **<title>**: <one precise, verifiable fact> (<verified date; repository verified / user confirmed>).
+```
+
+Do not append session, job, candidate, memory, evidence, or source IDs to those
+bullets or to the default readable Note. IDs, token counts, policy reasons, and
+verification refs belong only in audit detail when the user asks for them.
 
 ## Boundaries
 

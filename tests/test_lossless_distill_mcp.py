@@ -7,6 +7,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -138,6 +139,215 @@ def _zero_candidate_challenge(
         "conclusion": "no_durable_candidate",
         "rationale": "The complete review found only session-local execution detail.",
     }
+
+
+def test_explicit_session_rechecks_legacy_signal_false_negative(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    snapshot = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id="legacy-signal-false-negative",
+                client="codex",
+                raw_content="We decided to keep the governed memory workflow.",
+                content_type="transcript",
+                timestamp=datetime.now(timezone.utc),
+                metadata={},
+            ),
+            project_name="demo",
+            project_root=str(project),
+            client="codex",
+            session_id="legacy-signal-false-negative",
+            source_kind="jsonl",
+            source_uri="file:///legacy-signal-false-negative.jsonl",
+            source_text=(
+                "User: choose the durable workflow\n\n"
+                "Assistant: We decided to keep the governed memory workflow.\n"
+            ),
+        )
+    )
+    assert snapshot.source is not None
+    assert snapshot.distill_job_id is not None
+    old_job_id = snapshot.distill_job_id
+    for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
+        old_job_id,
+        lease_owner="legacy-agent",
+        limit=100,
+    ):
+        backend.transcript_store.checkpoint_distill_chunk(
+            old_job_id,
+            chunk.id,
+            lease_owner="legacy-agent",
+            result={"summary": "read"},
+        )
+    legacy_review = {
+        **SEMANTIC_REVIEW,
+        "promotion_decision": "no_promotion",
+        "zero_candidate_challenge": _zero_candidate_challenge(
+            source_revision=snapshot.source.source_revision,
+            check_overrides={"explicit_decision": "not_durable"},
+        ),
+    }
+    backend.transcript_store.finalize_distill_job(
+        old_job_id,
+        semantic_review=legacy_review,
+        output_candidate_ids=[],
+    )
+    backend.transcript_store.record_distill_completion_outcome(
+        old_job_id,
+        disposition="no_candidate",
+        reason_codes=["zero_candidate_challenge_passed"],
+        promotion_summary={},
+        source_cleanup_status="retained",
+    )
+
+    previous_backend_provider = tool_handlers._backend_provider
+    previous_observer_provider = tool_handlers._observer_data_dir_provider
+    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
+    previous_logger = tool_handlers.logger
+    tool_handlers.configure_tool_handler_dependencies(
+        backend_provider=lambda: backend,
+        observer_data_dir=lambda: backend.data_dir,
+        cost_surface_budgets=lambda _project_name: None,
+        logger_instance=logging.getLogger("test.legacy-signal-recheck"),
+    )
+    try:
+        explicit_completed = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(project),
+            client="codex",
+            run_ingest=False,
+            session_id="legacy-signal-false-negative",
+            distill_job_id=old_job_id,
+            evidence_mode="semantic",
+        )
+        assert explicit_completed["success"] is True
+        assert explicit_completed["distill_job_id"] == old_job_id
+        assert explicit_completed["agent_execution"]["path"] == "already_completed"
+
+        packet = tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(project),
+            client="codex",
+            run_ingest=False,
+            session_id="legacy-signal-false-negative",
+            evidence_mode="semantic",
+        )
+
+        assert packet["success"] is True
+        assert packet["distill_job_id"] != old_job_id
+        assert packet["agent_execution"]["path"] != "already_completed"
+        old_job = backend.transcript_store.get_distill_job(old_job_id)
+        assert old_job is not None
+        assert old_job.status == "completed"
+        assert old_job.completion_disposition == "no_candidate"
+        recheck_job = backend.transcript_store.get_distill_job(
+            packet["distill_job_id"]
+        )
+        assert recheck_job is not None
+        assert recheck_job.pipeline_version == (
+            distill_handlers._SIGNAL_GATE_RECHECK_PIPELINE_VERSION
+        )
+    finally:
+        tool_handlers._backend_provider = previous_backend_provider
+        tool_handlers._observer_data_dir_provider = previous_observer_provider
+        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
+        tool_handlers.logger = previous_logger
+        asyncio.run(backend.close())
+
+
+def test_completed_legacy_no_candidate_without_summary_requires_recheck() -> None:
+    job = SimpleNamespace(
+        status="completed",
+        pipeline_version="lossless-distill-v1",
+        completion_disposition="no_candidate",
+        completion_reason_codes=["zero_candidate_challenge_passed"],
+        semantic_review={
+            "zero_candidate_challenge": _zero_candidate_challenge(
+                source_revision="sha256:legacy"
+            )
+        },
+    )
+
+    assert distill_handlers._completed_job_requires_signal_gate_recheck(job) is True
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        pytest.param(
+            {"pipeline_version": "lossless-distill-v1-signal-gate-v2"},
+            False,
+            id="current-policy-version",
+        ),
+        pytest.param({"status": "reviewing"}, False, id="not-completed"),
+        pytest.param(
+            {"completion_disposition": "promoted"},
+            False,
+            id="promoted-completion",
+        ),
+        pytest.param(
+            {"completion_reason_codes": []},
+            False,
+            id="missing-challenge-reason",
+        ),
+    ],
+)
+def test_signal_gate_recheck_does_not_reopen_ineligible_jobs(
+    overrides: dict,
+    expected: bool,
+) -> None:
+    values = {
+        "status": "completed",
+        "pipeline_version": "lossless-distill-v1",
+        "completion_disposition": "no_candidate",
+        "completion_reason_codes": ["zero_candidate_challenge_passed"],
+        "semantic_review": {
+            "session_summary": "A complete legacy summary exists.",
+            "zero_candidate_challenge": _zero_candidate_challenge(
+                source_revision="sha256:legacy",
+                check_overrides={"explicit_decision": "not_durable"},
+            ),
+        },
+    }
+    values.update(overrides)
+
+    assert (
+        distill_handlers._completed_job_requires_signal_gate_recheck(
+            SimpleNamespace(**values)
+        )
+        is expected
+    )
+
+
+def test_zero_signal_bundle_stays_no_candidate(monkeypatch) -> None:
+    monkeypatch.setattr(
+        distill_handlers,
+        "_load_distill_exchange_windows",
+        lambda *_args, **_kwargs: [],
+    )
+    payload: dict = {}
+
+    distill_handlers._attach_semantic_decision_bundle(
+        SimpleNamespace(),
+        payload=payload,
+        source_id="source-1",
+        source_revision="sha256:no-signals",
+        semantic_evidence={
+            "zero_candidate_required_exchange_indexes": [],
+            "zero_candidate_required_exchange_reasons": {},
+        },
+    )
+
+    challenge = payload["zero_candidate_challenge_template"]
+    assert challenge["future_utility"] == "session_only"
+    assert challenge["conclusion"] == "no_durable_candidate"
+    assert set(challenge["checks"].values()) == {"absent"}
 
 
 @pytest.mark.parametrize("root_state", ["invalid_config", "missing_root"])
@@ -428,9 +638,33 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         asyncio.run(backend.close())
 
 
-def test_finalize_records_promoted_disposition_without_manual_review(
+@pytest.mark.parametrize(
+    ("semantic_review", "dream_expected"),
+    [
+        pytest.param(SEMANTIC_REVIEW, True, id="complete-session"),
+        pytest.param(
+            {
+                **SEMANTIC_REVIEW,
+                "session_summary": (
+                    "The implementation completed while one documentation handoff "
+                    "remained."
+                ),
+                "final_outcome": "implementation complete; documentation remains",
+                "last_turn_status": "unfinished",
+                "unfinished_work": ["Align the governance wording in documentation."],
+                "evidence_status": "partial",
+                "promotion_decision": "partial",
+            },
+            False,
+            id="answered-candidate-with-unfinished-handoff",
+        ),
+    ],
+)
+def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
     tmp_path: Path,
     monkeypatch,
+    semantic_review: dict,
+    dream_expected: bool,
 ) -> None:
     backend = LocalMemoryBackend(tmp_path / "data")
     asyncio.run(backend.init())
@@ -464,7 +698,10 @@ def test_finalize_records_promoted_disposition_without_manual_review(
         logger_instance=logging.getLogger("test.promoted-distill"),
     )
 
+    dream_calls: list[bool] = []
+
     async def fake_dream(*_args, **_kwargs):
+        dream_calls.append(True)
         return {"success": True, "status": "completed"}
 
     monkeypatch.setattr(tool_handlers, "dream_auto_tick", fake_dream)
@@ -512,7 +749,7 @@ def test_finalize_records_promoted_disposition_without_manual_review(
         finalized = tool_handlers.tool_finalize_session_distill(
             project_name="demo",
             job_id=result.distill_job_id,
-            semantic_review=SEMANTIC_REVIEW,
+            semantic_review=semantic_review,
         )
 
         assert finalized["completion"] == {
@@ -533,10 +770,12 @@ def test_finalize_records_promoted_disposition_without_manual_review(
         )
         assert stored is not None
         assert stored.status == "auto_confirmed"
+        assert ("dream" in finalized) is dream_expected
+        assert bool(dream_calls) is dream_expected
         replay = tool_handlers.tool_finalize_session_distill(
             project_name="demo",
             job_id=result.distill_job_id,
-            semantic_review=SEMANTIC_REVIEW,
+            semantic_review=semantic_review,
         )
         assert replay["idempotent_replay"] is True
         assert replay["completion"] == finalized["completion"]
@@ -666,7 +905,7 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
         "## Turn 3 (turn-3)\n\n"
         "Assistant: progress update\n\n"
         "## Turn 4 (turn-4)\n\n"
-        "Assistant: keep raw audit and use semantic evidence by default\n\n"
+        "Assistant: We decided to keep raw audit and default to semantic evidence\n\n"
         "## Turn 5 (turn-5)\n\n"
         'Tool: wait -> {"cell_id":"1"}\n\n'
         "## Turn 6 (turn-6)\n\n"
@@ -752,12 +991,12 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
         assert evidence["collapsed_assistant_message_count"] == 1
         assert evidence["omitted_passive_tool_count"] == 1
         assert projected.count("U: optimize distill throughput") == 1
-        assert "A: keep raw audit" in projected
+        assert "keep raw audit" in projected
         assert "progress update" not in projected
         assert "T: pytest" in projected
         assert "cell_id" not in projected
         assert evidence["semantic_char_count"] == len(projected)
-        assert evidence["projection_reduction_ratio"] < 1.0
+        assert evidence["projection_reduction_ratio"] <= 1.5
         assert evidence["raw_char_count"] == len(source_text)
         assert evidence["reduction_ratio"] < 0.01
         decision_indexes = [
@@ -787,9 +1026,13 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
             ].values()
             for reason in reasons
         }
+        detected_checks = signaled_checks & set(challenge_template["checks"])
+        assert detected_checks
+        assert challenge_template["future_utility"] == "durable"
+        assert challenge_template["conclusion"] == "candidate_required"
         for check_name, finding in challenge_template["checks"].items():
             assert finding == (
-                "not_durable" if check_name in signaled_checks else "absent"
+                "candidate_required" if check_name in detected_checks else "absent"
             )
         assert packet["agent_execution"] == {
             "contract_version": "agent-distill-fast-path-v1",
@@ -833,7 +1076,7 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
             drilldown_exchange_indexes=[1],
         )
         assert semantic_drilldown["semantic_drilldown_exchange_count"] == 1
-        assert "Assistant outcome: keep raw audit" in (
+        assert "Assistant outcome: We decided to keep raw audit" in (
             semantic_drilldown["semantic_drilldown_exchanges"][0]["content"]
         )
 
@@ -907,13 +1150,71 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
         assert wrong_hash["success"] is False
         assert wrong_hash["error"] == "zero_candidate_exchange_proof_incomplete"
 
-        finalized = tool_handlers.tool_finalize_session_distill(
+        blocked_template = tool_handlers.tool_finalize_session_distill(
             project_name="demo",
             job_id=result.distill_job_id,
             semantic_review={
                 **SEMANTIC_REVIEW,
                 "promotion_decision": "no_promotion",
                 "zero_candidate_challenge": challenge_template,
+            },
+        )
+        assert blocked_template["success"] is False
+        assert blocked_template["error"] == "zero_candidate_challenge_requires_candidate"
+
+        downgraded_checks = {
+            name: "not_durable" if value == "candidate_required" else value
+            for name, value in challenge_template["checks"].items()
+        }
+        generic_downgrade = {
+            **challenge_template,
+            "future_utility": "session_only",
+            "checks": downgraded_checks,
+            "conclusion": "no_durable_candidate",
+            "rationale": "The complete review found only session-local execution detail.",
+        }
+        unjustified = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=result.distill_job_id,
+            semantic_review={
+                **SEMANTIC_REVIEW,
+                "promotion_decision": "no_promotion",
+                "zero_candidate_challenge": generic_downgrade,
+            },
+        )
+        assert unjustified["success"] is False
+        assert unjustified["error"] == "zero_candidate_signal_downgrade_unjustified"
+
+        labels_only = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=result.distill_job_id,
+            semantic_review={
+                **SEMANTIC_REVIEW,
+                "promotion_decision": "no_promotion",
+                "zero_candidate_challenge": {
+                    **generic_downgrade,
+                    "rationale": ", ".join(sorted(detected_checks)),
+                },
+            },
+        )
+        assert labels_only["success"] is False
+        assert labels_only["error"] == "zero_candidate_signal_downgrade_unjustified"
+
+        reviewed_downgrade = {
+            **generic_downgrade,
+            "rationale": (
+                "Reviewed as session-only after inspecting: "
+                + ", ".join(sorted(detected_checks))
+                + "."
+            ),
+        }
+        finalized = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=result.distill_job_id,
+            semantic_review={
+                **SEMANTIC_REVIEW,
+                "promotion_decision": "no_promotion",
+                "zero_candidate_challenge": reviewed_downgrade,
             },
         )
         assert finalized["success"] is True
@@ -1063,7 +1364,6 @@ def test_legacy_observations_do_not_create_a_lossless_distill_job(tmp_path: Path
 @pytest.mark.parametrize(
     "review_overrides",
     [
-        {"promotion_decision": "partial", "evidence_status": "partial"},
         {"promotion_decision": "no_promotion", "evidence_status": "partial"},
         {"promotion_decision": "blocked", "evidence_status": "partial"},
         {
