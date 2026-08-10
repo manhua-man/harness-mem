@@ -22,12 +22,15 @@ The pass is fully read-only: it selects suggestions but leaves
 from __future__ import annotations
 
 import asyncio
+from array import array
+from collections.abc import Iterable
 import itertools
+from math import fsum, sqrt
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
-from typing import TYPE_CHECKING, Any, Callable, Literal, TypeVar, cast
+from typing import Any, Callable, Literal, TypeVar, cast
 
 from harness_mem.commands.replay_window import (
     ReplayBudget,
@@ -81,9 +84,6 @@ async def _run_in_daemon_thread(
 
     threading.Thread(target=worker, daemon=True).start()
     return await future
-
-if TYPE_CHECKING:  # pragma: no cover - import-time only
-    import numpy as np
 
 # Per-candidate cap on supporting signal ids. Each persisted blob carries
 # its evidence list; capping keeps the JSON small and bounded — the
@@ -341,11 +341,6 @@ async def _load_pool_embeddings(
     if not pool_ids:
         return {}
 
-    # Local imports keep the module cheap to import for callers that
-    # don't trigger a metabolism pass (e.g. ``commands.replay_window``
-    # importers). They mirror the lazy-load pattern in ``HybridSearchLayer``.
-    import numpy as np
-
     from harness_mem.commands.support import get_embedding_model_id
     from harness_mem.embedding import embeddings_disabled, get_model_loader
 
@@ -358,7 +353,7 @@ async def _load_pool_embeddings(
     )
     expected_dim = loader.dimensions if loader is not None else None
 
-    persisted: dict[str, np.ndarray] = {}
+    persisted: dict[str, list[float]] = {}
     persisted_dim: int | None = expected_dim
     try:
         with store.index.locked_connection() as conn:
@@ -369,27 +364,33 @@ async def _load_pool_embeddings(
                 (*pool_ids, model_id),
             ).fetchall()
         for entry_id, blob in rows:
-            arr = np.frombuffer(blob, dtype=np.float32)
-            if not arr.size or (persisted_dim is not None and arr.size != persisted_dim):
+            vector = array("f")
+            vector.frombytes(bytes(blob))
+            if not vector or (
+                persisted_dim is not None and len(vector) != persisted_dim
+            ):
                 # Dimension mismatch — treat as miss; the consistency check
                 # already filtered on model_id so this is rare.
                 continue
-            persisted_dim = arr.size
-            persisted[entry_id] = _normalize(arr)
+            persisted_dim = len(vector)
+            persisted[entry_id] = _normalize(vector)
     except Exception:
         # Missing table, locked db, or any read-side failure: degrade to
         # full in-memory encode. The pass is best-effort, never fatal.
         persisted = {}
 
-    embeddings: dict[str, list[float]] = {
-        entry_id: vec.tolist() for entry_id, vec in persisted.items()
-    }
+    embeddings = dict(persisted)
 
     # Stop/after-agent hooks must never load or invoke an embedding model. They
     # may still use already-persisted vectors; missing rows wait for explicit
     # vector maintenance or an interactive Dream run.
     if not encoding_allowed or loader is None or expected_dim is None:
         return embeddings
+
+    # In-memory encoding is an optional hybrid-search feature. Keep numpy out of
+    # the persisted-vector path so core installs and latency-sensitive hooks can
+    # reuse existing vectors without installing the embedding stack.
+    import numpy as np
 
     missing = [entry_id for entry_id in pool_ids if entry_id not in embeddings]
     for entry_id in missing:
@@ -404,23 +405,22 @@ async def _load_pool_embeddings(
         vec = np.asarray(raw, dtype=np.float32).ravel()
         if vec.size != expected_dim or not np.any(vec):
             continue
-        embeddings[entry_id] = _normalize(vec).tolist()
+        embeddings[entry_id] = _normalize(vec)
 
     return embeddings
 
 
-def _normalize(vec: np.ndarray) -> np.ndarray:
+def _normalize(vec: Iterable[float]) -> list[float]:
     """L2-normalize a 1-D vector so cosine similarity reduces to dot product.
 
     Returning the input untouched on a zero vector is the conservative
     choice; downstream cosine then evaluates to 0 against any other vector.
     """
-    import numpy as np
-
-    norm = float(np.linalg.norm(vec))
+    values = [float(value) for value in vec]
+    norm = sqrt(fsum(value * value for value in values))
     if norm == 0.0:
-        return vec
-    return vec / norm
+        return values
+    return [value / norm for value in values]
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import struct
 import threading
 
 import pytest
@@ -23,6 +25,7 @@ from harness_mem.commands.maintenance import run_post_turn_maintenance
 from harness_mem.commands.metabolism_pass import MetabolismPass
 from harness_mem.commands.metabolism_pass import _load_pool_embeddings
 from harness_mem.commands.replay_window import ReplayWindow
+from harness_mem.commands.support import get_embedding_model_id
 from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas.dream_run import DreamRun
 from harness_mem.core.schemas.memory_entry import MemoryEntry
@@ -380,11 +383,30 @@ def test_disabled_embedding_context_uses_only_persisted_vectors(
         )
         for index in range(2)
     ]
+    model_id = get_embedding_model_id()
+    with backend.structured_store.index.locked_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO vec_embeddings
+                (entry_id, model_id, model_version, embedding, created_at)
+            VALUES (?, ?, 'test', ?, 1)
+            """,
+            (ids[0], model_id, struct.pack("=ff", 3.0, 4.0)),
+        )
+        conn.commit()
 
     def fail_loader(*_args, **_kwargs):
         raise AssertionError("post-turn Dream must not load an embedding model")
 
+    real_import = builtins.__import__
+
+    def reject_numpy(name, *args, **kwargs):
+        if name == "numpy" or name.startswith("numpy."):
+            raise ModuleNotFoundError("numpy is intentionally unavailable")
+        return real_import(name, *args, **kwargs)
+
     monkeypatch.setattr(embedding_module, "get_model_loader", fail_loader)
+    monkeypatch.setattr(builtins, "__import__", reject_numpy)
     with temporarily_disable_embeddings():
         assert embeddings_disabled() is True
         vectors = _run(
@@ -394,7 +416,8 @@ def test_disabled_embedding_context_uses_only_persisted_vectors(
                 ids,
             )
         )
-    assert vectors == {}
+    assert set(vectors) == {ids[0]}
+    assert vectors[ids[0]] == pytest.approx([0.6, 0.8])
 
 
 def test_post_turn_runs_dream_before_ingest_with_embeddings_disabled(
