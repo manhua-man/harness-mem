@@ -326,6 +326,21 @@ cargo test --workspace
 The fast lane skips only four exhaustive, deterministic 60-case retrieval
 replays. Every assertion still runs on `main` and in the tagged release gate.
 
+Before claiming that the running product is complete, execute the repository's
+user-outcome contract with the cross-project `outcome-verifier` Skill:
+
+```bash
+python tools/outcome-verifier/scripts/verify_outcomes.py \
+  --config .codex/outcomes.json \
+  --output .tmp/outcome-verifier/harness-mem-report.json
+```
+
+This read-only probe requires fresh paired Codex lifecycle receipts, a persisted
+successful Dream run, a meaningful Note and semantic summary for every recent
+completed distill session, and a durable truth that can be returned through the
+FTS read model. A non-zero verdict means the user-visible outcome is not complete,
+even when code, configuration, queues, or unit tests look healthy.
+
 Repair or regenerate MCP descriptors when `tool_specs` changes (also reverts incidental `mcps/grok_com_github` IDE drift):
 
 ```bash

@@ -220,6 +220,20 @@ cargo test --workspace
 快速门只跳过四个确定性的 60-case 穷举检索回放；全部断言仍会在 `main`
 和正式 tag 的发布门中执行。
 
+在声称运行中的产品已经完成前，使用跨项目 `outcome-verifier` Skill 执行
+仓库的用户结果合同：
+
+```bash
+python tools/outcome-verifier/scripts/verify_outcomes.py \
+  --config .codex/outcomes.json \
+  --output .tmp/outcome-verifier/harness-mem-report.json
+```
+
+该只读探针要求：Codex 生命周期的 start/Stop 回执新鲜且成对、Dream 存在
+持久化成功运行、最近完成的每个蒸馏会话都有有效语义摘要和可读 Note，以及
+至少一条长期记忆能从 FTS read model 真正检索回来。只要 verdict 非零，就不能
+因为代码、配置、队列或单元测试正常而声称用户结果已经落地。
+
 发布标签会构建六个平台 wheel 和 sdist，在 Windows、macOS、Linux 上完成
 全新安装验证，运行真实 sqlite-vec contract gate，并验证受支持的 Windows 升级
 路径后再上传到 GitHub Release。本项目不发布到 PyPI。

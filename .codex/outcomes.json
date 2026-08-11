@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "project": "harness-mem",
+  "claims": [
+    {
+      "id": "codex_hook_lifecycle",
+      "description": "Codex Desktop native start and post-turn hooks have fresh paired success receipts.",
+      "required": true,
+      "checks": [
+        {
+          "id": "native_receipts",
+          "description": "Inspect receipts bound to the current hook fingerprint and task id.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "hooks.configuration_complete": {"equals": true},
+              "hooks.wake_verified": {"equals": true},
+              "hooks.maintenance_verified": {"equals": true},
+              "hooks.session_pair_status": {"equals": "matched"},
+              "hooks.lifecycle_verified": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "dream_execution",
+      "description": "Dream has a successful persisted run within the verification window.",
+      "required": true,
+      "checks": [
+        {
+          "id": "persisted_dream_run",
+          "description": "Read the durable Dream ledger rather than scheduler configuration.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "dream.successful_run_count": {"gte": 1},
+              "dream.last_successful_run_at": {"exists": true},
+              "dream.success_within_window": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "distill_user_artifacts",
+      "description": "Every recently completed session distill has a readable Session Note.",
+      "required": true,
+      "checks": [
+        {
+          "id": "completed_session_notes",
+          "description": "Match completed distill sessions to real user-readable Note files.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "distill.unique_completed_sessions": {"gte": 1},
+              "distill.note_coverage_complete": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "distill_audit_summaries",
+      "description": "Recent completed distill ledgers retain their semantic summaries for audit.",
+      "required": false,
+      "checks": [
+        {
+          "id": "persisted_semantic_summaries",
+          "description": "Check the latest completed ledger for every recent source session.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "distill.semantic_summary_coverage_complete": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "durable_memory_retrieval",
+      "description": "At least one readable durable memory can be retrieved through the normal search path.",
+      "required": true,
+      "checks": [
+        {
+          "id": "retrieval_smoke",
+          "description": "Choose a readable truth and prove search returns the same truth id.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "retrieval.readable_truth_count": {"gte": 1},
+              "retrieval.probe_attempted": {"equals": true},
+              "retrieval.probe_hit": {"equals": true}
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
