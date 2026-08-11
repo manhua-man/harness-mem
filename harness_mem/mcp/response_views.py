@@ -233,34 +233,24 @@ def render_project_status(
         "repair_hint": full.get("repair_hint"),
         "repair_reason": full.get("repair_reason"),
         "suggested_slash": full.get("suggested_slash"),
-        "temporal_summary": _compact_temporal_summary(
-            full.get("temporal_summary")
-        ),
+        "temporal_summary": _compact_temporal_summary(full.get("temporal_summary")),
         "retrieval_profiles": _compact_retrieval_profiles(
             full.get("retrieval_profiles")
         ),
         "runtime_versions": _compact_runtime_versions(full.get("runtime_versions")),
         "job_health": _compact_job_health(full.get("job_health")),
-        "retrieval_health": _compact_retrieval_health(
-            full.get("retrieval_health")
-        ),
+        "retrieval_health": _compact_retrieval_health(full.get("retrieval_health")),
         "memory_funnel": _compact_memory_funnel(full.get("memory_funnel")),
         "cost_budget": _compact_cost_budget(full.get("cost_budget")),
         "install_drift": _compact_install_drift(full.get("install_drift")),
         "integration_health": _compact_integration_health(
             full.get("integration_health")
         ),
+        "health_card": _compact_health_card(full.get("health_card")),
         "pending_distill": _compact_pending_distill(full.get("pending_distill")),
         "guided_flow": compact_guided_flow,
         "why_this_result": _compact_status_reason(full),
         "next_actions": _compact_next_actions(full.get("next_actions")),
-        "details_available": [
-            "retrieval_health",
-            "cost_budget",
-            "install_drift",
-            "integration_health",
-            "guided_flow",
-        ],
         "drilldown_hints": [
             {
                 "tool": "get_project_status",
@@ -291,6 +281,7 @@ def project_status_decision_fingerprint(payload: Mapping[str, Any]) -> dict[str,
         "next_actions": _next_action_fingerprint(payload.get("next_actions")),
         "pending_distill": _compact_pending_distill(payload.get("pending_distill")),
         "memory_funnel": _compact_memory_funnel(payload.get("memory_funnel")),
+        "health_card": _compact_health_card(payload.get("health_card")),
     }
 
 
@@ -439,7 +430,6 @@ def _compact_integration_health(value: Any) -> dict[str, Any]:
     host = dict(payload.get("host") or {})
     hooks = dict(payload.get("hooks") or {})
     transcript = dict(payload.get("transcript") or {})
-    distill = dict(payload.get("pending_distill") or {})
     compact_hooks = {
         "status": hooks.get("status"),
         "action_required": hooks.get("action_required"),
@@ -469,22 +459,25 @@ def _compact_integration_health(value: Any) -> dict[str, Any]:
             "failed_source_count": transcript.get("failed_source_count"),
             "retry_source_count": transcript.get("retry_source_count"),
         },
-        "pending_distill": {
-            "status": distill.get("status"),
-            "throughput_per_day_7d": distill.get("throughput_per_day_7d"),
-            "stuck_reason_codes": [
-                reason.get("code")
-                for reason in list(distill.get("stuck_reasons") or [])[:3]
-                if isinstance(reason, Mapping)
-            ],
-            "drain_estimate": {
-                "status": dict(distill.get("drain_estimate") or {}).get("status"),
-                "estimated_calendar_days": dict(
-                    distill.get("drain_estimate") or {}
-                ).get("estimated_calendar_days"),
-            },
-            "agent_required": distill.get("agent_required"),
+    }
+
+
+def _compact_health_card(value: Any) -> dict[str, Any]:
+    payload = dict(value or {})
+    last_run = dict(payload.get("last_run") or {})
+    queue = dict(payload.get("queue") or {})
+    return {
+        "status": payload.get("status"),
+        "alert": payload.get("alert"),
+        "chain_verified": payload.get("chain_verified"),
+        "last_run": {
+            "at": last_run.get("at"),
+            "tokens": last_run.get("tokens"),
+            "seconds": last_run.get("seconds"),
         },
+        "queue_overdue": payload.get("queue_overdue", queue.get("overdue")),
+        "failures_24h": payload.get("failures_24h"),
+        "issue_codes": list(payload.get("issue_codes") or []),
     }
 
 
@@ -516,15 +509,9 @@ def _prune_compact(value: Any) -> Any:
 
     if isinstance(value, Mapping):
         result = {
-            key: _prune_compact(item)
-            for key, item in value.items()
-            if item is not None
+            key: _prune_compact(item) for key, item in value.items() if item is not None
         }
-        return {
-            key: item
-            for key, item in result.items()
-            if item not in ({}, [])
-        }
+        return {key: item for key, item in result.items() if item not in ({}, [])}
     if isinstance(value, list):
         return [_prune_compact(item) for item in value]
     return value
@@ -552,9 +539,7 @@ def _compact_pending_distill(value: Any) -> dict[str, Any]:
             for key in ("unverified_blocked", "contradicted")
             if int(admission.get(key) or 0) > 0
         },
-        "source_cleanup_partial_failure": payload.get(
-            "source_cleanup_partial_failure"
-        ),
+        "source_cleanup_partial_failure": payload.get("source_cleanup_partial_failure"),
         "source_cleanup_unsupported": payload.get("source_cleanup_unsupported"),
     }
 

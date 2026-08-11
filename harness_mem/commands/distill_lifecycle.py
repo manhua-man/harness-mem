@@ -112,7 +112,16 @@ def pending_distill_jobs(
     offered_today = {job.id for job in all_jobs if job.agent_offer_day == today}
     remaining = max(0, int(daily_job_budget) - len(offered_today))
     ordered = sorted(
-        lossless_jobs,
+        [
+            job
+            for job in lossless_jobs
+            if not (
+                job.status == "reviewing"
+                and job.review_lease_owner
+                and job.review_lease_until is not None
+                and job.review_lease_until > current
+            )
+        ],
         key=lambda item: item.created_at,
         reverse=recent_first,
     )
@@ -221,8 +230,25 @@ def distill_drainer_metrics(
     oldest_parked = min((job.created_at for job in parked), default=None)
     budget_remaining = max(0, int(daily_job_budget) - len(offered_today))
     offered_active_ids = {job.id for job in active if job.agent_offer_day == today}
+    autonomous_reviewing = [
+        job
+        for job in active
+        if job.status == "reviewing"
+        and job.review_execution_source == "autonomous_worker"
+        and job.review_lease_owner
+        and job.review_lease_until is not None
+        and job.review_lease_until > current
+    ]
+    autonomous_completed = [
+        job
+        for job in completed
+        if job.review_execution_source == "autonomous_worker"
+        and job.completed_at is not None
+    ]
     state = (
-        "waiting_for_agent"
+        "processing_autonomously"
+        if autonomous_reviewing
+        else "waiting_for_agent"
         if active and (budget_remaining > 0 or bool(offered_active_ids))
         else "daily_budget_exhausted"
         if active
@@ -301,7 +327,15 @@ def distill_drainer_metrics(
         "stuck_reasons": stuck_reasons,
         "drain_estimate": drain_estimate,
         "agent_required": bool(pending_total),
-        "background_semantic_processing": False,
+        "background_semantic_processing": bool(
+            autonomous_reviewing or autonomous_completed
+        ),
+        "autonomous_active": len(autonomous_reviewing),
+        "last_semantic_success_at": (
+            max(job.completed_at for job in autonomous_completed).isoformat()
+            if autonomous_completed
+            else None
+        ),
     }
 
 

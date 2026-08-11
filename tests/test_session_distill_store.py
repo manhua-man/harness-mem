@@ -110,6 +110,112 @@ def test_job_claim_checkpoint_and_finalize(tmp_path: Path) -> None:
     )
     assert outcome.completion_disposition == "promoted"
     assert outcome.source_cleanup_status == "retained"
+    backfilled = store.backfill_distill_session_summary(
+        job.id,
+        session_summary="The completed session implemented and verified the requested task.",
+    )
+    assert backfilled.semantic_review["session_summary"].startswith(
+        "The completed session"
+    )
+    store.close()
+
+
+def test_review_lease_is_exclusive_and_expired_owner_is_recovered(
+    tmp_path: Path,
+) -> None:
+    store = TranscriptStore(tmp_path)
+    source = _save_source(store, "User decision\nAssistant answer\n")
+    job = store.enqueue_distill_job(source.id)
+    for chunk, _checkpoint in store.claim_distill_chunks(
+        job.id,
+        lease_owner="chunk-reader",
+        limit=100,
+    ):
+        store.checkpoint_distill_chunk(
+            job.id,
+            chunk.id,
+            lease_owner="chunk-reader",
+            result={"structural": True},
+        )
+
+    first = store.claim_distill_review(
+        job.id,
+        lease_owner="worker-a",
+        execution_source="autonomous_worker",
+        lease_seconds=30,
+    )
+    assert first is not None
+    assert store.claim_distill_review(
+        job.id,
+        lease_owner="worker-b",
+        execution_source="autonomous_worker",
+        lease_seconds=30,
+    ) is None
+
+    current = store.get_distill_job(job.id)
+    assert current is not None
+    current.review_lease_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+    store._distill._upsert_job_locked(current)
+    store._conn.commit()
+
+    recovered = store.claim_distill_review(
+        job.id,
+        lease_owner="worker-b",
+        execution_source="autonomous_worker",
+        lease_seconds=30,
+    )
+    assert recovered is not None
+    assert recovered.review_lease_owner == "worker-b"
+    assert recovered.recovery_count == 1
+    assert "expired_review_lease" in recovered.recovery_reason_codes
+    store.close()
+
+
+def test_active_review_lease_guards_final_write_boundary(tmp_path: Path) -> None:
+    store = TranscriptStore(tmp_path)
+    source = _save_source(store, "User decision\nAssistant answer\n")
+    job = store.enqueue_distill_job(source.id)
+    for chunk, _checkpoint in store.claim_distill_chunks(
+        job.id,
+        lease_owner="chunk-reader",
+        limit=100,
+    ):
+        store.checkpoint_distill_chunk(
+            job.id,
+            chunk.id,
+            lease_owner="chunk-reader",
+            result={"structural": True},
+        )
+    assert store.claim_distill_review(
+        job.id,
+        lease_owner="worker-a",
+        execution_source="autonomous_worker",
+        lease_seconds=30,
+    ) is not None
+    review = {
+        "final_user_request": "review",
+        "final_outcome": "complete",
+        "last_turn_status": "answered",
+        "contradictions": [],
+        "unfinished_work": [],
+        "evidence_status": "answered",
+        "promotion_decision": "no_promotion",
+    }
+
+    with pytest.raises(PermissionError, match="review lease"):
+        store.finalize_distill_job(job.id, semantic_review=review)
+    with pytest.raises(PermissionError, match="review lease"):
+        store.finalize_distill_job(
+            job.id,
+            semantic_review=review,
+            review_lease_owner="worker-b",
+        )
+    completed = store.finalize_distill_job(
+        job.id,
+        semantic_review=review,
+        review_lease_owner="worker-a",
+    )
+    assert completed.status == "completed"
     store.close()
 
 

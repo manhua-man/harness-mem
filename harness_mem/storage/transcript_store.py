@@ -628,6 +628,56 @@ class TranscriptStore:
     def defer_distill_job(self, job_id: str, *, error: str) -> SessionDistillJob:
         return self._distill.defer(job_id, error=error)
 
+    def claim_distill_review(
+        self,
+        job_id: str,
+        *,
+        lease_owner: str,
+        execution_source: str,
+        lease_seconds: int = 300,
+    ) -> SessionDistillJob | None:
+        return self._distill.claim_review(
+            job_id,
+            lease_owner=lease_owner,
+            execution_source=execution_source,
+            lease_seconds=lease_seconds,
+        )
+
+    def renew_distill_review_lease(
+        self,
+        job_id: str,
+        *,
+        lease_owner: str,
+        lease_seconds: int = 300,
+    ) -> bool:
+        return self._distill.renew_review_lease(
+            job_id,
+            lease_owner=lease_owner,
+            lease_seconds=lease_seconds,
+        )
+
+    def release_distill_review_lease(
+        self,
+        job_id: str,
+        *,
+        lease_owner: str,
+    ) -> bool:
+        return self._distill.release_review_lease(
+            job_id,
+            lease_owner=lease_owner,
+        )
+
+    def backfill_distill_session_summary(
+        self,
+        job_id: str,
+        *,
+        session_summary: str,
+    ) -> SessionDistillJob:
+        return self._distill.backfill_session_summary(
+            job_id,
+            session_summary=session_summary,
+        )
+
     def rebalance_distill_jobs(
         self,
         project_name: str,
@@ -732,11 +782,13 @@ class TranscriptStore:
         *,
         semantic_review: dict,
         output_candidate_ids: list[str] | None = None,
+        review_lease_owner: str | None = None,
     ) -> SessionDistillJob:
         return self._distill.finalize(
             job_id,
             semantic_review=semantic_review,
             output_candidate_ids=output_candidate_ids,
+            review_lease_owner=review_lease_owner,
         )
 
     def record_distill_completion_outcome(

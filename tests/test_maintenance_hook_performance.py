@@ -38,11 +38,12 @@ def test_stop_maintenance_defers_embedding_model_loading(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    observed: dict[str, bool | int] = {}
+    observed: dict[str, bool | int | str | None] = {}
 
     def fake_prepare_session_distill(**kwargs):
         observed["embeddings_disabled"] = embeddings_disabled()
         observed["limit"] = kwargs["limit"]
+        observed["session_id"] = kwargs["session_id"]
         return {
             "success": True,
             "observation_count": 1,
@@ -61,12 +62,14 @@ def test_stop_maintenance_defers_embedding_model_loading(
             project_name="demo",
             project_root=str(tmp_path),
             config=MergedConfig(),
+            trigger_id="current-session",
         )
     )
 
     assert payload["success"] is True
     assert observed["embeddings_disabled"] is True
     assert observed["limit"] == 1
+    assert observed["session_id"] == "current-session"
     assert embeddings_disabled() is False
 
 

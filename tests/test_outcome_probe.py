@@ -8,8 +8,10 @@ from types import SimpleNamespace
 from harness_mem.outcome_probe import (
     _read_only_connection,
     inspect_distill_notes,
+    inspect_hook_outcome,
     inspect_retrieval_outcome,
 )
+from harness_mem.hook_receipts import record_hook_execution
 
 
 def _job(*, session_id: str, completed_at: datetime, summary: str):
@@ -20,6 +22,55 @@ def _job(*, session_id: str, completed_at: datetime, summary: str):
         completed_at=completed_at,
         semantic_review={"session_summary": summary},
     )
+
+
+def test_hook_probe_accepts_fresh_interleaved_codex_actions(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    hook_file = project_root / ".codex" / "hooks.json"
+    hook_file.parent.mkdir()
+    hook_file.write_text(
+        '{"hooks":{"SessionStart":[{"command":"harness-mem-hook"}],'
+        '"Stop":[{"command":"harness-mem-hook"}]}}\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.collect_hook_file_statuses",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(exists=True, configured=True)
+        ],
+    )
+    record_hook_execution(
+        tmp_path,
+        project_root=project_root,
+        project_name="demo",
+        client="codex",
+        action="wake-start",
+        trigger_id="session-a",
+        source="native-hook",
+    )
+    record_hook_execution(
+        tmp_path,
+        project_root=project_root,
+        project_name="demo",
+        client="codex",
+        action="post-turn-maintenance",
+        trigger_id="session-b",
+        source="native-hook",
+    )
+
+    result = inspect_hook_outcome(
+        tmp_path,
+        project_root=project_root,
+        client="codex",
+    )
+
+    assert result["actions_verified"] is True
+    assert result["session_pair_status"] == "mismatched"
+    assert result["lifecycle_verified"] is False
 
 
 def test_distill_note_probe_requires_real_meaningful_note(tmp_path: Path) -> None:

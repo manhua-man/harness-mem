@@ -111,7 +111,7 @@ def test_project_scoped_rebuild_preserves_every_projects_physical_index(
     asyncio.run(exercise())
 
 
-def test_doctor_reports_canonical_content_drift_after_generation_publish(
+def test_doctor_accepts_verified_incremental_growth_after_generation_publish(
     tmp_path: Path,
 ) -> None:
     async def exercise() -> None:
@@ -145,13 +145,13 @@ def test_doctor_reports_canonical_content_drift_after_generation_publish(
                     metadata={"project_name": "doctor-project"},
                 )
             )
-            drifted = await _check_verbatim_exact_index_health(
+            incremented = await _check_verbatim_exact_index_health(
                 backend, "doctor-project"
             )
-            assert drifted["has_issue"] is True
-            assert "HM-302" in drifted["message"]
-            assert drifted["assessment"] == "expected_growth"
-            assert "manifest_refresh_required" in drifted["message"]
+            assert incremented["has_issue"] is False
+            report = store.exact_index_generation_report()
+            assert report["assessment"] == "healthy_incremental"
+            assert report["reason"] == "verified_incremental_growth"
         finally:
             await backend.close()
 

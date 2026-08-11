@@ -11,6 +11,7 @@ import pytest
 import harness_mem.commands.dream as dream_module
 import harness_mem.commands.maintenance as maintenance_module
 import harness_mem.commands.wake as wake_module
+import harness_mem.autonomous.worker as autonomous_worker
 import harness_mem.hook_background as hook_background
 import harness_mem.host_entry.__main__ as host_entry
 import harness_mem.hook_receipts as hook_receipts
@@ -44,7 +45,11 @@ def _args(tmp_path, action: str) -> argparse.Namespace:
 def test_host_entry_wake_start_outputs_wake_text(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
     monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
-    monkeypatch.setattr(host_entry, "ensure_project_profile", lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)))
+    monkeypatch.setattr(
+        host_entry,
+        "ensure_project_profile",
+        lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)),
+    )
 
     async def fake_wake(_backend, project_name: str) -> str:
         return f"Wake context for {project_name}"
@@ -61,7 +66,9 @@ def test_host_entry_wake_start_outputs_wake_text(monkeypatch, tmp_path) -> None:
     assert payload == f"Wake context for {tmp_path.name}"
 
 
-def test_host_entry_wake_records_current_codex_hook_execution(monkeypatch, tmp_path) -> None:
+def test_host_entry_wake_records_current_codex_hook_execution(
+    monkeypatch, tmp_path
+) -> None:
     hook_path = tmp_path / ".codex" / "hooks.json"
     hook_path.parent.mkdir(parents=True)
     hook_path.write_text(
@@ -101,7 +108,11 @@ def test_host_entry_wake_records_current_codex_hook_execution(monkeypatch, tmp_p
 def test_host_entry_dream_end_outputs_dream_json(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
     monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
-    monkeypatch.setattr(host_entry, "ensure_project_profile", lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)))
+    monkeypatch.setattr(
+        host_entry,
+        "ensure_project_profile",
+        lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)),
+    )
 
     async def fake_dream(_backend, *, project_name: str, **_kwargs):
         return {
@@ -129,10 +140,16 @@ def test_host_entry_dream_end_outputs_dream_json(monkeypatch, tmp_path) -> None:
     assert "metabolism" not in payload.lower()
 
 
-def test_host_entry_post_turn_maintenance_outputs_combined_json(monkeypatch, tmp_path) -> None:
+def test_host_entry_post_turn_maintenance_outputs_combined_json(
+    monkeypatch, tmp_path
+) -> None:
     monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
     monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
-    monkeypatch.setattr(host_entry, "ensure_project_profile", lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)))
+    monkeypatch.setattr(
+        host_entry,
+        "ensure_project_profile",
+        lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)),
+    )
 
     async def fake_post_turn(
         _backend,
@@ -168,7 +185,9 @@ def test_host_entry_post_turn_maintenance_outputs_combined_json(monkeypatch, tmp
     monkeypatch.setattr(wake_module, "build_wake_injection", fail_wake)
     monkeypatch.setattr(dream_module, "dream_auto_tick", fail_wake)
 
-    code, payload = asyncio.run(host_entry.run(_args(tmp_path, "post-turn-maintenance")))
+    code, payload = asyncio.run(
+        host_entry.run(_args(tmp_path, "post-turn-maintenance"))
+    )
     assert code == ExitCode.SUCCESS
 
     data = json.loads(payload or "{}")
@@ -178,6 +197,49 @@ def test_host_entry_post_turn_maintenance_outputs_combined_json(monkeypatch, tmp
     assert data["summary"]["distill_job_id"] == "distill-1"
     assert "auto_review" not in data
     assert "dream" not in data
+
+
+def test_host_entry_prioritizes_current_distill_job_for_autonomous_worker(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr(
+        host_entry,
+        "load_merged_config",
+        lambda _root: MergedConfig(distill_autonomous_enabled=True),
+    )
+    monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
+    monkeypatch.setattr(
+        host_entry,
+        "ensure_project_profile",
+        lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)),
+    )
+
+    async def fake_post_turn(_backend, **kwargs):
+        return {
+            "success": True,
+            "status": "queued",
+            "summary": {"distill_job_id": "current-job"},
+            "trigger_id": kwargs.get("trigger_id"),
+        }
+
+    captured: dict[str, object] = {}
+
+    def fake_autonomous(_backend, **kwargs):
+        captured.update(kwargs)
+        return {"success": True, "state": "succeeded", "outcomes": []}
+
+    monkeypatch.setattr(maintenance_module, "run_post_turn_maintenance", fake_post_turn)
+    monkeypatch.setattr(
+        autonomous_worker, "run_autonomous_distill_batch", fake_autonomous
+    )
+
+    code, _payload = asyncio.run(
+        host_entry.run(_args(tmp_path, "post-turn-maintenance"))
+    )
+
+    assert code == ExitCode.SUCCESS
+    assert captured["trigger_id"] == "turn-1"
+    assert captured["preferred_job_id"] == "current-job"
 
 
 def test_host_entry_dispatches_ide_maintenance_without_loading_backend(
@@ -199,7 +261,9 @@ def test_host_entry_dispatches_ide_maintenance_without_loading_backend(
         host_entry,
         "load_merged_config",
         lambda _root: (_ for _ in ()).throw(
-            AssertionError("background dispatch must happen before config/backend startup")
+            AssertionError(
+                "background dispatch must happen before config/backend startup"
+            )
         ),
     )
     args = _args(tmp_path, "post-turn-maintenance")
@@ -253,7 +317,11 @@ def test_repeated_pre_hooks_skip_wake_for_same_host_session(
 def test_host_entry_client_override_sets_runtime_host(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
     monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
-    monkeypatch.setattr(host_entry, "ensure_project_profile", lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)))
+    monkeypatch.setattr(
+        host_entry,
+        "ensure_project_profile",
+        lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)),
+    )
 
     async def fake_wake(_backend, project_name: str) -> str:
         assert os.environ.get("HARNESS_MEM_CLIENT") == "cursor"
@@ -279,7 +347,9 @@ def test_hook_console_entry_reports_its_version(capsys) -> None:
     assert "harness-mem-hook " in capsys.readouterr().out
 
 
-def test_codex_stop_adapter_consumes_hook_payload(monkeypatch, tmp_path, capsys) -> None:
+def test_codex_stop_adapter_consumes_hook_payload(
+    monkeypatch, tmp_path, capsys
+) -> None:
     captured: dict[str, object] = {}
 
     async def fake_run(args):
@@ -289,9 +359,10 @@ def test_codex_stop_adapter_consumes_hook_payload(monkeypatch, tmp_path, capsys)
     monkeypatch.setattr(host_entry, "run", fake_run)
     monkeypatch.setattr(host_entry.sys, "stdin", io.StringIO('{"turn_id": "turn-22"}'))
 
-    assert host_entry.main(
-        ["--adapter", "codex-stop", "--project-root", str(tmp_path)]
-    ) == ExitCode.SUCCESS
+    assert (
+        host_entry.main(["--adapter", "codex-stop", "--project-root", str(tmp_path)])
+        == ExitCode.SUCCESS
+    )
 
     assert captured["action"] == "post-turn-maintenance"
     assert captured["client"] == "codex"
@@ -299,7 +370,9 @@ def test_codex_stop_adapter_consumes_hook_payload(monkeypatch, tmp_path, capsys)
     assert capsys.readouterr().out == "{}\n"
 
 
-def test_antigravity_pre_adapter_emits_injected_context(monkeypatch, tmp_path, capsys) -> None:
+def test_antigravity_pre_adapter_emits_injected_context(
+    monkeypatch, tmp_path, capsys
+) -> None:
     captured: dict[str, object] = {}
 
     async def fake_run(args):
@@ -310,12 +383,17 @@ def test_antigravity_pre_adapter_emits_injected_context(monkeypatch, tmp_path, c
     monkeypatch.setattr(
         host_entry.sys,
         "stdin",
-        io.StringIO(json.dumps({"workspacePaths": [str(tmp_path)], "conversationId": "conv-7"})),
+        io.StringIO(
+            json.dumps({"workspacePaths": [str(tmp_path)], "conversationId": "conv-7"})
+        ),
     )
 
-    assert host_entry.main(
-        ["--adapter", "antigravity-pre", "--project-root", str(tmp_path)]
-    ) == ExitCode.SUCCESS
+    assert (
+        host_entry.main(
+            ["--adapter", "antigravity-pre", "--project-root", str(tmp_path)]
+        )
+        == ExitCode.SUCCESS
+    )
 
     assert captured["action"] == "wake-start"
     assert captured["client"] == "antigravity"
@@ -354,6 +432,4 @@ def test_hermes_adapter_resolves_project_from_runtime_payload(
 
     assert captured["project_root"] == str(tmp_path.resolve())
     assert captured["client"] == "hermes"
-    assert json.loads(capsys.readouterr().out) == {
-        "context": "runtime-scoped context"
-    }
+    assert json.loads(capsys.readouterr().out) == {"context": "runtime-scoped context"}

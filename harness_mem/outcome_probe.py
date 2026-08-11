@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
+import hashlib
 import json
 import re
 import sqlite3
@@ -14,10 +15,17 @@ from typing import Any, Iterable
 from harness_mem.commands.support import DEFAULT_DATA_DIR
 from harness_mem.core.schemas.session_distill import SessionDistillJob
 from harness_mem.hook_receipts import (
+    hook_configuration_fingerprint,
     inspect_hook_execution_receipt,
     read_hook_execution_receipt,
 )
 from harness_mem.hook_runtime import collect_hook_file_statuses
+from harness_mem.autonomous.worker import (
+    autonomous_config_fingerprint,
+    autonomous_runtime_fingerprint,
+    read_autonomous_receipt,
+)
+from harness_mem.config.merge import load_merged_config
 
 
 DEFAULT_RECENT_DAYS = 7
@@ -78,6 +86,10 @@ def inspect_hook_outcome(
     both_fresh = bool(actions) and all(
         item["freshness"] == "fresh" for item in actions.values()
     )
+    actions_verified = bool(actions) and all(
+        item["freshness"] == "fresh" and item.get("config_match") is True
+        for item in actions.values()
+    )
     wake_trigger = actions["wake_start"].get("trigger_id")
     maintenance_trigger = actions["post_turn_maintenance"].get("trigger_id")
     if client == "codex":
@@ -99,9 +111,9 @@ def inspect_hook_outcome(
         "wake_verified": actions["wake_start"]["freshness"] == "fresh",
         "maintenance_verified": actions["post_turn_maintenance"]["freshness"]
         == "fresh",
+        "actions_verified": actions_verified,
         "session_pair_status": pair_status,
-        "lifecycle_verified": both_fresh
-        and pair_status in {"matched", "not_required"},
+        "lifecycle_verified": both_fresh and pair_status in {"matched", "not_required"},
     }
 
 
@@ -139,8 +151,7 @@ def inspect_distill_notes(
         summary = str((job.semantic_review or {}).get("session_summary") or "").strip()
         lowered = content.lower()
         topic_present = any(
-            marker in lowered
-            for marker in ("会话主题", "## scope", "# session ")
+            marker in lowered for marker in ("会话主题", "## scope", "# session ")
         )
         outcome_present = any(
             marker in lowered
@@ -190,9 +201,209 @@ def inspect_distill_notes(
     }
 
 
+def inspect_autonomous_outcome(
+    data_dir: Path,
+    *,
+    project_name: str,
+    project_root: Path,
+    jobs: Iterable[Any],
+) -> dict[str, Any]:
+    """Verify a background semantic completion against its job and Note."""
+
+    receipt = read_autonomous_receipt(
+        data_dir,
+        project_name=project_name,
+        project_root=project_root,
+    )
+    if receipt is None:
+        return {
+            "receipt_exists": False,
+            "lifecycle_verified": False,
+            "provider_isolated": False,
+            "note_verified": False,
+            "last_semantic_success_at": None,
+        }
+    try:
+        merged_config = load_merged_config(project_root)
+        authorized = merged_config.distill_autonomous_enabled
+        current_config_fingerprint = autonomous_config_fingerprint(merged_config)
+    except Exception:  # noqa: BLE001 - outcome remains inspectable on bad config.
+        authorized = False
+        current_config_fingerprint = None
+    current_runtime_fingerprint = autonomous_runtime_fingerprint()
+    hook_receipt = read_hook_execution_receipt(
+        data_dir,
+        project_root=project_root,
+        client=str(receipt.get("client") or "codex"),
+        action="post-turn-maintenance",
+    )
+    latest_trigger_matches_hook = bool(
+        hook_receipt
+        and receipt.get("trigger_id")
+        and receipt.get("trigger_id") == hook_receipt.get("trigger_id")
+    )
+    durable_hook_binding = bool(
+        receipt.get("hook_launch_verified") is True
+        and receipt.get("trigger_id")
+        and receipt.get("hook_config_fingerprint")
+        == hook_configuration_fingerprint(
+            project_root,
+            client=str(receipt.get("client") or "codex"),
+        )
+    )
+    trigger_matches_hook = durable_hook_binding or latest_trigger_matches_hook
+    job_list = list(jobs)
+    batch = receipt.get("batch") if isinstance(receipt.get("batch"), dict) else {}
+    trigger_id = str(receipt.get("trigger_id") or "")
+    batch_jobs = [item for item in batch.get("jobs", []) if isinstance(item, dict)]
+    trigger_record = next(
+        (
+            item
+            for item in batch_jobs
+            if str(item.get("session_id") or "") == trigger_id
+            and item.get("status") == "completed"
+        ),
+        None,
+    )
+    trigger_job_id = str((trigger_record or {}).get("job_id") or "")
+    trigger_job = next(
+        (
+            item
+            for item in job_list
+            if item.id == trigger_job_id and item.session_id == trigger_id
+        ),
+        None,
+    )
+    record = trigger_record or {}
+    note = record.get("note") if isinstance(record.get("note"), dict) else {}
+    note_path = Path(str(note.get("path") or "")) if note.get("path") else None
+    try:
+        note_content = note_path.read_text(encoding="utf-8") if note_path else ""
+    except OSError:
+        note_content = ""
+    note_hash = (
+        hashlib.sha256(note_content.encode("utf-8")).hexdigest()
+        if note_content
+        else None
+    )
+    note_verified = bool(
+        note_path
+        and note_path.is_file()
+        and len(note_content.strip()) >= MIN_NOTE_CHARS
+        and trigger_job is not None
+        and note_path.name == f"{trigger_job.session_id}.md"
+        and trigger_job.session_id in note_content
+        and trigger_job.id in note_content
+        and note_hash == note.get("sha256")
+        and note.get("job_binding_valid") is True
+        and note.get("meaningful") is True
+    )
+    provider = (
+        record.get("provider") if isinstance(record.get("provider"), dict) else {}
+    )
+    provider_isolated = bool(
+        provider.get("name") in {"codex_exec", "responses_api"}
+        and provider.get("schema_valid") is True
+        and provider.get("sandbox") in {"read-only", "no-tools"}
+        and provider.get("ephemeral") is True
+        and provider.get("cwd_isolated") is True
+        and provider.get("hooks_disabled") is True
+        and provider.get("plugins_disabled") is True
+        and provider.get("mcp_disabled") is True
+        and provider.get("rules_ignored") is True
+        and provider.get("config_isolated") is True
+        and int(receipt.get("hook_reentry_count") or 0) == 0
+    )
+    provider_metrics_bound = bool(
+        isinstance(provider.get("input_tokens"), int)
+        and provider.get("input_tokens") > 0
+        and isinstance(provider.get("output_tokens"), int)
+        and provider.get("output_tokens") > 0
+        and isinstance(provider.get("total_tokens"), int)
+        and provider.get("total_tokens") > 0
+        and isinstance(provider.get("duration_seconds"), (int, float))
+        and provider.get("duration_seconds") > 0
+    )
+    job_completed = bool(
+        trigger_job is not None
+        and trigger_job.status == "completed"
+        and trigger_job.review_execution_source == "autonomous_worker"
+        and trigger_job.completed_at is not None
+    )
+    success_at = record.get("last_semantic_success_at")
+    completed_at = record.get("last_job_completed_at")
+    job_time = _parse_datetime(trigger_job.completed_at) if trigger_job else None
+    recorded_job_time = _parse_datetime(completed_at)
+    batch_binding_valid = bool(
+        int(receipt.get("schema_version") or 0) >= 2
+        and trigger_record is not None
+        and trigger_job is not None
+        and trigger_job_id == trigger_job.id
+        and str(trigger_record.get("session_id") or "") == trigger_job.session_id
+        and job_time is not None
+        and recorded_job_time == job_time
+    )
+    runtime_current = bool(
+        receipt.get("runtime_fingerprint") == current_runtime_fingerprint
+    )
+    config_current = bool(
+        current_config_fingerprint
+        and receipt.get("config_fingerprint") == current_config_fingerprint
+    )
+    return {
+        "receipt_exists": True,
+        "authorized": authorized,
+        "state": receipt.get("state"),
+        "execution_source": receipt.get("execution_source"),
+        "trigger_id": receipt.get("trigger_id"),
+        "trigger_matches_hook": trigger_matches_hook,
+        "durable_hook_binding": durable_hook_binding,
+        "latest_trigger_matches_hook": latest_trigger_matches_hook,
+        "job_id": trigger_job_id or None,
+        "session_id": trigger_job.session_id if trigger_job is not None else None,
+        "batch_binding_valid": batch_binding_valid,
+        "trigger_session_completed": trigger_job is not None,
+        "job_completed": job_completed,
+        "last_semantic_success_at": success_at,
+        "last_job_completed_at": completed_at,
+        "last_note_materialized_at": record.get("last_note_materialized_at"),
+        "runtime_current": runtime_current,
+        "config_current": config_current,
+        "provider": provider,
+        "provider_isolated": provider_isolated,
+        "provider_metrics_bound": provider_metrics_bound,
+        "note": {
+            **note,
+            "path": str(note_path) if note_path is not None else None,
+            "receipt_sha256": note.get("sha256"),
+            "sha256": note_hash,
+            "actual_sha256": note_hash,
+            "verified": note_verified,
+        },
+        "note_verified": note_verified,
+        "lifecycle_verified": bool(
+            success_at
+            and receipt.get("execution_source") == "autonomous_worker"
+            and trigger_matches_hook
+            and job_completed
+            and trigger_job is not None
+            and batch_binding_valid
+            and runtime_current
+            and config_current
+            and provider_isolated
+            and provider_metrics_bound
+            and note_verified
+        ),
+    }
+
+
 def _query_candidates(content: str) -> list[str]:
     words = re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]{4,}", content)
-    candidates = [word for word in words if word.lower() not in {"about", "which", "their", "there", "current"}]
+    candidates = [
+        word
+        for word in words
+        if word.lower() not in {"about", "which", "their", "there", "current"}
+    ]
     if candidates:
         return candidates[:5]
     compact = re.sub(r"\s+", "", content)
@@ -239,7 +450,9 @@ def inspect_dream_outcome(
             """,
             (project_name,),
         ).fetchall()
-    successful = [row for row in rows if row["status"] == "completed" and row["completed_at"]]
+    successful = [
+        row for row in rows if row["status"] == "completed" and row["completed_at"]
+    ]
     last_success = successful[0] if successful else None
     last = rows[0] if rows else None
     return {
@@ -247,7 +460,9 @@ def inspect_dream_outcome(
         "successful_run_count": len(successful),
         "last_status": last["status"] if last else None,
         "last_run_at": (last["completed_at"] or last["started_at"]) if last else None,
-        "last_successful_run_at": last_success["completed_at"] if last_success else None,
+        "last_successful_run_at": last_success["completed_at"]
+        if last_success
+        else None,
         "success_within_window": bool(
             last_success
             and (_parse_datetime(last_success["completed_at"]) or recent_cutoff)
@@ -356,6 +571,12 @@ def collect_outcomes(
         since=recent_cutoff,
     )
     retrieval = inspect_retrieval_outcome(data_dir, project_name)
+    autonomous = inspect_autonomous_outcome(
+        data_dir,
+        project_name=project_name,
+        project_root=project_root,
+        jobs=jobs,
+    )
     return {
         "schema_version": 1,
         "project": project_name,
@@ -365,6 +586,7 @@ def collect_outcomes(
         "hooks": hooks,
         "dream": dream,
         "distill": distill,
+        "autonomous": autonomous,
         "retrieval": retrieval,
     }
 

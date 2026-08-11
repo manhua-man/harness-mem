@@ -159,6 +159,14 @@ def _check_vector_index_health(backend: LocalMemoryBackend, project_name: str) -
                     manifest_report.setdefault("mismatches", []).append(
                         "source_content"
                     )
+                physical_matches_source = all(
+                    physical[key] == source[key]
+                    for key in ("row_count", "id_hash", "content_hash")
+                )
+                if manifest_report.get("has_issue") and physical_matches_source:
+                    manifest_report["has_issue"] = False
+                    manifest_report["assessment"] = "healthy_incremental"
+                    manifest_report["reason"] = "verified_incremental_growth"
                 manifest_reports.append(manifest_report)
                 if manifest_report.get("has_issue"):
                     return {

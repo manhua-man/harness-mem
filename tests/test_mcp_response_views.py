@@ -174,6 +174,29 @@ def _status_snapshot() -> dict:
             },
         ],
         "degraded_reason": None,
+        "health_card": {
+            "status": "healthy",
+            "alert": False,
+            "summary": "harness-mem: Healthy",
+            "chain_verified": True,
+            "last_run": {
+                "at": "2026-08-10T12:00:05+00:00",
+                "age_hours": 1.5,
+                "freshness": "current",
+                "tokens": 6001,
+                "seconds": 13.48,
+                "model": "gpt-test",
+                "note_path": "C:/notes/session.md",
+            },
+            "queue": {
+                "active": 1,
+                "parked": 199,
+                "retry_backoff": 0,
+                "overdue": 0,
+            },
+            "failures_24h": 0,
+            "issue_codes": [],
+        },
         "drilldown_hints": [{"why": "legacy full hint"}],
         "guided_flow": {
             "flow_id": "daily-memory-loop",
@@ -288,6 +311,18 @@ def test_compact_status_preserves_decisions_and_stays_within_budget() -> None:
     assert compact["pending_distill"]["evidence_admission_attention_7d"] == {
         "unverified_blocked": 1,
         "contradicted": 1,
+    }
+    assert compact["health_card"] == {
+        "status": "healthy",
+        "alert": False,
+        "chain_verified": True,
+        "last_run": {
+            "at": "2026-08-10T12:00:05+00:00",
+            "tokens": 6001,
+            "seconds": 13.48,
+        },
+        "queue_overdue": 0,
+        "failures_24h": 0,
     }
     assert compact["memory_funnel"]["retrieval_feedback"] == {
         "surfaced": 8,

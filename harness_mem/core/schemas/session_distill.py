@@ -150,6 +150,13 @@ class SessionDistillJob(BaseModel):
     agent_offer_day: str | None = None
     agent_offer_count: int = 0
     last_agent_offered_at: datetime | None = None
+    # One semantic reviewer owns a reviewing job at a time. Chunk leases cover
+    # structural reading only; these fields protect the model/finalize phase.
+    review_lease_owner: str | None = None
+    review_lease_until: datetime | None = None
+    review_attempt_count: int = 0
+    review_execution_source: str | None = None
+    last_review_heartbeat_at: datetime | None = None
     # Job-level recovery state is separate from per-chunk attempt_count. It
     # records reconciliation events after restart/lease expiry and bounds
     # repeated recovery without inventing a background semantic worker.

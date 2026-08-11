@@ -380,5 +380,6 @@ def tool_get_project_status(
         **dx_metadata,
         "guided_flow": guided_flow,
         "integration_health": integration_health,
+        "health_card": integration_health.get("health_card", {}),
     }
     return render_project_status(payload, detail_level=detail_level)

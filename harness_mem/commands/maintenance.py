@@ -472,6 +472,7 @@ async def run_post_turn_maintenance(
                 observation_limit=5,
                 max_chars_per_observation=6000,
                 run_ingest=True,
+                session_id=trigger_id if source == "ide_hook" else None,
                 _distill_source=source,
             )
 

@@ -8,7 +8,10 @@ from pathlib import Path
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.core.schemas.observation import Observation
-from harness_mem.integration_health import build_integration_health
+from harness_mem.integration_health import (
+    _build_autonomous_health_card,
+    build_integration_health,
+)
 from harness_mem.hook_receipts import record_hook_execution
 from harness_mem.host_entry.__main__ import _adapter_request
 from harness_mem.integration.repair import _suite_specs
@@ -23,7 +26,9 @@ def test_integration_health_summarizes_current_workspace(
     workspace.mkdir()
     hook_dir = workspace / ".cursor" / "hooks"
     hook_dir.mkdir(parents=True)
-    (hook_dir / "session-start.sh").write_text("harness-mem-hook wake", encoding="utf-8")
+    (hook_dir / "session-start.sh").write_text(
+        "harness-mem-hook wake", encoding="utf-8"
+    )
     (hook_dir / "after-agent.sh").write_text(
         "harness-mem-hook maintain",
         encoding="utf-8",
@@ -81,6 +86,116 @@ def test_integration_health_summarizes_current_workspace(
     assert distill["drain_estimate"]["status"] == "unavailable"
     assert distill["stuck_reasons"][0]["code"] == "zero_7d_throughput"
     assert health["summary"].startswith("project=ok | host=cursor | hooks=ok (2/2)")
+    assert health["health_card"]["status"] == "not_run"
+    assert health["health_card"]["alert"] is False
+
+
+def test_health_card_is_idle_safe_and_ignores_cold_parked_backlog() -> None:
+    card = _build_autonomous_health_card(
+        authorized=True,
+        autonomous={
+            "receipt_exists": True,
+            "lifecycle_verified": True,
+            "state": "succeeded",
+            "last_semantic_success_at": "2026-08-11T16:25:41+00:00",
+            "trigger_id": "session-1",
+            "job_id": "job-1",
+            "provider": {
+                "total_tokens": 6001,
+                "duration_seconds": 13.48,
+                "model": "gpt-test",
+            },
+            "note": {"path": "C:/notes/session-1.md"},
+        },
+        jobs=[],
+        drainer={
+            "active": 1,
+            "parked": 199,
+            "retry_backoff": 0,
+            "recovery_exhausted": 0,
+            "oldest_stalled_age_hours": 0.0,
+        },
+        hooks_configured=True,
+        post_turn_last_success_at="2026-08-11T16:25:42+00:00",
+        now=datetime(2026, 8, 11, 17, 0, tzinfo=timezone.utc),
+    )
+
+    assert card["status"] == "healthy"
+    assert card["alert"] is False
+    assert card["chain_verified"] is True
+    assert card["queue"] == {
+        "active": 1,
+        "parked": 199,
+        "retry_backoff": 0,
+        "overdue": 0,
+    }
+    assert card["failures_24h"] == 0
+
+
+def test_health_card_alerts_on_performance_and_queue_regressions() -> None:
+    card = _build_autonomous_health_card(
+        authorized=True,
+        autonomous={
+            "receipt_exists": True,
+            "lifecycle_verified": True,
+            "state": "succeeded",
+            "provider": {
+                "total_tokens": 15_001,
+                "duration_seconds": 60.01,
+            },
+        },
+        jobs=[],
+        drainer={
+            "active": 1,
+            "parked": 0,
+            "retry_backoff": 1,
+            "recovery_exhausted": 0,
+            "oldest_stalled_age_hours": 3.0,
+        },
+        hooks_configured=True,
+        post_turn_last_success_at="2026-08-11T16:25:42+00:00",
+        now=datetime(2026, 8, 11, 17, 0, tzinfo=timezone.utc),
+    )
+
+    assert card["status"] == "attention"
+    assert card["alert"] is True
+    assert card["queue"]["overdue"] == 2
+    assert card["issue_codes"] == [
+        "queue_overdue",
+        "token_regression",
+        "latency_regression",
+    ]
+
+
+def test_health_card_alerts_when_recent_hooks_make_no_semantic_progress() -> None:
+    card = _build_autonomous_health_card(
+        authorized=True,
+        autonomous={
+            "receipt_exists": True,
+            "lifecycle_verified": True,
+            "state": "succeeded",
+            "last_semantic_success_at": "2026-08-10T08:00:00+00:00",
+            "provider": {"total_tokens": 1000, "duration_seconds": 10.0},
+        },
+        jobs=[],
+        drainer={
+            "state": "waiting_for_agent",
+            "active": 1,
+            "parked": 0,
+            "retry_backoff": 0,
+            "recovery_exhausted": 0,
+            "oldest_stalled_age_hours": 0.0,
+            "daily_budget_remaining": 1,
+        },
+        hooks_configured=True,
+        post_turn_last_success_at="2026-08-11T11:30:00+00:00",
+        now=datetime(2026, 8, 11, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert card["status"] == "attention"
+    assert card["alert"] is True
+    assert card["last_run"]["freshness"] == "stale"
+    assert card["issue_codes"] == ["semantic_success_stale"]
 
 
 def test_integration_health_does_not_guess_host(tmp_path: Path, monkeypatch) -> None:
@@ -198,7 +313,10 @@ def test_codex_health_requires_fresh_execution_proof_for_both_actions(
     assert complete["hooks"]["session_pair_status"] == "matched"
     assert complete["hooks"]["lifecycle_verified"] is True
     assert complete["hooks"]["actions"]["wake_start"]["trigger_id"] == "session-1"
-    assert complete["hooks"]["actions"]["post_turn_maintenance"]["trigger_id"] == "session-1"
+    assert (
+        complete["hooks"]["actions"]["post_turn_maintenance"]["trigger_id"]
+        == "session-1"
+    )
     assert complete["hooks"]["action_required"] is None
 
 
@@ -241,7 +359,9 @@ def test_codex_health_marks_old_execution_receipts_stale(
         backend = LocalMemoryBackend(tmp_path / "data")
         await backend.init()
         try:
-            old_completed_at = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+            old_completed_at = (
+                datetime.now(timezone.utc) - timedelta(days=2)
+            ).isoformat()
             for action in ("wake-start", "post-turn-maintenance"):
                 receipt_path = record_hook_execution(
                     backend.data_dir,

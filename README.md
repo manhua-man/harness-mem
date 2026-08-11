@@ -32,7 +32,7 @@ Invocation surfaces (installed once at user scope, then visible in every project
 
 - `/hm:*` commands: `status`, `wake`, `search`, `search-all`, `distill`, `review`, `dream`.
 - Agent MCP calls: plain language, skills, or hooks trigger `wake/search/distill/review`.
-- Hooks: inject wake context, enforce retention, and maintain a two-job Agent-active distill lane with 3:1 recent/oldest refill, failure backoff, and a daily new-job budget. Each Agent task may consume up to two ordered jobs sequentially; without an Agent the queue reports `waiting_for_agent` and never claims background semantic work.
+- Hooks: inject wake context, enforce retention, and dispatch a detached autonomous distill worker. The exact Stop session gets the first slot; one bounded backlog slot then follows the 3:1 recent/oldest refill and daily backlog budget. Each job runs through a no-tools Structured Output provider with review leases and failure backoff. Missing provider/auth configuration remains explicit retryable work rather than a false completion.
 - CLI: setup, doctor, config, integration, and maintenance only.
 
 Everyday use reduces to three intents: continue work with `wake/search`, remember
@@ -83,10 +83,19 @@ recurring manual work. Answered candidates can still promote when unrelated
 unfinished work is recorded as a scoped handoff, but Dream waits for a fully
 completed review. Readable results and Session Notes show a title, one verifiable
 fact, and verification date/status; internal IDs stay in explicit audit detail.
+The detached Hook worker consumes the same semantic manifest through the
+configured Responses endpoint with no tools, no project filesystem access,
+`store=false`, and a strict response schema. It owns a renewable review lease,
+then lets trusted runtime code create candidates, finalize the job, and
+atomically materialize `~/.codex/hm-distill/sessions/<session-id>.md`. Health
+persists actual provider tokens and duration plus `last_semantic_success_at`,
+`last_job_completed_at`, and `last_note_materialized_at`. The non-interactive
+Codex CLI provider remains a compatibility fallback, not the default worker.
 `/hm:review` remains the correction and undo surface,
 not a required promotion gate. `/hm:distill` is the immediate entry to this same
-resumable pipeline. Hook maintenance only captures and queues evidence: it does
-not claim that an Agent has already summarized the session. Legacy Observations
+resumable pipeline. The synchronous Hook only captures and queues evidence; its
+detached worker may claim completion only after finalize and Note materialization
+receipts exist. Legacy Observations
 without an available native transcript remain audit-only (`legacy_partial`).
 
 New distill candidates carry an evidence basis and verification outcome.
@@ -99,7 +108,7 @@ retroactively reclassified.
 Version 0.9.6 converged the installed surface without changing that workflow:
 the MCP schema, handler, cluster, and descriptor registries now contain exactly
 the same 27 public tools; hook repair has one cross-host command; and public
-config is limited to ten durable policy choices while older tuning values stay
+config is limited to eleven durable policy choices while older tuning values stay
 readable for compatibility.
 
 Version 0.9.9 hardens that surface rather than adding another product path:
@@ -251,6 +260,17 @@ After automatic installation, open **Codex Settings > Hooks**, review and trust
 the new project hooks once, then start a new task. Until a matching
 `SessionStart` hook has actually completed, `get_project_status` reports
 `hooks=review_required` rather than claiming wake is operational.
+
+Autonomous semantic processing requires one separate persistent authorization
+because it sends the compact manifest to the configured model provider and may
+consume quota. Enable it once at user scope; future Stop turns do not ask again:
+
+```bash
+harness-mem config set distill.autonomous.enabled true --scope user --confirm
+```
+
+Set the value to `false` at user or project scope to return to queue-only Hook
+behavior. Disabling never requires confirmation.
 
 The repo installer performs the same all-host user-level sync automatically:
 

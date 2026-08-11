@@ -717,6 +717,7 @@ def tool_prepare_session_distill(
     if (
         requested_job_id
         and requested_job
+        and _distill_source != "autonomous_worker"
         and (
             requested_job.agent_offer_day != now.date().isoformat()
             or requested_job.agent_offer_count <= 0
@@ -1188,6 +1189,7 @@ def tool_finalize_session_distill(
     project_name: str,
     job_id: str,
     semantic_review: dict,
+    _review_lease_owner: str | None = None,
 ) -> dict:
     """Validate and finalize one explicit job, then auto-review and run Dream."""
 
@@ -1275,6 +1277,7 @@ def tool_finalize_session_distill(
             job_id,
             semantic_review=semantic_review,
             output_candidate_ids=candidate_ids,
+            review_lease_owner=_review_lease_owner,
         )
     payload: dict[str, Any] = {
         "success": completed.status == "completed",

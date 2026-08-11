@@ -53,6 +53,7 @@ class MergedConfig:
     capture_ignore_source_globs: tuple[str, ...] = ()
     transcript_retention_days: int = 0
     distill_auto_enabled: bool = True
+    distill_autonomous_enabled: bool = False
     distill_auto_max_jobs_per_wake: int = 2
     distill_auto_target_backlog: int = 2
     distill_auto_recent_first: bool = True
@@ -129,6 +130,12 @@ _CAPTURE_KEYS: tuple[tuple[str, str, str, Any], ...] = (
 
 _DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     ("distill.auto.enabled", "distill_auto_enabled", "bool", True),
+    (
+        "distill.autonomous.enabled",
+        "distill_autonomous_enabled",
+        "bool",
+        False,
+    ),
     (
         "distill.auto.max_jobs_per_wake",
         "distill_auto_max_jobs_per_wake",
@@ -234,6 +241,7 @@ PUBLIC_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "capture.ignore_source_globs",
     "transcript.retention_days",
     "distill.auto.enabled",
+    "distill.autonomous.enabled",
     "distill.delete_source_after_complete",
     "dream.auto.enabled",
 )

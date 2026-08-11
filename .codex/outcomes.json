@@ -4,12 +4,12 @@
   "claims": [
     {
       "id": "codex_hook_lifecycle",
-      "description": "Codex Desktop native start and post-turn hooks have fresh paired success receipts.",
+      "description": "Codex Desktop native start and post-turn hooks each have a fresh receipt for the current configuration; exact Stop-to-job binding is verified by the autonomous completion claim.",
       "required": true,
       "checks": [
         {
           "id": "native_receipts",
-          "description": "Inspect receipts bound to the current hook fingerprint and task id.",
+          "description": "Inspect both native hook actions against the current hook fingerprint. Their global latest receipts may belong to interleaved Desktop tasks.",
           "evidence_tier": "direct",
           "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
           "expect": {
@@ -18,8 +18,7 @@
               "hooks.configuration_complete": {"equals": true},
               "hooks.wake_verified": {"equals": true},
               "hooks.maintenance_verified": {"equals": true},
-              "hooks.session_pair_status": {"equals": "matched"},
-              "hooks.lifecycle_verified": {"equals": true}
+              "hooks.actions_verified": {"equals": true}
             }
           }
         }
@@ -61,6 +60,83 @@
             "json": {
               "distill.unique_completed_sessions": {"gte": 1},
               "distill.note_coverage_complete": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "autonomous_distill_completion",
+      "description": "A detached Hook worker has completed semantic distillation without an interactive Agent turn.",
+      "required": true,
+      "checks": [
+        {
+          "id": "persisted_autonomous_completion",
+          "description": "Bind the autonomous receipt to a completed durable job and fresh semantic success time.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "autonomous.execution_source": {"equals": "autonomous_worker"},
+              "autonomous.authorized": {"equals": true},
+              "autonomous.trigger_matches_hook": {"equals": true},
+              "autonomous.job_completed": {"equals": true},
+              "autonomous.trigger_session_completed": {"equals": true},
+              "autonomous.batch_binding_valid": {"equals": true},
+              "autonomous.last_semantic_success_at": {"exists": true},
+              "autonomous.runtime_current": {"equals": true},
+              "autonomous.config_current": {"equals": true},
+              "autonomous.lifecycle_verified": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "autonomous_note_materialization",
+      "description": "The autonomous completion materializes a meaningful, job-bound Session Note.",
+      "required": true,
+      "checks": [
+        {
+          "id": "autonomous_note_receipt",
+          "description": "Match the receipt hash and job/session bindings to the real Note file.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "autonomous.note_verified": {"equals": true},
+              "autonomous.last_note_materialized_at": {"exists": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "autonomous_provider_isolation",
+      "description": "The autonomous model runs ephemerally in an isolated read-only Codex execution.",
+      "required": true,
+      "checks": [
+        {
+          "id": "provider_isolation_receipt",
+          "description": "Verify schema validation, read-only sandbox, ephemeral execution, neutral cwd, and no Hook re-entry.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "autonomous.provider_isolated": {"equals": true},
+              "autonomous.provider_metrics_bound": {"equals": true},
+              "autonomous.provider.schema_valid": {"equals": true},
+              "autonomous.provider.sandbox": {"equals": "no-tools"},
+              "autonomous.provider.ephemeral": {"equals": true},
+              "autonomous.provider.cwd_isolated": {"equals": true},
+              "autonomous.provider.hooks_disabled": {"equals": true},
+              "autonomous.provider.plugins_disabled": {"equals": true},
+              "autonomous.provider.mcp_disabled": {"equals": true},
+              "autonomous.provider.rules_ignored": {"equals": true},
+              "autonomous.provider.config_isolated": {"equals": true}
             }
           }
         }

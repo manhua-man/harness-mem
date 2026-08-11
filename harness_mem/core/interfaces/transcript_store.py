@@ -154,6 +154,30 @@ class TranscriptStore(Protocol):
         result: dict,
     ) -> SessionDistillJob: ...
 
+    def claim_distill_review(
+        self,
+        job_id: str,
+        *,
+        lease_owner: str,
+        execution_source: str,
+        lease_seconds: int = 300,
+    ) -> SessionDistillJob | None: ...
+
+    def renew_distill_review_lease(
+        self,
+        job_id: str,
+        *,
+        lease_owner: str,
+        lease_seconds: int = 300,
+    ) -> bool: ...
+
+    def release_distill_review_lease(
+        self,
+        job_id: str,
+        *,
+        lease_owner: str,
+    ) -> bool: ...
+
     def finalize_distill_job(
         self,
         job_id: str,
@@ -171,6 +195,13 @@ class TranscriptStore(Protocol):
         promotion_summary: dict,
         source_cleanup_status: str,
         source_cleanup_receipt_id: str | None = None,
+    ) -> SessionDistillJob: ...
+
+    def backfill_distill_session_summary(
+        self,
+        job_id: str,
+        *,
+        session_summary: str,
     ) -> SessionDistillJob: ...
 
     def prune_completed_distill_evidence(
