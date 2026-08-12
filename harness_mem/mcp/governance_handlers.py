@@ -846,23 +846,40 @@ def tool_create_task_handoff(
     status: str,
     next_steps: list[str] | None = None,
     blockers: list[str] | None = None,
+    distill_job_id: str | None = None,
 ) -> dict:
     """Create a task handoff to record progress."""
     from harness_mem.core.schemas.task_handoff import TaskHandoff
     backend = _get_backend()
+    handoff_id = _distill_candidate_id(
+        backend,
+        project_name=project_name,
+        distill_job_id=distill_job_id,
+        candidate_kind="handoff",
+        payload={
+            "task_id": task_id,
+            "summary": summary,
+            "status": status,
+            "next_steps": next_steps or [],
+            "blockers": blockers or [],
+        },
+    )
     handoff = TaskHandoff(
+        id=handoff_id or str(uuid4()),
         project_name=project_name,
         task_id=task_id,
         summary=summary,
         status=status,
         next_steps=next_steps or [],
         blockers=blockers or [],
+        context={"distill_job_id": distill_job_id} if distill_job_id else {},
     )
     saved_id = asyncio.run(backend.structured_store.save_task_handoff(handoff))
     return {
         "success": True,
         "handoff_id": saved_id,
         "task_id": handoff.task_id,
+        "distill_job_id": distill_job_id,
     }
 
 

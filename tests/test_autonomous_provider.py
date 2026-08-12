@@ -6,9 +6,23 @@ from typing import Any
 
 from harness_mem.autonomous.models import AutonomousDecision
 from harness_mem.autonomous.provider import (
+    DEFAULT_DISTILL_TIMEOUT_SECONDS,
     ResponsesApiProvider,
+    _build_prompt,
     _strict_output_schema,
 )
+
+
+def test_responses_provider_default_timeout_matches_product_gate() -> None:
+    provider = ResponsesApiProvider()
+    assert provider.timeout_seconds == DEFAULT_DISTILL_TIMEOUT_SECONDS
+    assert provider.model == "gpt-5.6-luna"
+
+
+def test_provider_prompt_requires_user_statement_evidence_basis() -> None:
+    prompt = _build_prompt({"coverage": "complete"})
+    assert "must use evidence_basis=user_statement" in prompt
+    assert "Never label direct user evidence as transcript" in prompt
 
 
 def _decision() -> AutonomousDecision:
@@ -56,6 +70,8 @@ def test_strict_schema_requires_every_object_property_and_avoids_one_of() -> Non
     def walk(value: Any) -> None:
         if isinstance(value, dict):
             assert "oneOf" not in value
+            assert "title" not in value
+            assert "description" not in value
             if isinstance(value.get("properties"), dict):
                 assert set(value["required"]) == set(value["properties"])
                 assert value["additionalProperties"] is False

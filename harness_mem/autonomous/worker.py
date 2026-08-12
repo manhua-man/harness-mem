@@ -24,6 +24,7 @@ from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas.session_distill import SessionDistillJob
 from harness_mem.hook_receipts import hook_configuration_fingerprint
+from harness_mem.session_notes import materialize_session_note, session_note_path
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -41,6 +42,7 @@ _RUNTIME_SOURCE_FILES = (
     Path(__file__).parents[1] / "storage" / "session_distill_store.py",
     Path(__file__).parents[1] / "storage" / "transcript_store.py",
     Path(__file__).parents[1] / "core" / "schemas" / "session_distill.py",
+    Path(__file__).parents[1] / "session_notes.py",
 )
 
 
@@ -208,6 +210,9 @@ def run_autonomous_distill_batch(
         3,
         max(1, int(max_jobs or config.distill_auto_max_jobs_per_wake)),
     )
+    # Distillation is bounded structured classification, not a coding turn.
+    # Keep it independent from the user's heavier interactive model so a main
+    # Agent model change cannot silently reintroduce provider latency.
     chosen_provider = provider or ResponsesApiProvider()
     resolved_notes = notes_dir or Path.home() / ".codex" / "hm-distill" / "sessions"
     runtime_dir = Path(backend.data_dir) / "autonomous" / "provider-runtime"
@@ -279,10 +284,8 @@ def run_autonomous_distill_batch(
         if preferred_job_id
         else None
     )
-    if _preferred_job_is_eligible(
-        preferred,
-        project_name=project_name,
-        trigger_id=trigger_id,
+    if preferred is not None and _preferred_job_is_eligible(
+        preferred, project_name=project_name, trigger_id=trigger_id
     ):
         jobs = [preferred, *(job for job in jobs if job.id != preferred.id)]
     jobs = jobs[:selected_limit]
@@ -489,6 +492,7 @@ def _run_one(
         )
         if claimed is None:
             return {"job_id": job_id, "session_id": job.session_id, "status": "busy"}
+        session_id = job.session_id
 
         def heartbeat() -> None:
             if not backend.transcript_store.renew_distill_review_lease(
@@ -516,14 +520,14 @@ def _run_one(
                 update={
                     "state": "running",
                     "job_id": job_id,
-                    "session_id": job.session_id,
+                    "session_id": session_id,
                 },
             )
 
         provider_result, decision, validated_candidates, candidate_warnings = (
             _decide_with_candidate_retry(
                 provider,
-                manifest=_provider_manifest(packet),
+                manifest=build_provider_manifest(packet),
                 packet=packet,
                 job=job,
                 runtime_dir=runtime_dir,
@@ -545,6 +549,11 @@ def _run_one(
                 + "; ".join(candidate_warnings)[:1000],
                 kind="unrecoverable",
             )
+        handoff = _govern_unfinished_handoff(
+            tools,
+            job=job,
+            decision=decision,
+        )
         finalized = tools.tool_finalize_session_distill(
             project_name=project_name,
             job_id=job_id,
@@ -586,6 +595,7 @@ def _run_one(
             "note_path": note["path"],
             "note": note,
             "provider": provider_receipt,
+            "handoff": handoff,
             "candidate_warnings": candidate_warnings,
             **completion,
         }
@@ -636,7 +646,45 @@ def _run_one(
         }
 
 
-def _provider_manifest(packet: dict[str, Any]) -> dict[str, Any]:
+def _govern_unfinished_handoff(
+    tools: Any,
+    *,
+    job: SessionDistillJob,
+    decision: Any,
+) -> dict[str, Any] | None:
+    """Persist partial-session work under the same distill job boundary."""
+
+    review = decision.semantic_review
+    unfinished = [
+        str(item).strip()
+        for item in review.unfinished_work
+        if str(item).strip()
+    ]
+    if review.promotion_decision != "partial" or not unfinished:
+        return None
+    result = tools.tool_govern_memory(
+        action="handoff",
+        arguments={
+            "project_name": job.project_name,
+            "task_id": f"distill-follow-up-{job.id}",
+            "summary": str(review.final_outcome).strip()[:1000],
+            "status": "in_progress",
+            "next_steps": unfinished,
+            "blockers": [],
+            "distill_job_id": job.id,
+        },
+    )
+    if not result.get("success"):
+        raise ProviderError(
+            str(result.get("error") or "unfinished handoff governance failed"),
+            kind="unrecoverable",
+        )
+    return result
+
+
+def build_provider_manifest(packet: dict[str, Any]) -> dict[str, Any]:
+    """Project one prepared packet into the restricted provider contract."""
+
     semantic = packet.get("semantic_evidence")
     semantic_dict = semantic if isinstance(semantic, dict) else {}
     return {
@@ -744,9 +792,17 @@ def _decide_with_candidate_retry(
             result.decision,
             packet=packet,
         )
+        decision = normalize_provider_review_state(decision)
         validated: list[tuple[Any, dict[str, Any]]] = []
         warnings: list[str] = []
         for index, candidate in enumerate(decision.candidates):
+            control_reason = provider_candidate_control_reason(
+                candidate,
+                decision=decision,
+            )
+            if control_reason is not None:
+                warnings.append(f"candidate[{index}]: {control_reason}")
+                continue
             try:
                 arguments = _candidate_arguments(candidate, job=job, packet=packet)
             except ValueError as exc:
@@ -809,6 +865,31 @@ def _combine_provider_results(results: list[ProviderResult]) -> ProviderResult:
     )
 
 
+def normalize_provider_review_state(decision: Any) -> Any:
+    """Enforce review-state invariants at the trusted runtime boundary."""
+
+    review = decision.semantic_review
+    unfinished = [str(item).strip() for item in review.unfinished_work if str(item).strip()]
+    if (
+        not unfinished
+        or review.evidence_status == "contradicted"
+        or review.promotion_decision == "blocked"
+    ):
+        return decision
+    updates: dict[str, Any] = {}
+    if review.last_turn_status != "unfinished":
+        updates["last_turn_status"] = "unfinished"
+    if review.evidence_status != "partial":
+        updates["evidence_status"] = "partial"
+    if review.promotion_decision != "partial":
+        updates["promotion_decision"] = "partial"
+    if not updates:
+        return decision
+    return decision.model_copy(
+        update={"semantic_review": review.model_copy(update=updates)}
+    )
+
+
 def _candidate_arguments(
     candidate: Any,
     *,
@@ -829,15 +910,17 @@ def _candidate_arguments(
             "category": str(candidate.category),
             "content": str(candidate.content),
             "source": f"distill-job:{job.id}",
-            "confidence": float(candidate.confidence),
+            "confidence": _required_confidence(candidate),
             "tags": candidate.tags or [],
         }
     if isinstance(candidate, DistillCandidate) and candidate.kind == "rule":
-        _require_candidate_fields(candidate, "pattern", "trigger")
+        pattern = candidate.pattern or candidate.content
+        if not pattern or not candidate.trigger:
+            raise ValueError("rule candidate missing fields: ['pattern', 'trigger']")
         return {
             **common,
             "session_id": job.session_id,
-            "pattern": str(candidate.pattern),
+            "pattern": str(pattern),
             "trigger": str(candidate.trigger),
             "examples": candidate.examples or [],
         }
@@ -857,15 +940,66 @@ def _candidate_arguments(
             "relation_type": str(candidate.relation_type),
             "evidence": str(candidate.evidence),
             "source": f"distill-job:{job.id}",
-            "confidence": float(candidate.confidence),
+            "confidence": _required_confidence(candidate),
         }
     raise TypeError(f"unsupported candidate type: {type(candidate).__name__}")
+
+
+def provider_candidate_control_reason(
+    candidate: Any,
+    *,
+    decision: Any,
+) -> str | None:
+    """Reject provider rows that belong to summary or handoff control state."""
+
+    fields = (
+        getattr(candidate, "category", None),
+        getattr(candidate, "content", None),
+        getattr(candidate, "pattern", None),
+        getattr(candidate, "evidence", None),
+        " ".join(getattr(candidate, "tags", None) or []),
+    )
+    text = " ".join(str(value or "") for value in fields).lower()
+    review = decision.semantic_review
+    if review.unfinished_work and any(
+        marker in text
+        for marker in (
+            "unfinished_handoff",
+            "unfinished handoff",
+            "remains unfinished",
+            "next task",
+            "待办",
+            "未完成",
+            "交接",
+        )
+    ):
+        return "unfinished work belongs to the job-bound handoff"
+    historical_markers = ("superseded", "was replaced", "outdated", "已取代", "被替代")
+    replacement_markers = (
+        "current replacement",
+        "replace with",
+        "now use",
+        "new default",
+        "改为",
+        "当前采用",
+    )
+    if any(marker in text for marker in historical_markers) and not any(
+        marker in text for marker in replacement_markers
+    ):
+        return "bare superseded history belongs to summary or final outcome"
+    return None
 
 
 def _require_candidate_fields(candidate: DistillCandidate, *names: str) -> None:
     missing = [name for name in names if getattr(candidate, name) in {None, ""}]
     if missing:
         raise ValueError(f"{candidate.kind} candidate missing fields: {missing}")
+
+
+def _required_confidence(candidate: DistillCandidate) -> float:
+    if candidate.confidence is None:
+        raise ValueError(f"{candidate.kind} candidate missing fields: ['confidence']")
+    return float(candidate.confidence)
 
 
 def _safe_evidence(candidate: Any, *, packet: dict[str, Any]) -> dict[str, Any]:
@@ -911,69 +1045,7 @@ def _safe_evidence(candidate: Any, *, packet: dict[str, Any]) -> dict[str, Any]:
 
 
 def _materialize_note(job: SessionDistillJob, *, notes_dir: Path) -> dict[str, Any]:
-    review = dict(job.semantic_review or {})
-    summary = str(
-        review.get("session_summary") or review.get("final_user_request") or ""
-    ).strip()
-    outcome = str(
-        review.get("final_outcome") or "No final outcome was recorded."
-    ).strip()
-    unfinished = [
-        str(item).strip()
-        for item in review.get("unfinished_work", [])
-        if str(item).strip()
-    ]
-    promotion = dict(job.promotion_summary or {})
-    completed = job.completed_at.isoformat() if job.completed_at else _now()
-    lines = [
-        f"# Session {job.session_id}",
-        "",
-        f"- Distill job: `{job.id}`",
-        f"- Completed: {completed}",
-        f"- Review status: {review.get('last_turn_status', 'unknown')}",
-        "",
-        "## 会话主题",
-        "",
-        summary
-        or "The session topic could not be recovered from the available evidence.",
-        "",
-        "## 最终结果",
-        "",
-        outcome,
-        "",
-        "## 未完成工作",
-        "",
-    ]
-    lines.extend(f"- {item}" for item in unfinished)
-    if not unfinished:
-        lines.append("- None recorded.")
-    lines.extend(
-        [
-            "",
-            "## 记忆治理结果",
-            "",
-            f"- Disposition: `{job.completion_disposition or 'unknown'}`",
-            f"- Suggested: {int(promotion.get('suggested') or 0)}",
-            f"- Promoted: {int(promotion.get('promoted') or 0)}",
-            f"- Rejected: {int(promotion.get('rejected') or 0)}",
-            "",
-        ]
-    )
-    content = "\n".join(lines)
-    notes_dir.mkdir(parents=True, exist_ok=True)
-    path = notes_dir / f"{job.session_id}.md"
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
-    temporary.write_text(content, encoding="utf-8")
-    os.replace(temporary, path)
-    return {
-        "path": str(path),
-        "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-        "chars": len(content),
-        "exists": path.is_file(),
-        "meaningful": len(content.strip()) >= 200 and job.session_id in content,
-        "job_binding_valid": job.id in content,
-        "materialized_at": _now(),
-    }
+    return materialize_session_note(job, notes_dir=notes_dir)
 
 
 def _repair_missing_notes(
@@ -989,7 +1061,7 @@ def _repair_missing_notes(
         limit=200,
     )
     for job in completed:
-        path = notes_dir / f"{job.session_id}.md"
+        path = session_note_path(notes_dir, job)
         summary = str(job.semantic_review.get("session_summary") or "").strip()
         if len(summary) < 12 and path.is_file():
             recovered = _summary_from_note(path)
@@ -1072,9 +1144,12 @@ def _record_success_receipt(
 
 
 __all__ = [
+    "build_provider_manifest",
     "autonomous_config_fingerprint",
     "autonomous_receipt_path",
     "autonomous_runtime_fingerprint",
     "read_autonomous_receipt",
+    "provider_candidate_control_reason",
+    "normalize_provider_review_state",
     "run_autonomous_distill_batch",
 ]

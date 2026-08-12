@@ -26,6 +26,7 @@ from harness_mem.autonomous.worker import (
     read_autonomous_receipt,
 )
 from harness_mem.config.merge import load_merged_config
+from harness_mem.session_notes import session_note_path
 
 
 DEFAULT_RECENT_DAYS = 7
@@ -143,7 +144,9 @@ def inspect_distill_notes(
     note_records: list[dict[str, Any]] = []
     summaries_meaningful = 0
     for session_id, job in sorted(latest_by_session.items()):
-        path = notes_dir / f"{session_id}.md"
+        immutable_path = session_note_path(notes_dir, job)
+        legacy_path = notes_dir / f"{session_id}.md"
+        path = immutable_path if immutable_path.is_file() else legacy_path
         try:
             content = path.read_text(encoding="utf-8")
         except OSError:
@@ -253,7 +256,8 @@ def inspect_autonomous_outcome(
     )
     trigger_matches_hook = durable_hook_binding or latest_trigger_matches_hook
     job_list = list(jobs)
-    batch = receipt.get("batch") if isinstance(receipt.get("batch"), dict) else {}
+    raw_batch = receipt.get("batch")
+    batch: dict[str, Any] = raw_batch if isinstance(raw_batch, dict) else {}
     trigger_id = str(receipt.get("trigger_id") or "")
     batch_jobs = [item for item in batch.get("jobs", []) if isinstance(item, dict)]
     trigger_record = next(
@@ -275,7 +279,8 @@ def inspect_autonomous_outcome(
         None,
     )
     record = trigger_record or {}
-    note = record.get("note") if isinstance(record.get("note"), dict) else {}
+    raw_note = record.get("note")
+    note: dict[str, Any] = raw_note if isinstance(raw_note, dict) else {}
     note_path = Path(str(note.get("path") or "")) if note.get("path") else None
     try:
         note_content = note_path.read_text(encoding="utf-8") if note_path else ""
@@ -298,9 +303,14 @@ def inspect_autonomous_outcome(
         and note.get("job_binding_valid") is True
         and note.get("meaningful") is True
     )
-    provider = (
-        record.get("provider") if isinstance(record.get("provider"), dict) else {}
+    raw_provider = record.get("provider")
+    provider: dict[str, Any] = (
+        raw_provider if isinstance(raw_provider, dict) else {}
     )
+    input_tokens = provider.get("input_tokens")
+    output_tokens = provider.get("output_tokens")
+    total_tokens = provider.get("total_tokens")
+    duration_seconds = provider.get("duration_seconds")
     provider_isolated = bool(
         provider.get("name") in {"codex_exec", "responses_api"}
         and provider.get("schema_valid") is True
@@ -315,14 +325,14 @@ def inspect_autonomous_outcome(
         and int(receipt.get("hook_reentry_count") or 0) == 0
     )
     provider_metrics_bound = bool(
-        isinstance(provider.get("input_tokens"), int)
-        and provider.get("input_tokens") > 0
-        and isinstance(provider.get("output_tokens"), int)
-        and provider.get("output_tokens") > 0
-        and isinstance(provider.get("total_tokens"), int)
-        and provider.get("total_tokens") > 0
-        and isinstance(provider.get("duration_seconds"), (int, float))
-        and provider.get("duration_seconds") > 0
+        isinstance(input_tokens, int)
+        and input_tokens > 0
+        and isinstance(output_tokens, int)
+        and output_tokens > 0
+        and isinstance(total_tokens, int)
+        and total_tokens > 0
+        and isinstance(duration_seconds, (int, float))
+        and duration_seconds > 0
     )
     job_completed = bool(
         trigger_job is not None

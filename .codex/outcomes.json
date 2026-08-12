@@ -143,6 +143,56 @@
       ]
     },
     {
+      "id": "partial_distill_handoff",
+      "description": "Partial distill promotes an independently Answered candidate, persists a job-bound handoff, blocks Dream, and writes separate immutable/latest Notes.",
+      "required": true,
+      "checks": [
+        {
+          "id": "isolated_partial_distill_runtime",
+          "description": "Execute and read back the real govern/finalize path in an isolated durable store.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.qualification.distill_outcome_probe"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "verified": {"equals": true},
+              "partial_candidate_promoted": {"equals": true},
+              "handoff_persisted": {"equals": true},
+              "handoff_job_bound": {"equals": true},
+              "dream_blocked_for_partial": {"equals": true},
+              "immutable_note_exists": {"equals": true},
+              "latest_note_exists": {"equals": true},
+              "note_paths_distinct": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "distill_acceptance_matrix",
+      "description": "The versioned F1-F7 fixture catalog maps every A1-E6 path to an executable result and the fixed F1-F3 model batch meets quality and cost gates.",
+      "required": true,
+      "checks": [
+        {
+          "id": "distill_acceptance_runner",
+          "description": "Run all 24 mapped paths and the three no-tools fixed model samples, producing a machine-readable report.",
+          "evidence_tier": "direct",
+          "timeout_seconds": 180,
+          "command": ["{python}", "-m", "harness_mem.qualification.distill_acceptance", "--project-root", "{project_root}", "--output", "{project_root}/.codex/distill-acceptance-report.json", "--model-samples"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "status": {"equals": "passed"},
+              "l1.passed": {"equals": 24},
+              "l1.total": {"equals": 24},
+              "model_samples.passed": {"equals": 3},
+              "model_samples.total": {"equals": 3}
+            }
+          }
+        }
+      ]
+    },
+    {
       "id": "distill_audit_summaries",
       "description": "Recent completed distill ledgers retain their semantic summaries for audit.",
       "required": false,

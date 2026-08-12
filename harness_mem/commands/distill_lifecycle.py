@@ -332,8 +332,12 @@ def distill_drainer_metrics(
         ),
         "autonomous_active": len(autonomous_reviewing),
         "last_semantic_success_at": (
-            max(job.completed_at for job in autonomous_completed).isoformat()
-            if autonomous_completed
+            max(
+                job.completed_at
+                for job in autonomous_completed
+                if job.completed_at is not None
+            ).isoformat()
+            if any(job.completed_at is not None for job in autonomous_completed)
             else None
         ),
     }

@@ -73,6 +73,86 @@ def test_stop_maintenance_defers_embedding_model_loading(
     assert embeddings_disabled() is False
 
 
+def test_stop_maintenance_retries_exact_trigger_until_native_session_is_visible(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    attempts = 0
+
+    def fake_prepare_session_distill(**kwargs):
+        nonlocal attempts
+        attempts += 1
+        assert kwargs["session_id"] == "new-native-session"
+        if attempts < 3:
+            return {
+                "success": False,
+                "error": "session_id is not available for this project",
+            }
+        return {
+            "success": True,
+            "observation_count": 1,
+            "distill_job_id": None,
+        }
+
+    async def no_wait(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(
+        tool_handlers,
+        "tool_prepare_session_distill",
+        fake_prepare_session_distill,
+    )
+    monkeypatch.setattr("harness_mem.commands.maintenance.asyncio.sleep", no_wait)
+
+    payload = asyncio.run(
+        run_post_turn_maintenance(
+            _Backend(tmp_path),
+            project_name="demo",
+            project_root=str(tmp_path),
+            config=MergedConfig(),
+            source="ide_hook",
+            trigger_id="new-native-session",
+        )
+    )
+
+    assert payload["success"] is True
+    assert payload["summary"]["evidence_ingest_attempts"] == 3
+    assert payload["summary"]["evidence_ingest_wait_seconds"] >= 0
+
+
+def test_stop_maintenance_does_not_retry_unrelated_ingest_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    attempts = 0
+
+    def fake_prepare_session_distill(**_kwargs):
+        nonlocal attempts
+        attempts += 1
+        return {"success": False, "error": "repository unavailable"}
+
+    monkeypatch.setattr(
+        tool_handlers,
+        "tool_prepare_session_distill",
+        fake_prepare_session_distill,
+    )
+
+    payload = asyncio.run(
+        run_post_turn_maintenance(
+            _Backend(tmp_path),
+            project_name="demo",
+            project_root=str(tmp_path),
+            config=MergedConfig(),
+            source="ide_hook",
+            trigger_id="new-native-session",
+        )
+    )
+
+    assert payload["success"] is False
+    assert attempts == 1
+    assert payload["summary"]["evidence_ingest_attempts"] == 1
+
+
 @pytest.mark.parametrize(
     ("job_status", "expected_status", "queued"),
     (

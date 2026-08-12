@@ -22,6 +22,10 @@ import tomli_w
 from harness_mem.autonomous.models import AutonomousDecision
 
 
+DEFAULT_DISTILL_MODEL = "gpt-5.6-luna"
+DEFAULT_DISTILL_TIMEOUT_SECONDS = 40
+
+
 @dataclass(frozen=True)
 class ProviderResult:
     decision: AutonomousDecision
@@ -232,7 +236,7 @@ class CodexExecProvider:
             input_tokens=metrics["input_tokens"],
             output_tokens=metrics["output_tokens"],
             total_tokens=metrics["total_tokens"],
-            event_count=metrics["event_count"],
+            event_count=int(metrics["event_count"] or 0),
         )
 
 
@@ -245,9 +249,13 @@ class ResponsesApiProvider:
         self,
         *,
         model: str | None = None,
-        timeout_seconds: int = 120,
+        timeout_seconds: int = DEFAULT_DISTILL_TIMEOUT_SECONDS,
     ) -> None:
-        self.model = (model or os.environ.get("HARNESS_MEM_DISTILL_MODEL") or "").strip() or None
+        self.model = (
+            model
+            or os.environ.get("HARNESS_MEM_DISTILL_MODEL")
+            or DEFAULT_DISTILL_MODEL
+        ).strip()
         self.timeout_seconds = max(30, min(int(timeout_seconds), 300))
 
     def decide(
@@ -342,8 +350,15 @@ def _build_prompt(manifest: dict[str, Any]) -> str:
         "memory candidate, category, content, and confidence are required. For a "
         "rule candidate, pattern and trigger are required. For a relation candidate, "
         "source_entity, target_entity, relation_type, evidence, and confidence are "
-        "required. "
-        "user_statement candidate, cite an inspected exchange hash and role=user. Raw "
+        "required. Do not emit memory/rule/relation candidates whose only purpose is "
+        "to repeat unfinished work; put that work only in unfinished_work because the "
+        "trusted runtime creates the scoped handoff. Do not emit a bare historical "
+        "candidate that only says an older approach was superseded; record it in the "
+        "session summary or final outcome unless the current replacement itself is a "
+        "separate durable fact. A candidate derived from an explicit user request, "
+        "preference, correction, or decision must use evidence_basis=user_statement; "
+        "its verification ref must use kind=user_statement, an inspected exchange "
+        "hash, and role=user. Never label direct user evidence as transcript. Raw "
         "transcript evidence cannot verify a durable repository fact. If there are no "
         "candidates, copy the supplied zero-candidate template and replace its checks, "
         "future_utility, conclusion, and rationale with your evidence-grounded decision. "
@@ -363,7 +378,7 @@ def _strict_output_schema(value: Any) -> Any:
     compiled = {
         key: _strict_output_schema(item)
         for key, item in value.items()
-        if key not in {"default"}
+        if key not in {"default", "description", "title"}
     }
     properties = compiled.get("properties")
     if isinstance(properties, dict):
@@ -547,6 +562,8 @@ def _usage_metrics(stdout: str) -> dict[str, int | None]:
 
 __all__ = [
     "CodexExecProvider",
+    "DEFAULT_DISTILL_MODEL",
+    "DEFAULT_DISTILL_TIMEOUT_SECONDS",
     "ResponsesApiProvider",
     "ProviderError",
     "ProviderResult",

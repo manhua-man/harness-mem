@@ -11,6 +11,9 @@ from harness_mem.outcome_probe import (
     inspect_hook_outcome,
     inspect_retrieval_outcome,
 )
+from harness_mem.qualification.distill_outcome_probe import (
+    run_distill_outcome_probe,
+)
 from harness_mem.hook_receipts import record_hook_execution
 
 
@@ -106,6 +109,44 @@ def test_distill_note_probe_requires_real_meaningful_note(tmp_path: Path) -> Non
     assert result["semantic_summary_coverage_complete"] is True
 
 
+def test_distill_note_probe_prefers_latest_job_bound_revision_note(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc)
+    old_job = _job(
+        session_id="growing-session",
+        completed_at=now - timedelta(minutes=5),
+        summary="The earlier revision completed a preliminary review.",
+    )
+    latest_job = _job(
+        session_id="growing-session",
+        completed_at=now,
+        summary="The latest revision completed the final review independently.",
+    )
+    path = (
+        tmp_path
+        / "revisions"
+        / latest_job.id
+        / "growing-session.md"
+    )
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "# Session growing-session\n\n## 会话主题\nUseful context.\n\n"
+        "## 最终结果\n" + "Useful outcome.\n" * 30,
+        encoding="utf-8",
+    )
+
+    result = inspect_distill_notes(
+        [old_job, latest_job],
+        notes_dir=tmp_path,
+        since=now - timedelta(days=1),
+    )
+
+    assert result["unique_completed_sessions"] == 1
+    assert result["note_coverage_complete"] is True
+    assert result["notes"][0]["path"] == str(path)
+
+
 def test_retrieval_probe_requires_target_to_return_from_read_model(tmp_path: Path) -> None:
     database = tmp_path / "structured_index.sqlite"
     connection = sqlite3.connect(database)
@@ -155,3 +196,13 @@ def test_retrieval_probe_requires_target_to_return_from_read_model(tmp_path: Pat
             raise AssertionError("outcome probe connection accepted a write")
     finally:
         read_only.close()
+
+
+def test_partial_distill_runtime_outcome_probe() -> None:
+    result = run_distill_outcome_probe()
+
+    assert result["verified"] is True
+    assert result["partial_candidate_promoted"] is True
+    assert result["handoff_job_bound"] is True
+    assert result["dream_blocked_for_partial"] is True
+    assert result["note_paths_distinct"] is True

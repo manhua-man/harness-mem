@@ -10,6 +10,7 @@ import asyncio
 from datetime import datetime, timezone
 from functools import wraps
 from inspect import signature
+import os
 from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -17,6 +18,7 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from pydantic import ValidationError
 
 from harness_mem.commands.support import (
+    DEFAULT_DATA_DIR,
     SUPPORTED_INGEST_CLIENTS,
     normalize_client_name,
     resolve_project_context,
@@ -33,6 +35,7 @@ from harness_mem.core.schemas.session_distill import (
     ZeroCandidateChallenge,
 )
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.session_notes import materialize_session_note
 from harness_mem.transcript_chunking import sha256_text
 from harness_mem.mcp.distill_projection import (
     DISTILL_INCREMENTAL_PROJECTION,
@@ -50,6 +53,15 @@ from .handler_facade_proxy import tool_handlers_facade as _core
 
 
 _SIGNAL_GATE_RECHECK_PIPELINE_VERSION = "lossless-distill-v1-signal-gate-v2"
+
+
+def _session_notes_dir(backend: LocalMemoryBackend) -> Path:
+    override = str(os.environ.get("HARNESS_MEM_SESSION_NOTES_DIR") or "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    if Path(backend.data_dir).resolve() != DEFAULT_DATA_DIR.resolve():
+        return Path(backend.data_dir) / "session_notes"
+    return Path.home() / ".codex" / "hm-distill" / "sessions"
 
 
 def _get_backend():
@@ -556,6 +568,7 @@ def tool_prepare_session_distill(
             full_rescan=full_rescan,
             scope=scope,
             project_root=resolved_project_root,
+            session_id=requested_session_id,
         )
 
     backend = _get_backend()
@@ -1213,6 +1226,7 @@ def tool_finalize_session_distill(
             project_name=project_name,
             daily_job_budget=config.distill_auto_daily_job_budget,
         )
+        note = materialize_session_note(job, notes_dir=_session_notes_dir(backend))
         return {
             "success": True,
             "idempotent_replay": True,
@@ -1241,6 +1255,7 @@ def tool_finalize_session_distill(
                 "status": job.source_cleanup_status,
                 "receipt_id": job.source_cleanup_receipt_id,
             },
+            "note": note,
         }
     if recovering_completion:
         candidate_ids = list(job.output_candidate_ids)
@@ -1259,11 +1274,19 @@ def tool_finalize_session_distill(
                 distill_job_id=job_id,
             )
         )
+        handoff_ids = asyncio.run(
+            _distill_job_handoff_ids(
+                backend,
+                project_name=project_name,
+                distill_job_id=job_id,
+            )
+        )
         challenge_error = _validate_zero_candidate_challenge(
             backend,
             job=job,
             semantic_review=semantic_review,
             candidate_ids=candidate_ids,
+            handoff_ids=handoff_ids,
         )
         if challenge_error is not None:
             return {
@@ -1287,6 +1310,8 @@ def tool_finalize_session_distill(
         "structural_audit": completed.structural_audit,
         "semantic_review": completed.semantic_review,
     }
+    if not recovering_completion:
+        payload["handoff_ids"] = handoff_ids
     if recovering_completion:
         payload["idempotent_replay"] = True
         payload["completion_recovered"] = True
@@ -1418,6 +1443,10 @@ def tool_finalize_session_distill(
         source_cleanup_status=str(source_cleanup["status"]),
         source_cleanup_receipt_id=source_cleanup.get("receipt_id"),
     )
+    note = materialize_session_note(
+        stored,
+        notes_dir=_session_notes_dir(backend),
+    )
     queue = distill_drainer_metrics(
         backend,
         project_name=project_name,
@@ -1427,6 +1456,7 @@ def tool_finalize_session_distill(
         "disposition": stored.completion_disposition,
         "reason_codes": stored.completion_reason_codes,
     }
+    payload["note"] = note
     payload["promotion"] = promotion
     payload["queue_effect"] = {
         "removed_from_pending": True,
@@ -1606,16 +1636,36 @@ async def _distill_job_candidate_ids(
     ]
 
 
+async def _distill_job_handoff_ids(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    distill_job_id: str,
+) -> list[str]:
+    """Return task handoffs explicitly produced by one lossless job."""
+
+    handoffs = await backend.structured_store.get_latest_handoffs(
+        project_name,
+        limit=100_000,
+    )
+    return [
+        handoff.id
+        for handoff in handoffs
+        if dict(handoff.context or {}).get("distill_job_id") == distill_job_id
+    ]
+
+
 def _validate_zero_candidate_challenge(
     backend: LocalMemoryBackend,
     *,
     job: SessionDistillJob,
     semantic_review: dict[str, Any],
     candidate_ids: list[str],
+    handoff_ids: list[str],
 ) -> dict[str, Any] | None:
     """Fail closed before an Agent can bury a v1 job as no-candidate."""
 
-    if candidate_ids or job.zero_candidate_challenge_version != "v1":
+    if candidate_ids or handoff_ids or job.zero_candidate_challenge_version != "v1":
         return None
 
     raw_challenge = semantic_review.get("zero_candidate_challenge")
@@ -1771,11 +1821,13 @@ def _validate_zero_candidate_challenge(
 def _semantic_review_allows_candidate_review(review: dict[str, Any]) -> bool:
     """Review answered candidates even when unrelated handoff work remains."""
 
-    if review.get("contradictions"):
-        return False
     decision = review.get("promotion_decision")
     if decision == "promote":
         return _semantic_review_allows_promotion(review)
+    # A partial session may describe superseded plans or other historical
+    # contradictions while still containing an independently ANSWERED
+    # candidate. The candidate's own evidence envelope decides admission;
+    # session-level contradictions continue to block Dream/full promotion.
     return bool(
         decision == "partial"
         and review.get("evidence_status") in {"answered", "partial"}

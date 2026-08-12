@@ -7,13 +7,16 @@ from pathlib import Path
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.autonomous.models import AutonomousDecision
-from harness_mem.autonomous.provider import ProviderResult
+from harness_mem.autonomous.provider import DEFAULT_DISTILL_MODEL, ProviderResult
 from harness_mem.autonomous.worker import (
     _decide_with_candidate_retry,
+    _govern_unfinished_handoff,
     _normalize_zero_candidate_signal_labels,
     _preferred_job_is_eligible,
     autonomous_receipt_path,
     read_autonomous_receipt,
+    normalize_provider_review_state,
+    provider_candidate_control_reason,
     run_autonomous_distill_batch,
 )
 from harness_mem.core.schemas.session_distill import SessionDistillJob
@@ -22,6 +25,39 @@ from harness_mem.core.schemas.observation import Observation
 from harness_mem.outcome_probe import inspect_autonomous_outcome
 from harness_mem.hook_receipts import record_hook_execution
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+
+def test_default_worker_provider_uses_bounded_distill_model(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _Provider:
+        name = "responses_api"
+
+        def __init__(self, *, model=None):
+            from harness_mem.autonomous.provider import ResponsesApiProvider
+
+            captured["model"] = ResponsesApiProvider(model=model).model
+
+    monkeypatch.setattr("harness_mem.autonomous.worker.ResponsesApiProvider", _Provider)
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    try:
+        result = run_autonomous_distill_batch(
+            backend,
+            project_name="demo",
+            project_root=tmp_path,
+            config=load_merged_config(tmp_path),
+            trigger_id=None,
+            client="codex",
+        )
+    finally:
+        asyncio.run(backend.close())
+
+    assert result["state"] == "idle"
+    assert captured["model"] == DEFAULT_DISTILL_MODEL
 
 
 class _DeterministicProvider:
@@ -163,6 +199,175 @@ def test_reconciled_reviewing_trigger_job_remains_preferred() -> None:
         project_name="demo",
         trigger_id="session-1",
     )
+
+
+def test_autonomous_worker_persists_job_bound_handoff_for_partial_review() -> None:
+    job = SessionDistillJob(
+        id="job-partial",
+        idempotency_key="key-partial",
+        project_name="demo",
+        project_root="F:/demo",
+        client="codex",
+        session_id="session-partial",
+        source_id="source-partial",
+        source_revision="sha256:" + "a" * 64,
+        status="reviewing",
+        phase="review",
+        expected_chunk_count=1,
+        completed_chunk_count=1,
+    )
+    decision = AutonomousDecision.model_validate(
+        {
+            "semantic_review": {
+                "session_summary": "The preference was answered while follow-up work remained.",
+                "final_user_request": "Keep quality while reducing cost.",
+                "final_outcome": "The preference was verified and follow-up remains.",
+                "last_turn_status": "unfinished",
+                "contradictions": [],
+                "unfinished_work": ["Measure the next fixed model sample."],
+                "evidence_status": "partial",
+                "promotion_decision": "partial",
+                "zero_candidate_challenge": None,
+            },
+            "candidates": [
+                {
+                    "kind": "memory",
+                    "category": "preference",
+                    "content": "Reduce time and tokens without lowering result quality.",
+                    "confidence": 0.99,
+                    "tags": ["performance"],
+                    "evidence_basis": "user_statement",
+                    "verification_outcome": "verified",
+                    "verification_refs": [],
+                    "verification_reason_codes": [],
+                }
+            ],
+        }
+    )
+
+    class _Tools:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def tool_govern_memory(self, *, action, arguments):
+            self.calls.append((action, arguments))
+            return {"success": True, "handoff_id": "handoff-partial"}
+
+    tools = _Tools()
+    result = _govern_unfinished_handoff(tools, job=job, decision=decision)
+
+    assert result == {"success": True, "handoff_id": "handoff-partial"}
+    assert tools.calls == [
+        (
+            "handoff",
+            {
+                "project_name": "demo",
+                "task_id": "distill-follow-up-job-partial",
+                "summary": "The preference was verified and follow-up remains.",
+                "status": "in_progress",
+                "next_steps": ["Measure the next fixed model sample."],
+                "blockers": [],
+                "distill_job_id": "job-partial",
+            },
+        )
+    ]
+
+
+def test_autonomous_worker_filters_handoff_and_bare_superseded_candidates() -> None:
+    decision = AutonomousDecision.model_validate(
+        {
+            "semantic_review": {
+                "session_summary": "A durable preference was answered while fixed measurement remained.",
+                "final_user_request": "Reduce cost and measure one fixed sample.",
+                "final_outcome": "The older approach was superseded; measurement remains.",
+                "last_turn_status": "unfinished",
+                "contradictions": [],
+                "unfinished_work": ["Measure one fixed model sample."],
+                "evidence_status": "partial",
+                "promotion_decision": "partial",
+                "zero_candidate_challenge": None,
+            },
+            "candidates": [
+                {
+                    "kind": "memory",
+                    "category": "preference",
+                    "content": "Use fewer tokens without reducing quality.",
+                    "confidence": 0.99,
+                    "evidence_basis": "user_statement",
+                    "verification_outcome": "verified",
+                    "verification_refs": [],
+                    "verification_reason_codes": [],
+                },
+                {
+                    "kind": "memory",
+                    "category": "approach_decision",
+                    "content": "The older truncate-first approach is superseded.",
+                    "confidence": 0.99,
+                    "evidence_basis": "user_statement",
+                    "verification_outcome": "verified",
+                    "verification_refs": [],
+                    "verification_reason_codes": [],
+                },
+                {
+                    "kind": "memory",
+                    "category": "unfinished_handoff",
+                    "content": "The next task remains unfinished.",
+                    "confidence": 0.99,
+                    "evidence_basis": "user_statement",
+                    "verification_outcome": "verified",
+                    "verification_refs": [],
+                    "verification_reason_codes": [],
+                },
+            ],
+        }
+    )
+
+    reasons = [
+        provider_candidate_control_reason(candidate, decision=decision)
+        for candidate in decision.candidates
+    ]
+
+    assert reasons == [
+        None,
+        "bare superseded history belongs to summary or final outcome",
+        "unfinished work belongs to the job-bound handoff",
+    ]
+
+
+def test_autonomous_worker_normalizes_unfinished_promote_to_partial() -> None:
+    decision = AutonomousDecision.model_validate(
+        {
+            "semantic_review": {
+                "session_summary": "A durable preference exists while measurement remains unfinished.",
+                "final_user_request": "Preserve the preference and measure a sample.",
+                "final_outcome": "The preference was identified but measurement did not run.",
+                "last_turn_status": "unfinished",
+                "contradictions": [],
+                "unfinished_work": ["Measure one fixed sample."],
+                "evidence_status": "partial",
+                "promotion_decision": "promote",
+                "zero_candidate_challenge": None,
+            },
+            "candidates": [
+                {
+                    "kind": "memory",
+                    "category": "preference",
+                    "content": "Use fewer tokens without reducing quality.",
+                    "confidence": 0.99,
+                    "evidence_basis": "user_statement",
+                    "verification_outcome": "verified",
+                    "verification_refs": [],
+                    "verification_reason_codes": [],
+                }
+            ],
+        }
+    )
+
+    normalized = normalize_provider_review_state(decision)
+
+    assert normalized.semantic_review.promotion_decision == "partial"
+    assert normalized.semantic_review.evidence_status == "partial"
+    assert normalized.semantic_review.last_turn_status == "unfinished"
 
 
 def test_autonomous_worker_retries_when_every_candidate_has_invalid_shape(
@@ -353,8 +558,10 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     assert stored is not None and stored.status == "completed"
     assert stored.review_execution_source == "autonomous_worker"
     assert stored.semantic_review["session_summary"].startswith("The user established")
-    note_path = notes_dir / "autonomous-session.md"
+    latest_note_path = notes_dir / "autonomous-session.md"
+    note_path = notes_dir / "revisions" / stored.id / "autonomous-session.md"
     note = note_path.read_text(encoding="utf-8")
+    assert latest_note_path.read_text(encoding="utf-8") == note
     assert stored.id in note
     assert "## 最终结果" in note
     assert "## 记忆治理结果" in note
@@ -408,6 +615,27 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     assert outcome["note_verified"] is True
     assert outcome["durable_hook_binding"] is True
     assert outcome["lifecycle_verified"] is True, outcome
+
+    # A later revision gets its own immutable Note and cannot invalidate the
+    # receipt-bound artifact for this completed job.
+    later = stored.model_copy(
+        update={
+            "id": "later-job",
+            "completed_at": datetime.now(timezone.utc),
+        }
+    )
+    from harness_mem.session_notes import materialize_session_note
+
+    later_note = materialize_session_note(later, notes_dir=notes_dir)
+    assert Path(later_note["path"]).is_file()
+    assert Path(outcome["note"]["path"]).read_text(encoding="utf-8") == note
+    repeated = inspect_autonomous_outcome(
+        data_dir,
+        project_name="demo",
+        project_root=project,
+        jobs=[stored],
+    )
+    assert repeated["note_verified"] is True
 
     # A later Desktop Stop may overwrite the global latest hook receipt. The
     # autonomous receipt keeps its launch binding, so historical health stays

@@ -23,7 +23,10 @@ For a user-provided session ID:
 3. Produce the final semantic review and run the candidate admission check below.
 4. Write only admitted candidates or a justified unfinished-work handoff.
 5. Call `finalize_session_distill` once.
-6. Return the readable summary and write `~/.codex/hm-distill/sessions/<session_id>.md` from the same review without rereading the transcript.
+6. Return the readable summary. Finalize writes the immutable audit Note at
+   `~/.codex/hm-distill/sessions/revisions/<job_id>/<session_id>.md` and advances
+   `~/.codex/hm-distill/sessions/<session_id>.md` as the convenient latest view,
+   all from the same review without rereading the transcript.
 
 The bundled zero-candidate template is fail-closed. Detected decision, solution,
 workflow, preference, migration, or handoff signals start as `candidate_required`;
@@ -59,12 +62,12 @@ Complete these fields from the whole session, never from one isolated chunk:
 - `final_user_request`;
 - `final_outcome`;
 - `last_turn_status`;
-- `contradictions`;
+- `contradictions`: unresolved conflicts in the evidence for a current candidate;
 - `unfinished_work`;
 - `evidence_status`;
 - `promotion_decision`.
 
-The summary is always required and is independent of memory promotion. `no_candidate` means “nothing should enter durable memory,” not “the session had no content.”
+The summary is always required and is independent of memory promotion. `no_candidate` means “nothing should enter durable memory,” not “the session had no content.” An older approach explicitly replaced by a later decision belongs in the summary or final outcome. Do not label that history as a current candidate evidence contradiction, because doing so can incorrectly suppress an otherwise Answered candidate.
 
 ## Candidate admission
 
@@ -109,7 +112,7 @@ Apply [distillation-rules.md](references/distillation-rules.md) for claim classi
 
 ## Governed writes
 
-Use `govern_memory(action="suggest")` only for admitted or narrowed durable claims. Use `govern_memory(action="handoff")` for concrete unfinished state that another task must resume.
+Use `govern_memory(action="suggest")` only for admitted or narrowed durable claims. Use `govern_memory(action="handoff")` for concrete unfinished state that another task must resume. Pass the current `distill_job_id` to both candidate and handoff writes so finalize governs only artifacts produced by this job.
 
 Every candidate must include:
 
@@ -146,6 +149,8 @@ Return a short result that includes:
 原文：<retained / deleted / partial failure / unsupported>
 Note：<path>
 ```
+
+`Note` is the immutable path returned as `note.path`. `note.latest_path` is the stable user shortcut for the newest completed revision of that session; it is not used as the audit receipt.
 
 When durable memories were formed, add one bullet per memory in this shape:
 

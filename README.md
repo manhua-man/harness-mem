@@ -87,7 +87,9 @@ The detached Hook worker consumes the same semantic manifest through the
 configured Responses endpoint with no tools, no project filesystem access,
 `store=false`, and a strict response schema. It owns a renewable review lease,
 then lets trusted runtime code create candidates, finalize the job, and
-atomically materialize `~/.codex/hm-distill/sessions/<session-id>.md`. Health
+atomically materialize an immutable job receipt at
+`~/.codex/hm-distill/sessions/revisions/<job-id>/<session-id>.md`, while
+advancing `~/.codex/hm-distill/sessions/<session-id>.md` as the latest view. Health
 persists actual provider tokens and duration plus `last_semantic_success_at`,
 `last_job_completed_at`, and `last_note_materialized_at`. The non-interactive
 Codex CLI provider remains a compatibility fallback, not the default worker.
@@ -324,6 +326,7 @@ product surface.
 - [MCP setup](docs/mcp-setup.md)
 - [Cold-start demo](docs/demo-cold-start.md)
 - [Recall audit contract](docs/recall-audit.md)
+- [Distill acceptance test plan](docs/distill-test-plan.md)
 - [Autopilot search policy](docs/autopilot-search-policy.md)
 - [Compatibility inventory](docs/compatibility-inventory.md)
 - [Reference-project evidence index](docs/reference-projects/index.md)

@@ -136,6 +136,7 @@ def _ingest_sessions(
     full_rescan: bool = False,
     scope: str = "project",
     project_root: str | None = None,
+    session_id: str | None = None,
 ) -> dict:
     """Low-level transcript sync used by /hm:distill and diagnostics."""
     normalized_client = normalize_client_name(client)
@@ -176,6 +177,7 @@ def _ingest_sessions(
             full_rescan,
             scope=scope,
             project_root=resolved_project_root,
+            session_id=session_id,
         )
     )
     return {
@@ -189,6 +191,7 @@ def _ingest_sessions(
         "adapter_available": host_source.adapter_available,
         "scope": scope,
         "limit": limit,
+        "target_session_id": session_id,
         **payload,
     }
 
