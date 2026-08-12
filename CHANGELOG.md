@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.9.12] - 2026-08-12
+
 ### Added
 
 - Added detached autonomous distillation after Stop ingestion. A no-tools,
@@ -17,6 +19,16 @@
   retrieval.
 - Added a current-Stop priority slot: Hook ingestion binds the trigger session
   explicitly and the worker processes that job before budgeted backlog refill.
+- Added F1-F7 deterministic fixtures and a 24-path acceptance runner covering
+  quality, isolation, partial handoff, Note revision, and negative outcomes.
+
+### Changed
+
+- Autonomous distill now uses the isolated `gpt-5.6-luna` provider by default,
+  enforces a 40-second provider deadline, and keeps the strict review schema
+  compact without weakening evidence validation.
+- Session Notes are immutable per revision with a latest shortcut, and partial
+  reviews emit a job-bound handoff instead of losing unfinished work.
 
 ### Fixed
 
@@ -28,6 +40,8 @@
 - Autonomous receipts now retain Note hashes, provider usage, duration, and
   completion times per job. Verification rejects cross-job evidence splicing,
   stale runtime/config fingerprints, and legacy receipt schema carry-over.
+- Integration-health tests now isolate user configuration, so clean Linux CI
+  and configured developer machines verify the same declared defaults.
 
 ## [0.9.11] - 2026-08-11
 

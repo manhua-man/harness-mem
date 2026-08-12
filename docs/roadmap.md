@@ -14,6 +14,9 @@ derived-index, and seven-host qualification work developed as 0.9.7-0.9.9.
 The incremental context-lineage work planned as 0.9.10 ships in 0.9.11 together
 with honest complete-response budgets, bounded Agent batches, a content-free
 captured-to-feedback funnel, and fail-closed distill admission.
+Version 0.9.12 adds opt-in detached semantic execution with outcome-bound
+runtime receipts, current-Stop priority, immutable revision Notes, and a
+deterministic 24-path distill acceptance suite.
 No separate 0.9.2, 0.9.4, 0.9.7, 0.9.8, or 0.9.10 package or tag was published. The
 stable loop is
 not a manual checklist:
@@ -54,6 +57,16 @@ not pending work.
 | `0.9.9` | Retrieval, index, seven-host, and compatibility qualification. | Native adapter capture through Dream and wake is replay-tested on all supported hosts; recovery/index failures fail closed; fresh install, upgrade, legacy restore, and operator repair paths are qualified. | A new MCP profile, silent native-container deletion, removing legacy readers before the support cutoff, or adding an autonomous semantic worker. |
 | `0.9.10` | Incremental context lineage and evidence-safe projection. | Hash-verified appended revisions reuse prior semantic work; tool/result boundaries remain intact; context receipts report real budget outcomes and token basis. | A Pi SessionManager, second truth store, Pi host adapter, fixed model budgets, or treating summaries as durable truth. |
 | `0.9.11` | Effective memory closure. | Complete MCP responses report actual serialized cost; automatic wake can process two isolated jobs and explicit distill up to three; status exposes distinct-job and explicit-feedback funnels without storing content. | A fixed 3k cap, sequential first-N clipping, background semantic workers, another store/tool, or inferred positive feedback. |
+| `0.9.12` | Outcome-verified autonomous distill. | An explicitly authorized isolated provider can turn the current native Stop into a completed job, immutable Note, and retrievable truth with bound receipts; F1-F7 fixtures exercise all 24 acceptance paths. | Enabling provider use without consent, trusting queued/completed flags without artifacts, or letting historical backlog displace the current Stop. |
+
+## 0.9.12 - Outcome-Verified Autonomous Distill
+
+This iteration makes the opt-in autonomous path a measurable user outcome. A
+native Stop is bound to one ingested session and prioritized job; the isolated
+provider returns strict review data while trusted runtime code owns governance,
+finalization, immutable Notes, and health receipts. The release contract proves
+Hook to Job to Note to Retrieval rather than treating configuration, queues, or
+unit tests as completion.
 
 ## 0.9.11 - Effective Memory Closure
 
