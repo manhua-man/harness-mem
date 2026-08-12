@@ -66,9 +66,7 @@ _VALID_ADAPTERS = (
 _MAX_PROJECT_ROOT_CHARS = 4096
 _MAX_TRIGGER_ID_CHARS = 256
 _REPEATED_WAKE_CLIENTS = frozenset({"hermes", "antigravity"})
-_WAKE_FALLBACK_TRIGGERS = frozenset(
-    {"hermes-pre-llm", "antigravity-pre-invocation"}
-)
+_WAKE_FALLBACK_TRIGGERS = frozenset({"hermes-pre-llm", "antigravity-pre-invocation"})
 
 
 def _dream_tick_host_result(payload: dict[str, Any]) -> HostEntryResult:
@@ -114,7 +112,9 @@ def _post_turn_host_result(payload: dict[str, Any]) -> dict[str, Any]:
     status = str(payload.get("status") or "")
     action = str(payload.get("action") or "post-turn-maintenance")
     if status == "queued":
-        next_step = "queued: evidence synced; an Agent must consume the pending distill task"
+        next_step = (
+            "queued: evidence synced; an Agent must consume the pending distill task"
+        )
     elif status == "in_progress":
         next_step = "in progress: an Agent is already consuming this evidence"
     elif status == "completed":
@@ -131,6 +131,7 @@ def _post_turn_host_result(payload: dict[str, Any]) -> dict[str, Any]:
         "success": bool(payload.get("success")),
         "evidence_packet": payload.get("evidence_packet"),
         "distill_job": payload.get("distill_job"),
+        "autonomous": payload.get("autonomous"),
         "summary": summary,
     }
 
@@ -141,7 +142,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="harness-mem-hook",
         allow_abbrev=False,
     )
-    parser.add_argument("--version", action="version", version=f"harness-mem-hook {__version__}")
+    parser.add_argument(
+        "--version", action="version", version=f"harness-mem-hook {__version__}"
+    )
     parser.add_argument("--adapter", choices=_VALID_ADAPTERS)
     parser.add_argument("--action", choices=_VALID_ACTIONS)
     parser.add_argument("--project-root")
@@ -182,7 +185,9 @@ def _adapter_payload() -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _adapter_request(args: argparse.Namespace, payload: dict[str, Any]) -> argparse.Namespace:
+def _adapter_request(
+    args: argparse.Namespace, payload: dict[str, Any]
+) -> argparse.Namespace:
     """Translate one host protocol payload into a normal host-entry request."""
 
     adapter = args.adapter
@@ -214,10 +219,18 @@ def _adapter_request(args: argparse.Namespace, payload: dict[str, Any]) -> argpa
     )
 
     if adapter == "antigravity-pre":
-        action, client, default_trigger = "wake-start", "antigravity", "antigravity-pre-invocation"
+        action, client, default_trigger = (
+            "wake-start",
+            "antigravity",
+            "antigravity-pre-invocation",
+        )
         trigger_id = payload.get("conversationId") or default_trigger
     elif adapter == "antigravity-stop":
-        action, client, default_trigger = "post-turn-maintenance", "antigravity", "antigravity-stop"
+        action, client, default_trigger = (
+            "post-turn-maintenance",
+            "antigravity",
+            "antigravity-stop",
+        )
         trigger_id = payload.get("conversationId") or default_trigger
     elif adapter == "codex-start":
         action, client, default_trigger = "wake-start", "codex", "codex-session-start"
@@ -227,11 +240,15 @@ def _adapter_request(args: argparse.Namespace, payload: dict[str, Any]) -> argpa
         # Use Codex's session id for both SessionStart and Stop receipts.  This
         # lets health prove that both lifecycle actions came from one actual
         # session instead of combining unrelated CLI/Desktop executions.
-        trigger_id = payload.get("session_id") or payload.get("turn_id") or default_trigger
+        trigger_id = (
+            payload.get("session_id") or payload.get("turn_id") or default_trigger
+        )
     else:
         action = "wake-start" if adapter == "hermes-pre" else "post-turn-maintenance"
         client, default_trigger = "hermes", f"{adapter}-llm"
-        trigger_id = payload.get("session_id") or extra_dict.get("task_id") or default_trigger
+        trigger_id = (
+            payload.get("session_id") or extra_dict.get("task_id") or default_trigger
+        )
 
     return argparse.Namespace(
         action=action,
@@ -256,18 +273,37 @@ def _run_adapter(args: argparse.Namespace) -> int:
     adapter = args.adapter
     assert adapter is not None
     if adapter == "codex-start":
-        context = stdout_payload.rstrip("\n") if exit_code == ExitCode.SUCCESS and stdout_payload else ""
+        context = (
+            stdout_payload.rstrip("\n")
+            if exit_code == ExitCode.SUCCESS and stdout_payload
+            else ""
+        )
         sys.stdout.write(context + "\n")
     elif adapter == "antigravity-pre":
-        message = stdout_payload.strip() if exit_code == ExitCode.SUCCESS and stdout_payload else ""
+        message = (
+            stdout_payload.strip()
+            if exit_code == ExitCode.SUCCESS and stdout_payload
+            else ""
+        )
         response: dict[str, Any] = (
-            {"injectSteps": [{"ephemeralMessage": message}]} if message else {"injectSteps": []}
+            {"injectSteps": [{"ephemeralMessage": message}]}
+            if message
+            else {"injectSteps": []}
         )
         sys.stdout.write(json.dumps(response) + "\n")
     elif adapter == "antigravity-stop":
-        sys.stdout.write(json.dumps({"decision": "stop", "reason": "memory evidence staging finished"}) + "\n")
+        sys.stdout.write(
+            json.dumps(
+                {"decision": "stop", "reason": "memory evidence staging finished"}
+            )
+            + "\n"
+        )
     elif adapter == "hermes-pre":
-        context = stdout_payload.rstrip("\n") if exit_code == ExitCode.SUCCESS and stdout_payload else ""
+        context = (
+            stdout_payload.rstrip("\n")
+            if exit_code == ExitCode.SUCCESS and stdout_payload
+            else ""
+        )
         sys.stdout.write(json.dumps({"context": context}) + "\n" if context else "{}\n")
     else:
         sys.stdout.write("{}\n")
@@ -340,6 +376,7 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
 
         # ---- 3. build backend ---------------------------------------------
         from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
         project_context = resolve_project_context(
             None,
             project_root=args.project_root,
@@ -435,7 +472,9 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
 
             if args.action == "post-turn-maintenance":
                 try:
-                    from harness_mem.commands.maintenance import run_post_turn_maintenance
+                    from harness_mem.commands.maintenance import (
+                        run_post_turn_maintenance,
+                    )
 
                     maintenance_payload = await run_post_turn_maintenance(
                         backend,
@@ -445,6 +484,62 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                         source=args.source,
                         trigger_id=args.trigger_id,
                     )
+                    if (
+                        merged.distill_autonomous_enabled
+                        and args.source == "ide_hook"
+                        and os.environ.get("HARNESS_MEM_AUTONOMOUS_PROVIDER") != "1"
+                        and maintenance_payload.get("success")
+                    ):
+                        from harness_mem.autonomous.worker import (
+                            run_autonomous_distill_batch,
+                        )
+
+                        try:
+                            autonomous_payload = await asyncio.to_thread(
+                                run_autonomous_distill_batch,
+                                backend,
+                                project_name=project_name,
+                                project_root=args.project_root,
+                                config=merged,
+                                trigger_id=args.trigger_id,
+                                client=client_override or "auto",
+                                preferred_job_id=(
+                                    str(
+                                        maintenance_payload.get("summary", {}).get(
+                                            "distill_job_id"
+                                        )
+                                    )
+                                    if isinstance(
+                                        maintenance_payload.get("summary"), dict
+                                    )
+                                    and maintenance_payload.get("summary", {}).get(
+                                        "distill_job_id"
+                                    )
+                                    else None
+                                ),
+                                launch_source=args.source,
+                            )
+                        except Exception as exc:  # noqa: BLE001 - staging remains valid.
+                            logger.exception(
+                                "autonomous distill failed after evidence staging"
+                            )
+                            autonomous_payload = {
+                                "success": False,
+                                "state": "failed",
+                                "error": f"{type(exc).__name__}: {exc}"[:512],
+                                "outcomes": [],
+                            }
+                        maintenance_payload["autonomous"] = autonomous_payload
+                        summary = maintenance_payload.get("summary")
+                        if isinstance(summary, dict):
+                            summary["autonomous_state"] = autonomous_payload.get(
+                                "state"
+                            )
+                            summary["autonomous_completed"] = sum(
+                                item.get("status") == "completed"
+                                for item in autonomous_payload.get("outcomes", [])
+                                if isinstance(item, dict)
+                            )
                 except Exception as exc:  # noqa: BLE001 - host entry is total.
                     logger.exception("host_entry caught unhandled post-turn exception")
                     maintenance_payload = {
@@ -536,7 +631,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     processed_generation=worker_generation,
                 )
             except Exception:  # noqa: BLE001 - background handoff is best-effort.
-                logger.warning("could not hand off coalesced hook maintenance", exc_info=True)
+                logger.warning(
+                    "could not hand off coalesced hook maintenance", exc_info=True
+                )
     if stdout_payload is not None:
         sys.stdout.write(stdout_payload + "\n")
     return int(exit_code)

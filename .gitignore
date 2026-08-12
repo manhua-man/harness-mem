@@ -24,7 +24,8 @@ terminals/
 
 # Local Cursor/Claude config overrides
 **/CLAUDE.local.md
-.codex/
+.codex/*
+!.codex/outcomes.json
 
 # Local harness-mem config overrides
 .harness-mem.toml

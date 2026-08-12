@@ -26,7 +26,7 @@ Agent 会读代码，但它通常不知道项目为什么变成现在这样：�
 
 - `/hm:*` 命令：`status`、`wake`、`search`、`search-all`、`distill`、`review`、`dream`。
 - Agent MCP 调用：自然语言、skill 或 hook 触发 `wake/search/distill/review`。
-- Hook：会话开始注入 wake context；任务过程中按需 search；save point / 会话结束执行 retention。distill 活跃槽最多 2 条，按 3:1 recent/oldest 公平补位，带失败退避和每日新 job 上限；每个 Agent task 可按顺序处理最多 2 条 job。没有 Agent 时明确显示 `waiting_for_agent`，不会声称后台已完成语义处理。
+- Hook：会话开始注入 wake context；Stop 前台只同步并排队，随后由 detached autonomous worker 按顺序处理最多 2 条 durable job。当前 Stop 会话固定占第一个优先槽，剩余 backlog 槽再遵循 3:1 recent/oldest 公平补位和每日 backlog 上限。后台 provider 使用无工具 Structured Output、review lease 和失败退避；缺少 provider/auth 时保持显式 retryable，绝不伪报完成。
 - CLI：只做 setup、doctor、config、integration 和 maintenance。
 
 日常使用只需要三个意图：用 `wake/search` 继续工作，把可复用结果记住，或
@@ -55,7 +55,18 @@ wake -> search -> distill -> review -> dream
 `tool_result`、`prepareNextTurn`，Claude Code 的 `PostToolUse`，以及
 Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 事件入口；`/hm:search` 只是客户端没有这类 hook 时的手动兜底。
-`Stop` Hook 会保存不可变的原始 transcript revision，并排队它的全部有序 chunk。日常 `prepare_session_distill(evidence_mode="semantic", detail_level="compact")` 保留完整原文，由 runtime 校验并 checkpoint 每个 raw chunk，再返回包含全部 exchange 索引和风险信号的 compact manifest。预算约束的是 Agent 实际接收的完整序列化 MCP 响应，3k 只是兼容默认软目标；允许因完整覆盖或显式 drilldown 扩张，但 `response_budget` 必须报告真实 token 数与原因，绝不静默丢弃后半段 exchange。Agent 先选择最多 8 个完整语义窗口，再只为候选主张钻取 raw proof。`detail_level="full"` 与兼容 `raw` 模式只用于显式完整审计，raw chunk 不截断内容。完成会话末尾审查后才可用稳定幂等 ID 生成候选。检测到 decision、solution、preference、workflow、migration 或 handoff 信号时默认 fail-closed 为 `candidate_required`；只有读完完整窗口并给出针对该信号的 session-only 理由才能降级。`finalize_session_distill` 对当前 job 执行 scoped 自动治理并记录 `promoted` 或 `no_candidate`。已回答候选可以与无关的未完成 handoff 分开治理，但 review 未完整结束时不运行 Dream。默认结果与 Session Note 使用“标题 + 单一可验证事实 + 验证日期/状态”，内部 ID 只进入显式审计详情。`/hm:review` 是纠错和 undo 入口，不是日常晋升闸门。`/hm:distill` 是同一条可恢复管线的立即执行入口。Hook 只负责同步、排队和注入 Agent 工作，不能声称没有 Agent 时已完成总结；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
+`Stop` Hook 会保存不可变的原始 transcript revision，并排队它的全部有序 chunk。日常 `prepare_session_distill(evidence_mode="semantic", detail_level="compact")` 保留完整原文，由 runtime 校验并 checkpoint 每个 raw chunk，再返回包含全部 exchange 索引和风险信号的 compact manifest。预算约束的是 provider 实际接收的完整序列化响应，3k 只是兼容默认软目标；允许因完整覆盖或显式 drilldown 扩张，但 `response_budget` 必须报告真实 token 数与原因，绝不静默丢弃后半段 exchange。detached worker 默认通过当前 Responses provider 做无工具、`store=false`、严格 JSON Schema 的语义审查；受信 runtime 随后治理候选、finalize，并原子生成 `~/.codex/hm-distill/sessions/<session-id>.md`。健康状态持久化真实 token/耗时及 `last_semantic_success_at`、`last_job_completed_at`、`last_note_materialized_at`。`detail_level="full"` 与兼容 `raw` 模式仍用于显式完整审计。检测到 decision、solution、preference、workflow、migration 或 handoff 信号时默认 fail-closed 为 `candidate_required`；只有读完完整窗口并给出针对该信号的 session-only 理由才能降级。`finalize_session_distill` 对当前 job 执行 scoped 自动治理并记录 `promoted` 或 `no_candidate`。`/hm:review` 是纠错和 undo 入口，不是日常晋升闸门；`/hm:distill` 是同一条可恢复管线的立即执行入口。同步 Hook 本身只可声称已排队，只有 finalize 与 Note 回执都落盘后后台才可声称完成；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
+
+显式 `raw` 审计中的每个 raw chunk 都保留完整内容，不截断内容。
+
+后台语义处理会把 compact manifest 发送给当前配置的模型 provider，并可能消耗
+quota，因此需要一次持久授权：
+
+```bash
+harness-mem config set distill.autonomous.enabled true --scope user --confirm
+```
+
+之后每个 Stop 不再重复确认；把该值设为 `false` 即恢复仅排队模式。
 
 新候选带 evidence basis 和 verification outcome。仓库事实必须引用
 当前项目相对文件及其 SHA-256；用户偏好或决定引用 user role 的 exchange
@@ -64,7 +75,7 @@ RelationFact 也走同一准入规则，旧 truth 不会被追溯重分类。
 
 0.9.6 在不改变主流程的前提下收敛了安装面：MCP schema、handler、cluster 和
 descriptor 注册表严格对应同一组 27 个公开工具；七宿主 hook 修复统一为一个
-命令；公开配置只保留 10 个持久策略选择，旧 tuning 值仍可兼容读取。
+命令；公开配置只保留 11 个持久策略选择，旧 tuning 值仍可兼容读取。
 
 0.9.9 不增加第二条产品路径，而是在现有边界上加固：有界的重启恢复、派生索引
 原子重建、七宿主原生回放，以及安装、升级和恢复验收，都继续复用本地 SQLite、
@@ -219,6 +230,20 @@ cargo test --workspace
 
 快速门只跳过四个确定性的 60-case 穷举检索回放；全部断言仍会在 `main`
 和正式 tag 的发布门中执行。
+
+在声称运行中的产品已经完成前，使用跨项目 `outcome-verifier` Skill 执行
+仓库的用户结果合同：
+
+```bash
+python tools/outcome-verifier/scripts/verify_outcomes.py \
+  --config .codex/outcomes.json \
+  --output .tmp/outcome-verifier/harness-mem-report.json
+```
+
+该只读探针要求：Codex 生命周期的 start/Stop 回执新鲜且成对、Dream 存在
+持久化成功运行、最近完成的每个蒸馏会话都有有效语义摘要和可读 Note，以及
+至少一条长期记忆能从 FTS read model 真正检索回来。只要 verdict 非零，就不能
+因为代码、配置、队列或单元测试正常而声称用户结果已经落地。
 
 发布标签会构建六个平台 wheel 和 sdist，在 Windows、macOS、Linux 上完成
 全新安装验证，运行真实 sqlite-vec contract gate，并验证受支持的 Windows 升级

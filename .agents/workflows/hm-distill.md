@@ -98,7 +98,7 @@ wireFormatVersion: hm-wire-v3.5
 3. **做 final-session review、标准准入，再写候选**
    - 默认读取并遵循 `tools/hm-distill/SKILL.md`（Step 3–4）
    - semantic 模式按 `semantic_chunk_index` 汇总 evidence；raw 兼容模式按 `chunk_index` 汇总 checkpoint result
-   - semantic review 必须填写 `session_summary`、`final_user_request`、`final_outcome`、`last_turn_status`、`contradictions`、`unfinished_work`、`evidence_status`、`promotion_decision`
+   - semantic review 必须填写 `session_summary`、`final_user_request`、`final_outcome`、`last_turn_status`、`contradictions`、`unfinished_work`、`evidence_status`、`promotion_decision`；`contradictions` 只记录当前候选证据仍未解决的冲突，旧方案被后续决定替代应写入 summary/outcome，不能误标为当前候选冲突
    - `session_summary` 用 1–3 句话说明会话主题、实际结果和关键未完成项；它是用户可读摘要，与是否产生长期记忆候选无关
    - v1 job 没有候选时，必须读取 manifest 的 `zero_candidate_required_exchange_indexes`，drilldown 全部完整窗口，并提交带 `content_sha256` 的 `zero_candidate_challenge`
    - challenge 分开记录 `evidence_fidelity` 与 `future_utility`，逐项检查 correction、decision、solution、repeated failure、rule/preference、reusable workflow/fact、version/migration 和 unfinished handoff；检测到的信号默认 `candidate_required`，只有读完完整窗口并在 rationale 点名该 signal key 与 session-only 原因后才可降级为 `not_durable`
@@ -154,8 +154,11 @@ wireFormatVersion: hm-wire-v3.5
    `auto_review_candidates(apply=true)` 收尾，也不要额外调用一条平行 Dream。
 
 5. **总结呈现与 Note**
-   明确 session id 时，默认创建或更新
-   `~/.codex/hm-distill/sessions/<session_id>.md`。Note 至少包含会话主题、
+   明确 session id 时，finalize 为当前 job 创建不可变审计 Note：
+   `~/.codex/hm-distill/sessions/revisions/<job_id>/<session_id>.md`，并仅把
+   `~/.codex/hm-distill/sessions/<session_id>.md` 更新为该 session 最新完成版本的
+   便利入口。返回的 `note.path` 是 receipt 绑定的不可变路径，`note.latest_path` 是
+   用户快捷入口。Note 至少包含会话主题、
    最终结果、未完成工作和记忆治理结果，并明确它是历史审计/可读性产物，不是当前
    项目真相。只复用已经提交的 semantic review，不启动额外导出，不重新消耗模型
    阅读原文。

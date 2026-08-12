@@ -200,6 +200,139 @@ class SessionDistillStore:
             DistillChunkCheckpoint.from_dict(json.loads(row["data"])) for row in rows
         ]
 
+    def claim_review(
+        self,
+        job_id: str,
+        *,
+        lease_owner: str,
+        execution_source: str,
+        lease_seconds: int = 300,
+    ) -> SessionDistillJob | None:
+        """Atomically claim the semantic review/finalize phase."""
+
+        now = datetime.now(timezone.utc)
+        lease_until = now + timedelta(seconds=max(30, int(lease_seconds)))
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                job = self._get_job_locked(job_id)
+                if job is None:
+                    raise KeyError(job_id)
+                if job.status != "reviewing":
+                    self._conn.rollback()
+                    return None
+                active_other = (
+                    job.review_lease_owner
+                    and job.review_lease_owner != lease_owner
+                    and job.review_lease_until is not None
+                    and job.review_lease_until > now
+                )
+                if active_other:
+                    self._conn.rollback()
+                    return None
+                expired_other = (
+                    job.review_lease_owner
+                    and job.review_lease_owner != lease_owner
+                    and (
+                        job.review_lease_until is None
+                        or job.review_lease_until <= now
+                    )
+                )
+                if expired_other:
+                    job.recovery_count += 1
+                    job.recovery_reason_codes = list(
+                        dict.fromkeys(
+                            [*job.recovery_reason_codes, "expired_review_lease"]
+                        )
+                    )
+                    job.last_recovery_at = now
+                    if job.recovery_count >= max(1, int(job.recovery_budget)):
+                        job.status = "failed"
+                        job.error = "distill review recovery budget exhausted"
+                        job.recovery_exhausted_at = now
+                        job.review_lease_owner = None
+                        job.review_lease_until = None
+                        job.updated_at = now
+                        self._upsert_job_locked(job)
+                        self._conn.commit()
+                        return None
+                job.review_lease_owner = lease_owner
+                job.review_lease_until = lease_until
+                job.review_attempt_count += 1
+                job.review_execution_source = execution_source[:80]
+                job.last_review_heartbeat_at = now
+                job.last_progress_at = now
+                job.updated_at = now
+                self._upsert_job_locked(job)
+                self._conn.commit()
+                return job
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def renew_review_lease(
+        self,
+        job_id: str,
+        *,
+        lease_owner: str,
+        lease_seconds: int = 300,
+    ) -> bool:
+        """Renew an owned semantic-review lease while a provider is running."""
+
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                job = self._get_job_locked(job_id)
+                if (
+                    job is None
+                    or job.status != "reviewing"
+                    or job.review_lease_owner != lease_owner
+                    or job.review_lease_until is None
+                    or job.review_lease_until <= now
+                ):
+                    self._conn.rollback()
+                    return False
+                job.review_lease_until = now + timedelta(
+                    seconds=max(30, int(lease_seconds))
+                )
+                job.last_review_heartbeat_at = now
+                job.last_progress_at = now
+                job.updated_at = now
+                self._upsert_job_locked(job)
+                self._conn.commit()
+                return True
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def release_review_lease(
+        self,
+        job_id: str,
+        *,
+        lease_owner: str,
+    ) -> bool:
+        """Release an owned review lease without changing job disposition."""
+
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                job = self._get_job_locked(job_id)
+                if job is None or job.review_lease_owner != lease_owner:
+                    self._conn.rollback()
+                    return False
+                job.review_lease_owner = None
+                job.review_lease_until = None
+                job.last_review_heartbeat_at = now
+                job.updated_at = now
+                self._upsert_job_locked(job)
+                self._conn.commit()
+                return True
+            except Exception:
+                self._conn.rollback()
+                raise
+
     def reconcile(
         self,
         *,
@@ -607,6 +740,7 @@ class SessionDistillStore:
         *,
         semantic_review: dict,
         output_candidate_ids: List[str] | None = None,
+        review_lease_owner: str | None = None,
     ) -> SessionDistillJob:
         """Complete one explicit job after structural and semantic review."""
 
@@ -625,6 +759,18 @@ class SessionDistillStore:
                     # receipt instead of trying to reconstruct deleted input.
                     self._conn.rollback()
                     return job
+                active_review_lease = bool(
+                    job.review_lease_owner
+                    and job.review_lease_until is not None
+                    and job.review_lease_until > now
+                )
+                if (
+                    active_review_lease
+                    and job.review_lease_owner != review_lease_owner
+                ):
+                    raise PermissionError(
+                        "distill review lease is not owned by this caller"
+                    )
                 source = self._get_source(job.source_id)
                 if source is None:
                     raise ValueError("distill source no longer exists")
@@ -660,6 +806,8 @@ class SessionDistillStore:
                 job.status = "completed"
                 job.phase = "done"
                 job.error = None
+                job.review_lease_owner = None
+                job.review_lease_until = None
                 job.completed_at = now
                 job.last_progress_at = now
                 job.updated_at = now
@@ -700,6 +848,8 @@ class SessionDistillStore:
                         self._upsert_checkpoint_locked(checkpoint)
                 job.status = "retryable"
                 job.error = error[:512]
+                job.review_lease_owner = None
+                job.review_lease_until = None
                 retry_number = max(1, job.attempt_count)
                 backoff_seconds = min(6 * 3600, 300 * (2 ** min(retry_number - 1, 7)))
                 job.retry_after = now + timedelta(seconds=backoff_seconds)
@@ -743,6 +893,40 @@ class SessionDistillStore:
                 job.last_progress_at = now
                 job.updated_at = now
                 self._upsert_job_locked(job)
+                self._conn.commit()
+                return job
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def backfill_session_summary(
+        self,
+        job_id: str,
+        *,
+        session_summary: str,
+    ) -> SessionDistillJob:
+        """Fill a missing completed-session audit summary without re-finalizing."""
+
+        summary = session_summary.strip()[:2000]
+        if len(summary) < 12:
+            raise ValueError("session_summary must contain at least 12 characters")
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                job = self._get_job_locked(job_id)
+                if job is None:
+                    raise KeyError(job_id)
+                if job.status != "completed":
+                    raise ValueError("session summary backfill requires a completed job")
+                existing = str(job.semantic_review.get("session_summary") or "").strip()
+                if len(existing) < 12:
+                    job.semantic_review = {
+                        **dict(job.semantic_review),
+                        "session_summary": summary,
+                    }
+                    job.updated_at = now
+                    self._upsert_job_locked(job)
                 self._conn.commit()
                 return job
             except Exception:

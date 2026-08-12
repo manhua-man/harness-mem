@@ -20,6 +20,7 @@ __all__ = [
     "background_generation_from_env",
     "dispatch_post_turn",
     "finish_background_worker",
+    "heartbeat_background_worker",
     "load_background_request",
 ]
 
@@ -160,6 +161,30 @@ def finish_background_worker(
     except Exception:
         lock_path.unlink(missing_ok=True)
         raise
+    return True
+
+
+def heartbeat_background_worker(
+    data_dir: Path,
+    *,
+    project_root: Path,
+    client: str,
+    now: float | None = None,
+) -> bool:
+    """Renew the detached-worker lock while semantic processing is active."""
+
+    _request_path, lock_path = _state_paths(
+        data_dir,
+        project_root=project_root,
+        client=client,
+    )
+    if not lock_path.is_file():
+        return False
+    timestamp = time.time() if now is None else float(now)
+    try:
+        os.utime(lock_path, (timestamp, timestamp))
+    except OSError:
+        return False
     return True
 
 

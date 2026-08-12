@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,12 @@ from harness_mem.hook_receipts import (
 )
 from harness_mem.hook_runtime import collect_hook_file_statuses
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+
+_AUTONOMOUS_TOKEN_WARNING = 15_000
+_AUTONOMOUS_SECONDS_WARNING = 60.0
+_DISTILL_STALLED_HOURS_WARNING = 2.0
+_SEMANTIC_SUCCESS_STALE_HOURS = 24.0
 
 
 async def build_integration_health(
@@ -154,10 +161,45 @@ async def build_integration_health(
         daily_job_budget=distill_config.distill_auto_daily_job_budget,
     )
     distill_status = "processing" if processing else str(drainer["state"])
+    autonomous_receipt = None
+    if root is not None:
+        from harness_mem.autonomous.worker import read_autonomous_receipt
+
+        autonomous_receipt = read_autonomous_receipt(
+            backend.data_dir,
+            project_name=project_name,
+            project_root=root,
+        )
+    all_distill_jobs = backend.transcript_store.list_distill_jobs(
+        project_name=project_name,
+        limit=100_000,
+    )
+    autonomous_outcome: dict[str, Any] = {}
+    if root is not None:
+        from harness_mem.outcome_probe import inspect_autonomous_outcome
+
+        autonomous_outcome = inspect_autonomous_outcome(
+            backend.data_dir,
+            project_name=project_name,
+            project_root=root,
+            jobs=all_distill_jobs,
+        )
+    health_card = _build_autonomous_health_card(
+        authorized=distill_config.distill_autonomous_enabled,
+        autonomous=autonomous_outcome,
+        jobs=all_distill_jobs,
+        drainer=drainer,
+        hooks_configured=bool(hook_files) and len(installed_hooks) == len(hook_files),
+        post_turn_last_success_at=maintenance_execution.get("last_success_at"),
+    )
     project_status = "ok" if root is not None else "unknown"
     latest_source = max(sources, key=lambda item: item.updated_at) if sources else None
-    completed_chunks = sum(getattr(job, "completed_chunk_count", 0) for job in [*queued, *processing])
-    expected_chunks = sum(getattr(job, "expected_chunk_count", 0) for job in [*queued, *processing])
+    completed_chunks = sum(
+        getattr(job, "completed_chunk_count", 0) for job in [*queued, *processing]
+    )
+    expected_chunks = sum(
+        getattr(job, "expected_chunk_count", 0) for job in [*queued, *processing]
+    )
     missing_sources = [source for source in sources if source.status == "missing"]
     failed_sources = [source for source in sources if source.status == "failed"]
     partial_sources = [source for source in sources if source.coverage != "complete"]
@@ -228,12 +270,8 @@ async def build_integration_health(
             "promoted_7d": drainer["promoted_7d"],
             "no_candidate_7d": drainer["no_candidate_7d"],
             "legacy_unknown_7d": drainer["legacy_unknown_7d"],
-            "source_cleanup_partial_failure": drainer[
-                "source_cleanup_partial_failure"
-            ],
-            "source_cleanup_unsupported": drainer[
-                "source_cleanup_unsupported"
-            ],
+            "source_cleanup_partial_failure": drainer["source_cleanup_partial_failure"],
+            "source_cleanup_unsupported": drainer["source_cleanup_unsupported"],
             "throughput_per_day_7d": drainer["throughput_per_day_7d"],
             "oldest_parked_age_hours": drainer["oldest_parked_age_hours"],
             "recent_lane_selected": drainer["recent_lane_selected"],
@@ -242,9 +280,204 @@ async def build_integration_health(
             "stuck_reasons": drainer["stuck_reasons"],
             "drain_estimate": drainer["drain_estimate"],
             "agent_required": drainer["agent_required"],
-            "background_semantic_processing": False,
+            "background_semantic_processing": drainer["background_semantic_processing"],
+            "autonomous_active": drainer["autonomous_active"],
+            "last_semantic_success_at": (
+                autonomous_receipt.get("last_semantic_success_at")
+                if autonomous_receipt
+                else drainer["last_semantic_success_at"]
+            ),
+            "last_job_completed_at": (
+                autonomous_receipt.get("last_job_completed_at")
+                if autonomous_receipt
+                else None
+            ),
+            "last_note_materialized_at": (
+                autonomous_receipt.get("last_note_materialized_at")
+                if autonomous_receipt
+                else None
+            ),
+            "autonomous_state": (
+                autonomous_receipt.get("state") if autonomous_receipt else "not_run"
+            ),
+        },
+        "health_card": health_card,
+    }
+
+
+def _build_autonomous_health_card(
+    *,
+    authorized: bool,
+    autonomous: dict[str, Any],
+    jobs: list[Any],
+    drainer: dict[str, Any],
+    hooks_configured: bool,
+    post_turn_last_success_at: str | None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return one idle-safe, user-facing autonomous health decision."""
+
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    cutoff = current - timedelta(hours=24)
+    recent_failures = [
+        job
+        for job in jobs
+        if job.review_execution_source == "autonomous_worker"
+        and job.status in {"retryable", "failed"}
+        and bool(job.error)
+        and job.updated_at.astimezone(timezone.utc) >= cutoff
+    ]
+    retry_backoff = max(0, int(drainer.get("retry_backoff") or 0))
+    recovery_exhausted = max(0, int(drainer.get("recovery_exhausted") or 0))
+    stalled_hours = max(
+        0.0,
+        float(drainer.get("oldest_stalled_age_hours") or 0.0),
+    )
+    queue_overdue = retry_backoff + recovery_exhausted
+    if stalled_hours >= _DISTILL_STALLED_HOURS_WARNING:
+        queue_overdue += 1
+
+    provider = dict(autonomous.get("provider") or {})
+    total_tokens = int(provider.get("total_tokens") or 0)
+    provider_seconds = float(provider.get("duration_seconds") or 0.0)
+    semantic_success_at = _parse_health_timestamp(
+        autonomous.get("last_semantic_success_at")
+    )
+    post_turn_at = _parse_health_timestamp(post_turn_last_success_at)
+    semantic_success_age_hours = (
+        round(max(0.0, (current - semantic_success_at).total_seconds() / 3600), 2)
+        if semantic_success_at is not None
+        else None
+    )
+    post_turn_is_recent = bool(
+        post_turn_at is not None
+        and current - post_turn_at <= timedelta(hours=_SEMANTIC_SUCCESS_STALE_HOURS)
+    )
+    progress_expected = bool(
+        int(drainer.get("active") or 0) > 0
+        and int(drainer.get("daily_budget_remaining") or 0) > 0
+        and drainer.get("state") != "daily_budget_exhausted"
+        and post_turn_is_recent
+    )
+    semantic_success_freshness = (
+        "not_run"
+        if not autonomous.get("receipt_exists")
+        else "invalid"
+        if autonomous.get("last_semantic_success_at") and semantic_success_at is None
+        else "stale"
+        if progress_expected
+        and (
+            semantic_success_age_hours is None
+            or semantic_success_age_hours >= _SEMANTIC_SUCCESS_STALE_HOURS
+        )
+        else "current"
+    )
+    issue_codes: list[str] = []
+    severe_codes: set[str] = set()
+
+    if not authorized:
+        status = "disabled"
+    else:
+        if not hooks_configured:
+            issue_codes.append("hooks_not_configured")
+            severe_codes.add("hooks_not_configured")
+        if not autonomous.get("receipt_exists"):
+            if post_turn_last_success_at:
+                issue_codes.append("autonomous_receipt_missing")
+                severe_codes.add("autonomous_receipt_missing")
+        elif not autonomous.get("lifecycle_verified"):
+            for code, field in (
+                ("job_binding_invalid", "batch_binding_valid"),
+                ("runtime_mismatch", "runtime_current"),
+                ("config_mismatch", "config_current"),
+                ("provider_unverified", "provider_isolated"),
+                ("provider_metrics_missing", "provider_metrics_bound"),
+                ("note_unverified", "note_verified"),
+            ):
+                if autonomous.get(field) is not True:
+                    issue_codes.append(code)
+                    severe_codes.add(code)
+            if autonomous.get("state") not in {"succeeded", "partial"}:
+                issue_codes.append("latest_batch_failed")
+                severe_codes.add("latest_batch_failed")
+        if autonomous.get("state") == "partial":
+            issue_codes.append("latest_batch_partial")
+        if recent_failures:
+            issue_codes.append("autonomous_failures_24h")
+        if queue_overdue:
+            issue_codes.append("queue_overdue")
+        if total_tokens > _AUTONOMOUS_TOKEN_WARNING:
+            issue_codes.append("token_regression")
+        if provider_seconds > _AUTONOMOUS_SECONDS_WARNING:
+            issue_codes.append("latency_regression")
+        if semantic_success_freshness == "stale":
+            issue_codes.append("semantic_success_stale")
+        elif semantic_success_freshness == "invalid":
+            issue_codes.append("semantic_success_time_invalid")
+            severe_codes.add("semantic_success_time_invalid")
+
+        if severe_codes:
+            status = "unhealthy"
+        elif issue_codes:
+            status = "attention"
+        elif autonomous.get("receipt_exists"):
+            status = "healthy"
+        else:
+            status = "not_run"
+
+    alert = status in {"attention", "unhealthy"}
+    label = {
+        "healthy": "Healthy",
+        "attention": "Attention",
+        "unhealthy": "Unhealthy",
+        "disabled": "Disabled",
+        "not_run": "Not run yet",
+    }[status]
+    return {
+        "schema_version": "harness_mem.health_card.v1",
+        "status": status,
+        "alert": alert,
+        "summary": f"harness-mem: {label}",
+        "checked_at": current.isoformat(),
+        "chain_verified": bool(autonomous.get("lifecycle_verified")),
+        "last_run": {
+            "at": autonomous.get("last_semantic_success_at"),
+            "age_hours": semantic_success_age_hours,
+            "freshness": semantic_success_freshness,
+            "tokens": total_tokens or None,
+            "seconds": provider_seconds or None,
+            "model": provider.get("model"),
+            "trigger_id": autonomous.get("trigger_id"),
+            "job_id": autonomous.get("job_id"),
+            "note_path": dict(autonomous.get("note") or {}).get("path"),
+        },
+        "queue": {
+            "active": int(drainer.get("active") or 0),
+            "parked": int(drainer.get("parked") or 0),
+            "retry_backoff": retry_backoff,
+            "overdue": queue_overdue,
+        },
+        "failures_24h": len(recent_failures),
+        "issue_codes": list(dict.fromkeys(issue_codes)),
+        "thresholds": {
+            "tokens": _AUTONOMOUS_TOKEN_WARNING,
+            "seconds": _AUTONOMOUS_SECONDS_WARNING,
+            "stalled_hours": _DISTILL_STALLED_HOURS_WARNING,
+            "semantic_success_stale_hours": _SEMANTIC_SUCCESS_STALE_HOURS,
         },
     }
+
+
+def _parse_health_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _unknown_hook_execution() -> dict[str, Any]:

@@ -1,0 +1,236 @@
+{
+  "schema_version": 1,
+  "project": "harness-mem",
+  "claims": [
+    {
+      "id": "codex_hook_lifecycle",
+      "description": "Codex Desktop native start and post-turn hooks each have a fresh receipt for the current configuration; exact Stop-to-job binding is verified by the autonomous completion claim.",
+      "required": true,
+      "checks": [
+        {
+          "id": "native_receipts",
+          "description": "Inspect both native hook actions against the current hook fingerprint. Their global latest receipts may belong to interleaved Desktop tasks.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "hooks.configuration_complete": {"equals": true},
+              "hooks.wake_verified": {"equals": true},
+              "hooks.maintenance_verified": {"equals": true},
+              "hooks.actions_verified": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "dream_execution",
+      "description": "Dream has a successful persisted run within the verification window.",
+      "required": true,
+      "checks": [
+        {
+          "id": "persisted_dream_run",
+          "description": "Read the durable Dream ledger rather than scheduler configuration.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "dream.successful_run_count": {"gte": 1},
+              "dream.last_successful_run_at": {"exists": true},
+              "dream.success_within_window": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "distill_user_artifacts",
+      "description": "Every recently completed session distill has a readable Session Note.",
+      "required": true,
+      "checks": [
+        {
+          "id": "completed_session_notes",
+          "description": "Match completed distill sessions to real user-readable Note files.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "distill.unique_completed_sessions": {"gte": 1},
+              "distill.note_coverage_complete": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "autonomous_distill_completion",
+      "description": "A detached Hook worker has completed semantic distillation without an interactive Agent turn.",
+      "required": true,
+      "checks": [
+        {
+          "id": "persisted_autonomous_completion",
+          "description": "Bind the autonomous receipt to a completed durable job and fresh semantic success time.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "autonomous.execution_source": {"equals": "autonomous_worker"},
+              "autonomous.authorized": {"equals": true},
+              "autonomous.trigger_matches_hook": {"equals": true},
+              "autonomous.job_completed": {"equals": true},
+              "autonomous.trigger_session_completed": {"equals": true},
+              "autonomous.batch_binding_valid": {"equals": true},
+              "autonomous.last_semantic_success_at": {"exists": true},
+              "autonomous.runtime_current": {"equals": true},
+              "autonomous.config_current": {"equals": true},
+              "autonomous.lifecycle_verified": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "autonomous_note_materialization",
+      "description": "The autonomous completion materializes a meaningful, job-bound Session Note.",
+      "required": true,
+      "checks": [
+        {
+          "id": "autonomous_note_receipt",
+          "description": "Match the receipt hash and job/session bindings to the real Note file.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "autonomous.note_verified": {"equals": true},
+              "autonomous.last_note_materialized_at": {"exists": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "autonomous_provider_isolation",
+      "description": "The autonomous model runs ephemerally in an isolated read-only Codex execution.",
+      "required": true,
+      "checks": [
+        {
+          "id": "provider_isolation_receipt",
+          "description": "Verify schema validation, read-only sandbox, ephemeral execution, neutral cwd, and no Hook re-entry.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "autonomous.provider_isolated": {"equals": true},
+              "autonomous.provider_metrics_bound": {"equals": true},
+              "autonomous.provider.schema_valid": {"equals": true},
+              "autonomous.provider.sandbox": {"equals": "no-tools"},
+              "autonomous.provider.ephemeral": {"equals": true},
+              "autonomous.provider.cwd_isolated": {"equals": true},
+              "autonomous.provider.hooks_disabled": {"equals": true},
+              "autonomous.provider.plugins_disabled": {"equals": true},
+              "autonomous.provider.mcp_disabled": {"equals": true},
+              "autonomous.provider.rules_ignored": {"equals": true},
+              "autonomous.provider.config_isolated": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "partial_distill_handoff",
+      "description": "Partial distill promotes an independently Answered candidate, persists a job-bound handoff, blocks Dream, and writes separate immutable/latest Notes.",
+      "required": true,
+      "checks": [
+        {
+          "id": "isolated_partial_distill_runtime",
+          "description": "Execute and read back the real govern/finalize path in an isolated durable store.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.qualification.distill_outcome_probe"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "verified": {"equals": true},
+              "partial_candidate_promoted": {"equals": true},
+              "handoff_persisted": {"equals": true},
+              "handoff_job_bound": {"equals": true},
+              "dream_blocked_for_partial": {"equals": true},
+              "immutable_note_exists": {"equals": true},
+              "latest_note_exists": {"equals": true},
+              "note_paths_distinct": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "distill_acceptance_matrix",
+      "description": "The versioned F1-F7 fixture catalog maps every A1-E6 path to an executable result and the fixed F1-F3 model batch meets quality and cost gates.",
+      "required": true,
+      "checks": [
+        {
+          "id": "distill_acceptance_runner",
+          "description": "Run all 24 mapped paths and the three no-tools fixed model samples, producing a machine-readable report.",
+          "evidence_tier": "direct",
+          "timeout_seconds": 180,
+          "command": ["{python}", "-m", "harness_mem.qualification.distill_acceptance", "--project-root", "{project_root}", "--output", "{project_root}/.codex/distill-acceptance-report.json", "--model-samples"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "status": {"equals": "passed"},
+              "l1.passed": {"equals": 24},
+              "l1.total": {"equals": 24},
+              "model_samples.passed": {"equals": 3},
+              "model_samples.total": {"equals": 3}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "distill_audit_summaries",
+      "description": "Recent completed distill ledgers retain their semantic summaries for audit.",
+      "required": false,
+      "checks": [
+        {
+          "id": "persisted_semantic_summaries",
+          "description": "Check the latest completed ledger for every recent source session.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "distill.semantic_summary_coverage_complete": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "durable_memory_retrieval",
+      "description": "At least one readable durable memory can be retrieved through the normal search path.",
+      "required": true,
+      "checks": [
+        {
+          "id": "retrieval_smoke",
+          "description": "Choose a readable truth and prove search returns the same truth id.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "retrieval.readable_truth_count": {"gte": 1},
+              "retrieval.probe_attempted": {"equals": true},
+              "retrieval.probe_hit": {"equals": true}
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

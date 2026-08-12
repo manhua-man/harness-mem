@@ -609,8 +609,14 @@ class LocalVerbatimStore:
             assessment = "healthy"
             reason = "ok"
         elif physical_matches_expected:
-            assessment = "expected_growth"
-            reason = "manifest_refresh_required"
+            # Normal saves update canonical truth and the physical trigram
+            # table together, but a generation manifest represents the last
+            # full atomic rebuild.  Doctor has just recomputed the complete
+            # expected postings and proved the live table matches them, so a
+            # stale rebuild manifest is informational rather than a repair
+            # condition.
+            assessment = "healthy_incremental"
+            reason = "verified_incremental_growth"
         elif physical_matches_manifest and active.get("source_generation") != source_generation:
             assessment = "actionable_drift"
             reason = "canonical_ahead_of_index"
@@ -618,7 +624,7 @@ class LocalVerbatimStore:
             assessment = "corruption"
             reason = "physical_postings_mismatch"
         return {
-            "has_issue": assessment != "healthy",
+            "has_issue": assessment not in {"healthy", "healthy_incremental"},
             "assessment": assessment,
             "reason": reason,
             "manifest": manifest,

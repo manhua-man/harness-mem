@@ -25,7 +25,11 @@ def _redirect_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
     monkeypatch.setattr(Path, "home", lambda: home)
 
 
-def test_delete_source_after_complete_defaults_to_false(tmp_path: Path) -> None:
+def test_delete_source_after_complete_defaults_to_false(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _redirect_home(monkeypatch, tmp_path / "home")
     project = tmp_path / "project"
     project.mkdir()
 
@@ -33,6 +37,8 @@ def test_delete_source_after_complete_defaults_to_false(tmp_path: Path) -> None:
 
     assert MergedConfig().distill_delete_source_after_complete is False
     assert config.distill_delete_source_after_complete is False
+    assert MergedConfig().distill_autonomous_enabled is False
+    assert config.distill_autonomous_enabled is False
     assert config.to_reflection_config()["distill"]["delete_source_after_complete"] is False
 
 
@@ -69,6 +75,7 @@ def test_user_delete_source_setting_is_overridden_by_project(
         ("capture.enabled", "false", False),
         ("capture.ignore_clients", '["codex", "cursor", "codex"]', ["codex", "cursor"]),
         ("distill.auto.enabled", "false", False),
+        ("distill.autonomous.enabled", "false", False),
         ("distill.delete_source_after_complete", "true", True),
         ("dream.auto.enabled", "false", False),
     ],
@@ -232,6 +239,42 @@ def test_disabling_delete_source_never_requires_confirmation(
         == 0
     )
     assert load_merged_config(project).distill_delete_source_after_complete is False
+
+
+def test_enabling_autonomous_distill_requires_persistent_confirmation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    project.mkdir()
+    _redirect_home(monkeypatch, home)
+
+    assert (
+        cmd_config_set(
+            "distill.autonomous.enabled",
+            "true",
+            "user",
+            str(project),
+        )
+        == 1
+    )
+    captured = capsys.readouterr()
+    assert "model quota" in captured.err
+    assert "--confirm" in captured.err
+
+    assert (
+        cmd_config_set(
+            "distill.autonomous.enabled",
+            "true",
+            "user",
+            str(project),
+            confirm=True,
+        )
+        == 0
+    )
+    assert load_merged_config(project).distill_autonomous_enabled is True
 
 
 def test_config_get_and_list_include_only_public_policy_keys(

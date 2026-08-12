@@ -9,6 +9,7 @@ from typing import Any, cast
 
 from harness_mem import __version__
 from harness_mem.adapters import AdapterRegistry
+from harness_mem.adapters.codex.adapter import CodexAdapter
 from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
 from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
 from harness_mem.adapters.parser import extract_claude_session_cwd
@@ -44,6 +45,7 @@ async def cmd_ingest(
     full_rescan: bool = False,
     scope: str = "project",
     project_root: str | None = None,
+    session_id: str | None = None,
 ) -> int:
     """Ingest sessions for a supported client."""
     requested_client = client
@@ -103,6 +105,12 @@ async def cmd_ingest(
         if client in {"codex", "hermes"}:
             adapter_kwargs["scope"] = scope
         adapter = AdapterRegistry.build(client, backend, **adapter_kwargs)
+        if client == "codex" and session_id:
+            return await _ingest_exact_codex_session(
+                cast(CodexAdapter, adapter),
+                project_name=project_name,
+                session_id=session_id,
+            )
         if full_rescan:
             source_root = _adapter_source_root(adapter)
             if source_root is not None:
@@ -120,6 +128,111 @@ async def cmd_ingest(
         )
     finally:
         await backend.close()
+
+
+async def _ingest_exact_codex_session(
+    adapter: CodexAdapter,
+    *,
+    project_name: str,
+    session_id: str,
+) -> int:
+    """Synchronize one native Codex rollout without consulting the scan frontier."""
+
+    warnings: list[dict[str, str]] = []
+    sessions = adapter.list_sessions(
+        project_name=project_name,
+        min_size_kb=0,
+        issues=warnings,
+    )
+    target = next(
+        (session for session in sessions if session["session_id"] == session_id),
+        None,
+    )
+    if target is None:
+        result = {
+            "sessions_found": len(sessions),
+            "scoped_sessions": len(sessions),
+            "candidate_sessions": 0,
+            "sessions_scanned": 0,
+            "ingested": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "skipped_existing": 0,
+            "errors": 1,
+            "warnings": warnings,
+            "error_details": [
+                {
+                    "level": "error",
+                    "code": "session_not_found",
+                    "message": (
+                        f"Codex session {session_id} was not found in the current "
+                        "project scope"
+                    ),
+                    "path": str(adapter.sessions_dir),
+                    "session_id": session_id,
+                }
+            ],
+            "scope": adapter.scope,
+            "project_root": (
+                str(adapter.project_root) if adapter.project_root else None
+            ),
+            "target_session_id": session_id,
+            "targeted": True,
+        }
+        return _report_non_claude_ingest_result(
+            client="codex",
+            project_name=project_name,
+            result=result,
+            full_rescan=False,
+        )
+
+    try:
+        synced = await adapter.sync_session(
+            target["path"],
+            session_id,
+            project_name,
+            issues=warnings,
+        )
+        ingested = int(synced.action == "ingested")
+        updated = int(synced.action == "updated")
+        unchanged = int(synced.action == "unchanged")
+        errors = 0
+        error_details: list[dict[str, str]] = []
+    except Exception as exc:  # noqa: BLE001 - report exact native ingest failure.
+        ingested = updated = unchanged = 0
+        errors = 1
+        error_details = [
+            {
+                "level": "error",
+                "code": "session_ingest_failed",
+                "message": f"Failed to ingest Codex session {session_id} ({exc})",
+                "path": str(target["path"]),
+                "session_id": session_id,
+            }
+        ]
+    result = {
+        "sessions_found": len(sessions),
+        "scoped_sessions": len(sessions),
+        "candidate_sessions": 1,
+        "sessions_scanned": 1,
+        "ingested": ingested,
+        "updated": updated,
+        "unchanged": unchanged,
+        "skipped_existing": unchanged,
+        "errors": errors,
+        "warnings": warnings,
+        "error_details": error_details,
+        "scope": adapter.scope,
+        "project_root": str(adapter.project_root) if adapter.project_root else None,
+        "target_session_id": session_id,
+        "targeted": True,
+    }
+    return _report_non_claude_ingest_result(
+        client="codex",
+        project_name=project_name,
+        result=result,
+        full_rescan=False,
+    )
 
 
 async def _ingest_claude_code(

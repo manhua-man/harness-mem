@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+import time
 from typing import Any, cast
 
 from harness_mem.config.merge import MergedConfig
@@ -472,15 +473,34 @@ async def run_post_turn_maintenance(
                 observation_limit=5,
                 max_chars_per_observation=6000,
                 run_ingest=True,
+                session_id=trigger_id if source == "ide_hook" else None,
                 _distill_source=source,
             )
 
+        ingest_attempts = 0
+        ingest_wait_seconds = 0.0
         try:
             # Stop hooks must not load torch or encode transcript vectors while
             # the host is waiting. Exact/FTS indexes remain immediately usable;
             # vector maintenance can backfill these best-effort rows later.
             with temporarily_disable_embeddings():
                 evidence_packet = await asyncio.to_thread(_prepare_session_distill)
+                ingest_attempts = 1
+                retry_started = time.monotonic()
+                while (
+                    source == "ide_hook"
+                    and trigger_id
+                    and not evidence_packet.get("success")
+                    and evidence_packet.get("error")
+                    == "session_id is not available for this project"
+                    and ingest_attempts < 6
+                ):
+                    await asyncio.sleep(0.5)
+                    evidence_packet = await asyncio.to_thread(
+                        _prepare_session_distill
+                    )
+                    ingest_attempts += 1
+                ingest_wait_seconds = time.monotonic() - retry_started
         except Exception as exc:  # noqa: BLE001 - maintenance should still continue.
             evidence_packet = {
                 "success": False,
@@ -516,6 +536,8 @@ async def run_post_turn_maintenance(
             "dream_tick": dream_tick,
             "summary": {
                 "evidence_packet_ready": bool(evidence_packet.get("success", False)),
+                "evidence_ingest_attempts": ingest_attempts,
+                "evidence_ingest_wait_seconds": round(ingest_wait_seconds, 3),
                 "observation_count": evidence_packet.get("observation_count", 0),
                 "distill_queued": job is not None and job.status in queued_statuses,
                 "distill_job_id": job.id if job is not None else None,

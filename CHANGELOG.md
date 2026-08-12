@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### Added
+
+- Added detached autonomous distillation after Stop ingestion. A no-tools,
+  `store=false` Responses provider returns strict structured review output;
+  trusted runtime code owns governance, finalize, and atomic Session Notes.
+  One persistent `distill.autonomous.enabled` confirmation authorizes provider
+  use; the default remains queue-only.
+- Added renewable semantic-review leases, provider/token/duration receipts,
+  and health timestamps for semantic success, completed jobs, and materialized
+  Notes.
+- Added outcome-contract probes that bind one native Hook trigger to its
+  completed session job, readable Note, isolated provider, and normal search
+  retrieval.
+- Added a current-Stop priority slot: Hook ingestion binds the trigger session
+  explicitly and the worker processes that job before budgeted backlog refill.
+
+### Fixed
+
+- Completed distill jobs with missing Notes or legacy audit summaries are
+  repaired by the worker instead of remaining invisible to users.
+- Long provider calls renew both the review lease and detached-worker lock;
+  malformed candidates are isolated without discarding valid siblings, and a
+  partial batch cannot overwrite the latest successful job binding.
+- Autonomous receipts now retain Note hashes, provider usage, duration, and
+  completion times per job. Verification rejects cross-job evidence splicing,
+  stale runtime/config fingerprints, and legacy receipt schema carry-over.
+
 ## [0.9.11] - 2026-08-11
 
 ### Added

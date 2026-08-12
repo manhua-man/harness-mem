@@ -164,7 +164,16 @@ def cmd_config_set(
             file=sys.stderr,
         )
         return 1
-    if key == "distill.delete_source_after_complete" and value.strip().lower() in {
+    confirmed_enable_keys = {
+        "distill.autonomous.enabled": (
+            "background model use may send compact transcript evidence to the "
+            "configured provider and consume model quota"
+        ),
+        "distill.delete_source_after_complete": (
+            "future completed session sources may be deleted automatically"
+        ),
+    }
+    if key in confirmed_enable_keys and value.strip().lower() in {
         "true",
         "1",
         "yes",
@@ -182,9 +191,8 @@ def cmd_config_set(
             return 1
         if (not found or current is not True) and not confirm:
             print(
-                "confirmation required: enabling "
-                "distill.delete_source_after_complete authorizes automatic "
-                "deletion of future completed session sources; rerun with --confirm",
+                f"confirmation required: enabling {key} authorizes "
+                f"{confirmed_enable_keys[key]}; rerun with --confirm",
                 file=sys.stderr,
             )
             return 1

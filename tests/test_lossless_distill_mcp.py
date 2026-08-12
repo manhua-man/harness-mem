@@ -658,6 +658,23 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
             False,
             id="answered-candidate-with-unfinished-handoff",
         ),
+        pytest.param(
+            {
+                **SEMANTIC_REVIEW,
+                "session_summary": (
+                    "The verified preference was answered while an older plan was "
+                    "superseded."
+                ),
+                "final_outcome": "verified preference retained; old plan superseded",
+                "last_turn_status": "unfinished",
+                "contradictions": ["An older plan was superseded by a later decision."],
+                "unfinished_work": ["Finish unrelated follow-up work."],
+                "evidence_status": "partial",
+                "promotion_decision": "partial",
+            },
+            False,
+            id="answered-candidate-with-historical-contradiction",
+        ),
     ],
 )
 def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
@@ -780,6 +797,105 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
         assert replay["idempotent_replay"] is True
         assert replay["completion"] == finalized["completion"]
         assert replay["promotion"] == finalized["promotion"]
+    finally:
+        tool_handlers._backend_provider = previous_backend_provider
+        tool_handlers._observer_data_dir_provider = previous_observer_provider
+        tool_handlers._cost_surface_budgets_provider = previous_cost_provider
+        tool_handlers.logger = previous_logger
+        asyncio.run(backend.close())
+
+
+def test_job_bound_handoff_satisfies_durable_signal_gate(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HARNESS_MEM_SESSION_NOTES_DIR", str(tmp_path / "notes"))
+    backend = LocalMemoryBackend(tmp_path / "handoff-data")
+    asyncio.run(backend.init())
+    result = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id="handoff-session",
+                client="cursor",
+                raw_content="search rendering",
+                content_type="transcript",
+                metadata={},
+            ),
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            session_id="handoff-session",
+            source_kind="jsonl",
+            source_uri="file:///handoff-session.jsonl",
+            source_text="user requested follow-up\nassistant left work unfinished\n",
+        )
+    )
+    previous_backend_provider = tool_handlers._backend_provider
+    previous_observer_provider = tool_handlers._observer_data_dir_provider
+    previous_cost_provider = tool_handlers._cost_surface_budgets_provider
+    previous_logger = tool_handlers.logger
+    tool_handlers.configure_tool_handler_dependencies(
+        backend_provider=lambda: backend,
+        observer_data_dir=lambda: backend.data_dir,
+        cost_surface_budgets=lambda _project_name: None,
+        logger_instance=logging.getLogger("test.job-bound-handoff"),
+    )
+    try:
+        tool_handlers.tool_prepare_session_distill(
+            project_name="demo",
+            project_root=str(tmp_path),
+            client="cursor",
+            run_ingest=False,
+            evidence_mode="semantic",
+        )
+        handoff = governance_handlers.tool_create_task_handoff(
+            project_name="demo",
+            task_id="finish-follow-up",
+            summary="Finish the scoped follow-up from this session.",
+            status="in_progress",
+            next_steps=["Complete the follow-up."],
+            distill_job_id=result.distill_job_id,
+        )
+        finalized = tool_handlers.tool_finalize_session_distill(
+            project_name="demo",
+            job_id=result.distill_job_id,
+            semantic_review={
+                **SEMANTIC_REVIEW,
+                "last_turn_status": "unfinished",
+                "evidence_status": "partial",
+                "promotion_decision": "partial",
+                "unfinished_work": ["Complete the follow-up."],
+                "zero_candidate_challenge": {
+                    "version": "v1",
+                    "source_revision": result.source.source_revision,
+                    "evidence_fidelity": "complete",
+                    "future_utility": "durable",
+                    "checks": {
+                        "user_correction": "absent",
+                        "explicit_decision": "absent",
+                        "successful_solution": "absent",
+                        "repeated_failure": "absent",
+                        "rule_or_preference": "absent",
+                        "reusable_workflow_or_fact": "absent",
+                        "version_or_migration": "absent",
+                        "unfinished_handoff": "candidate_required",
+                    },
+                    "inspected_exchange_refs": [],
+                    "conclusion": "candidate_required",
+                    "rationale": "unfinished_handoff is preserved by the job-bound handoff.",
+                },
+            },
+        )
+
+        assert finalized["success"] is True
+        assert finalized["handoff_ids"] == [handoff["handoff_id"]]
+        stored_handoff = asyncio.run(
+            backend.structured_store.get_task_handoff(handoff["handoff_id"])
+        )
+        assert stored_handoff is not None
+        assert stored_handoff.context["distill_job_id"] == result.distill_job_id
+        assert Path(finalized["note"]["path"]).is_file()
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider

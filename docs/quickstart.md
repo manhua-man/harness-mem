@@ -65,7 +65,7 @@ Common invocation paths:
 | Host-native command | Run the Daily workflow through the active IDE's command surface. |
 | Plain language | Optional fallback when a host command cannot be used. |
 | Agent skills | Teach the client when to call memory tools. |
-| Hooks | Inject wake context and stage transcript evidence for Agent-led distillation. |
+| Hooks | Inject wake context, stage transcript evidence, and dispatch detached autonomous distillation. |
 
 The server command is:
 
@@ -100,6 +100,17 @@ open **Settings > Hooks**, review and trust the project's new hooks, then start
 a new task. This is not a harness-mem install command. Codex skips untrusted
 command hooks, and `get_project_status` reports `hooks=review_required` until
 the current `SessionStart` configuration has successfully run.
+
+Autonomous semantic processing requires one separate persistent authorization
+because it sends the compact manifest to the configured model provider and may
+consume quota:
+
+```bash
+harness-mem config set distill.autonomous.enabled true --scope user --confirm
+```
+
+Future Stop turns do not ask again. Set the same key to `false` at user or
+project scope to retain queue-only Hook behavior.
 
 If Codex connects through MCP Router, internal tool names use the Router alias
 (`mcp__mcp_router__*`). A direct `harness_mem` entry uses
@@ -174,31 +185,35 @@ wake -> search -> distill -> review -> dream ledger
 ```
 
 Dream is the final stage of the audited maintenance pipeline. A Stop hook
-captures an immutable transcript revision and queues every ordered chunk. The
-next Agent-capable wake keeps an active lane of at most two jobs and returns an
-ordered machine-readable batch for the current Agent task. The Agent handles
-up to two jobs sequentially, with an independent stop/failure boundary after
-each job. Refills use
-three recent jobs followed by one oldest eligible job, with exponential failure
-backoff and a daily new-job budget; older evidence stays parked without deletion.
+captures an immutable transcript revision and queues every ordered chunk, then
+returns immediately while a detached worker consumes an ordered batch of at
+most two jobs. The default worker calls the configured Responses endpoint with
+no tools, `store=false`, and a strict JSON Schema. Trusted runtime code owns
+candidate writes, finalize, and atomic Session Note materialization. The exact
+Stop session receives the first worker slot even when the backlog refill budget
+is exhausted. Any remaining slot uses three recent jobs followed by one oldest
+eligible job, with exponential failure backoff and a daily backlog-refill budget;
+older evidence stays parked without deletion.
 Each offered job is claimed through
-`prepare_session_distill(distill_job_id=...)`, so the Agent processes the exact
-bounded IDs selected by the drainer instead of reselecting by timestamp.
-Automatic wake claims set `run_ingest=false` because wake already synchronized
-the task; a failed offer is deferred and does not block the user's work.
-Without an Agent, status is `waiting_for_agent`, not background processing;
-the user does not need to keep invoking `/hm:distill`. That command remains an
-explicit immediate/deep-audit entry. In the daily semantic fast path, runtime hash-verifies and checkpoints
-each chunk while the Agent reads a coverage-first indexed exchange manifest.
-The configured token value is a soft target for the complete serialized MCP
-response; it may expand with an explicit receipt rather than clip exchanges. It then
+`prepare_session_distill(distill_job_id=...)`, so the worker or an explicit
+Agent processes the exact bounded IDs selected by the drainer instead of
+reselecting by timestamp.
+Automatic worker claims set `run_ingest=false` because the Hook already
+synchronized the task; a failed owned job is deferred and does not block later
+work. An active review lease is skipped by other workers. Missing provider/auth
+setup is reported as retryable rather than background success; `/hm:distill` remains an
+explicit immediate/deep-audit entry. In the daily semantic fast path, runtime
+hash-verifies and checkpoints each chunk before rendering a coverage-first
+indexed exchange manifest.
+The configured token value is a soft target for the complete serialized provider
+manifest; it may expand with an explicit receipt rather than clip exchanges. The worker then
 selects complete semantic windows by exchange index; candidate-grade claims
 drill into raw proof only after that selection. Explicit
-raw mode retains the full per-chunk lease loop. The Agent then performs an
+raw mode retains the full per-chunk lease loop. The provider then performs an
 end-of-session review covering the final request, outcome, contradictions,
 unfinished work, and evidence status. Only review-ready jobs may create
 idempotent `govern_memory(action="suggest")` candidates.
-Detected durable-value signals start as `candidate_required`; an Agent may
+Detected durable-value signals start as `candidate_required`; the provider may
 downgrade one only after reading its complete window and recording a
 signal-specific session-only explanation. `finalize_session_distill` applies
 scoped automatic governance and then Dream only after a fully completed review. An
@@ -208,6 +223,8 @@ completion block says whether durable knowledge was `promoted` or the session
 ended as `no_candidate`; non-promoted candidates are terminally rejected so a
 completed low-value session does not return as daily review work. Merely
 preparing or partially reading session evidence is never reported as completed.
+Health reports actual provider input/output tokens and duration plus the latest
+semantic-success, job-completion, and Note-materialization timestamps.
 Readable results and Session Notes list each durable memory as a title, one
 verifiable fact, and its verification date/status. Internal IDs remain available
 only through explicit audit detail.

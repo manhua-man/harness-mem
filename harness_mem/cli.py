@@ -268,8 +268,8 @@ def main(argv: list[str] | None = None):
         "--confirm",
         action="store_true",
         help=(
-            "Confirm enabling a persistent destructive policy; required only "
-            "when turning distill.delete_source_after_complete on"
+            "Confirm a persistent policy that authorizes background model use "
+            "or automatic source deletion"
         ),
     )
     config_set.add_argument("--project-root", help="Project directory (default: cwd)")

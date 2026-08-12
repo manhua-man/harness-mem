@@ -278,3 +278,75 @@ def test_doctor_detects_same_id_vec0_vector_corruption(tmp_path: Path) -> None:
             await backend.close()
 
     asyncio.run(exercise())
+
+
+def test_doctor_accepts_verified_incremental_vec0_growth(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        backend = LocalMemoryBackend(tmp_path / "incremental-growth")
+        await backend.init()
+        try:
+            index = backend.structured_store.index
+            assert isinstance(index, SQLiteIndex)
+            model_id = "incremental-model"
+            first = b"\x00\x00\x80\x3f" + b"\x00" * 4
+            second = b"\x00" * 4 + b"\x00\x00\x80\x3f"
+            with index.locked_connection() as conn:
+                conn.executemany(
+                    """
+                    INSERT INTO vec_embeddings
+                    (entry_id, model_id, model_version, embedding, created_at)
+                    VALUES (?, ?, 'v1', ?, 1)
+                    """,
+                    [("row-1", model_id, first)],
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE vec_embeddings_vec0 (
+                        entry_id TEXT PRIMARY KEY,
+                        embedding BLOB NOT NULL,
+                        model_id TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    "INSERT INTO vec_embeddings_vec0 VALUES ('row-1', ?, ?)",
+                    (first, model_id),
+                )
+                conn.commit()
+            source = index.embedding_source_identity(model_id=model_id)
+            index.record_index_generation(
+                index_name="vec0",
+                source_generation=f"embeddings-content:{source['content_hash']}",
+                row_count=1,
+                id_hash=str(source["id_hash"]),
+                model_id=model_id,
+                dimensions=2,
+                metadata={"content_hash": source["content_hash"]},
+                activate=True,
+            )
+            with index.locked_connection() as conn:
+                conn.execute(
+                    "INSERT INTO vec_embeddings VALUES ('row-2', ?, 'v1', ?, 2)",
+                    (model_id, second),
+                )
+                conn.execute(
+                    "INSERT INTO vec_embeddings_vec0 VALUES ('row-2', ?, ?)",
+                    (second, model_id),
+                )
+                conn.commit()
+
+            with patch(
+                "harness_mem.commands.support.get_embedding_model_id",
+                return_value=model_id,
+            ), patch("harness_mem.embedding.get_model_loader") as loader_mock:
+                loader_mock.return_value.dimensions = 2
+                health = _check_vector_index_health(backend, "doctor-project")
+
+            assert health["has_issue"] is False
+            reports = health["manifest_reports"]
+            assert reports[0]["assessment"] == "healthy_incremental"
+            assert reports[0]["reason"] == "verified_incremental_growth"
+        finally:
+            await backend.close()
+
+    asyncio.run(exercise())

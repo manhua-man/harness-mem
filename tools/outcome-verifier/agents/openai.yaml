@@ -1,0 +1,4 @@
+interface:
+  display_name: "Outcome Verifier"
+  short_description: "Prove user-visible outcomes before claiming completion"
+  default_prompt: "Use $outcome-verifier to prove this task is actually complete."

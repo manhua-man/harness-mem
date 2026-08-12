@@ -160,3 +160,50 @@ def test_tool_ingest_sessions_codex_uses_project_root_and_reports_resolved_clien
     assert observations[0].metadata["cwd"] == str(workspace)
     assert "Please inspect the Codex workspace transcript." in observations[0].raw_content
     assert "# AGENTS.md instructions" not in observations[0].raw_content
+
+
+def test_tool_ingest_sessions_targets_exact_codex_session_ahead_of_scan_frontier(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    sessions_dir = tmp_path / ".codex" / "sessions"
+    workspace = tmp_path / "servers"
+    workspace.mkdir()
+    (workspace / ".git").mkdir()
+
+    target_id = "exact-stop-session"
+    write_jsonl(
+        sessions_dir / "2026" / "07" / "09" / "rollout-old.jsonl",
+        _codex_records_for_workspace(workspace, session_id="backlog-session"),
+    )
+    write_jsonl(
+        sessions_dir / "2026" / "08" / "12" / "rollout-exact.jsonl",
+        _codex_records_for_workspace(workspace, session_id=target_id),
+    )
+
+    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(ingest_module, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(codex_adapter_module, "DEFAULT_SESSIONS_DIR", sessions_dir)
+
+    payload = tool_handlers._ingest_sessions(
+        client="codex",
+        project_root=str(workspace),
+        limit=1,
+        session_id=target_id,
+    )
+
+    assert payload["success"] is True
+    assert payload["target_session_id"] == target_id
+    assert "Candidates after cursor: 1" in payload["output"]
+
+    async def _load() -> list:
+        backend = LocalMemoryBackend(data_dir)
+        await backend.init()
+        try:
+            return await backend.verbatim_store.list(limit=10)
+        finally:
+            await backend.close()
+
+    observations = asyncio.run(_load())
+    assert [observation.session_id for observation in observations] == [target_id]
