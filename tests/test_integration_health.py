@@ -33,6 +33,7 @@ def test_integration_health_summarizes_current_workspace(
         "harness-mem-hook maintain",
         encoding="utf-8",
     )
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     monkeypatch.setenv("HARNESS_MEM_CLIENT", "cursor")
 
     async def run() -> dict:
@@ -86,7 +87,7 @@ def test_integration_health_summarizes_current_workspace(
     assert distill["drain_estimate"]["status"] == "unavailable"
     assert distill["stuck_reasons"][0]["code"] == "zero_7d_throughput"
     assert health["summary"].startswith("project=ok | host=cursor | hooks=ok (2/2)")
-    assert health["health_card"]["status"] == "not_run"
+    assert health["health_card"]["status"] == "disabled"
     assert health["health_card"]["alert"] is False
 
 
