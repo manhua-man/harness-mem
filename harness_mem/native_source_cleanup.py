@@ -8,9 +8,12 @@ row/record cleanup exists.
 
 from __future__ import annotations
 
+from contextlib import closing
 import hashlib
+import importlib
 import os
 import re
+import sqlite3
 import stat
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -77,6 +80,9 @@ class NativeCleanupPlan:
     verification_path: Path | None = None
     expected_native_sha256: str | None = None
     expected_mtime_ns: int | None = None
+    activity_lock_path: Path | None = None
+    task_state_db_path: Path | None = None
+    activity_session_id: str | None = None
     quiet_seconds: int = 60
     supported: bool = True
     retained: bool = False
@@ -140,6 +146,61 @@ def plan_native_source_cleanup(
             "native_source_outside_allowed_roots",
         )
 
+    activity_lock_path = _codex_activity_lock_path(source, roots)
+    activity_state = _probe_activity_lock(activity_lock_path)
+    if activity_state == "active":
+        return NativeCleanupPlan(
+            source_id=source.id,
+            client=source.client,
+            source_revision=source.source_revision,
+            locator_sha256=locator_sha256,
+            activity_lock_path=activity_lock_path,
+            activity_session_id=source.session_id,
+            quiet_seconds=quiet_seconds,
+            retained=True,
+            reason_codes=("native_source_active_writer",),
+        )
+    if activity_state == "unknown":
+        return NativeCleanupPlan(
+            source_id=source.id,
+            client=source.client,
+            source_revision=source.source_revision,
+            locator_sha256=locator_sha256,
+            activity_lock_path=activity_lock_path,
+            activity_session_id=source.session_id,
+            quiet_seconds=quiet_seconds,
+            retained=True,
+            reason_codes=("native_source_liveness_unknown",),
+        )
+    task_state_db_path = _codex_task_state_db_path(source, roots)
+    task_state = _probe_codex_task_activity(task_state_db_path, source.session_id)
+    if task_state == "active":
+        return NativeCleanupPlan(
+            source_id=source.id,
+            client=source.client,
+            source_revision=source.source_revision,
+            locator_sha256=locator_sha256,
+            activity_lock_path=activity_lock_path,
+            task_state_db_path=task_state_db_path,
+            activity_session_id=source.session_id,
+            quiet_seconds=quiet_seconds,
+            retained=True,
+            reason_codes=("native_source_active_task",),
+        )
+    if task_state == "unknown":
+        return NativeCleanupPlan(
+            source_id=source.id,
+            client=source.client,
+            source_revision=source.source_revision,
+            locator_sha256=locator_sha256,
+            activity_lock_path=activity_lock_path,
+            task_state_db_path=task_state_db_path,
+            activity_session_id=source.session_id,
+            quiet_seconds=quiet_seconds,
+            retained=True,
+            reason_codes=("native_source_liveness_unknown",),
+        )
+
     shape_reason = _validate_source_shape(source, source_path, root)
     if shape_reason is not None:
         return _unsupported_plan(
@@ -196,6 +257,9 @@ def plan_native_source_cleanup(
             verification_path=source_path,
             expected_native_sha256=expected_digest,
             expected_mtime_ns=source.mtime_ns,
+            activity_lock_path=activity_lock_path,
+            task_state_db_path=task_state_db_path,
+            activity_session_id=source.session_id,
             quiet_seconds=quiet_seconds,
         )
         primary_index = _primary_action_index(actions, source_path)
@@ -221,6 +285,9 @@ def plan_native_source_cleanup(
                 locator_sha256=locator_sha256,
                 actions=tuple(actions),
                 verification_path=source_path,
+                activity_lock_path=activity_lock_path,
+                task_state_db_path=task_state_db_path,
+                activity_session_id=source.session_id,
                 quiet_seconds=quiet_seconds,
                 retained=True,
                 reason_codes=("native_source_missing_with_residual_artifacts",),
@@ -232,6 +299,9 @@ def plan_native_source_cleanup(
             locator_sha256=locator_sha256,
             actions=tuple(actions),
             verification_path=source_path,
+            activity_lock_path=activity_lock_path,
+            task_state_db_path=task_state_db_path,
+            activity_session_id=source.session_id,
             quiet_seconds=quiet_seconds,
             reason_codes=("native_source_already_absent",),
         )
@@ -254,6 +324,9 @@ def plan_native_source_cleanup(
             actions=tuple(actions),
             verification_path=source_path,
             expected_mtime_ns=stat_result.st_mtime_ns,
+            activity_lock_path=activity_lock_path,
+            task_state_db_path=task_state_db_path,
+            activity_session_id=source.session_id,
             quiet_seconds=quiet_seconds,
             retained=True,
             reason_codes=("native_source_not_quiet",),
@@ -269,6 +342,9 @@ def plan_native_source_cleanup(
             actions=tuple(actions),
             verification_path=source_path,
             expected_mtime_ns=stat_result.st_mtime_ns,
+            activity_lock_path=activity_lock_path,
+            task_state_db_path=task_state_db_path,
+            activity_session_id=source.session_id,
             quiet_seconds=quiet_seconds,
             retained=True,
             reason_codes=("native_source_digest_unavailable",),
@@ -283,6 +359,9 @@ def plan_native_source_cleanup(
             verification_path=source_path,
             expected_native_sha256=expected_digest,
             expected_mtime_ns=stat_result.st_mtime_ns,
+            activity_lock_path=activity_lock_path,
+            task_state_db_path=task_state_db_path,
+            activity_session_id=source.session_id,
             quiet_seconds=quiet_seconds,
             retained=True,
             reason_codes=("native_source_changed",),
@@ -305,6 +384,9 @@ def plan_native_source_cleanup(
         verification_path=source_path,
         expected_native_sha256=expected_digest,
         expected_mtime_ns=stat_result.st_mtime_ns,
+        activity_lock_path=activity_lock_path,
+        task_state_db_path=task_state_db_path,
+        activity_session_id=source.session_id,
         quiet_seconds=quiet_seconds,
     )
 
@@ -323,6 +405,33 @@ def apply_native_source_cleanup(plan: NativeCleanupPlan) -> dict:
         return _result(plan, "unsupported", reason_codes=plan.reason_codes)
     if plan.retained:
         return _result(plan, "retained", reason_codes=plan.reason_codes)
+    activity_state = _probe_activity_lock(plan.activity_lock_path)
+    if activity_state == "active":
+        return _result(
+            plan,
+            "retained",
+            reason_codes=("native_source_reactivated_before_claim",),
+        )
+    if activity_state == "unknown":
+        return _result(
+            plan,
+            "retained",
+            reason_codes=("native_source_liveness_unknown",),
+        )
+    session_id = str(plan.activity_session_id or "")
+    task_state = _probe_codex_task_activity(plan.task_state_db_path, session_id)
+    if task_state == "active":
+        return _result(
+            plan,
+            "retained",
+            reason_codes=("native_source_reactivated_before_claim",),
+        )
+    if task_state == "unknown":
+        return _result(
+            plan,
+            "retained",
+            reason_codes=("native_source_liveness_unknown",),
+        )
     verification_path = plan.verification_path
     if verification_path is None:
         return _result(plan, "partial_failure", reason_codes=("invalid_cleanup_plan",))
@@ -480,6 +589,156 @@ def apply_native_source_cleanup(plan: NativeCleanupPlan) -> dict:
         reason_codes=tuple(dict.fromkeys(failures)),
         action_receipts=action_receipts,
     )
+
+
+def _codex_activity_lock_path(
+    source: TranscriptSource,
+    roots: Sequence[Path],
+) -> Path | None:
+    """Return the Codex writer lock that authoritatively marks a live task.
+
+    Explicit metadata supports isolated fixtures.  Automatic discovery is
+    intentionally limited to the native ``~/.codex`` layout so unrelated
+    directories named ``sessions`` do not acquire host-specific semantics.
+    """
+
+    if source.client not in {"codex", "codex-archive"}:
+        return None
+    configured = str(source.metadata.get("codex_writer_lock_root_uri") or "").strip()
+    if configured:
+        try:
+            lock_root = _path_from_file_uri(configured, allow_fragment=False)
+        except ValueError:
+            return Path("")
+        return lock_root / f"{source.session_id}.lock"
+    for root in roots:
+        if root.name in {"sessions", "archived_sessions"} and root.parent.name == ".codex":
+            return root.parent / "thread-writer-locks" / f"{source.session_id}.lock"
+    return None
+
+
+def _probe_activity_lock(lock_path: Path | None) -> Literal["active", "inactive", "unknown"]:
+    """Probe whether Codex currently holds its per-task writer lock.
+
+    The check tests the OS lock/share state rather than mere file existence, so
+    a crash-left, unlocked lock file does not retain a completed task forever.
+    """
+
+    if lock_path is None:
+        return "inactive"
+    if lock_path == Path():
+        return "unknown"
+    if not lock_path.exists():
+        return "inactive"
+    if os.name == "nt":
+        return _probe_windows_activity_lock(lock_path)
+    return _probe_posix_activity_lock(lock_path)
+
+
+def _codex_task_state_db_path(
+    source: TranscriptSource,
+    roots: Sequence[Path],
+) -> Path | None:
+    if source.client not in {"codex", "codex-archive"}:
+        return None
+    configured = str(source.metadata.get("codex_task_state_db_uri") or "").strip()
+    if configured:
+        try:
+            return _path_from_file_uri(configured, allow_fragment=False)
+        except ValueError:
+            return Path()
+    codex_home = Path.home() / ".codex"
+    if any(root.parent == codex_home for root in roots):
+        return codex_home / "state_5.sqlite"
+    return None
+
+
+def _probe_codex_task_activity(
+    state_db_path: Path | None,
+    session_id: str,
+) -> Literal["active", "inactive", "unknown"]:
+    """Read the durable Codex task state as a second liveness signal.
+
+    An open subagent edge is explicit activity.  User-owned tasks have no
+    equivalent status column today, so their durable row is accepted only
+    after the writer-lock probe already reported inactive.
+    """
+
+    if state_db_path is None:
+        return "inactive"
+    if state_db_path == Path() or not session_id or not state_db_path.is_file():
+        return "unknown"
+    try:
+        uri = f"file:{state_db_path.as_posix()}?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True, timeout=0.2)) as connection:
+            row = connection.execute(
+                "SELECT archived FROM threads WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                return "unknown"
+            edge = connection.execute(
+                "SELECT status FROM thread_spawn_edges WHERE child_thread_id = ?",
+                (session_id,),
+            ).fetchone()
+    except (OSError, sqlite3.Error):
+        return "unknown"
+    if edge is not None and str(edge[0]).lower() == "open":
+        return "active"
+    return "inactive"
+
+
+def _probe_windows_activity_lock(lock_path: Path) -> Literal["active", "inactive", "unknown"]:
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        create_file = kernel32.CreateFileW
+        create_file.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.HANDLE,
+        ]
+        create_file.restype = wintypes.HANDLE
+        handle = create_file(str(lock_path), 0x80000000, 0, None, 3, 0, None)
+        invalid = wintypes.HANDLE(-1).value
+        if handle == invalid:
+            error = ctypes.get_last_error()
+            if error in {32, 33}:  # sharing or lock violation
+                return "active"
+            if error in {2, 3}:  # raced with normal lock removal
+                return "inactive"
+            return "unknown"
+        kernel32.CloseHandle(handle)
+        return "inactive"
+    except (AttributeError, OSError, ValueError):
+        return "unknown"
+
+
+def _probe_posix_activity_lock(lock_path: Path) -> Literal["active", "inactive", "unknown"]:
+    try:
+        fcntl = importlib.import_module("fcntl")
+
+        with lock_path.open("rb") as handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return "active"
+            finally:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+        return "inactive"
+    except FileNotFoundError:
+        return "inactive"
+    except (ImportError, OSError):
+        return "unknown"
 
 
 def _primary_action_index(

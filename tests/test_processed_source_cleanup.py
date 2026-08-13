@@ -58,6 +58,7 @@ async def _completed_snapshot(
     *,
     session_id: str,
     private_text: str,
+    session_summary: str | None = None,
 ):
     snapshot = await persist_session_snapshot(
         backend,
@@ -94,6 +95,11 @@ async def _completed_snapshot(
     backend.transcript_store.finalize_distill_job(
         snapshot.distill_job_id,
         semantic_review={
+            **(
+                {"session_summary": session_summary}
+                if session_summary is not None
+                else {}
+            ),
             "final_user_request": private_text,
             "final_outcome": private_text,
             "last_turn_status": "answered",
@@ -124,6 +130,10 @@ def test_cleanup_prunes_raw_evidence_and_preserves_sanitized_truth(
                 project,
                 session_id="cleanup-session",
                 private_text=private_text,
+                session_summary=(
+                    "The completed cleanup session produced a compact durable audit "
+                    "summary."
+                ),
             )
             truth = MemoryEntry(
                 id="durable-truth",
@@ -273,6 +283,10 @@ def test_cleanup_prunes_raw_evidence_and_preserves_sanitized_truth(
             assert job.project_root == ""
             assert job.source_cleanup_status == "deleted"
             assert private_text not in str(job.to_dict())
+            assert job.semantic_review["session_summary"] == (
+                "The completed cleanup session produced a compact durable audit "
+                "summary."
+            )
 
             receipts = backend.transcript_store.list_deletion_audit(
                 project_name="demo"

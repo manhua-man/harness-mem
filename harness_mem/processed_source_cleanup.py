@@ -81,12 +81,24 @@ async def retry_retained_source_cleanups(
         plan_native_source_cleanup,
     )
 
+    list_jobs = getattr(backend.transcript_store, "list_distill_jobs", None)
+    if not callable(list_jobs):
+        return {
+            "attempted": 0,
+            "deleted": 0,
+            "retained": 0,
+            "partial_failure": 0,
+            "unsupported": 0,
+            "outcomes": [],
+            "reason": "source_cleanup_store_unavailable",
+        }
+
     retry_before = datetime.now(timezone.utc) - timedelta(
         seconds=max(0, int(minimum_age_seconds))
     )
     jobs = [
         job
-        for job in backend.transcript_store.list_distill_jobs(
+        for job in list_jobs(
             project_name=project_name,
             status="completed",
             limit=100_000,

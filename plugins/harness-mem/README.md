@@ -149,12 +149,11 @@ The underlying actions are:
 - Agents suggest evidence-backed candidates; finalize automatically promotes
   safe truth and terminally rejects the rest. Review is the post-hoc audit and
   correction surface, not a daily manual gate.
-- Raw session cleanup defaults off. Enable it persistently with
-  `harness-mem config set distill.delete_source_after_complete true --scope user --confirm`;
-  the confirmation is required only when enabling this persistent destructive
-  policy. An explicit IDE request to enable post-distill source deletion is the
-  user's authorization for that confirmed config write;
-  every completed job reports retained/deleted/partial_failure/unsupported.
+- Safe raw-session cleanup is attempted by default. Disable it with
+  `harness-mem config set distill.delete_source_after_complete false --scope project`
+  when a project must retain original sources. Only supported standalone sources
+  that pass quiet/CAS/hash checks are deleted; every completed job reports
+  retained/deleted/partial_failure/unsupported.
 - Confirmed memory is what future `wake` and `search` consume.
 
 See the repository [README](../../README.md), [Quickstart](../../docs/quickstart.md),

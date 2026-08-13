@@ -4,6 +4,7 @@ import hashlib
 import asyncio
 import json
 import os
+import sqlite3
 import time
 from pathlib import Path
 
@@ -271,6 +272,166 @@ def test_quiet_gate_retains_recent_source(tmp_path: Path) -> None:
 
     assert result["status"] == "retained"
     assert result["reason_codes"] == ["native_source_not_quiet"]
+    assert source_path.exists()
+
+
+def test_codex_cleanup_retains_source_while_writer_lock_is_active(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / ".codex" / "sessions"
+    lock_root = tmp_path / ".codex" / "thread-writer-locks"
+    session_id = "019f0000-0000-7000-8000-000000000020"
+    source_path = _write_old(root / f"rollout-{session_id}.jsonl")
+    lock_path = lock_root / f"{session_id}.lock"
+    lock_path.parent.mkdir(parents=True)
+    lock_path.touch()
+    source = _source(
+        source_path,
+        root,
+        client="codex",
+        session_id=session_id,
+        source_kind="codex-current",
+    )
+    source.metadata["codex_writer_lock_root_uri"] = lock_root.absolute().as_uri()
+    monkeypatch.setattr(
+        native_cleanup_module,
+        "_probe_activity_lock",
+        lambda path: "active" if path == lock_path else "inactive",
+    )
+
+    plan = plan_native_source_cleanup(source, quiet_seconds=0)
+
+    assert plan.retained is True
+    assert plan.reason_codes == ("native_source_active_writer",)
+    assert source_path.exists()
+
+
+def test_codex_cleanup_rechecks_writer_lock_before_atomic_claim(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / ".codex" / "sessions"
+    lock_root = tmp_path / ".codex" / "thread-writer-locks"
+    session_id = "019f0000-0000-7000-8000-000000000021"
+    source_path = _write_old(root / f"rollout-{session_id}.jsonl")
+    source = _source(
+        source_path,
+        root,
+        client="codex",
+        session_id=session_id,
+        source_kind="codex-current",
+    )
+    source.metadata["codex_writer_lock_root_uri"] = lock_root.absolute().as_uri()
+    states = iter(["inactive", "active"])
+    monkeypatch.setattr(
+        native_cleanup_module,
+        "_probe_activity_lock",
+        lambda _path: next(states),
+    )
+
+    plan = plan_native_source_cleanup(source, quiet_seconds=0)
+    result = apply_native_source_cleanup(plan)
+
+    assert plan.retained is False
+    assert result["status"] == "retained"
+    assert result["reason_codes"] == ["native_source_reactivated_before_claim"]
+    assert source_path.exists()
+
+
+def test_codex_cleanup_does_not_treat_unlocked_stale_lock_file_as_active(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / ".codex" / "sessions"
+    lock_root = tmp_path / ".codex" / "thread-writer-locks"
+    session_id = "019f0000-0000-7000-8000-000000000022"
+    source_path = _write_old(root / f"rollout-{session_id}.jsonl")
+    lock_path = lock_root / f"{session_id}.lock"
+    lock_path.parent.mkdir(parents=True)
+    lock_path.touch()
+    source = _source(
+        source_path,
+        root,
+        client="codex",
+        session_id=session_id,
+        source_kind="codex-current",
+    )
+    source.metadata["codex_writer_lock_root_uri"] = lock_root.absolute().as_uri()
+
+    result = cleanup_native_source(source, quiet_seconds=0)
+
+    assert result["status"] == "deleted"
+    assert not source_path.exists()
+
+
+def test_codex_cleanup_retains_task_with_open_spawn_edge(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / ".codex" / "sessions"
+    lock_root = tmp_path / ".codex" / "thread-writer-locks"
+    state_db = tmp_path / ".codex" / "state_5.sqlite"
+    session_id = "019f0000-0000-7000-8000-000000000023"
+    source_path = _write_old(root / f"rollout-{session_id}.jsonl")
+    lock_root.mkdir(parents=True)
+    with sqlite3.connect(state_db) as connection:
+        connection.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, archived INTEGER)")
+        connection.execute(
+            "CREATE TABLE thread_spawn_edges (child_thread_id TEXT PRIMARY KEY, status TEXT)"
+        )
+        connection.execute("INSERT INTO threads VALUES (?, 0)", (session_id,))
+        connection.execute(
+            "INSERT INTO thread_spawn_edges VALUES (?, 'open')",
+            (session_id,),
+        )
+    source = _source(
+        source_path,
+        root,
+        client="codex",
+        session_id=session_id,
+        source_kind="codex-current",
+    )
+    source.metadata.update(
+        {
+            "codex_writer_lock_root_uri": lock_root.absolute().as_uri(),
+            "codex_task_state_db_uri": state_db.absolute().as_uri(),
+        }
+    )
+
+    result = cleanup_native_source(source, quiet_seconds=0)
+
+    assert result["status"] == "retained"
+    assert result["reason_codes"] == ["native_source_active_task"]
+    assert source_path.exists()
+
+
+def test_codex_cleanup_fails_closed_when_task_state_db_is_unreadable(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / ".codex" / "sessions"
+    lock_root = tmp_path / ".codex" / "thread-writer-locks"
+    state_db = tmp_path / ".codex" / "state_5.sqlite"
+    session_id = "019f0000-0000-7000-8000-000000000024"
+    source_path = _write_old(root / f"rollout-{session_id}.jsonl")
+    lock_root.mkdir(parents=True)
+    state_db.write_bytes(b"not a sqlite database")
+    source = _source(
+        source_path,
+        root,
+        client="codex",
+        session_id=session_id,
+        source_kind="codex-current",
+    )
+    source.metadata.update(
+        {
+            "codex_writer_lock_root_uri": lock_root.absolute().as_uri(),
+            "codex_task_state_db_uri": state_db.absolute().as_uri(),
+        }
+    )
+
+    result = cleanup_native_source(source, quiet_seconds=0)
+
+    assert result["status"] == "retained"
+    assert result["reason_codes"] == ["native_source_liveness_unknown"]
     assert source_path.exists()
 
 
