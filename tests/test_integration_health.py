@@ -133,6 +133,34 @@ def test_health_card_is_idle_safe_and_ignores_cold_parked_backlog() -> None:
     assert card["failures_24h"] == 0
 
 
+def test_health_card_preserves_success_but_reports_latest_deferred_attempt() -> None:
+    card = _build_autonomous_health_card(
+        authorized=True,
+        autonomous={
+            "receipt_exists": True,
+            "lifecycle_verified": True,
+            "state": "deferred",
+            "last_semantic_success_at": "2026-08-11T16:25:41+00:00",
+            "provider": {"total_tokens": 1000, "duration_seconds": 10.0},
+        },
+        jobs=[],
+        drainer={
+            "active": 0,
+            "parked": 0,
+            "retry_backoff": 0,
+            "recovery_exhausted": 0,
+            "oldest_stalled_age_hours": 0.0,
+        },
+        hooks_configured=True,
+        post_turn_last_success_at="2026-08-11T16:30:00+00:00",
+        now=datetime(2026, 8, 11, 17, 0, tzinfo=timezone.utc),
+    )
+
+    assert card["chain_verified"] is True
+    assert card["status"] == "attention"
+    assert card["issue_codes"] == ["latest_batch_failed"]
+
+
 def test_health_card_alerts_on_performance_and_queue_regressions() -> None:
     card = _build_autonomous_health_card(
         authorized=True,

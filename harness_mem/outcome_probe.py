@@ -52,6 +52,13 @@ def _parse_datetime(value: datetime | str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _identity_digest(value: str | None) -> str | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    return "sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 def inspect_hook_outcome(
     data_dir: Path,
     *,
@@ -234,47 +241,58 @@ def inspect_autonomous_outcome(
         authorized = False
         current_config_fingerprint = None
     current_runtime_fingerprint = autonomous_runtime_fingerprint()
+    raw_verified = receipt.get("last_verified_completion")
+    verified_completion: dict[str, Any] | None = (
+        raw_verified if isinstance(raw_verified, dict) else None
+    )
+    evidence = verified_completion or receipt
+    evidence_client = str(evidence.get("client") or "codex")
     hook_receipt = read_hook_execution_receipt(
         data_dir,
         project_root=project_root,
-        client=str(receipt.get("client") or "codex"),
+        client=evidence_client,
         action="post-turn-maintenance",
     )
     latest_trigger_matches_hook = bool(
         hook_receipt
-        and receipt.get("trigger_id")
-        and receipt.get("trigger_id") == hook_receipt.get("trigger_id")
+        and evidence.get("trigger_id")
+        and evidence.get("trigger_id") == hook_receipt.get("trigger_id")
     )
     durable_hook_binding = bool(
-        receipt.get("hook_launch_verified") is True
-        and receipt.get("trigger_id")
-        and receipt.get("hook_config_fingerprint")
+        evidence.get("hook_launch_verified") is True
+        and evidence.get("trigger_id")
+        and evidence.get("hook_config_fingerprint")
         == hook_configuration_fingerprint(
             project_root,
-            client=str(receipt.get("client") or "codex"),
+            client=evidence_client,
         )
     )
     trigger_matches_hook = durable_hook_binding or latest_trigger_matches_hook
     job_list = list(jobs)
-    raw_batch = receipt.get("batch")
-    batch: dict[str, Any] = raw_batch if isinstance(raw_batch, dict) else {}
-    trigger_id = str(receipt.get("trigger_id") or "")
-    batch_jobs = [item for item in batch.get("jobs", []) if isinstance(item, dict)]
-    trigger_record = next(
-        (
-            item
-            for item in batch_jobs
-            if str(item.get("session_id") or "") == trigger_id
-            and item.get("status") == "completed"
-        ),
-        None,
-    )
+    trigger_id = str(evidence.get("trigger_id") or "")
+    if verified_completion is not None:
+        trigger_record: dict[str, Any] | None = verified_completion
+    else:
+        raw_batch = receipt.get("batch")
+        batch: dict[str, Any] = raw_batch if isinstance(raw_batch, dict) else {}
+        batch_jobs = [
+            item for item in batch.get("jobs", []) if isinstance(item, dict)
+        ]
+        trigger_record = next(
+            (
+                item
+                for item in batch_jobs
+                if str(item.get("session_id") or "") == trigger_id
+                and item.get("status") == "completed"
+            ),
+            None,
+        )
     trigger_job_id = str((trigger_record or {}).get("job_id") or "")
     trigger_job = next(
         (
             item
             for item in job_list
-            if item.id == trigger_job_id and item.session_id == trigger_id
+            if item.id == trigger_job_id
         ),
         None,
     )
@@ -296,8 +314,8 @@ def inspect_autonomous_outcome(
         and note_path.is_file()
         and len(note_content.strip()) >= MIN_NOTE_CHARS
         and trigger_job is not None
-        and note_path.name == f"{trigger_job.session_id}.md"
-        and trigger_job.session_id in note_content
+        and note_path.name == f"{trigger_id}.md"
+        and trigger_id in note_content
         and trigger_job.id in note_content
         and note_hash == note.get("sha256")
         and note.get("job_binding_valid") is True
@@ -322,7 +340,7 @@ def inspect_autonomous_outcome(
         and provider.get("mcp_disabled") is True
         and provider.get("rules_ignored") is True
         and provider.get("config_isolated") is True
-        and int(receipt.get("hook_reentry_count") or 0) == 0
+        and int(evidence.get("hook_reentry_count") or 0) == 0
     )
     provider_metrics_bound = bool(
         isinstance(input_tokens, int)
@@ -333,6 +351,11 @@ def inspect_autonomous_outcome(
         and total_tokens > 0
         and isinstance(duration_seconds, (int, float))
         and duration_seconds > 0
+        and provider.get("job_id") == trigger_job_id
+        and provider.get("session_id_sha256") == _identity_digest(trigger_id)
+        and provider.get("trigger_id_sha256") == _identity_digest(trigger_id)
+        and bool(provider.get("source_revision"))
+        and bool(provider.get("project_root_sha256"))
     )
     job_completed = bool(
         trigger_job is not None
@@ -349,28 +372,30 @@ def inspect_autonomous_outcome(
         and trigger_record is not None
         and trigger_job is not None
         and trigger_job_id == trigger_job.id
-        and str(trigger_record.get("session_id") or "") == trigger_job.session_id
+        and str(trigger_record.get("session_id") or "") == trigger_id
         and job_time is not None
         and recorded_job_time == job_time
     )
     runtime_current = bool(
-        receipt.get("runtime_fingerprint") == current_runtime_fingerprint
+        evidence.get("runtime_fingerprint") == current_runtime_fingerprint
     )
     config_current = bool(
         current_config_fingerprint
-        and receipt.get("config_fingerprint") == current_config_fingerprint
+        and evidence.get("config_fingerprint") == current_config_fingerprint
     )
     return {
         "receipt_exists": True,
         "authorized": authorized,
         "state": receipt.get("state"),
-        "execution_source": receipt.get("execution_source"),
-        "trigger_id": receipt.get("trigger_id"),
+        "execution_source": evidence.get("execution_source"),
+        "trigger_id": evidence.get("trigger_id"),
+        "latest_attempt_trigger_id": receipt.get("trigger_id"),
+        "verified_completion_preserved": verified_completion is not None,
         "trigger_matches_hook": trigger_matches_hook,
         "durable_hook_binding": durable_hook_binding,
         "latest_trigger_matches_hook": latest_trigger_matches_hook,
         "job_id": trigger_job_id or None,
-        "session_id": trigger_job.session_id if trigger_job is not None else None,
+        "session_id": trigger_id or None,
         "batch_binding_valid": batch_binding_valid,
         "trigger_session_completed": trigger_job is not None,
         "job_completed": job_completed,
@@ -393,7 +418,7 @@ def inspect_autonomous_outcome(
         "note_verified": note_verified,
         "lifecycle_verified": bool(
             success_at
-            and receipt.get("execution_source") == "autonomous_worker"
+            and evidence.get("execution_source") == "autonomous_worker"
             and trigger_matches_hook
             and job_completed
             and trigger_job is not None

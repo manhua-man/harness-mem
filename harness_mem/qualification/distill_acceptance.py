@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -20,6 +20,7 @@ from harness_mem.autonomous.provider import (
     DEFAULT_DISTILL_MODEL,
     DEFAULT_DISTILL_TIMEOUT_SECONDS,
     ProviderError,
+    ProviderResult,
     ResponsesApiProvider,
 )
 from harness_mem.autonomous.worker import (
@@ -387,6 +388,56 @@ def _duration_regression(
     }
 
 
+class _ModelSampleProviderError(ProviderError):
+    def __init__(
+        self,
+        source: ProviderError,
+        *,
+        attempt_count: int,
+        attempt_errors: list[dict[str, str]],
+    ) -> None:
+        super().__init__(str(source), kind=source.kind, exit_code=source.exit_code)
+        self.attempt_count = attempt_count
+        self.attempt_errors = attempt_errors
+
+
+def _decide_model_sample_with_retry(
+    provider: Any,
+    manifest: dict[str, Any],
+    *,
+    runtime_dir: Path,
+    max_attempts: int = 2,
+) -> tuple[ProviderResult, list[dict[str, str]]]:
+    """Retry one transient provider failure without masking stable failures."""
+
+    transient_failures: list[dict[str, str]] = []
+    attempts = max(1, int(max_attempts))
+    for attempt in range(1, attempts + 1):
+        try:
+            result = provider.decide(manifest, runtime_dir=runtime_dir)
+        except ProviderError as exc:
+            if exc.kind == "transient":
+                transient_failures.append(
+                    {"kind": exc.kind, "message": str(exc)[:1000]}
+                )
+            if exc.kind != "transient" or attempt >= attempts:
+                raise _ModelSampleProviderError(
+                    exc,
+                    attempt_count=attempt,
+                    attempt_errors=list(transient_failures),
+                ) from exc
+            continue
+        return (
+            replace(
+                result,
+                attempt_count=max(1, int(result.attempt_count))
+                + len(transient_failures),
+            ),
+            transient_failures,
+        )
+    raise AssertionError("model sample retry loop did not return")
+
+
 def run_model_samples(
     *,
     output_path: Path,
@@ -448,7 +499,11 @@ def run_model_samples(
         started = time.monotonic()
         try:
             with tempfile.TemporaryDirectory(prefix="hm-distill-model-") as temporary:
-                result = provider.decide(manifest, runtime_dir=Path(temporary))
+                result, transient_failures = _decide_model_sample_with_retry(
+                    provider,
+                    manifest,
+                    runtime_dir=Path(temporary),
+                )
             decision = result.decision.model_dump(mode="json", exclude_none=True)
             quality = _quality(fixture_id, decision)
             receipt = result.receipt()
@@ -526,6 +581,7 @@ def run_model_samples(
                     "manifest_sha256": manifest_sha,
                     "fixture_catalog": catalog_fingerprint(),
                     "provider": receipt,
+                    "provider_transient_failures": transient_failures,
                     "wall_duration_seconds": round(wall_duration, 3),
                     "quality": quality,
                     "compact_response": packet["response_budget"],
@@ -542,6 +598,8 @@ def run_model_samples(
                     "manifest_sha256": manifest_sha,
                     "fixture_catalog": catalog_fingerprint(),
                     "schema_valid": False,
+                    "attempt_count": int(getattr(exc, "attempt_count", 1)),
+                    "attempt_errors": list(getattr(exc, "attempt_errors", [])),
                     "error": {"kind": exc.kind, "message": str(exc)[:1000]},
                 }
             )

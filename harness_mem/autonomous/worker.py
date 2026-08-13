@@ -122,6 +122,51 @@ def read_autonomous_receipt(
     return payload if isinstance(payload, dict) else None
 
 
+def _legacy_verified_completion(receipt: dict[str, Any]) -> dict[str, Any] | None:
+    """Recover one self-contained success snapshot from a complete v2/v3 receipt."""
+
+    if int(receipt.get("schema_version") or 0) not in {2, 3}:
+        return None
+    trigger_id = str(receipt.get("trigger_id") or "")
+    batch = receipt.get("batch")
+    jobs = batch.get("jobs", []) if isinstance(batch, dict) else []
+    record = next(
+        (
+            item
+            for item in jobs
+            if isinstance(item, dict)
+            and item.get("status") == "completed"
+            and str(item.get("session_id") or "") == trigger_id
+            and isinstance(item.get("provider"), dict)
+            and isinstance(item.get("note"), dict)
+            and item.get("last_semantic_success_at")
+            and item.get("last_job_completed_at")
+            and item.get("last_note_materialized_at")
+        ),
+        None,
+    )
+    if record is None:
+        return None
+    return {
+        "schema_version": 1,
+        "trigger_id": trigger_id,
+        "client": receipt.get("client"),
+        "execution_source": receipt.get("execution_source"),
+        "hook_launch_verified": receipt.get("hook_launch_verified") is True,
+        "hook_config_fingerprint": receipt.get("hook_config_fingerprint"),
+        "runtime_fingerprint": receipt.get("runtime_fingerprint"),
+        "config_fingerprint": receipt.get("config_fingerprint"),
+        "hook_reentry_count": int(receipt.get("hook_reentry_count") or 0),
+        "job_id": record.get("job_id"),
+        "session_id": record.get("session_id"),
+        "last_semantic_success_at": record.get("last_semantic_success_at"),
+        "last_job_completed_at": record.get("last_job_completed_at"),
+        "last_note_materialized_at": record.get("last_note_materialized_at"),
+        "provider": record.get("provider"),
+        "note": record.get("note"),
+    }
+
+
 def _write_receipt(
     data_dir: Path,
     *,
@@ -142,11 +187,19 @@ def _write_receipt(
         )
         or {}
     )
+    preserved_completion = previous.get("last_verified_completion")
+    if not isinstance(preserved_completion, dict):
+        preserved_completion = _legacy_verified_completion(previous)
     payload = {
         **previous,
-        "schema_version": 3,
+        "schema_version": 4,
         "project_name": project_name,
         "project_root": str(project_root.expanduser().resolve()),
+        **(
+            {"last_verified_completion": preserved_completion}
+            if preserved_completion is not None
+            else {}
+        ),
         **update,
         "heartbeat_at": _now(),
         "worker_pid": os.getpid(),
@@ -204,6 +257,16 @@ def run_autonomous_distill_batch(
     launch_source: str | None = None,
 ) -> dict[str, Any]:
     """Process a bounded offered batch and materialize user-visible notes."""
+
+    from harness_mem.maintenance_lock import maintenance_is_locked
+
+    if launch_source != "archive_batch" and maintenance_is_locked(backend.data_dir):
+        return {
+            "success": False,
+            "state": "busy",
+            "reason": "exclusive_maintenance_run_active",
+            "outcomes": [],
+        }
 
     root = Path(project_root).expanduser().resolve()
     selected_limit = min(
@@ -576,21 +639,41 @@ def _run_one(
             raise ProviderError(
                 "finalize did not persist a completed job", kind="unrecoverable"
             )
-        note = _materialize_note(stored, notes_dir=notes_dir)
-        provider_receipt = provider_result.receipt()
+        # Combine the pre-cleanup identity with the completed, sanitized
+        # result only in memory. This preserves a useful user-facing Note in
+        # the caller's requested directory without restoring identifiers to
+        # the durable raw-evidence ledger.
+        note_job = stored.model_copy(
+            update={
+                "session_id": job.session_id,
+                "project_root": job.project_root,
+                "semantic_review": decision.semantic_review.model_dump(
+                    mode="json", exclude_none=True
+                ),
+            }
+        )
+        note = _materialize_note(note_job, notes_dir=notes_dir)
+        provider_receipt = {
+            **provider_result.receipt(),
+            "job_id": stored.id,
+            "source_revision": job.source_revision,
+            "session_id_sha256": _identity_digest(job.session_id),
+            "trigger_id_sha256": _identity_digest(trigger_id),
+            "project_root_sha256": _identity_digest(str(project_root)),
+        }
         completion = _record_success_receipt(
             backend,
             project_name=project_name,
             project_root=project_root,
             trigger_id=trigger_id,
             client=client,
-            job=stored,
+            job=note_job,
             note=note,
             provider_receipt=provider_receipt,
         )
         return {
-            "job_id": stored.id,
-            "session_id": stored.session_id,
+            "job_id": note_job.id,
+            "session_id": note_job.session_id,
             "status": "completed",
             "note_path": note["path"],
             "note": note,
@@ -1045,7 +1128,19 @@ def _safe_evidence(candidate: Any, *, packet: dict[str, Any]) -> dict[str, Any]:
 
 
 def _materialize_note(job: SessionDistillJob, *, notes_dir: Path) -> dict[str, Any]:
+    if not str(job.session_id).strip():
+        raise ProviderError(
+            "completed job has no pre-cleanup session identity for Note materialization",
+            kind="unrecoverable",
+        )
     return materialize_session_note(job, notes_dir=notes_dir)
+
+
+def _identity_digest(value: str | None) -> str | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    return "sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _repair_missing_notes(
@@ -1123,6 +1218,30 @@ def _record_success_receipt(
         "last_job_completed_at": completed_at,
         "last_note_materialized_at": str(note["materialized_at"]),
     }
+    current = (
+        read_autonomous_receipt(
+            backend.data_dir,
+            project_name=project_name,
+            project_root=project_root,
+        )
+        or {}
+    )
+    verified_completion = {
+        "schema_version": 1,
+        "trigger_id": trigger_id,
+        "client": client,
+        "execution_source": "autonomous_worker",
+        "hook_launch_verified": current.get("hook_launch_verified") is True,
+        "hook_config_fingerprint": current.get("hook_config_fingerprint"),
+        "runtime_fingerprint": current.get("runtime_fingerprint"),
+        "config_fingerprint": current.get("config_fingerprint"),
+        "hook_reentry_count": int(current.get("hook_reentry_count") or 0),
+        "job_id": job.id,
+        "session_id": job.session_id,
+        **completion,
+        "provider": provider_receipt,
+        "note": note,
+    }
     _write_receipt(
         backend.data_dir,
         project_name=project_name,
@@ -1137,6 +1256,7 @@ def _record_success_receipt(
             **completion,
             "provider": provider_receipt,
             "note": note,
+            "last_verified_completion": verified_completion,
             "error": None,
         },
     )

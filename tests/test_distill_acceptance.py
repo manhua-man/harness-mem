@@ -31,6 +31,7 @@ from harness_mem.mcp.response_budget import (
 )
 from harness_mem.qualification.distill_fixture_catalog import fixture
 from harness_mem.qualification.distill_acceptance import (
+    _decide_model_sample_with_retry,
     _duration_regression,
     _model_sample_status,
     _recover_prior_green_samples,
@@ -49,6 +50,60 @@ def test_model_sample_cost_warning_is_not_reported_as_passed() -> None:
         )
         == "warning"
     )
+
+
+def test_model_sample_retries_one_transient_provider_failure(tmp_path: Path) -> None:
+    class _TransientThenGreen:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def decide(self, manifest, *, runtime_dir):
+            del manifest, runtime_dir
+            self.calls += 1
+            if self.calls == 1:
+                raise ProviderError("timed out", kind="transient")
+            return ProviderResult(
+                decision=object(),  # type: ignore[arg-type]
+                provider="test",
+                model="test-model",
+                duration_seconds=0.1,
+                input_sha256="input",
+                response_sha256="output",
+                input_tokens=1,
+                output_tokens=1,
+                total_tokens=2,
+                event_count=1,
+            )
+
+    provider = _TransientThenGreen()
+    result, failures = _decide_model_sample_with_retry(
+        provider,
+        {},
+        runtime_dir=tmp_path,
+    )
+
+    assert provider.calls == 2
+    assert result.attempt_count == 2
+    assert failures == [{"kind": "transient", "message": "timed out"}]
+
+
+def test_model_sample_does_not_retry_stable_provider_failure(tmp_path: Path) -> None:
+    class _SetupFailure:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def decide(self, manifest, *, runtime_dir):
+            del manifest, runtime_dir
+            self.calls += 1
+            raise ProviderError("missing credentials", kind="setup_required")
+
+    provider = _SetupFailure()
+    with pytest.raises(ProviderError, match="missing credentials") as error:
+        _decide_model_sample_with_retry(provider, {}, runtime_dir=tmp_path)
+
+    assert provider.calls == 1
+    assert error.value.attempt_count == 1
+    assert error.value.attempt_errors == []
 
 
 def test_model_baseline_is_recovered_from_prior_regression_receipt() -> None:

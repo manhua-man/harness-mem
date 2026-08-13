@@ -7,7 +7,11 @@ from pathlib import Path
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.autonomous.models import AutonomousDecision
-from harness_mem.autonomous.provider import DEFAULT_DISTILL_MODEL, ProviderResult
+from harness_mem.autonomous.provider import (
+    DEFAULT_DISTILL_MODEL,
+    ProviderError,
+    ProviderResult,
+)
 from harness_mem.autonomous.worker import (
     _decide_with_candidate_retry,
     _govern_unfinished_handoff,
@@ -118,6 +122,14 @@ class _DeterministicProvider:
             total_tokens=1000,
             event_count=3,
         )
+
+
+class _TransientProvider:
+    name = "transient-test"
+
+    def decide(self, manifest, *, runtime_dir, heartbeat=None):
+        del manifest, runtime_dir, heartbeat
+        raise ProviderError("timed out", kind="transient")
 
 
 def test_autonomous_worker_adds_missing_exact_signal_labels_to_real_rationale() -> None:
@@ -572,17 +584,29 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
         project_root=project,
     )
     assert receipt is not None
-    assert receipt["schema_version"] == 3
+    assert receipt["schema_version"] == 4
     assert receipt["hook_launch_verified"] is True
     assert receipt["hook_config_fingerprint"]
     assert receipt["last_semantic_success_at"]
     assert receipt["last_job_completed_at"]
     assert receipt["last_note_materialized_at"]
     assert receipt["provider"]["total_tokens"] == 1000
+    verified_completion = receipt["last_verified_completion"]
+    assert verified_completion["trigger_id"] == "autonomous-session"
+    assert verified_completion["job_id"] == stored.id
+    assert verified_completion["provider"]["total_tokens"] == 1000
+    assert verified_completion["note"]["sha256"]
     job_receipt = receipt["batch"]["jobs"][0]
     assert job_receipt["job_id"] == stored.id
     assert job_receipt["selection_reason"] == "trigger_session"
     assert job_receipt["provider"]["total_tokens"] == 1000
+    assert job_receipt["provider"]["job_id"] == stored.id
+    assert job_receipt["provider"]["source_revision"] == stored.source_revision
+    assert job_receipt["provider"]["session_id_sha256"].startswith("sha256:")
+    assert job_receipt["provider"]["trigger_id_sha256"] == job_receipt["provider"][
+        "session_id_sha256"
+    ]
+    assert job_receipt["provider"]["project_root_sha256"].startswith("sha256:")
     assert job_receipt["note"]["sha256"]
 
     # A later batch-level projection must never be used to fill evidence for
@@ -659,9 +683,106 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     assert interleaved["durable_hook_binding"] is True
     assert interleaved["lifecycle_verified"] is True
 
-    receipt["batch"]["jobs"][0]["provider"] = None
+    # A complete v3 success is lazily migrated before the next mutable attempt.
+    legacy = dict(receipt)
+    legacy["schema_version"] = 3
+    legacy.pop("last_verified_completion", None)
     receipt_path.write_text(
-        json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(legacy, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    # A later attempt with no eligible work updates current attempt state but
+    # must not erase the last complete success evidence.
+    idle = run_autonomous_distill_batch(
+        backend,
+        project_name="demo",
+        project_root=project,
+        config=load_merged_config(project),
+        trigger_id="idle-session",
+        client="codex",
+        provider=_DeterministicProvider(),
+        notes_dir=notes_dir,
+        max_jobs=1,
+        launch_source="ide_hook",
+    )
+    assert idle["state"] == "idle"
+    preserved = read_autonomous_receipt(
+        data_dir,
+        project_name="demo",
+        project_root=project,
+    )
+    assert preserved is not None
+    assert preserved["state"] == "idle"
+    assert preserved["job_id"] is None
+    assert preserved["last_verified_completion"] == verified_completion
+    after_idle = inspect_autonomous_outcome(
+        data_dir,
+        project_name="demo",
+        project_root=project,
+        jobs=[stored],
+    )
+    assert after_idle["state"] == "idle"
+    assert after_idle["latest_attempt_trigger_id"] == "idle-session"
+    assert after_idle["trigger_id"] == "autonomous-session"
+    assert after_idle["verified_completion_preserved"] is True
+    assert after_idle["lifecycle_verified"] is True
+
+    # A later provider timeout remains visible as the latest attempt while the
+    # independently verified prior completion remains valid.
+    deferred_snapshot = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id="deferred-session",
+                client="codex",
+                raw_content="User: remember this timeout test\nAssistant: acknowledged\n",
+                content_type="transcript",
+            ),
+            project_name="demo",
+            project_root=str(project),
+            client="codex",
+            session_id="deferred-session",
+            source_kind="jsonl",
+            source_uri="file:///deferred-session.jsonl",
+            source_text="User: remember this timeout test\nAssistant: acknowledged\n",
+        )
+    )
+    assert deferred_snapshot.distill_job_id is not None
+    deferred = run_autonomous_distill_batch(
+        backend,
+        project_name="demo",
+        project_root=project,
+        config=load_merged_config(project),
+        trigger_id="deferred-session",
+        client="codex",
+        provider=_TransientProvider(),
+        notes_dir=notes_dir,
+        max_jobs=1,
+        preferred_job_id=deferred_snapshot.distill_job_id,
+        launch_source="ide_hook",
+    )
+    assert deferred["state"] == "deferred"
+    after_deferred = inspect_autonomous_outcome(
+        data_dir,
+        project_name="demo",
+        project_root=project,
+        jobs=[stored],
+    )
+    assert after_deferred["state"] == "deferred"
+    assert after_deferred["latest_attempt_trigger_id"] == "deferred-session"
+    assert after_deferred["trigger_id"] == "autonomous-session"
+    assert after_deferred["lifecycle_verified"] is True
+
+    preserved = read_autonomous_receipt(
+        data_dir,
+        project_name="demo",
+        project_root=project,
+    )
+    assert preserved is not None
+    preserved["last_verified_completion"]["provider"] = None
+    receipt_path.write_text(
+        json.dumps(preserved, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     incomplete = inspect_autonomous_outcome(

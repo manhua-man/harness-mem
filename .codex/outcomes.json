@@ -3,6 +3,63 @@
   "project": "harness-mem",
   "claims": [
     {
+      "id": "codex_cleanup_liveness",
+      "description": "Native cleanup retains active, reactivated, and unknown Codex tasks and deletes only a definitively inactive task.",
+      "required": true,
+      "checks": [
+        {
+          "id": "isolated_codex_liveness_runtime",
+          "description": "Exercise real OS writer locks, Codex task-state SQLite, plan/claim recheck, and native deletion in an isolated Codex layout.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.qualification.cleanup_liveness_outcome_probe"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "verified": {"equals": true},
+              "active_writer_retained": {"equals": true},
+              "active_task_retained": {"equals": true},
+              "inactive_task_deleted": {"equals": true},
+              "reactivation_before_claim_retained": {"equals": true},
+              "unknown_liveness_retained": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "archive_distill_batch_outcome",
+      "description": "An archived Codex task completes through canonical distill with a formal Answer Packet, per-fact promotion report, Note, ledger, retrieval, replay skip, and safe source deletion.",
+      "required": true,
+      "checks": [
+        {
+          "id": "isolated_archive_distill_runtime",
+          "description": "Execute the real archive adapter and canonical worker against an isolated durable store with only the model decision made deterministic.",
+          "evidence_tier": "direct",
+          "timeout_seconds": 120,
+          "command": ["{python}", "-m", "harness_mem.qualification.archive_distill_outcome_probe"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "verified": {"equals": true},
+              "batch_completed": {"equals": true},
+              "answer_packet_persisted": {"equals": true},
+              "question_is_session_question": {"equals": true},
+              "promotion_visible": {"equals": true},
+              "note_materialized": {"equals": true},
+              "ledger_persisted": {"equals": true},
+              "replay_skipped": {"equals": true},
+              "truth_retrievable": {"equals": true},
+              "safe_source_cleanup_reported": {"equals": true},
+              "safe_source_deleted": {"equals": true},
+              "source_cleanup_status": {"equals": "deleted"},
+              "run_verification_passed": {"equals": true},
+              "run_receipt_persisted": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
       "id": "codex_hook_lifecycle",
       "description": "Codex Desktop native start and post-turn hooks each have a fresh receipt for the current configuration; exact Stop-to-job binding is verified by the autonomous completion claim.",
       "required": true,
@@ -47,12 +104,12 @@
     },
     {
       "id": "distill_user_artifacts",
-      "description": "Every recently completed session distill has a readable Session Note.",
+      "description": "Every recently completed session distill has a readable job-bound Session Note, or an explicit audited-unavailable status when historical source identity and Note evidence were already pruned.",
       "required": true,
       "checks": [
         {
           "id": "completed_session_notes",
-          "description": "Match completed distill sessions to real user-readable Note files.",
+          "description": "Match completed distill jobs to real user-readable Note files and keep irrecoverable historical gaps explicit rather than inventing Notes.",
           "evidence_tier": "direct",
           "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
           "expect": {
@@ -177,7 +234,7 @@
           "id": "distill_acceptance_runner",
           "description": "Run all 24 mapped paths and the three no-tools fixed model samples, producing a machine-readable report.",
           "evidence_tier": "direct",
-          "timeout_seconds": 180,
+          "timeout_seconds": 300,
           "command": ["{python}", "-m", "harness_mem.qualification.distill_acceptance", "--project-root", "{project_root}", "--output", "{project_root}/.codex/distill-acceptance-report.json", "--model-samples"],
           "expect": {
             "exit_code": 0,
