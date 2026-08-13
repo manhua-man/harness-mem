@@ -484,6 +484,10 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         )
 
     source_text = "start\n" + ("complete-middle-evidence\n" * 2500) + "final-answer\n"
+    (tmp_path / ".harness-mem.toml").write_text(
+        "[distill]\ndelete_source_after_complete = false\n",
+        encoding="utf-8",
+    )
     backend = LocalMemoryBackend(tmp_path / "data")
     asyncio.run(backend.init())
     asyncio.run(setup(backend, source_text))
@@ -596,7 +600,7 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         assert finalized["structural_audit"]["coverage"] == "complete"
         assert finalized["dream"]["job_id"] == "dream-1"
         assert finalized["completion"]["disposition"] == "no_candidate"
-        assert finalized["promotion"] == {
+        expected_promotion = {
             "suggested": 3,
             "promoted": 0,
             "rejected": 3,
@@ -618,6 +622,15 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
                 "NOT_APPLICABLE": 0,
             },
         }
+        assert {
+            key: value
+            for key, value in finalized["promotion"].items()
+            if key != "answer_packet"
+        } == expected_promotion
+        assert finalized["answer_packet"] == finalized["promotion"]["answer_packet"]
+        assert finalized["answer_packet"]["answer_status"] == "UNANSWERED"
+        assert finalized["answer_packet"]["promotion_status"] == "not_promoted"
+        assert finalized["answer_packet"]["promoted_items"] == []
         assert finalized["queue_effect"]["removed_from_pending"] is True
         assert finalized["source_cleanup"] == {
             "configured": False,
@@ -782,6 +795,34 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
             "STALE": 0,
             "NOT_APPLICABLE": 0,
         }
+        answer_packet = finalized["answer_packet"]
+        assert answer_packet["answer_status"] == "ANSWERED"
+        assert answer_packet["promotion_status"] == "promoted"
+        assert answer_packet["destination_project"] == "demo"
+        assert answer_packet["evidence_basis"] == ["repository"]
+        assert answer_packet["verified_at"]
+        assert answer_packet["knowledge_kind"] == ["semantic"]
+        assert answer_packet["knowledge_category"] == ["decision"]
+        assert answer_packet["promoted_items"] == [
+            {
+                "title": (
+                    "decision：The project uses one automatic distill completion path "
+                    "so low-value sessions never require manual candidate promotion or "
+                    "repeated review"
+                )[:89],
+                "fact": (
+                    "The project uses one automatic distill completion path so low-value "
+                    "sessions never require manual candidate promotion or repeated review."
+                ),
+                "kind": "semantic",
+                "category": "decision",
+            }
+        ]
+        note_text = Path(finalized["note"]["path"]).read_text(encoding="utf-8")
+        assert "## Answer Packet" in note_text
+        assert "- 验证状态：ANSWERED" in note_text
+        assert answer_packet["promoted_items"][0]["fact"] in note_text
+        assert candidate["entry_id"] not in note_text
         stored = asyncio.run(
             backend.structured_store.get_memory_entry(candidate["entry_id"])
         )
@@ -797,6 +838,7 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
         assert replay["idempotent_replay"] is True
         assert replay["completion"] == finalized["completion"]
         assert replay["promotion"] == finalized["promotion"]
+        assert replay["answer_packet"] == answer_packet
     finally:
         tool_handlers._backend_provider = previous_backend_provider
         tool_handlers._observer_data_dir_provider = previous_observer_provider
@@ -1335,6 +1377,19 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
         )
         assert finalized["success"] is True
         assert finalized["structural_audit"]["coverage"] == "complete"
+        assert finalized["answer_packet"] == {
+            "answer_status": "NOT_APPLICABLE",
+            "question": "finish the task",
+            "core_conclusion": "本次会话没有需要晋升的长期知识。",
+            "evidence_basis": [],
+            "evaluated_at": finalized["answer_packet"]["evaluated_at"],
+            "verified_at": None,
+            "promotion_status": "not_promoted",
+            "promoted_items": [],
+            "destination_project": "demo",
+            "knowledge_kind": [],
+            "knowledge_category": [],
+        }
         assert finalized["session_summary"] == {
             "session_id": "semantic-session",
             "summary": SEMANTIC_REVIEW["session_summary"],
@@ -1499,6 +1554,10 @@ def test_semantic_review_blocks_promotion_and_dream(
     monkeypatch,
     review_overrides: dict,
 ) -> None:
+    (tmp_path / ".harness-mem.toml").write_text(
+        "[distill]\ndelete_source_after_complete = false\n",
+        encoding="utf-8",
+    )
     async def setup(backend: LocalMemoryBackend) -> str:
         result = await persist_session_snapshot(
             backend,
@@ -1563,6 +1622,7 @@ def test_semantic_review_blocks_promotion_and_dream(
         )
         review = {
             **SEMANTIC_REVIEW,
+            "answer_status": "ANSWERED",
             **review_overrides,
         }
         finalized = tool_handlers.tool_finalize_session_distill(
@@ -1584,7 +1644,7 @@ def test_semantic_review_blocks_promotion_and_dream(
         assert completed.output_candidate_ids == [candidate["entry_id"]]
         assert completed.completion_disposition == "no_candidate"
         assert completed.completion_reason_codes == ["semantic_review_blocked"]
-        assert completed.promotion_summary == {
+        expected_promotion = {
             "suggested": 1,
             "promoted": 0,
             "rejected": 1,
@@ -1606,6 +1666,25 @@ def test_semantic_review_blocks_promotion_and_dream(
                 "NOT_APPLICABLE": 0,
             },
         }
+        assert {
+            key: value
+            for key, value in finalized["promotion"].items()
+            if key != "answer_packet"
+        } == expected_promotion
+        assert finalized["answer_packet"] == finalized["promotion"]["answer_packet"]
+        assert finalized["answer_packet"]["answer_status"] == "UNANSWERED"
+        assert finalized["answer_packet"]["promotion_status"] == "not_promoted"
+        assert finalized["answer_packet"]["promoted_items"] == []
+        assert {
+            key: value
+            for key, value in completed.promotion_summary.items()
+            if key != "answer_packet"
+        } == expected_promotion
+        answer_packet = completed.promotion_summary["answer_packet"]
+        assert answer_packet["answer_status"] == "UNANSWERED"
+        assert answer_packet["promotion_status"] == "not_promoted"
+        assert answer_packet["promoted_items"] == []
+        assert answer_packet["destination_project"] == "demo"
         assert completed.source_cleanup_status == "retained"
         assert finalized["completion"]["disposition"] == "no_candidate"
         assert finalized["queue_effect"]["removed_from_pending"] is True

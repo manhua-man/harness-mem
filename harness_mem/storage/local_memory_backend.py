@@ -66,6 +66,16 @@ class LocalMemoryBackend:
         self._reflection_job_store = None
 
     @property
+    def initialized(self) -> bool:
+        """Return whether all public stores are ready for handler use."""
+
+        return bool(
+            self._verbatim_store is not None
+            and self._structured_store is not None
+            and self._transcript_store is not None
+        )
+
+    @property
     def verbatim_store(self) -> VerbatimStore:
         if self._verbatim_store is None:
             raise RuntimeError("Backend not initialized. Call init() first.")

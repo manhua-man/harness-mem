@@ -38,6 +38,9 @@ def test_distill_command_resolves_aliases_and_canonical_skill_uses_logical_names
     assert "先检查当前 task 的可调用工具" in command
     assert "prepare_session_distill" in skill
     assert "finalize_session_distill" in skill
+    assert "answer_packet" in skill
+    assert "promoted_items" in skill
+    assert "never copy an Agent-authored status" in skill
     assert "mcp__mcp_router__" not in skill
     assert "mcp__harness_mem__" not in skill
 

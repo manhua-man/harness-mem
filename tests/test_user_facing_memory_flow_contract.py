@@ -27,7 +27,8 @@ def test_canonical_distill_skill_hides_internal_ids_from_readable_memory() -> No
         encoding="utf-8"
     )
 
-    assert "one precise, verifiable fact" in skill
+    assert "one\nverifiable fact" in skill
+    assert "formal `answer_packet`" in skill
     assert "Do not append session, job, candidate, memory, evidence, or source IDs" in skill
     assert "title + one verifiable fact + verification date/status" in rules
     assert "explicit audit views" in rules

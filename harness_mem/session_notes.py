@@ -19,7 +19,37 @@ _COMPLETED_MARKER = re.compile(r"completed=([^ ]+)")
 def session_note_path(notes_dir: Path, job: SessionDistillJob) -> Path:
     """Return the immutable Note path for one distill job/revision."""
 
+    if not str(job.session_id).strip():
+        raise ValueError("session note path requires a non-empty session identity")
     return notes_dir / "revisions" / job.id / f"{job.session_id}.md"
+
+
+def existing_session_note_path(
+    notes_dir: Path,
+    job: SessionDistillJob,
+) -> tuple[Path | None, str | None]:
+    """Resolve one existing immutable Note, including pruned historical jobs."""
+
+    session_id = str(job.session_id or "").strip()
+    if session_id:
+        expected = notes_dir / "revisions" / job.id / f"{session_id}.md"
+        if expected.is_file():
+            return expected, session_id
+    revision_dir = notes_dir / "revisions" / job.id
+    try:
+        candidates = [
+            path
+            for path in revision_dir.glob("*.md")
+            if path.is_file()
+            and path.name != ".md"
+            and not path.name.startswith(".")
+            and path.stem.strip()
+        ]
+    except OSError:
+        return None, None
+    if len(candidates) != 1:
+        return None, None
+    return candidates[0], candidates[0].stem
 
 
 def latest_session_note_path(notes_dir: Path, session_id: str) -> Path:
@@ -69,6 +99,7 @@ def render_session_note(job: SessionDistillJob) -> str:
         if str(item).strip()
     ]
     promotion = dict(job.promotion_summary or {})
+    packet = dict(promotion.get("answer_packet") or {})
     completed = job.completed_at or datetime.now(timezone.utc)
     completed_iso = completed.isoformat()
     lines = [
@@ -98,6 +129,21 @@ def render_session_note(job: SessionDistillJob) -> str:
             f"- 结果：{job.completion_disposition or 'unknown'}",
             f"- 形成长期记忆：{int(promotion.get('promoted') or 0)} 条",
             "",
+            "## Answer Packet",
+            "",
+            f"- 验证问题：{packet.get('question') or '未记录。'}",
+            f"- 验证状态：{packet.get('answer_status') or 'UNANSWERED'}",
+            f"- 核心结论：{packet.get('core_conclusion') or '未形成可验证结论。'}",
+            f"- 证据基础：{', '.join(packet.get('evidence_basis') or []) or '无'}",
+            f"- 验证时间：{packet.get('verified_at') or '无'}",
+            f"- 晋升状态：{packet.get('promotion_status') or 'not_promoted'}",
+            f"- 目标项目：{packet.get('destination_project') or job.project_name}",
+            f"- 知识类型：{', '.join(packet.get('knowledge_kind') or []) or '无'}",
+            f"- 知识分类：{', '.join(packet.get('knowledge_category') or []) or '无'}",
+            "",
+            "### 晋升内容",
+            "",
+            "",
             (
                 "<!-- harness-mem audit: "
                 f"session={job.session_id} job={job.id} completed={completed_iso} "
@@ -106,6 +152,17 @@ def render_session_note(job: SessionDistillJob) -> str:
             "",
         ]
     )
+    promoted_items = list(packet.get("promoted_items") or [])
+    insertion = len(lines) - 2
+    rendered_items = [
+        (
+            f"- **{item.get('title') or item.get('category') or '长期知识'}**："
+            f"{item.get('fact') or ''}（{item.get('kind') or 'knowledge'} / "
+            f"{item.get('category') or 'uncategorized'}）"
+        )
+        for item in promoted_items
+    ] or ["- 无。"]
+    lines[insertion:insertion] = rendered_items + [""]
     return "\n".join(lines)
 
 
@@ -143,6 +200,7 @@ def _now() -> str:
 
 
 __all__ = [
+    "existing_session_note_path",
     "latest_session_note_path",
     "materialize_session_note",
     "render_session_note",

@@ -12,7 +12,7 @@ from functools import wraps
 from inspect import signature
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from pydantic import ValidationError
@@ -26,11 +26,14 @@ from harness_mem.commands.support import (
     resolve_ingest_client,
 )
 from harness_mem.commands.distill_lifecycle import distill_drainer_metrics
+from harness_mem.commands.evidence_admission import answer_gate_status
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.adapters.projection_repair import repair_source_observation_projection
 from harness_mem.governance_status import CANDIDATE_LAYER_STATUSES, TRUTH_LAYER_STATUSES
 from harness_mem.core.schemas.session_distill import (
+    AnswerPacket,
+    PromotedKnowledgeItem,
     SessionDistillJob,
     ZeroCandidateChallenge,
 )
@@ -1198,6 +1201,141 @@ def _session_summary_payload(job: SessionDistillJob) -> dict[str, Any]:
     }
 
 
+def _knowledge_projection(candidate: Any) -> tuple[str, str, str, str]:
+    """Project a governed candidate into one ID-free, user-readable fact."""
+
+    if hasattr(candidate, "content"):
+        fact = str(candidate.content).strip()
+        category = str(getattr(candidate, "category", "knowledge") or "knowledge")
+        kind = str(getattr(candidate, "memory_type", "memory") or "memory")
+        title = f"{category}：{fact.split('。', 1)[0].split('.', 1)[0][:80]}"
+        return title, fact, kind, category
+    if hasattr(candidate, "pattern"):
+        fact = str(candidate.pattern).strip()
+        trigger = str(getattr(candidate, "trigger", "") or "").strip()
+        title = trigger[:80] or fact.split("。", 1)[0].split(".", 1)[0][:80]
+        return title, fact, "rule", "rule"
+    source = str(getattr(candidate, "source_entity", "") or "").strip()
+    target = str(getattr(candidate, "target_entity", "") or "").strip()
+    relation = str(getattr(candidate, "relation_type", "relation") or "relation")
+    fact = f"{source} {relation} {target}".strip()
+    return f"{source} {relation} {target}"[:80], fact, "relation", relation
+
+
+async def _distill_candidates(
+    backend: LocalMemoryBackend, candidate_ids: list[str]
+) -> list[Any]:
+    candidates: list[Any] = []
+    for candidate_id in candidate_ids:
+        candidate: Any = await backend.structured_store.get_memory_entry(candidate_id)
+        if candidate is None:
+            candidate = await backend.structured_store.get_rule_candidate(candidate_id)
+        if candidate is None:
+            candidate = await backend.structured_store.get_relation_fact(candidate_id)
+        if candidate is not None:
+            candidates.append(candidate)
+    return candidates
+
+
+def _aggregate_answer_status(
+    candidates: list[Any], *, promoted_count: int
+) -> str:
+    """Derive one session-level status from runtime-validated candidate gates."""
+
+    if not candidates:
+        return "NOT_APPLICABLE"
+    statuses = [answer_gate_status(candidate) for candidate in candidates]
+    if len(set(statuses)) == 1:
+        return statuses[0]
+    if "ANSWERED" in statuses or promoted_count:
+        return "PARTIAL"
+    for status in ("STALE", "CONTRADICTED", "PARTIAL", "UNANSWERED"):
+        if status in statuses:
+            return status
+    return "NOT_APPLICABLE"
+
+
+async def _build_answer_packet(
+    backend: LocalMemoryBackend,
+    *,
+    job: SessionDistillJob,
+    candidate_ids: list[str],
+    promotion_counts: dict[str, int],
+    runtime_reviewed: bool,
+) -> dict[str, Any]:
+    """Build the formal packet only from runtime-governed candidate state."""
+
+    candidates = await _distill_candidates(backend, candidate_ids)
+    promoted_candidates = [
+        candidate
+        for candidate in candidates
+        if str(getattr(candidate, "status", "")) in TRUTH_LAYER_STATUSES
+    ]
+    items: list[PromotedKnowledgeItem] = []
+    for candidate in promoted_candidates:
+        title, fact, kind, category = _knowledge_projection(candidate)
+        items.append(
+            PromotedKnowledgeItem(
+                title=title or category,
+                fact=fact,
+                kind=kind,
+                category=category,
+            )
+        )
+    promoted_count = int(promotion_counts.get("promoted") or 0)
+    suggested_count = int(promotion_counts.get("suggested") or 0)
+    promotion_status = (
+        "promoted"
+        if promoted_count and promoted_count == suggested_count
+        else "partial" if promoted_count else "not_promoted"
+    )
+    status = (
+        _aggregate_answer_status(candidates, promoted_count=promoted_count)
+        if runtime_reviewed
+        else "UNANSWERED" if candidates else "NOT_APPLICABLE"
+    )
+    review = dict(job.semantic_review or {})
+    question = str(review.get("final_user_request") or "").strip()
+    if not question:
+        question = "本次会话最终要解决什么问题？"
+    if len(items) == 1:
+        conclusion = items[0].fact
+    elif items:
+        conclusion = f"已验证并晋升 {len(items)} 条长期知识，具体内容见 promoted_items。"
+    elif status == "NOT_APPLICABLE":
+        conclusion = "本次会话没有需要晋升的长期知识。"
+    elif status in {"PARTIAL", "UNANSWERED"}:
+        conclusion = "现有证据不足以形成长期知识，未执行晋升。"
+    elif status in {"CONTRADICTED", "STALE"}:
+        conclusion = "候选证据存在冲突或已失效，未执行晋升。"
+    else:
+        conclusion = str(review.get("final_outcome") or "候选未通过晋升策略。").strip()
+    bases = sorted(
+        {
+            str(getattr(candidate, "evidence_basis", "") or "")
+            for candidate in candidates
+            if getattr(candidate, "evidence_basis", None)
+        }
+    )
+    verified_values = [
+        candidate.verified_at
+        for candidate in candidates
+        if runtime_reviewed and getattr(candidate, "verified_at", None) is not None
+    ]
+    return AnswerPacket(
+        answer_status=cast(Any, status),
+        question=question,
+        core_conclusion=conclusion,
+        evidence_basis=bases,
+        verified_at=max(verified_values) if verified_values else None,
+        promotion_status=cast(Any, promotion_status),
+        promoted_items=items,
+        destination_project=job.project_name,
+        knowledge_kind=list(dict.fromkeys(item.kind for item in items)),
+        knowledge_category=list(dict.fromkeys(item.category for item in items)),
+    ).to_dict()
+
+
 def tool_finalize_session_distill(
     project_name: str,
     job_id: str,
@@ -1226,6 +1364,30 @@ def tool_finalize_session_distill(
             project_name=project_name,
             daily_job_budget=config.distill_auto_daily_job_budget,
         )
+        answer_packet = dict(job.promotion_summary.get("answer_packet") or {})
+        if not answer_packet:
+            answer_packet = asyncio.run(
+                _build_answer_packet(
+                    backend,
+                    job=job,
+                    candidate_ids=list(job.output_candidate_ids),
+                    promotion_counts=dict(job.promotion_summary),
+                    runtime_reviewed=_semantic_review_allows_candidate_review(
+                        job.semantic_review
+                    ),
+                )
+            )
+            job = backend.transcript_store.record_distill_completion_outcome(
+                job.id,
+                disposition=job.completion_disposition,
+                reason_codes=list(job.completion_reason_codes),
+                promotion_summary={
+                    **dict(job.promotion_summary),
+                    "answer_packet": answer_packet,
+                },
+                source_cleanup_status=job.source_cleanup_status or "retained",
+                source_cleanup_receipt_id=job.source_cleanup_receipt_id,
+            )
         note = materialize_session_note(job, notes_dir=_session_notes_dir(backend))
         return {
             "success": True,
@@ -1241,6 +1403,7 @@ def tool_finalize_session_distill(
                 "reason_codes": job.completion_reason_codes,
             },
             "promotion": dict(job.promotion_summary),
+            "answer_packet": answer_packet,
             "queue_effect": {
                 "removed_from_pending": True,
                 "pending_total_after": queue["pending_total"],
@@ -1392,6 +1555,16 @@ def tool_finalize_session_distill(
         "evidence_admission": evidence_admission,
         "answer_gate": answer_gate,
     }
+    answer_packet = asyncio.run(
+        _build_answer_packet(
+            backend,
+            job=completed,
+            candidate_ids=candidate_ids,
+            promotion_counts=promotion_counts,
+            runtime_reviewed=semantic_allows_candidate_review,
+        )
+    )
+    promotion["answer_packet"] = answer_packet
     disposition = "promoted" if promotion["promoted"] else "no_candidate"
     challenge_passed = bool(
         not candidate_ids
@@ -1429,6 +1602,14 @@ def tool_finalize_session_distill(
         promotion_summary=promotion,
         source_cleanup_status="retained",
     )
+    # Materialize while the privacy-safe user-facing identity and semantic
+    # summary are still present. Processed-source cleanup intentionally
+    # sanitizes session_id/project_root and raw review details afterwards.
+    pre_cleanup = backend.transcript_store.get_distill_job(completed.id) or completed
+    note = materialize_session_note(
+        pre_cleanup,
+        notes_dir=_session_notes_dir(backend),
+    )
     if config.distill_delete_source_after_complete:
         source_cleanup = _cleanup_completed_distill_source(
             backend,
@@ -1443,10 +1624,6 @@ def tool_finalize_session_distill(
         source_cleanup_status=str(source_cleanup["status"]),
         source_cleanup_receipt_id=source_cleanup.get("receipt_id"),
     )
-    note = materialize_session_note(
-        stored,
-        notes_dir=_session_notes_dir(backend),
-    )
     queue = distill_drainer_metrics(
         backend,
         project_name=project_name,
@@ -1458,6 +1635,7 @@ def tool_finalize_session_distill(
     }
     payload["note"] = note
     payload["promotion"] = promotion
+    payload["answer_packet"] = answer_packet
     payload["queue_effect"] = {
         "removed_from_pending": True,
         "pending_total_after": queue["pending_total"],
@@ -1470,15 +1648,17 @@ def tool_finalize_session_distill(
 def _load_completion_config(project_root: str) -> tuple[MergedConfig, str | None]:
     """Load completion policy without stranding an already-reviewed job."""
 
+    safe_fallback = MergedConfig(distill_delete_source_after_complete=False)
     if not project_root or not Path(project_root).is_dir():
-        return MergedConfig(), "completion_project_root_unavailable"
+        return safe_fallback, "completion_project_root_unavailable"
     try:
         return load_merged_config(project_root), None
     except (ConfigError, OSError):
         # A malformed or temporarily unreadable Config_File must not leave the
-        # distill job completed but missing its terminal outcome. Default-off
-        # source cleanup is the fail-closed fallback.
-        return MergedConfig(), "completion_config_invalid"
+        # distill job completed but missing its terminal outcome. Even though
+        # the normal default is cleanup-on-success, unreadable policy cannot
+        # authorize deletion, so recovery remains fail-safe and retains source.
+        return safe_fallback, "completion_config_invalid"
 
 
 async def _settle_distill_candidates(

@@ -188,7 +188,7 @@ wireFormatVersion: hm-wire-v3.5
 
 - `/hm-distill` 是同一自动管线的立即执行入口：读取证据、生成会话摘要、提炼候选、自动处理低风险项、触发 Dream；默认摘要简短但必须让用户知道会话做了什么
 - `/hm-review` 是 audit inbox：确认、拒绝、undo、替换候选都在这里发生
-- 原文默认保留；只有用户明确开启并通过 `config set distill.delete_source_after_complete true --scope user --confirm` 写入持久策略，才授权后续完成会话自动清理；不逐会话确认，实际结果以 `source_cleanup.status` 为准
+- 成功蒸馏后默认尝试安全清理原文；只删除适配器支持且通过静默/CAS/hash 校验的独立来源，共享或不安全容器保持不动；项目可配置 `distill.delete_source_after_complete=false` 保留原文，实际结果以 `source_cleanup.status` 为准
 - 不要把具体客户端写死为默认来源；默认入口必须是 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根目录>)`
 - agent 历史可能是用户全局数据源，默认必须按当前项目路径过滤；跨项目导入必须由用户显式要求 `scope="all"`
 - 用户主路径只有 `hm-distill` 的 Slash / 自然语言 + MCP + Skill；没有第二套 distill CLI 兜底

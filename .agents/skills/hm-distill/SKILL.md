@@ -140,7 +140,7 @@ This is a user-invocable harness-mem Daily command. Follow the action below thro
 
    候选判断必须复用 shared auto-review policy，而不是在 slash 文档里手写另一套规则。安全候选自动进入 truth layer；其余候选自动终结。`$hm-review` 是事后 audit、纠错和 undo 入口，不是日常晋升闸门。
 
-   内部审计结果必须以 `finalize_session_distill` 返回的 scoped auto-review 结果为准：
+   内部审计结果必须以 `finalize_session_distill` 返回的 scoped auto-review 结果为准。正式用户结果读取 runtime 派生并随完成 receipt 持久化的 `answer_packet`；Agent 不得自行填写或改写 `answer_status`：
    - `auto_confirmed`
    - `auto_rejected`
    - `completion.disposition` (`promoted` / `no_candidate`)
@@ -164,23 +164,25 @@ This is a user-invocable harness-mem Daily command. Follow the action below thro
    项目真相。只复用已经提交的 semantic review，不启动额外导出，不重新消耗模型
    阅读原文。
 
-   默认给简短但可理解的结果，不展示 transcript、session/job/candidate/memory/evidence/source ID 或详细计数：
+   默认逐条展示 finalize 返回的正式 `answer_packet`，至少呈现验证状态、验证问题、核心结论、证据基础、验证时间、晋升状态、目标项目、知识类型/分类和晋升内容；不展示 transcript、session/job/candidate/memory/evidence/source ID 或详细计数：
 
    ```text
    会话：<session_summary>
-   已完成整理：<形成长期记忆 / 无需长期记忆>。
+   验证状态：<answer_packet.answer_status>
+   核心结论：<answer_packet.core_conclusion>
+   知识库晋升：<answer_packet.promotion_status> → <answer_packet.destination_project>
    未完成：<无 / unfinished_work 摘要>。
    原文：<已保留 / 已删除 / 部分失败 / 当前宿主不支持>。
    Note：<路径>。
    ```
 
-   如果形成长期记忆，在摘要和 Note 中按“一条记忆一个可验证事实”列出：
+   如果形成长期记忆，必须逐项原样投影 `answer_packet.promoted_items`，在摘要和 Note 中按“一条记忆一个可验证事实”列出 title、fact、kind/category：
 
    ```text
-   - **<标题>**：<精确、可验证的单一事实>（<验证日期；仓库已验证 / 用户已确认>）。
+   - **<title>**：<fact>（<kind> / <category>；<verified_at>；<evidence_basis>）。
    ```
 
-   ID 只用于内部去重、审计、纠错和 undo，不附加在默认记忆正文中。只有用户要求审计详情时，才展示计数、session/job/candidate/memory/evidence/source ID、verification refs 和 `$hm-review` 入口。
+   `PARTIAL`、`UNANSWERED`、`CONTRADICTED`、`STALE` 或 `NOT_APPLICABLE` 也必须展示可读 packet；`promoted_items` 为空时明确写“知识库晋升：无”，不得从 semantic review 猜测晋升。ID 只用于内部去重、审计、纠错和 undo，不附加在默认记忆正文中。只有用户要求审计详情时，才展示计数、session/job/candidate/memory/evidence/source ID、verification refs 和 `$hm-review` 入口。
 
    如果用户要求处理多个 session，逐 job 完成 prepare → candidate/no-candidate →
    finalize/defer；一次显式 distill 最多处理 3 条，任一 job 的失败不得污染其他 job。
@@ -189,7 +191,7 @@ This is a user-invocable harness-mem Daily command. Follow the action below thro
 
 - `$hm-distill` 是同一自动管线的立即执行入口：读取证据、生成会话摘要、提炼候选、自动处理低风险项、触发 Dream；默认摘要简短但必须让用户知道会话做了什么
 - `$hm-review` 是 audit inbox：确认、拒绝、undo、替换候选都在这里发生
-- 原文默认保留；只有用户明确开启并通过 `config set distill.delete_source_after_complete true --scope user --confirm` 写入持久策略，才授权后续完成会话自动清理；不逐会话确认，实际结果以 `source_cleanup.status` 为准
+- 成功蒸馏后默认尝试安全清理原文；只删除适配器支持且通过静默/CAS/hash 校验的独立来源，共享或不安全容器保持不动；项目可配置 `distill.delete_source_after_complete=false` 保留原文，实际结果以 `source_cleanup.status` 为准
 - 不要把具体客户端写死为默认来源；默认入口必须是 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根目录>)`
 - agent 历史可能是用户全局数据源，默认必须按当前项目路径过滤；跨项目导入必须由用户显式要求 `scope="all"`
 - 用户主路径只有 `hm-distill` 的 Slash / 自然语言 + MCP + Skill；没有第二套 distill CLI 兜底

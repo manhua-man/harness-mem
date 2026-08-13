@@ -110,6 +110,10 @@ def test_job_claim_checkpoint_and_finalize(tmp_path: Path) -> None:
     )
     assert outcome.completion_disposition == "promoted"
     assert outcome.source_cleanup_status == "retained"
+    store.mark_distill_historical_summary_unavailable(
+        job.id,
+        reason="immutable_note_missing_after_source_pruned",
+    )
     backfilled = store.backfill_distill_session_summary(
         job.id,
         session_summary="The completed session implemented and verified the requested task.",
@@ -117,6 +121,8 @@ def test_job_claim_checkpoint_and_finalize(tmp_path: Path) -> None:
     assert backfilled.semantic_review["session_summary"].startswith(
         "The completed session"
     )
+    assert "historical_summary_status" not in backfilled.semantic_review
+    assert "historical_summary_reason" not in backfilled.semantic_review
     store.close()
 
 

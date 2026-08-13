@@ -921,9 +921,46 @@ class SessionDistillStore:
                     raise ValueError("session summary backfill requires a completed job")
                 existing = str(job.semantic_review.get("session_summary") or "").strip()
                 if len(existing) < 12:
+                    review = dict(job.semantic_review)
+                    review.pop("historical_summary_status", None)
+                    review.pop("historical_summary_reason", None)
+                    review["session_summary"] = summary
+                    job.semantic_review = review
+                    job.updated_at = now
+                    self._upsert_job_locked(job)
+                self._conn.commit()
+                return job
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def mark_historical_summary_unavailable(
+        self,
+        job_id: str,
+        *,
+        reason: str,
+    ) -> SessionDistillJob:
+        """Record that a pruned completed job cannot be summarized safely."""
+
+        bounded_reason = str(reason).strip()[:160]
+        if not bounded_reason:
+            raise ValueError("historical summary unavailable reason is required")
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                job = self._get_job_locked(job_id)
+                if job is None:
+                    raise KeyError(job_id)
+                if job.status != "completed":
+                    raise ValueError(
+                        "historical summary status requires a completed job"
+                    )
+                if len(str(job.semantic_review.get("session_summary") or "").strip()) < 12:
                     job.semantic_review = {
                         **dict(job.semantic_review),
-                        "session_summary": summary,
+                        "historical_summary_status": "unavailable",
+                        "historical_summary_reason": bounded_reason,
                     }
                     job.updated_at = now
                     self._upsert_job_locked(job)

@@ -22,15 +22,12 @@ Treat the project as real production context:
 - Confirmed truth can be maintained automatically, but it must not be silently overwritten; durable changes go through candidate / review / supersede / ledger.
 - Cross-project skills can be read as procedural memory hints, but lifecycle management is outside the public memory MCP surface.
 - Keep the default surface to Daily commands: wake, search, distill, review, and dream. Artifact maintenance commands are opt-in.
-- Keep native transcript sources by default. Delete them only when the persistent
-  `distill.delete_source_after_complete=true` policy explicitly authorizes the
-  receipt-first completed-source cleanup saga, and report the actual cleanup status.
-- When the user explicitly says “开启 harness-mem 整理后删除原会话” (or an
-  equivalent unambiguous request), map it to
-  `harness-mem config set distill.delete_source_after_complete true --scope user --confirm`.
-  The user's request supplies the one-time policy confirmation; never infer it
-  from ordinary distill work. Map the explicit disable request to the same
-  config key with `false` and no `--confirm`.
+- Successful distill attempts receipt-first source cleanup by default. Delete
+  only supported standalone sources that pass quiet/CAS/hash checks, preserve
+  shared or unsafe containers, and report the actual cleanup status.
+- When the user asks to retain original sessions, map it to
+  `harness-mem config set distill.delete_source_after_complete false --scope project`.
+  Re-enabling an explicitly disabled policy requires `--confirm`.
 
 Resolve MCP calls from the current task's tool inventory by logical tool name.
 Codex behind MCP Router normally exposes `mcp__mcp_router__*`; a direct server

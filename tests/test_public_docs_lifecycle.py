@@ -193,7 +193,6 @@ def test_repo_local_duplicate_distill_runtime_is_removed() -> None:
 def test_hm_distill_keeps_one_public_flow_with_optional_internal_helpers() -> None:
     skill = Path("tools/hm-distill/SKILL.md").read_text(encoding="utf-8").lower()
     retired_terms = (
-        "packet",
         "draft claim",
         "smart-search",
         "trellis",
@@ -209,6 +208,7 @@ def test_hm_distill_keeps_one_public_flow_with_optional_internal_helpers() -> No
     assert "conditional collaborator routing" in skill
     assert "do not wait for the user to invoke them" in skill
     assert "do not load all three pre-emptively" in skill
+    assert "formal `answer_packet`" in skill
     assert not any(term in skill for term in retired_terms)
     for name in optional_skill_dirs:
         helper = Path("plugins/harness-mem/skills") / name / "SKILL.md"

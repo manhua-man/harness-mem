@@ -140,11 +140,20 @@ Use `$hm-review` later for audit, correction, undo, replacement, or explicit tru
 
 ## User-visible result
 
-Return a short result that includes:
+Return the formal `answer_packet` derived by finalize. The runtime owns
+`answer_status`; never copy an Agent-authored status from semantic review or
+invent `ANSWERED`. Show every field needed to understand verification and
+promotion without exposing internal IDs:
 
 ```text
 会话：<session_summary>
-整理：<形成长期记忆 / 无需长期记忆>
+验证状态：<answer_status>
+验证问题：<question>
+核心结论：<core_conclusion>
+证据基础：<evidence_basis>
+验证时间：<verified_at>
+知识库晋升：<promotion_status> → <destination_project>
+知识类型/分类：<knowledge_kind> / <knowledge_category>
 未完成：<无 / concise unfinished work>
 原文：<retained / deleted / partial failure / unsupported>
 Note：<path>
@@ -152,11 +161,18 @@ Note：<path>
 
 `Note` is the immutable path returned as `note.path`. `note.latest_path` is the stable user shortcut for the newest completed revision of that session; it is not used as the audit receipt.
 
-When durable memories were formed, add one bullet per memory in this shape:
+When durable memories were formed, render each `promoted_items` entry as one
+verifiable fact in this shape:
 
 ```text
-- **<title>**: <one precise, verifiable fact> (<verified date; repository verified / user confirmed>).
+- **<title>**: <fact> (<kind> / <category>; <verified_at>; <evidence_basis>).
 ```
+
+For `PARTIAL`, `UNANSWERED`, `CONTRADICTED`, `STALE`, or `NOT_APPLICABLE`,
+still show the packet and explicitly say `知识库晋升：无` when
+`promoted_items` is empty. Never imply promotion from semantic review alone.
+Finalize persists the packet in the existing job completion receipt;
+the Session Note is its readable projection, not another truth store.
 
 Do not append session, job, candidate, memory, evidence, or source IDs to those
 bullets or to the default readable Note. IDs, token counts, policy reasons, and
