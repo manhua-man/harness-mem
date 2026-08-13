@@ -14,6 +14,16 @@ from harness_mem.core.schemas.session_distill import SessionDistillJob
 
 
 _COMPLETED_MARKER = re.compile(r"completed=([^ ]+)")
+UNRECOVERABLE_SESSION_SUMMARY = (
+    "The session topic could not be recovered from the available evidence."
+)
+
+
+def is_meaningful_session_summary(value: Any) -> bool:
+    """Reject empty, underspecified, and renderer-generated summary placeholders."""
+
+    summary = " ".join(str(value or "").split())
+    return len(summary) >= 12 and summary != UNRECOVERABLE_SESSION_SUMMARY
 
 
 def session_note_path(notes_dir: Path, job: SessionDistillJob) -> Path:
@@ -109,7 +119,7 @@ def render_session_note(job: SessionDistillJob) -> str:
         "",
         "## 会话主题",
         "",
-        summary or "The session topic could not be recovered from the available evidence.",
+        summary or UNRECOVERABLE_SESSION_SUMMARY,
         "",
         "## 最终结果",
         "",

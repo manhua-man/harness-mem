@@ -24,7 +24,11 @@ from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas.session_distill import SessionDistillJob
 from harness_mem.hook_receipts import hook_configuration_fingerprint
-from harness_mem.session_notes import materialize_session_note, session_note_path
+from harness_mem.session_notes import (
+    existing_session_note_path,
+    is_meaningful_session_summary,
+    materialize_session_note,
+)
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -1156,16 +1160,31 @@ def _repair_missing_notes(
         limit=200,
     )
     for job in completed:
-        path = session_note_path(notes_dir, job)
+        path, _recovered_session_id = existing_session_note_path(notes_dir, job)
         summary = str(job.semantic_review.get("session_summary") or "").strip()
-        if len(summary) < 12 and path.is_file():
+        if not is_meaningful_session_summary(summary) and path is not None and path.is_file():
             recovered = _summary_from_note(path)
             if recovered:
                 job = backend.transcript_store.backfill_distill_session_summary(
                     job.id,
                     session_summary=recovered,
                 )
-        if path.is_file() or not job.semantic_review:
+        if (
+            not is_meaningful_session_summary(
+                job.semantic_review.get("session_summary")
+            )
+            and path is None
+            and job.semantic_review.get("evidence_state") == "source_pruned"
+        ):
+            job = backend.transcript_store.mark_distill_historical_summary_unavailable(
+                job.id,
+                reason="immutable_note_missing_after_source_pruned",
+            )
+        if (path is not None and path.is_file()) or not job.semantic_review:
+            continue
+        if not str(job.session_id).strip():
+            # The cleanup ledger no longer has enough identity to create a new
+            # immutable path; report the gap instead of inventing one.
             continue
         note = _materialize_note(job, notes_dir=notes_dir)
         _write_receipt(

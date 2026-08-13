@@ -109,6 +109,32 @@ def test_distill_note_probe_requires_real_meaningful_note(tmp_path: Path) -> Non
     assert result["semantic_summary_coverage_complete"] is True
 
 
+def test_distill_note_probe_rejects_long_renderer_placeholder(tmp_path: Path) -> None:
+    now = datetime.now(timezone.utc)
+    job = _job(
+        session_id="placeholder-session",
+        completed_at=now,
+        summary="The session topic could not be recovered from the available evidence.",
+    )
+    path = tmp_path / "revisions" / job.id / "placeholder-session.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "# placeholder-session\n\n## 会话主题\nRecovered topic.\n\n"
+        "## 最终结果\n" + "Useful outcome.\n" * 30,
+        encoding="utf-8",
+    )
+
+    result = inspect_distill_notes(
+        [job],
+        notes_dir=tmp_path,
+        since=now - timedelta(days=1),
+    )
+
+    assert result["semantic_summaries_meaningful"] == 0
+    assert result["semantic_summary_coverage_complete"] is False
+    assert result["notes"][0]["semantic_summary_present"] is False
+
+
 def test_distill_note_probe_prefers_latest_job_bound_revision_note(
     tmp_path: Path,
 ) -> None:

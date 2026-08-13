@@ -26,7 +26,10 @@ from harness_mem.autonomous.worker import (
     read_autonomous_receipt,
 )
 from harness_mem.config.merge import load_merged_config
-from harness_mem.session_notes import session_note_path
+from harness_mem.session_notes import (
+    existing_session_note_path,
+    is_meaningful_session_summary,
+)
 
 
 DEFAULT_RECENT_DAYS = 7
@@ -142,23 +145,35 @@ def inspect_distill_notes(
     ]
     latest_by_session: dict[str, Any] = {}
     for job in recent_jobs:
-        current = latest_by_session.get(job.session_id)
+        note_path, recovered_session_id = existing_session_note_path(notes_dir, job)
+        session_key = str(job.session_id or recovered_session_id or f"job:{job.id}")
+        current = latest_by_session.get(session_key)
         if current is None or (_parse_datetime(job.completed_at) or since) > (
             _parse_datetime(current.completed_at) or since
         ):
-            latest_by_session[job.session_id] = job
+            latest_by_session[session_key] = job
 
     note_records: list[dict[str, Any]] = []
     summaries_meaningful = 0
+    summaries_unavailable = 0
+    notes_unavailable = 0
     for session_id, job in sorted(latest_by_session.items()):
-        immutable_path = session_note_path(notes_dir, job)
-        legacy_path = notes_dir / f"{session_id}.md"
-        path = immutable_path if immutable_path.is_file() else legacy_path
+        immutable_path, recovered_session_id = existing_session_note_path(notes_dir, job)
+        resolved_session_id = str(job.session_id or recovered_session_id or "")
+        legacy_path = notes_dir / f"{resolved_session_id}.md"
+        path = immutable_path or legacy_path
         try:
             content = path.read_text(encoding="utf-8")
         except OSError:
             content = ""
         summary = str((job.semantic_review or {}).get("session_summary") or "").strip()
+        summary_meaningful = is_meaningful_session_summary(summary)
+        summary_unavailable = bool(
+            not summary_meaningful
+            and (job.semantic_review or {}).get("historical_summary_status")
+            == "unavailable"
+            and (job.semantic_review or {}).get("historical_summary_reason")
+        )
         lowered = content.lower()
         topic_present = any(
             marker in lowered for marker in ("会话主题", "## scope", "# session ")
@@ -175,23 +190,43 @@ def inspect_distill_notes(
         meaningful = (
             path.is_file()
             and len(content.strip()) >= MIN_NOTE_CHARS
-            and session_id in content
+            and bool(resolved_session_id)
+            and resolved_session_id in content
             and topic_present
             and outcome_present
         )
-        summaries_meaningful += int(len(summary) >= 12)
+        note_unavailable = bool(
+            not meaningful
+            and not resolved_session_id
+            and (job.semantic_review or {}).get("evidence_state") == "source_pruned"
+        )
+        summaries_meaningful += int(summary_meaningful)
+        summaries_unavailable += int(summary_unavailable)
+        notes_unavailable += int(note_unavailable)
         note_records.append(
             {
-                "session_id": session_id,
+                "session_id": resolved_session_id,
                 "job_id": job.id,
                 "completed_at": _iso(_parse_datetime(job.completed_at)),
                 "path": str(path),
                 "exists": path.is_file(),
                 "chars": len(content),
                 "meaningful": meaningful,
+                "note_unavailable": note_unavailable,
+                "note_unavailable_reason": (
+                    "session_identity_and_immutable_note_missing_after_source_pruned"
+                    if note_unavailable
+                    else None
+                ),
                 "topic_present": topic_present,
                 "outcome_present": outcome_present,
-                "semantic_summary_present": len(summary) >= 12,
+                "semantic_summary_present": summary_meaningful,
+                "semantic_summary_unavailable": summary_unavailable,
+                "semantic_summary_unavailable_reason": (
+                    (job.semantic_review or {}).get("historical_summary_reason")
+                    if summary_unavailable
+                    else None
+                ),
             }
         )
     expected = len(note_records)
@@ -202,11 +237,16 @@ def inspect_distill_notes(
         "unique_completed_sessions": expected,
         "notes_expected": expected,
         "notes_meaningful": meaningful_count,
+        "notes_unavailable": notes_unavailable,
+        "note_audit_covered": meaningful_count + notes_unavailable,
         "note_coverage": meaningful_count / expected if expected else 0.0,
-        "note_coverage_complete": expected > 0 and meaningful_count == expected,
+        "note_coverage_complete": expected > 0
+        and meaningful_count + notes_unavailable == expected,
         "semantic_summaries_meaningful": summaries_meaningful,
+        "semantic_summaries_unavailable": summaries_unavailable,
+        "semantic_summary_audit_covered": summaries_meaningful + summaries_unavailable,
         "semantic_summary_coverage_complete": expected > 0
-        and summaries_meaningful == expected,
+        and summaries_meaningful + summaries_unavailable == expected,
         "notes": note_records,
     }
 

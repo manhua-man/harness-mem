@@ -678,6 +678,17 @@ class TranscriptStore:
             session_summary=session_summary,
         )
 
+    def mark_distill_historical_summary_unavailable(
+        self,
+        job_id: str,
+        *,
+        reason: str,
+    ) -> SessionDistillJob:
+        return self._distill.mark_historical_summary_unavailable(
+            job_id,
+            reason=reason,
+        )
+
     def rebalance_distill_jobs(
         self,
         project_name: str,
@@ -968,7 +979,7 @@ class TranscriptStore:
                     review = dict(source_job.semantic_review)
                     source_job.project_root = ""
                     source_job.session_id = ""
-                    source_job.semantic_review = {
+                    sanitized_review: dict[str, Any] = {
                         "last_turn_status": review.get("last_turn_status", "unknown"),
                         "evidence_status": review.get(
                             "evidence_status", "not_applicable"
@@ -982,6 +993,22 @@ class TranscriptStore:
                         ),
                         "evidence_state": "source_pruned",
                     }
+                    # The compact session summary is the durable audit artifact,
+                    # not raw transcript evidence. Keep it when present so a
+                    # newly completed cleanup does not create a coverage gap
+                    # that only a later maintenance wake can repair from Note.
+                    summary = str(review.get("session_summary") or "").strip()
+                    if len(summary) >= 12:
+                        sanitized_review["session_summary"] = summary[:2000]
+                    elif (
+                        review.get("historical_summary_status") == "unavailable"
+                        and review.get("historical_summary_reason")
+                    ):
+                        sanitized_review["historical_summary_status"] = "unavailable"
+                        sanitized_review["historical_summary_reason"] = str(
+                            review["historical_summary_reason"]
+                        )[:160]
+                    source_job.semantic_review = sanitized_review
                     source_job.source_cleanup_status = "deleted"
                     source_job.source_cleanup_receipt_id = receipt_id
                     source_job.updated_at = datetime.now(timezone.utc)

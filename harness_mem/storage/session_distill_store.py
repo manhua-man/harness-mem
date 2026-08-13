@@ -18,6 +18,7 @@ from harness_mem.core.schemas.session_distill import (
     SourceCleanupStatus,
 )
 from harness_mem.core.schemas.transcript import TranscriptChunk, TranscriptSource
+from harness_mem.session_notes import is_meaningful_session_summary
 from harness_mem.transcript_chunking import sha256_text
 
 
@@ -920,7 +921,7 @@ class SessionDistillStore:
                 if job.status != "completed":
                     raise ValueError("session summary backfill requires a completed job")
                 existing = str(job.semantic_review.get("session_summary") or "").strip()
-                if len(existing) < 12:
+                if not is_meaningful_session_summary(existing):
                     review = dict(job.semantic_review)
                     review.pop("historical_summary_status", None)
                     review.pop("historical_summary_reason", None)
@@ -956,7 +957,9 @@ class SessionDistillStore:
                     raise ValueError(
                         "historical summary status requires a completed job"
                     )
-                if len(str(job.semantic_review.get("session_summary") or "").strip()) < 12:
+                if not is_meaningful_session_summary(
+                    job.semantic_review.get("session_summary")
+                ):
                     job.semantic_review = {
                         **dict(job.semantic_review),
                         "historical_summary_status": "unavailable",

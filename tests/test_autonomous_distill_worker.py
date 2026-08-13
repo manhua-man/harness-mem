@@ -794,3 +794,154 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     assert incomplete["provider_metrics_bound"] is False
     assert incomplete["lifecycle_verified"] is False
     asyncio.run(backend.close())
+
+
+def test_missing_summary_repair_uses_job_bound_note_after_identity_pruning(
+    tmp_path: Path,
+) -> None:
+    from harness_mem.autonomous.worker import _repair_missing_notes
+    from harness_mem.session_notes import materialize_session_note
+
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    notes_dir = tmp_path / "notes"
+    snapshot = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id="pruned-session",
+                client="codex",
+                raw_content="User: Preserve the historical topic.\nAssistant: Preserved.\n",
+                content_type="transcript",
+            ),
+            project_name="demo",
+            project_root=str(tmp_path / "project"),
+            client="codex",
+            session_id="pruned-session",
+            source_kind="jsonl",
+            source_uri="file:///pruned-session.jsonl",
+            source_text="User: Preserve the historical topic.\nAssistant: Preserved.\n",
+        )
+    )
+    assert snapshot.distill_job_id is not None
+    queued = backend.transcript_store.get_distill_job(snapshot.distill_job_id)
+    assert queued is not None
+    original = queued.model_copy(
+        update={
+            "status": "completed",
+            "phase": "done",
+            "semantic_review": {
+                "session_summary": (
+                    "The immutable Note preserves the historical session topic."
+                ),
+                "final_user_request": "Preserve the historical topic.",
+                "final_outcome": "The topic was preserved.",
+                "last_turn_status": "answered",
+                "contradictions": [],
+                "unfinished_work": [],
+                "evidence_status": "answered",
+                "promotion_decision": "no_promotion",
+            },
+            "completed_at": datetime.now(timezone.utc),
+        }
+    )
+    backend.transcript_store._distill._upsert_job_locked(original)
+    backend.transcript_store._conn.commit()
+    materialize_session_note(original, notes_dir=notes_dir)
+    pruned = original.model_copy(
+        update={
+            "project_root": "",
+            "session_id": "",
+            "semantic_review": {
+                "session_summary": (
+                    "The session topic could not be recovered from the available evidence."
+                ),
+                "last_turn_status": "answered",
+                "evidence_status": "answered",
+                "promotion_decision": "no_promotion",
+                "evidence_state": "source_pruned",
+            },
+        }
+    )
+    backend.transcript_store._distill._upsert_job_locked(pruned)
+    backend.transcript_store._conn.commit()
+
+    _repair_missing_notes(
+        backend,
+        project_name="demo",
+        project_root=tmp_path / "project",
+        notes_dir=notes_dir,
+    )
+
+    repaired = backend.transcript_store.get_distill_job(original.id)
+    assert repaired is not None
+    assert repaired.semantic_review["session_summary"] == (
+        "The immutable Note preserves the historical session topic."
+    )
+    asyncio.run(backend.close())
+
+
+def test_missing_summary_repair_marks_pruned_job_without_note_unavailable(
+    tmp_path: Path,
+) -> None:
+    from harness_mem.autonomous.worker import _repair_missing_notes
+
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    snapshot = asyncio.run(
+        persist_session_snapshot(
+            backend,
+            Observation(
+                session_id="missing-note-session",
+                client="codex",
+                raw_content="User: transient task\nAssistant: done\n",
+                content_type="transcript",
+            ),
+            project_name="demo",
+            project_root=str(tmp_path / "project"),
+            client="codex",
+            session_id="missing-note-session",
+            source_kind="jsonl",
+            source_uri="file:///missing-note-session.jsonl",
+            source_text="User: transient task\nAssistant: done\n",
+        )
+    )
+    assert snapshot.distill_job_id is not None
+    queued = backend.transcript_store.get_distill_job(snapshot.distill_job_id)
+    assert queued is not None
+    pruned = queued.model_copy(
+        update={
+            "status": "completed",
+            "phase": "done",
+            "project_root": "",
+            "session_id": "",
+            "semantic_review": {
+                "session_summary": (
+                    "The session topic could not be recovered from the available evidence."
+                ),
+                "last_turn_status": "answered",
+                "evidence_status": "not_applicable",
+                "promotion_decision": "no_promotion",
+                "evidence_state": "source_pruned",
+            },
+            "completed_at": datetime.now(timezone.utc),
+        }
+    )
+    backend.transcript_store._distill._upsert_job_locked(pruned)
+    backend.transcript_store._conn.commit()
+
+    _repair_missing_notes(
+        backend,
+        project_name="demo",
+        project_root=tmp_path / "project",
+        notes_dir=tmp_path / "notes",
+    )
+
+    repaired = backend.transcript_store.get_distill_job(pruned.id)
+    assert repaired is not None
+    assert repaired.semantic_review["historical_summary_status"] == "unavailable"
+    assert repaired.semantic_review["historical_summary_reason"] == (
+        "immutable_note_missing_after_source_pruned"
+    )
+    assert not (tmp_path / "notes" / ".md").exists()
+    asyncio.run(backend.close())
