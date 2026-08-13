@@ -406,6 +406,37 @@ def test_config_set_dispatches_persistent_policy_confirmation(
     ]
 
 
+def test_config_list_dispatches_runtime_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str | None, str | None]] = []
+
+    def fake_config_list(
+        project_root: str | None,
+        *,
+        detail: str | None = None,
+    ) -> int:
+        calls.append((project_root, detail))
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_config_list", fake_config_list)
+
+    assert (
+        cli.main(
+            [
+                "config",
+                "list",
+                "--project-root",
+                "demo",
+                "--detail",
+                "runtime",
+            ]
+        )
+        == 0
+    )
+    assert calls == [("demo", "runtime")]
+
+
 def test_import_dry_run_previews_without_opening_backend(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -106,7 +106,7 @@ because it sends the compact manifest to the configured model provider and may
 consume quota:
 
 ```bash
-harness-mem config set distill.autonomous.enabled true --scope user --confirm
+harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
 Future Stop turns do not ask again. Set the same key to `false` at user or
@@ -240,21 +240,19 @@ contradicted evidence is terminally blocked from durable truth. Candidate
 detail and full/compact status expose content-free admission outcomes for
 audit without adding another MCP tool or manual daily gate.
 
-Raw source cleanup is a persistent opt-in, similar to the Dream setting, and
-defaults to keeping source evidence:
+Successful distill attempts safe source cleanup by default. Only a standalone,
+quiet source that passes adapter and CAS/hash checks is deleted; unsupported
+shared containers remain untouched. Disable it per project when source evidence
+must be retained:
 
 ```bash
 harness-mem config get distill.delete_source_after_complete
-harness-mem config set distill.delete_source_after_complete true --scope user --confirm
 harness-mem config set distill.delete_source_after_complete false --scope project
 ```
 
-`--confirm` is required only when a scope changes from disabled or unset to
-enabled. It confirms the persistent policy once; finalize never asks again for
-each completed session. In an IDE, say “开启 harness-mem 整理后删除原会话” or
-“关闭 harness-mem 整理后删除原会话”; an Agent may translate the explicit enable
-request to the confirmed user-scope config write without adding an MCP tool or
-another Daily command.
+Re-enabling a policy explicitly set to false requires `--confirm`. Finalize
+never asks per session. An unreadable config or unresolved project fails safe
+to source retention.
 
 When enabled, finalize (and a bounded post-turn retry after an active source
 becomes quiet) deletes the eligible native session source plus harness-mem raw
@@ -264,6 +262,36 @@ evidence-only records. Promoted Memory/Rule/Fact/Skill truth stays readable with
 `deleted`, `partial_failure`, or `unsupported`. A content-free `in_progress`
 receipt is durable before native mutation. Shared containers without a safe
 per-session transaction remain untouched and report `unsupported`.
+
+## Archived Codex Tasks
+
+Use the explicit operator command to preview or process archived tasks through
+the same canonical distill worker:
+
+```bash
+harness-mem maintenance archive-distill --dry-run --project-root .
+harness-mem maintenance archive-distill --apply --verify --json --project-root .
+```
+
+The control project owns the `[archive_distill]` policy: `enabled`,
+`batch_size`, `daily_limit`, `order`, `project_scope`, `unresolved_project`,
+`allowed_project_roots`, `warn_tokens`, `warn_seconds`,
+`require_answer_packet`, and `report_promotions`. Each detected destination
+project must separately set `[distill.autonomous].enabled=true`. A completed
+row contains a formal Answer Packet and lists each promoted fact with its
+destination project and category. Dry-run is read-only and does not consume the
+daily ledger.
+
+`--verify` performs one run-bound read-back with the already initialized
+backend. It verifies the persisted job and Answer Packet, Note binding, ledger
+replay exclusion, promoted truth through its normal store path, and the
+source-cleanup receipt. Zero-promotion runs report retrieval as
+`not_applicable`; exact-output smoke sessions use a deterministic zero-token
+decision while retaining the canonical finalize and cleanup path.
+
+Normal `config list` shows only writable policy. Use
+`harness-mem config list --detail runtime` to inspect effective read-only wake,
+distill-budget, and Dream timing values with their source labels.
 
 During an Agent run, supported clients should send context/tool/save-point
 events to `autopilot_search_tick`. The scheduler calls `search_memory` only

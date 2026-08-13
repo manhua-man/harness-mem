@@ -198,6 +198,30 @@ def main(argv: list[str] | None = None):
     _add_project_arg(migrate_legacy_accepted)
     _add_dry_apply_group(migrate_legacy_accepted)
 
+    archive_distill = maintenance_sub.add_parser(
+        "archive-distill",
+        help="Inventory or process Codex archived sessions by detected project",
+    )
+    archive_distill.add_argument(
+        "--project-root",
+        help="Control project whose archive_distill policy is used (default: cwd)",
+    )
+    archive_distill.add_argument(
+        "--archive-dir",
+        help="Override the Codex archived_sessions directory",
+    )
+    archive_distill.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the full structured inventory or batch report",
+    )
+    archive_distill.add_argument(
+        "--verify",
+        action="store_true",
+        help="Read back jobs, Notes, ledger, cleanup, and promoted truth in one run",
+    )
+    _add_dry_apply_group(archive_distill)
+
     import_cmd = maintenance_sub.add_parser(
         "import",
         help="Preview or import memory drafts into the candidate layer",
@@ -278,6 +302,11 @@ def main(argv: list[str] | None = None):
         "list", help="Print public policy keys with merged source labels"
     )
     config_list.add_argument("--project-root", help="Project directory (default: cwd)")
+    config_list.add_argument(
+        "--detail",
+        choices=["runtime"],
+        help="Include read-only effective runtime tuning and source labels",
+    )
 
     config_validate = config_sub.add_parser(
         "validate", help="Validate that the resolved Config_File set parses and merges"
@@ -437,6 +466,29 @@ def main(argv: list[str] | None = None):
                     apply=not args.dry_run,
                 )
             )
+        if args.maintenance_action == "archive-distill":
+            from pathlib import Path
+
+            from harness_mem.commands.archive_distill import (
+                print_archive_distill_result,
+                run_archive_distill_batch,
+            )
+
+            control_root = Path(args.project_root or Path.cwd()).expanduser().resolve()
+            result = asyncio.run(
+                run_archive_distill_batch(
+                    control_root=control_root,
+                    apply=not args.dry_run,
+                    archive_dir=(
+                        Path(args.archive_dir).expanduser()
+                        if args.archive_dir
+                        else None
+                    ),
+                    verify=args.verify,
+                )
+            )
+            print_archive_distill_result(result, as_json=args.json)
+            return 0 if result.get("success") else 1
         if args.maintenance_action == "import":
             return asyncio.run(
                 cmd_import(args.source, args.project, dry_run=args.dry_run)
@@ -481,7 +533,7 @@ def main(argv: list[str] | None = None):
                 confirm=args.confirm,
             )
         if args.config_action == "list":
-            return cmd_config_list(args.project_root)
+            return cmd_config_list(args.project_root, detail=args.detail)
         if args.config_action == "validate":
             return cmd_config_validate(args.project_root)
         config.error(f"Unknown config action: {args.config_action}")

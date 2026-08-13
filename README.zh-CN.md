@@ -60,13 +60,13 @@ Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 显式 `raw` 审计中的每个 raw chunk 都保留完整内容，不截断内容。
 
 后台语义处理会把 compact manifest 发送给当前配置的模型 provider，并可能消耗
-quota，因此需要一次持久授权：
+quota，因此必须由需要自动处理的项目单独授权：
 
 ```bash
-harness-mem config set distill.autonomous.enabled true --scope user --confirm
+harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
-之后每个 Stop 不再重复确认；把该值设为 `false` 即恢复仅排队模式。
+全局默认是 `false`；授权后该项目的 Stop 不再重复确认，未授权项目保持仅排队模式。
 
 新候选带 evidence basis 和 verification outcome。仓库事实必须引用
 当前项目相对文件及其 SHA-256；用户偏好或决定引用 user role 的 exchange
@@ -84,7 +84,18 @@ distill 仍保持 compact。
 
 Observation 只是证据，不是被记住的事实。wake 的近期索引会明确标成“非事实证据”；L1/L2 只展示结构化当前事实和仍有效的 handoff。被当前仓库版本推翻的旧发布/版本说法会标记冲突，或从 truth/active 层移除。
 
-隐私策略在落盘前执行：可用 `<private>...</private>` 包裹敏感片段，也可在项目 `.harness-mem.toml` 的 `[capture]` 中配置忽略 client、session 和 source glob；被排除内容不会进入 raw revision、chunk、Observation 或索引。`[transcript].retention_days` 控制自动保留期（`0` 表示永久保留）。整理完成后的原文清理是另一个持久开关，默认关闭；用 `harness-mem config set distill.delete_source_after_complete true --scope user --confirm` 开启，项目配置可覆盖。`--confirm` 只在持久策略从关闭变为开启时要求；关闭策略以及后续每个会话的自动清理不再逐个确认。IDE 中用户明确说“开启 harness-mem 整理后删除原会话”，即可授权 Agent 执行这次带确认的配置写入。开启后会删除满足静默/CAS 校验的宿主会话源、local raw bytes、chunks、checkpoint result、Observation 和派生索引，同时保留并脱敏长期 Memory/Rule/Fact/Skill；每次结果明确为 `retained`、`deleted`、`partial_failure` 或 `unsupported`，且宿主删除前先写无内容 receipt。无法安全按会话事务删除的共享 SQLite/JSONL 会保持不动并报告 unsupported，绝不会删除整个共享历史文件。`harness-mem maintenance erase --project NAME --session-id ID` 默认预览，增加 `--apply` 后会删除可安全 CAS 的宿主原会话、raw revision、chunk、distill job、Observation、关联候选/事实以及 FTS/vector 索引。apply 会先持久化不含内容和原始标识的 receipt；共享或不安全的宿主容器保持不动并返回 partial failure，receipt 写入失败时不会开始删除。
+隐私策略在落盘前执行：可用 `<private>...</private>` 包裹敏感片段，也可在项目 `.harness-mem.toml` 的 `[capture]` 中配置忽略 client、session 和 source glob；被排除内容不会进入 raw revision、chunk、Observation 或索引。`[transcript].retention_days` 控制自动保留期（`0` 表示永久保留）。成功蒸馏后默认尝试安全删除原始来源；只有适配器支持会话级删除且静默/CAS/hash 校验全部通过时才会删除。共享或不安全容器保持不动并报告 `unsupported`，配置不可读或项目无法解析时也会 fail-safe 保留。需要保留原文时可执行 `harness-mem config set distill.delete_source_after_complete false --scope project`；重新启用被显式关闭的策略需要 `--confirm`。长期 Memory/Rule/Fact/Skill 会保留并脱敏，每次结果明确为 `retained`、`deleted`、`partial_failure` 或 `unsupported`。`harness-mem maintenance erase --project NAME --session-id ID` 仍是显式完整擦除入口，默认预览，增加 `--apply` 后才执行。
+
+Codex 归档任务先只读盘点，再按公开策略处理一批：
+
+```bash
+harness-mem maintenance archive-distill --dry-run --project-root .
+harness-mem maintenance archive-distill --apply --verify --json --project-root .
+```
+
+`[archive_distill]` 配置批大小、每日上限、顺序、允许项目、无法归属的处理方式、token/耗时警戒线、Answer Packet 强制要求和逐条晋升报告。正式 Answer Packet 会记录原问题、核心结论、证据、验证时间、晋升状态、目标项目/分类以及每条晋升事实。内部有效预算和 Dream 时间参数可用 `harness-mem config list --detail runtime` 只读查看。
+
+`--verify` 复用同一个已初始化 backend，一次生成带 `run_id` 的持久化回执，覆盖 job/Answer Packet、Note、daily ledger 防重放、晋升知识检索和源清理审计。精确回显型 smoke 会话由确定性规则判定为无长期知识，不调用模型。
 
 旧 entity JSON reader 从 0.9.6 起弃用，但完整支持整个 0.9.x；最早删除门槛同时为 1.0.0 和 2027-01-31，以更晚者为准。旧数据只读启动不会静默切换存储权威，详见 [legacy storage lifecycle](docs/storage-legacy-lifecycle.md)。
 

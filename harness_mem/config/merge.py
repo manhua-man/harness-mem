@@ -45,7 +45,6 @@ class MergedConfig:
     everything else is preserved (nested-table shape intact) in ``extras``.
     """
 
-    autopilot_enabled: bool = True
     capture_enabled: bool = True
     capture_private_tags: bool = True
     capture_ignore_clients: tuple[str, ...] = ()
@@ -58,7 +57,18 @@ class MergedConfig:
     distill_auto_target_backlog: int = 2
     distill_auto_recent_first: bool = True
     distill_auto_daily_job_budget: int = 8
-    distill_delete_source_after_complete: bool = False
+    distill_delete_source_after_complete: bool = True
+    archive_distill_enabled: bool = False
+    archive_distill_batch_size: int = 3
+    archive_distill_daily_limit: int = 20
+    archive_distill_order: Literal["recent_first", "oldest_first"] = "recent_first"
+    archive_distill_project_scope: Literal["detected", "current", "all"] = "detected"
+    archive_distill_unresolved_project: Literal["defer", "skip", "error"] = "defer"
+    archive_distill_allowed_project_roots: tuple[str, ...] = ()
+    archive_distill_warn_tokens: int = 15000
+    archive_distill_warn_seconds: int = 40
+    archive_distill_require_answer_packet: bool = True
+    archive_distill_report_promotions: bool = True
     dream_auto_enabled: bool = True
     dream_auto_trigger: Literal["idle_or_interval", "interval", "idle"] = (
         "idle_or_interval"
@@ -109,14 +119,11 @@ class MergedConfig:
 # Legacy trigger keys removed from the supported runtime config.
 _RECOGNIZED_KEYS: tuple[tuple[str, str, tuple[str, ...], str], ...] = ()
 _REMOVED_CONFIG_KEYS: tuple[str, ...] = (
+    "autopilot.enabled",
     "triggers.after_agent",
     "triggers.scheduler",
     "distill.mode",
     "worker.mode",
-)
-
-_AUTOPILOT_KEYS: tuple[tuple[str, str, str, Any], ...] = (
-    ("autopilot.enabled", "autopilot_enabled", "bool", True),
 )
 
 _CAPTURE_KEYS: tuple[tuple[str, str, str, Any], ...] = (
@@ -159,7 +166,71 @@ _DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
         "distill.delete_source_after_complete",
         "distill_delete_source_after_complete",
         "bool",
-        False,
+        True,
+    ),
+)
+
+_ARCHIVE_DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
+    ("archive_distill.enabled", "archive_distill_enabled", "bool", False),
+    (
+        "archive_distill.batch_size",
+        "archive_distill_batch_size",
+        "int:min=1:max=100",
+        3,
+    ),
+    (
+        "archive_distill.daily_limit",
+        "archive_distill_daily_limit",
+        "int:min=1:max=10000",
+        20,
+    ),
+    (
+        "archive_distill.order",
+        "archive_distill_order",
+        "enum:recent_first,oldest_first",
+        "recent_first",
+    ),
+    (
+        "archive_distill.project_scope",
+        "archive_distill_project_scope",
+        "enum:detected,current,all",
+        "detected",
+    ),
+    (
+        "archive_distill.unresolved_project",
+        "archive_distill_unresolved_project",
+        "enum:defer,skip,error",
+        "defer",
+    ),
+    (
+        "archive_distill.allowed_project_roots",
+        "archive_distill_allowed_project_roots",
+        "str_list",
+        (),
+    ),
+    (
+        "archive_distill.warn_tokens",
+        "archive_distill_warn_tokens",
+        "int:min=1",
+        15000,
+    ),
+    (
+        "archive_distill.warn_seconds",
+        "archive_distill_warn_seconds",
+        "int:min=1",
+        40,
+    ),
+    (
+        "archive_distill.require_answer_packet",
+        "archive_distill_require_answer_packet",
+        "bool",
+        True,
+    ),
+    (
+        "archive_distill.report_promotions",
+        "archive_distill_report_promotions",
+        "bool",
+        True,
     ),
 )
 
@@ -222,9 +293,9 @@ _COST_BUDGET_KEYS: tuple[tuple[str, str, str, Any], ...] = (
 )
 
 _TYPED_CONFIG_KEYS: tuple[tuple[str, str, str, Any], ...] = (
-    *_AUTOPILOT_KEYS,
     *_CAPTURE_KEYS,
     *_DISTILL_KEYS,
+    *_ARCHIVE_DISTILL_KEYS,
     *_DREAM_KEYS,
     *_COST_BUDGET_KEYS,
 )
@@ -233,7 +304,6 @@ _TYPED_CONFIG_KEYS: tuple[tuple[str, str, str, Any], ...] = (
 # keys are still read for 0.9.x compatibility, but they are internal runtime
 # tuning rather than user-facing product modes.
 PUBLIC_CONFIG_KEY_PATHS: tuple[str, ...] = (
-    "autopilot.enabled",
     "capture.enabled",
     "capture.private_tags",
     "capture.ignore_clients",
@@ -243,6 +313,17 @@ PUBLIC_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "distill.auto.enabled",
     "distill.autonomous.enabled",
     "distill.delete_source_after_complete",
+    "archive_distill.enabled",
+    "archive_distill.batch_size",
+    "archive_distill.daily_limit",
+    "archive_distill.order",
+    "archive_distill.project_scope",
+    "archive_distill.unresolved_project",
+    "archive_distill.allowed_project_roots",
+    "archive_distill.warn_tokens",
+    "archive_distill.warn_seconds",
+    "archive_distill.require_answer_packet",
+    "archive_distill.report_promotions",
     "dream.auto.enabled",
 )
 _PUBLIC_CONFIG_KEY_SET = frozenset(PUBLIC_CONFIG_KEY_PATHS)
@@ -459,36 +540,6 @@ def _coerce_key_group(
     return values
 
 
-def _reject_unknown_autopilot_keys(
-    *,
-    merged: dict[str, Any],
-    project_dict: dict[str, Any],
-    user_dict: dict[str, Any],
-    project_path: Path,
-    user_path: Path,
-) -> None:
-    autopilot = merged.get("autopilot")
-    if not isinstance(autopilot, dict):
-        return
-    allowed = {key_path.split(".", 1)[1] for key_path, *_rest in _AUTOPILOT_KEYS}
-    for key in autopilot:
-        if key in allowed:
-            continue
-        key_path = f"autopilot.{key}"
-        source_path = _source_for_key(
-            key_path,
-            project_dict=project_dict,
-            user_dict=user_dict,
-            project_path=project_path,
-            user_path=user_path,
-        )
-        raise ConfigValidationError(
-            key_path=key_path,
-            value=autopilot[key],
-            source_path=source_path,
-        )
-
-
 def _user_config_path() -> Path:
     """Resolve the user-level config path (``~/.harness-mem/config.toml``).
 
@@ -569,6 +620,11 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
     project_path = Path(project_root) / ".harness-mem.toml"
     project_dict = _load_toml_file(project_path)
 
+    # Model-use authorization is intentionally project-scoped. Ignore legacy
+    # user-level values so installing hooks in another project cannot inherit
+    # background provider authorization by accident.
+    _remove_dotted(user_dict, "distill.autonomous.enabled")
+
     # ---- 3. deep-merge (project overrides user) (Req 3.3) ---------------
     merged = deep_merge(user_dict, project_dict)
 
@@ -590,13 +646,6 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
     typed_values = _coerce_key_group(
         merged=merged,
         keys=_TYPED_CONFIG_KEYS,
-        project_dict=project_dict,
-        user_dict=user_dict,
-        project_path=project_path,
-        user_path=user_path,
-    )
-    _reject_unknown_autopilot_keys(
-        merged=merged,
         project_dict=project_dict,
         user_dict=user_dict,
         project_path=project_path,

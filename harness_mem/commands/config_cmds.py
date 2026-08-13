@@ -26,6 +26,7 @@ from harness_mem.config.errors import (
 )
 from harness_mem.config.merge import (
     INTERNAL_CONFIG_KEY_PATHS,
+    PUBLIC_CONFIG_KEY_PATHS,
     _PUBLIC_TYPED_CONFIG_KEYS,
     _RECOGNIZED_KEYS,
     _TYPED_CONFIG_KEYS,
@@ -84,7 +85,11 @@ def _allowed_for(key: str) -> tuple[str, ...] | None:
         if kind.startswith("enum:"):
             return tuple(kind.removeprefix("enum:").split(","))
         if kind.startswith("int:min="):
-            return (f"integer >= {kind.removeprefix('int:min=')}",)
+            bounds = kind.removeprefix("int:min=").split(":max=", maxsplit=1)
+            description = f"integer >= {bounds[0]}"
+            if len(bounds) == 2:
+                description += f" and <= {bounds[1]}"
+            return (description,)
         if kind == "str_list":
             return ('TOML string list, e.g. ["codex", "cursor"]',)
     return None
@@ -118,6 +123,8 @@ def _source_label(
     """
     if _get_dotted(project_dict, key)[0]:
         return "project"
+    if key == "distill.autonomous.enabled":
+        return "default"
     if _get_dotted(user_dict, key)[0]:
         return "user"
     return "default"
@@ -132,6 +139,9 @@ def cmd_config_get(key: str, project_root: str | None) -> int:
     exits 1 with no stdout output (Req 1.2, 1.3, 1.4).
     """
     resolved_root = _resolve_project_root(project_root)
+    if key not in PUBLIC_CONFIG_KEY_PATHS:
+        print(f"key not found: {key}", file=sys.stderr)
+        return 1
     merged = load_merged_config(resolved_root)
     found, value = _get_dotted(merged.to_reflection_config(), key)
     if not found:
@@ -157,6 +167,13 @@ def cmd_config_set(
     (see design.md "Error Handling" table).
     """
     resolved_root = _resolve_project_root(project_root)
+    if key == "distill.autonomous.enabled" and scope != "project":
+        print(
+            "invalid scope: distill.autonomous.enabled may only be set at "
+            "project scope",
+            file=sys.stderr,
+        )
+        return 1
     if key in INTERNAL_CONFIG_KEY_PATHS:
         print(
             f"invalid value: {key} is an internal compatibility key and is not "
@@ -225,7 +242,7 @@ def cmd_config_set(
     return 0
 
 
-def cmd_config_list(project_root: str | None) -> int:
+def cmd_config_list(project_root: str | None, *, detail: str | None = None) -> int:
     """Print the public policy keys with merged source labels.
 
     Each line is ``<key> = <value>  (<source>)`` where source is one of
@@ -252,6 +269,16 @@ def cmd_config_list(project_root: str | None) -> int:
         _, value = _get_dotted(reflection, key_path)
         source = _source_label(key_path, project_dict, user_dict)
         print(f"{key_path} = {_format_config_value(value)}  ({source})")
+
+    if detail == "runtime":
+        print("runtime tuning (read-only):")
+        public_paths = {item[0] for item in _PUBLIC_TYPED_CONFIG_KEYS}
+        for key_path, _attr, _kind, _default in _TYPED_CONFIG_KEYS:
+            if key_path in public_paths:
+                continue
+            _, value = _get_dotted(reflection, key_path)
+            source = _source_label(key_path, project_dict, user_dict)
+            print(f"{key_path} = {_format_config_value(value)}  ({source})")
 
     return 0
 

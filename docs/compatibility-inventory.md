@@ -36,7 +36,6 @@ details, not MCP tools.
 The public writable policy surface is:
 
 ```text
-autopilot.enabled
 capture.enabled
 capture.private_tags
 capture.ignore_clients
@@ -44,12 +43,25 @@ capture.ignore_session_ids
 capture.ignore_source_globs
 transcript.retention_days
 distill.auto.enabled
+distill.autonomous.enabled
 distill.delete_source_after_complete
+archive_distill.enabled
+archive_distill.batch_size
+archive_distill.daily_limit
+archive_distill.order
+archive_distill.project_scope
+archive_distill.unresolved_project
+archive_distill.allowed_project_roots
+archive_distill.warn_tokens
+archive_distill.warn_seconds
+archive_distill.require_answer_packet
+archive_distill.report_promotions
 dream.auto.enabled
 ```
 
-Twenty-five typed tuning keys remain readable during the 0.9.x compatibility
-window but are not listed or writable through `harness-mem config`. Legacy
+Typed runtime tuning remains readable during the 0.9.x compatibility window
+and is shown only by `config list --detail runtime`; it is not writable through
+`harness-mem config`. Legacy
 `~/.harness-mem/config.json`, user TOML, and project TOML use one merge order:
 legacy JSON base, user TOML override, project TOML override. Existing unknown
 extras remain preserved when a public key is edited.

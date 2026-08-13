@@ -129,17 +129,18 @@ Privacy is enforced before persistence. Put sensitive spans inside
 `<private>...</private>`, or configure project-level `[capture]` ignore lists;
 excluded content never reaches raw revisions, chunks, Observations, or indexes.
 `[transcript].retention_days` enables automatic expiry (`0` keeps data).
-Processed source deletion is a separate persistent opt-in and defaults off:
+Successful distill attempts safe source cleanup by default. The runtime only
+deletes a standalone source when its adapter supports session-scoped deletion
+and quiet/CAS/hash checks pass. Set the policy to `false` at user or project
+scope when the original source must be retained:
 
 ```bash
-harness-mem config set distill.delete_source_after_complete true --scope user --confirm
+harness-mem config set distill.delete_source_after_complete false --scope project
 ```
 
-`--confirm` is required only for the persistent transition from disabled to
-enabled; disabling the policy and individual completed sessions require no
-extra prompt. In an IDE, the explicit natural-language instruction “enable
-harness-mem deletion of original sessions after distill” authorizes the Agent
-to perform this confirmed config write. When enabled, completed jobs delete an eligible quiet native session source,
+Re-enabling an explicitly disabled policy requires `--confirm`. If config is
+unreadable or the project cannot be resolved, completion fails safe and retains
+the source. When enabled, completed jobs delete an eligible quiet native session source,
 local raw bytes, chunks, checkpoint results, matching Observations, and derived
 indexes while retaining sanitized durable Memory/Rule/Fact/Skill truth. Every
 attempt reports `retained`, `deleted`, `partial_failure`, or `unsupported` and
@@ -263,16 +264,38 @@ the new project hooks once, then start a new task. Until a matching
 `SessionStart` hook has actually completed, `get_project_status` reports
 `hooks=review_required` rather than claiming wake is operational.
 
-Autonomous semantic processing requires one separate persistent authorization
-because it sends the compact manifest to the configured model provider and may
-consume quota. Enable it once at user scope; future Stop turns do not ask again:
+Autonomous semantic processing requires a project-scoped authorization because
+it sends the compact manifest to the configured model provider and may consume
+quota. Enable it only in projects that should use model calls; future Stop turns
+in that project do not ask again:
 
 ```bash
-harness-mem config set distill.autonomous.enabled true --scope user --confirm
+harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
-Set the value to `false` at user or project scope to return to queue-only Hook
-behavior. Disabling never requires confirmation.
+The global default is `false`. Projects without this authorization keep captured
+jobs queued for explicit processing. Disabling never requires confirmation.
+
+For archived Codex tasks, first preview the detected source projects, then run
+one policy-bounded batch:
+
+```bash
+harness-mem maintenance archive-distill --dry-run --project-root .
+harness-mem maintenance archive-distill --apply --verify --json --project-root .
+```
+
+`[archive_distill]` controls enablement, batch and daily limits, ordering,
+allowed projects, unresolved-project handling, token/latency warnings, mandatory
+Answer Packets, and per-item promotion reporting. The formal Answer Packet
+records the original question, verified conclusion and evidence, promotion
+status, target project/category, and every promoted fact. Runtime-only tuning
+remains read-only and can be inspected with
+`harness-mem config list --detail runtime`.
+
+`--verify` reuses the same initialized backend and emits one run-bound receipt
+covering persisted jobs and Answer Packets, Notes, daily-ledger replay guards,
+promoted-truth retrieval, and source-cleanup audit. Exact-output smoke sessions
+are deterministically classified as non-durable without calling the model.
 
 The repo installer performs the same all-host user-level sync automatically:
 

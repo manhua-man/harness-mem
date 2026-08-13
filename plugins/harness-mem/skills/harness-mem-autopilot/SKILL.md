@@ -26,22 +26,11 @@ runtime-gated maintenance only; no background semantic claims
 
 ## Configuration contract
 
-Default is enabled. `autopilot.enabled=false` is not the default posture; it is
-a hard opt-out for projects or users that explicitly disabled proactive memory
-actions.
+This skill has no separate user-facing master switch. Capture, automatic distill,
+autonomous provider use, and Dream each use their own explicit policy key, so a
+single nominal switch cannot imply that all runtime behavior stopped.
 
-On activation, first check the merged `harness-mem` configuration when the
-project/user config is available. If `autopilot.enabled=false`, stop proactive
-autopilot behavior immediately: do not call status, wake, search, distill, or
-`govern_memory` unless the user explicitly asks for a memory action in this turn.
-
-| Key | Default | Meaning |
-|---|---:|---|
-| `autopilot.enabled` | `true` | Allow this skill to run conversation-level auto-learning actions. |
-
-CLI owns configuration writes, for example `harness-mem config set autopilot.enabled false --scope project`. The normal user workflow remains Slash, Skill, natural language, and MCP behind the agent.
-
-Autopilot has only this single user-facing switch. When enabled, it may proactively
+The skill may proactively
 wake, route in-flight context/tool/save-point events through
 `autopilot_search_tick`, and create evidence-backed candidates or distill
 handoffs at clear task boundaries. Durable memory still goes through the
@@ -55,9 +44,9 @@ Users can opt out with `dream.auto.enabled=false`.
 
 | Situation | Action |
 |---|---|
-| New task, resume, continue, pick up where we left off | If enabled, call project status, then `wake`; only use readable truth (`auto_confirmed` / `user_confirmed`). If wake returns a structured distill maintenance offer, consume its ordered exact job IDs sequentially up to `process_limit`, using the returned semantic/compact prepare budget and `run_ingest=false`; finalize or defer each owned job before continuing, without asking the user to run distill. |
-| Runtime context/tool/save-point event has uncertainty, conflict, failure, durable-claim grounding, or long-horizon task switch | If enabled, call `autopilot_search_tick`; inject returned `context_injection` into the next context when search runs. |
-| User asks “previously”, “last time”, “why did we decide”, “history” | If enabled, use `autopilot_search_tick` when inside a runtime event; use `search_memory` as the explicit fallback path. Drill down with `timeline` or observations only when needed. |
+| New task, resume, continue, pick up where we left off | Call project status, then `wake`; only use readable truth (`auto_confirmed` / `user_confirmed`). If wake returns a structured distill maintenance offer, consume its ordered exact job IDs sequentially up to `process_limit`, using the returned semantic/compact prepare budget and `run_ingest=false`; finalize or defer each owned job before continuing, without asking the user to run distill. |
+| Runtime context/tool/save-point event has uncertainty, conflict, failure, durable-claim grounding, or long-horizon task switch | Call `autopilot_search_tick`; inject returned `context_injection` into the next context when search runs. |
+| User asks “previously”, “last time”, “why did we decide”, “history” | Use `autopilot_search_tick` when inside a runtime event; use `search_memory` as the explicit fallback path. Drill down with `timeline` or observations only when needed. |
 | User explicitly says “remember this”, “make this a rule”, “以后都这样” | Run the high-impact candidate admission check, then `govern_memory(action="suggest")` on `admit` / narrowed `narrow`; let the shared automatic policy govern it and never direct-confirm it. |
 | User asks to organize, distill, archive, or close recent sessions | `/hm:distill` path with **light** checklist default; deep for high-impact items. |
 | Work reaches a stable, reusable boundary | Light admission then suggest distill or handoff. |
