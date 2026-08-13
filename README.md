@@ -297,6 +297,23 @@ covering persisted jobs and Answer Packets, Notes, daily-ledger replay guards,
 promoted-truth retrieval, and source-cleanup audit. Exact-output smoke sessions
 are deterministically classified as non-durable without calling the model.
 
+Verified terminal state is durable across UTC days and keyed to the exact source
+revision, so a retained archive is not sent to the provider again. A completed
+partial receipt can be read back without model work, including after verified
+cleanup removed the native source:
+
+```bash
+harness-mem maintenance archive-distill --apply --verify --repair-only --project-root .
+```
+
+For a one-time drain, `--batch-size` and `--daily-limit` override only that run;
+project defaults stay unchanged. Apply runs remain single-process because the
+transcript store, completion index, receipts, and cleanup path share one exclusive
+maintenance lock. Stop on any non-passed verification. A completed job is repaired
+by read-back, while an incomplete job receives at most one further semantic attempt
+before it is quarantined with the source retained. Terminal reports conserve all
+sessions as verified, pending, quarantined, deferred-unresolved, or excluded.
+
 The repo installer performs the same all-host user-level sync automatically:
 
 ```powershell
@@ -380,6 +397,33 @@ python tools/outcome-verifier/scripts/verify_outcomes.py \
   --config .codex/outcomes.json \
   --output .tmp/outcome-verifier/harness-mem-report.json
 ```
+
+The verifier takes an exclusive lock per output path and atomically publishes the
+final report, so a second run cannot overwrite evidence from one already in
+progress. Reports include a run ID and per-check timing. For a bounded diagnostic
+read without the full Note inventory, select only the needed outcome section:
+
+```bash
+python -m harness_mem.outcome_probe \
+  --project harness-mem \
+  --project-root . \
+  --client codex \
+  --section autonomous \
+  --compact
+```
+
+IDE hooks remain non-blocking. A human or Agent can explicitly wait for a detached
+post-turn receipt by piping the real Codex Hook payload (it must contain
+`session_id` or `turn_id`):
+
+```powershell
+'{"session_id":"<codex-session-id>"}' |
+  harness-mem-hook --adapter codex-stop --project-root . --wait --wait-timeout 120
+```
+
+The command returns terminal JSON and a non-zero exit code for missing identity,
+deferred, failed, or timed-out work. Calling `--wait` without a Hook identity fails
+immediately instead of waiting for an unbindable receipt.
 
 This read-only probe requires fresh paired Codex lifecycle receipts, a persisted
 successful Dream run, a meaningful Note and semantic summary for every recent

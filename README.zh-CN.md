@@ -97,6 +97,20 @@ harness-mem maintenance archive-distill --apply --verify --json --project-root .
 
 `--verify` 复用同一个已初始化 backend，一次生成带 `run_id` 的持久化回执，覆盖 job/Answer Packet、Note、daily ledger 防重放、晋升知识检索和源清理审计。精确回显型 smoke 会话由确定性规则判定为无长期知识，不调用模型。
 
+已验证终态会按精确 source revision 跨 UTC 日期持久化，因此 retained 归档不会
+再次调用 Provider。若 completed job 的历史回执是 partial，即使安全清理已经删除
+原生源文件，也可以只读修复而不重新做模型调用：
+
+```bash
+harness-mem maintenance archive-distill --apply --verify --repair-only --project-root .
+```
+
+一次性排空可用 `--batch-size`、`--daily-limit` 仅覆盖本轮，不修改项目默认值。
+apply 必须保持单进程，因为 transcript store、终态索引、回执和清理链共享排他维护锁。
+遇到非 passed 验证立即停批；completed job 只读回，未完成 job 最多再做一次语义尝试，
+仍失败则保留源文件并进入 quarantine。终态报告会把全部会话守恒归入 verified、
+pending、quarantined、deferred-unresolved 或 excluded。
+
 旧 entity JSON reader 从 0.9.6 起弃用，但完整支持整个 0.9.x；最早删除门槛同时为 1.0.0 和 2027-01-31，以更晚者为准。旧数据只读启动不会静默切换存储权威，详见 [legacy storage lifecycle](docs/storage-legacy-lifecycle.md)。
 
 运维诊断同样显式：Doctor 只读探测 SQLite，并把恢复动作分成 `safe_rebuild`、`snapshot_required`、`manual_review` 和 `destructive`，不会自动 apply。compact project status 保留决策信息；full drilldown 增加 7 天检索使用/忽略/误导/放弃/旧冲突排除统计，以及明确的 distill backlog 原因和基于 Agent 实际吞吐的保守清空估算。
@@ -250,6 +264,30 @@ python tools/outcome-verifier/scripts/verify_outcomes.py \
   --config .codex/outcomes.json \
   --output .tmp/outcome-verifier/harness-mem-report.json
 ```
+
+verifier 会按输出路径获取排他锁，并以原子替换方式发布最终报告，因此第二次
+并发运行不能覆盖正在生成的证据。报告包含 run ID 和每项检查耗时。只诊断
+autonomous 状态时，不必输出完整 Note 清单：
+
+```bash
+python -m harness_mem.outcome_probe \
+  --project harness-mem \
+  --project-root . \
+  --client codex \
+  --section autonomous \
+  --compact
+```
+
+IDE Hook 默认仍为非阻塞。人或 Agent 可把包含 `session_id` 或 `turn_id` 的真实
+Codex Hook payload 通过 stdin 传入，并显式等待 detached post-turn 回执：
+
+```powershell
+'{"session_id":"<codex-session-id>"}' |
+  harness-mem-hook --adapter codex-stop --project-root . --wait --wait-timeout 120
+```
+
+命令返回终态 JSON；身份缺失、deferred、failed 或超时时返回非零退出码。
+缺少 Hook 身份的 `--wait` 会立即失败，不再空等一个无法绑定的回执。
 
 该只读探针要求：Codex 生命周期的 start/Stop 回执新鲜且成对、Dream 存在
 持久化成功运行、最近完成的每个蒸馏会话都有有效语义摘要和可读 Note，以及

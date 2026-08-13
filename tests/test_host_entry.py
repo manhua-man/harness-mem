@@ -282,6 +282,125 @@ def test_host_entry_dispatches_ide_maintenance_without_loading_backend(
     assert captured["client"] == "cursor"
 
 
+def test_host_entry_wait_parser_has_explicit_bounded_timeout(tmp_path) -> None:
+    parser = host_entry.build_parser()
+
+    args = parser.parse_args(
+        [
+            "--adapter",
+            "codex-stop",
+            "--project-root",
+            str(tmp_path),
+            "--wait",
+            "--wait-timeout",
+            "12.5",
+        ]
+    )
+
+    assert args.wait is True
+    assert args.wait_timeout == 12.5
+
+
+def test_wait_coordinates_use_resolved_workspace_root(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    child = workspace / "Assets" / "nested"
+    child.mkdir(parents=True)
+    (workspace / "ProjectSettings").mkdir()
+    (workspace / "ProjectSettings" / "ProjectVersion.txt").write_text(
+        "m_EditorVersion: test\n", encoding="utf-8"
+    )
+    (workspace / "Packages").mkdir()
+    (workspace / "Packages" / "manifest.json").write_text("{}\n", encoding="utf-8")
+    data_dir = tmp_path / "data"
+    monkeypatch.setattr(backend_module, "DEFAULT_DATA_DIR", data_dir)
+    args = _args(child, "post-turn-maintenance")
+    args.wait = True
+    args.wait_timeout = 1.0
+
+    resolved_data, project_root, project_name, receipt_path, initial = (
+        host_entry._wait_coordinates(args)
+    )
+
+    assert resolved_data == data_dir
+    assert project_root == workspace.resolve()
+    assert project_name == "workspace"
+    assert receipt_path.parent == data_dir / "autonomous" / "receipts"
+    assert initial is None
+
+
+def test_wait_for_autonomous_receipt_returns_matching_terminal_identity(
+    tmp_path,
+) -> None:
+    initial = {"state": "succeeded", "trigger_id": "older"}
+    observed = iter(
+        [
+            initial,
+            {"state": "running", "trigger_id": "turn-1"},
+            {
+                "state": "succeeded",
+                "trigger_id": "turn-1",
+                "job_id": "job-7",
+                "error": None,
+            },
+        ]
+    )
+    clock_values = iter([0.0, 0.0, 0.1, 0.2])
+    receipt_path = tmp_path / "receipt.json"
+
+    code, stdout_payload = host_entry._wait_for_autonomous_receipt(
+        data_dir=tmp_path,
+        project_root=tmp_path,
+        project_name=tmp_path.name,
+        trigger_id="turn-1",
+        receipt_path=receipt_path,
+        initial_receipt=initial,
+        timeout_seconds=1.0,
+        read_receipt=lambda *_args, **_kwargs: next(observed),
+        monotonic=lambda: next(clock_values),
+        sleep=lambda _seconds: None,
+    )
+
+    assert code == ExitCode.SUCCESS
+    payload = json.loads(stdout_payload)
+    assert payload == {
+        "action": "post-turn-maintenance",
+        "error": None,
+        "job": "job-7",
+        "job_id": "job-7",
+        "receipt": str(receipt_path),
+        "state": "succeeded",
+        "success": True,
+        "trigger": "turn-1",
+        "trigger_id": "turn-1",
+    }
+
+
+def test_wait_for_autonomous_receipt_timeout_fails_closed(tmp_path) -> None:
+    clock_values = iter([0.0, 0.0, 0.5])
+    receipt_path = tmp_path / "receipt.json"
+
+    code, stdout_payload = host_entry._wait_for_autonomous_receipt(
+        data_dir=tmp_path,
+        project_root=tmp_path,
+        project_name=tmp_path.name,
+        trigger_id="turn-1",
+        receipt_path=receipt_path,
+        initial_receipt=None,
+        timeout_seconds=0.5,
+        read_receipt=lambda *_args, **_kwargs: None,
+        monotonic=lambda: next(clock_values),
+        sleep=lambda _seconds: None,
+    )
+
+    assert code == ExitCode.HOOK_FAILED
+    payload = json.loads(stdout_payload)
+    assert payload["trigger"] == "turn-1"
+    assert payload["state"] == "timeout"
+    assert payload["job"] is None
+    assert payload["error"]["kind"] == "wait_timeout"
+    assert payload["receipt"] == str(receipt_path)
+
+
 @pytest.mark.parametrize(
     ("client", "trigger_id"),
     (("hermes", "session-7"), ("antigravity", "conversation-7")),
@@ -357,6 +476,13 @@ def test_codex_stop_adapter_consumes_hook_payload(
         return ExitCode.SUCCESS, '{"status": "queued"}'
 
     monkeypatch.setattr(host_entry, "run", fake_run)
+    monkeypatch.setattr(
+        host_entry,
+        "_wait_coordinates",
+        lambda _args: (_ for _ in ()).throw(
+            AssertionError("default IDE hook path must not wait for a receipt")
+        ),
+    )
     monkeypatch.setattr(host_entry.sys, "stdin", io.StringIO('{"turn_id": "turn-22"}'))
 
     assert (
@@ -368,6 +494,93 @@ def test_codex_stop_adapter_consumes_hook_payload(
     assert captured["client"] == "codex"
     assert captured["trigger_id"] == "turn-22"
     assert capsys.readouterr().out == "{}\n"
+
+
+def test_codex_stop_adapter_wait_emits_terminal_receipt(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    captured: dict[str, object] = {}
+    receipt_path = tmp_path / "autonomous.json"
+
+    def fake_coordinates(args):
+        captured["coordinates_trigger"] = args.trigger_id
+        return tmp_path, tmp_path, tmp_path.name, receipt_path, None
+
+    async def fake_run(args):
+        captured.update(vars(args))
+        return ExitCode.SUCCESS, '{"status": "queued"}'
+
+    def fake_wait(**kwargs):
+        captured["timeout_seconds"] = kwargs["timeout_seconds"]
+        return ExitCode.SUCCESS, json.dumps(
+            {
+                "trigger": kwargs["trigger_id"],
+                "state": "succeeded",
+                "job": "job-9",
+                "error": None,
+                "receipt": str(kwargs["receipt_path"]),
+            }
+        )
+
+    monkeypatch.setattr(host_entry, "_wait_coordinates", fake_coordinates)
+    monkeypatch.setattr(host_entry, "_wait_for_autonomous_receipt", fake_wait)
+    monkeypatch.setattr(host_entry, "run", fake_run)
+    monkeypatch.setattr(host_entry.sys, "stdin", io.StringIO('{"turn_id":"turn-9"}'))
+
+    assert (
+        host_entry.main(
+            [
+                "--adapter",
+                "codex-stop",
+                "--project-root",
+                str(tmp_path),
+                "--wait",
+                "--wait-timeout",
+                "3",
+            ]
+        )
+        == ExitCode.SUCCESS
+    )
+
+    assert captured["coordinates_trigger"] == "turn-9"
+    assert captured["timeout_seconds"] == 3.0
+    assert json.loads(capsys.readouterr().out) == {
+        "trigger": "turn-9",
+        "state": "succeeded",
+        "job": "job-9",
+        "error": None,
+        "receipt": str(receipt_path),
+    }
+
+
+def test_codex_stop_adapter_wait_fails_fast_without_hook_identity(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    monkeypatch.setattr(host_entry.sys, "stdin", io.StringIO("{}"))
+    monkeypatch.setattr(
+        host_entry,
+        "_run_request",
+        lambda _args: (_ for _ in ()).throw(
+            AssertionError("identity validation must precede dispatch")
+        ),
+    )
+
+    code = host_entry.main(
+        [
+            "--adapter",
+            "codex-stop",
+            "--project-root",
+            str(tmp_path),
+            "--wait",
+            "--wait-timeout",
+            "3",
+        ]
+    )
+
+    assert code == ExitCode.ARG_VALIDATION_ERROR
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["state"] == "failed"
+    assert payload["error"]["kind"] == "missing_hook_identity"
 
 
 def test_antigravity_pre_adapter_emits_injected_context(

@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
+import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,6 +21,85 @@ MAX_EVIDENCE_CHARS = 4000
 
 class ContractError(ValueError):
     pass
+
+
+class OutputBusyError(RuntimeError):
+    pass
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _output_lock_path(output: Path) -> Path:
+    return Path(f"{output}.lock")
+
+
+class _OutputLock:
+    """A fail-closed, process-safe lease for one report output path."""
+
+    def __init__(self, output: Path, run_id: str) -> None:
+        self.path = _output_lock_path(output)
+        self.run_id = run_id
+        self._owned = False
+
+    def __enter__(self) -> "_OutputLock":
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            descriptor = os.open(
+                self.path,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+            )
+        except FileExistsError as exc:
+            raise OutputBusyError(
+                f"output is already being verified: {self.path}"
+            ) from exc
+        try:
+            payload = json.dumps(
+                {
+                    "run_id": self.run_id,
+                    "pid": os.getpid(),
+                    "started_at": _utc_now().isoformat(),
+                },
+                ensure_ascii=False,
+            )
+            os.write(descriptor, payload.encode("utf-8"))
+            os.fsync(descriptor)
+            self._owned = True
+        except BaseException:
+            try:
+                self.path.unlink()
+            except FileNotFoundError:
+                pass
+            raise
+        finally:
+            os.close(descriptor)
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        if self._owned:
+            try:
+                self.path.unlink()
+            except FileNotFoundError:
+                pass
+            self._owned = False
+
+
+def _write_report_atomic(output: Path, serialized: str, run_id: str) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.{run_id}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as stream:
+            stream.write(serialized)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, output)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _project_root(config_path: Path) -> Path:
@@ -128,13 +210,15 @@ def _evaluate(stdout: str, returncode: int, expect: dict[str, Any]) -> list[str]
 def _run_check(
     check: dict[str, Any],
     root: Path,
-    cache: dict[tuple[tuple[str, ...], str, int], tuple[int, str, str] | Exception],
+    cache: dict[tuple[tuple[str, ...], str, int], dict[str, Any]],
+    run_id: str,
 ) -> dict[str, Any]:
     command = [_expand(item, root) for item in check["command"]]
     cwd = root / check.get("cwd", ".")
     timeout = int(check.get("timeout_seconds", 60))
     result: dict[str, Any] = {
         "id": check["id"],
+        "run_id": run_id,
         "description": check.get("description", ""),
         "evidence_tier": check["evidence_tier"],
         "required": check.get("required", True),
@@ -142,6 +226,8 @@ def _run_check(
     }
     cache_key = (tuple(command), str(cwd.resolve()), timeout)
     if cache_key not in cache:
+        started_at = _utc_now()
+        started_clock = time.perf_counter()
         try:
             completed = subprocess.run(
                 command,
@@ -151,10 +237,27 @@ def _run_check(
                 timeout=timeout,
                 check=False,
             )
-            cache[cache_key] = (completed.returncode, completed.stdout, completed.stderr)
+            outcome: tuple[int, str, str] | Exception = (
+                completed.returncode,
+                completed.stdout,
+                completed.stderr,
+            )
         except (subprocess.TimeoutExpired, OSError) as exc:
-            cache[cache_key] = exc
-    cached = cache[cache_key]
+            outcome = exc
+        completed_at = _utc_now()
+        cache[cache_key] = {
+            "outcome": outcome,
+            "started_at": started_at.isoformat(),
+            "completed_at": completed_at.isoformat(),
+            "duration_seconds": max(0.0, time.perf_counter() - started_clock),
+        }
+    cached_entry = cache[cache_key]
+    result.update(
+        started_at=cached_entry["started_at"],
+        completed_at=cached_entry["completed_at"],
+        duration_seconds=cached_entry["duration_seconds"],
+    )
+    cached = cached_entry["outcome"]
     if isinstance(cached, subprocess.TimeoutExpired):
         result.update(status="blocked", failures=[f"timed out after {timeout}s"])
         return result
@@ -186,15 +289,26 @@ def _claim_status(checks: list[dict[str, Any]]) -> str:
     return "passed"
 
 
-def verify(contract: dict[str, Any], root: Path, selected: set[str]) -> dict[str, Any]:
+def verify(
+    contract: dict[str, Any],
+    root: Path,
+    selected: set[str],
+    *,
+    run_id: str | None = None,
+    started_at: datetime | None = None,
+    started_clock: float | None = None,
+) -> dict[str, Any]:
+    run_id = run_id or str(uuid.uuid4())
+    started_at = started_at or _utc_now()
+    started_clock = started_clock if started_clock is not None else time.perf_counter()
     claims: list[dict[str, Any]] = []
-    cache: dict[
-        tuple[tuple[str, ...], str, int], tuple[int, str, str] | Exception
-    ] = {}
+    cache: dict[tuple[tuple[str, ...], str, int], dict[str, Any]] = {}
     for claim in contract["claims"]:
         if selected and claim["id"] not in selected:
             continue
-        checks = [_run_check(check, root, cache) for check in claim["checks"]]
+        checks = [
+            _run_check(check, root, cache, run_id) for check in claim["checks"]
+        ]
         claims.append({
             "id": claim["id"],
             "description": claim.get("description", ""),
@@ -214,11 +328,16 @@ def verify(contract: dict[str, Any], root: Path, selected: set[str]) -> dict[str
         status = "partial"
     else:
         status = "passed"
+    completed_at = _utc_now()
     return {
         "schema_version": 1,
+        "run_id": run_id,
         "project": contract.get("project", root.name),
         "project_root": str(root),
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": started_at.isoformat(),
+        "completed_at": completed_at.isoformat(),
+        "duration_seconds": max(0.0, time.perf_counter() - started_clock),
+        "generated_at": completed_at.isoformat(),
         "status": status,
         "claims": claims,
     }
@@ -240,16 +359,43 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--claim", action="append", default=[])
     parser.add_argument("--json", action="store_true", help="Print the full report as JSON")
     args = parser.parse_args(argv)
+    if args.output:
+        args.output = args.output.resolve()
+    run_id = str(uuid.uuid4())
+    started_at = _utc_now()
+    started_clock = time.perf_counter()
     try:
-        contract = _load_contract(args.config)
-        report = verify(contract, _project_root(args.config), set(args.claim))
+        lock = _OutputLock(args.output, run_id) if args.output else None
+        if lock is None:
+            contract = _load_contract(args.config)
+            report = verify(
+                contract,
+                _project_root(args.config),
+                set(args.claim),
+                run_id=run_id,
+                started_at=started_at,
+                started_clock=started_clock,
+            )
+        else:
+            with lock:
+                contract = _load_contract(args.config)
+                report = verify(
+                    contract,
+                    _project_root(args.config),
+                    set(args.claim),
+                    run_id=run_id,
+                    started_at=started_at,
+                    started_clock=started_clock,
+                )
+                serialized = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
+                _write_report_atomic(args.output, serialized, run_id)
     except ContractError as exc:
         print(f"Outcome: blocked\nContract error: {exc}", file=sys.stderr)
         return 2
+    except OutputBusyError as exc:
+        print(f"Outcome: blocked\nOutput error: {exc}", file=sys.stderr)
+        return 2
     serialized = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
-    if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(serialized, encoding="utf-8")
     print(serialized, end="") if args.json else _render(report)
     return 0 if report["status"] == "passed" else 2 if report["status"] == "blocked" else 1
 

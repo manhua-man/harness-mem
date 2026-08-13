@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from harness_mem.outcome_probe import (
     _read_only_connection,
+    collect_outcomes,
     inspect_distill_notes,
     inspect_hook_outcome,
     inspect_retrieval_outcome,
@@ -232,3 +233,87 @@ def test_partial_distill_runtime_outcome_probe() -> None:
     assert result["handoff_job_bound"] is True
     assert result["dream_blocked_for_partial"] is True
     assert result["note_paths_distinct"] is True
+
+
+def test_collect_outcomes_can_select_one_section_without_running_others(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[str] = []
+    job = _job(
+        session_id="selected-session",
+        completed_at=datetime.now(timezone.utc),
+        summary="A useful summary for the selected autonomous outcome.",
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe._read_distill_jobs",
+        lambda *_args: calls.append("jobs") or [job],
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.inspect_autonomous_outcome",
+        lambda *_args, **_kwargs: calls.append("autonomous") or {"state": "idle"},
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.inspect_hook_outcome",
+        lambda *_args, **_kwargs: calls.append("hooks") or {},
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.inspect_dream_outcome",
+        lambda *_args, **_kwargs: calls.append("dream") or {},
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.inspect_distill_notes",
+        lambda *_args, **_kwargs: calls.append("distill") or {},
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.inspect_retrieval_outcome",
+        lambda *_args, **_kwargs: calls.append("retrieval") or {},
+    )
+
+    result = collect_outcomes(
+        project_name="demo",
+        project_root=tmp_path,
+        client="codex",
+        data_dir=tmp_path,
+        notes_dir=tmp_path,
+        recent_days=7,
+        sections=["autonomous"],
+    )
+
+    assert result["autonomous"] == {"state": "idle"}
+    assert set(result) == {
+        "schema_version",
+        "project",
+        "project_root",
+        "observed_at",
+        "window_days",
+        "autonomous",
+    }
+    assert calls == ["jobs", "autonomous"]
+
+
+def test_collect_outcomes_compact_omits_verbose_detail_arrays(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("harness_mem.outcome_probe._read_distill_jobs", lambda *_: [])
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.inspect_distill_notes",
+        lambda *_args, **_kwargs: {"note_coverage_complete": True, "notes": [{"id": 1}]},
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.inspect_retrieval_outcome",
+        lambda *_args, **_kwargs: {"probe_hit": True, "attempts": [{"query": "x"}]},
+    )
+
+    result = collect_outcomes(
+        project_name="demo",
+        project_root=tmp_path,
+        client="codex",
+        data_dir=tmp_path,
+        notes_dir=tmp_path,
+        recent_days=7,
+        sections=["distill", "retrieval"],
+        compact=True,
+    )
+
+    assert result["distill"] == {"note_coverage_complete": True}
+    assert result["retrieval"] == {"probe_hit": True}

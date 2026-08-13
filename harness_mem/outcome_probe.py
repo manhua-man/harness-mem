@@ -34,6 +34,7 @@ from harness_mem.session_notes import (
 
 DEFAULT_RECENT_DAYS = 7
 MIN_NOTE_CHARS = 200
+OUTCOME_SECTIONS = ("hooks", "dream", "distill", "autonomous", "retrieval")
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -626,44 +627,59 @@ def collect_outcomes(
     data_dir: Path,
     notes_dir: Path,
     recent_days: int,
+    sections: Iterable[str] | None = None,
+    compact: bool = False,
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
-    hooks = inspect_hook_outcome(
-        data_dir,
-        project_root=project_root,
-        client=client,
-    )
+    requested = set(sections or OUTCOME_SECTIONS)
     recent_cutoff = now - timedelta(days=recent_days)
-    dream = inspect_dream_outcome(
-        data_dir,
-        project_name,
-        recent_cutoff=recent_cutoff,
-    )
-    jobs = _read_distill_jobs(data_dir, project_name)
-    distill = inspect_distill_notes(
-        jobs,
-        notes_dir=notes_dir,
-        since=recent_cutoff,
-    )
-    retrieval = inspect_retrieval_outcome(data_dir, project_name)
-    autonomous = inspect_autonomous_outcome(
-        data_dir,
-        project_name=project_name,
-        project_root=project_root,
-        jobs=jobs,
-    )
-    return {
+    payload: dict[str, Any] = {
         "schema_version": 1,
         "project": project_name,
         "project_root": str(project_root),
         "observed_at": now.isoformat(),
         "window_days": recent_days,
-        "hooks": hooks,
-        "dream": dream,
-        "distill": distill,
-        "autonomous": autonomous,
-        "retrieval": retrieval,
     }
+    jobs: list[SessionDistillJob] | None = None
+
+    if "hooks" in requested:
+        payload["hooks"] = inspect_hook_outcome(
+            data_dir,
+            project_root=project_root,
+            client=client,
+        )
+    if "dream" in requested:
+        payload["dream"] = inspect_dream_outcome(
+            data_dir,
+            project_name,
+            recent_cutoff=recent_cutoff,
+        )
+    if requested & {"distill", "autonomous"}:
+        jobs = _read_distill_jobs(data_dir, project_name)
+    if "distill" in requested:
+        distill = inspect_distill_notes(
+            jobs or [],
+            notes_dir=notes_dir,
+            since=recent_cutoff,
+        )
+        if compact:
+            distill = {key: value for key, value in distill.items() if key != "notes"}
+        payload["distill"] = distill
+    if "autonomous" in requested:
+        payload["autonomous"] = inspect_autonomous_outcome(
+            data_dir,
+            project_name=project_name,
+            project_root=project_root,
+            jobs=jobs or [],
+        )
+    if "retrieval" in requested:
+        retrieval = inspect_retrieval_outcome(data_dir, project_name)
+        if compact:
+            retrieval = {
+                key: value for key, value in retrieval.items() if key != "attempts"
+            }
+        payload["retrieval"] = retrieval
+    return payload
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -678,6 +694,17 @@ def main(argv: list[str] | None = None) -> int:
         default=Path.home() / ".codex" / "hm-distill" / "sessions",
     )
     parser.add_argument("--recent-days", type=int, default=DEFAULT_RECENT_DAYS)
+    parser.add_argument(
+        "--section",
+        action="append",
+        choices=OUTCOME_SECTIONS,
+        help="Emit and evaluate only this outcome section; repeat to select several.",
+    )
+    parser.add_argument(
+        "--compact",
+        action="store_true",
+        help="Omit verbose per-Note and retrieval-attempt detail arrays.",
+    )
     args = parser.parse_args(argv)
     if args.recent_days < 1:
         parser.error("--recent-days must be positive")
@@ -689,6 +716,8 @@ def main(argv: list[str] | None = None) -> int:
         data_dir=args.data_dir.expanduser().resolve(),
         notes_dir=args.notes_dir.expanduser().resolve(),
         recent_days=args.recent_days,
+        sections=args.section,
+        compact=args.compact,
     )
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
