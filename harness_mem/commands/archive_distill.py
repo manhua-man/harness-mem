@@ -19,8 +19,11 @@ from harness_mem.autonomous.provider import ProviderResult
 from harness_mem.autonomous.worker import run_autonomous_distill_batch
 from harness_mem.commands.support import DEFAULT_DATA_DIR, workspace_root_from_path
 from harness_mem.config.merge import MergedConfig, load_merged_config
+from harness_mem.governance_status import TRUTH_LAYER_STATUSES
 from harness_mem.maintenance_lock import exclusive_maintenance_run
+from harness_mem.session_notes import materialize_session_note
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.transcript_chunking import transcript_bytes_revision
 
 
 def _now() -> datetime:
@@ -55,6 +58,10 @@ def _run_receipt_path(data_dir: Path, run_id: str) -> Path:
     return data_dir / "archive_distill" / "runs" / f"{run_id}.json"
 
 
+def _terminal_index_path(data_dir: Path) -> Path:
+    return data_dir / "archive_distill" / "terminal_index.json"
+
+
 def _read_ledger(data_dir: Path, day: str) -> dict[str, Any]:
     path = _ledger_path(data_dir, day)
     try:
@@ -62,6 +69,104 @@ def _read_ledger(data_dir: Path, day: str) -> dict[str, Any]:
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return {"day": day, "processed_session_ids": [], "runs": []}
     return payload if isinstance(payload, dict) else {"day": day, "processed_session_ids": [], "runs": []}
+
+
+def _read_terminal_index(data_dir: Path) -> dict[str, Any]:
+    path = _terminal_index_path(data_dir)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return {"version": 1, "sessions": {}}
+    if not isinstance(payload, dict) or not isinstance(payload.get("sessions"), dict):
+        return {"version": 1, "sessions": {}}
+    return payload
+
+
+def _source_revision(path: Path) -> str:
+    """Return the exact native revision used by transcript snapshot persistence."""
+
+    return transcript_bytes_revision(path.read_bytes())
+
+
+def _terminal_entry_matches(row: dict[str, Any], entry: Any) -> bool:
+    return bool(
+        isinstance(entry, dict)
+        and entry.get("source_revision") == row.get("source_revision")
+        and entry.get("project_name") == row.get("project_name")
+    )
+
+
+def _partial_run_receipts(data_dir: Path) -> list[dict[str, Any]]:
+    receipts: list[dict[str, Any]] = []
+    runs_dir = data_dir / "archive_distill" / "runs"
+    try:
+        paths = sorted(runs_dir.glob("*.json"))
+    except OSError:
+        return []
+    for path in paths:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(payload, dict)
+            and (payload.get("verification") or {}).get("status") != "passed"
+        ):
+            receipts.append(payload)
+    return receipts
+
+
+async def _repair_partial_completed_receipts(
+    backend: LocalMemoryBackend,
+    *,
+    data_dir: Path,
+    terminal_sessions: dict[str, Any],
+) -> dict[str, Any]:
+    """Reverify completed jobs whose source may already be safely deleted."""
+
+    repaired: list[dict[str, Any]] = []
+    for receipt in _partial_run_receipts(data_dir):
+        pending_outcomes = [
+            outcome
+            for outcome in receipt.get("outcomes", [])
+            if isinstance(outcome, dict)
+            and outcome.get("status") == "completed"
+            and str(outcome.get("session_id") or "") not in terminal_sessions
+        ]
+        if not pending_outcomes:
+            continue
+        repair_result = {**receipt, "outcomes": pending_outcomes}
+        verification = await _verify_archive_distill_run(
+            backend,
+            result=repair_result,
+        )
+        for outcome, verified in zip(
+            pending_outcomes,
+            verification["outcomes"],
+            strict=True,
+        ):
+            if verified["status"] != "passed":
+                continue
+            session_id = str(outcome.get("session_id") or "")
+            terminal_sessions[session_id] = {
+                "session_id": session_id,
+                "source_revision": outcome.get("source_revision"),
+                "project_name": outcome.get("project_name"),
+                "project_root": outcome.get("project_root"),
+                "distill_job_id": outcome.get("distill_job_id"),
+                "disposition": "verified_completed",
+                "verified_at": verification["verified_at"],
+                "run_id": receipt.get("run_id"),
+                "repaired_from_partial_receipt": True,
+            }
+            repaired.append(
+                {
+                    "session_id": session_id,
+                    "distill_job_id": outcome.get("distill_job_id"),
+                    "source_run_id": receipt.get("run_id"),
+                }
+            )
+    return {"count": len(repaired), "outcomes": repaired}
 
 
 def _write_ledger(data_dir: Path, day: str, payload: dict[str, Any]) -> Path:
@@ -258,6 +363,7 @@ def inventory_codex_archives(
                 "project_root": str(detected) if detected is not None else None,
                 "project_name": detected.name if detected is not None else None,
                 "updated_at": session["mtime"].isoformat(),
+                "mtime_ns": int(session.get("mtime_ns") or 0),
                 "size_bytes": int(session.get("size_bytes") or 0),
                 "status": status,
             }
@@ -294,6 +400,9 @@ async def run_archive_distill_batch(
     notes_dir: Path | None = None,
     now: datetime | None = None,
     verify: bool = False,
+    batch_size: int | None = None,
+    daily_limit: int | None = None,
+    repair_only: bool = False,
 ) -> dict[str, Any]:
     """Inventory or process one configured batch through the canonical distill chain."""
 
@@ -305,16 +414,122 @@ async def run_archive_distill_batch(
         archive_dir=archive_dir,
     )
     current = now or _now()
+    effective_batch_size = batch_size or config.archive_distill_batch_size
+    effective_daily_limit = daily_limit or config.archive_distill_daily_limit
+    if effective_batch_size < 1 or effective_daily_limit < 1:
+        raise ValueError("archive distill limits must be positive")
     run_id = f"{current.strftime('%Y%m%dT%H%M%S.%fZ')}-{uuid4().hex[:12]}"
     day = current.date().isoformat()
     ledger = _read_ledger(data_dir, day)
+    terminal_index = _read_terminal_index(data_dir)
+    terminal_sessions = dict(terminal_index.get("sessions") or {})
+    durable_attempts = dict(terminal_index.get("attempts") or {})
+    inventory_dispositions = {
+        str(row["session_id"]): {
+            "session_id": str(row["session_id"]),
+            "disposition": (
+                "deferred_unresolved"
+                if row["status"] == "unresolved_project"
+                else "excluded"
+            ),
+            "reason": str(row["status"]),
+            "cwd": str(row.get("cwd") or ""),
+            "source_path": str(row.get("source_path") or ""),
+            "observed_at": current.isoformat(),
+        }
+        for row in inventory["sessions"]
+        if row["status"] != "eligible"
+    }
     processed_today = set(str(item) for item in ledger.get("processed_session_ids", []))
-    remaining_daily = max(0, config.archive_distill_daily_limit - len(processed_today))
-    eligible = [
-        row for row in inventory["eligible_sessions"]
-        if row["session_id"] not in processed_today
-    ]
-    selected = eligible[: min(config.archive_distill_batch_size, remaining_daily)]
+    attempted_today = set(str(item) for item in ledger.get("attempted_session_ids", []))
+    raw_attempt_counts = dict(ledger.get("attempt_counts") or {})
+    attempt_counts = {
+        session_id: max(1, int(raw_attempt_counts.get(session_id) or 1))
+        for session_id in attempted_today
+    }
+    remaining_daily = max(0, effective_daily_limit - sum(attempt_counts.values()))
+    eligible: list[dict[str, Any]] = []
+    verified_terminal = 0
+    quarantined_terminal = 0
+    for row in inventory["eligible_sessions"]:
+        session_id = str(row["session_id"])
+        source_revision: str | None = None
+        try:
+            source_revision = _source_revision(Path(str(row["source_path"])))
+        except OSError:
+            pass
+        entry = terminal_sessions.get(session_id)
+        if entry is not None:
+            candidate = {**row, "source_revision": source_revision}
+            if _terminal_entry_matches(candidate, entry):
+                if entry.get("disposition") == "verified_completed":
+                    verified_terminal += 1
+                else:
+                    quarantined_terminal += 1
+                continue
+        durable_attempt = durable_attempts.get(session_id)
+        if (
+            isinstance(durable_attempt, dict)
+            and durable_attempt.get("source_revision") == source_revision
+        ):
+            attempt_counts[session_id] = max(
+                attempt_counts.get(session_id, 0),
+                int(durable_attempt.get("count") or 0),
+            )
+        elif isinstance(durable_attempt, dict):
+            attempt_counts[session_id] = 0
+        if attempt_counts.get(session_id, 0) < 2:
+            eligible.append(row)
+    unresolved_count = int(inventory["unresolved"])
+    excluded_count = int(inventory["excluded"])
+    terminal_counts = {
+        "verified_completed": verified_terminal,
+        "quarantined": quarantined_terminal,
+        "pending_eligible": len(eligible),
+        "deferred_unresolved": unresolved_count,
+        "excluded": excluded_count,
+    }
+    terminal_counts["total"] = sum(terminal_counts.values())
+    terminal_counts["inventory_total"] = int(inventory["sessions_found"])
+    terminal_counts["conserved"] = (
+        terminal_counts["total"] == terminal_counts["inventory_total"]
+    )
+    lifecycle_counts = {
+        "verified_completed": sum(
+            entry.get("disposition") == "verified_completed"
+            for entry in terminal_sessions.values()
+            if isinstance(entry, dict)
+        ),
+        "quarantined": sum(
+            entry.get("disposition") == "quarantined"
+            for entry in terminal_sessions.values()
+            if isinstance(entry, dict)
+        ),
+        "pending_eligible": len(eligible),
+        "deferred_unresolved": unresolved_count,
+        "excluded": excluded_count,
+    }
+    lifecycle_counts["source_deleted_after_verified"] = sum(
+        session_id not in {str(row["session_id"]) for row in inventory["sessions"]}
+        for session_id in terminal_sessions
+    )
+    lifecycle_counts["total"] = sum(
+        lifecycle_counts[key]
+        for key in (
+            "verified_completed",
+            "quarantined",
+            "pending_eligible",
+            "deferred_unresolved",
+            "excluded",
+        )
+    )
+    lifecycle_counts["conserved"] = (
+        lifecycle_counts["total"]
+        == len(terminal_sessions) + len(eligible) + unresolved_count + excluded_count
+    )
+    selected = eligible[: min(effective_batch_size, remaining_daily)]
+    if repair_only:
+        selected = []
     unresolved_resolution = {
         "count": inventory["unresolved"],
         "action": config.archive_distill_unresolved_project,
@@ -323,10 +538,11 @@ async def run_archive_distill_batch(
         "success": True,
         "run_id": run_id,
         "mode": "apply" if apply else "dry_run",
+        "repair_only": repair_only,
         "enabled": config.archive_distill_enabled,
         "policy": {
-            "batch_size": config.archive_distill_batch_size,
-            "daily_limit": config.archive_distill_daily_limit,
+            "batch_size": effective_batch_size,
+            "daily_limit": effective_daily_limit,
             "remaining_daily": remaining_daily,
             "order": config.archive_distill_order,
             "project_scope": config.archive_distill_project_scope,
@@ -341,6 +557,11 @@ async def run_archive_distill_batch(
             key: inventory[key]
             for key in ("archive_dir", "sessions_found", "eligible", "unresolved", "excluded", "by_project", "issues")
         },
+        "terminal": {
+            **terminal_counts,
+            "index": str(_terminal_index_path(data_dir)),
+        },
+        "lifecycle_terminal": lifecycle_counts,
         "selected": selected,
         "unresolved_resolution": unresolved_resolution,
         "outcomes": [],
@@ -373,6 +594,11 @@ async def run_archive_distill_batch(
     try:
         await backend.init()
         adapter = CodexArchiveAdapter(backend, archive_dir=archive_dir)
+        partial_repair = await _repair_partial_completed_receipts(
+            backend,
+            data_dir=data_dir,
+            terminal_sessions=terminal_sessions,
+        )
         selected_projects = sorted(
             {str(row.get("project_name") or "") for row in selected}
         )
@@ -407,8 +633,10 @@ async def run_archive_distill_batch(
             _write_json_atomic(receipt_path, blocked)
             return blocked
         outcomes: list[dict[str, Any]] = []
-        completed_ids: list[str] = []
+        attempted_ids: list[str] = []
+        resolved_notes_dir = notes_dir or Path.home() / ".codex" / "hm-distill" / "sessions"
         for row in selected:
+            attempted_ids.append(str(row["session_id"]))
             project_root = Path(str(row["project_root"])).resolve()
             project_name = str(row["project_name"])
             project_config = load_merged_config(project_root)
@@ -440,29 +668,51 @@ async def run_archive_distill_batch(
                     outcome.update(status="deferred", reason=synced.reason or "distill_job_not_created")
                     outcomes.append(outcome)
                     continue
-                batch = await asyncio.to_thread(
-                    run_autonomous_distill_batch,
-                    backend,
-                    project_name=project_name,
-                    project_root=project_root,
-                    config=project_config,
-                    trigger_id=str(row["session_id"]),
-                    client="codex-archive",
-                    provider=(
-                        _TrivialArchiveProvider(trivial_request)
-                        if trivial_request is not None
-                        else provider
-                    ),
-                    notes_dir=notes_dir,
-                    max_jobs=1,
-                    preferred_job_id=synced.distill_job_id,
-                    launch_source="archive_batch",
-                )
                 job = backend.transcript_store.get_distill_job(synced.distill_job_id)
-                job_outcome: dict[str, Any] = next(
-                    (item for item in batch.get("outcomes", []) if item.get("job_id") == synced.distill_job_id),
-                    {},
-                )
+                if job is not None and job.status == "completed":
+                    batch: dict[str, Any] = {"state": "succeeded", "outcomes": []}
+                    job_outcome = {
+                        "job_id": job.id,
+                        "session_id": row["session_id"],
+                        "status": "completed",
+                        "note": materialize_session_note(
+                            job,
+                            notes_dir=resolved_notes_dir,
+                        ),
+                        "provider": {"total_tokens": 0, "duration_seconds": 0.0},
+                    }
+                    replay = "completed_job_reverified"
+                else:
+                    batch = await asyncio.to_thread(
+                        run_autonomous_distill_batch,
+                        backend,
+                        project_name=project_name,
+                        project_root=project_root,
+                        config=project_config,
+                        trigger_id=str(row["session_id"]),
+                        client="codex-archive",
+                        provider=(
+                            _TrivialArchiveProvider(trivial_request)
+                            if trivial_request is not None
+                            else provider
+                        ),
+                        notes_dir=notes_dir,
+                        max_jobs=1,
+                        preferred_job_id=synced.distill_job_id,
+                        launch_source="archive_batch",
+                    )
+                    job = backend.transcript_store.get_distill_job(synced.distill_job_id)
+                    batch_outcomes: Any = batch.get("outcomes", [])
+                    job_outcome = next(
+                        (
+                            item
+                            for item in batch_outcomes
+                            if isinstance(item, dict)
+                            and item.get("job_id") == synced.distill_job_id
+                        ),
+                        {},
+                    )
+                    replay = "provider_executed"
                 packet = dict((job.promotion_summary if job else {}).get("answer_packet") or {})
                 tokens = int((job_outcome.get("provider") or {}).get("total_tokens") or 0)
                 seconds = float((job_outcome.get("provider") or {}).get("duration_seconds") or 0.0)
@@ -484,46 +734,132 @@ async def run_archive_distill_batch(
                     classification=(
                         "trivial_smoke" if trivial_request is not None else "semantic"
                     ),
+                    execution=replay,
+                    source_revision=(job.source_revision if job else synced.source.source_revision if synced.source else None),
                 )
-                if status == "completed" and (packet or not config.archive_distill_require_answer_packet):
-                    completed_ids.append(str(row["session_id"]))
             except Exception as exc:  # noqa: BLE001 - one archive must not block later sessions.
                 outcome.update(status="deferred", reason=f"{type(exc).__name__}: {exc}"[:512])
             outcomes.append(outcome)
+        result = {
+            **base,
+            "success": all(item.get("status") == "completed" for item in outcomes) if outcomes else True,
+            "outcomes": outcomes,
+            "completed": sum(item.get("status") == "completed" for item in outcomes),
+            "deferred": sum(item.get("status") != "completed" for item in outcomes),
+        }
+        verification = await _verify_archive_distill_run(backend, result=result)
+        verified_ids = {
+            str(item["session_id"])
+            for item in verification["outcomes"]
+            if item["status"] == "passed"
+        }
+        retryable_ids = {
+            str(outcome.get("session_id") or "")
+            for outcome, verified in zip(outcomes, verification["outcomes"], strict=True)
+            if verified["status"] != "passed"
+        }
+        for session_id in attempted_ids:
+            attempt_counts[session_id] = attempt_counts.get(session_id, 0) + 1
         ledger["day"] = day
-        ledger["processed_session_ids"] = sorted(processed_today.union(completed_ids))
+        ledger["attempted_session_ids"] = sorted(attempted_today.union(attempted_ids))
+        ledger["attempt_counts"] = dict(sorted(attempt_counts.items()))
+        ledger["processed_session_ids"] = sorted(processed_today.union(verified_ids))
+        ledger["retryable_session_ids"] = sorted(
+            session_id
+            for session_id in retryable_ids
+            if attempt_counts.get(session_id, 0) < 2
+        )
         ledger.setdefault("runs", []).append(
             {
                 "run_id": run_id,
                 "at": current.isoformat(),
                 "selected": [row["session_id"] for row in selected],
-                "completed": completed_ids,
+                "verified": sorted(verified_ids),
             }
         )
         ledger_path = _write_ledger(data_dir, day, ledger)
-        result = {
-            **base,
-            "success": all(item.get("status") == "completed" for item in outcomes) if outcomes else True,
-            "outcomes": outcomes,
-            "ledger": str(ledger_path),
-            "completed": len(completed_ids),
-            "deferred": sum(item.get("status") != "completed" for item in outcomes),
-        }
-        if verify:
-            result["verification"] = await _verify_archive_distill_run(
-                backend,
-                result=result,
-                ledger=ledger,
-            )
-            result["success"] = bool(
-                result["success"]
-                and result["verification"]["status"] == "passed"
-            )
-        else:
-            result["verification"] = {
-                "status": "not_run",
-                "reason": "--verify was not requested",
+        for outcome in outcomes:
+            session_id = str(outcome.get("session_id") or "")
+            if session_id not in verified_ids:
+                continue
+            terminal_sessions[session_id] = {
+                "session_id": session_id,
+                "source_revision": outcome.get("source_revision"),
+                "project_name": outcome.get("project_name"),
+                "project_root": outcome.get("project_root"),
+                "distill_job_id": outcome.get("distill_job_id"),
+                "disposition": "verified_completed",
+                "verified_at": verification["verified_at"],
+                "run_id": run_id,
             }
+        verification_by_session = {
+            str(item.get("session_id") or ""): item
+            for item in verification["outcomes"]
+        }
+        outcomes_by_session = {
+            str(item.get("session_id") or ""): item for item in outcomes
+        }
+        quarantined_ids = {
+            session_id
+            for session_id in retryable_ids
+            if attempt_counts.get(session_id, 0) >= 2
+        }
+        selected_by_session = {
+            str(item["session_id"]): item for item in selected
+        }
+        for session_id in attempted_ids:
+            outcome = outcomes_by_session[session_id]
+            row = selected_by_session[session_id]
+            durable_attempts[session_id] = {
+                "session_id": session_id,
+                "source_revision": outcome.get("source_revision")
+                or _source_revision(Path(str(row["source_path"]))),
+                "count": attempt_counts[session_id],
+                "last_status": outcome.get("status"),
+                "last_reason": outcome.get("reason"),
+                "last_run_id": run_id,
+                "updated_at": verification["verified_at"],
+            }
+        for session_id in quarantined_ids:
+            outcome = outcomes_by_session[session_id]
+            row = next(
+                item for item in selected if str(item["session_id"]) == session_id
+            )
+            terminal_sessions[session_id] = {
+                "session_id": session_id,
+                "source_revision": outcome.get("source_revision")
+                or _source_revision(Path(str(row["source_path"]))),
+                "project_name": outcome.get("project_name"),
+                "project_root": outcome.get("project_root"),
+                "distill_job_id": outcome.get("distill_job_id"),
+                "disposition": "quarantined",
+                "reason": outcome.get("reason") or outcome.get("status"),
+                "failed_checks": verification_by_session[session_id].get(
+                    "failed_checks", []
+                ),
+                "attempt_count": attempt_counts[session_id],
+                "verified_at": verification["verified_at"],
+                "run_id": run_id,
+            }
+        terminal_index = {
+            "version": 1,
+            "updated_at": _now().isoformat(),
+            "sessions": terminal_sessions,
+            "attempts": durable_attempts,
+            "inventory_dispositions": inventory_dispositions,
+        }
+        terminal_path = _write_json_atomic(_terminal_index_path(data_dir), terminal_index)
+        result["ledger"] = str(ledger_path)
+        result["terminal_index"] = str(terminal_path)
+        result["partial_receipt_repair"] = partial_repair
+        result["verified_completed"] = len(verified_ids)
+        result["quarantined"] = len(quarantined_ids)
+        result["verification"] = verification if verify else {
+            "status": verification["status"],
+            "verified_at": verification["verified_at"],
+            "reason": "automatic terminal admission verification",
+        }
+        result["success"] = bool(result["success"] and verification["status"] == "passed")
         result["finished_at"] = _now().isoformat()
         receipt_path = _write_json_atomic(
             _run_receipt_path(data_dir, run_id),
@@ -541,11 +877,9 @@ async def _verify_archive_distill_run(
     backend: LocalMemoryBackend,
     *,
     result: dict[str, Any],
-    ledger: dict[str, Any],
 ) -> dict[str, Any]:
     """Read back one real run without reopening stores or loading embeddings."""
 
-    processed = set(map(str, ledger.get("processed_session_ids") or []))
     receipts = {
         str(item.get("id")): item
         for item in backend.transcript_store.list_deletion_audit()
@@ -581,12 +915,19 @@ async def _verify_archive_distill_run(
         except OSError:
             pass
         promoted = list(persisted_packet.get("promoted_items") or [])
+        cleanup_status = str(job.source_cleanup_status or "") if job else "missing"
+        cleanup_verified = bool(
+            cleanup_status == "deleted"
+            and cleanup
+            and (cleanup.get("verification") or {}).get("passed") is True
+        )
         retrieval = await _verify_promoted_items(
             backend,
             project_name=project_name,
+            job_id=job_id,
             promoted_items=promoted,
+            allow_sanitized_project_retrieval=cleanup_verified,
         )
-        cleanup_status = str(job.source_cleanup_status or "") if job else "missing"
         identity_binding_valid = bool(
             job
             and (
@@ -636,8 +977,6 @@ async def _verify_archive_distill_run(
             "note_meaningful": len(note_text.strip()) >= 200,
             "note_session_binding_valid": session_id in note_text,
             "note_job_binding_valid": job_id in note_text,
-            "ledger_recorded": session_id in processed,
-            "replay_skipped": session_id in processed,
             "source_cleanup_verified": cleanup_passed,
             "retrieval_verified": retrieval["status"] in {"passed", "not_applicable"},
         }
@@ -676,7 +1015,9 @@ async def _verify_promoted_items(
     backend: LocalMemoryBackend,
     *,
     project_name: str,
+    job_id: str,
     promoted_items: list[dict[str, Any]],
+    allow_sanitized_project_retrieval: bool = False,
 ) -> dict[str, Any]:
     if not promoted_items:
         return {
@@ -684,33 +1025,77 @@ async def _verify_promoted_items(
             "reason": "no_promoted_items",
             "items": [],
         }
-    rules = await backend.structured_store.list_confirmed_rules(project_name)
-    relations = await backend.structured_store.list_relation_facts(
-        project_name,
-        limit=10_000,
-    )
+    job = backend.transcript_store.get_distill_job(job_id) if job_id else None
+    candidate_ids = set(job.output_candidate_ids if job else [])
+    truth_candidates: list[Any] = []
+    for candidate_id in candidate_ids:
+        candidate: Any = await backend.structured_store.get_memory_entry(candidate_id)
+        if candidate is None:
+            candidate = await backend.structured_store.get_rule_candidate(candidate_id)
+        if candidate is None:
+            candidate = await backend.structured_store.get_relation_fact(candidate_id)
+        if (
+            candidate is not None
+            and candidate.project_name == project_name
+            and candidate.distill_job_id == job_id
+            and candidate.status in TRUTH_LAYER_STATUSES
+        ):
+            truth_candidates.append(candidate)
     checks: list[dict[str, Any]] = []
     for item in promoted_items:
         fact = str(item.get("fact") or "").strip()
         kind = str(item.get("kind") or "")
         if kind == "rule":
-            hit = any(rule.pattern.strip() == fact for rule in rules)
+            hit = any(
+                hasattr(candidate, "pattern") and candidate.pattern.strip() == fact
+                for candidate in truth_candidates
+            )
         elif kind == "relation":
             hit = any(
-                f"{relation.source_entity} {relation.relation_type} "
-                f"{relation.target_entity}".strip() == fact
-                for relation in relations
+                hasattr(candidate, "source_entity")
+                and f"{candidate.source_entity} {candidate.relation_type} "
+                f"{candidate.target_entity}".strip() == fact
+                for candidate in truth_candidates
             )
         else:
-            matches = await backend.structured_store.search_memory_entries(
-                fact,
-                project_name=project_name,
-                mode="fts",
-                limit=20,
-                include_provisional=True,
-                deep_recall=True,
+            hit = any(
+                hasattr(candidate, "content") and candidate.content.strip() == fact
+                for candidate in truth_candidates
             )
-            hit = any(entry.content.strip() == fact for entry in matches)
+        retrieval_mode = "job_bound_truth"
+        if not hit and allow_sanitized_project_retrieval:
+            retrieval_mode = "sanitized_project_truth"
+            if kind == "rule":
+                candidates = await backend.structured_store.list_rule_candidates(
+                    project_name
+                )
+                hit = any(
+                    candidate.status in TRUTH_LAYER_STATUSES
+                    and candidate.pattern.strip() == fact
+                    for candidate in candidates
+                )
+            elif kind == "relation":
+                relations = await backend.structured_store.list_relation_facts(
+                    project_name,
+                    limit=10_000,
+                    include_provisional=True,
+                )
+                hit = any(
+                    relation.status in TRUTH_LAYER_STATUSES
+                    and f"{relation.source_entity} {relation.relation_type} "
+                    f"{relation.target_entity}".strip() == fact
+                    for relation in relations
+                )
+            else:
+                matches = await backend.structured_store.search_memory_entries(
+                    fact,
+                    project_name=project_name,
+                    mode="fts",
+                    limit=20,
+                    include_provisional=True,
+                    deep_recall=True,
+                )
+                hit = any(entry.content.strip() == fact for entry in matches)
         checks.append(
             {
                 "title": item.get("title"),
@@ -718,6 +1103,7 @@ async def _verify_promoted_items(
                 "kind": kind,
                 "category": item.get("category"),
                 "retrieved": hit,
+                "retrieval_mode": retrieval_mode,
             }
         )
     return {

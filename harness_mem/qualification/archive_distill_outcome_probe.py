@@ -195,7 +195,11 @@ def run_archive_distill_outcome_probe() -> dict[str, Any]:
                 encoding="utf-8"
             ),
             "ledger_persisted": ledger.get("processed_session_ids")
-            == ["archive-probe"],
+            == ["archive-probe"]
+            and ledger.get("attempted_session_ids") == ["archive-probe"],
+            "terminal_index_persisted": Path(
+                str(first.get("terminal_index") or "")
+            ).is_file(),
             "replay_skipped": second.get("selected") == [],
             "truth_retrievable": any(
                 item.content == "Small changes should run related tests."
@@ -217,11 +221,16 @@ def run_archive_distill_outcome_probe() -> dict[str, Any]:
             "run_verification_passed": (
                 first.get("verification", {}).get("status") == "passed"
             ),
+            "run_verification": first.get("verification"),
             "run_receipt_persisted": Path(
                 str(first.get("run_receipt") or "")
             ).is_file(),
         }
-        required = [value for key, value in result.items() if key != "source_cleanup_status"]
+        required = [
+            value
+            for key, value in result.items()
+            if key not in {"source_cleanup_status", "run_verification"}
+        ]
         result["verified"] = all(required)
         return result
 

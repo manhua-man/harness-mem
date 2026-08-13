@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -12,6 +12,9 @@ from harness_mem.commands.archive_distill import (
     run_archive_distill_batch,
 )
 from harness_mem.config.merge import load_merged_config
+from harness_mem.core.schemas.rule_candidate import RuleCandidate
+from harness_mem.core.schemas.relation_fact import RelationFact
+from harness_mem.session_notes import materialize_session_note
 
 
 def _write_archive(root: Path, workspace: Path, session_id: str) -> Path:
@@ -114,6 +117,31 @@ def test_archive_dry_run_does_not_require_enabled_or_write_ledger(tmp_path: Path
     assert result["policy"]["allowed_project_roots"] == []
 
 
+def test_archive_run_limits_can_be_overridden_without_editing_config(tmp_path: Path) -> None:
+    control = tmp_path / "control"
+    project = tmp_path / "project"
+    control.mkdir()
+    project.mkdir()
+    archive = tmp_path / "archives"
+    for index in range(4):
+        _write_archive(archive, project, f"session-{index}")
+
+    result = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=False,
+            archive_dir=archive,
+            data_dir=tmp_path / "data",
+            batch_size=4,
+            daily_limit=4,
+        )
+    )
+
+    assert result["policy"]["batch_size"] == 4
+    assert result["policy"]["daily_limit"] == 4
+    assert len(result["selected"]) == 4
+
+
 def test_archive_dry_run_reports_bounded_unresolved_policy(tmp_path: Path) -> None:
     control = tmp_path / "control"
     control.mkdir()
@@ -170,7 +198,11 @@ def test_archive_apply_reports_persisted_answer_packet_and_daily_ledger(
     archive = tmp_path / "archives"
     _write_archive(archive, project, "session-a")
 
+    provider_calls = 0
+
     def fake_batch(backend, **kwargs):
+        nonlocal provider_calls
+        provider_calls += 1
         job_id = kwargs["preferred_job_id"]
         job = backend.transcript_store.get_distill_job(job_id)
         assert job is not None
@@ -184,6 +216,16 @@ def test_archive_apply_reports_persisted_answer_packet_and_daily_ledger(
                 lease_owner=lease_owner,
                 result={"summary": "read"},
             )
+        candidate = RuleCandidate(
+            project_name=job.project_name,
+            session_id=job.session_id,
+            pattern="Small changes require related tests.",
+            trigger="Related test rule",
+            confidence=0.95,
+            status="auto_confirmed",
+            distill_job_id=job.id,
+        )
+        asyncio.run(backend.structured_store.save_rule_candidate(candidate))
         backend.transcript_store.finalize_distill_job(
             job.id,
             semantic_review={
@@ -196,7 +238,7 @@ def test_archive_apply_reports_persisted_answer_packet_and_daily_ledger(
                 "evidence_status": "answered",
                 "promotion_decision": "promote",
             },
-            output_candidate_ids=[],
+            output_candidate_ids=[candidate.id],
         )
         packet = {
             "answer_status": "ANSWERED",
@@ -222,8 +264,11 @@ def test_archive_apply_reports_persisted_answer_packet_and_daily_ledger(
             disposition="promoted",
             reason_codes=["durable_memory_promoted"],
             promotion_summary={"promoted": 1, "answer_packet": packet},
-            source_cleanup_status="deleted",
+            source_cleanup_status="retained",
         )
+        stored = backend.transcript_store.get_distill_job(job.id)
+        assert stored is not None
+        note = materialize_session_note(stored, notes_dir=tmp_path / "notes")
         return {
             "success": True,
             "state": "succeeded",
@@ -232,7 +277,7 @@ def test_archive_apply_reports_persisted_answer_packet_and_daily_ledger(
                     "job_id": job.id,
                     "session_id": job.session_id,
                     "status": "completed",
-                    "note": {"path": str(tmp_path / "note.md")},
+                    "note": note,
                     "provider": {"total_tokens": 1000, "duration_seconds": 2.5},
                 }
             ],
@@ -250,6 +295,7 @@ def test_archive_apply_reports_persisted_answer_packet_and_daily_ledger(
             archive_dir=archive,
             data_dir=tmp_path / "data",
             now=now,
+            verify=True,
         )
     )
 
@@ -259,8 +305,10 @@ def test_archive_apply_reports_persisted_answer_packet_and_daily_ledger(
     assert outcome["answer_packet"]["answer_status"] == "ANSWERED"
     assert outcome["promoted_items"][0]["fact"] == "Small changes require related tests."
     assert outcome["warnings"] == []
+    assert outcome["execution"] == "provider_executed"
     ledger = json.loads(Path(result["ledger"]).read_text(encoding="utf-8"))
     assert ledger["processed_session_ids"] == ["session-a"]
+    assert provider_calls == 1
 
     repeated = asyncio.run(
         run_archive_distill_batch(
@@ -268,11 +316,19 @@ def test_archive_apply_reports_persisted_answer_packet_and_daily_ledger(
             apply=True,
             archive_dir=archive,
             data_dir=tmp_path / "data",
-            now=now,
+            now=now + timedelta(days=1),
+            verify=True,
         )
     )
     assert repeated["selected"] == []
     assert repeated["outcomes"] == []
+    assert repeated["terminal"]["verified_completed"] == 1
+    assert repeated["terminal"]["pending_eligible"] == 0
+    assert repeated["terminal"]["conserved"] is True
+    assert repeated["lifecycle_terminal"]["verified_completed"] == 1
+    assert repeated["lifecycle_terminal"]["pending_eligible"] == 0
+    assert repeated["lifecycle_terminal"]["conserved"] is True
+    assert provider_calls == 1
 
 
 def test_archive_apply_verify_emits_run_bound_direct_evidence(
@@ -379,6 +435,371 @@ def test_archive_apply_verify_emits_run_bound_direct_evidence(
         "items": [],
     }
     assert Path(result["run_receipt"]).is_file()
+
+
+def test_archive_completed_job_is_reverified_without_provider_replay(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    control = tmp_path / "control"
+    project = tmp_path / "project"
+    control.mkdir()
+    project.mkdir()
+    _write_config(control, enabled=True)
+    project.joinpath(".harness-mem.toml").write_text(
+        "[distill.autonomous]\nenabled = true\n",
+        encoding="utf-8",
+    )
+    archive = tmp_path / "archives"
+    source = _write_archive(archive, project, "session-reverify")
+    data = tmp_path / "data"
+
+    from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
+    from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+    backend = LocalMemoryBackend(data)
+    asyncio.run(backend.init())
+    try:
+        synced = asyncio.run(
+            CodexArchiveAdapter(backend, archive_dir=archive).sync_session(
+                source,
+                "session-reverify",
+                project.name,
+                project_root=project,
+            )
+        )
+        job = backend.transcript_store.get_distill_job(str(synced.distill_job_id))
+        assert job is not None
+        owner = "reverify-test"
+        for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
+            job.id, lease_owner=owner, limit=100
+        ):
+            backend.transcript_store.checkpoint_distill_chunk(
+                job.id, chunk.id, lease_owner=owner, result={"summary": "read"}
+            )
+        candidate = RuleCandidate(
+            project_name=project.name,
+            session_id="session-reverify",
+            pattern="Persist verified archive terminal states.",
+            trigger="After archive distill verification",
+            confidence=0.95,
+            status="auto_confirmed",
+            distill_job_id=job.id,
+        )
+        asyncio.run(backend.structured_store.save_rule_candidate(candidate))
+        backend.transcript_store.finalize_distill_job(
+            job.id,
+            semantic_review={
+                "session_summary": "The user requested durable archive completion tracking.",
+                "final_user_request": "Persist verified terminal states.",
+                "final_outcome": "The durable rule was accepted.",
+                "last_turn_status": "answered",
+                "contradictions": [],
+                "unfinished_work": [],
+                "evidence_status": "answered",
+                "promotion_decision": "promote",
+            },
+            output_candidate_ids=[candidate.id],
+        )
+        packet = {
+            "answer_status": "ANSWERED",
+            "question": "How should archive completion be tracked?",
+            "core_conclusion": candidate.pattern,
+            "evidence_basis": ["user_statement"],
+            "verified_at": "2026-08-13T00:00:00+00:00",
+            "promotion_status": "promoted",
+            "promoted_items": [{
+                "title": candidate.trigger,
+                "fact": candidate.pattern,
+                "kind": "rule",
+                "category": "rule",
+            }],
+            "destination_project": project.name,
+            "knowledge_kind": ["rule"],
+            "knowledge_category": ["rule"],
+        }
+        backend.transcript_store.record_distill_completion_outcome(
+            job.id,
+            disposition="promoted",
+            reason_codes=["durable_memory_promoted"],
+            promotion_summary={"promoted": 1, "answer_packet": packet},
+            source_cleanup_status="retained",
+        )
+    finally:
+        asyncio.run(backend.close())
+
+    def fail_if_provider_runs(*_args, **_kwargs):
+        raise AssertionError("completed job must be reverified without provider")
+
+    monkeypatch.setattr(
+        "harness_mem.commands.archive_distill.run_autonomous_distill_batch",
+        fail_if_provider_runs,
+    )
+    result = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=True,
+            verify=True,
+            archive_dir=archive,
+            data_dir=data,
+            notes_dir=tmp_path / "notes",
+        )
+    )
+
+    assert result["success"] is True
+    assert result["verified_completed"] == 1
+    assert result["outcomes"][0]["execution"] == "completed_job_reverified"
+    assert result["outcomes"][0]["provider"]["total_tokens"] == 0
+    assert result["verification"]["outcomes"][0]["retrieval"]["status"] == "passed"
+
+
+def test_archive_sanitized_retrieval_includes_provisional_relations(
+    tmp_path: Path,
+) -> None:
+    from harness_mem.commands.archive_distill import _verify_promoted_items
+    from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    try:
+        relation = RelationFact(
+            project_name="demo",
+            source_entity="canonical_store",
+            relation_type="provides durable truth independently of",
+            target_entity="derived indexes",
+            confidence=0.95,
+            status="provisional",
+            evidence="Verified user statement.",
+            source="processed_source_pruned",
+        )
+        asyncio.run(backend.structured_store.save_relation_fact(relation))
+        result = asyncio.run(
+            _verify_promoted_items(
+                backend,
+                project_name="demo",
+                job_id="pruned-job",
+                promoted_items=[{
+                    "title": "canonical_store relation",
+                    "fact": (
+                        "canonical_store provides durable truth independently of "
+                        "derived indexes"
+                    ),
+                    "kind": "relation",
+                    "category": relation.relation_type,
+                }],
+                allow_sanitized_project_retrieval=True,
+            )
+        )
+    finally:
+        asyncio.run(backend.close())
+
+    assert result["status"] == "passed"
+    assert result["items"][0]["retrieval_mode"] == "sanitized_project_truth"
+
+
+def test_archive_repair_only_reverifies_deleted_partial_receipt_without_provider(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    control = tmp_path / "control"
+    project = tmp_path / "project"
+    control.mkdir()
+    project.mkdir()
+    _write_config(control, enabled=True)
+    project.joinpath(".harness-mem.toml").write_text(
+        "[distill.autonomous]\nenabled = true\n",
+        encoding="utf-8",
+    )
+    archive = tmp_path / "archives"
+    data = tmp_path / "data"
+    source = _write_archive(archive, project, "session-deleted-repair")
+    source.write_text(
+        source.read_text(encoding="utf-8").replace(
+            "Always run the related tests for small changes.",
+            "Return exactly: OK",
+        ),
+        encoding="utf-8",
+    )
+    first = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=True,
+            verify=True,
+            archive_dir=archive,
+            data_dir=data,
+            provider=None,
+            notes_dir=tmp_path / "notes",
+        )
+    )
+    # Replace the successful terminal admission with a historical partial receipt;
+    # the completed job and Note remain the repair authority after source removal.
+    terminal = Path(str(first["terminal_index"]))
+    terminal.write_text('{"version": 1, "sessions": {}}\n', encoding="utf-8")
+    receipt_path = Path(str(first["run_receipt"]))
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload["success"] = False
+    payload["verification"]["status"] = "partial"
+    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+    source.unlink(missing_ok=True)
+
+    def fail_if_provider_runs(*_args, **_kwargs):
+        raise AssertionError("repair-only must not run provider")
+
+    monkeypatch.setattr(
+        "harness_mem.commands.archive_distill.run_autonomous_distill_batch",
+        fail_if_provider_runs,
+    )
+    repaired = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=True,
+            verify=True,
+            repair_only=True,
+            archive_dir=archive,
+            data_dir=data,
+            notes_dir=tmp_path / "notes",
+        )
+    )
+
+    assert repaired["selected"] == []
+    assert repaired["partial_receipt_repair"]["count"] == 1
+    index = json.loads(terminal.read_text(encoding="utf-8"))
+    entry = index["sessions"]["session-deleted-repair"]
+    assert entry["disposition"] == "verified_completed"
+    assert entry["repaired_from_partial_receipt"] is True
+
+
+def test_archive_attempt_budget_is_durable_across_utc_days(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    control = tmp_path / "control"
+    project = tmp_path / "project"
+    control.mkdir()
+    project.mkdir()
+    _write_config(control, enabled=True)
+    project.joinpath(".harness-mem.toml").write_text(
+        "[distill.autonomous]\nenabled = true\n",
+        encoding="utf-8",
+    )
+    archive = tmp_path / "archives"
+    _write_archive(archive, project, "session-bounded-retry")
+    calls = 0
+
+    def always_deferred(backend, **kwargs):
+        nonlocal calls
+        calls += 1
+        job = backend.transcript_store.get_distill_job(kwargs["preferred_job_id"])
+        assert job is not None
+        return {
+            "success": False,
+            "state": "deferred",
+            "outcomes": [{
+                "job_id": job.id,
+                "session_id": job.session_id,
+                "status": "deferred",
+                "provider": {"total_tokens": 0, "duration_seconds": 0.0},
+            }],
+        }
+
+    monkeypatch.setattr(
+        "harness_mem.commands.archive_distill.run_autonomous_distill_batch",
+        always_deferred,
+    )
+    data = tmp_path / "data"
+    first = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=True,
+            verify=True,
+            archive_dir=archive,
+            data_dir=data,
+            now=datetime(2026, 8, 13, tzinfo=timezone.utc),
+        )
+    )
+    second = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=True,
+            verify=True,
+            archive_dir=archive,
+            data_dir=data,
+            now=datetime(2026, 8, 14, tzinfo=timezone.utc),
+        )
+    )
+    third = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=False,
+            archive_dir=archive,
+            data_dir=data,
+            now=datetime(2026, 8, 15, tzinfo=timezone.utc),
+        )
+    )
+
+    assert first["quarantined"] == 0
+    assert second["quarantined"] == 1
+    assert third["selected"] == []
+    assert third["terminal"]["quarantined"] == 1
+    assert calls == 2
+    index = json.loads(Path(second["terminal_index"]).read_text(encoding="utf-8"))
+    assert index["attempts"]["session-bounded-retry"]["count"] == 2
+    assert index["sessions"]["session-bounded-retry"]["disposition"] == "quarantined"
+
+
+def test_archive_new_source_revision_resets_attempt_budget(
+    tmp_path: Path,
+) -> None:
+    from harness_mem.transcript_chunking import transcript_bytes_revision
+
+    control = tmp_path / "control"
+    project = tmp_path / "project"
+    control.mkdir()
+    project.mkdir()
+    archive = tmp_path / "archives"
+    source = _write_archive(archive, project, "session-revised")
+    data = tmp_path / "data"
+    terminal = data / "archive_distill" / "terminal_index.json"
+    terminal.parent.mkdir(parents=True)
+    terminal.write_text(
+        json.dumps({
+            "version": 1,
+            "sessions": {},
+            "attempts": {
+                "session-revised": {
+                    "session_id": "session-revised",
+                    "source_revision": "sha256:" + "0" * 64,
+                    "count": 2,
+                }
+            },
+        }),
+        encoding="utf-8",
+    )
+    day = data / "archive_distill" / "daily" / "2026-08-13.json"
+    day.parent.mkdir(parents=True)
+    day.write_text(
+        json.dumps({
+            "day": "2026-08-13",
+            "attempted_session_ids": ["session-revised"],
+            "attempt_counts": {"session-revised": 2},
+            "processed_session_ids": [],
+            "runs": [],
+        }),
+        encoding="utf-8",
+    )
+
+    result = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=False,
+            archive_dir=archive,
+            data_dir=data,
+            now=datetime(2026, 8, 13, 12, tzinfo=timezone.utc),
+        )
+    )
+
+    assert result["selected"][0]["session_id"] == "session-revised"
+    assert transcript_bytes_revision(source.read_bytes()) != "sha256:" + "0" * 64
 
 
 def test_trivial_archive_request_is_classified_without_model(tmp_path: Path) -> None:

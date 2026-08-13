@@ -190,6 +190,117 @@ def test_autonomous_worker_adds_missing_exact_signal_labels_to_real_rationale() 
     assert rationale.startswith("The detected details describe only this run")
 
 
+def test_autonomous_worker_retries_inconsistent_zero_candidate_decision(
+    tmp_path: Path,
+) -> None:
+    source_revision = "sha256:" + "a" * 64
+    exchange_ref = {"exchange_index": 1, "content_sha256": "b" * 64}
+
+    def decision(*, corrected: bool) -> AutonomousDecision:
+        return AutonomousDecision.model_validate(
+            {
+                "semantic_review": {
+                    "session_summary": "The session described a potentially reusable workflow.",
+                    "final_user_request": "Review the workflow for durable utility.",
+                    "final_outcome": "The workflow was reviewed.",
+                    "last_turn_status": "answered",
+                    "contradictions": [],
+                    "unfinished_work": [],
+                    "evidence_status": "not_applicable",
+                    "promotion_decision": "no_promotion",
+                    "zero_candidate_challenge": {
+                        "version": "v1",
+                        "source_revision": source_revision,
+                        "evidence_fidelity": "complete",
+                        "future_utility": "session_only" if corrected else "durable",
+                        "checks": {
+                            "user_correction": "absent",
+                            "explicit_decision": "absent",
+                            "successful_solution": "absent",
+                            "repeated_failure": "absent",
+                            "rule_or_preference": "not_durable" if corrected else "absent",
+                            "reusable_workflow_or_fact": "not_durable" if corrected else "absent",
+                            "version_or_migration": "absent",
+                            "unfinished_handoff": "absent",
+                        },
+                        "inspected_exchange_refs": [exchange_ref],
+                        "conclusion": "no_durable_candidate",
+                        "rationale": (
+                            "rule_or_preference and reusable_workflow_or_fact are "
+                            "specific to this completed run and not stable project truth."
+                            if corrected
+                            else "The workflow appears durable but no candidate was returned."
+                        ),
+                    },
+                },
+                "candidates": [],
+            }
+        )
+
+    class RetryProvider:
+        name = "zero-retry-test"
+
+        def __init__(self) -> None:
+            self.manifests: list[dict] = []
+
+        def decide(self, manifest, *, runtime_dir, heartbeat=None):
+            del runtime_dir, heartbeat
+            self.manifests.append(manifest)
+            chosen = decision(corrected=len(self.manifests) == 2)
+            return ProviderResult(
+                decision=chosen,
+                provider=self.name,
+                model="test",
+                duration_seconds=0.1,
+                input_sha256=str(len(self.manifests)) * 64,
+                response_sha256="f" * 64,
+                input_tokens=100,
+                output_tokens=20,
+                total_tokens=120,
+                event_count=1,
+            )
+
+    provider = RetryProvider()
+    job = SessionDistillJob(
+        id="job-zero",
+        idempotency_key="key-zero",
+        project_name="demo",
+        project_root="F:/demo",
+        client="codex",
+        session_id="session-zero",
+        source_id="source-zero",
+        source_revision=source_revision,
+        status="reviewing",
+        phase="review",
+        expected_chunk_count=1,
+        completed_chunk_count=1,
+    )
+    result, final, validated, warnings = _decide_with_candidate_retry(
+        provider,
+        manifest={"contract_version": "test"},
+        packet={
+            "zero_candidate_challenge_template": {
+                "checks": {
+                    "rule_or_preference": "candidate_required",
+                    "reusable_workflow_or_fact": "candidate_required",
+                }
+            }
+        },
+        job=job,
+        runtime_dir=tmp_path,
+        heartbeat=None,
+    )
+
+    assert len(provider.manifests) == 2
+    feedback = provider.manifests[1]["candidate_validation_feedback"]
+    assert "schema inconsistent" in " ".join(feedback["errors"])
+    assert "cannot be marked absent" in " ".join(feedback["errors"])
+    assert final.semantic_review.zero_candidate_challenge.future_utility == "session_only"
+    assert validated == []
+    assert warnings == []
+    assert result.attempt_count == 2
+
+
 def test_reconciled_reviewing_trigger_job_remains_preferred() -> None:
     job = SessionDistillJob(
         id="job-1",

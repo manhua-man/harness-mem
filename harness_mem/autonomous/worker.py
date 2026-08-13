@@ -22,7 +22,10 @@ from harness_mem.autonomous.provider import (
 )
 from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.config.merge import MergedConfig
-from harness_mem.core.schemas.session_distill import SessionDistillJob
+from harness_mem.core.schemas.session_distill import (
+    SessionDistillJob,
+    ZeroCandidateChallenge as RuntimeZeroCandidateChallenge,
+)
 from harness_mem.hook_receipts import hook_configuration_fingerprint
 from harness_mem.session_notes import (
     existing_session_note_path,
@@ -855,6 +858,43 @@ def _normalize_zero_candidate_signal_labels(
     return decision.model_copy(update={"semantic_review": updated_review})
 
 
+def _zero_candidate_validation_errors(
+    decision: Any,
+    *,
+    packet: dict[str, Any],
+) -> list[str]:
+    """Validate provider no-candidate state before governance/finalization."""
+
+    if decision.candidates:
+        return []
+    challenge = decision.semantic_review.zero_candidate_challenge
+    if challenge is None:
+        return ["zero_candidate_challenge is required"]
+    errors: list[str] = []
+    try:
+        RuntimeZeroCandidateChallenge.model_validate(
+            challenge.model_dump(mode="json")
+        )
+    except ValueError as exc:
+        errors.append(f"zero_candidate_challenge schema inconsistent: {exc}")
+    template = packet.get("zero_candidate_challenge_template")
+    template_checks = template.get("checks") if isinstance(template, dict) else None
+    if isinstance(template_checks, dict):
+        challenge_checks = challenge.checks.model_dump()
+        incorrectly_absent = sorted(
+            signal
+            for signal, expected in template_checks.items()
+            if expected == "candidate_required"
+            and challenge_checks.get(signal) == "absent"
+        )
+        if incorrectly_absent:
+            errors.append(
+                "detected durable signals cannot be marked absent: "
+                + ", ".join(incorrectly_absent)
+            )
+    return errors
+
+
 def _decide_with_candidate_retry(
     provider: DistillProvider,
     *,
@@ -881,7 +921,7 @@ def _decide_with_candidate_retry(
         )
         decision = normalize_provider_review_state(decision)
         validated: list[tuple[Any, dict[str, Any]]] = []
-        warnings: list[str] = []
+        warnings = _zero_candidate_validation_errors(decision, packet=packet)
         for index, candidate in enumerate(decision.candidates):
             control_reason = provider_candidate_control_reason(
                 candidate,
@@ -896,17 +936,19 @@ def _decide_with_candidate_retry(
                 warnings.append(f"candidate[{index}]: {exc}")
                 continue
             validated.append((candidate, arguments))
-        if not decision.candidates or validated or attempt == 1:
+        decision_valid = bool(decision.candidates or not warnings)
+        if (decision_valid and (not decision.candidates or validated)) or attempt == 1:
             return _combine_provider_results(results), decision, validated, warnings
         current_manifest = {
             **manifest,
             "candidate_validation_feedback": {
                 "errors": warnings,
                 "instruction": (
-                    "All candidates violated their kind contract. Return a corrected "
-                    "decision. memory requires category/content/confidence; rule "
-                    "requires pattern/trigger; relation requires source_entity/"
-                    "target_entity/relation_type/evidence/confidence."
+                    "Return a corrected decision. Candidate rows must satisfy their "
+                    "kind contract. For zero candidates, the challenge must satisfy "
+                    "its schema and may not mark template-detected candidate_required "
+                    "signals absent; create a scoped candidate/handoff or justify a "
+                    "session-only not_durable downgrade."
                 ),
             },
         }

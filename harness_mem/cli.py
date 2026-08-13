@@ -220,6 +220,21 @@ def main(argv: list[str] | None = None):
         action="store_true",
         help="Read back jobs, Notes, ledger, cleanup, and promoted truth in one run",
     )
+    archive_distill.add_argument(
+        "--batch-size",
+        type=int,
+        help="Override this run's batch size without changing project defaults",
+    )
+    archive_distill.add_argument(
+        "--daily-limit",
+        type=int,
+        help="Override this run's daily attempt limit without changing project defaults",
+    )
+    archive_distill.add_argument(
+        "--repair-only",
+        action="store_true",
+        help="Reverify historical completed partial receipts without selecting archives",
+    )
     _add_dry_apply_group(archive_distill)
 
     import_cmd = maintenance_sub.add_parser(
@@ -485,6 +500,9 @@ def main(argv: list[str] | None = None):
                         else None
                     ),
                     verify=args.verify,
+                    batch_size=args.batch_size,
+                    daily_limit=args.daily_limit,
+                    repair_only=args.repair_only,
                 )
             )
             print_archive_distill_result(result, as_json=args.json)
