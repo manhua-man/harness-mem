@@ -9,10 +9,40 @@ schemas and registry entries are retired. Their private implementations remain
 behind the composite boundary. Remaining follow-up is audit-inbox UX polish
 and measured long-running drainer telemetry.
 
+## Current contract and 0.9.13-0.9.15 convergence
+
+This document records the currently shipped status layers. It must not be read
+as a claim that every `provisional` row is good long-term memory. The
+[four-stage quality delivery plan](roadmap/0.9.13-four-stage-memory-quality.md)
+defines an explicit assimilation stage between the Answer Gate and truth mutation:
+
+```text
+extract -> verify each promotion point -> assimilate -> retrieve/use
+```
+
+As implemented for newly autonomous session distill jobs:
+
+- one session may produce several independent promotion points;
+- `ANSWERED` proves the candidate's evidence question, not its durability;
+- assimilation performs `add`, `refine`, `confirm`, `supersede`, `no_write`,
+  `handoff`, `defer`, or `conflict` against current project truth;
+- new autonomous distill does not use `provisional` as a catch-all destination
+  for ambiguous or task-local content;
+- existing provisional rows stay opt-in; the still-planned 0.9.15 gives the frozen 122-ID
+  archive-derived cohort and a separately authorized delta terminal
+  dispositions without mutating unscoped projects;
+- normal retrieval exposes canonical prose, while IDs, evidence envelopes, and
+  reason codes remain audit-only.
+
+The status tables below retain the legacy/manual candidate vocabulary. They do
+not authorize a new autonomous job to write `provisional` as a fallback; its
+per-point assimilation result is the write boundary.
+
 ```text
 immutable source revision -> complete ordered chunks -> final-session review
-  -> idempotent candidate -> finalize_session_distill -> auto_confirmed / provisional truth
-  -> ledger -> /hm:review audit -> user_confirmed
+  -> idempotent candidate -> revalidate each point -> bounded assimilation
+  -> canonical truth | no-write | handoff | defer/conflict/reject
+  -> Answer Packet + Note + audit ledger
 ```
 
 The source revision is the authoritative session record. Observations are

@@ -140,39 +140,41 @@ Use `$hm-review` later for audit, correction, undo, replacement, or explicit tru
 
 ## User-visible result
 
-Return the formal `answer_packet` derived by finalize. The runtime owns
-`answer_status`; never copy an Agent-authored status from semantic review or
-invent `ANSWERED`. Show every field needed to understand verification and
-promotion without exposing internal IDs:
+Read the formal `answer_packet` derived by finalize, but present one public
+concept: long-term memory. The runtime owns `answer_status`; never copy an Agent-authored status from semantic review or invent `ANSWERED`. Translate
+runtime values into plain language and do not expose storage kinds or categories
+in the default result:
 
 ```text
 会话：<session_summary>
-验证状态：<answer_status>
-验证问题：<question>
-核心结论：<core_conclusion>
-证据基础：<evidence_basis>
-验证时间：<verified_at>
-知识库晋升：<promotion_status> → <destination_project>
-知识类型/分类：<knowledge_kind> / <knowledge_category>
+已完成整理：<形成 N 条长期记忆 / 无需长期记忆>。
+结果校验：<已验证 / 证据不完整 / 没有充分证据 / 证据冲突 / 证据已过期>。
 未完成：<无 / concise unfinished work>
 原文：<retained / deleted / partial failure / unsupported>
-Note：<path>
+会话记录（Note）：<path>
 ```
 
 `Note` is the immutable path returned as `note.path`. `note.latest_path` is the stable user shortcut for the newest completed revision of that session; it is not used as the audit receipt.
 
 When durable memories were formed, render each `promoted_items` entry as one
-verifiable fact in this shape:
+verifiable fact. `kind`, `category`, `knowledge_kind`, and
+`knowledge_category` remain internal audit metadata and are not separate
+user-facing memory products:
 
 ```text
-- **<title>**: <fact> (<kind> / <category>; <verified_at>; <evidence_basis>).
+- **<title>**：<fact>（<验证日期；当前项目已验证 / 用户已确认>）。
 ```
 
 For `PARTIAL`, `UNANSWERED`, `CONTRADICTED`, `STALE`, or `NOT_APPLICABLE`,
-still show the packet and explicitly say `知识库晋升：无` when
+still show the result and explicitly say `无需长期记忆` when
 `promoted_items` is empty. Never imply promotion from semantic review alone.
 Finalize persists the packet in the existing job completion receipt;
 the Session Note is its readable projection, not another truth store.
+
+`job_bound_truth` and `sanitized_project_truth` are internal archive-audit
+routes, not user concepts. In default output say only whether each saved memory
+was read back successfully. If the user explicitly requests audit detail,
+translate them as `按原处理记录回查` and `清理原文后按项目记忆回查`.
 
 Do not append session, job, candidate, memory, evidence, or source IDs to those
 bullets or to the default readable Note. IDs, token counts, policy reasons, and

@@ -164,25 +164,24 @@ This is a user-invocable harness-mem Daily command. Follow the action below thro
    项目真相。只复用已经提交的 semantic review，不启动额外导出，不重新消耗模型
    阅读原文。
 
-   默认逐条展示 finalize 返回的正式 `answer_packet`，至少呈现验证状态、验证问题、核心结论、证据基础、验证时间、晋升状态、目标项目、知识类型/分类和晋升内容；不展示 transcript、session/job/candidate/memory/evidence/source ID 或详细计数：
+   默认读取 finalize 返回的正式 `answer_packet`，但对用户只呈现一个概念：长期记忆。内部的 `kind`、`category`、`knowledge_kind` 和 `knowledge_category` 只用于存储、治理和审计，不得在默认结果中显示为不同记忆产品。所有状态翻译成白话；不展示 transcript、session/job/candidate/memory/evidence/source ID 或详细计数：
 
    ```text
    会话：<session_summary>
-   验证状态：<answer_packet.answer_status>
-   核心结论：<answer_packet.core_conclusion>
-   知识库晋升：<answer_packet.promotion_status> → <answer_packet.destination_project>
+   已完成整理：<形成 N 条长期记忆 / 无需长期记忆>。
+   结果校验：<已验证 / 证据不完整 / 没有充分证据 / 证据冲突 / 证据已过期>。
    未完成：<无 / unfinished_work 摘要>。
    原文：<已保留 / 已删除 / 部分失败 / 当前宿主不支持>。
-   Note：<路径>。
+   会话记录（Note）：<路径>。
    ```
 
-   如果形成长期记忆，必须逐项原样投影 `answer_packet.promoted_items`，在摘要和 Note 中按“一条记忆一个可验证事实”列出 title、fact、kind/category：
+   如果形成长期记忆，必须逐项原样投影 `answer_packet.promoted_items`，在摘要和 Note 中按“一条记忆一个可验证事实”列出 title 和 fact；不要显示内部 kind/category：
 
    ```text
-   - **<title>**：<fact>（<kind> / <category>；<verified_at>；<evidence_basis>）。
+   - **<title>**：<fact>（<验证日期；当前项目已验证 / 用户已确认>）。
    ```
 
-   `PARTIAL`、`UNANSWERED`、`CONTRADICTED`、`STALE` 或 `NOT_APPLICABLE` 也必须展示可读 packet；`promoted_items` 为空时明确写“知识库晋升：无”，不得从 semantic review 猜测晋升。ID 只用于内部去重、审计、纠错和 undo，不附加在默认记忆正文中。只有用户要求审计详情时，才展示计数、session/job/candidate/memory/evidence/source ID、verification refs 和 `$hm-review` 入口。
+   `PARTIAL`、`UNANSWERED`、`CONTRADICTED`、`STALE` 或 `NOT_APPLICABLE` 也必须展示可读结果；`promoted_items` 为空时明确写“无需长期记忆”，不得从 semantic review 猜测晋升。`job_bound_truth` 和 `sanitized_project_truth` 是内部回查路径，不是两套记忆；默认只说“长期记忆已回查 / 回查失败”。用户明确要求审计细节时，分别翻译为“按原处理记录回查”和“清理原文后按项目记忆回查”。ID 只用于内部去重、审计、纠错和 undo，不附加在默认记忆正文中。只有用户要求审计详情时，才展示计数、session/job/candidate/memory/evidence/source ID、verification refs 和 `$hm-review` 入口。
 
    如果用户要求处理多个 session，逐 job 完成 prepare → candidate/no-candidate →
    finalize/defer；一次显式 distill 最多处理 3 条，任一 job 的失败不得污染其他 job。

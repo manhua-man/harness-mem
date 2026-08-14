@@ -17,6 +17,10 @@ captured-to-feedback funnel, and fail-closed distill admission.
 Version 0.9.12 adds opt-in detached semantic execution with outcome-bound
 runtime receipts, current-Stop priority, immutable revision Notes, and a
 deterministic 24-path distill acceptance suite.
+Versions 0.9.13-0.9.15 keep the lossless extraction path intact and converge
+the full Stage 0--4 lifecycle in three releasable steps: a shadow
+contract/baseline, per-point verification plus canonical assimilation, then
+clean retrieval and governed legacy convergence.
 No separate 0.9.2, 0.9.4, 0.9.7, 0.9.8, or 0.9.10 package or tag was published. The
 stable loop is
 not a manual checklist:
@@ -58,6 +62,28 @@ not pending work.
 | `0.9.10` | Incremental context lineage and evidence-safe projection. | Hash-verified appended revisions reuse prior semantic work; tool/result boundaries remain intact; context receipts report real budget outcomes and token basis. | A Pi SessionManager, second truth store, Pi host adapter, fixed model budgets, or treating summaries as durable truth. |
 | `0.9.11` | Effective memory closure. | Complete MCP responses report actual serialized cost; automatic wake can process two isolated jobs and explicit distill up to three; status exposes distinct-job and explicit-feedback funnels without storing content. | A fixed 3k cap, sequential first-N clipping, background semantic workers, another store/tool, or inferred positive feedback. |
 | `0.9.12` | Outcome-verified autonomous distill. | An explicitly authorized isolated provider can turn the current native Stop into a completed job, immutable Note, and retrievable truth with bound receipts; F1-F7 fixtures exercise all 24 acceptance paths. | Enabling provider use without consent, trusting queued/completed flags without artifacts, or letting historical backlog displace the current Stop. |
+| `0.9.13` | Four-stage quality contract and shadow baseline. | F8-F11 and forbidden-write fixtures define multi-point verification, assimilation, and clean retrieval; the real archive-derived cohort receives only read-only shadow classification and migration rehearsal. | Production truth mutation, default retrieval changes, extraction changes, or a new public tool/store. |
+| `0.9.14` | Per-point verification and canonical assimilation. | ANSWERED points independently enter add/refine/confirm/supersede/no-write/handoff/defer/conflict/reject decisions; rules materialize into the current read model; new autonomous distill writes no provisional truth. | Legacy cohort mutation, canonical-only default retrieval cutover, or mandatory human approval for ordinary memory. |
+| `0.9.15` | Clean retrieval and governed legacy convergence. | Default memory search uses current canonical truth only; explicit audit/raw paths preserve provenance; the frozen 122-ID cohort and separately authorized delta converge with receipts, rollback rehearsal, and normal-path retrieval evidence. | Global mutation of unscoped projects, physical history deletion, or hiding bad truth only by lowering rank. |
+
+## 0.9.13-0.9.15 - Session Lifecycle and Memory Quality Convergence
+
+The full product chain is `session intake and lifecycle -> extraction ->
+per-point verification -> assimilation -> retrieval/use`. Stage 0 owns native
+intake, authorization, immutable revisions, job/receipt lifecycle, and safe
+source cleanup; stages 1--4 decide and use long-term knowledge. This delivery
+train preserves native revision/chunk ingest, the coverage-first manifest,
+drilldown, and the existing zero-to-twelve candidate extraction.
+0.9.13 first makes quality measurable without changing production behavior;
+0.9.14 separates source verification from durable-memory judgment and adds
+canonical assimilation; 0.9.15 keeps audit/raw evidence out of normal memory
+search and converges the scoped legacy cohort. `review` and `dream` are a
+maintenance feedback loop around assimilation and retrieval, not another linear
+stage.
+
+The detailed architecture, implementation slices, 122-entry migration,
+quality gates, rollback plan, and definition of done are in
+[0.9.13-four-stage-memory-quality.md](roadmap/0.9.13-four-stage-memory-quality.md).
 
 ## 0.9.12 - Outcome-Verified Autonomous Distill
 
