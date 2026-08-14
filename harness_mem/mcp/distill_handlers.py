@@ -26,12 +26,14 @@ from harness_mem.commands.support import (
     resolve_ingest_client,
 )
 from harness_mem.commands.distill_lifecycle import distill_drainer_metrics
+from harness_mem.commands.assimilation import apply_assimilation
 from harness_mem.commands.evidence_admission import answer_gate_status
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.adapters.projection_repair import repair_source_observation_projection
 from harness_mem.governance_status import CANDIDATE_LAYER_STATUSES, TRUTH_LAYER_STATUSES
 from harness_mem.core.schemas.session_distill import (
+    AssimilationPacketPoint,
     AnswerPacket,
     PromotedKnowledgeItem,
     SessionDistillJob,
@@ -1208,12 +1210,16 @@ def _knowledge_projection(candidate: Any) -> tuple[str, str, str, str]:
         fact = str(candidate.content).strip()
         category = str(getattr(candidate, "category", "knowledge") or "knowledge")
         kind = str(getattr(candidate, "memory_type", "memory") or "memory")
-        title = f"{category}：{fact.split('。', 1)[0].split('.', 1)[0][:80]}"
+        title = str(getattr(candidate, "canonical_title", "") or "").strip()
+        if not title:
+            title = f"{category}：{fact.split('。', 1)[0].split('.', 1)[0][:80]}"
         return title, fact, kind, category
     if hasattr(candidate, "pattern"):
         fact = str(candidate.pattern).strip()
         trigger = str(getattr(candidate, "trigger", "") or "").strip()
-        title = trigger[:80] or fact.split("。", 1)[0].split(".", 1)[0][:80]
+        title = str(getattr(candidate, "canonical_title", "") or "").strip()
+        if not title:
+            title = trigger[:80] or fact.split("。", 1)[0].split(".", 1)[0][:80]
         return title, fact, "rule", "rule"
     source = str(getattr(candidate, "source_entity", "") or "").strip()
     target = str(getattr(candidate, "target_entity", "") or "").strip()
@@ -1301,13 +1307,13 @@ async def _build_answer_packet(
     if len(items) == 1:
         conclusion = items[0].fact
     elif items:
-        conclusion = f"已验证并晋升 {len(items)} 条长期知识，具体内容见 promoted_items。"
+        conclusion = f"已验证并写入 {len(items)} 条长期记忆，具体内容见下方列表。"
     elif status == "NOT_APPLICABLE":
-        conclusion = "本次会话没有需要晋升的长期知识。"
+        conclusion = "本次会话没有需要写入的长期记忆。"
     elif status in {"PARTIAL", "UNANSWERED"}:
-        conclusion = "现有证据不足以形成长期知识，未执行晋升。"
+        conclusion = "现有证据不足以形成长期记忆，本次未写入。"
     elif status in {"CONTRADICTED", "STALE"}:
-        conclusion = "候选证据存在冲突或已失效，未执行晋升。"
+        conclusion = "候选证据存在冲突或已失效，本次未写入长期记忆。"
     else:
         conclusion = str(review.get("final_outcome") or "候选未通过晋升策略。").strip()
     bases = sorted(
@@ -1322,6 +1328,12 @@ async def _build_answer_packet(
         for candidate in candidates
         if runtime_reviewed and getattr(candidate, "verified_at", None) is not None
     ]
+    raw_point_results = promotion_counts.get("points")
+    point_results: list[dict[str, Any]] = (
+        [item for item in raw_point_results if isinstance(item, dict)]
+        if isinstance(raw_point_results, list)
+        else []
+    )
     return AnswerPacket(
         answer_status=cast(Any, status),
         question=question,
@@ -1333,6 +1345,23 @@ async def _build_answer_packet(
         destination_project=job.project_name,
         knowledge_kind=list(dict.fromkeys(item.kind for item in items)),
         knowledge_category=list(dict.fromkeys(item.category for item in items)),
+        point_results=[
+            AssimilationPacketPoint(
+                candidate_id=str(item.get("candidate_id") or ""),
+                answer_status=cast(Any, item.get("answer_status") or "UNANSWERED"),
+                disposition=str(item.get("disposition") or "reject"),
+                canonical_truth_ids=[
+                    str(value) for value in item.get("canonical_truth_ids") or []
+                ],
+                handoff_id=(
+                    str(item["handoff_id"])
+                    if item.get("handoff_id") is not None
+                    else None
+                ),
+            )
+            for item in point_results
+            if str(item.get("candidate_id") or "")
+        ],
     ).to_dict()
 
 
@@ -1503,7 +1532,23 @@ def tool_finalize_session_distill(
         "STALE": 0,
         "NOT_APPLICABLE": 0,
     }
-    if semantic_allows_candidate_review:
+    assimilation_plan = completed.semantic_review.get("assimilation")
+    assimilation_summary: dict[str, Any] | None = None
+    if isinstance(assimilation_plan, dict) and assimilation_plan.get("version") == "v1":
+        assimilation_summary = asyncio.run(
+            apply_assimilation(
+                backend,
+                project_name=project_name,
+                candidate_ids=candidate_ids,
+                plan=assimilation_plan,
+            )
+        )
+        payload["auto_review"] = {
+            "skipped": True,
+            "reason": "autonomous_assimilation_applied",
+            "candidate_ids": candidate_ids,
+        }
+    elif semantic_allows_candidate_review:
         summary = asyncio.run(
             auto_review_candidates(
                 backend,
@@ -1543,11 +1588,15 @@ def tool_finalize_session_distill(
         }
         payload["dream"] = dream_result
 
-    promotion_counts = asyncio.run(
-        _settle_distill_candidates(
-            backend,
-            project_name=project_name,
-            candidate_ids=candidate_ids,
+    promotion_counts = (
+        assimilation_summary
+        if assimilation_summary is not None
+        else asyncio.run(
+            _settle_distill_candidates(
+                backend,
+                project_name=project_name,
+                candidate_ids=candidate_ids,
+            )
         )
     )
     promotion: dict[str, Any] = {

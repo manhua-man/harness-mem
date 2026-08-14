@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
@@ -13,6 +14,7 @@ from typing import Any, Iterator, Protocol
 from uuid import uuid4
 
 from harness_mem.autonomous.models import (
+    AssimilationDecision,
     DistillCandidate,
 )
 from harness_mem.autonomous.provider import (
@@ -21,6 +23,10 @@ from harness_mem.autonomous.provider import (
     ResponsesApiProvider,
 )
 from harness_mem.commands.distill_lifecycle import pending_distill_jobs
+from harness_mem.commands.assimilation import (
+    prepare_assimilation,
+    validate_assimilation_decision,
+)
 from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas.session_distill import (
     SessionDistillJob,
@@ -57,6 +63,14 @@ class DistillProvider(Protocol):
     name: str
 
     def decide(
+        self,
+        manifest: dict[str, Any],
+        *,
+        runtime_dir: Path,
+        heartbeat: Any = None,
+    ) -> ProviderResult: ...
+
+    def assimilate(
         self,
         manifest: dict[str, Any],
         *,
@@ -605,6 +619,7 @@ def _run_one(
             )
         )
         governed_count = 0
+        governed_candidate_ids: list[str] = []
         for _candidate, arguments in validated_candidates:
             governed = tools.tool_govern_memory(action="suggest", arguments=arguments)
             if not governed.get("success"):
@@ -613,6 +628,13 @@ def _run_one(
                     kind="unrecoverable",
                 )
             governed_count += 1
+            candidate_id = _governed_candidate_id(governed)
+            if candidate_id is None:
+                raise ProviderError(
+                    "candidate governance did not return a persistent candidate id",
+                    kind="unrecoverable",
+                )
+            governed_candidate_ids.append(candidate_id)
         if decision.candidates and governed_count == 0:
             raise ProviderError(
                 "All provider candidates failed kind-specific validation: "
@@ -624,12 +646,49 @@ def _run_one(
             job=job,
             decision=decision,
         )
+        review_payload = decision.semantic_review.model_dump(
+            mode="json", exclude_none=True
+        )
+        assimilation_result: ProviderResult | None = None
+        if governed_candidate_ids:
+            prepared = asyncio.run(
+                prepare_assimilation(
+                    backend,
+                    project_name=project_name,
+                    candidate_ids=governed_candidate_ids,
+                )
+            )
+            if prepared.eligible_candidate_ids:
+                assimilate = getattr(provider, "assimilate", None)
+                if not callable(assimilate):
+                    raise ProviderError(
+                        "autonomous provider does not implement post-verification assimilation",
+                        kind="setup_required",
+                    )
+                assimilation_result = assimilate(
+                    prepared.manifest,
+                    runtime_dir=runtime_dir,
+                    heartbeat=heartbeat,
+                )
+                if not isinstance(assimilation_result.decision, AssimilationDecision):
+                    raise ProviderError(
+                        "assimilation provider returned an unexpected decision type",
+                        kind="unrecoverable",
+                    )
+                assimilation = validate_assimilation_decision(
+                    prepared,
+                    assimilation_result.decision,
+                )
+            else:
+                assimilation = validate_assimilation_decision(
+                    prepared,
+                    AssimilationDecision(points=[]),
+                )
+            review_payload["assimilation"] = assimilation
         finalized = tools.tool_finalize_session_distill(
             project_name=project_name,
             job_id=job_id,
-            semantic_review=decision.semantic_review.model_dump(
-                mode="json", exclude_none=True
-            ),
+            semantic_review=review_payload,
             _review_lease_owner=lease_owner,
         )
         if not finalized.get("success"):
@@ -668,6 +727,24 @@ def _run_one(
             "trigger_id_sha256": _identity_digest(trigger_id),
             "project_root_sha256": _identity_digest(str(project_root)),
         }
+        if assimilation_result is not None:
+            provider_receipt["extraction"] = provider_result.receipt()
+            provider_receipt["assimilation"] = assimilation_result.receipt()
+            provider_receipt["combined"] = {
+                "input_tokens": _sum_provider_metric(
+                    provider_result.input_tokens, assimilation_result.input_tokens
+                ),
+                "output_tokens": _sum_provider_metric(
+                    provider_result.output_tokens, assimilation_result.output_tokens
+                ),
+                "total_tokens": _sum_provider_metric(
+                    provider_result.total_tokens, assimilation_result.total_tokens
+                ),
+                "duration_seconds": round(
+                    provider_result.duration_seconds + assimilation_result.duration_seconds,
+                    3,
+                ),
+            }
         completion = _record_success_receipt(
             backend,
             project_name=project_name,
@@ -1030,6 +1107,10 @@ def _candidate_arguments(
         "kind": candidate.kind,
         "project_name": job.project_name,
         "distill_job_id": job.id,
+        "assimilation_disposition": candidate.assimilation_disposition,
+        "assimilation_reason": candidate.assimilation_reason,
+        "canonical_title": candidate.canonical_title,
+        "topic_path": candidate.topic_path,
         **evidence,
     }
     if isinstance(candidate, DistillCandidate) and candidate.kind == "memory":
@@ -1072,6 +1153,22 @@ def _candidate_arguments(
             "confidence": _required_confidence(candidate),
         }
     raise TypeError(f"unsupported candidate type: {type(candidate).__name__}")
+
+
+def _governed_candidate_id(result: dict[str, Any]) -> str | None:
+    """Read the stable id returned by one kind-specific suggest handler."""
+
+    for key in ("entry_id", "candidate_id", "fact_id"):
+        value = str(result.get(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _sum_provider_metric(left: int | None, right: int | None) -> int | None:
+    if left is None and right is None:
+        return None
+    return int(left or 0) + int(right or 0)
 
 
 def provider_candidate_control_reason(

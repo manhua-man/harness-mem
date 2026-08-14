@@ -25,6 +25,24 @@ def test_provider_prompt_requires_user_statement_evidence_basis() -> None:
     assert "Never label direct user evidence as transcript" in prompt
 
 
+def test_provider_prompt_requires_null_zero_candidate_challenge_with_candidates() -> None:
+    prompt = _build_prompt({"coverage": "complete"})
+
+    assert "zero_candidate_challenge must be null" in prompt
+    assert "reserved exclusively for a zero-candidate decision" in prompt
+
+
+def test_provider_prompt_treats_candidates_as_user_visible_durable_memory() -> None:
+    prompt = _build_prompt({"coverage": "complete"})
+    assert "Every natural-language response field is user-visible" in prompt
+    assert "session summary, final request, final outcome, unfinished work" in prompt
+    assert "Use the user's language and plain wording" in prompt
+    assert "not user-facing product concepts" in prompt
+    assert "in Chinese, use 长期记忆" in prompt
+    assert "explain it in the user's language on first use" in prompt
+    assert "only purpose is to explain a temporary audit or verification path" in prompt
+
+
 def _decision() -> AutonomousDecision:
     return AutonomousDecision.model_validate(
         {

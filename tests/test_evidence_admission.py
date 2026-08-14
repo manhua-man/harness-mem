@@ -468,8 +468,9 @@ def test_verified_relation_uses_same_admission_contract(
     stored = _run(backend.structured_store.get_relation_fact(relation.id))
 
     assert summary.repository_verified == 1
-    assert summary.auto_provisional == 1
-    assert stored is not None and stored.status == "provisional"
+    assert summary.auto_confirmed == 1
+    assert summary.auto_provisional == 0
+    assert stored is not None and stored.status == "auto_confirmed"
 
 
 @pytest.mark.parametrize(
@@ -477,6 +478,7 @@ def test_verified_relation_uses_same_admission_contract(
     [
         ("repository", "verified", ["repository_refs_current"], True, "ANSWERED"),
         ("user_statement", "verified", ["user_statement_refs_current"], True, "ANSWERED"),
+        ("user_statement", "not_applicable", [], False, "NOT_APPLICABLE"),
         ("repository", "unverified", ["repository_ref_incomplete"], True, "PARTIAL"),
         ("repository", "unverified", ["evidence_envelope_missing"], False, "UNANSWERED"),
         ("repository", "contradicted", ["claim_conflicts"], True, "CONTRADICTED"),
@@ -506,6 +508,100 @@ def test_answer_gate_status_is_runtime_derived(
     )
 
     assert answer_gate_status(candidate) == expected
+
+
+def test_autonomous_one_off_request_is_not_promoted_after_source_verification(
+    backend: LocalMemoryBackend,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    rendering = "User: Show every long-term memory now.\n\nAssistant: I will show the list."
+    snapshot = _run(
+        _snapshot(backend, project, session_id="one-off-list", rendering=rendering)
+    )
+    window = render_distill_exchange_windows(rendering, [1])[0]
+    candidate = MemoryEntry(
+        project_name="demo",
+        category="decision",
+        content="Show every long-term memory now.",
+        source=str(snapshot.observation_id),
+        distill_job_id=snapshot.distill_job_id,
+        confidence=0.99,
+        evidence_basis="user_statement",
+        verification_outcome="verified",
+        verification_refs=[
+            EvidenceRef(
+                kind="user_statement",
+                exchange_index=1,
+                role="user",
+                content_sha256=window["content_sha256"],
+            )
+        ],
+        assimilation_disposition="no_write",
+        assimilation_reason="A request for this output is not a future preference.",
+    )
+    _run(backend.structured_store.save_memory_entry(candidate))
+
+    summary = _run(auto_review_candidates(backend, "demo", apply=True))
+    stored = _run(backend.structured_store.get_memory_entry(candidate.id))
+    readable = _run(backend.structured_store.list_memory_entries("demo"))
+
+    assert summary.answer_gate["ANSWERED"] == 1
+    assert summary.auto_rejected == 1
+    assert stored is not None and stored.status == "rejected"
+    assert readable == []
+
+
+def test_autonomous_rule_add_materializes_the_wake_read_model(
+    backend: LocalMemoryBackend,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    rendering = (
+        "User: In future memory audits, show an itemized list rather than only totals.\n\n"
+        "Assistant: I will preserve that preference."
+    )
+    snapshot = _run(
+        _snapshot(backend, project, session_id="durable-rule", rendering=rendering)
+    )
+    window = render_distill_exchange_windows(rendering, [1])[0]
+    candidate = RuleCandidate(
+        project_name="demo",
+        session_id="durable-rule",
+        pattern="Provide an itemized list for memory audits.",
+        trigger="When presenting a memory audit.",
+        examples=[str(snapshot.observation_id)],
+        confidence=0.99,
+        distill_job_id=snapshot.distill_job_id,
+        evidence_basis="user_statement",
+        verification_outcome="verified",
+        verification_refs=[
+            EvidenceRef(
+                kind="user_statement",
+                exchange_index=1,
+                role="user",
+                content_sha256=window["content_sha256"],
+            )
+        ],
+        assimilation_disposition="add",
+        assimilation_reason="The user explicitly established a future preference.",
+        canonical_title="Memory audit presentation",
+        topic_path=["memory", "audit"],
+    )
+    _run(backend.structured_store.save_rule_candidate(candidate))
+
+    summary = _run(auto_review_candidates(backend, "demo", apply=True))
+    stored = _run(backend.structured_store.get_rule_candidate(candidate.id))
+    rules = _run(backend.structured_store.list_confirmed_rules("demo"))
+
+    assert summary.auto_confirmed == 1
+    assert summary.auto_provisional == 0
+    assert stored is not None and stored.status == "auto_confirmed"
+    assert len(rules) == 1
+    assert rules[0].source_candidate_id == candidate.id
+    assert rules[0].pattern == candidate.pattern
 
 
 def test_evidence_admission_golden_policy_matrix() -> None:

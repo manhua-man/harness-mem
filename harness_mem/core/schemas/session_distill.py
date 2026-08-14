@@ -49,6 +49,18 @@ class PromotedKnowledgeItem(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class AssimilationPacketPoint(BaseModel):
+    """Auditable per-point result; normal Note rendering stays prose-only."""
+
+    candidate_id: str = Field(min_length=1)
+    answer_status: AnswerStatus
+    disposition: str = Field(min_length=1, max_length=32)
+    canonical_truth_ids: list[str] = Field(default_factory=list)
+    handoff_id: str | None = None
+
+    model_config = {"extra": "forbid"}
+
+
 class AnswerPacket(BaseModel):
     """Runtime-derived, user-readable result of the evidence and promotion gates."""
 
@@ -63,6 +75,7 @@ class AnswerPacket(BaseModel):
     destination_project: str = Field(min_length=1)
     knowledge_kind: list[str] = Field(default_factory=list)
     knowledge_category: list[str] = Field(default_factory=list)
+    point_results: list[AssimilationPacketPoint] = Field(default_factory=list)
 
     model_config = {"extra": "forbid"}
 
@@ -246,6 +259,7 @@ class DistillChunkCheckpoint(BaseModel):
 
 
 __all__ = [
+    "AssimilationPacketPoint",
     "AnswerPacket",
     "AnswerStatus",
     "DistillChunkCheckpoint",

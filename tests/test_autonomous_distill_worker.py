@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
-from harness_mem.autonomous.models import AutonomousDecision
+from harness_mem.autonomous.models import AssimilationDecision, AutonomousDecision
 from harness_mem.autonomous.provider import (
     DEFAULT_DISTILL_MODEL,
     ProviderError,
@@ -121,6 +121,36 @@ class _DeterministicProvider:
             output_tokens=200,
             total_tokens=1000,
             event_count=3,
+        )
+
+    def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
+        del runtime_dir
+        if heartbeat is not None:
+            heartbeat()
+        points = [
+            {
+                "candidate_id": item["candidate_id"],
+                "disposition": "add",
+                "matched_truth_handles": [],
+                "canonical_title": "Local index storage",
+                "canonical_statement": item["statement"],
+                "topic_path": ["storage"],
+                "reason": "New durable project decision.",
+            }
+            for item in manifest["verified_candidates"]
+        ]
+        return ProviderResult(
+            decision=AssimilationDecision.model_validate({"points": points}),
+            provider=self.name,
+            model="deterministic-test",
+            duration_seconds=0.01,
+            input_sha256="c" * 64,
+            response_sha256="d" * 64,
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
+            event_count=1,
+            sandbox="no-tools",
         )
 
 

@@ -66,6 +66,28 @@ def _apply_evidence_fields(candidate: Any, fields: dict[str, Any]) -> None:
     for key, value in fields.items():
         setattr(candidate, key, value)
 
+
+def _assimilation_fields(
+    *,
+    assimilation_disposition: str | None,
+    assimilation_reason: str | None,
+    canonical_title: str | None,
+    topic_path: list[str] | None,
+) -> dict[str, Any]:
+    """Carry the post-verification proposal without treating it as truth."""
+
+    return {
+        "assimilation_disposition": assimilation_disposition,
+        "assimilation_reason": assimilation_reason,
+        "canonical_title": canonical_title,
+        "topic_path": list(topic_path or []),
+    }
+
+
+def _apply_assimilation_fields(candidate: Any, fields: dict[str, Any]) -> None:
+    for key, value in fields.items():
+        setattr(candidate, key, value)
+
 def tool_create_rule_candidate(
     project_name: str,
     session_id: str,
@@ -471,6 +493,10 @@ def tool_suggest_rule(
     verification_outcome: str | None = None,
     verification_refs: list[dict[str, Any]] | None = None,
     verification_reason_codes: list[str] | None = None,
+    assimilation_disposition: str | None = None,
+    assimilation_reason: str | None = None,
+    canonical_title: str | None = None,
+    topic_path: list[str] | None = None,
 ) -> dict:
     """Suggest a rule candidate for later review (lighter than confirm_rule)."""
     from harness_mem.core.schemas.rule_candidate import RuleCandidate
@@ -494,10 +520,17 @@ def tool_suggest_rule(
         verification_refs=verification_refs,
         verification_reason_codes=verification_reason_codes,
     )
+    assimilation_fields = _assimilation_fields(
+        assimilation_disposition=assimilation_disposition,
+        assimilation_reason=assimilation_reason,
+        canonical_title=canonical_title,
+        topic_path=topic_path,
+    )
     if candidate_id is not None:
         existing = asyncio.run(backend.structured_store.get_rule_candidate(candidate_id))
         if existing is not None:
             _apply_evidence_fields(existing, evidence_fields)
+            _apply_assimilation_fields(existing, assimilation_fields)
             asyncio.run(backend.structured_store.save_rule_candidate(existing))
             return {
                 "success": True,
@@ -524,6 +557,7 @@ def tool_suggest_rule(
         status="pending",
         distill_job_id=distill_job_id,
         **evidence_fields,
+        **assimilation_fields,
     )
     saved_id = asyncio.run(backend.structured_store.save_rule_candidate(candidate))
     state_event_id = _record_state_event(
@@ -562,6 +596,10 @@ def tool_suggest_memory_entry(
     verification_outcome: str | None = None,
     verification_refs: list[dict[str, Any]] | None = None,
     verification_reason_codes: list[str] | None = None,
+    assimilation_disposition: str | None = None,
+    assimilation_reason: str | None = None,
+    canonical_title: str | None = None,
+    topic_path: list[str] | None = None,
 ) -> dict:
     """Suggest a memory entry for later review."""
     from harness_mem.core.schemas.memory_entry import MemoryEntry
@@ -585,10 +623,17 @@ def tool_suggest_memory_entry(
         verification_refs=verification_refs,
         verification_reason_codes=verification_reason_codes,
     )
+    assimilation_fields = _assimilation_fields(
+        assimilation_disposition=assimilation_disposition,
+        assimilation_reason=assimilation_reason,
+        canonical_title=canonical_title,
+        topic_path=topic_path,
+    )
     if entry_id is not None:
         existing = asyncio.run(backend.structured_store.get_memory_entry(entry_id))
         if existing is not None:
             _apply_evidence_fields(existing, evidence_fields)
+            _apply_assimilation_fields(existing, assimilation_fields)
             asyncio.run(backend.structured_store.save_memory_entry(existing))
             return {
                 "success": True,
@@ -609,6 +654,7 @@ def tool_suggest_memory_entry(
         tags=tags or [],
         distill_job_id=distill_job_id,
         **evidence_fields,
+        **assimilation_fields,
     )
     saved_id = asyncio.run(backend.structured_store.save_memory_entry(entry))
     state_event_id = _record_state_event(
@@ -704,6 +750,10 @@ def tool_suggest_relation_fact(
     verification_outcome: str | None = None,
     verification_refs: list[dict[str, Any]] | None = None,
     verification_reason_codes: list[str] | None = None,
+    assimilation_disposition: str | None = None,
+    assimilation_reason: str | None = None,
+    canonical_title: str | None = None,
+    topic_path: list[str] | None = None,
 ) -> dict:
     """Suggest a relation fact for later review."""
     from harness_mem.core.schemas.relation_fact import RelationFact
@@ -728,10 +778,17 @@ def tool_suggest_relation_fact(
         verification_refs=verification_refs,
         verification_reason_codes=verification_reason_codes,
     )
+    assimilation_fields = _assimilation_fields(
+        assimilation_disposition=assimilation_disposition,
+        assimilation_reason=assimilation_reason,
+        canonical_title=canonical_title,
+        topic_path=topic_path,
+    )
     if fact_id is not None:
         existing = asyncio.run(backend.structured_store.get_relation_fact(fact_id))
         if existing is not None:
             _apply_evidence_fields(existing, evidence_fields)
+            _apply_assimilation_fields(existing, assimilation_fields)
             asyncio.run(backend.structured_store.save_relation_fact(existing))
             return {
                 "success": True,
@@ -756,6 +813,7 @@ def tool_suggest_relation_fact(
         status="pending",
         distill_job_id=distill_job_id,
         **evidence_fields,
+        **assimilation_fields,
     )
     saved_id = asyncio.run(backend.structured_store.save_relation_fact(fact))
     state_event_id = _record_state_event(

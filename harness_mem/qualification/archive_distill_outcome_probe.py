@@ -9,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from harness_mem.autonomous.models import AutonomousDecision
+from harness_mem.autonomous.models import AssimilationDecision, AutonomousDecision
 from harness_mem.autonomous.provider import ProviderResult
 from harness_mem.commands.archive_distill import run_archive_distill_batch
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -69,6 +69,36 @@ class _DeterministicArchiveProvider:
             output_tokens=120,
             total_tokens=720,
             event_count=1,
+        )
+
+    def assimilate(self, manifest: dict[str, Any], *, runtime_dir: Path, heartbeat=None):
+        del runtime_dir
+        if heartbeat is not None:
+            heartbeat()
+        points = [
+            {
+                "candidate_id": candidate["candidate_id"],
+                "disposition": "add",
+                "matched_truth_handles": [],
+                "canonical_title": "Related tests",
+                "canonical_statement": candidate["statement"],
+                "topic_path": ["testing"],
+                "reason": "The verified fixture establishes a durable project rule.",
+            }
+            for candidate in manifest["verified_candidates"]
+        ]
+        return ProviderResult(
+            decision=AssimilationDecision.model_validate({"points": points}),
+            provider=self.name,
+            model="deterministic",
+            duration_seconds=0.01,
+            input_sha256="c" * 64,
+            response_sha256="d" * 64,
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
+            event_count=1,
+            sandbox="no-tools",
         )
 
 

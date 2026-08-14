@@ -18,6 +18,75 @@ UNRECOVERABLE_SESSION_SUMMARY = (
     "The session topic could not be recovered from the available evidence."
 )
 
+_ANSWER_STATUS_LABELS = {
+    "ANSWERED": "已验证",
+    "PARTIAL": "证据不完整",
+    "UNANSWERED": "没有充分证据",
+    "CONTRADICTED": "证据冲突",
+    "STALE": "证据已过期",
+    "NOT_APPLICABLE": "不涉及长期记忆",
+}
+_PROMOTION_STATUS_LABELS = {
+    "promoted": "已写入长期记忆",
+    "partial": "部分写入长期记忆",
+    "not_promoted": "未写入长期记忆",
+}
+_COMPLETION_LABELS = {
+    "promoted": "形成长期记忆",
+    "no_candidate": "无需长期记忆",
+}
+_EVIDENCE_BASIS_LABELS = {
+    "repository": "当前项目文件",
+    "user_statement": "用户明确表达",
+    "transcript": "会话内容",
+}
+_USER_VISIBLE_REPLACEMENTS = (
+    (re.compile(r"\bjob_bound_truth\b", re.IGNORECASE), "按原处理记录回查"),
+    (
+        re.compile(r"\bsanitized_project_truth\b", re.IGNORECASE),
+        "清理原文后按项目记忆回查",
+    ),
+    (re.compile(r"\bsemantic memor(?:y|ies)\b", re.IGNORECASE), "长期记忆"),
+    (re.compile(r"\boutcome contract\b", re.IGNORECASE), "结果验收"),
+    (re.compile(r"\bstop hook\b", re.IGNORECASE), "会话结束自动触发流程"),
+    (re.compile(r"\bhook\b", re.IGNORECASE), "自动触发流程"),
+    (re.compile(r"\banswer packet\b", re.IGNORECASE), "结果校验"),
+    (re.compile(r"\bpromoted_items\b", re.IGNORECASE), "写入的长期记忆列表"),
+    (re.compile(r"\bwake/search_memory\b", re.IGNORECASE), "继续任务和记忆检索"),
+    (re.compile(r"\brelation\b", re.IGNORECASE), "关系记忆"),
+    (re.compile(r"\btruth\b", re.IGNORECASE), "长期记忆"),
+    (re.compile(r"\bcandidate\b", re.IGNORECASE), "待审记忆"),
+    (re.compile(r"\bfail-closed\b", re.IGNORECASE), "安全性不明时停止操作"),
+    (re.compile(r"\bnote\b", re.IGNORECASE), "会话摘要"),
+    (re.compile("长期知识"), "长期记忆"),
+    (re.compile("可读真值"), "可读长期记忆"),
+    (re.compile("真值"), "长期记忆"),
+)
+
+
+def _readable_label(value: Any, labels: dict[str, str], fallback: str) -> str:
+    return labels.get(str(value or ""), fallback)
+
+
+def _readable_evidence_basis(values: Any) -> str:
+    labels = [
+        _EVIDENCE_BASIS_LABELS.get(str(value), str(value))
+        for value in (values or [])
+        if str(value).strip()
+    ]
+    return "、".join(labels) or "无"
+
+
+def _user_visible_text(value: Any) -> str:
+    """Translate known storage and audit jargon at the Note boundary."""
+
+    text = str(value or "").strip()
+    if re.search(r"[\u4e00-\u9fff]", text) is None:
+        return text
+    for pattern, replacement in _USER_VISIBLE_REPLACEMENTS:
+        text = pattern.sub(replacement, text)
+    return re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", text)
+
 
 def is_meaningful_session_summary(value: Any) -> bool:
     """Reject empty, underspecified, and renderer-generated summary placeholders."""
@@ -97,14 +166,14 @@ def materialize_session_note(
 
 def render_session_note(job: SessionDistillJob) -> str:
     review = dict(job.semantic_review or {})
-    summary = str(
+    summary = _user_visible_text(
         review.get("session_summary") or review.get("final_user_request") or ""
-    ).strip()
-    outcome = str(
+    )
+    outcome = _user_visible_text(
         review.get("final_outcome") or "No final outcome was recorded."
-    ).strip()
+    )
     unfinished = [
-        str(item).strip()
+        _user_visible_text(item)
         for item in review.get("unfinished_work", [])
         if str(item).strip()
     ]
@@ -115,7 +184,7 @@ def render_session_note(job: SessionDistillJob) -> str:
     lines = [
         f"# {summary[:80] or 'Session Note'}",
         "",
-        "> 历史会话 Note：用于说明这次会话做了什么，不代表当前项目真相。",
+        "> 历史会话记录（Note）：用于说明这次会话做了什么，不代表当前项目真相。",
         "",
         "## 会话主题",
         "",
@@ -136,22 +205,38 @@ def render_session_note(job: SessionDistillJob) -> str:
             "",
             "## 记忆治理结果",
             "",
-            f"- 结果：{job.completion_disposition or 'unknown'}",
+            "- 结果："
+            + _readable_label(
+                job.completion_disposition,
+                _COMPLETION_LABELS,
+                "状态未知",
+            ),
             f"- 形成长期记忆：{int(promotion.get('promoted') or 0)} 条",
             "",
-            "## Answer Packet",
+            "## Answer Packet（结果校验）",
             "",
-            f"- 验证问题：{packet.get('question') or '未记录。'}",
-            f"- 验证状态：{packet.get('answer_status') or 'UNANSWERED'}",
-            f"- 核心结论：{packet.get('core_conclusion') or '未形成可验证结论。'}",
-            f"- 证据基础：{', '.join(packet.get('evidence_basis') or []) or '无'}",
+            f"- 验证问题：{_user_visible_text(packet.get('question') or '未记录。')}",
+            "- 验证状态："
+            + _readable_label(
+                packet.get("answer_status"),
+                _ANSWER_STATUS_LABELS,
+                "没有充分证据",
+            ),
+            "- 核心结论："
+            + _user_visible_text(
+                packet.get("core_conclusion") or "未形成可验证结论。"
+            ),
+            f"- 证据来源：{_readable_evidence_basis(packet.get('evidence_basis'))}",
             f"- 验证时间：{packet.get('verified_at') or '无'}",
-            f"- 晋升状态：{packet.get('promotion_status') or 'not_promoted'}",
-            f"- 目标项目：{packet.get('destination_project') or job.project_name}",
-            f"- 知识类型：{', '.join(packet.get('knowledge_kind') or []) or '无'}",
-            f"- 知识分类：{', '.join(packet.get('knowledge_category') or []) or '无'}",
+            "- 写入状态："
+            + _readable_label(
+                packet.get("promotion_status"),
+                _PROMOTION_STATUS_LABELS,
+                "未写入长期记忆",
+            ),
+            f"- 记忆归属项目：{packet.get('destination_project') or job.project_name}",
             "",
-            "### 晋升内容",
+            "### 写入的长期记忆",
             "",
             "",
             (
@@ -166,9 +251,8 @@ def render_session_note(job: SessionDistillJob) -> str:
     insertion = len(lines) - 2
     rendered_items = [
         (
-            f"- **{item.get('title') or item.get('category') or '长期知识'}**："
-            f"{item.get('fact') or ''}（{item.get('kind') or 'knowledge'} / "
-            f"{item.get('category') or 'uncategorized'}）"
+            f"- **{item.get('title') or '长期记忆'}**："
+            f"{item.get('fact') or ''}"
         )
         for item in promoted_items
     ] or ["- 无。"]

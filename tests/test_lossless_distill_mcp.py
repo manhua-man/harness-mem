@@ -13,7 +13,9 @@ import pytest
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.commands.distill_lifecycle import pending_distill_jobs
+from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
+from harness_mem.core.schemas.session_distill import SessionDistillJob
 from harness_mem.mcp import distill_handlers, governance_handlers, tool_handlers
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.mcp.response_budget import serialized_result_tokens
@@ -29,6 +31,59 @@ SEMANTIC_REVIEW = {
     "evidence_status": "answered",
     "promotion_decision": "promote",
 }
+
+
+def test_multi_item_answer_packet_uses_user_facing_memory_wording(
+    tmp_path: Path,
+) -> None:
+    backend = LocalMemoryBackend(tmp_path / "answer-packet-data")
+    asyncio.run(backend.init())
+    verified_at = datetime.now(timezone.utc)
+    entries = [
+        MemoryEntry(
+            id=f"memory-{index}",
+            project_name="demo",
+            category="decision",
+            content=f"Durable fact {index}.",
+            source="user",
+            status="user_confirmed",
+            evidence_basis="user_statement",
+            verification_outcome="verified",
+            verified_at=verified_at,
+        )
+        for index in (1, 2)
+    ]
+    for entry in entries:
+        asyncio.run(backend.structured_store.save_memory_entry(entry))
+    job = SessionDistillJob(
+        id="job-multi-item",
+        idempotency_key="key-multi-item",
+        project_name="demo",
+        project_root=str(tmp_path),
+        client="codex",
+        session_id="session-multi-item",
+        source_id="source-multi-item",
+        source_revision="sha256:" + "a" * 64,
+        semantic_review={"final_user_request": "保存可复用结论。"},
+    )
+
+    try:
+        packet = asyncio.run(
+            distill_handlers._build_answer_packet(
+                backend,
+                job=job,
+                candidate_ids=[entry.id for entry in entries],
+                promotion_counts={"suggested": 2, "promoted": 2},
+                runtime_reviewed=True,
+            )
+        )
+    finally:
+        asyncio.run(backend.close())
+
+    assert packet["core_conclusion"] == (
+        "已验证并写入 2 条长期记忆，具体内容见下方列表。"
+    )
+    assert "promoted_items" not in packet["core_conclusion"]
 
 
 def test_semantic_evidence_reuses_a_verified_appended_revision(tmp_path: Path) -> None:
@@ -818,9 +873,14 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
                 "category": "decision",
             }
         ]
+        assert "promoted_items" not in answer_packet["core_conclusion"]
         note_text = Path(finalized["note"]["path"]).read_text(encoding="utf-8")
         assert "## Answer Packet" in note_text
-        assert "- 验证状态：ANSWERED" in note_text
+        assert "- 验证状态：已验证" in note_text
+        assert "- 写入状态：已写入长期记忆" in note_text
+        assert "知识类型：" not in note_text
+        assert "知识分类：" not in note_text
+        assert "（semantic / decision）" not in note_text
         assert answer_packet["promoted_items"][0]["fact"] in note_text
         assert candidate["entry_id"] not in note_text
         stored = asyncio.run(
@@ -1380,16 +1440,17 @@ def test_semantic_evidence_mode_keeps_raw_audit_and_reduces_agent_payload(
         assert finalized["answer_packet"] == {
             "answer_status": "NOT_APPLICABLE",
             "question": "finish the task",
-            "core_conclusion": "本次会话没有需要晋升的长期知识。",
+            "core_conclusion": "本次会话没有需要写入的长期记忆。",
             "evidence_basis": [],
             "evaluated_at": finalized["answer_packet"]["evaluated_at"],
             "verified_at": None,
             "promotion_status": "not_promoted",
             "promoted_items": [],
-            "destination_project": "demo",
-            "knowledge_kind": [],
-            "knowledge_category": [],
-        }
+                "destination_project": "demo",
+                "knowledge_kind": [],
+                "knowledge_category": [],
+                "point_results": [],
+            }
         assert finalized["session_summary"] == {
             "session_id": "semantic-session",
             "summary": SEMANTIC_REVIEW["session_summary"],

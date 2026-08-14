@@ -177,7 +177,7 @@ def answer_gate_status(candidate: Any) -> AnswerGateStatus:
         return "CONTRADICTED"
     if basis == "repository" and outcome == "verified":
         return "ANSWERED"
-    if basis == "user_statement" and outcome in {"verified", "not_applicable"}:
+    if basis == "user_statement" and outcome == "verified":
         return "ANSWERED"
     if outcome == "not_applicable":
         return "NOT_APPLICABLE"

@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
 from harness_mem.autonomous.models import AutonomousDecision
-from harness_mem.autonomous.provider import ProviderResult
+from harness_mem.autonomous.provider import ProviderError, ProviderResult
 from harness_mem.autonomous.worker import run_autonomous_distill_batch
 from harness_mem.commands.support import DEFAULT_DATA_DIR, workspace_root_from_path
 from harness_mem.config.merge import MergedConfig, load_merged_config
@@ -330,6 +330,21 @@ class _TrivialArchiveProvider:
             total_tokens=0,
             event_count=1,
             sandbox="no-tools",
+        )
+
+    def assimilate(
+        self,
+        manifest: dict[str, Any],
+        *,
+        runtime_dir: Path,
+        heartbeat=None,
+    ) -> ProviderResult:
+        """Fail closed: the exact-output fixture must never create candidates."""
+
+        del manifest, runtime_dir, heartbeat
+        raise ProviderError(
+            "trivial archive provider cannot perform semantic assimilation",
+            kind="unrecoverable",
         )
 
 
@@ -1134,12 +1149,25 @@ def print_archive_distill_result(result: dict[str, Any], *, as_json: bool) -> No
         print(f"Status: {item['status']}")
         packet = item.get("answer_packet") or {}
         if packet:
-            print("Answer Packet")
-            print(f"Verification: {packet.get('answer_status')}")
+            answer_status = {
+                "ANSWERED": "verified",
+                "PARTIAL": "evidence incomplete",
+                "UNANSWERED": "insufficient evidence",
+                "CONTRADICTED": "evidence contradicted",
+                "STALE": "evidence stale",
+                "NOT_APPLICABLE": "no durable memory needed",
+            }.get(str(packet.get("answer_status") or ""), "insufficient evidence")
+            memory_status = {
+                "promoted": "saved",
+                "partial": "partially saved",
+                "not_promoted": "not saved",
+            }.get(str(packet.get("promotion_status") or ""), "not saved")
+            print("Memory verification")
+            print(f"Evidence: {answer_status}")
             print(f"Conclusion: {packet.get('core_conclusion')}")
-            print(f"Promotion: {packet.get('promotion_status')}")
+            print(f"Memory: {memory_status}")
             for promoted in item.get("promoted_items", []):
-                print(f"- {promoted.get('title')}: {promoted.get('fact')} ({promoted.get('kind')} / {promoted.get('category')})")
+                print(f"- {promoted.get('title')}: {promoted.get('fact')}")
         note = item.get("note") or {}
         if note.get("path"):
             print(f"Note: {note['path']}")

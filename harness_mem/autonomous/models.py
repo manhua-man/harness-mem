@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from harness_mem.core.schemas.assimilation import AssimilationDisposition
+
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -42,6 +44,30 @@ class DistillCandidate(_CandidateBase):
     target_entity: str | None = Field(default=None, max_length=200)
     relation_type: str | None = Field(default=None, max_length=100)
     evidence: str | None = Field(default=None, max_length=2000)
+    # This is a proposed long-term utility decision, not evidence verification.
+    # The trusted runtime still validates evidence and enforces the disposition.
+    assimilation_disposition: AssimilationDisposition = "add"
+    assimilation_reason: str = Field(default="", max_length=1000)
+    canonical_title: str | None = Field(default=None, max_length=160)
+    topic_path: list[str] = Field(default_factory=list, max_length=8)
+
+
+class AssimilationPoint(_StrictModel):
+    """One post-verification outcome for one persisted candidate."""
+
+    candidate_id: str = Field(min_length=1, max_length=128)
+    disposition: AssimilationDisposition
+    matched_truth_handles: list[str] = Field(default_factory=list, max_length=8)
+    canonical_title: str | None = Field(default=None, max_length=160)
+    canonical_statement: str | None = Field(default=None, max_length=4000)
+    topic_path: list[str] = Field(default_factory=list, max_length=8)
+    reason: str = Field(min_length=8, max_length=1000)
+
+
+class AssimilationDecision(_StrictModel):
+    """Strict, tool-free semantic decision over verified points and truth handles."""
+
+    points: list[AssimilationPoint] = Field(default_factory=list, max_length=12)
 
 ChallengeChecks = Literal["absent", "not_durable", "candidate_required"]
 
@@ -100,6 +126,8 @@ class AutonomousDecision(_StrictModel):
 
 
 __all__ = [
+    "AssimilationDecision",
+    "AssimilationPoint",
     "AutonomousDecision",
     "DistillCandidate",
     "SemanticReview",

@@ -19,7 +19,7 @@ from typing import Any, Callable
 from pydantic import ValidationError
 import tomli_w
 
-from harness_mem.autonomous.models import AutonomousDecision
+from harness_mem.autonomous.models import AssimilationDecision, AutonomousDecision
 
 
 DEFAULT_DISTILL_MODEL = "gpt-5.6-luna"
@@ -28,7 +28,7 @@ DEFAULT_DISTILL_TIMEOUT_SECONDS = 40
 
 @dataclass(frozen=True)
 class ProviderResult:
-    decision: AutonomousDecision
+    decision: Any
     provider: str
     model: str | None
     duration_seconds: float
@@ -239,6 +239,121 @@ class CodexExecProvider:
             event_count=int(metrics["event_count"] or 0),
         )
 
+    def assimilate(
+        self,
+        manifest: dict[str, Any],
+        *,
+        runtime_dir: Path,
+        heartbeat: Callable[[], None] | None = None,
+    ) -> ProviderResult:
+        """Run the second semantic pass in the same isolated Codex sandbox."""
+
+        return self._run_assimilation_exec(
+            manifest,
+            runtime_dir=runtime_dir,
+            heartbeat=heartbeat,
+        )
+
+    def _run_assimilation_exec(
+        self,
+        manifest: dict[str, Any],
+        *,
+        runtime_dir: Path,
+        heartbeat: Callable[[], None] | None,
+    ) -> ProviderResult:
+        if not self.executable:
+            raise ProviderError("Codex CLI executable was not found", kind="setup_required")
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        if (runtime_dir / ".codex" / "hooks.json").exists():
+            raise ProviderError(
+                "autonomous provider cwd contains a Codex hook manifest",
+                kind="setup_required",
+            )
+        prompt = _build_assimilation_prompt(manifest)
+        started = time.monotonic()
+        with tempfile.TemporaryDirectory(prefix="assimilation-", dir=runtime_dir) as temporary:
+            invocation_dir = Path(temporary)
+            schema_path = invocation_dir / "decision.schema.json"
+            output_path = invocation_dir / "decision.json"
+            schema_path.write_text(
+                json.dumps(
+                    _strict_output_schema(AssimilationDecision.model_json_schema()),
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            isolated_home, configured_model = _prepare_isolated_codex_home(invocation_dir)
+            command = [
+                self.executable, "exec", "--ephemeral", "--ignore-rules",
+                "--disable", "hooks", "--disable", "plugins", "--disable",
+                "skill_search", "--disable", "multi_agent", "--skip-git-repo-check",
+                "--config", "mcp_servers={}", "--config", "marketplaces={}",
+                "--sandbox", "read-only", "--output-schema", str(schema_path),
+                "--output-last-message", str(output_path), "--json",
+            ]
+            if self.model:
+                command.extend(("--model", self.model))
+            command.append("-")
+            env = os.environ.copy()
+            env["CODEX_HOME"] = str(isolated_home)
+            env["HARNESS_MEM_AUTONOMOUS_PROVIDER"] = "1"
+            env["NO_COLOR"] = "1"
+            creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            try:
+                process = subprocess.Popen(
+                    command, cwd=runtime_dir, env=env, stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                    encoding="utf-8", errors="replace", creationflags=creationflags,
+                )
+            except OSError as exc:
+                raise ProviderError(str(exc), kind="setup_required") from exc
+            stdout = ""
+            stderr = ""
+            deadline = started + self.timeout_seconds
+            first_communicate = True
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    process.kill()
+                    stdout, stderr = process.communicate()
+                    raise ProviderError(
+                        f"Codex provider exceeded {self.timeout_seconds}s", kind="transient"
+                    )
+                try:
+                    stdout, stderr = process.communicate(
+                        input=prompt if first_communicate else None,
+                        timeout=min(self.poll_seconds, remaining),
+                    )
+                    break
+                except subprocess.TimeoutExpired:
+                    first_communicate = False
+                    if heartbeat is not None:
+                        heartbeat()
+            if process.returncode != 0:
+                raise _classify_failure(stderr or stdout, process.returncode)
+            try:
+                raw = output_path.read_text(encoding="utf-8")
+                decision = AssimilationDecision.model_validate_json(raw)
+            except (OSError, ValidationError, ValueError) as exc:
+                raise ProviderError(
+                    f"Codex provider returned invalid assimilation JSON: {exc}",
+                    kind="unrecoverable",
+                    exit_code=process.returncode,
+                ) from exc
+        metrics = _usage_metrics(stdout)
+        return ProviderResult(
+            decision=decision,
+            provider=self.name,
+            model=self.model or configured_model,
+            duration_seconds=time.monotonic() - started,
+            input_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            response_sha256=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+            input_tokens=metrics["input_tokens"],
+            output_tokens=metrics["output_tokens"],
+            total_tokens=metrics["total_tokens"],
+            event_count=int(metrics["event_count"] or 0),
+        )
+
 
 class ResponsesApiProvider:
     """Call the configured Responses endpoint directly with no Agent tools."""
@@ -336,6 +451,89 @@ class ResponsesApiProvider:
             sandbox="no-tools",
         )
 
+    def assimilate(
+        self,
+        manifest: dict[str, Any],
+        *,
+        runtime_dir: Path,
+        heartbeat: Callable[[], None] | None = None,
+    ) -> ProviderResult:
+        """Run the bounded post-verification decision with no transcript access."""
+
+        del runtime_dir
+        endpoint, headers, configured_model = _configured_responses_endpoint()
+        model = self.model or configured_model
+        if not model:
+            raise ProviderError(
+                "No model is configured for autonomous assimilation",
+                kind="setup_required",
+            )
+        prompt = _build_assimilation_prompt(manifest)
+        request_payload = {
+            "model": model,
+            "input": prompt,
+            "reasoning": {"effort": "low"},
+            "text": {
+                "verbosity": "low",
+                "format": {
+                    "type": "json_schema",
+                    "name": "harness_mem_assimilation",
+                    "strict": True,
+                    "schema": _strict_output_schema(
+                        AssimilationDecision.model_json_schema()
+                    ),
+                },
+            },
+            "tools": [],
+            "store": False,
+            "max_output_tokens": 4000,
+        }
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps(request_payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json", **headers},
+            method="POST",
+        )
+        if heartbeat is not None:
+            heartbeat()
+        started = time.monotonic()
+        try:
+            with urllib.request.urlopen(  # noqa: S310 - configured trusted endpoint.
+                request,
+                timeout=self.timeout_seconds,
+            ) as response:
+                raw_response = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise _classify_failure(body or str(exc), int(exc.code)) from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise ProviderError(str(exc), kind="transient") from exc
+        if heartbeat is not None:
+            heartbeat()
+        try:
+            payload = json.loads(raw_response)
+            output_text = _responses_output_text(payload)
+            decision = AssimilationDecision.model_validate_json(output_text)
+        except (json.JSONDecodeError, ValidationError, ValueError, KeyError) as exc:
+            raise ProviderError(
+                f"Responses provider returned invalid assimilation JSON: {exc}",
+                kind="unrecoverable",
+            ) from exc
+        usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+        return ProviderResult(
+            decision=decision,
+            provider=self.name,
+            model=str(payload.get("model") or model),
+            duration_seconds=time.monotonic() - started,
+            input_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            response_sha256=hashlib.sha256(output_text.encode("utf-8")).hexdigest(),
+            input_tokens=_integer_or_none(usage.get("input_tokens")),
+            output_tokens=_integer_or_none(usage.get("output_tokens")),
+            total_tokens=_integer_or_none(usage.get("total_tokens")),
+            event_count=len(payload.get("output") or []),
+            sandbox="no-tools",
+        )
+
 
 def _build_prompt(manifest: dict[str, Any]) -> str:
     packet = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
@@ -347,10 +545,28 @@ def _build_prompt(manifest: dict[str, Any]) -> str:
         "must explain the user's request, actual outcome, and unfinished work. Produce "
         "durable candidates only for stable, future-useful facts, decisions, preferences, "
         "rules, or relations. One candidate must express one verifiable fact. For a "
+        "candidate, assimilation_disposition is mandatory: use add only for a new "
+        "future-useful project memory; use no_write for a one-off request, audit "
+        "navigation, task narration, count, or explanation request; use handoff for "
+        "unfinished work; use defer, conflict, or reject when durable admission is "
+        "unsafe. Add a short assimilation_reason. Do not select add merely because "
+        "the user said it. canonical_title and topic_path should be concise when add "
+        "is selected. "
         "memory candidate, category, content, and confidence are required. For a "
         "rule candidate, pattern and trigger are required. For a relation candidate, "
         "source_entity, target_entity, relation_type, evidence, and confidence are "
-        "required. Do not emit memory/rule/relation candidates whose only purpose is "
+        "required. Every natural-language response field is user-visible, including "
+        "the session summary, final request, final outcome, unfinished work, review "
+        "rationale, and candidate text. Use the user's language and plain wording. "
+        "Internal candidate kinds, field names, retrieval or audit path names, and "
+        "untranslated English system labels are implementation metadata, not "
+        "user-facing product concepts. Prefer the single user-facing term for durable "
+        "knowledge: in Chinese, use 长期记忆. Mention an internal identifier only when "
+        "it is itself a stable project fact, and explain it in the user's language on "
+        "first use. Do not create a durable candidate whose only purpose is to explain "
+        "a temporary audit or verification path. Do not emit memory/rule/relation "
+        "candidates "
+        "whose only purpose is "
         "to repeat unfinished work; put that work only in unfinished_work because the "
         "trusted runtime creates the scoped handoff. Do not emit a bare historical "
         "candidate that only says an older approach was superseded; record it in the "
@@ -362,9 +578,38 @@ def _build_prompt(manifest: dict[str, Any]) -> str:
         "transcript evidence cannot verify a durable repository fact. If there are no "
         "candidates, copy the supplied zero-candidate template and replace its checks, "
         "future_utility, conclusion, and rationale with your evidence-grounded decision. "
+        "If there is one or more candidate, zero_candidate_challenge must be null; it is "
+        "reserved exclusively for a zero-candidate decision. "
         "Name every downgraded detected signal in the rationale. Never claim completion "
         "when the final turn or evidence is unfinished.\n\n"
         f"<distill_manifest>{packet}</distill_manifest>"
+    )
+
+
+def _build_assimilation_prompt(manifest: dict[str, Any]) -> str:
+    """Build the deliberately narrow second-pass prompt.
+
+    The manifest contains only already-validated promotion points and opaque
+    handles for a bounded set of same-project current truths. It must never
+    contain transcript chunks, raw source, paths, or cross-project records.
+    """
+
+    packet = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
+    return (
+        "You are the restricted long-term-memory editor for one project. Return only "
+        "the JSON object required by the schema. Do not call tools or infer facts not "
+        "present in the manifest. Each supplied candidate_id must appear exactly once. "
+        "Decide what the project should retain after evidence has already been "
+        "validated: add, refine, confirm, supersede, no_write, handoff, defer, "
+        "conflict, or reject. A one-off request, audit navigation, task narration, "
+        "count, or explanation request is no_write even if the user said it. An explicit "
+        "future preference can be add. confirm must reference an equivalent supplied "
+        "truth handle and must not create a duplicate. refine/supersede/conflict must "
+        "reference supplied handles only. For add/refine/supersede, write one atomic, "
+        "future-useful canonical statement and concise title/topic path. A rule must "
+        "state both its condition and required behavior. Never return an internal handle "
+        "as user-facing prose.\n\n"
+        f"<assimilation_manifest>{packet}</assimilation_manifest>"
     )
 
 

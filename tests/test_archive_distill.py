@@ -9,6 +9,7 @@ import pytest
 
 from harness_mem.commands.archive_distill import (
     inventory_codex_archives,
+    print_archive_distill_result,
     run_archive_distill_batch,
 )
 from harness_mem.config.merge import load_merged_config
@@ -185,6 +186,7 @@ def test_archive_apply_requires_explicit_enable(tmp_path: Path) -> None:
 def test_archive_apply_reports_persisted_answer_packet_and_daily_ledger(
     tmp_path: Path,
     monkeypatch,
+    capsys,
 ) -> None:
     control = tmp_path / "control"
     project = tmp_path / "project"
@@ -306,6 +308,18 @@ def test_archive_apply_reports_persisted_answer_packet_and_daily_ledger(
     assert outcome["promoted_items"][0]["fact"] == "Small changes require related tests."
     assert outcome["warnings"] == []
     assert outcome["execution"] == "provider_executed"
+    note_text = Path(outcome["note"]["path"]).read_text(encoding="utf-8")
+    assert "结果校验" in note_text
+    assert "已写入长期记忆" in note_text
+    assert "知识类型：" not in note_text
+    assert "知识分类：" not in note_text
+    assert "（rule / testing）" not in note_text
+
+    print_archive_distill_result(result, as_json=False)
+    rendered = capsys.readouterr().out
+    assert "Memory verification" in rendered
+    assert "Memory: saved" in rendered
+    assert "(rule / testing)" not in rendered
     ledger = json.loads(Path(result["ledger"]).read_text(encoding="utf-8"))
     assert ledger["processed_session_ids"] == ["session-a"]
     assert provider_calls == 1
@@ -920,6 +934,17 @@ def test_trivial_archive_apply_uses_zero_token_canonical_path(tmp_path: Path) ->
     assert result["outcomes"][0]["answer_packet"]["evaluated_at"]
     assert result["outcomes"][0]["answer_packet"]["verified_at"] is None
     assert result["verification"]["status"] == "passed"
+
+
+def test_trivial_archive_provider_fails_closed_for_unexpected_assimilation() -> None:
+    from harness_mem.autonomous.provider import ProviderError
+    from harness_mem.commands.archive_distill import _TrivialArchiveProvider
+
+    with pytest.raises(ProviderError, match="cannot perform semantic assimilation"):
+        _TrivialArchiveProvider("Return exactly: ARCHIVE_SMOKE_OK").assimilate(
+            {},
+            runtime_dir=Path.cwd(),
+        )
 
 
 def test_waiting_review_job_does_not_block_archive_batch(tmp_path: Path) -> None:

@@ -10,6 +10,7 @@ from harness_mem.core.schemas.evidence import (
     EvidenceRef,
     VerificationOutcome,
 )
+from harness_mem.core.schemas.assimilation import AssimilationDisposition
 
 
 class RelationFact(BaseModel):
@@ -51,6 +52,10 @@ class RelationFact(BaseModel):
     verification_reason_codes: list[str] = Field(default_factory=list)
     verification_refs: list[EvidenceRef] = Field(default_factory=list)
     verified_at: datetime | None = None
+    assimilation_disposition: AssimilationDisposition | None = None
+    assimilation_reason: str | None = None
+    canonical_title: str | None = None
+    topic_path: list[str] = Field(default_factory=list)
     valid_from: datetime | None = Field(
         default=None,
         description="When this relation becomes valid. Defaults to created_at.",
@@ -101,6 +106,10 @@ class RelationFact(BaseModel):
             "verification_reason_codes": list(self.verification_reason_codes),
             "verification_refs": [ref.to_dict() for ref in self.verification_refs],
             "verified_at": self.verified_at.isoformat() if self.verified_at else None,
+            "assimilation_disposition": self.assimilation_disposition,
+            "assimilation_reason": self.assimilation_reason,
+            "canonical_title": self.canonical_title,
+            "topic_path": list(self.topic_path),
             "valid_from": self.valid_from.isoformat() if self.valid_from else None,
             "valid_to": self.valid_to.isoformat() if self.valid_to else None,
             "recorded_at": self.recorded_at.isoformat() if self.recorded_at else None,
@@ -138,6 +147,10 @@ class RelationFact(BaseModel):
             for ref in data.get("verification_refs") or []
         ]
         data.setdefault("verified_at", None)
+        data.setdefault("assimilation_disposition", None)
+        data.setdefault("assimilation_reason", None)
+        data.setdefault("canonical_title", None)
+        data.setdefault("topic_path", [])
         if "distill_job_id" not in data:
             data["distill_job_id"] = None
         if "valid_from" not in data or data["valid_from"] is None:

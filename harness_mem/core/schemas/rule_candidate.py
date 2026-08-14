@@ -10,6 +10,7 @@ from harness_mem.core.schemas.evidence import (
     EvidenceRef,
     VerificationOutcome,
 )
+from harness_mem.core.schemas.assimilation import AssimilationDisposition
 
 
 class RuleCandidate(BaseModel):
@@ -44,6 +45,10 @@ class RuleCandidate(BaseModel):
     verification_reason_codes: list[str] = Field(default_factory=list)
     verification_refs: list[EvidenceRef] = Field(default_factory=list)
     verified_at: datetime | None = None
+    assimilation_disposition: AssimilationDisposition | None = None
+    assimilation_reason: str | None = None
+    canonical_title: str | None = None
+    topic_path: list[str] = Field(default_factory=list)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -66,6 +71,10 @@ class RuleCandidate(BaseModel):
             "verification_reason_codes": list(self.verification_reason_codes),
             "verification_refs": [ref.to_dict() for ref in self.verification_refs],
             "verified_at": self.verified_at.isoformat() if self.verified_at else None,
+            "assimilation_disposition": self.assimilation_disposition,
+            "assimilation_reason": self.assimilation_reason,
+            "canonical_title": self.canonical_title,
+            "topic_path": list(self.topic_path),
             "created_at": self.created_at.isoformat(),
         }
 
@@ -89,4 +98,8 @@ class RuleCandidate(BaseModel):
             for ref in data.get("verification_refs") or []
         ]
         data.setdefault("verified_at", None)
+        data.setdefault("assimilation_disposition", None)
+        data.setdefault("assimilation_reason", None)
+        data.setdefault("canonical_title", None)
+        data.setdefault("topic_path", [])
         return cls(**data)
