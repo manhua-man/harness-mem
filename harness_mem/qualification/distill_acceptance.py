@@ -127,6 +127,18 @@ PATH_TESTS: dict[str, tuple[str, ...]] = {
         "tests/test_processed_source_cleanup.py::test_unsupported_native_cleanup_retains_all_local_evidence",
         "tests/test_processed_source_cleanup.py::test_existing_post_turn_maintenance_retries_partial_failure",
     ),
+    "F8": (
+        "tests/test_assimilation_shadow.py::test_f8_multi_promotion_points_terminate_independently",
+    ),
+    "F9": (
+        "tests/test_assimilation_shadow.py::test_f9_separates_a_one_off_request_from_a_durable_preference",
+    ),
+    "F10": (
+        "tests/test_assimilation_shadow.py::test_f10_preserves_confirm_refine_and_conflict_as_distinct_outcomes",
+    ),
+    "F11": (
+        "tests/test_assimilation_shadow.py::test_f11_clean_projection_excludes_audit_metadata",
+    ),
 }
 
 
@@ -295,7 +307,17 @@ def _quality(fixture_id: str, decision: dict[str, Any]) -> dict[str, Any]:
     if candidates:
         basis_ok = candidates[0].get("evidence_basis") == expected.get("candidate_basis")
         content = " ".join(str(item.get("content") or "") for item in candidates).lower()
-        terms_ok = all(term.lower() in content for term in expected.get("required_terms", []))
+        groups = expected.get("required_term_groups")
+        if groups:
+            terms_ok = all(
+                any(str(term).lower() in content for term in group)
+                for group in groups
+            )
+        else:
+            terms_ok = all(
+                term.lower() in content
+                for term in expected.get("required_terms", [])
+            )
     checks = {
         "candidate_count": candidate_count_ok,
         "promotion_decision": promotion_ok,

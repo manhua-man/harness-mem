@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
-from harness_mem.autonomous.models import AutonomousDecision
+from harness_mem.autonomous.models import AssimilationDecision, AutonomousDecision
 from harness_mem.autonomous.provider import ProviderError, ProviderResult
 from harness_mem.autonomous.worker import run_autonomous_distill_batch
 from harness_mem.config.merge import MergedConfig
@@ -29,16 +29,45 @@ from harness_mem.mcp.response_budget import (
     attach_response_budget_receipt,
     serialized_result_tokens,
 )
-from harness_mem.qualification.distill_fixture_catalog import fixture
+from harness_mem.qualification.distill_fixture_catalog import catalog_fingerprint, fixture
 from harness_mem.qualification.distill_acceptance import (
     _decide_model_sample_with_retry,
     _duration_regression,
     _model_sample_status,
+    _quality,
     _recover_prior_green_samples,
 )
 from harness_mem.session_notes import materialize_session_note
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.transcript_chunking import chunk_transcript_text
+
+
+def _assimilate_all_as_add(manifest: dict, *, provider: str) -> ProviderResult:
+    points = [
+        {
+            "candidate_id": candidate["candidate_id"],
+            "disposition": "add",
+            "matched_truth_handles": [],
+            "canonical_title": "Fixture memory",
+            "canonical_statement": candidate["statement"],
+            "topic_path": ["fixture"],
+            "reason": "Deterministic fixture accepts the verified point.",
+        }
+        for candidate in manifest["verified_candidates"]
+    ]
+    return ProviderResult(
+        decision=AssimilationDecision.model_validate({"points": points}),
+        provider=provider,
+        model="deterministic",
+        duration_seconds=0.01,
+        input_sha256="c" * 64,
+        response_sha256="d" * 64,
+        input_tokens=50,
+        output_tokens=25,
+        total_tokens=75,
+        event_count=1,
+        sandbox="no-tools",
+    )
 
 
 def test_model_sample_cost_warning_is_not_reported_as_passed() -> None:
@@ -50,6 +79,74 @@ def test_model_sample_cost_warning_is_not_reported_as_passed() -> None:
         )
         == "warning"
     )
+
+
+def test_model_sample_quality_accepts_user_language_concept_terms() -> None:
+    quality = _quality(
+        "F3",
+        {
+            "semantic_review": {
+                "session_summary": "用户确认了性能偏好，但测量工作尚未完成。",
+                "final_user_request": "降低提炼开销并继续固定样本测量。",
+                "final_outcome": "偏好已确认，测量仍待完成。",
+                "last_turn_status": "unfinished",
+                "contradictions": [],
+                "unfinished_work": ["测量一个固定模型样本。"],
+                "evidence_status": "partial",
+                "promotion_decision": "partial",
+            },
+            "candidates": [
+                {
+                    "kind": "memory",
+                    "category": "性能偏好",
+                    "content": "降低提炼延迟和令牌使用量，同时保持结果质量。",
+                    "confidence": 0.99,
+                    "tags": [],
+                    "evidence_basis": "user_statement",
+                    "verification_outcome": "verified",
+                    "verification_refs": [],
+                    "verification_reason_codes": [],
+                }
+            ],
+        },
+    )
+
+    assert quality["checks"]["required_terms"] is True
+    assert quality["passed"] is True
+
+
+def test_model_sample_quality_accepts_chinese_duration_synonym() -> None:
+    quality = _quality(
+        "F2",
+        {
+            "semantic_review": {
+                "session_summary": "用户明确提出了长期有效的性能偏好。",
+                "final_user_request": "降低蒸馏耗时和令牌使用。",
+                "final_outcome": "该长期性能偏好已确认并记录。",
+                "last_turn_status": "answered",
+                "contradictions": [],
+                "unfinished_work": [],
+                "evidence_status": "answered",
+                "promotion_decision": "promote",
+            },
+            "candidates": [
+                {
+                    "kind": "memory",
+                    "category": "性能偏好",
+                    "content": "减少耗时和令牌使用，同时保持结果质量。",
+                    "confidence": 0.99,
+                    "tags": [],
+                    "evidence_basis": "user_statement",
+                    "verification_outcome": "verified",
+                    "verification_refs": [],
+                    "verification_reason_codes": [],
+                }
+            ],
+        },
+    )
+
+    assert quality["checks"]["required_terms"] is True
+    assert quality["passed"] is True
 
 
 def test_model_sample_retries_one_transient_provider_failure(tmp_path: Path) -> None:
@@ -112,9 +209,7 @@ def test_model_baseline_is_recovered_from_prior_regression_receipt() -> None:
             "samples": [
                 {
                     "fixture_id": "F2",
-                    "fixture_catalog": (
-                        "sha256:ec41e4d618c7d2bab47179a2e6ff6b87726c6dac3dbc45cd4fd8292510cb3aa0"
-                    ),
+                    "fixture_catalog": catalog_fingerprint(),
                     "provider": {
                         "model": "gpt-5.6-sol",
                         "total_tokens": 6000,
@@ -531,6 +626,10 @@ def test_b2_autonomous_partial_creates_handoff_and_only_one_truth(
                 event_count=1,
             )
 
+        def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
+            del runtime_dir, heartbeat
+            return _assimilate_all_as_add(manifest, provider=self.name)
+
     try:
         result = run_autonomous_distill_batch(
             backend,
@@ -642,6 +741,10 @@ class _BatchProvider:
             total_tokens=600,
             event_count=1,
         )
+
+    def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
+        del runtime_dir, heartbeat
+        return _assimilate_all_as_add(manifest, provider=self.name)
 
 
 def _batch_setup(tmp_path: Path):
