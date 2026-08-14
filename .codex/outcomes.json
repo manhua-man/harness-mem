@@ -227,12 +227,12 @@
     },
     {
       "id": "distill_acceptance_matrix",
-      "description": "The versioned F1-F7 fixture catalog maps every A1-E6 path to an executable result and the fixed F1-F3 model batch meets quality and cost gates.",
+      "description": "The versioned F1-F11 fixture catalog maps every A1-E6 path and the read-only F8-F11 shadow contract to executable results; the fixed F1-F3 model batch meets quality and cost gates.",
       "required": true,
       "checks": [
         {
           "id": "distill_acceptance_runner",
-          "description": "Run all 24 mapped paths and the three no-tools fixed model samples, producing a machine-readable report.",
+          "description": "Run all 28 mapped paths, including the zero-mutation F8-F11 shadow checks, and the three no-tools fixed model samples, producing a machine-readable report.",
           "evidence_tier": "direct",
           "timeout_seconds": 300,
           "command": ["{python}", "-m", "harness_mem.qualification.distill_acceptance", "--project-root", "{project_root}", "--output", "{project_root}/.codex/distill-acceptance-report.json", "--model-samples"],
@@ -240,10 +240,38 @@
             "exit_code": 0,
             "json": {
               "status": {"equals": "passed"},
-              "l1.passed": {"equals": 24},
-              "l1.total": {"equals": 24},
+              "l1.passed": {"equals": 28},
+              "l1.total": {"equals": 28},
               "model_samples.passed": {"equals": 3},
               "model_samples.total": {"equals": 3}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "multi_point_memory_assimilation",
+      "description": "One autonomous session independently adds a new memory, confirms existing truth without duplication, rejects a one-off request, creates a job-bound handoff, and materializes a wake-readable rule through the bounded second semantic call.",
+      "required": true,
+      "checks": [
+        {
+          "id": "isolated_multi_point_assimilation_runtime",
+          "description": "Run the real snapshot, worker, evidence revalidation, second provider call, governed apply, Note/Answer Packet, retrieval, wake, and replay path in an isolated durable store.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.qualification.memory_assimilation_outcome_probe"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "multi_point_independent": {"equals": true},
+              "add_retrievable": {"equals": true},
+              "confirm_has_no_duplicate": {"equals": true},
+              "one_off_request_not_written": {"equals": true},
+              "handoff_job_bound": {"equals": true},
+              "rule_materialized_and_wake_readable": {"equals": true},
+              "answer_packet_point_bound": {"equals": true},
+              "assimilation_provider_isolated": {"equals": true},
+              "replay_no_provider_recall": {"equals": true},
+              "verified": {"equals": true}
             }
           }
         }
