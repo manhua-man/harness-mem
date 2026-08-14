@@ -6,8 +6,9 @@ must first safely receive, version, and finish a native session. The 0.9.12
 runtime already implements much of that lifecycle, lossless extraction,
 content-addressed evidence validation, governed truth, and normal retrieval.
 The 0.9.13 contract and 0.9.14 runtime implement the assimilation boundary for
-new autonomous distill jobs. The separately planned 0.9.15 work covers clean
-default retrieval and governed convergence of historical provisional rows.
+new autonomous distill jobs. 0.9.15 has begun by isolating raw Observation
+content behind explicit deep recall; its remaining work is clean user-visible
+projection and governed convergence of historical provisional rows.
 
 ```text
 0. session intake and lifecycle

@@ -145,7 +145,7 @@ def tool_wake(
                 budget_tokens=budget_tokens,
                 search_limit=10,
                 context_limit=10,
-                auto_deep_recall=True,
+                auto_deep_recall=False,
             )
         )
         snapshot_payload = asyncio.run(

@@ -278,6 +278,31 @@
       ]
     },
     {
+      "id": "clean_retrieval_boundary",
+      "description": "Normal search and wake return current canonical truth without raw session evidence; explicit deep recall may retrieve the raw evidence.",
+      "required": true,
+      "checks": [
+        {
+          "id": "isolated_clean_retrieval_runtime",
+          "description": "Run normal and explicit deep retrieval against real temporary stores through the public search and wake handlers.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.qualification.clean_retrieval_outcome_probe"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "default_current_truth_retrievable": {"equals": true},
+              "default_excludes_provisional_and_historical": {"equals": true},
+              "default_has_no_raw_observation": {"equals": true},
+              "deep_recall_returns_raw_observation": {"equals": true},
+              "wake_default_has_no_raw_observation": {"equals": true},
+              "wake_deep_recall_returns_raw_observation": {"equals": true},
+              "verified": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
       "id": "distill_audit_summaries",
       "description": "Recent completed distill ledgers retain their semantic summaries for audit.",
       "required": false,

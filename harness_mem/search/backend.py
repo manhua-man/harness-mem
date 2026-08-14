@@ -52,6 +52,7 @@ class SearchFilters:
     truth_status: list[str] | None = None
     deep_recall: bool = False
     include_provisional: bool = False
+    include_raw: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -73,6 +74,7 @@ class SearchFilters:
             "truth_status": list(self.truth_status or []),
             "deep_recall": self.deep_recall,
             "include_provisional": self.include_provisional,
+            "include_raw": self.include_raw,
         }
 
 
@@ -185,6 +187,9 @@ class SQLiteSearchBackend:
         if mode == "hybrid":
             candidate_channels.append("vector")
         candidate_channels.append("relation")
+        include_raw = filters.deep_recall or filters.include_raw
+        if include_raw:
+            candidate_channels.append("raw")
         entries = await self.backend.structured_store.search_memory_entries(
             query,
             project_name=project_filter,
@@ -203,13 +208,17 @@ class SQLiteSearchBackend:
             entries,
             project_filter,
         )
-        observations = await self.backend.verbatim_store.search(
-            query,
-            project_name=project_filter,
-            limit=source_limit,
-            mode=mode,
-            time_window=filters.time_window,
-            as_of=filters.as_of,
+        observations = (
+            await self.backend.verbatim_store.search(
+                query,
+                project_name=project_filter,
+                limit=source_limit,
+                mode=mode,
+                time_window=filters.time_window,
+                as_of=filters.as_of,
+            )
+            if include_raw
+            else []
         )
         relation_facts = await self.backend.structured_store.search_relation_facts(
             query,
@@ -245,6 +254,8 @@ class SQLiteSearchBackend:
         ):
             executed_channels.append("vector")
         executed_channels.append("relation")
+        if observations:
+            executed_channels.append("raw")
         search_plan = SearchPlan(
             candidate_channels=tuple(candidate_channels),
             executed_channels=tuple(executed_channels),

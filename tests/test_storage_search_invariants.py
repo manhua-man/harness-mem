@@ -504,8 +504,12 @@ def test_as_of_excludes_future_observations_before_limit(backend) -> None:
 
     response = _run(
         SearchFacade(backend).search(
-            "prelimitobservationtoken",
-            filters=SearchFilters(project_name="demo", as_of=as_of),
+                "prelimitobservationtoken",
+                filters=SearchFilters(
+                    project_name="demo",
+                    as_of=as_of,
+                    include_raw=True,
+                ),
             mode="fts",
             limit=1,
         )
@@ -806,7 +810,7 @@ def test_search_facade_preserves_memory_relation_observation_semantics(backend) 
     response = _run(
         facade.search(
             "semanticstoken",
-            filters=SearchFilters(project_name="demo"),
+            filters=SearchFilters(project_name="demo", deep_recall=True),
             mode="auto",
             limit=10,
         )
@@ -1014,7 +1018,6 @@ def test_project_scope_filters_results_and_scope_all_keeps_project_identity(back
     assert project_response.source_coverage == {
         "memory_entry": 1,
         "relation_fact": 1,
-        "observation": 1,
     }
 
     all_response = _run(
@@ -1029,7 +1032,6 @@ def test_project_scope_filters_results_and_scope_all_keeps_project_identity(back
     assert all_response.source_coverage == {
         "memory_entry": 2,
         "relation_fact": 2,
-        "observation": 2,
     }
 
 

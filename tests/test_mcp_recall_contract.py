@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from harness_mem.core.schemas.memory_entry import MemoryEntry
+from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.recall_result import RECALL_RESULT_SCHEMA_VERSION
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.event_log import iter_state_events
@@ -88,6 +89,49 @@ def test_search_memory_adds_recall_without_removing_legacy_arrays(backend) -> No
     assert signals[0].context["retrieval_id"] == payload["retrieval_id"]
     assert payload["record_outcome_call"]["arguments"]["retrieval_id"] == payload["retrieval_id"]
     assert "outcome" not in payload["record_outcome_call"]["arguments"]
+
+
+def test_search_memory_hides_raw_observations_until_deep_recall(backend) -> None:
+    import asyncio
+
+    asyncio.run(
+        backend.structured_store.save_memory_entry(
+            MemoryEntry(
+                project_name="demo",
+                category="decision",
+                content="canonicalretrievaltoken current memory.",
+                source="test",
+                status="user_confirmed",
+            )
+        )
+    )
+    observation_id = asyncio.run(
+        backend.verbatim_store.save(
+            Observation(
+                session_id="raw-session",
+                client="codex",
+                raw_content="canonicalretrievaltoken raw session evidence.",
+                content_type="turn",
+                metadata={"project_name": "demo"},
+            )
+        )
+    )
+
+    default_payload = server.tool_search_memory(
+        query="canonicalretrievaltoken",
+        project_name="demo",
+    )
+    deep_payload = server.tool_search_memory(
+        query="canonicalretrievaltoken",
+        project_name="demo",
+        deep_recall=True,
+    )
+
+    assert default_payload["observations"] == []
+    assert default_payload["observation_count"] == 0
+    assert "raw session evidence" not in str(default_payload)
+    assert [item["id"] for item in deep_payload["observations"]] == [observation_id]
+    assert deep_payload["observation_count"] == 1
 
 
 def test_search_memory_records_content_free_abstention_signal(backend) -> None:

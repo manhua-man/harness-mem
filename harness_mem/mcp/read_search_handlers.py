@@ -81,7 +81,7 @@ def tool_search_memory(
     task: str | None = None,
     budget_tokens: int = 6000,
 ) -> dict:
-    """Search structured memory entries + verbatim observations.
+    """Search current canonical memory; raw observations require deep recall.
 
     v1.6.1: ``memory_type`` is an optional list filter ({episodic, semantic,
     procedural}). Empty / None disables the filter; values are OR-ed.
@@ -135,7 +135,7 @@ def tool_search_memory(
             deep_recall=deep_recall,
             current_task=task,
             budget_tokens=budget_tokens,
-            auto_deep_recall=True,
+            auto_deep_recall=False,
             retrieval_profile=profile_info["active"],
         )
     )
