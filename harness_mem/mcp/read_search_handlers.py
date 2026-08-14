@@ -31,6 +31,10 @@ from harness_mem.mcp.read_query_support import (
     _temporal_intent_mode,
     _with_temporal_intent_hint,
 )
+from harness_mem.mcp.read_projection import (
+    project_memory_entries,
+    project_relation_facts,
+)
 
 
 def _get_backend():
@@ -80,6 +84,7 @@ def tool_search_memory(
     retrieval_profile: str | None = None,
     task: str | None = None,
     budget_tokens: int = 6000,
+    _include_diagnostics: bool = False,
 ) -> dict:
     """Search current canonical memory; raw observations require deep recall.
 
@@ -271,7 +276,7 @@ def tool_search_memory(
         else None
     )
 
-    return {
+    detailed_payload = {
         "project_name": project_name,
         "retrieval_id": retrieval_id,
         "retrieval_receipt": retrieval_receipt,
@@ -322,6 +327,17 @@ def tool_search_memory(
         "recall": recall_result.to_dict(),
         "record_outcome_call": record_outcome_call,
         **context_payload,
+    }
+    if deep_recall or _include_diagnostics:
+        return detailed_payload
+    return {
+        "project_name": project_name,
+        "query": query,
+        "status": recall_result.status,
+        "memories": [
+            *project_memory_entries(entries, include_project=scope == "all"),
+            *project_relation_facts(relation_facts, include_project=scope == "all"),
+        ],
     }
 
 
@@ -405,6 +421,7 @@ def tool_autopilot_search_tick(
         retrieval_profile=retrieval_profile,
         task=current_task,
         budget_tokens=decision.budget_tokens,
+        _include_diagnostics=True,
     )
     source_ids = [
         source_id

@@ -4,6 +4,7 @@ from harness_mem.mcp.read_wake_handlers import (
     _compact_wake_command_payload,
     _compact_wake_snapshot,
 )
+from harness_mem.mcp.read_projection import project_wake_snapshot
 
 
 def test_compact_wake_keeps_one_authoritative_content_tree() -> None:
@@ -74,3 +75,39 @@ def test_compact_wake_keeps_failure_output_for_diagnosis() -> None:
     failed = {"success": False, "exit_code": 1, "output": "wake failed"}
 
     assert _compact_wake_command_payload(failed) == failed
+
+
+def test_clean_wake_projection_drops_plan_and_audit_fields() -> None:
+    projection = project_wake_snapshot(
+        {
+            "essential_truth": [
+                {
+                    "summary": "Use the canonical retrieval path.",
+                    "source_ids": ["memory-internal-id"],
+                    "truth_status": "auto_confirmed",
+                }
+            ],
+            "active_task": [
+                {
+                    "summary": "Finish the retrieval contract.",
+                    "source_ids": ["handoff-internal-id"],
+                    "why_included": "active:recent_handoff",
+                }
+            ],
+        }
+    )
+
+    assert projection == {
+        "long_term_memory": [
+            {
+                "title": "Project memory",
+                "statement": "Use the canonical retrieval path.",
+            }
+        ],
+        "active_context": [
+            {
+                "title": "Current context",
+                "statement": "Finish the retrieval contract.",
+            }
+        ],
+    }

@@ -133,9 +133,11 @@ Search should prefer the current project and current trust tiers:
 - `pending`, `deferred`, and `rejected` are not normal read-path memory.
 - `superseded` appears only for history or conflict analysis.
 
-Every injected result should keep source ids and a short reason for why it was
-added. This lets `record_context_outcome` and later dream maintenance learn
-whether the context helped, was ignored, or misled the Agent.
+The runtime binds each injected result to canonical source IDs and an inclusion
+reason internally. User-facing wake/search projections show only long-term
+memory prose; the binding remains available only through explicit audit paths
+so `record_context_outcome` and later Dream maintenance can learn whether the
+context helped, was ignored, or misled the Agent.
 
 ## Write Path
 

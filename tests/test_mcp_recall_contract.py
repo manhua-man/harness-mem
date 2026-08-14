@@ -6,7 +6,6 @@ import pytest
 
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
-from harness_mem.core.schemas.recall_result import RECALL_RESULT_SCHEMA_VERSION
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.event_log import iter_state_events
 from harness_mem.mcp import server
@@ -33,7 +32,7 @@ def backend(tmp_path, monkeypatch):
         asyncio.run(backend.close())
 
 
-def test_search_memory_adds_recall_without_removing_legacy_arrays(backend) -> None:
+def test_search_memory_returns_clean_canonical_prose_by_default(backend) -> None:
     import asyncio
 
     asyncio.run(
@@ -53,30 +52,16 @@ def test_search_memory_adds_recall_without_removing_legacy_arrays(backend) -> No
         project_name="demo",
     )
 
-    assert "memory_entries" in payload
-    assert "relation_facts" in payload
-    assert "observations" in payload
-    assert payload["recall"]["contract"] == "harness_mem.recall_result"
-    assert payload["recall"]["schema_version"] == RECALL_RESULT_SCHEMA_VERSION
-    assert payload["recall"]["status"] in {"partial", "answered"}
-    assert [step["tier"] for step in payload["recall"]["steps"]] == [
-        "filter",
-        "fts",
-        "vector",
-        "merge",
-        "hydrate",
-        "context",
-    ]
-    assert payload["recall"]["steps"][0]["metadata"]["current_only_default"] is True
-    assert payload["recall"]["steps"][2]["status"] == "skipped"
-    evidence = payload["recall"]["evidence"][0]
-    assert evidence["source_kind"] == "memory_entry"
-    assert "score_details" in evidence["metadata"]
-    assert evidence["metadata"]["score_details"]["fts_score"] is not None
-    assert evidence["metadata"]["score_details"]["confidence_tier"] in {
-        "low",
-        "medium",
-        "high",
+    assert payload == {
+        "project_name": "demo",
+        "query": "SQLite local-first",
+        "status": "answered",
+        "memories": [
+            {
+                "title": "Project memory",
+                "statement": "Use SQLite for local-first memory.",
+            }
+        ],
     }
     signals = asyncio.run(
         backend.structured_store.query_retrieval_signals(
@@ -85,10 +70,9 @@ def test_search_memory_adds_recall_without_removing_legacy_arrays(backend) -> No
             limit=20,
         )
     )
-    assert [signal.target_id for signal in signals] == [evidence["source_id"]]
-    assert signals[0].context["retrieval_id"] == payload["retrieval_id"]
-    assert payload["record_outcome_call"]["arguments"]["retrieval_id"] == payload["retrieval_id"]
-    assert "outcome" not in payload["record_outcome_call"]["arguments"]
+    assert len(signals) == 1
+    assert signals[0].target_id
+    assert signals[0].context["retrieval_id"]
 
 
 def test_search_memory_hides_raw_observations_until_deep_recall(backend) -> None:
@@ -127,11 +111,50 @@ def test_search_memory_hides_raw_observations_until_deep_recall(backend) -> None
         deep_recall=True,
     )
 
-    assert default_payload["observations"] == []
-    assert default_payload["observation_count"] == 0
+    assert default_payload["memories"] == [
+        {
+            "title": "Project memory",
+            "statement": "canonicalretrievaltoken current memory.",
+        }
+    ]
     assert "raw session evidence" not in str(default_payload)
     assert [item["id"] for item in deep_payload["observations"]] == [observation_id]
     assert deep_payload["observation_count"] == 1
+
+
+def test_cross_project_search_keeps_only_the_needed_project_scope(backend) -> None:
+    import asyncio
+
+    for project_name in ("demo", "other"):
+        asyncio.run(
+            backend.structured_store.save_memory_entry(
+                MemoryEntry(
+                    project_name=project_name,
+                    category="decision",
+                    content=f"sharedprojectiontoken {project_name} memory.",
+                    source="test",
+                    status="user_confirmed",
+                )
+            )
+        )
+
+    payload = server.tool_search_memory(
+        query="sharedprojectiontoken",
+        scope="all",
+    )
+
+    assert payload["project_name"] is None
+    assert {
+        (item["project_name"], item["statement"])
+        for item in payload["memories"]
+    } == {
+        ("demo", "sharedprojectiontoken demo memory."),
+        ("other", "sharedprojectiontoken other memory."),
+    }
+    assert all(
+        set(item) == {"project_name", "title", "statement"}
+        for item in payload["memories"]
+    )
 
 
 def test_search_memory_records_content_free_abstention_signal(backend) -> None:
@@ -147,13 +170,14 @@ def test_search_memory_records_content_free_abstention_signal(backend) -> None:
         )
     )
 
-    assert payload["memory_entry_count"] == 0
+    assert payload["memories"] == []
+    assert payload["status"] == "empty"
     assert len(signals) == 1
     assert signals[0].context == {
         "surface": "search_memory",
         "reason": "no_evidence",
         "result_count": 0,
-        "retrieval_id": payload["retrieval_id"],
+        "retrieval_id": signals[0].context["retrieval_id"],
     }
     assert query not in signals[0].target_id
 
@@ -174,7 +198,11 @@ def test_context_outcome_keeps_retrieval_correlation_without_prefilling_use(
             )
         )
     )
-    search = server.tool_search_memory(query="correlated retrieval", project_name="demo")
+    search = server.tool_search_memory(
+        query="correlated retrieval",
+        project_name="demo",
+        deep_recall=True,
+    )
     call = search["record_outcome_call"]
 
     assert "outcome" not in call["arguments"]
@@ -288,7 +316,7 @@ def test_mcp_search_memory_deep_recall_surfaces_history_opt_in(backend) -> None:
         deep_recall=True,
     )
 
-    assert default_payload["memory_entries"] == []
+    assert default_payload["memories"] == []
     assert [entry["id"] for entry in deep_payload["memory_entries"]] == [entry_id]
     assert deep_payload["recall"]["evidence"][0]["metadata"]["valid_to"] is not None
     exclusions = asyncio.run(
@@ -303,7 +331,7 @@ def test_mcp_search_memory_deep_recall_surfaces_history_opt_in(backend) -> None:
     assert exclusions[0].context == {
         "surface": "search_memory",
         "reason": "historical",
-        "retrieval_id": default_payload["retrieval_id"],
+        "retrieval_id": exclusions[0].context["retrieval_id"],
     }
 
 

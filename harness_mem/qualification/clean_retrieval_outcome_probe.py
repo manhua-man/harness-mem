@@ -76,7 +76,7 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
             wake = tool_wake(
                 project_name=project_name,
                 current_task="cleanretrievaltoken",
-                detail_level="full",
+                detail_level="compact",
             )
             deep_wake = tool_wake(
                 project_name=project_name,
@@ -85,24 +85,30 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                 detail_level="full",
             )
 
-            default_memory_ids = {
-                str(item.get("id")) for item in default.get("memory_entries") or []
+            default_statements = {
+                str(item.get("statement")) for item in default.get("memories") or []
             }
             deep_observation_ids = {
                 str(item.get("id")) for item in deep.get("observations") or []
             }
             fields = {
-                "default_current_truth_retrievable": current.id in default_memory_ids,
+                "default_current_truth_retrievable": current.content in default_statements,
                 "default_excludes_provisional_and_historical": (
-                    provisional.id not in default_memory_ids
-                    and historical.id not in default_memory_ids
+                    provisional.content not in default_statements
+                    and historical.content not in default_statements
                 ),
-                "default_has_no_raw_observation": not default.get("observations")
-                and "raw session evidence" not in json.dumps(default),
+                "default_has_no_raw_observation": "raw session evidence"
+                not in json.dumps(default),
+                "default_has_no_audit_metadata": set(default) == {
+                    "project_name",
+                    "query",
+                    "status",
+                    "memories",
+                },
                 "deep_recall_returns_raw_observation": observation_id in deep_observation_ids,
                 "wake_default_has_no_raw_observation": (
-                    int((wake.get("source_coverage") or {}).get("observation", 0)) == 0
-                    and wake.get("effective_deep_recall") is False
+                    "raw session evidence" not in json.dumps(wake)
+                    and "source_coverage" not in wake
                 ),
                 "wake_deep_recall_returns_raw_observation": (
                     int((deep_wake.get("source_coverage") or {}).get("observation", 0))

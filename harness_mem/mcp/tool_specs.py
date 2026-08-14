@@ -82,10 +82,9 @@ PUBLIC_MCP_TOOL_NAMES = frozenset(
 _SCHEMAS: dict[str, _SchemaOnly] = {
     "search_memory": {
         "description": (
-            "Search structured memory entries and verbatim observations for a "
-            "project. Output keeps legacy memory_entries / relation_facts / "
-            "observations arrays and adds an additive recall contract with "
-            "evidence, sources, steps, planning, and status."
+            "Search current canonical long-term memory for a project. Default "
+            "output contains only readable titles and statements; explicit "
+            "deep_recall adds raw evidence and diagnostic audit detail."
         ),
         "input_schema": {
             "type": "object",
@@ -125,7 +124,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 },
                 "deep_recall": {
                     "type": "boolean",
-                    "description": "Include cold/archive lifecycle tiers. Default false searches hot/warm only.",
+                    "description": "Explicitly include raw evidence, historical lifecycle tiers, and diagnostic audit detail. Default false returns clean current memory prose only.",
                     "default": False,
                 },
                 "retrieval_profile": {

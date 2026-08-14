@@ -7,8 +7,15 @@ governance paths documented below.
 
 ## What changed
 
-MCP `search_memory` and `trace_relations` now include an additive `recall`
-object:
+Normal MCP `search_memory` returns a compact `memories` list containing only
+canonical `title` and `statement` prose. It does not expose record IDs,
+provenance, scores, source kinds, raw observations, or lifecycle diagnostics.
+Cross-project search includes the project name because that scope is needed to
+interpret a result.
+
+Explicit `search_memory(deep_recall=true)` and the dedicated raw/timeline/audit
+tools retain the diagnostic read contract. That detailed mode includes an
+additive `recall` object:
 
 - `evidence`: selected memory, relation, or raw evidence items
 - `sources`: drilldown pointers and read surfaces
@@ -16,7 +23,7 @@ object:
 - `planning`: selected effort and expected result shape
 - `status`: `answered`, `partial`, `empty`, or `failed`
 
-For `search_memory`, recall steps are stable and additive:
+For detailed `search_memory`, recall steps are stable and additive:
 
 ```text
 filter -> fts -> vector -> merge -> hydrate -> context
@@ -36,8 +43,9 @@ Decision entries can receive a small explainable 1-hop relation boost when a
 returned relation fact shares source/target entity tokens with the decision.
 The boost appears in `metadata.score_details.boosts` as `one_hop_relation`.
 
-Legacy response arrays such as `memory_entries`, `relation_facts`,
-`observations`, and `paths` remain in place for compatibility.
+Detailed responses retain the `memory_entries`, `relation_facts`,
+`observations`, and `recall` diagnostic structures. They are not part of the
+ordinary long-term-memory view.
 
 Surface boundary: `search_memory` and `trace_relations` are part of the single
 public MCP memory surface. They are read-path tools; they do not create or

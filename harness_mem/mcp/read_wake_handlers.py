@@ -18,6 +18,7 @@ from harness_mem.task_context_runtime import orchestrate_task_context
 from harness_mem.mcp.response_views import (
     status_triage_hints,
 )
+from harness_mem.mcp.read_projection import project_wake_snapshot
 
 from .handler_facade_proxy import tool_handlers_facade as _core
 from .read_query_support import (
@@ -236,6 +237,16 @@ def tool_wake(
         source_coverage=snapshot_payload.get("source_coverage"),
         temporal_intent_mode=temporal_intent,
     )
+    if command_payload.get("success") and detail_level == "compact" and not deep_recall:
+        maintenance_available = bool(
+            distill_maintenance.get("agent_execution_required")
+        )
+        return {
+            "success": True,
+            "project_name": resolved,
+            **project_wake_snapshot(snapshot_payload),
+            "maintenance_available": maintenance_available,
+        }
     return {
         "project_name": resolved,
         **snapshot_payload,

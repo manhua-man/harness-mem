@@ -279,7 +279,7 @@
     },
     {
       "id": "clean_retrieval_boundary",
-      "description": "Normal search and wake return current canonical truth without raw session evidence; explicit deep recall may retrieve the raw evidence.",
+      "description": "Normal search and wake return clean current canonical truth without raw session evidence or audit metadata; explicit deep recall may retrieve detailed evidence.",
       "required": true,
       "checks": [
         {
@@ -293,6 +293,7 @@
               "default_current_truth_retrievable": {"equals": true},
               "default_excludes_provisional_and_historical": {"equals": true},
               "default_has_no_raw_observation": {"equals": true},
+              "default_has_no_audit_metadata": {"equals": true},
               "deep_recall_returns_raw_observation": {"equals": true},
               "wake_default_has_no_raw_observation": {"equals": true},
               "wake_deep_recall_returns_raw_observation": {"equals": true},
