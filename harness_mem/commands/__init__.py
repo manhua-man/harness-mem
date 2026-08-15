@@ -9,6 +9,7 @@ from harness_mem.commands.maintenance import (
     cmd_state_audit,
 )
 from harness_mem.commands.purge import cmd_erase, cmd_purge
+from harness_mem.commands.runtime_reset import cmd_reset_runtime
 from harness_mem.commands.onboarding import cmd_quickstart
 from harness_mem.commands.config_cmds import (
     cmd_config_get,
@@ -40,5 +41,6 @@ __all__ = [
     "cmd_state_audit",
     "cmd_purge",
     "cmd_erase",
+    "cmd_reset_runtime",
     "cmd_quickstart",
 ]

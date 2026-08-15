@@ -152,6 +152,11 @@ def test_maintenance_import_and_purge_help_succeeds(
     assert "--before" in purge_help
     assert "--stale-only" in purge_help
 
+    _assert_help_exit(["maintenance", "reset-runtime", "--help"])
+    reset_help = capsys.readouterr().out
+    assert "--confirm-runtime-reset" in reset_help
+    assert "--apply" in reset_help
+
 
 def test_nested_maintenance_actions_are_invalid(
     capsys: pytest.CaptureFixture[str],
@@ -241,6 +246,41 @@ def test_maintenance_import_dispatch_defaults_to_dry_run(
         == 0
     )
     assert calls == [("drafts.json", "demo", False)]
+
+
+def test_maintenance_reset_runtime_requires_an_explicit_apply_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str | None, bool, bool]] = []
+
+    async def fake_reset_runtime(
+        *,
+        archive_dir: str | None,
+        apply: bool,
+        confirm_runtime_reset: bool,
+    ) -> int:
+        calls.append((archive_dir, apply, confirm_runtime_reset))
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_reset_runtime", fake_reset_runtime)
+
+    assert cli.main(["maintenance", "reset-runtime"]) == 0
+    assert calls == [(None, False, False)]
+
+    assert (
+        cli.main(
+            [
+                "maintenance",
+                "reset-runtime",
+                "--archive-dir",
+                "archives",
+                "--apply",
+                "--confirm-runtime-reset",
+            ]
+        )
+        == 0
+    )
+    assert calls[-1] == ("archives", True, True)
 
 
 def test_maintenance_purge_dispatch_defaults_to_dry_run(

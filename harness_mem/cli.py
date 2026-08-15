@@ -25,6 +25,7 @@ from harness_mem.commands import (
     cmd_migrate_store_v2,
     cmd_purge,
     cmd_erase,
+    cmd_reset_runtime,
     cmd_quickstart,
     cmd_state_audit,
     cmd_sync_commands,
@@ -273,6 +274,21 @@ def main(argv: list[str] | None = None):
     erase.add_argument("--before", help="YYYY-MM-DD")
     erase.add_argument("--reason", default="user_requested_erasure")
     _add_dry_apply_group(erase)
+
+    reset_runtime = maintenance_sub.add_parser(
+        "reset-runtime",
+        help="Preview or reset generated runtime data while preserving Codex archive sources",
+    )
+    reset_runtime.add_argument(
+        "--archive-dir",
+        help="Codex archived_sessions directory to preserve and use for redistill",
+    )
+    reset_runtime.add_argument(
+        "--confirm-runtime-reset",
+        action="store_true",
+        help="Required with --apply because the runtime reset is irreversible",
+    )
+    _add_dry_apply_group(reset_runtime)
 
     config = sub.add_parser(
         "config",
@@ -532,6 +548,14 @@ def main(argv: list[str] | None = None):
                     before_date=args.before,
                     apply=not args.dry_run,
                     reason=args.reason,
+                )
+            )
+        if args.maintenance_action == "reset-runtime":
+            return asyncio.run(
+                cmd_reset_runtime(
+                    archive_dir=args.archive_dir,
+                    apply=not args.dry_run,
+                    confirm_runtime_reset=args.confirm_runtime_reset,
                 )
             )
         maintenance.error(f"Unknown maintenance action: {args.maintenance_action}")
