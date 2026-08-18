@@ -4,6 +4,12 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from harness_mem.core.schemas import (
+    AssimilationDecision,
+    KnowledgeCandidate,
+    KnowledgeEntry,
+    ProjectKnowledgeSourceRef,
+)
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.relation_fact import RelationFact
@@ -24,6 +30,10 @@ def backend(tmp_path, monkeypatch):
     import asyncio
 
     backend = asyncio.run(_build())
+    project_root = tmp_path / "demo"
+    project_root.mkdir()
+    (project_root / "SOURCE.md").write_text("# Test source\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
     server.set_backend_override(backend)
     try:
         yield backend
@@ -32,19 +42,70 @@ def backend(tmp_path, monkeypatch):
         asyncio.run(backend.close())
 
 
+def _replace_current_knowledge(
+    backend: LocalMemoryBackend,
+    project_name: str,
+    statements: list[str],
+) -> None:
+    import asyncio
+
+    project_root = backend.data_dir / project_name
+    project_root.mkdir(exist_ok=True)
+    source = project_root / "SOURCE.md"
+    source.write_text("# Test source\n", encoding="utf-8")
+    entries = [
+        KnowledgeEntry(
+            project_name=project_name,
+            title="Project memory",
+            statement=statement,
+            module_path=["Test knowledge"],
+            verified_at=datetime.now(timezone.utc),
+        )
+        for statement in statements
+    ]
+    candidate = KnowledgeCandidate(
+        id=f"mcp-recall-seed-{project_name}",
+        project_name=project_name,
+        candidate_type="memory",
+        statement="MCP recall fixture seed.",
+    )
+    decision = AssimilationDecision(
+        id=f"mcp-recall-seed-mutation-{project_name}",
+        project_name=project_name,
+        candidate_id=candidate.id,
+        disposition="add",
+        canonical_truth_ids=[entry.id for entry in entries],
+        reason="Test fixture.",
+    )
+    source_ref = ProjectKnowledgeSourceRef(
+        label="SOURCE.md",
+        target=source.resolve().as_uri(),
+        kind="repository",
+        digest="a" * 64,
+    )
+    asyncio.run(backend.structured_store.knowledge_store.save_candidate(candidate))
+    asyncio.run(
+        backend.structured_store.knowledge_store.apply_truth_mutation(
+            candidate_before=candidate,
+            candidate_after=candidate.model_copy(update={"status": "assimilated"}),
+            decision=decision,
+            added_entries=entries,
+            predecessor_entries=[],
+            source_refs_by_entry={entry.id: [source_ref] for entry in entries},
+        )
+    )
+    asyncio.run(
+        backend.structured_store.knowledge_store.cleanup_candidate(candidate.id)
+    )
+
+
 def test_search_memory_returns_clean_canonical_prose_by_default(backend) -> None:
     import asyncio
 
-    asyncio.run(
-        backend.structured_store.save_memory_entry(
-            MemoryEntry(
-                project_name="demo",
-                category="decision",
-                content="Use SQLite for local-first memory.",
-                source="test",
-                status="user_confirmed",
-            )
-        )
+    _replace_current_knowledge(
+        backend,
+        "demo",
+        ["Use SQLite for local-first memory."],
     )
 
     payload = server.tool_search_memory(
@@ -78,16 +139,10 @@ def test_search_memory_returns_clean_canonical_prose_by_default(backend) -> None
 def test_search_memory_hides_raw_observations_until_deep_recall(backend) -> None:
     import asyncio
 
-    asyncio.run(
-        backend.structured_store.save_memory_entry(
-            MemoryEntry(
-                project_name="demo",
-                category="decision",
-                content="canonicalretrievaltoken current memory.",
-                source="test",
-                status="user_confirmed",
-            )
-        )
+    _replace_current_knowledge(
+        backend,
+        "demo",
+        ["canonicalretrievaltoken current memory."],
     )
     observation_id = asyncio.run(
         backend.verbatim_store.save(
@@ -123,19 +178,11 @@ def test_search_memory_hides_raw_observations_until_deep_recall(backend) -> None
 
 
 def test_cross_project_search_keeps_only_the_needed_project_scope(backend) -> None:
-    import asyncio
-
     for project_name in ("demo", "other"):
-        asyncio.run(
-            backend.structured_store.save_memory_entry(
-                MemoryEntry(
-                    project_name=project_name,
-                    category="decision",
-                    content=f"sharedprojectiontoken {project_name} memory.",
-                    source="test",
-                    status="user_confirmed",
-                )
-            )
+        _replace_current_knowledge(
+            backend,
+            project_name,
+            [f"sharedprojectiontoken {project_name} memory."],
         )
 
     payload = server.tool_search_memory(

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any, Literal
 
-from harness_mem.commands.support import (
-    get_active_project,
-)
+from harness_mem.commands.support import get_active_project
 from harness_mem.autopilot_search import plan_autopilot_search
 from harness_mem.read_api import (
     parse_relative_time_window,
@@ -17,6 +16,7 @@ from harness_mem.read_api import (
 )
 from harness_mem.recall import build_search_recall_result
 from harness_mem.retrieval_signals import record_retrieval_signal
+from harness_mem.read_knowledge import search_current_knowledge
 from harness_mem.task_context_runtime import orchestrate_task_context
 
 from .handler_facade_proxy import tool_handlers_facade as _core
@@ -114,6 +114,93 @@ def tool_search_memory(
         memory_type = normalized
     else:
         memory_type = None
+
+    clean_current_search = (
+        not memory_type
+        and not include_history
+        and not include_provisional
+        and not deep_recall
+    )
+    if scope == "project" and project_name and clean_current_search:
+        try:
+            separated_entries = asyncio.run(
+                search_current_knowledge(
+                    backend,
+                    project_name=project_name,
+                    query=query,
+                    limit=20,
+                )
+            )
+        except ValueError as error:
+            return {
+                "project_name": project_name,
+                "query": query,
+                "status": "unavailable",
+                "memories": [],
+                "reason": str(error),
+            }
+        historical_excluded = asyncio.run(
+            _count_mainline_historical_exclusions(
+                backend,
+                query=query,
+                project_name=project_name,
+                mode=mode,
+                memory_type=None,
+                include_provisional=False,
+                time_window=None,
+            )
+        )
+        asyncio.run(
+            _record_search_quality_signals(
+                backend,
+                project_name=project_name,
+                query=query,
+                entries=separated_entries,
+                response=SimpleNamespace(results=separated_entries),
+                context_plan=None,
+                historical_excluded=historical_excluded,
+            )
+        )
+        return {
+            "project_name": project_name,
+            "query": query,
+            "status": "answered" if separated_entries else "empty",
+            "memories": project_memory_entries(separated_entries),
+        }
+
+    if scope == "all" and clean_current_search:
+        separated_entries = []
+        for known_project in asyncio.run(
+            backend.structured_store.knowledge_store.known_projects()
+        ):
+            try:
+                separated_entries.extend(
+                    asyncio.run(
+                        search_current_knowledge(
+                            backend,
+                            project_name=known_project,
+                            query=query,
+                            limit=20,
+                        )
+                    )
+                )
+            except ValueError:
+                # A deleted or moved authority is unavailable, not permission
+                # to fall back to legacy rows from canonical SQLite.
+                continue
+        separated_entries = sorted(
+            separated_entries,
+            key=lambda entry: (entry.project_name, entry.title, entry.id),
+        )[:20]
+        return {
+            "project_name": None,
+            "query": query,
+            "status": "answered" if separated_entries else "empty",
+            "memories": project_memory_entries(
+                separated_entries,
+                include_project=True,
+            ),
+        }
 
     profile_info = asyncio.run(
         _resolve_retrieval_profile(

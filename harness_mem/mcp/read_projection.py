@@ -35,7 +35,9 @@ def project_memory_entries(
 
     projected: list[dict[str, str]] = []
     for entry in entries:
-        statement = _text(getattr(entry, "content", None))
+        statement = _text(
+            getattr(entry, "statement", None) or getattr(entry, "content", None)
+        )
         if not statement:
             continue
         item = {
