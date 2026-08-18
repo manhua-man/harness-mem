@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
-import threading
 from pathlib import Path
 
 import pytest
@@ -11,8 +9,6 @@ import pytest
 from harness_mem.adapters import AdapterRegistry
 from harness_mem.adapters.claude_code.adapter import ClaudeCodeAdapter
 from harness_mem.qualification.host_replay import run_host_replay
-from harness_mem.qualification import host_replay
-from harness_mem.mcp import tool_handlers
 from harness_mem.qualification.native_fixtures import (
     QUALIFICATION_HOSTS,
     build_native_fixture_adapter,
@@ -74,10 +70,37 @@ def test_native_host_replay_reaches_dream_and_wake(
                 "ingest",
                 "distill",
                 "candidate",
+                "assimilation",
                 "dream",
                 "wake",
             ]
             assert all(stage.status == "passed" for stage in artifact.stages)
+            knowledge_store = backend.structured_store.knowledge_store
+            markdown = await knowledge_store.render_markdown(project_name)
+            assert fact in markdown
+            assert "distill_job_id" not in markdown
+            assert "verification_reason_codes" not in markdown
+            assert not (
+                project / ".harness-mem" / "session-knowledge-base.md"
+            ).exists()
+            assert (
+                await backend.structured_store.list_memory_entries(
+                    project_name, limit=20
+                )
+            ) == []
+            candidates = await knowledge_store.list_candidates(project_name)
+            assert len(candidates) == 1
+            assert candidates[0].status == "assimilated"
+            candidate_evidence = await knowledge_store.list_evidence(
+                candidates[0].id
+            )
+            assert len(candidate_evidence) == 1
+            assert candidate_evidence[0].evidence_basis == "repository"
+            assert candidate_evidence[0].verification_outcome == "verified"
+            assert await knowledge_store.list_decisions(candidates[0].id) == []
+            mutations = await knowledge_store.list_mutations(project_name)
+            assert len(mutations) == 1
+            assert mutations[0].disposition == "add"
             written = list((tmp_path / "artifacts").glob(f"{host}-*.json"))
             assert len(written) == 1
             artifact_text = written[0].read_text(encoding="utf-8")
@@ -87,8 +110,6 @@ def test_native_host_replay_reaches_dream_and_wake(
             await backend.close()
 
     asyncio.run(exercise())
-
-
 def test_opencode_replay_releases_native_database_handle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -291,91 +312,3 @@ def test_host_replay_never_persists_identifier_shaped_exception_text(
             await backend.close()
 
     asyncio.run(exercise())
-
-
-def test_concurrent_replay_binding_restores_original_provider(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    initial_backend = object()
-    backend_a = type("Backend", (), {"data_dir": tmp_path / "a"})()
-    backend_b = type("Backend", (), {"data_dir": tmp_path / "b"})()
-    evidence = tmp_path / "evidence.txt"
-    evidence.write_text("proof", encoding="utf-8")
-    b_waiting = threading.Event()
-
-    class CoordinatedLock:
-        def __init__(self) -> None:
-            self._lock = threading.Lock()
-
-        def __enter__(self):
-            if threading.current_thread().name == "qualification-b":
-                b_waiting.set()
-            self._lock.acquire()
-            return self
-
-        def __exit__(self, *_args) -> None:
-            self._lock.release()
-
-    monkeypatch.setattr(host_replay, "_MCP_BINDING_LOCK", CoordinatedLock())
-    monkeypatch.setattr(tool_handlers, "_backend_provider", lambda: initial_backend)
-    monkeypatch.setattr(
-        tool_handlers,
-        "_observer_data_dir_provider",
-        lambda: tmp_path / "initial",
-    )
-    monkeypatch.setattr(
-        tool_handlers,
-        "_cost_surface_budgets_provider",
-        lambda _project_name: None,
-    )
-    monkeypatch.setattr(tool_handlers, "logger", logging.getLogger("qualification"))
-
-    def suggest(*, action, arguments):
-        del action, arguments
-        if threading.current_thread().name == "qualification-a":
-            assert b_waiting.wait(timeout=2)
-        return {"success": True}
-
-    monkeypatch.setattr(tool_handlers, "tool_govern_memory", suggest)
-    monkeypatch.setattr(
-        tool_handlers,
-        "tool_finalize_session_distill",
-        lambda **_kwargs: {"success": True},
-    )
-
-    failures: list[BaseException] = []
-
-    def invoke(backend) -> None:
-        try:
-            host_replay._suggest_and_finalize(
-                backend,
-                "qualification-project",
-                tmp_path,
-                "distill-job",
-                "candidate",
-                evidence,
-            )
-        except BaseException as exc:  # preserve thread assertion failures
-            failures.append(exc)
-
-    thread_a = threading.Thread(
-        target=invoke,
-        args=(backend_a,),
-        name="qualification-a",
-    )
-    thread_b = threading.Thread(
-        target=invoke,
-        args=(backend_b,),
-        name="qualification-b",
-    )
-    thread_a.start()
-    thread_b.start()
-    thread_a.join(timeout=3)
-    thread_b.join(timeout=3)
-
-    assert not thread_a.is_alive()
-    assert not thread_b.is_alive()
-    assert failures == []
-    assert tool_handlers._backend_provider is not None
-    assert tool_handlers._backend_provider() is initial_backend

@@ -62,9 +62,8 @@ class MergedConfig:
     archive_distill_batch_size: int = 3
     archive_distill_daily_limit: int = 20
     archive_distill_order: Literal["recent_first", "oldest_first"] = "recent_first"
-    archive_distill_project_scope: Literal["detected", "current", "all"] = "detected"
+    archive_distill_project_scope: Literal["detected", "current", "all"] = "current"
     archive_distill_unresolved_project: Literal["defer", "skip", "error"] = "defer"
-    archive_distill_allowed_project_roots: tuple[str, ...] = ()
     archive_distill_warn_tokens: int = 15000
     archive_distill_warn_seconds: int = 40
     archive_distill_require_answer_packet: bool = True
@@ -79,7 +78,10 @@ class MergedConfig:
     dream_parse_parse_all: bool = True
     dream_parse_require_evidence: bool = True
     dream_handle_handle_all: bool = True
-    dream_handle_auto_apply: bool = True
+    # Retained as a read-compatible setting during 0.9.x. Dream no longer
+    # interprets it as permission to mutate truth; every proposal re-enters
+    # verification and assimilation.
+    dream_handle_auto_apply: bool = False
     dream_handle_auto_reject_uncertain: bool = True
     dream_handle_auto_archive_unclassifiable: bool = True
     dream_handle_allow_supersede: bool = True
@@ -194,19 +196,13 @@ _ARCHIVE_DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
         "archive_distill.project_scope",
         "archive_distill_project_scope",
         "enum:detected,current,all",
-        "detected",
+        "current",
     ),
     (
         "archive_distill.unresolved_project",
         "archive_distill_unresolved_project",
         "enum:defer,skip,error",
         "defer",
-    ),
-    (
-        "archive_distill.allowed_project_roots",
-        "archive_distill_allowed_project_roots",
-        "str_list",
-        (),
     ),
     (
         "archive_distill.warn_tokens",
@@ -253,7 +249,7 @@ _DREAM_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     ("dream.parse.parse_all", "dream_parse_parse_all", "const:true", True),
     ("dream.parse.require_evidence", "dream_parse_require_evidence", "bool", True),
     ("dream.handle.handle_all", "dream_handle_handle_all", "const:true", True),
-    ("dream.handle.auto_apply", "dream_handle_auto_apply", "bool", True),
+    ("dream.handle.auto_apply", "dream_handle_auto_apply", "bool", False),
     (
         "dream.handle.auto_reject_uncertain",
         "dream_handle_auto_reject_uncertain",
@@ -319,7 +315,6 @@ PUBLIC_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "archive_distill.order",
     "archive_distill.project_scope",
     "archive_distill.unresolved_project",
-    "archive_distill.allowed_project_roots",
     "archive_distill.warn_tokens",
     "archive_distill.warn_seconds",
     "archive_distill.require_answer_packet",

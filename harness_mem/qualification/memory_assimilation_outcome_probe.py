@@ -10,13 +10,22 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
-from harness_mem.autonomous.models import AssimilationDecision, AutonomousDecision
+from harness_mem.autonomous.models import (
+    AssimilationDecision,
+    AutonomousDecision,
+    CandidateVerificationDecision,
+)
 from harness_mem.autonomous.provider import ProviderResult
 from harness_mem.autonomous.worker import run_autonomous_distill_batch
-from harness_mem.commands.wake import build_wake_snapshot
 from harness_mem.config.merge import MergedConfig
-from harness_mem.core.schemas.memory_entry import MemoryEntry
+from harness_mem.core.schemas import ProjectKnowledgeSourceRef
+from harness_mem.core.schemas.knowledge import (
+    AssimilationDecision as RuntimeAssimilationDecision,
+    KnowledgeCandidate,
+    KnowledgeEntry,
+)
 from harness_mem.core.schemas.observation import Observation
+from harness_mem.read_knowledge import search_current_knowledge
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
@@ -25,6 +34,7 @@ class _SequencedProvider:
 
     def __init__(self) -> None:
         self.extraction_calls = 0
+        self.verification_calls = 0
         self.assimilation_calls = 0
         self.assimilation_manifest: dict[str, Any] | None = None
 
@@ -139,6 +149,33 @@ class _SequencedProvider:
         )
         return _receipt(decision, provider=self.name, marker="assimilate")
 
+    def verify(self, manifest: dict[str, Any], *, runtime_dir: Path, heartbeat=None):
+        del runtime_dir
+        self.verification_calls += 1
+        if heartbeat is not None:
+            heartbeat()
+        points = []
+        for item in manifest["candidates"]:
+            statement = item["statement"]
+            session_only = statement == "Show every long-term memory now."
+            points.append(
+                {
+                    "candidate_index": item["candidate_index"],
+                    "semantic_support": "supported",
+                    "future_scope": "session_only" if session_only else "durable",
+                    "reason": (
+                        "This is a one-off request for current output."
+                        if session_only
+                        else "The source supports a reusable project conclusion."
+                    ),
+                }
+            )
+        return _receipt(
+            CandidateVerificationDecision.model_validate({"points": points}),
+            provider=self.name,
+            marker="verify",
+        )
+
 
 def _evidence(ref: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -153,14 +190,11 @@ def _evidence(ref: dict[str, Any]) -> dict[str, Any]:
                 "content_sha256": ref["content_sha256"],
             }
         ],
-        "assimilation_disposition": "add",
-        "assimilation_reason": "Initial extraction hint only.",
-        "canonical_title": None,
-        "topic_path": [],
     }
 
 
 def _memory_candidate(reference: dict[str, Any], title: str, statement: str) -> dict[str, Any]:
+    del title
     return {
         **_evidence(reference),
         "kind": "memory",
@@ -175,7 +209,6 @@ def _memory_candidate(reference: dict[str, Any], title: str, statement: str) -> 
         "target_entity": None,
         "relation_type": None,
         "evidence": None,
-        "canonical_title": title,
     }
 
 
@@ -209,15 +242,61 @@ def run_memory_assimilation_outcome_probe() -> dict[str, Any]:
         asyncio.run(backend.init())
         try:
             project_name = "assimilation-probe"
-            current = MemoryEntry(
+            source_file = root / "README.md"
+            source_file.write_text(
+                "The legacy projection remains visible.\n", encoding="utf-8"
+            )
+            current = KnowledgeEntry(
                 id="existing-search-projection",
                 project_name=project_name,
-                category="decision",
-                content="The legacy projection remains visible.",
-                source="fixture",
-                status="auto_confirmed",
+                title="Existing search projection",
+                statement="The legacy projection remains visible.",
+                module_path=["memory", "retrieval"],
+                verified_at=datetime.now(timezone.utc),
             )
-            asyncio.run(backend.structured_store.save_memory_entry(current))
+            seed_candidate = KnowledgeCandidate(
+                id="assimilation-probe-seed",
+                project_name=project_name,
+                candidate_type="memory",
+                statement=current.statement,
+            )
+            seed_decision = RuntimeAssimilationDecision(
+                id="assimilation-probe-seed-mutation",
+                project_name=project_name,
+                candidate_id=seed_candidate.id,
+                disposition="add",
+                canonical_truth_ids=[current.id],
+                reason="Isolated outcome fixture seed.",
+            )
+            asyncio.run(
+                backend.structured_store.knowledge_store.save_candidate(seed_candidate)
+            )
+            asyncio.run(
+                backend.structured_store.knowledge_store.apply_truth_mutation(
+                    candidate_before=seed_candidate,
+                    candidate_after=seed_candidate.model_copy(
+                        update={"status": "assimilated"}
+                    ),
+                    decision=seed_decision,
+                    added_entries=[current],
+                    predecessor_entries=[],
+                    source_refs_by_entry={
+                        current.id: [
+                            ProjectKnowledgeSourceRef(
+                                label="README.md",
+                                target=source_file.as_uri(),
+                                kind="repository",
+                                digest="a" * 64,
+                            )
+                        ]
+                    },
+                )
+            )
+            asyncio.run(
+                backend.structured_store.knowledge_store.cleanup_candidate(
+                    seed_candidate.id
+                )
+            )
             transcript = "\n\n".join(
                 [
                     "User: Add a reusable rule for clean memory search.\n\nAssistant: Recorded.",
@@ -273,28 +352,55 @@ def run_memory_assimilation_outcome_probe() -> dict[str, Any]:
                 preferred_job_id=snapshot.distill_job_id,
             )
             job = backend.transcript_store.get_distill_job(str(snapshot.distill_job_id))
-            memories = asyncio.run(
+            legacy_memories = asyncio.run(
                 backend.structured_store.list_memory_entries(project_name, limit=20)
             )
-            rules = asyncio.run(backend.structured_store.list_confirmed_rules(project_name))
+            legacy_rules = asyncio.run(
+                backend.structured_store.list_confirmed_rules(project_name)
+            )
+            knowledge_entries = asyncio.run(
+                backend.structured_store.knowledge_store.list_entries(project_name)
+            )
+            knowledge_candidates = asyncio.run(
+                backend.structured_store.knowledge_store.list_candidates(project_name)
+            )
             handoffs = asyncio.run(
                 backend.structured_store.get_latest_handoffs(project_name, limit=20)
             )
-            wake = asyncio.run(build_wake_snapshot(backend, project_name))
+            retrieved = asyncio.run(
+                search_current_knowledge(
+                    backend,
+                    project_name=project_name,
+                    project_root=root,
+                    query="itemized list",
+                    limit=10,
+                )
+            )
             packet = dict((job.promotion_summary if job else {}).get("answer_packet") or {})
             assimilation_manifest = provider.assimilation_manifest or {}
             result_fields = {
                 "multi_point_independent": result.get("state") == "succeeded" and len(packet.get("point_results") or []) == 5,
-                "add_retrievable": any(item.content == "Normal memory search excludes audit metadata." for item in memories),
-                "confirm_has_no_duplicate": len(memories) == 2,
-                "one_off_request_not_written": all(item.content != "Show every long-term memory now." for item in memories),
+                "add_retrievable": any(
+                    item.statement == "Normal memory search excludes audit metadata."
+                    for item in knowledge_entries
+                ),
+                "confirm_has_no_duplicate": len(knowledge_entries) == 3,
+                "one_off_request_not_written": all(
+                    item.statement != "Show every long-term memory now."
+                    for item in knowledge_entries
+                ),
                 "handoff_job_bound": len(handoffs) == 1 and handoffs[0].context.get("distill_job_id") == snapshot.distill_job_id,
-                "rule_materialized_and_wake_readable": len(rules) == 1 and any("itemized list" in json.dumps(section) for section in wake["wake_sections"]),
+                "rule_materialized_and_normally_retrievable": any(
+                    "itemized list" in item.statement for item in knowledge_entries
+                ) and any("itemized list" in item.statement for item in retrieved),
+                "new_session_does_not_write_legacy_truth": not legacy_memories and not legacy_rules,
+                "terminal_processing_material_cleaned": not knowledge_candidates,
                 "answer_packet_point_bound": {item.get("disposition") for item in packet.get("point_results") or []} == {"add", "confirm", "no_write", "handoff"},
                 "assimilation_provider_isolated": bool(assimilation_manifest)
                 and "transcript" not in assimilation_manifest
                 and "chunks" not in assimilation_manifest,
                 "replay_no_provider_recall": replay.get("outcomes") == [] and provider.extraction_calls == 1 and provider.assimilation_calls == 1,
+                "verification_provider_executed_once": provider.verification_calls == 1,
             }
             result_fields["verified"] = all(result_fields.values())
             return result_fields

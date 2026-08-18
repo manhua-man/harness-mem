@@ -11,8 +11,6 @@ import asyncio
 import hashlib
 import inspect
 import json
-import logging
-import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,11 +18,21 @@ from typing import Any
 from uuid import uuid4
 
 from harness_mem.adapters.protocol import SessionAdapter
+from harness_mem.autonomous.models import (
+    AssimilationDecision,
+    AssimilationPoint,
+    CanonicalKnowledgeItem,
+)
+from harness_mem.commands.dream import dream_once
+from harness_mem.commands.separated_assimilation import (
+    apply_separated_assimilation,
+    create_separated_candidates,
+    prepare_separated_assimilation,
+    validate_separated_assimilation_decision,
+)
 from harness_mem.commands.wake import build_wake_injection
-from harness_mem.mcp import tool_handlers
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
-_MCP_BINDING_LOCK = threading.Lock()
 _SAFE_REASON_CODES = frozenset(
     {
         "native_session_not_found",
@@ -34,6 +42,9 @@ _SAFE_REASON_CODES = frozenset(
         "candidate_missing_from_distill_evidence",
         "candidate_suggestion_failed",
         "candidate_not_promoted",
+        "promoted_candidate_missing_from_sqlite",
+        "promoted_candidate_missing_from_render",
+        "markdown_export_became_authority",
         "dream_postprocess_failed",
         "promoted_candidate_missing_from_wake",
     }
@@ -91,9 +102,9 @@ async def run_host_replay(
     """Replay one real native fixture through distill, Dream, and wake.
 
     Candidate wording is deterministic because release CI has no semantic
-    Agent. The candidate still enters through ``govern_memory`` and is admitted
-    by the normal repository-evidence policy; the harness never writes durable
-    truth directly.
+    Agent. The candidate still enters the separated candidate and repository-
+    evidence gates, then reaches Markdown truth only through the normal
+    assimilation boundary; the harness never writes durable truth directly.
     """
 
     run_id = str(uuid4())
@@ -187,41 +198,124 @@ async def run_host_replay(
         )
 
         failure_stage = "candidate"
-        candidate, finalized = await asyncio.to_thread(
-            _suggest_and_finalize,
+        candidate_ids = await create_separated_candidates(
             backend,
-            project_name,
-            project_root,
-            sync.distill_job_id,
-            grounded_candidate,
-            repository_evidence,
+            project_name=project_name,
+            distill_job_id=sync.distill_job_id,
+            candidate_arguments=[
+                {
+                    "kind": "memory",
+                    "content": grounded_candidate,
+                    "evidence_basis": "repository",
+                    "verification_outcome": "verified",
+                    "verification_refs": [
+                        {
+                            "kind": "repository",
+                            "locator": repository_evidence.relative_to(
+                                project_root
+                            ).as_posix(),
+                            "content_sha256": hashlib.sha256(
+                                repository_evidence.read_bytes()
+                            ).hexdigest(),
+                        }
+                    ],
+                }
+            ],
         )
-        if not candidate.get("success"):
+        if len(candidate_ids) != 1:
             raise RuntimeError("candidate_suggestion_failed")
+        candidate_id = candidate_ids[0]
         stages.append(
             HostReplayStage(
                 name="candidate",
                 status="passed",
-                details={"candidate_id": candidate.get("entry_id")},
+                details={"candidate_id": candidate_id},
+            )
+        )
+
+        failure_stage = "assimilation"
+        prepared = await prepare_separated_assimilation(
+            backend,
+            project_name=project_name,
+            project_root=str(project_root),
+            candidate_ids=candidate_ids,
+        )
+        if prepared.eligible_candidate_ids != tuple(candidate_ids):
+            raise RuntimeError("candidate_not_promoted")
+        plan = validate_separated_assimilation_decision(
+            prepared,
+            AssimilationDecision(
+                points=[
+                    AssimilationPoint(
+                        candidate_id=candidate_id,
+                        disposition="add",
+                        reason=(
+                            "Repository evidence verifies this native replay "
+                            "qualification fact."
+                        ),
+                        knowledge_items=[
+                            CanonicalKnowledgeItem(
+                                title="Native host replay qualification",
+                                statement=grounded_candidate,
+                                topic_path=["Native host integration"],
+                                claim_kind="implementation_fact",
+                            )
+                        ],
+                    )
+                ]
+            ),
+        )
+        assimilation = await apply_separated_assimilation(
+            backend,
+            project_name=project_name,
+            project_root=str(project_root),
+            candidate_ids=candidate_ids,
+            plan=plan,
+        )
+        if assimilation.get("promoted") != 1:
+            raise RuntimeError("candidate_not_promoted")
+        knowledge_entries = await backend.structured_store.knowledge_store.list_entries(
+            project_name
+        )
+        if not any(entry.statement == grounded_candidate for entry in knowledge_entries):
+            raise RuntimeError("promoted_candidate_missing_from_sqlite")
+        rendered = await backend.structured_store.knowledge_store.render_markdown(
+            project_name
+        )
+        if grounded_candidate not in rendered:
+            raise RuntimeError("promoted_candidate_missing_from_render")
+        if (project_root / ".harness-mem" / "session-knowledge-base.md").exists():
+            raise RuntimeError("markdown_export_became_authority")
+        stages.append(
+            HostReplayStage(
+                name="assimilation",
+                status="passed",
+                details={
+                    "promoted": assimilation.get("promoted"),
+                    "knowledge_entries": len(knowledge_entries),
+                    "render_sha256": hashlib.sha256(
+                        rendered.encode("utf-8")
+                    ).hexdigest(),
+                },
             )
         )
 
         failure_stage = "dream"
-        completion = dict(finalized.get("completion") or {})
-        promotion = dict(finalized.get("promotion") or {})
-        dream = dict(finalized.get("dream") or {})
-        if completion.get("disposition") != "promoted" or promotion.get("promoted") != 1:
-            raise RuntimeError("candidate_not_promoted")
-        if dream and dream.get("success") is False:
+        dream = await dream_once(
+            backend,
+            project_name=project_name,
+            project_root=project_root,
+            source="agent",
+        )
+        if dream.status != "completed":
             raise RuntimeError("dream_postprocess_failed")
         stages.append(
             HostReplayStage(
                 name="dream",
                 status="passed",
                 details={
-                    "completion_disposition": completion.get("disposition"),
-                    "promoted": promotion.get("promoted"),
-                    "dream_status": dream.get("status", "not_required"),
+                    "dream_status": dream.status,
+                    "dream_items": len(dream.items),
                 },
             )
         )
@@ -297,80 +391,3 @@ def _ground_candidate_in_claimed_chunks(
         if start >= 0:
             return chunk.raw_content[start : start + len(expected_content)]
     raise RuntimeError("candidate_missing_from_distill_evidence")
-
-
-def _suggest_and_finalize(
-    backend: LocalMemoryBackend,
-    project_name: str,
-    project_root: Path,
-    distill_job_id: str,
-    candidate_content: str,
-    repository_evidence: Path,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Run synchronous MCP governance/finalize handlers under one binding."""
-
-    evidence_hash = hashlib.sha256(repository_evidence.read_bytes()).hexdigest()
-    with _MCP_BINDING_LOCK:
-        previous = (
-            tool_handlers._backend_provider,
-            tool_handlers._observer_data_dir_provider,
-            tool_handlers._cost_surface_budgets_provider,
-            tool_handlers.logger,
-        )
-        tool_handlers.configure_tool_handler_dependencies(
-            backend_provider=lambda: backend,
-            observer_data_dir=lambda: backend.data_dir,
-            cost_surface_budgets=lambda _project_name: None,
-            logger_instance=logging.getLogger("harness_mem.qualification.host_replay"),
-        )
-        try:
-            candidate = tool_handlers.tool_govern_memory(
-                action="suggest",
-                arguments={
-                    "kind": "memory",
-                    "project_name": project_name,
-                    "category": "architecture",
-                    "content": candidate_content,
-                    "source": f"distill-job:{distill_job_id}",
-                    "confidence": 0.99,
-                    "distill_job_id": distill_job_id,
-                    "evidence_basis": "repository",
-                    "verification_outcome": "verified",
-                    "verification_refs": [
-                        {
-                            "kind": "repository",
-                            "locator": repository_evidence.relative_to(project_root).as_posix(),
-                            "content_sha256": evidence_hash,
-                        }
-                    ],
-                },
-            )
-            finalized = tool_handlers.tool_finalize_session_distill(
-                project_name=project_name,
-                job_id=distill_job_id,
-                semantic_review={
-                    "final_user_request": "qualify native memory replay",
-                    "final_outcome": "native session replay completed",
-                    "last_turn_status": "answered",
-                    "contradictions": [],
-                    "unfinished_work": [],
-                    "evidence_status": "answered",
-                    "promotion_decision": "promote",
-                },
-            )
-            return candidate, finalized
-        finally:
-            backend_provider, observer_provider, cost_provider, logger = previous
-            if (
-                backend_provider is not None
-                and observer_provider is not None
-                and cost_provider is not None
-            ):
-                tool_handlers.configure_tool_handler_dependencies(
-                    backend_provider=backend_provider,
-                    observer_data_dir=observer_provider,
-                    cost_surface_budgets=cost_provider,
-                    logger_instance=logger,
-                )
-            else:
-                tool_handlers.reset_tool_handler_dependencies()

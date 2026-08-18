@@ -277,6 +277,7 @@ def test_host_entry_dispatches_ide_maintenance_without_loading_backend(
     assert data["summary"] == {
         "background": True,
         "coalesced": False,
+        "dispatch_generation": "generation-1",
         "spawned": True,
     }
     assert captured["client"] == "cursor"
@@ -364,6 +365,7 @@ def test_wait_for_autonomous_receipt_returns_matching_terminal_identity(
     payload = json.loads(stdout_payload)
     assert payload == {
         "action": "post-turn-maintenance",
+        "dispatch_generation": None,
         "error": None,
         "job": "job-7",
         "job_id": "job-7",
@@ -373,6 +375,79 @@ def test_wait_for_autonomous_receipt_returns_matching_terminal_identity(
         "trigger": "turn-1",
         "trigger_id": "turn-1",
     }
+
+
+def test_wait_for_autonomous_receipt_ignores_prior_dispatch_generation(
+    tmp_path,
+) -> None:
+    initial = {"state": "running", "trigger_id": "turn-1"}
+    observed = iter(
+        [
+            {
+                "state": "succeeded",
+                "trigger_id": "turn-1",
+                "dispatch_generation": "generation-old",
+                "job_id": "job-old",
+            },
+            {
+                "state": "succeeded",
+                "trigger_id": "turn-1",
+                "dispatch_generation": "generation-new",
+                "job_id": "job-new",
+                "error": None,
+            },
+        ]
+    )
+    clock_values = iter([0.0, 0.0, 0.1])
+
+    code, stdout_payload = host_entry._wait_for_autonomous_receipt(
+        data_dir=tmp_path,
+        project_root=tmp_path,
+        project_name=tmp_path.name,
+        trigger_id="turn-1",
+        dispatch_generation="generation-new",
+        receipt_path=tmp_path / "receipt.json",
+        initial_receipt=initial,
+        timeout_seconds=1.0,
+        read_receipt=lambda *_args, **_kwargs: next(observed),
+        monotonic=lambda: next(clock_values),
+        sleep=lambda _seconds: None,
+    )
+
+    assert code == ExitCode.SUCCESS
+    payload = json.loads(stdout_payload)
+    assert payload["job_id"] == "job-new"
+    assert payload["dispatch_generation"] == "generation-new"
+
+
+def test_wait_for_autonomous_receipt_never_reports_error_as_success(tmp_path) -> None:
+    receipt = {
+        "state": "succeeded",
+        "trigger_id": "turn-1",
+        "dispatch_generation": "generation-1",
+        "job_id": "job-1",
+        "error": {"kind": "unrecoverable", "message": "semantic failure"},
+    }
+    clock_values = iter([0.0, 0.0])
+
+    code, stdout_payload = host_entry._wait_for_autonomous_receipt(
+        data_dir=tmp_path,
+        project_root=tmp_path,
+        project_name=tmp_path.name,
+        trigger_id="turn-1",
+        dispatch_generation="generation-1",
+        receipt_path=tmp_path / "receipt.json",
+        initial_receipt=None,
+        timeout_seconds=1.0,
+        read_receipt=lambda *_args, **_kwargs: receipt,
+        monotonic=lambda: next(clock_values),
+        sleep=lambda _seconds: None,
+    )
+
+    assert code == ExitCode.HOOK_FAILED
+    payload = json.loads(stdout_payload)
+    assert payload["success"] is False
+    assert payload["error"]["kind"] == "unrecoverable"
 
 
 def test_wait_for_autonomous_receipt_timeout_fails_closed(tmp_path) -> None:

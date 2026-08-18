@@ -58,6 +58,18 @@ def test_resolve_project_context_uses_workspace_cwd_before_active_project(
     assert context.source == "workspace_cwd"
 
 
+def test_find_project_root_never_relabels_unrelated_cwd(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "harness-mem"
+    workspace.mkdir()
+    (workspace / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    monkeypatch.chdir(workspace)
+
+    assert support.find_project_root("unrelated-project") is None
+
+
 def test_ensure_project_profile_persists_root_metadata(monkeypatch, tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     workspace = tmp_path / "servers"

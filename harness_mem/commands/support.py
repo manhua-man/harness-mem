@@ -655,8 +655,6 @@ def project_roots(project_name: str) -> list[Path]:
             repo_root.parent / "tests" / "fixtures" / project_name,
         ]
     )
-    if cwd not in candidates:
-        candidates.append(cwd)
     return candidates
 
 

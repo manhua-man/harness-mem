@@ -256,6 +256,7 @@ def _wait_for_autonomous_receipt(
     project_root: Path,
     project_name: str,
     trigger_id: str | None,
+    dispatch_generation: str | None = None,
     receipt_path: Path,
     initial_receipt: dict[str, Any] | None,
     timeout_seconds: float,
@@ -282,14 +283,23 @@ def _wait_for_autonomous_receipt(
         state = str((receipt or {}).get("state") or "")
         is_new = receipt is not None and receipt != initial_receipt
         trigger_matches = (receipt or {}).get("trigger_id") == trigger_id
-        if is_new and trigger_matches and state in _TERMINAL_AUTONOMOUS_STATES:
+        generation_matches = dispatch_generation is None or (
+            (receipt or {}).get("dispatch_generation") == dispatch_generation
+        )
+        if (
+            is_new
+            and trigger_matches
+            and generation_matches
+            and state in _TERMINAL_AUTONOMOUS_STATES
+        ):
             error = receipt.get("error") or receipt.get("last_batch_error")
-            success = state in {"succeeded", "idle"}
+            success = state in {"succeeded", "idle"} and not error
             payload = {
                 "action": "post-turn-maintenance",
                 "success": success,
                 "trigger": trigger_id,
                 "trigger_id": trigger_id,
+                "dispatch_generation": dispatch_generation,
                 "state": state,
                 "job": receipt.get("job_id"),
                 "job_id": receipt.get("job_id"),
@@ -416,11 +426,20 @@ def _run_request(args: argparse.Namespace) -> tuple[int, str | None]:
         return int(exit_code), stdout_payload
 
     data_dir, project_root, project_name, receipt_path, initial = coordinates
+    dispatch_generation: str | None = None
+    try:
+        dispatch_payload = json.loads(stdout_payload or "{}")
+        summary = dispatch_payload.get("summary")
+        if isinstance(summary, dict) and summary.get("dispatch_generation"):
+            dispatch_generation = str(summary["dispatch_generation"])
+    except (TypeError, ValueError, json.JSONDecodeError):
+        dispatch_generation = None
     return _wait_for_autonomous_receipt(
         data_dir=data_dir,
         project_root=project_root,
         project_name=project_name,
         trigger_id=args.trigger_id,
+        dispatch_generation=dispatch_generation,
         receipt_path=receipt_path,
         initial_receipt=initial,
         timeout_seconds=float(
@@ -563,6 +582,7 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                         "background": True,
                         "spawned": dispatch.spawned,
                         "coalesced": dispatch.coalesced,
+                        "dispatch_generation": dispatch.generation,
                     },
                 }
                 return (ExitCode.SUCCESS, json.dumps(payload, sort_keys=True))
@@ -688,6 +708,9 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                         from harness_mem.autonomous.worker import (
                             run_autonomous_distill_batch,
                         )
+                        from harness_mem.hook_background import (
+                            background_generation_from_env,
+                        )
 
                         try:
                             autonomous_payload = await asyncio.to_thread(
@@ -713,6 +736,14 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                                     else None
                                 ),
                                 launch_source=args.source,
+                                dispatch_generation=(
+                                    background_generation_from_env()
+                                    if os.environ.get(
+                                        "HARNESS_MEM_HOOK_BACKGROUND_WORKER"
+                                    )
+                                    == "1"
+                                    else None
+                                ),
                             )
                         except Exception as exc:  # noqa: BLE001 - staging remains valid.
                             logger.exception(

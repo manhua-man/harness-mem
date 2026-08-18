@@ -30,10 +30,6 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _normalized_path(path: Path) -> str:
-    return os.path.normcase(str(path.expanduser().resolve(strict=False)))
-
-
 def _detect_project_root(cwd: str) -> Path | None:
     if not cwd:
         return None
@@ -41,14 +37,6 @@ def _detect_project_root(cwd: str) -> Path | None:
     if not candidate.is_dir():
         return None
     return workspace_root_from_path(candidate).resolve()
-
-
-def _allowed(root: Path, allowed_roots: tuple[str, ...]) -> bool:
-    if not allowed_roots:
-        return True
-    normalized = _normalized_path(root)
-    return any(normalized == _normalized_path(Path(item)) for item in allowed_roots)
-
 
 def _ledger_path(data_dir: Path, day: str) -> Path:
     return data_dir / "archive_distill" / "daily" / f"{day}.json"
@@ -347,6 +335,21 @@ class _TrivialArchiveProvider:
             kind="unrecoverable",
         )
 
+    def verify(
+        self,
+        manifest: dict[str, Any],
+        *,
+        runtime_dir: Path,
+        heartbeat=None,
+    ) -> ProviderResult:
+        """Fail closed: zero-candidate smoke sessions have nothing to verify."""
+
+        del manifest, runtime_dir, heartbeat
+        raise ProviderError(
+            "trivial archive provider cannot verify semantic candidates",
+            kind="unrecoverable",
+        )
+
 
 def inventory_codex_archives(
     *,
@@ -366,8 +369,6 @@ def inventory_codex_archives(
         status = "eligible"
         if detected is None:
             status = "unresolved_project"
-        elif not _allowed(detected, config.archive_distill_allowed_project_roots):
-            status = "project_not_allowed"
         elif config.archive_distill_project_scope == "current" and detected != current_root:
             status = "outside_current_project"
         rows.append(
@@ -562,7 +563,6 @@ async def run_archive_distill_batch(
             "order": config.archive_distill_order,
             "project_scope": config.archive_distill_project_scope,
             "unresolved_project": config.archive_distill_unresolved_project,
-            "allowed_project_roots": list(config.archive_distill_allowed_project_roots),
             "require_answer_packet": config.archive_distill_require_answer_packet,
             "report_promotions": config.archive_distill_report_promotions,
             "warn_tokens": config.archive_distill_warn_tokens,
@@ -651,7 +651,6 @@ async def run_archive_distill_batch(
         attempted_ids: list[str] = []
         resolved_notes_dir = notes_dir or Path.home() / ".codex" / "hm-distill" / "sessions"
         for row in selected:
-            attempted_ids.append(str(row["session_id"]))
             project_root = Path(str(row["project_root"])).resolve()
             project_name = str(row["project_name"])
             project_config = load_merged_config(project_root)
@@ -684,6 +683,26 @@ async def run_archive_distill_batch(
                     outcomes.append(outcome)
                     continue
                 job = backend.transcript_store.get_distill_job(synced.distill_job_id)
+                # Selecting an archive and actually attempting its semantic
+                # job are deliberately different events.  A worker that has
+                # asked for retry backoff must not consume the archive's
+                # bounded attempt budget before it can be claimed again.
+                if (
+                    job is not None
+                    and job.status == "retryable"
+                    and job.retry_after is not None
+                    and job.retry_after > current
+                ):
+                    outcome.update(
+                        status="deferred",
+                        reason="retry_backoff",
+                        retry_after=job.retry_after.isoformat(),
+                        distill_job_id=synced.distill_job_id,
+                        source_revision=job.source_revision,
+                    )
+                    outcomes.append(outcome)
+                    continue
+                attempted_ids.append(str(row["session_id"]))
                 if job is not None and job.status == "completed":
                     batch: dict[str, Any] = {"state": "succeeded", "outcomes": []}
                     job_outcome = {
@@ -1042,25 +1061,42 @@ async def _verify_promoted_items(
         }
     job = backend.transcript_store.get_distill_job(job_id) if job_id else None
     candidate_ids = set(job.output_candidate_ids if job else [])
+    knowledge_store = backend.structured_store.knowledge_store
+    # Current ``knowledge_entries`` are the post-job authority. Candidate,
+    # evidence, and proposed-decision workspaces are deliberately cleaned after
+    # the SQLite commit, Note, Packet, and receipt become durable, so a terminal
+    # verifier must not require those temporary files to remain. The job-bound
+    # Answer Packet supplies the exact claims; normal current-knowledge readback
+    # proves that each claim is now usable.
+    separated_truth = await knowledge_store.list_entries(project_name)
     truth_candidates: list[Any] = []
-    for candidate_id in candidate_ids:
-        candidate: Any = await backend.structured_store.get_memory_entry(candidate_id)
-        if candidate is None:
-            candidate = await backend.structured_store.get_rule_candidate(candidate_id)
-        if candidate is None:
-            candidate = await backend.structured_store.get_relation_fact(candidate_id)
-        if (
-            candidate is not None
-            and candidate.project_name == project_name
-            and candidate.distill_job_id == job_id
-            and candidate.status in TRUTH_LAYER_STATUSES
-        ):
-            truth_candidates.append(candidate)
+    if not separated_truth:
+        for candidate_id in candidate_ids:
+            legacy_candidate: Any = await backend.structured_store.get_memory_entry(
+                candidate_id
+            )
+            if legacy_candidate is None:
+                legacy_candidate = await backend.structured_store.get_rule_candidate(
+                    candidate_id
+                )
+            if legacy_candidate is None:
+                legacy_candidate = await backend.structured_store.get_relation_fact(
+                    candidate_id
+                )
+            if (
+                legacy_candidate is not None
+                and legacy_candidate.project_name == project_name
+                and legacy_candidate.distill_job_id == job_id
+                and legacy_candidate.status in TRUTH_LAYER_STATUSES
+            ):
+                truth_candidates.append(legacy_candidate)
     checks: list[dict[str, Any]] = []
     for item in promoted_items:
         fact = str(item.get("fact") or "").strip()
         kind = str(item.get("kind") or "")
-        if kind == "rule":
+        if separated_truth:
+            hit = any(entry.statement.strip() == fact for entry in separated_truth)
+        elif kind == "rule":
             hit = any(
                 hasattr(candidate, "pattern") and candidate.pattern.strip() == fact
                 for candidate in truth_candidates
@@ -1077,10 +1113,13 @@ async def _verify_promoted_items(
                 hasattr(candidate, "content") and candidate.content.strip() == fact
                 for candidate in truth_candidates
             )
-        retrieval_mode = "job_bound_truth"
+        retrieval_mode = "current_project_knowledge"
         if not hit and allow_sanitized_project_retrieval:
-            retrieval_mode = "sanitized_project_truth"
-            if kind == "rule":
+            retrieval_mode = "legacy_project_truth"
+            knowledge_entries = await knowledge_store.list_entries(project_name)
+            if any(entry.statement.strip() == fact for entry in knowledge_entries):
+                hit = True
+            elif kind == "rule":
                 candidates = await backend.structured_store.list_rule_candidates(
                     project_name
                 )

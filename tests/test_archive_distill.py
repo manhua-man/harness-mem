@@ -12,7 +12,7 @@ from harness_mem.commands.archive_distill import (
     print_archive_distill_result,
     run_archive_distill_batch,
 )
-from harness_mem.config.merge import load_merged_config
+from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas.rule_candidate import RuleCandidate
 from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.session_notes import materialize_session_note
@@ -84,7 +84,7 @@ def test_archive_inventory_detects_projects_and_defers_unresolved(tmp_path: Path
 
     inventory = inventory_codex_archives(
         control_root=control,
-        config=load_merged_config(control),
+        config=MergedConfig(archive_distill_project_scope="detected"),
         archive_dir=archive,
     )
 
@@ -98,6 +98,9 @@ def test_archive_dry_run_does_not_require_enabled_or_write_ledger(tmp_path: Path
     control = tmp_path / "control"
     project = tmp_path / "project"
     control.mkdir()
+    (control / ".harness-mem.toml").write_text(
+        '[archive_distill]\nproject_scope = "all"\n', encoding="utf-8"
+    )
     project.mkdir()
     archive = tmp_path / "archives"
     _write_archive(archive, project, "session-a")
@@ -115,13 +118,15 @@ def test_archive_dry_run_does_not_require_enabled_or_write_ledger(tmp_path: Path
     assert result["enabled"] is False
     assert [item["session_id"] for item in result["selected"]] == ["session-a"]
     assert not (tmp_path / "data" / "archive_distill").exists()
-    assert result["policy"]["allowed_project_roots"] == []
 
 
 def test_archive_run_limits_can_be_overridden_without_editing_config(tmp_path: Path) -> None:
     control = tmp_path / "control"
     project = tmp_path / "project"
     control.mkdir()
+    (control / ".harness-mem.toml").write_text(
+        '[archive_distill]\nproject_scope = "all"\n', encoding="utf-8"
+    )
     project.mkdir()
     archive = tmp_path / "archives"
     for index in range(4):
@@ -166,6 +171,9 @@ def test_archive_apply_requires_explicit_enable(tmp_path: Path) -> None:
     control = tmp_path / "control"
     project = tmp_path / "project"
     control.mkdir()
+    (control / ".harness-mem.toml").write_text(
+        '[archive_distill]\nproject_scope = "all"\n', encoding="utf-8"
+    )
     project.mkdir()
     archive = tmp_path / "archives"
     _write_archive(archive, project, "session-a")
@@ -608,7 +616,7 @@ def test_archive_sanitized_retrieval_includes_provisional_relations(
         asyncio.run(backend.close())
 
     assert result["status"] == "passed"
-    assert result["items"][0]["retrieval_mode"] == "sanitized_project_truth"
+    assert result["items"][0]["retrieval_mode"] == "legacy_project_truth"
 
 
 def test_archive_repair_only_reverifies_deleted_partial_receipt_without_provider(
@@ -761,6 +769,82 @@ def test_archive_attempt_budget_is_durable_across_utc_days(
     assert index["sessions"]["session-bounded-retry"]["disposition"] == "quarantined"
 
 
+def test_archive_retry_backoff_does_not_consume_an_attempt(tmp_path: Path, monkeypatch) -> None:
+    control = tmp_path / "control"
+    project = tmp_path / "project"
+    control.mkdir()
+    project.mkdir()
+    _write_config(control, enabled=True)
+    project.joinpath(".harness-mem.toml").write_text(
+        "[distill.autonomous]\nenabled = true\n",
+        encoding="utf-8",
+    )
+    archive = tmp_path / "archives"
+    _write_archive(archive, project, "session-backoff")
+    calls = 0
+
+    def defer_after_structural_work(backend, **kwargs):
+        nonlocal calls
+        calls += 1
+        job = backend.transcript_store.get_distill_job(kwargs["preferred_job_id"])
+        assert job is not None
+        owner = "backoff-test"
+        for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
+            job.id, lease_owner=owner, limit=100
+        ):
+            backend.transcript_store.checkpoint_distill_chunk(
+                job.id,
+                chunk.id,
+                lease_owner=owner,
+                result={"summary": "read"},
+            )
+        backend.transcript_store.defer_distill_job(job.id, error="provider timeout")
+        return {
+            "success": False,
+            "state": "deferred",
+            "outcomes": [
+                {
+                    "job_id": job.id,
+                    "session_id": job.session_id,
+                    "status": "deferred",
+                    "provider": {"total_tokens": 0, "duration_seconds": 0.0},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(
+        "harness_mem.commands.archive_distill.run_autonomous_distill_batch",
+        defer_after_structural_work,
+    )
+    data = tmp_path / "data"
+    current = datetime.now(timezone.utc)
+    first = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=True,
+            archive_dir=archive,
+            data_dir=data,
+            now=current,
+        )
+    )
+    second = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=True,
+            archive_dir=archive,
+            data_dir=data,
+            now=current + timedelta(seconds=1),
+        )
+    )
+
+    assert calls == 1
+    assert second["outcomes"][0]["reason"] == "retry_backoff"
+    assert second["quarantined"] == 0
+    index = json.loads(Path(second["terminal_index"]).read_text(encoding="utf-8"))
+    assert index["attempts"]["session-backoff"]["count"] == 1
+    assert first["terminal"]["pending_eligible"] == 1
+
+
 def test_archive_new_source_revision_resets_attempt_budget(
     tmp_path: Path,
 ) -> None:
@@ -769,6 +853,9 @@ def test_archive_new_source_revision_resets_attempt_budget(
     control = tmp_path / "control"
     project = tmp_path / "project"
     control.mkdir()
+    (control / ".harness-mem.toml").write_text(
+        '[archive_distill]\nproject_scope = "all"\n', encoding="utf-8"
+    )
     project.mkdir()
     archive = tmp_path / "archives"
     source = _write_archive(archive, project, "session-revised")

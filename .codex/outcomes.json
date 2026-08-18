@@ -46,9 +46,14 @@
               "question_is_session_question": {"equals": true},
               "promotion_visible": {"equals": true},
               "note_materialized": {"equals": true},
+              "note_byte_hash_matches": {"equals": true},
               "ledger_persisted": {"equals": true},
               "replay_skipped": {"equals": true},
               "truth_retrievable": {"equals": true},
+              "semantic_verification_executed": {"equals": true},
+              "sqlite_authority_persists_without_markdown": {"equals": true},
+              "markdown_projection_is_clean": {"equals": true},
+              "markdown_deletion_does_not_change_retrieval": {"equals": true},
               "safe_source_cleanup_reported": {"equals": true},
               "safe_source_deleted": {"equals": true},
               "source_cleanup_status": {"equals": "deleted"},
@@ -138,6 +143,7 @@
               "autonomous.execution_source": {"equals": "autonomous_worker"},
               "autonomous.authorized": {"equals": true},
               "autonomous.trigger_matches_hook": {"equals": true},
+              "autonomous.dispatch_generation_bound": {"equals": true},
               "autonomous.job_completed": {"equals": true},
               "autonomous.trigger_session_completed": {"equals": true},
               "autonomous.batch_binding_valid": {"equals": true},
@@ -251,7 +257,7 @@
     },
     {
       "id": "multi_point_memory_assimilation",
-      "description": "One autonomous session independently adds a new memory, confirms existing truth without duplication, rejects a one-off request, creates a job-bound handoff, and materializes a wake-readable rule through the bounded second semantic call.",
+      "description": "One autonomous session independently adds a new memory, confirms existing truth without duplication, rejects a one-off request, creates a job-bound handoff, and makes a rule normally retrievable through the bounded second semantic call.",
       "required": true,
       "checks": [
         {
@@ -267,9 +273,11 @@
               "confirm_has_no_duplicate": {"equals": true},
               "one_off_request_not_written": {"equals": true},
               "handoff_job_bound": {"equals": true},
-              "rule_materialized_and_wake_readable": {"equals": true},
+              "rule_materialized_and_normally_retrievable": {"equals": true},
+              "terminal_processing_material_cleaned": {"equals": true},
               "answer_packet_point_bound": {"equals": true},
               "assimilation_provider_isolated": {"equals": true},
+              "verification_provider_executed_once": {"equals": true},
               "replay_no_provider_recall": {"equals": true},
               "verified": {"equals": true}
             }

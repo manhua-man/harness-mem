@@ -63,9 +63,8 @@ def test_archive_distill_defaults_are_public_and_typed(
     assert config.archive_distill_batch_size == 3
     assert config.archive_distill_daily_limit == 20
     assert config.archive_distill_order == "recent_first"
-    assert config.archive_distill_project_scope == "detected"
+    assert config.archive_distill_project_scope == "current"
     assert config.archive_distill_unresolved_project == "defer"
-    assert config.archive_distill_allowed_project_roots == ()
     assert config.archive_distill_warn_tokens == 15000
     assert config.archive_distill_warn_seconds == 40
     assert config.archive_distill_require_answer_packet is True
@@ -77,7 +76,6 @@ def test_archive_distill_defaults_are_public_and_typed(
         "archive_distill.order",
         "archive_distill.project_scope",
         "archive_distill.unresolved_project",
-        "archive_distill.allowed_project_roots",
         "archive_distill.warn_tokens",
         "archive_distill.warn_seconds",
         "archive_distill.require_answer_packet",
@@ -125,11 +123,6 @@ def test_user_delete_source_setting_is_overridden_by_project(
         ("archive_distill.order", "oldest_first", "oldest_first"),
         ("archive_distill.project_scope", "current", "current"),
         ("archive_distill.unresolved_project", "skip", "skip"),
-        (
-            "archive_distill.allowed_project_roots",
-            '["F:/AIInfra/harness-mem", "F:/AIInfra/sophon-clone"]',
-            ["F:/AIInfra/harness-mem", "F:/AIInfra/sophon-clone"],
-        ),
         ("archive_distill.warn_tokens", "12000", 12000),
         ("archive_distill.warn_seconds", "45", 45),
         ("archive_distill.require_answer_packet", "false", False),
@@ -442,9 +435,8 @@ def test_config_get_and_list_include_only_public_policy_keys(
     assert "archive_distill.batch_size = 3  (default)" in output
     assert "archive_distill.daily_limit = 20  (default)" in output
     assert "archive_distill.order = recent_first  (default)" in output
-    assert "archive_distill.project_scope = detected  (default)" in output
+    assert "archive_distill.project_scope = current  (default)" in output
     assert "archive_distill.unresolved_project = defer  (default)" in output
-    assert "archive_distill.allowed_project_roots = ()  (default)" in output
     assert "archive_distill.warn_tokens = 15000  (default)" in output
     assert "archive_distill.warn_seconds = 40  (default)" in output
     assert "archive_distill.require_answer_packet = true  (default)" in output

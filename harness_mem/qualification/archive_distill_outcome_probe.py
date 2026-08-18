@@ -3,20 +3,58 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, cast
 
-from harness_mem.autonomous.models import AssimilationDecision, AutonomousDecision
+from harness_mem.autonomous.models import (
+    AssimilationDecision,
+    AutonomousDecision,
+    CandidateVerificationDecision,
+)
 from harness_mem.autonomous.provider import ProviderResult
+from harness_mem.autonomous.worker import read_autonomous_receipt
 from harness_mem.commands.archive_distill import run_archive_distill_batch
+from harness_mem.read_knowledge import search_current_knowledge
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.local_structured_store import LocalStructuredStore
 
 
 class _DeterministicArchiveProvider:
     name = "archive-outcome-probe"
+
+    def verify(self, manifest: dict[str, Any], *, runtime_dir: Path, heartbeat=None):
+        del runtime_dir
+        if heartbeat is not None:
+            heartbeat()
+        decision = CandidateVerificationDecision.model_validate(
+            {
+                "points": [
+                    {
+                        "candidate_index": item["candidate_index"],
+                        "semantic_support": "supported",
+                        "future_scope": "durable",
+                        "reason": "The source directly states a reusable testing rule.",
+                    }
+                    for item in manifest["candidates"]
+                ]
+            }
+        )
+        return ProviderResult(
+            decision=decision,
+            provider=self.name,
+            model="deterministic",
+            duration_seconds=0.01,
+            input_sha256="e" * 64,
+            response_sha256="f" * 64,
+            input_tokens=50,
+            output_tokens=20,
+            total_tokens=70,
+            event_count=1,
+        )
 
     def decide(self, manifest: dict[str, Any], *, runtime_dir: Path, heartbeat=None):
         del runtime_dir
@@ -158,9 +196,9 @@ def run_archive_distill_outcome_probe() -> dict[str, Any]:
         control.joinpath(".harness-mem.toml").write_text(
             "[archive_distill]\n"
             "enabled = true\n"
+            "project_scope = \"all\"\n"
             "batch_size = 1\n"
             "daily_limit = 2\n"
-            "allowed_project_roots = [\"" + project.as_posix() + "\"]\n"
             "require_answer_packet = true\n"
             "report_promotions = true\n",
             encoding="utf-8",
@@ -192,6 +230,11 @@ def run_archive_distill_outcome_probe() -> dict[str, Any]:
             )
         )
         outcome = first.get("outcomes", [{}])[0]
+        autonomous_receipt = read_autonomous_receipt(
+            data,
+            project_name="project",
+            project_root=project,
+        ) or {}
         packet = dict(outcome.get("answer_packet") or {})
         note_path = Path(str((outcome.get("note") or {}).get("path") or ""))
         ledger_path = Path(str(first.get("ledger") or ""))
@@ -199,14 +242,33 @@ def run_archive_distill_outcome_probe() -> dict[str, Any]:
         backend = LocalMemoryBackend(data)
         asyncio.run(backend.init())
         try:
+            structured_store = cast(LocalStructuredStore, backend.structured_store)
             completed_job = backend.transcript_store.get_distill_job(
                 str(outcome.get("distill_job_id") or "")
             )
+            knowledge_path = project / ".harness-mem" / "session-knowledge-base.md"
+            if knowledge_path.is_file():
+                knowledge_path.unlink()
             matches = asyncio.run(
-                backend.structured_store.search_memory_entries(
-                    "related tests",
+                search_current_knowledge(
+                    backend,
                     project_name="project",
+                    project_root=project,
+                    query="related tests",
+                    limit=20,
                 )
+            )
+            canonical_knowledge_count = len(
+                [
+                    payload
+                    for payload in structured_store.list_record_payloads(
+                        "knowledge_entries"
+                    )
+                    if payload.get("project_name") == "project"
+                ]
+            )
+            knowledge_text = asyncio.run(
+                backend.structured_store.knowledge_store.render_markdown("project")
             )
         finally:
             asyncio.run(backend.close())
@@ -224,6 +286,9 @@ def run_archive_distill_outcome_probe() -> dict[str, Any]:
             and "Small changes should run related tests." in note_path.read_text(
                 encoding="utf-8"
             ),
+            "note_byte_hash_matches": note_path.is_file()
+            and hashlib.sha256(note_path.read_bytes()).hexdigest()
+            == str((outcome.get("note") or {}).get("sha256") or ""),
             "ledger_persisted": ledger.get("processed_session_ids")
             == ["archive-probe"]
             and ledger.get("attempted_session_ids") == ["archive-probe"],
@@ -232,9 +297,27 @@ def run_archive_distill_outcome_probe() -> dict[str, Any]:
             ).is_file(),
             "replay_skipped": second.get("selected") == [],
             "truth_retrievable": any(
-                item.content == "Small changes should run related tests."
+                item.statement == "Small changes should run related tests."
                 for item in matches
             ),
+            "semantic_verification_executed": bool(
+                (autonomous_receipt.get("provider") or {}).get("verification")
+            ),
+            "sqlite_authority_persists_without_markdown": not knowledge_path.exists()
+            and canonical_knowledge_count == 1,
+            "markdown_projection_is_clean": "## testing" in knowledge_text
+            and "Small changes should run related tests." in knowledge_text
+            and all(
+                marker not in knowledge_text
+                for marker in (
+                    "distill_job_id",
+                    "candidate_id",
+                    "verification_reason_codes",
+                    "assimilation_disposition",
+                    "稳定操作规则",
+                )
+            ),
+            "markdown_deletion_does_not_change_retrieval": bool(matches),
             "safe_source_cleanup_reported": bool(
                 completed_job
                 and completed_job.source_cleanup_status in {

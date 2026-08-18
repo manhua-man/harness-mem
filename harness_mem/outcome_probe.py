@@ -309,6 +309,7 @@ def inspect_autonomous_outcome(
         )
     )
     trigger_matches_hook = durable_hook_binding or latest_trigger_matches_hook
+    dispatch_generation_bound = bool(evidence.get("dispatch_generation"))
     job_list = list(jobs)
     trigger_id = str(evidence.get("trigger_id") or "")
     if verified_completion is not None:
@@ -433,6 +434,7 @@ def inspect_autonomous_outcome(
         "latest_attempt_trigger_id": receipt.get("trigger_id"),
         "verified_completion_preserved": verified_completion is not None,
         "trigger_matches_hook": trigger_matches_hook,
+        "dispatch_generation_bound": dispatch_generation_bound,
         "durable_hook_binding": durable_hook_binding,
         "latest_trigger_matches_hook": latest_trigger_matches_hook,
         "job_id": trigger_job_id or None,
@@ -461,6 +463,7 @@ def inspect_autonomous_outcome(
             success_at
             and evidence.get("execution_source") == "autonomous_worker"
             and trigger_matches_hook
+            and dispatch_generation_bound
             and job_completed
             and trigger_job is not None
             and batch_binding_valid
