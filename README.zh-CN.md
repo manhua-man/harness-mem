@@ -20,7 +20,7 @@
 
 Agent 会读代码，但它通常不知道项目为什么变成现在这样：发布边界、历史决策、handoff、上轮 review 结论、哪些 claim 还不能写。
 
-`harness-mem` 把这些内容变成本地记忆，通过单一 MCP memory surface 接给 Claude Code、Codex、Cursor、Grok、Hermes、OpenCode 和 Antigravity。新 Agent 用 `wake` 和按任务触发的 `search` 找回上下文，用 `distill` 整理近期 evidence，低风险内容可自动提升为可读记忆；`review` 是事后审计、纠错和 undo 入口，`dream` 负责维护 ledger。
+`harness-mem` 把这些内容变成本地记忆，通过单一 MCP memory surface 接给 Claude Code、Codex、Cursor、Grok、Hermes、OpenCode 和 Antigravity。新 Agent 用 `wake` 和按任务触发的 `search` 找回上下文，用 `distill` 整理近期 evidence，低风险内容可自动提升为可读记忆；`review` 负责人工审计、纠错和 undo，`dream` 负责发现过期、重复、冲突、可合并或可替代的知识，并将其送回验证与归纳吸收。
 
 触发入口（用户级安装一次，之后所有项目可见）：
 
@@ -30,26 +30,77 @@ Agent 会读代码，但它通常不知道项目为什么变成现在这样：�
 - CLI：只做 setup、doctor、config、integration 和 maintenance。
 
 日常使用只需要三个意图：用 `wake/search` 继续工作，把可复用结果记住，或
-review/undo 一条错误记忆。status 与 Dream 继续作为兼容的诊断和维护能力，
-不是用户每天必须手工完成的额外步骤。
+review/undo 一条错误记忆。Dream 是核心治理反馈能力，通常由运行时触发，
+不是用户每天必须手工完成的检查清单；status 是诊断汇总入口。
 
 <p align="center">
   <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="新 Agent 通过 wake、search、distill、review、dream 恢复跨会话项目上下文" width="900" />
 </p>
 
-## 主路径
+## 架构与日常动作
+
+### 架构主链（五个可独立迭代的功能模块）
 
 ```text
-wake -> search -> distill -> review -> dream
+0. 会话接入与生命周期
+→ 1. 提取
+→ 2. 逐点验证
+→ 3. 归纳吸收
+→ 4. 检索使用
 ```
 
-| 步骤 | 作用 |
+阶段 0 负责宿主接入、授权、不可变 revision、无损 chunk、任务、回执、重试和安全保留/清理源文件；阶段 1--4 决定并使用项目知识。一场会话可以有 0～12 个独立晋升点，验证与归纳均以单点独立进行。
+
+### 核心治理反馈环
+
+Dream 与 Review 是贯穿阶段 3--4 的核心治理反馈能力，不是线性第六阶段，也不是普通运维：
+
+```text
+4. 检索使用 → 有用 / 忽略 / 误导 / 过期反馈
+             → review / dream → 重新验证 → 归纳吸收
+             → 当前长期知识
+```
+
+### 贯穿全程
+
+审计回执、纠错、维护、反馈和回滚贯穿每个模块：阶段 0 的接入/任务回执、阶段 1 的提取覆盖、阶段 2 的验证证据、阶段 3 的吸收决定与历史关系，以及阶段 4 的检索使用反馈。
+
+### 用户动作映射
+
+用户动作映射到这些模块，而不是替代这些模块：
+
+| 动作 | 作用 |
 |---|---|
 | `wake` | 会话开始从可读记忆生成项目简报。 |
 | `search` | 当 `autopilot_search_tick` 检测到具体不确定性、冲突、工具失败、待写入 durable claim 需要 grounding、或长周期任务切换时，找回历史决策、规则和 handoff。 |
-| `distill` | 校验全部原始 chunk，在自适应完整响应目标下读取覆盖优先的索引清单，选择完整语义窗口，再钻取候选级原文证据，最后做末尾审查、候选治理和 Dream。 |
-| `review` | 事后审计、确认、拒绝、undo 或替代自动处理过的条目。 |
-| `dream` | 维护 ledger、压缩过期状态，并在 save point / 会话结束后保留可回滚治理记录。 |
+| `distill` | 编排阶段 1～3。 |
+| `review` | 核心人工治理反馈：审计、确认、拒绝、undo、纠错或替代，并在需要时回到验证与归纳。 |
+| `dream` | 核心自动治理反馈：发现过期、重复、冲突、可合并或可替代的知识，并送回验证与归纳。 |
+| `status` | 汇总阶段 0～4 的真实状态。 |
+
+Hook、detached worker 和 archive maintenance 属于阶段 0；原文/时间线读取、候选明细、运行时重置和存储修复属于显式审计或运维能力，不定义长期知识模型。
+
+质量问题也必须按模块定位，不能笼统归因于“蒸馏失败”：
+
+```text
+漏知识 → 1. 提取问题
+错知识 → 2. 验证问题
+垃圾/重复/太宽 → 3. 归纳吸收问题
+找不到或返回脏内容 → 4. 检索使用问题
+会话丢失、回执不可靠、源误删 → 0. 会话接入与生命周期问题
+```
+
+每个模块的处理单位、负责范围、不负责范围和质量衡量，见
+[五模块架构合同](docs/memory-adoption.md)；[验收测试计划](docs/distill-test-plan.md)
+将这些质量信号逐项映射到夹具和运行时门槛。
+
+当前发布版把受治理真相保存在 canonical SQLite 中，但兼容 `MemoryEntry` 仍混合候选、
+证据、决定与真相字段。当前未发布 worktree 已把 SQLite `knowledge_entries` 收敛为干净当前知识
+的唯一权威；候选、验证与拟议决定是 job 范围临时材料，只在终态结果得到证明后清理；
+FTS/向量仍是可重建的 SQLite 派生索引。Markdown 只在用户请求阅读或导出时生成。项目
+模块由当前知识自然归纳，不使用硬编码模块白名单。该 worktree 仍必须先通过隔离的六会话验收，
+才可能触及真实旧记忆。详见
+[SQLite 当前知识收敛计划](docs/roadmap/knowledge-truth-separation.md)。
 
 任务过程中的检索不是 always-on。PI 里的 `transformContext`、
 `tool_result`、`prepareNextTurn`，Claude Code 的 `PostToolUse`，以及
@@ -84,16 +135,18 @@ distill 仍保持 compact。
 
 Observation 只是证据，不是被记住的事实。wake 的近期索引会明确标成“非事实证据”；L1/L2 只展示结构化当前事实和仍有效的 handoff。被当前仓库版本推翻的旧发布/版本说法会标记冲突，或从 truth/active 层移除。
 
-隐私策略在落盘前执行：可用 `<private>...</private>` 包裹敏感片段，也可在项目 `.harness-mem.toml` 的 `[capture]` 中配置忽略 client、session 和 source glob；被排除内容不会进入 raw revision、chunk、Observation 或索引。`[transcript].retention_days` 控制自动保留期（`0` 表示永久保留）。成功蒸馏后默认尝试安全删除原始来源；只有适配器支持会话级删除且静默/CAS/hash 校验全部通过时才会删除。共享或不安全容器保持不动并报告 `unsupported`，配置不可读或项目无法解析时也会 fail-safe 保留。需要保留原文时可执行 `harness-mem config set distill.delete_source_after_complete false --scope project`；重新启用被显式关闭的策略需要 `--confirm`。长期 Memory/Rule/Fact/Skill 会保留并脱敏，每次结果明确为 `retained`、`deleted`、`partial_failure` 或 `unsupported`。`harness-mem maintenance erase --project NAME --session-id ID` 仍是显式完整擦除入口，默认预览，增加 `--apply` 后才执行。
+隐私策略在落盘前执行：可用 `<private>...</private>` 包裹敏感片段，也可在项目 `.harness-mem.toml` 的 `[capture]` 中配置忽略 client、session 和 source glob；被排除内容不会进入 raw revision、chunk、Observation 或索引。`[transcript].retention_days` 控制自动保留期（`0` 表示永久保留）。成功蒸馏后默认尝试安全删除原始来源；只有适配器支持会话级删除且静默/CAS/hash 校验全部通过时才会删除。共享或不安全容器保持不动并报告 `unsupported`，配置不可读或项目无法解析时也会 fail-safe 保留。需要保留原文时可执行 `harness-mem config set distill.delete_source_after_complete false --scope project`；重新启用被显式关闭的策略需要 `--confirm`。canonical SQLite 中的当前长期知识会保留并脱敏，Markdown 仅在阅读或导出时按需生成；每次结果明确为 `retained`、`deleted`、`partial_failure` 或 `unsupported`。`harness-mem maintenance erase --project NAME --session-id ID` 仍是显式完整擦除入口，默认预览，增加 `--apply` 后才执行。
 
-Codex 归档任务先只读盘点，再按公开策略处理一批：
+Codex 归档任务先绑定项目根；`archive_distill.project_scope` 默认就是
+`"current"`，只处理当前项目。跨项目处理必须显式设置为 `"all"`。先只读盘点，
+再按公开策略处理一批：
 
 ```bash
 harness-mem maintenance archive-distill --dry-run --project-root .
 harness-mem maintenance archive-distill --apply --verify --json --project-root .
 ```
 
-`[archive_distill]` 配置批大小、每日上限、顺序、允许项目、无法归属的处理方式、token/耗时警戒线、Answer Packet 强制要求和逐条晋升报告。正式 Answer Packet 会记录原问题、核心结论、证据、验证时间、晋升状态、目标项目/分类以及每条晋升事实。内部有效预算和 Dream 时间参数可用 `harness-mem config list --detail runtime` 只读查看。
+`[archive_distill]` 配置批大小、每日上限、顺序、项目 scope、无法归属的处理方式、token/耗时警戒线、Answer Packet 强制要求和逐条晋升报告；不再提供项目白名单。正式 Answer Packet 会记录原问题、核心结论、证据、验证时间、晋升状态、目标项目/分类以及每条晋升事实。内部有效预算和 Dream 时间参数可用 `harness-mem config list --detail runtime` 只读查看。
 
 `--verify` 复用同一个已初始化 backend，一次生成带 `run_id` 的持久化回执，覆盖 job/Answer Packet、Note、daily ledger 防重放、晋升知识检索和源清理审计。精确回显型 smoke 会话由确定性规则判定为无长期知识，不调用模型。
 
@@ -127,7 +180,7 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
   <img src="docs/assets/harness-mem-candidate-governance.svg" alt="candidate-before-truth 记忆治理状态机" width="900" />
 </p>
 
-运行时本身保持在后端位置：上层 Agent 走 MCP，底层是本地 canonical store、候选层、索引和审计。
+运行时本身保持在后端位置：上层 Agent 走 MCP，底层是 canonical SQLite 当前知识、job 范围处理材料和可重建索引；Markdown 只在阅读或导出时生成。
 
 <p align="center">
   <img src="docs/assets/harness-mem-runtime-layered-architecture.svg" alt="harness-mem runtime 分层架构" width="900" />
@@ -287,7 +340,8 @@ Codex Hook payload 通过 stdin 传入，并显式等待 detached post-turn 回�
 ```
 
 命令返回终态 JSON；身份缺失、deferred、failed 或超时时返回非零退出码。
-缺少 Hook 身份的 `--wait` 会立即失败，不再空等一个无法绑定的回执。
+等待同时绑定 Hook 身份与本次后台 dispatch generation；带错误的回执即使状态字段为
+`succeeded` 也会失败。缺少 Hook 身份的 `--wait` 会立即失败，不再空等一个无法绑定的回执。
 
 该只读探针要求：Codex 生命周期的 start/Stop 回执新鲜且成对、Dream 存在
 持久化成功运行、最近完成的每个蒸馏会话都有有效语义摘要和可读 Note，以及

@@ -9,9 +9,11 @@ pass. It is an ownership ledger, not a second API definition.
 - `_SCHEMAS`, `TOOL_CLUSTERS`, and `build_tool_handlers()` contain exactly those
   same 27 names. The former 17 low-level orchestration schemas are retired and
   retained only as a denylist against accidental re-exposure.
-- The stable Daily loop remains `wake -> search -> distill -> review -> dream`.
-  The seven host actions are `status`, `wake`, `search`, `search-all`,
-  `distill`, `review`, and `dream`.
+- The stable Daily action set remains `wake -> search -> distill -> review ->
+  dream`; it maps onto, but does not replace, the internal architecture
+  `session intake and lifecycle -> extraction -> verification -> assimilation
+  -> retrieval/use`. The seven host actions are `status`, `wake`, `search`,
+  `search-all`, `distill`, `review`, and `dream`.
 - The operator CLI is limited to quickstart, doctor, public config policy,
   integration repair, and explicit maintenance.
 
@@ -51,7 +53,6 @@ archive_distill.daily_limit
 archive_distill.order
 archive_distill.project_scope
 archive_distill.unresolved_project
-archive_distill.allowed_project_roots
 archive_distill.warn_tokens
 archive_distill.warn_seconds
 archive_distill.require_answer_packet

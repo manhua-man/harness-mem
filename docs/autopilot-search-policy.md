@@ -1,8 +1,17 @@
 # Autopilot Search Policy
 
-`wake -> search -> distill -> review -> dream` is the software loop inside
-`harness-mem`, not a daily manual checklist for the user. The runtime entry for
-task-aware search is the MCP tool `autopilot_search_tick`.
+`wake -> search -> distill -> review -> dream` is the runtime action loop inside
+`harness-mem`, not a daily manual checklist for the user and not a replacement
+for the internal functional architecture:
+
+```text
+session intake and lifecycle -> extraction -> verification -> assimilation
+-> retrieval/use
+```
+
+Review and Dream are core governance-feedback capabilities across assimilation
+and retrieval. The runtime entry for task-aware search is the MCP tool
+`autopilot_search_tick`.
 
 ```mermaid
 graph TD
@@ -17,7 +26,7 @@ graph TD
     I --> J["next Agent wake or /hm:distill"]
     J --> K["checkpoint all chunks -> final-session review"]
     K --> M["idempotent candidates -> finalize_session_distill"]
-    M --> L["auto-review + Dream -> audit inbox: /hm:review"]
+    M --> L["auto-review + Dream governance feedback -> audit inbox: /hm:review"]
 ```
 
 The product principle is the same shape as Constitutional AI: the human moves
@@ -34,7 +43,7 @@ save_point/session_end -> snapshot an immutable source revision + queue all chun
 next Agent-capable wake or /hm:distill -> checkpoint chunks + final review + idempotent candidates
 finalize_session_distill -> completeness check + auto-review + Dream
 review -> post-hoc audit, correction, undo, supersede
-dream -> maintenance ledger and reversible cleanup
+dream -> discover stale / duplicate / conflicting knowledge -> re-verify and assimilate with reversible audit
 ```
 
 `/hm:*` commands remain useful, but they are control and fallback surfaces.

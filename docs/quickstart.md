@@ -162,7 +162,7 @@ stuck-reason actions, or the conservative Agent-throughput drain estimate.
 Doctor's recovery plan is read-only and risk-classified; preview and apply are
 always separate commands.
 
-## Daily Loop
+## Daily actions and core feedback
 
 Use the matching host-native command. Plain language remains an optional fallback:
 
@@ -178,13 +178,20 @@ Review the new memory candidates.
 Show the latest dream ledger.
 ```
 
-The stable loop is:
+These commands are user actions, not the internal lifecycle architecture. The
+architecture is `session intake and lifecycle -> extraction -> verification ->
+assimilation -> retrieval/use`; see [memory-adoption.md](memory-adoption.md).
+The actions commonly appear in this runtime sequence:
 
 ```text
 wake -> search -> distill -> review -> dream ledger
 ```
 
-Dream is the final stage of the audited maintenance pipeline. A Stop hook
+Dream is not merely the final stage of an audited maintenance pipeline. It is a
+core governance-feedback capability across assimilation and retrieval: it can
+identify stale, duplicate, conflicting, mergeable, or replaceable knowledge and
+send it back through verification and assimilation. Review is the corresponding
+human correction, undo, and adjudication path. A Stop hook
 captures an immutable transcript revision and queues every ordered chunk, then
 returns immediately while a detached worker consumes an ordered batch of at
 most two jobs. The default worker calls the configured Responses endpoint with
@@ -275,12 +282,16 @@ harness-mem maintenance archive-distill --apply --verify --json --project-root .
 
 The control project owns the `[archive_distill]` policy: `enabled`,
 `batch_size`, `daily_limit`, `order`, `project_scope`, `unresolved_project`,
-`allowed_project_roots`, `warn_tokens`, `warn_seconds`,
-`require_answer_packet`, and `report_promotions`. Each detected destination
+`warn_tokens`, `warn_seconds`, `require_answer_packet`, and
+`report_promotions`. Each detected destination
 project must separately set `[distill.autonomous].enabled=true`. A completed
 row contains a formal Answer Packet and lists each promoted fact with its
 destination project and category. Dry-run is read-only and does not consume the
 daily ledger.
+
+`project_scope` defaults to `current`; processing archives attributed to other
+projects requires an explicit `all` scope. This is per-run scoping, not a
+project allowlist.
 
 `--verify` performs one run-bound read-back with the already initialized
 backend. It verifies the persisted job and Answer Packet, Note binding, ledger

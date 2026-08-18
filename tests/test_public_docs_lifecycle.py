@@ -72,6 +72,86 @@ def test_public_docs_describe_hooks_as_source_snapshot_not_auto_summary() -> Non
     assert "post-turn-maintenance runs distill" not in flow_diagram
 
 
+def test_current_docs_distinguish_five_modules_from_core_governance_feedback() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+    chinese = Path("README.zh-CN.md").read_text(encoding="utf-8")
+    adoption = Path("docs/memory-adoption.md").read_text(encoding="utf-8")
+    plan = Path("docs/roadmap/knowledge-truth-separation.md").read_text(
+        encoding="utf-8"
+    )
+    governance = Path("docs/auto-promoted-memory-governance.md").read_text(
+        encoding="utf-8"
+    )
+    test_plan = Path("docs/distill-test-plan.md").read_text(encoding="utf-8")
+
+    for body in (readme, adoption, governance):
+        assert "session intake and lifecycle" in body
+        assert "extraction" in body
+        assert "verification" in body
+        assert "assimilation" in body
+        assert "retrieval/use" in body
+
+    assert "not a fifth linear" in adoption
+    assert "not operator-only maintenance" in governance
+    assert "Review and Dream remain the governance feedback loop" in plan
+    assert not Path("docs/roadmap/0.9.13-four-stage-memory-quality.md").exists()
+    assert "架构主链（五个可独立迭代的功能模块）" in chinese
+    assert "0. 会话接入与生命周期" in chinese
+    assert "核心治理反馈" in chinese
+    assert "会话丢失、回执不可靠、源误删 → 0. 会话接入与生命周期问题" in chinese
+    assert "每个结果必须标记所属模块" in test_plan
+
+
+def test_five_module_contract_covers_unit_boundary_and_quality_for_each_stage() -> None:
+    adoption = Path("docs/memory-adoption.md").read_text(encoding="utf-8")
+    test_plan = Path("docs/distill-test-plan.md").read_text(encoding="utf-8")
+
+    assert "## Module operating contract" in adoption
+    for stage in (
+        "## 0. Session intake and lifecycle",
+        "## 1. Extraction",
+        "## 2. Per-point verification",
+        "## 3. Assimilation",
+        "## 4. Retrieval and use",
+    ):
+        assert stage in adoption
+
+    for boundary in (
+        "**Unit:** one native session plus one immutable session revision",
+        "**Unit:** zero to twelve independently addressable candidate promotion points",
+        "**Unit:** one candidate promotion point, never a whole session.",
+        "**Unit:** one verified promotion point reconciled against current project",
+        "**Unit:** one task or query together with the long-term knowledge returned",
+        "**Does not own:** deciding what the project should remember.",
+        "`ANSWERED` means only that the evidence question is answered",
+        "garbage writes approach zero",
+        "zero audit-noise or obsolete-knowledge leakage by default",
+    ):
+        assert boundary in adoption
+
+    assert "### 模块合同与验收映射" in test_plan
+    assert "`ANSWERED` 只证明第 2 模块的证据问题已回答" in test_plan
+
+
+def test_current_roadmap_requires_sqlite_truth_and_temporary_job_material() -> None:
+    plan = Path("docs/roadmap/knowledge-truth-separation.md").read_text(
+        encoding="utf-8"
+    )
+    roadmap = Path("docs/roadmap.md").read_text(encoding="utf-8")
+    adoption = Path("docs/memory-adoption.md").read_text(encoding="utf-8")
+
+    assert "single persistence authority" in plan
+    assert "`knowledge_entries`" in plan
+    assert "There is no permanent generic `knowledge_audit/` product layer" in plan
+    assert "job-scoped working material" in plan
+    assert "Review and Dream remain the governance feedback loop" in plan
+    assert "Markdown is an on-demand human-readable rendering" in plan
+    assert "no allowlist or fixed taxonomy" in plan
+    assert "does not authorize migration" in plan
+    assert "SQLite current-knowledge convergence" in roadmap
+    assert "SQLite Current-Knowledge Convergence" in adoption
+
+
 def test_legacy_lifecycle_docs_use_lossless_session_distill_contract() -> None:
     docs = {
         path: Path(path).read_text(encoding="utf-8")
@@ -287,8 +367,8 @@ def test_current_roadmap_is_0_9_x_and_internal_doc_duplicates_are_removed() -> N
     roadmap = Path("docs/roadmap.md").read_text(encoding="utf-8")
     scope_ledger = Path("docs/roadmap/defer.md").read_text(encoding="utf-8")
 
-    assert "0.9.3" in roadmap
-    assert "0.9.x" in roadmap
+    assert "0.9.12" in roadmap
+    assert "SQLite current-knowledge convergence" in roadmap
     assert "stays on the 0.8.x line" not in roadmap
     assert "`pyproject.toml` `0.8.N`" not in roadmap
     assert "current 0.9.x scope ledger" in scope_ledger

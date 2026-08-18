@@ -1,264 +1,160 @@
 # Auto-Promoted Memory Governance
 
-Reference for the **0.9.x governance model**: auto-promoted truth with post-hoc
-audit and one public write boundary. Runtime code lives in `harness_mem/governance_status.py`,
-`commands/auto_review.py`, read-path filters, and `state-events.log`.
+This document defines governance around the five-module architecture and
+records the `0.9.x` compatibility statuses. SQLite `knowledge_entries` is the
+target authority for current long-term knowledge. Candidate claims,
+verification detail, and proposed decisions are job processing material, not a
+second memory product.
 
-The public MCP write API is `govern_memory`; the former per-kind write-tool
-schemas and registry entries are retired. Their private implementations remain
-behind the composite boundary. Remaining follow-up is audit-inbox UX polish
-and measured long-running drainer telemetry.
+The five modules are session intake and lifecycle, extraction, verification,
+assimilation, and retrieval/use. Review and Dream connect the last three as a
+governance feedback loop rather than adding a sixth stage.
 
-## Current contract and 0.9.13-0.9.15 convergence
-
-This document records the currently shipped status layers. It must not be read
-as a claim that every `provisional` row is good long-term memory. The
-[four-stage quality delivery plan](roadmap/0.9.13-four-stage-memory-quality.md)
-defines an explicit assimilation stage between the Answer Gate and truth mutation:
+## Governing path
 
 ```text
-extract -> verify each promotion point -> assimilate -> retrieve/use
+immutable session revision
+  -> extract claims and source locators
+  -> verify each claim against its real source
+  -> assimilate against SQLite current project knowledge
+  -> one SQLite transaction | no-write | handoff | defer/conflict/reject
+  -> refresh derived FTS/vector indexes
+  -> Answer Packet + Note + terminal receipt
+  -> clean terminal job material by lifecycle policy
 ```
 
-As implemented for newly autonomous session distill jobs:
+The boundaries are deliberate:
 
-- one session may produce several independent promotion points;
-- `ANSWERED` proves the candidate's evidence question, not its durability;
-- assimilation performs `add`, `refine`, `confirm`, `supersede`, `no_write`,
-  `handoff`, `defer`, or `conflict` against current project truth;
-- new autonomous distill does not use `provisional` as a catch-all destination
-  for ambiguous or task-local content;
-- existing provisional rows stay opt-in; the still-planned 0.9.15 gives the frozen 122-ID
-  archive-derived cohort and a separately authorized delta terminal
-  dispositions without mutating unscoped projects;
-- normal retrieval exposes canonical prose, while IDs, evidence envelopes, and
-  reason codes remain audit-only.
+- extraction discovers up to 12 independent claims; it does not decide final
+  disposition, title, wording, or module placement;
+- `ANSWERED` proves only that a point's evidence question was answered;
+- assimilation decides durable value, atomic splitting, semantic deduplication,
+  replacement, title, and natural project-module organization;
+- current knowledge rows contain only a stable hidden ID, project, natural
+  module path, title, one-statement body, and verification date;
+- a separate minimal source relation exists only to re-open the real source;
+- full candidate/evidence/proposed-decision detail stays with the job and is
+  removed after a proven terminal outcome, except unresolved work within TTL;
+  and
+- FTS/vector/compact views and Markdown exports are rebuildable projections of
+  SQLite current knowledge, not truth authorities.
 
-The status tables below retain the legacy/manual candidate vocabulary. They do
-not authorize a new autonomous job to write `provisional` as a fallback; its
-per-point assimilation result is the write boundary.
+There is no hard-coded project module allowlist. The assimilation model uses the
+whole current project knowledge view and verified new knowledge to preserve or
+form natural functional modules. Internal claim/storage kinds may control
+evidence requirements but never become visible headings.
 
-```text
-immutable source revision -> complete ordered chunks -> final-session review
-  -> idempotent candidate -> revalidate each point -> bounded assimilation
-  -> canonical truth | no-write | handoff | defer/conflict/reject
-  -> Answer Packet + Note + audit ledger
-```
+## Write boundary
 
-The source revision is the authoritative session record. Observations are
-derived search material, not a substitute for transcript text or proof that
-distillation completed.
+The trusted runtime is the only component allowed to publish an assimilation
+result. A provider returns a bounded schema-checked proposal; runtime code
+revalidates references and named targets and performs the knowledge/source/
+required-version mutation in one transaction on the existing
+`canonical.sqlite` file.
 
-`/hm:review` is an **audit inbox**, not a write gate. Inline candidate admission
-and `auto_review_candidates` improve write quality on the main path; human
-review is post-hoc governance.
-
----
-
-## Layered statuses (not eight parallel enums)
-
-Seven governance statuses are grouped by **storage layer**. Runtime routes by
-layer; callers do not pick a layer manually.
-
-| Layer | Statuses | Role |
-|---|---|---|
-| **Candidate** | `pending`, `deferred`, `rejected` | Not wake/search truth |
-| **Truth** | `auto_confirmed`, `provisional`, `user_confirmed` | Readable truth (weight differs) |
-| **Historical** | `superseded` | Lineage / `include_history` only |
-
-Maintenance review candidates (dream supersede / merge / stale / procedural) use
-a separate status set (`pending`, `rejected`, `user_confirmed`) — not memory
-truth-layer transitions.
-
-Core requirement: **auto-written truth and human-audited truth must not share one
-trust tier.** `auto_confirmed` and `user_confirmed` stay separate for wake
-weighting and audit accountability.
-
----
-
-## End-to-end flow
-
-```mermaid
-flowchart TD
-    SRC["AI client session"] --> SNAP["immutable transcript source revision"]
-    SNAP --> PREP["prepare_session_distill: complete ordered chunks"]
-    PREP --> SD["process without truncation + checkpoint each chunk"]
-    SD --> AUDIT["structural completeness audit"]
-    AUDIT --> REVIEW["required final-session semantic review"]
-
-    subgraph ADMISSION["Candidate admission (main path, non-blocking)"]
-        G["inline check: admit / narrow / defer / reject"]
-    end
-
-    REVIEW --> G
-    G -->|admit / narrow| CAND["govern_memory suggest -> candidate pending"]
-    CAND --> FINAL["finalize_session_distill"]
-    FINAL --> PREF["runtime Answer Gate + auto-review"]
-    FINAL --> DREAM["Dream maintenance"]
-    G -->|defer| DEFERRED["deferred / note"]
-    G -->|reject| REJECTED["rejected"]
-
-    PREF -->|ANSWERED + policy pass| AUTO["auto_confirmed truth"]
-    PREF -->|writable but risky| PROV["provisional truth"]
-    PREF -->|PARTIAL / UNANSWERED| DEFERRED
-    PREF -->|CONTRADICTED / STALE| REJECTED
-    PREF -->|noise / dangerous| REJECTED
-
-    AUTO --> LEDGER["state-events.log"]
-    PROV --> LEDGER
-    DEFERRED --> LEDGER
-    REJECTED --> LEDGER
-
-    subgraph READ["Read path (does not wait for human review)"]
-        WAKE["wake"]
-        SEARCH["search_memory"]
-    end
-
-    AUTO --> WAKE & SEARCH
-    PROV -->|"include_provisional=true, weight 0.6"| WAKE & SEARCH
-    USER["user_confirmed"] --> WAKE & SEARCH
-
-    subgraph AUDIT["Post-hoc governance (non-blocking)"]
-        INBOX["/hm:review = audit inbox"]
-        INBOX -->|confirm| USER
-        INBOX -->|reject| REJECTED
-        INBOX -->|undo| UNDO["undo replay (follow-up)"]
-        INBOX -->|supersede| SUPER["superseded + lineage"]
-    end
-
-    LEDGER --> INBOX
-    AUTO & PROV -.spot-check later.-> INBOX
-
-    subgraph MAINTAIN["Maintenance side path (not a write entry)"]
-        DREAM["dream: stale / merge / supersede suggestions"]
-    end
-
-    AUTO & PROV & USER --> DREAM
-    DREAM -->|suggestion| CAND
-    DREAM -.on confirm.-> SUPER
-```
-
-Notes:
-
-- Hooks capture immutable source revisions and queue complete chunk sets. They
-  do not perform session summarization or candidate promotion.
-- `prepare_session_distill` returns bounded chunks without truncation. Each
-  completed chunk has a durable checkpoint, and candidate creation waits for a
-  required final-session review after all expected chunks are complete.
-- Candidate writes are idempotent for retries of the same source revision.
-- `finalize_session_distill` rechecks source revision and chunk completeness,
-  then runs auto-review and Dream. Auto-review promotes on the main path; public
-  MCP applies promotions directly (no preview-only enforcement).
-- Every promotion appends to `~/.harness-mem/data/state-events.log`.
-- `govern_memory(action="decide", decision="confirm")` upgrades truth to
-  `user_confirmed` (highest trust tier).
-
----
-
-## Governance statuses
-
-| Status | Layer | Meaning | wake / search |
-|---|---|---|---|
-| `pending` | Candidate | Created; preflight not finished | excluded |
-| `deferred` | Candidate | Insufficient evidence; not usable memory | excluded |
-| `rejected` | Candidate | Noise or dangerous conclusion | excluded |
-| `auto_confirmed` | Truth | Low risk, sufficient evidence; auto-promoted | full weight |
-| `provisional` | Truth | Written with risk flags | opt-in via `include_provisional`, weight 0.6 |
-| `user_confirmed` | Truth | User audited later; highest trust | full weight, preferred |
-| `superseded` | Historical | Replaced; lineage only | `include_history` only |
-
----
-
-## State machine
-
-```mermaid
-stateDiagram-v2
-    [*] --> pending: govern_memory suggest / dream suggestion
-
-    pending --> deferred: preflight insufficient evidence
-    pending --> rejected: preflight noise or danger
-    pending --> auto_confirmed: preflight low-risk pass
-    pending --> provisional: preflight pass with risk flags
-    pending --> user_confirmed: govern_memory confirm without auto promote
-
-    auto_confirmed --> user_confirmed: /hm:review or govern_memory confirm
-    provisional --> user_confirmed: /hm:review or govern_memory confirm
-    provisional --> rejected: reject or undo
-
-    auto_confirmed --> superseded: dream or user supersede
-    provisional --> superseded: dream or user supersede
-    user_confirmed --> superseded: dream or user supersede
-
-    deferred --> pending: evidence added; retry preflight
-    deferred --> rejected: audit cleanup
-
-    rejected --> [*]
-    superseded --> [*]: historical lineage only
-```
-
-Pure transition rules: `harness_mem/governance_status.py::validate_status_transition`.
-
----
-
-## Read path: wake / search trust tiers
-
-```mermaid
-flowchart LR
-    subgraph read["Read path (single MCP surface)"]
-        W["wake"]
-        SM["search_memory"]
-        TR["trace_relations"]
-    end
-
-    subgraph tiers["Truth trust tiers"]
-        T1["user_confirmed<br/>weight 1.0, preferred"]
-        T2["auto_confirmed<br/>weight 1.0"]
-        T3["provisional<br/>weight 0.6 + caveat"]
-        T4["superseded<br/>historical only"]
-        T5["pending / deferred / rejected<br/>invisible"]
-    end
-
-    subgraph stores["Storage boundaries"]
-        TS["TruthStore"]
-        CS["CandidateStore"]
-        LG["state-events.log"]
-    end
-
-    TS --> T1 & T2 & T3 & T4
-    CS --> T5
-    LG -.->|"audit trail"| W
-
-    T1 & T2 --> W & SM
-    T3 -->|"include_provisional=true"| W & SM
-    T4 -->|"include_history=true"| SM & TR
-    T5 -.-x W & SM
-```
-
-Shipped foundation (0.8.11), converged public API (0.9.1):
-
-- Default list/search filter is `readable_truth` (`READABLE_TRUTH_FILTER`):
-  `auto_confirmed` + `user_confirmed` at full weight.
-- `include_provisional=true` adds `provisional`; search applies
-  `governance_weight=0.6` in result metadata.
-- `wake` and `search_memory` accept `include_provisional` via
-  `orchestrate_task_context` → `SearchFilters`.
-- New promotes write `auto_confirmed`; explicit
-  `govern_memory(action="decide", decision="confirm")` writes `user_confirmed`.
-  Candidate-layer defaults for new rows are `pending`.
-
----
-
-## Follow-up slices
-
-| Slice | Role |
+| Decision | Durable effect |
 |---|---|
-| **dream full chain** | Align stale / merge / supersede maintenance with seven-status promote and lineage |
-| **undo replay** | Revert governance transitions from `state-events.log` |
-| **/hm:review inbox UX** | Inbox-style audit over `provisional` / `auto_confirmed`, not a pre-write gate |
+| `add` | Add source-backed atomic current knowledge |
+| `refine` | Replace one named current item with a more precise item |
+| `confirm` | Keep one named current item; add no duplicate |
+| `supersede` | Replace one named current item with a newer conclusion |
+| `no_write` | Add no long-term knowledge |
+| `handoff` | Preserve unfinished work in the handoff owner |
+| `defer` | Keep unresolved work with the job until resolution/TTL |
+| `conflict` | Block publication and retain the job conflict until resolution/TTL |
+| `reject` | Terminate unsupported, malformed, unsafe, or irrelevant content |
 
----
+`confirm`, `refine`, and `supersede` require exactly one current SQLite target.
+An invalid target receives one bounded correction attempt, then fails closed.
+No new autonomous path may use `provisional` as a catch-all truth state.
 
-## Related docs
+## Review and Dream feedback
 
-- [recall-audit.md](recall-audit.md) — read-path recall contract
-- [autopilot-search-policy.md](autopilot-search-policy.md) — automatic wake/search/distill/review trigger policy
+Review and Dream are core governance capabilities across modules 3--4, not a
+sixth linear stage and not operator-only maintenance.
+
+- **Review** handles human correction, rejection, undo, and replacement.
+- **Dream** discovers stale, duplicate, misleading, conflicting, mergeable, or
+  replaceable knowledge from current knowledge and bounded use feedback.
+
+Both return the affected statement to its real source, per-point verification,
+and the same SQLite assimilation mutation. Neither treats an old database
+verdict as fresh proof, edits a Markdown export, or maintains a parallel truth
+store.
+
+```text
+retrieval/use feedback
+  -> Review or Dream finding
+  -> reopen real source
+  -> verify
+  -> assimilate
+  -> SQLite transaction + derived-index refresh
+```
+
+## Normal retrieval and explicit history
+
+Normal `wake` and `search` use SQLite current knowledge or a same-generation
+derived index. They return the relevant title and knowledge body and do not
+expose transcript, candidate, Answer Packet, Note, decision reasons, provider
+receipts, hashes, internal IDs, or historical rows.
+
+An explicit source/history request may join a knowledge item to its minimal
+source locator, finite receipt, Session Note/Packet, or supported undo version.
+An old result explains what happened then; it cannot prove the underlying
+repository, configuration, web page, or API still supports the claim now.
+Revalidation reopens the real source.
+
+## Job-material retention
+
+| State | Retention |
+|---|---|
+| pending/running/retryable | Keep processing detail so the job can resume |
+| terminal add/refine/confirm/supersede/no_write/reject | Clean detail after knowledge/no-write, Note/Packet, and receipt are durable |
+| defer/conflict | Keep until resolved or TTL expires; exclude from normal retrieval |
+| handoff | Move actionable state to the handoff store, then clean processing detail |
+| receipt | Keep for a bounded policy window, then compact/remove |
+
+Cleanup before durable outcome proof is a contract violation. Job detail is not
+retained forever merely to offer a generic audit surface.
+
+## `0.9.x` compatibility statuses
+
+The released `0.9.12` compatibility model still exposes historical
+`MemoryEntry` status vocabulary. These statuses describe legacy/manual records;
+they are not the target current-knowledge schema.
+
+| Status | Compatibility layer | Target-path treatment |
+|---|---|---|
+| `pending` | Candidate | Job-scoped work only |
+| `deferred` | Candidate | Job-scoped unresolved work only |
+| `rejected` | Candidate | Terminal non-write; clean by policy |
+| `auto_confirmed` | Legacy truth | Input to separately authorized convergence |
+| `provisional` | Legacy risky truth | Excluded by default; input to separately authorized convergence |
+| `user_confirmed` | Legacy audited truth | Input to separately authorized convergence |
+| `superseded` | Legacy history | Compatibility/authorized migration input only |
+
+Legacy status transitions remain readable throughout the documented `0.9.x`
+support window. New session distill must not create provisional long-term truth.
+The public MCP write surface remains `govern_memory`; it routes correction and
+review intent into the trusted verification/assimilation boundary.
+
+## Source and lifecycle safeguards
+
+- The immutable session revision is the authoritative session record;
+  Observations are derived evidence, not proof that distillation completed.
+- Candidate creation and finalization are idempotent for one source revision.
+- A Hook can claim only capture/queue until the bound job, SQLite knowledge or
+  explicit no-write, Note, and terminal receipt are read back.
+- Source cleanup remains receipt-first, policy-authorized, session-scoped, and
+  fail closed.
+- The database inode is not replaced during migration or recovery.
+- Real legacy convergence requires explicit authorization after isolated
+  six-session acceptance.
+
+## Related documents
+
+- [Five-module memory adoption](memory-adoption.md)
+- [SQLite current-knowledge convergence](roadmap/knowledge-truth-separation.md)
+- [Distill acceptance plan](distill-test-plan.md)
+- [Recall audit](recall-audit.md)
+- [Autopilot search policy](autopilot-search-policy.md)

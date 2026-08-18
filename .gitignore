@@ -29,6 +29,7 @@ terminals/
 
 # Local harness-mem config overrides
 .harness-mem.toml
+.harness-mem/
 
 # Build artifacts
 dist/
