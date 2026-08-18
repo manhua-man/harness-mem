@@ -414,6 +414,20 @@ class SessionDistillStore:
                             completed_count == job.expected_chunk_count
                             and job.expected_chunk_count > 0
                         ):
+                            # A semantic-review failure moves a fully
+                            # checkpointed job back to ``retryable`` with a
+                            # bounded backoff.  Do not immediately undo that
+                            # decision merely because structural recovery sees
+                            # all chunks complete: doing so strands the job in
+                            # ``reviewing`` without a lease and defeats the
+                            # retry schedule.
+                            retry_backoff_active = (
+                                job.status == "retryable"
+                                and job.retry_after is not None
+                                and job.retry_after > current
+                            )
+                            if retry_backoff_active:
+                                continue
                             if job.status != "reviewing":
                                 job.status = "reviewing"
                                 job.phase = "review"

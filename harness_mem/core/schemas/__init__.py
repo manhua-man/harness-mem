@@ -2,6 +2,21 @@
 
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.core.schemas.memory_entry import MemoryEntry, MemoryType
+from harness_mem.core.schemas.knowledge import (
+    AssimilationDecision,
+    ClaimKind,
+    KnowledgeCandidate,
+    KnowledgeCandidateStatus,
+    KnowledgeCandidateType,
+    KnowledgeEntry,
+    KnowledgeEvidence,
+    KnowledgeMutation,
+    KnowledgeSource,
+    KnowledgeVersion,
+)
+from harness_mem.core.schemas.project_knowledge_base import (
+    ProjectKnowledgeSourceRef,
+)
 from harness_mem.core.schemas.task_handoff import TaskHandoff
 from harness_mem.core.schemas.rule_candidate import RuleCandidate
 from harness_mem.core.schemas.supersede_candidate import SupersedeCandidate
@@ -65,6 +80,17 @@ __all__ = [
     "Observation",
     "MemoryEntry",
     "MemoryType",
+    "AssimilationDecision",
+    "ClaimKind",
+    "KnowledgeCandidate",
+    "KnowledgeCandidateStatus",
+    "KnowledgeCandidateType",
+    "KnowledgeEntry",
+    "KnowledgeEvidence",
+    "KnowledgeMutation",
+    "KnowledgeSource",
+    "KnowledgeVersion",
+    "ProjectKnowledgeSourceRef",
     "TaskHandoff",
     "RuleCandidate",
     "SupersedeCandidate",

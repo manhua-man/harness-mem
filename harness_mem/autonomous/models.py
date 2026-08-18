@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from harness_mem.core.schemas.assimilation import AssimilationDisposition
+from harness_mem.core.schemas.knowledge import ClaimKind
 
 
 class _StrictModel(BaseModel):
@@ -29,8 +31,101 @@ class _CandidateBase(_StrictModel):
     verification_reason_codes: list[str] = Field(default_factory=list, max_length=8)
 
 
+def validate_atomic_knowledge_statement(value: str) -> str:
+    """Reject an obvious checklist of separate claims as one knowledge item.
+
+    This is deliberately a narrow fail-closed guard, not an attempt to judge
+    semantics with a regex.  A condition plus its required action remains
+    valid.  A statement that enumerates four or more distinct steps, or chains
+    several semicolon-separated conclusions, must return to the bounded
+    assimilation model for explicit splitting.
+    """
+
+    normalized = " ".join(value.split())
+    enumerated_clauses = [
+        clause.strip()
+        for clause in re.split(r"[、,，]", normalized)
+        if clause.strip()
+    ]
+    pipeline_action_prefixes = (
+        "capture ",
+        "preserve ",
+        "normalize ",
+        "validate ",
+        "publish ",
+        "store ",
+        "load ",
+        "read ",
+        "write ",
+        "create ",
+        "delete ",
+        "抓取",
+        "保存",
+        "规范化",
+        "校验",
+        "验证",
+        "发布",
+        "读取",
+        "组装",
+        "创建",
+        "删除",
+    )
+    if len(enumerated_clauses) >= 4 and sum(
+        clause.casefold().startswith(pipeline_action_prefixes)
+        for clause in enumerated_clauses
+    ) >= 3:
+        raise ValueError(
+            "knowledge item lists too many separate steps; split it into atomic items"
+        )
+    if normalized.count(";") + normalized.count("；") >= 2:
+        raise ValueError(
+            "knowledge item chains multiple conclusions; split it into atomic items"
+        )
+    obligation_markers = ("必须", "应当", "须", "must ", "should ", "required")
+    semicolon_clauses = [
+        clause.strip() for clause in normalized.replace("；", ";").split(";") if clause.strip()
+    ]
+    if len(semicolon_clauses) > 1 and sum(
+        any(marker in clause.casefold() for marker in obligation_markers)
+        for clause in semicolon_clauses
+    ) > 1:
+        raise ValueError(
+            "knowledge item combines independent obligations; split it into atomic items"
+        )
+    progression_markers = ("先", "再", "随后", "然后", "最后", "最终")
+    if sum(marker in normalized for marker in progression_markers) >= 3:
+        raise ValueError(
+            "knowledge item describes a multi-step pipeline; split it into atomic items"
+        )
+    return normalized
+
+
+def _assert_atomic_title(value: str) -> str:
+    """Reject enumerative titles without banning a single relational principle."""
+
+    normalized = " ".join(value.split())
+    lowered = normalized.casefold()
+    if (
+        normalized.count("、") >= 2
+        or normalized.count(",") >= 2
+        or normalized.count("/") >= 2
+        or lowered.count(" and ") >= 2
+    ):
+        raise ValueError(
+            "knowledge title enumerates multiple facts; split it into atomic items"
+        )
+    return normalized
+
+
 class DistillCandidate(_CandidateBase):
-    """Flat schema avoids unsupported oneOf in strict Structured Outputs."""
+    """One extracted promotion point plus its evidence locator.
+
+    Extraction deliberately does not choose an assimilation disposition,
+    canonical title, or project module. Those are module-3 decisions made
+    only after the trusted evidence gate has re-read the cited source. A
+    discovery candidate may still be broad: module 3 owns semantic splitting
+    into independently retrievable knowledge items.
+    """
 
     kind: Literal["memory", "rule", "relation"]
     category: str | None = Field(default=None, max_length=80)
@@ -44,12 +139,21 @@ class DistillCandidate(_CandidateBase):
     target_entity: str | None = Field(default=None, max_length=200)
     relation_type: str | None = Field(default=None, max_length=100)
     evidence: str | None = Field(default=None, max_length=2000)
-    # This is a proposed long-term utility decision, not evidence verification.
-    # The trusted runtime still validates evidence and enforces the disposition.
-    assimilation_disposition: AssimilationDisposition = "add"
-    assimilation_reason: str = Field(default="", max_length=1000)
-    canonical_title: str | None = Field(default=None, max_length=160)
-    topic_path: list[str] = Field(default_factory=list, max_length=8)
+
+
+class CanonicalKnowledgeItem(_StrictModel):
+    """One atomic knowledge item created by a single point disposition."""
+
+    title: str = Field(min_length=1, max_length=160)
+    statement: str = Field(min_length=1, max_length=4000)
+    topic_path: list[str] = Field(min_length=1, max_length=8)
+    claim_kind: ClaimKind
+
+    @model_validator(mode="after")
+    def require_atomic_statement(self) -> "CanonicalKnowledgeItem":
+        self.title = _assert_atomic_title(self.title)
+        self.statement = validate_atomic_knowledge_statement(self.statement)
+        return self
 
 
 class AssimilationPoint(_StrictModel):
@@ -61,13 +165,51 @@ class AssimilationPoint(_StrictModel):
     canonical_title: str | None = Field(default=None, max_length=160)
     canonical_statement: str | None = Field(default=None, max_length=4000)
     topic_path: list[str] = Field(default_factory=list, max_length=8)
+    knowledge_items: list[CanonicalKnowledgeItem] = Field(
+        default_factory=list, max_length=3
+    )
     reason: str = Field(min_length=8, max_length=1000)
+
+    @model_validator(mode="after")
+    def require_atomic_canonical_statement(self) -> "AssimilationPoint":
+        target_count = len(self.matched_truth_handles)
+        if self.disposition == "add" and target_count:
+            raise ValueError("add must not target current truth")
+        if self.disposition in {"confirm", "refine", "supersede"} and target_count != 1:
+            raise ValueError(
+                f"{self.disposition} requires exactly one current truth handle"
+            )
+        if self.disposition == "conflict" and target_count > 1:
+            raise ValueError("conflict may reference at most one current truth handle")
+        if self.canonical_title:
+            self.canonical_title = _assert_atomic_title(self.canonical_title)
+        if self.canonical_statement:
+            self.canonical_statement = validate_atomic_knowledge_statement(
+                self.canonical_statement
+            )
+        return self
 
 
 class AssimilationDecision(_StrictModel):
     """Strict, tool-free semantic decision over verified points and truth handles."""
 
     points: list[AssimilationPoint] = Field(default_factory=list, max_length=12)
+
+
+class CandidateVerificationPoint(_StrictModel):
+    """Semantic source-support and future-scope result for one extracted point."""
+
+    candidate_index: int = Field(ge=0, le=11)
+    semantic_support: Literal["supported", "partial", "contradicted"]
+    future_scope: Literal["durable", "session_only", "unclear"]
+    reason: str = Field(min_length=8, max_length=1000)
+
+
+class CandidateVerificationDecision(_StrictModel):
+    """Complete per-point verification over bounded, content-addressed sources."""
+
+    points: list[CandidateVerificationPoint] = Field(default_factory=list, max_length=12)
+
 
 ChallengeChecks = Literal["absent", "not_durable", "candidate_required"]
 
@@ -119,15 +261,22 @@ class AutonomousDecision(_StrictModel):
     def require_zero_candidate_review(self) -> "AutonomousDecision":
         challenge = self.semantic_review.zero_candidate_challenge
         if not self.candidates and challenge is None:
-            raise ValueError("zero_candidate_challenge is required when candidates is empty")
+            raise ValueError(
+                "zero_candidate_challenge is required when candidates is empty"
+            )
         if self.candidates and challenge is not None:
-            raise ValueError("zero_candidate_challenge must be null when candidates exist")
+            raise ValueError(
+                "zero_candidate_challenge must be null when candidates exist"
+            )
         return self
 
 
 __all__ = [
     "AssimilationDecision",
+    "CandidateVerificationDecision",
+    "CandidateVerificationPoint",
     "AssimilationPoint",
+    "CanonicalKnowledgeItem",
     "AutonomousDecision",
     "DistillCandidate",
     "SemanticReview",

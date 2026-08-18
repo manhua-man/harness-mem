@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from datetime import datetime
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from harness_mem.core.schemas.memory_entry import MemoryEntry
 from harness_mem.core.schemas.task_handoff import TaskHandoff
@@ -21,6 +21,9 @@ from harness_mem.core.schemas.dream_run import DreamRun
 from harness_mem.core.schemas.retrieval_signal import RetrievalSignal
 from harness_mem.governance_status import READABLE_TRUTH_FILTER
 
+if TYPE_CHECKING:
+    from harness_mem.storage.knowledge_store import KnowledgeStore
+
 
 @runtime_checkable
 class StructuredStore(Protocol):
@@ -29,6 +32,8 @@ class StructuredStore(Protocol):
     Handles MemoryEntry, TaskHandoff, RuleCandidate, and ConfirmedRule.
     Each entity type has its own namespace and access patterns.
     """
+
+    knowledge_store: KnowledgeStore
 
     # ---- MemoryEntry ----
 

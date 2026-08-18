@@ -12,7 +12,7 @@ from functools import wraps
 from inspect import signature
 import os
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Mapping, cast
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from pydantic import ValidationError
@@ -27,6 +27,10 @@ from harness_mem.commands.support import (
 )
 from harness_mem.commands.distill_lifecycle import distill_drainer_metrics
 from harness_mem.commands.assimilation import apply_assimilation
+from harness_mem.commands.separated_assimilation import (
+    apply_separated_assimilation,
+    separated_job_candidate_ids,
+)
 from harness_mem.commands.evidence_admission import answer_gate_status
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import MergedConfig, load_merged_config
@@ -1266,28 +1270,43 @@ async def _build_answer_packet(
     *,
     job: SessionDistillJob,
     candidate_ids: list[str],
-    promotion_counts: dict[str, int],
+    promotion_counts: Mapping[str, Any],
     runtime_reviewed: bool,
 ) -> dict[str, Any]:
     """Build the formal packet only from runtime-governed candidate state."""
 
-    candidates = await _distill_candidates(backend, candidate_ids)
-    promoted_candidates = [
-        candidate
-        for candidate in candidates
-        if str(getattr(candidate, "status", "")) in TRUTH_LAYER_STATUSES
-    ]
-    items: list[PromotedKnowledgeItem] = []
-    for candidate in promoted_candidates:
-        title, fact, kind, category = _knowledge_projection(candidate)
-        items.append(
-            PromotedKnowledgeItem(
-                title=title or category,
-                fact=fact,
-                kind=kind,
-                category=category,
-            )
+    if _uses_separated_assimilation(job.semantic_review):
+        raw_point_results = promotion_counts.get("points")
+        separated_point_results = (
+            [dict(item) for item in raw_point_results if isinstance(item, dict)]
+            if isinstance(raw_point_results, list)
+            else []
         )
+        candidates, items = await _separated_answer_packet_state(
+            backend,
+            candidate_ids=candidate_ids,
+            project_name=job.project_name,
+            project_root=job.project_root,
+            point_results=separated_point_results,
+        )
+    else:
+        candidates = await _distill_candidates(backend, candidate_ids)
+        promoted_candidates = [
+            candidate
+            for candidate in candidates
+            if str(getattr(candidate, "status", "")) in TRUTH_LAYER_STATUSES
+        ]
+        items = []
+        for candidate in promoted_candidates:
+            title, fact, kind, category = _knowledge_projection(candidate)
+            items.append(
+                PromotedKnowledgeItem(
+                    title=title or category,
+                    fact=fact,
+                    kind=kind,
+                    category=category,
+                )
+            )
     promoted_count = int(promotion_counts.get("promoted") or 0)
     suggested_count = int(promotion_counts.get("suggested") or 0)
     promotion_status = (
@@ -1365,6 +1384,78 @@ async def _build_answer_packet(
     ).to_dict()
 
 
+async def _separated_answer_packet_state(
+    backend: LocalMemoryBackend,
+    *,
+    candidate_ids: list[str],
+    project_name: str,
+    project_root: str,
+    point_results: list[dict[str, Any]],
+) -> tuple[list[Any], list[PromotedKnowledgeItem]]:
+    """Build the human packet from job results and SQLite current knowledge."""
+
+    from types import SimpleNamespace
+
+    store = backend.structured_store.knowledge_store
+    candidates: list[Any] = []
+    items: list[PromotedKnowledgeItem] = []
+    seen_entry_ids: set[str] = set()
+    result_by_candidate = {
+        str(item.get("candidate_id") or ""): item for item in point_results
+    }
+    for candidate_id in candidate_ids:
+        candidate = await store.get_candidate(candidate_id)
+        if candidate is None:
+            continue
+        evidence_rows = await store.list_evidence(candidate.id)
+        evidence = evidence_rows[0] if len(evidence_rows) == 1 else None
+        point_result = dict(result_by_candidate.get(candidate.id) or {})
+        truth_ids = [
+            str(entry_id)
+            for entry_id in point_result.get("canonical_truth_ids") or []
+        ]
+        candidates.append(
+            SimpleNamespace(
+                status="auto_confirmed" if truth_ids else candidate.status,
+                evidence_basis=evidence.evidence_basis if evidence else None,
+                verification_outcome=(
+                    evidence.verification_outcome if evidence else "unverified"
+                ),
+                verification_reason_codes=(
+                    list(evidence.verification_reason_codes) if evidence else []
+                ),
+                verification_refs=(list(evidence.verification_refs) if evidence else []),
+                verified_at=evidence.verified_at if evidence else None,
+            )
+        )
+        for entry_id in truth_ids:
+            if entry_id in seen_entry_ids:
+                continue
+            entry = await store.get_entry(
+                entry_id,
+                project_name=project_name,
+                project_root=project_root,
+            )
+            if entry is None:
+                continue
+            seen_entry_ids.add(entry_id)
+            items.append(
+                PromotedKnowledgeItem(
+                    title=entry.title,
+                    fact=entry.statement,
+                    kind="knowledge",
+                    category=entry.module_path[-1],
+                )
+            )
+    return candidates, items
+
+
+def _uses_separated_assimilation(review: Mapping[str, Any] | None) -> bool:
+    payload = dict(review or {})
+    plan = payload.get("assimilation")
+    return isinstance(plan, dict) and plan.get("version") == "separated-v1"
+
+
 def tool_finalize_session_distill(
     project_name: str,
     job_id: str,
@@ -1418,6 +1509,7 @@ def tool_finalize_session_distill(
                 source_cleanup_receipt_id=job.source_cleanup_receipt_id,
             )
         note = materialize_session_note(job, notes_dir=_session_notes_dir(backend))
+        asyncio.run(backend.structured_store.knowledge_store.cleanup_job(job.id))
         return {
             "success": True,
             "idempotent_replay": True,
@@ -1459,13 +1551,39 @@ def tool_finalize_session_distill(
         )
         if completed_checkpoints != job.expected_chunk_count:
             raise ValueError("not all distill chunks are complete")
-        candidate_ids = asyncio.run(
-            _distill_job_candidate_ids(
-                backend,
-                project_name=project_name,
-                distill_job_id=job_id,
+        supplied_assimilation = semantic_review.get("assimilation")
+        if isinstance(supplied_assimilation, dict) and supplied_assimilation.get(
+            "version"
+        ) == "separated-v1":
+            candidate_ids = list(supplied_assimilation.get("candidate_ids") or [])
+            actual_candidate_ids = asyncio.run(
+                separated_job_candidate_ids(
+                    backend,
+                    project_name=project_name,
+                    distill_job_id=job_id,
+                )
             )
-        )
+            if (
+                not candidate_ids
+                or len(candidate_ids) != len(set(candidate_ids))
+                or set(candidate_ids) != set(actual_candidate_ids)
+            ):
+                return {
+                    "success": False,
+                    "project_name": project_name,
+                    "distill_job_id": job.id,
+                    "distill_status": job.status,
+                    "error": "separated_assimilation_candidate_binding_invalid",
+                    "reason_codes": ["separated_candidate_job_binding_invalid"],
+                }
+        else:
+            candidate_ids = asyncio.run(
+                _distill_job_candidate_ids(
+                    backend,
+                    project_name=project_name,
+                    distill_job_id=job_id,
+                )
+            )
         handoff_ids = asyncio.run(
             _distill_job_handoff_ids(
                 backend,
@@ -1534,7 +1652,25 @@ def tool_finalize_session_distill(
     }
     assimilation_plan = completed.semantic_review.get("assimilation")
     assimilation_summary: dict[str, Any] | None = None
-    if isinstance(assimilation_plan, dict) and assimilation_plan.get("version") == "v1":
+    if (
+        isinstance(assimilation_plan, dict)
+        and assimilation_plan.get("version") == "separated-v1"
+    ):
+        assimilation_summary = asyncio.run(
+            apply_separated_assimilation(
+                backend,
+                project_name=project_name,
+                project_root=completed.project_root,
+                candidate_ids=candidate_ids,
+                plan=assimilation_plan,
+            )
+        )
+        payload["auto_review"] = {
+            "skipped": True,
+            "reason": "separated_autonomous_assimilation_applied",
+            "candidate_ids": candidate_ids,
+        }
+    elif isinstance(assimilation_plan, dict) and assimilation_plan.get("version") == "v1":
         assimilation_summary = asyncio.run(
             apply_assimilation(
                 backend,
@@ -1673,6 +1809,10 @@ def tool_finalize_session_distill(
         source_cleanup_status=str(source_cleanup["status"]),
         source_cleanup_receipt_id=source_cleanup.get("receipt_id"),
     )
+    # Candidate/evidence/proposed-decision detail is retry material. Remove it
+    # only after current knowledge/no-write, Answer Packet, Note, and terminal
+    # receipt are all durable.
+    asyncio.run(backend.structured_store.knowledge_store.cleanup_job(stored.id))
     queue = distill_drainer_metrics(
         backend,
         project_name=project_name,

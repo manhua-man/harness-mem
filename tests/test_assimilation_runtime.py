@@ -4,7 +4,18 @@ from __future__ import annotations
 
 import asyncio
 
-from harness_mem.commands.assimilation import apply_assimilation
+import pytest
+
+from harness_mem.autonomous.models import (
+    AssimilationDecision,
+    AssimilationPoint,
+    CanonicalKnowledgeItem,
+)
+from harness_mem.commands.assimilation import (
+    PreparedAssimilation,
+    apply_assimilation,
+    validate_assimilation_decision,
+)
 from harness_mem.core.schemas import MemoryEntry, RuleCandidate
 from harness_mem.qualification.memory_assimilation_outcome_probe import (
     run_memory_assimilation_outcome_probe,
@@ -14,6 +25,52 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+def test_legacy_apply_rejects_separated_target_before_candidate_write(tmp_path) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        candidate = MemoryEntry(
+            id="legacy-separated-target-candidate",
+            project_name="demo",
+            category="decision",
+            content="unchanged placeholder",
+            source="fixture",
+            distill_job_id="legacy-job",
+        )
+        _run(backend.structured_store.save_memory_entry(candidate))
+
+        with pytest.raises(ValueError, match="cannot replace separated"):
+            _run(
+                apply_assimilation(
+                    backend,
+                    project_name="demo",
+                    candidate_ids=[candidate.id],
+                    plan={
+                        "version": "v1",
+                        "points": [
+                            {
+                                "candidate_id": candidate.id,
+                                "answer_status": "ANSWERED",
+                                "disposition": "refine",
+                                "matched_truth_ids": ["separated-truth"],
+                                "matched_truth_kinds": ["knowledge_entry"],
+                                "canonical_title": "Must not apply",
+                                "canonical_statement": "Must not mutate the legacy row.",
+                                "topic_path": ["review"],
+                                "reason": "Exercise the compatibility boundary.",
+                            }
+                        ],
+                    },
+                )
+            )
+        stored = _run(backend.structured_store.get_memory_entry(candidate.id))
+        assert stored is not None
+        assert stored.content == "unchanged placeholder"
+        assert stored.assimilation_disposition is None
+    finally:
+        _run(backend.close())
 
 
 def test_apply_assimilation_keeps_points_independent_and_materializes_rules(tmp_path) -> None:
@@ -158,6 +215,7 @@ def test_apply_assimilation_keeps_points_independent_and_materializes_rules(tmp_
         assert len(handoffs) == 1 and handoffs[0].context["distill_job_id"] == "job-1"
         assert duplicate_stored is not None and duplicate_stored.status == "rejected"
         assert one_off_stored is not None and one_off_stored.status == "rejected"
+        assert not (tmp_path / ".harness-mem" / "session-knowledge-base.md").exists()
     finally:
         _run(backend.close())
 
@@ -166,6 +224,90 @@ def test_multi_point_assimilation_outcome_probe() -> None:
     result = run_memory_assimilation_outcome_probe()
 
     assert result["verified"] is True
+
+
+def test_legacy_candidate_does_not_implicitly_migrate_into_markdown(tmp_path) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        candidate = MemoryEntry(
+            id="broad-candidate",
+            project_name="demo",
+            category="architecture",
+            content="A broad statement covering evidence preservation and atomic publication.",
+            source="fixture",
+            distill_job_id="job-atomic",
+        )
+        _run(backend.structured_store.save_memory_entry(candidate))
+        decision = AssimilationDecision(
+            points=[
+                AssimilationPoint(
+                    candidate_id=candidate.id,
+                    disposition="add",
+                    reason="The verified point contains two independent design constraints.",
+                    knowledge_items=[
+                        CanonicalKnowledgeItem(
+                            title="Preserve original evidence first",
+                            statement="Data ingestion must preserve traceable original evidence before normalization.",
+                            topic_path=["data ingestion"],
+                            claim_kind="design_requirement",
+                        ),
+                        CanonicalKnowledgeItem(
+                            title="Publish related data atomically",
+                            statement="Entities, relations, scores, and evidence must publish in one transaction.",
+                            topic_path=["data publication"],
+                            claim_kind="design_requirement",
+                        ),
+                    ],
+                )
+            ]
+        )
+        prepared = PreparedAssimilation(
+            project_name="demo",
+            candidate_ids=(candidate.id,),
+            eligible_candidate_ids=(candidate.id,),
+            automatic_points=(),
+            truth_by_handle={},
+            manifest={},
+        )
+        plan = validate_assimilation_decision(prepared, decision)
+        result = _run(
+            apply_assimilation(
+                backend,
+                project_name="demo",
+                candidate_ids=[candidate.id],
+                plan=plan,
+            )
+        )
+
+        legacy = _run(backend.structured_store.get_memory_entry(candidate.id))
+
+        assert result["points"][0]["separated_knowledge_ids"] == []
+        assert not (tmp_path / ".harness-mem" / "session-knowledge-base.md").exists()
+        assert legacy is not None
+        assert legacy.content == candidate.content
+    finally:
+        _run(backend.close())
+
+
+def test_one_promotion_point_cannot_explode_into_pipeline_microsteps() -> None:
+    items = [
+        {
+            "title": f"Invariant {index}",
+            "statement": f"The independently useful invariant number {index} remains current.",
+            "topic_path": ["pipeline"],
+            "claim_kind": "procedure",
+        }
+        for index in range(1, 5)
+    ]
+
+    with pytest.raises(ValueError, match="at most 3"):
+        AssimilationPoint(
+            candidate_id="too-broad",
+            disposition="add",
+            reason="The candidate was incorrectly expanded into four microsteps.",
+            knowledge_items=items,
+        )
 
 
 def test_assimilation_refines_and_supersedes_without_writing_conflict_truth(tmp_path) -> None:

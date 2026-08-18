@@ -19,11 +19,15 @@ from typing import Any, Callable
 from pydantic import ValidationError
 import tomli_w
 
-from harness_mem.autonomous.models import AssimilationDecision, AutonomousDecision
+from harness_mem.autonomous.models import (
+    AssimilationDecision,
+    AutonomousDecision,
+    CandidateVerificationDecision,
+)
 
 
 DEFAULT_DISTILL_MODEL = "gpt-5.6-luna"
-DEFAULT_DISTILL_TIMEOUT_SECONDS = 40
+DEFAULT_DISTILL_TIMEOUT_SECONDS = 120
 
 
 @dataclass(frozen=True)
@@ -96,7 +100,9 @@ class CodexExecProvider:
         poll_seconds: float = 5.0,
     ) -> None:
         self.executable = executable or shutil.which("codex") or ""
-        self.model = (model or os.environ.get("HARNESS_MEM_DISTILL_MODEL") or "").strip() or None
+        self.model = (
+            model or os.environ.get("HARNESS_MEM_DISTILL_MODEL") or ""
+        ).strip() or None
         self.timeout_seconds = max(30, min(int(timeout_seconds), 900))
         self.poll_seconds = max(0.2, min(float(poll_seconds), 15.0))
 
@@ -108,7 +114,9 @@ class CodexExecProvider:
         heartbeat: Callable[[], None] | None = None,
     ) -> ProviderResult:
         if not self.executable:
-            raise ProviderError("Codex CLI executable was not found", kind="setup_required")
+            raise ProviderError(
+                "Codex CLI executable was not found", kind="setup_required"
+            )
         runtime_dir.mkdir(parents=True, exist_ok=True)
         if (runtime_dir / ".codex" / "hooks.json").exists():
             raise ProviderError(
@@ -118,7 +126,9 @@ class CodexExecProvider:
 
         prompt = _build_prompt(manifest)
         started = time.monotonic()
-        with tempfile.TemporaryDirectory(prefix="distill-", dir=runtime_dir) as temporary:
+        with tempfile.TemporaryDirectory(
+            prefix="distill-", dir=runtime_dir
+        ) as temporary:
             invocation_dir = Path(temporary)
             schema_path = invocation_dir / "decision.schema.json"
             output_path = invocation_dir / "decision.json"
@@ -248,48 +258,98 @@ class CodexExecProvider:
     ) -> ProviderResult:
         """Run the second semantic pass in the same isolated Codex sandbox."""
 
-        return self._run_assimilation_exec(
+        return self._run_structured_exec(
             manifest,
             runtime_dir=runtime_dir,
             heartbeat=heartbeat,
+            decision_model=AssimilationDecision,
+            prompt=_build_assimilation_prompt(manifest),
+            temporary_prefix="assimilation-",
+            error_label="assimilation",
         )
 
-    def _run_assimilation_exec(
+    def verify(
+        self,
+        manifest: dict[str, Any],
+        *,
+        runtime_dir: Path,
+        heartbeat: Callable[[], None] | None = None,
+    ) -> ProviderResult:
+        """Verify semantic support and future scope against bounded source text."""
+
+        return self._run_structured_exec(
+            manifest,
+            runtime_dir=runtime_dir,
+            heartbeat=heartbeat,
+            decision_model=CandidateVerificationDecision,
+            prompt=_build_verification_prompt(manifest),
+            temporary_prefix="verification-",
+            error_label="verification",
+        )
+
+    def _run_structured_exec(
         self,
         manifest: dict[str, Any],
         *,
         runtime_dir: Path,
         heartbeat: Callable[[], None] | None,
+        decision_model: Any,
+        prompt: str,
+        temporary_prefix: str,
+        error_label: str,
     ) -> ProviderResult:
         if not self.executable:
-            raise ProviderError("Codex CLI executable was not found", kind="setup_required")
+            raise ProviderError(
+                "Codex CLI executable was not found", kind="setup_required"
+            )
         runtime_dir.mkdir(parents=True, exist_ok=True)
         if (runtime_dir / ".codex" / "hooks.json").exists():
             raise ProviderError(
                 "autonomous provider cwd contains a Codex hook manifest",
                 kind="setup_required",
             )
-        prompt = _build_assimilation_prompt(manifest)
         started = time.monotonic()
-        with tempfile.TemporaryDirectory(prefix="assimilation-", dir=runtime_dir) as temporary:
+        with tempfile.TemporaryDirectory(
+            prefix=temporary_prefix, dir=runtime_dir
+        ) as temporary:
             invocation_dir = Path(temporary)
             schema_path = invocation_dir / "decision.schema.json"
             output_path = invocation_dir / "decision.json"
             schema_path.write_text(
                 json.dumps(
-                    _strict_output_schema(AssimilationDecision.model_json_schema()),
+                    _strict_output_schema(decision_model.model_json_schema()),
                     ensure_ascii=False,
                 ),
                 encoding="utf-8",
             )
-            isolated_home, configured_model = _prepare_isolated_codex_home(invocation_dir)
+            isolated_home, configured_model = _prepare_isolated_codex_home(
+                invocation_dir
+            )
             command = [
-                self.executable, "exec", "--ephemeral", "--ignore-rules",
-                "--disable", "hooks", "--disable", "plugins", "--disable",
-                "skill_search", "--disable", "multi_agent", "--skip-git-repo-check",
-                "--config", "mcp_servers={}", "--config", "marketplaces={}",
-                "--sandbox", "read-only", "--output-schema", str(schema_path),
-                "--output-last-message", str(output_path), "--json",
+                self.executable,
+                "exec",
+                "--ephemeral",
+                "--ignore-rules",
+                "--disable",
+                "hooks",
+                "--disable",
+                "plugins",
+                "--disable",
+                "skill_search",
+                "--disable",
+                "multi_agent",
+                "--skip-git-repo-check",
+                "--config",
+                "mcp_servers={}",
+                "--config",
+                "marketplaces={}",
+                "--sandbox",
+                "read-only",
+                "--output-schema",
+                str(schema_path),
+                "--output-last-message",
+                str(output_path),
+                "--json",
             ]
             if self.model:
                 command.extend(("--model", self.model))
@@ -301,9 +361,16 @@ class CodexExecProvider:
             creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             try:
                 process = subprocess.Popen(
-                    command, cwd=runtime_dir, env=env, stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                    encoding="utf-8", errors="replace", creationflags=creationflags,
+                    command,
+                    cwd=runtime_dir,
+                    env=env,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    creationflags=creationflags,
                 )
             except OSError as exc:
                 raise ProviderError(str(exc), kind="setup_required") from exc
@@ -317,7 +384,8 @@ class CodexExecProvider:
                     process.kill()
                     stdout, stderr = process.communicate()
                     raise ProviderError(
-                        f"Codex provider exceeded {self.timeout_seconds}s", kind="transient"
+                        f"Codex provider exceeded {self.timeout_seconds}s",
+                        kind="transient",
                     )
                 try:
                     stdout, stderr = process.communicate(
@@ -333,10 +401,10 @@ class CodexExecProvider:
                 raise _classify_failure(stderr or stdout, process.returncode)
             try:
                 raw = output_path.read_text(encoding="utf-8")
-                decision = AssimilationDecision.model_validate_json(raw)
+                decision = decision_model.model_validate_json(raw)
             except (OSError, ValidationError, ValueError) as exc:
                 raise ProviderError(
-                    f"Codex provider returned invalid assimilation JSON: {exc}",
+                    f"Codex provider returned invalid {error_label} JSON: {exc}",
                     kind="unrecoverable",
                     exit_code=process.returncode,
                 ) from exc
@@ -384,7 +452,9 @@ class ResponsesApiProvider:
         endpoint, headers, configured_model = _configured_responses_endpoint()
         model = self.model or configured_model
         if not model:
-            raise ProviderError("No model is configured for autonomous distill", kind="setup_required")
+            raise ProviderError(
+                "No model is configured for autonomous distill", kind="setup_required"
+            )
         prompt = _build_prompt(manifest)
         schema = _strict_output_schema(AutonomousDecision.model_json_schema())
         request_payload = {
@@ -460,7 +530,49 @@ class ResponsesApiProvider:
     ) -> ProviderResult:
         """Run the bounded post-verification decision with no transcript access."""
 
-        del runtime_dir
+        return self._structured_postprocess(
+            manifest,
+            runtime_dir=runtime_dir,
+            heartbeat=heartbeat,
+            decision_model=AssimilationDecision,
+            prompt=_build_assimilation_prompt(manifest),
+            schema_name="harness_mem_assimilation",
+            error_label="assimilation",
+        )
+
+    def verify(
+        self,
+        manifest: dict[str, Any],
+        *,
+        runtime_dir: Path,
+        heartbeat: Callable[[], None] | None = None,
+    ) -> ProviderResult:
+        """Verify extracted points against bounded current source text."""
+
+        return self._structured_postprocess(
+            manifest,
+            runtime_dir=runtime_dir,
+            heartbeat=heartbeat,
+            decision_model=CandidateVerificationDecision,
+            prompt=_build_verification_prompt(manifest),
+            schema_name="harness_mem_candidate_verification",
+            error_label="verification",
+        )
+
+    def _structured_postprocess(
+        self,
+        manifest: dict[str, Any],
+        *,
+        runtime_dir: Path,
+        heartbeat: Callable[[], None] | None,
+        decision_model: Any,
+        prompt: str,
+        schema_name: str,
+        error_label: str,
+    ) -> ProviderResult:
+        """Run one strict, tool-free semantic post-processing call."""
+
+        del manifest, runtime_dir
         endpoint, headers, configured_model = _configured_responses_endpoint()
         model = self.model or configured_model
         if not model:
@@ -468,7 +580,6 @@ class ResponsesApiProvider:
                 "No model is configured for autonomous assimilation",
                 kind="setup_required",
             )
-        prompt = _build_assimilation_prompt(manifest)
         request_payload = {
             "model": model,
             "input": prompt,
@@ -477,10 +588,10 @@ class ResponsesApiProvider:
                 "verbosity": "low",
                 "format": {
                     "type": "json_schema",
-                    "name": "harness_mem_assimilation",
+                    "name": schema_name,
                     "strict": True,
                     "schema": _strict_output_schema(
-                        AssimilationDecision.model_json_schema()
+                        decision_model.model_json_schema()
                     ),
                 },
             },
@@ -513,10 +624,10 @@ class ResponsesApiProvider:
         try:
             payload = json.loads(raw_response)
             output_text = _responses_output_text(payload)
-            decision = AssimilationDecision.model_validate_json(output_text)
+            decision = decision_model.model_validate_json(output_text)
         except (json.JSONDecodeError, ValidationError, ValueError, KeyError) as exc:
             raise ProviderError(
-                f"Responses provider returned invalid assimilation JSON: {exc}",
+                f"Responses provider returned invalid {error_label} JSON: {exc}",
                 kind="unrecoverable",
             ) from exc
         usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
@@ -544,14 +655,20 @@ def _build_prompt(manifest: dict[str, Any]) -> str:
         "facts that are not in the manifest. A session summary is always required and "
         "must explain the user's request, actual outcome, and unfinished work. Produce "
         "durable candidates only for stable, future-useful facts, decisions, preferences, "
-        "rules, or relations. One candidate must express one verifiable fact. For a "
-        "candidate, assimilation_disposition is mandatory: use add only for a new "
-        "future-useful project memory; use no_write for a one-off request, audit "
-        "navigation, task narration, count, or explanation request; use handoff for "
-        "unfinished work; use defer, conflict, or reject when durable admission is "
-        "unsafe. Add a short assimilation_reason. Do not select add merely because "
-        "the user said it. canonical_title and topic_path should be concise when add "
-        "is selected. "
+        "rules, or relations. One candidate must express one verifiable fact. Split a "
+        "multi-stage workflow into separate promotion points when each point can be "
+        "independently supported by the source. Extraction is discovery only: do not "
+        "choose add/refine/confirm/supersede/no_write, do not invent a canonical title, "
+        "and do not classify a project module. Put unfinished work only in "
+        "semantic_review.unfinished_work; the trusted runtime creates the job-bound "
+        "handoff. One-off requests and task narration may be omitted as candidates when "
+        "they contain no plausible durable point, but extraction must not suppress a "
+        "real reusable point merely to keep the output small. A discovery candidate may "
+        "contain several dependent clauses when the source presents one broad design "
+        "decision; later assimilation owns atomic splitting. Preserve the source's "
+        "distinctive subject, mechanism, condition, and constraint. Never weaken a "
+        "specific requirement such as content-addressed revision identity into a generic "
+        "restatement such as recording that content changed. "
         "memory candidate, category, content, and confidence are required. For a "
         "rule candidate, pattern and trigger are required. For a relation candidate, "
         "source_entity, target_entity, relation_type, evidence, and confidence are "
@@ -578,6 +695,12 @@ def _build_prompt(manifest: dict[str, Any]) -> str:
         "transcript evidence cannot verify a durable repository fact. If there are no "
         "candidates, copy the supplied zero-candidate template and replace its checks, "
         "future_utility, conclusion, and rationale with your evidence-grounded decision. "
+        "A zero-candidate decision is valid only when every required exchange was "
+        "reviewed: set evidence_fidelity=complete, promotion_decision=no_promotion, "
+        "and conclusion=no_durable_candidate. If evidence is partial or contradicted, "
+        "or any check still requires a candidate, do not return zero candidates. Return "
+        "a narrowly scoped deferred candidate or handoff instead, so it stays out of "
+        "current long-term knowledge without falsely closing the session. "
         "If there is one or more candidate, zero_candidate_challenge must be null; it is "
         "reserved exclusively for a zero-candidate decision. "
         "Name every downgraded detected signal in the rationale. Never claim completion "
@@ -602,29 +725,106 @@ def _build_assimilation_prompt(manifest: dict[str, Any]) -> str:
         "Decide what the project should retain after evidence has already been "
         "validated: add, refine, confirm, supersede, no_write, handoff, defer, "
         "conflict, or reject. A one-off request, audit navigation, task narration, "
-        "count, or explanation request is no_write even if the user said it. An explicit "
-        "future preference can be add. confirm must reference an equivalent supplied "
-        "truth handle and must not create a duplicate. refine/supersede/conflict must "
-        "reference supplied handles only. For add/refine/supersede, write one atomic, "
-        "future-useful canonical statement and concise title/topic path. A rule must "
-        "state both its condition and required behavior. Never return an internal handle "
-        "as user-facing prose.\n\n"
+        "count, or explanation request is no_write even if the user said it. A candidate "
+        "whose verification_reason_codes includes explicit_scope_clarification is a "
+        "one-session review boundary, not a durable rule: choose no_write. Do not promote "
+        "a generic review checklist or a list of repository areas to inspect. An explicit "
+        "future preference can be add. Before choosing add, compare the candidate with every "
+        "supplied current truth. Do not keep a broad current entry and add a narrower entry "
+        "that repeats one of its requirements. confirm, refine, and supersede each require "
+        "exactly one supplied truth handle; choose add, no_write, defer, conflict, or reject "
+        "instead when no single target exists. confirm must reference an equivalent supplied "
+        "truth handle and must not create a duplicate. refine is a one-to-one wording or "
+        "accuracy correction. supersede can replace one broad current entry with one to three "
+        "non-overlapping atomic successor entries; use it when splitting a broad entry removes "
+        "overlap. refine/supersede/conflict must reference supplied handles only. For "
+        "add/refine/supersede, write one atomic, future-useful canonical statement "
+        "and a concise title. The final wording must preserve the verified candidate's "
+        "distinctive mechanism, condition, scope, and required behavior. If only a vague "
+        "generic restatement remains, choose no_write or return a corrected specific item; "
+        "do not manufacture a durable slogan. Organize it under a natural functional module inferred "
+        "from the project's existing knowledge and the verified point; reuse an existing "
+        "module when it fits, and create a new natural module only when needed. Module "
+        "names are not a fixed taxonomy and must never be internal processing labels such "
+        "as candidate or procedure. A module must name a user-recognizable subsystem, "
+        "artifact, or behavior from the knowledge itself. Do not use a generic activity "
+        "bucket such as session management or long-term memory when the statement supports "
+        "a more specific functional name such as revision identity, source retention, or "
+        "idempotent promotion. A rule must "
+        "state both its condition and required behavior. Atomic does not mean one "
+        "physical pipeline step: group dependent steps into one independently useful "
+        "constraint. Do not explode one end-to-end process into a checklist of stage "
+        "commands. To create several atomic entries from one broad point, use at most "
+        "three knowledge_items, and split only when each item is independently useful "
+        "to retrieve; every item must contain "
+        "all four fields: title, statement, topic_path, and claim_kind. A title may "
+        "use a conjunction for one relationship (for example, validation and admission); "
+        "do not use it to enumerate three or more separate facts. Do not emit a "
+        "knowledge_item without a title. Otherwise use canonical_title, "
+        "canonical_statement, and topic_path for exactly one entry. Never mix the two "
+        "writing forms for a point. A statement cannot narrate a three-or-more-step pipeline; split "
+        "capture, validation, publication, and output checks into separate entries when "
+        "they are independently searchable. If assimilation_validation_feedback is "
+        "present in the manifest, correct every named schema error before returning. If "
+        "feedback says an item combines independent obligations or separate steps, do not "
+        "repeat or merely rephrase that item: split it into separate knowledge_items within "
+        "the three-item bound, or keep only the highest-value atomic item and use no_write "
+        "when nothing atomic remains. Never return "
+        "an internal handle as user-facing prose.\n\n"
         f"<assimilation_manifest>{packet}</assimilation_manifest>"
     )
 
 
+def _build_verification_prompt(manifest: dict[str, Any]) -> str:
+    """Build the stage-2 semantic support and future-scope prompt."""
+
+    packet = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
+    return (
+        "You are the restricted verifier for extracted project-memory candidates. "
+        "Return only the JSON required by the schema. Do not call tools or use facts "
+        "outside the supplied source excerpts. Return exactly one point for every "
+        "candidate_index. semantic_support=supported only when the cited current source "
+        "actually entails the candidate wording, not merely because the source contains "
+        "some similar words or because a user mentioned the topic. Use partial when the "
+        "source supports only part of the claim, when the candidate drops the source's "
+        "defining mechanism or constraint and keeps only a generic restatement, and "
+        "contradicted when it says the "
+        "opposite. Separately classify future_scope: durable only for a stable project "
+        "fact, explicit continuing design decision or preference, reusable procedure, "
+        "or repeatable failure lesson; session_only for a one-off request, progress "
+        "report, count, identifier, path-navigation request, receipt, explanation, or "
+        "unfinished task narration; unclear when the supplied source cannot establish "
+        "future reuse. A truthful user instruction may establish a design requirement "
+        "or durable preference, but it does not prove that code already implements it. "
+        "Do not choose durable merely because extraction proposed a candidate.\n\n"
+        f"<verification_manifest>{packet}</verification_manifest>"
+    )
+
+
 def _strict_output_schema(value: Any) -> Any:
-    """Compile Pydantic JSON Schema to the strict Structured Output subset."""
+    """Compile Pydantic JSON Schema without dropping a real ``title`` field.
+
+    JSON Schema uses ``title`` as optional descriptive metadata, but a memory
+    schema also has a real property literally named ``title``.  The latter is
+    required output and must survive compilation; only schema metadata is
+    removed.
+    """
 
     if isinstance(value, list):
         return [_strict_output_schema(item) for item in value]
     if not isinstance(value, dict):
         return value
-    compiled = {
-        key: _strict_output_schema(item)
-        for key, item in value.items()
-        if key not in {"default", "description", "title"}
-    }
+    compiled: dict[str, Any] = {}
+    for key, item in value.items():
+        if key in {"default", "description", "title"}:
+            continue
+        if key == "properties" and isinstance(item, dict):
+            compiled[key] = {
+                property_name: _strict_output_schema(property_schema)
+                for property_name, property_schema in item.items()
+            }
+        else:
+            compiled[key] = _strict_output_schema(item)
     properties = compiled.get("properties")
     if isinstance(properties, dict):
         compiled["additionalProperties"] = False
@@ -692,7 +892,9 @@ def _configured_responses_endpoint() -> tuple[str, dict[str, str], str | None]:
             (source_home / "config.toml").read_text(encoding="utf-8")
         )
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise ProviderError("Codex provider configuration is unavailable", kind="setup_required") from exc
+        raise ProviderError(
+            "Codex provider configuration is unavailable", kind="setup_required"
+        ) from exc
     provider_name = str(config.get("model_provider") or "").strip()
     providers = config.get("model_providers")
     provider = (
@@ -701,10 +903,14 @@ def _configured_responses_endpoint() -> tuple[str, dict[str, str], str | None]:
         else None
     )
     if not isinstance(provider, dict):
-        raise ProviderError("Active Codex model provider is unavailable", kind="setup_required")
+        raise ProviderError(
+            "Active Codex model provider is unavailable", kind="setup_required"
+        )
     base_url = str(provider.get("base_url") or "").strip().rstrip("/")
     if not base_url:
-        raise ProviderError("Active Codex provider has no base_url", kind="setup_required")
+        raise ProviderError(
+            "Active Codex provider has no base_url", kind="setup_required"
+        )
     headers = {
         str(key): str(value)
         for key, value in dict(provider.get("http_headers") or {}).items()
@@ -748,7 +954,15 @@ def _integer_or_none(value: Any) -> int | None:
 def _classify_failure(output: str, exit_code: int) -> ProviderError:
     text = output.strip()[-2000:]
     lowered = text.lower()
-    if any(marker in lowered for marker in ("not logged in", "authentication", "unauthorized", "invalid api key")):
+    if any(
+        marker in lowered
+        for marker in (
+            "not logged in",
+            "authentication",
+            "unauthorized",
+            "invalid api key",
+        )
+    ):
         kind = "auth_invalid"
     elif any(marker in lowered for marker in ("quota", "usage limit", "rate limit")):
         kind = "quota_exhausted"

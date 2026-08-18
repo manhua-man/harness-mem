@@ -334,6 +334,47 @@ def test_defer_failed_job_releases_lease_and_keeps_it_retryable(tmp_path: Path) 
     store.close()
 
 
+def test_reconcile_preserves_review_retry_backoff_until_due(tmp_path: Path) -> None:
+    """A review-stage timeout must not be reactivated by structural recovery."""
+
+    store = TranscriptStore(tmp_path)
+    source = _save_source(store, "turn\nanswer\n")
+    job = store.enqueue_distill_job(source.id)
+    claims = store.claim_distill_chunks(job.id, lease_owner="worker")
+    for chunk, _checkpoint in claims:
+        store.checkpoint_distill_chunk(
+            job.id,
+            chunk.id,
+            lease_owner="worker",
+            result={"summary": "complete"},
+        )
+    reviewing = store.get_distill_job(job.id)
+    assert reviewing is not None and reviewing.status == "reviewing"
+
+    deferred = store.defer_distill_job(job.id, error="semantic provider timed out")
+    assert deferred.status == "retryable"
+    assert deferred.retry_after is not None
+
+    store.reconcile_distill_jobs(
+        project_name="demo",
+        now=deferred.retry_after - timedelta(seconds=1),
+    )
+    waiting = store.get_distill_job(job.id)
+    assert waiting is not None
+    assert waiting.status == "retryable"
+    assert waiting.retry_after == deferred.retry_after
+
+    store.reconcile_distill_jobs(
+        project_name="demo",
+        now=deferred.retry_after + timedelta(seconds=1),
+    )
+    ready = store.get_distill_job(job.id)
+    assert ready is not None
+    assert ready.status == "reviewing"
+    assert ready.retry_after is None
+    store.close()
+
+
 def test_reconcile_expired_lease_records_recovery_and_bounds_retries(
     tmp_path: Path,
 ) -> None:

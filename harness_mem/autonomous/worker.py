@@ -10,11 +10,12 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Iterator, Protocol
+from typing import Any, Callable, Iterator, Protocol
 from uuid import uuid4
 
 from harness_mem.autonomous.models import (
     AssimilationDecision,
+    CandidateVerificationDecision,
     DistillCandidate,
 )
 from harness_mem.autonomous.provider import (
@@ -23,9 +24,10 @@ from harness_mem.autonomous.provider import (
     ResponsesApiProvider,
 )
 from harness_mem.commands.distill_lifecycle import pending_distill_jobs
-from harness_mem.commands.assimilation import (
-    prepare_assimilation,
-    validate_assimilation_decision,
+from harness_mem.commands.separated_assimilation import (
+    create_separated_candidates,
+    prepare_separated_assimilation,
+    validate_separated_assimilation_decision,
 )
 from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas.session_distill import (
@@ -51,6 +53,8 @@ _RUNTIME_SOURCE_FILES = (
     Path(__file__).parents[1] / "hook_background.py",
     Path(__file__).parents[1] / "commands" / "maintenance.py",
     Path(__file__).parents[1] / "commands" / "distill_lifecycle.py",
+    Path(__file__).parents[1] / "commands" / "separated_assimilation.py",
+    Path(__file__).parents[1] / "commands" / "knowledge_assimilation.py",
     Path(__file__).parents[1] / "mcp" / "distill_handlers.py",
     Path(__file__).parents[1] / "storage" / "session_distill_store.py",
     Path(__file__).parents[1] / "storage" / "transcript_store.py",
@@ -71,6 +75,14 @@ class DistillProvider(Protocol):
     ) -> ProviderResult: ...
 
     def assimilate(
+        self,
+        manifest: dict[str, Any],
+        *,
+        runtime_dir: Path,
+        heartbeat: Any = None,
+    ) -> ProviderResult: ...
+
+    def verify(
         self,
         manifest: dict[str, Any],
         *,
@@ -171,6 +183,7 @@ def _legacy_verified_completion(receipt: dict[str, Any]) -> dict[str, Any] | Non
     return {
         "schema_version": 1,
         "trigger_id": trigger_id,
+        "dispatch_generation": receipt.get("dispatch_generation"),
         "client": receipt.get("client"),
         "execution_source": receipt.get("execution_source"),
         "hook_launch_verified": receipt.get("hook_launch_verified") is True,
@@ -276,6 +289,7 @@ def run_autonomous_distill_batch(
     max_jobs: int | None = None,
     preferred_job_id: str | None = None,
     launch_source: str | None = None,
+    dispatch_generation: str | None = None,
 ) -> dict[str, Any]:
     """Process a bounded offered batch and materialize user-visible notes."""
 
@@ -309,6 +323,7 @@ def run_autonomous_distill_batch(
             "state": "running",
             "started_at": started_at,
             "trigger_id": trigger_id,
+            "dispatch_generation": dispatch_generation,
             "client": client,
             "execution_source": "autonomous_worker",
             "hook_launch_verified": bool(
@@ -397,7 +412,7 @@ def run_autonomous_distill_batch(
     succeeded = [item for item in outcomes if item["status"] == "completed"]
     deferred = [item for item in outcomes if item["status"] == "deferred"]
     busy = [item for item in outcomes if item["status"] == "busy"]
-    state = (
+    batch_state = (
         "partial"
         if succeeded and deferred
         else "succeeded"
@@ -419,6 +434,36 @@ def run_autonomous_distill_batch(
     )
     latest_evidence = latest_semantic_success or latest_success
     latest_error = deferred[-1].get("error") if deferred else None
+    preferred_outcome = next(
+        (item for item in outcomes if item.get("job_id") == preferred_job_id),
+        None,
+    )
+    if preferred_job_id is not None:
+        preferred_status = (
+            str(preferred_outcome.get("status") or "deferred")
+            if preferred_outcome is not None
+            else "deferred"
+        )
+        state = {
+            "completed": "succeeded",
+            "deferred": "deferred",
+            "busy": "busy",
+        }.get(preferred_status, "deferred")
+        latest_evidence = (
+            preferred_outcome if preferred_status == "completed" else None
+        )
+        receipt_error = (
+            None
+            if preferred_status == "completed"
+            else (preferred_outcome or {}).get("error")
+            or {
+                "kind": "preferred_job_not_completed",
+                "message": "the trigger-bound distill job did not complete",
+            }
+        )
+    else:
+        state = batch_state
+        receipt_error = None if latest_success else latest_error
     receipt = _write_receipt(
         backend.data_dir,
         project_name=project_name,
@@ -428,6 +473,7 @@ def run_autonomous_distill_batch(
             "finished_at": _now(),
             "trigger_id": trigger_id,
             "batch": {
+                "state": batch_state,
                 "offered": len(jobs),
                 "attempted": len(outcomes),
                 "completed": len(succeeded),
@@ -480,13 +526,18 @@ def run_autonomous_distill_batch(
                 if latest_evidence
                 else None
             ),
-            "error": None if latest_success else latest_error,
-            "last_batch_error": latest_error,
+            "error": receipt_error,
+            "last_batch_error": (
+                receipt_error if preferred_job_id is not None else latest_error
+            ),
+            "last_background_error": (
+                latest_error if preferred_job_id is not None else None
+            ),
         },
     )
     return {
         "success": bool(succeeded) or not outcomes,
-        "state": state,
+        "state": batch_state,
         "outcomes": outcomes,
         "receipt": receipt,
     }
@@ -504,8 +555,7 @@ def _preferred_job_is_eligible(
         job is not None
         and job.project_name == project_name
         and job.session_id == trigger_id
-        and job.status
-        in {"queued", "parked", "processing", "reviewing", "retryable"}
+        and job.status in {"queued", "parked", "processing", "reviewing", "retryable"}
     )
 
 
@@ -618,23 +668,41 @@ def _run_one(
                 heartbeat=heartbeat,
             )
         )
-        governed_count = 0
-        governed_candidate_ids: list[str] = []
-        for _candidate, arguments in validated_candidates:
-            governed = tools.tool_govern_memory(action="suggest", arguments=arguments)
-            if not governed.get("success"):
+        # New autonomous distillation never creates a compatibility
+        # MemoryEntry/RuleCandidate/RelationFact.  The provider's shaped
+        # candidate is admitted directly into the separated candidate and
+        # evidence tables; legacy governance remains a read-compatible manual
+        # surface only.
+        governed_candidate_ids = asyncio.run(
+            create_separated_candidates(
+                backend,
+                project_name=project_name,
+                distill_job_id=job.id,
+                candidate_arguments=[
+                    arguments for _candidate, arguments in validated_candidates
+                ],
+            )
+        )
+        verification_result: ProviderResult | None = None
+        if validated_candidates:
+            verify = getattr(provider, "verify", None)
+            if not callable(verify):
                 raise ProviderError(
-                    str(governed.get("error") or "candidate governance failed"),
-                    kind="unrecoverable",
+                    "autonomous provider does not implement per-point semantic verification",
+                    kind="setup_required",
                 )
-            governed_count += 1
-            candidate_id = _governed_candidate_id(governed)
-            if candidate_id is None:
-                raise ProviderError(
-                    "candidate governance did not return a persistent candidate id",
-                    kind="unrecoverable",
-                )
-            governed_candidate_ids.append(candidate_id)
+            verification_result, validated_candidates = _verify_candidates(
+                provider,
+                manifest=_build_candidate_verification_manifest(
+                    packet=packet,
+                    validated_candidates=validated_candidates,
+                    project_root=project_root,
+                ),
+                validated_candidates=validated_candidates,
+                runtime_dir=runtime_dir,
+                heartbeat=heartbeat,
+            )
+        governed_count = len(governed_candidate_ids)
         if decision.candidates and governed_count == 0:
             raise ProviderError(
                 "All provider candidates failed kind-specific validation: "
@@ -652,9 +720,10 @@ def _run_one(
         assimilation_result: ProviderResult | None = None
         if governed_candidate_ids:
             prepared = asyncio.run(
-                prepare_assimilation(
+                prepare_separated_assimilation(
                     backend,
                     project_name=project_name,
+                    project_root=str(project_root),
                     candidate_ids=governed_candidate_ids,
                 )
             )
@@ -665,22 +734,26 @@ def _run_one(
                         "autonomous provider does not implement post-verification assimilation",
                         kind="setup_required",
                     )
-                assimilation_result = assimilate(
-                    prepared.manifest,
+                assimilation_result = _assimilate_with_schema_retry(
+                    provider,
+                    manifest=prepared.manifest,
                     runtime_dir=runtime_dir,
                     heartbeat=heartbeat,
+                    validate_decision=lambda candidate: validate_separated_assimilation_decision(
+                        prepared, candidate
+                    ),
                 )
                 if not isinstance(assimilation_result.decision, AssimilationDecision):
                     raise ProviderError(
                         "assimilation provider returned an unexpected decision type",
                         kind="unrecoverable",
                     )
-                assimilation = validate_assimilation_decision(
+                assimilation = validate_separated_assimilation_decision(
                     prepared,
                     assimilation_result.decision,
                 )
             else:
-                assimilation = validate_assimilation_decision(
+                assimilation = validate_separated_assimilation_decision(
                     prepared,
                     AssimilationDecision(points=[]),
                 )
@@ -727,21 +800,37 @@ def _run_one(
             "trigger_id_sha256": _identity_digest(trigger_id),
             "project_root_sha256": _identity_digest(str(project_root)),
         }
-        if assimilation_result is not None:
+        if verification_result is not None:
             provider_receipt["extraction"] = provider_result.receipt()
+            provider_receipt["verification"] = verification_result.receipt()
+        if assimilation_result is not None:
             provider_receipt["assimilation"] = assimilation_result.receipt()
             provider_receipt["combined"] = {
                 "input_tokens": _sum_provider_metric(
-                    provider_result.input_tokens, assimilation_result.input_tokens
+                    _sum_provider_metric(
+                        provider_result.input_tokens,
+                        verification_result.input_tokens if verification_result else None,
+                    ),
+                    assimilation_result.input_tokens,
                 ),
                 "output_tokens": _sum_provider_metric(
-                    provider_result.output_tokens, assimilation_result.output_tokens
+                    _sum_provider_metric(
+                        provider_result.output_tokens,
+                        verification_result.output_tokens if verification_result else None,
+                    ),
+                    assimilation_result.output_tokens,
                 ),
                 "total_tokens": _sum_provider_metric(
-                    provider_result.total_tokens, assimilation_result.total_tokens
+                    _sum_provider_metric(
+                        provider_result.total_tokens,
+                        verification_result.total_tokens if verification_result else None,
+                    ),
+                    assimilation_result.total_tokens,
                 ),
                 "duration_seconds": round(
-                    provider_result.duration_seconds + assimilation_result.duration_seconds,
+                    provider_result.duration_seconds
+                    + (verification_result.duration_seconds if verification_result else 0.0)
+                    + assimilation_result.duration_seconds,
                     3,
                 ),
             }
@@ -823,9 +912,7 @@ def _govern_unfinished_handoff(
 
     review = decision.semantic_review
     unfinished = [
-        str(item).strip()
-        for item in review.unfinished_work
-        if str(item).strip()
+        str(item).strip() for item in review.unfinished_work if str(item).strip()
     ]
     if review.promotion_decision != "partial" or not unfinished:
         return None
@@ -916,7 +1003,9 @@ def _normalize_zero_candidate_signal_labels(
         and challenge_checks.get(signal) == "not_durable"
     )
     rationale = challenge.rationale
-    missing = [signal for signal in downgraded if signal.lower() not in rationale.lower()]
+    missing = [
+        signal for signal in downgraded if signal.lower() not in rationale.lower()
+    ]
     rationale_without_labels = rationale.lower()
     for signal in downgraded:
         rationale_without_labels = rationale_without_labels.replace(signal.lower(), "")
@@ -925,7 +1014,10 @@ def _normalize_zero_candidate_signal_labels(
     updated_challenge = challenge.model_copy(
         update={
             "rationale": (
-                rationale.rstrip() + " Reviewed downgraded signals: " + ", ".join(missing) + "."
+                rationale.rstrip()
+                + " Reviewed downgraded signals: "
+                + ", ".join(missing)
+                + "."
             )[:4000]
         }
     )
@@ -949,9 +1041,7 @@ def _zero_candidate_validation_errors(
         return ["zero_candidate_challenge is required"]
     errors: list[str] = []
     try:
-        RuntimeZeroCandidateChallenge.model_validate(
-            challenge.model_dump(mode="json")
-        )
+        RuntimeZeroCandidateChallenge.model_validate(challenge.model_dump(mode="json"))
     except ValueError as exc:
         errors.append(f"zero_candidate_challenge schema inconsistent: {exc}")
     template = packet.get("zero_candidate_challenge_template")
@@ -1014,8 +1104,14 @@ def _decide_with_candidate_retry(
                 continue
             validated.append((candidate, arguments))
         decision_valid = bool(decision.candidates or not warnings)
-        if (decision_valid and (not decision.candidates or validated)) or attempt == 1:
+        if decision_valid and (not decision.candidates or validated):
             return _combine_provider_results(results), decision, validated, warnings
+        if attempt == 1:
+            raise ProviderError(
+                "provider correction failed candidate/zero-candidate validation: "
+                + "; ".join(warnings)[:2000],
+                kind="unrecoverable",
+            )
         current_manifest = {
             **manifest,
             "candidate_validation_feedback": {
@@ -1024,12 +1120,248 @@ def _decide_with_candidate_retry(
                     "Return a corrected decision. Candidate rows must satisfy their "
                     "kind contract. For zero candidates, the challenge must satisfy "
                     "its schema and may not mark template-detected candidate_required "
-                    "signals absent; create a scoped candidate/handoff or justify a "
-                    "session-only not_durable downgrade."
+                    "signals absent. A no_durable_candidate result requires "
+                    "evidence_fidelity=complete and promotion_decision=no_promotion. "
+                    "If evidence is partial/contradicted or a signal remains candidate_required, "
+                    "create a scoped defer candidate or handoff instead of returning zero candidates."
                 ),
             },
         }
     raise AssertionError("candidate retry loop did not return")
+
+
+def _assimilate_with_schema_retry(
+    provider: DistillProvider,
+    *,
+    manifest: dict[str, Any],
+    runtime_dir: Path,
+    heartbeat: Any,
+    validate_decision: Callable[[AssimilationDecision], Any] | None = None,
+) -> ProviderResult:
+    """Give a malformed post-verification response one bounded correction pass.
+
+    Candidate extraction already has a field-contract retry.  Atomic
+    ``knowledge_items`` introduced another strict structured shape, so the
+    second semantic call needs the same bounded recovery: an omitted item title,
+    unavailable target, or invalid target cardinality must not strand a complete
+    session in ``reviewing``. The retry passes the validator's exact feedback and
+    still fails closed after one correction.
+    """
+
+    current_manifest = manifest
+    for attempt in range(2):
+        try:
+            result = provider.assimilate(
+                current_manifest,
+                runtime_dir=runtime_dir,
+                heartbeat=heartbeat,
+            )
+        except ProviderError as exc:
+            invalid_shape = "invalid assimilation json" in str(exc).lower()
+            if attempt == 0 and exc.kind == "unrecoverable" and invalid_shape:
+                current_manifest = {
+                    **manifest,
+                    "assimilation_validation_feedback": {
+                        "errors": [str(exc)[:2000]],
+                        "instruction": (
+                            "Return a corrected assimilation decision. A knowledge_items "
+                            "row must contain title, statement, topic_path, and claim_kind; "
+                            "use canonical_title/canonical_statement instead when writing "
+                            "one item. If an error says independent obligations or separate "
+                            "steps, split the offending statement into distinct atomic "
+                            "knowledge_items within the three-item limit. Do not repeat or "
+                            "lightly rephrase the invalid combined statement; if it cannot "
+                            "be split within the bound, retain only the highest-value atomic "
+                            "item or choose no_write."
+                        ),
+                    },
+                }
+                continue
+            raise
+        if isinstance(result.decision, AssimilationDecision):
+            if validate_decision is not None:
+                try:
+                    validate_decision(result.decision)
+                except ValueError as exc:
+                    if attempt == 0:
+                        current_manifest = {
+                            **manifest,
+                            "assimilation_validation_feedback": {
+                                "errors": [str(exc)[:2000]],
+                                "instruction": (
+                                    "Return a corrected assimilation decision. A confirm, "
+                                    "refine, or supersede point needs exactly one supplied "
+                                    "truth handle; do not reference unavailable handles."
+                                ),
+                            },
+                        }
+                        continue
+                    raise ProviderError(
+                        f"invalid assimilation decision: {exc}",
+                        kind="unrecoverable",
+                    ) from exc
+            return result
+        raise ProviderError(
+            "assimilation provider returned an unexpected decision type",
+            kind="unrecoverable",
+        )
+    raise AssertionError("assimilation retry loop did not return")
+
+
+def _build_candidate_verification_manifest(
+    *,
+    packet: dict[str, Any],
+    validated_candidates: list[tuple[Any, dict[str, Any]]],
+    project_root: Path,
+) -> dict[str, Any]:
+    """Bind each extracted claim to the exact current text it cites."""
+
+    windows = {
+        int(item["exchange_index"]): item
+        for item in packet.get("semantic_decision_exchanges") or []
+        if isinstance(item, dict) and item.get("exchange_index") is not None
+    }
+    rows: list[dict[str, Any]] = []
+    for index, (candidate, arguments) in enumerate(validated_candidates):
+        sources: list[dict[str, Any]] = []
+        for ref in candidate.verification_refs:
+            if ref.kind == "user_statement" and ref.exchange_index in windows:
+                window = windows[int(ref.exchange_index)]
+                sources.append(
+                    {
+                        "kind": "user_statement",
+                        "exchange_index": ref.exchange_index,
+                        "content_sha256": ref.content_sha256,
+                        "content": window.get("content"),
+                    }
+                )
+            elif ref.kind == "repository" and ref.locator:
+                locator = Path(ref.locator)
+                path = (project_root / locator).resolve()
+                if (
+                    locator.is_absolute()
+                    or not _path_is_within(path, project_root.resolve())
+                    or not path.is_file()
+                ):
+                    sources.append(
+                        {
+                            "kind": "repository",
+                            "locator": ref.locator,
+                            "content_sha256": ref.content_sha256,
+                            "content": None,
+                        }
+                    )
+                else:
+                    sources.append(
+                        {
+                            "kind": "repository",
+                            "locator": ref.locator,
+                            "content_sha256": ref.content_sha256,
+                            "content": path.read_text(
+                                encoding="utf-8", errors="replace"
+                            )[:16000],
+                        }
+                    )
+            elif ref.kind == "transcript" and ref.chunk_index is not None:
+                chunks = packet.get("semantic_evidence", {}).get("chunks", [])
+                chunk = next(
+                    (
+                        item
+                        for item in chunks
+                        if int(item.get("chunk_index", -1)) == ref.chunk_index
+                    ),
+                    None,
+                )
+                sources.append(
+                    {
+                        "kind": "transcript",
+                        "chunk_index": ref.chunk_index,
+                        "content_sha256": ref.content_sha256,
+                        "content": chunk.get("content") if isinstance(chunk, dict) else None,
+                    }
+                )
+        rows.append(
+            {
+                "candidate_index": index,
+                "kind": candidate.kind,
+                "statement": _candidate_statement_from_arguments(arguments),
+                "sources": sources,
+            }
+        )
+    return {
+        "contract_version": "candidate-semantic-verification-v1",
+        "project_name": packet.get("project_name"),
+        "candidates": rows,
+    }
+
+
+def _candidate_statement_from_arguments(arguments: dict[str, Any]) -> str:
+    kind = arguments.get("kind")
+    if kind == "memory":
+        return str(arguments.get("content") or "")
+    if kind == "rule":
+        return f"When {arguments.get('trigger')}, {arguments.get('pattern')}"
+    return " ".join(
+        str(arguments.get(name) or "")
+        for name in ("source_entity", "relation_type", "target_entity")
+    ).strip()
+
+
+def _path_is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _verify_candidates(
+    provider: DistillProvider,
+    *,
+    manifest: dict[str, Any],
+    validated_candidates: list[tuple[Any, dict[str, Any]]],
+    runtime_dir: Path,
+    heartbeat: Any,
+) -> tuple[ProviderResult, list[tuple[Any, dict[str, Any]]]]:
+    result = provider.verify(
+        manifest,
+        runtime_dir=runtime_dir,
+        heartbeat=heartbeat,
+    )
+    if not isinstance(result.decision, CandidateVerificationDecision):
+        raise ProviderError(
+            "verification provider returned an unexpected decision type",
+            kind="unrecoverable",
+        )
+    points = list(result.decision.points)
+    indexes = [point.candidate_index for point in points]
+    expected = list(range(len(validated_candidates)))
+    if sorted(indexes) != expected or len(indexes) != len(set(indexes)):
+        raise ProviderError(
+            "verification decision must cover every extracted candidate once",
+            kind="unrecoverable",
+        )
+    by_index = {point.candidate_index: point for point in points}
+    verified: list[tuple[Any, dict[str, Any]]] = []
+    for index, (candidate, arguments) in enumerate(validated_candidates):
+        point = by_index[index]
+        updated = dict(arguments)
+        codes = list(updated.get("verification_reason_codes") or [])
+        if point.semantic_support == "supported" and point.future_scope == "durable":
+            updated["verification_outcome"] = "verified"
+            codes.extend(["semantic_support_verified", "future_utility_verified"])
+        elif point.semantic_support == "contradicted":
+            updated["verification_outcome"] = "contradicted"
+            codes.append("semantic_support_contradicted")
+        elif point.semantic_support == "supported" and point.future_scope == "session_only":
+            updated["verification_outcome"] = "not_applicable"
+            codes.append("session_only_not_durable")
+        else:
+            updated["verification_outcome"] = "unverified"
+            codes.append("semantic_support_incomplete")
+        updated["verification_reason_codes"] = list(dict.fromkeys(codes))
+        verified.append((candidate, updated))
+    return result, verified
 
 
 def _combine_provider_results(results: list[ProviderResult]) -> ProviderResult:
@@ -1041,7 +1373,11 @@ def _combine_provider_results(results: list[ProviderResult]) -> ProviderResult:
 
     def summed(name: str) -> int | None:
         values = [getattr(item, name) for item in results]
-        return None if all(value is None for value in values) else sum(value or 0 for value in values)
+        return (
+            None
+            if all(value is None for value in values)
+            else sum(value or 0 for value in values)
+        )
 
     return ProviderResult(
         decision=last.decision,
@@ -1075,7 +1411,9 @@ def normalize_provider_review_state(decision: Any) -> Any:
     """Enforce review-state invariants at the trusted runtime boundary."""
 
     review = decision.semantic_review
-    unfinished = [str(item).strip() for item in review.unfinished_work if str(item).strip()]
+    unfinished = [
+        str(item).strip() for item in review.unfinished_work if str(item).strip()
+    ]
     if (
         not unfinished
         or review.evidence_status == "contradicted"
@@ -1107,10 +1445,6 @@ def _candidate_arguments(
         "kind": candidate.kind,
         "project_name": job.project_name,
         "distill_job_id": job.id,
-        "assimilation_disposition": candidate.assimilation_disposition,
-        "assimilation_reason": candidate.assimilation_reason,
-        "canonical_title": candidate.canonical_title,
-        "topic_path": candidate.topic_path,
         **evidence,
     }
     if isinstance(candidate, DistillCandidate) and candidate.kind == "memory":
@@ -1187,17 +1521,28 @@ def provider_candidate_control_reason(
     )
     text = " ".join(str(value or "") for value in fields).lower()
     review = decision.semantic_review
-    if review.unfinished_work and any(
-        marker in text
-        for marker in (
-            "unfinished_handoff",
-            "unfinished handoff",
-            "remains unfinished",
-            "next task",
-            "待办",
-            "未完成",
-            "交接",
+    category = str(getattr(candidate, "category", None) or "").lower()
+    candidate_statement = str(
+        getattr(candidate, "content", None)
+        or getattr(candidate, "pattern", None)
+        or getattr(candidate, "evidence", None)
+        or ""
+    ).strip()
+    normalized_statement = " ".join(candidate_statement.casefold().split())
+    normalized_unfinished = {
+        " ".join(str(item).casefold().split())
+        for item in review.unfinished_work
+        if str(item).strip()
+    }
+    # A handoff category, or an exact copy of a listed next step, is task
+    # narration.  Do not reject a real durable rule merely because it contains
+    # words such as "unfinished" while specifying how to handle that state.
+    if review.unfinished_work and (
+        any(
+            marker in category
+            for marker in ("handoff", "unfinished", "task", "后续", "待办", "未完成")
         )
+        or normalized_statement in normalized_unfinished
     ):
         return "unfinished work belongs to the job-bound handoff"
     historical_markers = ("superseded", "was replaced", "outdated", "已取代", "被替代")
@@ -1223,9 +1568,15 @@ def _require_candidate_fields(candidate: DistillCandidate, *names: str) -> None:
 
 
 def _required_confidence(candidate: DistillCandidate) -> float:
-    if candidate.confidence is None:
-        raise ValueError(f"{candidate.kind} candidate missing fields: ['confidence']")
-    return float(candidate.confidence)
+    """Keep a legacy ranking hint from vetoing a valid separated candidate.
+
+    Confidence is not current knowledge and cannot establish truth.  The
+    compatibility candidate tables still require a value, so an omitted model
+    hint receives the neutral existing-default value instead of converting an
+    otherwise valid evidence-backed point into a failed session.
+    """
+
+    return 0.5 if candidate.confidence is None else float(candidate.confidence)
 
 
 def _safe_evidence(candidate: Any, *, packet: dict[str, Any]) -> dict[str, Any]:
@@ -1301,7 +1652,11 @@ def _repair_missing_notes(
     for job in completed:
         path, _recovered_session_id = existing_session_note_path(notes_dir, job)
         summary = str(job.semantic_review.get("session_summary") or "").strip()
-        if not is_meaningful_session_summary(summary) and path is not None and path.is_file():
+        if (
+            not is_meaningful_session_summary(summary)
+            and path is not None
+            and path.is_file()
+        ):
             recovered = _summary_from_note(path)
             if recovered:
                 job = backend.transcript_store.backfill_distill_session_summary(
@@ -1387,6 +1742,7 @@ def _record_success_receipt(
     verified_completion = {
         "schema_version": 1,
         "trigger_id": trigger_id,
+        "dispatch_generation": current.get("dispatch_generation"),
         "client": client,
         "execution_source": "autonomous_worker",
         "hook_launch_verified": current.get("hook_launch_verified") is True,
@@ -1400,6 +1756,17 @@ def _record_success_receipt(
         "provider": provider_receipt,
         "note": note,
     }
+    if trigger_id is not None and job.session_id != trigger_id:
+        # This job belongs to backlog work offered in the same batch. Keep its
+        # evidence in the batch outcome without rebinding the active Hook's
+        # generation-scoped receipt to another session.
+        _write_receipt(
+            backend.data_dir,
+            project_name=project_name,
+            project_root=project_root,
+            update={"last_background_completion": verified_completion},
+        )
+        return completion
     _write_receipt(
         backend.data_dir,
         project_name=project_name,

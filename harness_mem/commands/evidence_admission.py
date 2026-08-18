@@ -7,10 +7,11 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
+from urllib.parse import parse_qs, unquote, urlparse
 from uuid import NAMESPACE_URL, uuid5
 
-from harness_mem.core.schemas import EvidenceRef
+from harness_mem.core.schemas import EvidenceRef, KnowledgeSource
 from harness_mem.mcp.distill_projection import render_distill_exchange_windows
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
@@ -59,6 +60,8 @@ def uses_evidence_admission(candidate: Any) -> bool:
 async def validate_candidate_evidence(
     backend: LocalMemoryBackend,
     candidate: Any,
+    *,
+    project_root: str | Path | None = None,
 ) -> EvidenceValidation:
     """Validate current project/source integrity without judging prose semantics."""
 
@@ -87,7 +90,12 @@ async def validate_candidate_evidence(
         )
 
     if basis == "repository":
-        outcome, reasons = _validate_repository_refs(backend, candidate, matching)
+        outcome, reasons = _validate_repository_refs(
+            backend,
+            candidate,
+            matching,
+            project_root=project_root,
+        )
     elif basis == "user_statement":
         outcome, reasons = await _validate_user_statement_refs(
             backend,
@@ -112,6 +120,56 @@ async def validate_candidate_evidence(
         outcome,
         tuple(dict.fromkeys([*existing_reasons, *reasons])),
         datetime.now(timezone.utc) if outcome in {"verified", "not_applicable"} else None,
+    )
+
+
+async def validate_knowledge_sources(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    sources: Sequence[KnowledgeSource],
+    project_root: str | Path,
+) -> EvidenceValidation:
+    """Reopen the real sources attached to one current knowledge entry.
+
+    Stored ``verified`` timestamps are historical receipts, not proof that a
+    source is still current. Review and Dream call this function before they
+    confirm or replace current knowledge.
+    """
+
+    root = Path(project_root).expanduser().resolve(strict=False)
+    if not sources:
+        return EvidenceValidation(
+            None,
+            "unverified",
+            ("knowledge_source_missing",),
+            None,
+        )
+    for source in sources:
+        if source.project_name != project_name:
+            return EvidenceValidation(
+                source.source_kind,
+                "unverified",
+                ("knowledge_source_project_mismatch",),
+                None,
+            )
+        outcome, reason = await _validate_knowledge_source(
+            backend,
+            source,
+            project_root=root,
+        )
+        if outcome != "verified":
+            return EvidenceValidation(
+                source.source_kind,
+                outcome,
+                (reason,),
+                None,
+            )
+    return EvidenceValidation(
+        "mixed" if len({item.source_kind for item in sources}) > 1 else sources[0].source_kind,
+        "verified",
+        ("knowledge_sources_current",),
+        datetime.now(timezone.utc),
     )
 
 
@@ -190,11 +248,14 @@ def _validate_repository_refs(
     backend: LocalMemoryBackend,
     candidate: Any,
     refs: list[EvidenceRef],
+    *,
+    project_root: str | Path | None = None,
 ) -> tuple[str, list[str]]:
     job = _candidate_job(backend, candidate)
-    if job is None or not job.project_root:
+    root_value = project_root or (job.project_root if job is not None else None)
+    if not root_value:
         return "unverified", ["repository_project_root_unavailable"]
-    root = Path(job.project_root).expanduser().resolve(strict=False)
+    root = Path(root_value).expanduser().resolve(strict=False)
     for ref in refs:
         content_sha256 = str(ref.content_sha256 or "").lower()
         if not ref.locator or not _SHA256.fullmatch(content_sha256):
@@ -219,6 +280,106 @@ def _validate_repository_refs(
         if digest != content_sha256:
             return "contradicted", ["repository_digest_changed"]
     return "verified", ["repository_refs_current"]
+
+
+async def _validate_knowledge_source(
+    backend: LocalMemoryBackend,
+    source: KnowledgeSource,
+    *,
+    project_root: Path,
+) -> tuple[str, str]:
+    parsed = urlparse(source.locator)
+    digest = str(source.content_sha256 or "").lower()
+    if not _SHA256.fullmatch(digest):
+        return "unverified", "knowledge_source_digest_missing"
+    if parsed.scheme != "file":
+        # Network/API revalidation requires a separately governed fetcher.
+        # Until that exists, Review/Dream must fail closed.
+        return "unverified", "knowledge_source_scheme_unsupported"
+    path = _file_uri_path(parsed)
+    if source.source_kind == "repository":
+        if not _is_relative_to(path, project_root) or path == project_root:
+            return "unverified", "knowledge_source_outside_project"
+        if not path.is_file():
+            return "unverified", "knowledge_source_missing"
+        try:
+            actual = _sha256_file(path)
+        except OSError:
+            return "unverified", "knowledge_source_unreadable"
+        if actual != digest:
+            return "contradicted", "knowledge_source_digest_changed"
+        return "verified", "knowledge_source_current"
+
+    transcript_db = Path(backend.transcript_store.db_path).resolve(strict=False)
+    if path != transcript_db:
+        return "unverified", "knowledge_source_transcript_store_mismatch"
+    query = parse_qs(parsed.fragment, keep_blank_values=False)
+    source_id = _single_query_value(query, "source_id")
+    source_revision = _single_query_value(query, "source_revision")
+    if not source_id or not source_revision:
+        return "unverified", "knowledge_source_locator_incomplete"
+    revision = backend.transcript_store.get_revision(source_id, source_revision)
+    if revision is None:
+        return "unverified", "knowledge_source_revision_missing"
+    if source.source_kind == "user_statement":
+        exchange = _query_int(query, "exchange")
+        if exchange is None:
+            return "unverified", "knowledge_source_exchange_missing"
+        observation_id = str(uuid5(NAMESPACE_URL, f"{source_id}:observation"))
+        observation = await backend.verbatim_store.get(observation_id)
+        if (
+            observation is None
+            or observation.metadata.get("source_revision") != source_revision
+        ):
+            return "unverified", "knowledge_source_observation_missing"
+        windows = render_distill_exchange_windows(observation.raw_content, [exchange])
+        if not windows or "User:" not in str(windows[0].get("content") or ""):
+            return "unverified", "knowledge_source_exchange_missing"
+        if str(windows[0].get("content_sha256") or "").lower() != digest:
+            return "contradicted", "knowledge_source_digest_changed"
+        return "verified", "knowledge_source_current"
+    if source.source_kind == "transcript":
+        chunk_index = _query_int(query, "chunk")
+        if chunk_index is None:
+            return "unverified", "knowledge_source_chunk_missing"
+        chunks = {
+            chunk.chunk_index: chunk
+            for chunk in backend.transcript_store.list_chunks(
+                source_id,
+                source_revision=source_revision,
+            )
+        }
+        chunk = chunks.get(chunk_index)
+        if chunk is None:
+            return "unverified", "knowledge_source_chunk_missing"
+        if chunk.content_sha256 != digest:
+            return "contradicted", "knowledge_source_digest_changed"
+        return "verified", "knowledge_source_current"
+    return "unverified", "knowledge_source_kind_unsupported"
+
+
+def _file_uri_path(parsed: Any) -> Path:
+    path_text = unquote(parsed.path or "")
+    if parsed.netloc and parsed.netloc not in {"", "localhost"}:
+        path_text = f"//{parsed.netloc}{path_text}"
+    if re.match(r"^/[A-Za-z]:/", path_text):
+        path_text = path_text[1:]
+    return Path(path_text).resolve(strict=False)
+
+
+def _single_query_value(query: dict[str, list[str]], name: str) -> str | None:
+    values = query.get(name) or []
+    return values[0] if len(values) == 1 and values[0] else None
+
+
+def _query_int(query: dict[str, list[str]], name: str) -> int | None:
+    value = _single_query_value(query, name)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 async def _validate_user_statement_refs(
@@ -331,4 +492,5 @@ __all__ = [
     "sanitize_evidence_refs",
     "uses_evidence_admission",
     "validate_candidate_evidence",
+    "validate_knowledge_sources",
 ]

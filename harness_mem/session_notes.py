@@ -155,7 +155,9 @@ def materialize_session_note(
     return {
         "path": str(immutable_path),
         "latest_path": str(latest_path),
-        "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        # Receipt hashes must bind the bytes a later verifier actually reads,
+        # including the platform's newline behavior.
+        "sha256": hashlib.sha256(immutable_path.read_bytes()).hexdigest(),
         "chars": len(content),
         "exists": immutable_path.is_file(),
         "meaningful": len(content.strip()) >= 200 and job.session_id in content,
@@ -285,7 +287,10 @@ def _should_advance_latest(path: Path, completed_at: datetime | None) -> bool:
 def _atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
-    temporary.write_text(content, encoding="utf-8")
+    with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(content)
+        stream.flush()
+        os.fsync(stream.fileno())
     os.replace(temporary, path)
 
 

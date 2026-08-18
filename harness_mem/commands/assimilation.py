@@ -17,6 +17,9 @@ from harness_mem.commands.evidence_admission import (
     apply_validation,
     validate_candidate_evidence,
 )
+from harness_mem.commands.knowledge_assimilation import (
+    mirror_candidate_and_evidence,
+)
 from harness_mem.core.schemas import (
     ConfirmedRule,
     MemoryEntry,
@@ -59,6 +62,7 @@ async def prepare_assimilation(
         validation = await validate_candidate_evidence(backend, candidate)
         apply_validation(candidate, validation)
         await _save_candidate(backend, candidate)
+        await mirror_candidate_and_evidence(backend, candidate)
 
     automatic: list[dict[str, Any]] = []
     eligible: list[Any] = []
@@ -116,13 +120,32 @@ def validate_assimilation_decision(
             raise ValueError("add must not target current truth")
         if disposition in {"confirm", "refine", "supersede"} and len(handles) != 1:
             raise ValueError(f"{disposition} requires exactly one current truth handle")
+        if disposition in {"refine", "supersede"} and any(
+            prepared.truth_by_handle[handle]["kind"] == "knowledge_entry"
+            for handle in handles
+        ):
+            raise ValueError(
+                "legacy assimilation cannot replace separated current knowledge; "
+                "use confirm or no_write"
+            )
         if disposition == "conflict" and len(handles) > 1:
             raise ValueError("conflict may reference at most one current truth handle")
-        if disposition in {"add", "refine", "supersede"} and (
-            not str(point.canonical_title or "").strip()
-            or not str(point.canonical_statement or "").strip()
-        ):
-            raise ValueError(f"{disposition} requires canonical title and statement")
+        knowledge_items = [item.model_dump() for item in point.knowledge_items]
+        if disposition in {"add", "refine", "supersede"}:
+            if knowledge_items:
+                if point.canonical_title or point.canonical_statement:
+                    raise ValueError(
+                        "knowledge_items and legacy canonical fields cannot both write truth"
+                    )
+                if disposition in {"refine", "supersede"} and len(knowledge_items) != 1:
+                    raise ValueError(
+                        f"{disposition} requires exactly one replacement knowledge item"
+                    )
+            elif (
+                not str(point.canonical_title or "").strip()
+                or not str(point.canonical_statement or "").strip()
+            ):
+                raise ValueError(f"{disposition} requires canonical knowledge")
         normalized.append(
             {
                 "candidate_id": point.candidate_id,
@@ -137,6 +160,7 @@ def validate_assimilation_decision(
                 "canonical_title": point.canonical_title,
                 "canonical_statement": point.canonical_statement,
                 "topic_path": list(point.topic_path),
+                "knowledge_items": knowledge_items,
                 "reason": point.reason,
             }
         )
@@ -218,16 +242,32 @@ async def _apply_point(
     point: Mapping[str, Any],
 ) -> dict[str, Any]:
     disposition = str(point.get("disposition") or "reject")
+    matched_truth_ids = [str(item) for item in point.get("matched_truth_ids") or []]
+    matched_truth_kinds = [str(item) for item in point.get("matched_truth_kinds") or []]
+    if (
+        disposition in {"refine", "supersede"}
+        and matched_truth_kinds == ["knowledge_entry"]
+    ):
+        raise ValueError(
+            "legacy assimilation cannot replace separated current knowledge"
+        )
     candidate.assimilation_disposition = disposition
     candidate.assimilation_reason = str(point.get("reason") or "")
     candidate.canonical_title = point.get("canonical_title")
     candidate.topic_path = list(point.get("topic_path") or [])
-    if isinstance(candidate, MemoryEntry) and point.get("canonical_statement"):
+    # This is the 0.9.x compatibility path for already-persisted legacy rows.
+    # New sessions publish through ``apply_separated_assimilation``. Mirroring
+    # a legacy candidate into clean SQLite knowledge would be an implicit live
+    # migration without a verified source citation, so it is forbidden.
+    separated_truth_ids: list[str] = []
+    if (
+        isinstance(candidate, MemoryEntry)
+        and point.get("canonical_statement")
+        and not point.get("knowledge_items")
+    ):
         candidate.content = str(point["canonical_statement"])
     await _save_candidate(backend, candidate)
 
-    matched_truth_ids = [str(item) for item in point.get("matched_truth_ids") or []]
-    matched_truth_kinds = [str(item) for item in point.get("matched_truth_kinds") or []]
     canonical_truth_ids: list[str] = []
     handoff_id: str | None = None
     final_status = "rejected"
@@ -237,6 +277,10 @@ async def _apply_point(
     elif disposition in {"refine", "supersede"}:
         if len(matched_truth_ids) != 1 or len(matched_truth_kinds) != 1:
             raise ValueError(f"{disposition} is missing its current truth target")
+        if matched_truth_kinds[0] == "knowledge_entry":
+            raise ValueError(
+                "legacy assimilation cannot replace separated current knowledge"
+            )
         replacement_id = await _materialize_add(backend, candidate, activate=False)
         replacement_kind = _candidate_truth_kind(candidate)
         target_id = matched_truth_ids[0]
@@ -314,6 +358,7 @@ async def _apply_point(
         "answer_status": answer_gate_status(candidate),
         "disposition": disposition,
         "canonical_truth_ids": canonical_truth_ids,
+        "separated_knowledge_ids": separated_truth_ids,
         "handoff_id": handoff_id,
     }
 
@@ -502,6 +547,9 @@ async def _current_truth_handles(
     project_name: str,
     candidates: Sequence[Any],
 ) -> tuple[dict[str, dict[str, str]], list[dict[str, str]]]:
+    knowledge_entries = await backend.structured_store.knowledge_store.list_entries(
+        project_name
+    )
     memories = await backend.structured_store.list_memory_entries(
         project_name, limit=100
     )
@@ -510,6 +558,8 @@ async def _current_truth_handles(
     )
     rules = await backend.structured_store.list_confirmed_rules(project_name)
     source: list[tuple[str, str, str, str]] = []
+    for entry in knowledge_entries:
+        source.append(("knowledge_entry", entry.id, entry.title, entry.statement))
     for memory in memories:
         source.append(
             (

@@ -5,8 +5,15 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
+import pytest
+
 from harness_mem.adapters.snapshot import persist_session_snapshot
-from harness_mem.autonomous.models import AssimilationDecision, AutonomousDecision
+from harness_mem.autonomous.models import (
+    AssimilationDecision,
+    AutonomousDecision,
+    CandidateVerificationDecision,
+    DistillCandidate,
+)
 from harness_mem.autonomous.provider import (
     DEFAULT_DISTILL_MODEL,
     ProviderError,
@@ -14,12 +21,15 @@ from harness_mem.autonomous.provider import (
 )
 from harness_mem.autonomous.worker import (
     _decide_with_candidate_retry,
+    _assimilate_with_schema_retry,
     _govern_unfinished_handoff,
     _normalize_zero_candidate_signal_labels,
     _preferred_job_is_eligible,
     autonomous_receipt_path,
     read_autonomous_receipt,
     normalize_provider_review_state,
+    _required_confidence,
+    _verify_candidates,
     provider_candidate_control_reason,
     run_autonomous_distill_batch,
 )
@@ -29,6 +39,36 @@ from harness_mem.core.schemas.observation import Observation
 from harness_mem.outcome_probe import inspect_autonomous_outcome
 from harness_mem.hook_receipts import record_hook_execution
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+
+def _verify_all_candidates(self, manifest, *, runtime_dir, heartbeat=None):
+    del runtime_dir
+    if heartbeat is not None:
+        heartbeat()
+    return ProviderResult(
+        decision=CandidateVerificationDecision.model_validate(
+            {
+                "points": [
+                    {
+                        "candidate_index": item["candidate_index"],
+                        "semantic_support": "supported",
+                        "future_scope": "durable",
+                        "reason": "The bounded source directly supports a reusable project point.",
+                    }
+                    for item in manifest["candidates"]
+                ]
+            }
+        ),
+        provider=self.name,
+        model="deterministic-test",
+        duration_seconds=0.01,
+        input_sha256="e" * 64,
+        response_sha256="f" * 64,
+        input_tokens=20,
+        output_tokens=10,
+        total_tokens=30,
+        event_count=1,
+    )
 
 
 def test_default_worker_provider_uses_bounded_distill_model(
@@ -64,8 +104,450 @@ def test_default_worker_provider_uses_bounded_distill_model(
     assert captured["model"] == DEFAULT_DISTILL_MODEL
 
 
+def test_trigger_receipt_stays_bound_to_preferred_job_when_backlog_finishes_later(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_dir = tmp_path / "data"
+    project = tmp_path / "project"
+    project.mkdir()
+    backend = LocalMemoryBackend(data_dir)
+    asyncio.run(backend.init())
+    preferred = SessionDistillJob(
+        id="preferred-job",
+        idempotency_key="preferred-key",
+        project_name="demo",
+        project_root=str(project),
+        client="codex",
+        session_id="trigger-session",
+        source_id="preferred-source",
+        source_revision="sha256:" + "a" * 64,
+    )
+    backlog = SessionDistillJob(
+        id="backlog-job",
+        idempotency_key="backlog-key",
+        project_name="demo",
+        project_root=str(project),
+        client="codex",
+        session_id="backlog-session",
+        source_id="backlog-source",
+        source_revision="sha256:" + "b" * 64,
+    )
+
+    class _Provider:
+        name = "deterministic"
+
+    monkeypatch.setattr(
+        backend.transcript_store,
+        "get_distill_job",
+        lambda job_id: preferred if job_id == preferred.id else None,
+    )
+    monkeypatch.setattr(
+        "harness_mem.autonomous.worker.pending_distill_jobs",
+        lambda *_args, **_kwargs: [backlog],
+    )
+
+    def fake_run_one(_backend, *, job_id, **_kwargs):
+        session_id = (
+            preferred.session_id if job_id == preferred.id else backlog.session_id
+        )
+        return {
+            "status": "completed",
+            "job_id": job_id,
+            "session_id": session_id,
+            "provider": {"job_id": job_id, "total_tokens": 1},
+            "note": {"path": str(tmp_path / f"{job_id}.md"), "sha256": "c" * 64},
+            "last_semantic_success_at": "2026-08-19T00:00:00+00:00",
+            "last_job_completed_at": "2026-08-19T00:00:01+00:00",
+            "last_note_materialized_at": "2026-08-19T00:00:02+00:00",
+            "error": None,
+        }
+
+    monkeypatch.setattr("harness_mem.autonomous.worker._run_one", fake_run_one)
+    try:
+        result = run_autonomous_distill_batch(
+            backend,
+            project_name="demo",
+            project_root=project,
+            config=load_merged_config(project),
+            trigger_id=preferred.session_id,
+            client="codex",
+            provider=_Provider(),
+            max_jobs=2,
+            preferred_job_id=preferred.id,
+            launch_source="ide_hook",
+            dispatch_generation="preferred-generation",
+        )
+        receipt = result["receipt"]
+        assert [item["job_id"] for item in result["outcomes"]] == [
+            preferred.id,
+            backlog.id,
+        ]
+        assert receipt["state"] == "succeeded"
+        assert receipt["trigger_id"] == preferred.session_id
+        assert receipt["dispatch_generation"] == "preferred-generation"
+        assert receipt["job_id"] == preferred.id
+        assert receipt["session_id"] == preferred.session_id
+        assert receipt["provider"]["job_id"] == preferred.id
+        assert receipt["batch"]["jobs"][-1]["job_id"] == backlog.id
+    finally:
+        asyncio.run(backend.close())
+
+
+def test_assimilation_retries_one_invalid_knowledge_item_shape(tmp_path: Path) -> None:
+    attempts: list[dict] = []
+
+    class _Provider:
+        name = "schema-retry-provider"
+
+        def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
+            del runtime_dir
+            attempts.append(manifest)
+            if heartbeat is not None:
+                heartbeat()
+            if len(attempts) == 1:
+                raise ProviderError(
+                    "Responses provider returned invalid assimilation JSON: missing title",
+                    kind="unrecoverable",
+                )
+            return ProviderResult(
+                decision=AssimilationDecision.model_validate({"points": []}),
+                provider=self.name,
+                model="deterministic-test",
+                duration_seconds=0.01,
+                input_sha256="a" * 64,
+                response_sha256="b" * 64,
+                input_tokens=10,
+                output_tokens=10,
+                total_tokens=20,
+                event_count=1,
+            )
+
+    result = _assimilate_with_schema_retry(
+        _Provider(),
+        manifest={"verified_candidates": []},
+        runtime_dir=tmp_path,
+        heartbeat=None,
+    )
+
+    assert isinstance(result.decision, AssimilationDecision)
+    assert len(attempts) == 2
+    feedback = attempts[1]["assimilation_validation_feedback"]
+    assert "missing title" in feedback["errors"][0]
+    assert "split the offending statement" in feedback["instruction"]
+    assert "Do not repeat or lightly rephrase" in feedback["instruction"]
+
+
+def test_assimilation_retries_invalid_runtime_truth_target(tmp_path: Path) -> None:
+    attempts: list[dict] = []
+
+    def reject_unknown_handle(decision: AssimilationDecision) -> None:
+        if decision.points[0].matched_truth_handles:
+            raise ValueError("unavailable truth handle")
+
+    class _Provider:
+        name = "target-retry-provider"
+
+        def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
+            del runtime_dir
+            attempts.append(manifest)
+            if heartbeat is not None:
+                heartbeat()
+            point = {
+                "candidate_id": "candidate-1",
+                "disposition": "confirm" if len(attempts) == 1 else "no_write",
+                "matched_truth_handles": ["missing-handle"] if len(attempts) == 1 else [],
+                "canonical_title": None,
+                "canonical_statement": None,
+                "topic_path": [],
+                "knowledge_items": [],
+                "reason": "The candidate is already represented by current truth.",
+            }
+            return ProviderResult(
+                decision=AssimilationDecision.model_validate({"points": [point]}),
+                provider=self.name,
+                model="deterministic-test",
+                duration_seconds=0.01,
+                input_sha256="a" * 64,
+                response_sha256="b" * 64,
+                input_tokens=10,
+                output_tokens=10,
+                total_tokens=20,
+                event_count=1,
+            )
+
+    result = _assimilate_with_schema_retry(
+        _Provider(),
+        manifest={"verified_candidates": [{"candidate_id": "candidate-1"}]},
+        runtime_dir=tmp_path,
+        heartbeat=None,
+        validate_decision=reject_unknown_handle,
+    )
+
+    assert result.decision.points[0].disposition == "no_write"
+    assert len(attempts) == 2
+    feedback = attempts[1]["assimilation_validation_feedback"]
+    assert feedback["errors"] == ["unavailable truth handle"]
+
+
+def test_assimilation_model_requires_one_target_for_refine() -> None:
+    with pytest.raises(ValueError, match="refine requires exactly one current truth handle"):
+        AssimilationDecision.model_validate(
+            {
+                "points": [
+                    {
+                        "candidate_id": "candidate-1",
+                        "disposition": "refine",
+                        "matched_truth_handles": [],
+                        "canonical_title": "Updated rule",
+                        "canonical_statement": "Use the corrected current project rule.",
+                        "topic_path": ["governance"],
+                        "knowledge_items": [],
+                        "reason": "The new fact would revise existing current truth.",
+                    }
+                ]
+            }
+        )
+
+
+def test_missing_legacy_confidence_uses_neutral_non_truth_default() -> None:
+    candidate = DistillCandidate.model_validate(
+        {
+            "kind": "memory",
+            "category": "decision",
+            "content": "The project retains this verified decision.",
+            "evidence_basis": "user_statement",
+            "verification_outcome": "verified",
+            "verification_refs": [],
+            "verification_reason_codes": [],
+        }
+    )
+
+    assert _required_confidence(candidate) == 0.5
+
+
+def test_assimilation_model_rejects_broad_checklist_as_one_knowledge_item() -> None:
+    with pytest.raises(ValueError, match="too many separate steps"):
+        AssimilationDecision.model_validate(
+            {
+                "points": [
+                    {
+                        "candidate_id": "broad-point",
+                        "disposition": "add",
+                        "matched_truth_handles": [],
+                        "canonical_title": None,
+                        "canonical_statement": None,
+                        "topic_path": [],
+                        "knowledge_items": [
+                            {
+                                "title": "Whole pipeline",
+                                "statement": (
+                                    "Capture source data、preserve immutable evidence、"
+                                    "normalize candidates、validate protocol、publish atomically."
+                                ),
+                                "topic_path": ["ingestion"],
+                                "claim_kind": "design_requirement",
+                            }
+                        ],
+                        "reason": "The candidate needs an atomic output.",
+                    }
+                ]
+            }
+        )
+
+    relational = AssimilationDecision.model_validate(
+        {
+            "points": [
+                {
+                    "candidate_id": "relational-title-point",
+                    "disposition": "add",
+                    "matched_truth_handles": [],
+                    "canonical_title": "Structure validation and business admission",
+                    "canonical_statement": "Keep structure validation separate from business admission.",
+                    "topic_path": ["ingestion"],
+                    "knowledge_items": [],
+                    "reason": "The relationship is one independently searchable principle.",
+                }
+            ]
+        }
+    )
+    assert relational.points[0].canonical_title == "Structure validation and business admission"
+
+    with pytest.raises(ValueError, match="title enumerates multiple facts"):
+        AssimilationDecision.model_validate(
+            {
+                "points": [
+                    {
+                        "candidate_id": "combined-title-point",
+                        "disposition": "add",
+                        "matched_truth_handles": [],
+                        "canonical_title": "Capture, normalization, and publication",
+                        "canonical_statement": "Validate the final API output.",
+                        "topic_path": ["ingestion"],
+                        "knowledge_items": [],
+                        "reason": "The candidate needs one independently searchable fact.",
+                    }
+                ]
+            }
+        )
+
+    with pytest.raises(ValueError, match="independent obligations"):
+        AssimilationDecision.model_validate(
+            {
+                "points": [
+                    {
+                        "candidate_id": "combined-obligation-point",
+                        "disposition": "add",
+                        "matched_truth_handles": [],
+                        "canonical_title": "Publication and output validation",
+                        "canonical_statement": (
+                            "Must publish related records in one transaction; "
+                            "must validate the final public API output."
+                        ),
+                        "topic_path": ["publication"],
+                        "knowledge_items": [],
+                        "reason": "The candidate combines independent publication and output rules.",
+                    }
+                ]
+            }
+        )
+
+
+def test_distill_candidate_allows_broad_discovery_for_later_atomic_split() -> None:
+    candidate = DistillCandidate.model_validate(
+        {
+            "kind": "memory",
+            "category": "architecture",
+            "content": (
+                "Capture the source、preserve immutable evidence、normalize candidates、"
+                "validate the protocol、publish transactionally."
+            ),
+            "evidence_basis": "user_statement",
+            "verification_outcome": "verified",
+            "verification_refs": [],
+            "verification_reason_codes": [],
+        }
+    )
+
+    assert candidate.content is not None
+    assert "publish transactionally" in candidate.content
+
+
+def test_canonical_knowledge_allows_one_obligation_with_required_field_list() -> None:
+    decision = AssimilationDecision.model_validate(
+        {
+            "points": [
+                {
+                    "candidate_id": "final-review-fields",
+                    "disposition": "add",
+                    "matched_truth_handles": [],
+                    "canonical_title": "Final review completeness",
+                    "canonical_statement": (
+                        "The final review must record the user request、actual result、"
+                        "last-turn status、contradictions、unfinished work、evidence "
+                        "status and promotion eligibility."
+                    ),
+                    "topic_path": ["session review"],
+                    "knowledge_items": [],
+                    "reason": "The listed fields form one completeness obligation.",
+                }
+            ]
+        }
+    )
+
+    assert decision.points[0].canonical_statement is not None
+
+
+def test_per_point_verifier_blocks_unsupported_and_session_only_candidates(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        DistillCandidate.model_validate(
+            {
+                "kind": "memory",
+                "category": "status",
+                "content": "The implementation is complete.",
+                "confidence": 0.9,
+                "evidence_basis": "user_statement",
+                "verification_outcome": "verified",
+                "verification_refs": [],
+                "verification_reason_codes": [],
+            }
+        ),
+        DistillCandidate.model_validate(
+            {
+                "kind": "memory",
+                "category": "request",
+                "content": "Show the current result now.",
+                "confidence": 0.9,
+                "evidence_basis": "user_statement",
+                "verification_outcome": "verified",
+                "verification_refs": [],
+                "verification_reason_codes": [],
+            }
+        ),
+    ]
+    validated = [
+        (candidate, {"kind": "memory", "content": candidate.content})
+        for candidate in candidates
+    ]
+
+    class _Verifier:
+        name = "semantic-verifier-test"
+
+        def verify(self, manifest, *, runtime_dir, heartbeat=None):
+            del manifest, runtime_dir, heartbeat
+            return ProviderResult(
+                decision=CandidateVerificationDecision.model_validate(
+                    {
+                        "points": [
+                            {
+                                "candidate_index": 0,
+                                "semantic_support": "partial",
+                                "future_scope": "unclear",
+                                "reason": "The source does not prove completion.",
+                            },
+                            {
+                                "candidate_index": 1,
+                                "semantic_support": "supported",
+                                "future_scope": "session_only",
+                                "reason": "This is only a one-off display request.",
+                            },
+                        ]
+                    }
+                ),
+                provider=self.name,
+                model="test",
+                duration_seconds=0.01,
+                input_sha256="a" * 64,
+                response_sha256="b" * 64,
+                input_tokens=10,
+                output_tokens=10,
+                total_tokens=20,
+                event_count=1,
+            )
+
+    _result, verified = _verify_candidates(
+        _Verifier(),
+        manifest={"candidates": []},
+        validated_candidates=validated,
+        runtime_dir=tmp_path,
+        heartbeat=None,
+    )
+
+    assert verified[0][1]["verification_outcome"] == "unverified"
+    assert "semantic_support_incomplete" in verified[0][1][
+        "verification_reason_codes"
+    ]
+    assert verified[1][1]["verification_outcome"] == "not_applicable"
+    assert "session_only_not_durable" in verified[1][1][
+        "verification_reason_codes"
+    ]
+
+
 class _DeterministicProvider:
     name = "codex_exec"
+    verify = _verify_all_candidates
 
     def decide(self, manifest, *, runtime_dir, heartbeat=None):
         assert manifest["coverage"] == "complete_indexed_semantic_projection"
@@ -248,8 +730,12 @@ def test_autonomous_worker_retries_inconsistent_zero_candidate_decision(
                             "explicit_decision": "absent",
                             "successful_solution": "absent",
                             "repeated_failure": "absent",
-                            "rule_or_preference": "not_durable" if corrected else "absent",
-                            "reusable_workflow_or_fact": "not_durable" if corrected else "absent",
+                            "rule_or_preference": "not_durable"
+                            if corrected
+                            else "absent",
+                            "reusable_workflow_or_fact": "not_durable"
+                            if corrected
+                            else "absent",
                             "version_or_migration": "absent",
                             "unfinished_handoff": "absent",
                         },
@@ -325,10 +811,111 @@ def test_autonomous_worker_retries_inconsistent_zero_candidate_decision(
     feedback = provider.manifests[1]["candidate_validation_feedback"]
     assert "schema inconsistent" in " ".join(feedback["errors"])
     assert "cannot be marked absent" in " ".join(feedback["errors"])
-    assert final.semantic_review.zero_candidate_challenge.future_utility == "session_only"
+    assert (
+        final.semantic_review.zero_candidate_challenge.future_utility == "session_only"
+    )
     assert validated == []
     assert warnings == []
     assert result.attempt_count == 2
+
+
+def test_autonomous_worker_retries_partial_zero_candidate_before_finalization(
+    tmp_path: Path,
+) -> None:
+    source_revision = "sha256:" + "d" * 64
+    exchange_ref = {"exchange_index": 1, "content_sha256": "e" * 64}
+
+    def decision(*, corrected: bool) -> AutonomousDecision:
+        return AutonomousDecision.model_validate(
+            {
+                "semantic_review": {
+                    "session_summary": "The session has no durable result after the complete review.",
+                    "final_user_request": "Review the session for a durable conclusion.",
+                    "final_outcome": "The work was reviewed without a durable conclusion.",
+                    "last_turn_status": "answered",
+                    "contradictions": [],
+                    "unfinished_work": [],
+                    "evidence_status": "not_applicable",
+                    "promotion_decision": "no_promotion",
+                    "zero_candidate_challenge": {
+                        "version": "v1",
+                        "source_revision": source_revision,
+                        "evidence_fidelity": "complete" if corrected else "partial",
+                        "future_utility": "session_only",
+                        "checks": {
+                            "user_correction": "absent",
+                            "explicit_decision": "absent",
+                            "successful_solution": "absent",
+                            "repeated_failure": "absent",
+                            "rule_or_preference": "absent",
+                            "reusable_workflow_or_fact": "absent",
+                            "version_or_migration": "absent",
+                            "unfinished_handoff": "absent",
+                        },
+                        "inspected_exchange_refs": [exchange_ref],
+                        "conclusion": "no_durable_candidate",
+                        "rationale": "Every required exchange was reviewed and contains no durable conclusion.",
+                    },
+                },
+                "candidates": [],
+            }
+        )
+
+    class RetryProvider:
+        name = "partial-zero-retry-test"
+
+        def __init__(self) -> None:
+            self.manifests: list[dict] = []
+
+        def decide(self, manifest, *, runtime_dir, heartbeat=None):
+            del runtime_dir, heartbeat
+            self.manifests.append(manifest)
+            return ProviderResult(
+                decision=decision(corrected=len(self.manifests) == 2),
+                provider=self.name,
+                model="test",
+                duration_seconds=0.1,
+                input_sha256=str(len(self.manifests)) * 64,
+                response_sha256="f" * 64,
+                input_tokens=100,
+                output_tokens=20,
+                total_tokens=120,
+                event_count=1,
+            )
+
+    provider = RetryProvider()
+    job = SessionDistillJob(
+        id="job-partial-zero",
+        idempotency_key="key-partial-zero",
+        project_name="demo",
+        project_root="F:/demo",
+        client="codex",
+        session_id="session-partial-zero",
+        source_id="source-partial-zero",
+        source_revision=source_revision,
+        status="reviewing",
+        phase="review",
+        expected_chunk_count=1,
+        completed_chunk_count=1,
+    )
+    _result, final, validated, warnings = _decide_with_candidate_retry(
+        provider,
+        manifest={"contract_version": "test"},
+        packet={"zero_candidate_challenge_template": {"checks": {}}},
+        job=job,
+        runtime_dir=tmp_path,
+        heartbeat=None,
+    )
+
+    assert len(provider.manifests) == 2
+    assert "complete evidence fidelity" in " ".join(
+        provider.manifests[1]["candidate_validation_feedback"]["errors"]
+    )
+    assert (
+        final.semantic_review.zero_candidate_challenge.evidence_fidelity == "complete"
+    )
+    assert validated == []
+    assert warnings == []
 
 
 def test_reconciled_reviewing_trigger_job_remains_preferred() -> None:
@@ -471,6 +1058,26 @@ def test_autonomous_worker_filters_handoff_and_bare_superseded_candidates() -> N
                     "verification_refs": [],
                     "verification_reason_codes": [],
                 },
+                {
+                    "kind": "memory",
+                    "category": "后续事项",
+                    "content": "需要测量一个固定模型样本。",
+                    "confidence": 0.99,
+                    "evidence_basis": "user_statement",
+                    "verification_outcome": "verified",
+                    "verification_refs": [],
+                    "verification_reason_codes": [],
+                },
+                {
+                    "kind": "memory",
+                    "category": "procedure",
+                    "content": "When validation remains unfinished, retain the source and defer migration.",
+                    "confidence": 0.99,
+                    "evidence_basis": "user_statement",
+                    "verification_outcome": "verified",
+                    "verification_refs": [],
+                    "verification_reason_codes": [],
+                },
             ],
         }
     )
@@ -484,6 +1091,8 @@ def test_autonomous_worker_filters_handoff_and_bare_superseded_candidates() -> N
         None,
         "bare superseded history belongs to summary or final outcome",
         "unfinished work belongs to the job-bound handoff",
+        "unfinished work belongs to the job-bound handoff",
+        None,
     ]
 
 
@@ -704,11 +1313,48 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
         max_jobs=1,
         preferred_job_id=snapshot.distill_job_id,
         launch_source="ide_hook",
+        dispatch_generation="dispatch-autonomous-session",
     )
 
     assert result["state"] == "succeeded", result
     stored = backend.transcript_store.get_distill_job(snapshot.distill_job_id)
     assert stored is not None and stored.status == "completed"
+    # The new autonomous path is physically separated: this fresh session must
+    # not create a compatibility candidate or promote a legacy MemoryEntry.
+    legacy_entries = asyncio.run(
+        backend.structured_store.list_memory_entries("demo", limit=20)
+    )
+    legacy_rules = asyncio.run(backend.structured_store.list_confirmed_rules("demo"))
+    knowledge_store = backend.structured_store.knowledge_store
+    separated_candidates = asyncio.run(knowledge_store.list_candidates("demo"))
+    separated_entries = asyncio.run(knowledge_store.list_entries("demo"))
+    assert legacy_entries == []
+    assert legacy_rules == []
+    assert separated_candidates == []
+    mutations = asyncio.run(knowledge_store.list_mutations("demo"))
+    assert [mutation.disposition for mutation in mutations] == ["add"]
+    assert [(entry.title, entry.statement) for entry in separated_entries] == [
+        ("Local index storage", "The project uses SQLite for local derived indexes.")
+    ]
+    assert len(stored.output_candidate_ids) == 1
+    assert stored.promotion_summary["answer_packet"]["promoted_items"] == [
+        {
+            "title": "Local index storage",
+            "fact": "The project uses SQLite for local derived indexes.",
+            "kind": "knowledge",
+            "category": "storage",
+        }
+    ]
+    knowledge_path = project / ".harness-mem" / "session-knowledge-base.md"
+    assert not knowledge_path.exists()
+    knowledge_text = asyncio.run(
+        knowledge_store.render_markdown("demo", include_details=True)
+    )
+    assert "## storage" in knowledge_text
+    assert backend.transcript_store.db_path.resolve().as_uri() in knowledge_text
+    assert f"source_id={snapshot.source.id}" in knowledge_text
+    assert "source_revision=sha256%3A" in knowledge_text
+    assert "file:///autonomous-session.jsonl" not in knowledge_text
     assert stored.review_execution_source == "autonomous_worker"
     assert stored.semantic_review["session_summary"].startswith("The user established")
     latest_note_path = notes_dir / "autonomous-session.md"
@@ -734,6 +1380,7 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     assert receipt["provider"]["total_tokens"] == 1000
     verified_completion = receipt["last_verified_completion"]
     assert verified_completion["trigger_id"] == "autonomous-session"
+    assert verified_completion["dispatch_generation"] == "dispatch-autonomous-session"
     assert verified_completion["job_id"] == stored.id
     assert verified_completion["provider"]["total_tokens"] == 1000
     assert verified_completion["note"]["sha256"]
@@ -744,9 +1391,10 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     assert job_receipt["provider"]["job_id"] == stored.id
     assert job_receipt["provider"]["source_revision"] == stored.source_revision
     assert job_receipt["provider"]["session_id_sha256"].startswith("sha256:")
-    assert job_receipt["provider"]["trigger_id_sha256"] == job_receipt["provider"][
-        "session_id_sha256"
-    ]
+    assert (
+        job_receipt["provider"]["trigger_id_sha256"]
+        == job_receipt["provider"]["session_id_sha256"]
+    )
     assert job_receipt["provider"]["project_root_sha256"].startswith("sha256:")
     assert job_receipt["note"]["sha256"]
 
@@ -779,6 +1427,7 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     assert outcome["provider"]["total_tokens"] == 1000
     assert outcome["note_verified"] is True
     assert outcome["durable_hook_binding"] is True
+    assert outcome["dispatch_generation_bound"] is True
     assert outcome["lifecycle_verified"] is True, outcome
 
     # A later revision gets its own immutable Note and cannot invalidate the

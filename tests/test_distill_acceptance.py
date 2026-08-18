@@ -11,7 +11,11 @@ from pathlib import Path
 import pytest
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
-from harness_mem.autonomous.models import AssimilationDecision, AutonomousDecision
+from harness_mem.autonomous.models import (
+    AssimilationDecision,
+    AutonomousDecision,
+    CandidateVerificationDecision,
+)
 from harness_mem.autonomous.provider import ProviderError, ProviderResult
 from harness_mem.autonomous.worker import run_autonomous_distill_batch
 from harness_mem.config.merge import MergedConfig
@@ -40,6 +44,36 @@ from harness_mem.qualification.distill_acceptance import (
 from harness_mem.session_notes import materialize_session_note
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.transcript_chunking import chunk_transcript_text
+
+
+def _verify_all_candidates(self, manifest, *, runtime_dir, heartbeat=None):
+    del runtime_dir
+    if heartbeat is not None:
+        heartbeat()
+    return ProviderResult(
+        decision=CandidateVerificationDecision.model_validate(
+            {
+                "points": [
+                    {
+                        "candidate_index": item["candidate_index"],
+                        "semantic_support": "supported",
+                        "future_scope": "durable",
+                        "reason": "The fixture source directly supports a reusable project point.",
+                    }
+                    for item in manifest["candidates"]
+                ]
+            }
+        ),
+        provider=self.name,
+        model="deterministic",
+        duration_seconds=0.01,
+        input_sha256="e" * 64,
+        response_sha256="f" * 64,
+        input_tokens=20,
+        output_tokens=10,
+        total_tokens=30,
+        event_count=1,
+    )
 
 
 def _assimilate_all_as_add(manifest: dict, *, provider: str) -> ProviderResult:
@@ -113,6 +147,52 @@ def test_model_sample_quality_accepts_user_language_concept_terms() -> None:
 
     assert quality["checks"]["required_terms"] is True
     assert quality["passed"] is True
+
+
+def test_model_sample_quality_filters_declared_handoff_control_state() -> None:
+    quality = _quality(
+        "F3",
+        {
+            "semantic_review": {
+                "session_summary": "性能偏好已确认，测量仍待完成。",
+                "final_user_request": "降低提炼开销并继续测量。",
+                "final_outcome": "偏好保留，测量作为交接。",
+                "last_turn_status": "unfinished",
+                "contradictions": [],
+                "unfinished_work": ["测量一个固定模型样本。"],
+                "evidence_status": "partial",
+                "promotion_decision": "partial",
+            },
+            "candidates": [
+                {
+                    "kind": "memory",
+                    "category": "性能偏好",
+                    "content": "降低提炼延迟和令牌使用量，同时保持结果质量。",
+                    "confidence": 0.99,
+                    "evidence_basis": "user_statement",
+                    "verification_outcome": "verified",
+                    "verification_refs": [],
+                    "verification_reason_codes": [],
+                },
+                {
+                    "kind": "memory",
+                    "category": "后续事项",
+                    "content": "需要测量一个固定模型样本。",
+                    "confidence": 0.99,
+                    "evidence_basis": "user_statement",
+                    "verification_outcome": "verified",
+                    "verification_refs": [],
+                    "verification_reason_codes": [],
+                },
+            ],
+        },
+    )
+
+    assert quality["passed"] is True
+    assert quality["effective_candidate_count"] == 1
+    assert quality["filtered_control_candidates"][0]["reason"] == (
+        "unfinished work belongs to the job-bound handoff"
+    )
 
 
 def test_model_sample_quality_accepts_chinese_duration_synonym() -> None:
@@ -551,6 +631,7 @@ def test_b2_autonomous_partial_creates_handoff_and_only_one_truth(
 
     class _PartialProvider:
         name = "partial-provider"
+        verify = _verify_all_candidates
 
         def decide(self, manifest, *, runtime_dir, heartbeat=None):
             first, second = manifest["zero_candidate_exchange_refs"][:2]
@@ -643,7 +724,12 @@ def test_b2_autonomous_partial_creates_handoff_and_only_one_truth(
             max_jobs=1,
             preferred_job_id=job.id,
         )
-        truths = asyncio.run(backend.structured_store.list_memory_entries("acceptance"))
+        legacy_truths = asyncio.run(
+            backend.structured_store.list_memory_entries("acceptance")
+        )
+        truths = asyncio.run(
+            backend.structured_store.knowledge_store.list_entries("acceptance")
+        )
         handoffs = asyncio.run(
             backend.structured_store.get_latest_handoffs("acceptance", limit=10)
         )
@@ -651,6 +737,7 @@ def test_b2_autonomous_partial_creates_handoff_and_only_one_truth(
 
         assert result["state"] == "succeeded", result
         assert len(truths) == 1
+        assert legacy_truths == []
         assert len(handoffs) == 1
         assert handoffs[0].context["distill_job_id"] == job.id
         assert stored.semantic_review["promotion_decision"] == "partial"
@@ -684,6 +771,7 @@ def test_b3_f1_zero_candidate_closes_without_pending_noise(tmp_path: Path) -> No
 
 class _BatchProvider:
     name = "acceptance-provider"
+    verify = _verify_all_candidates
 
     def decide(self, manifest, *, runtime_dir, heartbeat=None):
         session_id = manifest["session_id"]
