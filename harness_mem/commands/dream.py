@@ -8,11 +8,19 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, cast
+from uuid import NAMESPACE_URL, uuid5
 
 from harness_mem.commands.metabolism_pass import select_metabolism_pass
 from harness_mem.commands.replay_window import ReplayBudget, ReplayWindow
 from harness_mem.config.merge import MergedConfig
-from harness_mem.core.schemas import DreamItem, DreamRun, MemoryEntry, ReflectionJob
+from harness_mem.core.schemas import (
+    DreamItem,
+    DreamRun,
+    KnowledgeCandidate,
+    KnowledgeEvidence,
+    MemoryEntry,
+    ReflectionJob,
+)
 from harness_mem.core.schemas.merge_suggestion_candidate import MergeSuggestionCandidate
 from harness_mem.core.schemas.stale_truth_suggestion_candidate import (
     StaleTruthSuggestionCandidate,
@@ -46,7 +54,11 @@ def _iso(value: datetime | None) -> str | None:
 def _dream_handle_config(
     config: MergedConfig | dict[str, Any] | None,
 ) -> dict[str, Any]:
-    cfg = config.to_reflection_config() if isinstance(config, MergedConfig) else (config or {})
+    cfg = (
+        config.to_reflection_config()
+        if isinstance(config, MergedConfig)
+        else (config or {})
+    )
     dream_cfg = cfg.get("dream", {}) if isinstance(cfg, dict) else {}
     handle_cfg = dream_cfg.get("handle", {}) if isinstance(dream_cfg, dict) else {}
     return handle_cfg if isinstance(handle_cfg, dict) else {}
@@ -149,8 +161,12 @@ async def _apply_merge(
     run_id: str,
     now: datetime,
 ) -> DreamItem:
-    before_a = await _truth_payload(store, candidate.target_a_kind, candidate.target_a_id)
-    before_b = await _truth_payload(store, candidate.target_b_kind, candidate.target_b_id)
+    before_a = await _truth_payload(
+        store, candidate.target_a_kind, candidate.target_a_id
+    )
+    before_b = await _truth_payload(
+        store, candidate.target_b_kind, candidate.target_b_id
+    )
     if before_a is None or before_b is None:
         await store.update_merge_suggestion_candidate_status(candidate.id, "rejected")
         return DreamItem(
@@ -248,13 +264,14 @@ async def _apply_merge(
             proposed_action="merge",
             final_action="failed",
             reason="merge failed while marking source truths historical",
-            result={"candidate_status": "rejected", "created_entry_id": merged_entry.id},
+            result={
+                "candidate_status": "rejected",
+                "created_entry_id": merged_entry.id,
+            },
             error="failed to mark source truths historical",
         )
 
-    await store.update_merge_suggestion_candidate_status(
-        candidate.id, "user_confirmed"
-    )
+    await store.update_merge_suggestion_candidate_status(candidate.id, "user_confirmed")
     return DreamItem(
         source_kind="merge_suggestion",
         source_id=candidate.id,
@@ -265,7 +282,9 @@ async def _apply_merge(
         reason="auto-applied merge; source truths marked historical, merged entry created",
         undo={
             "kind": "merge",
-            "created_truths": [{"truth_type": "memory_entry", "truth_id": merged_entry.id}],
+            "created_truths": [
+                {"truth_type": "memory_entry", "truth_id": merged_entry.id}
+            ],
             "restore_truth_snapshots": [
                 {
                     "truth_type": _truth_type_for_kind(candidate.target_a_kind),
@@ -295,7 +314,9 @@ async def _apply_stale(
 ) -> DreamItem:
     before = await _truth_payload(store, candidate.target_kind, candidate.target_id)
     if before is None:
-        await store.update_stale_truth_suggestion_candidate_status(candidate.id, "rejected")
+        await store.update_stale_truth_suggestion_candidate_status(
+            candidate.id, "rejected"
+        )
         return DreamItem(
             source_kind="stale_truth_suggestion",
             source_id=candidate.id,
@@ -314,7 +335,9 @@ async def _apply_stale(
         valid_to=now,
     )
     if not ok:
-        await store.update_stale_truth_suggestion_candidate_status(candidate.id, "rejected")
+        await store.update_stale_truth_suggestion_candidate_status(
+            candidate.id, "rejected"
+        )
         return DreamItem(
             source_kind="stale_truth_suggestion",
             source_id=candidate.id,
@@ -402,6 +425,229 @@ async def _queue_supersede_for_review(
     )
 
 
+async def _queue_legacy_reverification(
+    *,
+    source_kind: Literal["merge_suggestion", "stale_truth_suggestion"],
+    source_id: str,
+    evidence_ids: list[str],
+    proposed_action: Literal["merge", "mark_stale"],
+) -> DreamItem:
+    """Keep a legacy Dream proposal pending until module 2 verifies it.
+
+    Legacy truth remains readable for compatibility, but Dream cannot use an
+    embedding/silence heuristic as permission to rewrite it.  The existing
+    proposal row stays pending as the audit record; a later verified Review
+    must create a separated candidate and decision for any truth change.
+    """
+
+    return DreamItem(
+        source_kind=source_kind,
+        source_id=source_id,
+        evidence_ids=evidence_ids,
+        risk="high" if proposed_action == "merge" else "medium",
+        proposed_action=proposed_action,
+        final_action="pending_review",
+        reason=(
+            "Dream queued re-verification; it does not directly mutate legacy "
+            "truth from maintenance signals."
+        ),
+        result={
+            "candidate_status": "pending",
+            "required_next_step": "verify_then_assimilate",
+        },
+    )
+
+
+async def _queue_separated_duplicate_rechecks(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    project_root: str | Path | None,
+) -> list[DreamItem]:
+    """Queue safe re-verification work for separated current knowledge.
+
+    Dream may detect duplicate wording, competing current statements, old
+    implementation claims, or negative retrieval feedback.  It deliberately
+    stops at a candidate with unverified evidence: only module 2 can establish
+    a replacement and only module 3 can change the current knowledge set.
+    """
+
+    store = backend.structured_store.knowledge_store
+    current = await store.list_entries(project_name)
+    items: list[DreamItem] = []
+
+    async def queue_recheck(
+        *,
+        kind: str,
+        target_ids: list[str],
+        statement: str,
+        proposed_action: Literal["merge", "mark_stale", "supersede"],
+        risk: Literal["medium", "high"],
+        reason_code: str,
+        reason: str,
+    ) -> None:
+        candidate_id = str(
+            uuid5(
+                NAMESPACE_URL,
+                f"harness-mem:dream-knowledge-{kind}:" + ":".join(target_ids),
+            )
+        )
+        candidate = await store.get_candidate(candidate_id)
+        if candidate is None:
+            candidate = KnowledgeCandidate(
+                id=candidate_id,
+                project_name=project_name,
+                candidate_type="memory",
+                statement=statement,
+                status="pending",
+            )
+            await store.save_candidate(candidate)
+            evidence = KnowledgeEvidence(
+                id=str(
+                    uuid5(NAMESPACE_URL, f"harness-mem:dream-evidence:{candidate_id}")
+                ),
+                project_name=project_name,
+                candidate_id=candidate_id,
+                evidence_basis="transcript",
+                verification_outcome="unverified",
+                verification_reason_codes=[reason_code],
+            )
+            await store.save_evidence(evidence)
+        else:
+            # A completed review is final until a genuinely new signal creates
+            # a different candidate id.  Dream must not silently reopen it.
+            if candidate.status in {"assimilated", "rejected"}:
+                return
+            evidence_items = await store.list_evidence(candidate.id)
+            if evidence_items:
+                evidence = evidence_items[0]
+            else:  # Defensive repair for interrupted experimental databases.
+                evidence = KnowledgeEvidence(
+                    id=str(
+                        uuid5(
+                            NAMESPACE_URL, f"harness-mem:dream-evidence:{candidate_id}"
+                        )
+                    ),
+                    project_name=project_name,
+                    candidate_id=candidate_id,
+                    evidence_basis="transcript",
+                    verification_outcome="unverified",
+                    verification_reason_codes=[reason_code],
+                )
+                await store.save_evidence(evidence)
+        items.append(
+            DreamItem(
+                source_kind=f"knowledge_{kind}",
+                source_id=candidate_id,
+                evidence_ids=[evidence.id],
+                risk=risk,
+                proposed_action=proposed_action,
+                final_action="pending_review",
+                reason=reason,
+                result={"target_knowledge_ids": target_ids},
+            )
+        )
+
+    duplicate_groups: dict[str, list[Any]] = {}
+    for entry in current:
+        normalized = " ".join(entry.statement.casefold().split())
+        if normalized:
+            duplicate_groups.setdefault(normalized, []).append(entry)
+    for group in duplicate_groups.values():
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda entry: entry.id)
+        await queue_recheck(
+            kind="duplicate",
+            target_ids=[entry.id for entry in group],
+            statement=group[0].statement,
+            proposed_action="merge",
+            risk="medium",
+            reason_code="dream_duplicate_detected",
+            reason=(
+                "Dream found duplicate current knowledge and created a re-verification "
+                "candidate; current knowledge was not changed."
+            ),
+        )
+
+    competing_groups: dict[tuple[tuple[str, ...], str], list[Any]] = {}
+    for entry in current:
+        key = (
+            tuple(part.casefold() for part in entry.module_path),
+            entry.title.casefold(),
+        )
+        competing_groups.setdefault(key, []).append(entry)
+    for group in competing_groups.values():
+        statements = {" ".join(entry.statement.casefold().split()) for entry in group}
+        if len(group) < 2 or len(statements) < 2:
+            continue
+        group.sort(key=lambda entry: entry.id)
+        await queue_recheck(
+            kind="conflict",
+            target_ids=[entry.id for entry in group],
+            statement="\n".join(entry.statement for entry in group),
+            proposed_action="supersede",
+            risk="high",
+            reason_code="dream_competing_current_knowledge",
+            reason=(
+                "Dream found competing current statements with the same module and "
+                "title; it queued verification instead of selecting a winner."
+            ),
+        )
+
+    reverify_before = _now() - timedelta(days=180)
+    for entry in current:
+        if entry.verified_at is None:
+            continue
+        if entry.verified_at > reverify_before:
+            continue
+        await queue_recheck(
+            kind="stale",
+            target_ids=[entry.id],
+            statement=entry.statement,
+            proposed_action="mark_stale",
+            risk="medium",
+            reason_code="dream_implementation_verification_aged",
+            reason=(
+                "Dream found an old verified current claim and queued re-verification; "
+                "the current entry remains readable until a verified decision changes it."
+            ),
+        )
+
+    feedback_signals = await backend.structured_store.query_retrieval_signals(
+        project_name,
+        signal_type="context_outcome",
+        target_kind="knowledge_entry",
+        limit=200,
+    )
+    for signal in feedback_signals:
+        if signal.value is None or signal.value >= 0:
+            continue
+        feedback_entry = await store.get_entry(
+            signal.target_id,
+            project_name=project_name,
+            project_root=project_root,
+        )
+        if (
+            feedback_entry is None
+            or feedback_entry.project_name != project_name
+        ):
+            continue
+        await queue_recheck(
+            kind="feedback",
+            target_ids=[feedback_entry.id],
+            statement=feedback_entry.statement,
+            proposed_action="mark_stale",
+            risk="high" if signal.value < 0 else "medium",
+            reason_code="dream_negative_retrieval_feedback",
+            reason=(
+                "Dream received negative retrieval feedback and queued re-verification; "
+                "feedback is not treated as permission to edit current knowledge."
+            ),
+        )
+    return items
+
+
 async def _reject_or_archive(
     store: LocalStructuredStore,
     *,
@@ -415,7 +661,9 @@ async def _reject_or_archive(
     if source_kind == "merge_suggestion":
         await store.update_merge_suggestion_candidate_status(source_id, "rejected")
     elif source_kind == "stale_truth_suggestion":
-        await store.update_stale_truth_suggestion_candidate_status(source_id, "rejected")
+        await store.update_stale_truth_suggestion_candidate_status(
+            source_id, "rejected"
+        )
     elif source_kind == "supersede":
         await store.update_supersede_candidate_status(
             source_id,
@@ -438,6 +686,7 @@ async def dream_once(
     backend: LocalMemoryBackend,
     *,
     project_name: str,
+    project_root: str | Path | None = None,
     config: MergedConfig | dict[str, Any] | None = None,
     source: DreamSource = "agent",
     reflection_job_id: str | None = None,
@@ -477,6 +726,14 @@ async def dream_once(
     )
     await store.save_dream_run(run_stub)
 
+    items.extend(
+        await _queue_separated_duplicate_rechecks(
+            backend,
+            project_name=project_name,
+            project_root=project_root,
+        )
+    )
+
     async def persist_progress(*, check_deadline: bool = True) -> None:
         run_stub.items = list(items)
         run_stub.handling_summary = {}
@@ -485,16 +742,24 @@ async def dream_once(
             completed_at = _now()
             run_stub.status = "failed"
             run_stub.completed_at = completed_at
-            run_stub.duration_ms = int((completed_at - started_at).total_seconds() * 1000)
+            run_stub.duration_ms = int(
+                (completed_at - started_at).total_seconds() * 1000
+            )
             run_stub.notes = list(run_stub.notes or [])
             run_stub.notes.append("dream runtime exceeded max_runtime_seconds")
             await store.save_dream_run(run_stub)
             raise TimeoutError("dream runtime exceeded max_runtime_seconds")
         await store.save_dream_run(run_stub)
 
-    pending_merges = await store.list_merge_suggestion_candidates(project_name, status="pending")
-    pending_stale = await store.list_stale_truth_suggestion_candidates(project_name, status="pending")
-    pending_supersedes = await store.list_supersede_candidates(project_name, status="pending")
+    pending_merges = await store.list_merge_suggestion_candidates(
+        project_name, status="pending"
+    )
+    pending_stale = await store.list_stale_truth_suggestion_candidates(
+        project_name, status="pending"
+    )
+    pending_supersedes = await store.list_supersede_candidates(
+        project_name, status="pending"
+    )
     await persist_progress()
 
     seen_ids: set[str] = set()
@@ -533,7 +798,7 @@ async def dream_once(
 
     for merge_candidate in merge_candidates:
         await persist_progress()
-        if not handle_cfg.get("allow_merge", True) or not handle_cfg.get("auto_apply", True):
+        if not handle_cfg.get("allow_merge", True):
             items.append(
                 await _reject_or_archive(
                     store,
@@ -546,12 +811,19 @@ async def dream_once(
                 )
             )
         else:
-            items.append(await _apply_merge(store, merge_candidate, run_id=run_stub.id, now=started_at))
+            items.append(
+                await _queue_legacy_reverification(
+                    source_kind="merge_suggestion",
+                    source_id=merge_candidate.id,
+                    evidence_ids=list(merge_candidate.evidence_signal_ids),
+                    proposed_action="merge",
+                )
+            )
         await persist_progress()
 
     for stale_candidate in stale_candidates:
         await persist_progress()
-        if not handle_cfg.get("allow_mark_stale", True) or not handle_cfg.get("auto_apply", True):
+        if not handle_cfg.get("allow_mark_stale", True):
             items.append(
                 await _reject_or_archive(
                     store,
@@ -564,7 +836,14 @@ async def dream_once(
                 )
             )
         else:
-            items.append(await _apply_stale(store, stale_candidate, now=started_at))
+            items.append(
+                await _queue_legacy_reverification(
+                    source_kind="stale_truth_suggestion",
+                    source_id=stale_candidate.id,
+                    evidence_ids=list(stale_candidate.evidence_signal_ids),
+                    proposed_action="mark_stale",
+                )
+            )
         await persist_progress()
 
     for supersede_candidate in supersede_candidates:
@@ -575,7 +854,9 @@ async def dream_once(
                     store,
                     source_kind="supersede",
                     source_id=supersede_candidate.id,
-                    evidence_ids=[supersede_candidate.evidence] if supersede_candidate.evidence else [],
+                    evidence_ids=[supersede_candidate.evidence]
+                    if supersede_candidate.evidence
+                    else [],
                     proposed_action="supersede",
                     final_action="archived",
                     reason="supersede disabled by dream policy; archived as dream-only record",
@@ -586,7 +867,7 @@ async def dream_once(
                 await _queue_supersede_for_review(
                     store,
                     supersede_candidate,
-                    auto_apply_requested=bool(handle_cfg.get("auto_apply", True)),
+                    auto_apply_requested=False,
                 )
             )
         await persist_progress()
@@ -594,7 +875,9 @@ async def dream_once(
     completed_at = _now()
     duration_ms = int((completed_at - started_at).total_seconds() * 1000)
     status: Literal["completed", "failed"] = (
-        "failed" if any(item.final_action == "failed" for item in items) else "completed"
+        "failed"
+        if any(item.final_action == "failed" for item in items)
+        else "completed"
     )
     run = DreamRun(
         id=run_stub.id,
@@ -726,7 +1009,9 @@ async def undo_dream_item(
         if created.get("truth_type") == "memory_entry":
             ok = await store.soft_delete_memory_entry(created["truth_id"])
             if not ok:
-                failures.append(f"soft-delete failed for memory_entry:{created['truth_id']}")
+                failures.append(
+                    f"soft-delete failed for memory_entry:{created['truth_id']}"
+                )
 
     if failures:
         return {
@@ -916,6 +1201,7 @@ async def dream_auto_tick(
         run = await _run_dream_with_progress_timeout(
             backend,
             project_name=project_name,
+            project_root=project_root,
             config=config,
             source=source,
             reflection_job_id=job.id,
@@ -1061,6 +1347,7 @@ async def _run_dream_with_progress_timeout(
     backend: LocalMemoryBackend,
     *,
     project_name: str,
+    project_root: str | Path | None,
     config: MergedConfig,
     source: DreamSource,
     reflection_job_id: str,
@@ -1073,6 +1360,7 @@ async def _run_dream_with_progress_timeout(
             dream_once(
                 backend,
                 project_name=project_name,
+                project_root=project_root,
                 config=config,
                 source=source,
                 reflection_job_id=reflection_job_id,
@@ -1114,24 +1402,35 @@ async def cmd_dream(
     item_id: str | None = None,
     config: MergedConfig | None = None,
 ) -> int:
-    from harness_mem.commands.support import DEFAULT_DATA_DIR
+    from harness_mem.commands.support import DEFAULT_DATA_DIR, find_project_root
     from harness_mem.config.merge import load_merged_config
 
     backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
     await backend.init()
     try:
-        root = project_root or str(Path.cwd())
-        merged = config or load_merged_config(root)
+        resolved_root = (
+            Path(project_root).expanduser().resolve()
+            if project_root is not None
+            else find_project_root(project_name)
+        )
+        root = str(resolved_root) if resolved_root is not None else None
+        merged = config or (
+            load_merged_config(root) if root is not None else MergedConfig()
+        )
         if action == "run":
             run = await dream_once(
                 backend,
                 project_name=project_name,
+                project_root=root,
                 config=merged,
                 source="agent",
             )
             print(json.dumps(run.to_dict(), ensure_ascii=False, indent=2))
             return 0
         if action == "auto-tick":
+            if root is None:
+                print(f"project root is required for automatic Dream: {project_name}")
+                return 1
             payload = await dream_auto_tick(
                 backend,
                 project_name=project_name,

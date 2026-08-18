@@ -28,10 +28,21 @@ from harness_mem.commands.replay_window import ReplayWindow
 from harness_mem.commands.support import get_embedding_model_id
 from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas.dream_run import DreamRun
+from harness_mem.core.schemas.knowledge import (
+    AssimilationDecision,
+    KnowledgeCandidate,
+    KnowledgeEntry,
+)
+from harness_mem.core.schemas.project_knowledge_base import ProjectKnowledgeSourceRef
 from harness_mem.core.schemas.memory_entry import MemoryEntry
+from harness_mem.core.schemas.merge_suggestion_candidate import MergeSuggestionCandidate
 from harness_mem.core.schemas.reflection_job import ReflectionJob
+from harness_mem.core.schemas.stale_truth_suggestion_candidate import (
+    StaleTruthSuggestionCandidate,
+)
 from harness_mem.core.schemas.supersede_candidate import SupersedeCandidate
 from harness_mem.embedding import embeddings_disabled, temporarily_disable_embeddings
+from harness_mem.retrieval_signals import record_retrieval_signal
 from harness_mem.storage.reflection_job_store import ReflectionJobStore
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.sqlite_index import SQLiteIndex
@@ -62,6 +73,51 @@ def _empty_window() -> ReplayWindow:
     return ReplayWindow(
         time_range=(now - timedelta(days=1), now),
         dimensions={},
+    )
+
+
+def _publish_current_knowledge(
+    backend: LocalMemoryBackend,
+    *entries: KnowledgeEntry,
+) -> tuple[Path, list[KnowledgeEntry]]:
+    """Publish the fixture through the same SQLite mutation as production."""
+
+    project_root = backend.data_dir / "demo-project"
+    project_root.mkdir(parents=True, exist_ok=True)
+    source = ProjectKnowledgeSourceRef(
+        label="Dream contract fixture",
+        target=Path(__file__).resolve().as_uri(),
+        kind="repository",
+        digest="d" * 64,
+    )
+    store = backend.structured_store.knowledge_store
+    candidate = KnowledgeCandidate(
+        id="dream-fixture-candidate-" + "-".join(entry.id for entry in entries),
+        project_name="demo",
+        candidate_type="memory",
+        statement="Dream current-knowledge fixture.",
+    )
+    decision = AssimilationDecision(
+        id="dream-fixture-mutation-" + "-".join(entry.id for entry in entries),
+        project_name="demo",
+        candidate_id=candidate.id,
+        disposition="add",
+        canonical_truth_ids=[entry.id for entry in entries],
+        reason="Test fixture.",
+    )
+    _run(store.save_candidate(candidate))
+    _run(
+        store.apply_truth_mutation(
+            candidate_before=candidate,
+            candidate_after=candidate.model_copy(update={"status": "assimilated"}),
+            decision=decision,
+            added_entries=list(entries),
+            predecessor_entries=[],
+            source_refs_by_entry={entry.id: [source] for entry in entries},
+        )
+    )
+    return project_root, _run(
+        store.list_entries("demo", project_root=project_root)
     )
 
 
@@ -120,7 +176,9 @@ def test_dream_supersede_candidates_wait_for_explicit_review(
 
     run = _run(dream_once(backend, project_name="demo", config=None, source="agent"))
 
-    reloaded_candidate = _run(backend.structured_store.get_supersede_candidate(candidate.id))
+    reloaded_candidate = _run(
+        backend.structured_store.get_supersede_candidate(candidate.id)
+    )
     old_entry = _run(backend.structured_store.get_memory_entry(old_id))
     new_entry = _run(backend.structured_store.get_memory_entry(new_id))
 
@@ -140,6 +198,227 @@ def test_dream_supersede_candidates_wait_for_explicit_review(
         "action": "supersede",
         "decisions": ["confirm", "reject"],
     }
+
+
+def test_dream_never_directly_mutates_legacy_merge_or_stale_truth(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = MemoryEntry(
+        id="legacy-a",
+        project_name="demo",
+        category="decision",
+        content="Keep the first legacy truth.",
+        source="fixture",
+        status="user_confirmed",
+    )
+    second = MemoryEntry(
+        id="legacy-b",
+        project_name="demo",
+        category="decision",
+        content="Keep the second legacy truth.",
+        source="fixture",
+        status="user_confirmed",
+    )
+    _run(backend.structured_store.save_memory_entry(first))
+    _run(backend.structured_store.save_memory_entry(second))
+    merge = MergeSuggestionCandidate(
+        id="legacy-merge",
+        project_name="demo",
+        target_a_id=first.id,
+        target_a_kind="memory_entry",
+        target_b_id=second.id,
+        target_b_kind="memory_entry",
+        similarity_score=0.99,
+        metabolism_run_id="pending",
+    )
+    stale = StaleTruthSuggestionCandidate(
+        id="legacy-stale",
+        project_name="demo",
+        target_id=first.id,
+        target_kind="memory_entry",
+        days_since_last_surface=365,
+        metabolism_run_id="pending",
+    )
+
+    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
+        return MetabolismPass(
+            window=_empty_window(), merge=[merge], stale=[stale], supersede=[]
+        )
+
+    monkeypatch.setattr(
+        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
+    )
+    run = _run(dream_once(backend, project_name="demo", config=MergedConfig()))
+
+    assert [item.final_action for item in run.items] == [
+        "pending_review",
+        "pending_review",
+    ]
+    assert _run(backend.structured_store.get_memory_entry(first.id)).valid_to is None
+    assert _run(backend.structured_store.get_memory_entry(second.id)).valid_to is None
+    assert _run(backend.structured_store.get_merge_suggestion_candidate(merge.id)).status == "pending"
+    assert _run(backend.structured_store.get_stale_truth_suggestion_candidate(stale.id)).status == "pending"
+
+
+def test_dream_queues_separated_duplicate_for_reverification_without_truth_mutation(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = backend.structured_store.knowledge_store
+    first = KnowledgeEntry(
+        id="knowledge-first",
+        project_name="demo",
+        title="Preserve evidence",
+        statement="Keep original evidence before normalization.",
+        module_path=["ingestion"],
+    )
+    second = KnowledgeEntry(
+        id="knowledge-second",
+        project_name="demo",
+        title="Keep source evidence",
+        statement="Keep original evidence before normalization.",
+        module_path=["ingestion"],
+    )
+    project_root, current = _publish_current_knowledge(backend, first, second)
+    first, second = current
+
+    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
+        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
+
+    monkeypatch.setattr(
+        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
+    )
+    run = _run(
+        dream_once(
+            backend,
+            project_name="demo",
+            project_root=project_root,
+            config=None,
+            source="agent",
+        )
+    )
+
+    candidates = _run(store.list_candidates("demo"))
+    assert [item.final_action for item in run.items] == ["pending_review"]
+    assert candidates[0].status == "pending"
+    assert candidates[0].statement == first.statement
+    assert _run(
+        store.get_entry(first.id, project_name="demo", project_root=project_root)
+    ) == first
+    assert _run(
+        store.get_entry(second.id, project_name="demo", project_root=project_root)
+    ) == second
+
+
+def test_dream_queues_competing_current_knowledge_without_selecting_a_winner(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = backend.structured_store.knowledge_store
+    first = KnowledgeEntry(
+        id="knowledge-current-a",
+        project_name="demo",
+        title="Evidence retention",
+        statement="Keep original evidence for seven days.",
+        module_path=["ingestion"],
+    )
+    second = KnowledgeEntry(
+        id="knowledge-current-b",
+        project_name="demo",
+        title="Evidence retention",
+        statement="Keep original evidence for thirty days.",
+        module_path=["ingestion"],
+    )
+    project_root, current = _publish_current_knowledge(backend, first, second)
+    first, second = current
+
+    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
+        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
+
+    monkeypatch.setattr(
+        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
+    )
+    run = _run(
+        dream_once(
+            backend,
+            project_name="demo",
+            project_root=project_root,
+            config=None,
+            source="agent",
+        )
+    )
+
+    conflict = next(
+        item for item in run.items if item.source_kind == "knowledge_conflict"
+    )
+    assert conflict.final_action == "pending_review"
+    assert set(conflict.result["target_knowledge_ids"]) == {first.id, second.id}
+    assert _run(
+        store.get_entry(first.id, project_name="demo", project_root=project_root)
+    ) == first
+    assert _run(
+        store.get_entry(second.id, project_name="demo", project_root=project_root)
+    ) == second
+
+
+def test_dream_turns_aged_claim_and_negative_feedback_into_reverification_only(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = backend.structured_store.knowledge_store
+    entry = KnowledgeEntry(
+        id="knowledge-aged",
+        project_name="demo",
+        title="Retention period",
+        statement="Keep original evidence for thirty days.",
+        module_path=["ingestion"],
+        verified_at=datetime.now(timezone.utc) - timedelta(days=181),
+    )
+    project_root, current = _publish_current_knowledge(backend, entry)
+    entry = current[0]
+    _run(
+        record_retrieval_signal(
+            backend,
+            project_name="demo",
+            signal_type="context_outcome",
+            target_kind="knowledge_entry",
+            target_id=entry.id,
+            value=-1.0,
+            context={"outcome": "misleading"},
+        )
+    )
+
+    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
+        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
+
+    monkeypatch.setattr(
+        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
+    )
+    run = _run(
+        dream_once(
+            backend,
+            project_name="demo",
+            project_root=project_root,
+            config=None,
+            source="agent",
+        )
+    )
+
+    kinds = {item.source_kind for item in run.items}
+    assert {"knowledge_stale", "knowledge_feedback"} <= kinds
+    assert all(item.final_action == "pending_review" for item in run.items)
+    assert _run(
+        store.get_entry(entry.id, project_name="demo", project_root=project_root)
+    ) == entry
+    evidence_codes = {
+        code
+        for candidate in _run(store.list_candidates("demo"))
+        for evidence in _run(store.list_evidence(candidate.id))
+        for code in evidence.verification_reason_codes
+    }
+    assert "dream_implementation_verification_aged" in evidence_codes
+    assert "dream_negative_retrieval_feedback" in evidence_codes
 
 
 def test_dream_auto_tick_persists_skipped_receipt_separately_from_runs(

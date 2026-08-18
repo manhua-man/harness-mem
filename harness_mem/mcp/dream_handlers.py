@@ -19,9 +19,9 @@ from harness_mem.commands.dream import (
     undo_dream_item,
 )
 from harness_mem.commands.replay_window import ReplayBudget
-from harness_mem.commands.support import get_active_project
+from harness_mem.commands.support import find_project_root, get_active_project
 from harness_mem.config.errors import ConfigError
-from harness_mem.config.merge import load_merged_config
+from harness_mem.config.merge import MergedConfig, load_merged_config
 
 from .handler_facade_proxy import tool_handlers_facade as _core
 
@@ -142,8 +142,19 @@ def _dream_budget_from_payload(budget: dict | None) -> ReplayBudget | None:
     return ReplayBudget(**budget_kwargs)
 
 
-def _resolve_project_root_for_dream(project_root: str | None) -> str:
-    return str(Path(project_root).resolve() if project_root else Path.cwd().resolve())
+def _resolve_project_root_for_dream(
+    project_name: str,
+    project_root: str | None,
+) -> str | None:
+    """Resolve a real project root without borrowing an unrelated cwd."""
+
+    if project_root:
+        root = Path(project_root).expanduser().resolve()
+        if not root.is_dir():
+            raise ConfigError(f"project root does not exist: {root}")
+        return str(root)
+    discovered = find_project_root(project_name)
+    return str(discovered.resolve()) if discovered is not None else None
 
 
 def tool_dream_ledger(
@@ -182,9 +193,9 @@ def tool_dream_run(
             "error": "project_name is required when no active project is set",
             **_dream_run_summary(None),
         }
-    root = _resolve_project_root_for_dream(project_root)
     try:
-        config = load_merged_config(root)
+        root = _resolve_project_root_for_dream(resolved, project_root)
+        config = load_merged_config(root) if root is not None else MergedConfig()
     except ConfigError as exc:
         return {"success": False, "error": str(exc), **_dream_run_summary(None)}
     backend = _get_backend()
@@ -193,6 +204,7 @@ def tool_dream_run(
             dream_once(
                 backend,
                 project_name=resolved,
+                project_root=root,
                 config=config,
                 source="agent",
                 budget=_dream_budget_from_payload(budget),
@@ -225,8 +237,12 @@ def tool_dream_auto_tick(
             "error": "project_name is required when no active project is set",
             **_dream_run_summary(None),
         }
-    root = _resolve_project_root_for_dream(project_root)
     try:
+        root = _resolve_project_root_for_dream(resolved, project_root)
+        if root is None:
+            raise ConfigError(
+                f"project root is required for automatic Dream: {resolved}"
+            )
         config = load_merged_config(root)
     except ConfigError as exc:
         return {"success": False, "error": str(exc), **_dream_run_summary(None)}

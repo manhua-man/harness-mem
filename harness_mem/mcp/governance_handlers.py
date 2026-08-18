@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from harness_mem.core.schemas import EvidenceRef, SupersedeCandidate
+from harness_mem.core.schemas.assimilation import AssimilationDisposition
 from harness_mem.event_log import StateEventType
 from harness_mem.retrieval_signals import record_retrieval_signal
 
@@ -87,6 +88,72 @@ def _assimilation_fields(
 def _apply_assimilation_fields(candidate: Any, fields: dict[str, Any]) -> None:
     for key, value in fields.items():
         setattr(candidate, key, value)
+
+
+def _revalidate_legacy_candidate(
+    backend: Any,
+    *,
+    candidate: Any,
+    kind: str,
+) -> str:
+    """Run the Answer Gate before a compatibility candidate can become truth."""
+
+    from harness_mem.commands.evidence_admission import (
+        answer_gate_status,
+        apply_validation,
+        validate_candidate_evidence,
+    )
+
+    validation = asyncio.run(validate_candidate_evidence(backend, candidate))
+    apply_validation(candidate, validation)
+    if kind == "memory":
+        asyncio.run(backend.structured_store.save_memory_entry(candidate))
+    elif kind == "rule":
+        asyncio.run(backend.structured_store.save_rule_candidate(candidate))
+    elif kind == "relation":
+        asyncio.run(backend.structured_store.save_relation_fact(candidate))
+    else:  # pragma: no cover - internal callers constrain this union.
+        raise ValueError(f"unsupported legacy candidate kind: {kind}")
+    return answer_gate_status(candidate)
+
+
+def _mirror_separated_suggestion(
+    backend: Any,
+    *,
+    kind: str,
+    result: dict[str, Any],
+) -> None:
+    """Keep the 0.9.x compatibility candidate out of the new audit boundary."""
+
+    if not result.get("success"):
+        return
+    candidate_id = str(result.get("entry_id") or result.get("candidate_id") or "")
+    if not candidate_id:
+        raise ValueError("suggestion succeeded without a candidate id")
+    if kind == "memory":
+        candidate = asyncio.run(backend.structured_store.get_memory_entry(candidate_id))
+    elif kind == "rule":
+        candidate = asyncio.run(
+            backend.structured_store.get_rule_candidate(candidate_id)
+        )
+    else:
+        candidate = asyncio.run(
+            backend.structured_store.get_relation_fact(candidate_id)
+        )
+    if candidate is None:
+        raise ValueError("suggestion succeeded without a readable candidate")
+    # MCP callers may propose an evidence envelope, but cannot promote their
+    # own assertion that it is verified.  Re-run the trusted admission gate
+    # before this compatibility row is mirrored into the separated review
+    # boundary.  A manual suggestion without a job-bound source therefore
+    # remains unverified and cannot be decided as current knowledge.
+    _revalidate_legacy_candidate(backend, candidate=candidate, kind=kind)
+    from harness_mem.commands.knowledge_assimilation import (
+        mirror_candidate_and_evidence,
+    )
+
+    asyncio.run(mirror_candidate_and_evidence(backend, candidate))
+
 
 def tool_create_rule_candidate(
     project_name: str,
@@ -194,7 +261,9 @@ def tool_reject_rule(rule_id: str, reason: str | None = None) -> dict:
     if candidate.status in TRUTH_LAYER_STATUSES or candidate.status == "rejected":
         return {"success": False, "error": f"Candidate already processed: {rule_id}"}
 
-    asyncio.run(backend.structured_store.update_rule_candidate_status(rule_id, "rejected"))
+    asyncio.run(
+        backend.structured_store.update_rule_candidate_status(rule_id, "rejected")
+    )
     state_event_id = _record_state_event(
         backend,
         event_type=StateEventType.TRUTH_REJECTED,
@@ -265,9 +334,14 @@ def tool_suggest_supersede(
 
 def tool_confirm_supersede(candidate_id: str) -> dict:
     backend = _get_backend()
-    confirmed = asyncio.run(backend.structured_store.confirm_supersede_candidate(candidate_id))
+    confirmed = asyncio.run(
+        backend.structured_store.confirm_supersede_candidate(candidate_id)
+    )
     if confirmed is None:
-        return {"success": False, "error": f"Candidate not found or not pending: {candidate_id}"}
+        return {
+            "success": False,
+            "error": f"Candidate not found or not pending: {candidate_id}",
+        }
     asyncio.run(
         record_retrieval_signal(
             backend,
@@ -308,12 +382,21 @@ def tool_confirm_supersede(candidate_id: str) -> dict:
 
 def tool_reject_supersede(candidate_id: str) -> dict:
     backend = _get_backend()
-    candidate = asyncio.run(backend.structured_store.get_supersede_candidate(candidate_id))
+    candidate = asyncio.run(
+        backend.structured_store.get_supersede_candidate(candidate_id)
+    )
     if not candidate:
         return {"success": False, "error": f"Candidate not found: {candidate_id}"}
-    updated = asyncio.run(backend.structured_store.update_supersede_candidate_status(candidate_id, "rejected"))
+    updated = asyncio.run(
+        backend.structured_store.update_supersede_candidate_status(
+            candidate_id, "rejected"
+        )
+    )
     if not updated:
-        return {"success": False, "error": f"Failed to reject candidate: {candidate_id}"}
+        return {
+            "success": False,
+            "error": f"Failed to reject candidate: {candidate_id}",
+        }
     state_event_id = _record_state_event(
         backend,
         event_type=StateEventType.TRUTH_REJECTED,
@@ -361,7 +444,9 @@ def tool_suggest_correction(
     from harness_mem.governance_status import user_confirm_status
 
     backend = _get_backend()
-    old_rule = asyncio.run(backend.structured_store.get_confirmed_rule(supersedes_rule_id))
+    old_rule = asyncio.run(
+        backend.structured_store.get_confirmed_rule(supersedes_rule_id)
+    )
     if old_rule is None:
         return {
             "success": False,
@@ -473,7 +558,9 @@ def tool_suggest_correction(
         "new_rule_id": new_rule.id,
         "old_rule_id": old_rule.id,
         "supersede_candidate_id": candidate.id,
-        "old_rule_valid_to": confirmed.reviewed_at.isoformat() if confirmed.reviewed_at else None,
+        "old_rule_valid_to": confirmed.reviewed_at.isoformat()
+        if confirmed.reviewed_at
+        else None,
         "state_event_ids": [
             event_id
             for event_id in (truth_state_event_id, supersede_state_event_id)
@@ -527,7 +614,9 @@ def tool_suggest_rule(
         topic_path=topic_path,
     )
     if candidate_id is not None:
-        existing = asyncio.run(backend.structured_store.get_rule_candidate(candidate_id))
+        existing = asyncio.run(
+            backend.structured_store.get_rule_candidate(candidate_id)
+        )
         if existing is not None:
             _apply_evidence_fields(existing, evidence_fields)
             _apply_assimilation_fields(existing, assimilation_fields)
@@ -603,6 +692,7 @@ def tool_suggest_memory_entry(
 ) -> dict:
     """Suggest a memory entry for later review."""
     from harness_mem.core.schemas.memory_entry import MemoryEntry
+
     backend = _get_backend()
     entry_id = _distill_candidate_id(
         backend,
@@ -715,7 +805,9 @@ def tool_confirm_memory_entry(entry_id: str) -> dict:
 def tool_reject_memory_entry(entry_id: str) -> dict:
     """Reject a pending memory entry."""
     backend = _get_backend()
-    success = asyncio.run(backend.structured_store.update_memory_entry_status(entry_id, "rejected"))
+    success = asyncio.run(
+        backend.structured_store.update_memory_entry_status(entry_id, "rejected")
+    )
     state_event_id = None
     if success:
         entry = asyncio.run(backend.structured_store.get_memory_entry(entry_id))
@@ -757,6 +849,7 @@ def tool_suggest_relation_fact(
 ) -> dict:
     """Suggest a relation fact for later review."""
     from harness_mem.core.schemas.relation_fact import RelationFact
+
     backend = _get_backend()
     fact_id = _distill_candidate_id(
         backend,
@@ -875,7 +968,9 @@ def tool_confirm_relation_fact(fact_id: str) -> dict:
 def tool_reject_relation_fact(fact_id: str) -> dict:
     """Reject a pending relation fact."""
     backend = _get_backend()
-    success = asyncio.run(backend.structured_store.update_relation_fact_status(fact_id, "rejected"))
+    success = asyncio.run(
+        backend.structured_store.update_relation_fact_status(fact_id, "rejected")
+    )
     state_event_id = None
     if success:
         fact = asyncio.run(backend.structured_store.get_relation_fact(fact_id))
@@ -908,6 +1003,7 @@ def tool_create_task_handoff(
 ) -> dict:
     """Create a task handoff to record progress."""
     from harness_mem.core.schemas.task_handoff import TaskHandoff
+
     backend = _get_backend()
     handoff_id = _distill_candidate_id(
         backend,
@@ -955,21 +1051,98 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
             }
             handler = suggest_handlers.get(kind)
             if handler is None:
-                return {"success": False, "error": "suggest kind must be memory, rule, or relation"}
+                return {
+                    "success": False,
+                    "error": "suggest kind must be memory, rule, or relation",
+                }
             result = handler(**args)
+            _mirror_separated_suggestion(_get_backend(), kind=kind, result=result)
         elif action == "decide":
             kind = str(args.pop("kind", ""))
             decision = str(args.pop("decision", ""))
             candidate_id = str(args.pop("candidate_id", ""))
             reason = args.pop("reason", None)
+            if kind == "knowledge":
+                if decision == "undo":
+                    decision_id = str(args.pop("decision_id", ""))
+                    if args or not decision_id:
+                        return {
+                            "success": False,
+                            "error": "knowledge undo requires decision_id and optional reason",
+                        }
+                    from harness_mem.commands.knowledge_assimilation import (
+                        undo_separated_review,
+                    )
+
+                    result = asyncio.run(
+                        undo_separated_review(
+                            _get_backend(),
+                            decision_id=decision_id,
+                            reason=str(reason or "review undo"),
+                        )
+                    )
+                    return {"governance_action": action, "success": True, **result}
+                disposition = str(
+                    args.pop(
+                        "disposition", "add" if decision == "confirm" else "reject"
+                    )
+                )
+                knowledge_items = list(args.pop("knowledge_items", []) or [])
+                target_knowledge_ids = list(args.pop("target_knowledge_ids", []) or [])
+                if (
+                    args
+                    or decision not in {"confirm", "reject"}
+                    or not candidate_id
+                    or disposition
+                    not in {
+                        "add",
+                        "refine",
+                        "confirm",
+                        "supersede",
+                        "no_write",
+                        "handoff",
+                        "defer",
+                        "conflict",
+                        "reject",
+                    }
+                ):
+                    return {
+                        "success": False,
+                        "error": (
+                            "knowledge decide requires confirm|reject, candidate_id, and "
+                            "optional disposition, knowledge_items, and target_knowledge_ids"
+                        ),
+                    }
+                from harness_mem.commands.knowledge_assimilation import (
+                    resolve_separated_review,
+                )
+
+                result = asyncio.run(
+                    resolve_separated_review(
+                        _get_backend(),
+                        candidate_id=candidate_id,
+                        disposition=cast(AssimilationDisposition, disposition),
+                        reason=str(reason or f"review {decision}"),
+                        knowledge_items=knowledge_items,
+                        target_knowledge_ids=target_knowledge_ids,
+                    )
+                )
+                return {"governance_action": action, "success": True, **result}
             if args:
-                return {"success": False, "error": f"unexpected decide arguments: {sorted(args)}"}
+                return {
+                    "success": False,
+                    "error": f"unexpected decide arguments: {sorted(args)}",
+                }
             decision_handlers: dict[tuple[str, str], Callable[[], dict[str, Any]]] = {
                 ("memory", "confirm"): lambda: tool_confirm_memory_entry(candidate_id),
                 ("memory", "reject"): lambda: tool_reject_memory_entry(candidate_id),
                 ("rule", "confirm"): lambda: tool_confirm_rule(candidate_id),
-                ("rule", "reject"): lambda: tool_reject_rule(candidate_id, reason=reason),
-                ("relation", "confirm"): lambda: tool_confirm_relation_fact(candidate_id),
+                ("rule", "reject"): lambda: tool_reject_rule(
+                    candidate_id, reason=reason
+                ),
+                ("relation", "confirm"): lambda: tool_confirm_relation_fact(
+                    candidate_id
+                ),
                 ("relation", "reject"): lambda: tool_reject_relation_fact(candidate_id),
             }
             handler = decision_handlers.get((kind, decision))
@@ -1004,5 +1177,3 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
     except (TypeError, ValueError) as exc:
         return {"success": False, "error": f"invalid {action} arguments: {exc}"}
     return {"governance_action": action, **result}
-
-
