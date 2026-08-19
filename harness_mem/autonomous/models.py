@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from harness_mem.core.schemas.assimilation import AssimilationDisposition
 from harness_mem.core.schemas.knowledge import ClaimKind
+from harness_mem.knowledge_validation import validate_atomic_knowledge_statement
 
 
 class _StrictModel(BaseModel):
@@ -29,75 +29,6 @@ class _CandidateBase(_StrictModel):
     verification_outcome: Literal["verified", "unverified", "contradicted"]
     verification_refs: list[VerificationRef] = Field(default_factory=list, max_length=8)
     verification_reason_codes: list[str] = Field(default_factory=list, max_length=8)
-
-
-def validate_atomic_knowledge_statement(value: str) -> str:
-    """Reject an obvious checklist of separate claims as one knowledge item.
-
-    This is deliberately a narrow fail-closed guard, not an attempt to judge
-    semantics with a regex.  A condition plus its required action remains
-    valid.  A statement that enumerates four or more distinct steps, or chains
-    several semicolon-separated conclusions, must return to the bounded
-    assimilation model for explicit splitting.
-    """
-
-    normalized = " ".join(value.split())
-    enumerated_clauses = [
-        clause.strip()
-        for clause in re.split(r"[、,，]", normalized)
-        if clause.strip()
-    ]
-    pipeline_action_prefixes = (
-        "capture ",
-        "preserve ",
-        "normalize ",
-        "validate ",
-        "publish ",
-        "store ",
-        "load ",
-        "read ",
-        "write ",
-        "create ",
-        "delete ",
-        "抓取",
-        "保存",
-        "规范化",
-        "校验",
-        "验证",
-        "发布",
-        "读取",
-        "组装",
-        "创建",
-        "删除",
-    )
-    if len(enumerated_clauses) >= 4 and sum(
-        clause.casefold().startswith(pipeline_action_prefixes)
-        for clause in enumerated_clauses
-    ) >= 3:
-        raise ValueError(
-            "knowledge item lists too many separate steps; split it into atomic items"
-        )
-    if normalized.count(";") + normalized.count("；") >= 2:
-        raise ValueError(
-            "knowledge item chains multiple conclusions; split it into atomic items"
-        )
-    obligation_markers = ("必须", "应当", "须", "must ", "should ", "required")
-    semicolon_clauses = [
-        clause.strip() for clause in normalized.replace("；", ";").split(";") if clause.strip()
-    ]
-    if len(semicolon_clauses) > 1 and sum(
-        any(marker in clause.casefold() for marker in obligation_markers)
-        for clause in semicolon_clauses
-    ) > 1:
-        raise ValueError(
-            "knowledge item combines independent obligations; split it into atomic items"
-        )
-    progression_markers = ("先", "再", "随后", "然后", "最后", "最终")
-    if sum(marker in normalized for marker in progression_markers) >= 3:
-        raise ValueError(
-            "knowledge item describes a multi-step pipeline; split it into atomic items"
-        )
-    return normalized
 
 
 def _assert_atomic_title(value: str) -> str:
@@ -142,7 +73,13 @@ class DistillCandidate(_CandidateBase):
 
 
 class CanonicalKnowledgeItem(_StrictModel):
-    """One atomic knowledge item created by a single point disposition."""
+    """One proposed knowledge item created by a single point disposition.
+
+    The provider schema validates shape only. Atomicity and specificity depend
+    on the verified candidate and are enforced by the trusted assimilation
+    runtime, where invalid proposals can receive bounded correction or the
+    source-clause fallback.
+    """
 
     title: str = Field(min_length=1, max_length=160)
     statement: str = Field(min_length=1, max_length=4000)
@@ -150,9 +87,10 @@ class CanonicalKnowledgeItem(_StrictModel):
     claim_kind: ClaimKind
 
     @model_validator(mode="after")
-    def require_atomic_statement(self) -> "CanonicalKnowledgeItem":
-        self.title = _assert_atomic_title(self.title)
-        self.statement = validate_atomic_knowledge_statement(self.statement)
+    def normalize_proposed_item(self) -> "CanonicalKnowledgeItem":
+        self.title = " ".join(self.title.split())
+        self.statement = " ".join(self.statement.split())
+        self.topic_path = [" ".join(part.split()) for part in self.topic_path]
         return self
 
 
@@ -173,6 +111,13 @@ class AssimilationPoint(_StrictModel):
     @model_validator(mode="after")
     def require_atomic_canonical_statement(self) -> "AssimilationPoint":
         target_count = len(self.matched_truth_handles)
+        if self.knowledge_items:
+            # Every item already carries the complete canonical shape. The
+            # point-level fields are a redundant legacy projection, so dropping
+            # them changes no knowledge semantics and keeps one write form.
+            self.canonical_title = None
+            self.canonical_statement = None
+            self.topic_path = []
         if self.disposition == "add" and target_count:
             raise ValueError("add must not target current truth")
         if self.disposition in {"confirm", "refine", "supersede"} and target_count != 1:

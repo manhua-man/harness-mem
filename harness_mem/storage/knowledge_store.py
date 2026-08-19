@@ -236,10 +236,16 @@ class KnowledgeStore:
                         self._store,
                         "knowledge_sources",
                         source.id,
+                        project_name=source.project_name,
                     )
                 )
             operations.append(
-                _delete_operation(self._store, "knowledge_entries", entry.id)
+                _delete_operation(
+                    self._store,
+                    "knowledge_entries",
+                    entry.id,
+                    project_name=entry.project_name,
+                )
             )
         for version in versions:
             operations.append(_new_operation("knowledge_versions", version.id, version.to_dict()))
@@ -341,10 +347,20 @@ class KnowledgeStore:
         for entry in retired:
             for source in retired_sources[entry.id]:
                 operations.append(
-                    _delete_operation(self._store, "knowledge_sources", source.id)
+                    _delete_operation(
+                        self._store,
+                        "knowledge_sources",
+                        source.id,
+                        project_name=source.project_name,
+                    )
                 )
             operations.append(
-                _delete_operation(self._store, "knowledge_entries", entry.id)
+                _delete_operation(
+                    self._store,
+                    "knowledge_entries",
+                    entry.id,
+                    project_name=entry.project_name,
+                )
             )
         for version in retired_versions:
             operations.append(_new_operation("knowledge_versions", version.id, version.to_dict()))
@@ -377,6 +393,17 @@ class KnowledgeStore:
             return None
         return KnowledgeVersion.from_dict(
             self._store.read_record_payload("knowledge_versions", version_id)
+        )
+
+    async def list_versions(self, project_name: str) -> list[KnowledgeVersion]:
+        return sorted(
+            (
+                KnowledgeVersion.from_dict(payload)
+                for payload in self._store.list_record_payloads(
+                    "knowledge_versions", project_name=project_name
+                )
+            ),
+            key=lambda item: (item.recorded_at, item.id),
         )
 
     async def get_mutation(self, mutation_id: str) -> KnowledgeMutation | None:
@@ -423,7 +450,12 @@ class KnowledgeStore:
         for item in removed:
             if self._store.record_payload_exists("knowledge_mutations", item.id):
                 operations.append(
-                    _delete_operation(self._store, "knowledge_mutations", item.id)
+                    _delete_operation(
+                        self._store,
+                        "knowledge_mutations",
+                        item.id,
+                        project_name=item.project_name,
+                    )
                 )
             for version_id in item.predecessor_version_ids:
                 if (
@@ -437,6 +469,7 @@ class KnowledgeStore:
                             self._store,
                             "knowledge_versions",
                             version_id,
+                            project_name=item.project_name,
                         )
                     )
         return operations
@@ -543,11 +576,16 @@ def _knowledge_sources(
 ) -> list[KnowledgeSource]:
     verified_at = entry.verified_at or entry.updated_at
     sources: list[KnowledgeSource] = []
+    seen: set[tuple[str, str]] = set()
     for ref in refs:
         parsed = urlparse(ref.target)
         source_kind = str(ref.kind or "").strip()
         if not source_kind:
             source_kind = "repository" if parsed.scheme == "file" and not parsed.fragment else "transcript"
+        source_key = (source_kind, ref.target)
+        if source_key in seen:
+            continue
+        seen.add(source_key)
         identity = f"{entry.id}\0{source_kind}\0{ref.target}"
         sources.append(
             KnowledgeSource(
@@ -600,14 +638,19 @@ def _delete_operation(
     store: LocalStructuredStore,
     collection: str,
     entity_id: str,
+    *,
+    project_name: str,
 ) -> dict:
-    digest = store.record_payload_sha256(collection, entity_id)
+    digest = store.record_payload_sha256(
+        collection, entity_id, project_name=project_name
+    )
     if digest is None:
         raise ValueError(f"current {collection} record is missing: {entity_id}")
     return {
         "operation": "delete",
         "collection": collection,
         "entity_id": entity_id,
+        "project_name": project_name,
         "expected_sha256": digest,
     }
 

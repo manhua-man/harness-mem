@@ -463,7 +463,16 @@ def apply_native_source_cleanup(plan: NativeCleanupPlan) -> dict:
                 not action.target.exists() and not _claim_path(plan, action).exists()
                 for action in plan.actions
             ):
-                return _result(plan, "deleted", skipped=len(plan.actions))
+                # A vanished locator is not proof that this cleanup deleted it.
+                # Successful replays are answered from the persisted completion
+                # receipt before reaching this function; an unclaimed plan must
+                # fail closed when the host moved or removed the source.
+                return _result(
+                    plan,
+                    "partial_failure",
+                    reason_codes=("native_source_missing_before_claim",),
+                    skipped=len(plan.actions),
+                )
             return _result(
                 plan,
                 "retained",

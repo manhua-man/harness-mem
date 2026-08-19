@@ -1,9 +1,10 @@
 # SQLite Current-Knowledge Convergence
 
-Status: `0.9.16`--`0.9.19` are implemented and test-verified in the current
-worktree but are not released. The repeatable `0.9.20` six-session isolated
-runtime acceptance passes. A fresh generation-bound Desktop Hook and the full
-14-claim outcome contract also pass. The published package remains `0.9.12`.
+Status: released as `0.9.20`. The repeatable six-session isolated runtime
+acceptance uses a pre-frozen, source-digest-bound oracle and verifies extraction,
+per-point answers, assimilation, truth lineage, normal readback, Notes, and
+Answer Packets. A fresh generation-bound Desktop Hook and the full 14-claim
+outcome contract also pass.
 This plan does not authorize migration,
 deletion, or redistillation of real user memory.
 
@@ -230,7 +231,7 @@ already exist.
 
 ### 0.9.16 — Remove the rejected authority model and establish SQLite truth
 
-Status: implemented in the worktree; not released.
+Status: released in `0.9.20`.
 
 - rewrite `KnowledgeStore` so `knowledge_entries` is authoritative;
 - simplify `KnowledgeEntry` to the approved semantic fields plus hidden storage
@@ -248,7 +249,7 @@ Markdown authority and no permanent candidate/evidence/decision collections.
 
 ### 0.9.17 — Make processing material temporary
 
-Status: implemented in the worktree; not released.
+Status: released in `0.9.20`.
 
 - bind candidate, evidence, and proposed decision data to one job workspace;
 - implement terminal cleanup ordering and TTL recovery;
@@ -264,7 +265,7 @@ corpus.
 
 ### 0.9.18 — Converge retrieval and presentation
 
-Status: implemented in the worktree; not released.
+Status: released in `0.9.20`.
 
 - make wake/search/search-all read SQLite current knowledge only;
 - make FTS/vector index only `module_path + title + statement`;
@@ -279,7 +280,7 @@ or explicitly requested source.
 
 ### 0.9.19 — Converge Review and Dream
 
-Status: implemented in the worktree; not released.
+Status: released in `0.9.20`.
 
 - route confirm/refine/supersede/undo through the same SQLite transaction;
 - re-open the real current source before changing durable truth;
@@ -294,7 +295,7 @@ or an invalid target ID.
 
 ### 0.9.20 — Isolated six-session product acceptance
 
-Status: passed in the current worktree on 2026-08-19; not released. The isolated
+Status: released in `0.9.20` after passing on 2026-08-19. The isolated
 run did not touch the real runtime data root, and the later real Hook did not
 authorize or perform legacy-memory migration.
 
@@ -412,7 +413,7 @@ updated in parallel. Each slice begins with removal/contract tests, then runtime
 implementation, targeted tests, full tests, and finally user-outcome probes
 when the slice changes a user-visible or asynchronous result.
 
-The `0.9.20` evidence is complete: the isolated six-session SQLite knowledge is
-available for user review, the fresh Desktop Hook is dispatch-generation bound,
-and the full outcome contract passes. Packaging, commits, or release remain
-separate actions. No real-memory migration is authorized by this document.
+The `0.9.20` evidence is complete and released: the isolated six-session SQLite
+knowledge matches the frozen expected-point oracle, the fresh Desktop Hook is
+dispatch-generation bound, and the full outcome contract passes. No real-memory
+migration is authorized by this document.

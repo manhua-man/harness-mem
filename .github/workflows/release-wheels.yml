@@ -96,10 +96,10 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: >-
-          python scripts/smoke_fresh_install.py
+          python code/scripts/smoke_fresh_install.py
           --expected-version ${{ github.ref_name }}
       - name: Verify seven-host transcript-to-wake replay
-        run: python scripts/smoke_host_replay.py --require-installed-wheel
+        run: python code/scripts/smoke_host_replay.py --require-installed-wheel
 
   windows-upgrade-lifecycle-smoke:
     needs: [build-native-wheel]
@@ -135,7 +135,7 @@ jobs:
           subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheels[0])])"
       - name: Prepare baseline canonical and legacy state
         run: >-
-          python scripts/smoke_install_lifecycle.py prepare-upgrade
+          python code/scripts/smoke_install_lifecycle.py prepare-upgrade
           --expected-version "${{ env.UPGRADE_BASE_TAG }}"
           --state-dir "${{ env.UPGRADE_STATE_DIR }}"
           --require-installed-wheel
@@ -148,7 +148,7 @@ jobs:
           subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--force-reinstall', '--no-deps', '--find-links', 'dist', 'harness-mem==' + version])"
       - name: Verify migration rollback, legacy restore, and cleanup retry
         run: >-
-          python scripts/smoke_install_lifecycle.py verify-upgrade
+          python code/scripts/smoke_install_lifecycle.py verify-upgrade
           --expected-version "${{ github.ref_name }}"
           --state-dir "${{ env.UPGRADE_STATE_DIR }}"
           --require-installed-wheel
@@ -177,10 +177,10 @@ jobs:
       - name: Verify packaged embedding and sqlite-vec generation contracts
         run: >-
           python -m pytest -q
-          tests/test_embedding_batch_rebuild.py
-          tests/test_sqlite_vec_index.py
-          tests/test_vec0_generation_failures.py
-          tests/test_doctor_vec0.py
+          code/tests/test_embedding_batch_rebuild.py
+          code/tests/test_sqlite_vec_index.py
+          code/tests/test_vec0_generation_failures.py
+          code/tests/test_doctor_vec0.py
 
   full-python-release-gate:
     needs: [build-native-wheel]

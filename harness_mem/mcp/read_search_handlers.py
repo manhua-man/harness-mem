@@ -15,13 +15,11 @@ from harness_mem.read_api import (
     serialize_relation_fact_search_result,
 )
 from harness_mem.recall import build_search_recall_result
-from harness_mem.retrieval_signals import record_retrieval_signal
 from harness_mem.read_knowledge import search_current_knowledge
 from harness_mem.task_context_runtime import orchestrate_task_context
 
 from .handler_facade_proxy import tool_handlers_facade as _core
 from harness_mem.mcp.read_query_support import (
-    _action,
     _autopilot_dx_metadata,
     _count_mainline_historical_exclusions,
     _new_retrieval_id,
@@ -34,6 +32,10 @@ from harness_mem.mcp.read_query_support import (
 from harness_mem.mcp.read_projection import (
     project_memory_entries,
     project_relation_facts,
+)
+from harness_mem.mcp.read_feedback_handlers import (
+    VALID_CONTEXT_OUTCOMES,
+    tool_record_context_outcome as _tool_record_context_outcome,
 )
 
 
@@ -62,12 +64,6 @@ async def _gather_project_status(*args, **kwargs):
 
 
 VALID_MEMORY_TYPES: frozenset[str] = frozenset({"episodic", "semantic", "procedural"})
-VALID_CONTEXT_OUTCOMES: frozenset[str] = frozenset({"used", "ignored", "misleading"})
-CONTEXT_OUTCOME_VALUES: dict[str, float] = {
-    "used": 1.0,
-    "ignored": 0.0,
-    "misleading": -1.0,
-}
 VALID_RETRIEVAL_PROFILES: frozenset[str] = frozenset({"light", "quality"})
 RetrievalProfile = Literal["light", "quality"]
 
@@ -150,7 +146,8 @@ def tool_search_memory(
                 time_window=None,
             )
         )
-        asyncio.run(
+        retrieval_id = _new_retrieval_id()
+        clean_retrieval_receipt = asyncio.run(
             _record_search_quality_signals(
                 backend,
                 project_name=project_name,
@@ -159,6 +156,7 @@ def tool_search_memory(
                 response=SimpleNamespace(results=separated_entries),
                 context_plan=None,
                 historical_excluded=historical_excluded,
+                retrieval_id=retrieval_id,
             )
         )
         return {
@@ -166,32 +164,80 @@ def tool_search_memory(
             "query": query,
             "status": "answered" if separated_entries else "empty",
             "memories": project_memory_entries(separated_entries),
+            "retrieval_id": retrieval_id,
+            "record_outcome_call": (
+                {
+                    "tool": "record_context_outcome",
+                    "arguments": {
+                        "project_name": project_name,
+                        "surface": "search_memory",
+                        "retrieval_id": retrieval_id,
+                    },
+                    "required_argument": "outcome",
+                    "allowed_outcomes": sorted(VALID_CONTEXT_OUTCOMES),
+                }
+                if clean_retrieval_receipt.get("source_ids")
+                else None
+            ),
         }
 
     if scope == "all" and clean_current_search:
         separated_entries = []
+        entries_by_project: dict[str, list[Any]] = {}
         for known_project in asyncio.run(
             backend.structured_store.knowledge_store.known_projects()
         ):
             try:
-                separated_entries.extend(
-                    asyncio.run(
-                        search_current_knowledge(
-                            backend,
-                            project_name=known_project,
-                            query=query,
-                            limit=20,
-                        )
+                project_entries = asyncio.run(
+                    search_current_knowledge(
+                        backend,
+                        project_name=known_project,
+                        query=query,
+                        limit=20,
                     )
                 )
             except ValueError:
                 # A deleted or moved authority is unavailable, not permission
                 # to fall back to legacy rows from canonical SQLite.
                 continue
+            entries_by_project[known_project] = project_entries
+            separated_entries.extend(project_entries)
         separated_entries = sorted(
             separated_entries,
             key=lambda entry: (entry.project_name, entry.title, entry.id),
         )[:20]
+        surfaced_ids = {entry.id for entry in separated_entries}
+        retrieval_id = _new_retrieval_id()
+        record_outcome_calls = []
+        for known_project, project_entries in entries_by_project.items():
+            surfaced = [entry for entry in project_entries if entry.id in surfaced_ids]
+            if not surfaced:
+                continue
+            receipt = asyncio.run(
+                _record_search_quality_signals(
+                    backend,
+                    project_name=known_project,
+                    query=query,
+                    entries=surfaced,
+                    response=SimpleNamespace(results=surfaced),
+                    context_plan=None,
+                    retrieval_id=retrieval_id,
+                    surface="search_all",
+                )
+            )
+            if receipt.get("source_ids"):
+                record_outcome_calls.append(
+                    {
+                        "tool": "record_context_outcome",
+                        "arguments": {
+                            "project_name": known_project,
+                            "surface": "search_all",
+                            "retrieval_id": retrieval_id,
+                        },
+                        "required_argument": "outcome",
+                        "allowed_outcomes": sorted(VALID_CONTEXT_OUTCOMES),
+                    }
+                )
         return {
             "project_name": None,
             "query": query,
@@ -200,6 +246,8 @@ def tool_search_memory(
                 separated_entries,
                 include_project=True,
             ),
+            "retrieval_id": retrieval_id,
+            "record_outcome_calls": record_outcome_calls,
         }
 
     profile_info = asyncio.run(
@@ -550,93 +598,19 @@ def tool_autopilot_search_tick(
 def tool_record_context_outcome(
     project_name: str,
     surface: str,
-    source_ids: list[str],
     outcome: str,
+    source_ids: list[str] | None = None,
     reason: str | None = None,
     retrieval_id: str | None = None,
 ) -> dict:
-    """Record whether surfaced context helped the task without mutating truth."""
-    resolved_project = (project_name or "").strip()
-    if not resolved_project:
-        return {
-            "success": False,
-            "error": "project_name must not be empty",
-            "truth_mutated": False,
-        }
-    normalized_surface = (surface or "").strip()
-    if not normalized_surface:
-        return {
-            "success": False,
-            "error": "surface must not be empty",
-            "truth_mutated": False,
-        }
-    normalized_outcome = (outcome or "").strip().lower()
-    if normalized_outcome not in VALID_CONTEXT_OUTCOMES:
-        return {
-            "success": False,
-            "error": "outcome must be one of: used, ignored, misleading",
-            "truth_mutated": False,
-        }
-    cleaned_source_ids = [
-        str(source_id).strip()
-        for source_id in (source_ids or [])
-        if str(source_id).strip()
-    ]
-    if not cleaned_source_ids:
-        return {
-            "success": False,
-            "error": "source_ids must contain at least one id",
-            "truth_mutated": False,
-        }
-    normalized_retrieval_id = (retrieval_id or "").strip()[:128] or None
+    """Compatibility entry preserving this module's injected backend seam."""
 
-    backend = _get_backend()
-    signal_ids: list[str] = []
-    failed_source_ids: list[str] = []
-    context = {
-        "surface": normalized_surface,
-        "outcome": normalized_outcome,
-        "reason": (reason or "").strip()[:500] or None,
-        "retrieval_id": normalized_retrieval_id,
-    }
-    value = CONTEXT_OUTCOME_VALUES[normalized_outcome]
-    for source_id in cleaned_source_ids:
-        signal = asyncio.run(
-            record_retrieval_signal(
-                backend,
-                project_name=resolved_project,
-                signal_type="context_outcome",
-                target_kind="context_source",
-                target_id=source_id,
-                value=value,
-                context=context,
-            )
-        )
-        if signal is None:
-            failed_source_ids.append(source_id)
-        else:
-            signal_ids.append(signal.id)
-
-    return {
-        "success": not failed_source_ids,
-        "project_name": resolved_project,
-        "surface": normalized_surface,
-        "outcome": normalized_outcome,
-        "retrieval_id": normalized_retrieval_id,
-        "recorded_count": len(signal_ids),
-        "failed_count": len(failed_source_ids),
-        "signal_ids": signal_ids,
-        "failed_source_ids": failed_source_ids,
-        "truth_mutated": False,
-        "next_actions": [
-            _action(
-                "search_again",
-                "/hm:search",
-                "Opt-in projects can use outcome signals as a small explainable ranking hint.",
-            )
-        ],
-        "why_this_result": (
-            f"Recorded {len(signal_ids)} context outcome signals; confirmed truth was not changed."
-        ),
-        "degraded_reason": "signal_write_failed" if failed_source_ids else None,
-    }
+    return _tool_record_context_outcome(
+        project_name=project_name,
+        surface=surface,
+        outcome=outcome,
+        source_ids=source_ids,
+        reason=reason,
+        retrieval_id=retrieval_id,
+        _backend=_get_backend(),
+    )

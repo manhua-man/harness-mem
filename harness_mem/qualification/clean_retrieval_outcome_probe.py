@@ -153,11 +153,18 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                 ),
                 "default_has_no_raw_observation": "raw session evidence"
                 not in json.dumps(default),
-                "default_has_no_audit_metadata": set(default) == {
+                "default_has_no_audit_metadata": all(
+                    set(item) == {"title", "statement"}
+                    for item in default.get("memories") or []
+                )
+                and set(default)
+                <= {
                     "project_name",
                     "query",
                     "status",
                     "memories",
+                    "retrieval_id",
+                    "record_outcome_call",
                 },
                 "deep_recall_returns_raw_observation": observation_id in deep_observation_ids,
                 "wake_default_has_no_raw_observation": (

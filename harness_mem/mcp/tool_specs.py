@@ -1114,7 +1114,10 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                 "source_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Returned source ids being rated.",
+                    "description": (
+                        "Optional returned source ids being rated. Omit when an opaque "
+                        "retrieval_id is available."
+                    ),
                 },
                 "outcome": {
                     "type": "string",
@@ -1133,7 +1136,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
                     ),
                 },
             },
-            "required": ["project_name", "surface", "source_ids", "outcome"],
+            "required": ["project_name", "surface", "outcome"],
         },
     },
     "dream_ledger": {

@@ -11,7 +11,7 @@ remain release records and do not override this list.
 | RRF algorithm tuning / adaptive IDF | deferred | Requires a measurable golden-suite win without stability loss. |
 | PyPI publishing | out of product | GitHub Releases remain the canonical package channel. |
 | Duplicate `mcp-router` / `mcp_router` JSON snapshots | removed in 0.9.6 | The byte-identical, unpackaged aggregate snapshots had no repository consumer and advertised stale tools. Live Router aliases remain supported. |
-| `mcps/grok_com_github/**` maintenance | out of product | Not a harness-mem product surface. |
+| `code/mcps/grok_com_github/**` maintenance | out of product | Not a harness-mem product surface. |
 | Active docs and host-command convergence | shipped in 0.9.1 | Retired governance vocabulary is removed and generated copies are guarded against drift. |
 | Deterministic offered-job distill | shipped in 0.9.3 | Optional `distill_job_id` exact targeting respects project scope, active-lane fairness, and retry backoff. Originally planned for 0.9.2. |
 | Split `tool_handlers.py` by bounded capability | shipped in 0.9.3 | Read/status/dream/distill/governance bodies sit behind the existing facade; the 27-tool public allowlist is unchanged. Originally planned for 0.9.2. |

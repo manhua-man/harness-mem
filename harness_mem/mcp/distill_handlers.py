@@ -1456,6 +1456,103 @@ def _uses_separated_assimilation(review: Mapping[str, Any] | None) -> bool:
     return isinstance(plan, dict) and plan.get("version") == "separated-v1"
 
 
+def _trusted_assimilation_preflight(
+    backend: LocalMemoryBackend,
+    *,
+    job: SessionDistillJob,
+    review_lease_owner: str,
+) -> list[str]:
+    """Recheck the trusted review boundary before any current-truth write."""
+
+    current = backend.transcript_store.get_distill_job(job.id)
+    now = datetime.now(timezone.utc)
+    if current is None or current.status != "reviewing":
+        return ["distill_review_not_ready"]
+    if current.review_lease_owner != review_lease_owner:
+        return ["review_lease_not_owned"]
+    if current.review_lease_until is None or current.review_lease_until <= now:
+        return ["review_lease_expired"]
+    # Atomically extend the owned lease before crossing into the separate
+    # canonical-truth transaction.  This is the commit claim: another worker
+    # cannot take ownership while the bounded local mutation and job finalize
+    # run, and a changed/expired lease fails before any truth write.
+    if not backend.transcript_store.renew_distill_review_lease(
+        current.id,
+        lease_owner=review_lease_owner,
+    ):
+        return ["review_lease_commit_claim_failed"]
+    current = backend.transcript_store.get_distill_job(current.id)
+    if current is None:
+        return ["distill_review_not_ready"]
+    source = backend.transcript_store.get_source(current.source_id)
+    if source is None:
+        return ["distill_source_missing"]
+    if source.source_revision != current.source_revision:
+        return ["source_revision_changed"]
+    checkpoints = backend.transcript_store.list_distill_checkpoints(current.id)
+    if (
+        len(checkpoints) != current.expected_chunk_count
+        or any(item.status != "completed" for item in checkpoints)
+    ):
+        return ["distill_chunks_incomplete"]
+    try:
+        backend.transcript_store.reconstruct(
+            current.source_id,
+            source_revision=current.source_revision,
+        )
+    except (KeyError, ValueError):
+        return ["source_content_address_invalid"]
+
+    # Re-read the compare-and-swap inputs after reconstruction. This catches a
+    # source revision or lease change that raced the content-address check.
+    confirmed = backend.transcript_store.get_distill_job(current.id)
+    confirmed_source = backend.transcript_store.get_source(current.source_id)
+    if confirmed is None or confirmed_source is None:
+        return ["distill_source_missing"]
+    if (
+        confirmed.status != "reviewing"
+        or confirmed.review_lease_owner != review_lease_owner
+        or confirmed.review_lease_until is None
+        or confirmed.review_lease_until <= datetime.now(timezone.utc)
+    ):
+        return ["review_lease_changed"]
+    if (
+        confirmed.source_revision != current.source_revision
+        or confirmed_source.source_revision != current.source_revision
+    ):
+        return ["source_revision_changed"]
+    return []
+
+
+async def _rollback_stale_assimilation(
+    backend: LocalMemoryBackend,
+    *,
+    job_id: str,
+    assimilation: Mapping[str, Any],
+) -> list[str]:
+    """Reverse truth committed for a job that lost its source CAS at finalize."""
+
+    store = backend.structured_store.knowledge_store
+    reversed_ids: list[str] = []
+    points = list(assimilation.get("points") or [])
+    for point in reversed(points):
+        mutation_id = str(point.get("mutation_id") or "").strip()
+        if not mutation_id:
+            continue
+        reversal_id = str(
+            uuid5(
+                NAMESPACE_URL,
+                f"harness-mem:stale-distill-rollback:{job_id}:{mutation_id}",
+            )
+        )
+        await store.undo_truth_mutation(
+            mutation_id=mutation_id,
+            reversal_id=reversal_id,
+        )
+        reversed_ids.append(mutation_id)
+    return reversed_ids
+
+
 def tool_finalize_session_distill(
     project_name: str,
     job_id: str,
@@ -1541,17 +1638,28 @@ def tool_finalize_session_distill(
             },
             "note": note,
         }
+    supplied_assimilation = semantic_review.get("assimilation")
+    if isinstance(supplied_assimilation, dict) and not _review_lease_owner:
+        return {
+            "success": False,
+            "project_name": project_name,
+            "distill_job_id": job.id,
+            "distill_status": job.status,
+            "error": "trusted_review_lease_required",
+            "reason_codes": ["unleased_assimilation_rejected"],
+        }
     if recovering_completion:
         candidate_ids = list(job.output_candidate_ids)
         completed = job
+        prefinalized_assimilation: dict[str, Any] | None = None
     else:
+        prefinalized_assimilation = None
         checkpoints = backend.transcript_store.list_distill_checkpoints(job.id)
         completed_checkpoints = sum(
             item.status == "completed" for item in checkpoints
         )
         if completed_checkpoints != job.expected_chunk_count:
             raise ValueError("not all distill chunks are complete")
-        supplied_assimilation = semantic_review.get("assimilation")
         if isinstance(supplied_assimilation, dict) and supplied_assimilation.get(
             "version"
         ) == "separated-v1":
@@ -1561,6 +1669,7 @@ def tool_finalize_session_distill(
                     backend,
                     project_name=project_name,
                     distill_job_id=job_id,
+                    include_candidate_ids=candidate_ids,
                 )
             )
             if (
@@ -1606,12 +1715,51 @@ def tool_finalize_session_distill(
                 "distill_status": job.status,
                 **challenge_error,
             }
+        if _uses_separated_assimilation(semantic_review):
+            # Current knowledge is the user-visible result, so it must commit
+            # before the job can claim a completed terminal state.  Each
+            # knowledge mutation is deterministic and replay-safe; if final
+            # job persistence fails, a retry replays these transactions and
+            # then commits the job exactly once.
+            assert _review_lease_owner is not None
+            preflight_reason_codes = _trusted_assimilation_preflight(
+                backend,
+                job=job,
+                review_lease_owner=_review_lease_owner,
+            )
+            if preflight_reason_codes:
+                return {
+                    "success": False,
+                    "project_name": project_name,
+                    "distill_job_id": job.id,
+                    "distill_status": job.status,
+                    "error": "trusted_assimilation_precondition_failed",
+                    "reason_codes": preflight_reason_codes,
+                }
+            prefinalized_assimilation = asyncio.run(
+                apply_separated_assimilation(
+                    backend,
+                    project_name=project_name,
+                    project_root=job.project_root,
+                    candidate_ids=candidate_ids,
+                    plan=semantic_review["assimilation"],
+                )
+            )
         completed = backend.transcript_store.finalize_distill_job(
             job_id,
             semantic_review=semantic_review,
             output_candidate_ids=candidate_ids,
             review_lease_owner=_review_lease_owner,
         )
+        if completed.status == "stale" and prefinalized_assimilation is not None:
+            rolled_back = asyncio.run(
+                _rollback_stale_assimilation(
+                    backend,
+                    job_id=job.id,
+                    assimilation=prefinalized_assimilation,
+                )
+            )
+            prefinalized_assimilation["rolled_back_mutation_ids"] = rolled_back
     payload: dict[str, Any] = {
         "success": completed.status == "completed",
         "project_name": project_name,
@@ -1656,15 +1804,17 @@ def tool_finalize_session_distill(
         isinstance(assimilation_plan, dict)
         and assimilation_plan.get("version") == "separated-v1"
     ):
-        assimilation_summary = asyncio.run(
-            apply_separated_assimilation(
-                backend,
-                project_name=project_name,
-                project_root=completed.project_root,
-                candidate_ids=candidate_ids,
-                plan=assimilation_plan,
+        assimilation_summary = prefinalized_assimilation
+        if assimilation_summary is None:
+            assimilation_summary = asyncio.run(
+                apply_separated_assimilation(
+                    backend,
+                    project_name=project_name,
+                    project_root=completed.project_root,
+                    candidate_ids=candidate_ids,
+                    plan=assimilation_plan,
+                )
             )
-        )
         payload["auto_review"] = {
             "skipped": True,
             "reason": "separated_autonomous_assimilation_applied",

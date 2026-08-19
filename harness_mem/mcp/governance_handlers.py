@@ -1063,6 +1063,12 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
             candidate_id = str(args.pop("candidate_id", ""))
             reason = args.pop("reason", None)
             if kind == "knowledge":
+                project_name = str(args.pop("project_name", "")).strip()
+                if not project_name:
+                    return {
+                        "success": False,
+                        "error": "knowledge decide requires project_name",
+                    }
                 if decision == "undo":
                     decision_id = str(args.pop("decision_id", ""))
                     if args or not decision_id:
@@ -1079,6 +1085,7 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
                             _get_backend(),
                             decision_id=decision_id,
                             reason=str(reason or "review undo"),
+                            expected_project_name=project_name,
                         )
                     )
                     return {"governance_action": action, "success": True, **result}
@@ -1125,6 +1132,7 @@ def tool_govern_memory(action: str, arguments: dict[str, Any]) -> dict:
                         reason=str(reason or f"review {decision}"),
                         knowledge_items=knowledge_items,
                         target_knowledge_ids=target_knowledge_ids,
+                        expected_project_name=project_name,
                     )
                 )
                 return {"governance_action": action, "success": True, **result}

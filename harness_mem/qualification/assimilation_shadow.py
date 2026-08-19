@@ -1,7 +1,7 @@
 """Read-only golden-corpus checks for the planned assimilation boundary.
 
 This module deliberately has no dependency on a backend, provider, or store.
-It makes the 0.9.13 safety contract executable without changing the 0.9.12
+It originated as the 0.9.13 safety contract without changing the then-current
 write path: a fixture point receives one proposed disposition, while the
 returned report proves that no canonical mutation was attempted.
 

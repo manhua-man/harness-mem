@@ -253,13 +253,19 @@ class CanonicalStoreRuntime:
             return None
         return json.loads(payload_json)
 
-    def get_row(self, collection: str, entity_id: str) -> CanonicalEntityRow | None:
+    def get_row(
+        self,
+        collection: str,
+        entity_id: str,
+        *,
+        project_name: str | None = None,
+    ) -> CanonicalEntityRow | None:
         with self._lock:
             table_name = canonical_table_for_collection(collection)
             if not _table_exists(self._conn, table_name):
                 return None
-            row = self._conn.execute(
-                f"""
+            if project_name is None:
+                sql = f"""
                 SELECT row_key, collection, entity_id, project_id, corpus_id, type,
                        truth_status, confidence, created_at, valid_from, valid_to,
                        tier, last_accessed_at, access_count, decay_score,
@@ -269,9 +275,21 @@ class CanonicalStoreRuntime:
                 WHERE collection = ? AND entity_id = ?
                 ORDER BY COALESCE(project_id, ''), entity_id
                 LIMIT 1
-                """,
-                (collection, entity_id),
-            ).fetchone()
+                """
+                params: tuple[str, ...] = (collection, entity_id)
+            else:
+                sql = f"""
+                SELECT row_key, collection, entity_id, project_id, corpus_id, type,
+                       truth_status, confidence, created_at, valid_from, valid_to,
+                       tier, last_accessed_at, access_count, decay_score,
+                       source_relpath, payload_json, payload_sha256, size_bytes,
+                       migrated_at
+                FROM {table_name}
+                WHERE row_key = ?
+                LIMIT 1
+                """
+                params = (_row_key(collection, project_name, entity_id),)
+            row = self._conn.execute(sql, params).fetchone()
         if row is None:
             return None
         return CanonicalEntityRow(
@@ -412,7 +430,11 @@ class CanonicalStoreRuntime:
         if not normalized:
             raise ValueError("mutations must contain at least one operation")
         targets = [
-            (str(item["collection"]), str(item["entity_id"]))
+            (
+                str(item["collection"]),
+                str(item["project_name"]),
+                str(item["entity_id"]),
+            )
             for item in normalized
         ]
         if len(set(targets)) != len(targets):
@@ -444,7 +466,9 @@ class CanonicalStoreRuntime:
                     if "expected_sha256" not in item:
                         continue
                     current = self.get_row(
-                        str(item["collection"]), str(item["entity_id"])
+                        str(item["collection"]),
+                        str(item["entity_id"]),
+                        project_name=str(item["project_name"]),
                     )
                     actual = current.payload_sha256 if current is not None else None
                     expected = item["expected_sha256"]
@@ -461,15 +485,17 @@ class CanonicalStoreRuntime:
                     entity_id = str(item["entity_id"])
                     table_name = canonical_table_for_collection(collection)
                     if item["operation"] == "delete":
+                        project_name = str(item["project_name"])
                         cursor = self._conn.execute(
                             f"DELETE FROM {table_name} "
-                            "WHERE collection = ? AND entity_id = ?",
-                            (collection, entity_id),
+                            "WHERE row_key = ?",
+                            (_row_key(collection, project_name, entity_id),),
                         )
                         applied.append(
                             {
                                 "operation": "delete",
                                 "collection": collection,
+                                "project_name": project_name,
                                 "entity_id": entity_id,
                                 "deleted": int(cursor.rowcount or 0) > 0,
                             }
@@ -478,12 +504,16 @@ class CanonicalStoreRuntime:
 
                     payload = dict(item["payload"])
                     payload_json = _stable_json(payload)
-                    project_name = _payload_project_id(payload)
+                    payload_project_name = _payload_project_id(payload)
                     legacy = LegacyPayloadRow(
-                        row_key=_row_key(collection, project_name, entity_id),
+                        row_key=_row_key(
+                            collection,
+                            payload_project_name,
+                            entity_id,
+                        ),
                         collection=collection,
                         entity_id=entity_id,
-                        project_name=project_name,
+                        project_name=payload_project_name,
                         source_relpath=str(
                             item.get("source_relpath")
                             or _default_source_relpath(collection, entity_id)
@@ -2160,17 +2190,30 @@ def _normalize_payload_mutation(mutation: dict[str, Any]) -> dict[str, Any]:
         normalized["expected_sha256"] = expected
 
     if operation == "upsert":
-        allowed.update({"payload", "source_relpath"})
+        allowed.update({"payload", "source_relpath", "project_name"})
         payload = mutation.get("payload")
         if not isinstance(payload, dict):
             raise TypeError("upsert mutation payload must be a dictionary")
         # Freeze caller-owned data before hashing and applying it so request
         # identity and committed bytes cannot diverge under concurrent mutation.
         normalized["payload"] = json.loads(_stable_json(payload))
+        project_name = _payload_project_id(payload)
+        supplied_project = mutation.get("project_name")
+        if supplied_project is not None and str(supplied_project) != str(
+            project_name or ""
+        ):
+            raise ValueError("upsert project_name must match its payload")
+        normalized["project_name"] = project_name or ""
         if mutation.get("source_relpath") is not None:
             normalized["source_relpath"] = str(mutation["source_relpath"])
-    elif "payload" in mutation or "source_relpath" in mutation:
-        raise ValueError("delete mutation cannot include payload or source_relpath")
+    else:
+        allowed.add("project_name")
+        project_name = str(mutation.get("project_name") or "").strip()
+        if not project_name:
+            raise ValueError("delete mutation requires project_name")
+        normalized["project_name"] = project_name
+        if "payload" in mutation or "source_relpath" in mutation:
+            raise ValueError("delete mutation cannot include payload or source_relpath")
 
     unexpected = set(mutation) - allowed
     if unexpected:

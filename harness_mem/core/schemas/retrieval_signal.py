@@ -33,6 +33,7 @@ VALID_TARGET_KINDS: frozenset[str] = frozenset(
         "observation",
         "supersede",
         "context_source",
+        "knowledge_entry",
     }
 )
 

@@ -210,12 +210,17 @@ Token 相对回归按单次 usage 判定；耗时的 40/60 秒绝对门限按单
 
 1. Ruff、Mypy；
 2. A/B/D/E 对应的确定性测试；
-3. `tests/test_public_docs_lifecycle.py` 与 MCP surface contract；
+3. `code/tests/test_public_docs_lifecycle.py` 与 MCP surface contract；
 4. 全量 pytest；
 5. 运行 `.codex/outcomes.json` 中的隔离 outcome probes。
 
 任何 lossless 覆盖、Answer Gate、job 归属、Note hash 或项目隔离失败，立即停止，
 不得继续跑昂贵的模型测试。
+
+任一隔离六会话运行失败后，必须先冻结该次失败输入与回执，并用一个定向、确定性回归
+测试复现根因；该测试和对应最小门禁通过前，不得启动下一轮完整六会话。多个运行时修复
+应先在定向门禁中收敛，最后只用一个全新输出目录做从零终验，避免把真实模型运行当作
+逐行调试器。
 
 ### 发布前
 
@@ -237,10 +242,11 @@ outcome-verifier。若 Hook 完成后又修改了这些运行时文件，旧 rec
 cohort/delta 演练和新的真实多晋升点 Desktop 会话都必须证明 Hook → job → 逐点验证
 → 归纳吸收 → Note → 干净检索；“provider 返回合法 JSON”或“job completed”都不是结果证据。
 
-当前 worktree 已完成 P0–P4 的实现和自动化测试，P5 的六会话隔离运行也已通过：
+`0.9.20` 已发布 P0–P5：
 6 个 `harness-mem` 作业、Note 和 Answer Packet 全部终态持久化，12 条当前知识均从
-SQLite 正常回读，且真实运行时数据指纹未变化。新鲜 Desktop Hook 已绑定本次 dispatch
-generation、session、job、Provider 与 Note，完整 outcome contract 为 14/14 passed。
+SQLite 正常回读；处理前冻结的预期晋升点 oracle 绑定六个源文件哈希，并逐场核对提取、
+验证、吸收和真值 lineage，真实运行时数据指纹未变化。新鲜 Desktop Hook 已绑定本次
+dispatch generation、session、job、Provider 与 Note，完整 outcome contract 为 14/14 passed。
 P6 未获授权，不得因为 P0–P5 通过而自动执行。
 
 Codex Stop 后的 rollout 可能与 Hook 短暂并发。Hook 必须按 `trigger_id` 定向同步该

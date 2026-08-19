@@ -125,8 +125,14 @@ class KnowledgeJobWorkspace:
             )
             path = self._decision_path(decision.id)
             existing = self._read_wrapper(path)
-            if existing is not None and dict(existing["data"]) != decision.to_dict():
-                raise ValueError("assimilation decision id already has different data")
+            if existing is not None:
+                previous = dict(existing["data"])
+                incoming = decision.to_dict()
+                for payload in (previous, incoming):
+                    payload.pop("decided_at", None)
+                if previous != incoming:
+                    raise ValueError("assimilation decision id already has different data")
+                return decision.id
             self._write_wrapper(path, workspace_id, decision.to_dict())
         return decision.id
 
@@ -167,13 +173,16 @@ class KnowledgeJobWorkspace:
             self._prune_empty_directories()
 
     def cleanup_workspace(self, workspace_id: str) -> int:
-        """Remove all processing detail belonging to a terminal job."""
+        """Remove resolved work while retaining defer/conflict for Review or TTL."""
 
         candidate_ids: list[str] = []
         for path in self._candidate_dir.glob("*.json"):
             wrapper = self._read_wrapper(path)
-            if wrapper is not None and wrapper["workspace_id"] == workspace_id:
-                candidate_ids.append(str(dict(wrapper["data"])["id"]))
+            if wrapper is None or wrapper["workspace_id"] != workspace_id:
+                continue
+            candidate = KnowledgeCandidate.from_dict(dict(wrapper["data"]))
+            if candidate.status in {"assimilated", "rejected"}:
+                candidate_ids.append(candidate.id)
         for candidate_id in candidate_ids:
             self.cleanup_candidate(candidate_id)
         return len(candidate_ids)

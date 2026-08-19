@@ -37,18 +37,34 @@ class _SequencedProvider:
         self.verification_calls = 0
         self.assimilation_calls = 0
         self.assimilation_manifest: dict[str, Any] | None = None
+        self.verification_manifest: dict[str, Any] | None = None
 
     def decide(self, manifest: dict[str, Any], *, runtime_dir: Path, heartbeat=None):
         del runtime_dir
         self.extraction_calls += 1
         if heartbeat is not None:
             heartbeat()
-        refs = list(manifest["zero_candidate_exchange_refs"])
+        refs = list(manifest.get("zero_candidate_exchange_refs") or [])
         if not refs:
             raise AssertionError("fixture must expose at least one user evidence window")
 
         def reference(index: int) -> dict[str, Any]:
-            return refs[index % len(refs)]
+            if not refs:
+                return {
+                    "exchange_index": max(index - 1, 0),
+                    "role": "user",
+                    "content_sha256": "0" * 64,
+                    "kind": "user_statement",
+                }
+            source_ref = refs[index % len(refs)]
+            return {
+                "kind": "user_statement",
+                "exchange_index": source_ref.get("exchange_index"),
+                "content_sha256": source_ref.get("content_sha256"),
+                "role": "user",
+            }
+
+        rule_trigger = _normalize_rule_trigger("When presenting a memory audit.")
         decision = AutonomousDecision.model_validate(
             {
                 "semantic_review": {
@@ -73,8 +89,8 @@ class _SequencedProvider:
                         "content": None,
                         "confidence": None,
                         "tags": [],
-                        "pattern": "Provide an itemized list rather than aggregate counts.",
-                        "trigger": "When presenting a memory audit.",
+                    "pattern": "Provide an itemized list rather than aggregate counts.",
+                    "trigger": rule_trigger,
                         "examples": [],
                         "source_entity": None,
                         "target_entity": None,
@@ -93,70 +109,83 @@ class _SequencedProvider:
         self.assimilation_manifest = manifest
         if heartbeat is not None:
             heartbeat()
-        candidates = {item["statement"]: item["candidate_id"] for item in manifest["verified_candidates"]}
+        verified = list(manifest.get("verified_candidates", []))
+        candidates = {
+            str(item.get("candidate_id") or ""): (item.get("statement") or item.get("content") or "").strip()
+            for item in verified
+            if isinstance(item, dict) and str(item.get("candidate_id") or "")
+        }
         current = manifest["current_truth"]
         assert len(current) == 1
-        decision = AssimilationDecision.model_validate(
-            {
-                "points": [
+
+        legacy_handle = current[0]["handle"]
+        points: list[dict[str, Any]] = []
+        for candidate_id in candidates:
+            statement = candidates[candidate_id]
+            if statement == "Normal memory search excludes audit metadata.":
+                points.append(
                     {
-                        "candidate_id": candidates["Normal memory search excludes audit metadata."],
+                        "candidate_id": candidate_id,
                         "disposition": "add",
                         "matched_truth_handles": [],
                         "canonical_title": "Memory search projection",
                         "canonical_statement": "Normal memory search excludes audit metadata.",
                         "topic_path": ["memory", "retrieval"],
                         "reason": "New canonical statement is needed for future retrieval.",
-                    },
+                    }
+                )
+            elif "The legacy projection remains visible." in statement:
+                points.append(
                     {
-                        "candidate_id": candidates["The legacy projection remains visible."],
+                        "candidate_id": candidate_id,
                         "disposition": "confirm",
-                        "matched_truth_handles": [current[0]["handle"]],
+                        "matched_truth_handles": [legacy_handle],
                         "canonical_title": None,
                         "canonical_statement": None,
                         "topic_path": [],
                         "reason": "The current truth already represents this fact.",
-                    },
+                    }
+                )
+            elif "itemized list" in statement.lower():
+                points.append(
                     {
-                        "candidate_id": candidates["Show every long-term memory now."],
-                        "disposition": "no_write",
-                        "matched_truth_handles": [],
-                        "canonical_title": None,
-                        "canonical_statement": None,
-                        "topic_path": [],
-                        "reason": "This is only a request for the current output.",
-                    },
-                    {
-                        "candidate_id": _candidate_id_by_prefix(candidates, "When When presenting"),
+                        "candidate_id": candidate_id,
                         "disposition": "add",
                         "matched_truth_handles": [],
                         "canonical_title": "Memory audit presentation",
                         "canonical_statement": "When presenting a memory audit, provide an itemized list rather than aggregate counts.",
                         "topic_path": ["memory", "audit"],
                         "reason": "This is an explicit future preference with condition and behavior.",
-                    },
+                    }
+                )
+            elif "run the remaining rollout after verification" in statement.lower():
+                points.append(
                     {
-                        "candidate_id": candidates["Run the remaining rollout after verification."],
+                        "candidate_id": candidate_id,
                         "disposition": "handoff",
                         "matched_truth_handles": [],
                         "canonical_title": None,
-                        "canonical_statement": "Run the remaining rollout after verification.",
+                        "canonical_statement": None,
                         "topic_path": [],
                         "reason": "The work remains unfinished and belongs to resumption state.",
-                    },
-                ]
-            }
-        )
+                    }
+                )
+            else:
+                raise AssertionError(f"unhandled candidate in probe manifest: {statement!r}")
+        if not points:
+            raise AssertionError("probe manifest contains no actionable verified candidates")
+        decision = AssimilationDecision.model_validate({"points": points})
         return _receipt(decision, provider=self.name, marker="assimilate")
 
     def verify(self, manifest: dict[str, Any], *, runtime_dir: Path, heartbeat=None):
         del runtime_dir
         self.verification_calls += 1
+        self.verification_manifest = manifest
         if heartbeat is not None:
             heartbeat()
         points = []
         for item in manifest["candidates"]:
-            statement = item["statement"]
+            statement = item.get("statement") or item.get("content") or ""
             session_only = statement == "Show every long-term memory now."
             points.append(
                 {
@@ -166,7 +195,7 @@ class _SequencedProvider:
                     "reason": (
                         "This is a one-off request for current output."
                         if session_only
-                        else "The source supports a reusable project conclusion."
+                    else "The source supports a reusable project conclusion."
                     ),
                 }
             )
@@ -212,11 +241,11 @@ def _memory_candidate(reference: dict[str, Any], title: str, statement: str) -> 
     }
 
 
-def _candidate_id_by_prefix(candidates: dict[str, str], prefix: str) -> str:
-    values = [value for statement, value in candidates.items() if statement.startswith(prefix)]
-    if len(values) != 1:
-        raise AssertionError(f"expected one candidate for {prefix!r}, got {len(values)}")
-    return values[0]
+def _normalize_rule_trigger(trigger: str) -> str:
+    normalized = str(trigger or "").strip()
+    if normalized.lower().startswith("when "):
+        normalized = normalized[5:].strip()
+    return normalized
 
 
 def _receipt(decision: Any, *, provider: str, marker: str) -> ProviderResult:
@@ -339,6 +368,11 @@ def run_memory_assimilation_outcome_probe() -> dict[str, Any]:
                 max_jobs=1,
                 preferred_job_id=snapshot.distill_job_id,
             )
+            replay_provider_calls = (
+                provider.extraction_calls,
+                provider.verification_calls,
+                provider.assimilation_calls,
+            )
             replay = run_autonomous_distill_batch(
                 backend,
                 project_name=project_name,
@@ -389,6 +423,10 @@ def run_memory_assimilation_outcome_probe() -> dict[str, Any]:
                     item.statement != "Show every long-term memory now."
                     for item in knowledge_entries
                 ),
+                "one_off_request_excluded_from_assimilation": all(
+                    item.get("statement") != "Show every long-term memory now."
+                    for item in assimilation_manifest.get("verified_candidates") or []
+                ),
                 "handoff_job_bound": len(handoffs) == 1 and handoffs[0].context.get("distill_job_id") == snapshot.distill_job_id,
                 "rule_materialized_and_normally_retrievable": any(
                     "itemized list" in item.statement for item in knowledge_entries
@@ -399,7 +437,12 @@ def run_memory_assimilation_outcome_probe() -> dict[str, Any]:
                 "assimilation_provider_isolated": bool(assimilation_manifest)
                 and "transcript" not in assimilation_manifest
                 and "chunks" not in assimilation_manifest,
-                "replay_no_provider_recall": replay.get("outcomes") == [] and provider.extraction_calls == 1 and provider.assimilation_calls == 1,
+                "replay_no_provider_recall": (
+                    replay.get("outcomes") == []
+                    and provider.extraction_calls == replay_provider_calls[0]
+                    and provider.verification_calls == replay_provider_calls[1]
+                    and provider.assimilation_calls == replay_provider_calls[2]
+                ),
                 "verification_provider_executed_once": provider.verification_calls == 1,
             }
             result_fields["verified"] = all(result_fields.values())

@@ -476,6 +476,20 @@ async def _queue_separated_duplicate_rechecks(
     current = await store.list_entries(project_name)
     items: list[DreamItem] = []
 
+    def recheck_candidate_id(
+        kind: str,
+        target_ids: list[str],
+        cause_id: str | None = None,
+    ) -> str:
+        return str(
+            uuid5(
+                NAMESPACE_URL,
+                f"harness-mem:dream-knowledge-{kind}:"
+                + ":".join(target_ids)
+                + (f":{cause_id}" if cause_id else ""),
+            )
+        )
+
     async def queue_recheck(
         *,
         kind: str,
@@ -485,13 +499,9 @@ async def _queue_separated_duplicate_rechecks(
         risk: Literal["medium", "high"],
         reason_code: str,
         reason: str,
+        cause_id: str | None = None,
     ) -> None:
-        candidate_id = str(
-            uuid5(
-                NAMESPACE_URL,
-                f"harness-mem:dream-knowledge-{kind}:" + ":".join(target_ids),
-            )
-        )
+        candidate_id = recheck_candidate_id(kind, target_ids, cause_id)
         candidate = await store.get_candidate(candidate_id)
         if candidate is None:
             candidate = KnowledgeCandidate(
@@ -620,8 +630,65 @@ async def _queue_separated_duplicate_rechecks(
         target_kind="knowledge_entry",
         limit=200,
     )
+    latest_feedback: dict[str, Any] = {}
     for signal in feedback_signals:
-        if signal.value is None or signal.value >= 0:
+        latest_feedback.setdefault(signal.target_id, signal)
+    for signal in latest_feedback.values():
+        if signal.value is None or signal.value > 0:
+            # Positive use is consumed as the latest governance signal and suppresses
+            # older negative feedback; it is not permission to mutate or revalidate.
+            target_feedback = (
+                await backend.structured_store.query_retrieval_signals(
+                    project_name,
+                    signal_type="context_outcome",
+                    target_kind="knowledge_entry",
+                    target_id=signal.target_id,
+                    limit=200,
+                )
+            )
+            older_candidate_ids: set[str] = set()
+            reached_latest = False
+            for prior in target_feedback:
+                if prior.id == signal.id:
+                    reached_latest = True
+                    continue
+                if not reached_latest or prior.value is None or prior.value > 0:
+                    continue
+                older_candidate_ids.add(
+                    recheck_candidate_id("feedback", [signal.target_id], prior.id)
+                )
+            if older_candidate_ids:
+                # Before feedback candidates became signal-bound they used one
+                # deterministic id per target. Close that compatibility form too.
+                older_candidate_ids.add(
+                    recheck_candidate_id("feedback", [signal.target_id])
+                )
+            for candidate_id in sorted(older_candidate_ids):
+                candidate = await store.get_candidate(candidate_id)
+                if candidate is None or candidate.status != "pending":
+                    continue
+                evidence_ids = [
+                    evidence.id for evidence in await store.list_evidence(candidate_id)
+                ]
+                await store.cleanup_candidate(candidate_id)
+                items.append(
+                    DreamItem(
+                        source_kind="knowledge_feedback",
+                        source_id=candidate_id,
+                        evidence_ids=evidence_ids,
+                        risk="medium",
+                        proposed_action="mark_stale",
+                        final_action="archived",
+                        reason=(
+                            "Latest used feedback superseded the older negative "
+                            "retrieval signal; its pending re-verification was closed."
+                        ),
+                        result={
+                            "target_knowledge_ids": [signal.target_id],
+                            "superseding_signal_id": signal.id,
+                        },
+                    )
+                )
             continue
         feedback_entry = await store.get_entry(
             signal.target_id,
@@ -633,17 +700,30 @@ async def _queue_separated_duplicate_rechecks(
             or feedback_entry.project_name != project_name
         ):
             continue
+        ignored = signal.value == 0
         await queue_recheck(
             kind="feedback",
             target_ids=[feedback_entry.id],
             statement=feedback_entry.statement,
             proposed_action="mark_stale",
-            risk="high" if signal.value < 0 else "medium",
-            reason_code="dream_negative_retrieval_feedback",
-            reason=(
-                "Dream received negative retrieval feedback and queued re-verification; "
-                "feedback is not treated as permission to edit current knowledge."
+            risk="medium" if ignored else "high",
+            reason_code=(
+                "dream_ignored_retrieval_feedback"
+                if ignored
+                else "dream_negative_retrieval_feedback"
             ),
+            reason=(
+                "Dream received ignored retrieval feedback and queued re-verification; "
+                if ignored
+                else "Dream received misleading retrieval feedback and queued "
+            )
+            + (
+                "feedback is not treated as permission to edit current knowledge."
+                if ignored
+                else "re-verification; feedback is not treated as permission to edit "
+                "current knowledge."
+            ),
+            cause_id=signal.id,
         )
     return items
 

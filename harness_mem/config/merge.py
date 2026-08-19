@@ -57,7 +57,7 @@ class MergedConfig:
     distill_auto_target_backlog: int = 2
     distill_auto_recent_first: bool = True
     distill_auto_daily_job_budget: int = 8
-    distill_delete_source_after_complete: bool = True
+    distill_delete_source_after_complete: bool = False
     archive_distill_enabled: bool = False
     archive_distill_batch_size: int = 3
     archive_distill_daily_limit: int = 20
@@ -168,7 +168,7 @@ _DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
         "distill.delete_source_after_complete",
         "distill_delete_source_after_complete",
         "bool",
-        True,
+        False,
     ),
 )
 
@@ -615,9 +615,10 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
     project_path = Path(project_root) / ".harness-mem.toml"
     project_dict = _load_toml_file(project_path)
 
-    # Model-use authorization is intentionally project-scoped. Ignore legacy
-    # user-level values so installing hooks in another project cannot inherit
-    # background provider authorization by accident.
+    # Destructive source cleanup and model-use authorization are intentionally
+    # project-scoped. Ignore legacy user-level values so another project cannot
+    # inherit either authorization by accident.
+    _remove_dotted(user_dict, "distill.delete_source_after_complete")
     _remove_dotted(user_dict, "distill.autonomous.enabled")
 
     # ---- 3. deep-merge (project overrides user) (Req 3.3) ---------------

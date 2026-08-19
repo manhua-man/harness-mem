@@ -119,7 +119,7 @@ retained forever merely to offer a generic audit surface.
 
 ## `0.9.x` compatibility statuses
 
-The released `0.9.12` compatibility model still exposes historical
+The released `0.9.20` compatibility model still exposes historical
 `MemoryEntry` status vocabulary. These statuses describe legacy/manual records;
 they are not the target current-knowledge schema.
 

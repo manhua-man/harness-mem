@@ -418,8 +418,14 @@ def inspect_autonomous_outcome(
         and job_time is not None
         and recorded_job_time == job_time
     )
+    evidence_runtime = str(evidence.get("runtime_fingerprint") or "")
+    receipt_runtime = str(receipt.get("runtime_fingerprint") or "")
     runtime_current = bool(
-        evidence.get("runtime_fingerprint") == current_runtime_fingerprint
+        current_runtime_fingerprint
+        and (
+            evidence_runtime == current_runtime_fingerprint
+            or receipt_runtime == current_runtime_fingerprint
+        )
     )
     config_current = bool(
         current_config_fingerprint

@@ -94,12 +94,11 @@ Hook、detached worker 和 archive maintenance 属于阶段 0；原文/时间线
 [五模块架构合同](docs/memory-adoption.md)；[验收测试计划](docs/distill-test-plan.md)
 将这些质量信号逐项映射到夹具和运行时门槛。
 
-当前发布版把受治理真相保存在 canonical SQLite 中，但兼容 `MemoryEntry` 仍混合候选、
-证据、决定与真相字段。当前未发布 worktree 已把 SQLite `knowledge_entries` 收敛为干净当前知识
-的唯一权威；候选、验证与拟议决定是 job 范围临时材料，只在终态结果得到证明后清理；
-FTS/向量仍是可重建的 SQLite 派生索引。Markdown 只在用户请求阅读或导出时生成。项目
-模块由当前知识自然归纳，不使用硬编码模块白名单。该 worktree 仍必须先通过隔离的六会话验收，
-才可能触及真实旧记忆。详见
+当前发布的 `0.9.21` 已把 SQLite `knowledge_entries` 收敛为干净当前知识的唯一权威；
+候选、验证与拟议决定是 job 范围临时材料，只在终态结果得到证明后清理，兼容
+`MemoryEntry` 旧行仍可读取。当前搜索直接、确定性地读取 SQLite；FTS/向量只是可选的
+可重建优化。Markdown 只在用户请求阅读或导出时生成。项目模块由当前知识自然归纳，
+不使用硬编码模块白名单。冻结的六会话验收已通过，但触及真实旧记忆仍需单独明确授权。详见
 [SQLite 当前知识收敛计划](docs/roadmap/knowledge-truth-separation.md)。
 
 任务过程中的检索不是 always-on。PI 里的 `transformContext`、
@@ -135,7 +134,7 @@ distill 仍保持 compact。
 
 Observation 只是证据，不是被记住的事实。wake 的近期索引会明确标成“非事实证据”；L1/L2 只展示结构化当前事实和仍有效的 handoff。被当前仓库版本推翻的旧发布/版本说法会标记冲突，或从 truth/active 层移除。
 
-隐私策略在落盘前执行：可用 `<private>...</private>` 包裹敏感片段，也可在项目 `.harness-mem.toml` 的 `[capture]` 中配置忽略 client、session 和 source glob；被排除内容不会进入 raw revision、chunk、Observation 或索引。`[transcript].retention_days` 控制自动保留期（`0` 表示永久保留）。成功蒸馏后默认尝试安全删除原始来源；只有适配器支持会话级删除且静默/CAS/hash 校验全部通过时才会删除。共享或不安全容器保持不动并报告 `unsupported`，配置不可读或项目无法解析时也会 fail-safe 保留。需要保留原文时可执行 `harness-mem config set distill.delete_source_after_complete false --scope project`；重新启用被显式关闭的策略需要 `--confirm`。canonical SQLite 中的当前长期知识会保留并脱敏，Markdown 仅在阅读或导出时按需生成；每次结果明确为 `retained`、`deleted`、`partial_failure` 或 `unsupported`。`harness-mem maintenance erase --project NAME --session-id ID` 仍是显式完整擦除入口，默认预览，增加 `--apply` 后才执行。
+隐私策略在落盘前执行：可用 `<private>...</private>` 包裹敏感片段，也可在项目 `.harness-mem.toml` 的 `[capture]` 中配置忽略 client、session 和 source glob；被排除内容不会进入 raw revision、chunk、Observation 或索引。`[transcript].retention_days` 控制自动保留期（`0` 表示永久保留）。成功蒸馏后默认保留原始来源；只有项目配置通过 `harness-mem config set distill.delete_source_after_complete true --scope project --confirm` 显式授权，并且适配器支持会话级删除且静默/CAS/hash 校验全部通过时才会删除。用户级配置不能授权该破坏性策略。共享或不安全容器保持不动并报告 `unsupported`，配置不可读、项目值缺失或项目无法解析时也会 fail-safe 保留。canonical SQLite 中的当前长期知识会保留并脱敏，Markdown 仅在阅读或导出时按需生成；每次结果明确为 `retained`、`deleted`、`partial_failure` 或 `unsupported`。`harness-mem maintenance erase --project NAME --session-id ID` 仍是显式完整擦除入口，默认预览，增加 `--apply` 后才执行。
 
 Codex 归档任务先绑定项目根；`archive_distill.project_scope` 默认就是
 `"current"`，只处理当前项目。跨项目处理必须显式设置为 `"all"`。先只读盘点，
@@ -198,8 +197,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.12 \
-  harness-mem==0.9.12
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.21 \
+  harness-mem==0.9.21
 ```
 
 `harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
@@ -209,8 +208,8 @@ Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.12 \
-  "harness-mem[hybrid]==0.9.12"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.21 \
+  "harness-mem[hybrid]==0.9.21"
 ```
 
 在当前设备一次性安装全部宿主的原生 Daily 命令。默认参数就是
@@ -275,8 +274,8 @@ procedural skill 生命周期治理不属于 public memory MCP 和 CLI 产品面
 ## 仓库结构
 
 - `harness_mem/`：runtime package。
-- `plugins/harness-mem/`：Agent 客户端接入层。
-- `tools/hm-distill/SKILL.md`：正式 MCP distill 主链的纯 Agent 指令；全部 runtime 实现统一位于 `harness_mem/`。
+- `code/plugins/harness-mem/`：Agent 客户端接入层。
+- `code/tools/hm-distill/SKILL.md`：正式 MCP distill 主链的纯 Agent 指令；全部 runtime 实现统一位于 `harness_mem/`。
 - `docs/quickstart.md`：最小启动路径。
 - `docs/mcp-setup.md`：MCP client 接入说明。
 - `docs/demo-cold-start.md`：可复现 cold-start demo。
@@ -313,7 +312,7 @@ cargo test --workspace
 仓库的用户结果合同：
 
 ```bash
-python tools/outcome-verifier/scripts/verify_outcomes.py \
+python code/tools/outcome-verifier/scripts/verify_outcomes.py \
   --config .codex/outcomes.json \
   --output .tmp/outcome-verifier/harness-mem-report.json
 ```
@@ -352,4 +351,4 @@ Codex Hook payload 通过 stdin 传入，并显式等待 detached post-turn 回�
 全新安装验证，运行真实 sqlite-vec contract gate，并验证受支持的 Windows 升级
 路径后再上传到 GitHub Release。本项目不发布到 PyPI。
 
-当前包版本：**0.9.12**。
+当前包版本：**0.9.21**。

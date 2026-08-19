@@ -13,7 +13,7 @@
 ## Golden / benchmark impact
 
 - [ ] none / infra only / new cases / behavior change
-- [ ] `pytest tests/test_mcp_exported_tools.py` run when MCP tools change
+- [ ] `pytest code/tests/test_mcp_exported_tools.py` run when MCP tools change
 
 ## gstack
 

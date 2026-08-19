@@ -28,7 +28,7 @@
 
 `harness-mem` 是面向 AI Agent 的本地优先、可审计、可插拔记忆后端。Agent 通过统一 MCP surface 使用项目记忆；Claude Code、Codex、Cursor、Grok、Hermes、OpenCode 和 Antigravity 通过各自原生命令与 Hook 接入同一运行时。
 
-- Python 包：`harness-mem`，当前版本 `0.9.12`；版本真值在 `pyproject.toml` 与 `harness_mem/__init__.py`。
+- Python 包：`harness-mem`，当前版本 `0.9.21`；版本真值在 `pyproject.toml` 与 `harness_mem/__init__.py`。
 - Rust helper crate：`harness_mem_core_rs`，crate 版本 `4.0.3`；它不是 Python 包版本。
 - Python 要求：`>=3.9`。
 - 分发：GitHub Releases 的原生 wheel 与 sdist，不发布到 PyPI。
@@ -37,9 +37,9 @@
 
 ## 当前版本与目标架构边界
 
-`0.9.12` 已实现会话生命周期、无损提取、基于内容地址的证据校验、受治理真值、正常检索隔离，以及显式授权的 detached semantic execution。当前 normal wake/search 已把 raw Observation 和内部审计元数据隔离到 deep recall 或诊断面。
+`0.9.21` 已实现会话生命周期、无损提取、逐点验证、SQLite 当前知识、job 范围临时处理材料、干净检索，以及显式授权的 detached semantic execution。当前 normal wake/search 已把 raw Observation 和内部审计元数据隔离到 deep recall 或诊断面。
 
-当前兼容 `MemoryEntry` 模型仍混合 candidate、evidence、decision 和 truth 字段。worktree 已实现下一施工列车：`canonical.sqlite` 中的 `knowledge_entries` 是当前知识 authority；新候选、证据和拟议归纳决定属于 job 范围临时材料，成功终态经证明后按策略清理；最小知识来源与必要 undo 版本独立关联；FTS/向量数据可由 SQLite 重建，Markdown 仅在阅读/导出时生成。该实现尚未发布，仍需通过六个保留会话的隔离验收，才可能申请 live migration；普通开发、启动或文档更新均不授权迁移真实记忆。
+兼容 `MemoryEntry` 历史行仍可读取，但新知识不再把 candidate、evidence、decision 和 truth 混成一个对象。`canonical.sqlite` 中的 `knowledge_entries` 是当前知识 authority；新候选、证据和拟议归纳决定属于 job 范围临时材料，成功终态经证明后按策略清理；最小知识来源与必要 undo 版本独立关联；Markdown 仅在阅读/导出时生成。六会话冻结 oracle、真实 Hook 与 14 项 outcome 已通过；这仍不授权 `0.9.21` 真实旧记忆迁移，普通开发、启动或文档更新均不得迁移真实记忆。
 
 `0.9.13-0.9.15` 是已被下一列车取代的历史质量计划记录，不是当前已发布版本，也不能作为“物理真值分离已经完成”的证据。
 
@@ -69,7 +69,7 @@
 - **负责：** 从完整会话中高召回地发现可能有长期价值的独立知识点，为每个点输出待验证说法与可回查的 source location；保留完整 manifest、semantic/raw drilldown 和零候选挑战。
 - **不负责：** 判断证据是否成立，也不决定 disposition、长期知识标题或项目模块，更不直接写长期知识。
 - **质量信号：** 重要知识点不漏；整场会话不被压成一个大结论；每个点足够窄，可独立验证和处置；source coverage 保持无损。
-- **主要 owner：** `harness_mem/mcp/distill_handlers.py`、`harness_mem/mcp/distill_projection.py`、`harness_mem/distill_context.py`、`harness_mem/core/schemas/session_distill.py`、`tools/hm-distill/SKILL.md`。
+- **主要 owner：** `harness_mem/mcp/distill_handlers.py`、`harness_mem/mcp/distill_projection.py`、`harness_mem/distill_context.py`、`harness_mem/core/schemas/session_distill.py`、`code/tools/hm-distill/SKILL.md`。
 
 ### 2. 逐点验证
 
@@ -89,7 +89,7 @@
 - **质量信号：** 垃圾写入趋近于零；不宽、不重、不混；同一事实不换措辞重复写；设计目标不冒充当前实现；candidate、audit、handoff 与长期知识保持区别。
 - **主要 owner：** `harness_mem/commands/assimilation.py`、`harness_mem/core/schemas/assimilation.py`、`harness_mem/storage/candidate_store.py`、`harness_mem/storage/truth_store.py`、`harness_mem/mcp/governance_handlers.py`。
 - **长期知识形态：** SQLite `knowledge_entries` 是项目当前长期知识单一真源；行内只保留稳定内部 ID、项目、自然模块路径、具体标题、一条知识正文和验证日期，最小真实来源独立关联。内部类型、处置、job 和理由码不进入正式知识或默认展示。
-- **当前兼容边界：** 上述是目标功能合同；`0.9.12` 的物理记录尚未完成干净当前知识、临时 job 材料和最小来源/undo 数据全分离，不得仅凭 owner 文件存在声称目标存储架构已落地。
+- **当前兼容边界：** `0.9.21` 的新写路径已分离干净当前知识、临时 job 材料和最小来源/undo 数据；旧 `MemoryEntry` 兼容行不会因升级自动迁移、删除或改写。
 
 ### 4. 检索与使用
 
@@ -137,13 +137,13 @@ Review 与 Dream 是跨阶段 3～4 的治理反馈能力，不是线性第六�
   - `search/`、`index_fabric/`、`embedding/`：检索、索引和可选向量能力。
   - `storage/`：canonical SQLite 当前知识、job-scoped 处理材料、transcript ledger、派生索引和迁移。
   - `qualification/`：可独立执行的运行时 outcome probe 与验收 fixture。
-- `crates/harness_mem_core_rs/`：PyO3 Rust helper，提供确定性热路径能力。
-- `plugins/harness-mem/`：随仓库分发的 Agent client 集成资产。
-- `tools/hm-distill/`：MCP distill 的纯 Agent 指令；不得承载 runtime 实现。
-- `tools/outcome-verifier/`：项目内 outcome verification 脚本副本。
-- `tests/`：unit、contract、fixture、host replay、qualification 和 outcome tests。
+- `code/crates/harness_mem_core_rs/`：PyO3 Rust helper，提供确定性热路径能力。
+- `code/plugins/harness-mem/`：随仓库分发的 Agent client 集成资产。
+- `code/tools/hm-distill/`：MCP distill 的纯 Agent 指令；不得承载 runtime 实现。
+- `code/tools/outcome-verifier/`：项目内 outcome verification 脚本副本。
+- `code/tests/`：unit、contract、fixture、host replay、qualification 和 outcome tests。
 - `docs/`：架构、兼容、验收、运维和 roadmap 详细文档。
-- `scripts/`：descriptor canonicalization 等仓库维护脚本。
+- `code/scripts/`：descriptor canonicalization 等仓库维护脚本。
 - `.agents/`、`.claude/`、`.cursor/`、`.grok/`、`.opencode/`：项目内宿主命令、skill 或 workflow 镜像；不是独立 runtime 真值。
 - `.codex/agents/`：项目内 specialist agent 定义；`.codex/outcomes.json` 是用户结果合同。
 
@@ -207,8 +207,8 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | 完整 Python lane | `python -m pytest -q` | `README.md` |
 | CLI smoke | `python -m harness_mem.cli --help` | `README.md` |
 | Rust workspace | `cargo test --workspace` | `README.md` |
-| MCP descriptor 收敛 | `python scripts/ensure_mcps_canonical.py` | `README.md` |
-| 用户结果合同 | `python tools/outcome-verifier/scripts/verify_outcomes.py --config .codex/outcomes.json --output .tmp/outcome-verifier/harness-mem-report.json` | `.codex/outcomes.json` |
+| MCP descriptor 收敛 | `python code/scripts/ensure_mcps_canonical.py` | `README.md` |
+| 用户结果合同 | `python code/tools/outcome-verifier/scripts/verify_outcomes.py --config .codex/outcomes.json --output .tmp/outcome-verifier/harness-mem-report.json` | `.codex/outcomes.json` |
 
 快速 lane 只跳过四组穷举的 60-case retrieval replay；完整 Python lane 是 release lane 的基础，不等于所有异步或真实宿主用户结果已经发生。
 
@@ -216,22 +216,22 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 
 | 改动范围 | 最小相关门禁 | 保护的合同 |
 | --- | --- | --- |
-| MCP tool spec、handler、descriptor | `tests/test_mcp_public_surface_contract.py`、`tests/test_mcp_exported_tools.py`、`scripts/ensure_mcps_canonical.py` | 27-tool surface 一致，不产生 registry 漂移 |
-| transcript、adapter、Hook、job lifecycle | `tests/test_lossless_distill_mcp.py`、`tests/test_transcript_evidence.py`、对应 `test_lossless_*_adapter.py` | revision/chunk 无损、job/receipt 绑定、项目隔离 |
-| evidence admission / Answer Gate | `tests/test_evidence_admission.py` | repository/user/transcript 证据类型、digest 与 fail-closed 状态 |
-| assimilation / truth mutation | `tests/test_assimilation_runtime.py`、`tests/test_assimilation_shadow.py` | 每点独立处置、完整覆盖、无重复、冲突不写 |
-| normal wake/search | `tests/test_clean_retrieval_outcome.py`、`tests/test_user_facing_memory_flow_contract.py` | 当前真相可读，raw/audit/provisional 不泄漏 |
-| Dream / Review | `tests/test_dream_maintenance_contract.py` | 治理反馈、终态、审计与 undo 边界 |
-| storage / cleanup / migration | `tests/test_native_source_cleanup.py`、`tests/test_processed_source_cleanup.py`、canonical store/migration tests | receipt-first、安全删除、authority 不静默变化 |
-| 七宿主支持声明 | `tests/test_host_replay_qualification.py` 与各宿主 fixture | Hook 与 transcript capability 分开证明，不能由一个推断另一个 |
-| 模块拆分或 facade | `tests/test_module_convergence_boundaries.py` | handler/storage/Doctor owner 不重新膨胀或吸回已拆职责 |
+| MCP tool spec、handler、descriptor | `code/tests/test_mcp_public_surface_contract.py`、`code/tests/test_mcp_exported_tools.py`、`code/scripts/ensure_mcps_canonical.py` | 27-tool surface 一致，不产生 registry 漂移 |
+| transcript、adapter、Hook、job lifecycle | `code/tests/test_lossless_distill_mcp.py`、`code/tests/test_transcript_evidence.py`、对应 `test_lossless_*_adapter.py` | revision/chunk 无损、job/receipt 绑定、项目隔离 |
+| evidence admission / Answer Gate | `code/tests/test_evidence_admission.py` | repository/user/transcript 证据类型、digest 与 fail-closed 状态 |
+| assimilation / truth mutation | `code/tests/test_assimilation_runtime.py`、`code/tests/test_assimilation_shadow.py` | 每点独立处置、完整覆盖、无重复、冲突不写 |
+| normal wake/search | `code/tests/test_clean_retrieval_outcome.py`、`code/tests/test_user_facing_memory_flow_contract.py` | 当前真相可读，raw/audit/provisional 不泄漏 |
+| Dream / Review | `code/tests/test_dream_maintenance_contract.py` | 治理反馈、终态、审计与 undo 边界 |
+| storage / cleanup / migration | `code/tests/test_native_source_cleanup.py`、`code/tests/test_processed_source_cleanup.py`、canonical store/migration tests | receipt-first、安全删除、authority 不静默变化 |
+| 七宿主支持声明 | `code/tests/test_host_replay_qualification.py` 与各宿主 fixture | Hook 与 transcript capability 分开证明，不能由一个推断另一个 |
+| 模块拆分或 facade | `code/tests/test_module_convergence_boundaries.py` | handler/storage/Doctor owner 不重新膨胀或吸回已拆职责 |
 | 真实运行结果声明 | `.codex/outcomes.json` + outcome verifier | Hook→job→Note→retrieval、Dream、清理等直接结果 |
 
 门禁的“通过”只证明其声明范围。代码存在、配置存在、mock 通过、任务排队或接口返回 `completed` 都不能替代用户结果探针。
 
 ## 关键实现边界
 
-- `harness_mem/` 是 runtime 唯一代码真值；`tools/hm-distill/` 和宿主命令是指令/适配层，不得复制一套运行时。
+- `harness_mem/` 是 runtime 唯一代码真值；`code/tools/hm-distill/` 和宿主命令是指令/适配层，不得复制一套运行时。
 - `harness_mem/mcp/tool_specs.py`、tool registry/handlers 与生成 descriptor 必须收敛；不要在某个宿主镜像中私自新增工具语义。
 - `LocalStructuredStore`、MCP read facade 和 Doctor 已有体积/职责门禁；新增行为进入对应领域 owner，不把拆出的逻辑重新塞回 facade。
 - SQLite `knowledge_entries` 是当前长期知识的持久化 truth；FTS/vector、compact views、Markdown 和 summaries 是可重建索引或投影层。
@@ -249,7 +249,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | 新 session 恢复上下文 | `wake` / `$hm-wake` / 对应宿主命令 |
 | 项目内查询历史知识 | `search` / `$hm-search` |
 | 显式跨项目借鉴 | `search-all` / `$hm-search-all` |
-| 立即整理近期会话 | `distill` / `$hm-distill`，遵循 `tools/hm-distill/SKILL.md` |
+| 立即整理近期会话 | `distill` / `$hm-distill`，遵循 `code/tools/hm-distill/SKILL.md` |
 | 审计、纠错、撤销 | `review` / `$hm-review` |
 | 查看或显式触发治理维护 | `dream` / `$hm-dream` |
 | 诊断项目记忆状态 | `status` / `$hm-status` |
@@ -261,7 +261,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | 场景 | 入口 |
 | --- | --- |
 | 用户可见运行结果验收 | `outcome-verifier` + `.codex/outcomes.json` |
-| MCP descriptor 修复 | `python scripts/ensure_mcps_canonical.py` |
+| MCP descriptor 修复 | `python code/scripts/ensure_mcps_canonical.py` |
 | 存储与 Hook 诊断 | `harness-mem doctor`，只读探测并输出分级 recovery plan |
 | 跨宿主 Hook 修复 | `harness-mem integration hooks sync --client all --project-root . --force` |
 | 首次或大重置 AI 入口 | 外部 `/harness-init`；本仓 `.cursor/commands/harness-init.md` 是 Cursor adapter，不是 runtime skill |
@@ -273,7 +273,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | 公共产品与安装 | `README.md`、`README.zh-CN.md` | 用户主入口；公开行为变更需同步 |
 | 五模块详细合同 | `docs/memory-adoption.md` | 当前概念 owner；含模块单位、职责、非职责和质量信号 |
 | 当前版本与下一列车 | `docs/roadmap.md` | 区分已发布、折叠版本、历史计划和 Next train |
-| SQLite 当前知识收敛 | `docs/roadmap/knowledge-truth-separation.md` | worktree 实现、剩余验收与迁移授权边界；不得冒充已发布或已迁移状态 |
+| SQLite 当前知识收敛 | `docs/roadmap/knowledge-truth-separation.md` | `0.9.21` 已发布实现；`0.9.21` 的真实旧记忆迁移授权边界保持不变：不得冒充已迁移真实旧记忆 |
 | Distill 验收矩阵 | `docs/distill-test-plan.md` | fixture、路径矩阵、停止条件和报告格式 |
 | 自动晋升治理 | `docs/auto-promoted-memory-governance.md` | compatibility contract、状态和读路径 |
 | 宿主 Hook/adapter | `docs/ide-hook-adapter-matrix.md` | 七宿主能力、安装位置和支持证据 |
@@ -292,6 +292,6 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 - 当前知识单一真源：`harness_mem/storage/knowledge_store.py`
 - Canonical SQLite 与事务：`harness_mem/storage/canonical_store.py`
 - 按需阅读投影：`harness_mem/knowledge_renderer.py`
-- Distill 指令：`tools/hm-distill/SKILL.md`
+- Distill 指令：`code/tools/hm-distill/SKILL.md`
 - Outcome 合同：`.codex/outcomes.json`
 - Cursor Harness rule：`.cursor/rules/harness.mdc`

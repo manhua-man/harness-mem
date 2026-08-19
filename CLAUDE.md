@@ -62,7 +62,7 @@ When sources disagree, inspect current code, manifests, tests, and runtime evide
 
 - Add or update focused tests for every changed contract or boundary.
 - Run the narrowest relevant tests first, then the appropriate repository lane from `AGENTS.md`.
-- Run `python scripts/ensure_mcps_canonical.py` when MCP tool specifications or generated descriptors change.
+- Run `python code/scripts/ensure_mcps_canonical.py` when MCP tool specifications or generated descriptors change.
 - Validate host-specific changes against their checked-in fixtures and negative project-isolation cases.
 - Do not infer that a passing mock proves a native host, hook, provider, storage, or cleanup outcome.
 

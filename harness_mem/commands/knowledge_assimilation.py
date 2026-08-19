@@ -145,6 +145,7 @@ async def record_assimilation_result(
             new_entries.append(entry)
             knowledge_ids.append(entry.id)
         if disposition in {"refine", "supersede"}:
+            missing_target_ids: list[str] = []
             for target_id in matched_truth_ids:
                 target = await store.get_entry(
                     target_id,
@@ -158,12 +159,31 @@ async def record_assimilation_result(
                     # not pretend that the legacy target is a current
                     # ``knowledge_entries`` row or copy it into this ledger.
                     if isinstance(candidate, KnowledgeCandidate):
-                        raise ValueError(
-                            "assimilation replacement target is not current knowledge"
-                        )
+                        missing_target_ids.append(target_id)
                     continue
                 predecessor_truth_ids.append(target.id)
                 predecessor_entries.append(target)
+            if missing_target_ids:
+                decision_id = assimilation_decision_id(
+                    candidate_id=candidate.id,
+                    disposition=disposition,
+                    knowledge_ids=knowledge_ids,
+                    reason=str(point.get("reason", "")),
+                )
+                if await _is_committed_replacement_replay(
+                    store,
+                    decision_id=decision_id,
+                    project_name=candidate.project_name,
+                    disposition=disposition,
+                    new_entries=new_entries,
+                    predecessor_truth_ids=matched_truth_ids,
+                ):
+                    separated.status = _separated_status(disposition)
+                    await store.save_candidate(separated)
+                    return knowledge_ids
+                raise ValueError(
+                    "assimilation replacement target is not current knowledge"
+                )
             if any(
                 entry.id in predecessor_truth_ids for entry in new_entries
             ):
@@ -188,12 +208,11 @@ async def record_assimilation_result(
     separated.status = _separated_status(disposition)
     separated.updated_at = getattr(candidate, "updated_at", candidate.created_at)
     decision = AssimilationDecision(
-        id=str(
-            uuid5(
-                NAMESPACE_URL,
-                "harness-mem:assimilation-decision:"
-                f"{candidate.id}:{disposition}:{','.join(knowledge_ids)}:{point.get('reason', '')}",
-            )
+        id=assimilation_decision_id(
+            candidate_id=candidate.id,
+            disposition=disposition,
+            knowledge_ids=knowledge_ids,
+            reason=str(point.get("reason", "")),
         ),
         project_name=candidate.project_name,
         candidate_id=separated.id,
@@ -223,6 +242,58 @@ async def record_assimilation_result(
         await store.save_candidate(separated)
         await store.save_decision(decision, project_root=project_root)
     return knowledge_ids
+
+
+def assimilation_decision_id(
+    *,
+    candidate_id: str,
+    disposition: str,
+    knowledge_ids: Sequence[str],
+    reason: str,
+) -> str:
+    return str(
+        uuid5(
+            NAMESPACE_URL,
+            "harness-mem:assimilation-decision:"
+            f"{candidate_id}:{disposition}:{','.join(knowledge_ids)}:{reason}",
+        )
+    )
+
+
+async def _is_committed_replacement_replay(
+    store: Any,
+    *,
+    decision_id: str,
+    project_name: str,
+    disposition: str,
+    new_entries: Sequence[KnowledgeEntry],
+    predecessor_truth_ids: Sequence[str],
+) -> bool:
+    mutation = await store.get_mutation(decision_id)
+    if mutation is None or (
+        mutation.project_name != project_name
+        or mutation.disposition != disposition
+        or mutation.current_knowledge_ids != [entry.id for entry in new_entries]
+    ):
+        return False
+    versions = [
+        await store.get_version(version_id)
+        for version_id in mutation.predecessor_version_ids
+    ]
+    if {item.knowledge_id for item in versions if item is not None} != set(
+        predecessor_truth_ids
+    ):
+        return False
+    for expected in new_entries:
+        current = await store.get_entry(expected.id, project_name=project_name)
+        if current is None or (
+            current.project_name != expected.project_name
+            or current.module_path != expected.module_path
+            or current.title != expected.title
+            or current.statement != expected.statement
+        ):
+            return False
+    return True
 
 
 def _required_project_root(value: str | Path | None) -> Path:
@@ -334,6 +405,7 @@ async def resolve_separated_review(
     knowledge_items: Sequence[Mapping[str, Any]] = (),
     target_knowledge_ids: Sequence[str] = (),
     project_root: str | Path | None = None,
+    expected_project_name: str | None = None,
 ) -> dict[str, Any]:
     """Apply an explicit Review decision through the same separated ledger.
 
@@ -346,6 +418,8 @@ async def resolve_separated_review(
     candidate = await store.get_candidate(candidate_id)
     if candidate is None:
         raise ValueError("knowledge review candidate is missing")
+    if expected_project_name and candidate.project_name != expected_project_name:
+        raise ValueError("knowledge review candidate belongs to another project")
     if candidate.status in {"assimilated", "rejected"}:
         raise ValueError("knowledge review candidate already has a terminal decision")
     if candidate.status not in {"pending", "deferred", "conflict"}:
@@ -516,6 +590,7 @@ async def undo_separated_review(
     decision_id: str,
     reason: str,
     project_root: str | Path | None = None,
+    expected_project_name: str | None = None,
 ) -> dict[str, Any]:
     """Reverse a Review change using its audit snapshot, not historical truth.
 
@@ -527,6 +602,11 @@ async def undo_separated_review(
 
     del project_root
     store = backend.structured_store.knowledge_store
+    original = await store.get_decision(decision_id)
+    if original is None:
+        raise ValueError("knowledge review decision is missing")
+    if expected_project_name and original.project_name != expected_project_name:
+        raise ValueError("knowledge review decision belongs to another project")
     reversal_id = str(
         uuid5(
             NAMESPACE_URL,

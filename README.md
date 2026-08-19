@@ -93,15 +93,15 @@ search/timeline, candidate detail, runtime reset, and storage repair are
 explicit audit or operator capabilities; they do not define the long-term
 knowledge model.
 
-The released compatibility path stores governed truth in canonical SQLite but
-still mixes candidate, evidence, decision, and truth fields in `MemoryEntry`.
-The current unshipped worktree converges SQLite `knowledge_entries` into the
-sole authority for clean current knowledge. Candidate, verification, and
-proposed decision material is job-scoped and cleaned after a proven terminal
-outcome; FTS/vector remain rebuildable SQLite projections. Markdown is rendered
-only when a user asks to read or export the library. Natural project modules are
-formed without a hard-coded module allowlist. The worktree still requires an
-isolated six-session acceptance before any live legacy-memory migration. See
+The released `0.9.21` runtime uses SQLite `knowledge_entries` as the authority
+for clean current knowledge. Candidate, verification, and proposed decision
+material is job-scoped and cleaned after a proven terminal outcome; legacy
+`MemoryEntry` remains readable for compatibility. Current search reads SQLite
+deterministically, while FTS/vector remain optional rebuildable optimizations.
+Markdown is rendered only when a user asks to read or export the library.
+Natural project modules are formed without a hard-coded module allowlist. A
+frozen six-session acceptance passed, but live legacy-memory migration still
+requires separate explicit authorization. See
 [SQLite Current-Knowledge Convergence](docs/roadmap/knowledge-truth-separation.md).
 
 The runtime search scheduler is event-driven, not always-on. PI-style
@@ -175,18 +175,17 @@ Privacy is enforced before persistence. Put sensitive spans inside
 `<private>...</private>`, or configure project-level `[capture]` ignore lists;
 excluded content never reaches raw revisions, chunks, Observations, or indexes.
 `[transcript].retention_days` enables automatic expiry (`0` keeps data).
-Successful distill attempts safe source cleanup by default. The runtime only
-deletes a standalone source when its adapter supports session-scoped deletion
-and quiet/CAS/hash checks pass. Set the policy to `false` at user or project
-scope when the original source must be retained:
+Successful distill retains the original source by default. Source cleanup is
+allowed only when the project explicitly enables it and the adapter supports
+session-scoped deletion with passing quiet/CAS/hash checks:
 
 ```bash
-harness-mem config set distill.delete_source_after_complete false --scope project
+harness-mem config set distill.delete_source_after_complete true --scope project --confirm
 ```
 
-Re-enabling an explicitly disabled policy requires `--confirm`. If config is
-unreadable or the project cannot be resolved, completion fails safe and retains
-the source. When enabled, completed jobs delete an eligible quiet native session source,
+User-level values do not authorize this destructive policy. If config is
+unreadable, the project value is absent, or the project cannot be resolved,
+completion fails safe and retains the source. When enabled, completed jobs delete an eligible quiet native session source,
 local raw bytes, chunks, checkpoint results, matching Observations, and derived
 indexes while retaining governed long-term knowledge in canonical SQLite. Every
 attempt reports `retained`, `deleted`, `partial_failure`, or `unsupported` and
@@ -240,8 +239,8 @@ owns storage, candidates, review, retrieval, and local audit state.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.12 \
-  harness-mem==0.9.12
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.21 \
+  harness-mem==0.9.21
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -252,8 +251,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.12 \
-  "harness-mem[hybrid]==0.9.12"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.21 \
+  "harness-mem[hybrid]==0.9.21"
 ```
 
 Install every supported host's native Daily commands once for the current
@@ -400,12 +399,16 @@ product surface.
 ## Repository
 
 - `harness_mem/`: runtime package.
-- `plugins/harness-mem/`: Agent client integration.
-- `tools/hm-distill/SKILL.md`: instruction-only Agent playbook for the supported MCP distill flow; runtime code lives exclusively under `harness_mem/`.
+- `code/plugins/harness-mem/`: Agent client integration.
+- `code/tools/hm-distill/SKILL.md`: instruction-only Agent playbook for the supported MCP distill flow; runtime code lives exclusively under `harness_mem/`.
 - `docs/quickstart.md`: minimal setup path.
 - `docs/mcp-setup.md`: MCP setup notes.
 - `docs/demo-cold-start.md`: reproducible cold-start demo.
 - `docs/assets/`: logo and public README diagrams.
+- [项目结构收敛说明](docs/project-structure.md):源码与文档一体化布局说明（不含运行时变更）。
+- 一次性清理脚本：
+  - `scripts\\clean-workspace.ps1 clean`（保守清理：临时缓存）
+  - `scripts\\clean-workspace.ps1 clean-all`（强清：保守缓存 + 构建产物）
 
 ## Documentation
 
@@ -441,7 +444,7 @@ Before claiming that the running product is complete, execute the repository's
 user-outcome contract with the cross-project `outcome-verifier` Skill:
 
 ```bash
-python tools/outcome-verifier/scripts/verify_outcomes.py \
+python code/tools/outcome-verifier/scripts/verify_outcomes.py \
   --config .codex/outcomes.json \
   --output .tmp/outcome-verifier/harness-mem-report.json
 ```
@@ -480,10 +483,10 @@ completed distill session, and a durable truth that can be returned through the
 FTS read model. A non-zero verdict means the user-visible outcome is not complete,
 even when code, configuration, queues, or unit tests look healthy.
 
-Repair or regenerate MCP descriptors when `tool_specs` changes (also reverts incidental `mcps/grok_com_github` IDE drift):
+Repair or regenerate MCP descriptors when `tool_specs` changes (also reverts incidental `code/mcps/grok_com_github` IDE drift):
 
 ```bash
-python scripts/ensure_mcps_canonical.py
+python code/scripts/ensure_mcps_canonical.py
 ```
 
 ## Releases
@@ -491,4 +494,4 @@ python scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, runs a real sqlite-vec contract gate, qualifies the supported Windows upgrade path, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.9.12**.
+Current package version: **0.9.21**.

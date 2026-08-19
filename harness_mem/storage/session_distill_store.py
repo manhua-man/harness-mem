@@ -779,6 +779,13 @@ class SessionDistillStore:
                     and job.review_lease_until is not None
                     and job.review_lease_until > now
                 )
+                if review_lease_owner is not None:
+                    if job.review_lease_owner != review_lease_owner:
+                        raise PermissionError(
+                            "distill review lease is not owned by this caller"
+                        )
+                    if job.review_lease_until is None or job.review_lease_until <= now:
+                        raise TimeoutError("distill review lease has expired")
                 if (
                     active_review_lease
                     and job.review_lease_owner != review_lease_owner

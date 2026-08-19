@@ -6,8 +6,8 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.12 \
-  harness-mem==0.9.12
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.21 \
+  harness-mem==0.9.21
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Pip uses
@@ -17,8 +17,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.12 \
-  "harness-mem[hybrid]==0.9.12"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.21 \
+  "harness-mem[hybrid]==0.9.21"
 ```
 
 Check the CLI:
@@ -247,18 +247,18 @@ contradicted evidence is terminally blocked from durable truth. Candidate
 detail and full/compact status expose content-free admission outcomes for
 audit without adding another MCP tool or manual daily gate.
 
-Successful distill attempts safe source cleanup by default. Only a standalone,
-quiet source that passes adapter and CAS/hash checks is deleted; unsupported
-shared containers remain untouched. Disable it per project when source evidence
-must be retained:
+Successful distill retains source evidence by default. Only a project-level
+explicit opt-in can authorize cleanup, and only a standalone, quiet source that
+passes adapter and CAS/hash checks is deleted; unsupported shared containers
+remain untouched:
 
 ```bash
 harness-mem config get distill.delete_source_after_complete
-harness-mem config set distill.delete_source_after_complete false --scope project
+harness-mem config set distill.delete_source_after_complete true --scope project --confirm
 ```
 
-Re-enabling a policy explicitly set to false requires `--confirm`. Finalize
-never asks per session. An unreadable config or unresolved project fails safe
+User-level values do not authorize cleanup. Finalize never asks per session.
+An unreadable config, missing project opt-in, or unresolved project fails safe
 to source retention.
 
 When enabled, finalize (and a bounded post-turn retry after an active source

@@ -23,11 +23,13 @@ async def record_retrieval_signal(
     value: float | None = None,
     context: dict[str, Any] | None = None,
     recorded_at: datetime | None = None,
+    signal_id: str | None = None,
 ) -> RetrievalSignal | None:
     """Persist a retrieval signal as a best-effort shadow write."""
 
     try:
         signal = RetrievalSignal(
+            **({"id": signal_id} if signal_id else {}),
             project_name=project_name,
             signal_type=signal_type,
             target_kind=target_kind,

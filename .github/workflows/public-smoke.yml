@@ -28,12 +28,12 @@ jobs:
           python -m pip install dist/wheel/*.whl --force-reinstall
 
       - name: Ensure canonical mcps descriptors
-        run: python scripts/ensure_mcps_canonical.py
+        run: python code/scripts/ensure_mcps_canonical.py
 
       - name: Runtime smoke
         run: |
           python -m compileall harness_mem
-          python -m ruff check harness_mem plugins tools
+          python -m ruff check harness_mem code/plugins code/tools code/mcps
           python -c "import harness_mem_core_rs; assert harness_mem_core_rs.api_version()"
           python -m harness_mem.cli --help
           python -m harness_mem.cli maintenance state-audit --help
@@ -70,7 +70,7 @@ jobs:
       - name: Verify embedding and sqlite-vec generation contracts
         run: >-
           python -m pytest -q
-          tests/test_embedding_batch_rebuild.py
-          tests/test_sqlite_vec_index.py
-          tests/test_vec0_generation_failures.py
-          tests/test_doctor_vec0.py
+          code/tests/test_embedding_batch_rebuild.py
+          code/tests/test_sqlite_vec_index.py
+          code/tests/test_vec0_generation_failures.py
+          code/tests/test_doctor_vec0.py

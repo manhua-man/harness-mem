@@ -2,20 +2,19 @@
 
 This document owns the conceptual contract for turning session evidence into
 usable long-term memory. The full product path starts before extraction: it
-must first safely receive, version, and finish a native session. The 0.9.12
-runtime already implements much of that lifecycle, lossless extraction,
-content-addressed evidence validation, governed truth, and normal retrieval.
-The current released runtime already isolates raw Observation content and
-internal audit metadata behind explicit deep recall or diagnostic views, but its
-compatibility `MemoryEntry` model still mixes candidate, evidence, decision,
-and truth fields. Legacy `MemoryEntry` remains a compatibility/manual Review
-path. The current worktree implements the target contract in which SQLite
-`knowledge_entries` is the single authority for current long-term knowledge.
+must first safely receive, version, and finish a native session. The `0.9.20`
+runtime implements that lifecycle, lossless extraction, content-addressed
+evidence validation, governed truth, and normal retrieval. It isolates raw
+Observation content and internal audit metadata behind explicit deep recall or
+diagnostic views. Legacy `MemoryEntry` remains a compatibility/manual Review
+path, while SQLite `knowledge_entries` is the authority for new current
+long-term knowledge.
 Candidate, evidence, and proposed-decision records are job-scoped processing
 material retained only for retry, unresolved work, and bounded diagnosis.
-FTS/vector data is derived from SQLite; Markdown is rendered on demand for
-reading or export and never becomes a write path. This implementation remains
-unshipped until isolated six-session and runtime outcome acceptance pass.
+Current search reads SQLite deterministically; optional FTS/vector data remains
+a rebuildable optimization. Markdown is rendered on demand for reading or
+export and never becomes a write path. The frozen six-session oracle, real Hook,
+and runtime outcome acceptance passed for `0.9.20`.
 [SQLite Current-Knowledge Convergence](roadmap/knowledge-truth-separation.md)
 owns the construction and qualification plan and does not authorize a
 live-memory migration.

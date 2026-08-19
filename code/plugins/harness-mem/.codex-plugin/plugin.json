@@ -1,0 +1,39 @@
+{
+  "name": "harness-mem",
+  "version": "0.9.21",
+  "wireFormatVersion": "hm-wire-v3.5",
+  "description": "Local-first, auditable, pluggable Agent memory backend.",
+  "author": {
+    "name": "harness-mem maintainers"
+  },
+  "homepage": "../../README.md",
+  "repository": "../../",
+  "license": "Apache-2.0",
+  "keywords": [
+    "memory",
+    "mcp",
+    "codex",
+    "claude",
+    "local-first"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "harness-mem",
+    "shortDescription": "Local-first Agent memory for project context, search, wake-up, and task resume.",
+    "longDescription": "Wraps harness-mem as a plugin with skills, MCP server config, and helper scripts. Use it to recover confirmed project context, search prior work, and propose reviewable memory candidates without moving data out of the local machine.",
+    "developerName": "harness-mem",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Wake this project and summarize what matters now.",
+      "Search harness-mem for the last decision on this issue.",
+      "Ingest recent sessions and show me the memory status."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

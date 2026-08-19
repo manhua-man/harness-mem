@@ -33,10 +33,10 @@ episode/community 集合。edge 的生命周期字段是 `valid_at`（事实发�
 
 ## 测试与评测启示
 
-`tests/utils/search/test_edge_bfs_query_shape.py` 使用 recording driver 检验实际发出的
+`code/tests/utils/search/test_edge_bfs_query_shape.py` 使用 recording driver 检验实际发出的
 Cypher：BFS 直接消费 `relationships(path)`，保留 `RELATES_TO` 类型约束，且不含旧的按
 UUID 逐行重新匹配。这是值得复制的性能测试形式：测试查询计划/形状，而不仅是最终命中。
-上游也带 LongMemEval temporal-reasoning oracle 数据（`tests/evals/data/longmemeval_data/`），
+上游也带 LongMemEval temporal-reasoning oracle 数据（`code/tests/evals/data/longmemeval_data/`），
 但该大规模图/LLM 评测不应成为 harness-mem 的默认 CI 前提。
 
 ## 对 harness-mem：adopt / adapt / reject

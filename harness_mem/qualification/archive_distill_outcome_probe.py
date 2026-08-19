@@ -204,7 +204,10 @@ def run_archive_distill_outcome_probe() -> dict[str, Any]:
             encoding="utf-8",
         )
         project.joinpath(".harness-mem.toml").write_text(
-            "[distill.autonomous]\nenabled = true\n",
+            "[distill]\n"
+            "delete_source_after_complete = true\n\n"
+            "[distill.autonomous]\n"
+            "enabled = true\n",
             encoding="utf-8",
         )
         source = _write_archive(archive, project, "archive-probe")

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 import json
 import logging
 import os
 from pathlib import Path
+import re
+import time
 from typing import Any, Callable, Iterator, Protocol
 from uuid import uuid4
 
@@ -17,15 +20,19 @@ from harness_mem.autonomous.models import (
     AssimilationDecision,
     CandidateVerificationDecision,
     DistillCandidate,
+    validate_atomic_knowledge_statement,
 )
 from harness_mem.autonomous.provider import (
+    CodexExecProvider,
     ProviderError,
     ProviderResult,
     ResponsesApiProvider,
 )
 from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.commands.separated_assimilation import (
+    SeparatedPreparedAssimilation,
     create_separated_candidates,
+    normalize_identical_truth_mutations,
     prepare_separated_assimilation,
     validate_separated_assimilation_decision,
 )
@@ -45,6 +52,7 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 logger = logging.getLogger("harness_mem.autonomous")
 _REVIEW_LEASE_SECONDS = 300
+_MAX_ASSIMILATION_CANDIDATES_PER_CALL = 1
 _RUNTIME_SOURCE_FILES = (
     Path(__file__),
     Path(__file__).with_name("models.py"),
@@ -81,6 +89,83 @@ class DistillProvider(Protocol):
         runtime_dir: Path,
         heartbeat: Any = None,
     ) -> ProviderResult: ...
+
+
+def _provider_call_with_transport_fallback(
+    provider: DistillProvider,
+    method_name: str,
+    manifest: dict[str, Any],
+    *,
+    runtime_dir: Path,
+    heartbeat: Any,
+) -> ProviderResult:
+    """Recover a narrow Responses EOF through the isolated Codex transport."""
+
+    method = getattr(provider, method_name)
+    started = time.monotonic()
+    try:
+        return method(
+            manifest,
+            runtime_dir=runtime_dir,
+            heartbeat=heartbeat,
+        )
+    except ProviderError as primary_error:
+        if (
+            getattr(provider, "name", "") != "responses_api"
+            or primary_error.kind != "transient"
+            or "unexpected eof" not in str(primary_error).casefold()
+        ):
+            raise
+        selected_model = (
+            getattr(provider, "assimilation_model", None)
+            if method_name == "assimilate"
+            else getattr(provider, "model", None)
+        )
+        fallback = CodexExecProvider(
+            model=str(selected_model or "").strip() or None,
+            timeout_seconds=300,
+        )
+        if not fallback.executable:
+            raise
+        fallback_method = getattr(fallback, method_name)
+        try:
+            recovered = fallback_method(
+                manifest,
+                runtime_dir=runtime_dir,
+                heartbeat=heartbeat,
+            )
+        except ProviderError as fallback_error:
+            raise ProviderError(
+                f"{primary_error}; codex_exec fallback failed: {fallback_error}",
+                kind=(
+                    "transient"
+                    if fallback_error.kind == "setup_required"
+                    else fallback_error.kind
+                ),
+                exit_code=fallback_error.exit_code,
+            ) from fallback_error
+        return ProviderResult(
+            decision=recovered.decision,
+            provider=f"responses_api->{recovered.provider}",
+            model=recovered.model,
+            duration_seconds=time.monotonic() - started,
+            input_sha256=recovered.input_sha256,
+            response_sha256=recovered.response_sha256,
+            input_tokens=recovered.input_tokens,
+            output_tokens=recovered.output_tokens,
+            total_tokens=recovered.total_tokens,
+            event_count=recovered.event_count,
+            attempt_count=recovered.attempt_count + 1,
+            schema_valid=recovered.schema_valid,
+            sandbox=recovered.sandbox,
+            ephemeral=recovered.ephemeral,
+            cwd_isolated=recovered.cwd_isolated,
+            hooks_disabled=recovered.hooks_disabled,
+            plugins_disabled=recovered.plugins_disabled,
+            mcp_disabled=recovered.mcp_disabled,
+            rules_ignored=recovered.rules_ignored,
+            config_isolated=recovered.config_isolated,
+        )
 
     def verify(
         self,
@@ -668,21 +753,6 @@ def _run_one(
                 heartbeat=heartbeat,
             )
         )
-        # New autonomous distillation never creates a compatibility
-        # MemoryEntry/RuleCandidate/RelationFact.  The provider's shaped
-        # candidate is admitted directly into the separated candidate and
-        # evidence tables; legacy governance remains a read-compatible manual
-        # surface only.
-        governed_candidate_ids = asyncio.run(
-            create_separated_candidates(
-                backend,
-                project_name=project_name,
-                distill_job_id=job.id,
-                candidate_arguments=[
-                    arguments for _candidate, arguments in validated_candidates
-                ],
-            )
-        )
         verification_result: ProviderResult | None = None
         if validated_candidates:
             verify = getattr(provider, "verify", None)
@@ -702,6 +772,19 @@ def _run_one(
                 runtime_dir=runtime_dir,
                 heartbeat=heartbeat,
             )
+        # Persist only the trusted per-point verification result.  The
+        # extraction model's requested verification_outcome is an input claim,
+        # not evidence that may reach assimilation.
+        governed_candidate_ids = asyncio.run(
+            create_separated_candidates(
+                backend,
+                project_name=project_name,
+                distill_job_id=job.id,
+                candidate_arguments=[
+                    arguments for _candidate, arguments in validated_candidates
+                ],
+            )
+        )
         governed_count = len(governed_candidate_ids)
         if decision.candidates and governed_count == 0:
             raise ProviderError(
@@ -734,14 +817,11 @@ def _run_one(
                         "autonomous provider does not implement post-verification assimilation",
                         kind="setup_required",
                     )
-                assimilation_result = _assimilate_with_schema_retry(
+                assimilation_result = _assimilate_prepared_in_bounded_batches(
                     provider,
-                    manifest=prepared.manifest,
+                    prepared=prepared,
                     runtime_dir=runtime_dir,
                     heartbeat=heartbeat,
-                    validate_decision=lambda candidate: validate_separated_assimilation_decision(
-                        prepared, candidate
-                    ),
                 )
                 if not isinstance(assimilation_result.decision, AssimilationDecision):
                     raise ProviderError(
@@ -1076,7 +1156,9 @@ def _decide_with_candidate_retry(
     results: list[ProviderResult] = []
     current_manifest = manifest
     for attempt in range(2):
-        result = provider.decide(
+        result = _provider_call_with_transport_fallback(
+            provider,
+            "decide",
             current_manifest,
             runtime_dir=runtime_dir,
             heartbeat=heartbeat,
@@ -1138,27 +1220,29 @@ def _assimilate_with_schema_retry(
     heartbeat: Any,
     validate_decision: Callable[[AssimilationDecision], Any] | None = None,
 ) -> ProviderResult:
-    """Give a malformed post-verification response one bounded correction pass.
+    """Give a malformed post-verification response two bounded correction passes.
 
     Candidate extraction already has a field-contract retry.  Atomic
     ``knowledge_items`` introduced another strict structured shape, so the
     second semantic call needs the same bounded recovery: an omitted item title,
     unavailable target, or invalid target cardinality must not strand a complete
-    session in ``reviewing``. The retry passes the validator's exact feedback and
-    still fails closed after one correction.
+    session in ``reviewing``. Each retry passes the validator's exact feedback and
+    still fails closed after two corrections.
     """
 
     current_manifest = manifest
-    for attempt in range(2):
+    for attempt in range(3):
         try:
-            result = provider.assimilate(
+            result = _provider_call_with_transport_fallback(
+                provider,
+                "assimilate",
                 current_manifest,
                 runtime_dir=runtime_dir,
                 heartbeat=heartbeat,
             )
         except ProviderError as exc:
             invalid_shape = "invalid assimilation json" in str(exc).lower()
-            if attempt == 0 and exc.kind == "unrecoverable" and invalid_shape:
+            if attempt < 2 and exc.kind == "unrecoverable" and invalid_shape:
                 current_manifest = {
                     **manifest,
                     "assimilation_validation_feedback": {
@@ -1167,12 +1251,27 @@ def _assimilate_with_schema_retry(
                             "Return a corrected assimilation decision. A knowledge_items "
                             "row must contain title, statement, topic_path, and claim_kind; "
                             "use canonical_title/canonical_statement instead when writing "
-                            "one item. If an error says independent obligations or separate "
+                            "one item. When knowledge_items is non-empty, leave point-level "
+                            "canonical_title and canonical_statement null and topic_path empty. "
+                            "Never keep an umbrella item together with narrower items that split "
+                            "the same requirement. If a requirement offers alternative enforcement "
+                            "mechanisms, preserve the either/or in one atomic sentence with one "
+                            "modal instead of expanding it into separate must clauses. Return every "
+                            "supplied candidate_id at least once. A broad candidate can "
+                            "return multiple points with distinct dispositions and targets. "
+                            "Preserve every technical identifier "
+                            "named in the candidate; when feedback lists dropped terms, copy those "
+                            "identifiers exactly into the corrected knowledge statement. Set "
+                            "matched_truth_handles=[] for add, no_write, handoff, defer, and "
+                            "reject; use exactly one available handle for confirm, refine, or "
+                            "supersede. If an error says independent obligations or separate "
                             "steps, split the offending statement into distinct atomic "
                             "knowledge_items within the three-item limit. Do not repeat or "
                             "lightly rephrase the invalid combined statement; if it cannot "
                             "be split within the bound, retain only the highest-value atomic "
-                            "item or choose no_write."
+                            "item or choose no_write. Keep a paired growth and lossless-"
+                            "reconstruction qualification test contract in one testing item "
+                            "rather than one item per test name."
                         ),
                     },
                 }
@@ -1183,19 +1282,49 @@ def _assimilate_with_schema_retry(
                 try:
                     validate_decision(result.decision)
                 except ValueError as exc:
-                    if attempt == 0:
+                    if attempt < 2:
                         current_manifest = {
                             **manifest,
                             "assimilation_validation_feedback": {
                                 "errors": [str(exc)[:2000]],
                                 "instruction": (
-                                    "Return a corrected assimilation decision. A confirm, "
-                                    "refine, or supersede point needs exactly one supplied "
-                                    "truth handle; do not reference unavailable handles."
+                                    "Return every supplied candidate_id at least once in a "
+                                    "corrected assimilation decision; a broad candidate may "
+                                    "emit multiple points with distinct dispositions and targets. "
+                                    "Set matched_truth_handles=[] "
+                                    "for add, no_write, handoff, defer, and reject. A confirm, "
+                                    "refine, or supersede point needs exactly one supplied truth "
+                                    "handle; do not reference unavailable handles. For confirm, "
+                                    "no_write, handoff, defer, conflict, and reject, return no "
+                                    "knowledge_items and leave canonical_title, "
+                                    "canonical_statement, and topic_path empty. Correct every named "
+                                    "error before returning. Never keep an umbrella item together "
+                                    "with narrower items that split the same requirement. Preserve "
+                                    "alternative enforcement mechanisms as one either/or sentence "
+                                    "with one modal. Preserve every candidate technical identifier "
+                                    "exactly, including any terms named as dropped in the error. "
+                                    "Keep a paired growth and lossless-reconstruction qualification "
+                                    "test contract in one testing item rather than one item per test."
                                 ),
                             },
                         }
                         continue
+                    repaired = _repair_invalid_writing_with_source_clauses(
+                        result.decision,
+                        manifest=manifest,
+                        error=exc,
+                    )
+                    if repaired is not None:
+                        try:
+                            validate_decision(repaired)
+                        except ValueError:
+                            pass
+                        else:
+                            return replace(
+                                result,
+                                decision=repaired,
+                                provider=f"{result.provider}->runtime_source_clause",
+                            )
                     raise ProviderError(
                         f"invalid assimilation decision: {exc}",
                         kind="unrecoverable",
@@ -1206,6 +1335,390 @@ def _assimilate_with_schema_retry(
             kind="unrecoverable",
         )
     raise AssertionError("assimilation retry loop did not return")
+
+
+def _repair_invalid_writing_with_source_clauses(
+    decision: AssimilationDecision,
+    *,
+    manifest: dict[str, Any],
+    error: ValueError,
+) -> AssimilationDecision | None:
+    """Recover verified atomic source clauses after repeated lossy wording.
+
+    This does not synthesize missing facts. It copies only clauses from the
+    already verified candidate, and only when every clause is independently
+    atomic. Conditional alternatives and broad/ambiguous candidates still fail
+    closed and are deferred by the caller.
+    """
+
+    message = str(error)
+    wording_error_markers = (
+        "canonical knowledge",
+        "knowledge item",
+        "knowledge_items",
+    )
+    if not any(marker in message for marker in wording_error_markers):
+        return None
+    if len(decision.points) != 1:
+        return None
+    projections = [
+        item
+        for item in manifest.get("verified_candidates") or []
+        if isinstance(item, dict)
+    ]
+    if len(projections) != 1:
+        return None
+    projection = projections[0]
+    point = decision.points[0]
+    if point.candidate_id != str(projection.get("candidate_id") or ""):
+        return None
+    if point.disposition not in {"add", "refine", "supersede"}:
+        return None
+    if point.knowledge_items and len(point.knowledge_items) > 3:
+        return None
+
+    source = str(projection.get("statement") or "").strip()
+    if not source or re.search(r"(?:；|;)\s*(?:如果|否则|if\b|otherwise\b)", source, re.I):
+        return None
+    source_clauses = _split_verified_source_clauses(source)
+    if not 1 <= len(source_clauses) <= 3:
+        return None
+    if _source_clauses_have_overlapping_identifiers(source_clauses):
+        return None
+    atomic_clauses: list[str] = []
+    for clause in source_clauses:
+        try:
+            atomic_clauses.append(validate_atomic_knowledge_statement(clause))
+        except ValueError:
+            return None
+    if point.disposition == "refine" and len(atomic_clauses) != 1:
+        return None
+
+    payload = decision.model_dump(mode="json")
+    raw_point = payload["points"][0]
+    if raw_point.get("knowledge_items"):
+        existing_items = raw_point["knowledge_items"]
+        template = existing_items[0]
+        raw_point["knowledge_items"] = [
+            {
+                "title": (
+                    str(template.get("title") or "")
+                    if len(atomic_clauses) == 1
+                    else _source_clause_title(clause)
+                ),
+                "statement": clause,
+                "topic_path": list(template.get("topic_path") or []),
+                "claim_kind": template.get("claim_kind"),
+            }
+            for clause in atomic_clauses
+        ]
+        if any(not item["title"] for item in raw_point["knowledge_items"]):
+            return None
+    elif raw_point.get("canonical_statement"):
+        return None
+    else:
+        return None
+    return AssimilationDecision.model_validate(payload)
+
+
+def _source_clauses_have_overlapping_identifiers(clauses: list[str]) -> bool:
+    """Keep deterministic fallback from duplicating the same technical checklist."""
+
+    ignored = {
+        "adapter",
+        "candidate",
+        "chunk",
+        "current",
+        "knowledge",
+        "must",
+        "revision",
+        "session",
+        "should",
+        "support",
+        "test",
+    }
+    identifiers = [
+        {
+            token.casefold()
+            for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", clause)
+            if token.casefold() not in ignored
+        }
+        for clause in clauses
+    ]
+    return any(
+        len(left & right) >= 2
+        for index, left in enumerate(identifiers)
+        for right in identifiers[index + 1 :]
+    )
+
+
+def _split_verified_source_clauses(source: str) -> list[str]:
+    """Split only explicit source conjunctions while retaining their shared subject."""
+
+    clauses = [
+        clause.strip(" \t\r\n,，。")
+        for clause in source.replace("；", ";").split(";")
+        if clause.strip(" \t\r\n,，。")
+    ]
+    expanded: list[str] = []
+    for clause in clauses:
+        modal = re.match(r"^(?P<prefix>.+?(?:必须|应当|应该|应|须))(?P<body>.+)$", clause)
+        if modal is None:
+            expanded.append(clause)
+            continue
+        prefix = modal.group("prefix")
+        body = modal.group("body")
+        split = re.split(
+            r"，并(?=(?:通过|具备|声明|完成|提供|执行|保存|记录))",
+            body,
+            maxsplit=1,
+        )
+        if len(split) == 2:
+            expanded.extend([prefix + split[0], prefix + split[1]])
+        else:
+            expanded.append(clause)
+
+    atomic_candidates: list[str] = []
+    for clause in expanded:
+        if not (
+            re.search(r"(?:路径|样本|匹配规则)", clause)
+            and re.search(r"hook\s*/\s*transcript|hook.+transcript", clause, re.I)
+        ):
+            atomic_candidates.append(clause)
+            continue
+        modal = re.match(
+            r"^(?P<prefix>.+?(?:必须|应当|应该|应|须)(?:声明|具备)?)(?P<body>.+)$",
+            clause,
+        )
+        if modal is None:
+            atomic_candidates.append(clause)
+            continue
+        body = modal.group("body")
+        capability = re.search(
+            r"(?:、|，|和|及)\s*(?P<capability>hook\s*/\s*transcript\s*能力.*)$",
+            body,
+            re.I,
+        )
+        if capability is None:
+            atomic_candidates.append(clause)
+            continue
+        left = body[: capability.start()].strip(" 、,，")
+        if not left:
+            atomic_candidates.append(clause)
+            continue
+        atomic_candidates.extend(
+            [modal.group("prefix") + left, modal.group("prefix") + capability.group("capability")]
+        )
+    return [clause.strip(" \t\r\n,，。") for clause in atomic_candidates if clause.strip()]
+
+
+def _source_clause_title(source_clause: str) -> str:
+    """Derive a bounded title from one copied source clause, without new facts."""
+
+    normalized = " ".join(source_clause.split()).strip(" ,，。")
+    match = re.search(r"(?:必须|应当|应该|应|须)", normalized)
+    if match is None:
+        head = re.split(r"[、,，。]", normalized, maxsplit=1)[0]
+        return head[:80] or "Verified source constraint"
+    subject = normalized[: match.start()].strip()
+    subject = re.sub(r"^(?:每个|每一|所有)\s*", "", subject).strip()
+    predicate = normalized[match.end() :].strip()
+    predicate = re.split(r"[、,，。]", predicate, maxsplit=1)[0].strip()
+    title = " ".join(part for part in (subject, predicate) if part).strip()
+    return title[:80] or "Verified source constraint"
+
+
+def _assimilate_prepared_in_bounded_batches(
+    provider: DistillProvider,
+    *,
+    prepared: SeparatedPreparedAssimilation,
+    runtime_dir: Path,
+    heartbeat: Any,
+) -> ProviderResult:
+    """Bound strict output size while preserving one complete runtime decision.
+
+    Ten independently verified points can exceed the provider's practical
+    structured-output latency even though the input manifest is compact. Each
+    bounded call sees the same current truth, and the trusted runtime merges the
+    returned points before revalidating exact full-job coverage.
+    """
+
+    eligible = list(prepared.eligible_candidate_ids)
+    if not eligible:
+        raise ProviderError(
+            "bounded assimilation requires at least one eligible candidate",
+            kind="unrecoverable",
+        )
+    projected = {
+        str(item.get("candidate_id") or ""): dict(item)
+        for item in prepared.manifest.get("verified_candidates") or []
+        if isinstance(item, dict)
+    }
+    if any(candidate_id not in projected for candidate_id in eligible):
+        raise ProviderError(
+            "assimilation manifest is missing an eligible candidate projection",
+            kind="unrecoverable",
+        )
+
+    results: list[ProviderResult] = []
+    combined_points = []
+    prior_batch_knowledge: list[dict[str, Any]] = []
+    retired_truth_handles: set[str] = set()
+    for offset in range(0, len(eligible), _MAX_ASSIMILATION_CANDIDATES_PER_CALL):
+        batch_ids = tuple(
+            eligible[offset : offset + _MAX_ASSIMILATION_CANDIDATES_PER_CALL]
+        )
+        available_truth_by_handle = {
+            handle: truth_id
+            for handle, truth_id in prepared.truth_by_handle.items()
+            if handle not in retired_truth_handles
+        }
+        batch_prepared = SeparatedPreparedAssimilation(
+            project_name=prepared.project_name,
+            project_root=prepared.project_root,
+            candidate_ids=batch_ids,
+            eligible_candidate_ids=batch_ids,
+            automatic_points=(),
+            answer_status_by_candidate={
+                candidate_id: prepared.answer_status_by_candidate[candidate_id]
+                for candidate_id in batch_ids
+            },
+            truth_by_handle=available_truth_by_handle,
+            manifest={
+                **prepared.manifest,
+                "verified_candidates": [projected[candidate_id] for candidate_id in batch_ids],
+                "prior_batch_knowledge": list(prior_batch_knowledge),
+                "current_truth": [
+                    item
+                    for item in prepared.manifest.get("current_truth") or []
+                    if isinstance(item, dict)
+                    and str(item.get("handle") or "") in available_truth_by_handle
+                ],
+            },
+        )
+
+        def validate_batch(candidate: AssimilationDecision) -> dict[str, Any]:
+            return validate_separated_assimilation_decision(
+                batch_prepared,
+                candidate,
+            )
+
+        try:
+            result = _assimilate_with_schema_retry(
+                provider,
+                manifest=batch_prepared.manifest,
+                runtime_dir=runtime_dir,
+                heartbeat=heartbeat,
+                validate_decision=validate_batch,
+            )
+        except ProviderError as exc:
+            if exc.kind != "unrecoverable":
+                raise
+            result = _deferred_assimilation_result(
+                provider,
+                candidate_id=batch_ids[0],
+                error=exc,
+                manifest=batch_prepared.manifest,
+            )
+        if not isinstance(result.decision, AssimilationDecision):
+            raise ProviderError(
+                "assimilation provider returned an unexpected decision type",
+                kind="unrecoverable",
+            )
+        normalized_decision = normalize_identical_truth_mutations(
+            batch_prepared,
+            result.decision,
+        )
+        if normalized_decision is not result.decision:
+            result = replace(result, decision=normalized_decision)
+        normalized_batch = validate_separated_assimilation_decision(
+            batch_prepared,
+            result.decision,
+        )
+        results.append(result)
+        combined_points.extend(result.decision.points)
+        retired_truth_handles.update(
+            str(handle)
+            for point in result.decision.points
+            if point.disposition in {"refine", "supersede"}
+            for handle in point.matched_truth_handles
+        )
+        for point in normalized_batch["points"]:
+            knowledge_items = list(point.get("knowledge_items") or [])
+            if knowledge_items:
+                prior_batch_knowledge.extend(
+                    {
+                        "candidate_id": str(point["candidate_id"]),
+                        "title": str(item["title"]),
+                        "statement": str(item["statement"]),
+                        "topic_path": list(item["topic_path"]),
+                    }
+                    for item in knowledge_items
+                )
+            elif point.get("canonical_title") and point.get("canonical_statement"):
+                prior_batch_knowledge.append(
+                    {
+                        "candidate_id": str(point["candidate_id"]),
+                        "title": str(point["canonical_title"]),
+                        "statement": str(point["canonical_statement"]),
+                        "topic_path": list(point.get("topic_path") or []),
+                    }
+                )
+
+    combined_decision = AssimilationDecision(points=combined_points)
+    validate_separated_assimilation_decision(prepared, combined_decision)
+    return _combine_provider_results(results, decision=combined_decision)
+
+
+def _deferred_assimilation_result(
+    provider: DistillProvider,
+    *,
+    candidate_id: str,
+    error: ProviderError,
+    manifest: dict[str, Any],
+) -> ProviderResult:
+    """Isolate one invalid semantic point without weakening the truth gate."""
+
+    decision = AssimilationDecision.model_validate(
+        {
+            "points": [
+                {
+                    "candidate_id": candidate_id,
+                    "disposition": "defer",
+                    "matched_truth_handles": [],
+                    "canonical_title": None,
+                    "canonical_statement": None,
+                    "topic_path": [],
+                    "knowledge_items": [],
+                    "reason": (
+                        "The bounded assimilation output remained invalid after "
+                        "correction, so this point was deferred without a truth write. "
+                        f"Validation error: {str(error)[:600]}"
+                    ),
+                }
+            ]
+        }
+    )
+    model = str(
+        getattr(provider, "assimilation_model", None)
+        or getattr(provider, "model", None)
+        or ""
+    ).strip() or None
+    payload = json.dumps(manifest, ensure_ascii=False, sort_keys=True)
+    return ProviderResult(
+        decision=decision,
+        provider=f"{getattr(provider, 'name', 'provider')}->runtime_defer",
+        model=model,
+        duration_seconds=0.0,
+        input_sha256=hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+        response_sha256=hashlib.sha256(str(error).encode("utf-8")).hexdigest(),
+        input_tokens=None,
+        output_tokens=None,
+        total_tokens=None,
+        event_count=0,
+        attempt_count=3,
+        schema_valid=False,
+    )
 
 
 def _build_candidate_verification_manifest(
@@ -1252,14 +1765,18 @@ def _build_candidate_verification_manifest(
                         }
                     )
                 else:
+                    current_content = path.read_text(
+                        encoding="utf-8", errors="replace"
+                    )
                     sources.append(
                         {
                             "kind": "repository",
                             "locator": ref.locator,
                             "content_sha256": ref.content_sha256,
-                            "content": path.read_text(
-                                encoding="utf-8", errors="replace"
-                            )[:16000],
+                            "current_content_sha256": hashlib.sha256(
+                                path.read_bytes()
+                            ).hexdigest(),
+                            "content": current_content[:16000],
                         }
                     )
             elif ref.kind == "transcript" and ref.chunk_index is not None:
@@ -1323,7 +1840,9 @@ def _verify_candidates(
     runtime_dir: Path,
     heartbeat: Any,
 ) -> tuple[ProviderResult, list[tuple[Any, dict[str, Any]]]]:
-    result = provider.verify(
+    result = _provider_call_with_transport_fallback(
+        provider,
+        "verify",
         manifest,
         runtime_dir=runtime_dir,
         heartbeat=heartbeat,
@@ -1350,6 +1869,14 @@ def _verify_candidates(
         if point.semantic_support == "supported" and point.future_scope == "durable":
             updated["verification_outcome"] = "verified"
             codes.extend(["semantic_support_verified", "future_utility_verified"])
+            rebound_refs = _rebind_current_repository_refs(
+                updated.get("verification_refs") or [],
+                manifest=manifest,
+                candidate_index=index,
+            )
+            if rebound_refs is not None:
+                updated["verification_refs"] = rebound_refs
+                codes.append("repository_ref_rebound_to_current")
         elif point.semantic_support == "contradicted":
             updated["verification_outcome"] = "contradicted"
             codes.append("semantic_support_contradicted")
@@ -1364,11 +1891,68 @@ def _verify_candidates(
     return result, verified
 
 
-def _combine_provider_results(results: list[ProviderResult]) -> ProviderResult:
+def _rebind_current_repository_refs(
+    refs: list[Any],
+    *,
+    manifest: dict[str, Any],
+    candidate_index: int,
+) -> list[dict[str, Any]] | None:
+    """Bind semantically reverified repository refs to current file bytes.
+
+    Historical sessions carry the digest that was current when the conversation
+    happened. A changed digest alone does not prove that the claim is stale. Once
+    the bounded verifier confirms that today's file still supports the claim, the
+    trusted runtime replaces only the digest with the one it computed itself.
+    """
+
+    candidate_rows = manifest.get("candidates") or []
+    row = next(
+        (
+            item
+            for item in candidate_rows
+            if isinstance(item, dict)
+            and int(item.get("candidate_index", -1)) == candidate_index
+        ),
+        None,
+    )
+    if row is None:
+        return None
+    current_by_locator = {
+        str(source.get("locator") or ""): str(
+            source.get("current_content_sha256") or ""
+        )
+        for source in row.get("sources") or []
+        if isinstance(source, dict)
+        and source.get("kind") == "repository"
+        and source.get("locator")
+        and source.get("current_content_sha256")
+    }
+    if not current_by_locator:
+        return None
+    rebound: list[dict[str, Any]] = []
+    changed = False
+    for value in refs:
+        ref = dict(value) if isinstance(value, dict) else value.model_dump(
+            mode="json", exclude_none=True
+        )
+        locator = str(ref.get("locator") or "")
+        current_digest = current_by_locator.get(locator)
+        if ref.get("kind") == "repository" and current_digest:
+            ref["content_sha256"] = current_digest
+            changed = True
+        rebound.append(ref)
+    return rebound if changed else None
+
+
+def _combine_provider_results(
+    results: list[ProviderResult],
+    *,
+    decision: Any | None = None,
+) -> ProviderResult:
     """Preserve the final decision while accounting for every provider attempt."""
 
     last = results[-1]
-    if len(results) == 1:
+    if len(results) == 1 and decision is None:
         return last
 
     def summed(name: str) -> int | None:
@@ -1380,7 +1964,7 @@ def _combine_provider_results(results: list[ProviderResult]) -> ProviderResult:
         )
 
     return ProviderResult(
-        decision=last.decision,
+        decision=last.decision if decision is None else decision,
         provider=last.provider,
         model=last.model,
         duration_seconds=sum(item.duration_seconds for item in results),
@@ -1394,7 +1978,7 @@ def _combine_provider_results(results: list[ProviderResult]) -> ProviderResult:
         output_tokens=summed("output_tokens"),
         total_tokens=summed("total_tokens"),
         event_count=sum(item.event_count for item in results),
-        attempt_count=len(results),
+        attempt_count=sum(item.attempt_count for item in results),
         schema_valid=all(item.schema_valid for item in results),
         sandbox=last.sandbox,
         ephemeral=all(item.ephemeral for item in results),
@@ -1461,11 +2045,15 @@ def _candidate_arguments(
         pattern = candidate.pattern or candidate.content
         if not pattern or not candidate.trigger:
             raise ValueError("rule candidate missing fields: ['pattern', 'trigger']")
+        pattern, trigger = _normalize_rule_candidate_fields(
+            str(pattern),
+            str(candidate.trigger),
+        )
         return {
             **common,
             "session_id": job.session_id,
-            "pattern": str(pattern),
-            "trigger": str(candidate.trigger),
+            "pattern": pattern,
+            "trigger": trigger,
             "examples": candidate.examples or [],
         }
     if isinstance(candidate, DistillCandidate) and candidate.kind == "relation":
@@ -1487,6 +2075,68 @@ def _candidate_arguments(
             "confidence": _required_confidence(candidate),
         }
     raise TypeError(f"unsupported candidate type: {type(candidate).__name__}")
+
+
+def _normalize_rule_candidate_fields(pattern: str, trigger: str) -> tuple[str, str]:
+    """Repair only an obvious provider reversal of rule condition and behavior."""
+
+    normalized_pattern = " ".join(pattern.split())
+    normalized_trigger = " ".join(trigger.split())
+    condition_prefixes = (
+        "when ",
+        "whenever ",
+        "if ",
+        "after ",
+        "before ",
+        "during ",
+        "当",
+        "如果",
+        "在",
+    )
+    condition_suffixes = (
+        "时",
+        "时。",
+        "后",
+        "后。",
+        "前",
+        "前。",
+        "情况下",
+        "情况下。",
+    )
+    action_markers = (
+        "must ",
+        "should ",
+        "create ",
+        "preserve ",
+        "record ",
+        "requeue ",
+        "创建",
+        "保存",
+        "记录",
+        "重新处理",
+        "重新入队",
+        "必须",
+        "应当",
+        "应该",
+    )
+
+    def looks_like_condition(value: str) -> bool:
+        lowered = value.casefold()
+        return lowered.startswith(condition_prefixes) or value.endswith(
+            condition_suffixes
+        )
+
+    def looks_like_action(value: str) -> bool:
+        lowered = value.casefold()
+        return any(marker in lowered for marker in action_markers)
+
+    if (
+        looks_like_condition(normalized_pattern)
+        and not looks_like_condition(normalized_trigger)
+        and looks_like_action(normalized_trigger)
+    ):
+        return normalized_trigger, normalized_pattern
+    return normalized_pattern, normalized_trigger
 
 
 def _governed_candidate_id(result: dict[str, Any]) -> str | None:

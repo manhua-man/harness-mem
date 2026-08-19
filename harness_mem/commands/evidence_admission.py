@@ -106,7 +106,12 @@ async def validate_candidate_evidence(
         outcome, reasons = _validate_transcript_refs(backend, candidate, matching)
 
     if outcome == "verified":
-        if requested == "contradicted":
+        if requested == "unverified":
+            # Reference integrity cannot upgrade a semantic claim.  A caller
+            # that has already found incomplete support must remain blocked
+            # even when the cited bytes and hashes are authentic.
+            outcome = "unverified"
+        elif requested == "contradicted":
             outcome = "contradicted"
         elif basis == "user_statement" and requested == "not_applicable":
             outcome = "not_applicable"
@@ -115,11 +120,19 @@ async def validate_candidate_evidence(
             reasons.append("transcript_cannot_verify_durable_truth")
         else:
             outcome = "verified"
+    verified_timestamp: datetime | None = None
+    if outcome in {"verified", "not_applicable"}:
+        candidate_verified_at = getattr(candidate, "verified_at", None)
+        if isinstance(candidate_verified_at, datetime):
+            verified_timestamp = candidate_verified_at
+        else:
+            verified_timestamp = datetime.now(timezone.utc)
+
     return EvidenceValidation(
         basis,
         outcome,
         tuple(dict.fromkeys([*existing_reasons, *reasons])),
-        datetime.now(timezone.utc) if outcome in {"verified", "not_applicable"} else None,
+        verified_timestamp,
     )
 
 

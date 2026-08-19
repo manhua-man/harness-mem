@@ -2,6 +2,89 @@
 
 ## Unreleased
 
+## [0.9.21] - 2026-08-20
+
+### Added
+
+- Added explicit physical migration of repository assets into `code/` for
+  plugins, MCP descriptors, tests, scripts, and Rust/qualification fixtures,
+  while keeping runtime source-of-truth under `harness_mem/`.
+- Added release workflow and smoke path compatibility for moved asset directories
+  (`code/plugins`, `code/mcps`, `code/tools`, `code/scripts`, `code/tests`).
+
+### Changed
+
+- Updated package metadata to `0.9.21` and aligned runtime/housekeeping docs and
+  public paths with the physical layout.
+- Kept `knowledge_entries` as the single current long-term knowledge authority;
+  candidate/evidence/decision artifacts remain job-scoped and are not migrated as
+  real memory by default.
+- Moved public smoke lint and script paths to the new `code/` layout; kept
+  backward-compatible runtime behavior for users.
+
+### Fixed
+
+- Restored all migration-path references used by tests, installers, and smoke
+  probes after repository physical layout migration.
+- Removed residual workspace path assumptions that still pointed to deleted root
+  `scripts`, `mcps`, `plugins`, and `tests` directories.
+
+### Removed
+
+- Removed stale assumptions that treated old root paths as canonical after the
+  physical migration.
+
+## [0.9.20] - 2026-08-19
+
+### Added
+
+- Added clean, transactional SQLite current knowledge with minimal source
+  linkage, bounded undo lineage, and on-demand Markdown/JSON presentation.
+- Added job-scoped candidate, evidence, and assimilation workspaces that are
+  removed after terminal persistence while retaining retryable unresolved work.
+- Added per-point assimilation with `add`, `refine`, `confirm`, `supersede`,
+  `no_write`, `handoff`, `defer`, `conflict`, and `reject` outcomes.
+- Added a frozen six-session acceptance oracle that compares expected points
+  with extraction, verification, assimilation, lineage readback, clean search,
+  Notes, Answer Packets, and protected real-runtime fingerprints. Every session
+  now declares explicit process expectations and either exact promotions or a
+  named cross-session semantic group.
+
+### Changed
+
+- Normal wake/search reads current `knowledge_entries` and returns clean
+  `title + statement` projections; raw transcript and audit material remain on
+  explicit deep-recall or diagnostic paths.
+- Review and Dream now re-open governed sources and route mutations through the
+  same SQLite transaction service. Search, search-all, and wake feedback retain
+  opaque retrieval correlation and can queue bounded re-verification.
+- Archive distillation is explicitly project-scoped instead of using a project
+  allowlist as an implicit batch selector.
+
+### Fixed
+
+- Bound Hook terminal receipts to dispatch generation, job, provider result,
+  and immutable Session Note; deferred/error states fail closed.
+- Prevented active Codex sources from cleanup, repaired missing Notes and
+  partial historical summaries, and kept cleanup CAS/hash guarded.
+- Made context feedback idempotent and preserved the real knowledge target kind
+  through retrieval so Dream can observe normal user feedback.
+- Added fail-closed revalidation coverage for user statements, transcript
+  chunks, unsupported source schemes, malformed locators, and wrong stores.
+- Committed separated knowledge transactions before marking their distill job
+  complete, deduplicated repeated source references, and made finalization
+  retries replay already-committed truth without duplicate writes.
+
+### Removed
+
+- Removed Markdown authority, whole-document truth replacement, permanent
+  candidate/evidence/decision corpora, project allowlists, and candidate/audit
+  metadata from normal knowledge output.
+
+This release folds the internal `0.9.16`--`0.9.19` implementation slices into
+one public package. It does not migrate, delete, or redistill legacy real user
+memory; that remains a separately authorized `0.9.21` operation.
+
 ## [0.9.12] - 2026-08-12
 
 ### Added

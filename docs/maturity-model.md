@@ -43,7 +43,7 @@ Four states only:
 | `out_of_product` | Intentionally not memory core; do not penalize readiness. |
 
 Examples of `out_of_product`: M10 wiki bridge, PyPI publish, graph DB default,
-`mcps/grok_com_github/**` maintenance.
+`code/mcps/grok_com_github/**` maintenance.
 
 ### Layer 3 — Claim boundary (checklist, not scored)
 
@@ -79,7 +79,7 @@ Binary yes/no: public docs and agent skills must stay inside verified capability
 | ⑨ Maintenance | L1 dream + L4 distill maintenance |
 | ⑩ Evidence | L6 + per-track contract tests |
 
-## Current snapshot (v0.9.12)
+## Current snapshot (v0.9.21)
 
 See `canvases/harness-mem-readiness-v1.canvas.tsx` for the living panel.
 It deliberately does not publish one combined readiness score: repository
@@ -89,8 +89,8 @@ As of 2026-08-12:
 
 | View | Evidence | Current result |
 |------|----------|----------------|
-| Release maturity | package 0.9.12, 736 passed / 2 skipped, Rust 6 passed, exact 27-tool contract, F1-F7 24-path acceptance, and seven-host qualification | local release gates passed; tag CI requalifies built artifacts |
-| Runtime alignment | repository/plugin 0.9.12; each installed MCP reports its own version | refresh and restart any older live installation |
+| Release maturity | package 0.9.20, full Python and Rust release lanes, exact 27-tool contract, archive cohort acceptance, and seven-host qualification | local release gates passed; tag CI requalifies built artifacts |
+| Runtime alignment | repository/plugin 0.9.20; each installed MCP reports its own version | refresh and restart any older live installation |
 | Distill operations | active 2, parked 198, 0.43 completed/day over seven days | `needs-distill`; throughput is the primary operational gap |
 | Retrieval feedback | 2 surfaced, no used/ignored/misleading outcomes | insufficient live feedback |
 

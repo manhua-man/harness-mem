@@ -53,7 +53,7 @@ for the same host. Pick one transport. When the server implementation or tool
 schema changes, restart the harness-mem child process in the Router and start a
 new Agent task; existing tasks keep the tool snapshot they started with.
 
-`harness_mem/mcp/tool_specs.py` and `mcps/harness_mem/tools/` are the canonical
+`harness_mem/mcp/tool_specs.py` and `code/mcps/harness_mem/tools/` are the canonical
 descriptor sources. The stale checked-in Router aggregate snapshots were
 removed in 0.9.6. This does not remove the live `mcp__mcp_router__*` namespace:
 Router clients continue to discover tools from the running server.
@@ -147,8 +147,9 @@ recheck; only `ANSWERED` is promotion-eligible, while `PARTIAL`,
 Relation facts use the same scoped policy and the
 public MCP allowlist remains exactly 27 tools.
 
-`distill.delete_source_after_complete` is a persistent user/project config
-boolean and defaults to `true`. A completed job attempts the cleanup saga:
+`distill.delete_source_after_complete` is a project-scoped config boolean and
+defaults to `false`. A completed job attempts the cleanup saga only after the
+project explicitly opts in:
 receipt first, native compare-and-swap deletion,
 local raw/chunk/Observation/index cleanup, truth provenance sanitization, and
 post-delete verification. `source_cleanup.status` distinguishes `retained`,
@@ -156,14 +157,14 @@ post-delete verification. `source_cleanup.status` distinguishes `retained`,
 implies that deletion succeeded. Shared SQLite/JSONL sources are not unlinked
 when a safe session-scoped transaction is unavailable.
 
-Disable it when a project must retain original session sources:
+Enable it only when the project permits original session source deletion:
 
 ```powershell
-harness-mem config set distill.delete_source_after_complete false --scope project
+harness-mem config set distill.delete_source_after_complete true --scope project --confirm
 ```
 
-Re-enabling an explicitly disabled scope requires `--confirm`. Invalid config
-or unresolved project context fails safe to retention.
+User-level values do not authorize cleanup. Invalid config, a missing project
+opt-in, or unresolved project context fails safe to retention.
 Read-only procedural hints can be searched from memory context, but procedural
 skill lifecycle management is outside this public memory surface.
 

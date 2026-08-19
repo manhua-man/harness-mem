@@ -28,7 +28,10 @@ async def search_current_knowledge(
         haystack = " ".join([entry.title, entry.statement, *entry.module_path]).lower()
         return (-sum(haystack.count(term) for term in terms), entry.title, entry.id)
 
-    return _deduplicate_current(sorted(entries, key=score))[:limit]
+    ranked = sorted(entries, key=score)
+    if terms:
+        ranked = [entry for entry in ranked if score(entry)[0] < 0]
+    return _deduplicate_current(ranked)[:limit]
 
 
 async def list_current_knowledge(

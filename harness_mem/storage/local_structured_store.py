@@ -158,12 +158,24 @@ class LocalStructuredStore(
         """Read one structured record payload by collection/id."""
         return json.loads(self._blob_path(collection, entity_id).read_text())
 
-    def record_payload_sha256(self, collection: str, entity_id: str) -> str | None:
+    def record_payload_sha256(
+        self,
+        collection: str,
+        entity_id: str,
+        *,
+        project_name: str | None = None,
+    ) -> str | None:
         """Return the canonical payload digest used for CAS preconditions."""
 
         if self.canonical_mode:
             canonical = self._canonical
-            row = canonical.get_row(collection, entity_id) if canonical else None
+            row = (
+                canonical.get_row(
+                    collection, entity_id, project_name=project_name
+                )
+                if canonical
+                else None
+            )
             return row.payload_sha256 if row is not None else None
         path = self._blob_path(collection, entity_id)
         if not path.exists():
