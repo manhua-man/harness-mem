@@ -201,7 +201,7 @@ jobs:
         run: >-
           python -c "import os, subprocess, sys;
           version=os.environ['RELEASE_TAG'].removeprefix('v');
-          subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pytest', 'pytest-asyncio', 'PyYAML', 'numpy', 'sqlite-vec']);
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pytest', 'pytest-asyncio', 'PyYAML', 'numpy', 'sqlite-vec', 'tiktoken']);
           subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--find-links', 'dist', 'harness-mem==' + version])"
       - name: Run the complete Python contract suite
         run: python -m pytest
