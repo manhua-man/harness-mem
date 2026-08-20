@@ -5,8 +5,8 @@ acceptance uses a pre-frozen, source-digest-bound oracle and verifies extraction
 per-point answers, assimilation, truth lineage, normal readback, Notes, and
 Answer Packets. A fresh generation-bound Desktop Hook and the full 14-claim
 outcome contract also pass.
-This plan does not authorize migration,
-deletion, or redistillation of real user memory.
+This plan does not by itself authorize migration, deletion, or redistillation
+of real user memory. Normal runtime paths never perform those actions.
 
 ## Decision
 
@@ -322,8 +322,9 @@ tests or a provider response alone is insufficient.
 
 ### 0.9.21 — Explicitly authorized legacy convergence
 
-Status: blocked until the user separately authorizes real-memory mutation. The
-isolated `0.9.20` result does not grant that authorization.
+Status: completed for one separately authorized `harness-mem` scope. The
+isolated `0.9.20` result did not grant that authorization, and this completion
+does not authorize migration for any other project or later cohort.
 
 - begin only after separate user approval;
 - freeze legacy row IDs and content hashes, with later writes in a separate
@@ -365,7 +366,8 @@ search remains an explicit user action.
   knowledge;
 - implementing external web/API revalidation by pretending an old hash is a
   live adapter; or
-- touching real user memory before the separately authorized `0.9.21` slice.
+- touching real user memory without a separately authorized, project-scoped
+  maintenance slice.
 
 ## Failure modes and required behavior
 
@@ -415,5 +417,6 @@ when the slice changes a user-visible or asynchronous result.
 
 The `0.9.20` evidence is complete and released: the isolated six-session SQLite
 knowledge matches the frozen expected-point oracle, the fresh Desktop Hook is
-dispatch-generation bound, and the full outcome contract passes. No real-memory
-migration is authorized by this document.
+dispatch-generation bound, and the full outcome contract passes. This document
+never authorizes real-memory migration by itself; any such operation must be
+separately approved, project scoped, source revalidated, and reversible.

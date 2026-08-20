@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## [0.9.22] - 2026-08-20
+
+### Fixed
+
+- Keep one-off task envelopes, preflight instructions, and incomplete work out
+  of durable knowledge even when their source is an explicit user request.
+- Re-admit a previously quarantined archive result only when the exact completed
+  job, immutable revision, Answer Packet, and Session Note read back together.
+- Let an archive policy explicitly disable Answer Packets without making the
+  final verification falsely fail.
+- Preserve an internal current-knowledge context for Autopilot while keeping
+  ordinary `search` output limited to a title and statement.
+- Make the outcome retrieval probe exercise `knowledge_entries` through normal
+  search, and keep its command output parseable as exactly one JSON document.
+
+### Changed
+
+- Allow maintenance to reversibly retire obsolete current knowledge with a
+  reason and an undo snapshot; this action is not available to semantic models.
+- Update documentation to record that separately authorized legacy convergence
+  is project-scoped, source-revalidated, and reversible.
+
 ## [0.9.21] - 2026-08-20
 
 ### Added

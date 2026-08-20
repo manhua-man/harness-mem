@@ -94,11 +94,11 @@ Hook、detached worker 和 archive maintenance 属于阶段 0；原文/时间线
 [五模块架构合同](docs/memory-adoption.md)；[验收测试计划](docs/distill-test-plan.md)
 将这些质量信号逐项映射到夹具和运行时门槛。
 
-当前发布的 `0.9.21` 已把 SQLite `knowledge_entries` 收敛为干净当前知识的唯一权威；
+当前发布的 `0.9.22` 已把 SQLite `knowledge_entries` 收敛为干净当前知识的唯一权威；
 候选、验证与拟议决定是 job 范围临时材料，只在终态结果得到证明后清理，兼容
 `MemoryEntry` 旧行仍可读取。当前搜索直接、确定性地读取 SQLite；FTS/向量只是可选的
 可重建优化。Markdown 只在用户请求阅读或导出时生成。项目模块由当前知识自然归纳，
-不使用硬编码模块白名单。冻结的六会话验收已通过，但触及真实旧记忆仍需单独明确授权。详见
+不使用硬编码模块白名单。冻结的六会话验收已通过；其他真实旧记忆范围仍需单独明确授权。详见
 [SQLite 当前知识收敛计划](docs/roadmap/knowledge-truth-separation.md)。
 
 任务过程中的检索不是 always-on。PI 里的 `transformContext`、
@@ -197,8 +197,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.21 \
-  harness-mem==0.9.21
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.22 \
+  harness-mem==0.9.22
 ```
 
 `harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
@@ -208,8 +208,8 @@ Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.21 \
-  "harness-mem[hybrid]==0.9.21"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.22 \
+  "harness-mem[hybrid]==0.9.22"
 ```
 
 在当前设备一次性安装全部宿主的原生 Daily 命令。默认参数就是
@@ -297,7 +297,7 @@ procedural skill 生命周期治理不属于 public memory MCP 和 CLI 产品面
 
 ```bash
 python -m compileall harness_mem
-python -m ruff check harness_mem plugins tools
+python -m ruff check harness_mem code/plugins code/tools
 python -m mypy harness_mem
 python -m pytest -q -m "not release_gate"  # PR 快速门
 python -m pytest -q                        # 完整发布门
@@ -351,4 +351,4 @@ Codex Hook payload 通过 stdin 传入，并显式等待 detached post-turn 回�
 全新安装验证，运行真实 sqlite-vec contract gate，并验证受支持的 Windows 升级
 路径后再上传到 GitHub Release。本项目不发布到 PyPI。
 
-当前包版本：**0.9.21**。
+当前包版本：**0.9.22**。

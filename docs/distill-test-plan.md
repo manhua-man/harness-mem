@@ -49,7 +49,7 @@ L1/L2 使用临时数据目录，不读写用户的真实记忆库。L3 最多�
 
 | 夹具 | 内容 | 预期 |
 |---|---|---|
-| F1-noise | 问候、临时状态、一次性输出 | 无长期候选，有可读 Note |
+| F1-noise | 问候、临时状态、一次性输出、未完成的 Goal/Read/Write/Acceptance 任务模板 | 无长期候选，有可读 Note；模板字段不得被误写成项目规则 |
 | F2-preference | 用户明确要求“降低耗时和 token，但保持提炼效果” | 形成一条 user-statement 偏好 |
 | F3-partial | 已验证偏好 + 一个明确未完成事项 + 被替代的旧方案 | 偏好晋升、handoff 落盘、Dream 不运行 |
 | F4-revision | 同一 session 先后产生两个 native revision | 两份不可变 Note，latest 指向较新 revision |
@@ -237,8 +237,8 @@ outcome-verifier。若 Hook 完成后又修改了这些运行时文件，旧 rec
 
 当前实施列车按 [Knowledge Truth Separation](roadmap/knowledge-truth-separation.md)
 的 P0–P6 顺序启用相应夹具：P0/P1 对应 `0.9.16`，P2 对应 `0.9.17`，P3
-对应 `0.9.18`，P4 对应 `0.9.19`，P5 是 `0.9.20` 的隔离六会话验收，P6 才是
-`0.9.21` 的经授权真实旧记忆收敛。它们是施工包，不是额外产品模块。隔离数据目录中的
+对应 `0.9.18`，P4 对应 `0.9.19`，P5 是 `0.9.20` 的隔离六会话验收，P6 是
+`0.9.21` 已完成的一次经授权真实旧记忆收敛。它们是施工包，不是额外产品模块。隔离数据目录中的
 cohort/delta 演练和新的真实多晋升点 Desktop 会话都必须证明 Hook → job → 逐点验证
 → 归纳吸收 → Note → 干净检索；“provider 返回合法 JSON”或“job completed”都不是结果证据。
 
@@ -247,7 +247,7 @@ cohort/delta 演练和新的真实多晋升点 Desktop 会话都必须证明 Hoo
 SQLite 正常回读；处理前冻结的预期晋升点 oracle 绑定六个源文件哈希，并逐场核对提取、
 验证、吸收和真值 lineage，真实运行时数据指纹未变化。新鲜 Desktop Hook 已绑定本次
 dispatch generation、session、job、Provider 与 Note，完整 outcome contract 为 14/14 passed。
-P6 未获授权，不得因为 P0–P5 通过而自动执行。
+P6 已在一个明确的 `harness-mem` 范围内完成；不得因此自动处理其他项目或未来历史批次。
 
 Codex Stop 后的 rollout 可能与 Hook 短暂并发。Hook 必须按 `trigger_id` 定向同步该
 原生会话，并使用有界重试等待文件可见；不得依赖常规增量扫描游标，因为历史 backlog

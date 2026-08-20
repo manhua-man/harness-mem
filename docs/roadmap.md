@@ -1,11 +1,12 @@
 # harness-mem Roadmap
 
 This roadmap distinguishes the released runtime from separately authorized
-legacy convergence. It does not authorize mutation of real user memory.
+legacy convergence. It never authorizes mutation of real user memory by
+itself; normal runtime paths do not migrate legacy data.
 
 ## Current release
 
-The published package is `0.9.21`. It provides session lifecycle, lossless
+The published package is `0.9.22`. It provides session lifecycle, lossless
 extraction, per-point verification, transactional SQLite current knowledge,
 job-scoped processing material, clean retrieval, and one governed Review/Dream
 feedback path. Legacy `MemoryEntry` rows remain readable for compatibility, but
@@ -13,8 +14,11 @@ new clean knowledge no longer stores candidate, evidence, decision, and truth
 as one object.
 
 The release passed a frozen six-session `harness-mem` acceptance oracle, a
-generation-bound Desktop Hook, and the complete 14-claim outcome contract. It
-did not mutate or migrate the real legacy memory corpus.
+generation-bound Desktop Hook, and the complete 14-claim outcome contract. The
+release itself did not mutate or migrate the real legacy memory corpus. A later
+separately authorized `harness-mem`-scoped maintenance run revalidated live
+sources, atomically rewrote accepted facts, and reversibly retired obsolete or
+duplicate legacy rows. It did not alter other projects.
 
 ## Released SQLite current-knowledge convergence
 
@@ -43,7 +47,8 @@ Markdown/JSON/text
 | `0.9.18` | Read only clean SQLite knowledge and render Markdown on demand | 4 | Remove Markdown parser from normal reads and exclude audit/storage fields from normal output | Folded into released `0.9.20` |
 | `0.9.19` | Route Dream/Review revalidation and undo through the same SQLite mutation path | 2, 3, 4 | Remove parallel mutation paths and unbounded decision history | Folded into released `0.9.20` |
 | `0.9.20` | Run six retained sessions in an isolated `harness-mem` scope and show the actual clean library | 0--4 | Delete remaining duplicate/broad/internal-heading behavior found by acceptance | Released; frozen oracle, lineage readback, Hook and 14-claim outcome passed |
-| `0.9.21` | Physical repository migration to `code/` and delivery of clean SQLite-first 0.9.x behavior | 0--4 | Keep legacy real memory untouched unless separately authorized; keep candidate/evidence/decision as transient job material; preserve audit receipts and recovery points | Released |
+| `0.9.21` | Physical repository migration to `code/` and delivery of clean SQLite-first 0.9.x behavior | 0--4 | Keep legacy real memory untouched unless separately authorized; keep candidate/evidence/decision as transient job material; preserve audit receipts and recovery points | Released; one separately authorized, project-isolated legacy convergence completed |
+| `0.9.22` | Close the archive-repair, task-envelope, clean-search, and current-truth outcome gaps | 0--4 | Keep normal search clean while preserving internal Autopilot context; prevent semantic models from invoking truth archival | Released |
 
 These versions are implementation slices, not additional product modules. The
 product architecture remains the five independently measurable modules:
@@ -98,7 +103,8 @@ assimilation mutation path.
    12 clean knowledge entries were read back without changing real runtime data.
 8. Completed: a fresh Desktop Hook receipt bound dispatch generation, session,
    job, Provider, and Note; the full outcome contract passed 14/14.
-9. Ask separately before any legacy real-memory convergence.
+9. Completed one separately authorized `harness-mem`-scoped legacy convergence;
+   future projects or historical cohorts still require their own explicit approval.
 
 Any partial SQLite mutation, early workspace cleanup, stale/superseded retrieval
 hit, cross-project write, unsupported source claim, duplicate current item,

@@ -143,6 +143,14 @@ The runtime keeps three judgments distinct:
 user preference is `ANSWERED` on authentic user-statement evidence; otherwise
 the point does not proceed to durable assimilation.
 
+An unfinished task envelope is not a project policy. When the only source is a
+user request structured as fields such as `Goal`/`Read`/`Write`/`Acceptance`
+(or their Chinese equivalents) and the exchange records no assistant outcome,
+the trusted runtime assigns `NOT_APPLICABLE` even if a model calls it durable.
+This protects the knowledge layer from preflight, scope, and one-off execution
+instructions; a separately stated continuing design requirement still follows
+the ordinary per-point verification path.
+
 Verification is independent per promotion point. A session may therefore have
 several ANSWERED points, one contradiction, and one unfinished handoff. The
 session-level `promotion_decision` is derived from those outcomes; it is not a

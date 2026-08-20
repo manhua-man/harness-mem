@@ -93,15 +93,15 @@ search/timeline, candidate detail, runtime reset, and storage repair are
 explicit audit or operator capabilities; they do not define the long-term
 knowledge model.
 
-The released `0.9.21` runtime uses SQLite `knowledge_entries` as the authority
+The released `0.9.22` runtime uses SQLite `knowledge_entries` as the authority
 for clean current knowledge. Candidate, verification, and proposed decision
 material is job-scoped and cleaned after a proven terminal outcome; legacy
 `MemoryEntry` remains readable for compatibility. Current search reads SQLite
 deterministically, while FTS/vector remain optional rebuildable optimizations.
 Markdown is rendered only when a user asks to read or export the library.
 Natural project modules are formed without a hard-coded module allowlist. A
-frozen six-session acceptance passed, but live legacy-memory migration still
-requires separate explicit authorization. See
+frozen six-session acceptance passed. Any additional live legacy-memory
+migration still requires separate explicit authorization. See
 [SQLite Current-Knowledge Convergence](docs/roadmap/knowledge-truth-separation.md).
 
 The runtime search scheduler is event-driven, not always-on. PI-style
@@ -239,8 +239,8 @@ owns storage, candidates, review, retrieval, and local audit state.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.21 \
-  harness-mem==0.9.21
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.22 \
+  harness-mem==0.9.22
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -251,8 +251,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.21 \
-  "harness-mem[hybrid]==0.9.21"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.22 \
+  "harness-mem[hybrid]==0.9.22"
 ```
 
 Install every supported host's native Daily commands once for the current
@@ -429,7 +429,7 @@ product surface.
 
 ```bash
 python -m compileall harness_mem
-python -m ruff check harness_mem plugins tools
+python -m ruff check harness_mem code/plugins code/tools
 python -m mypy harness_mem
 python -m pytest -q -m "not release_gate"  # fast PR lane
 python -m pytest -q                        # complete release lane
@@ -494,4 +494,4 @@ python code/scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, runs a real sqlite-vec contract gate, qualifies the supported Windows upgrade path, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.9.21**.
+Current package version: **0.9.22**.
