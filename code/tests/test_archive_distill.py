@@ -18,7 +18,13 @@ from harness_mem.core.schemas.relation_fact import RelationFact
 from harness_mem.session_notes import materialize_session_note
 
 
-def _write_archive(root: Path, workspace: Path, session_id: str) -> Path:
+def _write_archive(
+    root: Path,
+    workspace: Path,
+    session_id: str,
+    *,
+    user_message: str = "Always run the related tests for small changes.",
+) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"rollout-{session_id}.jsonl"
     records = [
@@ -35,7 +41,7 @@ def _write_archive(root: Path, workspace: Path, session_id: str) -> Path:
             "payload": {
                 "turn_id": "turn-1",
                 "type": "user_message",
-                "message": "Always run the related tests for small changes.",
+                "message": user_message,
             },
         },
         {
@@ -206,7 +212,15 @@ def test_archive_apply_reports_persisted_answer_packet_and_daily_ledger(
         encoding="utf-8",
     )
     archive = tmp_path / "archives"
-    _write_archive(archive, project, "session-a")
+    _write_archive(
+        archive,
+        project,
+        "session-a",
+        user_message=(
+            "<private>never persists</private> Always run the related tests "
+            "for small changes."
+        ),
+    )
 
     provider_calls = 0
 

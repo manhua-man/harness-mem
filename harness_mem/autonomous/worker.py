@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import re
 import time
-from typing import Any, Callable, Iterator, Protocol
+from typing import Any, Callable, Iterator, Literal, Protocol
 from uuid import uuid4
 
 from harness_mem.autonomous.models import (
@@ -291,6 +291,131 @@ def read_autonomous_receipt(
     return payload if isinstance(payload, dict) else None
 
 
+def _record_post_turn_nonsemantic_terminal_receipt(
+    data_dir: Path,
+    *,
+    project_name: str,
+    project_root: str | Path,
+    trigger_id: str | None,
+    client: str,
+    dispatch_generation: str | None,
+    state: Literal["failed", "deferred"],
+    job_id: str | None,
+    error: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist a non-semantic terminal receipt for a waited Hook.
+
+    The Hook may fail while staging evidence or find a job that is deliberately
+    waiting for its retry window. In both cases ``--wait`` must receive the
+    actual terminal state rather than timing out. These receipts deliberately
+    contain no provider result, so they cannot be mistaken for semantic
+    completion.
+    """
+
+    root = Path(project_root).expanduser().resolve()
+    finished_at = _now()
+    return _write_receipt(
+        data_dir,
+        project_name=project_name,
+        project_root=root,
+        update={
+            "state": state,
+            "started_at": finished_at,
+            "finished_at": finished_at,
+            "trigger_id": trigger_id,
+            "dispatch_generation": dispatch_generation,
+            "client": client,
+            "execution_source": "hook_background",
+            "hook_launch_verified": bool(trigger_id and client),
+            "hook_config_fingerprint": hook_configuration_fingerprint(
+                root,
+                client=client,
+            ),
+            "runtime_fingerprint": autonomous_runtime_fingerprint(),
+            "hook_reentry_count": 0,
+            "batch": {
+                "state": state,
+                "offered": 0,
+                "attempted": 0,
+                "completed": 0,
+                "deferred": int(state == "deferred"),
+                "busy": 0,
+                "job_ids": [job_id] if job_id else [],
+                "jobs": [],
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "provider_seconds": 0.0,
+            },
+            "job_id": job_id,
+            "session_id": trigger_id,
+            "provider": None,
+            "note": None,
+            "last_semantic_success_at": None,
+            "last_job_completed_at": None,
+            "last_note_materialized_at": None,
+            "error": error,
+            "last_batch_error": error,
+            "last_background_error": error,
+        },
+    )
+
+
+def record_post_turn_preflight_failure(
+    data_dir: Path,
+    *,
+    project_name: str,
+    project_root: str | Path,
+    trigger_id: str | None,
+    client: str,
+    dispatch_generation: str | None,
+    error: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist the actual failure when Hook staging fails before model work."""
+
+    return _record_post_turn_nonsemantic_terminal_receipt(
+        data_dir,
+        project_name=project_name,
+        project_root=project_root,
+        trigger_id=trigger_id,
+        client=client,
+        dispatch_generation=dispatch_generation,
+        state="failed",
+        job_id=None,
+        error=error,
+    )
+
+
+def record_post_turn_retry_backoff(
+    data_dir: Path,
+    *,
+    project_name: str,
+    project_root: str | Path,
+    trigger_id: str | None,
+    client: str,
+    dispatch_generation: str | None,
+    job_id: str,
+    retry_after: str,
+) -> dict[str, Any]:
+    """Publish a truthful terminal receipt for an already-owned retry window."""
+
+    return _record_post_turn_nonsemantic_terminal_receipt(
+        data_dir,
+        project_name=project_name,
+        project_root=project_root,
+        trigger_id=trigger_id,
+        client=client,
+        dispatch_generation=dispatch_generation,
+        state="deferred",
+        job_id=job_id,
+        error={
+            "kind": "retry_backoff",
+            "message": "distill job is waiting for its scheduled retry",
+            "retry_after": retry_after,
+        },
+    )
+
+
 def _legacy_verified_completion(receipt: dict[str, Any]) -> dict[str, Any] | None:
     """Recover one self-contained success snapshot from a complete v2/v3 receipt."""
 
@@ -519,7 +644,25 @@ def run_autonomous_distill_batch(
         if preferred_job_id
         else None
     )
-    if preferred is not None and _preferred_job_is_eligible(
+    # A repeated Stop hook may name a job that has already completed.  That is
+    # not another batch result: materialize a missing Note and publish a fresh
+    # terminal receipt for the hook, but keep ``outcomes`` empty so callers can
+    # distinguish replay from new semantic work.
+    completed_preferred_replay: dict[str, Any] | None = None
+    if preferred is not None and _preferred_job_matches_trigger(
+        preferred,
+        project_name=project_name,
+        trigger_id=trigger_id,
+    ) and preferred.status == "completed":
+        completed_preferred_replay = _replay_completed_preferred_job(
+            backend,
+            project_name=project_name,
+            project_root=root,
+            trigger_id=trigger_id,
+            job=preferred,
+            notes_dir=resolved_notes,
+        )
+    elif preferred is not None and _preferred_job_is_eligible(
         preferred, project_name=project_name, trigger_id=trigger_id
     ):
         jobs = [preferred, *(job for job in jobs if job.id != preferred.id)]
@@ -574,6 +717,8 @@ def run_autonomous_distill_batch(
         (item for item in outcomes if item.get("job_id") == preferred_job_id),
         None,
     )
+    if completed_preferred_replay is not None:
+        preferred_outcome = completed_preferred_replay
     if preferred_job_id is not None:
         preferred_status = (
             str(preferred_outcome.get("status") or "deferred")
@@ -673,7 +818,13 @@ def run_autonomous_distill_batch(
     )
     return {
         "success": bool(succeeded) or not outcomes,
-        "state": batch_state,
+        # A completed preferred job is a successful trigger-bound replay even
+        # though this invocation performed no new batch work.
+        "state": (
+            state
+            if completed_preferred_replay is not None
+            else batch_state
+        ),
         "outcomes": outcomes,
         "receipt": receipt,
     }
@@ -688,11 +839,85 @@ def _preferred_job_is_eligible(
     """Keep the trigger job selected after queue reconciliation advances it."""
 
     return bool(
+        _preferred_job_matches_trigger(
+            job,
+            project_name=project_name,
+            trigger_id=trigger_id,
+        )
+        and job is not None
+        and job.status in {"queued", "parked", "processing", "reviewing", "retryable"}
+    )
+
+
+def _preferred_job_matches_trigger(
+    job: SessionDistillJob | None,
+    *,
+    project_name: str,
+    trigger_id: str | None,
+) -> bool:
+    return bool(
         job is not None
         and job.project_name == project_name
         and job.session_id == trigger_id
-        and job.status in {"queued", "parked", "processing", "reviewing", "retryable"}
     )
+
+
+def _replay_completed_preferred_job(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    project_root: Path,
+    trigger_id: str | None,
+    job: SessionDistillJob,
+    notes_dir: Path,
+) -> dict[str, Any]:
+    """Reuse one completed trigger job without another provider invocation.
+
+    A host can deliver both its automatic Stop notification and a manual
+    replay for the same session.  A completed, matching job is already the
+    terminal result.  Re-running it would duplicate truth; dropping it used
+    to manufacture a false ``preferred_job_not_completed`` failure.
+    """
+
+    receipt = read_autonomous_receipt(
+        backend.data_dir,
+        project_name=project_name,
+        project_root=project_root,
+    ) or {}
+    verified = receipt.get("last_verified_completion")
+    prior = (
+        verified
+        if isinstance(verified, dict)
+        and verified.get("job_id") == job.id
+        and verified.get("session_id") == job.session_id
+        and verified.get("trigger_id") == trigger_id
+        else {}
+    )
+    note: dict[str, Any] | None
+    try:
+        note = _materialize_note(job, notes_dir=notes_dir)
+    except ProviderError:
+        saved_note = prior.get("note")
+        note = saved_note if isinstance(saved_note, dict) else None
+    completed_at = job.completed_at.isoformat() if job.completed_at else _now()
+    return {
+        "job_id": job.id,
+        "session_id": job.session_id,
+        "status": "completed",
+        "replayed": True,
+        "note": note,
+        "provider": prior.get("provider") if prior else None,
+        "last_semantic_success_at": prior.get("last_semantic_success_at") if prior else None,
+        "last_job_completed_at": prior.get("last_job_completed_at") or completed_at,
+        "last_note_materialized_at": (
+            str(note.get("materialized_at"))
+            if isinstance(note, dict) and note.get("materialized_at")
+            else prior.get("last_note_materialized_at")
+            if prior
+            else None
+        ),
+        "error": None,
+    }
 
 
 def _run_one(
@@ -1162,6 +1387,7 @@ def _zero_candidate_validation_errors(
     decision: Any,
     *,
     packet: dict[str, Any],
+    job: SessionDistillJob,
 ) -> list[str]:
     """Validate provider no-candidate state before governance/finalization."""
 
@@ -1175,6 +1401,25 @@ def _zero_candidate_validation_errors(
         RuntimeZeroCandidateChallenge.model_validate(challenge.model_dump(mode="json"))
     except ValueError as exc:
         errors.append(f"zero_candidate_challenge schema inconsistent: {exc}")
+    if challenge.source_revision != job.source_revision:
+        errors.append("zero-candidate challenge source revision does not match job")
+    expected_exchange_refs = {
+        int(item["exchange_index"]): str(item["content_sha256"])
+        for item in packet.get("zero_candidate_exchange_refs", [])
+        if isinstance(item, dict)
+        and isinstance(item.get("exchange_index"), int)
+        and isinstance(item.get("content_sha256"), str)
+    }
+    if expected_exchange_refs:
+        supplied_exchange_refs = {
+            item.exchange_index: item.content_sha256
+            for item in challenge.inspected_exchange_refs
+        }
+        if supplied_exchange_refs != expected_exchange_refs:
+            errors.append(
+                "zero-candidate exchange proof incomplete or does not match the "
+                "required semantic exchanges"
+            )
     template = packet.get("zero_candidate_challenge_template")
     template_checks = template.get("checks") if isinstance(template, dict) else None
     if isinstance(template_checks, dict):
@@ -1190,6 +1435,33 @@ def _zero_candidate_validation_errors(
                 "detected durable signals cannot be marked absent: "
                 + ", ".join(incorrectly_absent)
             )
+        downgraded = sorted(
+            signal
+            for signal, expected in template_checks.items()
+            if expected == "candidate_required"
+            and challenge_checks.get(signal) == "not_durable"
+        )
+        if downgraded:
+            rationale = challenge.rationale.lower()
+            rationale_without_signal_keys = rationale
+            for signal in downgraded:
+                rationale_without_signal_keys = rationale_without_signal_keys.replace(
+                    signal.lower(), ""
+                )
+            has_session_only_explanation = (
+                challenge.future_utility == "session_only"
+                and sum(character.isalnum() for character in rationale_without_signal_keys)
+                >= 12
+            )
+            missing_signal_names = [
+                signal for signal in downgraded if signal.lower() not in rationale
+            ]
+            if missing_signal_names or not has_session_only_explanation:
+                errors.append(
+                    "downgraded durable signals require a substantive session-only "
+                    "rationale naming each signal: "
+                    + ", ".join(downgraded)
+                )
     return errors
 
 
@@ -1221,7 +1493,11 @@ def _decide_with_candidate_retry(
         )
         decision = normalize_provider_review_state(decision)
         validated: list[tuple[Any, dict[str, Any]]] = []
-        warnings = _zero_candidate_validation_errors(decision, packet=packet)
+        warnings = _zero_candidate_validation_errors(
+            decision,
+            packet=packet,
+            job=job,
+        )
         for index, candidate in enumerate(decision.candidates):
             control_reason = provider_candidate_control_reason(
                 candidate,
@@ -1253,7 +1529,13 @@ def _decide_with_candidate_retry(
                     "Return a corrected decision. Candidate rows must satisfy their "
                     "kind contract. For zero candidates, the challenge must satisfy "
                     "its schema and may not mark template-detected candidate_required "
-                    "signals absent. A no_durable_candidate result requires "
+                    "signals absent. If a detected signal is not_durable, set "
+                    "future_utility=session_only and give a substantive rationale that "
+                    "names every downgraded signal and explains why it is session-only. "
+                    "When zero_candidate_exchange_refs is supplied, copy every "
+                    "exchange_index/content_sha256 pair exactly into "
+                    "inspected_exchange_refs. "
+                    "A no_durable_candidate result requires "
                     "evidence_fidelity=complete and promotion_decision=no_promotion. "
                     "If evidence is partial/contradicted or a signal remains candidate_required, "
                     "create a scoped defer candidate or handoff instead of returning zero candidates."
@@ -2560,6 +2842,8 @@ __all__ = [
     "autonomous_config_fingerprint",
     "autonomous_receipt_path",
     "autonomous_runtime_fingerprint",
+    "record_post_turn_preflight_failure",
+    "record_post_turn_retry_backoff",
     "read_autonomous_receipt",
     "provider_candidate_control_reason",
     "normalize_provider_review_state",

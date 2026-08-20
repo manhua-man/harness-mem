@@ -66,6 +66,15 @@ It owns:
 **Does not own:** deciding what the project should remember. It supplies
 complete, authorized source revisions and durable receipts to later stages.
 
+**Codex host-event boundary:** a Codex rollout is not itself a transcript. For
+new Codex revisions, the ledger persists only the normalized user/assistant
+conversation; a Desktop delegation record contributes only its explicit user
+input. Host rules, tool schemas, plugin lists, runtime state, and tool output
+remain in the native host file and never become extraction evidence. The native
+file's content hash is retained only for safe cleanup comparison. This keeps
+the evidence source complete for the conversation without turning the host
+envelope into project knowledge.
+
 **Quality signals:** no missing session, missing content, or duplicate work;
 reconstructable source and revisions; reliable terminal state across retries;
 no source deletion outside policy; and receipts demonstrably bound to their

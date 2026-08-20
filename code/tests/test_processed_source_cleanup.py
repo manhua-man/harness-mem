@@ -258,7 +258,7 @@ def test_cleanup_prunes_raw_evidence_and_preserves_sanitized_truth(
                 "demo",
                 apply_surface_side_effects=False,
             )
-            assert truth.content in wake
+            assert truth.content not in wake
             assert private_text not in wake
             retained_rule = await backend.structured_store.get_confirmed_rule(
                 confirmed_rule.id

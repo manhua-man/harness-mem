@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from harness_mem.adapters.parser import parse_codex_archive_jsonl_session, session_sort_key
+from harness_mem.adapters.parser import (
+    parse_codex_archive_jsonl_session,
+    render_codex_conversation,
+    session_sort_key,
+)
 from harness_mem.adapters.protocol import Issue, SessionRecord
 from harness_mem.adapters.scan_scheduler import normalize_source_root, sync_sessions_fairly
 from harness_mem.adapters.snapshot import TranscriptSyncResult, persist_session_snapshot
@@ -118,9 +122,15 @@ class CodexArchiveAdapter:
         self,
         session_path: Path,
         issues: list[Issue] | None = None,
+        *,
+        content: str | None = None,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         """Parse an archived Codex rollout into metadata plus normalized turns."""
-        return parse_codex_archive_jsonl_session(session_path, issues=issues)
+        return parse_codex_archive_jsonl_session(
+            session_path,
+            issues=issues,
+            content=content,
+        )
 
     def session_to_observation(
         self,
@@ -132,25 +142,30 @@ class CodexArchiveAdapter:
     ) -> Observation:
         """Convert an archived rollout session to a normalized observation."""
         meta, turns = self.parse_jsonl_session(session_path, issues=issues)
+        return self._observation_from_turns(
+            session_path,
+            session_id,
+            project_name,
+            meta=meta,
+            turns=turns,
+        )
+
+    def _observation_from_turns(
+        self,
+        session_path: Path,
+        session_id: str,
+        project_name: str | None,
+        *,
+        meta: dict[str, Any],
+        turns: list[dict[str, Any]],
+    ) -> Observation:
         if not turns:
             raise ValueError(f"Codex archive session {session_id} contained no transcript turns")
-
-        lines = [f"# Codex Archived Session: {session_id}"]
-        if meta.get("cwd"):
-            lines.append(f"CWD: {meta['cwd']}")
-        if meta.get("start_timestamp"):
-            lines.append(f"Started: {meta['start_timestamp']}")
-
-        for i, turn in enumerate(turns, 1):
-            lines.append(f"\n## Turn {i} ({turn.get('turn_id', 'unknown')})")
-            if turn.get("user"):
-                lines.append(f"\nUser: {turn['user']}")
-            for assistant_msg in turn.get("assistant", []):
-                lines.append(f"\nAssistant: {assistant_msg}")
-            for tool in turn.get("tools", []):
-                lines.append(f"\nTool: {tool.get('name')} -> {tool.get('input')}")
-
-        raw_content = "\n".join(lines)
+        raw_content = render_codex_conversation(turns)
+        if not raw_content:
+            raise ValueError(
+                f"Codex archive session {session_id} contained no user or assistant messages"
+            )
 
         metadata = {
             "source_archive": str(self.archive_dir),
@@ -188,13 +203,25 @@ class CodexArchiveAdapter:
                 "CodexArchiveAdapter.sync_session requires an initialized backend"
             )
         native_bytes = session_path.read_bytes()
-        source_text = native_bytes.decode("utf-8-sig", errors="replace")
-        observation = self.session_to_observation(
+        native_text = native_bytes.decode("utf-8", errors="replace")
+        meta, turns = self.parse_jsonl_session(
+            session_path,
+            issues=issues,
+            content=native_text,
+        )
+        observation = self._observation_from_turns(
             session_path,
             session_id,
             project_name,
-            issues=issues,
+            meta=meta,
+            turns=turns,
         )
+        source_text = render_codex_conversation(turns)
+        if not source_text:
+            raise ValueError(
+                f"Codex archive session {session_id} contained no user or assistant messages"
+            )
+        persisted_bytes = source_text.encode("utf-8")
         root = project_root or Path(
             str(observation.metadata.get("cwd") or Path.cwd())
         )
@@ -209,10 +236,11 @@ class CodexArchiveAdapter:
             source_kind="jsonl",
             source_uri=source_uri_from_path(session_path),
             source_text=source_text,
-            raw_bytes=native_bytes,
+            raw_bytes=persisted_bytes,
+            native_input_bytes=native_bytes,
             mtime_ns=stat_result.st_mtime_ns,
-            sequence_count=source_text.count("\n") + int(bool(source_text)),
-            parser_version="codex-archive-jsonl-v1",
+            sequence_count=len(turns),
+            parser_version="codex-archive-conversation-v2",
         )
 
     async def ingest(

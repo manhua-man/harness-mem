@@ -513,11 +513,20 @@ async def run_post_turn_maintenance(
         job = backend.transcript_store.get_distill_job(str(job_id)) if job_id else None
         queued_statuses = {"queued", "parked", "retryable"}
         processing_statuses = {"processing", "reviewing"}
+        retry_backoff = (
+            not evidence_packet.get("success", False)
+            and evidence_packet.get("error")
+            == "distill_job_id is not currently eligible for Agent processing"
+            and evidence_packet.get("distill_status") == "retryable"
+            and isinstance(evidence_packet.get("retry_after"), str)
+        )
         return {
             "action": "post-turn-maintenance",
             "success": bool(evidence_packet.get("success", False)),
             "status": (
-                "failed"
+                "deferred"
+                if retry_backoff
+                else "failed"
                 if not evidence_packet.get("success", False)
                 else "queued"
                 if job is not None and job.status in queued_statuses
@@ -541,6 +550,8 @@ async def run_post_turn_maintenance(
                 "observation_count": evidence_packet.get("observation_count", 0),
                 "distill_queued": job is not None and job.status in queued_statuses,
                 "distill_job_id": job.id if job is not None else None,
+                "distill_retry_after": evidence_packet.get("retry_after"),
+                "distill_retry_backoff": retry_backoff,
                 "source_cleanup_deleted": source_cleanup["deleted"],
                 "source_cleanup_retained": source_cleanup["retained"],
                 "source_cleanup_failures": int(source_cleanup["partial_failure"])

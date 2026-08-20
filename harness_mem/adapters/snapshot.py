@@ -53,6 +53,7 @@ async def persist_session_snapshot(
     source_uri: str,
     source_text: str,
     raw_bytes: bytes | None = None,
+    native_input_bytes: bytes | None = None,
     mtime_ns: int | None = None,
     sequence_count: int = 0,
     parser_version: str = "transcript-v1",
@@ -64,7 +65,8 @@ async def persist_session_snapshot(
     # ``raw_sha256`` below may describe a redacted capture when private-tag
     # filtering is enabled, so it cannot safely be used as a compare-and-swap
     # guard before removing the native source.
-    native_input = raw_bytes if raw_bytes is not None else source_text.encode("utf-8")
+    source_input = raw_bytes if raw_bytes is not None else source_text.encode("utf-8")
+    native_input = native_input_bytes if native_input_bytes is not None else source_input
     native_input_sha256 = sha256_bytes(native_input)
 
     # Legacy/import callers may preserve a no-longer-mounted project root in
@@ -93,7 +95,7 @@ async def persist_session_snapshot(
     private_span_count = 0
     if config.capture_private_tags:
         source_text, text_redactions = redact_private_text(source_text)
-        native_bytes, byte_redactions = redact_private_bytes(native_input)
+        native_bytes, byte_redactions = redact_private_bytes(source_input)
         private_span_count = max(text_redactions, byte_redactions)
         # The adapter's searchable rendering is also evidence and must not keep
         # private content that the immutable ledger rejected.
@@ -102,7 +104,7 @@ async def persist_session_snapshot(
         )
         private_span_count = max(private_span_count, observation_redactions)
     else:
-        native_bytes = raw_bytes if raw_bytes is not None else source_text.encode("utf-8")
+        native_bytes = source_input
 
     requested_source_uri = source_uri
     native_cleanup_descriptor = build_native_cleanup_descriptor(

@@ -127,6 +127,8 @@ def _post_turn_host_result(payload: dict[str, Any]) -> dict[str, Any]:
         next_step = "in progress: an Agent is already consuming this evidence"
     elif status == "completed":
         next_step = "completed: transcript evidence is up to date"
+    elif status == "deferred":
+        next_step = "deferred: an existing distill job is waiting for its retry window"
     else:
         next_step = "failed: transcript evidence staging did not complete"
     return {
@@ -700,6 +702,70 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                         trigger_id=args.trigger_id,
                     )
                     if (
+                        not maintenance_payload.get("success")
+                        and os.environ.get("HARNESS_MEM_HOOK_BACKGROUND_WORKER")
+                        == "1"
+                    ):
+                        # The foreground Hook has already returned ``queued``.
+                        # Persist the staging failure so ``--wait`` receives the
+                        # real terminal result rather than an arbitrary timeout.
+                        from harness_mem.autonomous.worker import (
+                            record_post_turn_preflight_failure,
+                            record_post_turn_retry_backoff,
+                        )
+                        from harness_mem.hook_background import (
+                            background_generation_from_env,
+                        )
+
+                        evidence_packet = maintenance_payload.get("evidence_packet")
+                        evidence_error = (
+                            evidence_packet.get("error")
+                            if isinstance(evidence_packet, dict)
+                            else None
+                        )
+                        summary = maintenance_payload.get("summary")
+                        retry_after = (
+                            summary.get("distill_retry_after")
+                            if isinstance(summary, dict)
+                            else None
+                        )
+                        job_id = (
+                            summary.get("distill_job_id")
+                            if isinstance(summary, dict)
+                            else None
+                        )
+                        if (
+                            maintenance_payload.get("status") == "deferred"
+                            and isinstance(job_id, str)
+                            and isinstance(retry_after, str)
+                        ):
+                            record_post_turn_retry_backoff(
+                                backend.data_dir,
+                                project_name=project_name,
+                                project_root=project_root,
+                                trigger_id=args.trigger_id,
+                                client=client_override or "auto",
+                                dispatch_generation=background_generation_from_env(),
+                                job_id=job_id,
+                                retry_after=retry_after,
+                            )
+                        else:
+                            record_post_turn_preflight_failure(
+                                backend.data_dir,
+                                project_name=project_name,
+                                project_root=project_root,
+                                trigger_id=args.trigger_id,
+                                client=client_override or "auto",
+                                dispatch_generation=background_generation_from_env(),
+                                error={
+                                    "kind": "evidence_staging_failed",
+                                    "message": str(
+                                        evidence_error
+                                        or "post-turn transcript staging did not complete"
+                                    )[:512],
+                                },
+                            )
+                    if (
                         merged.distill_autonomous_enabled
                         and args.source == "ide_hook"
                         and os.environ.get("HARNESS_MEM_AUTONOMOUS_PROVIDER") != "1"
@@ -779,7 +845,7 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                 exit_code = (
                     ExitCode.SUCCESS
                     if post_turn_result["status"]
-                    in ("completed", "queued", "in_progress", "skipped")
+                    in ("completed", "queued", "in_progress", "deferred", "skipped")
                     else ExitCode.HOOK_FAILED
                 )
                 if exit_code == ExitCode.SUCCESS:

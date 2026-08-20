@@ -12,6 +12,7 @@ from harness_mem.adapters.antigravity.adapter import AntigravityAdapter
 from harness_mem.adapters.codex.adapter import CodexAdapter
 from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.transcript_chunking import sha256_bytes
 from tests.support.native_sessions import write_jsonl
 
 
@@ -153,7 +154,7 @@ async def _ingest(
 
 
 @pytest.mark.parametrize("kind", ["codex", "codex-archive", "antigravity"])
-def test_adapter_snapshot_preserves_native_bytes_and_complete_decode(
+def test_adapter_snapshot_preserves_allowed_transcript_and_native_cleanup_digest(
     tmp_path: Path,
     kind: str,
 ) -> None:
@@ -174,11 +175,152 @@ def test_adapter_snapshot_preserves_native_bytes_and_complete_decode(
             result = await adapter.sync_session(path, "session-1", "repo")
 
             assert result.action == "ingested"
-            assert backend.transcript_store.reconstruct_raw(result.source.id) == native
             normalized = backend.transcript_store.reconstruct(result.source.id)
-            assert normalized == native.decode("utf-8-sig", errors="replace")
             assert marker in normalized
-            assert normalized.endswith("\ufffdtrailing-invalid-byte\r\n")
+            if kind.startswith("codex"):
+                expected = f"User: {'x' * 60_000}{marker}\n\nAssistant: complete"
+                assert backend.transcript_store.reconstruct_raw(result.source.id) == expected.encode()
+                assert normalized == expected
+                assert "\ufffdtrailing-invalid-byte" not in normalized
+                assert result.source.metadata["native_input_sha256"] == sha256_bytes(native)
+            else:
+                assert backend.transcript_store.reconstruct_raw(result.source.id) == native
+                assert normalized == native.decode("utf-8-sig", errors="replace")
+                assert normalized.endswith("\ufffdtrailing-invalid-byte\r\n")
+        finally:
+            await backend.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("kind", ["codex", "codex-archive"])
+def test_codex_snapshot_excludes_host_context_and_ignores_host_only_revisions(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    async def run() -> None:
+        workspace = tmp_path / "repo"
+        workspace.mkdir()
+        root = tmp_path / kind
+        path = (
+            root / "2026" / "08" / "20" / "rollout-boundary.jsonl"
+            if kind == "codex"
+            else root / "rollout-boundary.jsonl"
+        )
+        write_jsonl(
+            path,
+            [
+                {
+                    "type": "session_meta",
+                    "payload": {
+                        "id": "boundary",
+                        "cwd": str(workspace),
+                        "timestamp": "2026-08-20T00:00:00Z",
+                    },
+                },
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "turn_id": "host-only",
+                        "type": "user_message",
+                        "message": "# AGENTS.md instructions\nHOST_SECRET_HOST_ONLY_RULES",
+                    },
+                },
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "turn_id": "host-only",
+                        "type": "agent_message",
+                        "phase": "final_answer",
+                        "message": "HOST_SECRET_HOST_ONLY_ASSISTANT",
+                    },
+                },
+                {
+                    "type": "response_item",
+                    "payload": {
+                        "turn_id": "turn-1",
+                        "type": "message",
+                        "role": "developer",
+                        "content": [
+                            {"type": "input_text", "text": "HOST_SECRET_DEVELOPER_CONTEXT"}
+                        ],
+                    },
+                },
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "turn_id": "turn-1",
+                        "type": "user_message",
+                        "message": (
+                            "<recommended_plugins>HOST_SECRET_PLUGIN_LIST</recommended_plugins>\n"
+                            "# AGENTS.md instructions\nHOST_SECRET_PROJECT_RULES\n"
+                            "<codex_delegation>\n"
+                            "  <source_thread_id>HOST_SECRET_THREAD</source_thread_id>\n"
+                            "  <input>Keep the conversation boundary clean.</input>\n"
+                            "</codex_delegation>"
+                        ),
+                    },
+                },
+                {
+                    "type": "response_item",
+                    "payload": {
+                        "turn_id": "turn-1",
+                        "type": "function_call",
+                        "name": "shell_command",
+                        "arguments": "HOST_SECRET_TOOL_ARGUMENTS",
+                    },
+                },
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "turn_id": "turn-1",
+                        "type": "agent_message",
+                        "phase": "final_answer",
+                        "message": "Only user and assistant messages were retained.",
+                    },
+                },
+                {
+                    "type": "world_state",
+                    "payload": {
+                        "turn_id": "turn-1",
+                        "memory": "HOST_SECRET_RUNTIME_STATE",
+                    },
+                },
+            ],
+        )
+        native_first = path.read_bytes()
+        backend = LocalMemoryBackend(tmp_path / f"data-boundary-{kind}")
+        await backend.init()
+        try:
+            adapter = _make_adapter(kind, backend, root, workspace)
+            first = await adapter.sync_session(path, "boundary", "repo")
+            rendered = backend.transcript_store.reconstruct(first.source.id)
+            assert rendered == (
+                "User: Keep the conversation boundary clean.\n\n"
+                "Assistant: Only user and assistant messages were retained."
+            )
+            assert "HOST_SECRET" not in rendered
+            observation = await backend.verbatim_store.get(first.observation_id)
+            assert observation is not None
+            assert observation.raw_content == rendered
+            assert "HOST_SECRET" not in observation.raw_content
+            assert first.source.metadata["native_input_sha256"] == sha256_bytes(native_first)
+
+            with path.open("ab") as handle:
+                handle.write(
+                    _json_line(
+                        {
+                            "type": "turn_context",
+                            "payload": {
+                                "turn_id": "turn-1",
+                                "current_date": "HOST_SECRET_CHANGED_CONTEXT",
+                            },
+                        }
+                    )
+                )
+            second = await adapter.sync_session(path, "boundary", "repo")
+            assert second.action == "unchanged"
+            assert len(backend.transcript_store.list_revisions(first.source.id)) == 1
         finally:
             await backend.close()
 

@@ -16,6 +16,19 @@
   ordinary `search` output limited to a title and statement.
 - Make the outcome retrieval probe exercise `knowledge_entries` through normal
   search, and keep its command output parseable as exactly one JSON document.
+- For Codex event logs, persist only the permitted user/assistant conversation:
+  Desktop delegation envelopes contribute only their explicit input, while host
+  rules, tool schemas, plugins, and runtime context stay out of the ledger.
+- Rebuild a missing Codex search projection from that permitted conversation
+  ledger, and compare the same projection when deciding whether an archived
+  session needs another run.
+- Treat a repeated Stop Hook for an already completed job as a receipt/Note
+  replay, not new semantic work or a second provider call. A staging failure
+  receives a prompt terminal Hook receipt; a job waiting for retry returns an
+  explicit `deferred` receipt rather than a false staging failure or timeout.
+- Validate a no-candidate decision's required source revision, exchange proof,
+  and downgrade rationale before finalization so the provider receives one
+  bounded correction instead of creating a needless retryable job.
 
 ### Changed
 

@@ -14,8 +14,13 @@ from typing import Any
 from uuid import uuid4
 
 from harness_mem.adapters.codex.archive_adapter import CodexArchiveAdapter
+from harness_mem.adapters.parser import (
+    parse_codex_archive_jsonl_session,
+    render_codex_conversation,
+)
 from harness_mem.autonomous.models import AutonomousDecision
 from harness_mem.autonomous.provider import ProviderError, ProviderResult
+from harness_mem.capture_policy import redact_private_bytes
 from harness_mem.autonomous.worker import run_autonomous_distill_batch
 from harness_mem.commands.support import DEFAULT_DATA_DIR, workspace_root_from_path
 from harness_mem.config.merge import MergedConfig, load_merged_config
@@ -70,10 +75,33 @@ def _read_terminal_index(data_dir: Path) -> dict[str, Any]:
     return payload
 
 
-def _source_revision(path: Path) -> str:
-    """Return the exact native revision used by transcript snapshot persistence."""
+def _source_revision(path: Path, *, capture_private_tags: bool = True) -> str:
+    """Return the permitted Codex conversation revision used by snapshots.
 
-    return transcript_bytes_revision(path.read_bytes())
+    Codex rollout files also contain mutable host envelopes and tool/runtime
+    records.  The archive lifecycle must compare the same user/assistant
+    projection that the adapter persists, otherwise a completed archive is
+    selected forever because the terminal entry and the native event log can
+    never have the same digest.
+    """
+
+    _meta, turns = parse_codex_archive_jsonl_session(path)
+    conversation = render_codex_conversation(turns)
+    source_bytes = conversation.encode("utf-8") if conversation else path.read_bytes()
+    if capture_private_tags:
+        source_bytes, _redactions = redact_private_bytes(source_bytes)
+    return transcript_bytes_revision(source_bytes)
+
+
+def _row_source_revision(row: dict[str, Any]) -> str:
+    """Match archive terminal state against the adapter's capture policy."""
+
+    project_root = Path(str(row["project_root"])).expanduser()
+    project_config = load_merged_config(project_root)
+    return _source_revision(
+        Path(str(row["source_path"])),
+        capture_private_tags=project_config.capture_private_tags,
+    )
 
 
 def _terminal_entry_matches(row: dict[str, Any], entry: Any) -> bool:
@@ -565,7 +593,7 @@ async def run_archive_distill_batch(
         session_id = str(row["session_id"])
         source_revision: str | None = None
         try:
-            source_revision = _source_revision(Path(str(row["source_path"])))
+            source_revision = _row_source_revision(row)
         except OSError:
             pass
         entry = terminal_sessions.get(session_id)
@@ -942,7 +970,7 @@ async def run_archive_distill_batch(
             durable_attempts[session_id] = {
                 "session_id": session_id,
                 "source_revision": outcome.get("source_revision")
-                or _source_revision(Path(str(row["source_path"]))),
+                or _row_source_revision(row),
                 "count": attempt_counts[session_id],
                 "last_status": outcome.get("status"),
                 "last_reason": outcome.get("reason"),
@@ -957,7 +985,7 @@ async def run_archive_distill_batch(
             terminal_sessions[session_id] = {
                 "session_id": session_id,
                 "source_revision": outcome.get("source_revision")
-                or _source_revision(Path(str(row["source_path"]))),
+                or _row_source_revision(row),
                 "project_name": outcome.get("project_name"),
                 "project_root": outcome.get("project_root"),
                 "distill_job_id": outcome.get("distill_job_id"),

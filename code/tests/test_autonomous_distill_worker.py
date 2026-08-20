@@ -27,9 +27,12 @@ from harness_mem.autonomous.worker import (
     _assimilate_with_schema_retry,
     _govern_unfinished_handoff,
     _normalize_zero_candidate_signal_labels,
+    _zero_candidate_validation_errors,
     _provider_call_with_transport_fallback,
     _preferred_job_is_eligible,
     autonomous_receipt_path,
+    record_post_turn_preflight_failure,
+    record_post_turn_retry_backoff,
     read_autonomous_receipt,
     normalize_provider_review_state,
     _required_confidence,
@@ -113,6 +116,63 @@ def test_default_worker_provider_uses_bounded_distill_model(
 
     assert result["state"] == "idle"
     assert captured["model"] == DEFAULT_DISTILL_MODEL
+
+
+def test_post_turn_preflight_failure_writes_terminal_nonsemantic_receipt(
+    tmp_path: Path,
+) -> None:
+    receipt = record_post_turn_preflight_failure(
+        tmp_path / "data",
+        project_name="demo",
+        project_root=tmp_path,
+        trigger_id="session-unavailable",
+        client="codex",
+        dispatch_generation="generation-1",
+        error={
+            "kind": "evidence_staging_failed",
+            "message": "session_id is not available for this project",
+        },
+    )
+
+    assert receipt["state"] == "failed"
+    assert receipt["trigger_id"] == "session-unavailable"
+    assert receipt["dispatch_generation"] == "generation-1"
+    assert receipt["execution_source"] == "hook_background"
+    assert receipt["job_id"] is None
+    assert receipt["provider"] is None
+    assert receipt["error"] == {
+        "kind": "evidence_staging_failed",
+        "message": "session_id is not available for this project",
+    }
+    assert read_autonomous_receipt(
+        tmp_path / "data", project_name="demo", project_root=tmp_path
+    ) == receipt
+
+
+def test_post_turn_retry_backoff_writes_deferred_nonsemantic_receipt(
+    tmp_path: Path,
+) -> None:
+    receipt = record_post_turn_retry_backoff(
+        tmp_path / "data",
+        project_name="demo",
+        project_root=tmp_path,
+        trigger_id="session-retryable",
+        client="codex",
+        dispatch_generation="generation-1",
+        job_id="job-retryable",
+        retry_after="2026-08-20T09:00:00+00:00",
+    )
+
+    assert receipt["state"] == "deferred"
+    assert receipt["trigger_id"] == "session-retryable"
+    assert receipt["job_id"] == "job-retryable"
+    assert receipt["provider"] is None
+    assert receipt["batch"]["deferred"] == 1
+    assert receipt["error"] == {
+        "kind": "retry_backoff",
+        "message": "distill job is waiting for its scheduled retry",
+        "retry_after": "2026-08-20T09:00:00+00:00",
+    }
 
 
 def test_responses_unexpected_eof_uses_isolated_codex_transport(
@@ -2272,6 +2332,184 @@ def test_autonomous_worker_retries_inconsistent_zero_candidate_decision(
     assert result.attempt_count == 2
 
 
+def test_autonomous_worker_retries_unjustified_zero_candidate_downgrade(
+    tmp_path: Path,
+) -> None:
+    source_revision = "sha256:" + "c" * 64
+    exchange_ref = {"exchange_index": 1, "content_sha256": "d" * 64}
+
+    def decision(*, corrected: bool) -> AutonomousDecision:
+        rationale = (
+            "rule_or_preference is a one-time request for this smoke check, not a "
+            "stable project rule."
+            if corrected
+                else "rule_or_preference oneoff"
+        )
+        return AutonomousDecision.model_validate(
+            {
+                "semantic_review": {
+                    "session_summary": "The session only asked for a one-time smoke response.",
+                    "final_user_request": "Reply with one fixed sentence.",
+                    "final_outcome": "The requested smoke response was returned.",
+                    "last_turn_status": "answered",
+                    "contradictions": [],
+                    "unfinished_work": [],
+                    "evidence_status": "not_applicable",
+                    "promotion_decision": "no_promotion",
+                    "zero_candidate_challenge": {
+                        "version": "v1",
+                        "source_revision": source_revision,
+                        "evidence_fidelity": "complete",
+                        "future_utility": "session_only",
+                        "checks": {
+                            "user_correction": "absent",
+                            "explicit_decision": "absent",
+                            "successful_solution": "absent",
+                            "repeated_failure": "absent",
+                            "rule_or_preference": "not_durable",
+                            "reusable_workflow_or_fact": "absent",
+                            "version_or_migration": "absent",
+                            "unfinished_handoff": "absent",
+                        },
+                        "inspected_exchange_refs": [exchange_ref],
+                        "conclusion": "no_durable_candidate",
+                        "rationale": rationale,
+                    },
+                },
+                "candidates": [],
+            }
+        )
+
+    class RetryProvider:
+        name = "rationale-retry-test"
+
+        def __init__(self) -> None:
+            self.manifests: list[dict] = []
+
+        def decide(self, manifest, *, runtime_dir, heartbeat=None):
+            del runtime_dir, heartbeat
+            self.manifests.append(manifest)
+            return ProviderResult(
+                decision=decision(corrected=len(self.manifests) == 2),
+                provider=self.name,
+                model="test",
+                duration_seconds=0.1,
+                input_sha256=str(len(self.manifests)) * 64,
+                response_sha256="e" * 64,
+                input_tokens=100,
+                output_tokens=20,
+                total_tokens=120,
+                event_count=1,
+            )
+
+    provider = RetryProvider()
+    job = SessionDistillJob(
+        id="job-rationale",
+        idempotency_key="key-rationale",
+        project_name="demo",
+        project_root="F:/demo",
+        client="codex",
+        session_id="session-rationale",
+        source_id="source-rationale",
+        source_revision=source_revision,
+        status="reviewing",
+        phase="review",
+        expected_chunk_count=1,
+        completed_chunk_count=1,
+    )
+
+    _result, final, validated, warnings = _decide_with_candidate_retry(
+        provider,
+        manifest={"contract_version": "test"},
+        packet={
+            "zero_candidate_challenge_template": {
+                "checks": {"rule_or_preference": "candidate_required"}
+            }
+        },
+        job=job,
+        runtime_dir=tmp_path,
+        heartbeat=None,
+    )
+
+    assert len(provider.manifests) == 2
+    feedback = provider.manifests[1]["candidate_validation_feedback"]
+    assert "substantive session-only rationale" in " ".join(feedback["errors"])
+    assert final.semantic_review.zero_candidate_challenge.rationale.startswith(
+        "rule_or_preference"
+    )
+    assert validated == []
+    assert warnings == []
+
+
+def test_zero_candidate_validation_requires_exact_exchange_proof() -> None:
+    source_revision = "sha256:" + "f" * 64
+    decision = AutonomousDecision.model_validate(
+        {
+            "semantic_review": {
+                "session_summary": "The complete review found no durable project knowledge.",
+                "final_user_request": "Return a fixed smoke response.",
+                "final_outcome": "The fixed response was returned.",
+                "last_turn_status": "answered",
+                "contradictions": [],
+                "unfinished_work": [],
+                "evidence_status": "not_applicable",
+                "promotion_decision": "no_promotion",
+                "zero_candidate_challenge": {
+                    "version": "v1",
+                    "source_revision": source_revision,
+                    "evidence_fidelity": "complete",
+                    "future_utility": "session_only",
+                    "checks": {
+                        "user_correction": "absent",
+                        "explicit_decision": "absent",
+                        "successful_solution": "absent",
+                        "repeated_failure": "absent",
+                        "rule_or_preference": "absent",
+                        "reusable_workflow_or_fact": "absent",
+                        "version_or_migration": "absent",
+                        "unfinished_handoff": "absent",
+                    },
+                    "inspected_exchange_refs": [
+                        {"exchange_index": 1, "content_sha256": "b" * 64}
+                    ],
+                    "conclusion": "no_durable_candidate",
+                    "rationale": "The complete smoke exchange is only a one-time response check.",
+                },
+            },
+            "candidates": [],
+        }
+    )
+    job = SessionDistillJob(
+        id="job-proof",
+        idempotency_key="key-proof",
+        project_name="demo",
+        project_root="F:/demo",
+        client="codex",
+        session_id="session-proof",
+        source_id="source-proof",
+        source_revision=source_revision,
+        status="reviewing",
+        phase="review",
+        expected_chunk_count=1,
+        completed_chunk_count=1,
+    )
+
+    errors = _zero_candidate_validation_errors(
+        decision,
+        packet={
+            "zero_candidate_exchange_refs": [
+                {"exchange_index": 1, "content_sha256": "a" * 64}
+            ]
+        },
+        job=job,
+    )
+
+    assert errors == [
+        "zero-candidate exchange proof incomplete or does not match the "
+        "required semantic exchanges"
+    ]
+
+
 def test_autonomous_worker_retries_partial_zero_candidate_before_finalization(
     tmp_path: Path,
 ) -> None:
@@ -2392,6 +2630,99 @@ def test_reconciled_reviewing_trigger_job_remains_preferred() -> None:
         project_name="demo",
         trigger_id="session-1",
     )
+
+
+def test_completed_preferred_job_replays_without_provider_or_deferred_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_dir = tmp_path / "data"
+    project = tmp_path / "project"
+    project.mkdir()
+    backend = LocalMemoryBackend(data_dir)
+    asyncio.run(backend.init())
+    completed_at = datetime(2026, 8, 20, tzinfo=timezone.utc)
+    job = SessionDistillJob(
+        id="completed-preferred",
+        idempotency_key="completed-preferred-key",
+        project_name="demo",
+        project_root=str(project),
+        client="codex",
+        session_id="completed-trigger",
+        source_id="completed-source",
+        source_revision="sha256:" + "a" * 64,
+        status="completed",
+        phase="done",
+        completed_at=completed_at,
+    )
+    note = {
+        "path": str(tmp_path / "completed-trigger.md"),
+        "sha256": "a" * 64,
+        "materialized_at": "2026-08-20T00:00:01+00:00",
+    }
+    receipt_path = autonomous_receipt_path(
+        data_dir,
+        project_name="demo",
+        project_root=project,
+    )
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 4,
+                "last_verified_completion": {
+                    "trigger_id": job.session_id,
+                    "job_id": job.id,
+                    "session_id": job.session_id,
+                    "provider": {"name": "responses_api", "total_tokens": 7},
+                    "note": note,
+                    "last_semantic_success_at": "2026-08-20T00:00:00+00:00",
+                    "last_job_completed_at": completed_at.isoformat(),
+                    "last_note_materialized_at": note["materialized_at"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class _Provider:
+        name = "must-not-run"
+
+        def decide(self, *_args, **_kwargs):
+            raise AssertionError("a completed preferred job must not call the provider")
+
+    monkeypatch.setattr(backend.transcript_store, "get_distill_job", lambda _job_id: job)
+    monkeypatch.setattr(
+        "harness_mem.autonomous.worker.pending_distill_jobs",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "harness_mem.autonomous.worker._materialize_note",
+        lambda *_args, **_kwargs: note,
+    )
+    try:
+        result = run_autonomous_distill_batch(
+            backend,
+            project_name="demo",
+            project_root=project,
+            config=load_merged_config(project),
+            trigger_id=job.session_id,
+            client="codex",
+            provider=_Provider(),
+            preferred_job_id=job.id,
+            max_jobs=1,
+            launch_source="ide_hook",
+            dispatch_generation="replay-generation",
+        )
+        assert result["state"] == "succeeded"
+        assert result["outcomes"] == []
+        assert result["receipt"]["state"] == "succeeded"
+        assert result["receipt"]["job_id"] == job.id
+        assert result["receipt"]["note"] == note
+        assert result["receipt"]["error"] is None
+        assert result["receipt"]["last_verified_completion"]["job_id"] == job.id
+    finally:
+        asyncio.run(backend.close())
 
 
 def test_autonomous_worker_persists_job_bound_handoff_for_partial_review() -> None:

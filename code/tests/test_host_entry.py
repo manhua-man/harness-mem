@@ -242,6 +242,56 @@ def test_host_entry_prioritizes_current_distill_job_for_autonomous_worker(
     assert captured["preferred_job_id"] == "current-job"
 
 
+def test_host_entry_records_retry_backoff_without_staging_failure(
+    monkeypatch, tmp_path
+) -> None:
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv("HARNESS_MEM_HOOK_BACKGROUND_WORKER", "1")
+    monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
+    monkeypatch.setattr(backend_module, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
+    monkeypatch.setattr(
+        host_entry,
+        "ensure_project_profile",
+        lambda *_args, **_kwargs: asyncio.sleep(0, result=(None, None)),
+    )
+
+    async def fake_post_turn(*_args, **_kwargs):
+        return {
+            "action": "post-turn-maintenance",
+            "success": False,
+            "status": "deferred",
+            "project_name": tmp_path.name,
+            "project_root": str(tmp_path),
+            "trigger_id": "turn-1",
+            "evidence_packet": {
+                "success": False,
+                "error": "distill_job_id is not currently eligible for Agent processing",
+            },
+            "summary": {
+                "distill_job_id": "job-retryable",
+                "distill_retry_after": "2026-08-20T09:00:00+00:00",
+            },
+        }
+
+    monkeypatch.setattr(maintenance_module, "run_post_turn_maintenance", fake_post_turn)
+
+    code, payload = asyncio.run(host_entry.run(_args(tmp_path, "post-turn-maintenance")))
+
+    assert code == ExitCode.SUCCESS
+    rendered = json.loads(payload or "{}")
+    assert rendered["status"] == "deferred"
+    assert rendered["next_step"].startswith("deferred:")
+    receipt = autonomous_worker.read_autonomous_receipt(
+        data_dir,
+        project_name=tmp_path.name,
+        project_root=tmp_path,
+    )
+    assert receipt is not None
+    assert receipt["state"] == "deferred"
+    assert receipt["error"]["kind"] == "retry_backoff"
+
+
 def test_host_entry_dispatches_ide_maintenance_without_loading_backend(
     monkeypatch,
     tmp_path,
@@ -491,6 +541,36 @@ def test_wait_for_autonomous_receipt_reports_deferred_as_hook_failure(tmp_path) 
         "trigger": "turn-1",
         "trigger_id": "turn-1",
     }
+
+
+def test_wait_for_autonomous_receipt_reports_preflight_failure_immediately(tmp_path) -> None:
+    receipt = {
+        "state": "failed",
+        "trigger_id": "turn-1",
+        "dispatch_generation": "generation-1",
+        "job_id": None,
+        "error": {
+            "kind": "evidence_staging_failed",
+            "message": "session_id is not available for this project",
+        },
+    }
+    receipt_path = tmp_path / "receipt.json"
+
+    code, stdout_payload = host_entry._wait_for_autonomous_receipt(
+        data_dir=tmp_path,
+        project_root=tmp_path,
+        project_name=tmp_path.name,
+        trigger_id="turn-1",
+        dispatch_generation="generation-1",
+        receipt_path=receipt_path,
+        initial_receipt=None,
+        timeout_seconds=1.0,
+        read_receipt=lambda *_args, **_kwargs: receipt,
+    )
+
+    assert code == ExitCode.HOOK_FAILED
+    assert json.loads(stdout_payload)["state"] == "failed"
+    assert json.loads(stdout_payload)["error"]["kind"] == "evidence_staging_failed"
 
 
 def test_wait_for_autonomous_receipt_timeout_fails_closed(tmp_path) -> None:

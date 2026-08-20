@@ -94,9 +94,11 @@ Every shipped transcript adapter implements the same evidence boundary:
 
 1. `list_sessions` discovers native host sessions and continues scanning past
    unchanged recent files so an older backlog can still advance.
-2. `sync_session` reads one complete native source, captures exact bytes (or a
-   deterministic complete export for SQLite-backed OpenCode), and records a new
-   immutable revision whenever that source grows or changes.
+2. `sync_session` reads one complete native source and records a new immutable
+   revision whenever its permitted transcript changes. SQLite-backed OpenCode
+   uses a deterministic complete export. Codex rollouts are host event logs, so
+   their revisions contain only the normalized user/assistant conversation;
+   the native-file hash remains available only for safe cleanup comparison.
 3. The revision is split into complete ordered chunks. Concatenating those
    chunks reconstructs the normalized transcript without character loss.
 4. `session_to_observation` produces only a derived search rendering. It may be
@@ -111,6 +113,15 @@ frontier alternates the recent and historical lanes when the budget is one;
 failed sources use a backoff retry lane so they cannot block history. A source
 absent from a complete host inventory becomes `missing`, while all captured
 revisions remain locally readable.
+
+For Codex Desktop, a host-authored delegation envelope can contain capabilities,
+project instructions, and the user's request in one event. The adapter retains
+only the explicit request payload. A repeated Stop notification for an already
+completed matching job only restores its terminal receipt and, if needed, its
+Note; it never invokes the semantic provider again. If that matching job is
+still in a scheduled retry window, a repeated Stop produces an explicit
+`deferred` receipt with its retry time; it neither restages the transcript nor
+misreports the state as an evidence-ingest failure.
 
 Support is claimed only when a native location, a real format, and regression
 fixtures exist for that host. A hook adapter and a transcript adapter are

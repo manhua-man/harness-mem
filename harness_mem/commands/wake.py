@@ -39,7 +39,6 @@ from harness_mem.core.schemas.context_assembly_plan import ContextAssemblyPlan, 
 from harness_mem.core.schemas.project_profile import ProjectProfile
 from harness_mem.core.schemas.skill import Skill
 from harness_mem.event_log import EventType, get_event_logger
-from harness_mem.recent_context import build_recent_context, render_recent_context
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
 
@@ -838,24 +837,20 @@ async def build_wake_injection(
     *,
     apply_surface_side_effects: bool = True,
 ) -> str:
-    """Return the session-start wake text for host injection.
+    """Return clean current knowledge for host session-start injection.
 
-    The hook-facing form uses the compact recent-context renderer. The existing
-    ContextAssemblyPlan still supplies stable truth, active handoffs, and wake
-    side effects, but empty L0/L1/L2 sections are no longer the primary view.
+    The lifecycle and retrieval receipts still use a context plan internally,
+    but the host-facing payload is deliberately limited to current knowledge.
+    Raw observations, candidate/audit state, task envelopes, and source ids
+    belong to explicit diagnostic paths and cannot consume normal context.
     """
     plan = await assemble_context_plan(backend, project_name=project_name)
     if apply_surface_side_effects:
         await _apply_surface_side_effects(backend, plan)
-    recent_context = await build_recent_context(backend, project_name)
-    rendered = render_recent_context(recent_context, plan, compact=True)
-    maintenance = _build_distill_maintenance_offer(
-        backend,
+    return await backend.structured_store.knowledge_store.render_markdown(
         project_name,
-        record_offer=apply_surface_side_effects,
+        include_details=False,
     )
-    instruction = str(maintenance.get("instruction") or "")
-    return f"{rendered}\n\n{instruction}" if instruction else rendered
 
 
 async def cmd_wake_up(
@@ -917,8 +912,13 @@ async def cmd_wake_up(
             print(f"Error: could not assemble context plan for '{project_name}': {exc}")
             return 1
 
-        recent_context = await build_recent_context(backend, project_name)
-        print(render_recent_context(recent_context, plan, compact=False))
+        print(
+            await backend.structured_store.knowledge_store.render_markdown(
+                project_name,
+                include_details=False,
+            ),
+            end="",
+        )
         maintenance = _build_distill_maintenance_offer(
             backend,
             project_name,
@@ -926,9 +926,8 @@ async def cmd_wake_up(
         )
         if maintenance_capture is not None:
             maintenance_capture.update(maintenance)
-        maintenance_instruction = str(maintenance.get("instruction") or "")
-        if maintenance_instruction:
-            print(maintenance_instruction)
+        # Pending lifecycle work remains visible through status/distill, not
+        # through the normal knowledge projection.
         if skill_hints_enabled:
             skill_hints = await _select_wake_skill_hints(
                 backend,
