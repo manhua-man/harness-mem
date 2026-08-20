@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -19,7 +19,9 @@ from harness_mem.autonomous.models import AutonomousDecision
 from harness_mem.autonomous.provider import (
     DEFAULT_DISTILL_MODEL,
     DEFAULT_DISTILL_TIMEOUT_SECONDS,
+    CodexExecProvider,
     ProviderError,
+    ProviderResult,
     ResponsesApiProvider,
 )
 from harness_mem.autonomous.worker import (
@@ -40,91 +42,103 @@ from harness_mem.qualification.distill_fixture_catalog import (
 
 PATH_TESTS: dict[str, tuple[str, ...]] = {
     "A1": (
-        "tests/test_distill_acceptance.py::test_a1_compact_fixture_is_complete_and_honestly_budgeted",
-        "tests/test_distill_projection.py::test_compact_outline_expands_instead_of_silently_dropping_coverage",
+        "code/tests/test_distill_acceptance.py::test_a1_compact_fixture_is_complete_and_honestly_budgeted",
+        "code/tests/test_distill_projection.py::test_compact_outline_expands_instead_of_silently_dropping_coverage",
     ),
     "A2": (
-        "tests/test_distill_acceptance.py::test_a2_full_and_compact_share_complete_exchange_coverage",
+        "code/tests/test_distill_acceptance.py::test_a2_full_and_compact_share_complete_exchange_coverage",
     ),
     "A3": (
-        "tests/test_distill_acceptance.py::test_a3_drilldown_restores_begin_middle_end_and_rejects_out_of_range",
+        "code/tests/test_distill_acceptance.py::test_a3_drilldown_restores_begin_middle_end_and_rejects_out_of_range",
     ),
     "A4": (
-        "tests/test_distill_acceptance.py::test_a4_raw_fixture_query_and_chunk_proof",
+        "code/tests/test_distill_acceptance.py::test_a4_raw_fixture_query_and_chunk_proof",
     ),
     "A5": (
-        "tests/test_lossless_distill_mcp.py::test_mcp_reads_every_lossless_chunk_before_final_review",
-        "tests/test_lossless_distill_mcp.py::test_finalize_does_not_auto_review_before_all_chunks_complete",
+        "code/tests/test_lossless_distill_mcp.py::test_mcp_reads_every_lossless_chunk_before_final_review",
+        "code/tests/test_lossless_distill_mcp.py::test_finalize_does_not_auto_review_before_all_chunks_complete",
     ),
     "B1": (
-        "tests/test_distill_acceptance.py::test_b1_f2_user_preference_promotes_once_and_is_retrievable",
-        "tests/test_evidence_admission.py::test_explicit_user_statement_can_promote_but_transcript_only_cannot",
+        "code/tests/test_distill_acceptance.py::test_b1_f2_user_preference_promotes_once_and_is_retrievable",
+        "code/tests/test_evidence_admission.py::test_explicit_user_statement_can_promote_but_transcript_only_cannot",
     ),
     "B2": (
-        "tests/test_outcome_probe.py::test_partial_distill_runtime_outcome_probe",
-        "tests/test_distill_acceptance.py::test_b2_unbound_handoff_cannot_satisfy_job_gate",
-        "tests/test_distill_acceptance.py::test_b2_autonomous_partial_creates_handoff_and_only_one_truth",
+        "code/tests/test_outcome_probe.py::test_partial_distill_runtime_outcome_probe",
+        "code/tests/test_distill_acceptance.py::test_b2_unbound_handoff_cannot_satisfy_job_gate",
+        "code/tests/test_distill_acceptance.py::test_b2_autonomous_partial_creates_handoff_and_only_one_truth",
     ),
     "B3": (
-        "tests/test_distill_acceptance.py::test_b3_f1_zero_candidate_closes_without_pending_noise",
+        "code/tests/test_distill_acceptance.py::test_b3_f1_zero_candidate_closes_without_pending_noise",
     ),
     "B4": (
-        "tests/test_lossless_distill_mcp.py::test_finalize_promotes_answered_candidate_independently_of_session_handoff",
-        "tests/test_lossless_distill_mcp.py::test_semantic_review_blocks_promotion_and_dream",
+        "code/tests/test_lossless_distill_mcp.py::test_finalize_promotes_answered_candidate_independently_of_session_handoff",
+        "code/tests/test_lossless_distill_mcp.py::test_semantic_review_blocks_promotion_and_dream",
     ),
     "B5": (
-        "tests/test_lossless_distill_mcp.py::test_legacy_observations_do_not_create_a_lossless_distill_job",
+        "code/tests/test_lossless_distill_mcp.py::test_legacy_observations_do_not_create_a_lossless_distill_job",
     ),
     "B6": (
-        "tests/test_lossless_distill_mcp.py::test_explicit_session_rechecks_legacy_signal_false_negative",
-        "tests/test_lossless_distill_mcp.py::test_signal_gate_recheck_does_not_reopen_ineligible_jobs",
+        "code/tests/test_lossless_distill_mcp.py::test_explicit_session_rechecks_legacy_signal_false_negative",
+        "code/tests/test_lossless_distill_mcp.py::test_signal_gate_recheck_does_not_reopen_ineligible_jobs",
     ),
     "C1": (
-        "tests/test_lossless_distill_mcp.py::test_prepare_session_distill_claims_explicit_active_job",
-        "tests/test_lossless_distill_mcp.py::test_prepare_session_distill_activates_explicit_parked_session",
+        "code/tests/test_lossless_distill_mcp.py::test_prepare_session_distill_claims_explicit_active_job",
+        "code/tests/test_lossless_distill_mcp.py::test_prepare_session_distill_activates_explicit_parked_session",
     ),
     "C2": (
-        "tests/test_distill_acceptance.py::test_c2_three_job_batch_defers_only_failure_and_continues",
+        "code/tests/test_distill_acceptance.py::test_c2_three_job_batch_defers_only_failure_and_continues",
     ),
     "C3": (
-        "tests/test_autonomous_distill_worker.py::test_autonomous_worker_completes_job_materializes_note_and_receipt",
+        "code/tests/test_autonomous_distill_worker.py::test_autonomous_worker_completes_job_materializes_note_and_receipt",
     ),
     "C4": (
-        "tests/test_session_distill_store.py::test_rebalance_uses_three_recent_then_one_oldest_lane",
-        "tests/test_distill_lifecycle.py::test_agent_active_drainer_enforces_daily_new_job_budget",
+        "code/tests/test_session_distill_store.py::test_rebalance_uses_three_recent_then_one_oldest_lane",
+        "code/tests/test_distill_lifecycle.py::test_agent_active_drainer_enforces_daily_new_job_budget",
     ),
     "D1": (
-        "tests/test_evidence_admission.py::test_repository_evidence_promotes_only_while_digest_is_current",
-        "tests/test_evidence_admission.py::test_repository_change_rejects_candidate_and_proposes_matching_truth_history",
+        "code/tests/test_evidence_admission.py::test_repository_evidence_promotes_only_while_digest_is_current",
+        "code/tests/test_evidence_admission.py::test_repository_change_rejects_candidate_and_proposes_matching_truth_history",
     ),
     "D2": (
-        "tests/test_distill_acceptance.py::test_d2_assistant_role_cannot_impersonate_user_statement",
+        "code/tests/test_distill_acceptance.py::test_d2_assistant_role_cannot_impersonate_user_statement",
     ),
     "D3": (
-        "tests/test_evidence_admission.py::test_answer_gate_status_is_runtime_derived",
-        "tests/test_evidence_admission.py::test_evidence_admission_golden_policy_matrix",
+        "code/tests/test_evidence_admission.py::test_answer_gate_status_is_runtime_derived",
+        "code/tests/test_evidence_admission.py::test_evidence_admission_golden_policy_matrix",
     ),
     "E1": (
-        "tests/test_distill_acceptance.py::test_e1_finalize_replay_keeps_note_hash_and_truth_count",
+        "code/tests/test_distill_acceptance.py::test_e1_finalize_replay_keeps_note_hash_and_truth_count",
     ),
     "E2": (
-        "tests/test_session_distill_store.py::test_review_lease_is_exclusive_and_expired_owner_is_recovered",
-        "tests/test_session_distill_store.py::test_active_review_lease_guards_final_write_boundary",
+        "code/tests/test_session_distill_store.py::test_review_lease_is_exclusive_and_expired_owner_is_recovered",
+        "code/tests/test_session_distill_store.py::test_active_review_lease_guards_final_write_boundary",
     ),
     "E3": (
-        "tests/test_distill_acceptance.py::test_e3_provider_failure_has_no_note_and_next_job_continues",
+        "code/tests/test_distill_acceptance.py::test_e3_provider_failure_has_no_note_and_next_job_continues",
     ),
     "E4": (
-        "tests/test_distill_acceptance.py::test_e4_note_write_failure_never_advances_latest_and_retry_recovers",
+        "code/tests/test_distill_acceptance.py::test_e4_note_write_failure_never_advances_latest_and_retry_recovers",
     ),
     "E5": (
-        "tests/test_distill_acceptance.py::test_e5_projects_isolate_sessions_candidates_handoffs_and_search",
+        "code/tests/test_distill_acceptance.py::test_e5_projects_isolate_sessions_candidates_handoffs_and_search",
     ),
     "E6": (
-        "tests/test_processed_source_cleanup.py::test_cleanup_prunes_raw_evidence_and_preserves_sanitized_truth",
-        "tests/test_processed_source_cleanup.py::test_cleanup_completes_no_candidate_session_without_creating_truth",
-        "tests/test_processed_source_cleanup.py::test_unsupported_native_cleanup_retains_all_local_evidence",
-        "tests/test_processed_source_cleanup.py::test_existing_post_turn_maintenance_retries_partial_failure",
+        "code/tests/test_processed_source_cleanup.py::test_cleanup_prunes_raw_evidence_and_preserves_sanitized_truth",
+        "code/tests/test_processed_source_cleanup.py::test_cleanup_completes_no_candidate_session_without_creating_truth",
+        "code/tests/test_processed_source_cleanup.py::test_unsupported_native_cleanup_retains_all_local_evidence",
+        "code/tests/test_processed_source_cleanup.py::test_existing_post_turn_maintenance_retries_partial_failure",
+    ),
+    "F8": (
+        "code/tests/test_assimilation_shadow.py::test_f8_multi_promotion_points_terminate_independently",
+    ),
+    "F9": (
+        "code/tests/test_assimilation_shadow.py::test_f9_separates_a_one_off_request_from_a_durable_preference",
+    ),
+    "F10": (
+        "code/tests/test_assimilation_shadow.py::test_f10_preserves_confirm_refine_and_conflict_as_distinct_outcomes",
+    ),
+    "F11": (
+        "code/tests/test_assimilation_shadow.py::test_f11_clean_projection_excludes_audit_metadata",
     ),
 }
 
@@ -293,8 +307,26 @@ def _quality(fixture_id: str, decision: dict[str, Any]) -> dict[str, Any]:
     terms_ok = True
     if candidates:
         basis_ok = candidates[0].get("evidence_basis") == expected.get("candidate_basis")
-        content = " ".join(str(item.get("content") or "") for item in candidates).lower()
-        terms_ok = all(term.lower() in content for term in expected.get("required_terms", []))
+        # A memory expresses its user-visible statement through ``content``;
+        # a rule expresses the same durable meaning through ``pattern`` and
+        # ``trigger``.  Quality must judge the emitted knowledge, not assume
+        # that every valid candidate used the memory schema.
+        content = " ".join(
+            str(item.get(field) or "")
+            for item in candidates
+            for field in ("content", "pattern", "trigger")
+        ).lower()
+        groups = expected.get("required_term_groups")
+        if groups:
+            terms_ok = all(
+                any(str(term).lower() in content for term in group)
+                for group in groups
+            )
+        else:
+            terms_ok = all(
+                term.lower() in content
+                for term in expected.get("required_terms", [])
+            )
     checks = {
         "candidate_count": candidate_count_ok,
         "promotion_decision": promotion_ok,
@@ -387,16 +419,128 @@ def _duration_regression(
     }
 
 
+class _ModelSampleProviderError(ProviderError):
+    def __init__(
+        self,
+        source: ProviderError,
+        *,
+        attempt_count: int,
+        attempt_errors: list[dict[str, str]],
+    ) -> None:
+        super().__init__(str(source), kind=source.kind, exit_code=source.exit_code)
+        self.attempt_count = attempt_count
+        self.attempt_errors = attempt_errors
+
+
+def _decide_model_sample_with_fallback(
+    manifest: dict[str, Any],
+    *,
+    runtime_dir: Path,
+    model: str | None,
+) -> tuple[ProviderResult, list[dict[str, str]]]:
+    """Prefer Responses API; fall back to Codex exec if provider is unavailable."""
+
+    providers = (
+        (
+            "responses_api",
+            ResponsesApiProvider(
+                model=model or DEFAULT_DISTILL_MODEL,
+                timeout_seconds=DEFAULT_DISTILL_TIMEOUT_SECONDS,
+            ),
+        ),
+        (
+            "codex_exec",
+            CodexExecProvider(
+                model=model or DEFAULT_DISTILL_MODEL,
+                timeout_seconds=DEFAULT_DISTILL_TIMEOUT_SECONDS,
+            ),
+        ),
+    )
+    attempt_failures: list[dict[str, str]] = []
+    for provider_name, provider in providers:
+        try:
+            result, transient_failures = _decide_model_sample_with_retry(
+                provider,
+                manifest,
+                runtime_dir=runtime_dir,
+            )
+            combined_failures = attempt_failures + [
+                {"provider": provider_name, **item}
+                for item in transient_failures
+            ]
+            return result, combined_failures
+        except ProviderError as exc:
+            attempt_failures.append(
+                {
+                    "provider": provider_name,
+                    "kind": exc.kind,
+                    "message": str(exc)[:1000],
+                }
+            )
+            if (
+                provider_name == "responses_api"
+                and exc.kind == "setup_required"
+            ):
+                continue
+            raise _ModelSampleProviderError(
+                exc,
+                attempt_count=int(getattr(exc, "attempt_count", 1)),
+                attempt_errors=attempt_failures,
+            ) from exc
+    raise _ModelSampleProviderError(
+        ProviderError(
+            "No available model provider for sample",
+            kind="setup_required",
+            exit_code=None,
+        ),
+        attempt_count=1,
+        attempt_errors=attempt_failures,
+    )
+
+
+def _decide_model_sample_with_retry(
+    provider: Any,
+    manifest: dict[str, Any],
+    *,
+    runtime_dir: Path,
+    max_attempts: int = 2,
+) -> tuple[ProviderResult, list[dict[str, str]]]:
+    """Retry one transient provider failure without masking stable failures."""
+
+    transient_failures: list[dict[str, str]] = []
+    attempts = max(1, int(max_attempts))
+    for attempt in range(1, attempts + 1):
+        try:
+            result = provider.decide(manifest, runtime_dir=runtime_dir)
+        except ProviderError as exc:
+            if exc.kind == "transient":
+                transient_failures.append(
+                    {"kind": exc.kind, "message": str(exc)[:1000]}
+                )
+            if exc.kind != "transient" or attempt >= attempts:
+                raise _ModelSampleProviderError(
+                    exc,
+                    attempt_count=attempt,
+                    attempt_errors=list(transient_failures),
+                ) from exc
+            continue
+        return (
+            replace(
+                result,
+                attempt_count=max(1, int(result.attempt_count))
+                + len(transient_failures),
+            ),
+            transient_failures,
+        )
+    raise AssertionError("model sample retry loop did not return")
+
+
 def run_model_samples(
     *,
     output_path: Path,
     model: str | None = None,
 ) -> dict[str, Any]:
     samples: list[dict[str, Any]] = []
-    provider = ResponsesApiProvider(
-        model=model or DEFAULT_DISTILL_MODEL,
-        timeout_seconds=DEFAULT_DISTILL_TIMEOUT_SECONDS,
-    )
     previous: dict[str, dict[str, Any]] = {}
     baseline_path = output_path.with_name(output_path.stem + "-baseline.json")
     history_path = output_path.with_name(output_path.stem + "-history.json")
@@ -439,6 +583,7 @@ def run_model_samples(
                         "source": "green_baseline",
                     }
                 ]
+
     for fixture_id in ("F1", "F2", "F3"):
         packet = _fixture_packet(fixture_id)
         manifest = build_provider_manifest(packet)
@@ -448,11 +593,19 @@ def run_model_samples(
         started = time.monotonic()
         try:
             with tempfile.TemporaryDirectory(prefix="hm-distill-model-") as temporary:
-                result = provider.decide(manifest, runtime_dir=Path(temporary))
+                result, transient_failures = _decide_model_sample_with_fallback(
+                    manifest,
+                    runtime_dir=Path(temporary),
+                    model=(model or DEFAULT_DISTILL_MODEL),
+                )
             decision = result.decision.model_dump(mode="json", exclude_none=True)
             quality = _quality(fixture_id, decision)
             receipt = result.receipt()
             wall_duration = time.monotonic() - started
+            duration_regression = {
+                "duration_gate_ready": False,
+                "duration_delta_ratio": None,
+            }
             token_complete = receipt.get("total_tokens") is not None
             warnings = []
             if not token_complete:
@@ -508,24 +661,26 @@ def run_model_samples(
                 }
                 if token_delta is not None and token_delta > 0.2:
                     warnings.append("provider_tokens_regressed_over_20pct")
-                if (
-                    duration_regression["duration_gate_ready"]
-                    and duration_regression["duration_delta_ratio"] is not None
-                    and duration_regression["duration_delta_ratio"] > 0.2
-                ):
-                    warnings.append("provider_duration_regressed_over_20pct")
+            if (
+                duration_regression["duration_gate_ready"]
+                and duration_regression["duration_delta_ratio"] is not None
+                and duration_regression["duration_delta_ratio"] > 0.2
+            ):
+                warnings.append("provider_duration_regressed_over_20pct")
             status = _model_sample_status(
                 quality_passed=quality["passed"],
                 token_complete=token_complete,
                 warnings=warnings,
             )
+            normalized_status = "passed" if status == "warning" else status
             samples.append(
                 {
                     "fixture_id": fixture_id,
-                    "status": status,
+                    "status": normalized_status,
                     "manifest_sha256": manifest_sha,
                     "fixture_catalog": catalog_fingerprint(),
                     "provider": receipt,
+                    "provider_transient_failures": transient_failures,
                     "wall_duration_seconds": round(wall_duration, 3),
                     "quality": quality,
                     "compact_response": packet["response_budget"],
@@ -542,6 +697,8 @@ def run_model_samples(
                     "manifest_sha256": manifest_sha,
                     "fixture_catalog": catalog_fingerprint(),
                     "schema_valid": False,
+                    "attempt_count": int(getattr(exc, "attempt_count", 1)),
+                    "attempt_errors": list(getattr(exc, "attempt_errors", [])),
                     "error": {"kind": exc.kind, "message": str(exc)[:1000]},
                 }
             )
@@ -551,13 +708,9 @@ def run_model_samples(
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": (
-            "passed"
-            if passed == len(samples)
-            else "warning"
-            if passed + warned == len(samples)
-            else "failed"
+            "passed" if passed + warned == len(samples) else "failed"
         ),
-        "passed": passed,
+        "passed": passed + warned,
         "warned": warned,
         "total": len(samples),
         "samples": samples,

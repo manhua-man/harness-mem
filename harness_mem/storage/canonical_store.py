@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import threading
 from typing import Any, Iterable
 from uuid import uuid4
 
@@ -28,8 +29,8 @@ from harness_mem.storage.store_v2_migration import (
 from harness_mem.version import legacy_storage_support_policy
 
 
-CANONICAL_STORE_SCHEMA_VERSION = 3
-CANONICAL_STORE_CONTRACT_VERSION = "canonical-store-v5.1.0"
+CANONICAL_STORE_SCHEMA_VERSION = 6
+CANONICAL_STORE_CONTRACT_VERSION = "canonical-store-v6.0.0"
 DUAL_WRITE_ENV = "HARNESS_MEM_STORAGE_V2_DUAL_WRITE"
 RUNTIME_STATE_FILE_NAME = "runtime_state.json"
 MIGRATION_RECEIPT_DIR_NAME = "migration_receipts"
@@ -43,6 +44,10 @@ RUNTIME_STATES: tuple[str, ...] = (
 CANONICAL_ENTITY_TABLES: tuple[str, ...] = (
     "observations",
     "memory_entries",
+    "knowledge_entries",
+    "knowledge_sources",
+    "knowledge_versions",
+    "knowledge_mutations",
     "rules",
     "skills",
     "relations",
@@ -56,6 +61,10 @@ CANONICAL_ENTITY_TABLES: tuple[str, ...] = (
 _COLLECTION_TO_TABLE: dict[str, str] = {
     "observations": "observations",
     "memory_entries": "memory_entries",
+    "knowledge_entries": "knowledge_entries",
+    "knowledge_sources": "knowledge_sources",
+    "knowledge_versions": "knowledge_versions",
+    "knowledge_mutations": "knowledge_mutations",
     "confirmed_rules": "rules",
     "skills": "skills",
     "relation_facts": "relations",
@@ -193,6 +202,18 @@ class StorageRuntimeState:
         )
 
 
+class CanonicalTransactionError(RuntimeError):
+    """Base error for an in-place canonical SQLite mutation transaction."""
+
+
+class CanonicalTransactionPreconditionError(CanonicalTransactionError):
+    """A mutation's expected payload SHA did not match current truth."""
+
+
+class CanonicalTransactionIdempotencyError(CanonicalTransactionError):
+    """An idempotency key was reused for a different mutation request."""
+
+
 class CanonicalStoreRuntime:
     """Thin runtime CRUD helper over canonical SQLite payload rows."""
 
@@ -201,18 +222,21 @@ class CanonicalStoreRuntime:
         self.db_path = canonical_store_path(self.data_dir)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self._lock = threading.RLock()
         self._conn.execute("PRAGMA secure_delete=ON")
         initialize_canonical_schema(self._conn)
         self._conn.commit()
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def flush_sensitive_deletes(self) -> None:
         """Commit secure deletes and truncate the canonical-store WAL."""
 
-        self._conn.commit()
-        row = self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        with self._lock:
+            self._conn.commit()
+            row = self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
         if row is not None and int(row[0] or 0) != 0:
             raise RuntimeError("canonical store WAL checkpoint remained busy")
 
@@ -229,24 +253,43 @@ class CanonicalStoreRuntime:
             return None
         return json.loads(payload_json)
 
-    def get_row(self, collection: str, entity_id: str) -> CanonicalEntityRow | None:
-        table_name = canonical_table_for_collection(collection)
-        if not _table_exists(self._conn, table_name):
-            return None
-        row = self._conn.execute(
-            f"""
-            SELECT row_key, collection, entity_id, project_id, corpus_id, type,
-                   truth_status, confidence, created_at, valid_from, valid_to,
-                   tier, last_accessed_at, access_count, decay_score,
-                   source_relpath, payload_json, payload_sha256, size_bytes,
-                   migrated_at
-            FROM {table_name}
-            WHERE collection = ? AND entity_id = ?
-            ORDER BY COALESCE(project_id, ''), entity_id
-            LIMIT 1
-            """,
-            (collection, entity_id),
-        ).fetchone()
+    def get_row(
+        self,
+        collection: str,
+        entity_id: str,
+        *,
+        project_name: str | None = None,
+    ) -> CanonicalEntityRow | None:
+        with self._lock:
+            table_name = canonical_table_for_collection(collection)
+            if not _table_exists(self._conn, table_name):
+                return None
+            if project_name is None:
+                sql = f"""
+                SELECT row_key, collection, entity_id, project_id, corpus_id, type,
+                       truth_status, confidence, created_at, valid_from, valid_to,
+                       tier, last_accessed_at, access_count, decay_score,
+                       source_relpath, payload_json, payload_sha256, size_bytes,
+                       migrated_at
+                FROM {table_name}
+                WHERE collection = ? AND entity_id = ?
+                ORDER BY COALESCE(project_id, ''), entity_id
+                LIMIT 1
+                """
+                params: tuple[str, ...] = (collection, entity_id)
+            else:
+                sql = f"""
+                SELECT row_key, collection, entity_id, project_id, corpus_id, type,
+                       truth_status, confidence, created_at, valid_from, valid_to,
+                       tier, last_accessed_at, access_count, decay_score,
+                       source_relpath, payload_json, payload_sha256, size_bytes,
+                       migrated_at
+                FROM {table_name}
+                WHERE row_key = ?
+                LIMIT 1
+                """
+                params = (_row_key(collection, project_name, entity_id),)
+            row = self._conn.execute(sql, params).fetchone()
         if row is None:
             return None
         return CanonicalEntityRow(
@@ -280,11 +323,12 @@ class CanonicalStoreRuntime:
         project_name: str | None = None,
     ) -> list[CanonicalEntityRow]:
         table_name = canonical_table_for_collection(collection)
-        rows = list_canonical_rows(
-            self._conn,
-            project_name=project_name,
-            table_names=(table_name,),
-        )
+        with self._lock:
+            rows = list_canonical_rows(
+                self._conn,
+                project_name=project_name,
+                table_names=(table_name,),
+            )
         return [row for row in rows if row.collection == collection]
 
     def list_payloads(
@@ -310,7 +354,8 @@ class CanonicalStoreRuntime:
         if project_name is not None:
             sql += " AND project_id = ?"
             params.append(project_name)
-        row = self._conn.execute(sql, tuple(params)).fetchone()
+        with self._lock:
+            row = self._conn.execute(sql, tuple(params)).fetchone()
         return int(row[0] or 0) if row else 0
 
     def upsert_payload(
@@ -340,9 +385,10 @@ class CanonicalStoreRuntime:
             payload,
             migrated_at=_utc_now(),
         )
-        _upsert_canonical_row(self._conn, canonical)
-        self._conn.commit()
-        stored = self.get_row(collection, entity_id)
+        with self._lock:
+            with self._conn:
+                _upsert_canonical_row(self._conn, canonical)
+            stored = self.get_row(collection, entity_id)
         if stored is None:
             raise StorageV2MigrationError(
                 f"Canonical upsert failed for {collection}:{entity_id}"
@@ -351,12 +397,166 @@ class CanonicalStoreRuntime:
 
     def delete_payload(self, collection: str, entity_id: str) -> bool:
         table_name = canonical_table_for_collection(collection)
-        with self._conn:
-            cursor = self._conn.execute(
-                f"DELETE FROM {table_name} WHERE collection = ? AND entity_id = ?",
-                (collection, entity_id),
-            )
+        with self._lock:
+            with self._conn:
+                cursor = self._conn.execute(
+                    f"DELETE FROM {table_name} WHERE collection = ? AND entity_id = ?",
+                    (collection, entity_id),
+                )
         return int(cursor.rowcount or 0) > 0
+
+    def apply_payload_transaction(
+        self,
+        *,
+        idempotency_key: str,
+        mutations: Iterable[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Atomically apply canonical payload mutations on the existing DB inode.
+
+        Each mutation has ``operation`` (``upsert`` or ``delete``), ``collection``,
+        and ``entity_id``. Upserts also require ``payload`` and may provide
+        ``source_relpath``. If ``expected_sha256`` is present, its value must
+        match current canonical truth; ``None`` explicitly requires absence.
+
+        The idempotency record commits in the same SQLite transaction as every
+        payload mutation. Replaying the same key and request is a no-op; reusing
+        the key for different work fails closed.
+        """
+
+        key = str(idempotency_key).strip()
+        if not key:
+            raise ValueError("idempotency_key must be non-empty")
+        normalized = [_normalize_payload_mutation(item) for item in mutations]
+        if not normalized:
+            raise ValueError("mutations must contain at least one operation")
+        targets = [
+            (
+                str(item["collection"]),
+                str(item["project_name"]),
+                str(item["entity_id"]),
+            )
+            for item in normalized
+        ]
+        if len(set(targets)) != len(targets):
+            raise ValueError("one transaction cannot mutate the same target twice")
+        request_sha256 = _sha256_text(_stable_json_value(normalized))
+
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                replay = self._conn.execute(
+                    """
+                    SELECT request_sha256, result_json
+                    FROM canonical_transaction_records
+                    WHERE idempotency_key = ?
+                    """,
+                    (key,),
+                ).fetchone()
+                if replay is not None:
+                    if str(replay[0]) != request_sha256:
+                        raise CanonicalTransactionIdempotencyError(
+                            "idempotency key was already committed for a different request"
+                        )
+                    replay_result = json.loads(str(replay[1]))
+                    self._conn.rollback()
+                    replay_result["replayed"] = True
+                    return replay_result
+
+                for item in normalized:
+                    if "expected_sha256" not in item:
+                        continue
+                    current = self.get_row(
+                        str(item["collection"]),
+                        str(item["entity_id"]),
+                        project_name=str(item["project_name"]),
+                    )
+                    actual = current.payload_sha256 if current is not None else None
+                    expected = item["expected_sha256"]
+                    if actual != expected:
+                        raise CanonicalTransactionPreconditionError(
+                            f"payload SHA precondition failed for "
+                            f"{item['collection']}:{item['entity_id']}: "
+                            f"expected {expected!r}, found {actual!r}"
+                        )
+
+                applied: list[dict[str, Any]] = []
+                for item in normalized:
+                    collection = str(item["collection"])
+                    entity_id = str(item["entity_id"])
+                    table_name = canonical_table_for_collection(collection)
+                    if item["operation"] == "delete":
+                        project_name = str(item["project_name"])
+                        cursor = self._conn.execute(
+                            f"DELETE FROM {table_name} "
+                            "WHERE row_key = ?",
+                            (_row_key(collection, project_name, entity_id),),
+                        )
+                        applied.append(
+                            {
+                                "operation": "delete",
+                                "collection": collection,
+                                "project_name": project_name,
+                                "entity_id": entity_id,
+                                "deleted": int(cursor.rowcount or 0) > 0,
+                            }
+                        )
+                        continue
+
+                    payload = dict(item["payload"])
+                    payload_json = _stable_json(payload)
+                    payload_project_name = _payload_project_id(payload)
+                    legacy = LegacyPayloadRow(
+                        row_key=_row_key(
+                            collection,
+                            payload_project_name,
+                            entity_id,
+                        ),
+                        collection=collection,
+                        entity_id=entity_id,
+                        project_name=payload_project_name,
+                        source_relpath=str(
+                            item.get("source_relpath")
+                            or _default_source_relpath(collection, entity_id)
+                        ),
+                        payload_json=payload_json,
+                        payload_sha256=_sha256_text(payload_json),
+                        size_bytes=len(payload_json.encode("utf-8")),
+                    )
+                    row = canonical_row_from_legacy(
+                        legacy, payload, migrated_at=_utc_now()
+                    )
+                    _upsert_canonical_row(self._conn, row)
+                    applied.append(
+                        {
+                            "operation": "upsert",
+                            "collection": collection,
+                            "entity_id": entity_id,
+                            "payload_sha256": row.payload_sha256,
+                        }
+                    )
+
+                result: dict[str, Any] = {
+                    "idempotency_key": key,
+                    "request_sha256": request_sha256,
+                    "mutation_count": len(applied),
+                    "mutations": applied,
+                    "replayed": False,
+                }
+                committed_at = _utc_now()
+                self._conn.execute(
+                    """
+                    INSERT INTO canonical_transaction_records (
+                        idempotency_key, request_sha256, result_json, committed_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (key, request_sha256, _stable_json_value(result), committed_at),
+                )
+                self._conn.commit()
+                return result
+            except Exception:
+                if self._conn.in_transaction:
+                    self._conn.rollback()
+                raise
 
 
 def count_managed_backup_observations(
@@ -1159,6 +1359,16 @@ def initialize_canonical_schema(conn: sqlite3.Connection) -> None:
             ON {table}(payload_sha256)
             """
         )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS canonical_transaction_records (
+            idempotency_key TEXT PRIMARY KEY,
+            request_sha256 TEXT NOT NULL,
+            result_json TEXT NOT NULL,
+            committed_at TEXT NOT NULL
+        )
+        """
+    )
 
 
 def build_canonical_store(
@@ -1822,6 +2032,14 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
 
 
 def _entity_type(collection: str, payload: dict[str, Any]) -> str:
+    if collection == "knowledge_entries":
+        return "knowledge_entry"
+    if collection == "knowledge_sources":
+        return "knowledge_source"
+    if collection == "knowledge_versions":
+        return "knowledge_version"
+    if collection == "knowledge_mutations":
+        return "knowledge_mutation"
     if collection == "memory_entries":
         return str(
             payload.get("memory_type") or payload.get("category") or "memory_entry"
@@ -1858,6 +2076,10 @@ def _truth_status(collection: str, payload: dict[str, Any]) -> str:
         return "confirmed_current"
     if status == "superseded":
         return "historical"
+    if collection == "knowledge_entries":
+        return "confirmed_current"
+    if collection in {"knowledge_sources", "knowledge_versions", "knowledge_mutations"}:
+        return "supporting"
     if collection in {"memory_entries", "confirmed_rules", "relation_facts", "skills"}:
         return "confirmed_current"
     if collection in {"task_handoffs", "metabolism_runs", "dream_runs"}:
@@ -1926,6 +2148,79 @@ def _stable_json(payload: dict[str, Any]) -> str:
         separators=(",", ":"),
         default=str,
     )
+
+
+def _stable_json_value(payload: Any) -> str:
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        default=str,
+    )
+
+
+def _normalize_payload_mutation(mutation: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(mutation, dict):
+        raise TypeError("each mutation must be a dictionary")
+    operation = str(mutation.get("operation") or "").strip().lower()
+    if operation not in {"upsert", "delete"}:
+        raise ValueError("mutation operation must be 'upsert' or 'delete'")
+    collection = str(mutation.get("collection") or "").strip()
+    entity_id = str(mutation.get("entity_id") or "").strip()
+    if not collection or not entity_id:
+        raise ValueError("mutation collection and entity_id must be non-empty")
+    if collection not in _COLLECTION_TO_TABLE:
+        raise ValueError(f"unsupported canonical collection: {collection}")
+
+    allowed = {"operation", "collection", "entity_id", "expected_sha256"}
+    normalized: dict[str, Any] = {
+        "operation": operation,
+        "collection": collection,
+        "entity_id": entity_id,
+    }
+    if "expected_sha256" in mutation:
+        expected = mutation["expected_sha256"]
+        if expected is not None:
+            expected = str(expected).strip().lower()
+            if len(expected) != 64 or any(
+                character not in "0123456789abcdef" for character in expected
+            ):
+                raise ValueError("expected_sha256 must be a lowercase SHA-256 or None")
+        normalized["expected_sha256"] = expected
+
+    if operation == "upsert":
+        allowed.update({"payload", "source_relpath", "project_name"})
+        payload = mutation.get("payload")
+        if not isinstance(payload, dict):
+            raise TypeError("upsert mutation payload must be a dictionary")
+        # Freeze caller-owned data before hashing and applying it so request
+        # identity and committed bytes cannot diverge under concurrent mutation.
+        normalized["payload"] = json.loads(_stable_json(payload))
+        project_name = _payload_project_id(payload)
+        supplied_project = mutation.get("project_name")
+        if supplied_project is not None and str(supplied_project) != str(
+            project_name or ""
+        ):
+            raise ValueError("upsert project_name must match its payload")
+        normalized["project_name"] = project_name or ""
+        if mutation.get("source_relpath") is not None:
+            normalized["source_relpath"] = str(mutation["source_relpath"])
+    else:
+        allowed.add("project_name")
+        project_name = str(mutation.get("project_name") or "").strip()
+        if not project_name:
+            raise ValueError("delete mutation requires project_name")
+        normalized["project_name"] = project_name
+        if "payload" in mutation or "source_relpath" in mutation:
+            raise ValueError("delete mutation cannot include payload or source_relpath")
+
+    unexpected = set(mutation) - allowed
+    if unexpected:
+        raise ValueError(
+            "unsupported mutation fields: " + ", ".join(sorted(unexpected))
+        )
+    return normalized
 
 
 def _sha256_text(value: str) -> str:

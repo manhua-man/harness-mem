@@ -198,6 +198,7 @@ def resolve_promotion_status(
     kind: str,
     is_high_risk: bool = False,
     confidence: float = 0.0,
+    allow_provisional: bool = True,
 ) -> str:
     """Map an auto-review action to the target governance status."""
     if action == "auto_reject":
@@ -205,6 +206,8 @@ def resolve_promotion_status(
     if action == "defer":
         return DEFERRED_STATUS
     if action == "auto_confirm":
+        if not allow_provisional:
+            return AUTO_CONFIRMED_STATUS
         if kind == "rule_candidate":
             return PROVISIONAL_STATUS
         if is_high_risk or confidence < 0.85:

@@ -15,6 +15,9 @@ from harness_mem.transcript_chunking import transcript_bytes_revision
 _SHARED_SOURCE_KINDS = frozenset(
     {"sqlite-session-export", "antigravity-cli-session-export"}
 )
+_CODEX_CONVERSATION_PARSERS = frozenset(
+    {"codex-conversation-v2", "codex-archive-conversation-v2"}
+)
 
 
 def repair_source_observation_projection(
@@ -39,33 +42,45 @@ def repair_source_observation_projection(
         return None
     if revision.source_kind in _SHARED_SOURCE_KINDS:
         return None
-    locator = str(revision.metadata.get("native_source_uri") or revision.source_uri)
     try:
-        source_path = path_from_local_file_uri(locator)
-    except ValueError:
-        return None
-    try:
-        native_bytes = backend.transcript_store.reconstruct_raw(
+        stored_bytes = backend.transcript_store.reconstruct_raw(
             source_id,
             source_revision=source_revision,
         )
     except (KeyError, ValueError):
         return None
-    if transcript_bytes_revision(native_bytes) != source_revision:
+    if transcript_bytes_revision(stored_bytes) != source_revision:
         return None
 
-    try:
-        with TemporaryDirectory(prefix="harness-mem-projection-") as temp_dir:
-            replay_path = Path(temp_dir) / source_path.name
-            replay_path.write_bytes(native_bytes)
-            adapter = AdapterRegistry.build(revision.client, None)
-            observation = adapter.session_to_observation(
-                replay_path,
-                revision.session_id,
-                revision.project_name,
-            )
-    except (KeyError, OSError, ValueError):
-        return None
+    if revision.parser_version in _CODEX_CONVERSATION_PARSERS:
+        # New Codex snapshots intentionally keep only the permitted
+        # user/assistant transcript in the ledger.  It is already the exact
+        # search projection, so replaying it through the native JSONL parser
+        # would fail (and would incorrectly require host-only context again).
+        observation = Observation(
+            session_id=revision.session_id,
+            client=revision.client,
+            raw_content=stored_bytes.decode("utf-8", errors="replace"),
+            content_type="transcript",
+        )
+    else:
+        locator = str(revision.metadata.get("native_source_uri") or revision.source_uri)
+        try:
+            source_path = path_from_local_file_uri(locator)
+        except ValueError:
+            return None
+        try:
+            with TemporaryDirectory(prefix="harness-mem-projection-") as temp_dir:
+                replay_path = Path(temp_dir) / source_path.name
+                replay_path.write_bytes(stored_bytes)
+                adapter = AdapterRegistry.build(revision.client, None)
+                observation = adapter.session_to_observation(
+                    replay_path,
+                    revision.session_id,
+                    revision.project_name,
+                )
+        except (KeyError, OSError, ValueError):
+            return None
 
     observation_id = str(uuid5(NAMESPACE_URL, f"{source_id}:observation"))
     observation.id = observation_id

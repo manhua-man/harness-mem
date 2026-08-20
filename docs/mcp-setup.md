@@ -53,7 +53,7 @@ for the same host. Pick one transport. When the server implementation or tool
 schema changes, restart the harness-mem child process in the Router and start a
 new Agent task; existing tasks keep the tool snapshot they started with.
 
-`harness_mem/mcp/tool_specs.py` and `mcps/harness_mem/tools/` are the canonical
+`harness_mem/mcp/tool_specs.py` and `code/mcps/harness_mem/tools/` are the canonical
 descriptor sources. The stale checked-in Router aggregate snapshots were
 removed in 0.9.6. This does not remove the live `mcp__mcp_router__*` namespace:
 Router clients continue to discover tools from the running server.
@@ -62,6 +62,15 @@ The server has one public memory surface. It exposes the normal Agent workflow:
 status, wake/search, session distill, composite `govern_memory`, candidate
 review, and dream as the default audited maintenance capability.
 Historical profile values are ignored.
+Autonomous semantic processing is globally disabled by default because it sends
+the compact manifest to the configured provider and can consume model quota.
+Authorize only projects that should run it:
+
+```bash
+harness-mem config set distill.autonomous.enabled true --scope project --confirm
+```
+
+Other projects keep captured jobs queued for explicit processing.
 The `wake` output leads with a recent project-scoped context index. It is a
 derived view of transcript observations and does not promote them to confirmed
 truth; stable truth and active handoffs remain separate sections.
@@ -138,29 +147,36 @@ recheck; only `ANSWERED` is promotion-eligible, while `PARTIAL`,
 Relation facts use the same scoped policy and the
 public MCP allowlist remains exactly 27 tools.
 
-`distill.delete_source_after_complete` is a persistent user/project config
-boolean and defaults to `false`. Enabling it is explicit authorization for the
-completed-job cleanup saga: receipt first, native compare-and-swap deletion,
+`distill.delete_source_after_complete` is a project-scoped config boolean and
+defaults to `false`. A completed job attempts the cleanup saga only after the
+project explicitly opts in:
+receipt first, native compare-and-swap deletion,
 local raw/chunk/Observation/index cleanup, truth provenance sanitization, and
 post-delete verification. `source_cleanup.status` distinguishes `retained`,
 `deleted`, `partial_failure`, and `unsupported`; a configured policy never
 implies that deletion succeeded. Shared SQLite/JSONL sources are not unlinked
 when a safe session-scoped transaction is unavailable.
 
-Enabling from the CLI requires the one-time policy confirmation:
+Enable it only when the project permits original session source deletion:
 
 ```powershell
-harness-mem config set distill.delete_source_after_complete true --scope user --confirm
+harness-mem config set distill.delete_source_after_complete true --scope project --confirm
 ```
 
-Disabling requires no confirmation. IDE users can instead explicitly say
-“开启 harness-mem 整理后删除原会话” or “关闭 harness-mem 整理后删除原会话”; this
-natural-language control maps to the existing CLI config surface and does not
-add an MCP tool or another Daily command.
+User-level values do not authorize cleanup. Invalid config, a missing project
+opt-in, or unresolved project context fails safe to retention.
 Read-only procedural hints can be searched from memory context, but procedural
 skill lifecycle management is outside this public memory surface.
 
 ## Operator Maintenance
+
+Archived Codex tasks use
+`harness-mem maintenance archive-distill --dry-run|--apply`. The command detects
+the destination project from each rollout `cwd`, enforces the control project's
+`[archive_distill]` batch/daily/project/cost/report policy, requires autonomous
+authorization in each destination project, and emits a formal Answer Packet
+plus per-fact promotion details. `config list --detail runtime` exposes the
+effective read-only wake, distill-budget, and Dream timing values.
 
 Metabolism and reflection jobs are internal background governance mechanisms,
 similar to an indexer, compaction worker, repair worker, or GC. Product-facing

@@ -25,8 +25,9 @@ and "do not claim this yet" rules.
 `harness-mem` turns that project memory into a local backend exposed through
 one MCP memory surface. Claude Code, Codex, Cursor, Grok, Hermes, OpenCode, and
 Antigravity recover context with `wake` and task-aware `search`, distill recent
-session evidence, auto-promote low-risk memory, keep human review as a
-post-hoc audit/undo surface, and let dream maintain the ledger.
+session evidence, auto-promote low-risk memory, use human `review` to correct
+or undo it, and use Dream to discover stale, duplicate, conflicting, or
+replaceable knowledge for another verification-and-assimilation pass.
 
 Invocation surfaces (installed once at user scope, then visible in every project):
 
@@ -37,26 +38,71 @@ Invocation surfaces (installed once at user scope, then visible in every project
 
 Everyday use reduces to three intents: continue work with `wake/search`, remember
 a reusable result through the distill/governance path, or review/undo an
-incorrect memory. Status and Dream remain compatible diagnostics and maintenance,
-not extra steps the user must manually perform every day.
+incorrect memory. Dream is a core governance-feedback capability, normally
+triggered by the runtime rather than a checklist step the user must perform each
+day; `status` is the diagnostic summary surface.
 
 <p align="center">
   <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="A fresh Agent uses wake, search, distill, review, and dream against a local auditable memory backend" width="900" />
 </p>
 
-## Core Loop
+## Architecture and daily actions
+
+The product's internal functional architecture is not a list of daily commands:
 
 ```text
-wake -> search -> distill -> review -> dream
+0. session intake and lifecycle
+-> 1. extraction
+-> 2. per-point verification
+-> 3. assimilation
+-> 4. retrieval/use
 ```
 
-| Step | Job |
+Stage 0 owns supported-host intake, authorization, immutable revisions,
+lossless chunks, jobs, receipts, retries, and safe source retention/cleanup.
+Stages 1--4 decide and use project knowledge. One session can yield zero to
+twelve independent promotion points; verification and assimilation operate on
+each point independently.
+
+Dream and Review are core governance-feedback capabilities across stages 3--4,
+not a linear sixth stage and not operator-only maintenance:
+
+```text
+4. retrieval/use -> useful / ignored / misleading / stale feedback
+                  -> review / Dream -> re-verify -> assimilate
+                  -> current long-term knowledge
+```
+
+Audit receipts cross every stage: intake receipt, extraction coverage,
+verification evidence, assimilation/lineage decision, and retrieval feedback.
+
+The user-facing actions map onto that architecture; they are not a replacement
+for it:
+
+| Action | Role |
 |---|---|
 | `wake` | Load a compact project brief from readable memory at session start. |
 | `search` | Retrieve prior decisions, rules, and handoffs when `autopilot_search_tick` detects concrete uncertainty, conflict, tool failure, durable-claim grounding, or a long-horizon task switch. |
-| `distill` | Verify every ordered raw chunk, read a coverage-first indexed manifest under an adaptive complete-response target, select complete semantic windows, drill into candidate-grade raw proof, then run end-of-session review, governance, and Dream. |
-| `review` | Audit, confirm, reject, undo, or supersede auto-promoted and pending items after the fact. |
-| `dream` | Maintain the ledger, compact stale state, and keep reversible cleanup metadata current after save points or session end. |
+| `distill` | Orchestrate stages 1--3 over a completed Stage-0 session revision. |
+| `review` | Core human governance feedback: audit, confirm, reject, undo, correct, or supersede knowledge and return it to verification/assimilation when needed. |
+| `dream` | Core automated governance feedback: find stale, duplicate, conflicting, mergeable, or replaceable knowledge and route it through verification and assimilation. |
+| `status` | Summarize actual state across stages 0--4. |
+
+Hooks, the detached worker, and archive maintenance belong to Stage 0. Raw
+search/timeline, candidate detail, runtime reset, and storage repair are
+explicit audit or operator capabilities; they do not define the long-term
+knowledge model.
+
+The released `0.9.22` runtime uses SQLite `knowledge_entries` as the authority
+for clean current knowledge. Candidate, verification, and proposed decision
+material is job-scoped and cleaned after a proven terminal outcome; legacy
+`MemoryEntry` remains readable for compatibility. Current search reads SQLite
+deterministically, while FTS/vector remain optional rebuildable optimizations.
+Markdown is rendered only when a user asks to read or export the library.
+Natural project modules are formed without a hard-coded module allowlist. A
+frozen six-session acceptance passed. Any additional live legacy-memory
+migration still requires separate explicit authorization. See
+[SQLite Current-Knowledge Convergence](docs/roadmap/knowledge-truth-separation.md).
 
 The runtime search scheduler is event-driven, not always-on. PI-style
 `transformContext`, `tool_result`, and `prepareNextTurn` events map directly to
@@ -129,19 +175,19 @@ Privacy is enforced before persistence. Put sensitive spans inside
 `<private>...</private>`, or configure project-level `[capture]` ignore lists;
 excluded content never reaches raw revisions, chunks, Observations, or indexes.
 `[transcript].retention_days` enables automatic expiry (`0` keeps data).
-Processed source deletion is a separate persistent opt-in and defaults off:
+Successful distill retains the original source by default. Source cleanup is
+allowed only when the project explicitly enables it and the adapter supports
+session-scoped deletion with passing quiet/CAS/hash checks:
 
 ```bash
-harness-mem config set distill.delete_source_after_complete true --scope user --confirm
+harness-mem config set distill.delete_source_after_complete true --scope project --confirm
 ```
 
-`--confirm` is required only for the persistent transition from disabled to
-enabled; disabling the policy and individual completed sessions require no
-extra prompt. In an IDE, the explicit natural-language instruction “enable
-harness-mem deletion of original sessions after distill” authorizes the Agent
-to perform this confirmed config write. When enabled, completed jobs delete an eligible quiet native session source,
+User-level values do not authorize this destructive policy. If config is
+unreadable, the project value is absent, or the project cannot be resolved,
+completion fails safe and retains the source. When enabled, completed jobs delete an eligible quiet native session source,
 local raw bytes, chunks, checkpoint results, matching Observations, and derived
-indexes while retaining sanitized durable Memory/Rule/Fact/Skill truth. Every
+indexes while retaining governed long-term knowledge in canonical SQLite. Every
 attempt reports `retained`, `deleted`, `partial_failure`, or `unsupported` and
 writes a content-free receipt before native mutation. Shared SQLite/JSONL
 containers that lack a safe transactional session deleter are left untouched
@@ -193,8 +239,8 @@ owns storage, candidates, review, retrieval, and local audit state.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.12 \
-  harness-mem==0.9.12
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.22 \
+  harness-mem==0.9.22
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -205,8 +251,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.12 \
-  "harness-mem[hybrid]==0.9.12"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.22 \
+  "harness-mem[hybrid]==0.9.22"
 ```
 
 Install every supported host's native Daily commands once for the current
@@ -263,16 +309,57 @@ the new project hooks once, then start a new task. Until a matching
 `SessionStart` hook has actually completed, `get_project_status` reports
 `hooks=review_required` rather than claiming wake is operational.
 
-Autonomous semantic processing requires one separate persistent authorization
-because it sends the compact manifest to the configured model provider and may
-consume quota. Enable it once at user scope; future Stop turns do not ask again:
+Autonomous semantic processing requires a project-scoped authorization because
+it sends the compact manifest to the configured model provider and may consume
+quota. Enable it only in projects that should use model calls; future Stop turns
+in that project do not ask again:
 
 ```bash
-harness-mem config set distill.autonomous.enabled true --scope user --confirm
+harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
-Set the value to `false` at user or project scope to return to queue-only Hook
-behavior. Disabling never requires confirmation.
+The global default is `false`. Projects without this authorization keep captured
+jobs queued for explicit processing. Disabling never requires confirmation.
+
+For archived Codex tasks, first bind the project root. The default
+`archive_distill.project_scope = "current"` processes only that project;
+cross-project processing requires an explicit `all` scope. Preview before
+running one policy-bounded batch:
+
+```bash
+harness-mem maintenance archive-distill --dry-run --project-root .
+harness-mem maintenance archive-distill --apply --verify --json --project-root .
+```
+
+`[archive_distill]` controls enablement, batch and daily limits, ordering,
+unresolved-project handling, token/latency warnings, mandatory
+Answer Packets, and per-item promotion reporting. The formal Answer Packet
+records the original question, verified conclusion and evidence, promotion
+status, target project/category, and every promoted fact. Runtime-only tuning
+remains read-only and can be inspected with
+`harness-mem config list --detail runtime`.
+
+`--verify` reuses the same initialized backend and emits one run-bound receipt
+covering persisted jobs and Answer Packets, Notes, daily-ledger replay guards,
+promoted-truth retrieval, and source-cleanup audit. Exact-output smoke sessions
+are deterministically classified as non-durable without calling the model.
+
+Verified terminal state is durable across UTC days and keyed to the exact source
+revision, so a retained archive is not sent to the provider again. A completed
+partial receipt can be read back without model work, including after verified
+cleanup removed the native source:
+
+```bash
+harness-mem maintenance archive-distill --apply --verify --repair-only --project-root .
+```
+
+For a one-time drain, `--batch-size` and `--daily-limit` override only that run;
+project defaults stay unchanged. Apply runs remain single-process because the
+transcript store, completion index, receipts, and cleanup path share one exclusive
+maintenance lock. Stop on any non-passed verification. A completed job is repaired
+by read-back, while an incomplete job receives at most one further semantic attempt
+before it is quarantined with the source retained. Terminal reports conserve all
+sessions as verified, pending, quarantined, deferred-unresolved, or excluded.
 
 The repo installer performs the same all-host user-level sync automatically:
 
@@ -312,12 +399,16 @@ product surface.
 ## Repository
 
 - `harness_mem/`: runtime package.
-- `plugins/harness-mem/`: Agent client integration.
-- `tools/hm-distill/SKILL.md`: instruction-only Agent playbook for the supported MCP distill flow; runtime code lives exclusively under `harness_mem/`.
+- `code/plugins/harness-mem/`: Agent client integration.
+- `code/tools/hm-distill/SKILL.md`: instruction-only Agent playbook for the supported MCP distill flow; runtime code lives exclusively under `harness_mem/`.
 - `docs/quickstart.md`: minimal setup path.
 - `docs/mcp-setup.md`: MCP setup notes.
 - `docs/demo-cold-start.md`: reproducible cold-start demo.
 - `docs/assets/`: logo and public README diagrams.
+- [项目结构收敛说明](docs/project-structure.md):源码与文档一体化布局说明（不含运行时变更）。
+- 一次性清理脚本：
+  - `scripts\\clean-workspace.ps1 clean`（保守清理：临时缓存）
+  - `scripts\\clean-workspace.ps1 clean-all`（强清：保守缓存 + 构建产物）
 
 ## Documentation
 
@@ -338,7 +429,7 @@ product surface.
 
 ```bash
 python -m compileall harness_mem
-python -m ruff check harness_mem plugins tools
+python -m ruff check harness_mem code/plugins code/tools
 python -m mypy harness_mem
 python -m pytest -q -m "not release_gate"  # fast PR lane
 python -m pytest -q                        # complete release lane
@@ -353,10 +444,38 @@ Before claiming that the running product is complete, execute the repository's
 user-outcome contract with the cross-project `outcome-verifier` Skill:
 
 ```bash
-python tools/outcome-verifier/scripts/verify_outcomes.py \
+python code/tools/outcome-verifier/scripts/verify_outcomes.py \
   --config .codex/outcomes.json \
   --output .tmp/outcome-verifier/harness-mem-report.json
 ```
+
+The verifier takes an exclusive lock per output path and atomically publishes the
+final report, so a second run cannot overwrite evidence from one already in
+progress. Reports include a run ID and per-check timing. For a bounded diagnostic
+read without the full Note inventory, select only the needed outcome section:
+
+```bash
+python -m harness_mem.outcome_probe \
+  --project harness-mem \
+  --project-root . \
+  --client codex \
+  --section autonomous \
+  --compact
+```
+
+IDE hooks remain non-blocking. A human or Agent can explicitly wait for a detached
+post-turn receipt by piping the real Codex Hook payload (it must contain
+`session_id` or `turn_id`):
+
+```powershell
+'{"session_id":"<codex-session-id>"}' |
+  harness-mem-hook --adapter codex-stop --project-root . --wait --wait-timeout 120
+```
+
+The command binds the wait to both the Hook identity and this dispatch generation.
+It returns terminal JSON and a non-zero exit code for missing identity, an error-bearing
+receipt, deferred, failed, or timed-out work. Calling `--wait` without a Hook identity
+fails immediately instead of waiting for an unbindable receipt.
 
 This read-only probe requires fresh paired Codex lifecycle receipts, a persisted
 successful Dream run, a meaningful Note and semantic summary for every recent
@@ -364,10 +483,10 @@ completed distill session, and a durable truth that can be returned through the
 FTS read model. A non-zero verdict means the user-visible outcome is not complete,
 even when code, configuration, queues, or unit tests look healthy.
 
-Repair or regenerate MCP descriptors when `tool_specs` changes (also reverts incidental `mcps/grok_com_github` IDE drift):
+Repair or regenerate MCP descriptors when `tool_specs` changes (also reverts incidental `code/mcps/grok_com_github` IDE drift):
 
 ```bash
-python scripts/ensure_mcps_canonical.py
+python code/scripts/ensure_mcps_canonical.py
 ```
 
 ## Releases
@@ -375,4 +494,4 @@ python scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, runs a real sqlite-vec contract gate, qualifies the supported Windows upgrade path, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.9.12**.
+Current package version: **0.9.22**.

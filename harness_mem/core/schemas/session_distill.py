@@ -28,6 +28,59 @@ SourceCleanupStatus = Literal[
     "unsupported",
 ]
 ZeroCandidateFinding = Literal["absent", "not_durable", "candidate_required"]
+AnswerStatus = Literal[
+    "ANSWERED",
+    "PARTIAL",
+    "UNANSWERED",
+    "CONTRADICTED",
+    "STALE",
+    "NOT_APPLICABLE",
+]
+
+
+class PromotedKnowledgeItem(BaseModel):
+    """One user-visible promoted fact without internal storage identifiers."""
+
+    title: str = Field(min_length=1, max_length=160)
+    fact: str = Field(min_length=1, max_length=4000)
+    kind: str = Field(min_length=1, max_length=80)
+    category: str = Field(min_length=1, max_length=160)
+
+    model_config = {"extra": "forbid"}
+
+
+class AssimilationPacketPoint(BaseModel):
+    """Auditable per-point result; normal Note rendering stays prose-only."""
+
+    candidate_id: str = Field(min_length=1)
+    answer_status: AnswerStatus
+    disposition: str = Field(min_length=1, max_length=32)
+    canonical_truth_ids: list[str] = Field(default_factory=list)
+    handoff_id: str | None = None
+
+    model_config = {"extra": "forbid"}
+
+
+class AnswerPacket(BaseModel):
+    """Runtime-derived, user-readable result of the evidence and promotion gates."""
+
+    answer_status: AnswerStatus
+    question: str = Field(min_length=1, max_length=2000)
+    core_conclusion: str = Field(min_length=1, max_length=4000)
+    evidence_basis: list[str] = Field(default_factory=list)
+    evaluated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    verified_at: datetime | None = None
+    promotion_status: Literal["promoted", "partial", "not_promoted"]
+    promoted_items: list[PromotedKnowledgeItem] = Field(default_factory=list)
+    destination_project: str = Field(min_length=1)
+    knowledge_kind: list[str] = Field(default_factory=list)
+    knowledge_category: list[str] = Field(default_factory=list)
+    point_results: list[AssimilationPacketPoint] = Field(default_factory=list)
+
+    model_config = {"extra": "forbid"}
+
+    def to_dict(self) -> dict:
+        return self.model_dump(mode="json")
 
 
 class ZeroCandidateExchangeRef(BaseModel):
@@ -206,11 +259,15 @@ class DistillChunkCheckpoint(BaseModel):
 
 
 __all__ = [
+    "AssimilationPacketPoint",
+    "AnswerPacket",
+    "AnswerStatus",
     "DistillChunkCheckpoint",
     "DistillChunkStatus",
     "DistillJobPhase",
     "DistillJobStatus",
     "CompletionDisposition",
+    "PromotedKnowledgeItem",
     "SessionDistillJob",
     "SessionSemanticReview",
     "SourceCleanupStatus",

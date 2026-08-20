@@ -96,7 +96,7 @@ wireFormatVersion: hm-wire-v3.5
    - 只有用户明确要求全局历史时，才允许 `scope="all"`
 
 3. **做 final-session review、标准准入，再写候选**
-   - 默认读取并遵循 `tools/hm-distill/SKILL.md`（Step 3–4）
+   - 默认读取并遵循 `code/tools/hm-distill/SKILL.md`（Step 3–4）
    - semantic 模式按 `semantic_chunk_index` 汇总 evidence；raw 兼容模式按 `chunk_index` 汇总 checkpoint result
    - semantic review 必须填写 `session_summary`、`final_user_request`、`final_outcome`、`last_turn_status`、`contradictions`、`unfinished_work`、`evidence_status`、`promotion_decision`
    - `session_summary` 用 1–3 句话说明会话主题、实际结果和关键未完成项；它是用户可读摘要，与是否产生长期记忆候选无关

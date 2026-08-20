@@ -18,6 +18,7 @@ from harness_mem.core.schemas.session_distill import (
     SourceCleanupStatus,
 )
 from harness_mem.core.schemas.transcript import TranscriptChunk, TranscriptSource
+from harness_mem.session_notes import is_meaningful_session_summary
 from harness_mem.transcript_chunking import sha256_text
 
 
@@ -413,6 +414,20 @@ class SessionDistillStore:
                             completed_count == job.expected_chunk_count
                             and job.expected_chunk_count > 0
                         ):
+                            # A semantic-review failure moves a fully
+                            # checkpointed job back to ``retryable`` with a
+                            # bounded backoff.  Do not immediately undo that
+                            # decision merely because structural recovery sees
+                            # all chunks complete: doing so strands the job in
+                            # ``reviewing`` without a lease and defeats the
+                            # retry schedule.
+                            retry_backoff_active = (
+                                job.status == "retryable"
+                                and job.retry_after is not None
+                                and job.retry_after > current
+                            )
+                            if retry_backoff_active:
+                                continue
                             if job.status != "reviewing":
                                 job.status = "reviewing"
                                 job.phase = "review"
@@ -764,6 +779,13 @@ class SessionDistillStore:
                     and job.review_lease_until is not None
                     and job.review_lease_until > now
                 )
+                if review_lease_owner is not None:
+                    if job.review_lease_owner != review_lease_owner:
+                        raise PermissionError(
+                            "distill review lease is not owned by this caller"
+                        )
+                    if job.review_lease_until is None or job.review_lease_until <= now:
+                        raise TimeoutError("distill review lease has expired")
                 if (
                     active_review_lease
                     and job.review_lease_owner != review_lease_owner
@@ -920,10 +942,49 @@ class SessionDistillStore:
                 if job.status != "completed":
                     raise ValueError("session summary backfill requires a completed job")
                 existing = str(job.semantic_review.get("session_summary") or "").strip()
-                if len(existing) < 12:
+                if not is_meaningful_session_summary(existing):
+                    review = dict(job.semantic_review)
+                    review.pop("historical_summary_status", None)
+                    review.pop("historical_summary_reason", None)
+                    review["session_summary"] = summary
+                    job.semantic_review = review
+                    job.updated_at = now
+                    self._upsert_job_locked(job)
+                self._conn.commit()
+                return job
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def mark_historical_summary_unavailable(
+        self,
+        job_id: str,
+        *,
+        reason: str,
+    ) -> SessionDistillJob:
+        """Record that a pruned completed job cannot be summarized safely."""
+
+        bounded_reason = str(reason).strip()[:160]
+        if not bounded_reason:
+            raise ValueError("historical summary unavailable reason is required")
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                job = self._get_job_locked(job_id)
+                if job is None:
+                    raise KeyError(job_id)
+                if job.status != "completed":
+                    raise ValueError(
+                        "historical summary status requires a completed job"
+                    )
+                if not is_meaningful_session_summary(
+                    job.semantic_review.get("session_summary")
+                ):
                     job.semantic_review = {
                         **dict(job.semantic_review),
-                        "session_summary": summary,
+                        "historical_summary_status": "unavailable",
+                        "historical_summary_reason": bounded_reason,
                     }
                     job.updated_at = now
                     self._upsert_job_locked(job)

@@ -239,12 +239,12 @@ maintenance                 →  合并、失效、压缩、生命周期治理
 **交付物：**
 
 ```text
-tests/benchmarks/fixtures/search_minimal.py
-tests/benchmarks/search_golden_queries.yaml
-tests/benchmarks/test_search_golden.py
+code/tests/benchmarks/fixtures/search_minimal.py
+code/tests/benchmarks/search_golden_queries.yaml
+code/tests/benchmarks/test_search_golden.py
 ```
 
-**复用：** `tests/test_storage_search_invariants.py` 的 fixture / `read_api.search_memory` 模式。
+**复用：** `code/tests/test_storage_search_invariants.py` 的 fixture / `read_api.search_memory` 模式。
 
 ---
 
@@ -355,7 +355,7 @@ MCP search_memory
 1. [`roadmap.md`](./roadmap.md)
 2. [`recall-audit.md`](./recall-audit.md)
 3. [`../README.md`](../README.md) Core Loop
-4. [`../plugins/harness-mem/skills/harness-mem/SKILL.md`](../plugins/harness-mem/skills/harness-mem/SKILL.md)
+4. [`../code/plugins/harness-mem/skills/harness-mem/SKILL.md`](../code/plugins/harness-mem/skills/harness-mem/SKILL.md)
 
 ### 必读代码
 
@@ -366,7 +366,7 @@ MCP search_memory
 | `harness_mem/search/retrieval_quality.py` | bounded quality pack |
 | `harness_mem/recall.py` | recall 构建 |
 | `harness_mem/mcp/tool_specs.py` | PUBLIC_MCP_TOOL_NAMES |
-| `tests/test_storage_search_invariants.py` | 不变量与 fixture 模式 |
+| `code/tests/test_storage_search_invariants.py` | 不变量与 fixture 模式 |
 
 ### Golden case 最小 schema
 

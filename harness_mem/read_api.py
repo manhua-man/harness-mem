@@ -158,7 +158,7 @@ async def search_memory(
     time_window: tuple[datetime | None, datetime | None] | None = None,
     record_signals: bool = True,
 ) -> tuple[list[MemoryEntry], list[Observation]]:
-    """Compatibility facade over the runtime SearchBackend mainline."""
+    """Compatibility facade; a non-zero observation limit is an explicit raw read."""
 
     backend_limit = max(20, memory_entry_limit + observation_limit + 20)
     facade = SearchFacade(backend)
@@ -172,6 +172,7 @@ async def search_memory(
             include_provisional=include_provisional,
             time_window=time_window,
             deep_recall=deep_recall,
+            include_raw=observation_limit > 0,
         ),
         mode=mode,  # type: ignore[arg-type]
         limit=backend_limit,

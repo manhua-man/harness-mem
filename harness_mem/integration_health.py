@@ -283,19 +283,14 @@ async def build_integration_health(
             "background_semantic_processing": drainer["background_semantic_processing"],
             "autonomous_active": drainer["autonomous_active"],
             "last_semantic_success_at": (
-                autonomous_receipt.get("last_semantic_success_at")
-                if autonomous_receipt
-                else drainer["last_semantic_success_at"]
+                autonomous_outcome.get("last_semantic_success_at")
+                or drainer["last_semantic_success_at"]
             ),
-            "last_job_completed_at": (
-                autonomous_receipt.get("last_job_completed_at")
-                if autonomous_receipt
-                else None
+            "last_job_completed_at": autonomous_outcome.get(
+                "last_job_completed_at"
             ),
-            "last_note_materialized_at": (
-                autonomous_receipt.get("last_note_materialized_at")
-                if autonomous_receipt
-                else None
+            "last_note_materialized_at": autonomous_outcome.get(
+                "last_note_materialized_at"
             ),
             "autonomous_state": (
                 autonomous_receipt.get("state") if autonomous_receipt else "not_run"
@@ -400,6 +395,11 @@ def _build_autonomous_health_card(
             if autonomous.get("state") not in {"succeeded", "partial"}:
                 issue_codes.append("latest_batch_failed")
                 severe_codes.add("latest_batch_failed")
+        if (
+            autonomous.get("lifecycle_verified")
+            and autonomous.get("state") in {"deferred", "busy"}
+        ):
+            issue_codes.append("latest_batch_failed")
         if autonomous.get("state") == "partial":
             issue_codes.append("latest_batch_partial")
         if recent_failures:

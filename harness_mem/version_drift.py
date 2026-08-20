@@ -72,7 +72,7 @@ def version_drift_report(
                 "surface": "plugin",
                 "kind": "missing_registration",
                 "message": "repo-local plugin manifest was not found",
-                "fix": "Run the host-specific plugin install flow from plugins/harness-mem/README.md.",
+                "fix": "Run the host-specific plugin install flow from code/plugins/harness-mem/README.md.",
             }
         )
 
@@ -107,8 +107,8 @@ def version_drift_report(
         "issues": issues,
         "has_drift": bool(issues),
         "update_guidance": [
-            "Codex plugin: reinstall or refresh plugins/harness-mem without mutating global config automatically.",
-            "Slash commands: run sync-commands.ps1 or `harness-mem integration commands sync` so /hm:* registrations point at the current assets.",
+            "Codex plugin: reinstall or refresh code/plugins/harness-mem without mutating global config automatically.",
+            "Slash commands: run code/plugins/harness-mem/scripts/install.ps1, code/plugins/harness-mem/scripts/sync-commands.ps1, or `harness-mem integration commands sync` so /hm:* registrations point at the current assets.",
             "MCP: restart the host MCP session after updating the runtime package.",
         ],
     }
@@ -178,7 +178,7 @@ def _append_host_install_issues(
                 "surface": "host_slash_commands",
                 "kind": "incomplete_install",
                 "message": "installed Claude /hm:* commands are incomplete",
-                "fix": "Run plugins/harness-mem/scripts/install.ps1 or sync-commands.ps1.",
+                "fix": "Run code/plugins/harness-mem/scripts/install.ps1 or code/plugins/harness-mem/scripts/sync-commands.ps1.",
             }
         )
     if slash.get("found") and slash.get("stale"):
@@ -187,7 +187,7 @@ def _append_host_install_issues(
                 "surface": "host_slash_commands",
                 "kind": "stale_wire_format",
                 "message": "installed Claude /hm:* commands are stale",
-                "fix": "Run plugins/harness-mem/scripts/install.ps1 or sync-commands.ps1.",
+                "fix": "Run code/plugins/harness-mem/scripts/install.ps1 or code/plugins/harness-mem/scripts/sync-commands.ps1.",
             }
         )
 
@@ -198,7 +198,7 @@ def _append_host_install_issues(
                 "surface": "host_skill",
                 "kind": "stale_wire_format",
                 "message": "installed Claude harness-mem skill is stale",
-                "fix": "Run plugins/harness-mem/scripts/install.ps1.",
+                "fix": "Run code/plugins/harness-mem/scripts/install.ps1.",
             }
         )
 

@@ -9,9 +9,11 @@ pass. It is an ownership ledger, not a second API definition.
 - `_SCHEMAS`, `TOOL_CLUSTERS`, and `build_tool_handlers()` contain exactly those
   same 27 names. The former 17 low-level orchestration schemas are retired and
   retained only as a denylist against accidental re-exposure.
-- The stable Daily loop remains `wake -> search -> distill -> review -> dream`.
-  The seven host actions are `status`, `wake`, `search`, `search-all`,
-  `distill`, `review`, and `dream`.
+- The stable Daily action set remains `wake -> search -> distill -> review ->
+  dream`; it maps onto, but does not replace, the internal architecture
+  `session intake and lifecycle -> extraction -> verification -> assimilation
+  -> retrieval/use`. The seven host actions are `status`, `wake`, `search`,
+  `search-all`, `distill`, `review`, and `dream`.
 - The operator CLI is limited to quickstart, doctor, public config policy,
   integration repair, and explicit maintenance.
 
@@ -24,7 +26,7 @@ pass. It is an ownership ledger, not a second API definition.
 | Daily-work CLI modules for candidate, handoff, profile, search, and status flows | MCP plus the seven host-native Daily actions | Public CLI surface and documentation lifecycle tests. |
 | Doctor's weak-link experiment recommendation | Normal retrieval quality/status diagnostics | Doctor output contract rejects the retired recommendation. |
 | Public writes to 25 low-level tuning keys | Ten user-facing policy keys; existing values remain readable | Config list/set and merged-loader compatibility tests. |
-| Two stale, duplicate MCP Router aggregate snapshot directories (340 files) | Live `mcp__mcp_router__*` namespace discovery plus canonical `mcps/harness_mem/tools/` descriptors | Repository/package consumer audit, byte-equality audit, absence guard, and old tags for historical retrieval. |
+| Two stale, duplicate MCP Router aggregate snapshot directories (340 files) | Live `mcp__mcp_router__*` namespace discovery plus canonical `code/mcps/harness_mem/tools/` descriptors | Repository/package consumer audit, byte-equality audit, absence guard, and old tags for historical retrieval. |
 
 Removal does not delete stored memory, config files, or migration readers. The
 private governance implementation still owns the individual operations used by
@@ -36,7 +38,6 @@ details, not MCP tools.
 The public writable policy surface is:
 
 ```text
-autopilot.enabled
 capture.enabled
 capture.private_tags
 capture.ignore_clients
@@ -44,12 +45,24 @@ capture.ignore_session_ids
 capture.ignore_source_globs
 transcript.retention_days
 distill.auto.enabled
+distill.autonomous.enabled
 distill.delete_source_after_complete
+archive_distill.enabled
+archive_distill.batch_size
+archive_distill.daily_limit
+archive_distill.order
+archive_distill.project_scope
+archive_distill.unresolved_project
+archive_distill.warn_tokens
+archive_distill.warn_seconds
+archive_distill.require_answer_packet
+archive_distill.report_promotions
 dream.auto.enabled
 ```
 
-Twenty-five typed tuning keys remain readable during the 0.9.x compatibility
-window but are not listed or writable through `harness-mem config`. Legacy
+Typed runtime tuning remains readable during the 0.9.x compatibility window
+and is shown only by `config list --detail runtime`; it is not writable through
+`harness-mem config`. Legacy
 `~/.harness-mem/config.json`, user TOML, and project TOML use one merge order:
 legacy JSON base, user TOML override, project TOML override. Existing unknown
 extras remain preserved when a public key is edited.
@@ -66,8 +79,8 @@ extras remain preserved when a public key is edited.
 
 ## Descriptors and Router aliases
 
-`mcps/harness_mem/tools/` is canonical and generated from the 27 runtime
-schemas. The duplicate `mcps/mcp-router` and `mcps/mcp_router` aggregate
+`code/mcps/harness_mem/tools/` is canonical and generated from the 27 runtime
+schemas. The duplicate `code/mcps/mcp-router` and `code/mcps/mcp_router` aggregate
 snapshots were removed in 0.9.6 after proving they were byte-identical,
 unpackaged, unconsumed in the repository, and materially stale. Live
 `mcp__mcp_router__*` aliases remain supported; they are discovered from the

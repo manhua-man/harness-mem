@@ -30,8 +30,8 @@ distances -> 返回逻辑 rowid。这个设计强调“派生数据的多份物�
 
 ## 测试与性能启示
 
-`tests/test-insert-delete.py` 不只断言删除后 SQL 看不见行，还校验 blob 被零化、清空
-chunk 可重建、metadata/auxiliary 也被删除。`tests/test-ivf-mutations.py` 再检查 ANN
+`code/tests/test-insert-delete.py` 不只断言删除后 SQL 看不见行，还校验 blob 被零化、清空
+chunk 可重建、metadata/auxiliary 也被删除。`code/tests/test-ivf-mutations.py` 再检查 ANN
 结果绝不返回已删 rowid，覆盖 delete/reinsert-as-update。`benchmarks/exhaustive-memory/bench.py`
 分别计时 build 与逐 query latency，并断言 KNN 返回恰好 `k` 个结果；它是 profile 的
 起点，不能单独代表产品级 recall 或真实语义质量。

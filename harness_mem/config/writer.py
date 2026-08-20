@@ -79,6 +79,7 @@ def _parse_int(
     key_path: str,
     target: Path,
     minimum: int,
+    maximum: int | None = None,
 ) -> int:
     try:
         parsed = int(value)
@@ -86,7 +87,7 @@ def _parse_int(
         raise ConfigValidationError(
             key_path=key_path, value=value, source_path=str(target)
         ) from exc
-    if parsed < minimum:
+    if parsed < minimum or (maximum is not None and parsed > maximum):
         raise ConfigValidationError(
             key_path=key_path, value=value, source_path=str(target)
         )
@@ -154,11 +155,13 @@ def _validate(key_path: str, value: str, target: Path) -> Any:
                 )
             return parsed
         if kind.startswith("int:min="):
+            bounds = kind.removeprefix("int:min=").split(":max=", maxsplit=1)
             return _parse_int(
                 value,
                 key_path=key_path,
                 target=target,
-                minimum=int(kind.removeprefix("int:min=")),
+                minimum=int(bounds[0]),
+                maximum=int(bounds[1]) if len(bounds) == 2 else None,
             )
         if kind.startswith("enum:"):
             allowed = tuple(kind.removeprefix("enum:").split(","))
@@ -169,8 +172,6 @@ def _validate(key_path: str, value: str, target: Path) -> Any:
             return value
         if kind == "str_list":
             return _parse_str_list(value, key_path=key_path, target=target)
-    if key_path.startswith("autopilot."):
-        raise ConfigValidationError(key_path=key_path, value=value, source_path=str(target))
     return value
 
 
@@ -204,6 +205,12 @@ def set_value(
         OSError: the file cannot be written (caller surfaces as exit 1).
     """
     target = _target_path(scope, project_root)
+    if key_path == "distill.autonomous.enabled" and scope != "project":
+        raise ConfigValidationError(
+            key_path=key_path,
+            value="project scope required",
+            source_path=str(target),
+        )
     data = _read_existing(target)
     parsed_value = _validate(key_path, value, target)
     _set_dotted(data, key_path, parsed_value)

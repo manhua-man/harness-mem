@@ -10,9 +10,9 @@ from harness_mem.mcp.read_query_support import (  # noqa: F401
 )
 from harness_mem.mcp.read_search_handlers import (  # noqa: F401
     tool_autopilot_search_tick,
-    tool_record_context_outcome,
     tool_search_memory,
 )
+from harness_mem.mcp.read_feedback_handlers import tool_record_context_outcome  # noqa: F401
 from harness_mem.mcp.read_evidence_handlers import (  # noqa: F401
     tool_file_context,
     tool_get_confirmed_rules,

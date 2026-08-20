@@ -1,0 +1,45 @@
+---
+description: Harness facts, protocol, and verification rules for harness-mem
+alwaysApply: true
+---
+
+# Cursor Harness Rules
+
+> Cursor-specific guidance complements the repository truth layer. It does not replace `AGENTS.md`, `CLAUDE.md`, or `DESIGN.md`.
+
+## Read First
+
+1. Read `AGENTS.md` for current repository facts, layout, commands, and public surfaces.
+2. Read `CLAUDE.md` for collaboration, evidence, validation, and data-safety rules.
+3. Read `DESIGN.md` when changing CLI, MCP, host-command, documentation, or other developer-experience surfaces.
+4. Read the owning source, tests, and focused documentation for the subsystem being changed.
+
+## Project Grounding
+
+- Shape: layered Python package with a Rust/PyO3 extension and multi-host integration assets.
+- Primary surfaces: MCP, CLI, IDE commands, native hooks, documentation, and local persisted stores.
+- Canonical runtime: `harness_mem/`.
+- Native helper: `crates/harness_mem_core_rs/`.
+- Outcome contract: `.codex/outcomes.json`.
+- Validation commands: see `AGENTS.md#build-test-and-development-commands`.
+
+## Working Rules
+
+- Preserve unrelated working-tree changes.
+- Treat transcripts and Observations as evidence, not governed truth.
+- Keep generated host surfaces aligned with their canonical implementation.
+- Do not invent new hook, storage, review, or distillation paths when an existing owner exists.
+- Do not mutate runtime data or audit artifacts during unrelated work.
+- Before claiming a user-visible runtime outcome, run the repository outcome contract and report its actual verdict.
+
+## Harness Initialization
+
+`/harness-init` is agent-native:
+
+1. Ground the current repository from files on disk.
+2. Read mandatory root truth and project evidence within the documented budget.
+3. Judge per-file actions and draft exact content in memory.
+4. Show one absolute-path summary and wait for an explicit `yes`.
+5. Write only the confirmed draft bytes, then re-read and verify them.
+
+Never require Node, npm, npx, tsx, a package manager, detector output, or `.harness/runs/` artifacts for initialization.

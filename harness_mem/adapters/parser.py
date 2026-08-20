@@ -657,6 +657,10 @@ IDE_CONTEXT_PREFIX = "# Context from my IDE setup:"
 IDE_REQUEST_MARKER = "## My request for Codex:"
 AGENTS_CONTEXT_PREFIX = "# AGENTS.md instructions"
 TURN_ABORTED_REGEX = re.compile(r"<turn_aborted>.*?</turn_aborted>", re.DOTALL)
+CODEX_DELEGATION_INPUT_REGEX = re.compile(
+    r"<codex_delegation>.*?<input>\s*(.*?)\s*</input>.*?</codex_delegation>",
+    re.DOTALL,
+)
 
 
 def extract_archived_text(content: Any) -> str:
@@ -680,6 +684,16 @@ def sanitize_archived_user_text(text: str) -> str:
     cleaned = text.strip()
     if not cleaned:
         return ""
+    # Desktop task delegation arrives as one host-authored ``user_message``
+    # containing its capabilities, project instructions, and the actual user
+    # request.  Persist only the explicit ``input`` payload.  Treating the
+    # surrounding envelope as conversation is both a privacy leak and a
+    # source of fabricated project knowledge.
+    delegation = CODEX_DELEGATION_INPUT_REGEX.search(cleaned)
+    if delegation is not None:
+        cleaned = delegation.group(1).strip()
+    elif cleaned.startswith("<recommended_plugins>") or AGENTS_CONTEXT_PREFIX in cleaned:
+        return ""
     if cleaned.startswith(AGENTS_CONTEXT_PREFIX) and IDE_REQUEST_MARKER not in cleaned:
         return ""
     if any(cleaned.startswith(prefix) for prefix in BOILERPLATE_USER_PREFIXES):
@@ -696,6 +710,7 @@ def parse_codex_archive_jsonl_session(
     session_path: Path,
     *,
     issues: list[Issue] | None = None,
+    content: str | None = None,
 ) -> tuple[dict[str, Any], list[Turn]]:
     """Parse a Codex ``rollout-*.jsonl`` archive into metadata and turns."""
     session_meta: dict[str, Any] = {
@@ -724,8 +739,12 @@ def parse_codex_archive_jsonl_session(
         return turn_lookup[actual_id]
 
     try:
-        content = session_path.read_text(encoding="utf-8", errors="replace")
-        archive_scan = scan_jsonl(content)
+        raw_content = (
+            content
+            if content is not None
+            else session_path.read_text(encoding="utf-8", errors="replace")
+        )
+        archive_scan = scan_jsonl(raw_content)
         session_meta["invalid_json_lines"] = len(archive_scan.errors)
         for record in archive_scan.records:
             top_level_type = record.get("type")
@@ -785,9 +804,39 @@ def parse_codex_archive_jsonl_session(
     # Clean up empty turns
     valid_turns = [
         t for t in turns
-        if t["user"] or t["assistant"] or t["tools"]
+        if t["user"] or t["assistant"]
     ]
     return session_meta, valid_turns
+
+
+def render_codex_conversation(turns: list[Turn]) -> str:
+    """Render only the user/assistant conversation allowed into the ledger.
+
+    A Codex rollout is a host event log, not a transcript.  It also carries
+    system and developer prompts, tool definitions, tool output, and runtime
+    state.  Those records are useful to Codex itself but must never become
+    distillation evidence.  The native file remains in its host location; the
+    persisted transcript is this immutable, permitted projection.
+    """
+
+    blocks: list[str] = []
+    for turn in turns:
+        user = str(turn.get("user") or "").strip()
+        # A host-only turn may still have an agent response. Without a retained
+        # user message it has no authorized conversational basis, so keeping
+        # the response would let host context become standalone evidence.
+        if not user:
+            continue
+        blocks.append(f"User: {user}")
+
+        seen_assistant: set[str] = set()
+        for raw_message in turn.get("assistant") or []:
+            message = str(raw_message or "").strip()
+            if message and message not in seen_assistant:
+                blocks.append(f"Assistant: {message}")
+                seen_assistant.add(message)
+
+    return "\n\n".join(blocks)
 
 
 # ---------------------------------------------------------------------------
@@ -888,6 +937,7 @@ __all__ = [
     "parse_grok_jsonl_session",
     "parse_codex_jsonl_session",
     "parse_codex_archive_jsonl_session",
+    "render_codex_conversation",
     "list_session_files",
     "session_sort_key",
 ]

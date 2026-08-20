@@ -125,7 +125,7 @@ class StructuredLedgerMixin:
         blob_path = self._blob_path("retrieval_signals", signal.id)
         blob_path.write_text(json.dumps(signal.to_dict(), indent=2, default=str))
         await asyncio.to_thread(
-            self._index.insert,
+            self._index.upsert,
             "retrieval_signals",
             {
                 "id": signal.id,

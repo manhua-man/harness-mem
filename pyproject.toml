@@ -1,6 +1,6 @@
 [project]
 name = "harness-mem"
-version = "0.9.12"
+version = "0.9.22"
 description = "Local-first, auditable, pluggable Agent memory backend"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -43,13 +43,13 @@ requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
-manifest-path = "crates/harness_mem_core_rs/Cargo.toml"
+manifest-path = "code/crates/harness_mem_core_rs/Cargo.toml"
 module-name = "harness_mem_core_rs"
 python-packages = ["harness_mem"]
 features = ["pyo3/extension-module"]
 include = [
     { path = "harness_mem/integration/templates/*.template", format = "wheel" },
-    { path = "plugins/harness-mem/commands/hm/daily/*.md", format = "wheel" },
+    { path = "code/plugins/harness-mem/commands/hm/daily/*.md", format = "wheel" },
 ]
 
 [[tool.mypy.overrides]]
@@ -62,6 +62,7 @@ module = [
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+pythonpath = ["code"]
 markers = [
     "embedding_integration: explicitly loads the real embedding model; excluded from normal CI",
     "release_gate: exhaustive deterministic replay reserved for the complete release lane",

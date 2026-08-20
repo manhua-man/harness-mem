@@ -30,6 +30,8 @@ class ConfirmedRule(BaseModel):
         description="Session ID this rule was created from"
     )
     tags: list[str] = Field(default_factory=list)
+    title: str | None = None
+    topic_path: list[str] = Field(default_factory=list)
     provenance: Optional[dict] = Field(
         default=None,
         description="来源线索: {session_id, observation_ids, agent_type, tool_name}"
@@ -87,6 +89,8 @@ class ConfirmedRule(BaseModel):
             "source_candidate_id": self.source_candidate_id,
             "source_session_id": self.source_session_id,
             "tags": self.tags,
+            "title": self.title,
+            "topic_path": self.topic_path,
             "provenance": self.provenance,
             "usage_count": self.usage_count,
             "last_surfaced_at": self.last_surfaced_at.isoformat() if self.last_surfaced_at else None,
@@ -110,6 +114,8 @@ class ConfirmedRule(BaseModel):
                 data[field] = datetime.fromisoformat(data[field])
         if "provenance" not in data:
             data["provenance"] = None
+        data.setdefault("title", None)
+        data.setdefault("topic_path", [])
         if "usage_count" not in data or data["usage_count"] is None:
             data["usage_count"] = 0
         if "last_surfaced_at" not in data:

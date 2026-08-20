@@ -6,8 +6,8 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.12 \
-  harness-mem==0.9.12
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.22 \
+  harness-mem==0.9.22
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Pip uses
@@ -17,8 +17,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.12 \
-  "harness-mem[hybrid]==0.9.12"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.22 \
+  "harness-mem[hybrid]==0.9.22"
 ```
 
 Check the CLI:
@@ -106,7 +106,7 @@ because it sends the compact manifest to the configured model provider and may
 consume quota:
 
 ```bash
-harness-mem config set distill.autonomous.enabled true --scope user --confirm
+harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
 Future Stop turns do not ask again. Set the same key to `false` at user or
@@ -162,7 +162,7 @@ stuck-reason actions, or the conservative Agent-throughput drain estimate.
 Doctor's recovery plan is read-only and risk-classified; preview and apply are
 always separate commands.
 
-## Daily Loop
+## Daily actions and core feedback
 
 Use the matching host-native command. Plain language remains an optional fallback:
 
@@ -178,13 +178,20 @@ Review the new memory candidates.
 Show the latest dream ledger.
 ```
 
-The stable loop is:
+These commands are user actions, not the internal lifecycle architecture. The
+architecture is `session intake and lifecycle -> extraction -> verification ->
+assimilation -> retrieval/use`; see [memory-adoption.md](memory-adoption.md).
+The actions commonly appear in this runtime sequence:
 
 ```text
 wake -> search -> distill -> review -> dream ledger
 ```
 
-Dream is the final stage of the audited maintenance pipeline. A Stop hook
+Dream is not merely the final stage of an audited maintenance pipeline. It is a
+core governance-feedback capability across assimilation and retrieval: it can
+identify stale, duplicate, conflicting, mergeable, or replaceable knowledge and
+send it back through verification and assimilation. Review is the corresponding
+human correction, undo, and adjudication path. A Stop hook
 captures an immutable transcript revision and queues every ordered chunk, then
 returns immediately while a detached worker consumes an ordered batch of at
 most two jobs. The default worker calls the configured Responses endpoint with
@@ -240,21 +247,19 @@ contradicted evidence is terminally blocked from durable truth. Candidate
 detail and full/compact status expose content-free admission outcomes for
 audit without adding another MCP tool or manual daily gate.
 
-Raw source cleanup is a persistent opt-in, similar to the Dream setting, and
-defaults to keeping source evidence:
+Successful distill retains source evidence by default. Only a project-level
+explicit opt-in can authorize cleanup, and only a standalone, quiet source that
+passes adapter and CAS/hash checks is deleted; unsupported shared containers
+remain untouched:
 
 ```bash
 harness-mem config get distill.delete_source_after_complete
-harness-mem config set distill.delete_source_after_complete true --scope user --confirm
-harness-mem config set distill.delete_source_after_complete false --scope project
+harness-mem config set distill.delete_source_after_complete true --scope project --confirm
 ```
 
-`--confirm` is required only when a scope changes from disabled or unset to
-enabled. It confirms the persistent policy once; finalize never asks again for
-each completed session. In an IDE, say “开启 harness-mem 整理后删除原会话” or
-“关闭 harness-mem 整理后删除原会话”; an Agent may translate the explicit enable
-request to the confirmed user-scope config write without adding an MCP tool or
-another Daily command.
+User-level values do not authorize cleanup. Finalize never asks per session.
+An unreadable config, missing project opt-in, or unresolved project fails safe
+to source retention.
 
 When enabled, finalize (and a bounded post-turn retry after an active source
 becomes quiet) deletes the eligible native session source plus harness-mem raw
@@ -264,6 +269,40 @@ evidence-only records. Promoted Memory/Rule/Fact/Skill truth stays readable with
 `deleted`, `partial_failure`, or `unsupported`. A content-free `in_progress`
 receipt is durable before native mutation. Shared containers without a safe
 per-session transaction remain untouched and report `unsupported`.
+
+## Archived Codex Tasks
+
+Use the explicit operator command to preview or process archived tasks through
+the same canonical distill worker:
+
+```bash
+harness-mem maintenance archive-distill --dry-run --project-root .
+harness-mem maintenance archive-distill --apply --verify --json --project-root .
+```
+
+The control project owns the `[archive_distill]` policy: `enabled`,
+`batch_size`, `daily_limit`, `order`, `project_scope`, `unresolved_project`,
+`warn_tokens`, `warn_seconds`, `require_answer_packet`, and
+`report_promotions`. Each detected destination
+project must separately set `[distill.autonomous].enabled=true`. A completed
+row contains a formal Answer Packet and lists each promoted fact with its
+destination project and category. Dry-run is read-only and does not consume the
+daily ledger.
+
+`project_scope` defaults to `current`; processing archives attributed to other
+projects requires an explicit `all` scope. This is per-run scoping, not a
+project allowlist.
+
+`--verify` performs one run-bound read-back with the already initialized
+backend. It verifies the persisted job and Answer Packet, Note binding, ledger
+replay exclusion, promoted truth through its normal store path, and the
+source-cleanup receipt. Zero-promotion runs report retrieval as
+`not_applicable`; exact-output smoke sessions use a deterministic zero-token
+decision while retaining the canonical finalize and cleanup path.
+
+Normal `config list` shows only writable policy. Use
+`harness-mem config list --detail runtime` to inspect effective read-only wake,
+distill-budget, and Dream timing values with their source labels.
 
 During an Agent run, supported clients should send context/tool/save-point
 events to `autopilot_search_tick`. The scheduler calls `search_memory` only

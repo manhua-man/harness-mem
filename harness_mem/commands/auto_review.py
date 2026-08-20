@@ -12,7 +12,7 @@ Shared policy contract
 This module is the **single source of truth** for low-risk auto-review
 judgment across every entrypoint that writes candidates:
 
-- the ``/hm:distill`` slash command (Claude Code ``plugins/harness-mem/commands/hm/daily/distill.md``),
+- the ``/hm:distill`` slash command (Claude Code ``code/plugins/harness-mem/commands/hm/daily/distill.md``),
 - the ``hm-distill`` skill (``tools/hm-distill/SKILL.md``), and
 - the MCP ``auto_review_candidates`` tool exposed by
   ``harness_mem/mcp/tool_handlers.py::tool_auto_review_candidates``.
@@ -80,6 +80,7 @@ from collections.abc import Collection
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
+from uuid import NAMESPACE_URL, uuid5
 
 from harness_mem.commands.evidence_admission import (
     ANSWER_GATE_STATUSES,
@@ -90,6 +91,7 @@ from harness_mem.commands.evidence_admission import (
     validate_candidate_evidence,
 )
 from harness_mem.core.schemas import (
+    ConfirmedRule,
     MemoryEntry,
     RelationFact,
     RuleCandidate,
@@ -328,6 +330,55 @@ def _match_noise_category(text: str) -> str | None:
     return None
 
 
+def _assimilation_policy_decision(
+    candidate: Any,
+    *,
+    kind: CandidateKind,
+    evidence_id: str | None,
+) -> AutoReviewDecision | None:
+    """Enforce a provider-proposed post-verification outcome before truth writes.
+
+    Legacy candidates have no field and continue through the historical review
+    path. New autonomous rows always persist an explicit value, so a source
+    being authentic can no longer, by itself, authorize a durable write.
+    """
+
+    disposition = getattr(candidate, "assimilation_disposition", None)
+    if disposition is None:
+        return None
+    value = str(disposition).strip()
+    reason = str(getattr(candidate, "assimilation_reason", "") or "").strip()
+    suffix = f": {reason}" if reason else ""
+    if value == "add":
+        return None
+    if value in {"no_write", "handoff", "reject"}:
+        return AutoReviewDecision(
+            candidate.id,
+            kind,
+            "auto_reject",
+            f"assimilation disposition is {value}{suffix}",
+            evidence_id=evidence_id,
+            is_high_risk=value == "reject",
+        )
+    if value in {"defer", "conflict", "confirm", "refine", "supersede"}:
+        return AutoReviewDecision(
+            candidate.id,
+            kind,
+            "defer",
+            f"assimilation disposition is {value}{suffix}",
+            evidence_id=evidence_id,
+            is_high_risk=value == "conflict",
+        )
+    return AutoReviewDecision(
+        candidate.id,
+        kind,
+        "auto_reject",
+        f"invalid assimilation disposition: {value or 'missing'}",
+        evidence_id=evidence_id,
+        is_high_risk=True,
+    )
+
+
 def decide_memory_entry(entry: MemoryEntry) -> AutoReviewDecision:
     """Pure auto-review decision for a single MemoryEntry."""
     content = (entry.content or "").strip()
@@ -359,6 +410,13 @@ def decide_memory_entry(entry: MemoryEntry) -> AutoReviewDecision:
             "matches noise pattern (chatty / commit-message-like)",
             evidence_id=evidence_id,
         )
+    assimilation_decision = _assimilation_policy_decision(
+        entry,
+        kind="memory_entry",
+        evidence_id=evidence_id,
+    )
+    if assimilation_decision is not None:
+        return assimilation_decision
     evidence_decision = _evidence_policy_decision(
         entry,
         kind="memory_entry",
@@ -435,6 +493,13 @@ def decide_rule_candidate(candidate: RuleCandidate) -> AutoReviewDecision:
             "matches noise pattern (chatty / commit-message-like)",
             evidence_id=evidence_id,
         )
+    assimilation_decision = _assimilation_policy_decision(
+        candidate,
+        kind="rule_candidate",
+        evidence_id=evidence_id,
+    )
+    if assimilation_decision is not None:
+        return assimilation_decision
     evidence_decision = _evidence_policy_decision(
         candidate,
         kind="rule_candidate",
@@ -500,6 +565,13 @@ def decide_relation_fact(fact: RelationFact) -> AutoReviewDecision:
             f"matches noise pattern ({noise_reason or 'chatty'})",
             evidence_id=evidence_id,
         )
+    assimilation_decision = _assimilation_policy_decision(
+        fact,
+        kind="relation_fact",
+        evidence_id=evidence_id,
+    )
+    if assimilation_decision is not None:
+        return assimilation_decision
     evidence_decision = _evidence_policy_decision(
         fact,
         kind="relation_fact",
@@ -548,9 +620,7 @@ def _evidence_policy_decision(
         )
     eligible = (
         basis == "repository" and outcome == "verified"
-    ) or (
-        basis == "user_statement" and outcome in {"verified", "not_applicable"}
-    )
+    ) or (basis == "user_statement" and outcome == "verified")
     if not eligible:
         return AutoReviewDecision(
             candidate.id,
@@ -597,6 +667,39 @@ def _dedup_key(
         category,
         " ".join((content or "").lower().split())[:200],
     )
+
+
+async def _materialize_autonomous_rule(
+    backend: LocalMemoryBackend,
+    candidate: RuleCandidate,
+) -> str:
+    """Materialize an autonomous rule into the normal wake read model.
+
+    The deterministic id makes a finalize replay reuse the same truth record;
+    a RuleCandidate status alone is never treated as a readable rule.
+    """
+
+    confirmed_id = str(
+        uuid5(NAMESPACE_URL, f"harness-mem:auto-confirmed-rule:{candidate.id}")
+    )
+    existing = await backend.structured_store.get_confirmed_rule(confirmed_id)
+    if existing is not None:
+        return existing.id
+    confirmed = ConfirmedRule(
+        id=confirmed_id,
+        project_name=candidate.project_name,
+        pattern=candidate.pattern,
+        trigger=candidate.trigger,
+        examples=list(candidate.examples),
+        source_candidate_id=candidate.id,
+        source_session_id=candidate.session_id,
+        tags=list(candidate.topic_path),
+        provenance={
+            "distill_job_id": candidate.distill_job_id,
+            "assimilation_disposition": candidate.assimilation_disposition,
+        },
+    )
+    return await backend.structured_store.save_confirmed_rule(confirmed)
 
 
 async def auto_review_candidates(
@@ -718,12 +821,25 @@ async def auto_review_candidates(
                 kind=decision.kind,
                 is_high_risk=decision.is_high_risk,
                 confidence=confidence,
+                allow_provisional=not bool(
+                    getattr(candidate, "distill_job_id", None)
+                ),
             )
             if target_status == "auto_confirmed":
                 summary.auto_confirmed += 1
             else:
                 summary.auto_provisional += 1
             if apply:
+                canonical_truth_id: str | None = None
+                if (
+                    decision.kind == "rule_candidate"
+                    and target_status == "auto_confirmed"
+                    and isinstance(candidate, RuleCandidate)
+                ):
+                    canonical_truth_id = await _materialize_autonomous_rule(
+                        backend,
+                        candidate,
+                    )
                 if decision.kind == "memory_entry":
                     await store.update_memory_entry_status(
                         decision.candidate_id, target_status
@@ -750,6 +866,7 @@ async def auto_review_candidates(
                         "action": decision.action,
                         "reason": decision.reason,
                         "evidence_id": decision.evidence_id,
+                        "canonical_truth_id": canonical_truth_id,
                     },
                 )
                 await record_retrieval_signal(
@@ -831,6 +948,9 @@ async def auto_review_candidates(
                     kind=decision.kind,
                     is_high_risk=decision.is_high_risk,
                     confidence=confidence,
+                    allow_provisional=not bool(
+                        getattr(candidate, "distill_job_id", None)
+                    ),
                 )
                 if decision.kind == "memory_entry":
                     updated = await store.update_memory_entry_status(

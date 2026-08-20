@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal, cast
 from uuid import uuid4
 
+from harness_mem.core.schemas import KnowledgeEntry
 from harness_mem.retrieval_signals import record_retrieval_signal
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
@@ -73,6 +74,7 @@ async def _record_search_quality_signals(
     context_plan: Any,
     historical_excluded: int = 0,
     retrieval_id: str | None = None,
+    surface: str = "search_memory",
 ) -> dict[str, Any]:
     """Write bounded, content-free shadow metrics for one search call."""
 
@@ -92,7 +94,13 @@ async def _record_search_quality_signals(
                     recorded_source_ids.add(target_id)
 
     surfaced = [
-        *(('memory_entry', entry) for entry in entries),
+        *(
+            (
+                "knowledge_entry" if isinstance(entry, KnowledgeEntry) else "memory_entry",
+                entry,
+            )
+            for entry in entries
+        ),
         *(('context_source', fact) for fact in (relation_facts or [])),
         *(('observation', observation) for observation in (observations or [])),
     ]
@@ -109,7 +117,7 @@ async def _record_search_quality_signals(
             target_kind=target_kind,
             target_id=target_id,
             context={
-                "surface": "search_memory",
+                "surface": surface,
                 "retrieval_id": correlation,
             },
         )
@@ -122,7 +130,7 @@ async def _record_search_quality_signals(
             target_id=_quality_signal_target(project_name, query, "historical"),
             value=float(historical_excluded),
             context={
-                "surface": "search_memory",
+                "surface": surface,
                 "reason": "historical",
                 "retrieval_id": correlation,
             },
@@ -143,7 +151,7 @@ async def _record_search_quality_signals(
             target_id=_quality_signal_target(project_name, query),
             value=1.0,
             context={
-                "surface": "search_memory",
+                "surface": surface,
                 "reason": reason,
                 "result_count": len(list(getattr(response, "results", []) or [])),
                 "retrieval_id": correlation,
@@ -153,7 +161,7 @@ async def _record_search_quality_signals(
     return {
         "contract_version": "retrieval-signal-receipt-v1",
         "retrieval_id": correlation,
-        "surface": "search_memory",
+        "surface": surface,
         "attempted": attempted,
         "recorded": recorded,
         "failed": failed,

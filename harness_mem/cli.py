@@ -25,6 +25,7 @@ from harness_mem.commands import (
     cmd_migrate_store_v2,
     cmd_purge,
     cmd_erase,
+    cmd_reset_runtime,
     cmd_quickstart,
     cmd_state_audit,
     cmd_sync_commands,
@@ -198,6 +199,45 @@ def main(argv: list[str] | None = None):
     _add_project_arg(migrate_legacy_accepted)
     _add_dry_apply_group(migrate_legacy_accepted)
 
+    archive_distill = maintenance_sub.add_parser(
+        "archive-distill",
+        help="Inventory or process Codex archived sessions by detected project",
+    )
+    archive_distill.add_argument(
+        "--project-root",
+        help="Control project whose archive_distill policy is used (default: cwd)",
+    )
+    archive_distill.add_argument(
+        "--archive-dir",
+        help="Override the Codex archived_sessions directory",
+    )
+    archive_distill.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the full structured inventory or batch report",
+    )
+    archive_distill.add_argument(
+        "--verify",
+        action="store_true",
+        help="Read back jobs, Notes, ledger, cleanup, and promoted truth in one run",
+    )
+    archive_distill.add_argument(
+        "--batch-size",
+        type=int,
+        help="Override this run's batch size without changing project defaults",
+    )
+    archive_distill.add_argument(
+        "--daily-limit",
+        type=int,
+        help="Override this run's daily attempt limit without changing project defaults",
+    )
+    archive_distill.add_argument(
+        "--repair-only",
+        action="store_true",
+        help="Reverify historical completed partial receipts without selecting archives",
+    )
+    _add_dry_apply_group(archive_distill)
+
     import_cmd = maintenance_sub.add_parser(
         "import",
         help="Preview or import memory drafts into the candidate layer",
@@ -234,6 +274,21 @@ def main(argv: list[str] | None = None):
     erase.add_argument("--before", help="YYYY-MM-DD")
     erase.add_argument("--reason", default="user_requested_erasure")
     _add_dry_apply_group(erase)
+
+    reset_runtime = maintenance_sub.add_parser(
+        "reset-runtime",
+        help="Preview or reset generated runtime data while preserving Codex archive sources",
+    )
+    reset_runtime.add_argument(
+        "--archive-dir",
+        help="Codex archived_sessions directory to preserve and use for redistill",
+    )
+    reset_runtime.add_argument(
+        "--confirm-runtime-reset",
+        action="store_true",
+        help="Required with --apply because the runtime reset is irreversible",
+    )
+    _add_dry_apply_group(reset_runtime)
 
     config = sub.add_parser(
         "config",
@@ -278,6 +333,11 @@ def main(argv: list[str] | None = None):
         "list", help="Print public policy keys with merged source labels"
     )
     config_list.add_argument("--project-root", help="Project directory (default: cwd)")
+    config_list.add_argument(
+        "--detail",
+        choices=["runtime"],
+        help="Include read-only effective runtime tuning and source labels",
+    )
 
     config_validate = config_sub.add_parser(
         "validate", help="Validate that the resolved Config_File set parses and merges"
@@ -437,6 +497,32 @@ def main(argv: list[str] | None = None):
                     apply=not args.dry_run,
                 )
             )
+        if args.maintenance_action == "archive-distill":
+            from pathlib import Path
+
+            from harness_mem.commands.archive_distill import (
+                print_archive_distill_result,
+                run_archive_distill_batch,
+            )
+
+            control_root = Path(args.project_root or Path.cwd()).expanduser().resolve()
+            result = asyncio.run(
+                run_archive_distill_batch(
+                    control_root=control_root,
+                    apply=not args.dry_run,
+                    archive_dir=(
+                        Path(args.archive_dir).expanduser()
+                        if args.archive_dir
+                        else None
+                    ),
+                    verify=args.verify,
+                    batch_size=args.batch_size,
+                    daily_limit=args.daily_limit,
+                    repair_only=args.repair_only,
+                )
+            )
+            print_archive_distill_result(result, as_json=args.json)
+            return 0 if result.get("success") else 1
         if args.maintenance_action == "import":
             return asyncio.run(
                 cmd_import(args.source, args.project, dry_run=args.dry_run)
@@ -464,6 +550,14 @@ def main(argv: list[str] | None = None):
                     reason=args.reason,
                 )
             )
+        if args.maintenance_action == "reset-runtime":
+            return asyncio.run(
+                cmd_reset_runtime(
+                    archive_dir=args.archive_dir,
+                    apply=not args.dry_run,
+                    confirm_runtime_reset=args.confirm_runtime_reset,
+                )
+            )
         maintenance.error(f"Unknown maintenance action: {args.maintenance_action}")
 
     if command == "config":
@@ -481,7 +575,7 @@ def main(argv: list[str] | None = None):
                 confirm=args.confirm,
             )
         if args.config_action == "list":
-            return cmd_config_list(args.project_root)
+            return cmd_config_list(args.project_root, detail=args.detail)
         if args.config_action == "validate":
             return cmd_config_validate(args.project_root)
         config.error(f"Unknown config action: {args.config_action}")

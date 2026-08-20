@@ -1,0 +1,81 @@
+{
+  "name": "search_memory",
+  "description": "Search current canonical long-term memory for a project. Default output contains only readable titles and statements; explicit deep_recall adds raw evidence and diagnostic audit detail.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name (required when scope=project)"
+      },
+      "query": {
+        "type": "string",
+        "description": "Search query"
+      },
+      "scope": {
+        "type": "string",
+        "enum": [
+          "project",
+          "all"
+        ],
+        "description": "Search scope: project or all (default: project)"
+      },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "fts",
+          "hybrid"
+        ],
+        "description": "Search mode (default: auto)"
+      },
+      "memory_type": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "episodic",
+            "semantic",
+            "procedural"
+          ]
+        },
+        "description": "Optional MemoryEntry.memory_type filter; multiple values are OR-ed."
+      },
+      "include_history": {
+        "type": "boolean",
+        "description": "Include historical structured truth. Default false returns current truth only.",
+        "default": false
+      },
+      "include_provisional": {
+        "type": "boolean",
+        "description": "Include provisional auto-promoted truth (down-weighted). Default false.",
+        "default": false
+      },
+      "deep_recall": {
+        "type": "boolean",
+        "description": "Explicitly include raw evidence, historical lifecycle tiers, and diagnostic audit detail. Default false returns clean current memory prose only.",
+        "default": false
+      },
+      "retrieval_profile": {
+        "type": "string",
+        "enum": [
+          "light",
+          "quality"
+        ],
+        "description": "Opt-in retrieval profile for this call. 'light' keeps the default path; 'quality' enables deterministic query rewrite/fanout metadata with a noop reranker. It does not enable HyDE or a heavy reranker by default."
+      },
+      "task": {
+        "type": "string",
+        "description": "Optional current task used by context sufficiency checks."
+      },
+      "budget_tokens": {
+        "type": "integer",
+        "description": "Advisory context budget for ContextPlan / wake packet traces.",
+        "default": 6000
+      }
+    },
+    "required": [
+      "query"
+    ]
+  }
+}

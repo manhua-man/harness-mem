@@ -1,6 +1,7 @@
 """LocalStructuredStore — JSON + SQLite implementation of StructuredStore."""
 
 from __future__ import annotations
+import hashlib
 import json
 import asyncio
 from datetime import datetime, timezone
@@ -28,6 +29,7 @@ from harness_mem.storage.canonical_store import CanonicalStoreRuntime
 from harness_mem.storage.derived_index import DerivedIndex
 from harness_mem.storage.sqlite_index import SQLiteIndex
 from harness_mem.storage.truth_store import TruthStore
+from harness_mem.storage.knowledge_store import KnowledgeStore
 from harness_mem.storage.structured_store_support import (
     _has_superseded_by,
     _normalize_datetime,
@@ -100,6 +102,10 @@ class LocalStructuredStore(
         )
         self._subdirs = {
             "memory_entries": self.blob_dir / "memory_entries",
+            "knowledge_entries": self.blob_dir / "knowledge_entries",
+            "knowledge_sources": self.blob_dir / "knowledge_sources",
+            "knowledge_versions": self.blob_dir / "knowledge_versions",
+            "knowledge_mutations": self.blob_dir / "knowledge_mutations",
             "task_handoffs": self.blob_dir / "task_handoffs",
             "rule_candidates": self.blob_dir / "rule_candidates",
             "supersede_candidates": self.blob_dir / "supersede_candidates",
@@ -123,6 +129,7 @@ class LocalStructuredStore(
         self._search = HybridSearchLayer(self._index)
         self.truth_store = TruthStore(self)
         self.candidate_store = CandidateStore(self)
+        self.knowledge_store = KnowledgeStore(self)
         if not self.canonical_mode:
             self._backfill_confirmed_rule_source_sessions()
 
@@ -130,6 +137,7 @@ class LocalStructuredStore(
         if self.canonical_mode:
             await self._sync_missing_index_rows_from_canonical()
         self._backfill_confirmed_rule_source_sessions()
+        await self.knowledge_store.recover_staged_mutations()
 
     def _blob_path(
         self, entity_type: str, id: str
@@ -150,6 +158,37 @@ class LocalStructuredStore(
         """Read one structured record payload by collection/id."""
         return json.loads(self._blob_path(collection, entity_id).read_text())
 
+    def record_payload_sha256(
+        self,
+        collection: str,
+        entity_id: str,
+        *,
+        project_name: str | None = None,
+    ) -> str | None:
+        """Return the canonical payload digest used for CAS preconditions."""
+
+        if self.canonical_mode:
+            canonical = self._canonical
+            row = (
+                canonical.get_row(
+                    collection, entity_id, project_name=project_name
+                )
+                if canonical
+                else None
+            )
+            return row.payload_sha256 if row is not None else None
+        path = self._blob_path(collection, entity_id)
+        if not path.exists():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        canonical_json = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+
     def write_record_payload(
         self,
         collection: str,
@@ -161,11 +200,33 @@ class LocalStructuredStore(
             json.dumps(payload, indent=2, default=str)
         )
 
+    def apply_canonical_payload_transaction(
+        self,
+        *,
+        idempotency_key: str,
+        mutations: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Atomically mutate canonical payloads without exposing internals.
+
+        This is the public storage boundary used by higher-level knowledge
+        services for multi-row add/refine/supersede operations. Legacy JSON
+        mode cannot provide the required single-database transaction.
+        """
+
+        canonical = self._canonical
+        if canonical is None:
+            raise RuntimeError("canonical runtime is required for payload transactions")
+        return canonical.apply_payload_transaction(
+            idempotency_key=idempotency_key,
+            mutations=mutations,
+        )
+
     def list_record_payloads(
         self,
         collection: str,
         *,
         strict: bool = False,
+        project_name: str | None = None,
     ) -> list[dict[str, Any]]:
         """List raw payloads for lifecycle planning without search filtering."""
 
@@ -173,7 +234,11 @@ class LocalStructuredStore(
             raise KeyError(collection)
         if self.canonical_mode:
             canonical = self._canonical
-            return [] if canonical is None else canonical.list_payloads(collection)
+            return (
+                []
+                if canonical is None
+                else canonical.list_payloads(collection, project_name=project_name)
+            )
         payloads: list[dict[str, Any]] = []
         for path in self._subdirs[collection].glob("*.json"):
             try:
@@ -186,7 +251,8 @@ class LocalStructuredStore(
                 if strict:
                     raise ValueError(f"invalid structured payload: {path.name}")
                 continue
-            payloads.append(payload)
+            if project_name is None or payload.get("project_name") == project_name:
+                payloads.append(payload)
         return payloads
 
     def hard_delete_record(self, collection: str, entity_id: str) -> bool:
@@ -196,6 +262,21 @@ class LocalStructuredStore(
             raise KeyError(collection)
         existed = self.record_payload_exists(collection, entity_id)
         self._index.delete(collection, entity_id)
+        if existed:
+            self._blob_path(collection, entity_id).unlink()
+        return existed
+
+    def delete_record_payload(self, collection: str, entity_id: str) -> bool:
+        """Erase a payload that has no derived-index ownership.
+
+        Separated ``knowledge_entries`` are read directly from canonical truth,
+        not from ``structured_index.sqlite``.  Replacing one therefore must not
+        attempt to delete a non-existent derived-index table.
+        """
+
+        if collection not in self._subdirs:
+            raise KeyError(collection)
+        existed = self.record_payload_exists(collection, entity_id)
         if existed:
             self._blob_path(collection, entity_id).unlink()
         return existed

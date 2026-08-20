@@ -5,9 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Literal
 
-from harness_mem.commands.support import (
-    get_active_project,
-)
+from harness_mem.commands.support import get_active_project
 from harness_mem.commands.wake import (
     DEFAULT_SKILL_HINT_LIMIT,
     build_wake_snapshot,
@@ -15,9 +13,11 @@ from harness_mem.commands.wake import (
 )
 from harness_mem.guided_flow import build_guided_flow, guided_flow_drilldown_hint
 from harness_mem.task_context_runtime import orchestrate_task_context
+from harness_mem.read_knowledge import list_current_knowledge
 from harness_mem.mcp.response_views import (
     status_triage_hints,
 )
+from harness_mem.mcp.read_projection import project_memory_entries, project_wake_snapshot
 
 from .handler_facade_proxy import tool_handlers_facade as _core
 from .read_query_support import (
@@ -145,7 +145,7 @@ def tool_wake(
                 budget_tokens=budget_tokens,
                 search_limit=10,
                 context_limit=10,
-                auto_deep_recall=True,
+                auto_deep_recall=False,
             )
         )
         snapshot_payload = asyncio.run(
@@ -236,6 +236,30 @@ def tool_wake(
         source_coverage=snapshot_payload.get("source_coverage"),
         temporal_intent_mode=temporal_intent,
     )
+    if command_payload.get("success") and detail_level == "compact" and not deep_recall:
+        maintenance_available = bool(
+            distill_maintenance.get("agent_execution_required")
+        )
+        projected_snapshot = project_wake_snapshot(snapshot_payload)
+        try:
+            separated_entries = asyncio.run(
+                list_current_knowledge(
+                    _get_backend(),
+                    project_name=resolved,
+                    limit=10,
+                )
+            )
+        except ValueError:
+            separated_entries = []
+        projected_snapshot["long_term_memory"] = project_memory_entries(
+            separated_entries
+        )
+        return {
+            "success": True,
+            "project_name": resolved,
+            **projected_snapshot,
+            "maintenance_available": maintenance_available,
+        }
     return {
         "project_name": resolved,
         **snapshot_payload,

@@ -6,6 +6,25 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from harness_mem.core.schemas.knowledge import ClaimKind
+from harness_mem.knowledge_validation import validate_atomic_knowledge_statement
+
+
+# ``archive`` is a maintenance-only truth mutation.  It remains part of the
+# internal audit vocabulary, but a semantic provider must never receive it as
+# a candidate-point disposition.
+ProviderAssimilationDisposition = Literal[
+    "add",
+    "refine",
+    "confirm",
+    "supersede",
+    "no_write",
+    "handoff",
+    "defer",
+    "conflict",
+    "reject",
+]
+
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -27,8 +46,32 @@ class _CandidateBase(_StrictModel):
     verification_reason_codes: list[str] = Field(default_factory=list, max_length=8)
 
 
+def _assert_atomic_title(value: str) -> str:
+    """Reject enumerative titles without banning a single relational principle."""
+
+    normalized = " ".join(value.split())
+    lowered = normalized.casefold()
+    if (
+        normalized.count("、") >= 2
+        or normalized.count(",") >= 2
+        or normalized.count("/") >= 2
+        or lowered.count(" and ") >= 2
+    ):
+        raise ValueError(
+            "knowledge title enumerates multiple facts; split it into atomic items"
+        )
+    return normalized
+
+
 class DistillCandidate(_CandidateBase):
-    """Flat schema avoids unsupported oneOf in strict Structured Outputs."""
+    """One extracted promotion point plus its evidence locator.
+
+    Extraction deliberately does not choose an assimilation disposition,
+    canonical title, or project module. Those are module-3 decisions made
+    only after the trusted evidence gate has re-read the cited source. A
+    discovery candidate may still be broad: module 3 owns semantic splitting
+    into independently retrievable knowledge items.
+    """
 
     kind: Literal["memory", "rule", "relation"]
     category: str | None = Field(default=None, max_length=80)
@@ -42,6 +85,91 @@ class DistillCandidate(_CandidateBase):
     target_entity: str | None = Field(default=None, max_length=200)
     relation_type: str | None = Field(default=None, max_length=100)
     evidence: str | None = Field(default=None, max_length=2000)
+
+
+class CanonicalKnowledgeItem(_StrictModel):
+    """One proposed knowledge item created by a single point disposition.
+
+    The provider schema validates shape only. Atomicity and specificity depend
+    on the verified candidate and are enforced by the trusted assimilation
+    runtime, where invalid proposals can receive bounded correction or the
+    source-clause fallback.
+    """
+
+    title: str = Field(min_length=1, max_length=160)
+    statement: str = Field(min_length=1, max_length=4000)
+    topic_path: list[str] = Field(min_length=1, max_length=8)
+    claim_kind: ClaimKind
+
+    @model_validator(mode="after")
+    def normalize_proposed_item(self) -> "CanonicalKnowledgeItem":
+        self.title = " ".join(self.title.split())
+        self.statement = " ".join(self.statement.split())
+        self.topic_path = [" ".join(part.split()) for part in self.topic_path]
+        return self
+
+
+class AssimilationPoint(_StrictModel):
+    """One post-verification outcome for one persisted candidate."""
+
+    candidate_id: str = Field(min_length=1, max_length=128)
+    disposition: ProviderAssimilationDisposition
+    matched_truth_handles: list[str] = Field(default_factory=list, max_length=8)
+    canonical_title: str | None = Field(default=None, max_length=160)
+    canonical_statement: str | None = Field(default=None, max_length=4000)
+    topic_path: list[str] = Field(default_factory=list, max_length=8)
+    knowledge_items: list[CanonicalKnowledgeItem] = Field(
+        default_factory=list, max_length=3
+    )
+    reason: str = Field(min_length=8, max_length=1000)
+
+    @model_validator(mode="after")
+    def require_atomic_canonical_statement(self) -> "AssimilationPoint":
+        target_count = len(self.matched_truth_handles)
+        if self.knowledge_items:
+            # Every item already carries the complete canonical shape. The
+            # point-level fields are a redundant legacy projection, so dropping
+            # them changes no knowledge semantics and keeps one write form.
+            self.canonical_title = None
+            self.canonical_statement = None
+            self.topic_path = []
+        if self.disposition == "add" and target_count:
+            raise ValueError("add must not target current truth")
+        if self.disposition in {"confirm", "refine", "supersede"} and target_count != 1:
+            raise ValueError(
+                f"{self.disposition} requires exactly one current truth handle"
+            )
+        if self.disposition == "conflict" and target_count > 1:
+            raise ValueError("conflict may reference at most one current truth handle")
+        if self.canonical_title:
+            self.canonical_title = _assert_atomic_title(self.canonical_title)
+        if self.canonical_statement:
+            self.canonical_statement = validate_atomic_knowledge_statement(
+                self.canonical_statement
+            )
+        return self
+
+
+class AssimilationDecision(_StrictModel):
+    """Strict, tool-free semantic decision over verified points and truth handles."""
+
+    points: list[AssimilationPoint] = Field(default_factory=list, max_length=12)
+
+
+class CandidateVerificationPoint(_StrictModel):
+    """Semantic source-support and future-scope result for one extracted point."""
+
+    candidate_index: int = Field(ge=0, le=11)
+    semantic_support: Literal["supported", "partial", "contradicted"]
+    future_scope: Literal["durable", "session_only", "unclear"]
+    reason: str = Field(min_length=8, max_length=1000)
+
+
+class CandidateVerificationDecision(_StrictModel):
+    """Complete per-point verification over bounded, content-addressed sources."""
+
+    points: list[CandidateVerificationPoint] = Field(default_factory=list, max_length=12)
+
 
 ChallengeChecks = Literal["absent", "not_durable", "candidate_required"]
 
@@ -93,13 +221,22 @@ class AutonomousDecision(_StrictModel):
     def require_zero_candidate_review(self) -> "AutonomousDecision":
         challenge = self.semantic_review.zero_candidate_challenge
         if not self.candidates and challenge is None:
-            raise ValueError("zero_candidate_challenge is required when candidates is empty")
+            raise ValueError(
+                "zero_candidate_challenge is required when candidates is empty"
+            )
         if self.candidates and challenge is not None:
-            raise ValueError("zero_candidate_challenge must be null when candidates exist")
+            raise ValueError(
+                "zero_candidate_challenge must be null when candidates exist"
+            )
         return self
 
 
 __all__ = [
+    "AssimilationDecision",
+    "CandidateVerificationDecision",
+    "CandidateVerificationPoint",
+    "AssimilationPoint",
+    "CanonicalKnowledgeItem",
     "AutonomousDecision",
     "DistillCandidate",
     "SemanticReview",

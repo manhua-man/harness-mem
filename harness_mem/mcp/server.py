@@ -87,6 +87,7 @@ def _get_backend() -> LocalMemoryBackend:
     global _backend
     if _backend is None:
         _backend = LocalMemoryBackend(DEFAULT_DATA_DIR)
+    if not _backend.initialized:
         # Synchronous init via asyncio.run since MCP handlers are sync.
         asyncio.run(_backend.init())
     return _backend

@@ -3,6 +3,68 @@
   "project": "harness-mem",
   "claims": [
     {
+      "id": "codex_cleanup_liveness",
+      "description": "Native cleanup retains active, reactivated, and unknown Codex tasks and deletes only a definitively inactive task.",
+      "required": true,
+      "checks": [
+        {
+          "id": "isolated_codex_liveness_runtime",
+          "description": "Exercise real OS writer locks, Codex task-state SQLite, plan/claim recheck, and native deletion in an isolated Codex layout.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.qualification.cleanup_liveness_outcome_probe"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "verified": {"equals": true},
+              "active_writer_retained": {"equals": true},
+              "active_task_retained": {"equals": true},
+              "inactive_task_deleted": {"equals": true},
+              "reactivation_before_claim_retained": {"equals": true},
+              "unknown_liveness_retained": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "archive_distill_batch_outcome",
+      "description": "An archived Codex task completes through canonical distill with a formal Answer Packet, per-fact promotion report, Note, ledger, retrieval, replay skip, and safe source deletion.",
+      "required": true,
+      "checks": [
+        {
+          "id": "isolated_archive_distill_runtime",
+          "description": "Execute the real archive adapter and canonical worker against an isolated durable store with only the model decision made deterministic.",
+          "evidence_tier": "direct",
+          "timeout_seconds": 120,
+          "command": ["{python}", "-m", "harness_mem.qualification.archive_distill_outcome_probe"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "verified": {"equals": true},
+              "batch_completed": {"equals": true},
+              "answer_packet_persisted": {"equals": true},
+              "question_is_session_question": {"equals": true},
+              "promotion_visible": {"equals": true},
+              "note_materialized": {"equals": true},
+              "note_byte_hash_matches": {"equals": true},
+              "ledger_persisted": {"equals": true},
+              "replay_skipped": {"equals": true},
+              "truth_retrievable": {"equals": true},
+              "semantic_verification_executed": {"equals": true},
+              "sqlite_authority_persists_without_markdown": {"equals": true},
+              "markdown_projection_is_clean": {"equals": true},
+              "markdown_deletion_does_not_change_retrieval": {"equals": true},
+              "safe_source_cleanup_reported": {"equals": true},
+              "safe_source_deleted": {"equals": true},
+              "source_cleanup_status": {"equals": "deleted"},
+              "run_verification_passed": {"equals": true},
+              "run_receipt_persisted": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
       "id": "codex_hook_lifecycle",
       "description": "Codex Desktop native start and post-turn hooks each have a fresh receipt for the current configuration; exact Stop-to-job binding is verified by the autonomous completion claim.",
       "required": true,
@@ -47,12 +109,12 @@
     },
     {
       "id": "distill_user_artifacts",
-      "description": "Every recently completed session distill has a readable Session Note.",
+      "description": "Every recently completed session distill has a readable job-bound Session Note, or an explicit audited-unavailable status when historical source identity and Note evidence were already pruned.",
       "required": true,
       "checks": [
         {
           "id": "completed_session_notes",
-          "description": "Match completed distill sessions to real user-readable Note files.",
+          "description": "Match completed distill jobs to real user-readable Note files and keep irrecoverable historical gaps explicit rather than inventing Notes.",
           "evidence_tier": "direct",
           "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
           "expect": {
@@ -81,6 +143,7 @@
               "autonomous.execution_source": {"equals": "autonomous_worker"},
               "autonomous.authorized": {"equals": true},
               "autonomous.trigger_matches_hook": {"equals": true},
+              "autonomous.dispatch_generation_bound": {"equals": true},
               "autonomous.job_completed": {"equals": true},
               "autonomous.trigger_session_completed": {"equals": true},
               "autonomous.batch_binding_valid": {"equals": true},
@@ -129,7 +192,7 @@
               "autonomous.provider_isolated": {"equals": true},
               "autonomous.provider_metrics_bound": {"equals": true},
               "autonomous.provider.schema_valid": {"equals": true},
-              "autonomous.provider.sandbox": {"equals": "no-tools"},
+              "autonomous.provider.sandbox": {"equals": "read-only"},
               "autonomous.provider.ephemeral": {"equals": true},
               "autonomous.provider.cwd_isolated": {"equals": true},
               "autonomous.provider.hooks_disabled": {"equals": true},
@@ -170,23 +233,79 @@
     },
     {
       "id": "distill_acceptance_matrix",
-      "description": "The versioned F1-F7 fixture catalog maps every A1-E6 path to an executable result and the fixed F1-F3 model batch meets quality and cost gates.",
+      "description": "The versioned F1-F11 fixture catalog maps every A1-E6 path and the read-only F8-F11 shadow contract to executable results; the fixed F1-F3 model batch meets quality and cost gates.",
       "required": true,
       "checks": [
         {
           "id": "distill_acceptance_runner",
-          "description": "Run all 24 mapped paths and the three no-tools fixed model samples, producing a machine-readable report.",
+          "description": "Run all 28 mapped paths, including the zero-mutation F8-F11 shadow checks, and the three no-tools fixed model samples, producing a machine-readable report.",
           "evidence_tier": "direct",
-          "timeout_seconds": 180,
+          "timeout_seconds": 300,
           "command": ["{python}", "-m", "harness_mem.qualification.distill_acceptance", "--project-root", "{project_root}", "--output", "{project_root}/.codex/distill-acceptance-report.json", "--model-samples"],
           "expect": {
             "exit_code": 0,
             "json": {
               "status": {"equals": "passed"},
-              "l1.passed": {"equals": 24},
-              "l1.total": {"equals": 24},
+              "l1.passed": {"equals": 28},
+              "l1.total": {"equals": 28},
               "model_samples.passed": {"equals": 3},
               "model_samples.total": {"equals": 3}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "multi_point_memory_assimilation",
+      "description": "One autonomous session independently adds a new memory, confirms existing truth without duplication, rejects a one-off request, creates a job-bound handoff, and makes a rule normally retrievable through the bounded second semantic call.",
+      "required": true,
+      "checks": [
+        {
+          "id": "isolated_multi_point_assimilation_runtime",
+          "description": "Run the real snapshot, worker, evidence revalidation, second provider call, governed apply, Note/Answer Packet, retrieval, wake, and replay path in an isolated durable store.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.qualification.memory_assimilation_outcome_probe"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "multi_point_independent": {"equals": true},
+              "add_retrievable": {"equals": true},
+              "confirm_has_no_duplicate": {"equals": true},
+              "one_off_request_not_written": {"equals": true},
+              "handoff_job_bound": {"equals": true},
+              "rule_materialized_and_normally_retrievable": {"equals": true},
+              "terminal_processing_material_cleaned": {"equals": true},
+              "answer_packet_point_bound": {"equals": true},
+              "assimilation_provider_isolated": {"equals": true},
+              "verification_provider_executed_once": {"equals": true},
+              "replay_no_provider_recall": {"equals": true},
+              "verified": {"equals": true}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "clean_retrieval_boundary",
+      "description": "Normal search and wake return clean current canonical truth without raw session evidence or audit metadata; explicit deep recall may retrieve detailed evidence.",
+      "required": true,
+      "checks": [
+        {
+          "id": "isolated_clean_retrieval_runtime",
+          "description": "Run normal and explicit deep retrieval against real temporary stores through the public search and wake handlers.",
+          "evidence_tier": "direct",
+          "command": ["{python}", "-m", "harness_mem.qualification.clean_retrieval_outcome_probe"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "default_current_truth_retrievable": {"equals": true},
+              "default_excludes_provisional_and_historical": {"equals": true},
+              "default_has_no_raw_observation": {"equals": true},
+              "default_has_no_audit_metadata": {"equals": true},
+              "deep_recall_returns_raw_observation": {"equals": true},
+              "wake_default_has_no_raw_observation": {"equals": true},
+              "wake_deep_recall_returns_raw_observation": {"equals": true},
+              "verified": {"equals": true}
             }
           }
         }

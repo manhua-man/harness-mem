@@ -23,9 +23,11 @@ import argparse
 import asyncio
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import sys
+import time
 from typing import Any, Literal, Sequence
 
 from harness_mem import __version__
@@ -65,6 +67,12 @@ _VALID_ADAPTERS = (
 )
 _MAX_PROJECT_ROOT_CHARS = 4096
 _MAX_TRIGGER_ID_CHARS = 256
+_DEFAULT_WAIT_TIMEOUT_SECONDS = 60.0
+_MAX_WAIT_TIMEOUT_SECONDS = 3600.0
+_WAIT_POLL_SECONDS = 0.1
+_TERMINAL_AUTONOMOUS_STATES = frozenset(
+    {"succeeded", "partial", "deferred", "busy", "idle", "failed"}
+)
 _REPEATED_WAKE_CLIENTS = frozenset({"hermes", "antigravity"})
 _WAKE_FALLBACK_TRIGGERS = frozenset({"hermes-pre-llm", "antigravity-pre-invocation"})
 
@@ -119,6 +127,8 @@ def _post_turn_host_result(payload: dict[str, Any]) -> dict[str, Any]:
         next_step = "in progress: an Agent is already consuming this evidence"
     elif status == "completed":
         next_step = "completed: transcript evidence is up to date"
+    elif status == "deferred":
+        next_step = "deferred: an existing distill job is waiting for its retry window"
     else:
         next_step = "failed: transcript evidence staging did not complete"
     return {
@@ -151,6 +161,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source", choices=_VALID_SOURCES)
     parser.add_argument("--trigger-id", default=None)
     parser.add_argument("--client", choices=_VALID_CLIENTS, default=None)
+    parser.add_argument(
+        "--wait",
+        action="store_true",
+        help=(
+            "wait for the detached post-turn autonomous receipt and emit its "
+            "terminal state; IDE adapters remain non-blocking unless enabled"
+        ),
+    )
+    parser.add_argument(
+        "--wait-timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help=(
+            "maximum --wait duration (default: 60, maximum: 3600); a timeout "
+            "returns a failed terminal receipt"
+        ),
+    )
     return parser
 
 
@@ -174,7 +202,136 @@ def validate_args(args: argparse.Namespace) -> str | None:
     if args.trigger_id is not None and len(args.trigger_id) > _MAX_TRIGGER_ID_CHARS:
         return f"--trigger-id exceeds {_MAX_TRIGGER_ID_CHARS} characters"
 
+    wait_timeout = getattr(args, "wait_timeout", None)
+    if wait_timeout is not None and not getattr(args, "wait", False):
+        return "--wait-timeout requires --wait"
+    if wait_timeout is not None and (
+        not math.isfinite(wait_timeout)
+        or wait_timeout <= 0
+        or wait_timeout > _MAX_WAIT_TIMEOUT_SECONDS
+    ):
+        return (
+            "--wait-timeout must be greater than 0 and no more than "
+            f"{_MAX_WAIT_TIMEOUT_SECONDS:g} seconds"
+        )
+
     return None
+
+
+def _wait_coordinates(
+    args: argparse.Namespace,
+) -> tuple[Path, Path, str, Path, dict[str, Any] | None]:
+    """Resolve and snapshot the receipt that predates one detached dispatch."""
+
+    from harness_mem.autonomous.worker import (
+        autonomous_receipt_path,
+        read_autonomous_receipt,
+    )
+    from harness_mem.storage.local_memory_backend import DEFAULT_DATA_DIR
+
+    project_context = resolve_project_context(
+        None,
+        project_root=args.project_root,
+        required=True,
+        action_label="host-entry receipt wait",
+    )
+    if project_context is None or project_context.project_root is None:
+        raise ValueError("could not resolve project context for receipt wait")
+    project_root = project_context.project_root
+    project_name = project_context.project_name
+    receipt_path = autonomous_receipt_path(
+        DEFAULT_DATA_DIR,
+        project_name=project_name,
+        project_root=project_root,
+    )
+    initial = read_autonomous_receipt(
+        DEFAULT_DATA_DIR,
+        project_name=project_name,
+        project_root=project_root,
+    )
+    return DEFAULT_DATA_DIR, project_root, project_name, receipt_path, initial
+
+
+def _wait_for_autonomous_receipt(
+    *,
+    data_dir: Path,
+    project_root: Path,
+    project_name: str,
+    trigger_id: str | None,
+    dispatch_generation: str | None = None,
+    receipt_path: Path,
+    initial_receipt: dict[str, Any] | None,
+    timeout_seconds: float,
+    read_receipt: Any = None,
+    monotonic: Any = None,
+    sleep: Any = None,
+) -> tuple[int, str]:
+    """Poll one receipt to a known terminal state within a hard deadline."""
+
+    if read_receipt is None:
+        from harness_mem.autonomous.worker import (
+            read_autonomous_receipt as read_receipt,
+        )
+
+    clock = monotonic or time.monotonic
+    pause = sleep or time.sleep
+    deadline = clock() + timeout_seconds
+    while True:
+        receipt = read_receipt(
+            data_dir,
+            project_name=project_name,
+            project_root=project_root,
+        )
+        state = str((receipt or {}).get("state") or "")
+        is_new = receipt is not None and receipt != initial_receipt
+        trigger_matches = (receipt or {}).get("trigger_id") == trigger_id
+        generation_matches = dispatch_generation is None or (
+            (receipt or {}).get("dispatch_generation") == dispatch_generation
+        )
+        if (
+            is_new
+            and trigger_matches
+            and generation_matches
+            and state in _TERMINAL_AUTONOMOUS_STATES
+        ):
+            error = receipt.get("error") or receipt.get("last_batch_error")
+            success = state in {"succeeded", "idle"} and not error
+            payload = {
+                "action": "post-turn-maintenance",
+                "success": success,
+                "trigger": trigger_id,
+                "trigger_id": trigger_id,
+                "dispatch_generation": dispatch_generation,
+                "state": state,
+                "job": receipt.get("job_id"),
+                "job_id": receipt.get("job_id"),
+                "error": error,
+                "receipt": str(receipt_path),
+            }
+            code = ExitCode.SUCCESS if success else ExitCode.HOOK_FAILED
+            return int(code), json.dumps(payload, sort_keys=True)
+
+        remaining = deadline - clock()
+        if remaining <= 0:
+            payload = {
+                "action": "post-turn-maintenance",
+                "success": False,
+                "trigger": trigger_id,
+                "trigger_id": trigger_id,
+                "state": "timeout",
+                "job": None,
+                "job_id": None,
+                "error": {
+                    "kind": "wait_timeout",
+                    "message": (
+                        "no matching terminal autonomous receipt was observed "
+                        f"within {timeout_seconds:g} seconds"
+                    ),
+                },
+                "receipt": str(receipt_path),
+            }
+            return int(ExitCode.HOOK_FAILED), json.dumps(payload, sort_keys=True)
+        pause(min(_WAIT_POLL_SECONDS, remaining))
 
 
 def _adapter_payload() -> dict[str, Any]:
@@ -256,6 +413,40 @@ def _adapter_request(
         source="ide_hook",
         trigger_id=str(trigger_id),
         client=client,
+        wait=getattr(args, "wait", False),
+        wait_timeout=getattr(args, "wait_timeout", None),
+    )
+
+
+def _run_request(args: argparse.Namespace) -> tuple[int, str | None]:
+    """Run one request and optionally resolve its detached autonomous receipt."""
+
+    wait = bool(getattr(args, "wait", False))
+    coordinates = _wait_coordinates(args) if wait else None
+    exit_code, stdout_payload = asyncio.run(run(args))
+    if not wait or exit_code != ExitCode.SUCCESS or coordinates is None:
+        return int(exit_code), stdout_payload
+
+    data_dir, project_root, project_name, receipt_path, initial = coordinates
+    dispatch_generation: str | None = None
+    try:
+        dispatch_payload = json.loads(stdout_payload or "{}")
+        summary = dispatch_payload.get("summary")
+        if isinstance(summary, dict) and summary.get("dispatch_generation"):
+            dispatch_generation = str(summary["dispatch_generation"])
+    except (TypeError, ValueError, json.JSONDecodeError):
+        dispatch_generation = None
+    return _wait_for_autonomous_receipt(
+        data_dir=data_dir,
+        project_root=project_root,
+        project_name=project_name,
+        trigger_id=args.trigger_id,
+        dispatch_generation=dispatch_generation,
+        receipt_path=receipt_path,
+        initial_receipt=initial,
+        timeout_seconds=float(
+            getattr(args, "wait_timeout", None) or _DEFAULT_WAIT_TIMEOUT_SECONDS
+        ),
     )
 
 
@@ -263,16 +454,40 @@ def _run_adapter(args: argparse.Namespace) -> int:
     """Run a passive Hook adapter and emit only its host-specific response."""
 
     payload = _adapter_payload()
+    if getattr(args, "wait", False) and args.adapter == "codex-stop" and not (
+        payload.get("session_id") or payload.get("turn_id")
+    ):
+        error = {
+            "action": "post-turn-maintenance",
+            "success": False,
+            "trigger": "codex-stop",
+            "trigger_id": "codex-stop",
+            "state": "failed",
+            "job": None,
+            "job_id": None,
+            "error": {
+                "kind": "missing_hook_identity",
+                "message": (
+                    "--wait with codex-stop requires a JSON session_id or turn_id "
+                    "payload on stdin"
+                ),
+            },
+            "receipt": None,
+        }
+        sys.stdout.write(json.dumps(error, sort_keys=True) + "\n")
+        return int(ExitCode.ARG_VALIDATION_ERROR)
     request = _adapter_request(args, payload)
     try:
-        exit_code, stdout_payload = asyncio.run(run(request))
+        exit_code, stdout_payload = _run_request(request)
     except Exception:  # noqa: BLE001 - adapters are passive by contract.
         logger.exception("hook adapter failed: %s", args.adapter)
         exit_code, stdout_payload = ExitCode.HOOK_FAILED, None
 
     adapter = args.adapter
     assert adapter is not None
-    if adapter == "codex-start":
+    if getattr(args, "wait", False):
+        sys.stdout.write((stdout_payload or "{}") + "\n")
+    elif adapter == "codex-start":
         context = (
             stdout_payload.rstrip("\n")
             if exit_code == ExitCode.SUCCESS and stdout_payload
@@ -307,7 +522,7 @@ def _run_adapter(args: argparse.Namespace) -> int:
         sys.stdout.write(json.dumps({"context": context}) + "\n" if context else "{}\n")
     else:
         sys.stdout.write("{}\n")
-    return int(ExitCode.SUCCESS)
+    return int(exit_code) if getattr(args, "wait", False) else int(ExitCode.SUCCESS)
 
 
 async def run(args: argparse.Namespace) -> tuple[int, str | None]:
@@ -331,6 +546,17 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
     try:
         from harness_mem.storage.local_memory_backend import DEFAULT_DATA_DIR
 
+        project_context = resolve_project_context(
+            None,
+            project_root=args.project_root,
+            required=True,
+            action_label=f"host-entry {args.action}",
+        )
+        if project_context is None or project_context.project_root is None:
+            return (ExitCode.ARG_VALIDATION_ERROR, None)
+        project_root = project_context.project_root
+        project_name = project_context.project_name
+
         if (
             args.action == "post-turn-maintenance"
             and args.source == "ide_hook"
@@ -343,7 +569,7 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
 
                 dispatch = dispatch_post_turn(
                     DEFAULT_DATA_DIR,
-                    project_root=Path(args.project_root),
+                    project_root=project_root,
                     client=client_override,
                     source=args.source,
                     trigger_id=args.trigger_id,
@@ -352,12 +578,13 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                     "action": "post-turn-maintenance",
                     "success": True,
                     "status": "queued",
-                    "project_root": str(Path(args.project_root).resolve()),
+                    "project_root": str(project_root),
                     "trigger_id": args.trigger_id,
                     "summary": {
                         "background": True,
                         "spawned": dispatch.spawned,
                         "coalesced": dispatch.coalesced,
+                        "dispatch_generation": dispatch.generation,
                     },
                 }
                 return (ExitCode.SUCCESS, json.dumps(payload, sort_keys=True))
@@ -369,23 +596,13 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
 
         # ---- 2. load merged config (Req 3, Req 4.8) ------------------------
         try:
-            merged = load_merged_config(args.project_root)
+            merged = load_merged_config(project_root)
         except ConfigError as exc:
             logger.error("config error: %s", exc)
             return (ExitCode.CONFIG_LOAD_ERROR, None)
 
         # ---- 3. build backend ---------------------------------------------
         from harness_mem.storage.local_memory_backend import LocalMemoryBackend
-
-        project_context = resolve_project_context(
-            None,
-            project_root=args.project_root,
-            required=True,
-            action_label=f"host-entry {args.action}",
-        )
-        if project_context is None:
-            return (ExitCode.ARG_VALIDATION_ERROR, None)
-        project_name = project_context.project_name
 
         if (
             args.action == "wake-start"
@@ -485,6 +702,70 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                         trigger_id=args.trigger_id,
                     )
                     if (
+                        not maintenance_payload.get("success")
+                        and os.environ.get("HARNESS_MEM_HOOK_BACKGROUND_WORKER")
+                        == "1"
+                    ):
+                        # The foreground Hook has already returned ``queued``.
+                        # Persist the staging failure so ``--wait`` receives the
+                        # real terminal result rather than an arbitrary timeout.
+                        from harness_mem.autonomous.worker import (
+                            record_post_turn_preflight_failure,
+                            record_post_turn_retry_backoff,
+                        )
+                        from harness_mem.hook_background import (
+                            background_generation_from_env,
+                        )
+
+                        evidence_packet = maintenance_payload.get("evidence_packet")
+                        evidence_error = (
+                            evidence_packet.get("error")
+                            if isinstance(evidence_packet, dict)
+                            else None
+                        )
+                        summary = maintenance_payload.get("summary")
+                        retry_after = (
+                            summary.get("distill_retry_after")
+                            if isinstance(summary, dict)
+                            else None
+                        )
+                        job_id = (
+                            summary.get("distill_job_id")
+                            if isinstance(summary, dict)
+                            else None
+                        )
+                        if (
+                            maintenance_payload.get("status") == "deferred"
+                            and isinstance(job_id, str)
+                            and isinstance(retry_after, str)
+                        ):
+                            record_post_turn_retry_backoff(
+                                backend.data_dir,
+                                project_name=project_name,
+                                project_root=project_root,
+                                trigger_id=args.trigger_id,
+                                client=client_override or "auto",
+                                dispatch_generation=background_generation_from_env(),
+                                job_id=job_id,
+                                retry_after=retry_after,
+                            )
+                        else:
+                            record_post_turn_preflight_failure(
+                                backend.data_dir,
+                                project_name=project_name,
+                                project_root=project_root,
+                                trigger_id=args.trigger_id,
+                                client=client_override or "auto",
+                                dispatch_generation=background_generation_from_env(),
+                                error={
+                                    "kind": "evidence_staging_failed",
+                                    "message": str(
+                                        evidence_error
+                                        or "post-turn transcript staging did not complete"
+                                    )[:512],
+                                },
+                            )
+                    if (
                         merged.distill_autonomous_enabled
                         and args.source == "ide_hook"
                         and os.environ.get("HARNESS_MEM_AUTONOMOUS_PROVIDER") != "1"
@@ -492,6 +773,9 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                     ):
                         from harness_mem.autonomous.worker import (
                             run_autonomous_distill_batch,
+                        )
+                        from harness_mem.hook_background import (
+                            background_generation_from_env,
                         )
 
                         try:
@@ -518,6 +802,14 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                                     else None
                                 ),
                                 launch_source=args.source,
+                                dispatch_generation=(
+                                    background_generation_from_env()
+                                    if os.environ.get(
+                                        "HARNESS_MEM_HOOK_BACKGROUND_WORKER"
+                                    )
+                                    == "1"
+                                    else None
+                                ),
                             )
                         except Exception as exc:  # noqa: BLE001 - staging remains valid.
                             logger.exception(
@@ -553,7 +845,7 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                 exit_code = (
                     ExitCode.SUCCESS
                     if post_turn_result["status"]
-                    in ("completed", "queued", "in_progress", "skipped")
+                    in ("completed", "queued", "in_progress", "deferred", "skipped")
                     else ExitCode.HOOK_FAILED
                 )
                 if exit_code == ExitCode.SUCCESS:
@@ -582,6 +874,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.wait:
+        if args.adapter and args.adapter not in {
+            "antigravity-stop",
+            "codex-stop",
+            "hermes-post",
+        }:
+            parser.error("--wait is only supported by post-turn adapters")
+        if not args.adapter and args.action != "post-turn-maintenance":
+            parser.error("--wait is only supported with --action post-turn-maintenance")
+    if args.wait_timeout is not None and not args.wait:
+        parser.error("--wait-timeout requires --wait")
+    if args.wait_timeout is not None and (
+        not math.isfinite(args.wait_timeout)
+        or args.wait_timeout <= 0
+        or args.wait_timeout > _MAX_WAIT_TIMEOUT_SECONDS
+    ):
+        parser.error(
+            "--wait-timeout must be greater than 0 and no more than "
+            f"{_MAX_WAIT_TIMEOUT_SECONDS:g} seconds"
+        )
     if args.adapter:
         if args.project_root is None and not args.adapter.startswith("hermes-"):
             parser.error("--project-root is required with --adapter")
@@ -592,6 +904,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--project-root is required")
     if args.source is None:
         parser.error("--source is required")
+    if args.wait and args.source != "ide_hook":
+        parser.error("--wait requires --source ide_hook")
     worker_generation: str | None = None
     worker_client = normalize_client_name(args.client)
     if (
@@ -617,7 +931,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             worker_generation = background_generation_from_env()
     try:
-        exit_code, stdout_payload = asyncio.run(run(args))
+        exit_code, stdout_payload = _run_request(args)
     finally:
         if worker_generation is not None and worker_client:
             from harness_mem.hook_background import finish_background_worker

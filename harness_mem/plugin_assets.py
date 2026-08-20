@@ -17,7 +17,11 @@ from harness_mem.version import WIRE_FORMAT_VERSION
 CommandProfile = Literal["daily"]
 
 PLUGIN_NAME = "harness-mem"
-PLUGIN_RELATIVE_ROOT = Path("plugins") / PLUGIN_NAME
+PLUGIN_RELATIVE_ROOTS = (
+    Path("code") / "plugins" / PLUGIN_NAME,
+    Path("plugins") / PLUGIN_NAME,
+)
+PLUGIN_RELATIVE_ROOT = PLUGIN_RELATIVE_ROOTS[0]
 PLUGIN_COMMAND_SOURCE_RELATIVE = PLUGIN_RELATIVE_ROOT / "commands" / "hm"
 PLUGIN_MANIFEST_RELATIVE = PLUGIN_RELATIVE_ROOT / ".codex-plugin" / "plugin.json"
 PLUGIN_SKILL_RELATIVE = PLUGIN_RELATIVE_ROOT / "skills" / "harness-mem" / "SKILL.md"
@@ -41,6 +45,14 @@ class PluginAssetPaths:
     skill: Path
 
 
+def _resolve_plugin_root(repo_root: Path) -> Path:
+    for relative_root in PLUGIN_RELATIVE_ROOTS:
+        candidate = repo_root / relative_root
+        if candidate.exists():
+            return candidate
+    return repo_root / PLUGIN_RELATIVE_ROOTS[0]
+
+
 def default_repo_root() -> Path:
     """Return the repo root when running from an editable checkout."""
 
@@ -49,15 +61,15 @@ def default_repo_root() -> Path:
 
 def plugin_asset_paths(repo_root: Path) -> PluginAssetPaths:
     root = Path(repo_root)
-    plugin_root = root / PLUGIN_RELATIVE_ROOT
-    command_source = root / PLUGIN_COMMAND_SOURCE_RELATIVE
+    plugin_root = _resolve_plugin_root(root)
+    command_source = plugin_root / "commands" / "hm"
     return PluginAssetPaths(
         repo_root=root,
         plugin_root=plugin_root,
-        manifest=root / PLUGIN_MANIFEST_RELATIVE,
+        manifest=plugin_root / ".codex-plugin" / "plugin.json",
         command_source=command_source,
-        daily_status=root / PLUGIN_DAILY_STATUS_RELATIVE,
-        skill=root / PLUGIN_SKILL_RELATIVE,
+        daily_status=command_source / "daily" / "status.md",
+        skill=plugin_root / "skills" / "harness-mem" / "SKILL.md",
     )
 
 

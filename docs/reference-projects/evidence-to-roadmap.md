@@ -12,11 +12,11 @@ The following are already shipped and therefore are not new roadmap items:
 |---|---|---|
 | Agent-active distill leases, backoff, and bounded refill | `harness_mem/storage/session_distill_store.py:227-462`, `harness_mem/commands/distill_lifecycle.py` | shipped; needs reconciliation/soak evidence |
 | Native source cleanup and receipt states | `harness_mem/native_source_cleanup.py:97-556`, `harness_mem/processed_source_cleanup.py` | shipped; adapter replay remains incomplete |
-| Storage v2 snapshot/staging/compare-before-swap | `harness_mem/storage/canonical_store.py`, `tests/test_canonical_store_migration.py` | shipped; derived-index generation is separate |
+| Storage v2 snapshot/staging/compare-before-swap | `harness_mem/storage/canonical_store.py`, `code/tests/test_canonical_store_migration.py` | shipped; derived-index generation is separate |
 | Compact/full MCP views and drilldown | `harness_mem/mcp/response_views.py`, `harness_mem/mcp/distill_projection.py` | shipped; budget telemetry is missing |
-| Two-stage semantic distill | `harness_mem/mcp/distill_handlers.py:170-230`, `tests/test_distill_projection.py` | shipped; quality needs independent fixtures |
-| Scale profiles and retrieval signals | `tests/benchmarks/test_retrieval_scale.py`, `harness_mem/retrieval_signals.py` | shipped; fixture diversity and index integrity remain gaps |
-| Seven-host synthetic memory test | `tests/test_cross_host_memory_e2e.py` | shipped; it bypasses real adapter scan and Dream admission |
+| Two-stage semantic distill | `harness_mem/mcp/distill_handlers.py:170-230`, `code/tests/test_distill_projection.py` | shipped; quality needs independent fixtures |
+| Scale profiles and retrieval signals | `code/tests/benchmarks/test_retrieval_scale.py`, `harness_mem/retrieval_signals.py` | shipped; fixture diversity and index integrity remain gaps |
+| Seven-host synthetic memory test | `code/tests/test_cross_host_memory_e2e.py` | shipped; it bypasses real adapter scan and Dream admission |
 
 ## Upstream evidence and decision
 
