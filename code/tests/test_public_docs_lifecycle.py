@@ -56,20 +56,24 @@ def test_retired_terminal_daily_command_modules_are_removed() -> None:
         assert not (Path("harness_mem/commands") / name).exists()
 
 
-def test_public_docs_describe_hooks_as_source_snapshot_not_auto_summary() -> None:
+def test_public_docs_describe_hooks_as_source_snapshot_and_dream_wakeup() -> None:
     policy = Path("docs/autopilot-search-policy.md").read_text(encoding="utf-8")
     cold_start = Path("docs/demo-cold-start.md").read_text(encoding="utf-8")
     flow_diagram = Path("docs/assets/harness-mem-cold-start-flow.svg").read_text(
         encoding="utf-8"
     )
 
-    assert "snapshot an immutable source revision + queue all chunks" in policy
-    assert "next Agent-capable wake or /hm:distill" in policy
+    assert "snapshot an immutable source revision + queue its job + wake Dream" in policy
+    assert "Hook-started Dream -> read the triggering session + verify + assimilate" in policy
+    assert "explicit /hm:distill -> active host" in policy
     assert "hooks only capture an immutable native transcript source revision" in cold_start
-    assert "Hooks save immutable revisions and queue every chunk" in flow_diagram
+    assert "A Hook wakes Dream with that immutable source" in cold_start
+    assert "Hooks save immutable revisions; Dream is the audited unattended executor" in flow_diagram
     assert "sync evidence + queue a distill task" not in policy
     assert "hooks only sync transcript evidence" not in cold_start
     assert "post-turn-maintenance runs distill" not in flow_diagram
+    assert "next Agent-capable wake or /hm:distill" not in policy
+    assert "finalize_session_distill` verifies completeness, then runs auto-review and\n  Dream" not in cold_start
 
 
 def test_current_docs_distinguish_five_modules_from_core_governance_feedback() -> None:
@@ -170,7 +174,7 @@ def test_legacy_lifecycle_docs_use_lossless_session_distill_contract() -> None:
     assert "final-session review" in combined
     assert "idempotent candidates" in combined
     assert "finalize_session_distill" in combined
-    assert "auto-review + Dream" in combined
+    assert "Hook-started Dream" in combined
 
     assert "evidence packet" not in combined.lower()
     assert "packet + Packet Audit" not in combined

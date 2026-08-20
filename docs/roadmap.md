@@ -23,7 +23,7 @@ duplicate legacy rows. It did not alter other projects.
 ## Releases `0.9.23` and `0.9.24`
 
 `0.9.23` introduces an operator-owned, restricted semantic
-provider profile for unattended work. A project may select only a named profile
+provider profile for unattended Dream work. A project may select only a named profile
 from the user's configuration; repository configuration cannot supply an
 endpoint or credential environment variable. Automatic model work still needs
 the separate project authorization `[distill.autonomous].enabled = true`.
@@ -83,9 +83,12 @@ product architecture remains the five independently measurable modules:
 -> 4. retrieval/use
 ```
 
-Review and Dream remain the governance feedback loop across modules 3--4. They
-re-open real sources, return to per-point verification, and use the same
-assimilation mutation path.
+Review and Dream remain the governance feedback loop across modules 3--4. A
+person explicitly running `distill` uses the active host; a Hook only persists
+the session/job and wakes Dream. Dream is the unattended executor: it may
+process the triggering session before its project-wide comparison, then returns
+all accepted work to per-point verification and the same assimilation mutation
+path.
 
 ## Locked decisions
 

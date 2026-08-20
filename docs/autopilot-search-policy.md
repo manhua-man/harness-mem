@@ -22,11 +22,11 @@ graph TD
     E -->|concrete uncertainty| F["search_memory"]
     E -->|no trigger| G["skip"]
     C --> H["save_point / session_end"]
-    H --> I["snapshot immutable source revision + queue every ordered chunk"]
-    I --> J["next Agent wake or /hm:distill"]
-    J --> K["checkpoint all chunks -> final-session review"]
-    K --> M["idempotent candidates -> finalize_session_distill"]
-    M --> L["auto-review + Dream governance feedback -> audit inbox: /hm:review"]
+    H --> I["snapshot immutable source revision + queue its job + wake Dream"]
+    I --> J["Hook-started Dream"]
+    J --> K["process triggering session -> verify -> assimilate"]
+    K --> M["project governance: recheck current knowledge"]
+    M --> L["audit and undo: /hm:review"]
 ```
 
 The product principle is the same shape as Constitutional AI: the human moves
@@ -39,9 +39,10 @@ the user inspect or undo outcomes later.
 ```text
 session_start -> wake
 context/tool/save_point -> task-aware search
-save_point/session_end -> snapshot an immutable source revision + queue all chunks
-next Agent-capable wake or /hm:distill -> checkpoint chunks + final review + idempotent candidates
-finalize_session_distill -> completeness check + auto-review + Dream
+save_point/session_end -> snapshot an immutable source revision + queue its job + wake Dream
+Hook-started Dream -> read the triggering session + verify + assimilate + project governance
+explicit /hm:distill -> active host checkpoints chunks + final review + idempotent candidates
+finalize_session_distill -> completeness check + auto-review for that explicit job only
 review -> post-hoc audit, correction, undo, supersede
 dream -> discover stale / duplicate / conflicting knowledge -> re-verify and assimilate with reversible audit
 ```
@@ -61,8 +62,8 @@ Gemini CLI, or other clients.
 | `session_start` | Resolve the workspace project and inject `wake` context. | SessionStart, before-agent-start, first context transform. |
 | `context_transform` | Add bounded memory context before an LLM request. | Pi `transformContext`, provider-payload/context hook. |
 | `tool_result` | Learn from file/search/test/build outcomes and decide whether extra memory search is useful. | PostToolUse, Pi `afterToolCall`, tool-result observer. |
-| `save_point` | Snapshot the settled native transcript as an immutable source revision and queue its complete ordered chunks. | turn end, message end, after-agent, save point. |
-| `session_end` | Flush the current source revision and preserve every queued chunk for the next Agent-capable invocation; it does not summarize. | Stop, SessionEnd, SubagentStop, idle/settled hook. |
+| `save_point` | Snapshot the settled native transcript as an immutable source revision, queue its complete ordered chunks, and wake Dream. | turn end, message end, after-agent, save point. |
+| `session_end` | Flush the current source revision, preserve every queued chunk, and wake Dream; the Hook itself does not summarize. | Stop, SessionEnd, SubagentStop, idle/settled hook. |
 
 The installer should configure every supported event the client exposes. If a
 platform lacks hooks, `/hm:wake`, `/hm:search`, `/hm:distill`, `/hm:review`,
@@ -86,13 +87,15 @@ The tool maps agent scheduling events rather than IDE names:
 | Before provider request | Pi `transformContext`, extension `context`, provider payload hook | Search only if the task text contains explicit recall, convention uncertainty, conflict, or long-horizon switch. |
 | Before a tool call | Pi `beforeToolCall`, Claude Code `PreToolUse` | Search only for convention/boundary uncertainty before a risky action. |
 | After a tool result | Pi `afterToolCall`, Claude Code `PostToolUse`, `PostToolUseFailure` | Search on errors, flaky outcomes, conflicts, or evidence that contradicts known truth. |
-| Save point / next turn | Pi `prepareNextTurn`, turn-end/after-agent | Snapshot the current source revision and queue all ordered chunks. The next Agent-capable wake resumes from durable chunk checkpoints, then refreshes context. |
+| Save point / next turn | Pi `prepareNextTurn`, turn-end/after-agent | Snapshot the current source revision, queue all ordered chunks, and wake Dream. Dream is the unattended executor for that job and project governance. |
 
 Session-start stays `wake`. Session-end captures an immutable native transcript
-revision and queues its complete ordered chunk set; it never claims semantic
-summarization completed. An Agent-capable wake or `/hm:distill` resumes the
-checkpointed distill pipeline. That separation keeps hook work small and the
-task-aware search policy testable inside `harness-mem`.
+revision, queues its complete ordered chunk set, and wakes Dream; the Hook
+never claims semantic summarization completed. Dream reopens that session and
+then performs the same verified assimilation boundary plus project governance.
+An explicit `/hm:distill` instead stays in the active host. That separation
+keeps Hook work small and the task-aware search policy testable inside
+`harness-mem`.
 
 ## Search Is Not Always-On
 
@@ -155,16 +158,17 @@ At save points or session end, the hook/runtime path only:
 1. Capture the native transcript as a project-scoped, immutable source revision.
 2. Split that complete revision into ordered chunks without truncating any
    character, turn, tool call, or final response.
-3. Queue every chunk durably for the next Agent-capable invocation.
+3. Queue every chunk durably and wake Dream with the new job.
 
 Observations remain derived search aids. They are not the authoritative
 transcript source and cannot replace the immutable source revision.
 
-When that Agent invocation occurs, wake returns an ordered structured offer of
-up to two jobs for the current task; jobs execute sequentially with independent
-failure boundaries. `/hm:distill` remains the explicit immediate/deep path and
-may process up to three jobs. The
-pipeline continues:
+Dream is the sole unattended semantic executor. It reopens the triggering
+session, processes its durable chunks, verifies claims, and assimilates only
+governed results. It also checks the project's current knowledge, sources, and
+feedback for stale, duplicate, or conflicting truth. `/hm:distill` remains the
+explicit immediate/deep path in the active host; it may process up to three
+jobs. That explicit pipeline continues:
 
 1. Claim each offered job by passing its `distill_job_id` to
    `prepare_session_distill` with `run_ingest=false`, preserving bounded
@@ -176,7 +180,8 @@ pipeline continues:
 4. Run risk-scaled admission and write admitted or narrowed claims as
    idempotent candidates.
 5. Call `finalize_session_distill`; it verifies completeness, runs candidate
-   auto-review, completes the distill job, and runs Dream.
+   auto-review, and completes that explicit distill job. It does not start a
+   separate Dream run.
 
 Low-risk candidates may become `auto_confirmed`. Risk-flagged but useful
 candidates may become `provisional`. Weak, conflicting, or dangerous items stay

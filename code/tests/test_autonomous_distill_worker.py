@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-import harness_mem.host_entry.__main__ as host_entry
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.autonomous.models import (
     AssimilationDecision,
@@ -93,7 +92,7 @@ def test_default_worker_provider_uses_bounded_distill_model(
 ) -> None:
     captured: dict[str, object] = {}
 
-    def build_default_provider(runtime_config):
+    def build_default_provider(runtime_config=None):
         from harness_mem.autonomous.provider import ResponsesApiProvider
 
         captured["runtime_config"] = runtime_config
@@ -121,12 +120,10 @@ def test_default_worker_provider_uses_bounded_distill_model(
 
     assert result["state"] == "idle"
     assert captured["model"] == DEFAULT_DISTILL_MODEL
-    runtime_config = captured["runtime_config"]
-    assert isinstance(runtime_config, dict)
-    assert runtime_config["semantic"]["execution"]["profile"] == ""
+    assert captured["runtime_config"] is None
 
 
-def test_profile_setup_failure_writes_a_waitable_hook_terminal_receipt(
+def test_explicit_worker_ignores_unattended_profile_selection(
     tmp_path: Path,
 ) -> None:
     backend = LocalMemoryBackend(tmp_path / "data")
@@ -145,7 +142,38 @@ def test_profile_setup_failure_writes_a_waitable_hook_terminal_receipt(
             trigger_id="session-profile-error",
             client="codex",
             dispatch_generation="generation-profile-error",
-            launch_source="ide_hook",
+            launch_source="manual",
+        )
+    finally:
+        asyncio.run(backend.close())
+
+    assert result["state"] == "idle"
+
+
+def test_hook_dream_profile_failure_writes_a_waitable_terminal_receipt(
+    tmp_path: Path,
+) -> None:
+    from harness_mem.commands.dream import dream_auto_tick
+    import harness_mem.host_entry.__main__ as host_entry
+
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    try:
+        result = asyncio.run(
+            dream_auto_tick(
+                backend,
+                project_name="demo",
+                project_root=str(project_root),
+                config=MergedConfig(
+                    distill_autonomous_enabled=True,
+                    semantic_execution_profile="missing-profile",
+                ),
+                source="ide_hook",
+                trigger_id="session-profile-error",
+                trigger_job_id="job-profile-error",
+            )
         )
         receipt_path = autonomous_receipt_path(
             backend.data_dir,
@@ -162,7 +190,7 @@ def test_profile_setup_failure_writes_a_waitable_hook_terminal_receipt(
             project_root=project_root,
             project_name="demo",
             trigger_id="session-profile-error",
-            dispatch_generation="generation-profile-error",
+            dispatch_generation=None,
             receipt_path=receipt_path,
             initial_receipt=None,
             timeout_seconds=1,
@@ -172,11 +200,10 @@ def test_profile_setup_failure_writes_a_waitable_hook_terminal_receipt(
     finally:
         asyncio.run(backend.close())
 
-    assert result["state"] == "setup_required"
+    assert result["status"] == "failed"
     assert receipt is not None
     assert receipt["state"] == "failed"
     assert receipt["trigger_id"] == "session-profile-error"
-    assert receipt["dispatch_generation"] == "generation-profile-error"
     assert receipt["error"]["kind"] == "setup_required"
     assert exit_code != 0
     assert json.loads(output)["state"] == "failed"
@@ -243,11 +270,26 @@ def test_autonomous_config_fingerprint_binds_selected_profile_without_key_value(
             }
         },
     )
+    changed_thinking_mode = MergedConfig(
+        distill_autonomous_enabled=True,
+        semantic_execution_profile="profile-a",
+        extras={
+            "semantic": {
+                "providers": {
+                    "profile-a": {
+                        **base.extras["semantic"]["providers"]["profile-a"],
+                        "thinking_mode": "disabled",
+                    }
+                }
+            }
+        },
+    )
 
     base_fingerprint = autonomous_config_fingerprint(base)
     assert base_fingerprint != autonomous_config_fingerprint(changed_endpoint)
     assert base_fingerprint != autonomous_config_fingerprint(changed_profile)
     assert base_fingerprint != autonomous_config_fingerprint(changed_output_mode)
+    assert base_fingerprint != autonomous_config_fingerprint(changed_thinking_mode)
 
 
 def test_post_turn_preflight_failure_writes_terminal_nonsemantic_receipt(
@@ -1707,6 +1749,146 @@ def test_assimilation_model_requires_one_target_for_refine() -> None:
                 ]
             }
         )
+
+
+def test_bounded_assimilation_resolves_points_that_reuse_a_mutating_truth_target(
+    tmp_path: Path,
+) -> None:
+    """A bounded collision receives one joint semantic decision, never defer."""
+
+    candidate_ids = ("candidate-confirm", "candidate-refine")
+    prepared = SeparatedPreparedAssimilation(
+        project_name="demo",
+        project_root=str(tmp_path),
+        candidate_ids=candidate_ids,
+        eligible_candidate_ids=candidate_ids,
+        automatic_points=(),
+        answer_status_by_candidate={candidate_id: "ANSWERED" for candidate_id in candidate_ids},
+        truth_by_handle={"T1": "truth-1"},
+        manifest={
+            "contract_version": "separated-knowledge-assimilation-v1",
+            "project_name": "demo",
+            "current_modules": ["governance"],
+            "verified_candidates": [
+                {
+                    "candidate_id": "candidate-confirm",
+                    "statement": "Historical data changes require explicit operator authorization.",
+                    "required_terms": [],
+                },
+                {
+                    "candidate_id": "candidate-refine",
+                    "statement": "Historical data may be changed only with explicit operator authorization.",
+                    "required_terms": [],
+                },
+            ],
+            "current_truth": [
+                {
+                    "handle": "T1",
+                    "kind": "knowledge_entry",
+                    "title": "Historical data protection",
+                    "statement": "Historical data changes require operator authorization.",
+                    "topic_path": ["governance"],
+                }
+            ],
+        },
+    )
+
+    class _Provider:
+        name = "truth-target-resolution-provider"
+
+        def __init__(self) -> None:
+            self.batches: list[list[str]] = []
+            self.resolution_manifest: dict | None = None
+
+        def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
+            del runtime_dir
+            batch = [item["candidate_id"] for item in manifest["verified_candidates"]]
+            self.batches.append(batch)
+            if heartbeat is not None:
+                heartbeat()
+            if manifest.get("truth_target_resolution"):
+                self.resolution_manifest = manifest
+                points = [
+                    {
+                        "candidate_id": "candidate-confirm",
+                        "disposition": "no_write",
+                        "matched_truth_handles": [],
+                        "canonical_title": None,
+                        "canonical_statement": None,
+                        "topic_path": [],
+                        "knowledge_items": [],
+                        "reason": "The joint comparison retains the more precise verified refinement.",
+                    },
+                    {
+                        "candidate_id": "candidate-refine",
+                        "disposition": "refine",
+                        "matched_truth_handles": ["T1"],
+                        "canonical_title": "Historical data authorization",
+                        "canonical_statement": "Historical data may be changed only with explicit operator authorization.",
+                        "topic_path": ["governance"],
+                        "knowledge_items": [],
+                        "reason": "The joint comparison supports this precise current-knowledge correction.",
+                    },
+                ]
+            elif batch == ["candidate-confirm"]:
+                points = [
+                    {
+                        "candidate_id": "candidate-confirm",
+                        "disposition": "confirm",
+                        "matched_truth_handles": ["T1"],
+                        "canonical_title": None,
+                        "canonical_statement": None,
+                        "topic_path": [],
+                        "knowledge_items": [],
+                        "reason": "The point confirms the current knowledge.",
+                    }
+                ]
+            else:
+                points = [
+                    {
+                        "candidate_id": "candidate-refine",
+                        "disposition": "refine",
+                        "matched_truth_handles": ["T1"],
+                        "canonical_title": "Historical data authorization",
+                        "canonical_statement": "Historical data may be changed only with explicit operator authorization.",
+                        "topic_path": ["governance"],
+                        "knowledge_items": [],
+                        "reason": "The point proposes a more precise current-knowledge correction.",
+                    }
+                ]
+            return ProviderResult(
+                decision=AssimilationDecision.model_validate({"points": points}),
+                provider=self.name,
+                model="deterministic-test",
+                duration_seconds=0.01,
+                input_sha256="a" * 64,
+                response_sha256="b" * 64,
+                input_tokens=10,
+                output_tokens=10,
+                total_tokens=20,
+                event_count=1,
+            )
+
+    provider = _Provider()
+    result = _assimilate_prepared_in_bounded_batches(
+        provider,
+        prepared=prepared,
+        runtime_dir=tmp_path,
+        heartbeat=None,
+    )
+
+    assert provider.batches == [
+        ["candidate-confirm"],
+        ["candidate-refine"],
+        ["candidate-confirm", "candidate-refine"],
+    ]
+    assert provider.resolution_manifest is not None
+    assert provider.resolution_manifest["truth_target_resolution"]["truth_handles"] == ["T1"]
+    assert [point.disposition for point in result.decision.points] == [
+        "no_write",
+        "refine",
+    ]
+    assert result.attempt_count == 3
 
 
 def test_assimilation_model_drops_redundant_legacy_canonical_fields() -> None:

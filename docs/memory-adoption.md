@@ -311,28 +311,42 @@ context cost, and zero audit-noise or obsolete-knowledge leakage by default.
 ## Core governance feedback: Review and Dream
 
 `review` and `dream` are core cross-module capabilities around stages 3--4,
-not a fifth linear knowledge stage and not operator-only maintenance.
+not a fifth linear knowledge stage and not operator-only maintenance. There are
+two session entry paths: a person can explicitly run `distill` in the active
+host, while a Hook records the session and wakes Dream. Hook never performs
+semantic work itself.
 
 ```text
-4. retrieval/use
--> useful / ignored / misleading / stale feedback
--> review / Dream
--> re-verify
--> refine, merge, supersede, or retire
--> 3. assimilation
+explicit distill
+-> active host reads one session
+-> extract -> verify -> assimilate
+
+Hook
+-> persist session/revision and job -> source-bound Dream activity
+-> Dream reads that session plus project knowledge, sources, and feedback
+-> extract or compare -> verify -> assimilate
 ```
 
 - **Review** is the human correction and adjudication path: confirm, reject,
   undo, correct, or supersede a memory when the evidence or product boundary
   requires a person to decide.
-- **Dream** is the automated governance path: discover stale, duplicate,
-  conflicting, mergeable, or replaceable knowledge, then route a proposal back
-  through verification and assimilation. Dream does not turn a discovery into
-  unverified current truth. A source-backed single-item recheck may refresh or
+- **Dream** is the only unattended semantic executor. A Hook-started Dream run
+  may first process its triggering session, then compare its evidence with the
+  whole project's current knowledge, sources, and feedback. It writes only the
+  verified result of that extraction/verification/assimilation loop, never an
+  unverified discovery. A source-backed single-item recheck may refresh or
   reversibly retire current knowledge only after the trusted runtime reopens a
   complete supported source and an explicitly authorized restricted provider
   returns the required semantic result. Unsupported, missing, or truncated
   sources, and multi-item comparisons, close without changing current truth.
+- **Bounded session assimilation** may initially assess independently verified
+  points one at a time. If those preliminary decisions would reuse one current
+  truth for a `refine` or `supersede`, Dream reopens the small conflict set as
+  one source-verified semantic decision before any write. That decision may
+  target the current truth at most once and must close the remaining points as
+  `no_write` or `reject`; it cannot use `defer`, `conflict`, or `handoff` to
+  avoid choosing. A provider or transaction failure remains a failed,
+  retryable job rather than being relabelled as a harmless terminal result.
 
 Audit receipts cross all five modules rather than forming a sixth stage:
 
@@ -345,10 +359,11 @@ The public actions map to the modules as follows:
 
 | Action or entry point | Architecture position |
 |---|---|
-| Hooks, detached worker, archive maintenance | Stage 0: session intake and lifecycle |
-| `distill` | Orchestrates stages 1--3 |
+| Hooks, archive maintenance | Stage 0: Hooks persist and queue; they do not call a provider |
+| `distill` | Explicit human path, orchestrated by the active host across stages 1--3 |
 | `wake`, `search`, `search-all` | Stage 4: retrieval/use |
-| `review`, `dream` | Core governance-feedback loop across stages 3--4 |
+| `dream` | Unattended Hook path and project governance across stages 1--3 and 3--4 |
+| `review` | Human correction, conflict resolution, and undo across stages 3--4 |
 | `status` | Summarizes actual state across stages 0--4 |
 
 Raw/timeline/audit reads, runtime reset, and storage repair remain explicit
@@ -372,11 +387,12 @@ operator or audit actions. They do not redefine the long-term knowledge model.
 - Revalidation reopens the current underlying source. An old audit result or
   hash explains how to find that source; it cannot prove the source still says
   the same thing.
-- An unattended semantic provider is chosen by a project only from named,
+- Dream's unattended semantic provider is chosen by a project only from named,
   user-owned connection profiles; profile selection and autonomous execution
-  each require their own project-level opt-in. Profile credentials are read
-  only from the referenced environment variable and never from repository
-  configuration or current knowledge.
+  each require their own project-level opt-in. A manually requested `distill`
+  remains in its active host and is never silently rerouted through that
+  profile. Profile credentials are read only from the referenced environment
+  variable and never from repository configuration or current knowledge.
 - Review undo retains at most the newest 32 project mutations and the version
   snapshots they still reference. Older mutation/version rows are removed in
   the same SQLite transaction as the new mutation; they are not an unlimited

@@ -33,7 +33,7 @@ Invocation surfaces (installed once at user scope, then visible in every project
 
 - `/hm:*` commands: `status`, `wake`, `search`, `search-all`, `distill`, `review`, `dream`.
 - Agent MCP calls: plain language, skills, or hooks trigger `wake/search/distill/review`.
-- Hooks: inject wake context, enforce retention, and dispatch a detached autonomous distill worker. The exact Stop session gets the first slot; one bounded backlog slot then follows the 3:1 recent/oldest refill and daily backlog budget. Each job runs through a no-tools Structured Output provider with review leases and failure backoff. Missing provider/auth configuration remains explicit retryable work rather than a false completion.
+- Hooks: inject wake context, enforce retention, save an immutable session revision, and create or advance its job. A Hook then wakes Dream with that exact source reference; Dream, not the Hook, performs unattended session distillation and project governance through a no-tools provider. Missing provider/auth configuration remains explicit retryable work rather than a false completion.
 - CLI: setup, doctor, config, integration, and maintenance only.
 
 Everyday use reduces to three intents: continue work with `wake/search`, remember
@@ -309,21 +309,23 @@ the new project hooks once, then start a new task. Until a matching
 `SessionStart` hook has actually completed, `get_project_status` reports
 `hooks=review_required` rather than claiming wake is operational.
 
-Autonomous semantic processing requires a project-scoped authorization because
-it sends the compact manifest to the configured model provider and may consume
-quota. Enable it only in projects that should use model calls; future Stop turns
-in that project do not ask again:
+Unattended Dream processing requires a project-scoped authorization. A Stop Hook
+only saves the immutable session revision, creates or advances its job, and
+wakes Dream. Dream then processes that session and project-level knowledge in
+the background, using the configured provider and consuming its quota:
 
 ```bash
 harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
 The global default is `false`. Projects without this authorization keep captured
-jobs queued for explicit processing. Disabling never requires confirmation.
+jobs queued for explicit processing. An explicit `distill` stays in the active
+host, for example Codex when you ask Codex to process a Codex archive; it is not
+silently sent to the background profile. Disabling never requires confirmation.
 
 Version `0.9.24` supports an operator-owned
-restricted provider profile for autonomous distillation and Dream source
-rechecks. Keep the endpoint and environment-variable reference in the user
+restricted provider profile for unattended Dream, including Hook-started session
+distillation and project source rechecks. Keep the endpoint and environment-variable reference in the user
 configuration (never in a repository), then select that already approved
 profile for one authorized project:
 
@@ -335,6 +337,7 @@ base_url = "https://gateway.example/v1"
 api_key_env = "HARNESS_MEM_GATEWAY_KEY"
 model = "operator-approved-model"
 output_mode = "json" # default: "tool"; use for gateways that reject forced output tools
+thinking_mode = "disabled" # use when a reasoning gateway returns thinking but no final JSON text
 ```
 
 ```bash
@@ -344,7 +347,9 @@ harness-mem config set semantic.execution.profile local-gateway --scope project
 The profile has no access to Agent tools, MCP, the filesystem, or host rules;
 it returns only the required structured semantic decision. `output_mode = "json"`
 is a no-tool compatibility channel for gateways that reject forced output tools:
-non-JSON or schema-invalid text fails closed. A selected profile does not
+non-JSON or schema-invalid text fails closed. For an Anthropic-compatible
+reasoning gateway that returns only a thinking block, `thinking_mode =
+"disabled"` requests a final JSON response instead. A selected profile does not
 authorize model calls on its own: the project must also have
 `distill.autonomous.enabled=true`.
 

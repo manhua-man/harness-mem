@@ -1779,9 +1779,6 @@ def tool_finalize_session_distill(
     semantic_allows_candidate_review = _semantic_review_allows_candidate_review(
         completed.semantic_review
     )
-    semantic_allows_dream = _semantic_review_allows_promotion(
-        completed.semantic_review
-    )
     dream_result: dict[str, Any] | None = None
     evidence_admission = {
         "repository_verified": 0,
@@ -1853,27 +1850,6 @@ def tool_finalize_session_distill(
             "reason": "semantic_review_blocks_candidate_review",
             "candidate_ids": candidate_ids,
         }
-    try:
-        if semantic_allows_dream:
-            dream_result = asyncio.run(
-                dream_auto_tick(
-                    backend,
-                    project_name=project_name,
-                    project_root=completed.project_root,
-                    config=config,
-                    source="agent",
-                )
-            )
-            payload["dream"] = dream_result
-    except Exception as exc:  # noqa: BLE001 - completed distill remains auditable.
-        dream_result = {
-            "success": False,
-            "status": "failed",
-            "project_name": project_name,
-            "error": f"{type(exc).__name__}: {exc}"[:512],
-        }
-        payload["dream"] = dream_result
-
     promotion_counts = (
         assimilation_summary
         if assimilation_summary is not None

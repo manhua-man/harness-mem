@@ -6,7 +6,7 @@ tags: [harness-mem, distill, memory]
 wireFormatVersion: hm-wire-v3.5
 ---
 
-同步指定项目的 native transcript revision，从头到尾处理全部有序 chunk，完成会话末尾审查后生成候选，并通过 `finalize_session_distill` 对当前 job 运行限定范围的 auto-review 和 Dream。`/hm-review` 是事后审计、undo、确认和替换入口。
+在当前宿主中同步指定项目的 native transcript revision，从头到尾处理全部有序 chunk，完成会话末尾审查后生成候选，并通过 `finalize_session_distill` 只对当前显式 job 运行限定范围的 auto-review。Hook 发起的会话由 Dream 在后台处理，人工 `distill` 不会隐式启动 Dream。`/hm-review` 是事后审计、undo、确认和替换入口。
 
 **MCP Tool Names**
 
@@ -183,7 +183,7 @@ wireFormatVersion: hm-wire-v3.5
 
 **Notes**
 
-- `/hm-distill` 是同一自动管线的立即执行入口：读取证据、生成会话摘要、提炼候选、自动处理低风险项、触发 Dream；默认摘要简短但必须让用户知道会话做了什么
+- `/hm-distill` 是当前宿主的立即执行入口：读取证据、生成会话摘要、提炼候选并自动处理当前 job 的低风险项；Hook 才会唤醒后台 Dream，默认摘要仍必须让用户知道会话做了什么
 - `/hm-review` 是 audit inbox：确认、拒绝、undo、替换候选都在这里发生
 - 原文默认保留；只有用户明确开启并通过 `config set distill.delete_source_after_complete true --scope user --confirm` 写入持久策略，才授权后续完成会话自动清理；不逐会话确认，实际结果以 `source_cleanup.status` 为准
 - 不要把具体客户端写死为默认来源；默认入口必须是 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根目录>)`

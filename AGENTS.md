@@ -39,7 +39,7 @@
 
 `0.9.22` 已实现会话生命周期、无损提取、逐点验证、SQLite 当前知识、job 范围临时处理材料、干净检索，以及显式授权的 detached semantic execution。当前 normal wake/search 已把 raw Observation 和内部审计元数据隔离到 deep recall 或诊断面。
 
-`0.9.23` 增加用户配置中 operator-owned 的受限 semantic provider profile，以及只针对完整、可重开来源的终态 Dream 复核；`0.9.24` 为拒绝强制 tool 输出的 Anthropic 兼容网关增加经严格 schema 校验的无工具 JSON 模式。profile 选择和 autonomous execution 都需要项目级显式授权；截断、缺失、不支持来源和多条比较信号不改写当前知识。
+`0.9.23` 增加用户配置中 operator-owned 的受限 semantic provider profile，以及只针对完整、可重开来源的终态 Dream 复核；`0.9.24` 为拒绝强制 tool 输出的 Anthropic 兼容网关增加经严格 schema 校验的无工具 JSON 模式。profile 仅供无人值守的 Dream 使用，选择与 autonomous execution 都需要项目级显式授权；人工在当前宿主显式执行的 `distill` 不会被改道到该 profile。截断、缺失、不支持来源和多条比较信号不改写当前知识。
 
 兼容 `MemoryEntry` 历史行仍可读取，但新知识不再把 candidate、evidence、decision 和 truth 混成一个对象。`canonical.sqlite` 中的 `knowledge_entries` 是当前知识 authority；新候选、证据和拟议归纳决定属于 job 范围临时材料，成功终态经证明后按策略清理；最小知识来源与必要 undo 版本独立关联；Markdown 仅在阅读/导出时生成。六会话冻结 oracle、真实 Hook 与 14 项 outcome 已通过。普通开发、启动或文档更新均不得迁移真实记忆；仅限操作员单独授权的、明确项目范围的维护运行可以重验来源、原子重写或可逆地退役历史行。一次已授权的 `harness-mem` 范围收敛已完成，其他项目和后续历史数据仍需新的明确授权。
 
@@ -60,7 +60,7 @@
 ### 0. 会话接入与生命周期
 
 - **处理单位：** 一个原生 session 及其一个不可变 revision；运行时继续管理 chunk、job、lease 和 receipt。
-- **负责：** 七宿主接入、项目与授权解析、不可变 source version、无损分块、增量 revision、hash/完整性校验、队列/并发/幂等/重试、Hook/provider/final receipt 绑定，以及按策略保留或清理来源。
+- **负责：** 七宿主接入、项目与授权解析、不可变 source version、无损分块、增量 revision、hash/完整性校验、队列/并发/幂等/重试、Hook/final receipt 绑定，以及按策略保留或清理来源。Hook 只创建或推进 job，并发出带 session/revision 引用的 Dream 活动信号；它不执行语义判断。
 - **不负责：** 判断会话中的陈述是否值得长期记忆。
 - **质量信号：** 不漏 session、不漏内容、不重复处理；revision 可重构；重试后有可靠终态；receipt 与 session/job 可证明绑定；来源不会越权删除。
 - **主要 owner：** `harness_mem/adapters/`、`harness_mem/host_entry/`、`harness_mem/transcript_chunking.py`、`harness_mem/storage/transcript_store.py`、`harness_mem/storage/session_distill_store.py`、`harness_mem/hook_*.py`、`harness_mem/native_source_cleanup.py`。
@@ -103,14 +103,17 @@
 
 ### Review 与 Dream 治理反馈
 
-Review 与 Dream 是跨阶段 3～4 的治理反馈能力，不是线性第六阶段，也不是每天必经的人工写入门：
+Review 与 Dream 是跨阶段 3～4 的治理反馈能力，不是线性第六阶段，也不是每天必经的人工写入门。会话可从两条入口进入同一套提取、验证与吸收合同：
 
 ```text
-4. 检索使用
-→ useful / ignored / misleading / stale / conflict 反馈
-→ Review（人工纠错、撤销、裁决）或 Dream（自动发现陈旧、重复、冲突、可合并/替换知识）
-→ 重新验证
-→ 归纳吸收
+人工 `distill`
+→ 当前宿主读取会话
+→ 提取 → 验证 → 归纳吸收
+
+Hook
+→ 保存会话与 job，发出带来源引用的 Dream 活动信号
+→ Dream 在后台读取该会话和项目当前知识/来源/反馈
+→ 提取或比较 → 验证 → 归纳吸收
 → 当前长期知识
 ```
 
@@ -178,10 +181,10 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | `status` | 汇总阶段 0～4 的真实状态 |
 | `wake` | 阶段 4：加载干净、紧凑的当前项目上下文 |
 | `search` / `search-all` | 阶段 4：项目内或显式跨项目检索 |
-| `distill` | 编排阶段 1～3；不另起第二条推广管线 |
+| `distill` | 人工显式入口；由当前宿主编排阶段 1～3 |
 | `review` | 事后人工审计、纠错、undo 和 supersede |
-| `dream` | 自动治理反馈；发现问题后回到验证与吸收 |
-| Hook、detached worker、archive maintenance | 阶段 0 生命周期入口 |
+| `dream` | 唯一无人值守的执行者；处理 Hook 触发会话并进行项目级治理，再回到验证与吸收 |
+| Hook、archive maintenance | 阶段 0 生命周期入口；Hook 只排队和唤醒 Dream |
 
 ## 数据、隐私与运行时边界
 
@@ -242,7 +245,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 - 提取只输出待验证说法与来源定位；`disposition`、标题和自然功能模块全部由归纳吸收阶段决定。项目模块不设硬编码白名单，未知模块名也不能仅因非空就自动写入，必须由已验证知识和项目级归纳结果支持。
 - extraction、verification、assimilation 是三个不同判断：发现了候选不等于证据成立，证据成立也不等于必须写入。
 - 一场会话可以同时有已回答的 durable point 和未完成 handoff；无关 handoff 不应否决其他已回答 point。
-- `finalize_session_distill` 是同一 job 的唯一提交点；不要额外调用平行 auto-review 或 Dream 形成第二条收尾管线。
+- `finalize_session_distill` 是人工会话蒸馏 job 的唯一提交点；不要额外调用平行 auto-review 或另一个隐式后台蒸馏管线。Hook 触发的会话由 Dream 统一处理。
 
 ## AI Assistant Tool Routing
 

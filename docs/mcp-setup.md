@@ -126,8 +126,9 @@ remain in-memory so they cannot replace a newer canonical search projection.
 After structural coverage and semantic reading complete, the Agent submits a structured
 end-of-session review. Candidate writes
 bound to that job use stable IDs so retries do not duplicate memory.
-`finalize_session_distill` applies the shared automatic policy, completes that
-one explicit job, runs Dream, and returns `completion`, `promotion`,
+`finalize_session_distill` applies the shared automatic policy and completes
+that one explicit active-host job. It does not start a second unattended Dream
+run; Hook-started Dream is the separate background path. It returns `completion`, `promotion`,
 `queue_effect`, and `source_cleanup` summaries. Safe candidates enter the
 truth layer; everything else is terminally rejected instead of becoming a
 recurring daily prompt. `/hm:review` remains an optional correction, audit, and
@@ -288,6 +289,7 @@ Search harness-mem for the relevant project decision.
   surface.
 - Daily use should happen through the Agent client and MCP tools.
 - `distill` creates candidates only after complete evidence review;
-  `finalize_session_distill` applies the shared automatic governance policy
-  and runs Dream. `/hm:review` is the post-hoc audit, correction, and undo
+  `finalize_session_distill` applies the shared automatic governance policy to
+  that explicit active-host job only. Hook-started Dream is the separate
+  unattended path. `/hm:review` is the post-hoc audit, correction, and undo
   surface, not a required promotion gate.

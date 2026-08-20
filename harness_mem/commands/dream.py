@@ -1425,13 +1425,109 @@ async def dream_auto_tick(
     config: MergedConfig,
     source: DreamSource = "agent",
     trigger_id: str | None = None,
+    trigger_job_id: str | None = None,
 ) -> dict[str, Any]:
+    hook_session: dict[str, Any] | None = None
+    selected_provider: Any | None = None
+    if source == "ide_hook" and trigger_job_id:
+        try:
+            selected_provider = _dream_provider_from_config(config)
+        except ProviderError as exc:
+            from harness_mem.autonomous.worker import (
+                record_post_turn_preflight_failure,
+            )
+            from harness_mem.hook_background import background_generation_from_env
+
+            record_post_turn_preflight_failure(
+                backend.data_dir,
+                project_name=project_name,
+                project_root=project_root,
+                trigger_id=trigger_id,
+                client="dream",
+                dispatch_generation=background_generation_from_env(),
+                error={"kind": exc.kind, "message": str(exc)},
+            )
+            return await _record_dream_tick(
+                backend,
+                project_name=project_name,
+                source=source,
+                trigger_id=trigger_id,
+                payload={
+                    "success": False,
+                    "status": "failed",
+                    "project_name": project_name,
+                    "reason": str(exc),
+                    "session_distill": {
+                        "job_id": trigger_job_id,
+                        "state": exc.kind,
+                    },
+                },
+            )
+        if selected_provider is None:
+            return await _record_dream_tick(
+                backend,
+                project_name=project_name,
+                source=source,
+                trigger_id=trigger_id,
+                payload={
+                    "success": False,
+                    "status": "failed",
+                    "project_name": project_name,
+                    "reason": (
+                        "Hook-started Dream needs an authorized semantic provider profile; "
+                        "the session job remains queued."
+                    ),
+                    "session_distill": {
+                        "job_id": trigger_job_id,
+                        "state": "setup_required",
+                    },
+                },
+            )
+        from harness_mem.autonomous.worker import run_autonomous_distill_batch
+        from harness_mem.hook_background import background_generation_from_env
+
+        hook_session = await asyncio.to_thread(
+            run_autonomous_distill_batch,
+            backend,
+            project_name=project_name,
+            project_root=project_root,
+            config=config,
+            trigger_id=trigger_id,
+            client="dream",
+            provider=selected_provider,
+            max_jobs=1,
+            preferred_job_id=trigger_job_id,
+            launch_source="ide_hook",
+            dispatch_generation=background_generation_from_env(),
+        )
+        if not hook_session.get("success", False):
+            return await _record_dream_tick(
+                backend,
+                project_name=project_name,
+                source=source,
+                trigger_id=trigger_id,
+                payload={
+                    "success": False,
+                    "status": "failed",
+                    "project_name": project_name,
+                    "reason": str(
+                        hook_session.get("reason")
+                        or hook_session.get("state")
+                        or "hook session distill failed"
+                    ),
+                    "session_distill": _dream_session_receipt(
+                        hook_session, trigger_job_id
+                    ),
+                },
+            )
+
     decision = await dream_scheduler_decision(
         backend,
         project_name=project_name,
         config=config,
     )
-    if not decision.eligible:
+    force_for_hook_session = hook_session is not None
+    if not decision.eligible and not force_for_hook_session:
         return await _record_dream_tick(
             backend,
             project_name=project_name,
@@ -1455,7 +1551,11 @@ async def dream_auto_tick(
         phase="metabolism",
         status="processing",
         source=source,
-        input_refs=[decision.last_run_id] if decision.last_run_id else [],
+        input_refs=[
+            value
+            for value in (decision.last_run_id, trigger_job_id)
+            if value
+        ],
         created_at=started_at,
         updated_at=started_at,
     )
@@ -1488,7 +1588,7 @@ async def dream_auto_tick(
         project_name=project_name,
         config=config,
     )
-    if not confirmed_decision.eligible:
+    if not confirmed_decision.eligible and not force_for_hook_session:
         job.phase = "done"
         job.status = "completed"
         job.completed_at = _now()
@@ -1517,7 +1617,18 @@ async def dream_auto_tick(
             source=source,
             reflection_job_id=job.id,
             timeout_seconds=config.dream_auto_max_runtime_seconds,
+            semantic_provider=selected_provider,
         )
+        if hook_session is not None:
+            run.notes = list(run.notes or [])
+            run.notes.append(
+                "Hook session distill "
+                f"{_dream_session_receipt(hook_session, trigger_job_id)['state']}: "
+                f"{trigger_job_id}"
+            )
+            await cast(LocalStructuredStore, backend.structured_store).save_dream_run(
+                run
+            )
         job.phase = "done"
         job.status = "completed" if run.status == "completed" else "failed"
         job.output_candidate_ids = [item.source_id for item in run.items]
@@ -1537,6 +1648,11 @@ async def dream_auto_tick(
                 "job_id": job.id,
                 "run_id": run.id,
                 "summary": run.handling_summary,
+                "session_distill": (
+                    _dream_session_receipt(hook_session, trigger_job_id)
+                    if hook_session is not None
+                    else None
+                ),
             },
         )
     except Exception as exc:
@@ -1663,6 +1779,7 @@ async def _run_dream_with_progress_timeout(
     source: DreamSource,
     reflection_job_id: str,
     timeout_seconds: int,
+    semantic_provider: Any | None = None,
 ) -> DreamRun:
     seconds = max(1, timeout_seconds)
     deadline = _now() + timedelta(seconds=seconds)
@@ -1676,6 +1793,7 @@ async def _run_dream_with_progress_timeout(
                 source=source,
                 reflection_job_id=reflection_job_id,
                 deadline=deadline,
+                semantic_provider=semantic_provider,
             ),
             timeout=seconds,
         )
@@ -1702,6 +1820,35 @@ async def _run_dream_with_progress_timeout(
             run.notes.append("dream runtime exceeded max_runtime_seconds")
             await store.save_dream_run(run)
         raise TimeoutError("dream runtime exceeded max_runtime_seconds") from None
+
+
+def _dream_session_receipt(
+    payload: dict[str, Any],
+    job_id: str | None,
+) -> dict[str, Any]:
+    outcomes = [
+        item
+        for item in payload.get("outcomes", [])
+        if isinstance(item, dict)
+    ]
+    completed = sum(item.get("status") == "completed" for item in outcomes)
+    return {
+        "job_id": job_id,
+        "state": str(payload.get("state") or "unknown"),
+        "completed": completed,
+        "provider": str(
+            next(
+                (
+                    item.get("provider", {}).get("name")
+                    for item in outcomes
+                    if isinstance(item.get("provider"), dict)
+                    and item.get("provider", {}).get("name")
+                ),
+                "",
+            )
+            or ""
+        ),
+    }
 
 
 async def cmd_dream(

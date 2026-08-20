@@ -44,7 +44,7 @@ until the active Router/direct namespace has been checked.
 - `prepare_session_distill`: syncs native revisions. Daily `evidence_mode="semantic", detail_level="compact"` hash-verifies/checkpoints every raw chunk and returns an all-indexed manifest; `budget_tokens` is a configurable soft target for the complete Agent-visible response (3000 is only the default), and `response_budget` reports actual cost/expansion. Selected semantic windows and raw proof are separate drilldowns. `detail_level="full"` and `evidence_mode="raw"` are explicit audit paths.
 - `submit_distill_chunk`: checkpoints one completely read chunk so interrupted work can resume without skipping content.
 - `code/tools/hm-distill/SKILL.md`: instruction-only Agent playbook for final review and candidate drafting.
-- `finalize_session_distill`: verifies revision currency, complete chunk coverage, and semantic promotion gates, then reviews only the current job's candidates and runs Dream.
+- `finalize_session_distill`: verifies revision currency, complete chunk coverage, and semantic promotion gates, then reviews only the current explicit job's candidates. It never starts a second unattended Dream run.
 - `auto_review_candidates`: project-level audit/maintenance tool, not the lossless session finalization stage.
 - `search_memory` / `timeline`: finds prior decisions, errors, discussions, and event history.
 - `govern_memory` / `list_candidates`: create and review durable memory candidates through one public write boundary.

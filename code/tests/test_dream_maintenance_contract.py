@@ -243,6 +243,62 @@ def test_dream_semantic_profile_requires_project_autonomous_authorization(
     ) is selected
 
 
+def test_hook_dream_passes_its_selected_profile_to_session_distill(
+    backend,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected = _DreamVerificationProvider()
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        dream_module, "build_semantic_provider", lambda _config: selected
+    )
+
+    def fake_worker(_backend, **kwargs):
+        captured.update(kwargs)
+        return {"success": True, "state": "succeeded", "outcomes": []}
+
+    async def fake_dream_run(*_args, **kwargs):
+        captured["dream_provider"] = kwargs["semantic_provider"]
+        now = datetime.now(timezone.utc)
+        return DreamRun(
+            project_name="demo",
+            started_at=now,
+            completed_at=now,
+            status="completed",
+            trigger_source="ide_hook",
+            reflection_job_id=kwargs["reflection_job_id"],
+        )
+
+    from harness_mem.autonomous import worker as autonomous_worker
+
+    monkeypatch.setattr(autonomous_worker, "run_autonomous_distill_batch", fake_worker)
+    monkeypatch.setattr(dream_module, "_run_dream_with_progress_timeout", fake_dream_run)
+
+    result = _run(
+        dream_auto_tick(
+            backend,
+            project_name="demo",
+            project_root=str(tmp_path),
+            config=MergedConfig(
+                distill_autonomous_enabled=True,
+                semantic_execution_profile="hermes-sub2api",
+            ),
+            source="ide_hook",
+            trigger_id="session-42",
+            trigger_job_id="job-42",
+        )
+    )
+
+    assert result["success"] is True
+    assert result["session_distill"]["job_id"] == "job-42"
+    assert captured["provider"] is selected
+    assert captured["preferred_job_id"] == "job-42"
+    assert captured["client"] == "dream"
+    assert captured["dream_provider"] is selected
+
+
 def test_dream_closes_legacy_supersede_candidates_without_pending_review(
     backend,
     monkeypatch: pytest.MonkeyPatch,
@@ -1328,7 +1384,7 @@ def test_disabled_embedding_context_uses_only_persisted_vectors(
     assert vectors[ids[0]] == pytest.approx([0.6, 0.8])
 
 
-def test_post_turn_runs_dream_before_ingest_with_embeddings_disabled(
+def test_post_turn_stages_before_waking_dream_with_embeddings_disabled(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1346,6 +1402,7 @@ def test_post_turn_runs_dream_before_ingest_with_embeddings_disabled(
     async def fake_dream_tick(_backend, **kwargs):
         assert embeddings_disabled() is True
         assert kwargs["trigger_id"] == "turn-99"
+        assert kwargs["trigger_job_id"] is None
         observed.append("dream")
         return {
             "success": True,
@@ -1380,6 +1437,6 @@ def test_post_turn_runs_dream_before_ingest_with_embeddings_disabled(
         )
     )
 
-    assert observed == ["dream", "ingest"]
+    assert observed == ["ingest", "dream"]
     assert payload["dream_tick"]["status"] == "skipped"
     assert payload["summary"]["dream_tick_receipt_state"] == "recorded"

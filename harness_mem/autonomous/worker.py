@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -287,6 +287,7 @@ def autonomous_config_fingerprint(config: MergedConfig) -> str:
             "assimilation_model",
             "timeout_seconds",
             "output_mode",
+            "thinking_mode",
         ):
             if key in raw_profile:
                 value = raw_profile[key]
@@ -629,9 +630,11 @@ def run_autonomous_distill_batch(
     # Agent model change cannot silently reintroduce provider latency.
     started_at = _now()
     try:
-        chosen_provider = provider or build_semantic_provider(
-            config.to_runtime_config()
-        )
+        # This worker is also the explicit, active-host distill path. Its
+        # default remains Codex Responses even when a project selects a
+        # separate unattended Dream profile. Dream passes that provider
+        # explicitly when it invokes this bounded worker.
+        chosen_provider = provider or build_semantic_provider()
     except ProviderError as exc:
         _record_post_turn_nonsemantic_terminal_receipt(
             backend.data_dir,
@@ -2080,8 +2083,200 @@ def _assimilate_prepared_in_bounded_batches(
                 )
 
     combined_decision = AssimilationDecision(points=combined_points)
-    validate_separated_assimilation_decision(prepared, combined_decision)
+    try:
+        validate_separated_assimilation_decision(prepared, combined_decision)
+    except ValueError:
+        # Per-point batches intentionally keep prompt size bounded. A later
+        # point can still select a truth handle that an earlier point merely
+        # confirmed and another point mutates. Re-submit only that small
+        # collision set with the revalidated source-backed candidate claims
+        # and the current truth. This makes the semantic executor choose one
+        # complete outcome instead of silently writing a partial mutation or
+        # leaving a pseudo-final ``defer`` record behind.
+        conflict = _conflicting_truth_target_candidates(combined_decision)
+        if conflict is None:
+            raise
+        resolution_prepared = _prepare_truth_target_resolution(
+            prepared,
+            decision=combined_decision,
+            candidate_ids=conflict.candidate_ids,
+            truth_handles=conflict.truth_handles,
+        )
+
+        def validate_resolution(candidate: AssimilationDecision) -> dict[str, Any]:
+            normalized = validate_separated_assimilation_decision(
+                resolution_prepared,
+                candidate,
+            )
+            _validate_truth_target_resolution(
+                candidate,
+                truth_handles=conflict.truth_handles,
+            )
+            return normalized
+
+        resolution = _assimilate_with_schema_retry(
+            provider,
+            manifest=resolution_prepared.manifest,
+            runtime_dir=runtime_dir,
+            heartbeat=heartbeat,
+            validate_decision=validate_resolution,
+        )
+        if not isinstance(resolution.decision, AssimilationDecision):
+            raise ProviderError(
+                "truth-target resolution returned an unexpected decision type",
+                kind="unrecoverable",
+            )
+        normalized_resolution = normalize_identical_truth_mutations(
+            resolution_prepared,
+            resolution.decision,
+        )
+        if normalized_resolution is not resolution.decision:
+            resolution = replace(resolution, decision=normalized_resolution)
+        validate_resolution(resolution.decision)
+        results.append(resolution)
+        conflict_ids = set(conflict.candidate_ids)
+        combined_decision = AssimilationDecision(
+            points=[
+                point
+                for point in combined_decision.points
+                if point.candidate_id not in conflict_ids
+            ]
+            + list(resolution.decision.points)
+        )
+        validate_separated_assimilation_decision(prepared, combined_decision)
     return _combine_provider_results(results, decision=combined_decision)
+
+
+@dataclass(frozen=True)
+class _TruthTargetConflict:
+    """The bounded candidate set that must resolve one mutable truth target."""
+
+    candidate_ids: tuple[str, ...]
+    truth_handles: tuple[str, ...]
+
+
+def _conflicting_truth_target_candidates(
+    decision: AssimilationDecision,
+) -> _TruthTargetConflict | None:
+    """Locate the specific points that require a second, joint decision."""
+
+    target_points: dict[str, list[Any]] = {}
+    for point in decision.points:
+        for handle in point.matched_truth_handles:
+            target_points.setdefault(str(handle), []).append(point)
+    conflicting_handles = {
+        handle
+        for handle, points in target_points.items()
+        if len(points) > 1
+        and any(point.disposition in {"refine", "supersede"} for point in points)
+    }
+    if not conflicting_handles:
+        return None
+    candidate_ids = tuple(
+        dict.fromkeys(
+            str(point.candidate_id)
+            for handle in sorted(conflicting_handles)
+            for point in target_points[handle]
+        )
+    )
+    return _TruthTargetConflict(
+        candidate_ids=candidate_ids,
+        truth_handles=tuple(sorted(conflicting_handles)),
+    )
+
+
+def _prepare_truth_target_resolution(
+    prepared: SeparatedPreparedAssimilation,
+    *,
+    decision: AssimilationDecision,
+    candidate_ids: tuple[str, ...],
+    truth_handles: tuple[str, ...],
+) -> SeparatedPreparedAssimilation:
+    """Build a small, source-verified adjudication manifest for one collision."""
+
+    projections = {
+        str(item.get("candidate_id") or ""): dict(item)
+        for item in prepared.manifest.get("verified_candidates") or []
+        if isinstance(item, dict)
+    }
+    if any(candidate_id not in projections for candidate_id in candidate_ids):
+        raise ProviderError(
+            "truth-target resolution is missing a verified candidate projection",
+            kind="unrecoverable",
+        )
+    truth_by_handle = {
+        handle: prepared.truth_by_handle[handle]
+        for handle in truth_handles
+        if handle in prepared.truth_by_handle
+    }
+    if set(truth_by_handle) != set(truth_handles):
+        raise ProviderError(
+            "truth-target resolution references unavailable current truth",
+            kind="unrecoverable",
+        )
+    resolution_points = [
+        point.model_dump(mode="json")
+        for point in decision.points
+        if point.candidate_id in set(candidate_ids)
+    ]
+    return SeparatedPreparedAssimilation(
+        project_name=prepared.project_name,
+        project_root=prepared.project_root,
+        candidate_ids=candidate_ids,
+        eligible_candidate_ids=candidate_ids,
+        automatic_points=(),
+        answer_status_by_candidate={
+            candidate_id: prepared.answer_status_by_candidate[candidate_id]
+            for candidate_id in candidate_ids
+        },
+        truth_by_handle=truth_by_handle,
+        manifest={
+            **prepared.manifest,
+            "verified_candidates": [projections[candidate_id] for candidate_id in candidate_ids],
+            "current_truth": [
+                item
+                for item in prepared.manifest.get("current_truth") or []
+                if isinstance(item, dict)
+                and str(item.get("handle") or "") in truth_by_handle
+            ],
+            "prior_batch_knowledge": [],
+            "truth_target_resolution": {
+                "candidate_ids": list(candidate_ids),
+                "truth_handles": list(truth_handles),
+                "preliminary_points": resolution_points,
+            },
+        },
+    )
+
+
+def _validate_truth_target_resolution(
+    decision: AssimilationDecision,
+    *,
+    truth_handles: tuple[str, ...],
+) -> None:
+    """Require the shared executor to finish, rather than defer, a collision."""
+
+    target_uses: dict[str, int] = {}
+    for point in decision.points:
+        if point.disposition in {"defer", "conflict", "handoff"}:
+            raise ValueError(
+                "truth-target resolution must choose a terminal no_write, reject, "
+                "confirm, refine, or supersede outcome"
+            )
+        for handle in point.matched_truth_handles:
+            target_uses[str(handle)] = target_uses.get(str(handle), 0) + 1
+    reused = sorted(handle for handle, count in target_uses.items() if count > 1)
+    if reused:
+        raise ValueError(
+            "truth-target resolution must select at most one outcome per current truth: "
+            + ", ".join(reused)
+        )
+    unavailable = sorted(set(target_uses) - set(truth_handles))
+    if unavailable:
+        raise ValueError(
+            "truth-target resolution referenced a truth outside the collision: "
+            + ", ".join(unavailable)
+        )
 
 
 def _deferred_assimilation_result(

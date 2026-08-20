@@ -26,7 +26,7 @@ Agent 会读代码，但它通常不知道项目为什么变成现在这样：�
 
 - `/hm:*` 命令：`status`、`wake`、`search`、`search-all`、`distill`、`review`、`dream`。
 - Agent MCP 调用：自然语言、skill 或 hook 触发 `wake/search/distill/review`。
-- Hook：会话开始注入 wake context；Stop 前台只同步并排队，随后由 detached autonomous worker 按顺序处理最多 2 条 durable job。当前 Stop 会话固定占第一个优先槽，剩余 backlog 槽再遵循 3:1 recent/oldest 公平补位和每日 backlog 上限。后台 provider 使用无工具 Structured Output、review lease 和失败退避；缺少 provider/auth 时保持显式 retryable，绝不伪报完成。
+- Hook：会话开始注入 wake context；Stop 只保存不可变对话、创建或推进 job，并以该 session/revision 唤醒 Dream。Hook 不调用 provider、不写知识；Dream 才在后台处理触发会话并治理整个项目。缺少 provider/auth 时 job 保持显式 retryable，绝不伪报完成。
 - CLI：只做 setup、doctor、config、integration 和 maintenance。
 
 日常使用只需要三个意图：用 `wake/search` 继续工作，把可复用结果记住，或
@@ -105,21 +105,21 @@ Hook、detached worker 和 archive maintenance 属于阶段 0；原文/时间线
 `tool_result`、`prepareNextTurn`，Claude Code 的 `PostToolUse`，以及
 Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 事件入口；`/hm:search` 只是客户端没有这类 hook 时的手动兜底。
-`Stop` Hook 会保存不可变的原始 transcript revision，并排队它的全部有序 chunk。日常 `prepare_session_distill(evidence_mode="semantic", detail_level="compact")` 保留完整原文，由 runtime 校验并 checkpoint 每个 raw chunk，再返回包含全部 exchange 索引和风险信号的 compact manifest。预算约束的是 provider 实际接收的完整序列化响应，3k 只是兼容默认软目标；允许因完整覆盖或显式 drilldown 扩张，但 `response_budget` 必须报告真实 token 数与原因，绝不静默丢弃后半段 exchange。detached worker 默认通过当前 Responses provider 做无工具、`store=false`、严格 JSON Schema 的语义审查；受信 runtime 随后治理候选、finalize，并原子生成 `~/.codex/hm-distill/sessions/<session-id>.md`。健康状态持久化真实 token/耗时及 `last_semantic_success_at`、`last_job_completed_at`、`last_note_materialized_at`。`detail_level="full"` 与兼容 `raw` 模式仍用于显式完整审计。检测到 decision、solution、preference、workflow、migration 或 handoff 信号时默认 fail-closed 为 `candidate_required`；只有读完完整窗口并给出针对该信号的 session-only 理由才能降级。`finalize_session_distill` 对当前 job 执行 scoped 自动治理并记录 `promoted` 或 `no_candidate`。`/hm:review` 是纠错和 undo 入口，不是日常晋升闸门；`/hm:distill` 是同一条可恢复管线的立即执行入口。同步 Hook 本身只可声称已排队，只有 finalize 与 Note 回执都落盘后后台才可声称完成；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
+`Stop` Hook 会保存不可变的原始 transcript revision，并创建或推进它的 job，然后发出带该 revision 的 Dream 活动信号。Dream 在后台重开触发会话，同时读取项目当前知识、真实来源与检索反馈，执行提取或比较、验证和归纳吸收，并原子生成 Note 与长期知识结果。预算约束的是 provider 实际接收的完整序列化响应，3k 只是兼容默认软目标；允许因完整覆盖或显式 drilldown 扩张，但 `response_budget` 必须报告真实 token 数与原因，绝不静默丢弃后半段 exchange。受信 runtime 随后治理候选、finalize，并持久化真实 token/耗时及 `last_semantic_success_at`、`last_job_completed_at`、`last_note_materialized_at`。`detail_level="full"` 与兼容 `raw` 模式仍用于显式完整审计。检测到 decision、solution、preference、workflow、migration 或 handoff 信号时默认 fail-closed 为 `candidate_required`；只有读完完整窗口并给出针对该信号的 session-only 理由才能降级。人工调用 `/hm:distill` 时，由当前宿主执行同一套可恢复会话管线，不会被改道到 Dream provider。同步 Hook 本身只可声称已排队；只有 Dream 的 finalize 与 Note 回执都落盘后后台才可声称完成；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
 
 显式 `raw` 审计中的每个 raw chunk 都保留完整内容，不截断内容。
 
-后台语义处理会把 compact manifest 发送给当前配置的模型 provider，并可能消耗
-quota，因此必须由需要自动处理的项目单独授权：
+无人值守的 Dream 会把完整、受限的会话/来源证据发送给当前配置的模型 provider，并可能消耗
+quota，因此必须由需要自动 Dream 的项目单独授权：
 
 ```bash
 harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
-全局默认是 `false`；授权后该项目的 Stop 不再重复确认，未授权项目保持仅排队模式。
+全局默认是 `false`；授权后该项目的 Stop 不再重复确认，未授权项目保持仅排队模式。人工明确要求处理时，仍由当前宿主执行，而非后台 provider。
 
-`0.9.24` 支持“由操作员拥有”的受限 provider profile，用于自动
-蒸馏和 Dream 来源复核。端点和环境变量名只能放在用户配置中，不能放进仓库；随后
+`0.9.24` 支持“由操作员拥有”的受限 provider profile，用于无人值守的
+Dream，包括 Hook 触发会话的蒸馏与项目来源复核。端点和环境变量名只能放在用户配置中，不能放进仓库；随后
 才可以由已授权项目选择该 profile：
 
 ```toml
@@ -130,6 +130,7 @@ base_url = "https://gateway.example/v1"
 api_key_env = "HARNESS_MEM_GATEWAY_KEY"
 model = "operator-approved-model"
 output_mode = "json" # 默认值："tool"；用于拒绝强制输出 tool 的网关
+thinking_mode = "disabled" # 当推理网关只返回 thinking、没有最终 JSON 时使用
 ```
 
 ```bash
@@ -138,7 +139,8 @@ harness-mem config set semantic.execution.profile local-gateway --scope project
 
 该 profile 没有 Agent 工具、MCP、文件系统或宿主规则权限，只能返回规定的结构化语义
 结论。`output_mode = "json"` 是对拒绝强制输出 tool 的网关的无工具兼容通道；非 JSON
-或未通过 schema 的文本会 fail-closed。选择 profile 本身不等于授权模型调用；项目仍必须
+或未通过 schema 的文本会 fail-closed。若 Anthropic 兼容推理网关只返回 thinking block，
+`thinking_mode = "disabled"` 会请求最终 JSON。选择 profile 本身不等于授权模型调用；项目仍必须
 设置 `distill.autonomous.enabled=true`。
 
 新候选带 evidence basis 和 verification outcome。仓库事实必须引用

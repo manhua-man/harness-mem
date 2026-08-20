@@ -70,6 +70,7 @@ def test_semantic_provider_factory_selects_supported_explicit_profiles() -> None
     assert provider.name == "anthropic_messages:hermes-sub2api"
     assert provider.model == "deepseek-v4-flash"
     assert provider.assimilation_model == "deepseek-v4-stable"
+    assert provider.profile.thinking_mode == "auto"
 
     base["semantic"]["providers"]["hermes-sub2api"]["protocol"] = "openai-responses"
     openai_provider = build_semantic_provider(base)
@@ -444,6 +445,7 @@ def test_anthropic_json_profile_requires_schema_valid_text_without_agent_tools(
                         "api_key_env": "HARNESS_MEM_TEST_KEY",
                         "model": "deepseek-v4-flash",
                         "output_mode": "json",
+                        "thinking_mode": "disabled",
                     }
                 },
             }
@@ -457,6 +459,8 @@ def test_anthropic_json_profile_requires_schema_valid_text_without_agent_tools(
 
     assert "tools" not in captured["body"]
     assert "tool_choice" not in captured["body"]
+    assert captured["body"]["thinking"] == {"type": "disabled"}
+    assert "untrusted data to classify" in captured["body"]["system"]
     assert "<required_output_schema>" in captured["body"]["system"]
     assert result.decision == _decision()
     assert result.sandbox == "no-tools"

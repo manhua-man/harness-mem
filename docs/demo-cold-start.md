@@ -12,15 +12,16 @@ wake -> search -> distill -> review -> dream
 
 For this controlled walkthrough, the prompts below invoke stages explicitly.
 In normal use, hooks only capture an immutable native transcript source revision
-and queue its complete ordered chunks at a save point or session end. Hooks do
-not summarize the session. The next Agent-capable wake, or `/hm:distill`,
-resumes chunk processing and checkpoints each completed chunk.
+and create or advance its resumable job at a save point or session end. Hooks
+do not summarize the session. A Hook wakes Dream with that immutable source;
+an explicit `/hm:distill` instead resumes chunk processing in the active host.
 
 Distillation never truncates a chunk. After every expected chunk is
 checkpointed, the Agent must perform a final-session review of outcomes,
 contradictions, unfinished work, and evidence strength. Only then may it create
-idempotent candidates. `finalize_session_distill` verifies that contract, runs
-the normal candidate auto-review, and runs Dream. The public model remains:
+idempotent candidates. `finalize_session_distill` verifies that contract and
+runs normal candidate auto-review for the explicit job only. Hook-started Dream
+is the separate unattended path. The public model remains:
 
 ```text
 wake -> search -> distill -> review -> dream
@@ -98,7 +99,9 @@ Ask the existing Agent:
 
 ```text
 Use harness-mem to distill the recent project session into memory candidates.
-Apply the normal low-risk review policy; keep suspicious items pending and let Dream maintain the ledger.
+Apply the normal low-risk review policy. Use review only to correct or undo a
+result; Dream finishes its own verified work in a terminal state rather than
+leaving automatic items pending.
 ```
 
 Keep the review strict. The demo is stronger when noisy or speculative items
@@ -164,12 +167,13 @@ Expected result:
   no truncation and a durable checkpoint for each chunk.
 - Candidate creation waits for the required final-session review and is
   idempotent when an interrupted distill resumes.
-- `finalize_session_distill` verifies completeness, then runs auto-review and
-  Dream.
+- `finalize_session_distill` verifies completeness and runs auto-review for
+  that explicit active-host job. It does not start Dream.
 - New information is proposed as candidates, then the shared policy may
   auto-confirm only low-risk items with audit metadata.
 - One-off task details are not promoted as durable memory.
-- Anything broad, risky, or under-evidenced remains pending.
+- Anything broad, risky, or under-evidenced is rejected or handed off instead
+  of becoming normal current knowledge.
 
 ### 5. Review
 
@@ -206,8 +210,9 @@ The demo is working when:
 - `distill` consumes every ordered chunk without truncation, checkpoints each
   chunk, and requires a final-session review before creating idempotent
   candidates instead of directly changing confirmed truth.
-- `finalize_session_distill` runs auto-review and Dream only after structural
-  completeness is verified.
+- `finalize_session_distill` completes explicit active-host work only after
+  structural completeness is verified; a Hook-started Dream is the separate
+  unattended session and project-governance path.
 - The shared policy handles low-risk promotion; review audits, corrects, or
   promotes the remaining uncertain material.
 - The user can understand the value in under five minutes.

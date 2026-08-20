@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 620" role="img" aria-labelledby="title desc">
   <title id="title">harness-mem cold-start flow</title>
-  <desc id="desc">The user-facing loop remains wake, search, distill, review, and dream. Internally, distill finalization uses automatic review and Dream to promote verified candidates or record no-candidate; manual review is a post-hoc correction and undo path.</desc>
+  <desc id="desc">The user-facing loop remains wake, search, distill, review, and dream. An explicit distill stays in the active host; a Hook saves a session source and wakes Dream, which performs unattended session and project governance. Manual review is a post-hoc correction and undo path.</desc>
   <defs>
     <style>
       .bg { fill: #f8fafc; }
@@ -33,7 +33,7 @@
   <rect class="bg" width="1280" height="620" rx="30"/>
 
   <text x="55" y="60" class="title ink">Cold-start memory loop</text>
-  <text x="55" y="92" class="body muted">Five-step core loop, seven Daily actions total; automatic evidence governance inside.</text>
+  <text x="55" y="92" class="body muted">Explicit active-host distill, plus Hook-started Dream governance.</text>
   <text x="55" y="125" class="eyebrow muted">USER-VISIBLE LOOP</text>
 
   <rect x="55" y="145" width="145" height="130" rx="20" class="card"/>
@@ -61,7 +61,7 @@
   <rect x="640" y="145" width="145" height="130" rx="20" class="card-accent"/>
   <text x="675" y="196" class="step ink">distill</text>
   <text x="659" y="226" class="step-body muted">bounded evidence</text>
-  <text x="661" y="249" class="step-body muted">automatic finalize</text>
+  <text x="661" y="249" class="step-body muted">active-host work</text>
 
   <path d="M792 210h34" class="line" marker-end="url(#arrow)"/>
 
@@ -77,27 +77,27 @@
   <text x="1049" y="226" class="step-body muted">maintenance +</text>
   <text x="1048" y="249" class="step-body muted">truth lifecycle</text>
 
-  <text x="55" y="318" class="eyebrow muted">DISTILL FINALIZE — INTERNAL AND AUTOMATIC</text>
+  <text x="55" y="318" class="eyebrow muted">HOOK → DREAM — UNATTENDED</text>
   <path d="M712 275v40H410v23" class="line-auto" marker-end="url(#arrow)"/>
 
   <rect x="300" y="345" width="220" height="105" rx="18" class="card"/>
-  <text x="322" y="380" class="step-body ink" font-weight="700">candidate or zero-candidate</text>
-  <text x="322" y="408" class="step-body muted">challenge unsupported claims</text>
-  <text x="322" y="432" class="step-body muted">keep complete evidence groups</text>
+  <text x="322" y="380" class="step-body ink" font-weight="700">immutable session + job</text>
+  <text x="322" y="408" class="step-body muted">Hook records the source</text>
+  <text x="322" y="432" class="step-body muted">then wakes Dream</text>
 
   <path d="M520 398h55" class="line-auto" marker-end="url(#arrow)"/>
 
   <rect x="585" y="345" width="220" height="105" rx="18" class="card-accent"/>
-  <text x="608" y="380" class="step-body ink" font-weight="700">auto-review + Dream</text>
-  <text x="608" y="408" class="step-body muted">verify basis + conflicts</text>
-  <text x="608" y="432" class="step-body muted">no manual approval gate</text>
+  <text x="608" y="380" class="step-body ink" font-weight="700">Dream processes source</text>
+  <text x="608" y="408" class="step-body muted">compare + verify evidence</text>
+  <text x="608" y="432" class="step-body muted">and project knowledge</text>
 
   <path d="M805 398h55" class="line-auto" marker-end="url(#arrow)"/>
 
   <rect x="870" y="345" width="210" height="105" rx="18" class="card-accent"/>
-  <text x="893" y="380" class="step-body ink" font-weight="700">finalize once</text>
-  <text x="893" y="408" class="step-body muted">promoted</text>
-  <text x="893" y="432" class="step-body muted">or no_candidate</text>
+  <text x="893" y="380" class="step-body ink" font-weight="700">assimilate once</text>
+  <text x="893" y="408" class="step-body muted">apply, reject, archive</text>
+  <text x="893" y="432" class="step-body muted">or fail with audit</text>
 
   <path d="M940 345 C 940 315 907 310 907 282" class="line-muted" marker-end="url(#mutedArrow)"/>
   <text x="947" y="318" class="note muted">later correction</text>
@@ -106,7 +106,7 @@
   <text x="205" y="520" class="body" fill="#e5e7eb">immutable transcript ledger</text>
   <text x="500" y="520" class="body" fill="#99f6e4">rebuildable projections</text>
   <text x="755" y="520" class="body" fill="#dcfce7">governed Memory / Rule</text>
-  <text x="205" y="547" class="note" fill="#94a3b8">Hooks save immutable revisions and queue every chunk; automatic finalization stays auditable.</text>
+  <text x="205" y="547" class="note" fill="#94a3b8">Hooks save immutable revisions; Dream is the audited unattended executor.</text>
 
-  <text x="58" y="598" class="small muted">The user keeps the same loop: wake → search → distill → review → dream. Review corrects decisions; it does not unblock Dream.</text>
+  <text x="58" y="598" class="small muted">Explicit distill stays in the active host. Hooks wake Dream; Review corrects decisions and provides undo.</text>
 </svg>

@@ -65,7 +65,7 @@ Common invocation paths:
 | Host-native command | Run the Daily workflow through the active IDE's command surface. |
 | Plain language | Optional fallback when a host command cannot be used. |
 | Agent skills | Teach the client when to call memory tools. |
-| Hooks | Inject wake context, stage transcript evidence, and dispatch detached autonomous distillation. |
+| Hooks | Inject wake context, stage transcript evidence, create/advance its job, and wake Dream with the immutable session revision. |
 
 The server command is:
 
@@ -101,16 +101,18 @@ a new task. This is not a harness-mem install command. Codex skips untrusted
 command hooks, and `get_project_status` reports `hooks=review_required` until
 the current `SessionStart` configuration has successfully run.
 
-Autonomous semantic processing requires one separate persistent authorization
-because it sends the compact manifest to the configured model provider and may
-consume quota:
+Unattended Dream processing requires one separate persistent authorization
+because a Hook-started Dream run may read its triggering session, compare it
+with project knowledge, and send bounded evidence to the configured model
+provider:
 
 ```bash
 harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
 Future Stop turns do not ask again. Set the same key to `false` at user or
-project scope to retain queue-only Hook behavior.
+project scope to retain queue-only Hook behavior. An explicit `distill` remains
+an active-host action, not a detached provider call.
 
 If Codex connects through MCP Router, internal tool names use the Router alias
 (`mcp__mcp_router__*`). A direct `harness_mem` entry uses

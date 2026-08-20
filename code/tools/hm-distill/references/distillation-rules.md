@@ -166,6 +166,8 @@ platform.
 - A valid `confirm` and a valid `no_write` are successful terminal outcomes even
   though neither inserts a new truth row.
 
-`finalize_session_distill` is the only lossless-session commit point. It may run
-scoped low-risk auto-review and Dream only after structural and semantic gates
-pass. `/hm:review` remains the audit, correction, undo, and trust-upgrade surface.
+`finalize_session_distill` is the only lossless-session commit point for an
+explicit active-host distill. It may run scoped low-risk auto-review only after
+structural and semantic gates pass; it does not start Dream. A Hook instead
+wakes Dream with its persisted session source. `/hm:review` remains the audit,
+correction, undo, and trust-upgrade surface.

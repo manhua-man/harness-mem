@@ -103,10 +103,11 @@ Every shipped transcript adapter implements the same evidence boundary:
    chunks reconstructs the normalized transcript without character loss.
 4. `session_to_observation` produces only a derived search rendering. It may be
    rebuilt and must never be treated as the lossless source of truth.
-5. The revision queues a resumable distill job. Hooks stop after sync and queue;
-   an Agent processes all chunks, checkpoints each result, performs the required
-   final-session review, creates idempotent candidates, and calls
-   `finalize_session_distill` to run auto-review and Dream.
+5. The revision queues a resumable distill job. A Hook stops after sync and
+   wakes Dream with the exact session/revision reference. Dream is the
+   unattended executor: it reads the triggering session, performs the required
+   extraction, verification, and assimilation, then performs project-level
+   governance. An explicitly invoked `distill` instead stays in the active host.
 
 `limit` is a changed-session budget, not a newest-file window. A persistent
 frontier alternates the recent and historical lanes when the budget is one;

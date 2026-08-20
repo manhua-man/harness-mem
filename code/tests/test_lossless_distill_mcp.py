@@ -458,10 +458,10 @@ def test_completed_finalize_replay_recovers_missing_outcome_when_config_unavaila
         logger_instance=logging.getLogger("test.recover-completed-distill"),
     )
 
-    async def fake_dream(*_args, **_kwargs):
-        return {"success": True, "status": "completed"}
+    async def fail_dream(*_args, **_kwargs):
+        raise AssertionError("manual finalize must not start Dream")
 
-    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fake_dream)
+    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fail_dream)
     try:
         for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
             snapshot.distill_job_id,
@@ -568,10 +568,10 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         logger_instance=logging.getLogger("test.lossless-distill"),
     )
 
-    async def fake_dream(*_args, **_kwargs):
-        return {"success": True, "status": "completed", "job_id": "dream-1"}
+    async def fail_dream(*_args, **_kwargs):
+        raise AssertionError("manual finalize must not start Dream")
 
-    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fake_dream)
+    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fail_dream)
     try:
         collected: list[str] = []
         job_id = ""
@@ -664,7 +664,7 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
         )
         assert finalized["success"] is True
         assert finalized["structural_audit"]["coverage"] == "complete"
-        assert finalized["dream"]["job_id"] == "dream-1"
+        assert "dream" not in finalized
         assert finalized["completion"]["disposition"] == "no_candidate"
         expected_promotion = {
             "suggested": 3,
@@ -718,9 +718,9 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
 
 
 @pytest.mark.parametrize(
-    ("semantic_review", "dream_expected"),
+    "semantic_review",
     [
-        pytest.param(SEMANTIC_REVIEW, True, id="complete-session"),
+        pytest.param(SEMANTIC_REVIEW, id="complete-session"),
         pytest.param(
             {
                 **SEMANTIC_REVIEW,
@@ -734,7 +734,6 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
                 "evidence_status": "partial",
                 "promotion_decision": "partial",
             },
-            False,
             id="answered-candidate-with-unfinished-handoff",
         ),
         pytest.param(
@@ -751,7 +750,6 @@ def test_mcp_reads_every_lossless_chunk_before_final_review(
                 "evidence_status": "partial",
                 "promotion_decision": "partial",
             },
-            False,
             id="answered-candidate-with-historical-contradiction",
         ),
     ],
@@ -760,7 +758,6 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
     tmp_path: Path,
     monkeypatch,
     semantic_review: dict,
-    dream_expected: bool,
 ) -> None:
     backend = LocalMemoryBackend(tmp_path / "data")
     asyncio.run(backend.init())
@@ -794,13 +791,10 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
         logger_instance=logging.getLogger("test.promoted-distill"),
     )
 
-    dream_calls: list[bool] = []
+    async def fail_dream(*_args, **_kwargs):
+        raise AssertionError("manual finalize must not start Dream")
 
-    async def fake_dream(*_args, **_kwargs):
-        dream_calls.append(True)
-        return {"success": True, "status": "completed"}
-
-    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fake_dream)
+    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fail_dream)
     try:
         repository_evidence = tmp_path / "admission-policy.txt"
         repository_evidence.write_text(
@@ -899,8 +893,7 @@ def test_finalize_promotes_answered_candidate_independently_of_session_handoff(
         )
         assert stored is not None
         assert stored.status == "auto_confirmed"
-        assert ("dream" in finalized) is dream_expected
-        assert bool(dream_calls) is dream_expected
+        assert "dream" not in finalized
         replay = tool_handlers.tool_finalize_session_distill(
             project_name="demo",
             job_id=result.distill_job_id,
@@ -1073,10 +1066,10 @@ def test_finalize_delete_toggle_runs_audited_source_cleanup(
         logger_instance=logging.getLogger("test.finalize-source-cleanup"),
     )
 
-    async def fake_dream(*_args, **_kwargs):
-        return {"success": True, "status": "completed"}
+    async def fail_dream(*_args, **_kwargs):
+        raise AssertionError("manual finalize must not start Dream")
 
-    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fake_dream)
+    monkeypatch.setattr(tool_handlers, "dream_auto_tick", fail_dream)
     try:
         packet = tool_handlers.tool_prepare_session_distill(
             project_name="demo",

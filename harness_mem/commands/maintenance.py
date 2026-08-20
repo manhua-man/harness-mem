@@ -435,27 +435,6 @@ async def run_post_turn_maintenance(
             retention_days=config.transcript_retention_days,
             apply=True,
         )
-        # Evaluate Dream before ingesting the current Stop transcript. Otherwise
-        # the new observation resets the idle clock and an idle-only policy can
-        # never become eligible from a post-turn trigger.
-        try:
-            with temporarily_disable_embeddings():
-                dream_tick = await dream_auto_tick(
-                    backend,
-                    project_name=project_name,
-                    project_root=project_root,
-                    config=config,
-                    source=cast(DreamSource, source),
-                    trigger_id=trigger_id,
-                )
-        except Exception as exc:  # noqa: BLE001 - transcript staging must survive Dream.
-            dream_tick = {
-                "success": False,
-                "status": "failed",
-                "project_name": project_name,
-                "reason": f"{type(exc).__name__}: {exc}"[:512],
-                "tick_receipt": {"state": "degraded"},
-            }
         mcp_tool_handlers.configure_tool_handler_dependencies(
             backend_provider=lambda: backend,
             observer_data_dir=lambda: backend.data_dir,
@@ -520,6 +499,29 @@ async def run_post_turn_maintenance(
             and evidence_packet.get("distill_status") == "retryable"
             and isinstance(evidence_packet.get("retry_after"), str)
         )
+        # The Hook has now recorded the immutable session revision and its job.
+        # Dream, not the Hook, receives that source-bound work and performs any
+        # semantic processing. Run this after staging so Dream can read the
+        # triggering session instead of only seeing older project activity.
+        try:
+            with temporarily_disable_embeddings():
+                dream_tick = await dream_auto_tick(
+                    backend,
+                    project_name=project_name,
+                    project_root=project_root,
+                    config=config,
+                    source=cast(DreamSource, source),
+                    trigger_id=trigger_id,
+                    trigger_job_id=str(job_id) if job_id else None,
+                )
+        except Exception as exc:  # noqa: BLE001 - transcript staging must survive Dream.
+            dream_tick = {
+                "success": False,
+                "status": "failed",
+                "project_name": project_name,
+                "reason": f"{type(exc).__name__}: {exc}"[:512],
+                "tick_receipt": {"state": "degraded"},
+            }
         return {
             "action": "post-turn-maintenance",
             "success": bool(evidence_packet.get("success", False)),

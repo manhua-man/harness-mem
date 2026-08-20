@@ -199,7 +199,7 @@ def test_host_entry_post_turn_maintenance_outputs_combined_json(
     assert "dream" not in data
 
 
-def test_host_entry_prioritizes_current_distill_job_for_autonomous_worker(
+def test_host_entry_does_not_run_a_second_worker_after_hook_staging(
     monkeypatch, tmp_path
 ) -> None:
     monkeypatch.setattr(
@@ -222,24 +222,13 @@ def test_host_entry_prioritizes_current_distill_job_for_autonomous_worker(
             "trigger_id": kwargs.get("trigger_id"),
         }
 
-    captured: dict[str, object] = {}
-
-    def fake_autonomous(_backend, **kwargs):
-        captured.update(kwargs)
-        return {"success": True, "state": "succeeded", "outcomes": []}
-
     monkeypatch.setattr(maintenance_module, "run_post_turn_maintenance", fake_post_turn)
-    monkeypatch.setattr(
-        autonomous_worker, "run_autonomous_distill_batch", fake_autonomous
-    )
 
     code, _payload = asyncio.run(
         host_entry.run(_args(tmp_path, "post-turn-maintenance"))
     )
 
     assert code == ExitCode.SUCCESS
-    assert captured["trigger_id"] == "turn-1"
-    assert captured["preferred_job_id"] == "current-job"
 
 
 def test_host_entry_records_retry_backoff_without_staging_failure(
