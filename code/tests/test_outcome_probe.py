@@ -1,21 +1,32 @@
 from __future__ import annotations
 
-import sqlite3
+import asyncio
 from datetime import datetime, timedelta, timezone
+import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 from harness_mem.outcome_probe import (
-    _read_only_connection,
     collect_outcomes,
+    inspect_autonomous_outcome,
     inspect_distill_notes,
     inspect_hook_outcome,
     inspect_retrieval_outcome,
+)
+from harness_mem.core.schemas import (
+    AssimilationDecision,
+    KnowledgeCandidate,
+    KnowledgeEntry,
+    ProjectKnowledgeSourceRef,
 )
 from harness_mem.qualification.distill_outcome_probe import (
     run_distill_outcome_probe,
 )
 from harness_mem.hook_receipts import record_hook_execution
+from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
 def _job(*, session_id: str, completed_at: datetime, summary: str):
@@ -75,6 +86,38 @@ def test_hook_probe_accepts_fresh_interleaved_codex_actions(
     assert result["actions_verified"] is True
     assert result["session_pair_status"] == "mismatched"
     assert result["lifecycle_verified"] is False
+
+
+def test_autonomous_probe_accepts_isolated_responses_to_codex_fallback(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    provider = {
+        "name": "responses_api->codex_exec",
+        "schema_valid": True,
+        "sandbox": "read-only",
+        "ephemeral": True,
+        "cwd_isolated": True,
+        "hooks_disabled": True,
+        "plugins_disabled": True,
+        "mcp_disabled": True,
+        "rules_ignored": True,
+        "config_isolated": True,
+    }
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.read_autonomous_receipt",
+        lambda *_args, **_kwargs: {"last_verified_completion": {"provider": provider}},
+    )
+
+    result = inspect_autonomous_outcome(
+        tmp_path,
+        project_name="demo",
+        project_root=project_root,
+        jobs=[],
+    )
+
+    assert result["provider_isolated"] is True
 
 
 def test_distill_note_probe_requires_real_meaningful_note(tmp_path: Path) -> None:
@@ -174,55 +217,95 @@ def test_distill_note_probe_prefers_latest_job_bound_revision_note(
     assert result["notes"][0]["path"] == str(path)
 
 
-def test_retrieval_probe_requires_target_to_return_from_read_model(tmp_path: Path) -> None:
-    database = tmp_path / "structured_index.sqlite"
-    connection = sqlite3.connect(database)
-    connection.executescript(
-        """
-        CREATE TABLE memory_entries (
-            id TEXT PRIMARY KEY,
-            project_name TEXT NOT NULL,
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            compacted INTEGER NOT NULL DEFAULT 0,
-            status TEXT NOT NULL,
-            valid_to TEXT,
-            superseded_by TEXT NOT NULL DEFAULT '[]'
-        );
-        CREATE VIRTUAL TABLE memory_entries_fts USING fts5(
-            content, content='memory_entries', content_rowid='rowid'
-        );
-        INSERT INTO memory_entries (
-            id, project_name, content, created_at, status
-        ) VALUES (
-            'memory-1', 'demo',
-            'outcome-verifier requires direct runtime evidence',
-            '2026-08-11T00:00:00+00:00', 'user_confirmed'
-        );
-        INSERT INTO memory_entries_fts(rowid, content)
-        SELECT rowid, content FROM memory_entries;
-        """
-    )
-    connection.commit()
-    connection.close()
+def test_retrieval_probe_requires_current_truth_to_return_from_normal_search(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HARNESS_MEM_DISABLE_EMBEDDINGS", "1")
+    data_dir = tmp_path / "data"
+    project_root = tmp_path / "demo"
+    project_root.mkdir()
+    source = project_root / "SOURCE.md"
+    source.write_text("# Source\n", encoding="utf-8")
+    backend = LocalMemoryBackend(data_dir)
+    asyncio.run(backend.init())
+    try:
+        entry = KnowledgeEntry(
+            id="knowledge-1",
+            project_name="demo",
+            module_path=["Testing"],
+            title="Direct runtime evidence",
+            statement="Outcome verification must retrieve current knowledge through normal search.",
+            verified_at=datetime.now(timezone.utc),
+        )
+        candidate = KnowledgeCandidate(
+            id="retrieval-outcome-seed",
+            project_name="demo",
+            candidate_type="memory",
+            statement="Outcome retrieval fixture.",
+        )
+        decision = AssimilationDecision(
+            id="retrieval-outcome-mutation",
+            project_name="demo",
+            candidate_id=candidate.id,
+            disposition="add",
+            canonical_truth_ids=[entry.id],
+            reason="Test fixture.",
+        )
+        source_ref = ProjectKnowledgeSourceRef(
+            label="SOURCE.md",
+            target=source.resolve().as_uri(),
+            kind="repository",
+            digest="a" * 64,
+        )
+        asyncio.run(backend.structured_store.knowledge_store.save_candidate(candidate))
+        asyncio.run(
+            backend.structured_store.knowledge_store.apply_truth_mutation(
+                candidate_before=candidate,
+                candidate_after=candidate.model_copy(update={"status": "assimilated"}),
+                decision=decision,
+                added_entries=[entry],
+                predecessor_entries=[],
+                source_refs_by_entry={entry.id: [source_ref]},
+            )
+        )
+        asyncio.run(
+            backend.structured_store.knowledge_store.cleanup_candidate(candidate.id)
+        )
+    finally:
+        asyncio.run(backend.close())
 
-    result = inspect_retrieval_outcome(tmp_path, "demo")
+    result = inspect_retrieval_outcome(data_dir, "demo")
 
     assert result["readable_truth_count"] == 1
     assert result["probe_attempted"] is True
     assert result["probe_hit"] is True
-    assert result["target_id"] == "memory-1"
+    assert result["target_title"] == "Direct runtime evidence"
 
-    read_only = _read_only_connection(database)
-    try:
-        try:
-            read_only.execute("DELETE FROM memory_entries")
-        except sqlite3.OperationalError as exc:
-            assert "readonly" in str(exc).lower()
-        else:
-            raise AssertionError("outcome probe connection accepted a write")
-    finally:
-        read_only.close()
+    command = [
+        sys.executable,
+        "-m",
+        "harness_mem.outcome_probe",
+        "--project",
+        "demo",
+        "--project-root",
+        str(project_root),
+        "--data-dir",
+        str(data_dir),
+        "--section",
+        "retrieval",
+        "--compact",
+    ]
+    completed = subprocess.run(
+        command,
+        cwd=Path.cwd(),
+        env={**os.environ, "HARNESS_MEM_DISABLE_EMBEDDINGS": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["retrieval"]["probe_hit"] is True
 
 
 def test_partial_distill_runtime_outcome_probe() -> None:

@@ -122,11 +122,9 @@ def test_search_memory_returns_clean_canonical_prose_by_default(backend) -> None
             "statement": "Use SQLite for local-first memory.",
         }
     ]
-    assert payload["record_outcome_call"]["arguments"] == {
-        "project_name": "demo",
-        "surface": "search_memory",
-        "retrieval_id": payload["retrieval_id"],
-    }
+    assert set(payload) == {"project_name", "query", "status", "memories"}
+    assert "retrieval_id" not in payload
+    assert "record_outcome_call" not in payload
     signals = asyncio.run(
         backend.structured_store.query_retrieval_signals(
             "demo",
@@ -139,7 +137,7 @@ def test_search_memory_returns_clean_canonical_prose_by_default(backend) -> None
     assert signals[0].context["retrieval_id"]
 
 
-def test_search_all_returns_per_project_opaque_feedback_calls(backend) -> None:
+def test_search_all_returns_clean_current_knowledge_without_feedback_protocol(backend) -> None:
     import asyncio
 
     _replace_current_knowledge(backend, "demo", ["Shared SQLite guidance."])
@@ -151,30 +149,18 @@ def test_search_all_returns_per_project_opaque_feedback_calls(backend) -> None:
         "demo",
         "second",
     }
-    calls = payload["record_outcome_calls"]
-    assert {call["arguments"]["project_name"] for call in calls} == {
-        "demo",
-        "second",
-    }
-    assert {call["arguments"]["retrieval_id"] for call in calls} == {
-        payload["retrieval_id"]
-    }
-    assert all("source_ids" not in call["arguments"] for call in calls)
-    for call in calls:
-        server.tool_record_context_outcome(
-            **call["arguments"],
-            outcome="ignored",
-        )
+    assert set(payload) == {"project_name", "query", "status", "memories"}
+    assert "retrieval_id" not in payload
+    assert "record_outcome_calls" not in payload
     for project_name in ("demo", "second"):
-        outcomes = asyncio.run(
+        hits = asyncio.run(
             backend.structured_store.query_retrieval_signals(
                 project_name,
-                signal_type="context_outcome",
+                signal_type="search_hit",
                 target_kind="knowledge_entry",
             )
         )
-        assert len(outcomes) == 1
-        assert outcomes[0].value == 0.0
+        assert len(hits) == 1
 
 
 def test_search_memory_hides_raw_observations_until_deep_recall(backend) -> None:

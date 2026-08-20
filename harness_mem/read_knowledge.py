@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from harness_mem.core.schemas import KnowledgeEntry
@@ -26,7 +27,16 @@ async def search_current_knowledge(
 
     def score(entry: KnowledgeEntry) -> tuple[int, str, str]:
         haystack = " ".join([entry.title, entry.statement, *entry.module_path]).lower()
-        return (-sum(haystack.count(term) for term in terms), entry.title, entry.id)
+        ascii_tokens = re.findall(r"[a-z0-9]+", haystack)
+        occurrences = sum(
+            (
+                ascii_tokens.count(term)
+                if term.isascii() and term.isalnum()
+                else haystack.count(term)
+            )
+            for term in terms
+        )
+        return (-occurrences, entry.title, entry.id)
 
     ranked = sorted(entries, key=score)
     if terms:

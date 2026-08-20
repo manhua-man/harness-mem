@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from contextlib import closing
 import hashlib
 import json
+import os
 import re
 import sqlite3
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 from harness_mem.commands.support import DEFAULT_DATA_DIR
 from harness_mem.core.schemas.session_distill import SessionDistillJob
+from harness_mem.embedding import temporarily_disable_embeddings
 from harness_mem.hook_receipts import (
     hook_configuration_fingerprint,
     inspect_hook_execution_receipt,
@@ -35,6 +39,9 @@ from harness_mem.session_notes import (
 DEFAULT_RECENT_DAYS = 7
 MIN_NOTE_CHARS = 200
 OUTCOME_SECTIONS = ("hooks", "dream", "distill", "autonomous", "retrieval")
+_ISOLATED_PROVIDER_NAMES = frozenset(
+    {"codex_exec", "responses_api", "responses_api->codex_exec"}
+)
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -372,7 +379,7 @@ def inspect_autonomous_outcome(
     total_tokens = provider.get("total_tokens")
     duration_seconds = provider.get("duration_seconds")
     provider_isolated = bool(
-        provider.get("name") in {"codex_exec", "responses_api"}
+        provider.get("name") in _ISOLATED_PROVIDER_NAMES
         and provider.get("schema_valid") is True
         and provider.get("sandbox") in {"read-only", "no-tools"}
         and provider.get("ephemeral") is True
@@ -557,55 +564,41 @@ def inspect_dream_outcome(
 
 
 def inspect_retrieval_outcome(data_dir: Path, project_name: str) -> dict[str, Any]:
-    """Search a readable truth through the persisted FTS consumer read model."""
+    """Prove normal MCP search reads a current SQLite knowledge entry.
 
-    now = datetime.now(timezone.utc).isoformat()
-    with closing(
-        _read_only_connection(data_dir / "structured_index.sqlite")
-    ) as connection:
-        entries = connection.execute(
-            """
-            SELECT id, content FROM memory_entries
-            WHERE project_name = ?
-              AND COALESCE(compacted, 0) = 0
-              AND status IN ('auto_confirmed', 'user_confirmed')
-              AND (valid_to IS NULL OR valid_to = '' OR valid_to > ?)
-              AND (superseded_by IS NULL OR superseded_by = '' OR superseded_by = '[]')
-            ORDER BY created_at DESC LIMIT 20
-            """,
-            (project_name, now),
-        ).fetchall()
+    ``knowledge_entries`` is the current truth authority.  The older
+    ``structured_index.sqlite / memory_entries`` path is compatibility data,
+    so it cannot establish that a user can retrieve current long-term
+    knowledge.  Select a current entry from the authority, then retrieve its
+    title and statement through the ordinary public search projection.
+    """
+
+    from harness_mem.mcp import read_search_handlers, server
+    from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+    backend = LocalMemoryBackend(data_dir)
+    asyncio.run(backend.init())
+    server.set_backend_override(backend)
+    try:
+        entries = asyncio.run(
+            backend.structured_store.knowledge_store.list_entries(project_name)
+        )
         attempts: list[dict[str, Any]] = []
         for entry in entries:
-            for query in _query_candidates(str(entry["content"])):
-                fts_query = '"' + query.replace('"', '""') + '"'
-                try:
-                    matches = connection.execute(
-                        """
-                        SELECT memory_entries.id
-                        FROM memory_entries_fts
-                        JOIN memory_entries
-                          ON memory_entries.rowid = memory_entries_fts.rowid
-                        WHERE memory_entries_fts MATCH ?
-                          AND memory_entries.project_name = ?
-                          AND COALESCE(memory_entries.compacted, 0) = 0
-                          AND memory_entries.status IN ('auto_confirmed', 'user_confirmed')
-                        LIMIT 20
-                        """,
-                        (fts_query, project_name),
-                    ).fetchall()
-                except sqlite3.Error as exc:
-                    attempts.append(
-                        {"entry_id": entry["id"], "query": query, "error": str(exc)}
-                    )
-                    continue
-                ids = [row["id"] for row in matches]
-                hit = entry["id"] in ids
+            for query in _query_candidates(f"{entry.title} {entry.statement}"):
+                payload = read_search_handlers.tool_search_memory(
+                    query=query,
+                    project_name=project_name,
+                )
+                hit = {
+                    "title": entry.title,
+                    "statement": entry.statement,
+                } in (payload.get("memories") or [])
                 attempts.append(
                     {
-                        "entry_id": entry["id"],
+                        "title": entry.title,
                         "query": query,
-                        "result_count": len(ids),
+                        "result_count": len(payload.get("memories") or []),
                         "target_returned": hit,
                     }
                 )
@@ -614,18 +607,21 @@ def inspect_retrieval_outcome(data_dir: Path, project_name: str) -> dict[str, An
                         "readable_truth_count": len(entries),
                         "probe_attempted": True,
                         "probe_hit": True,
-                        "target_id": entry["id"],
+                        "target_title": entry.title,
                         "query": query,
                         "attempts": attempts,
                     }
-    return {
-        "readable_truth_count": len(entries),
-        "probe_attempted": bool(attempts),
-        "probe_hit": False,
-        "target_id": None,
-        "query": None,
-        "attempts": attempts,
-    }
+        return {
+            "readable_truth_count": len(entries),
+            "probe_attempted": bool(attempts),
+            "probe_hit": False,
+            "target_title": None,
+            "query": None,
+            "attempts": attempts,
+        }
+    finally:
+        server.set_backend_override(None)
+        asyncio.run(backend.close())
 
 
 def collect_outcomes(
@@ -718,17 +714,35 @@ def main(argv: list[str] | None = None) -> int:
     if args.recent_days < 1:
         parser.error("--recent-days must be positive")
     project_root = args.project_root.expanduser().resolve()
-    payload = collect_outcomes(
-        project_name=args.project,
-        project_root=project_root,
-        client=args.client,
-        data_dir=args.data_dir.expanduser().resolve(),
-        notes_dir=args.notes_dir.expanduser().resolve(),
-        recent_days=args.recent_days,
-        sections=args.section,
-        compact=args.compact,
-    )
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    original_stdout_fd = os.dup(1)
+    original_stdout = sys.stdout
+    try:
+        # Outcome contracts consume stdout as one JSON value.  MCP imports and
+        # optional dependencies may write diagnostics, so keep every diagnostic
+        # on stderr and reserve the original stdout descriptor for the result.
+        os.dup2(2, 1)
+        sys.stdout = sys.stderr
+        with temporarily_disable_embeddings():
+            payload = collect_outcomes(
+                project_name=args.project,
+                project_root=project_root,
+                client=args.client,
+                data_dir=args.data_dir.expanduser().resolve(),
+                notes_dir=args.notes_dir.expanduser().resolve(),
+                recent_days=args.recent_days,
+                sections=args.section,
+                compact=args.compact,
+            )
+    finally:
+        os.dup2(original_stdout_fd, 1)
+        sys.stdout = original_stdout
+    try:
+        os.write(
+            1,
+            (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+        )
+    finally:
+        os.close(original_stdout_fd)
     return 0
 
 

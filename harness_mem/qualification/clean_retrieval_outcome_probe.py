@@ -163,8 +163,6 @@ def run_clean_retrieval_outcome_probe() -> dict[str, bool]:
                     "query",
                     "status",
                     "memories",
-                    "retrieval_id",
-                    "record_outcome_call",
                 },
                 "deep_recall_returns_raw_observation": observation_id in deep_observation_ids,
                 "wake_default_has_no_raw_observation": (

@@ -45,14 +45,20 @@ def test_separated_knowledge_search_is_current_only_and_clean(
             KnowledgeEntry(
                 project_name="demo",
                 title="Preserve original evidence first",
-                statement="Data ingestion must preserve traceable original evidence before normalization.",
+                statement=(
+                    "Data ingestion must preserve traceable original evidence before "
+                    "normalization. Markdown may be generated for reading."
+                ),
                 module_path=["data ingestion"],
                 verified_at=datetime(2026, 8, 18, tzinfo=timezone.utc),
             ),
             KnowledgeEntry(
                 project_name="demo",
                 title="Preserve original evidence first",
-                statement="Data ingestion must preserve traceable original evidence before normalization.",
+                statement=(
+                    "Data ingestion must preserve traceable original evidence before "
+                    "normalization. Markdown may be generated for reading."
+                ),
                 module_path=["data ingestion"],
                 verified_at=datetime(2026, 8, 18, tzinfo=timezone.utc),
             ),
@@ -113,7 +119,10 @@ def test_separated_knowledge_search_is_current_only_and_clean(
         assert project_memory_entries(entries) == [
             {
                 "title": "Preserve original evidence first",
-                "statement": "Data ingestion must preserve traceable original evidence before normalization.",
+                "statement": (
+                    "Data ingestion must preserve traceable original evidence before "
+                    "normalization. Markdown may be generated for reading."
+                ),
             }
         ]
         assert (
@@ -127,6 +136,30 @@ def test_separated_knowledge_search_is_current_only_and_clean(
                 )
             )
             == []
+        )
+        assert (
+            _run(
+                search_current_knowledge(
+                    backend,
+                    project_name="demo",
+                    query="mark prune parser choices",
+                    limit=10,
+                    project_root=project_root,
+                )
+            )
+            == []
+        )
+        assert (
+            _run(
+                search_current_knowledge(
+                    backend,
+                    project_name="demo",
+                    query="markdown",
+                    limit=10,
+                    project_root=project_root,
+                )
+            )
+            == entries
         )
         assert (
             _run(
@@ -152,33 +185,48 @@ def test_separated_knowledge_search_is_current_only_and_clean(
         assert payload["memories"] == [
             {
                 "title": "Preserve original evidence first",
-                "statement": "Data ingestion must preserve traceable original evidence before normalization.",
+                "statement": (
+                    "Data ingestion must preserve traceable original evidence before "
+                    "normalization. Markdown may be generated for reading."
+                ),
             }
         ]
-        assert payload["record_outcome_call"] == {
-            "tool": "record_context_outcome",
-            "arguments": {
-                "project_name": "demo",
-                "surface": "search_memory",
-                "retrieval_id": payload["retrieval_id"],
-            },
-            "required_argument": "outcome",
-            "allowed_outcomes": ["ignored", "misleading", "used"],
-        }
-        feedback = read_search_handlers.tool_record_context_outcome(
-            **payload["record_outcome_call"]["arguments"],
-            outcome="misleading",
+        assert set(payload) == {"project_name", "query", "status", "memories"}
+        assert "retrieval_id" not in payload
+        assert "record_outcome_call" not in payload
+
+        diagnostics = read_search_handlers.tool_search_memory(
+            query="evidence",
+            project_name="demo",
+            _include_diagnostics=True,
         )
-        assert feedback["success"] is True
-        signals = _run(
-            backend.structured_store.query_retrieval_signals(
-                "demo",
-                signal_type="context_outcome",
-                target_kind="knowledge_entry",
-            )
-        )
-        assert [(signal.target_id, signal.value) for signal in signals] == [
-            (entries[0].id, -1.0)
+        assert diagnostics["memory_entry_count"] == 1
+        assert diagnostics["context_plan"]["source_ids"] == [entries[0].id]
+        assert diagnostics["answer_ready_context"]["truth"] == [
+            {
+                "source_id": entries[0].id,
+                "reason": "current project knowledge matched the query",
+                "summary": (
+                    "Preserve original evidence first: Data ingestion must preserve "
+                    "traceable original evidence before normalization. Markdown may be "
+                    "generated for reading."
+                ),
+            }
         ]
+        assert diagnostics["record_outcome_call"] is not None
+
+        autopilot = read_search_handlers.tool_autopilot_search_tick(
+            event_name="context",
+            project_name="demo",
+            current_task=(
+                "Need the current project convention for preserving source evidence; "
+                "not sure about the existing rule."
+            ),
+            changed_files=["README.md"],
+        )
+        assert autopilot["search_executed"] is True
+        assert autopilot["search"]["memory_entry_count"] == 1
+        assert autopilot["context_injection"]["source_ids"] == [entries[0].id]
+        assert autopilot["context_injection"]["answer_ready_context"]["truth"]
     finally:
         _run(backend.close())

@@ -159,24 +159,77 @@ def tool_search_memory(
                 retrieval_id=retrieval_id,
             )
         )
-        return {
+        memories = project_memory_entries(separated_entries)
+        # Retrieval correlation remains in the internal signal ledger.  The
+        # normal knowledge response is deliberately presentation-clean: a
+        # caller asking for memory must not receive audit IDs or a feedback
+        # protocol beside the knowledge itself.
+        clean_payload = {
             "project_name": project_name,
             "query": query,
             "status": "answered" if separated_entries else "empty",
-            "memories": project_memory_entries(separated_entries),
+            "memories": memories,
+        }
+        if not _include_diagnostics:
+            return clean_payload
+
+        source_ids = list(clean_retrieval_receipt.get("source_ids") or [])
+        answer_truth = [
+            {
+                "source_id": entry.id,
+                "reason": "current project knowledge matched the query",
+                "summary": f"{memory['title']}: {memory['statement']}",
+            }
+            for entry, memory in zip(separated_entries, memories, strict=True)
+        ]
+        return {
+            **clean_payload,
             "retrieval_id": retrieval_id,
+            "retrieval_receipt": clean_retrieval_receipt,
+            "memory_entries": memories,
+            "memory_entry_count": len(memories),
+            "relation_facts": [],
+            "relation_fact_count": 0,
+            "observations": [],
+            "observation_count": 0,
+            "context_plan": {
+                "project_name": project_name,
+                "query": query,
+                "source_ids": source_ids,
+            },
+            "answer_ready_context": {
+                "project_name": project_name,
+                "query": query,
+                "current_task": task,
+                "safe_to_answer": bool(memories),
+                "sufficiency_status": "sufficient" if memories else "empty",
+                "support_level": "current_truth" if memories else "none",
+                "effective_deep_recall": False,
+                "orchestration_actions": ["current_knowledge_search"],
+                "project_profile": [],
+                "truth": answer_truth,
+                "active_task": [],
+                "topic_recall": [],
+                "supporting_evidence": [],
+                "caveats": [],
+                "recommended_action": [],
+                "drilldown_hints": [],
+            },
+            "supporting_evidence": [],
+            "drilldown_hints": [],
             "record_outcome_call": (
                 {
                     "tool": "record_context_outcome",
                     "arguments": {
                         "project_name": project_name,
                         "surface": "search_memory",
+                        "source_ids": source_ids,
                         "retrieval_id": retrieval_id,
                     },
                     "required_argument": "outcome",
                     "allowed_outcomes": sorted(VALID_CONTEXT_OUTCOMES),
                 }
-                if clean_retrieval_receipt.get("source_ids")
+                if source_ids
                 else None
             ),
         }
@@ -208,12 +261,11 @@ def tool_search_memory(
         )[:20]
         surfaced_ids = {entry.id for entry in separated_entries}
         retrieval_id = _new_retrieval_id()
-        record_outcome_calls = []
         for known_project, project_entries in entries_by_project.items():
             surfaced = [entry for entry in project_entries if entry.id in surfaced_ids]
             if not surfaced:
                 continue
-            receipt = asyncio.run(
+            asyncio.run(
                 _record_search_quality_signals(
                     backend,
                     project_name=known_project,
@@ -225,19 +277,6 @@ def tool_search_memory(
                     surface="search_all",
                 )
             )
-            if receipt.get("source_ids"):
-                record_outcome_calls.append(
-                    {
-                        "tool": "record_context_outcome",
-                        "arguments": {
-                            "project_name": known_project,
-                            "surface": "search_all",
-                            "retrieval_id": retrieval_id,
-                        },
-                        "required_argument": "outcome",
-                        "allowed_outcomes": sorted(VALID_CONTEXT_OUTCOMES),
-                    }
-                )
         return {
             "project_name": None,
             "query": query,
@@ -246,8 +285,6 @@ def tool_search_memory(
                 separated_entries,
                 include_project=True,
             ),
-            "retrieval_id": retrieval_id,
-            "record_outcome_calls": record_outcome_calls,
         }
 
     profile_info = asyncio.run(

@@ -192,7 +192,7 @@
               "autonomous.provider_isolated": {"equals": true},
               "autonomous.provider_metrics_bound": {"equals": true},
               "autonomous.provider.schema_valid": {"equals": true},
-              "autonomous.provider.sandbox": {"equals": "no-tools"},
+              "autonomous.provider.sandbox": {"equals": "read-only"},
               "autonomous.provider.ephemeral": {"equals": true},
               "autonomous.provider.cwd_isolated": {"equals": true},
               "autonomous.provider.hooks_disabled": {"equals": true},
