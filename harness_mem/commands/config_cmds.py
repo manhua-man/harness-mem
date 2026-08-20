@@ -90,6 +90,12 @@ def _allowed_for(key: str) -> tuple[str, ...] | None:
             if len(bounds) == 2:
                 description += f" and <= {bounds[1]}"
             return (description,)
+        if kind.startswith("str:min="):
+            bounds = kind.removeprefix("str:min=").split(":max=", maxsplit=1)
+            description = f"non-empty string of at least {bounds[0]} characters"
+            if len(bounds) == 2:
+                description += f" and at most {bounds[1]} characters"
+            return (description,)
         if kind == "str_list":
             return ('TOML string list, e.g. ["codex", "cursor"]',)
     return None
@@ -167,10 +173,9 @@ def cmd_config_set(
     (see design.md "Error Handling" table).
     """
     resolved_root = _resolve_project_root(project_root)
-    if key == "distill.autonomous.enabled" and scope != "project":
+    if key in {"distill.autonomous.enabled", "semantic.execution.profile"} and scope != "project":
         print(
-            "invalid scope: distill.autonomous.enabled may only be set at "
-            "project scope",
+            f"invalid scope: {key} may only be set at project scope",
             file=sys.stderr,
         )
         return 1

@@ -9,7 +9,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, field_validator
 
 
-DreamFinalAction = Literal["applied", "rejected", "archived", "failed", "pending_review"]
+DreamFinalAction = Literal["applied", "rejected", "archived", "failed"]
 DreamProposedAction = Literal[
     "merge",
     "mark_stale",
@@ -24,8 +24,9 @@ DreamStatus = Literal["processing", "completed", "failed"]
 class DreamItem(BaseModel):
     """One parsed and handled item inside a DreamRun.
 
-    ``pending_review`` means dream emitted or preserved a candidate and stopped
-    before any durable truth mutation; explicit review tools own the change.
+    Every Dream item reaches a terminal result in the same run. Manual Review
+    remains available for audit and undo, but Dream does not create an
+    automatic pending-review queue.
     """
 
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -76,6 +77,10 @@ class DreamItem(BaseModel):
             data["result"] = {}
         if "error" not in data:
             data["error"] = None
+        # Historical ledgers remain readable after the intermediate state was
+        # removed. They are projected as closed audit records, not re-opened.
+        if data.get("final_action") == "pending_review":
+            data["final_action"] = "archived"
         return cls(**data)
 
 
@@ -100,7 +105,6 @@ class DreamRun(BaseModel):
             "rejected": 0,
             "archived": 0,
             "failed": 0,
-            "pending_review": 0,
         }
     )
     duration_ms: int = 0
@@ -163,12 +167,11 @@ def _summary_for_items(
         "rejected": 0,
         "archived": 0,
         "failed": 0,
-        "pending_review": 0,
     }
     for item in items:
         summary[item.final_action] += 1
     if existing:
         for key, value in existing.items():
-            if key not in summary:
+            if key not in summary and key != "pending_review":
                 summary[key] = int(value)
     return summary

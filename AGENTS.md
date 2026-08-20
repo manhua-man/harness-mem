@@ -28,7 +28,7 @@
 
 `harness-mem` 是面向 AI Agent 的本地优先、可审计、可插拔记忆后端。Agent 通过统一 MCP surface 使用项目记忆；Claude Code、Codex、Cursor、Grok、Hermes、OpenCode 和 Antigravity 通过各自原生命令与 Hook 接入同一运行时。
 
-- Python 包：`harness-mem`，当前版本 `0.9.22`；版本真值在 `pyproject.toml` 与 `harness_mem/__init__.py`。
+- Python 包：`harness-mem`，当前源码版本 `0.9.23`（最新发布包 `0.9.22`）；版本真值在 `pyproject.toml` 与 `harness_mem/__init__.py`。
 - Rust helper crate：`harness_mem_core_rs`，crate 版本 `4.0.3`；它不是 Python 包版本。
 - Python 要求：`>=3.9`。
 - 分发：GitHub Releases 的原生 wheel 与 sdist，不发布到 PyPI。
@@ -38,6 +38,8 @@
 ## 当前版本与目标架构边界
 
 `0.9.22` 已实现会话生命周期、无损提取、逐点验证、SQLite 当前知识、job 范围临时处理材料、干净检索，以及显式授权的 detached semantic execution。当前 normal wake/search 已把 raw Observation 和内部审计元数据隔离到 deep recall 或诊断面。
+
+未发布的 `0.9.23` 保持这些存储边界，并增加用户配置中 operator-owned 的受限 semantic provider profile，以及只针对完整、可重开来源的终态 Dream 复核。profile 选择和 autonomous execution 都需要项目级显式授权；截断、缺失、不支持来源和多条比较信号不改写当前知识。
 
 兼容 `MemoryEntry` 历史行仍可读取，但新知识不再把 candidate、evidence、decision 和 truth 混成一个对象。`canonical.sqlite` 中的 `knowledge_entries` 是当前知识 authority；新候选、证据和拟议归纳决定属于 job 范围临时材料，成功终态经证明后按策略清理；最小知识来源与必要 undo 版本独立关联；Markdown 仅在阅读/导出时生成。六会话冻结 oracle、真实 Hook 与 14 项 outcome 已通过。普通开发、启动或文档更新均不得迁移真实记忆；仅限操作员单独授权的、明确项目范围的维护运行可以重验来源、原子重写或可逆地退役历史行。一次已授权的 `harness-mem` 范围收敛已完成，其他项目和后续历史数据仍需新的明确授权。
 
@@ -89,7 +91,7 @@
 - **质量信号：** 垃圾写入趋近于零；不宽、不重、不混；同一事实不换措辞重复写；设计目标不冒充当前实现；candidate、audit、handoff 与长期知识保持区别。
 - **主要 owner：** `harness_mem/commands/assimilation.py`、`harness_mem/core/schemas/assimilation.py`、`harness_mem/storage/candidate_store.py`、`harness_mem/storage/truth_store.py`、`harness_mem/mcp/governance_handlers.py`。
 - **长期知识形态：** SQLite `knowledge_entries` 是项目当前长期知识单一真源；行内只保留稳定内部 ID、项目、自然模块路径、具体标题、一条知识正文和验证日期，最小真实来源独立关联。内部类型、处置、job 和理由码不进入正式知识或默认展示。
-- **当前兼容边界：** `0.9.22` 的新写路径已分离干净当前知识、临时 job 材料和最小来源/undo 数据；旧 `MemoryEntry` 兼容行不会因升级自动迁移、删除或改写。
+- **当前兼容边界：** `0.9.22` 发布路径（并由 `0.9.23` 开发路径延续）已分离干净当前知识、临时 job 材料和最小来源/undo 数据；旧 `MemoryEntry` 兼容行不会因升级自动迁移、删除或改写。
 
 ### 4. 检索与使用
 
@@ -203,6 +205,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | Python compile | `python -m compileall harness_mem` | `README.md` |
 | Ruff | `python -m ruff check harness_mem code/plugins code/tools` | `README.md` |
 | Mypy | `python -m mypy harness_mem` | `README.md` |
+| Version alignment preflight | `python -m pytest -q code/tests/test_package_version_alignment.py code/tests/test_version_drift.py` | `README.md` |
 | 快速 PR lane | `python -m pytest -q -m "not release_gate"` | `README.md` |
 | 完整 Python lane | `python -m pytest -q` | `README.md` |
 | CLI smoke | `python -m harness_mem.cli --help` | `README.md` |
@@ -217,6 +220,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | 改动范围 | 最小相关门禁 | 保护的合同 |
 | --- | --- | --- |
 | MCP tool spec、handler、descriptor | `code/tests/test_mcp_public_surface_contract.py`、`code/tests/test_mcp_exported_tools.py`、`code/scripts/ensure_mcps_canonical.py` | 27-tool surface 一致，不产生 registry 漂移 |
+| package / plugin / public install version | `code/tests/test_package_version_alignment.py`、`code/tests/test_version_drift.py` | 源码、插件 manifest、公开安装说明与成熟度快照同版；应在完整 suite 前先跑 |
 | transcript、adapter、Hook、job lifecycle | `code/tests/test_lossless_distill_mcp.py`、`code/tests/test_transcript_evidence.py`、对应 `test_lossless_*_adapter.py` | revision/chunk 无损、job/receipt 绑定、项目隔离 |
 | evidence admission / Answer Gate | `code/tests/test_evidence_admission.py` | repository/user/transcript 证据类型、digest 与 fail-closed 状态 |
 | assimilation / truth mutation | `code/tests/test_assimilation_runtime.py`、`code/tests/test_assimilation_shadow.py` | 每点独立处置、完整覆盖、无重复、冲突不写 |
@@ -273,7 +277,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | 公共产品与安装 | `README.md`、`README.zh-CN.md` | 用户主入口；公开行为变更需同步 |
 | 五模块详细合同 | `docs/memory-adoption.md` | 当前概念 owner；含模块单位、职责、非职责和质量信号 |
 | 当前版本与下一列车 | `docs/roadmap.md` | 区分已发布、折叠版本、历史计划和 Next train |
-| SQLite 当前知识收敛 | `docs/roadmap/knowledge-truth-separation.md` | `0.9.22` 当前实现；普通运行不迁移真实旧记忆，已授权收敛必须项目隔离、来源重验且可逆 |
+| SQLite 当前知识收敛 | `docs/roadmap/knowledge-truth-separation.md` | `0.9.22` 发布实现（`0.9.23` 开发路径延续）；普通运行不迁移真实旧记忆，已授权收敛必须项目隔离、来源重验且可逆 |
 | Distill 验收矩阵 | `docs/distill-test-plan.md` | fixture、路径矩阵、停止条件和报告格式 |
 | 自动晋升治理 | `docs/auto-promoted-memory-governance.md` | compatibility contract、状态和读路径 |
 | 宿主 Hook/adapter | `docs/ide-hook-adapter-matrix.md` | 七宿主能力、安装位置和支持证据 |

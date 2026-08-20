@@ -26,7 +26,7 @@ from harness_mem.autonomous.provider import (
     CodexExecProvider,
     ProviderError,
     ProviderResult,
-    ResponsesApiProvider,
+    build_semantic_provider,
 )
 from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.commands.separated_assimilation import (
@@ -83,6 +83,14 @@ class DistillProvider(Protocol):
     ) -> ProviderResult: ...
 
     def assimilate(
+        self,
+        manifest: dict[str, Any],
+        *,
+        runtime_dir: Path,
+        heartbeat: Any = None,
+    ) -> ProviderResult: ...
+
+    def verify(
         self,
         manifest: dict[str, Any],
         *,
@@ -249,6 +257,43 @@ def autonomous_runtime_fingerprint() -> str:
 def autonomous_config_fingerprint(config: MergedConfig) -> str:
     """Fingerprint the effective settings that control autonomous execution."""
 
+    runtime = config.to_runtime_config()
+    semantic = runtime.get("semantic") if isinstance(runtime, dict) else None
+    execution = semantic.get("execution") if isinstance(semantic, dict) else None
+    profile_name = (
+        str(execution.get("profile") or "").strip()
+        if isinstance(execution, dict)
+        else ""
+    )
+    providers = semantic.get("providers") if isinstance(semantic, dict) else None
+    raw_profile = (
+        providers.get(profile_name)
+        if profile_name and isinstance(providers, dict)
+        else None
+    )
+    # Fingerprint only the connection contract, never the secret value itself.
+    # This also gives setup-failure receipts a stable identity when the selected
+    # profile is missing or malformed.
+    semantic_provider = {
+        "profile": profile_name,
+        "defined": isinstance(raw_profile, dict),
+    }
+    if isinstance(raw_profile, dict):
+        for key in (
+            "protocol",
+            "base_url",
+            "api_key_env",
+            "model",
+            "assimilation_model",
+            "timeout_seconds",
+        ):
+            if key in raw_profile:
+                value = raw_profile[key]
+                semantic_provider[key] = (
+                    value
+                    if isinstance(value, (str, int, float, bool)) or value is None
+                    else f"<{type(value).__name__}>"
+                )
     payload = {
         "enabled": config.distill_autonomous_enabled,
         "max_jobs_per_wake": config.distill_auto_max_jobs_per_wake,
@@ -256,6 +301,7 @@ def autonomous_config_fingerprint(config: MergedConfig) -> str:
         "target_backlog": config.distill_auto_target_backlog,
         "recent_first": config.distill_auto_recent_first,
         "budget_tokens": config.cost_budget_distill_tokens,
+        "semantic_provider": semantic_provider,
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
@@ -302,6 +348,9 @@ def _record_post_turn_nonsemantic_terminal_receipt(
     state: Literal["failed", "deferred"],
     job_id: str | None,
     error: dict[str, Any],
+    execution_source: str = "hook_background",
+    hook_launch_verified: bool | None = None,
+    config_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     """Persist a non-semantic terminal receipt for a waited Hook.
 
@@ -325,13 +374,18 @@ def _record_post_turn_nonsemantic_terminal_receipt(
             "trigger_id": trigger_id,
             "dispatch_generation": dispatch_generation,
             "client": client,
-            "execution_source": "hook_background",
-            "hook_launch_verified": bool(trigger_id and client),
+            "execution_source": execution_source,
+            "hook_launch_verified": (
+                bool(trigger_id and client)
+                if hook_launch_verified is None
+                else hook_launch_verified
+            ),
             "hook_config_fingerprint": hook_configuration_fingerprint(
                 root,
                 client=client,
             ),
             "runtime_fingerprint": autonomous_runtime_fingerprint(),
+            "config_fingerprint": config_fingerprint,
             "hook_reentry_count": 0,
             "batch": {
                 "state": state,
@@ -572,10 +626,36 @@ def run_autonomous_distill_batch(
     # Distillation is bounded structured classification, not a coding turn.
     # Keep it independent from the user's heavier interactive model so a main
     # Agent model change cannot silently reintroduce provider latency.
-    chosen_provider = provider or ResponsesApiProvider()
+    started_at = _now()
+    try:
+        chosen_provider = provider or build_semantic_provider(
+            config.to_runtime_config()
+        )
+    except ProviderError as exc:
+        _record_post_turn_nonsemantic_terminal_receipt(
+            backend.data_dir,
+            project_name=project_name,
+            project_root=root,
+            trigger_id=trigger_id,
+            client=client,
+            dispatch_generation=dispatch_generation,
+            state="failed",
+            job_id=None,
+            error={"kind": exc.kind, "message": str(exc)},
+            execution_source="autonomous_worker",
+            hook_launch_verified=bool(
+                launch_source == "ide_hook" and trigger_id and client
+            ),
+            config_fingerprint=autonomous_config_fingerprint(config),
+        )
+        return {
+            "success": False,
+            "state": exc.kind,
+            "reason": str(exc),
+            "outcomes": [],
+        }
     resolved_notes = notes_dir or Path.home() / ".codex" / "hm-distill" / "sessions"
     runtime_dir = Path(backend.data_dir) / "autonomous" / "provider-runtime"
-    started_at = _now()
     _write_receipt(
         backend.data_dir,
         project_name=project_name,

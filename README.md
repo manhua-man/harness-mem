@@ -239,8 +239,8 @@ owns storage, candidates, review, retrieval, and local audit state.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.22 \
-  harness-mem==0.9.22
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.23 \
+  harness-mem==0.9.23
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -251,8 +251,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.22 \
-  "harness-mem[hybrid]==0.9.22"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.23 \
+  "harness-mem[hybrid]==0.9.23"
 ```
 
 Install every supported host's native Daily commands once for the current
@@ -320,6 +320,31 @@ harness-mem config set distill.autonomous.enabled true --scope project --confirm
 
 The global default is `false`. Projects without this authorization keep captured
 jobs queued for explicit processing. Disabling never requires confirmation.
+
+Development source version `0.9.23` additionally supports an operator-owned
+restricted provider profile for autonomous distillation and Dream source
+rechecks. Keep the endpoint and environment-variable reference in the user
+configuration (never in a repository), then select that already approved
+profile for one authorized project:
+
+```toml
+# ~/.harness-mem/config.toml
+[semantic.providers.local-gateway]
+protocol = "anthropic-messages" # or "openai-responses"
+base_url = "https://gateway.example/v1"
+api_key_env = "HARNESS_MEM_GATEWAY_KEY"
+model = "operator-approved-model"
+```
+
+```bash
+harness-mem config set semantic.execution.profile local-gateway --scope project
+```
+
+The profile has no access to Agent tools, MCP, the filesystem, or host rules;
+it returns only the required structured semantic decision. A selected profile
+does not authorize model calls on its own: the project must also have
+`distill.autonomous.enabled=true`. Until `0.9.23` is published, an installed
+`0.9.22` package does not include this development capability.
 
 For archived Codex tasks, first bind the project root. The default
 `archive_distill.project_scope = "current"` processes only that project;
@@ -431,6 +456,7 @@ product surface.
 python -m compileall harness_mem
 python -m ruff check harness_mem code/plugins code/tools
 python -m mypy harness_mem
+python -m pytest -q code/tests/test_package_version_alignment.py code/tests/test_version_drift.py  # run first after a version bump
 python -m pytest -q -m "not release_gate"  # fast PR lane
 python -m pytest -q                        # complete release lane
 python -m harness_mem.cli --help
@@ -494,4 +520,4 @@ python code/scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, runs a real sqlite-vec contract gate, qualifies the supported Windows upgrade path, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.9.22**.
+Current package version: **0.9.23**.

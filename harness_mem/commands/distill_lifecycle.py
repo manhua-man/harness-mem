@@ -14,6 +14,7 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 DistillSource = Literal["user", "agent", "ide_hook", "scheduler"]
 MAX_DISTILL_JOBS_PER_OFFER = 3
 DEFAULT_DISTILL_BUDGET_TOKENS = 3000
+MAX_STATUS_QUEUE_PREVIEW = 12
 
 
 def _bounded_job_limit(max_jobs: int) -> int:
@@ -261,6 +262,7 @@ def distill_drainer_metrics(
     pending_ids = {
         job.id for job in [*active, *parked, *retryable_ready, *retry_backoff]
     }
+    pending_jobs = [job for job in jobs if job.id in pending_ids]
     pending_total = len(pending_ids)
     throughput_per_day = round(len(completed_7d) / 7, 2)
     stuck_reasons = _distill_stuck_reasons(
@@ -324,6 +326,12 @@ def distill_drainer_metrics(
         "recent_lane_selected": sum(job.drainer_lane == "recent" for job in jobs),
         "oldest_lane_selected": sum(job.drainer_lane == "oldest" for job in jobs),
         "pending_total": pending_total,
+        "queue_preview": _distill_queue_preview(
+            backend,
+            jobs=pending_jobs,
+            now=current,
+            queue_state=state,
+        ),
         "stuck_reasons": stuck_reasons,
         "drain_estimate": drain_estimate,
         "agent_required": bool(pending_total),
@@ -341,6 +349,160 @@ def distill_drainer_metrics(
             else None
         ),
     }
+
+
+def _distill_queue_preview(
+    backend: LocalMemoryBackend,
+    *,
+    jobs: list[SessionDistillJob],
+    now: datetime,
+    queue_state: str,
+) -> list[dict[str, Any]]:
+    """Project a bounded, ID-free lifecycle view of pending distill work.
+
+    Status needs to answer which captured sessions are waiting and who is
+    currently responsible without exposing transcript content, internal IDs,
+    lease tokens, or filesystem locators.  A host session has no reliable
+    user-authored title before it is distilled, so the stable human label is
+    host plus capture time rather than a fabricated summary.
+    """
+
+    rank = {
+        "reviewing": 0,
+        "processing": 1,
+        "queued": 2,
+        "retryable": 3,
+        "parked": 4,
+    }
+    ordered = sorted(
+        jobs,
+        key=lambda job: (
+            rank.get(job.status, 99),
+            job.created_at.astimezone(timezone.utc),
+        ),
+    )
+    return [
+        _distill_queue_item(backend, job=job, now=now, queue_state=queue_state)
+        for job in ordered[:MAX_STATUS_QUEUE_PREVIEW]
+    ]
+
+
+def _distill_queue_item(
+    backend: LocalMemoryBackend,
+    *,
+    job: SessionDistillJob,
+    now: datetime,
+    queue_state: str,
+) -> dict[str, Any]:
+    """Return one human-readable lifecycle row without internal identifiers."""
+
+    live_owner = _live_distill_owner(backend, job=job, now=now)
+    handler = _distill_handler_summary(
+        job=job,
+        live_owner=live_owner,
+        queue_state=queue_state,
+    )
+    client_label = {
+        "codex": "Codex",
+        "codex-archive": "Codex archive",
+        "claude-code": "Claude Code",
+        "cursor": "Cursor",
+    }.get(job.client, job.client or "Agent host")
+    captured_at = job.created_at.astimezone(timezone.utc).isoformat()
+    return {
+        "project_name": job.project_name,
+        "session_label": f"{client_label} session captured {captured_at}",
+        "source_host": job.client,
+        "captured_at": captured_at,
+        "state": _distill_queue_state(job=job, live_owner=live_owner, queue_state=queue_state),
+        "progress": {
+            "completed_chunks": max(0, int(job.completed_chunk_count)),
+            "expected_chunks": max(0, int(job.expected_chunk_count)),
+        },
+        "handler": handler,
+    }
+
+
+def _live_distill_owner(
+    backend: LocalMemoryBackend,
+    *,
+    job: SessionDistillJob,
+    now: datetime,
+) -> str | None:
+    """Return only a live lease owner; expired owners are not current agents."""
+
+    if (
+        job.status == "reviewing"
+        and job.review_lease_owner
+        and job.review_lease_until is not None
+        and job.review_lease_until > now
+    ):
+        return job.review_lease_owner
+    if job.status != "processing":
+        return None
+    for checkpoint in backend.transcript_store.list_distill_checkpoints(job.id):
+        if (
+            checkpoint.status == "processing"
+            and checkpoint.lease_owner
+            and checkpoint.lease_until is not None
+            and checkpoint.lease_until > now
+        ):
+            return checkpoint.lease_owner
+    return None
+
+
+def _distill_handler_summary(
+    *,
+    job: SessionDistillJob,
+    live_owner: str | None,
+    queue_state: str,
+) -> dict[str, str]:
+    """Translate private lease mechanics into the responsible agent class."""
+
+    owner = live_owner or ""
+    if owner.startswith("autonomous:") or job.review_execution_source == "autonomous_worker":
+        if live_owner:
+            return {
+                "kind": "autonomous_worker",
+                "label": "harness-mem autonomous distill worker",
+            }
+    if owner.startswith("mcp-distill"):
+        return {"kind": "interactive_agent", "label": "current MCP Agent"}
+    if live_owner:
+        return {"kind": "agent_worker", "label": "active Agent worker"}
+    if queue_state == "daily_budget_exhausted":
+        return {
+            "kind": "waiting",
+            "label": "no Agent is running; waiting for the next daily budget",
+        }
+    if job.status == "retryable":
+        return {"kind": "waiting", "label": "waiting for a retry-capable Agent"}
+    if job.status == "parked":
+        return {"kind": "waiting", "label": "waiting for the next eligible Agent lane"}
+    return {"kind": "waiting", "label": "waiting for a Codex Agent"}
+
+
+def _distill_queue_state(
+    *,
+    job: SessionDistillJob,
+    live_owner: str | None,
+    queue_state: str,
+) -> str:
+    """Give the user-facing row a precise state, not only the global count."""
+
+    if live_owner and job.status == "processing":
+        return "processing_transcript"
+    if live_owner and job.status == "reviewing":
+        return "reviewing_session"
+    if queue_state == "daily_budget_exhausted":
+        return "waiting_for_daily_budget"
+    if job.status == "retryable":
+        return "waiting_for_retry"
+    if job.status == "parked":
+        return "waiting_for_lane"
+    if job.status == "reviewing":
+        return "waiting_for_review_agent"
+    return "queued_for_agent"
 
 
 def _distill_stuck_reasons(

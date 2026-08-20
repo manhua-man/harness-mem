@@ -118,6 +118,28 @@ harness-mem config set distill.autonomous.enabled true --scope project --confirm
 
 全局默认是 `false`；授权后该项目的 Stop 不再重复确认，未授权项目保持仅排队模式。
 
+开发中的 `0.9.23` 源码还支持“由操作员拥有”的受限 provider profile，用于自动
+蒸馏和 Dream 来源复核。端点和环境变量名只能放在用户配置中，不能放进仓库；随后
+才可以由已授权项目选择该 profile：
+
+```toml
+# ~/.harness-mem/config.toml
+[semantic.providers.local-gateway]
+protocol = "anthropic-messages" # 或 "openai-responses"
+base_url = "https://gateway.example/v1"
+api_key_env = "HARNESS_MEM_GATEWAY_KEY"
+model = "operator-approved-model"
+```
+
+```bash
+harness-mem config set semantic.execution.profile local-gateway --scope project
+```
+
+该 profile 没有 Agent 工具、MCP、文件系统或宿主规则权限，只能返回规定的结构化语义
+结论。选择 profile 本身不等于授权模型调用；项目仍必须设置
+`distill.autonomous.enabled=true`。在 `0.9.23` 发布前，已安装的 `0.9.22` 包尚未包含
+此开发中的能力。
+
 新候选带 evidence basis 和 verification outcome。仓库事实必须引用
 当前项目相对文件及其 SHA-256；用户偏好或决定引用 user role 的 exchange
 摘要。只有 transcript 说法、证据缺失/变化或已冲突的候选不能进入长期 truth；
@@ -197,8 +219,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.22 \
-  harness-mem==0.9.22
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.23 \
+  harness-mem==0.9.23
 ```
 
 `harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
@@ -208,8 +230,8 @@ Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.22 \
-  "harness-mem[hybrid]==0.9.22"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.23 \
+  "harness-mem[hybrid]==0.9.23"
 ```
 
 在当前设备一次性安装全部宿主的原生 Daily 命令。默认参数就是
@@ -351,4 +373,4 @@ Codex Hook payload 通过 stdin 传入，并显式等待 detached post-turn 回�
 全新安装验证，运行真实 sqlite-vec contract gate，并验证受支持的 Windows 升级
 路径后再上传到 GitHub Release。本项目不发布到 PyPI。
 
-当前包版本：**0.9.22**。
+当前包版本：**0.9.23**。

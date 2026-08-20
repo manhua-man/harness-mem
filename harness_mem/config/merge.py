@@ -58,6 +58,10 @@ class MergedConfig:
     distill_auto_recent_first: bool = True
     distill_auto_daily_job_budget: int = 8
     distill_delete_source_after_complete: bool = False
+    # The selected backend semantic provider is project-scoped.  Connection
+    # profiles themselves remain user-scoped extras: a repository must never
+    # be able to replace an operator-approved endpoint or credential source.
+    semantic_execution_profile: str = ""
     archive_distill_enabled: bool = False
     archive_distill_batch_size: int = 3
     archive_distill_daily_limit: int = 20
@@ -169,6 +173,15 @@ _DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
         "distill_delete_source_after_complete",
         "bool",
         False,
+    ),
+)
+
+_SEMANTIC_EXECUTION_KEYS: tuple[tuple[str, str, str, Any], ...] = (
+    (
+        "semantic.execution.profile",
+        "semantic_execution_profile",
+        "str:min=1:max=80",
+        "",
     ),
 )
 
@@ -291,6 +304,7 @@ _COST_BUDGET_KEYS: tuple[tuple[str, str, str, Any], ...] = (
 _TYPED_CONFIG_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     *_CAPTURE_KEYS,
     *_DISTILL_KEYS,
+    *_SEMANTIC_EXECUTION_KEYS,
     *_ARCHIVE_DISTILL_KEYS,
     *_DREAM_KEYS,
     *_COST_BUDGET_KEYS,
@@ -309,6 +323,7 @@ PUBLIC_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "distill.auto.enabled",
     "distill.autonomous.enabled",
     "distill.delete_source_after_complete",
+    "semantic.execution.profile",
     "archive_distill.enabled",
     "archive_distill.batch_size",
     "archive_distill.daily_limit",
@@ -454,6 +469,19 @@ def _coerce_typed_value(
                 key_path=key_path, value=value, source_path=source_path
             )
         return tuple(dict.fromkeys(item.strip() for item in value if item.strip()))
+    if kind.startswith("str:min="):
+        bounds = kind.removeprefix("str:min=").split(":max=", maxsplit=1)
+        minimum = int(bounds[0])
+        maximum = int(bounds[1]) if len(bounds) == 2 else None
+        if (
+            not isinstance(value, str)
+            or len(value.strip()) < minimum
+            or (maximum is not None and len(value.strip()) > maximum)
+        ):
+            raise ConfigValidationError(
+                key_path=key_path, value=value, source_path=source_path
+            )
+        return value.strip()
     if kind == "const:true":
         coerced = _coerce_bool(value, key_path=key_path, source_path=source_path)
         if coerced is not True:
@@ -620,6 +648,13 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
     # inherit either authorization by accident.
     _remove_dotted(user_dict, "distill.delete_source_after_complete")
     _remove_dotted(user_dict, "distill.autonomous.enabled")
+    # A project may select one of the operator's named profiles, but it cannot
+    # supply or override connection data.  In particular, this prevents an
+    # untrusted repository config from redirecting transcript evidence to an
+    # arbitrary endpoint or from naming an arbitrary credential environment
+    # variable.
+    _remove_dotted(user_dict, "semantic.execution.profile")
+    _remove_dotted(project_dict, "semantic.providers")
 
     # ---- 3. deep-merge (project overrides user) (Req 3.3) ---------------
     merged = deep_merge(user_dict, project_dict)

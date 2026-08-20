@@ -375,6 +375,31 @@ def test_compact_status_exposes_exact_full_drilldown() -> None:
     ]
 
 
+def test_compact_status_keeps_a_bounded_id_free_queue_preview() -> None:
+    snapshot = _status_snapshot()
+    snapshot["pending_distill"]["queue_preview"] = [
+        {
+            "project_name": "demo",
+            "session_label": f"Codex session captured 2026-07-17T00:0{index}:00+00:00",
+            "source_host": "codex",
+            "captured_at": f"2026-07-17T00:0{index}:00+00:00",
+            "state": "queued_for_agent",
+            "progress": {"completed_chunks": 0, "expected_chunks": 3},
+            "handler": {"kind": "waiting", "label": "waiting for a Codex Agent"},
+        }
+        for index in range(4)
+    ]
+
+    compact = render_project_status(snapshot, detail_level="compact")
+
+    preview = compact["pending_distill"]["queue_preview"]
+    assert len(preview) == 3
+    assert preview[0]["project_name"] == "demo"
+    assert preview[0]["handler"]["kind"] == "waiting"
+    assert "session_id" not in str(preview)
+    assert "job_id" not in str(preview)
+
+
 def test_full_status_keeps_complete_diagnostics() -> None:
     snapshot = _status_snapshot()
     full = render_project_status(snapshot, detail_level="full")

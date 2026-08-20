@@ -63,6 +63,12 @@ It owns:
 - distill-job creation, terminal receipts, and Hook/provider binding; and
 - retained-source policy and fail-closed safe cleanup.
 
+When a user asks for status, this module must also provide a bounded,
+human-readable pending-session view: project, source host, capture time,
+per-session lifecycle state, progress, and the responsible Agent class. It
+must not require the user to interpret a bare queue count or expose session/job
+IDs, lease tokens, transcript text, or filesystem paths.
+
 **Does not own:** deciding what the project should remember. It supplies
 complete, authorized source revisions and durable receipts to later stages.
 
@@ -322,7 +328,11 @@ not a fifth linear knowledge stage and not operator-only maintenance.
 - **Dream** is the automated governance path: discover stale, duplicate,
   conflicting, mergeable, or replaceable knowledge, then route a proposal back
   through verification and assimilation. Dream does not turn a discovery into
-  unverified current truth.
+  unverified current truth. A source-backed single-item recheck may refresh or
+  reversibly retire current knowledge only after the trusted runtime reopens a
+  complete supported source and an explicitly authorized restricted provider
+  returns the required semantic result. Unsupported, missing, or truncated
+  sources, and multi-item comparisons, close without changing current truth.
 
 Audit receipts cross all five modules rather than forming a sixth stage:
 
@@ -362,6 +372,11 @@ operator or audit actions. They do not redefine the long-term knowledge model.
 - Revalidation reopens the current underlying source. An old audit result or
   hash explains how to find that source; it cannot prove the source still says
   the same thing.
+- An unattended semantic provider is chosen by a project only from named,
+  user-owned connection profiles; profile selection and autonomous execution
+  each require their own project-level opt-in. Profile credentials are read
+  only from the referenced environment variable and never from repository
+  configuration or current knowledge.
 - Review undo retains at most the newest 32 project mutations and the version
   snapshots they still reference. Older mutation/version rows are removed in
   the same SQLite transaction as the new mutation; they are not an unlimited

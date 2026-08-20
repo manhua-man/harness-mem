@@ -110,6 +110,22 @@ def _parse_str_list(value: str, *, key_path: str, target: Path) -> list[str]:
     return list(dict.fromkeys(item.strip() for item in parsed if item.strip()))
 
 
+def _parse_bounded_string(
+    value: str,
+    *,
+    key_path: str,
+    target: Path,
+    minimum: int,
+    maximum: int | None = None,
+) -> str:
+    parsed = value.strip()
+    if len(parsed) < minimum or (maximum is not None and len(parsed) > maximum):
+        raise ConfigValidationError(
+            key_path=key_path, value=value, source_path=str(target)
+        )
+    return parsed
+
+
 def _validate(key_path: str, value: str, target: Path) -> Any:
     """Validate a public policy value and reject internal tuning keys."""
     if key_path in _REMOVED_CONFIG_KEYS or key_path.startswith("triggers."):
@@ -163,6 +179,15 @@ def _validate(key_path: str, value: str, target: Path) -> Any:
                 minimum=int(bounds[0]),
                 maximum=int(bounds[1]) if len(bounds) == 2 else None,
             )
+        if kind.startswith("str:min="):
+            bounds = kind.removeprefix("str:min=").split(":max=", maxsplit=1)
+            return _parse_bounded_string(
+                value,
+                key_path=key_path,
+                target=target,
+                minimum=int(bounds[0]),
+                maximum=int(bounds[1]) if len(bounds) == 2 else None,
+            )
         if kind.startswith("enum:"):
             allowed = tuple(kind.removeprefix("enum:").split(","))
             if value not in allowed:
@@ -205,7 +230,7 @@ def set_value(
         OSError: the file cannot be written (caller surfaces as exit 1).
     """
     target = _target_path(scope, project_root)
-    if key_path == "distill.autonomous.enabled" and scope != "project":
+    if key_path in {"distill.autonomous.enabled", "semantic.execution.profile"} and scope != "project":
         raise ConfigValidationError(
             key_path=key_path,
             value="project scope required",

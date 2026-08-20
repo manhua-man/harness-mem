@@ -16,6 +16,8 @@ wireFormatVersion: hm-wire-v3.5
 2. 解析结果，重点关注：
    - Observations / Memory entries / Confirmed rules 数量
    - Pending candidates 数量
+   - `pending_distill.queue_preview`：待处理会话的项目、来源宿主、捕获时间、
+     当前阶段、进度与处理者类别
    - `phase` / `suggested_slash` / `reason`
    - 可选 `repair_hint` / `repair_reason`
    - `runtime_versions` / `job_health` / `retrieval_health`
@@ -26,7 +28,13 @@ wireFormatVersion: hm-wire-v3.5
    - `phase=ready` → 建议 `/hm:wake`
    - 如果 MCP 还返回 `repair_hint=/hm:review`，把它表述成显式复查/纠错入口，不要把 review 说成日常必经步骤
 
-4. 只有用户明确追问 provenance、老 pending 细节或最近历史时，才继续调更低层读取面：
+   用户追问“正在处理哪些会话、属于哪个项目、谁在处理”时，直接按
+   `queue_preview` 回答：会话以宿主和捕获时间识别；处理者翻译为“后台蒸馏
+   Agent”“当前 MCP Agent”或“当前没有 Agent，正在等待额度/重试”。不得展示
+   session/job ID、lease token、原文、绝对路径或内部 provider 句柄。
+
+4. 只有用户明确追问 provenance、老 pending 细节或最近历史，且 queue preview
+   未能回答时，才继续调更低层读取面：
    - `timeline`
    - `list_candidates`
    - 其他只读 drilldown 工具

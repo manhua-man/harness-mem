@@ -4,19 +4,25 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from harness_mem.autonomous.models import (
     AssimilationDecision,
     AutonomousDecision,
     CandidateVerificationDecision,
 )
 from harness_mem.autonomous.provider import (
+    AnthropicMessagesProvider,
+    ConfiguredResponsesApiProvider,
     DEFAULT_ASSIMILATION_MODEL,
     DEFAULT_DISTILL_TIMEOUT_SECONDS,
+    ProviderError,
     ResponsesApiProvider,
     _build_assimilation_prompt,
     _build_prompt,
     _build_verification_prompt,
     _strict_output_schema,
+    build_semantic_provider,
 )
 
 
@@ -38,6 +44,59 @@ def test_responses_provider_supports_stage_specific_assimilation_model(
 
     assert provider.model == "extract-test"
     assert provider.assimilation_model == "assimilate-test"
+
+
+def test_default_semantic_provider_keeps_codex_responses_compatibility() -> None:
+    assert isinstance(build_semantic_provider({}), ResponsesApiProvider)
+
+
+def test_semantic_provider_factory_selects_supported_explicit_profiles() -> None:
+    base = {
+        "semantic": {
+            "execution": {"profile": "hermes-sub2api"},
+            "providers": {
+                "hermes-sub2api": {
+                    "protocol": "anthropic-messages",
+                    "base_url": "http://127.0.0.1:8080/v1",
+                    "api_key_env": "HARNESS_MEM_TEST_KEY",
+                    "model": "deepseek-v4-flash",
+                    "assimilation_model": "deepseek-v4-stable",
+                }
+            },
+        }
+    }
+    provider = build_semantic_provider(base)
+    assert isinstance(provider, AnthropicMessagesProvider)
+    assert provider.name == "anthropic_messages:hermes-sub2api"
+    assert provider.model == "deepseek-v4-flash"
+    assert provider.assimilation_model == "deepseek-v4-stable"
+
+    base["semantic"]["providers"]["hermes-sub2api"]["protocol"] = "openai-responses"
+    openai_provider = build_semantic_provider(base)
+    assert isinstance(openai_provider, ConfiguredResponsesApiProvider)
+    assert openai_provider.name == "openai_responses:hermes-sub2api"
+
+
+def test_semantic_provider_factory_rejects_undefined_or_unsafe_profile() -> None:
+    with pytest.raises(ProviderError, match="not defined"):
+        build_semantic_provider({"semantic": {"execution": {"profile": "missing"}}})
+
+    with pytest.raises(ProviderError, match="invalid base_url"):
+        build_semantic_provider(
+            {
+                "semantic": {
+                    "execution": {"profile": "bad"},
+                    "providers": {
+                        "bad": {
+                            "protocol": "anthropic-messages",
+                            "base_url": "file:///not-allowed",
+                            "api_key_env": "HARNESS_MEM_TEST_KEY",
+                            "model": "demo",
+                        }
+                    },
+                }
+            }
+        )
 
 
 def test_provider_prompt_requires_user_statement_evidence_basis() -> None:
@@ -269,3 +328,102 @@ def test_responses_provider_uses_no_tools_and_records_actual_usage(
     assert captured["body"]["reasoning"]["effort"] == "low"
     assert result.total_tokens == 1555
     assert result.sandbox == "no-tools"
+
+
+def test_anthropic_profile_forces_single_result_envelope_without_agent_tools(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HARNESS_MEM_TEST_KEY", "secret-test-token")
+    captured: dict[str, Any] = {}
+    response_payload = {
+        "model": "deepseek-v4-flash",
+        "content": [
+            {
+                "type": "tool_use",
+                "id": "toolu_result",
+                "name": "submit_decision",
+                "input": _decision().model_dump(),
+            }
+        ],
+        "usage": {"input_tokens": 123, "output_tokens": 45},
+    }
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps(response_payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["headers"] = dict(request.headers)
+        captured["body"] = json.loads(request.data)
+        captured["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    provider = build_semantic_provider(
+        {
+            "semantic": {
+                "execution": {"profile": "hermes-sub2api"},
+                "providers": {
+                    "hermes-sub2api": {
+                        "protocol": "anthropic-messages",
+                        "base_url": "http://127.0.0.1:8080/v1",
+                        "api_key_env": "HARNESS_MEM_TEST_KEY",
+                        "model": "deepseek-v4-flash",
+                    }
+                },
+            }
+        }
+    )
+
+    result = provider.decide(
+        {"contract_version": "autonomous-distill-manifest-v1"},
+        runtime_dir=tmp_path / "unused",
+    )
+
+    assert captured["url"] == "http://127.0.0.1:8080/v1/messages"
+    assert captured["headers"]["X-api-key"] == "secret-test-token"
+    assert captured["body"]["tool_choice"] == {
+        "type": "tool",
+        "name": "submit_decision",
+    }
+    assert [tool["name"] for tool in captured["body"]["tools"]] == [
+        "submit_decision"
+    ]
+    assert "store" not in captured["body"]
+    assert result.provider == "anthropic_messages:hermes-sub2api"
+    assert result.total_tokens == 168
+    assert result.sandbox == "no-tools"
+
+
+def test_anthropic_profile_never_reads_a_literal_key_from_configuration(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("HARNESS_MEM_TEST_KEY", raising=False)
+    provider = build_semantic_provider(
+        {
+            "semantic": {
+                "execution": {"profile": "hermes-sub2api"},
+                "providers": {
+                    "hermes-sub2api": {
+                        "protocol": "anthropic-messages",
+                        "base_url": "http://127.0.0.1:8080/v1",
+                        "api_key_env": "HARNESS_MEM_TEST_KEY",
+                        "model": "deepseek-v4-flash",
+                        "api_key": "must-not-be-read",
+                    }
+                },
+            }
+        }
+    )
+
+    with pytest.raises(ProviderError, match="HARNESS_MEM_TEST_KEY") as exc:
+        provider.decide({}, runtime_dir=Path.cwd())
+    assert exc.value.kind == "auth_invalid"

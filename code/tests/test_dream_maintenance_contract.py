@@ -4,9 +4,11 @@ import asyncio
 import builtins
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+import hashlib
 from pathlib import Path
 import struct
 import threading
+from typing import Any
 
 import pytest
 
@@ -20,7 +22,13 @@ from harness_mem.commands.dream import (
     dream_once,
     dream_status_snapshot,
     latest_dream_ledger,
+    undo_dream_item,
 )
+from harness_mem.autonomous.models import (
+    AssimilationDecision as ProviderAssimilationDecision,
+    CandidateVerificationDecision,
+)
+from harness_mem.autonomous.provider import ProviderError, ProviderResult
 from harness_mem.commands.maintenance import run_post_turn_maintenance
 from harness_mem.commands.metabolism_pass import MetabolismPass
 from harness_mem.commands.metabolism_pass import _load_pool_embeddings
@@ -79,16 +87,22 @@ def _empty_window() -> ReplayWindow:
 def _publish_current_knowledge(
     backend: LocalMemoryBackend,
     *entries: KnowledgeEntry,
+    source_text: str | None = None,
 ) -> tuple[Path, list[KnowledgeEntry]]:
     """Publish the fixture through the same SQLite mutation as production."""
 
     project_root = backend.data_dir / "demo-project"
     project_root.mkdir(parents=True, exist_ok=True)
+    source_path = project_root / "source.md"
+    source_path.write_text(
+        source_text if source_text is not None else "\n".join(entry.statement for entry in entries),
+        encoding="utf-8",
+    )
     source = ProjectKnowledgeSourceRef(
         label="Dream contract fixture",
-        target=Path(__file__).resolve().as_uri(),
+        target=source_path.as_uri(),
         kind="repository",
-        digest="d" * 64,
+        digest=hashlib.sha256(source_path.read_bytes()).hexdigest(),
     )
     store = backend.structured_store.knowledge_store
     candidate = KnowledgeCandidate(
@@ -116,12 +130,120 @@ def _publish_current_knowledge(
             source_refs_by_entry={entry.id: [source] for entry in entries},
         )
     )
+    # Test fixtures model a completed assimilation job.  Its candidate and
+    # associated evidence are job-scoped processing material, so production
+    # finalization removes them before Dream sees the current knowledge.
+    _run(store.cleanup_candidate(candidate.id))
     return project_root, _run(
         store.list_entries("demo", project_root=project_root)
     )
 
 
-def test_dream_supersede_candidates_wait_for_explicit_review(
+class _DreamVerificationProvider:
+    name = "test-dream-provider"
+
+    def __init__(self, *, support: str = "supported", scope: str = "durable"):
+        self.support = support
+        self.scope = scope
+        self.manifests: list[dict[str, Any]] = []
+        self.assimilation_manifests: list[dict[str, Any]] = []
+
+    def verify(self, manifest, *, runtime_dir, heartbeat=None):
+        del runtime_dir, heartbeat
+        self.manifests.append(manifest)
+        points = [
+            {
+                "candidate_index": int(candidate["candidate_index"]),
+                "semantic_support": self.support,
+                "future_scope": self.scope,
+                "reason": "Current source was checked against the statement.",
+            }
+            for candidate in manifest["candidates"]
+        ]
+        return ProviderResult(
+            decision=CandidateVerificationDecision.model_validate(
+                {"points": points}
+            ),
+            provider=self.name,
+            model="test-model",
+            duration_seconds=0.01,
+            input_sha256="a" * 64,
+            response_sha256="b" * 64,
+            input_tokens=1,
+            output_tokens=1,
+            total_tokens=2,
+            event_count=1,
+            sandbox="no-tools",
+        )
+
+    def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
+        del runtime_dir, heartbeat
+        self.assimilation_manifests.append(manifest)
+        points = []
+        candidates = list(manifest["verified_candidates"])
+        survivor_handle = str(candidates[0]["own_truth_handle"])
+        for index, candidate in enumerate(candidates):
+            support = str(candidate["semantic_support"])
+            own_handle = str(candidate["own_truth_handle"])
+            if support == "contradicted":
+                disposition = "reject"
+                handles = [own_handle]
+            elif manifest["dream_signal"] == "duplicate" and index:
+                disposition = "reject"
+                handles = [survivor_handle]
+            else:
+                disposition = "confirm"
+                handles = [own_handle]
+            points.append(
+                {
+                    "candidate_id": candidate["candidate_id"],
+                    "disposition": disposition,
+                    "matched_truth_handles": handles,
+                    "canonical_title": None,
+                    "canonical_statement": None,
+                    "topic_path": [],
+                    "knowledge_items": [],
+                    "reason": "Dream comparison selected this source-backed outcome.",
+                }
+            )
+        return ProviderResult(
+            decision=ProviderAssimilationDecision.model_validate({"points": points}),
+            provider=self.name,
+            model="test-model",
+            duration_seconds=0.01,
+            input_sha256="c" * 64,
+            response_sha256="d" * 64,
+            input_tokens=1,
+            output_tokens=1,
+            total_tokens=2,
+            event_count=1,
+            sandbox="no-tools",
+        )
+
+
+def test_dream_semantic_profile_requires_project_autonomous_authorization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected = _DreamVerificationProvider()
+    monkeypatch.setattr(
+        dream_module, "build_semantic_provider", lambda _config: selected
+    )
+
+    assert (
+        dream_module._dream_provider_from_config(
+            MergedConfig(semantic_execution_profile="operator-profile")
+        )
+        is None
+    )
+    assert dream_module._dream_provider_from_config(
+        MergedConfig(
+            distill_autonomous_enabled=True,
+            semantic_execution_profile="operator-profile",
+        )
+    ) is selected
+
+
+def test_dream_closes_legacy_supersede_candidates_without_pending_review(
     backend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -183,21 +305,15 @@ def test_dream_supersede_candidates_wait_for_explicit_review(
     new_entry = _run(backend.structured_store.get_memory_entry(new_id))
 
     assert reloaded_candidate is not None
-    assert reloaded_candidate.status == "pending"
+    assert reloaded_candidate.status == "rejected"
     assert old_entry is not None
     assert old_entry.valid_to is None
     assert old_entry.superseded_by == []
     assert new_entry is not None
     assert new_entry.supersedes == []
-    assert run.handling_summary["pending_review"] == 1
+    assert "pending_review" not in run.handling_summary
     assert run.handling_summary["applied"] == 0
-    assert run.items[0].final_action == "pending_review"
-    assert run.items[0].result["candidate_status"] == "pending"
-    assert run.items[0].result["review_action"] == {
-        "tool": "govern_memory",
-        "action": "supersede",
-        "decisions": ["confirm", "reject"],
-    }
+    assert run.items[0].final_action == "archived"
 
 
 def test_dream_never_directly_mutates_legacy_merge_or_stale_truth(
@@ -251,17 +367,14 @@ def test_dream_never_directly_mutates_legacy_merge_or_stale_truth(
     )
     run = _run(dream_once(backend, project_name="demo", config=MergedConfig()))
 
-    assert [item.final_action for item in run.items] == [
-        "pending_review",
-        "pending_review",
-    ]
+    assert [item.final_action for item in run.items] == ["archived", "archived"]
     assert _run(backend.structured_store.get_memory_entry(first.id)).valid_to is None
     assert _run(backend.structured_store.get_memory_entry(second.id)).valid_to is None
-    assert _run(backend.structured_store.get_merge_suggestion_candidate(merge.id)).status == "pending"
-    assert _run(backend.structured_store.get_stale_truth_suggestion_candidate(stale.id)).status == "pending"
+    assert _run(backend.structured_store.get_merge_suggestion_candidate(merge.id)).status == "rejected"
+    assert _run(backend.structured_store.get_stale_truth_suggestion_candidate(stale.id)).status == "rejected"
 
 
-def test_dream_queues_separated_duplicate_for_reverification_without_truth_mutation(
+def test_dream_compares_and_deduplicates_source_backed_current_knowledge(
     backend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -296,22 +409,24 @@ def test_dream_queues_separated_duplicate_for_reverification_without_truth_mutat
             project_root=project_root,
             config=None,
             source="agent",
+            semantic_provider=_DreamVerificationProvider(),
         )
     )
 
     candidates = _run(store.list_candidates("demo"))
-    assert [item.final_action for item in run.items] == ["pending_review"]
-    assert candidates[0].status == "pending"
-    assert candidates[0].statement == first.statement
+    assert [item.final_action for item in run.items] == ["applied", "applied"]
+    assert candidates == []
     assert _run(
-        store.get_entry(first.id, project_name="demo", project_root=project_root)
-    ) == first
+        store.get_entry("knowledge-first", project_name="demo", project_root=project_root)
+    )
     assert _run(
-        store.get_entry(second.id, project_name="demo", project_root=project_root)
-    ) == second
+        store.get_entry("knowledge-second", project_name="demo", project_root=project_root)
+    ) is None
+    assert run.items[1].result["truth_change"] == "retired"
+    assert run.items[1].undo["kind"] == "knowledge_mutation"
 
 
-def test_dream_queues_competing_current_knowledge_without_selecting_a_winner(
+def test_dream_archives_multi_entry_conflict_without_selecting_a_winner(
     backend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -352,8 +467,7 @@ def test_dream_queues_competing_current_knowledge_without_selecting_a_winner(
     conflict = next(
         item for item in run.items if item.source_kind == "knowledge_conflict"
     )
-    assert conflict.final_action == "pending_review"
-    assert set(conflict.result["target_knowledge_ids"]) == {first.id, second.id}
+    assert conflict.final_action == "archived"
     assert _run(
         store.get_entry(first.id, project_name="demo", project_root=project_root)
     ) == first
@@ -362,7 +476,92 @@ def test_dream_queues_competing_current_knowledge_without_selecting_a_winner(
     ) == second
 
 
-def test_dream_turns_aged_claim_and_negative_feedback_into_reverification_only(
+def test_dream_compares_source_backed_conflict_and_rejects_a_guess(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = backend.structured_store.knowledge_store
+    first = KnowledgeEntry(
+        id="knowledge-conflict-first",
+        project_name="demo",
+        title="Evidence retention",
+        statement="Keep original evidence for seven days.",
+        module_path=["ingestion"],
+    )
+    second = KnowledgeEntry(
+        id="knowledge-conflict-second",
+        project_name="demo",
+        title="Evidence retention",
+        statement="Keep original evidence for thirty days.",
+        module_path=["ingestion"],
+    )
+    project_root, current = _publish_current_knowledge(backend, first, second)
+    first, second = current
+
+    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
+        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
+
+    class _ConflictProvider(_DreamVerificationProvider):
+        def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
+            del runtime_dir, heartbeat
+            self.assimilation_manifests.append(manifest)
+            return ProviderResult(
+                decision=ProviderAssimilationDecision.model_validate(
+                    {
+                        "points": [
+                            {
+                                "candidate_id": candidate["candidate_id"],
+                                "disposition": "conflict",
+                                "matched_truth_handles": [],
+                                "canonical_title": None,
+                                "canonical_statement": None,
+                                "topic_path": [],
+                                "knowledge_items": [],
+                                "reason": "Both current sources support distinct statements, so no winner is safe.",
+                            }
+                            for candidate in manifest["verified_candidates"]
+                        ]
+                    }
+                ),
+                provider=self.name,
+                model="test-model",
+                duration_seconds=0.01,
+                input_sha256="1" * 64,
+                response_sha256="2" * 64,
+                input_tokens=1,
+                output_tokens=1,
+                total_tokens=2,
+                event_count=1,
+                sandbox="no-tools",
+            )
+
+    monkeypatch.setattr(
+        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
+    )
+    provider = _ConflictProvider()
+    run = _run(
+        dream_once(
+            backend,
+            project_name="demo",
+            project_root=project_root,
+            config=None,
+            source="agent",
+            semantic_provider=provider,
+        )
+    )
+
+    assert [item.final_action for item in run.items] == ["rejected", "rejected"]
+    assert _run(
+        store.get_entry(first.id, project_name="demo", project_root=project_root)
+    ) == first
+    assert _run(
+        store.get_entry(second.id, project_name="demo", project_root=project_root)
+    ) == second
+    assert _run(store.list_candidates("demo")) == []
+    assert len(provider.assimilation_manifests) == 1
+
+
+def test_dream_archives_aged_claim_and_negative_feedback_without_profile(
     backend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -407,21 +606,301 @@ def test_dream_turns_aged_claim_and_negative_feedback_into_reverification_only(
 
     kinds = {item.source_kind for item in run.items}
     assert {"knowledge_stale", "knowledge_feedback"} <= kinds
-    assert all(item.final_action == "pending_review" for item in run.items)
+    assert all(item.final_action == "archived" for item in run.items)
     assert _run(
         store.get_entry(entry.id, project_name="demo", project_root=project_root)
     ) == entry
-    evidence_codes = {
-        code
-        for candidate in _run(store.list_candidates("demo"))
-        for evidence in _run(store.list_evidence(candidate.id))
-        for code in evidence.verification_reason_codes
-    }
-    assert "dream_implementation_verification_aged" in evidence_codes
-    assert "dream_negative_retrieval_feedback" in evidence_codes
+    assert _run(store.list_candidates("demo")) == []
 
 
-def test_dream_routes_latest_ignored_feedback_to_reverification(
+def test_dream_refreshes_one_reopenable_entry_with_restricted_provider(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = backend.structured_store.knowledge_store
+    entry = KnowledgeEntry(
+        id="knowledge-source-refresh",
+        project_name="demo",
+        title="Source refresh",
+        statement="Current source-backed knowledge is rechecked before refresh.",
+        module_path=["governance"],
+        verified_at=datetime.now(timezone.utc) - timedelta(days=181),
+    )
+    project_root, current = _publish_current_knowledge(backend, entry)
+    entry = current[0]
+
+    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
+        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
+
+    monkeypatch.setattr(
+        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
+    )
+    provider = _DreamVerificationProvider()
+    run = _run(
+        dream_once(
+            backend,
+            project_name="demo",
+            project_root=project_root,
+            config=None,
+            source="agent",
+            semantic_provider=provider,
+        )
+    )
+
+    refreshed = _run(store.get_entry(entry.id, project_name="demo"))
+    assert run.items[0].final_action == "applied"
+    assert run.items[0].result["truth_change"] == "verification_refreshed"
+    assert refreshed is not None
+    assert refreshed.statement == entry.statement
+    assert refreshed.revision == entry.revision
+    assert refreshed.verified_at is not None and refreshed.verified_at > entry.verified_at
+    assert _run(store.list_candidates("demo")) == []
+    assert provider.manifests[0]["source_excerpts"][0]["content"] == entry.statement
+    assert "file:" not in str(provider.manifests[0])
+
+
+def test_dream_retires_one_entry_only_when_current_source_contradicts(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = backend.structured_store.knowledge_store
+    entry = KnowledgeEntry(
+        id="knowledge-source-contradicted",
+        project_name="demo",
+        title="Contradicted source",
+        statement="Current source-backed knowledge can be retired after contradiction.",
+        module_path=["governance"],
+        verified_at=datetime.now(timezone.utc) - timedelta(days=181),
+    )
+    project_root, current = _publish_current_knowledge(backend, entry)
+    entry = current[0]
+
+    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
+        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
+
+    monkeypatch.setattr(
+        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
+    )
+    run = _run(
+        dream_once(
+            backend,
+            project_name="demo",
+            project_root=project_root,
+            config=None,
+            source="agent",
+            semantic_provider=_DreamVerificationProvider(support="contradicted"),
+        )
+    )
+
+    assert run.items[0].final_action == "applied"
+    assert run.items[0].result["truth_change"] == "retired"
+    assert _run(store.get_entry(entry.id, project_name="demo")) is None
+    assert len(_run(store.list_mutations("demo"))) == 2
+
+    undone = _run(
+        undo_dream_item(
+            backend,
+            project_name="demo",
+            run_id=run.id,
+            item_id=run.items[0].id,
+        )
+    )
+    assert undone["success"] is True
+    restored = _run(store.get_entry(entry.id, project_name="demo"))
+    assert restored is not None
+    assert restored.statement == entry.statement
+
+
+def test_dream_refines_changed_local_source_through_assimilation(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A changed repository source is compared, rechecked, and atomically replaced."""
+
+    store = backend.structured_store.knowledge_store
+    old_statement = "The retention window is seven days."
+    new_statement = "The retention window is thirty days."
+    entry = KnowledgeEntry(
+        id="knowledge-retention-window",
+        project_name="demo",
+        title="Retention window",
+        statement=old_statement,
+        module_path=["retention"],
+        verified_at=datetime.now(timezone.utc) - timedelta(days=181),
+    )
+    project_root, _current = _publish_current_knowledge(
+        backend,
+        entry,
+        source_text=old_statement,
+    )
+    source_path = project_root / "source.md"
+    source_path.write_text(new_statement, encoding="utf-8")
+
+    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
+        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
+
+    class _RefiningProvider(_DreamVerificationProvider):
+        def __init__(self) -> None:
+            super().__init__(support="contradicted")
+
+        def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
+            del runtime_dir, heartbeat
+            self.assimilation_manifests.append(manifest)
+            candidate = manifest["verified_candidates"][0]
+            return ProviderResult(
+                decision=ProviderAssimilationDecision.model_validate(
+                    {
+                        "points": [
+                            {
+                                "candidate_id": candidate["candidate_id"],
+                                "disposition": "refine",
+                                "matched_truth_handles": [candidate["own_truth_handle"]],
+                                "canonical_title": None,
+                                "canonical_statement": None,
+                                "topic_path": [],
+                                "knowledge_items": [
+                                    {
+                                        "title": "Retention window",
+                                        "statement": new_statement,
+                                        "topic_path": ["retention"],
+                                        "claim_kind": "implementation_fact",
+                                    }
+                                ],
+                                "reason": "The re-opened repository source now states thirty days.",
+                            }
+                        ]
+                    }
+                ),
+                provider=self.name,
+                model="test-model",
+                duration_seconds=0.01,
+                input_sha256="e" * 64,
+                response_sha256="f" * 64,
+                input_tokens=1,
+                output_tokens=1,
+                total_tokens=2,
+                event_count=1,
+                sandbox="no-tools",
+            )
+
+    monkeypatch.setattr(
+        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
+    )
+    provider = _RefiningProvider()
+    run = _run(
+        dream_once(
+            backend,
+            project_name="demo",
+            project_root=project_root,
+            config=None,
+            source="agent",
+            semantic_provider=provider,
+        )
+    )
+
+    current = _run(store.list_entries("demo", project_root=project_root))
+    assert [item.statement for item in current] == [new_statement]
+    assert _run(store.get_entry(entry.id, project_name="demo")) is None
+    assert run.items[0].final_action == "applied"
+    assert run.items[0].result["truth_change"] == "refine"
+    assert provider.manifests[0]["source_excerpts"][0]["content"] == new_statement
+    assert provider.assimilation_manifests[0]["source_excerpts"][0]["content"] == new_statement
+    current_sources = _run(store.list_sources(current[0].id))
+    assert current_sources[0].content_sha256 == hashlib.sha256(
+        new_statement.encode("utf-8")
+    ).hexdigest()
+    assert _run(store.list_candidates("demo")) == []
+
+
+def test_dream_never_retires_knowledge_from_a_truncated_source_excerpt(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = backend.structured_store.knowledge_store
+    entry = KnowledgeEntry(
+        id="knowledge-truncated-source",
+        project_name="demo",
+        title="Bounded source",
+        statement="A truncated source is never enough to retire current knowledge.",
+        module_path=["governance"],
+        verified_at=datetime.now(timezone.utc) - timedelta(days=181),
+    )
+    project_root, current = _publish_current_knowledge(
+        backend,
+        entry,
+        source_text=entry.statement + "\n" + ("x" * 16001),
+    )
+    entry = current[0]
+
+    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
+        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
+
+    monkeypatch.setattr(
+        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
+    )
+    provider = _DreamVerificationProvider(support="contradicted")
+    run = _run(
+        dream_once(
+            backend,
+            project_name="demo",
+            project_root=project_root,
+            config=None,
+            source="agent",
+            semantic_provider=provider,
+        )
+    )
+
+    assert run.items[0].final_action == "archived"
+    assert run.items[0].result["source_status"] == "truncated"
+    assert provider.manifests == []
+    assert _run(store.get_entry(entry.id, project_name="demo")) == entry
+
+
+def test_dream_provider_failure_closes_the_processing_ledger_run(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry = KnowledgeEntry(
+        id="knowledge-provider-failure",
+        project_name="demo",
+        title="Provider failure",
+        statement="Provider errors leave a terminal Dream receipt.",
+        module_path=["governance"],
+        verified_at=datetime.now(timezone.utc) - timedelta(days=181),
+    )
+    project_root, _current = _publish_current_knowledge(backend, entry)
+
+    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
+        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
+
+    class _FailingProvider:
+        name = "failing-dream-provider"
+
+        def verify(self, *_args, **_kwargs):
+            raise ProviderError("simulated provider failure", kind="transient")
+
+    monkeypatch.setattr(
+        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
+    )
+    with pytest.raises(ProviderError, match="simulated provider failure"):
+        _run(
+            dream_once(
+                backend,
+                project_name="demo",
+                project_root=project_root,
+                config=None,
+                source="agent",
+                semantic_provider=_FailingProvider(),
+            )
+        )
+
+    run = _run(backend.structured_store.list_dream_runs("demo", limit=1))[0]
+    assert run.status == "failed"
+    assert run.completed_at is not None
+    assert "dream failed: ProviderError" in (run.notes or [])
+
+
+def test_dream_archives_latest_ignored_feedback_without_workspace_candidate(
     backend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -464,22 +943,9 @@ def test_dream_routes_latest_ignored_feedback_to_reverification(
     )
 
     feedback = next(item for item in run.items if item.source_kind == "knowledge_feedback")
-    assert feedback.final_action == "pending_review"
+    assert feedback.final_action == "archived"
     assert _run(store.get_entry(entry.id, project_name="demo")) == entry
-    reason_codes = {
-        code
-        for candidate in _run(store.list_candidates("demo"))
-        for evidence in _run(store.list_evidence(candidate.id))
-        for code in evidence.verification_reason_codes
-    }
-    assert "dream_ignored_retrieval_feedback" in reason_codes
-
-    first_candidate = _run(store.list_candidates("demo"))[0]
-    _run(
-        store.save_candidate(
-            first_candidate.model_copy(update={"status": "rejected"})
-        )
-    )
+    assert _run(store.list_candidates("demo")) == []
     _run(
         record_retrieval_signal(
             backend,
@@ -503,14 +969,14 @@ def test_dream_routes_latest_ignored_feedback_to_reverification(
     second_feedback = next(
         item for item in second.items if item.source_kind == "knowledge_feedback"
     )
-    assert second_feedback.source_id != first_candidate.id
+    assert second_feedback.source_id == entry.id
 
 
 @pytest.mark.parametrize(
     ("negative_value", "negative_outcome"),
     [(0.0, "ignored"), (-1.0, "misleading")],
 )
-def test_dream_positive_feedback_closes_pending_negative_reverification(
+def test_dream_positive_feedback_does_not_create_a_pending_recheck(
     backend,
     monkeypatch: pytest.MonkeyPatch,
     negative_value: float,
@@ -553,10 +1019,11 @@ def test_dream_positive_feedback_closes_pending_negative_reverification(
             source="agent",
         )
     )
-    pending = next(
+    archived = next(
         item for item in first.items if item.source_kind == "knowledge_feedback"
     )
-    assert _run(store.get_candidate(pending.source_id)).status == "pending"
+    assert archived.final_action == "archived"
+    assert _run(store.list_candidates("demo")) == []
 
     _run(
         record_retrieval_signal(
@@ -579,17 +1046,8 @@ def test_dream_positive_feedback_closes_pending_negative_reverification(
         )
     )
 
-    closed = next(
-        item
-        for item in second.items
-        if item.source_kind == "knowledge_feedback"
-        and item.source_id == pending.source_id
-    )
-    assert closed.final_action == "archived"
-    assert _run(store.get_candidate(pending.source_id)) is None
-    assert pending.source_id not in {
-        candidate.id for candidate in _run(store.list_candidates("demo"))
-    }
+    assert not [item for item in second.items if item.source_kind == "knowledge_feedback"]
+    assert _run(store.list_candidates("demo")) == []
 
 
 def test_dream_auto_tick_persists_skipped_receipt_separately_from_runs(

@@ -411,6 +411,48 @@ def test_sqlite_is_authority_and_processing_material_is_not_truth(tmp_path) -> N
         _run(backend.close())
 
 
+def test_source_recheck_refreshes_verification_without_rewriting_knowledge(tmp_path) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        store = backend.structured_store.knowledge_store
+        candidate = _candidate("refresh-candidate")
+        entry = _entry("knowledge-refresh", "Current source-backed statement.")
+        _run(store.save_candidate(candidate))
+        _apply(
+            store,
+            candidate=candidate,
+            decision=_decision("refresh-seed", candidate.id, "add", [entry]),
+            added=[entry],
+        )
+        before = _run(store.get_entry(entry.id, project_name="demo"))
+        assert before is not None
+        checked_at = datetime(2026, 8, 21, tzinfo=timezone.utc)
+
+        result = _run(
+            store.refresh_entry_verification(
+                project_name="demo",
+                entry_id=entry.id,
+                verified_at=checked_at,
+                refresh_id="dream-run-refresh",
+            )
+        )
+        after = _run(store.get_entry(entry.id, project_name="demo"))
+        sources = _run(store.list_sources(entry.id))
+
+        assert result["replayed"] is False
+        assert after is not None
+        assert after.statement == before.statement
+        assert after.title == before.title
+        assert after.module_path == before.module_path
+        assert after.revision == before.revision
+        assert after.created_at == before.created_at
+        assert after.verified_at == checked_at
+        assert sources and all(source.verified_at == checked_at for source in sources)
+    finally:
+        _run(backend.close())
+
+
 def test_truth_mutation_is_idempotent_and_keeps_database_inode(tmp_path) -> None:
     data_dir = tmp_path / "data"
     backend = LocalMemoryBackend(data_dir)

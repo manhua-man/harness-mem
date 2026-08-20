@@ -209,6 +209,127 @@ def test_agent_active_drainer_only_charges_jobs_emitted_to_agent(
         _run(backend.close())
 
 
+def test_status_queue_preview_is_bounded_readable_and_hides_internal_ids(
+    tmp_path: Path,
+) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    now = datetime(2026, 7, 17, 8, 0, tzinfo=timezone.utc)
+    try:
+        created_jobs = []
+        for index in range(2):
+            result = _run(
+                persist_session_snapshot(
+                    backend,
+                    Observation(
+                        session_id=f"visible-session-{index}",
+                        client="codex-archive",
+                        raw_content=f"User: private request {index}\nAssistant: done",
+                        content_type="transcript",
+                        timestamp=now + timedelta(seconds=index),
+                        metadata={},
+                    ),
+                    project_name="demo",
+                    project_root=str(tmp_path),
+                    client="codex-archive",
+                    session_id=f"visible-session-{index}",
+                    source_kind="jsonl",
+                    source_uri=f"file:///visible-session-{index}.jsonl",
+                    source_text=f"source {index}",
+                )
+            )
+            assert result.distill_job_id is not None
+            created_jobs.append(result.distill_job_id)
+
+        metrics = distill_drainer_metrics(
+            backend,
+            project_name="demo",
+            daily_job_budget=0,
+            now=now,
+        )
+
+        assert metrics["state"] == "daily_budget_exhausted"
+        assert len(metrics["queue_preview"]) == 2
+        row = metrics["queue_preview"][0]
+        assert row["project_name"] == "demo"
+        assert row["source_host"] == "codex-archive"
+        assert row["session_label"].startswith("Codex archive session captured ")
+        assert row["state"] == "waiting_for_daily_budget"
+        assert row["handler"] == {
+            "kind": "waiting",
+            "label": "no Agent is running; waiting for the next daily budget",
+        }
+        serialized = str(metrics["queue_preview"])
+        assert "visible-session-" not in serialized
+        assert not any(job_id in serialized for job_id in created_jobs)
+        assert "private request" not in serialized
+    finally:
+        _run(backend.close())
+
+
+def test_status_queue_preview_identifies_an_active_autonomous_worker(
+    tmp_path: Path,
+) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        result = _run(
+            persist_session_snapshot(
+                backend,
+                Observation(
+                    session_id="autonomous-visible-session",
+                    client="codex",
+                    raw_content="User: process this\nAssistant: working",
+                    content_type="transcript",
+                    metadata={},
+                ),
+                project_name="demo",
+                project_root=str(tmp_path),
+                client="codex",
+                session_id="autonomous-visible-session",
+                source_kind="jsonl",
+                source_uri="file:///autonomous-visible-session.jsonl",
+                source_text="source",
+            )
+        )
+        assert result.distill_job_id is not None
+        for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
+            result.distill_job_id,
+            lease_owner="autonomous:42:test",
+            limit=100,
+        ):
+            backend.transcript_store.checkpoint_distill_chunk(
+                result.distill_job_id,
+                chunk.id,
+                lease_owner="autonomous:42:test",
+                result={"inspected": True},
+            )
+        claimed = backend.transcript_store.claim_distill_review(
+            result.distill_job_id,
+            lease_owner="autonomous:42:test",
+            execution_source="autonomous_worker",
+        )
+        assert claimed is not None
+
+        metrics = distill_drainer_metrics(backend, project_name="demo")
+
+        assert len(metrics["queue_preview"]) == 1
+        row = metrics["queue_preview"][0]
+        assert row["project_name"] == "demo"
+        assert row["session_label"].startswith("Codex session captured ")
+        assert row["source_host"] == "codex"
+        assert row["state"] == "reviewing_session"
+        assert row["progress"] == {"completed_chunks": 1, "expected_chunks": 1}
+        assert row["handler"] == {
+            "kind": "autonomous_worker",
+            "label": "harness-mem autonomous distill worker",
+        }
+        assert "autonomous-visible-session" not in str(row)
+        assert result.distill_job_id not in str(row)
+    finally:
+        _run(backend.close())
+
+
 def test_bounded_batch_covers_backlog_sizes_caps_and_repeated_offers(
     tmp_path: Path,
 ) -> None:

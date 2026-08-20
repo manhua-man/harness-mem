@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import harness_mem.host_entry.__main__ as host_entry
 from harness_mem.adapters.snapshot import persist_session_snapshot
 from harness_mem.autonomous.models import (
     AssimilationDecision,
@@ -31,6 +32,7 @@ from harness_mem.autonomous.worker import (
     _provider_call_with_transport_fallback,
     _preferred_job_is_eligible,
     autonomous_receipt_path,
+    autonomous_config_fingerprint,
     record_post_turn_preflight_failure,
     record_post_turn_retry_backoff,
     read_autonomous_receipt,
@@ -43,7 +45,7 @@ from harness_mem.autonomous.worker import (
     run_autonomous_distill_batch,
 )
 from harness_mem.core.schemas.session_distill import SessionDistillJob
-from harness_mem.config.merge import load_merged_config
+from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.commands.separated_assimilation import (
     SeparatedPreparedAssimilation,
     validate_knowledge_module_path,
@@ -91,15 +93,18 @@ def test_default_worker_provider_uses_bounded_distill_model(
 ) -> None:
     captured: dict[str, object] = {}
 
-    class _Provider:
-        name = "responses_api"
+    def build_default_provider(runtime_config):
+        from harness_mem.autonomous.provider import ResponsesApiProvider
 
-        def __init__(self, *, model=None):
-            from harness_mem.autonomous.provider import ResponsesApiProvider
+        captured["runtime_config"] = runtime_config
+        provider = ResponsesApiProvider()
+        captured["model"] = provider.model
+        return provider
 
-            captured["model"] = ResponsesApiProvider(model=model).model
-
-    monkeypatch.setattr("harness_mem.autonomous.worker.ResponsesApiProvider", _Provider)
+    monkeypatch.setattr(
+        "harness_mem.autonomous.worker.build_semantic_provider",
+        build_default_provider,
+    )
     backend = LocalMemoryBackend(tmp_path / "data")
     asyncio.run(backend.init())
     try:
@@ -116,6 +121,118 @@ def test_default_worker_provider_uses_bounded_distill_model(
 
     assert result["state"] == "idle"
     assert captured["model"] == DEFAULT_DISTILL_MODEL
+    runtime_config = captured["runtime_config"]
+    assert isinstance(runtime_config, dict)
+    assert runtime_config["semantic"]["execution"]["profile"] == ""
+
+
+def test_profile_setup_failure_writes_a_waitable_hook_terminal_receipt(
+    tmp_path: Path,
+) -> None:
+    backend = LocalMemoryBackend(tmp_path / "data")
+    asyncio.run(backend.init())
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    try:
+        result = run_autonomous_distill_batch(
+            backend,
+            project_name="demo",
+            project_root=project_root,
+            config=MergedConfig(
+                distill_autonomous_enabled=True,
+                semantic_execution_profile="missing-profile",
+            ),
+            trigger_id="session-profile-error",
+            client="codex",
+            dispatch_generation="generation-profile-error",
+            launch_source="ide_hook",
+        )
+        receipt_path = autonomous_receipt_path(
+            backend.data_dir,
+            project_name="demo",
+            project_root=project_root,
+        )
+        receipt = read_autonomous_receipt(
+            backend.data_dir,
+            project_name="demo",
+            project_root=project_root,
+        )
+        exit_code, output = host_entry._wait_for_autonomous_receipt(
+            data_dir=backend.data_dir,
+            project_root=project_root,
+            project_name="demo",
+            trigger_id="session-profile-error",
+            dispatch_generation="generation-profile-error",
+            receipt_path=receipt_path,
+            initial_receipt=None,
+            timeout_seconds=1,
+            monotonic=lambda: 0.0,
+            sleep=lambda _seconds: pytest.fail("matching failure receipt was ignored"),
+        )
+    finally:
+        asyncio.run(backend.close())
+
+    assert result["state"] == "setup_required"
+    assert receipt is not None
+    assert receipt["state"] == "failed"
+    assert receipt["trigger_id"] == "session-profile-error"
+    assert receipt["dispatch_generation"] == "generation-profile-error"
+    assert receipt["error"]["kind"] == "setup_required"
+    assert exit_code != 0
+    assert json.loads(output)["state"] == "failed"
+
+
+def test_autonomous_config_fingerprint_binds_selected_profile_without_key_value() -> None:
+    base = MergedConfig(
+        distill_autonomous_enabled=True,
+        semantic_execution_profile="profile-a",
+        extras={
+            "semantic": {
+                "providers": {
+                    "profile-a": {
+                        "protocol": "anthropic-messages",
+                        "base_url": "https://one.example/v1",
+                        "api_key_env": "HARNESS_MEM_PROFILE_A_KEY",
+                        "model": "model-a",
+                        "timeout_seconds": 90,
+                        "api_key": "must-not-be-fingerprinted",
+                    },
+                    "profile-b": {
+                        "protocol": "openai-responses",
+                        "base_url": "https://two.example/v1",
+                        "api_key_env": "HARNESS_MEM_PROFILE_B_KEY",
+                        "model": "model-b",
+                    },
+                }
+            }
+        },
+    )
+    changed_endpoint = MergedConfig(
+        distill_autonomous_enabled=True,
+        semantic_execution_profile="profile-a",
+        extras={
+            "semantic": {
+                "providers": {
+                    "profile-a": {
+                        "protocol": "anthropic-messages",
+                        "base_url": "https://changed.example/v1",
+                        "api_key_env": "HARNESS_MEM_PROFILE_A_KEY",
+                        "model": "model-a",
+                        "timeout_seconds": 90,
+                    }
+                }
+            }
+        },
+    )
+    changed_profile = MergedConfig(
+        distill_autonomous_enabled=True,
+        semantic_execution_profile="profile-b",
+        extras=base.extras,
+    )
+
+    base_fingerprint = autonomous_config_fingerprint(base)
+    assert base_fingerprint != autonomous_config_fingerprint(changed_endpoint)
+    assert base_fingerprint != autonomous_config_fingerprint(changed_profile)
 
 
 def test_post_turn_preflight_failure_writes_terminal_nonsemantic_receipt(

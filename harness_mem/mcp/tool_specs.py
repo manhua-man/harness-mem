@@ -536,8 +536,9 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "get_project_status": {
         "description": (
-            "Return active project, memory counts, concise integration health, and "
-            "slash-native next-step triage hints without requiring CLI status. "
+            "Return active project, memory counts, bounded ID-free pending-session "
+            "and responsible-Agent status, concise integration health, and slash-native "
+            "next-step triage hints without requiring CLI status. "
             "Always pass the current workspace root and the calling IDE/Agent host so "
             "a global MCP router can bootstrap the correct project hooks."
         ),

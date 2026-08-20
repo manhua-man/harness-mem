@@ -203,6 +203,11 @@ jobs:
           version=os.environ['RELEASE_TAG'].removeprefix('v');
           subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pytest', 'pytest-asyncio', 'PyYAML', 'numpy', 'sqlite-vec', 'tiktoken']);
           subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--find-links', 'dist', 'harness-mem==' + version])"
+      - name: Version-alignment preflight
+        run: >-
+          python -m pytest -q
+          code/tests/test_package_version_alignment.py
+          code/tests/test_version_drift.py
       - name: Run the complete Python contract suite
         run: python -m pytest
 

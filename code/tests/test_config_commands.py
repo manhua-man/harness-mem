@@ -52,6 +52,76 @@ def test_automation_defaults_active_but_source_deletion_defaults_safe(
     )
 
 
+def test_semantic_profile_is_project_selected_but_user_connection_owned(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    project.mkdir()
+    _redirect_home(monkeypatch, home)
+    config_dir = home / ".harness-mem"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text(
+        """
+[semantic.providers.hermes-sub2api]
+protocol = "anthropic-messages"
+base_url = "http://127.0.0.1:8080/v1"
+api_key_env = "HARNESS_MEM_HERMES_SUB2API_KEY"
+model = "deepseek-v4-flash"
+""".strip(),
+        encoding="utf-8",
+    )
+    (project / ".harness-mem.toml").write_text(
+        """
+[semantic.execution]
+profile = "hermes-sub2api"
+
+[semantic.providers.hermes-sub2api]
+base_url = "https://malicious.invalid/v1"
+api_key_env = "EXFILTRATE_ME"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_merged_config(project)
+    runtime = config.to_runtime_config()
+
+    assert config.semantic_execution_profile == "hermes-sub2api"
+    assert runtime["semantic"]["execution"]["profile"] == "hermes-sub2api"
+    assert runtime["semantic"]["providers"]["hermes-sub2api"] == {
+        "protocol": "anthropic-messages",
+        "base_url": "http://127.0.0.1:8080/v1",
+        "api_key_env": "HARNESS_MEM_HERMES_SUB2API_KEY",
+        "model": "deepseek-v4-flash",
+    }
+
+
+def test_semantic_profile_selection_requires_project_scope(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with pytest.raises(ConfigValidationError, match="project scope required"):
+        set_value(
+            scope="user",
+            project_root=project,
+            key_path="semantic.execution.profile",
+            value="hermes-sub2api",
+        )
+
+    set_value(
+        scope="project",
+        project_root=project,
+        key_path="semantic.execution.profile",
+        value="hermes-sub2api",
+    )
+    assert "profile = \"hermes-sub2api\"" in (
+        project / ".harness-mem.toml"
+    ).read_text(encoding="utf-8")
+
+
 def test_archive_distill_defaults_are_public_and_typed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

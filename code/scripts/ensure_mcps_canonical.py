@@ -10,7 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+CODE_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = CODE_ROOT.parent
 
 
 def _run_git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -24,8 +25,8 @@ def _run_git(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 RETIRED_ROUTER_SNAPSHOT_DIRS = (
-    REPO_ROOT / "mcps" / "mcp-router",
-    REPO_ROOT / "mcps" / "mcp_router",
+    CODE_ROOT / "mcps" / "mcp-router",
+    CODE_ROOT / "mcps" / "mcp_router",
 )
 
 
@@ -37,9 +38,29 @@ def _regenerate_harness_mem_tools() -> None:
     sys.path.insert(0, str(REPO_ROOT))
     from harness_mem.mcp.tool_descriptor_export import export_tool_descriptors
 
-    output_dir = REPO_ROOT / "mcps" / "harness_mem" / "tools"
+    output_dir = CODE_ROOT / "mcps" / "harness_mem" / "tools"
     written = export_tool_descriptors(output_dir)
     print(f"regenerated {len(written)} harness_mem tool descriptor(s)")
+
+
+def _verify_harness_mem_tools() -> list[str]:
+    """Return exported descriptors that do not equal the source tool specs."""
+
+    sys.path.insert(0, str(REPO_ROOT))
+    from harness_mem.mcp.tool_descriptor_export import (
+        read_exported_tool_descriptor,
+        tool_descriptor,
+    )
+    from harness_mem.mcp.tool_specs import PUBLIC_MCP_TOOL_NAMES
+
+    output_dir = CODE_ROOT / "mcps" / "harness_mem" / "tools"
+    return [
+        tool_name
+        for tool_name in PUBLIC_MCP_TOOL_NAMES
+        if not (output_dir / f"{tool_name}.json").is_file()
+        or read_exported_tool_descriptor(output_dir / f"{tool_name}.json")
+        != tool_descriptor(tool_name)
+    ]
 
 
 def _mcps_diff_names() -> list[str]:
@@ -59,26 +80,17 @@ def main() -> int:
             file=sys.stderr,
         )
         for path in retired:
-            print(f"  {path.relative_to(REPO_ROOT)}", file=sys.stderr)
+            print(f"  {path.relative_to(CODE_ROOT)}", file=sys.stderr)
         return 1
-    before = _mcps_diff_names()
-    if before:
-        print(f"mcps drift before repair: {len(before)} file(s)")
-        for path in before[:10]:
-            print(f"  - {path}")
-        if len(before) > 10:
-            print(f"  ... and {len(before) - 10} more")
-
     _regenerate_harness_mem_tools()
-
-    remaining = _mcps_diff_names()
-    if remaining:
-        print("ERROR: code/mcps/ still differs from HEAD after canonical repair:", file=sys.stderr)
-        for path in remaining:
-            print(f"  {path}", file=sys.stderr)
+    mismatched = _verify_harness_mem_tools()
+    if mismatched:
+        print("ERROR: exported descriptors differ from canonical source:", file=sys.stderr)
+        for tool_name in mismatched:
+            print(f"  {tool_name}.json", file=sys.stderr)
         return 1
 
-    print("OBSERVATION: code/mcps/ diff empty=YES")
+    print("OBSERVATION: exported descriptors match canonical source=YES")
 
     mcps_status = _run_git("status", "--short", "--", "code/mcps/")
     if mcps_status.returncode != 0:
@@ -86,21 +98,6 @@ def main() -> int:
         return mcps_status.returncode
     mcps_short = mcps_status.stdout.strip()
     print(f"git status --short code/mcps/:\n{mcps_short or '(empty)'}")
-    print("OBSERVATION: working tree code/mcps/ clean=YES")
-
-    full_status = _run_git("status", "--short")
-    if full_status.returncode != 0:
-        print(full_status.stderr or full_status.stdout, file=sys.stderr)
-        return full_status.returncode
-    full_short = full_status.stdout.strip()
-    print(f"git status --short:\n{full_short or '(empty)'}")
-    if full_short:
-        print(
-            "ERROR: working tree has uncommitted changes outside PR0 repair",
-            file=sys.stderr,
-        )
-        return 1
-    print("OBSERVATION: working tree clean=YES")
 
     diff_check = _run_git("diff", "--check")
     if diff_check.returncode != 0:

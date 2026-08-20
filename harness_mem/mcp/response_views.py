@@ -530,6 +530,7 @@ def _compact_pending_distill(value: Any) -> dict[str, Any]:
         "parked": payload.get("parked"),
         "retry_backoff": payload.get("retry_backoff"),
         "pending_total": payload.get("pending_total"),
+        "queue_preview": list(payload.get("queue_preview") or [])[:3],
         "completed_7d": payload.get("completed_7d"),
         "promoted_7d": payload.get("promoted_7d"),
         "no_candidate_7d": payload.get("no_candidate_7d"),

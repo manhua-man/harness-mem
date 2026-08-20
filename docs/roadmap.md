@@ -20,6 +20,21 @@ separately authorized `harness-mem`-scoped maintenance run revalidated live
 sources, atomically rewrote accepted facts, and reversibly retired obsolete or
 duplicate legacy rows. It did not alter other projects.
 
+## Development `0.9.23` (not yet published)
+
+The next source version introduces an operator-owned, restricted semantic
+provider profile for unattended work. A project may select only a named profile
+from the user's configuration; repository configuration cannot supply an
+endpoint or credential environment variable. Automatic model work still needs
+the separate project authorization `[distill.autonomous].enabled = true`.
+
+Dream now keeps a terminal ledger for every source recheck. It can refresh one
+current item when its complete, reopenable source still supports it, or
+reversibly retire that item when the source contradicts it. Multi-item
+comparison signals, unsupported external sources, missing providers, and
+bounded/truncated source excerpts leave current knowledge unchanged and close
+as audit records. This is not the unplanned external web/API revalidator.
+
 ## Released SQLite current-knowledge convergence
 
 ```text
@@ -49,6 +64,7 @@ Markdown/JSON/text
 | `0.9.20` | Run six retained sessions in an isolated `harness-mem` scope and show the actual clean library | 0--4 | Delete remaining duplicate/broad/internal-heading behavior found by acceptance | Released; frozen oracle, lineage readback, Hook and 14-claim outcome passed |
 | `0.9.21` | Physical repository migration to `code/` and delivery of clean SQLite-first 0.9.x behavior | 0--4 | Keep legacy real memory untouched unless separately authorized; keep candidate/evidence/decision as transient job material; preserve audit receipts and recovery points | Released; one separately authorized, project-isolated legacy convergence completed |
 | `0.9.22` | Close the archive-repair, task-envelope, clean-search, and current-truth outcome gaps | 0--4 | Keep normal search clean while preserving internal Autopilot context; prevent semantic models from invoking truth archival | Released |
+| `0.9.23` | Operator-owned restricted semantic profiles and terminal source-backed Dream rechecks | 2--4 | Keep credentials out of project config; do not retire truth from partial/unsupported sources; retain mutation undo | Development, not published |
 
 These versions are implementation slices, not additional product modules. The
 product architecture remains the five independently measurable modules:
@@ -116,6 +132,17 @@ The detailed conceptual contract is
 [memory-adoption.md](memory-adoption.md), the engineering plan is
 [knowledge-truth-separation.md](roadmap/knowledge-truth-separation.md), and the
 acceptance matrix is [distill-test-plan.md](distill-test-plan.md).
+
+## Directions under consideration
+
+The released train is complete. One deliberately unplanned direction is
+recorded in [next-iteration-directions.md](roadmap/next-iteration-directions.md):
+
+1. Revalidate the real external web/API source of an existing claim without
+   turning the product into a search engine.
+
+That document is a decision backlog, not a delivery commitment or an authority
+to access networks or mutate real historical memory.
 
 ## Historical releases
 

@@ -46,6 +46,22 @@ class EvidenceValidation:
     verified_at: datetime | None
 
 
+@dataclass(frozen=True)
+class KnowledgeSourceReopen:
+    """A source re-opened by trusted runtime for a bounded Dream/Review pass.
+
+    ``content`` is held only in memory for the immediate semantic call. It is
+    never copied into current knowledge, a normal retrieval response, or a
+    Dream receipt.
+    """
+
+    source_kind: str
+    verification_outcome: str
+    reason_code: str
+    content: str | None
+    truncated: bool = False
+
+
 def uses_evidence_admission(candidate: Any) -> bool:
     """Return whether this row belongs to the v0.9.5 admission contract."""
 
@@ -150,39 +166,204 @@ async def validate_knowledge_sources(
     confirm or replace current knowledge.
     """
 
+    validation, _reopened = await reopen_knowledge_sources(
+        backend,
+        project_name=project_name,
+        sources=sources,
+        project_root=project_root,
+    )
+    return validation
+
+
+async def reopen_knowledge_sources(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    sources: Sequence[KnowledgeSource],
+    project_root: str | Path,
+) -> tuple[EvidenceValidation, tuple[KnowledgeSourceReopen, ...]]:
+    """Validate and boundedly reopen current sources without persisting text.
+
+    This is the only bridge by which Dream may send source text to the
+    restricted semantic provider. Unsupported network/API locators remain
+    fail-closed and return no content until their dedicated revalidator exists.
+    """
+
     root = Path(project_root).expanduser().resolve(strict=False)
     if not sources:
-        return EvidenceValidation(
-            None,
-            "unverified",
-            ("knowledge_source_missing",),
-            None,
+        return (
+            EvidenceValidation(
+                None,
+                "unverified",
+                ("knowledge_source_missing",),
+                None,
+            ),
+            (),
         )
+    reopened: list[KnowledgeSourceReopen] = []
     for source in sources:
         if source.project_name != project_name:
-            return EvidenceValidation(
-                source.source_kind,
-                "unverified",
-                ("knowledge_source_project_mismatch",),
-                None,
+            return (
+                EvidenceValidation(
+                    source.source_kind,
+                    "unverified",
+                    ("knowledge_source_project_mismatch",),
+                    None,
+                ),
+                tuple(reopened),
             )
-        outcome, reason = await _validate_knowledge_source(
+        outcome, reason, content, truncated = await _reopen_knowledge_source(
             backend,
             source,
             project_root=root,
         )
-        if outcome != "verified":
-            return EvidenceValidation(
-                source.source_kind,
-                outcome,
-                (reason,),
-                None,
+        reopened.append(
+            KnowledgeSourceReopen(
+                source_kind=source.source_kind,
+                verification_outcome=outcome,
+                reason_code=reason,
+                content=content,
+                truncated=truncated,
             )
-    return EvidenceValidation(
-        "mixed" if len({item.source_kind for item in sources}) > 1 else sources[0].source_kind,
-        "verified",
-        ("knowledge_sources_current",),
-        datetime.now(timezone.utc),
+        )
+        if outcome != "verified":
+            return (
+                EvidenceValidation(
+                    source.source_kind,
+                    outcome,
+                    (reason,),
+                    None,
+                ),
+                tuple(reopened),
+            )
+    return (
+        EvidenceValidation(
+            "mixed"
+            if len({item.source_kind for item in sources}) > 1
+            else sources[0].source_kind,
+            "verified",
+            ("knowledge_sources_current",),
+            datetime.now(timezone.utc),
+        ),
+        tuple(reopened),
+    )
+
+
+async def reopen_dream_knowledge_sources(
+    backend: LocalMemoryBackend,
+    *,
+    project_name: str,
+    sources: Sequence[KnowledgeSource],
+    project_root: str | Path,
+) -> tuple[
+    EvidenceValidation,
+    tuple[KnowledgeSourceReopen, ...],
+    tuple[KnowledgeSource, ...],
+]:
+    """Reopen a current local repository source for one Dream comparison.
+
+    A digest mismatch normally means a previously verified claim is stale and
+    therefore must fail closed.  Dream is the one maintenance path whose job
+    is to compare that claim with today's local repository bytes.  It may pass
+    those bounded bytes to the restricted provider, but only after validating
+    the path remains within the same project.  The returned effective sources
+    carry today's digests and must be used for the subsequent truth
+    transaction; the historical source rows remain untouched until that
+    transaction succeeds.
+
+    Immutable transcript and user-statement references never receive this
+    escape hatch.  A mismatch there remains fail-closed.
+    """
+
+    root = Path(project_root).expanduser().resolve(strict=False)
+    if not sources:
+        return (
+            EvidenceValidation(None, "unverified", ("knowledge_source_missing",), None),
+            (),
+            (),
+        )
+    reopened: list[KnowledgeSourceReopen] = []
+    effective_sources: list[KnowledgeSource] = []
+    changed = False
+    for source in sources:
+        if source.project_name != project_name:
+            return (
+                EvidenceValidation(
+                    source.source_kind,
+                    "unverified",
+                    ("knowledge_source_project_mismatch",),
+                    None,
+                ),
+                tuple(reopened),
+                tuple(effective_sources),
+            )
+        outcome, reason, content, truncated = await _reopen_knowledge_source(
+            backend,
+            source,
+            project_root=root,
+        )
+        if (
+            outcome == "contradicted"
+            and reason == "knowledge_source_digest_changed"
+            and source.source_kind == "repository"
+            and content is not None
+        ):
+            parsed = urlparse(source.locator)
+            path = _file_uri_path(parsed)
+            try:
+                current_digest = _sha256_file(path)
+            except OSError:
+                return (
+                    EvidenceValidation(
+                        source.source_kind,
+                        "unverified",
+                        ("knowledge_source_unreadable",),
+                        None,
+                    ),
+                    tuple(reopened),
+                    tuple(effective_sources),
+                )
+            reopened.append(
+                KnowledgeSourceReopen(
+                    source_kind=source.source_kind,
+                    verification_outcome="verified",
+                    reason_code="knowledge_source_changed",
+                    content=content,
+                    truncated=truncated,
+                )
+            )
+            effective_sources.append(
+                source.model_copy(update={"content_sha256": current_digest})
+            )
+            changed = True
+            continue
+        reopened.append(
+            KnowledgeSourceReopen(
+                source_kind=source.source_kind,
+                verification_outcome=outcome,
+                reason_code=reason,
+                content=content,
+                truncated=truncated,
+            )
+        )
+        if outcome != "verified":
+            return (
+                EvidenceValidation(source.source_kind, outcome, (reason,), None),
+                tuple(reopened),
+                tuple(effective_sources),
+            )
+        effective_sources.append(source)
+    return (
+        EvidenceValidation(
+            "mixed" if len({item.source_kind for item in sources}) > 1 else sources[0].source_kind,
+            "verified",
+            ("knowledge_sources_changed",)
+            if changed
+            else ("knowledge_sources_current",),
+            datetime.now(timezone.utc),
+        ),
+        tuple(reopened),
+        tuple(effective_sources),
     )
 
 
@@ -295,66 +476,79 @@ def _validate_repository_refs(
     return "verified", ["repository_refs_current"]
 
 
-async def _validate_knowledge_source(
+async def _reopen_knowledge_source(
     backend: LocalMemoryBackend,
     source: KnowledgeSource,
     *,
     project_root: Path,
-) -> tuple[str, str]:
+) -> tuple[str, str, str | None, bool]:
     parsed = urlparse(source.locator)
     digest = str(source.content_sha256 or "").lower()
     if not _SHA256.fullmatch(digest):
-        return "unverified", "knowledge_source_digest_missing"
+        return "unverified", "knowledge_source_digest_missing", None, False
     if parsed.scheme != "file":
         # Network/API revalidation requires a separately governed fetcher.
         # Until that exists, Review/Dream must fail closed.
-        return "unverified", "knowledge_source_scheme_unsupported"
+        return "unverified", "knowledge_source_scheme_unsupported", None, False
     path = _file_uri_path(parsed)
     if source.source_kind == "repository":
         if not _is_relative_to(path, project_root) or path == project_root:
-            return "unverified", "knowledge_source_outside_project"
+            return "unverified", "knowledge_source_outside_project", None, False
         if not path.is_file():
-            return "unverified", "knowledge_source_missing"
+            return "unverified", "knowledge_source_missing", None, False
         try:
             actual = _sha256_file(path)
-        except OSError:
-            return "unverified", "knowledge_source_unreadable"
+            content, truncated = _read_bounded_source_content(path)
+        except (OSError, UnicodeDecodeError):
+            return "unverified", "knowledge_source_unreadable", None, False
         if actual != digest:
-            return "contradicted", "knowledge_source_digest_changed"
-        return "verified", "knowledge_source_current"
+            # The generic evidence gate remains contradicted and does not use
+            # this body.  Dream's explicit local-source reopener may consume
+            # the bounded current bytes to decide whether to refresh, replace,
+            # or retire the stale knowledge row.
+            return "contradicted", "knowledge_source_digest_changed", content, truncated
+        return "verified", "knowledge_source_current", content, truncated
 
     transcript_db = Path(backend.transcript_store.db_path).resolve(strict=False)
     if path != transcript_db:
-        return "unverified", "knowledge_source_transcript_store_mismatch"
+        return "unverified", "knowledge_source_transcript_store_mismatch", None, False
     query = parse_qs(parsed.fragment, keep_blank_values=False)
     source_id = _single_query_value(query, "source_id")
     source_revision = _single_query_value(query, "source_revision")
     if not source_id or not source_revision:
-        return "unverified", "knowledge_source_locator_incomplete"
+        return "unverified", "knowledge_source_locator_incomplete", None, False
     revision = backend.transcript_store.get_revision(source_id, source_revision)
     if revision is None:
-        return "unverified", "knowledge_source_revision_missing"
+        return "unverified", "knowledge_source_revision_missing", None, False
     if source.source_kind == "user_statement":
         exchange = _query_int(query, "exchange")
         if exchange is None:
-            return "unverified", "knowledge_source_exchange_missing"
+            return "unverified", "knowledge_source_exchange_missing", None, False
         observation_id = str(uuid5(NAMESPACE_URL, f"{source_id}:observation"))
         observation = await backend.verbatim_store.get(observation_id)
         if (
             observation is None
             or observation.metadata.get("source_revision") != source_revision
         ):
-            return "unverified", "knowledge_source_observation_missing"
+            return "unverified", "knowledge_source_observation_missing", None, False
         windows = render_distill_exchange_windows(observation.raw_content, [exchange])
         if not windows or "User:" not in str(windows[0].get("content") or ""):
-            return "unverified", "knowledge_source_exchange_missing"
+            return "unverified", "knowledge_source_exchange_missing", None, False
         if str(windows[0].get("content_sha256") or "").lower() != digest:
-            return "contradicted", "knowledge_source_digest_changed"
-        return "verified", "knowledge_source_current"
+            return "contradicted", "knowledge_source_digest_changed", None, False
+        content, truncated = _bounded_source_content(
+            str(windows[0].get("content") or "")
+        )
+        return (
+            "verified",
+            "knowledge_source_current",
+            content,
+            truncated,
+        )
     if source.source_kind == "transcript":
         chunk_index = _query_int(query, "chunk")
         if chunk_index is None:
-            return "unverified", "knowledge_source_chunk_missing"
+            return "unverified", "knowledge_source_chunk_missing", None, False
         chunks = {
             chunk.chunk_index: chunk
             for chunk in backend.transcript_store.list_chunks(
@@ -364,11 +558,51 @@ async def _validate_knowledge_source(
         }
         chunk = chunks.get(chunk_index)
         if chunk is None:
-            return "unverified", "knowledge_source_chunk_missing"
+            return "unverified", "knowledge_source_chunk_missing", None, False
         if chunk.content_sha256 != digest:
-            return "contradicted", "knowledge_source_digest_changed"
-        return "verified", "knowledge_source_current"
-    return "unverified", "knowledge_source_kind_unsupported"
+            return "contradicted", "knowledge_source_digest_changed", None, False
+        content, truncated = _bounded_source_content(chunk.raw_content)
+        return (
+            "verified",
+            "knowledge_source_current",
+            content,
+            truncated,
+        )
+    return "unverified", "knowledge_source_kind_unsupported", None, False
+
+
+async def _validate_knowledge_source(
+    backend: LocalMemoryBackend,
+    source: KnowledgeSource,
+    *,
+    project_root: Path,
+) -> tuple[str, str]:
+    """Compatibility projection for callers that only need source integrity."""
+
+    outcome, reason, _content, _truncated = await _reopen_knowledge_source(
+        backend,
+        source,
+        project_root=project_root,
+    )
+    return outcome, reason
+
+
+def _read_bounded_source_content(
+    path: Path,
+    *,
+    limit: int = 16000,
+) -> tuple[str, bool]:
+    """Read one source excerpt without allocating the entire file body."""
+
+    with path.open("r", encoding="utf-8") as handle:
+        return _bounded_source_content(handle.read(limit + 1), limit=limit)
+
+
+def _bounded_source_content(value: str, *, limit: int = 16000) -> tuple[str, bool]:
+    normalized = value.strip()
+    if len(normalized) <= limit:
+        return normalized, False
+    return normalized[:limit] + "\n[truncated by trusted runtime]", True
 
 
 def _file_uri_path(parsed: Any) -> Path:
@@ -499,10 +733,13 @@ __all__ = [
     "ANSWER_GATE_STATUSES",
     "AnswerGateStatus",
     "EvidenceValidation",
+    "KnowledgeSourceReopen",
     "answer_gate_status",
     "apply_validation",
     "evidence_summary_key",
     "sanitize_evidence_refs",
+    "reopen_knowledge_sources",
+    "reopen_dream_knowledge_sources",
     "uses_evidence_admission",
     "validate_candidate_evidence",
     "validate_knowledge_sources",

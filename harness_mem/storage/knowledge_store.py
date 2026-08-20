@@ -124,6 +124,80 @@ class KnowledgeStore:
             sources_by_knowledge_id=source_map,
         )
 
+    async def refresh_entry_verification(
+        self,
+        *,
+        project_name: str,
+        entry_id: str,
+        verified_at: datetime,
+        refresh_id: str,
+        refreshed_sources: Sequence[KnowledgeSource] | None = None,
+    ) -> dict:
+        """Record a source-backed freshness check without changing knowledge.
+
+        Dream and Review may prove that a current statement is still supported.
+        That is not a semantic rewrite, so it neither creates a new knowledge
+        revision nor mutates the statement. The entry and its minimal source
+        receipts are nevertheless updated atomically with CAS preconditions.
+        """
+
+        current = await self.get_entry(entry_id, project_name=project_name)
+        if current is None:
+            raise ValueError("knowledge verification target is not current")
+        sources = await self.list_sources(entry_id)
+        if not sources:
+            raise ValueError("knowledge verification refresh requires sources")
+        normalized_at = verified_at.astimezone(timezone.utc)
+        refreshed_entry = current.model_copy(
+            update={"verified_at": normalized_at, "updated_at": normalized_at}
+        )
+        current_sources_by_id = {source.id: source for source in sources}
+        if refreshed_sources is not None:
+            proposed_by_id = {source.id: source for source in refreshed_sources}
+            if set(proposed_by_id) != set(current_sources_by_id):
+                raise ValueError("knowledge verification refresh source set changed")
+            for source_id, proposed in proposed_by_id.items():
+                current_source = current_sources_by_id[source_id]
+                if (
+                    proposed.project_name != project_name
+                    or proposed.knowledge_id != entry_id
+                    or proposed.source_kind != current_source.source_kind
+                    or proposed.locator != current_source.locator
+                ):
+                    raise ValueError("knowledge verification refresh source identity changed")
+            refreshed_source_rows = [
+                proposed_by_id[source.id].model_copy(update={"verified_at": normalized_at})
+                for source in sources
+            ]
+        else:
+            refreshed_source_rows = [
+                source.model_copy(update={"verified_at": normalized_at})
+                for source in sources
+            ]
+        operations = [
+            _replace_operation(
+                self._store,
+                "knowledge_entries",
+                current.id,
+                refreshed_entry.to_dict(),
+                project_name=project_name,
+            )
+        ]
+        operations.extend(
+            _replace_operation(
+                self._store,
+                "knowledge_sources",
+                source.id,
+                source.to_dict(),
+                project_name=project_name,
+            )
+            for source in refreshed_source_rows
+        )
+        return self._store.apply_canonical_payload_transaction(
+            idempotency_key=f"knowledge-verification-refresh:{refresh_id}",
+            mutations=operations,
+        )
+
     async def apply_truth_mutation(
         self,
         *,
@@ -713,6 +787,31 @@ def _new_operation(collection: str, entity_id: str, payload: dict) -> dict:
         "entity_id": entity_id,
         "payload": payload,
         "expected_sha256": None,
+    }
+
+
+def _replace_operation(
+    store: LocalStructuredStore,
+    collection: str,
+    entity_id: str,
+    payload: dict,
+    *,
+    project_name: str,
+) -> dict:
+    expected = store.record_payload_sha256(
+        collection,
+        entity_id,
+        project_name=project_name,
+    )
+    if expected is None:
+        raise ValueError(f"current {collection} record is missing: {entity_id}")
+    return {
+        "operation": "upsert",
+        "collection": collection,
+        "entity_id": entity_id,
+        "payload": payload,
+        "project_name": project_name,
+        "expected_sha256": expected,
     }
 
 

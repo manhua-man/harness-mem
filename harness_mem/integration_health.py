@@ -277,6 +277,7 @@ async def build_integration_health(
             "recent_lane_selected": drainer["recent_lane_selected"],
             "oldest_lane_selected": drainer["oldest_lane_selected"],
             "pending_total": drainer["pending_total"],
+            "queue_preview": drainer["queue_preview"],
             "stuck_reasons": drainer["stuck_reasons"],
             "drain_estimate": drainer["drain_estimate"],
             "agent_required": drainer["agent_required"],
