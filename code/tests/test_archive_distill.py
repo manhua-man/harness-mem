@@ -55,7 +55,7 @@ def _write_archive(root: Path, workspace: Path, session_id: str) -> Path:
     return path
 
 
-def _write_config(root: Path, *, enabled: bool) -> None:
+def _write_config(root: Path, *, enabled: bool, require_answer_packet: bool = True) -> None:
     root.joinpath(".harness-mem.toml").write_text(
         "[archive_distill]\n"
         f"enabled = {'true' if enabled else 'false'}\n"
@@ -64,7 +64,7 @@ def _write_config(root: Path, *, enabled: bool) -> None:
         "order = \"oldest_first\"\n"
         "project_scope = \"detected\"\n"
         "unresolved_project = \"defer\"\n"
-        "require_answer_packet = true\n"
+        f"require_answer_packet = {'true' if require_answer_packet else 'false'}\n"
         "report_promotions = true\n"
         "warn_tokens = 15000\n"
         "warn_seconds = 40\n",
@@ -459,6 +459,107 @@ def test_archive_apply_verify_emits_run_bound_direct_evidence(
     assert Path(result["run_receipt"]).is_file()
 
 
+def test_archive_apply_verify_accepts_missing_answer_packet_when_disabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    control = tmp_path / "control"
+    project = tmp_path / "project"
+    control.mkdir()
+    project.mkdir()
+    _write_config(control, enabled=True, require_answer_packet=False)
+    project.joinpath(".harness-mem.toml").write_text(
+        "[distill.autonomous]\nenabled = true\n",
+        encoding="utf-8",
+    )
+    archive = tmp_path / "archives"
+    _write_archive(archive, project, "session-answer-packet-off")
+
+    def fake_batch(backend, **kwargs):
+        job = backend.transcript_store.get_distill_job(kwargs["preferred_job_id"])
+        assert job is not None
+        lease_owner = "archive-test"
+        for chunk, _checkpoint in backend.transcript_store.claim_distill_chunks(
+            job.id, lease_owner=lease_owner, limit=100
+        ):
+            backend.transcript_store.checkpoint_distill_chunk(
+                job.id,
+                chunk.id,
+                lease_owner=lease_owner,
+                result={"summary": "read"},
+            )
+        backend.transcript_store.finalize_distill_job(
+            job.id,
+            semantic_review={
+                "session_summary": "The user asked for a direct verification probe.",
+                "final_user_request": "Run no durable work.",
+                "final_outcome": "No durable memory was produced.",
+                "last_turn_status": "answered",
+                "contradictions": [],
+                "unfinished_work": [],
+                "evidence_status": "not_applicable",
+                "promotion_decision": "no_promotion",
+            },
+        )
+        packet = {
+            "answer_status": "NOT_APPLICABLE",
+            "question": "Run direct probe without answer packet in output.",
+            "core_conclusion": "No durable memory was produced.",
+            "evidence_basis": [],
+            "evaluated_at": "2026-08-13T00:00:00Z",
+            "verified_at": None,
+            "promotion_status": "not_promoted",
+            "promoted_items": [],
+            "destination_project": job.project_name,
+            "knowledge_kind": [],
+            "knowledge_category": [],
+        }
+        stored = backend.transcript_store.record_distill_completion_outcome(
+            job.id,
+            disposition="no_candidate",
+            reason_codes=["no_durable_candidate"],
+            promotion_summary={"promoted": 0, "answer_packet": packet},
+            source_cleanup_status="retained",
+        )
+        from harness_mem.session_notes import materialize_session_note
+
+        note = materialize_session_note(stored, notes_dir=tmp_path / "notes")
+        return {
+            "success": True,
+            "state": "succeeded",
+            "outcomes": [
+                {
+                    "job_id": job.id,
+                    "session_id": job.session_id,
+                    "status": "completed",
+                    "note": note,
+                    "provider": {"total_tokens": 0, "duration_seconds": 0.0},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(
+        "harness_mem.commands.archive_distill.run_autonomous_distill_batch",
+        fake_batch,
+    )
+    result = asyncio.run(
+        run_archive_distill_batch(
+            control_root=control,
+            apply=True,
+            verify=True,
+            archive_dir=archive,
+            data_dir=tmp_path / "data",
+        )
+    )
+
+    assert result["verification"]["status"] == "passed"
+    verified = result["verification"]["outcomes"][0]
+    assert verified["checks"]["answer_packet_persisted"] is True
+    assert result["outcomes"][0]["answer_packet"] is None
+    assert verified["checks"]["job_persisted"] is True
+    assert Path(result["run_receipt"]).is_file()
+
+
 def test_archive_completed_job_is_reverified_without_provider_replay(
     tmp_path: Path,
     monkeypatch,
@@ -653,14 +754,23 @@ def test_archive_repair_only_reverifies_deleted_partial_receipt_without_provider
             notes_dir=tmp_path / "notes",
         )
     )
-    # Replace the successful terminal admission with a historical partial receipt;
-    # the completed job and Note remain the repair authority after source removal.
+    # Replace the successful terminal admission with a historical quarantined
+    # partial receipt. The completed job and Note remain the repair authority
+    # after source removal, but the terminal entry prevents a normal batch
+    # retry and must therefore be explicitly repairable.
     terminal = Path(str(first["terminal_index"]))
-    terminal.write_text('{"version": 1, "sessions": {}}\n', encoding="utf-8")
+    index = json.loads(terminal.read_text(encoding="utf-8"))
+    entry = index["sessions"]["session-deleted-repair"]
+    entry["disposition"] = "quarantined"
+    entry["reason"] = "deferred"
+    entry["failed_checks"] = ["answer_packet_persisted"]
+    terminal.write_text(json.dumps(index), encoding="utf-8")
     receipt_path = Path(str(first["run_receipt"]))
     payload = json.loads(receipt_path.read_text(encoding="utf-8"))
     payload["success"] = False
     payload["verification"]["status"] = "partial"
+    payload["outcomes"][0]["status"] = "deferred"
+    payload["outcomes"][0]["reason"] = "historical semantic review still pending"
     receipt_path.write_text(json.dumps(payload), encoding="utf-8")
     source.unlink(missing_ok=True)
 
@@ -689,6 +799,7 @@ def test_archive_repair_only_reverifies_deleted_partial_receipt_without_provider
     entry = index["sessions"]["session-deleted-repair"]
     assert entry["disposition"] == "verified_completed"
     assert entry["repaired_from_partial_receipt"] is True
+    assert entry["repair_kind"] == "completed_job_after_deferred_receipt"
 
 
 def test_archive_attempt_budget_is_durable_across_utc_days(

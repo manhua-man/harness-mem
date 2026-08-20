@@ -220,6 +220,7 @@ class KnowledgeStore:
             current_knowledge_ids=[entry.id for entry in added_entries],
             predecessor_version_ids=[version.id for version in versions],
             reverses_mutation_id=decision.reverses_decision_id,
+            reason=decision.reason,
             recorded_at=decision.decided_at,
         )
         new_sources: list[KnowledgeSource] = []
@@ -264,6 +265,86 @@ class KnowledgeStore:
         )
         return self._store.apply_canonical_payload_transaction(
             idempotency_key=f"knowledge-mutation:{decision.id}",
+            mutations=operations,
+        )
+
+    async def archive_current_entry(
+        self,
+        *,
+        project_name: str,
+        entry_id: str,
+        mutation_id: str,
+        reason: str,
+    ) -> dict:
+        """Remove one obsolete current entry while retaining a reversible snapshot.
+
+        This is a maintenance-only mutation for an already governed truth. It
+        never hard-deletes the entry's prior version or sources, and a later
+        ``undo_truth_mutation`` restores the exact entry from this snapshot.
+        """
+
+        normalized_reason = str(reason).strip()
+        if not normalized_reason:
+            raise ValueError("knowledge archive requires a reason")
+        current = await self.get_entry(entry_id, project_name=project_name)
+        existing = await self.get_mutation(mutation_id)
+        if existing is not None:
+            if (
+                existing.project_name != project_name
+                or existing.disposition != "archive"
+                or existing.current_knowledge_ids
+            ):
+                raise ValueError(
+                    "knowledge archive mutation id was already committed for different work"
+                )
+            return {
+                "idempotency_key": f"knowledge-mutation:{mutation_id}",
+                "mutation_count": 0,
+                "mutations": [],
+                "replayed": True,
+            }
+        if current is None:
+            raise ValueError("knowledge archive target is not current")
+        sources = await self.list_sources(current.id)
+        version = _version_snapshot(mutation_id, current, sources)
+        mutation = KnowledgeMutation(
+            id=mutation_id,
+            project_name=project_name,
+            disposition="archive",
+            current_knowledge_ids=[],
+            predecessor_version_ids=[version.id],
+            reason=normalized_reason,
+        )
+        operations: list[dict] = []
+        for source in sources:
+            operations.append(
+                _delete_operation(
+                    self._store,
+                    "knowledge_sources",
+                    source.id,
+                    project_name=source.project_name,
+                )
+            )
+        operations.append(
+            _delete_operation(
+                self._store,
+                "knowledge_entries",
+                current.id,
+                project_name=current.project_name,
+            )
+        )
+        operations.append(_new_operation("knowledge_versions", version.id, version.to_dict()))
+        operations.append(
+            _new_operation("knowledge_mutations", mutation.id, mutation.to_dict())
+        )
+        operations.extend(
+            await self._undo_retention_operations(
+                project_name=project_name,
+                incoming=mutation,
+            )
+        )
+        return self._store.apply_canonical_payload_transaction(
+            idempotency_key=f"knowledge-mutation:{mutation_id}",
             mutations=operations,
         )
 
@@ -342,6 +423,7 @@ class KnowledgeStore:
             current_knowledge_ids=[entry.id for entry in restored],
             predecessor_version_ids=[item.id for item in retired_versions],
             reverses_mutation_id=mutation.id,
+            reason=f"undo: {mutation.reason}"[:2000],
         )
         operations: list[dict] = []
         for entry in retired:
@@ -536,7 +618,7 @@ class KnowledgeStore:
             predecessor_truth_ids=[entry.id for entry in predecessor_entries],
             predecessor_entries=predecessor_entries,
             reverses_decision_id=mutation.reverses_mutation_id,
-            reason="bounded durable mutation lineage",
+            reason=mutation.reason or "bounded durable mutation lineage",
             decided_at=mutation.recorded_at,
         )
 

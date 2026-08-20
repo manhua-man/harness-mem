@@ -109,18 +109,70 @@ async def _repair_partial_completed_receipts(
     *,
     data_dir: Path,
     terminal_sessions: dict[str, Any],
+    notes_dir: Path,
 ) -> dict[str, Any]:
-    """Reverify completed jobs whose source may already be safely deleted."""
+    """Reverify completed jobs whose partial receipt was never admitted.
+
+    A prior verifier bug can leave a completed job in a ``quarantined``
+    terminal entry even though the job, Note, and current truth are all
+    durable.  Those entries are eligible for repair only when the receipt
+    proves that it is the same job and immutable source revision.  This keeps
+    a real semantic failure quarantined instead of turning ``repair-only``
+    into an unbounded retry path.
+    """
 
     repaired: list[dict[str, Any]] = []
+    repaired_session_ids: set[str] = set()
+
+    def _admit(
+        outcome: dict[str, Any],
+        verified: dict[str, Any],
+        *,
+        source_run_id: str | None,
+        repair_kind: str,
+    ) -> None:
+        if verified["status"] != "passed":
+            return
+        session_id = str(outcome.get("session_id") or "")
+        terminal_sessions[session_id] = {
+            "session_id": session_id,
+            "source_revision": outcome.get("source_revision"),
+            "project_name": outcome.get("project_name"),
+            "project_root": outcome.get("project_root"),
+            "distill_job_id": outcome.get("distill_job_id"),
+            "disposition": "verified_completed",
+            "verified_at": verification["verified_at"],
+            "run_id": source_run_id,
+            "repaired_from_partial_receipt": True,
+            "repair_kind": repair_kind,
+        }
+        repaired_session_ids.add(session_id)
+        repaired.append(
+            {
+                "session_id": session_id,
+                "distill_job_id": outcome.get("distill_job_id"),
+                "source_run_id": source_run_id,
+                "repair_kind": repair_kind,
+            }
+        )
+
     for receipt in _partial_run_receipts(data_dir):
-        pending_outcomes = [
-            outcome
-            for outcome in receipt.get("outcomes", [])
-            if isinstance(outcome, dict)
-            and outcome.get("status") == "completed"
-            and str(outcome.get("session_id") or "") not in terminal_sessions
-        ]
+        pending_outcomes: list[dict[str, Any]] = []
+        for outcome in receipt.get("outcomes", []):
+            if not isinstance(outcome, dict) or outcome.get("status") != "completed":
+                continue
+            session_id = str(outcome.get("session_id") or "")
+            prior = terminal_sessions.get(session_id)
+            if prior is None:
+                pending_outcomes.append(outcome)
+                continue
+            if not isinstance(prior, dict) or prior.get("disposition") != "quarantined":
+                continue
+            if (
+                prior.get("distill_job_id") == outcome.get("distill_job_id")
+                and prior.get("source_revision") == outcome.get("source_revision")
+            ):
+                pending_outcomes.append(outcome)
         if not pending_outcomes:
             continue
         repair_result = {**receipt, "outcomes": pending_outcomes}
@@ -133,26 +185,68 @@ async def _repair_partial_completed_receipts(
             verification["outcomes"],
             strict=True,
         ):
-            if verified["status"] != "passed":
-                continue
-            session_id = str(outcome.get("session_id") or "")
-            terminal_sessions[session_id] = {
+            _admit(
+                outcome,
+                verified,
+                source_run_id=receipt.get("run_id"),
+                repair_kind="completed_receipt_reverification",
+            )
+
+    # A previous archive pass can record ``deferred`` before an Agent finishes
+    # the semantic review through the normal MCP path.  Once that exact job is
+    # completed, its persisted Job/Note/Packet are a stronger authority than
+    # the stale batch outcome. Re-admit only the same quarantined job and
+    # immutable revision; this never retries a genuinely failed job.
+    completed_after_deferred: list[dict[str, Any]] = []
+    for session_id, entry in terminal_sessions.items():
+        if session_id in repaired_session_ids:
+            continue
+        if not isinstance(entry, dict) or entry.get("disposition") != "quarantined":
+            continue
+        if entry.get("reason") != "deferred":
+            continue
+        job_id = str(entry.get("distill_job_id") or "")
+        job = backend.transcript_store.get_distill_job(job_id) if job_id else None
+        if (
+            job is None
+            or job.status != "completed"
+            or job.session_id != session_id
+            or job.source_revision != entry.get("source_revision")
+            or job.project_name != entry.get("project_name")
+            or job.project_root != entry.get("project_root")
+        ):
+            continue
+        packet = dict((job.promotion_summary or {}).get("answer_packet") or {})
+        completed_after_deferred.append(
+            {
                 "session_id": session_id,
-                "source_revision": outcome.get("source_revision"),
-                "project_name": outcome.get("project_name"),
-                "project_root": outcome.get("project_root"),
-                "distill_job_id": outcome.get("distill_job_id"),
-                "disposition": "verified_completed",
-                "verified_at": verification["verified_at"],
-                "run_id": receipt.get("run_id"),
-                "repaired_from_partial_receipt": True,
+                "project_name": job.project_name,
+                "project_root": job.project_root,
+                "distill_job_id": job.id,
+                "status": "completed",
+                "source_revision": job.source_revision,
+                "answer_packet": packet,
+                "note": materialize_session_note(job, notes_dir=notes_dir),
             }
-            repaired.append(
-                {
-                    "session_id": session_id,
-                    "distill_job_id": outcome.get("distill_job_id"),
-                    "source_run_id": receipt.get("run_id"),
-                }
+        )
+    if completed_after_deferred:
+        verification = await _verify_archive_distill_run(
+            backend,
+            result={
+                "policy": {"require_answer_packet": True},
+                "outcomes": completed_after_deferred,
+            },
+        )
+        for outcome, verified in zip(
+            completed_after_deferred,
+            verification["outcomes"],
+            strict=True,
+        ):
+            _admit(
+                outcome,
+                verified,
+                source_run_id=None,
+                repair_kind="completed_job_after_deferred_receipt",
             )
     return {"count": len(repaired), "outcomes": repaired}
 
@@ -609,10 +703,12 @@ async def run_archive_distill_batch(
     try:
         await backend.init()
         adapter = CodexArchiveAdapter(backend, archive_dir=archive_dir)
+        resolved_notes_dir = notes_dir or Path.home() / ".codex" / "hm-distill" / "sessions"
         partial_repair = await _repair_partial_completed_receipts(
             backend,
             data_dir=data_dir,
             terminal_sessions=terminal_sessions,
+            notes_dir=resolved_notes_dir,
         )
         selected_projects = sorted(
             {str(row.get("project_name") or "") for row in selected}
@@ -649,7 +745,6 @@ async def run_archive_distill_batch(
             return blocked
         outcomes: list[dict[str, Any]] = []
         attempted_ids: list[str] = []
-        resolved_notes_dir = notes_dir or Path.home() / ".codex" / "hm-distill" / "sessions"
         for row in selected:
             project_root = Path(str(row["project_root"])).resolve()
             project_name = str(row["project_name"])
@@ -919,6 +1014,8 @@ async def _verify_archive_distill_run(
         for item in backend.transcript_store.list_deletion_audit()
         if item.get("id")
     }
+    policy = dict(result.get("policy") or {})
+    require_answer_packet = bool(policy.get("require_answer_packet", True))
     verified_outcomes: list[dict[str, Any]] = []
     for outcome in result.get("outcomes", []):
         session_id = str(outcome.get("session_id") or "")
@@ -928,6 +1025,7 @@ async def _verify_archive_distill_run(
         persisted_packet = dict(
             ((job.promotion_summary if job else {}).get("answer_packet") or {})
         )
+        outcome_packet = dict(outcome.get("answer_packet") or {})
         cleanup = receipts.get(str(job.source_cleanup_receipt_id or "")) if job else None
         scope = dict((cleanup or {}).get("scope") or {})
         session_digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
@@ -988,8 +1086,13 @@ async def _verify_archive_distill_run(
         )
         checks = {
             "job_persisted": job is not None and job.status == "completed",
-            "answer_packet_persisted": bool(persisted_packet)
-            and persisted_packet == dict(outcome.get("answer_packet") or {}),
+            "answer_packet_persisted": (
+                (not require_answer_packet and not outcome_packet)
+                or (
+                    bool(persisted_packet)
+                    and persisted_packet == outcome_packet
+                )
+            ),
             "project_binding_valid": bool(job and job.project_name == project_name),
             "privacy_identity_state_valid": bool(
                 job

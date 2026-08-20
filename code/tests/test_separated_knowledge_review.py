@@ -310,6 +310,48 @@ def _publish_entry(
     return current[0]
 
 
+def test_archive_current_knowledge_keeps_a_reversible_snapshot(tmp_path) -> None:
+    project_root = _project_root(tmp_path)
+    backend = LocalMemoryBackend(tmp_path / "data")
+    _run(backend.init())
+    try:
+        store = backend.structured_store.knowledge_store
+        current = _publish_entry(
+            store,
+            project_root,
+            title="One-time migration note",
+            statement="This statement belongs only to an old one-time migration.",
+            topic_path=["migration"],
+        )
+
+        archived = _run(
+            store.archive_current_entry(
+                project_name="demo",
+                entry_id=current.id,
+                mutation_id="archive-one-time-migration-note",
+                reason="The entry is historical task progress, not current knowledge.",
+            )
+        )
+
+        assert archived["mutation_count"] > 0
+        assert _run(store.list_entries("demo", project_root=project_root)) == []
+        decision = _run(store.get_decision("archive-one-time-migration-note"))
+        assert decision is not None
+        assert decision.disposition == "archive"
+        assert decision.reason == "The entry is historical task progress, not current knowledge."
+
+        restored = _run(
+            store.undo_truth_mutation(
+                mutation_id="archive-one-time-migration-note",
+                reversal_id="undo-archive-one-time-migration-note",
+            )
+        )
+        assert restored["restored_knowledge_ids"] == [current.id]
+        assert [entry.id for entry in _run(store.list_entries("demo"))] == [current.id]
+    finally:
+        _run(backend.close())
+
+
 def test_refine_assimilation_replays_after_predecessor_was_retired(
     tmp_path,
 ) -> None:

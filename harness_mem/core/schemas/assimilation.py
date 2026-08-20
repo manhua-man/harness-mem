@@ -15,6 +15,7 @@ AssimilationDisposition = Literal[
     "defer",
     "conflict",
     "reject",
+    "archive",
 ]
 
 

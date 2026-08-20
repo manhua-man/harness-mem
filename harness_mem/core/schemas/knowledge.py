@@ -209,10 +209,11 @@ class KnowledgeMutation(BaseModel):
 
     id: str = Field(min_length=1)
     project_name: str = Field(min_length=1)
-    disposition: Literal["add", "refine", "supersede"]
+    disposition: Literal["add", "refine", "supersede", "archive"]
     current_knowledge_ids: list[str] = Field(default_factory=list)
     predecessor_version_ids: list[str] = Field(default_factory=list)
     reverses_mutation_id: str | None = None
+    reason: str = Field(default="", max_length=2000)
     recorded_at: datetime = Field(default_factory=_utc_now)
 
     model_config = {"extra": "forbid"}
@@ -230,6 +231,7 @@ class KnowledgeMutation(BaseModel):
             "current_knowledge_ids": list(self.current_knowledge_ids),
             "predecessor_version_ids": list(self.predecessor_version_ids),
             "reverses_mutation_id": self.reverses_mutation_id,
+            "reason": self.reason,
             "recorded_at": self.recorded_at.isoformat(),
         }
 
