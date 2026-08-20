@@ -23,7 +23,7 @@ import {
 
 const MODEL_VERSION = "v1";
 const AS_OF = "2026-08-20";
-const RUNTIME_VERSION = "0.9.23";
+const RUNTIME_VERSION = "0.9.24";
 const PYTEST_PASSED = 926;
 const PYTEST_SKIPPED = 2;
 const PYTEST_COUNT = PYTEST_PASSED + PYTEST_SKIPPED;

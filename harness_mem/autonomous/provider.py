@@ -105,6 +105,7 @@ class SemanticProviderProfile:
     model: str
     assimilation_model: str | None = None
     timeout_seconds: int = DEFAULT_DISTILL_TIMEOUT_SECONDS
+    output_mode: str = "tool"
 
 
 class CodexExecProvider:
@@ -793,25 +794,37 @@ class AnthropicMessagesProvider:
     ) -> ProviderResult:
         del manifest, runtime_dir
         schema = _strict_output_schema(decision_model.model_json_schema())
-        request_payload = {
+        system_prompt = (
+            "You are a restricted semantic executor. You have no tools, no "
+            "filesystem, no network access, no MCP access, and no host rules. "
+        )
+        request_payload: dict[str, Any] = {
             "model": model,
             "max_tokens": 4000,
             "temperature": 0,
-            "system": (
-                "You are a restricted semantic executor. You have no tools, no "
-                "filesystem, no network access, no MCP access, and no host rules. "
-                "Return the required result only through submit_decision."
-            ),
             "messages": [{"role": "user", "content": prompt}],
-            "tools": [
+        }
+        if self.profile.output_mode == "tool":
+            request_payload["system"] = (
+                system_prompt + "Return the required result only through submit_decision."
+            )
+            request_payload["tools"] = [
                 {
                     "name": "submit_decision",
                     "description": "Submit the one required structured semantic result.",
                     "input_schema": schema,
                 }
-            ],
-            "tool_choice": {"type": "tool", "name": "submit_decision"},
-        }
+            ]
+            request_payload["tool_choice"] = {"type": "tool", "name": "submit_decision"}
+        else:
+            request_payload["system"] = (
+                system_prompt
+                + "Return only one JSON object that conforms exactly to the "
+                "following JSON Schema. Do not use Markdown, prose, or code fences. "
+                "<required_output_schema>"
+                + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+                + "</required_output_schema>"
+            )
         request = urllib.request.Request(
             _profile_endpoint(self.profile, suffix="messages"),
             data=json.dumps(request_payload, ensure_ascii=False).encode("utf-8"),
@@ -840,8 +853,18 @@ class AnthropicMessagesProvider:
             heartbeat()
         try:
             payload = json.loads(raw_response)
-            output = _anthropic_tool_output(payload, tool_name="submit_decision")
-            decision = decision_model.model_validate(output)
+            if self.profile.output_mode == "tool":
+                output: dict[str, Any] | str = _anthropic_tool_output(
+                    payload, tool_name="submit_decision"
+                )
+                decision = decision_model.model_validate(output)
+                output_hash_material = json.dumps(
+                    output, ensure_ascii=False, sort_keys=True
+                )
+            else:
+                output = _anthropic_text_output(payload)
+                decision = decision_model.model_validate_json(output)
+                output_hash_material = output
         except (json.JSONDecodeError, ValidationError, ValueError, KeyError) as exc:
             raise ProviderError(
                 f"Anthropic Messages provider returned invalid {error_label}: {exc}",
@@ -856,9 +879,7 @@ class AnthropicMessagesProvider:
             model=str(payload.get("model") or model),
             duration_seconds=time.monotonic() - started,
             input_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
-            response_sha256=hashlib.sha256(
-                json.dumps(output, ensure_ascii=False, sort_keys=True).encode("utf-8")
-            ).hexdigest(),
+            response_sha256=hashlib.sha256(output_hash_material.encode("utf-8")).hexdigest(),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=(
@@ -1330,6 +1351,12 @@ def _validate_semantic_provider_profile(
             f"Semantic provider profile '{name}' has an invalid timeout_seconds",
             kind="setup_required",
         )
+    output_mode = str(raw.get("output_mode") or "tool").strip()
+    if output_mode not in {"tool", "json"}:
+        raise ProviderError(
+            f"Semantic provider profile '{name}' must use output_mode tool or json",
+            kind="setup_required",
+        )
     return SemanticProviderProfile(
         name=name,
         protocol=protocol,
@@ -1338,6 +1365,7 @@ def _validate_semantic_provider_profile(
         model=model,
         assimilation_model=assimilation_model,
         timeout_seconds=max(30, min(raw_timeout, 300)),
+        output_mode=output_mode,
     )
 
 
@@ -1374,6 +1402,20 @@ def _anthropic_tool_output(payload: Mapping[str, Any], *, tool_name: str) -> dic
     if len(matches) != 1 or not isinstance(matches[0].get("input"), dict):
         raise ValueError(f"response must contain exactly one {tool_name} result")
     return dict(matches[0]["input"])
+
+
+def _anthropic_text_output(payload: Mapping[str, Any]) -> str:
+    """Return text output while ignoring Anthropic-compatible thinking blocks."""
+
+    texts = [
+        str(item.get("text") or "")
+        for item in payload.get("content") or []
+        if isinstance(item, Mapping) and item.get("type") == "text"
+    ]
+    output = "\n".join(part for part in texts if part).strip()
+    if not output:
+        raise ValueError("response contains no text output")
+    return output
 
 
 def _responses_output_text(payload: dict[str, Any]) -> str:

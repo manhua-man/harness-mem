@@ -286,6 +286,7 @@ def autonomous_config_fingerprint(config: MergedConfig) -> str:
             "model",
             "assimilation_model",
             "timeout_seconds",
+            "output_mode",
         ):
             if key in raw_profile:
                 value = raw_profile[key]

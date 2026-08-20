@@ -403,6 +403,104 @@ def test_anthropic_profile_forces_single_result_envelope_without_agent_tools(
     assert result.sandbox == "no-tools"
 
 
+def test_anthropic_json_profile_requires_schema_valid_text_without_agent_tools(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HARNESS_MEM_TEST_KEY", "secret-test-token")
+    captured: dict[str, Any] = {}
+    response_payload = {
+        "model": "deepseek-v4-flash",
+        "content": [
+            {"type": "thinking", "thinking": "isolated reasoning"},
+            {"type": "text", "text": _decision().model_dump_json()},
+        ],
+        "usage": {"input_tokens": 123, "output_tokens": 45},
+    }
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps(response_payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data)
+        return _Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    provider = build_semantic_provider(
+        {
+            "semantic": {
+                "execution": {"profile": "hermes-sub2api"},
+                "providers": {
+                    "hermes-sub2api": {
+                        "protocol": "anthropic-messages",
+                        "base_url": "http://127.0.0.1:8080/v1",
+                        "api_key_env": "HARNESS_MEM_TEST_KEY",
+                        "model": "deepseek-v4-flash",
+                        "output_mode": "json",
+                    }
+                },
+            }
+        }
+    )
+
+    result = provider.decide(
+        {"contract_version": "autonomous-distill-manifest-v1"},
+        runtime_dir=tmp_path / "unused",
+    )
+
+    assert "tools" not in captured["body"]
+    assert "tool_choice" not in captured["body"]
+    assert "<required_output_schema>" in captured["body"]["system"]
+    assert result.decision == _decision()
+    assert result.sandbox == "no-tools"
+
+
+def test_anthropic_json_profile_fails_closed_on_non_json_text(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HARNESS_MEM_TEST_KEY", "secret-test-token")
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"content":[{"type":"text","text":"not json"}]}'
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *_args, **_kwargs: _Response())
+    provider = build_semantic_provider(
+        {
+            "semantic": {
+                "execution": {"profile": "hermes-sub2api"},
+                "providers": {
+                    "hermes-sub2api": {
+                        "protocol": "anthropic-messages",
+                        "base_url": "http://127.0.0.1:8080/v1",
+                        "api_key_env": "HARNESS_MEM_TEST_KEY",
+                        "model": "deepseek-v4-flash",
+                        "output_mode": "json",
+                    }
+                },
+            }
+        }
+    )
+
+    with pytest.raises(ProviderError, match="invalid decision") as exc:
+        provider.decide({}, runtime_dir=tmp_path / "unused")
+    assert exc.value.kind == "unrecoverable"
+
+
 def test_anthropic_profile_never_reads_a_literal_key_from_configuration(
     monkeypatch,
 ) -> None:

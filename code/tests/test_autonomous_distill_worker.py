@@ -229,10 +229,25 @@ def test_autonomous_config_fingerprint_binds_selected_profile_without_key_value(
         semantic_execution_profile="profile-b",
         extras=base.extras,
     )
+    changed_output_mode = MergedConfig(
+        distill_autonomous_enabled=True,
+        semantic_execution_profile="profile-a",
+        extras={
+            "semantic": {
+                "providers": {
+                    "profile-a": {
+                        **base.extras["semantic"]["providers"]["profile-a"],
+                        "output_mode": "json",
+                    }
+                }
+            }
+        },
+    )
 
     base_fingerprint = autonomous_config_fingerprint(base)
     assert base_fingerprint != autonomous_config_fingerprint(changed_endpoint)
     assert base_fingerprint != autonomous_config_fingerprint(changed_profile)
+    assert base_fingerprint != autonomous_config_fingerprint(changed_output_mode)
 
 
 def test_post_turn_preflight_failure_writes_terminal_nonsemantic_receipt(

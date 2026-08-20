@@ -6,7 +6,7 @@ itself; normal runtime paths do not migrate legacy data.
 
 ## Current release
 
-The published package is `0.9.22`. It provides session lifecycle, lossless
+The published package is `0.9.24`. It provides session lifecycle, lossless
 extraction, per-point verification, transactional SQLite current knowledge,
 job-scoped processing material, clean retrieval, and one governed Review/Dream
 feedback path. Legacy `MemoryEntry` rows remain readable for compatibility, but
@@ -20,9 +20,9 @@ separately authorized `harness-mem`-scoped maintenance run revalidated live
 sources, atomically rewrote accepted facts, and reversibly retired obsolete or
 duplicate legacy rows. It did not alter other projects.
 
-## Development `0.9.23` (not yet published)
+## Releases `0.9.23` and `0.9.24`
 
-The next source version introduces an operator-owned, restricted semantic
+`0.9.23` introduces an operator-owned, restricted semantic
 provider profile for unattended work. A project may select only a named profile
 from the user's configuration; repository configuration cannot supply an
 endpoint or credential environment variable. Automatic model work still needs
@@ -34,6 +34,11 @@ reversibly retire that item when the source contradicts it. Multi-item
 comparison signals, unsupported external sources, missing providers, and
 bounded/truncated source excerpts leave current knowledge unchanged and close
 as audit records. This is not the unplanned external web/API revalidator.
+
+`0.9.24` adds the explicit `output_mode = "json"` profile setting for
+Anthropic-compatible gateways that reject forced tool output. It is still a
+no-tool transport: the runtime accepts only JSON that validates against the
+same strict Pydantic schema, so malformed text fails closed.
 
 ## Released SQLite current-knowledge convergence
 
@@ -64,7 +69,8 @@ Markdown/JSON/text
 | `0.9.20` | Run six retained sessions in an isolated `harness-mem` scope and show the actual clean library | 0--4 | Delete remaining duplicate/broad/internal-heading behavior found by acceptance | Released; frozen oracle, lineage readback, Hook and 14-claim outcome passed |
 | `0.9.21` | Physical repository migration to `code/` and delivery of clean SQLite-first 0.9.x behavior | 0--4 | Keep legacy real memory untouched unless separately authorized; keep candidate/evidence/decision as transient job material; preserve audit receipts and recovery points | Released; one separately authorized, project-isolated legacy convergence completed |
 | `0.9.22` | Close the archive-repair, task-envelope, clean-search, and current-truth outcome gaps | 0--4 | Keep normal search clean while preserving internal Autopilot context; prevent semantic models from invoking truth archival | Released |
-| `0.9.23` | Operator-owned restricted semantic profiles and terminal source-backed Dream rechecks | 2--4 | Keep credentials out of project config; do not retire truth from partial/unsupported sources; retain mutation undo | Development, not published |
+| `0.9.23` | Operator-owned restricted semantic profiles and terminal source-backed Dream rechecks | 2--4 | Keep credentials out of project config; do not retire truth from partial/unsupported sources; retain mutation undo | Released |
+| `0.9.24` | Strict JSON-text compatibility for Anthropic-compatible gateways that reject forced tool output | 2--4 | Keep JSON schema validation and no-tool boundary; do not silently downgrade malformed output | Released |
 
 These versions are implementation slices, not additional product modules. The
 product architecture remains the five independently measurable modules:
