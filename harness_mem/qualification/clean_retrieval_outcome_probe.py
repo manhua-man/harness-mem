@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -187,8 +188,14 @@ def main() -> int:
     # vector quality is outside its claim.  Suppress optional model loading so
     # a subprocess emits exactly one machine-readable JSON result rather than
     # Hugging Face/device diagnostics on stderr.
-    with temporarily_disable_embeddings():
-        result = run_clean_retrieval_outcome_probe()
+    tokenizer_logger = logging.getLogger("harness_mem.commands.token_estimator")
+    previous_tokenizer_logger_disabled = tokenizer_logger.disabled
+    tokenizer_logger.disabled = True
+    try:
+        with temporarily_disable_embeddings():
+            result = run_clean_retrieval_outcome_probe()
+    finally:
+        tokenizer_logger.disabled = previous_tokenizer_logger_disabled
     # Importing the MCP server redirects descriptor 1 to stderr to protect the
     # JSON-RPC transport. Its duplicate preserves the process's original
     # stdout for a qualification command's sole machine-readable result.
