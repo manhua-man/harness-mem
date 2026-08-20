@@ -76,17 +76,13 @@ def test_extraction_does_not_choose_assimilation_or_project_modules() -> None:
     assert "Never weaken a specific requirement" in prompt
 
 
-def test_extraction_prompt_uses_candidate_budget_for_independent_architecture_points() -> None:
+def test_extraction_prompt_keeps_task_envelopes_out_of_candidate_budget() -> None:
     prompt = _build_prompt({"coverage": "complete"})
 
-    assert "Use the available 0-12 candidate budget" in prompt
-    assert "lifecycle triggers and version-growth or requeue behavior" in prompt
-    assert "test seams such as injectable paths or fixture roots" in prompt
-    assert "multi-host shared implementation or single-source constraints" in prompt
-    assert "chunk, revision, and adapter constraints" in prompt
-    assert "real-path/sample requirements" in prompt
-    assert "capability support declarations" in prompt
-    assert "growth/lossless-reconstruction tests as separate points" in prompt
+    assert "Zero candidates are normal. Do not fill the 0-12 budget." in prompt
+    assert "Goal, Working directory, Read, Write, Acceptance, Preflight" in prompt
+    assert "how to perform one request" in prompt
+    assert "ongoing project decision or policy" in prompt
 
 
 def test_verification_prompt_separates_semantic_support_from_future_scope() -> None:
@@ -95,6 +91,7 @@ def test_verification_prompt_separates_semantic_support_from_future_scope() -> N
 
     assert "actually entails the candidate wording" in prompt
     assert "drops the source's defining mechanism or constraint" in prompt
+    assert "only supplied source is an unfinished task envelope" in prompt
     assert "future_scope" in schema["$defs"]["CandidateVerificationPoint"]["properties"]
 
 
@@ -192,6 +189,15 @@ def test_strict_schema_requires_every_object_property_and_avoids_one_of() -> Non
     item_schema = assimilation_schema["$defs"]["CanonicalKnowledgeItem"]
     assert "title" in item_schema["properties"]
     assert "title" in item_schema["required"]
+
+
+def test_assimilation_schema_excludes_internal_truth_archival() -> None:
+    """A model may classify points, but only maintenance may retire truth."""
+
+    schema = _strict_output_schema(AssimilationDecision.model_json_schema())
+    disposition = schema["$defs"]["AssimilationPoint"]["properties"]["disposition"]
+
+    assert "archive" not in disposition["enum"]
 
 
 def test_responses_provider_uses_no_tools_and_records_actual_usage(

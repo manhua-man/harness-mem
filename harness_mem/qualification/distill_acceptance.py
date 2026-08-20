@@ -307,7 +307,15 @@ def _quality(fixture_id: str, decision: dict[str, Any]) -> dict[str, Any]:
     terms_ok = True
     if candidates:
         basis_ok = candidates[0].get("evidence_basis") == expected.get("candidate_basis")
-        content = " ".join(str(item.get("content") or "") for item in candidates).lower()
+        # A memory expresses its user-visible statement through ``content``;
+        # a rule expresses the same durable meaning through ``pattern`` and
+        # ``trigger``.  Quality must judge the emitted knowledge, not assume
+        # that every valid candidate used the memory schema.
+        content = " ".join(
+            str(item.get(field) or "")
+            for item in candidates
+            for field in ("content", "pattern", "trigger")
+        ).lower()
         groups = expected.get("required_term_groups")
         if groups:
             terms_ok = all(

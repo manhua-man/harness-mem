@@ -6,9 +6,24 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from harness_mem.core.schemas.assimilation import AssimilationDisposition
 from harness_mem.core.schemas.knowledge import ClaimKind
 from harness_mem.knowledge_validation import validate_atomic_knowledge_statement
+
+
+# ``archive`` is a maintenance-only truth mutation.  It remains part of the
+# internal audit vocabulary, but a semantic provider must never receive it as
+# a candidate-point disposition.
+ProviderAssimilationDisposition = Literal[
+    "add",
+    "refine",
+    "confirm",
+    "supersede",
+    "no_write",
+    "handoff",
+    "defer",
+    "conflict",
+    "reject",
+]
 
 
 class _StrictModel(BaseModel):
@@ -98,7 +113,7 @@ class AssimilationPoint(_StrictModel):
     """One post-verification outcome for one persisted candidate."""
 
     candidate_id: str = Field(min_length=1, max_length=128)
-    disposition: AssimilationDisposition
+    disposition: ProviderAssimilationDisposition
     matched_truth_handles: list[str] = Field(default_factory=list, max_length=8)
     canonical_title: str | None = Field(default=None, max_length=160)
     canonical_statement: str | None = Field(default=None, max_length=4000)

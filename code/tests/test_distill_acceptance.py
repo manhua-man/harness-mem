@@ -149,6 +149,41 @@ def test_model_sample_quality_accepts_user_language_concept_terms() -> None:
     assert quality["passed"] is True
 
 
+def test_model_sample_quality_accepts_rule_pattern_and_trigger() -> None:
+    quality = _quality(
+        "F3",
+        {
+            "semantic_review": {
+                "session_summary": "性能偏好已确认，固定样本测量仍待完成。",
+                "final_user_request": "降低提炼开销并继续固定样本测量。",
+                "final_outcome": "偏好已确认，测量仍待完成。",
+                "last_turn_status": "unfinished",
+                "contradictions": [],
+                "unfinished_work": ["测量一个固定模型样本。"],
+                "evidence_status": "partial",
+                "promotion_decision": "partial",
+            },
+            "candidates": [
+                {
+                    "kind": "rule",
+                    "category": "性能偏好",
+                    "pattern": "保持结果质量的同时降低提炼延迟和令牌使用量。",
+                    "trigger": "设计或评估提炼流程时。",
+                    "confidence": 0.99,
+                    "tags": [],
+                    "evidence_basis": "user_statement",
+                    "verification_outcome": "verified",
+                    "verification_refs": [],
+                    "verification_reason_codes": [],
+                }
+            ],
+        },
+    )
+
+    assert quality["checks"]["required_terms"] is True
+    assert quality["passed"] is True
+
+
 def test_model_sample_quality_filters_declared_handoff_control_state() -> None:
     quality = _quality(
         "F3",

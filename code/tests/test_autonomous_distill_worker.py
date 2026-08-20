@@ -185,6 +185,76 @@ def test_responses_unexpected_eof_uses_isolated_codex_transport(
     assert heartbeat_calls == 1
 
 
+def test_responses_setup_required_uses_isolated_codex_transport(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _ResponsesProvider:
+        name = "responses_api"
+        model = "bounded-test-model"
+
+        def decide(self, manifest, *, runtime_dir, heartbeat=None):
+            del manifest, runtime_dir, heartbeat
+            raise ProviderError(
+                "Active Codex model provider is unavailable",
+                kind="setup_required",
+            )
+
+    captured: dict[str, object] = {}
+
+    class _CodexFallback:
+        name = "codex_exec"
+
+        def __init__(self, *, model=None, timeout_seconds=0):
+            captured["model"] = model
+            captured["timeout_seconds"] = timeout_seconds
+            self.executable = "codex"
+
+        def decide(self, manifest, *, runtime_dir, heartbeat=None):
+            captured["manifest"] = manifest
+            captured["runtime_dir"] = runtime_dir
+            if heartbeat is not None:
+                heartbeat()
+            return ProviderResult(
+                decision={"transport": "recovered"},
+                provider=self.name,
+                model="bounded-test-model",
+                duration_seconds=0.1,
+                input_sha256="a" * 64,
+                response_sha256="b" * 64,
+                input_tokens=10,
+                output_tokens=10,
+                total_tokens=20,
+                event_count=1,
+            )
+
+    monkeypatch.setattr(
+        "harness_mem.autonomous.worker.CodexExecProvider",
+        _CodexFallback,
+    )
+    heartbeat_calls = 0
+
+    def heartbeat() -> None:
+        nonlocal heartbeat_calls
+        heartbeat_calls += 1
+
+    result = _provider_call_with_transport_fallback(
+        _ResponsesProvider(),
+        "decide",
+        {"contract_version": "test"},
+        runtime_dir=tmp_path,
+        heartbeat=heartbeat,
+    )
+
+    assert result.provider == "responses_api->codex_exec"
+    assert result.attempt_count == 2
+    assert result.total_tokens == 20
+    assert captured["model"] == "bounded-test-model"
+    assert captured["timeout_seconds"] == 300
+    assert captured["runtime_dir"] == tmp_path
+    assert heartbeat_calls == 1
+
+
 def test_assimilation_fallback_uses_stage_specific_model(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1722,6 +1792,82 @@ def test_per_point_verifier_blocks_unsupported_and_session_only_candidates(
     assert "session_only_not_durable" in verified[1][1][
         "verification_reason_codes"
     ]
+
+
+def test_per_point_verifier_blocks_unfinished_task_envelope_even_if_model_marks_durable(
+    tmp_path: Path,
+) -> None:
+    candidate = DistillCandidate.model_validate(
+        {
+            "kind": "memory",
+            "category": "task",
+            "content": "Before a benchmark, verify every read target exists.",
+            "confidence": 0.8,
+            "evidence_basis": "user_statement",
+            "verification_outcome": "verified",
+            "verification_refs": [],
+            "verification_reason_codes": [],
+        }
+    )
+    validated = [(candidate, {"kind": "memory", "content": candidate.content})]
+    manifest = {
+        "candidates": [
+            {
+                "candidate_index": 0,
+                "sources": [
+                    {
+                        "kind": "user_statement",
+                        "content": (
+                            "User: Goal: inspect a benchmark. Working directory: demo. "
+                            "Read: runtime.py. Write: none. Acceptance: report the path. "
+                            "Preflight: verify the target exists. Hard boundary: no edits."
+                        ),
+                    }
+                ],
+            }
+        ]
+    }
+
+    class _OvereagerVerifier:
+        name = "semantic-verifier-test"
+
+        def verify(self, manifest, *, runtime_dir, heartbeat=None):
+            del manifest, runtime_dir, heartbeat
+            return ProviderResult(
+                decision=CandidateVerificationDecision.model_validate(
+                    {
+                        "points": [
+                            {
+                                "candidate_index": 0,
+                                "semantic_support": "supported",
+                                "future_scope": "durable",
+                                "reason": "Incorrectly treats task instructions as a rule.",
+                            }
+                        ]
+                    }
+                ),
+                provider=self.name,
+                model="test",
+                duration_seconds=0.01,
+                input_sha256="a" * 64,
+                response_sha256="b" * 64,
+                input_tokens=10,
+                output_tokens=10,
+                total_tokens=20,
+                event_count=1,
+            )
+
+    _result, verified = _verify_candidates(
+        _OvereagerVerifier(),
+        manifest=manifest,
+        validated_candidates=validated,
+        runtime_dir=tmp_path,
+        heartbeat=None,
+    )
+
+    assert verified[0][1]["verification_outcome"] == "not_applicable"
+    assert "session_only_not_durable" in verified[0][1]["verification_reason_codes"]
+    assert "unfinished_task_envelope" in verified[0][1]["verification_reason_codes"]
 
 
 def test_semantic_reverification_rebinds_repository_ref_to_current_digest(

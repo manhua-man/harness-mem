@@ -110,6 +110,57 @@ def _provider_call_with_transport_fallback(
             heartbeat=heartbeat,
         )
     except ProviderError as primary_error:
+        if getattr(provider, "name", "") == "responses_api" and primary_error.kind == "setup_required":
+            selected_model = (
+                getattr(provider, "assimilation_model", None)
+                if method_name == "assimilate"
+                else getattr(provider, "model", None)
+            )
+            fallback = CodexExecProvider(
+                model=str(selected_model or "").strip() or None,
+                timeout_seconds=300,
+            )
+            if not fallback.executable:
+                raise
+            fallback_method = getattr(fallback, method_name)
+            try:
+                recovered = fallback_method(
+                    manifest,
+                    runtime_dir=runtime_dir,
+                    heartbeat=heartbeat,
+                )
+            except ProviderError as fallback_error:
+                raise ProviderError(
+                    f"{primary_error}; codex_exec fallback failed: {fallback_error}",
+                    kind=(
+                        "transient"
+                        if fallback_error.kind == "setup_required"
+                        else fallback_error.kind
+                    ),
+                    exit_code=fallback_error.exit_code,
+                ) from fallback_error
+            return ProviderResult(
+                decision=recovered.decision,
+                provider=f"responses_api->{recovered.provider}",
+                model=recovered.model,
+                duration_seconds=time.monotonic() - started,
+                input_sha256=recovered.input_sha256,
+                response_sha256=recovered.response_sha256,
+                input_tokens=recovered.input_tokens,
+                output_tokens=recovered.output_tokens,
+                total_tokens=recovered.total_tokens,
+                event_count=recovered.event_count,
+                attempt_count=recovered.attempt_count + 1,
+                schema_valid=recovered.schema_valid,
+                sandbox=recovered.sandbox,
+                ephemeral=recovered.ephemeral,
+                cwd_isolated=recovered.cwd_isolated,
+                hooks_disabled=recovered.hooks_disabled,
+                plugins_disabled=recovered.plugins_disabled,
+                mcp_disabled=recovered.mcp_disabled,
+                rules_ignored=recovered.rules_ignored,
+                config_isolated=recovered.config_isolated,
+            )
         if (
             getattr(provider, "name", "") != "responses_api"
             or primary_error.kind != "transient"
@@ -1866,7 +1917,16 @@ def _verify_candidates(
         point = by_index[index]
         updated = dict(arguments)
         codes = list(updated.get("verification_reason_codes") or [])
-        if point.semantic_support == "supported" and point.future_scope == "durable":
+        if _is_unfinished_task_envelope_only(manifest, candidate_index=index):
+            # A request template is evidence of what to do in that one session,
+            # not evidence of a project rule.  This is intentionally a trusted
+            # deterministic boundary: models previously promoted Read/Write/
+            # Acceptance instructions from sessions with no assistant result.
+            updated["verification_outcome"] = "not_applicable"
+            codes.extend(
+                ["session_only_not_durable", "unfinished_task_envelope"]
+            )
+        elif point.semantic_support == "supported" and point.future_scope == "durable":
             updated["verification_outcome"] = "verified"
             codes.extend(["semantic_support_verified", "future_utility_verified"])
             rebound_refs = _rebind_current_repository_refs(
@@ -1889,6 +1949,63 @@ def _verify_candidates(
         updated["verification_reason_codes"] = list(dict.fromkeys(codes))
         verified.append((candidate, updated))
     return result, verified
+
+
+_TASK_ENVELOPE_MARKERS = (
+    "goal:",
+    "working directory:",
+    "read:",
+    "write:",
+    "acceptance:",
+    "preflight:",
+    "hard boundary:",
+    "verification:",
+    "目标：",
+    "工作目录：",
+    "读取：",
+    "写入：",
+    "验收：",
+    "预检：",
+    "硬边界：",
+    "验证：",
+)
+
+
+def _is_unfinished_task_envelope_only(
+    manifest: dict[str, Any], *, candidate_index: int
+) -> bool:
+    """Recognize a one-message task template with no recorded result.
+
+    This is deliberately narrower than a general natural-language classifier.
+    It only catches the concrete false-positive class where all evidence is a
+    user task envelope and the semantic exchange has no assistant outcome.
+    Explicit project decisions outside that template continue through normal
+    semantic verification.
+    """
+
+    row = next(
+        (
+            value
+            for value in manifest.get("candidates") or []
+            if isinstance(value, dict)
+            and int(value.get("candidate_index", -1)) == candidate_index
+        ),
+        None,
+    )
+    if not isinstance(row, dict):
+        return False
+    sources = row.get("sources") or []
+    if not sources or any(
+        not isinstance(source, dict) or source.get("kind") != "user_statement"
+        for source in sources
+    ):
+        return False
+    source_text = "\n".join(
+        str(source.get("content") or "") for source in sources
+    ).casefold()
+    if "assistant outcome:" in source_text:
+        return False
+    return sum(marker in source_text for marker in _TASK_ENVELOPE_MARKERS) >= 2
 
 
 def _rebind_current_repository_refs(
