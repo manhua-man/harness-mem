@@ -79,21 +79,21 @@ Binary yes/no: public docs and agent skills must stay inside verified capability
 | ⑨ Maintenance | L1 dream + L4 distill maintenance |
 | ⑩ Evidence | L6 + per-track contract tests |
 
-## Current snapshot (v0.9.24)
+## Current snapshot (v0.9.25)
 
 See `canvases/harness-mem-readiness-v1.canvas.tsx` for the living panel. The
-source facts are refreshed for `0.9.24`; the published package is
-`0.9.24`, and individual device-throughput rows
+source facts are refreshed for `0.9.25`; the published package is
+`0.9.25`, and individual device-throughput rows
 remain operational measurements rather than a release-quality claim.
 It deliberately does not publish one combined readiness score: repository
 release maturity and one device's live operations are different facts.
 
-As of 2026-08-12:
+Historical operator snapshot (2026-08-12; not a current throughput claim):
 
 | View | Evidence | Current result |
 |------|----------|----------------|
-| Release maturity | source package/plugin 0.9.24, exact 27-tool contract, archive cohort acceptance, and seven-host qualification | full Python and Rust release lanes must pass before the next tag CI qualifies built artifacts |
-| Runtime alignment | repository/plugin 0.9.24; installed MCPs may remain on an earlier package until upgraded | refresh and restart any older live installation after publication |
+| Release maturity | source package/plugin 0.9.25, exact 27-tool contract, archive cohort acceptance, and seven-host qualification | full Python and Rust release lanes must pass before the next tag CI qualifies built artifacts |
+| Runtime alignment | repository/plugin 0.9.25; installed MCPs may remain on an earlier package until upgraded | refresh and restart any older live installation after publication |
 | Distill operations | active 2, parked 198, 0.43 completed/day over seven days | `needs-distill`; throughput is the primary operational gap |
 | Retrieval feedback | 2 surfaced, no used/ignored/misleading outcomes | insufficient live feedback |
 

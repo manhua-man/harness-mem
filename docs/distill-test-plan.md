@@ -93,7 +93,7 @@ F8–F11 是下一实施列车必须满足的隔离质量夹具。它们不证�
 
 | ID | 分支 | 输入 | 必须直接证明 | 负例 |
 |---|---|---|---|---|
-| B1 | promote | F2 | 仅形成一条精确偏好；Answer Gate 为 `ANSWERED`；状态为 `auto_confirmed`；正常检索命中 | assistant 自述或未验证 transcript 不得冒充用户偏好 |
+| B1 | promote | F2 | 仅形成一条精确偏好；Answer Gate 为 `ANSWERED`；经归纳吸收写入当前知识；正常检索命中 | assistant 自述或未验证 transcript 不得冒充用户偏好 |
 | B2 | partial | F3 | 已回答候选独立晋升；handoff 带同一 `distill_job_id` 并可读回；Dream 不运行 | 未绑定 job 的 handoff 不得满足当前 job 的 durable signal gate |
 | B3 | zero-candidate | F1 | challenge 完整、结果为 `no_candidate`、Note 有主题和结果、无 pending 垃圾 | 检测到 preference/decision 信号却未逐项解释时 finalize 必须拒绝 |
 | B4 | historical supersede | F3 | 旧方案被替代写入 summary/outcome，不作为当前候选证据冲突；偏好仍晋升 | 当前候选自身证据冲突时必须阻止晋升 |
@@ -230,10 +230,10 @@ Token 相对回归按单次 usage 判定；耗时的 40/60 秒绝对门限按单
 4. 运行 outcome-verifier，要求所有 required claim 通过；
 5. Doctor 不得出现与本次路径有关的新 HM-* 警告。
 
-对包含 autonomous runtime 的改动，顺序必须是：先完成并冻结所有受 runtime
-fingerprint 覆盖的源码改动，再触发一次真实 Desktop Hook `--wait`，最后运行
-outcome-verifier。若 Hook 完成后又修改了这些运行时文件，旧 receipt 即不再是
-当前代码的直接证据，必须重新触发 Hook；不能只重跑单元测试或 outcome-verifier。
+对包含 autonomous runtime 的改动，先完成并冻结受 runtime fingerprint 覆盖的源码，
+再用隔离 profile 验证无工具调用、严格 schema、环境变量密钥引用和协议兼容，最后触发
+一次真实 Desktop Hook `--wait` 并验证它唤醒的 Dream 终态。若这些运行时文件之后再变更，
+旧 receipt 不再是当前代码的直接证据，必须重新触发；不能只重跑单元测试或 outcome-verifier。
 
 当前实施列车按 [Knowledge Truth Separation](roadmap/knowledge-truth-separation.md)
 的 P0–P6 顺序启用相应夹具：P0/P1 对应 `0.9.16`，P2 对应 `0.9.17`，P3
@@ -258,7 +258,7 @@ Codex Stop 后的 rollout 可能与 Hook 短暂并发。Hook 必须按 `trigger_
 
 - 修改 manifest/budget：运行 A1–A5；
 - 修改治理/finalize：运行 B1–B6、D1–D3、E1–E2；
-- 修改 Hook/provider/worker：运行 C3–C4、E2–E4 和真实 Desktop Hook；
+- 修改 Hook/provider/Dream：运行 C3–C4、E2–E4、profile/env-key/协议隔离夹具，以及真实 Desktop Hook → Dream 终态探针；
 - 修改 Note：运行 F4、B2、E1、E4；
 - 修改清理策略：只在临时数据目录运行 E6，不在真实用户库试删。
 
@@ -310,5 +310,6 @@ python -m harness_mem.qualification.distill_acceptance \
 
 runner 从版本化 F1–F11 catalog 计算输入指纹，逐项执行 A1–E6 和 F8–F11 的只读
 shadow 检查，并把固定模型样本写入
-单独的 `distill-acceptance-report-model.json`。模型调用使用 `tools=[]`、`store=false`
-和严格 schema；报告不保存 endpoint、认证 header 或 bearer token。
+单独的 `distill-acceptance-report-model.json`。模型调用按选中 profile 的无工具协议
+执行并通过严格 schema；报告不保存 endpoint、认证 header 或 bearer token。验收应覆盖
+Anthropic-compatible JSON/thinking-mode 兼容分支，而不能把 Responses 专属字段当作通用合同。

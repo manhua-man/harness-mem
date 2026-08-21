@@ -92,7 +92,7 @@ never a truth store.
 - Use `promotion_decision=promote` only when evidence and the last turn are answered
   and contradictions/unfinished work are empty.
 - Use `promotion_decision=partial` when Answered durable candidates coexist with
-  unrelated unfinished work. Candidate auto-review may proceed, but Dream must not run;
+  unrelated unfinished work. Candidate verification and assimilation may proceed, but Dream must not run;
   record the unfinished state as a scoped handoff.
 - Missing current repository proof is an answer-evidence route, not a zero-candidate
   justification. A detected signal may be downgraded only with a signal-specific reason.
@@ -167,7 +167,7 @@ platform.
   though neither inserts a new truth row.
 
 `finalize_session_distill` is the only lossless-session commit point for an
-explicit active-host distill. It may run scoped low-risk auto-review only after
+explicit active-host distill. It may run scoped verification and assimilation only after
 structural and semantic gates pass; it does not start Dream. A Hook instead
 wakes Dream with its persisted session source. `/hm:review` remains the audit,
 correction, undo, and trust-upgrade surface.

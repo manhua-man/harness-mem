@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## [0.9.25] - 2026-08-21
+
+### Changed
+
+- Route every Hook-started session through Dream: the Hook only persists the
+  immutable revision/job and wakes Dream, while an explicit distill remains in
+  its active host.
+- Document the two execution paths, restricted semantic provider profiles, and
+  current-knowledge boundary consistently across public documentation, diagrams,
+  and all host command mirrors.
+
+### Fixed
+
+- Keep bounded source excerpts fail-closed even when the first omitted character
+  is whitespace; Dream cannot retire knowledge from a truncated source.
+- Persist a terminal failed DreamRun when provider construction or verification
+  fails, and make archive undo restore the recorded truth mutation.
+- Bind profile-construction failures to the originating Hook trigger and
+  dispatch generation, and fingerprint non-secret selected-provider settings in
+  autonomous receipts.
+
 ## [0.9.22] - 2026-08-20
 
 ### Fixed

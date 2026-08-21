@@ -884,7 +884,10 @@ def test_dream_never_retires_knowledge_from_a_truncated_source_excerpt(
     project_root, current = _publish_current_knowledge(
         backend,
         entry,
-        source_text=entry.statement + "\n" + ("x" * 16001),
+        # The first byte after the bounded excerpt is whitespace.  The source
+        # continues after it, so trimming that byte must not make Dream treat
+        # this as a complete source and permit retirement.
+        source_text=("x" * 16000) + " " + "current source continues here",
     )
     entry = current[0]
 
@@ -947,6 +950,52 @@ def test_dream_provider_failure_closes_the_processing_ledger_run(
                 config=None,
                 source="agent",
                 semantic_provider=_FailingProvider(),
+            )
+        )
+
+    run = _run(backend.structured_store.list_dream_runs("demo", limit=1))[0]
+    assert run.status == "failed"
+    assert run.completed_at is not None
+    assert "dream failed: ProviderError" in (run.notes or [])
+
+
+def test_dream_provider_construction_failure_closes_the_processing_ledger_run(
+    backend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry = KnowledgeEntry(
+        id="knowledge-provider-construction-failure",
+        project_name="demo",
+        title="Provider construction failure",
+        statement="Provider construction errors leave a terminal Dream receipt.",
+        module_path=["governance"],
+        verified_at=datetime.now(timezone.utc) - timedelta(days=181),
+    )
+    project_root, _current = _publish_current_knowledge(backend, entry)
+
+    async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
+        return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
+
+    def fail_provider_construction(_config: Any) -> None:
+        raise ProviderError("simulated provider construction failure", kind="transient")
+
+    monkeypatch.setattr(
+        dream_module, "select_metabolism_pass", fake_select_metabolism_pass
+    )
+    monkeypatch.setattr(
+        dream_module, "build_semantic_provider", fail_provider_construction
+    )
+    with pytest.raises(ProviderError, match="simulated provider construction failure"):
+        _run(
+            dream_once(
+                backend,
+                project_name="demo",
+                project_root=project_root,
+                config=MergedConfig(
+                    distill_autonomous_enabled=True,
+                    semantic_execution_profile="operator-profile",
+                ),
+                source="agent",
             )
         )
 

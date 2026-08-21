@@ -57,7 +57,7 @@
     <g transform="translate(230 24)">
       <rect class="cardBlue" width="190" height="80"/>
       <text class="cardTitle" x="18" y="30">7 个 Daily 动作</text>
-      <text class="code" x="18" y="56">wake → dream</text>
+      <text class="code" x="18" y="56">wake / search / dream</text>
     </g>
     <g transform="translate(450 24)">
       <rect class="cardBlue" width="190" height="80"/>
@@ -90,9 +90,9 @@
     </g>
     <g transform="translate(450 24)">
       <rect class="card" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Dream / auto-review</text>
-      <text class="body" x="18" y="52">证据门禁后自动治理</text>
-      <text class="small" x="18" y="70">promote / no_candidate</text>
+      <text class="cardTitle" x="18" y="30">Dream / Review</text>
+      <text class="body" x="18" y="52">Dream 无人值守；Review 事后纠错</text>
+      <text class="small" x="18" y="70">验证 → 归纳；不留 pending</text>
     </g>
     <g transform="translate(670 24)">
       <rect class="card" width="190" height="80"/>
@@ -163,8 +163,8 @@
     <g transform="translate(830 24)">
       <rect class="card" width="190" height="80"/>
       <text class="cardTitle" x="18" y="30">job + cleanup ledger</text>
-      <text class="body" x="18" y="52">退避 / 防饥饿 / receipt</text>
-      <text class="small" x="18" y="70">删除级联到派生缓存</text>
+      <text class="body" x="18" y="52">Hook job / Dream 信号 / receipt</text>
+      <text class="small" x="18" y="70">失败重试；删除级联到派生缓存</text>
     </g>
   </g>
 
@@ -176,8 +176,8 @@
     <g transform="translate(230 24)">
       <rect class="cardGreen" width="190" height="80"/>
       <text class="cardTitle" x="18" y="30">Canonical SQLite</text>
-      <text class="body" x="18" y="52">canonical SQLite / profiles</text>
-      <text class="small" x="18" y="70">auto/user confirmed truth</text>
+      <text class="body" x="18" y="52">knowledge_entries</text>
+      <text class="small" x="18" y="70">当前、已治理的长期知识</text>
     </g>
     <g transform="translate(450 24)">
       <rect class="cardGreen" width="190" height="80"/>
@@ -218,9 +218,9 @@
     </g>
     <g transform="translate(24 252)">
       <rect class="cardGreen" width="254" height="104"/>
-      <text class="rule" x="18" y="30">Dream 自动完成治理</text>
-      <text class="body" x="18" y="58">auto-confirmed 或 no_candidate</text>
-      <text class="body" x="18" y="80">review 用于纠错 / undo / supersede</text>
+      <text class="rule" x="18" y="30">两条执行路径</text>
+      <text class="body" x="18" y="58">distill 在当前宿主；Hook 唤醒 Dream</text>
+      <text class="body" x="18" y="80">Review 用于纠错 / undo / supersede</text>
     </g>
     <g transform="translate(24 378)">
       <rect class="cardBlue" width="254" height="104"/>
@@ -230,15 +230,15 @@
     </g>
     <g transform="translate(24 504)">
       <rect class="cardBlue" width="254" height="104"/>
-      <text class="rule" x="18" y="30">Receipt 可审计</text>
-      <text class="body" x="18" y="58">Context Projection Receipt</text>
-      <text class="body" x="18" y="80">范围 / hash / token basis / 去留</text>
+      <text class="rule" x="18" y="30">Dream 受限 provider</text>
+      <text class="body" x="18" y="58">用户 profile + env-key reference</text>
+      <text class="body" x="18" y="80">项目选择 + autonomous 授权；无工具</text>
     </g>
     <g transform="translate(24 630)">
       <rect class="cardOrange" width="254" height="104"/>
       <text class="rule" x="18" y="30">唯一长期真值边界</text>
-      <text class="body" x="18" y="58">canonical SQLite 内已治理的</text>
-      <text class="body" x="18" y="80">Memory / Rule 才供 wake 消费</text>
+      <text class="body" x="18" y="58">SQLite 内已治理的 knowledge_entries</text>
+      <text class="body" x="18" y="80">才供 normal wake / search 消费</text>
     </g>
   </g>
 

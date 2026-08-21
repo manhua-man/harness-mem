@@ -4,10 +4,13 @@ This demo shows the core `harness-mem` job: a fresh Agent joins a real project
 without reading old chats, recovers useful context, and proposes new memory
 without hiding memory changes from the audit trail.
 
-The product flow is intentionally small:
+The product has a small action set, not a mandatory linear flow:
 
 ```text
-wake -> search -> distill -> review -> dream
+wake / search
+explicit distill -> active host
+Hook -> Dream
+review -> post-hoc correction
 ```
 
 For this controlled walkthrough, the prompts below invoke stages explicitly.
@@ -17,14 +20,16 @@ do not summarize the session. A Hook wakes Dream with that immutable source;
 an explicit `/hm:distill` instead resumes chunk processing in the active host.
 
 Distillation never truncates a chunk. After every expected chunk is
-checkpointed, the Agent must perform a final-session review of outcomes,
-contradictions, unfinished work, and evidence strength. Only then may it create
-idempotent candidates. `finalize_session_distill` verifies that contract and
-runs normal candidate auto-review for the explicit job only. Hook-started Dream
-is the separate unattended path. The public model remains:
+checkpointed, the current host extracts narrow promotion points, verifies their
+evidence, and assimilates only proven knowledge. `finalize_session_distill`
+verifies that explicit job's completeness and commits it; it never starts Dream.
+Hook-started Dream is the separate unattended path. The public model is two
+execution paths plus an optional audit path:
 
 ```text
-wake -> search -> distill -> review -> dream
+explicit distill -> active host: extract -> verify -> assimilate
+Hook -> immutable session + job -> authorized Dream: session + project governance
+review -> post-hoc audit / correction / undo
 ```
 
 ## What You Need
@@ -65,10 +70,10 @@ Copy these prompts into your Agent client after MCP is connected.
 Session A:
 
 ```text
-Use harness-mem to distill the recent project session into memory candidates.
-Let the normal auto-review policy process low-risk candidates. Use review only
-to audit or correct stable facts that a future Agent should know, and reject
-noisy, speculative, or one-off items.
+Use harness-mem to distill the recent project session. Extract narrow durable
+points, verify each source, and assimilate only proven current knowledge. Use
+review only to audit, correct, or undo stable facts that a future Agent should
+know; reject noisy, speculative, or one-off items.
 ```
 
 Session B:
@@ -165,12 +170,12 @@ Expected result:
 
 - The immutable source revision is processed through every ordered chunk, with
   no truncation and a durable checkpoint for each chunk.
-- Candidate creation waits for the required final-session review and is
-  idempotent when an interrupted distill resumes.
-- `finalize_session_distill` verifies completeness and runs auto-review for
-  that explicit active-host job. It does not start Dream.
-- New information is proposed as candidates, then the shared policy may
-  auto-confirm only low-risk items with audit metadata.
+- Promotion points remain job-scoped and idempotent when an interrupted distill
+  resumes.
+- `finalize_session_distill` verifies completeness and commits only that
+  explicit active-host job. It does not start Dream.
+- New information reaches current knowledge only after point-level verification
+  and trusted-runtime assimilation with audit metadata.
 - One-off task details are not promoted as durable memory.
 - Anything broad, risky, or under-evidenced is rejected or handed off instead
   of becoming normal current knowledge.
@@ -208,13 +213,13 @@ The demo is working when:
 - A fresh Agent can explain the project state without pasted chat history.
 - `search` can recover a real prior decision by topic.
 - `distill` consumes every ordered chunk without truncation, checkpoints each
-  chunk, and requires a final-session review before creating idempotent
-  candidates instead of directly changing confirmed truth.
+  chunk, extracts and verifies narrow points, and never directly writes
+  unverified truth.
 - `finalize_session_distill` completes explicit active-host work only after
   structural completeness is verified; a Hook-started Dream is the separate
   unattended session and project-governance path.
-- The shared policy handles low-risk promotion; review audits, corrects, or
-  promotes the remaining uncertain material.
+- Dream handles authorized unattended work to terminal outcomes; review audits,
+  corrects, or undoes governed truth after the fact.
 - The user can understand the value in under five minutes.
 
 ## Common Failure Modes

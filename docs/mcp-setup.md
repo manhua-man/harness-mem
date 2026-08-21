@@ -58,19 +58,23 @@ descriptor sources. The stale checked-in Router aggregate snapshots were
 removed in 0.9.6. This does not remove the live `mcp__mcp_router__*` namespace:
 Router clients continue to discover tools from the running server.
 
-The server has one public memory surface. It exposes the normal Agent workflow:
-status, wake/search, session distill, composite `govern_memory`, candidate
-review, and dream as the default audited maintenance capability.
-Historical profile values are ignored.
-Autonomous semantic processing is globally disabled by default because it sends
-the compact manifest to the configured provider and can consume model quota.
-Authorize only projects that should run it:
+The server has one public memory surface. It exposes status, wake/search,
+session distill, composite `govern_memory`, candidate review, and Dream as the
+audited maintenance capability. Historical profile values are ignored.
+
+Unattended Dream processing is disabled until a project makes two explicit
+choices: name an operator-owned semantic profile and authorize autonomous
+execution. A profile is defined only in user configuration and contains a
+protocol, endpoint, model, timeout, and environment-variable name for the key;
+the project never stores a credential or endpoint.
 
 ```bash
+harness-mem config set semantic.execution.profile local-gateway --scope project
 harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
-Other projects keep captured jobs queued for explicit processing.
+Without both choices, Hook-captured jobs remain safely queued. An explicit
+`distill` stays in the active host and does not use this profile.
 The `wake` output leads with a recent project-scoped context index. It is a
 derived view of transcript observations and does not promote them to confirmed
 truth; stable truth and active handoffs remain separate sections.
@@ -83,23 +87,19 @@ Hooks**, trust the project hooks, and start a new task. The status changes to
 `ok` only after the matching `SessionStart` Hook completes; changing the Hook
 manifest invalidates the old execution receipt.
 
-Invocation paths are host-native Daily commands, installed skills, Agent MCP calls, and
-explicit IDE hooks. Session-start/PreInvocation hooks inject wake context; runtime task hooks
-call `autopilot_search_tick`, which decides whether to run bounded
-`search_memory`; save-point or session-end hooks sync evidence and queue
-bounded Agent distillation. Wake keeps at most two jobs active, parks older cold
-evidence without deleting it, and refills the active lane after completion with
-a 3:1 recent/oldest policy, a daily new-job budget, and failure backoff. This
-preserves recency without starving parked history.
-Wake includes the selected IDs; the Agent passes each one back as
-`prepare_session_distill(distill_job_id=...)`. Exact targeting cannot claim a
-parked, cross-project, completed, stale, or retry-backoff job.
-The MCP response also exposes `distill_maintenance` as an
-`agent-distill-offer-v2` contract. It contains up to two ordered jobs for an
-automatic wake (explicit distill may request up to three), sequential per-job
-failure boundaries, and semantic/compact `run_ingest=false` arguments using
-the configured response target. Host commands consume that offer privately; `get_project_status`
-remains read-only and never records or executes an offer.
+Invocation paths are host-native Daily commands, installed skills, Agent MCP
+calls, and explicit IDE hooks. Session-start/PreInvocation hooks inject
+read-only wake context; runtime task hooks call `autopilot_search_tick`, which
+decides whether to run bounded `search_memory`. A save-point or session-end
+Hook saves evidence, creates or advances its exact session job, and emits a
+source-bound Dream activity signal. It does not read knowledge, call a provider,
+or write long-term knowledge.
+
+`wake` stays read-only. It never claims `distill_maintenance`, selects a queue
+job, or asks the current Agent to perform background semantic work. Users who
+want immediate work invoke `distill` in their current host; unattended
+Hook-started work is processed only by authorized Dream. `get_project_status`
+reports state without executing either path.
 
 `autopilot_search_tick` is the event-level scheduler. PI
 `transformContext` / `tool_result` / `prepareNextTurn`, Claude Code

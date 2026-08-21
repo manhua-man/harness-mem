@@ -23,8 +23,8 @@ import {
 
 const MODEL_VERSION = "v1";
 const AS_OF = "2026-08-20";
-const RUNTIME_VERSION = "0.9.24";
-const PYTEST_PASSED = 926;
+const RUNTIME_VERSION = "0.9.25";
+const PYTEST_PASSED = 1024;
 const PYTEST_SKIPPED = 2;
 const PYTEST_COUNT = PYTEST_PASSED + PYTEST_SKIPPED;
 
@@ -128,7 +128,7 @@ const SCOPE_LEDGER: ScopeItem[] = [
   { id: "vec0", item: "vec0 KNN + scope-lock 0.8.15–18", state: "shipped", note: "batch cosine 仅回退" },
   { id: "gh-rel", item: "GitHub Releases 唯一包通道", state: "shipped", note: "0.8.23.3" },
   { id: "mcp-cmd", item: "harness-mem-mcp 安装入口", state: "shipped", note: "0.8.23.4" },
-  { id: "lossless", item: "无损转写 + 可恢复蒸馏", state: "shipped", note: "0.8.24" },
+  { id: "lossless", item: "无损转写 + 可恢复蒸馏", state: "shipped", note: "0.8.24 origin; 0.9.25 contract" },
   { id: "hosts-7", item: "7 host 转写适配器", state: "shipped", note: "含 Hermes / Antigravity" },
   { id: "hooks-boot", item: "status integration bootstrap", state: "shipped", note: "0.9.0" },
   { id: "distill-q", item: "Agent-active distill backlog diagnostics", state: "shipped", note: "0.9.3" },

@@ -37,7 +37,7 @@ This is a user-invocable harness-mem Daily command. Follow the action below thro
      - `project_name=<project>`
      - `status="pending"`
      - `limit=100`
-   - 不要用 `search_memory` 找 pending；`search_memory` 默认只返回 truth 层（`auto_confirmed` / `user_confirmed`），不能作为审核列表来源
+   - 不要用 `search_memory` 找 job-scoped pending；它默认只返回当前已治理知识，不能作为审核列表来源
    - 不要要求用户安装或直接运行终端命令；MCP 不可用时说明 runtime 工具不可用
 
 3. **AI 预审分组**

@@ -7,7 +7,7 @@ description: Run the harness-mem dream daily action when the user invokes hm-dre
 
 This is a user-invocable harness-mem Daily command. Follow the action below through the configured harness-mem MCP server; do not replace it with terminal maintenance commands.
 
-通过 MCP 查看 v3.1 DreamRun 账本，或在用户明确要求时触发一次 opt-in dream 维护。
+通过 MCP 查看 0.9.25 DreamRun 账本，或在用户明确要求时触发一次项目级 Dream 治理。
 
 **Input**: 可指定项目名（`$hm-dream bazi-apps`）。省略则用 active project。
 
@@ -35,12 +35,12 @@ This is a user-invocable harness-mem Daily command. Follow the action below thro
 2. **默认读取最近账本**
    - 调 MCP `dream_ledger`：
      - `project_name=<project>`
-   - 如果没有账本，说明还没有 DreamRun；梦境默认开启，但仍然要满足 dream auto gate 或由用户明确要求现在跑一次。
+   - 如果没有账本，说明还没有已记录的 DreamRun；自动 tick 仍需项目选择用户 profile、启用 autonomous execution 并通过 Dream gate。显式运行不会改写这些授权。
 
 3. **展示摘要**
    - 按 `applied` / `rejected` / `archived` / `failed` 分组
    - 显示处理数量、失败数、policy reason、关键 evidence id
-   - 明确没有 `pending_review`；v3.1 dream item 必须进入终态
+   - 明确自动项不留下 `pending_review`；它必须进入一个终态
 
 4. **自然语言 drilldown**
    - 用户问某条原因：继续读取同一 `DreamRun`，解释该 item 的 evidence、risk、proposed action、final action、reason

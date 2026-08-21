@@ -88,12 +88,12 @@ for it:
 | `dream` | Core automated governance feedback: find stale, duplicate, conflicting, mergeable, or replaceable knowledge and route it through verification and assimilation. |
 | `status` | Summarize actual state across stages 0--4. |
 
-Hooks, the detached worker, and archive maintenance belong to Stage 0. Raw
+Hooks and archive maintenance belong to Stage 0. Raw
 search/timeline, candidate detail, runtime reset, and storage repair are
 explicit audit or operator capabilities; they do not define the long-term
 knowledge model.
 
-The released `0.9.22` runtime uses SQLite `knowledge_entries` as the authority
+The released `0.9.25` runtime uses SQLite `knowledge_entries` as the authority
 for clean current knowledge. Candidate, verification, and proposed decision
 material is job-scoped and cleaned after a proven terminal outcome; legacy
 `MemoryEntry` remains readable for compatibility. Current search reads SQLite
@@ -108,43 +108,31 @@ The runtime search scheduler is event-driven, not always-on. PI-style
 `transformContext`, `tool_result`, and `prepareNextTurn` events map directly to
 `autopilot_search_tick`; Claude Code `PostToolUse` and Cursor after-agent hooks
 can send the same event payload shape. `/hm:search` remains the manual fallback
-when a client cannot expose those hooks. Stop hooks capture an immutable native
-transcript revision and queue its complete ordered chunk set. Daily
-`prepare_session_distill(evidence_mode="semantic", detail_level="compact")`
-keeps the raw revision intact, hash-verifies and checkpoints every chunk, then
-returns an indexed exchange manifest. Its budget is a caller-configurable soft
-target for the complete serialized MCP response, not a fixed 3k limit. Every
-exchange remains indexed; if coverage or explicit drilldown needs more space,
-`response_budget` reports the actual token count and expansion reason. The Agent selects up to
-eight complete semantic windows and only then drills into candidate-grade raw
-proof. `detail_level="full"` and the compatible `raw` mode remain explicit audit paths; raw mode claims bounded
-chunks without truncating them for explicit deep audit. The Agent performs an
-end-of-session review and only then creates idempotent candidates. Detected
-decision, solution, preference, workflow, migration, or handoff signals start
-fail-closed as `candidate_required`; downgrading one requires its complete
-window plus a signal-specific session-only explanation. `finalize_session_distill`
-runs scoped automatic governance, records `promoted` or `no_candidate`, and
-terminally rejects non-promoted candidates so low-value sessions do not become
-recurring manual work. Answered candidates can still promote when unrelated
-unfinished work is recorded as a scoped handoff, but Dream waits for a fully
-completed review. Readable results and Session Notes show a title, one verifiable
-fact, and verification date/status; internal IDs stay in explicit audit detail.
-The detached Hook worker consumes the same semantic manifest through the
-configured Responses endpoint with no tools, no project filesystem access,
-`store=false`, and a strict response schema. It owns a renewable review lease,
-then lets trusted runtime code create candidates, finalize the job, and
-atomically materialize an immutable job receipt at
-`~/.codex/hm-distill/sessions/revisions/<job-id>/<session-id>.md`, while
-advancing `~/.codex/hm-distill/sessions/<session-id>.md` as the latest view. Health
-persists actual provider tokens and duration plus `last_semantic_success_at`,
-`last_job_completed_at`, and `last_note_materialized_at`. The non-interactive
-Codex CLI provider remains a compatibility fallback, not the default worker.
-`/hm:review` remains the correction and undo surface,
-not a required promotion gate. `/hm:distill` is the immediate entry to this same
-resumable pipeline. The synchronous Hook only captures and queues evidence; its
-detached worker may claim completion only after finalize and Note materialization
-receipts exist. Legacy Observations
-without an available native transcript remain audit-only (`legacy_partial`).
+when a client cannot expose those hooks. A Stop hook only saves an immutable
+native transcript revision, creates or advances its job, and emits a
+source-bound Dream activity signal. It never performs semantic judgment.
+
+There are two execution paths. An explicit `/hm:distill` stays in the current
+host: it reads every ordered chunk and evidence window without truncating them,
+extracts promotion points, verifies them, and lets trusted runtime assimilation
+update only proven current knowledge. `finalize_session_distill` is the commit
+point for that explicit job; it never starts Dream. A
+Hook-started Dream is the only unattended executor: after a project explicitly
+selects an operator-owned provider profile and enables autonomous execution, it
+reopens the triggering session and the project's current knowledge, sources,
+and feedback. Dream then extracts or compares, verifies, assimilates, and ends
+each item as applied, rejected, archived, or failed/retryable.
+
+Provider profiles contain only a protocol, endpoint, model, timeout, and an
+environment-variable name in user configuration; project configuration can
+only select a named profile. The provider is a no-tools, strict-schema semantic
+call. It cannot access project files or credentials directly, and trusted
+runtime code remains the only writer of candidates, Session Notes, and SQLite
+truth. `/hm:review` is the separate post-hoc correction and undo surface, not a
+promotion gate. The Hook can claim only that work was queued; unattended work
+can claim completion only after its terminal receipt and Note materialize.
+Legacy Observations without an available native transcript remain audit-only
+(`legacy_partial`).
 
 New distill candidates carry an evidence basis and verification outcome.
 Repository facts must point to a current project-relative file digest; explicit
@@ -239,8 +227,8 @@ owns storage, candidates, review, retrieval, and local audit state.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.24 \
-  harness-mem==0.9.24
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
+  harness-mem==0.9.25
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -251,8 +239,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.24 \
-  "harness-mem[hybrid]==0.9.24"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
+  "harness-mem[hybrid]==0.9.25"
 ```
 
 Install every supported host's native Daily commands once for the current
@@ -323,7 +311,7 @@ jobs queued for explicit processing. An explicit `distill` stays in the active
 host, for example Codex when you ask Codex to process a Codex archive; it is not
 silently sent to the background profile. Disabling never requires confirmation.
 
-Version `0.9.24` supports an operator-owned
+Version `0.9.25` supports an operator-owned
 restricted provider profile for unattended Dream, including Hook-started session
 distillation and project source rechecks. Keep the endpoint and environment-variable reference in the user
 configuration (never in a repository), then select that already approved
@@ -496,8 +484,8 @@ python -m harness_mem.outcome_probe \
   --compact
 ```
 
-IDE hooks remain non-blocking. A human or Agent can explicitly wait for a detached
-post-turn receipt by piping the real Codex Hook payload (it must contain
+IDE hooks remain non-blocking. A human or Agent can explicitly wait for a
+background post-turn receipt by piping the real Codex Hook payload (it must contain
 `session_id` or `turn_id`):
 
 ```powershell
@@ -527,4 +515,4 @@ python code/scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, runs a real sqlite-vec contract gate, qualifies the supported Windows upgrade path, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.9.24**.
+Current package version: **0.9.25**.

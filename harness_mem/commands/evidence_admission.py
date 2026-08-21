@@ -595,12 +595,26 @@ def _read_bounded_source_content(
     """Read one source excerpt without allocating the entire file body."""
 
     with path.open("r", encoding="utf-8") as handle:
-        return _bounded_source_content(handle.read(limit + 1), limit=limit)
+        # Determine truncation from the raw bounded read, before whitespace
+        # normalization.  Otherwise a `(limit + 1)`th whitespace character can
+        # be stripped and make an incomplete source look complete to Dream.
+        bounded = handle.read(limit + 1)
+    truncated = len(bounded) > limit
+    return _bounded_source_content(
+        bounded[:limit],
+        limit=limit,
+        known_truncated=truncated,
+    )
 
 
-def _bounded_source_content(value: str, *, limit: int = 16000) -> tuple[str, bool]:
+def _bounded_source_content(
+    value: str,
+    *,
+    limit: int = 16000,
+    known_truncated: bool = False,
+) -> tuple[str, bool]:
     normalized = value.strip()
-    if len(normalized) <= limit:
+    if not known_truncated and len(normalized) <= limit:
         return normalized, False
     return normalized[:limit] + "\n[truncated by trusted runtime]", True
 

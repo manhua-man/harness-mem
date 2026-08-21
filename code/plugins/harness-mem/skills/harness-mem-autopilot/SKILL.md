@@ -26,25 +26,24 @@ runtime-gated maintenance only; no background semantic claims
 
 ## Configuration contract
 
-This skill has no separate user-facing master switch. Capture, automatic distill,
-autonomous provider use, and Dream each use their own explicit policy key, so a
-single nominal switch cannot imply that all runtime behavior stopped.
+This skill has no separate user-facing master switch. Capture, explicit active-
+host distill, and unattended Dream have separate boundaries. Dream additionally
+requires a project-selected user-owned provider profile and project-level
+autonomous authorization.
 
 The skill may proactively
-wake, route in-flight context/tool/save-point events through
-`autopilot_search_tick`, and create evidence-backed candidates or distill
-handoffs at clear task boundaries. Durable memory still goes through the
-normal candidate and automatic-governance loop. Autopilot never bypasses the
-shared policy or writes truth directly; `/hm:review` remains the post-hoc audit,
-correction, and undo surface. Dream is enabled by default, but it still follows
-runtime auto gates, audit ledgers, and undo metadata.
-Users can opt out with `dream.auto.enabled=false`.
+wake and route in-flight context/tool/save-point events through
+`autopilot_search_tick`. It may suggest explicit distill at clear task
+boundaries, but it never claims a queued job or starts background semantic work.
+Durable memory still goes through point-level verification and trusted-runtime
+assimilation. `/hm:review` remains the post-hoc audit, correction, and undo
+surface. Hook-started work is handled only by an authorized Dream run.
 
 ## Trigger map
 
 | Situation | Action |
 |---|---|
-| New task, resume, continue, pick up where we left off | Call project status, then `wake`; only use readable truth (`auto_confirmed` / `user_confirmed`). If wake returns a structured distill maintenance offer, consume its ordered exact job IDs sequentially up to `process_limit`, using the returned semantic/compact prepare budget and `run_ingest=false`; finalize or defer each owned job before continuing, without asking the user to run distill. |
+| New task, resume, continue, pick up where we left off | Call project status, then read-only `wake`; use only current governed knowledge. Do not claim a queued job or consume a maintenance offer. |
 | Runtime context/tool/save-point event has uncertainty, conflict, failure, durable-claim grounding, or long-horizon task switch | Call `autopilot_search_tick`; inject returned `context_injection` into the next context when search runs. |
 | User asks “previously”, “last time”, “why did we decide”, “history” | Use `autopilot_search_tick` when inside a runtime event; use `search_memory` as the explicit fallback path. Drill down with `timeline` or observations only when needed. |
 | User explicitly says “remember this”, “make this a rule”, “以后都这样” | Run the high-impact candidate admission check, then `govern_memory(action="suggest")` on `admit` / narrowed `narrow`; let the shared automatic policy govern it and never direct-confirm it. |
@@ -66,13 +65,13 @@ Do not:
 
 - write memory every turn;
 - summarize the whole conversation automatically;
-- turn candidates into truth outside the shared automatic governance policy;
+- turn candidates into truth outside trusted verification and assimilation;
 - hard-delete confirmed truth;
 - treat generated prose as truth;
 - inject every memory into wake;
 - run hook or daemon maintenance outside the runtime gates;
-- exceed the wake offer's bounded `process_limit`, process jobs concurrently, or let one job's failure mutate another job;
-- bypass `dream.auto.enabled` when handing eligible candidates or memories to dream maintenance;
+- use wake as a semantic job runner or let one job's failure mutate another job;
+- bypass the project profile, autonomous authorization, or Dream gate;
 - present CLI as the normal daily workflow when MCP or Slash/Skill is available.
 
 ## Output discipline

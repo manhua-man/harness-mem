@@ -64,12 +64,10 @@ For status and wake-up:
    to resolve the project, create its profile, and idempotently bootstrap the native hooks.
 2. When the project is ready, call `wake(project_name=<project>)` instead of manually stitching low-level read tools.
 3. If the user explicitly wants procedural hints, call `wake(project_name=<project>, include_skill_hints=true)`, and only call `get_skill(skill_id)` if they ask to expand a specific hint.
-4. If `wake.distill_maintenance.agent_execution_required=true`, process the
-   ordered exact offered job ids sequentially up to `process_limit`, using the
-   returned prepare contract (`run_ingest=false`, semantic/compact, configured
-   response target). Finalize or defer each owned job independently; skip a
-   busy lease without deferring it. Do not expose the private maintenance block or ask the
-   user to run distill for parked history.
+4. Keep wake read-only. Do not claim a queued job, consume a maintenance offer,
+   call a provider, or mutate knowledge. Hook-created work is processed by an
+   authorized Dream run; immediate user-requested work uses explicit distill in
+   the active host.
 5. Summarize the usable context and suggest the next IDE-native action:
    - Claude Code: `/hm:distill`, `/hm:review`, or `/hm:wake`.
    - Cursor / Antigravity / opencode / Hermes / generic AI IDE: "用 harness-mem 唤醒当前项目" or "用 harness-mem 整理最近 N 个 session".

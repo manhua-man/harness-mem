@@ -78,7 +78,7 @@ Dream 与 Review 是贯穿阶段 3--4 的核心治理反馈能力，不是线性
 | `dream` | 核心自动治理反馈：发现过期、重复、冲突、可合并或可替代的知识，并送回验证与归纳。 |
 | `status` | 汇总阶段 0～4 的真实状态。 |
 
-Hook、detached worker 和 archive maintenance 属于阶段 0；原文/时间线读取、候选明细、运行时重置和存储修复属于显式审计或运维能力，不定义长期知识模型。
+Hook 和 archive maintenance 属于阶段 0；原文/时间线读取、候选明细、运行时重置和存储修复属于显式审计或运维能力，不定义长期知识模型。
 
 质量问题也必须按模块定位，不能笼统归因于“蒸馏失败”：
 
@@ -94,7 +94,7 @@ Hook、detached worker 和 archive maintenance 属于阶段 0；原文/时间线
 [五模块架构合同](docs/memory-adoption.md)；[验收测试计划](docs/distill-test-plan.md)
 将这些质量信号逐项映射到夹具和运行时门槛。
 
-当前发布的 `0.9.22` 已把 SQLite `knowledge_entries` 收敛为干净当前知识的唯一权威；
+当前发布的 `0.9.25` 已把 SQLite `knowledge_entries` 收敛为干净当前知识的唯一权威；
 候选、验证与拟议决定是 job 范围临时材料，只在终态结果得到证明后清理，兼容
 `MemoryEntry` 旧行仍可读取。当前搜索直接、确定性地读取 SQLite；FTS/向量只是可选的
 可重建优化。Markdown 只在用户请求阅读或导出时生成。项目模块由当前知识自然归纳，
@@ -118,7 +118,7 @@ harness-mem config set distill.autonomous.enabled true --scope project --confirm
 
 全局默认是 `false`；授权后该项目的 Stop 不再重复确认，未授权项目保持仅排队模式。人工明确要求处理时，仍由当前宿主执行，而非后台 provider。
 
-`0.9.24` 支持“由操作员拥有”的受限 provider profile，用于无人值守的
+`0.9.25` 支持“由操作员拥有”的受限 provider profile，用于无人值守的
 Dream，包括 Hook 触发会话的蒸馏与项目来源复核。端点和环境变量名只能放在用户配置中，不能放进仓库；随后
 才可以由已授权项目选择该 profile：
 
@@ -222,8 +222,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.24 \
-  harness-mem==0.9.24
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
+  harness-mem==0.9.25
 ```
 
 `harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
@@ -233,8 +233,8 @@ Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.24 \
-  "harness-mem[hybrid]==0.9.24"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
+  "harness-mem[hybrid]==0.9.25"
 ```
 
 在当前设备一次性安装全部宿主的原生 Daily 命令。默认参数就是
@@ -356,7 +356,7 @@ python -m harness_mem.outcome_probe \
 ```
 
 IDE Hook 默认仍为非阻塞。人或 Agent 可把包含 `session_id` 或 `turn_id` 的真实
-Codex Hook payload 通过 stdin 传入，并显式等待 detached post-turn 回执：
+Codex Hook payload 通过 stdin 传入，并显式等待后台 post-turn 回执：
 
 ```powershell
 '{"session_id":"<codex-session-id>"}' |
@@ -376,4 +376,4 @@ Codex Hook payload 通过 stdin 传入，并显式等待 detached post-turn 回�
 全新安装验证，运行真实 sqlite-vec contract gate，并验证受支持的 Windows 升级
 路径后再上传到 GitHub Release。本项目不发布到 PyPI。
 
-当前包版本：**0.9.24**。
+当前包版本：**0.9.25**。

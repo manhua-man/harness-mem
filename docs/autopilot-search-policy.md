@@ -1,8 +1,8 @@
 # Autopilot Search Policy
 
-`wake -> search -> distill -> review -> dream` is the runtime action loop inside
-`harness-mem`, not a daily manual checklist for the user and not a replacement
-for the internal functional architecture:
+`wake`, `search`, `distill`, `review`, and `dream` are a set of user actions,
+not a linear runtime loop or a daily manual checklist. They do not replace the
+internal functional architecture:
 
 ```text
 session intake and lifecycle -> extraction -> verification -> assimilation
@@ -39,10 +39,10 @@ the user inspect or undo outcomes later.
 ```text
 session_start -> wake
 context/tool/save_point -> task-aware search
-save_point/session_end -> snapshot an immutable source revision + queue its job + wake Dream
-Hook-started Dream -> read the triggering session + verify + assimilate + project governance
-explicit /hm:distill -> active host checkpoints chunks + final review + idempotent candidates
-finalize_session_distill -> completeness check + auto-review for that explicit job only
+save_point/session_end -> snapshot an immutable source revision + create/advance its job + wake Dream
+Hook-started Dream -> read the triggering session + project sources/feedback -> verify + assimilate
+explicit /hm:distill -> active host checkpoints chunks -> extract + verify + assimilate
+finalize_session_distill -> completeness check + commit for that explicit job only
 review -> post-hoc audit, correction, undo, supersede
 dream -> discover stale / duplicate / conflicting knowledge -> re-verify and assimilate with reversible audit
 ```
@@ -138,12 +138,10 @@ specific historical decision that still applies.
 
 ## Read Path
 
-Search should prefer the current project and current trust tiers:
-
-- `user_confirmed` and `auto_confirmed` are normal full-weight memory.
-- `provisional` can be included only when the caller accepts caveated context.
-- `pending`, `deferred`, and `rejected` are not normal read-path memory.
-- `superseded` appears only for history or conflict analysis.
+Search should prefer current project knowledge from SQLite `knowledge_entries`.
+Job-scoped candidate, evidence, proposed-decision, and pending material never
+appear in normal wake/search. Superseded or rejected history appears only in an
+explicit audit or conflict analysis.
 
 The runtime binds each injected result to canonical source IDs and an inclusion
 reason internally. User-facing wake/search projections show only long-term
@@ -176,23 +174,19 @@ jobs. That explicit pipeline continues:
 2. Process and checkpoint each chunk so interruption resumes after the last
    completed chunk without duplicate writes.
 3. After every expected chunk is checkpointed and the source revision is still
-   current, run the required final-session semantic review.
-4. Run risk-scaled admission and write admitted or narrowed claims as
-   idempotent candidates.
-5. Call `finalize_session_distill`; it verifies completeness, runs candidate
-   auto-review, and completes that explicit distill job. It does not start a
-   separate Dream run.
-
-Low-risk candidates may become `auto_confirmed`. Risk-flagged but useful
-candidates may become `provisional`. Weak, conflicting, or dangerous items stay
-out of the normal read path until audit.
+   current, extract narrow promotion points and verify each one.
+4. Run assimilation against current project knowledge. A verified point may
+   `add`, `refine`, `confirm`, or `supersede`; incomplete or unsafe points end
+   as `no_write`, `handoff`, `defer`, `conflict`, or `reject` outside normal
+   current knowledge.
+5. Call `finalize_session_distill`; it verifies completeness and commits only
+   that explicit active-host job. It does not start a separate Dream run.
 
 ## Review Is Audit
 
 `/hm:review` is where users inspect the ledger and correct the system:
 
-- confirm useful auto-promoted or provisional items as `user_confirmed`
-- reject or undo bad auto-promotions
+- inspect, correct, reject, or undo a governed truth mutation
 - supersede stale truth with visible lineage
 - inspect why a memory appeared in `wake` or `search`
 

@@ -63,8 +63,8 @@ def test_public_docs_describe_hooks_as_source_snapshot_and_dream_wakeup() -> Non
         encoding="utf-8"
     )
 
-    assert "snapshot an immutable source revision + queue its job + wake Dream" in policy
-    assert "Hook-started Dream -> read the triggering session + verify + assimilate" in policy
+    assert "snapshot an immutable source revision + create/advance its job + wake Dream" in policy
+    assert "Hook-started Dream -> read the triggering session + project sources/feedback -> verify + assimilate" in policy
     assert "explicit /hm:distill -> active host" in policy
     assert "hooks only capture an immutable native transcript source revision" in cold_start
     assert "A Hook wakes Dream with that immutable source" in cold_start
@@ -167,12 +167,15 @@ def test_legacy_lifecycle_docs_use_lossless_session_distill_contract() -> None:
     }
     combined = "\n".join(docs.values())
 
-    assert "wake -> search -> distill -> review -> dream" in combined
+    assert "explicit distill -> active host" in combined
+    assert "Hook -> immutable session + job" in combined
+    assert "review -> post-hoc audit / correction / undo" in combined
+    assert "wake -> search -> distill -> review -> dream" not in combined
     assert "immutable source revision" in combined
     assert "without truncation" in combined
     assert "checkpoint each chunk" in combined
-    assert "final-session review" in combined
-    assert "idempotent candidates" in combined
+    assert "point-level verification" in combined
+    assert "job-scoped" in combined
     assert "finalize_session_distill" in combined
     assert "Hook-started Dream" in combined
 
@@ -208,9 +211,12 @@ def test_runtime_diagram_matches_current_storage_and_truth_contract() -> None:
     )
 
     assert 'viewBox="0 0 1510 1000"' in diagram
-    assert "canonical SQLite / profiles" in diagram
+    assert "knowledge_entries" in diagram
     assert "raw revisions / chunks" in diagram
-    assert "auto/user confirmed truth" in diagram
+    assert "Dream 无人值守；Review 事后纠错" in diagram
+    assert "用户 profile + env-key reference" in diagram
+    assert "canonical SQLite / profiles" not in diagram
+    assert "auto/user confirmed truth" not in diagram
     assert "current package version 0.8.9" not in diagram
 
 

@@ -1,211 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1050" viewBox="0 0 1440 1050" role="img" aria-labelledby="title desc">
-  <title id="title">Harness-Mem 候选治理与记忆状态机</title>
-  <desc id="desc">从原始会话证据到候选层，经 evidence gate 与 Dream 自动治理后进入已确认真值或完成处置；hm-review 仅作为事后审计、纠错、撤销和替换支路。</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="960" viewBox="0 0 1440 960" role="img" aria-labelledby="title desc">
+  <title id="title">Harness-Mem 当前知识治理</title>
+  <desc id="desc">人工 distill 与 Hook 触发的 Dream 是两条执行入口。候选、证据和拟议决定只存在于 job 范围；受信 runtime 经过验证和归纳吸收后才写入 SQLite knowledge_entries。Dream 的自动项最终为 applied、rejected、archived 或 failed；Review 是独立事后纠错支路。</desc>
   <defs>
-    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
-      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e8f2fb" stroke-width="1"/>
-    </pattern>
-    <linearGradient id="header" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0f6fbf"/>
-      <stop offset="55%" stop-color="#11a7b5"/>
-      <stop offset="100%" stop-color="#45bd92"/>
-    </linearGradient>
-    <linearGradient id="candidate" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#eaf5ff"/>
-      <stop offset="100%" stop-color="#e9fbf4"/>
-    </linearGradient>
-    <filter id="shadow" x="-10%" y="-18%" width="125%" height="150%">
-      <feDropShadow dx="0" dy="9" stdDeviation="12" flood-color="#0b3558" flood-opacity="0.12"/>
-    </filter>
-    <marker id="blueArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
-      <path d="M2,2 L10,6 L2,10 Z" fill="#1677b9"/>
-    </marker>
-    <marker id="greenArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
-      <path d="M2,2 L10,6 L2,10 Z" fill="#1f9f7a"/>
-    </marker>
-    <marker id="orangeArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
-      <path d="M2,2 L10,6 L2,10 Z" fill="#d9791f"/>
-    </marker>
+    <linearGradient id="header" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0f6fbf"/><stop offset="1" stop-color="#27a878"/></linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M1 1 L9 5 L1 9 Z" fill="#1976b9"/></marker>
+    <marker id="greenArrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M1 1 L9 5 L1 9 Z" fill="#218563"/></marker>
     <style>
-      .bg { fill: #fbfdff; }
-      .grid { fill: url(#grid); opacity: .72; }
-      .title { font: 700 40px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
-      .subtitle { font: 400 18px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #4d657d; }
-      .panel { fill: #ffffff; stroke: #c6dcee; stroke-width: 1.6; rx: 18; }
-      .panelBlue { fill: #eaf5ff; stroke: #9ccfe0; stroke-width: 1.7; rx: 18; }
-      .panelCand { fill: url(#candidate); stroke: #8fcfda; stroke-width: 2; rx: 20; }
-      .panelGreen { fill: #eefbf5; stroke: #90d4b4; stroke-width: 1.7; rx: 18; }
-      .panelOrange { fill: #fff7ed; stroke: #f1b979; stroke-width: 1.7; rx: 18; }
-      .label { font: 700 22px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
-      .body { font: 400 14px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #425c72; }
-      .small { font: 400 12px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #60788e; }
-      .code { font: 700 13px "Cascadia Mono", Consolas, monospace; fill: #0f6fbf; }
-      .chip { fill: url(#header); rx: 16; }
-      .chipText { font: 700 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #fff; }
-      .status { font: 700 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #173b57; }
-      .card { fill: #ffffff; stroke: #cbdfee; stroke-width: 1.2; rx: 13; }
-      .cardWarn { fill: #fff7ed; stroke: #f1b979; stroke-width: 1.2; rx: 13; }
-      .cardDone { fill: #f0fbf6; stroke: #93d8b6; stroke-width: 1.2; rx: 13; }
-      .arrow { fill: none; stroke: #1677b9; stroke-width: 3; marker-end: url(#blueArrow); }
-      .arrowGreen { fill: none; stroke: #1f9f7a; stroke-width: 3; marker-end: url(#greenArrow); }
-      .arrowOrange { fill: none; stroke: #d9791f; stroke-width: 3; marker-end: url(#orangeArrow); }
-      .dash { fill: none; stroke: #8ca5bb; stroke-width: 2.2; stroke-dasharray: 8 8; marker-end: url(#blueArrow); }
+      .bg{fill:#f8fbff}.title{font:700 40px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#102a43}.sub{font:400 18px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#4d657d}.label{font:700 22px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#102a43}.body{font:400 15px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#425c72}.small{font:400 13px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#5f778d}.code{font:700 13px Consolas,monospace;fill:#116eaf}.panel{fill:#fff;stroke:#bed8ed;stroke-width:2}.blue{fill:#ecf7ff;stroke:#90c9e5;stroke-width:2}.green{fill:#eefbf5;stroke:#88cfad;stroke-width:2}.orange{fill:#fff7ed;stroke:#efbb82;stroke-width:2}.purple{fill:#f7f2ff;stroke:#baa7e0;stroke-width:2}.chip{fill:url(#header)}.chipText{font:700 13px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#fff}.line{fill:none;stroke:#1976b9;stroke-width:3;marker-end:url(#arrow)}.good{fill:none;stroke:#218563;stroke-width:3;marker-end:url(#greenArrow)}.dash{fill:none;stroke:#788fa3;stroke-width:2;stroke-dasharray:8 8;marker-end:url(#arrow)}
     </style>
   </defs>
+  <rect class="bg" width="1440" height="960"/>
+  <rect x="0" y="0" width="1440" height="14" fill="url(#header)"/>
+  <text class="title" x="70" y="70">Harness-Mem：当前知识治理</text>
+  <text class="sub" x="72" y="105">两条入口，同一验证与归纳合同；候选不是当前知识，Hook 不是语义执行器。</text>
 
-  <rect class="bg" width="1440" height="1050"/>
-  <rect class="grid" width="1440" height="1050"/>
-  <rect x="0" y="0" width="1440" height="13" fill="url(#header)"/>
-
-  <text class="title" x="70" y="72">Harness-Mem：候选治理与记忆状态机</text>
-  <text class="subtitle" x="72" y="106">Dream 自动验证、晋升或判定无需记忆；/hm:review 是事后纠错支路，不是日常人工必经门。</text>
-
-  <g transform="translate(76 172)">
-    <rect class="panel" width="260" height="170"/>
-    <rect class="chip" x="22" y="22" width="128" height="32"/>
-    <text class="chipText" x="40" y="44">Raw Source</text>
-    <text class="label" x="24" y="88">原始证据</text>
-    <text class="body" x="24" y="120">七宿主 native transcript</text>
-    <text class="body" x="24" y="146">immutable bytes + revisions</text>
-  </g>
-
-  <g transform="translate(418 172)">
-    <rect class="panelBlue" width="286" height="170"/>
-    <rect class="chip" x="22" y="22" width="150" height="32"/>
-    <text class="chipText" x="40" y="44">Lossless Evidence</text>
-    <text class="label" x="24" y="88">可追溯语义窗口</text>
-    <text class="body" x="24" y="120">append projection / tool-safe</text>
-    <text class="body" x="24" y="146">receipt / source ids / drilldown</text>
-  </g>
-
-  <g transform="translate(760 172)">
-    <rect class="panelBlue" width="286" height="170"/>
-    <rect class="chip" x="22" y="22" width="130" height="32"/>
-    <text class="chipText" x="40" y="44">Distill Agent</text>
-    <text class="label" x="24" y="88">提炼候选或无候选</text>
-    <text class="body" x="24" y="120">outline → relevant evidence</text>
-    <text class="body" x="24" y="146">幂等输出，不直接写 truth</text>
-  </g>
-
-  <g transform="translate(390 412)">
-    <rect class="panelCand" width="500" height="310"/>
-    <rect class="chip" x="24" y="24" width="152" height="32"/>
-    <text class="chipText" x="42" y="46">Candidate Layer</text>
-    <text class="label" x="26" y="92">候选层：pending / traceable</text>
-    <text class="body" x="26" y="122">候选携带 source ids、evidence basis、冲突与新鲜度信息。</text>
-
-    <g transform="translate(26 150)">
-      <rect class="card" width="212" height="68"/>
-      <text class="status" x="16" y="28">Memory Candidate</text>
-      <text class="body" x="16" y="50">长期事实 / 决策 / 状态</text>
-    </g>
-    <g transform="translate(262 150)">
-      <rect class="card" width="212" height="68"/>
-      <text class="status" x="16" y="28">Rule Candidate</text>
-      <text class="body" x="16" y="50">用户偏好 / 协作规则</text>
-    </g>
-    <g transform="translate(26 236)">
-      <rect class="card" width="212" height="68"/>
-      <text class="status" x="16" y="28">Evidence Basis</text>
-      <text class="body" x="16" y="50">repo_verified / user_stated</text>
-    </g>
-    <g transform="translate(262 236)">
-      <rect class="cardWarn" width="212" height="68"/>
-      <text class="status" x="16" y="28">Conflict / Freshness</text>
-      <text class="body" x="16" y="50">dedupe / contradicted / stale</text>
-    </g>
-  </g>
-
-  <g transform="translate(982 412)">
-    <rect class="panelBlue" width="300" height="178"/>
-    <rect class="chip" x="22" y="22" width="136" height="32"/>
-    <text class="chipText" x="40" y="44">Evidence Gate</text>
-    <text class="label" x="24" y="88">Dream + auto-review</text>
-    <text class="body" x="24" y="118">验证来源、时序、冲突、完成度</text>
-    <text class="body" x="24" y="144">自动决定晋升或完成处置</text>
-    <text class="code" x="24" y="166">repo / user / transcript / conflict</text>
-  </g>
-
-  <g transform="translate(982 632)">
-    <rect class="panelOrange" width="300" height="138"/>
-    <rect class="chip" x="22" y="22" width="184" height="32"/>
-    <text class="chipText" x="40" y="44">Completion Disposition</text>
-    <text class="label" x="24" y="84">完成处置</text>
-    <text class="body" x="24" y="110">provisional / no_candidate</text>
-    <text class="body" x="24" y="132">rejected / deferred（不进 wake）</text>
-  </g>
-
-  <g transform="translate(972 808)">
-    <rect class="panelOrange" width="330" height="112"/>
-    <rect class="chip" x="22" y="18" width="146" height="30"/>
-    <text class="chipText" x="38" y="39">Post-hoc Review</text>
-    <text class="label" x="22" y="76">/hm:review 事后审计</text>
-    <text class="body" x="22" y="100">correct / undo / supersede / reject</text>
-  </g>
-
-  <g transform="translate(390 792)">
-    <rect class="panelGreen" width="500" height="150"/>
-    <rect class="chip" x="24" y="22" width="158" height="32"/>
-    <text class="chipText" x="42" y="44">Confirmed Truth</text>
-    <text class="label" x="26" y="86">已确认真值层：auto_confirmed</text>
-    <g transform="translate(26 104)">
-      <rect class="cardDone" width="106" height="40"/>
-      <text class="body" x="14" y="26">Rule</text>
-    </g>
-    <g transform="translate(148 104)">
-      <rect class="cardDone" width="116" height="40"/>
-      <text class="body" x="14" y="26">Memory</text>
-    </g>
-    <g transform="translate(280 104)">
-      <rect class="cardDone" width="104" height="40"/>
-      <text class="body" x="14" y="26">Provenance</text>
-    </g>
-    <g transform="translate(400 104)">
-      <rect class="cardDone" width="72" height="40"/>
-      <text class="body" x="14" y="26">State</text>
-    </g>
-  </g>
-
-  <g transform="translate(76 792)">
-    <rect class="panelGreen" width="260" height="150"/>
-    <rect class="chip" x="22" y="22" width="130" height="32"/>
-    <text class="chipText" x="40" y="44">Read Surface</text>
-    <text class="label" x="24" y="86">消费面</text>
-    <text class="code" x="24" y="118">wake / search_memory</text>
-    <text class="body" x="24" y="140">context assembly / drilldown</text>
-  </g>
-
-  <g transform="translate(76 520)">
-    <rect class="panel" width="260" height="146"/>
-    <rect class="chip" x="22" y="22" width="110" height="32"/>
-    <text class="chipText" x="40" y="44">Signals</text>
-    <text class="label" x="24" y="86">使用信号</text>
-    <text class="body" x="24" y="118">wake_surfaced / search_hit</text>
-    <text class="body" x="24" y="140">used / ignored / corrected</text>
-  </g>
-
-  <path class="arrow" d="M 336 257 L 416 257"/>
-  <path class="arrow" d="M 704 257 L 758 257"/>
-  <path class="arrow" d="M 900 342 C 900 380 824 386 766 410"/>
-  <path class="arrow" d="M 890 564 L 980 500"/>
-  <path class="arrowGreen" d="M 1042 590 C 1028 704 928 764 890 838"/>
-  <path class="arrowOrange" d="M 1132 590 L 1132 630"/>
-  <path class="dash" d="M 1132 770 L 1132 806"/>
-  <path class="dash" d="M 890 888 C 926 892 944 884 970 870"/>
-  <path class="arrowGreen" d="M 390 867 L 336 867"/>
-  <path class="dash" d="M 206 792 L 206 668"/>
-  <path class="dash" d="M 336 592 C 394 548 380 504 390 474"/>
-  <path class="dash" d="M 206 520 C 214 420 274 356 418 310"/>
-
-  <g transform="translate(1030 188)">
-    <rect class="panelOrange" width="312" height="112"/>
-    <text class="label" x="24" y="40">证据边界</text>
-    <text class="body" x="24" y="72">Observation / transcript 只是 evidence</text>
-    <text class="body" x="24" y="96">不等于长期事实，也不能直接进入 wake</text>
-  </g>
-
-  <g transform="translate(70 980)">
-    <text class="small" x="0" y="0">主链：evidence → candidate → Evidence Gate + Dream → auto_confirmed 或完成处置。</text>
-    <text class="small" x="0" y="22">/hm:review 仅在用户需要审计、纠错、撤销或替换时介入；Observation / evidence 从不等同长期事实。</text>
-  </g>
+  <g transform="translate(70 165)"><rect class="panel" width="270" height="146" rx="18"/><rect class="chip" x="22" y="20" width="138" height="30" rx="15"/><text class="chipText" x="39" y="41">Explicit distill</text><text class="label" x="22" y="84">人工明确处理</text><text class="body" x="22" y="112">当前宿主读取会话</text><text class="body" x="22" y="135">不改道到 provider</text></g>
+  <g transform="translate(70 375)"><rect class="blue" width="270" height="164" rx="18"/><rect class="chip" x="22" y="20" width="112" height="30" rx="15"/><text class="chipText" x="41" y="41">Stop Hook</text><text class="label" x="22" y="84">保存，不判断</text><text class="body" x="22" y="112">immutable revision + job</text><text class="body" x="22" y="136">发出 Dream 活动信号</text><text class="small" x="22" y="155">不读知识 / 不调模型 / 不写 truth</text></g>
+  <g transform="translate(405 255)"><rect class="blue" width="312" height="174" rx="18"/><rect class="chip" x="22" y="20" width="164" height="30" rx="15"/><text class="chipText" x="40" y="41">Job-scoped material</text><text class="label" x="22" y="84">会话、候选与证据</text><text class="body" x="22" y="112">完整来源 / semantic windows</text><text class="body" x="22" y="136">candidate + evidence + decision</text><text class="small" x="22" y="157">成功终态后按策略清理</text></g>
+  <g transform="translate(405 500)"><rect class="purple" width="312" height="160" rx="18"/><rect class="chip" x="22" y="20" width="182" height="30" rx="15"/><text class="chipText" x="40" y="41">Authorized Dream only</text><text class="label" x="22" y="84">受限后台语义执行器</text><text class="body" x="22" y="112">用户 profile + 环境变量密钥</text><text class="body" x="22" y="136">项目选择 + autonomous 授权</text><text class="small" x="22" y="154">无工具、严格 schema、可替换协议</text></g>
+  <g transform="translate(782 165)"><rect class="panel" width="270" height="146" rx="18"/><rect class="chip" x="22" y="20" width="154" height="30" rx="15"/><text class="chipText" x="40" y="41">Extract or compare</text><text class="label" x="22" y="84">提取或项目级比较</text><text class="body" x="22" y="112">触发会话 + 当前知识</text><text class="body" x="22" y="135">来源、重复、冲突、反馈</text></g>
+  <g transform="translate(782 375)"><rect class="blue" width="270" height="146" rx="18"/><rect class="chip" x="22" y="20" width="114" height="30" rx="15"/><text class="chipText" x="40" y="41">Verify</text><text class="label" x="22" y="84">Answer Gate</text><text class="body" x="22" y="112">重开真实来源、校验时效</text><text class="body" x="22" y="135">不完整或不支持则 fail closed</text></g>
+  <g transform="translate(782 585)"><rect class="green" width="270" height="146" rx="18"/><rect class="chip" x="22" y="20" width="150" height="30" rx="15"/><text class="chipText" x="40" y="41">Assimilate</text><text class="label" x="22" y="84">受信 runtime 写入</text><text class="code" x="22" y="112">add / refine / confirm</text><text class="code" x="22" y="135">supersede / no_write</text></g>
+  <g transform="translate(1115 165)"><rect class="green" width="255" height="184" rx="18"/><rect class="chip" x="22" y="20" width="164" height="30" rx="15"/><text class="chipText" x="40" y="41">Current knowledge</text><text class="label" x="22" y="84">SQLite authority</text><text class="code" x="22" y="112">knowledge_entries</text><text class="body" x="22" y="140">稳定、可复用的当前事实</text><text class="small" x="22" y="162">Markdown 只是按需投影</text></g>
+  <g transform="translate(1115 435)"><rect class="orange" width="255" height="184" rx="18"/><rect class="chip" x="22" y="20" width="150" height="30" rx="15"/><text class="chipText" x="40" y="41">Terminal outcome</text><text class="label" x="22" y="84">明确非写入终态</text><text class="code" x="22" y="112">rejected / archived</text><text class="code" x="22" y="136">failed (retryable)</text><text class="small" x="22" y="160">Dream 不留下 pending_review</text></g>
+  <g transform="translate(1115 700)"><rect class="purple" width="255" height="120" rx="18"/><rect class="chip" x="22" y="18" width="112" height="30" rx="15"/><text class="chipText" x="40" y="39">Review</text><text class="label" x="22" y="78">事后审计与纠错</text><text class="body" x="22" y="103">inspect / correct / undo</text></g>
+  <path class="line" d="M340 238 H403"/><path class="line" d="M340 457 H403 V342"/><path class="line" d="M717 342 H780 V238"/><path class="line" d="M717 580 H748 V238 H780"/><path class="line" d="M917 311 V373"/><path class="line" d="M917 521 V583"/><path class="good" d="M1052 658 H1080 V257 H1113"/><path class="line" d="M1052 448 H1113"/><path class="dash" d="M1242 349 V698"/>
+  <text class="small" x="74" y="890">会话与真实来源是证据；候选、验证和拟议决定只为 job 重试与审计服务，不进入普通 wake/search。</text>
+  <text class="small" x="74" y="916">Dream 只能在来源完整、可重开且项目已授权时自动完成比较 → 验证 → 归纳吸收；多条关系无法安全裁决时，不猜测赢家。</text>
 </svg>

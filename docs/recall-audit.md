@@ -54,11 +54,12 @@ confirm candidates.
 ## Governance boundary
 
 The recall contract is read-path explanation. It does not turn raw evidence or
-pending candidates into durable truth. Durable memory still follows:
+job-scoped candidates into durable truth. Current durable memory follows:
 
 ```text
-observation -> candidate -> auto preflight -> auto_confirmed / provisional truth
-                             -> ledger -> /hm:review audit/undo -> user_confirmed
+immutable session/source -> candidate + evidence -> Answer Gate -> assimilation
+                                                     -> SQLite knowledge_entries
+Dream / review -> source-backed recheck, correction, or reversible undo
 ```
 
 ## State audit ledger

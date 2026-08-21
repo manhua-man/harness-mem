@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 620" role="img" aria-labelledby="title desc">
   <title id="title">harness-mem cold-start flow</title>
-  <desc id="desc">The user-facing loop remains wake, search, distill, review, and dream. An explicit distill stays in the active host; a Hook saves a session source and wakes Dream, which performs unattended session and project governance. Manual review is a post-hoc correction and undo path.</desc>
+  <desc id="desc">Wake, search, distill, review, and Dream are user actions, not a mandatory loop. An explicit distill stays in the active host; a Hook saves a session source and wakes Dream, which performs unattended session and project governance. Manual review is a post-hoc correction and undo path.</desc>
   <defs>
     <style>
       .bg { fill: #f8fafc; }
@@ -34,7 +34,7 @@
 
   <text x="55" y="60" class="title ink">Cold-start memory loop</text>
   <text x="55" y="92" class="body muted">Explicit active-host distill, plus Hook-started Dream governance.</text>
-  <text x="55" y="125" class="eyebrow muted">USER-VISIBLE LOOP</text>
+  <text x="55" y="125" class="eyebrow muted">USER-VISIBLE ACTIONS</text>
 
   <rect x="55" y="145" width="145" height="130" rx="20" class="card"/>
   <circle cx="98" cy="188" r="20" class="teal"/>

@@ -6,8 +6,8 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.24 \
-  harness-mem==0.9.24
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
+  harness-mem==0.9.25
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Pip uses
@@ -17,8 +17,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.24 \
-  "harness-mem[hybrid]==0.9.24"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
+  "harness-mem[hybrid]==0.9.25"
 ```
 
 Check the CLI:
@@ -101,18 +101,31 @@ a new task. This is not a harness-mem install command. Codex skips untrusted
 command hooks, and `get_project_status` reports `hooks=review_required` until
 the current `SessionStart` configuration has successfully run.
 
-Unattended Dream processing requires one separate persistent authorization
-because a Hook-started Dream run may read its triggering session, compare it
-with project knowledge, and send bounded evidence to the configured model
-provider:
+Unattended Dream processing needs two separate project-level decisions: select
+an operator-owned provider profile, then authorize autonomous execution. The
+connection and credential reference stay in the user's configuration; the
+project may name a profile but cannot contain a key or endpoint.
+
+```toml
+# ~/.harness-mem/config.toml
+[semantic.providers.local-gateway]
+protocol = "anthropic-messages" # or "openai-responses"
+base_url = "https://gateway.example/v1"
+api_key_env = "HARNESS_MEM_GATEWAY_KEY"
+model = "operator-approved-model"
+```
 
 ```bash
+harness-mem config set semantic.execution.profile local-gateway --scope project
 harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
-Future Stop turns do not ask again. Set the same key to `false` at user or
-project scope to retain queue-only Hook behavior. An explicit `distill` remains
-an active-host action, not a detached provider call.
+The key is read only from the named environment variable. The selected provider
+is a no-tools, strict-schema semantic executor for Dream; an explicit `distill`
+still runs in the active host.
+
+Future Stop turns do not ask again. Set the same project key to `false` to
+retain queue-only Hook behavior.
 
 If Codex connects through MCP Router, internal tool names use the Router alias
 (`mcp__mcp_router__*`). A direct `harness_mem` entry uses
@@ -180,57 +193,34 @@ Review the new memory candidates.
 Show the latest dream ledger.
 ```
 
-These commands are user actions, not the internal lifecycle architecture. The
+These commands are user actions, not a mandatory linear sequence. The
 architecture is `session intake and lifecycle -> extraction -> verification ->
 assimilation -> retrieval/use`; see [memory-adoption.md](memory-adoption.md).
-The actions commonly appear in this runtime sequence:
 
 ```text
-wake -> search -> distill -> review -> dream ledger
+explicit distill -> active host: extract -> verify -> assimilate
+
+Stop Hook -> immutable revision + job + Dream activity signal
+          -> authorized Dream: session + project governance
+          -> extract or compare -> verify -> assimilate
+
+review -> optional post-hoc audit / correction / undo
 ```
 
-Dream is not merely the final stage of an audited maintenance pipeline. It is a
-core governance-feedback capability across assimilation and retrieval: it can
-identify stale, duplicate, conflicting, mergeable, or replaceable knowledge and
-send it back through verification and assimilation. Review is the corresponding
-human correction, undo, and adjudication path. A Stop hook
-captures an immutable transcript revision and queues every ordered chunk, then
-returns immediately while a detached worker consumes an ordered batch of at
-most two jobs. The default worker calls the configured Responses endpoint with
-no tools, `store=false`, and a strict JSON Schema. Trusted runtime code owns
-candidate writes, finalize, and atomic Session Note materialization. The exact
-Stop session receives the first worker slot even when the backlog refill budget
-is exhausted. Any remaining slot uses three recent jobs followed by one oldest
-eligible job, with exponential failure backoff and a daily backlog-refill budget;
-older evidence stays parked without deletion.
-Each offered job is claimed through
-`prepare_session_distill(distill_job_id=...)`, so the worker or an explicit
-Agent processes the exact bounded IDs selected by the drainer instead of
-reselecting by timestamp.
-Automatic worker claims set `run_ingest=false` because the Hook already
-synchronized the task; a failed owned job is deferred and does not block later
-work. An active review lease is skipped by other workers. Missing provider/auth
-setup is reported as retryable rather than background success; `/hm:distill` remains an
-explicit immediate/deep-audit entry. In the daily semantic fast path, runtime
-hash-verifies and checkpoints each chunk before rendering a coverage-first
-indexed exchange manifest.
-The configured token value is a soft target for the complete serialized provider
-manifest; it may expand with an explicit receipt rather than clip exchanges. The worker then
-selects complete semantic windows by exchange index; candidate-grade claims
-drill into raw proof only after that selection. Explicit
-raw mode retains the full per-chunk lease loop. The provider then performs an
-end-of-session review covering the final request, outcome, contradictions,
-unfinished work, and evidence status. Only review-ready jobs may create
-idempotent `govern_memory(action="suggest")` candidates.
-Detected durable-value signals start as `candidate_required`; the provider may
-downgrade one only after reading its complete window and recording a
-signal-specific session-only explanation. `finalize_session_distill` applies
-scoped automatic governance and then Dream only after a fully completed review. An
-answered candidate may promote beside an unrelated unfinished handoff without
-running Dream. Its
-completion block says whether durable knowledge was `promoted` or the session
-ended as `no_candidate`; non-promoted candidates are terminally rejected so a
-completed low-value session does not return as daily review work. Merely
+Dream is a governance-feedback capability across assimilation and retrieval; it
+can identify stale, duplicate, conflicting, mergeable, or replaceable knowledge
+and return it to source-backed verification and assimilation. A Hook never
+executes that work. Its source-bound signal is either processed by an authorized
+Dream run or remains safely queued. Missing profile or authorization produces a
+retryable setup result, never a background success.
+
+Both execution paths preserve all ordered chunks, checkpoint work for resume,
+and fail closed when evidence is incomplete or contradicted. Only trusted
+runtime code writes candidates, records a Session Note, and mutates SQLite
+current knowledge. The provider receives bounded evidence through its declared
+no-tools protocol; the token budget is a soft response target and never permits
+silent loss of an evidence window. `finalize_session_distill` commits only the
+explicit active-host job; it does not start a separate Dream run. Merely
 preparing or partially reading session evidence is never reported as completed.
 Health reports actual provider input/output tokens and duration plus the latest
 semantic-success, job-completion, and Note-materialization timestamps.

@@ -17,22 +17,11 @@ This is a user-invocable harness-mem Daily command. Follow the action below thro
 2. **调 MCP `wake`**：
    - 默认：`wake(project_name=<project>)`
    - 如果用户明确想看 procedural 提示：`wake(project_name=<project>, include_skill_hints=true)`
-3. **恢复上下文并执行 bounded maintenance offer**：
+3. **恢复只读上下文**：
    - 把 MCP 返回的 wake-up 上下文作为主结果，但不要向用户原样展示
      `# Automatic Memory Maintenance` 私有块
-   - 检查结构化 `distill_maintenance`；如果
-     `agent_execution_required=true`，按 `job_ids` 顺序处理，最多处理
-     `process_limit` 条（自动 wake 默认不超过 2 条）
-   - 对每条 job 调 `prepare_session_distill(project_name=<project>,
-     distill_job_id=<offered id>, run_ingest=false, evidence_mode="semantic",
-     detail_level="compact", budget_tokens=<prepare_arguments 返回值>)`，按返回的
-     semantic window / raw proof 指引完成审查，只为确有价值的内容写 candidate，
-     然后调 `finalize_session_distill`
-   - 如果当前 owned job 失败，调
-     `prepare_session_distill(defer_job_id=<offered id>, defer_reason=<bounded reason>,
-     run_ingest=false)`，只 defer 当前 job 并继续下一条；如果 job 正由有效 lease
-     占用，则标记 busy/skip，不能 defer 或抢占
-   - 没有 offer 时保持纯 wake；不要要求用户为了 parked backlog 另外运行 `$hm-distill`
+   - 不读取 `distill_maintenance`，不领取 job，不调用 provider，也不写候选或长期知识
+   - Hook 创建的会话 job 由已授权 Dream 在后台处理；只有用户明确调用 distill 时，当前宿主才处理会话
    - 如果返回了 skill hints，只把它们当作 hint，不要擅自展开完整 skill body
    - 只有用户继续追问某个 hint 时，才调 `get_skill(skill_id)`
 4. **结语**：
@@ -41,7 +30,6 @@ This is a user-invocable harness-mem Daily command. Follow the action below thro
 
 **Notes**
 
-- wake context 本身只读；runtime 可以记录一个 bounded Agent maintenance offer，
-  只有当前 Agent 的 prepare / finalize 调用才执行语义处理
+- wake context 与 `$hm-wake` 都是只读；它们不构成另一条后台语义执行管线
 - `$hm-wake` 的 shipped truth 是一等 MCP `wake` surface，不要退回手工拼 `get_project_profile` / `get_task_handoffs` / `get_confirmed_rules` / `timeline`
 - 如果项目从未有过数据，提示用户先 `$hm-distill`

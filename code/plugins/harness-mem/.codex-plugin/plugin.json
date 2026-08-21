@@ -1,6 +1,6 @@
 {
   "name": "harness-mem",
-  "version": "0.9.24",
+  "version": "0.9.25",
   "wireFormatVersion": "hm-wire-v3.5",
   "description": "Local-first, auditable, pluggable Agent memory backend.",
   "author": {

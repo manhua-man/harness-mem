@@ -66,17 +66,18 @@ on stdout. The installer merges managed `PreInvocation` and `Stop` entries
 without removing unrelated project hooks.
 
 `wake-start` injects already-captured context and pending work; it does not read
-or summarize a transcript. Hook-triggered post-turn/idle maintenance resolves
-the current host, synchronizes native transcript evidence, and queues lossless
-distill work. The CLI `wake-up` command retains a separate best-effort sync
-option for non-hook environments.
+or summarize a transcript. A post-turn Hook resolves the current host,
+synchronizes the native transcript evidence, creates or advances its session
+job, and emits a source-bound Dream activity signal. The CLI `wake-up` command
+retains a separate best-effort sync option for non-hook environments.
 
 Wake remains synchronous because the host needs its returned context before the
-session or invocation proceeds. Post-turn maintenance uses a durable request
-file and one detached worker per project and host. A second event received while
-that worker is active replaces the pending request; after the current sync, the
-worker hands off the newer generation instead of launching concurrent database
-writers or dropping the final turn.
+session or invocation proceeds. Post-turn handling is receipt-first and
+generation-safe: another event can replace a pending activity signal without
+creating concurrent writers or dropping the final turn. The Hook does not call a
+provider or mutate knowledge. Authorized Dream later performs the unattended
+session and project-governance work; explicit `distill` remains in the active
+host.
 
 Hermes `pre_llm_call` and Antigravity `PreInvocation` may fire repeatedly inside
 one conversation. When their native payload includes a stable `session_id` or

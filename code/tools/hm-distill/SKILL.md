@@ -104,7 +104,7 @@ A claim survives long enough to route as soon as a bundled exchange exposes plau
 durable value. Do not reject it merely because current-source proof is missing; route
 answer first. If completed durable claims coexist with unfinished work, write the
 durable candidates plus a scoped handoff and use `promotion_decision="partial"`.
-Finalize may auto-review Answered candidates in that state, while Dream remains blocked.
+Finalize may assimilate Answered promotion points in that explicit job, while Dream remains separate and blocked from the manual path.
 
 When no candidate remains, use the bundled `zero_candidate_challenge_template`. Check corrections, decisions, successful solutions, repeated failures, preferences, reusable workflows or facts, migrations, and unfinished handoffs. Submit the returned exchange hashes unchanged. Detected signals are prefilled as `candidate_required`. Downgrade one to `not_durable` only after reviewing its complete window, and name that exact signal key plus the session-only reason in `rationale`. A durable finding requires a candidate or handoff; otherwise conclude `no_durable_candidate`.
 
@@ -133,10 +133,10 @@ Finalize must:
 - revalidate the source revision, checkpoints, and zero-candidate hashes;
 - govern only candidates created by this job;
 - automatically settle safe, rejected, contradicted, or unverified candidates;
-- run Dream only when the semantic review permits promotion;
-- record `promoted` or `no_candidate` and the actual source cleanup status.
+- never start Dream from this manual path;
+- record the runtime-derived assimilation outcome and actual source cleanup status.
 
-Use `$hm-review` later for audit, correction, undo, replacement, or explicit trust upgrades. Do not run a second project-level auto-review or Dream to close the same job.
+Use `$hm-review` later for audit, correction, undo, replacement, or explicit trust upgrades. Do not run a second project-level semantic pass or Dream to close the same job.
 
 ## User-visible result
 

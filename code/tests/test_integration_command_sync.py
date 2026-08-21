@@ -280,7 +280,7 @@ def test_user_command_sync_is_visible_from_unrelated_projects(
 
 
 @pytest.mark.parametrize("client", COMMAND_HOSTS)
-def test_all_host_wake_entries_execute_one_bounded_agent_offer(
+def test_all_host_wake_entries_remain_read_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     client: str,
@@ -305,11 +305,14 @@ def test_all_host_wake_entries_execute_one_bounded_agent_offer(
         wake_path = result.destination_dir / "hm-wake.md"
     rendered = wake_path.read_text(encoding="utf-8")
 
-    assert "agent_execution_required=true" in rendered
-    assert "distill_job_id=<offered id>" in rendered
-    assert "run_ingest=false" in rendered
-    assert "defer_job_id=<offered id>" in rendered
-    assert "这是只读操作" not in rendered
+    assert "不读取 `distill_maintenance`" in rendered
+    assert "不领取 job，不调用 provider，也不写候选或长期知识" in rendered
+    assert "Hook 创建的会话 job 由已授权 Dream 在后台处理" in rendered
+    assert "只读；它们不构成另一条后台语义执行管线" in rendered
+    assert "agent_execution_required=true" not in rendered
+    assert "distill_job_id=<offered id>" not in rendered
+    assert "run_ingest=false" not in rendered
+    assert "defer_job_id=<offered id>" not in rendered
 
 
 def test_generated_skill_strips_bom_and_uses_host_native_invocations(

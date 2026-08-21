@@ -6,7 +6,7 @@ itself; normal runtime paths do not migrate legacy data.
 
 ## Current release
 
-The published package is `0.9.24`. It provides session lifecycle, lossless
+The published package is `0.9.25`. It provides session lifecycle, lossless
 extraction, per-point verification, transactional SQLite current knowledge,
 job-scoped processing material, clean retrieval, and one governed Review/Dream
 feedback path. Legacy `MemoryEntry` rows remain readable for compatibility, but
@@ -19,6 +19,16 @@ release itself did not mutate or migrate the real legacy memory corpus. A later
 separately authorized `harness-mem`-scoped maintenance run revalidated live
 sources, atomically rewrote accepted facts, and reversibly retired obsolete or
 duplicate legacy rows. It did not alter other projects.
+
+## Release `0.9.25`
+
+`0.9.25` makes Dream the only unattended executor for Hook-started sessions:
+the Hook persists its immutable source/job and wakes Dream, while a manually
+requested `distill` stays in its active host. It also closes the fail-closed
+boundaries found during the first provider/Dream review: a truncated source
+cannot retire truth, an archived truth mutation has a real undo, provider
+construction/verification failures persist terminal Dream failures, and Hook
+receipts bind the selected non-secret provider configuration.
 
 ## Releases `0.9.23` and `0.9.24`
 
@@ -71,6 +81,7 @@ Markdown/JSON/text
 | `0.9.22` | Close the archive-repair, task-envelope, clean-search, and current-truth outcome gaps | 0--4 | Keep normal search clean while preserving internal Autopilot context; prevent semantic models from invoking truth archival | Released |
 | `0.9.23` | Operator-owned restricted semantic profiles and terminal source-backed Dream rechecks | 2--4 | Keep credentials out of project config; do not retire truth from partial/unsupported sources; retain mutation undo | Released |
 | `0.9.24` | Strict JSON-text compatibility for Anthropic-compatible gateways that reject forced tool output | 2--4 | Keep JSON schema validation and no-tool boundary; do not silently downgrade malformed output | Released |
+| `0.9.25` | Hook-started Dream execution and fail-closed source/provider/undo receipts | 0, 2--4 | Keep Hook non-semantic; reject truncated retirement; preserve real undo and retryable provider failure | Released |
 
 These versions are implementation slices, not additional product modules. The
 product architecture remains the five independently measurable modules:

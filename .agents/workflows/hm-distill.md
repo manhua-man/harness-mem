@@ -6,7 +6,7 @@ tags: [harness-mem, distill, memory]
 wireFormatVersion: hm-wire-v3.5
 ---
 
-在当前宿主中同步指定项目的 native transcript revision，从头到尾处理全部有序 chunk，完成会话末尾审查后生成候选，并通过 `finalize_session_distill` 只对当前显式 job 运行限定范围的 auto-review。Hook 发起的会话由 Dream 在后台处理，人工 `distill` 不会隐式启动 Dream。`/hm-review` 是事后审计、undo、确认和替换入口。
+在当前宿主中同步指定项目的 native transcript revision，从头到尾处理全部有序 chunk，提取窄 promotion point、逐点验证，并通过 `finalize_session_distill` 只提交当前显式 job 的受信归纳吸收。Hook 发起的会话由 Dream 在后台处理，人工 `distill` 不会隐式启动 Dream。`/hm-review` 是事后审计、undo、纠错和替换入口。
 
 **MCP Tool Names**
 
@@ -111,7 +111,7 @@ wireFormatVersion: hm-wire-v3.5
    - 每条候选必须带 evidence envelope：`evidence_basis`、`verification_outcome`、`verification_refs`
    - 把每条候选视为一个证据问题；runtime 重验 refs 后派生 `answer_gate`，只有 `ANSWERED` 能进入 truth layer。Agent 不能自行声明 `ANSWERED`，普通已闭合证据不增加额外 MCP 调用
    - 条件自动路由，不等用户点名，也不预先串行调用全部协作者：semantic exchange 一旦显示潜在 durable value 就视为存活 claim；缺少、冲突或过期证据时先调用 `answer-memory-evidence`，不能因缺仓库证据直接拒绝；高风险、全局或可能过度概括时调用 `grill-before-distill`；证据仍无法决定产品/架构边界时调用 `ask-memory-boundary`
-   - 已完成的 durable claim 与未完成事项并存时，分别写候选与 scoped handoff，并使用 `promotion_decision="partial"`；finalize 仍可 auto-review Answered 候选，但不运行 Dream
+   - 已完成的 durable claim 与未完成事项并存时，分别写候选与 scoped handoff，并使用 `promotion_decision="partial"`；finalize 仍可归纳吸收已回答 point，但不运行 Dream
    - 路由彼此独立，每个候选的每条路由默认最多一轮；宿主未暴露对应 Skill 时执行同一合同的内联检查。协作者本身不写记忆、不决定晋升，也不产生 MCP 调用
    - 实际运行过的路由分别在 `verification_reason_codes` 记录 `collaborator_answer`、`collaborator_grill`、`collaborator_boundary`
    - 代码、版本、发布、文件与测试状态只能使用 `repository + verified`，ref 使用项目相对路径与当前文件 SHA-256；绝不写绝对路径或证据正文
@@ -131,17 +131,17 @@ wireFormatVersion: hm-wire-v3.5
    `finalize_session_distill` 会重新验证 source revision 与全部 checkpoint，
    并重算 zero-candidate exchange hash，只治理当前 job 产生的候选。缺少 challenge
    或 hash 不匹配时 job 保持 `reviewing`。`promotion_decision="partial"` 时仅对证据门
-   已回答的候选运行 scoped auto-review，未完成事项保留为 handoff，且不运行 Dream。
+   已回答的候选进入 scoped verification + assimilation，未完成事项保留为 handoff，且不运行 Dream。
    `no_promotion` / `blocked`、contradicted evidence，或没有任何 surviving candidate
    时才终结为 `no_candidate`；不会让一个无关 handoff 否决其他已回答候选。
 
    MCP 不可用时，直接说明 runtime 工具不可用；不要回退到独立 CLI 或本地推广文件流程。
 
-   候选判断必须复用 shared auto-review policy，而不是在 slash 文档里手写另一套规则。安全候选自动进入 truth layer；其余候选自动终结。`/hm-review` 是事后 audit、纠错和 undo 入口，不是日常晋升闸门。
+   候选判断必须复用 shared verification + assimilation contract，而不是在 slash 文档里手写另一套规则。只有已验证的窄 point 才能由受信 runtime 写入当前知识；其余候选终结在 job 范围。`/hm-review` 是事后 audit、纠错和 undo 入口，不是日常晋升闸门。
 
    内部审计结果必须以 `finalize_session_distill` 返回的 scoped auto-review 结果为准：
-   - `auto_confirmed`
-   - `auto_rejected`
+   - governed current-knowledge mutation（如有）
+   - terminal non-write disposition（如有）
    - `completion.disposition` (`promoted` / `no_candidate`)
    - `source_cleanup.status` (`retained` / `deleted` / `partial_failure` / `unsupported`)
    - `applied_decisions`

@@ -93,7 +93,7 @@
   <g transform="translate(1160 150)">
     <rect class="truth" width="205" height="170" rx="9"/>
     <text class="label" x="16" y="36">Governed assimilation</text>
-    <text class="body" x="16" y="66">active host: auto-review</text>
+    <text class="body" x="16" y="66">active host: verify + assimilate</text>
     <text class="body" x="16" y="91">Hook: Dream verifies + compares</text>
     <text class="code" x="16" y="118">applied / rejected</text>
     <text class="code" x="16" y="142">archived / failed</text>
