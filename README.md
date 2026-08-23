@@ -43,7 +43,7 @@ triggered by the runtime rather than a checklist step the user must perform each
 day; `status` is the diagnostic summary surface.
 
 <p align="center">
-  <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="A fresh Agent uses wake, search, distill, review, and dream against a local auditable memory backend" width="900" />
+  <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="Three independent daily intents and a separate Hook-to-Dream unattended lane" width="900" />
 </p>
 
 ## Architecture and daily actions
@@ -123,6 +123,12 @@ reopens the triggering session and the project's current knowledge, sources,
 and feedback. Dream then extracts or compares, verifies, assimilates, and ends
 each item as applied, rejected, archived, or failed/retryable.
 
+Unattended work keeps two queues even though one restricted Dream executor
+serves both: the session processing queue owns one immutable session job; the
+project governance queue compares current knowledge with real sources and
+retrieval feedback. Manual explicit distill bypasses both queues and remains in
+the active host.
+
 Provider profiles contain only a protocol, endpoint, model, timeout, and an
 environment-variable name in user configuration; project configuration can
 only select a named profile. The provider is a no-tools, strict-schema semantic
@@ -201,7 +207,7 @@ stay readable without silently changing authority. See
 [legacy storage lifecycle](docs/storage-legacy-lifecycle.md).
 
 <p align="center">
-  <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="Native IDE transcripts are preserved as immutable revisions, processed through every ordered chunk, reviewed at session end, and only then promoted into memory" width="900" />
+  <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="A lossless session revision flows through extraction, per-point verification, and assimilation while temporary job material remains separate from SQLite current knowledge" width="900" />
 </p>
 
 ## Why It Is Different
@@ -213,14 +219,14 @@ stay readable without silently changing authority. See
   Antigravity, or another MCP-capable Agent client.
 
 <p align="center">
-  <img src="docs/assets/harness-mem-candidate-governance.svg" alt="candidate-before-truth memory governance state machine" width="900" />
+  <img src="docs/assets/harness-mem-candidate-governance.svg" alt="Immutable evidence, temporary job material, and SQLite current knowledge remain separate across manual distill and Dream governance" width="900" />
 </p>
 
 `harness-mem` stays behind the Agent client. MCP is the transport; the runtime
 owns storage, candidates, review, retrieval, and local audit state.
 
 <p align="center">
-  <img src="docs/assets/harness-mem-runtime-layered-architecture.svg" alt="harness-mem runtime layered architecture" width="900" />
+  <img src="docs/assets/harness-mem-runtime-layered-architecture.svg" alt="Five-module harness-mem runtime with governance feedback, execution boundaries, and separate storage authorities" width="900" />
 </p>
 
 ## Install
@@ -259,7 +265,7 @@ Claude Code users can install the repo-local plugin and optionally register MCP:
 ```powershell
 git clone https://github.com/manhua-man/harness-mem.git
 cd harness-mem
-.\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
+.\code\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
 For Cursor, register a project-scoped MCP server that runs from the workspace:
@@ -384,7 +390,7 @@ sessions as verified, pending, quarantined, deferred-unresolved, or excluded.
 The repo installer performs the same all-host user-level sync automatically:
 
 ```powershell
-.\plugins\harness-mem\scripts\install.ps1 -WithHybrid
+.\code\plugins\harness-mem\scripts\install.ps1 -WithHybrid
 ```
 
 All supported hosts expose the same actions: `status`, `wake`, `search`,
@@ -425,21 +431,26 @@ product surface.
 - `docs/mcp-setup.md`: MCP setup notes.
 - `docs/demo-cold-start.md`: reproducible cold-start demo.
 - `docs/assets/`: logo and public README diagrams.
-- [项目结构收敛说明](docs/project-structure.md):源码与文档一体化布局说明（不含运行时变更）。
-- 一次性清理脚本：
-  - `scripts\\clean-workspace.ps1 clean`（保守清理：临时缓存）
-  - `scripts\\clean-workspace.ps1 clean-all`（强清：保守缓存 + 构建产物）
+- [Converged project layout](docs/project-structure.md): repository source and
+  documentation layout (no runtime behavior change).
+- One-line cleanup scripts:
+  - `.\\code\\scripts\\clean-workspace.ps1 clean` (temporary caches)
+  - `.\\code\\scripts\\clean-workspace.ps1 clean-all` (caches + build output)
 
-## Documentation
+## User documentation
 
 - [Quickstart](docs/quickstart.md)
 - [IDE hook adapter matrix](docs/ide-hook-adapter-matrix.md)
 - [MCP setup](docs/mcp-setup.md)
 - [Cold-start demo](docs/demo-cold-start.md)
 - [Recall audit contract](docs/recall-audit.md)
-- [Distill acceptance test plan](docs/distill-test-plan.md)
 - [Autopilot search policy](docs/autopilot-search-policy.md)
 - [Compatibility inventory](docs/compatibility-inventory.md)
+
+## Contributor architecture and evidence
+
+- [Five-module memory adoption contract](docs/memory-adoption.md)
+- [Distill acceptance test plan](docs/distill-test-plan.md)
 - [Reference-project evidence index](docs/reference-projects/index.md)
 - [Agent memory & retrieval research (2026)](docs/agent-memory-retrieval-research-2026.md)
 - [Roadmap](docs/roadmap.md)

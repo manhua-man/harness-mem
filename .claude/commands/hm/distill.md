@@ -88,17 +88,17 @@ wireFormatVersion: hm-wire-v3.5
    读取返回的 raw chunk，调用 `submit_distill_chunk`，并重复
    `prepare_session_distill` 直到 `reviewing`。用户明确要求逐字/合规审计时也可
    主动使用 raw 模式。不要再手动调用
-   `ingest_sessions`、`timeline`、`get_observations`、`Bash`、`cmem`、`ls`、
-   `cat` 或 `find` 去摸索同一份 transcript；只有工具报错或明确返回
+   `timeline`、`get_observations`、`Bash`、`cmem`、`ls`、`cat` 或 `find`
+   去摸索同一份 transcript；只有工具报错或明确返回
    `legacy_partial` 时才排障。
 
    默认只同步当前 agent 环境、当前项目路径匹配的会话。`client="auto"` 会自动识别 Codex、Claude Code、Cursor、Antigravity、opencode、Hermes 或 generic agent 入口，并按当前项目根过滤证据。
    - 只有用户明确要求全局历史时，才允许 `scope="all"`
 
 3. **做 final-session review、标准准入，再写候选**
-   - 默认读取并遵循 `tools/hm-distill/SKILL.md`（Step 3–4）
+   - 本公开命令自包含 final-session review、候选准入和 evidence 合同；不要依赖仓库内开发文档
    - semantic 模式按 `semantic_chunk_index` 汇总 evidence；raw 兼容模式按 `chunk_index` 汇总 checkpoint result
-   - semantic review 必须填写 `session_summary`、`final_user_request`、`final_outcome`、`last_turn_status`、`contradictions`、`unfinished_work`、`evidence_status`、`promotion_decision`
+   - semantic review 必须填写 `session_summary`、`final_user_request`、`final_outcome`、`last_turn_status`、`contradictions`、`unfinished_work`、`evidence_status`、`promotion_decision`；`contradictions` 只记录当前候选证据仍未解决的冲突，旧方案被后续决定替代应写入 summary/outcome，不能误标为当前候选冲突
    - `session_summary` 用 1–3 句话说明会话主题、实际结果和关键未完成项；它是用户可读摘要，与是否产生长期记忆候选无关
    - v1 job 没有候选时，必须读取 manifest 的 `zero_candidate_required_exchange_indexes`，drilldown 全部完整窗口，并提交带 `content_sha256` 的 `zero_candidate_challenge`
    - challenge 分开记录 `evidence_fidelity` 与 `future_utility`，逐项检查 correction、decision、solution、repeated failure、rule/preference、reusable workflow/fact、version/migration 和 unfinished handoff；检测到的信号默认 `candidate_required`，只有读完完整窗口并在 rationale 点名该 signal key 与 session-only 原因后才可降级为 `not_durable`
@@ -139,10 +139,9 @@ wireFormatVersion: hm-wire-v3.5
 
    候选判断必须复用 shared verification + assimilation contract，而不是在 slash 文档里手写另一套规则。只有已验证的窄 point 才能由受信 runtime 写入当前知识；其余候选终结在 job 范围。`/hm:review` 是事后 audit、纠错和 undo 入口，不是日常晋升闸门。
 
-   内部审计结果必须以 `finalize_session_distill` 返回的 scoped auto-review 结果为准：
-   - governed current-knowledge mutation（如有）
-   - terminal non-write disposition（如有）
-   - `completion.disposition` (`promoted` / `no_candidate`)
+   内部审计结果必须以 `finalize_session_distill` 返回的 runtime 派生结果为准：
+   - `assimilation_decisions`（`add` / `refine` / `confirm` / `supersede` / `no_write` 等）
+   - `completion.disposition`
    - `source_cleanup.status` (`retained` / `deleted` / `partial_failure` / `unsupported`)
    - `applied_decisions`
    - `evidence_admission` (`repository_verified` / `user_stated` / `unverified_blocked` / `contradicted`)
@@ -154,8 +153,11 @@ wireFormatVersion: hm-wire-v3.5
    `auto_review_candidates(apply=true)` 收尾，也不要额外调用一条平行 Dream。
 
 5. **总结呈现与 Note**
-   明确 session id 时，默认创建或更新
-   `~/.codex/hm-distill/sessions/<session_id>.md`。Note 至少包含会话主题、
+   明确 session id 时，finalize 为当前 job 创建不可变审计 Note：
+   `~/.codex/hm-distill/sessions/revisions/<job_id>/<session_id>.md`，并仅把
+   `~/.codex/hm-distill/sessions/<session_id>.md` 更新为该 session 最新完成版本的
+   便利入口。返回的 `note.path` 是 receipt 绑定的不可变路径，`note.latest_path` 是
+   用户快捷入口。Note 至少包含会话主题、
    最终结果、未完成工作和记忆治理结果，并明确它是历史审计/可读性产物，不是当前
    项目真相。只复用已经提交的 semantic review，不启动额外导出，不重新消耗模型
    阅读原文。
@@ -185,8 +187,8 @@ wireFormatVersion: hm-wire-v3.5
 
 - `/hm:distill` 是当前宿主的立即执行入口：读取证据、生成会话摘要、提炼候选并自动处理当前 job 的低风险项；Hook 才会唤醒后台 Dream，默认摘要仍必须让用户知道会话做了什么
 - `/hm:review` 是 audit inbox：确认、拒绝、undo、替换候选都在这里发生
-- 原文默认保留；只有用户明确开启并通过 `config set distill.delete_source_after_complete true --scope user --confirm` 写入持久策略，才授权后续完成会话自动清理；不逐会话确认，实际结果以 `source_cleanup.status` 为准
+- 原文默认保留；只有 operator 明确执行 `harness-mem config set distill.delete_source_after_complete true --scope project --confirm` 后，才允许完成会话按策略尝试清理；适配器仍须支持 session-scoped deletion 并通过 quiet/CAS/hash 校验，实际结果以 `source_cleanup.status` 为准
 - 不要把具体客户端写死为默认来源；默认入口必须是 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根目录>)`
 - agent 历史可能是用户全局数据源，默认必须按当前项目路径过滤；跨项目导入必须由用户显式要求 `scope="all"`
 - 用户主路径只有 `hm-distill` 的 Slash / 自然语言 + MCP + Skill；没有第二套 distill CLI 兜底
-- MCP server 的 cwd 不等于当前 agent 项目目录；调用 `prepare_session_distill` 时必须显式传 `project_root`。`ingest_sessions` 是低层诊断/同步工具，不是用户主路径
+- MCP server 的 cwd 不等于当前 agent 项目目录；调用 `prepare_session_distill` 时必须显式传 `project_root`。未注册的内部工具名不属于公开路径，直接调用应返回 unknown tool

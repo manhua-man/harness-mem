@@ -2,9 +2,12 @@
 
 This document owns the conceptual contract for turning session evidence into
 usable long-term memory. The full product path starts before extraction: it
-must first safely receive, version, and finish a native session. The `0.9.20`
-runtime implements that lifecycle, lossless extraction, content-addressed
-evidence validation, governed truth, and normal retrieval. It isolates raw
+must first safely receive, version, and finish a native session. The current
+released runtime is `0.9.25`. SQLite truth separation landed in `0.9.20` and
+was extended and hardened through `0.9.25` with restricted provider profiles,
+strict no-tools JSON compatibility, and Hook-started Dream execution. The
+runtime implements lifecycle, lossless extraction, content-addressed evidence
+validation, governed truth, and normal retrieval. It isolates raw
 Observation content and internal audit metadata behind explicit deep recall or
 diagnostic views. Legacy `MemoryEntry` remains a compatibility/manual Review
 path, while SQLite `knowledge_entries` is the authority for new current
@@ -14,7 +17,8 @@ material retained only for retry, unresolved work, and bounded diagnosis.
 Current search reads SQLite deterministically; optional FTS/vector data remains
 a rebuildable optimization. Markdown is rendered on demand for reading or
 export and never becomes a write path. The frozen six-session oracle, real Hook,
-and runtime outcome acceptance passed for `0.9.20`.
+and runtime outcome acceptance originally passed for `0.9.20`; the current
+release boundary is tracked in `roadmap.md`.
 [SQLite Current-Knowledge Convergence](roadmap/knowledge-truth-separation.md)
 owns the construction and qualification plan and does not authorize a
 live-memory migration.
@@ -311,7 +315,7 @@ context cost, and zero audit-noise or obsolete-knowledge leakage by default.
 ## Core governance feedback: Review and Dream
 
 `review` and `dream` are core cross-module capabilities around stages 3--4,
-not a fifth linear knowledge stage and not operator-only maintenance. There are
+not a sixth linear knowledge stage and not operator-only maintenance. There are
 two session entry paths: a person can explicitly run `distill` in the active
 host, while a Hook records the session and wakes Dream. Hook never performs
 semantic work itself.
@@ -326,6 +330,13 @@ Hook
 -> Dream reads that session plus project knowledge, sources, and feedback
 -> extract or compare -> verify -> assimilate
 ```
+
+Unattended processing preserves two queues behind that compact flow. The
+session processing queue owns one immutable session job; the project governance
+queue owns project-wide duplicate, conflict, staleness, source, and retrieval-
+feedback checks. One restricted Dream semantic executor may serve both queues,
+but they are not the same processing chain. Manual explicit distill bypasses
+both background queues and remains in the active host.
 
 - **Review** is the human correction and adjudication path: confirm, reject,
   undo, correct, or supersede a memory when the evidence or product boundary

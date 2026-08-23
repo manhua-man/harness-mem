@@ -51,3 +51,18 @@ def test_mcp_setup_explains_router_namespace_and_task_refresh() -> None:
     assert "mcp__mcp_router__get_project_status" in setup
     assert "mcp__harness_mem__get_project_status" in setup
     assert "existing tasks keep the tool snapshot" in setup
+
+
+def test_public_source_install_examples_use_converged_code_path() -> None:
+    paths = (
+        Path("README.md"),
+        Path("README.zh-CN.md"),
+        Path("docs/quickstart.md"),
+        Path("docs/mcp-setup.md"),
+        Path("code/plugins/harness-mem/README.md"),
+    )
+
+    for path in paths:
+        body = path.read_text(encoding="utf-8")
+        assert r".\plugins\harness-mem\scripts\install.ps1" not in body
+        assert r".\code\plugins\harness-mem\scripts\install.ps1" in body

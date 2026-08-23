@@ -83,7 +83,7 @@ For Claude Code on Windows, the repo-local installer can add plugin files and
 optionally register MCP:
 
 ```powershell
-.\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
+.\code\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
 That install performs the same all-host user-level command sync by default,

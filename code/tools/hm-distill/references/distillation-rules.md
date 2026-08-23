@@ -1,6 +1,7 @@
 # Distillation Rules
 
-> Stages 1--4 below are the released `0.9.20` knowledge-adoption contract.
+> Stages 1--4 below landed in `0.9.20` and remain the released `0.9.25`
+> knowledge-adoption contract.
 > They run after Stage 0 (session intake and lifecycle). Extraction remains
 > lossless; assimilation dispositions are runtime claims verified by their
 > owning tests and outcome probes.
@@ -31,7 +32,7 @@ Treat the full product lifecycle as five responsibilities:
 
 `review` and `dream` are governance feedback around stages 3--4: use feedback
 can trigger re-verification and then refine, replace, merge, or retire current
-memory. They are not a fifth linear stage.
+memory. They are not a sixth linear stage.
 
 ## Classify Before Suggesting
 

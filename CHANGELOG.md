@@ -23,6 +23,37 @@
   dispatch generation, and fingerprint non-secret selected-provider settings in
   autonomous receipts.
 
+## [0.9.24] - 2026-08-21
+
+### Added
+
+- Added an explicit `output_mode = "json"` provider setting for
+  Anthropic-compatible gateways that reject forced tool output.
+
+### Fixed
+
+- Kept JSON-text execution inside the same no-tools boundary and required the
+  returned document to pass the existing strict Pydantic schema.
+- Failed closed on malformed text instead of silently downgrading provider
+  output or treating a transport response as a semantic result.
+
+## [0.9.23] - 2026-08-21
+
+### Added
+
+- Added operator-owned restricted semantic provider profiles for unattended
+  Dream work. Projects select only a named profile from user configuration;
+  credentials remain environment-variable references.
+- Added source-backed terminal Dream rechecks with bounded undo support for
+  verified single-item refresh or retirement.
+
+### Changed
+
+- Required separate project authorization for autonomous model work even when
+  a provider profile exists.
+- Closed unsupported, missing, truncated, and unsafe multi-item comparison
+  signals without changing current knowledge.
+
 ## [0.9.22] - 2026-08-20
 
 ### Fixed

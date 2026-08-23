@@ -1,35 +1,53 @@
-# Release 0.9.22 (2026-08-20)
+# Release 0.9.25 (2026-08-21)
 
-## What's shipped
+## What shipped
 
-- Prevented Goal/Read/Write/Acceptance task templates from becoming long-term
+- Made Dream the only unattended executor for Hook-started sessions. A Hook
+  now persists the immutable source and session job, then emits a source-bound
+  Dream activity signal; an explicit `distill` remains in the active host.
+- Added operator-owned restricted semantic provider profiles. Projects may
+  select a named user profile only after autonomous distillation is explicitly
+  enabled; credentials are read only through environment-variable references.
+- Added strict, no-tools JSON output compatibility for Anthropic-compatible
+  gateways that reject forced tool output. Malformed or schema-invalid output
+  fails closed.
+- Prevented truncated, missing, or unsupported sources from retiring current
+  knowledge. Unsafe multi-item comparisons close without guessing a winner.
+- Made provider construction and verification failures persist as terminal,
+  retryable Dream failures, and made archived truth mutations carry a real
+  undo path.
+- Bound unattended receipts to the originating Hook source, dispatch
+  generation, and a fingerprint of the selected non-secret provider settings.
+
+## Current architecture boundary
+
+- SQLite `knowledge_entries` is the sole authority for current long-term
   knowledge.
-- Kept normal `search` clean, while allowing the internal Autopilot path to
-  inject matching current knowledge into the next agent context.
-- Repaired archive receipt verification so a completed job can be readmitted
-  only when its exact revision, Note, and receipt prove the same result.
-- Added reversible, maintenance-only archival of obsolete current knowledge;
-  semantic models cannot request this action.
-- Made the outcome verifier read the current SQLite knowledge authority through
-  the ordinary search route.
+- Transcript revisions remain source evidence.
+- Candidate, evidence, and proposed assimilation decisions remain temporary
+  job-scoped material and are cleaned by policy only after a proven terminal
+  outcome.
+- Normal `wake` and `search` do not expose raw transcripts, provisional
+  candidates, internal IDs, or audit envelopes.
+- Session processing and project governance use distinct queues even when
+  served by the same restricted Dream executor.
 
-## Verification completed
+## Release evidence
 
-- `python -m pytest -q` — pending final release run
-- `python -m pytest -m "not release_gate"` — pending final release run
-- `python -m ruff check harness_mem code/plugins code/tools`
-- `python -m mypy harness_mem`
-- `python -m compileall harness_mem`
-- `cargo test --workspace`
-- `python code/tools/outcome-verifier/scripts/verify_outcomes.py --config .codex/outcomes.json --output .tmp/outcome-verifier/harness-mem-report.json`
-  - **Outcome: passed (14/14)**
-- `python code/scripts/ensure_mcps_canonical.py`
+- Git tag: `v0.9.25`.
+- Python package metadata, runtime `__version__`, and plugin manifest:
+  `0.9.25`.
+- Repository qualification record: frozen six-session oracle,
+  generation-bound Desktop Hook, and the 14-claim outcome contract passed.
+- The release does not authorize automatic migration or mutation of other
+  projects' real legacy memory.
 
-## Packaging / release status
+## Install or upgrade
 
-- Pending final commit, tag, and GitHub Release publication.
+```bash
+python -m pip install --upgrade \
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
+  harness-mem==0.9.25
+```
 
-## One-line clean commands
-
-- `code/scripts/clean-workspace.ps1 -Mode clean`
-- `code/scripts/clean-workspace.ps1 -Mode clean-all`
+The package is distributed through GitHub Releases, not PyPI.

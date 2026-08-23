@@ -88,15 +88,15 @@ wireFormatVersion: hm-wire-v3.5
    读取返回的 raw chunk，调用 `submit_distill_chunk`，并重复
    `prepare_session_distill` 直到 `reviewing`。用户明确要求逐字/合规审计时也可
    主动使用 raw 模式。不要再手动调用
-   `ingest_sessions`、`timeline`、`get_observations`、`Bash`、`cmem`、`ls`、
-   `cat` 或 `find` 去摸索同一份 transcript；只有工具报错或明确返回
+   `timeline`、`get_observations`、`Bash`、`cmem`、`ls`、`cat` 或 `find`
+   去摸索同一份 transcript；只有工具报错或明确返回
    `legacy_partial` 时才排障。
 
    默认只同步当前 agent 环境、当前项目路径匹配的会话。`client="auto"` 会自动识别 Codex、Claude Code、Cursor、Antigravity、opencode、Hermes 或 generic agent 入口，并按当前项目根过滤证据。
    - 只有用户明确要求全局历史时，才允许 `scope="all"`
 
 3. **做 final-session review、标准准入，再写候选**
-   - 默认读取并遵循 `code/tools/hm-distill/SKILL.md`（Step 3–4）
+   - 本公开命令自包含 final-session review、候选准入和 evidence 合同；不要依赖仓库内开发文档
    - semantic 模式按 `semantic_chunk_index` 汇总 evidence；raw 兼容模式按 `chunk_index` 汇总 checkpoint result
    - semantic review 必须填写 `session_summary`、`final_user_request`、`final_outcome`、`last_turn_status`、`contradictions`、`unfinished_work`、`evidence_status`、`promotion_decision`；`contradictions` 只记录当前候选证据仍未解决的冲突，旧方案被后续决定替代应写入 summary/outcome，不能误标为当前候选冲突
    - `session_summary` 用 1–3 句话说明会话主题、实际结果和关键未完成项；它是用户可读摘要，与是否产生长期记忆候选无关
@@ -187,8 +187,8 @@ wireFormatVersion: hm-wire-v3.5
 
 - `/hm:distill` 是当前宿主的立即执行入口：读取证据、生成会话摘要、提炼候选并自动处理当前 job 的低风险项；Hook 才会唤醒后台 Dream，默认摘要仍必须让用户知道会话做了什么
 - `/hm:review` 是 audit inbox：确认、拒绝、undo、替换候选都在这里发生
-- 成功蒸馏后默认尝试安全清理原文；只删除适配器支持且通过静默/CAS/hash 校验的独立来源，共享或不安全容器保持不动；项目可配置 `distill.delete_source_after_complete=false` 保留原文，实际结果以 `source_cleanup.status` 为准
+- 原文默认保留；只有 operator 明确执行 `harness-mem config set distill.delete_source_after_complete true --scope project --confirm` 后，才允许完成会话按策略尝试清理；适配器仍须支持 session-scoped deletion 并通过 quiet/CAS/hash 校验，实际结果以 `source_cleanup.status` 为准
 - 不要把具体客户端写死为默认来源；默认入口必须是 `prepare_session_distill(client="auto", scope="project", project_root=<当前项目根目录>)`
 - agent 历史可能是用户全局数据源，默认必须按当前项目路径过滤；跨项目导入必须由用户显式要求 `scope="all"`
 - 用户主路径只有 `hm-distill` 的 Slash / 自然语言 + MCP + Skill；没有第二套 distill CLI 兜底
-- MCP server 的 cwd 不等于当前 agent 项目目录；调用 `prepare_session_distill` 时必须显式传 `project_root`。`ingest_sessions` 是低层诊断/同步工具，不是用户主路径
+- MCP server 的 cwd 不等于当前 agent 项目目录；调用 `prepare_session_distill` 时必须显式传 `project_root`。未注册的内部工具名不属于公开路径，直接调用应返回 unknown tool

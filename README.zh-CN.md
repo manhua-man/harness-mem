@@ -34,7 +34,7 @@ review/undo 一条错误记忆。Dream 是核心治理反馈能力，通常由�
 不是用户每天必须手工完成的检查清单；status 是诊断汇总入口。
 
 <p align="center">
-  <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="新 Agent 通过 wake、search、distill、review、dream 恢复跨会话项目上下文" width="900" />
+  <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="三个彼此独立的日常意图，以及单独的 Hook 到 Dream 后台路径" width="900" />
 </p>
 
 ## 架构与日常动作
@@ -106,6 +106,11 @@ Hook 和 archive maintenance 属于阶段 0；原文/时间线读取、候选明
 Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 事件入口；`/hm:search` 只是客户端没有这类 hook 时的手动兜底。
 `Stop` Hook 会保存不可变的原始 transcript revision，并创建或推进它的 job，然后发出带该 revision 的 Dream 活动信号。Dream 在后台重开触发会话，同时读取项目当前知识、真实来源与检索反馈，执行提取或比较、验证和归纳吸收，并原子生成 Note 与长期知识结果。预算约束的是 provider 实际接收的完整序列化响应，3k 只是兼容默认软目标；允许因完整覆盖或显式 drilldown 扩张，但 `response_budget` 必须报告真实 token 数与原因，绝不静默丢弃后半段 exchange。受信 runtime 随后治理候选、finalize，并持久化真实 token/耗时及 `last_semantic_success_at`、`last_job_completed_at`、`last_note_materialized_at`。`detail_level="full"` 与兼容 `raw` 模式仍用于显式完整审计。检测到 decision、solution、preference、workflow、migration 或 handoff 信号时默认 fail-closed 为 `candidate_required`；只有读完完整窗口并给出针对该信号的 session-only 理由才能降级。人工调用 `/hm:distill` 时，由当前宿主执行同一套可恢复会话管线，不会被改道到 Dream provider。同步 Hook 本身只可声称已排队；只有 Dream 的 finalize 与 Note 回执都落盘后后台才可声称完成；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
+
+无人值守工作即使共用同一个受限 Dream 执行器，也保持两个队列：
+会话处理队列一次只处理一个不可变会话 job；项目治理队列面向整个项目
+比较当前知识、真实来源和检索反馈。人工显式 distill
+绕过这两个后台队列，始终留在当前宿主。
 
 显式 `raw` 审计中的每个 raw chunk 都保留完整内容，不截断内容。
 
@@ -193,7 +198,7 @@ pending、quarantined、deferred-unresolved 或 excluded。
 运维诊断同样显式：Doctor 只读探测 SQLite，并把恢复动作分成 `safe_rebuild`、`snapshot_required`、`manual_review` 和 `destructive`，不会自动 apply。compact project status 保留决策信息；full drilldown 增加 7 天检索使用/忽略/误导/放弃/旧冲突排除统计，以及明确的 distill backlog 原因和基于 Agent 实际吞吐的保守清空估算。
 
 <p align="center">
-  <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="IDE 原始会话以不可变 revision 保存，全部有序 chunk 完成处理和末尾审查后才进入候选记忆" width="900" />
+  <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="无损会话 revision 依次经过提取、逐点验证与归纳吸收，临时 job 材料与 SQLite 当前知识保持分离" width="900" />
 </p>
 
 ## 关键机制
@@ -201,13 +206,13 @@ pending、quarantined、deferred-unresolved 或 excluded。
 Agent 可以自动处理低风险候选，但不能把风险、证据和变更原因藏起来；用户 review 的对象是 audit inbox，不是日常逐条写入闸门。
 
 <p align="center">
-  <img src="docs/assets/harness-mem-candidate-governance.svg" alt="candidate-before-truth 记忆治理状态机" width="900" />
+  <img src="docs/assets/harness-mem-candidate-governance.svg" alt="人工 distill 与 Dream 治理中，原始证据、临时 job 材料和 SQLite 当前知识保持分离" width="900" />
 </p>
 
 运行时本身保持在后端位置：上层 Agent 走 MCP，底层是 canonical SQLite 当前知识、job 范围处理材料和可重建索引；Markdown 只在阅读或导出时生成。
 
 <p align="center">
-  <img src="docs/assets/harness-mem-runtime-layered-architecture.svg" alt="harness-mem runtime 分层架构" width="900" />
+  <img src="docs/assets/harness-mem-runtime-layered-architecture.svg" alt="harness-mem 五模块运行时、治理反馈、执行边界与独立存储权威" width="900" />
 </p>
 
 ## 它解决什么
@@ -252,7 +257,7 @@ Claude Code 用户可以安装 repo-local plugin，并可选注册 MCP：
 ```powershell
 git clone https://github.com/manhua-man/harness-mem.git
 cd harness-mem
-.\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
+.\code\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
 Cursor 请在项目 MCP 配置中使用 `harness-mem-mcp`，将 `cwd` 设为工作区，
@@ -268,7 +273,7 @@ project profile、安装匹配的项目 hooks，并幂等修复当前宿主的�
 仓库安装脚本会自动执行同一套“全部宿主、用户级”同步：
 
 ```powershell
-.\plugins\harness-mem\scripts\install.ps1 -WithHybrid
+.\code\plugins\harness-mem\scripts\install.ps1 -WithHybrid
 ```
 
 所有已支持宿主使用同一组动作：`status`、`wake`、`search`、`search-all`、
@@ -306,7 +311,7 @@ procedural skill 生命周期治理不属于 public memory MCP 和 CLI 产品面
 - `docs/demo-cold-start.md`：可复现 cold-start demo。
 - `docs/assets/`：logo 和公开 README 图。
 
-## 文档
+## 用户文档
 
 - [Quickstart](docs/quickstart.md)
 - [MCP setup](docs/mcp-setup.md)
@@ -314,6 +319,11 @@ procedural skill 生命周期治理不属于 public memory MCP 和 CLI 产品面
 - [Recall audit contract](docs/recall-audit.md)
 - [自动检索策略](docs/autopilot-search-policy.md)
 - [Compatibility inventory](docs/compatibility-inventory.md)
+
+## 贡献者架构与证据
+
+- [五模块记忆采用合同](docs/memory-adoption.md)
+- [Distill 验收测试计划](docs/distill-test-plan.md)
 - [参考项目证据目录](docs/reference-projects/index.md)
 - [Roadmap](docs/roadmap.md)
 - [Changelog](CHANGELOG.md)

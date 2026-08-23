@@ -1,10 +1,10 @@
 # Canvas 图解
 
-Cursor Canvas 交互面板源码。入门与历史快照见下表；**当前成熟度评估** 以 Readiness Ladder v1 为准。上游参考项目的当前版本与采用结论见 [`docs/reference-projects-latest.md`](../docs/reference-projects-latest.md)，下列 comparison canvas 不作为版本真值。
+Cursor Canvas 交互面板源码。入门与历史快照见下表；**当前成熟度评估** 以 Readiness Ladder v1 为准。上游参考项目的当前版本与采用结论见 [`reference-projects-latest.md`](../reference-projects-latest.md)，下列 comparison canvas 不作为版本真值。
 
 | 文件 | 用途 |
 |------|------|
-| `harness-mem-readiness-v1.canvas.tsx` | **当前**：0.9.20 六轨 Readiness + Scope Ledger，不用综合分掩盖 live drift/backlog |
+| `harness-mem-readiness-v1.canvas.tsx` | **当前**：0.9.25 五模块边界、双执行入口、SQLite truth 与 Scope Ledger |
 | `harness-mem-readiness-0-9-10.canvas.tsx` | 历史快照：0.9.10 仓库成熟度与当时本机运营状态 |
 | `harness-mem-how-it-works-0-9-10.canvas.tsx` | 历史快照：0.9.10 七宿主、7 Daily、27 MCP tools 与 distill/Dream 主链 |
 | `harness-mem-how-it-works.canvas.tsx` | 历史快照：早期入门流程与旧内部产品面 |

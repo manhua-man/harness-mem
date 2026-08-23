@@ -21,12 +21,12 @@ wireFormatVersion: hm-wire-v3.5
 3. **按项目分组呈现结果**：
    - 先列 `current project` 命中
    - 再列 `other projects worth borrowing from`
-   - 每条结果带 `project_name`、`memory_type`、`score`，必要时带 observation preview
+   - 每条结果带项目名、标题和陈述；不展示内部 ID、评分或原始会话片段
 4. **强调可迁移边界**：
    - 明确提示这些是“可借鉴历史”，不是自动写回当前项目的 truth
    - 如果其它项目命中更强，指出值得复用的决策、坑点或流程
 5. **给出下一步 hint**：
-   - 只想继续深挖某个项目证据：继续用 timeline / observations drilldown
+   - 只想继续深挖某个项目证据：显式使用 `deep_recall=true`、timeline 或 observations drilldown
    - 如果用户想找可复用流程而不是事实决策，再考虑 `search_skills(include_shared=true)`
 
 **Notes**

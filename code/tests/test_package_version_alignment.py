@@ -43,3 +43,8 @@ def test_public_install_and_plugin_versions_match_runtime() -> None:
     )
     assert f"Current snapshot (v{__version__})" in maturity
     assert f'RUNTIME_VERSION = "{__version__}"' in readiness
+
+    release_notes = (root / "release-notes.md").read_text(encoding="utf-8")
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert release_notes.startswith(f"# Release {__version__} ")
+    assert f"## [{__version__}]" in changelog

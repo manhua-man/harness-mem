@@ -95,7 +95,7 @@ def test_current_docs_distinguish_five_modules_from_core_governance_feedback() -
         assert "assimilation" in body
         assert "retrieval/use" in body
 
-    assert "not a fifth linear" in adoption
+    assert "not a sixth linear" in adoption
     assert "not operator-only maintenance" in governance
     assert "Review and Dream remain the governance feedback loop" in plan
     assert not Path("docs/roadmap/0.9.13-four-stage-memory-quality.md").exists()
@@ -210,11 +210,14 @@ def test_runtime_diagram_matches_current_storage_and_truth_contract() -> None:
         encoding="utf-8"
     )
 
-    assert 'viewBox="0 0 1510 1000"' in diagram
+    assert 'viewBox="0 0 1440 900"' in diagram
+    assert "Five-module memory runtime" in diagram
     assert "knowledge_entries" in diagram
     assert "raw revisions / chunks" in diagram
-    assert "Dream 无人值守；Review 事后纠错" in diagram
-    assert "用户 profile + env-key reference" in diagram
+    assert "Authorized Dream" in diagram
+    assert "named user profile" in diagram
+    assert "Job workspace" in diagram
+    assert "unknown stays unknown" in diagram
     assert "canonical SQLite / profiles" not in diagram
     assert "auto/user confirmed truth" not in diagram
     assert "current package version 0.8.9" not in diagram
@@ -266,6 +269,20 @@ def test_distill_agent_surfaces_use_lossless_finalize_contract() -> None:
     assert "session_summary" in combined
     legacy_tool_path = str(Path("tools") / ("session" + "-distill")).replace("\\", "/")
     assert legacy_tool_path not in combined
+
+
+def test_installed_distill_docs_are_self_contained_public_surfaces() -> None:
+    public_paths = (
+        Path("code/plugins/harness-mem/commands/hm/daily/distill.md"),
+        Path("code/plugins/harness-mem/skills/harness-mem/SKILL.md"),
+    )
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in public_paths)
+
+    assert "code/tools/hm-distill/SKILL.md" not in combined
+    assert "ingest_sessions" not in combined
+    assert "delete_source_after_complete=false" not in combined
+    assert "unknown tool" in combined
+    assert "delete_source_after_complete true" in combined
 
 
 def test_repo_local_duplicate_distill_runtime_is_removed() -> None:

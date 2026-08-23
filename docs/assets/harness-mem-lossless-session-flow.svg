@@ -1,139 +1,108 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="720" viewBox="0 0 1400 720" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="820" viewBox="0 0 1440 820" role="img" aria-labelledby="title desc">
   <title id="title">harness-mem lossless session distillation</title>
-  <desc id="desc">Immutable raw revisions feed a hash-verified append projection, turn- and tool-safe semantic windows, and candidate evidence. Explicit distill stays in its active host; a Hook wakes Dream to process its session and project governance. Both cross verification and governed assimilation before a durable result. Manual review is a post-hoc audit and undo path.</desc>
+  <desc id="desc">A native transcript becomes an immutable revision, lossless chunks, a complete manifest, and semantic and raw drilldown. Explicit distill stays in the active host; a Hook only queues the session and wakes Dream. Both paths extract zero to twelve points, verify each point, and assimilate only proven reusable knowledge into SQLite knowledge_entries.</desc>
   <defs>
     <style>
-      .bg { fill: #f8fafc; }
-      .title { font: 700 34px "Segoe UI", Arial, sans-serif; fill: #0f172a; }
-      .subtitle { font: 400 17px "Segoe UI", Arial, sans-serif; fill: #475569; }
-      .card { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; }
-      .source { fill: #eff6ff; stroke: #7db7dc; stroke-width: 2; }
-      .ledger { fill: #ecfdf5; stroke: #66bf9b; stroke-width: 2; }
-      .review { fill: #fff7ed; stroke: #e9a85e; stroke-width: 2; }
-      .truth { fill: #f0fdf4; stroke: #5fbd82; stroke-width: 2; }
-      .receipt { fill: #f5f3ff; stroke: #9b87d3; stroke-width: 2; }
-      .label { font: 700 16px "Segoe UI", Arial, sans-serif; fill: #0f172a; }
-      .body { font: 400 13px "Segoe UI", Arial, sans-serif; fill: #475569; }
-      .code { font: 600 12px "Cascadia Mono", Consolas, monospace; fill: #0f6fbf; }
-      .note { font: 400 14px "Segoe UI", Arial, sans-serif; fill: #64748b; }
-      .arrow { fill: none; stroke: #0f8c87; stroke-width: 3; marker-end: url(#arrow); }
-      .branch { fill: none; stroke: #64748b; stroke-width: 2; stroke-dasharray: 7 6; marker-end: url(#grayArrow); }
-      .fallback { fill: none; stroke: #d97706; stroke-width: 2; stroke-dasharray: 6 5; marker-end: url(#amberArrow); }
+      text{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+      .bg{fill:#f8fafc}.ink{fill:#0f172a}.muted{fill:#475569}.teal{fill:#0f766e}
+      .card{fill:#fff;stroke:#cbd5e1;stroke-width:2}.source{fill:#eff6ff;stroke:#73aedd;stroke-width:2}
+      .soft{fill:#ecfdf5;stroke:#5fbf9a;stroke-width:2}.warm{fill:#fff7ed;stroke:#d99a45;stroke-width:2}
+      .violet{fill:#f5f3ff;stroke:#9f8bd7;stroke-width:2}.dark{fill:#0f172a}
+      .title{font-size:38px;font-weight:760}.subtitle{font-size:20px}.eyebrow{font-size:16px;font-weight:750;letter-spacing:1px}
+      .heading{font-size:23px;font-weight:750}.body{font-size:18px}.small{font-size:16px}.code{font:650 17px "Cascadia Mono",Consolas,monospace}
+      .line{fill:none;stroke:#0f766e;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrow)}
+      .branch{fill:none;stroke:#64748b;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#grayArrow)}
+      .hook{fill:none;stroke:#c99532;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#goldArrow)}
     </style>
-    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
-      <path d="M2,2 L10,6 L2,10 Z" fill="#0f8c87"/>
-    </marker>
-    <marker id="grayArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
-      <path d="M2,2 L10,6 L2,10 Z" fill="#64748b"/>
-    </marker>
-    <marker id="amberArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
-      <path d="M2,2 L10,6 L2,10 Z" fill="#d97706"/>
-    </marker>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1l10 5-10 5z" fill="#0f766e"/></marker>
+    <marker id="grayArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1l10 5-10 5z" fill="#64748b"/></marker>
+    <marker id="goldArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1l10 5-10 5z" fill="#c99532"/></marker>
   </defs>
+  <rect class="bg" width="1440" height="820"/>
+  <rect class="teal" width="1440" height="10"/>
+  <text x="64" y="66" class="title ink">Lossless session distillation</text>
+  <text x="64" y="100" class="subtitle muted">Evidence stays reconstructable; extraction, verification, and assimilation remain separate decisions.</text>
+  <g transform="translate(1228 38)"><rect class="soft" width="148" height="42" rx="21"/><text x="28" y="28" class="eyebrow teal">v0.9.25</text></g>
 
-  <rect class="bg" width="1400" height="720"/>
-  <text class="title" x="52" y="62">Lossless session distillation</text>
-  <text class="subtitle" x="52" y="94">Raw evidence remains authoritative; incremental projections are verified, rebuildable, and automatically governed.</text>
-
-  <g transform="translate(35 150)">
-    <rect class="source" width="175" height="170" rx="9"/>
-    <text class="label" x="17" y="36">Native transcript</text>
-    <text class="body" x="17" y="68">Seven host adapters</text>
-    <text class="body" x="17" y="92">capture native bytes</text>
-    <text class="body" x="17" y="116">source / project</text>
-    <text class="body" x="17" y="140">revision identity</text>
+  <text x="64" y="148" class="eyebrow muted">0 · SESSION INTAKE AND LIFECYCLE</text>
+  <g transform="translate(64 174)">
+    <rect class="source" width="264" height="150" rx="16"/>
+    <text x="24" y="42" class="heading ink">Native transcript</text>
+    <text x="24" y="78" class="body muted">Seven host adapters</text>
+    <text x="24" y="106" class="body muted">Project + session identity</text>
+    <text x="24" y="134" class="body muted">Private spans excluded first</text>
+  </g>
+  <path class="line" d="M328 249h42"/>
+  <g transform="translate(384 174)">
+    <rect class="soft" width="264" height="150" rx="16"/>
+    <text x="24" y="42" class="heading ink">Immutable revision</text>
+    <text x="24" y="78" class="code teal">raw bytes + digest</text>
+    <text x="24" y="106" class="body muted">Content-addressed source</text>
+    <text x="24" y="134" class="body muted">Safe retry and replay</text>
+  </g>
+  <path class="line" d="M648 249h42"/>
+  <g transform="translate(704 174)">
+    <rect class="soft" width="264" height="150" rx="16"/>
+    <text x="24" y="42" class="heading ink">Lossless chunks</text>
+    <text x="24" y="78" class="body muted">Turn and tool-result safe</text>
+    <text x="24" y="106" class="body muted">Complete ordered manifest</text>
+    <text x="24" y="134" class="body muted">Continuation metadata</text>
+  </g>
+  <path class="line" d="M968 249h42"/>
+  <g transform="translate(1024 174)">
+    <rect class="violet" width="352" height="150" rx="16"/>
+    <text x="24" y="42" class="heading ink">Semantic + raw drilldown</text>
+    <text x="24" y="78" class="body muted">High-recall windows for extraction</text>
+    <text x="24" y="106" class="body muted">Exact chunks remain reopenable</text>
+    <text x="24" y="134" class="body muted">Manifest proves full coverage</text>
   </g>
 
-  <path class="arrow" d="M210 235 H245"/>
+  <text x="64" y="378" class="eyebrow muted">TWO EXECUTION ENTRIES — ONE POINT-LEVEL CONTRACT</text>
+  <g transform="translate(64 404)">
+    <rect class="card" width="286" height="104" rx="16"/>
+    <text x="22" y="38" class="heading ink">Explicit distill</text>
+    <text x="22" y="72" class="body muted">Active host reads the session</text>
+    <text x="22" y="96" class="small muted">Never redirected to the profile</text>
+  </g>
+  <g transform="translate(64 528)">
+    <rect class="warm" width="286" height="104" rx="16"/>
+    <text x="22" y="38" class="heading ink">Hook-started Dream</text>
+    <text x="22" y="72" class="body muted">Hook stores job + activity signal</text>
+    <text x="22" y="96" class="small muted">Dream performs semantic work</text>
+  </g>
+  <path class="branch" d="M350 456h46v50h42"/>
+  <path class="hook" d="M350 580h46v-50h42"/>
 
-  <g transform="translate(250 150)">
-    <rect class="ledger" width="180" height="170" rx="9"/>
-    <text class="label" x="16" y="36">Immutable raw ledger</text>
-    <text class="code" x="16" y="68">bytes + SHA-256</text>
-    <text class="body" x="16" y="94">content-addressed</text>
-    <text class="body" x="16" y="118">append-only revisions</text>
-    <text class="body" x="16" y="142">canonical evidence</text>
+  <g transform="translate(452 456)">
+    <rect class="card" width="246" height="152" rx="16"/>
+    <text x="22" y="38" class="eyebrow teal">1 · EXTRACT</text>
+    <text x="22" y="75" class="heading ink">0–12 points</text>
+    <text x="22" y="108" class="body muted">Narrow claims</text>
+    <text x="22" y="134" class="body muted">Reopenable locations</text>
+  </g>
+  <path class="line" d="M698 532h40"/>
+  <g transform="translate(752 456)">
+    <rect class="source" width="246" height="152" rx="16"/>
+    <text x="22" y="38" class="eyebrow teal">2 · VERIFY</text>
+    <text x="22" y="75" class="heading ink">Each point</text>
+    <text x="22" y="108" class="body muted">Integrity + support</text>
+    <text x="22" y="134" class="body muted">Fail closed when unsafe</text>
+  </g>
+  <path class="line" d="M998 532h40"/>
+  <g transform="translate(1052 456)">
+    <rect class="soft" width="324" height="152" rx="16"/>
+    <text x="22" y="38" class="eyebrow teal">3 · ASSIMILATE</text>
+    <text x="22" y="75" class="heading ink">Reconcile current truth</text>
+    <text x="22" y="108" class="body muted">Write one reusable fact, or</text>
+    <text x="22" y="134" class="body muted">close with an explicit non-write</text>
   </g>
 
-  <path class="arrow" d="M430 235 H465"/>
-
-  <g transform="translate(470 150)">
-    <rect class="ledger" width="190" height="170" rx="9"/>
-    <text class="label" x="16" y="36">Append projection</text>
-    <text class="code" x="16" y="67">prefix hash verified</text>
-    <text class="body" x="16" y="94">reuse prior projection</text>
-    <text class="body" x="16" y="118">process appended tail</text>
-    <text class="body" x="16" y="142">rebuildable derivative</text>
+  <g transform="translate(64 684)">
+    <rect class="dark" width="1312" height="96" rx="18"/>
+    <text x="28" y="36" class="heading" fill="#fff">Authority and retention</text>
+    <text x="340" y="36" class="body" fill="#ccfbf1">Transcript ledger preserves source evidence</text>
+    <text x="780" y="36" class="body" fill="#fde68a">Candidate / evidence / decision are job-scoped</text>
+    <text x="28" y="66" class="small" fill="#cbd5e1">Requirement: every expected chunk is checkpointed with zero character loss.</text>
+    <text x="28" y="86" class="small" fill="#cbd5e1">Temporary material is cleaned only after a proven terminal outcome; SQLite knowledge_entries remains current truth.</text>
   </g>
-
-  <path class="arrow" d="M660 235 H695"/>
-
-  <g transform="translate(700 150)">
-    <rect class="card" width="190" height="170" rx="9"/>
-    <text class="label" x="16" y="36">Semantic windows</text>
-    <text class="body" x="16" y="67">turn + tool-result safe</text>
-    <text class="body" x="16" y="94">no orphan tool results</text>
-    <text class="body" x="16" y="118">oversized exchange:</text>
-    <text class="code" x="16" y="142">continuation metadata</text>
-  </g>
-
-  <path class="arrow" d="M890 235 H925"/>
-
-  <g transform="translate(930 150)">
-    <rect class="review" width="190" height="170" rx="9"/>
-    <text class="label" x="16" y="36">Challenge / candidates</text>
-    <text class="body" x="16" y="67">candidate evidence</text>
-    <text class="body" x="16" y="92">or zero-candidate</text>
-    <text class="body" x="16" y="117">Grill challenge checks</text>
-    <text class="body" x="16" y="142">why nothing persists</text>
-  </g>
-
-  <path class="arrow" d="M1120 235 H1155"/>
-
-  <g transform="translate(1160 150)">
-    <rect class="truth" width="205" height="170" rx="9"/>
-    <text class="label" x="16" y="36">Governed assimilation</text>
-    <text class="body" x="16" y="66">active host: verify + assimilate</text>
-    <text class="body" x="16" y="91">Hook: Dream verifies + compares</text>
-    <text class="code" x="16" y="118">applied / rejected</text>
-    <text class="code" x="16" y="142">archived / failed</text>
-  </g>
-
-  <path class="fallback" d="M565 150 V122 H340 V145"/>
-  <text class="body" x="382" y="114" fill="#b45309">prefix mismatch: safe full rebuild</text>
-
-  <path class="branch" d="M565 320 V382 H625"/>
-  <g transform="translate(630 350)">
-    <rect class="receipt" width="350" height="130" rx="9"/>
-    <text class="label" x="18" y="36">Context Projection Receipt</text>
-    <text class="body" x="18" y="65">content-free audit: revision + covered range</text>
-    <text class="body" x="18" y="89">projection lineage + hashes + token basis</text>
-    <text class="body" x="18" y="113">records truncation / eviction / compaction</text>
-  </g>
-
-  <path class="branch" d="M1260 320 V405 H1110"/>
-  <g transform="translate(1030 350)">
-    <rect class="review" width="300" height="130" rx="9"/>
-    <text class="label" x="18" y="36">/hm:review — post-hoc only</text>
-    <text class="body" x="18" y="66">audit what Dream decided</text>
-    <text class="body" x="18" y="90">correct / reject / supersede / undo</text>
-    <text class="body" x="18" y="114">never a mandatory promotion gate</text>
-  </g>
-
-  <path class="branch" d="M805 480 V535 H610"/>
-  <g transform="translate(260 510)">
-    <rect class="card" width="345" height="105" rx="9"/>
-    <text class="label" x="18" y="35">Derived retrieval surfaces</text>
-    <text class="body" x="18" y="64">Observation / FTS / vector / trigram</text>
-    <text class="body" x="18" y="87">rebuildable; never canonical truth</text>
-  </g>
-  <g transform="translate(635 510)">
-    <rect class="truth" width="345" height="105" rx="9"/>
-    <text class="label" x="18" y="35">Governed long-term truth</text>
-    <text class="body" x="18" y="64">confirmed Memory / Rule / Handoff</text>
-    <text class="body" x="18" y="87">only the promoted outcome persists</text>
-  </g>
-
-  <text class="note" x="52" y="665">Completion is automatic and idempotent: the same immutable revision finalizes once as promoted or no_candidate.</text>
-  <text class="note" x="52" y="693">Requirement: every expected chunk is checkpointed with zero character loss; projection caches never replace truth.</text>
 </svg>

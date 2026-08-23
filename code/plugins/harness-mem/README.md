@@ -32,13 +32,13 @@ Invocation paths installed by this plugin:
 From the repository root:
 
 ```powershell
-.\plugins\harness-mem\scripts\install.ps1 -WithHybrid
+.\code\plugins\harness-mem\scripts\install.ps1 -WithHybrid
 ```
 
 To also register the MCP server with Claude Code:
 
 ```powershell
-.\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
+.\code\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
 The installer syncs the Daily command surface once at user scope for all seven
@@ -77,7 +77,7 @@ harness-mem integration hooks sync --client codex --project-root . --force
 Skip slash command and skill sync on headless machines:
 
 ```powershell
-.\plugins\harness-mem\scripts\install.ps1 -NoSlashCommands
+.\code\plugins\harness-mem\scripts\install.ps1 -NoSlashCommands
 ```
 
 Run a local smoke check:
@@ -132,9 +132,9 @@ The underlying actions are:
 | `hm-wake` | Recover confirmed project context. |
 | `hm-search "query"` | Search current-project memory. |
 | `hm-search-all "query"` | Explicit cross-project memory search. |
-| `hm-distill <project> <n>` | Consume recent evidence, runtime-challenge zero-candidate conclusions, record completion, and run Dream only when warranted. |
+| `hm-distill <project> <n>` | Process recent evidence in the active host, challenge zero-candidate conclusions, and finalize only that explicit session job. |
 | `hm-review` | Audit, correct, undo, or replace automatically governed memory. |
-| `hm-dream` | Inspect or explicitly trigger the default dream maintenance ledger. |
+| `hm-dream` | Inspect or explicitly trigger authorized project-level knowledge governance. |
 
 ## Boundary
 
@@ -149,12 +149,13 @@ The underlying actions are:
 - Agents suggest evidence-backed candidates; finalize automatically promotes
   safe truth and terminally rejects the rest. Review is the post-hoc audit and
   correction surface, not a daily manual gate.
-- Safe raw-session cleanup is attempted by default. Disable it with
-  `harness-mem config set distill.delete_source_after_complete false --scope project`
-  when a project must retain original sources. Only supported standalone sources
-  that pass quiet/CAS/hash checks are deleted; every completed job reports
-  retained/deleted/partial_failure/unsupported.
+- Raw session sources are retained by default. Cleanup is allowed only after an
+  operator explicitly sets `distill.delete_source_after_complete=true` with
+  `--confirm`; supported standalone sources must still pass quiet/CAS/hash
+  checks, and every completed job reports the actual cleanup outcome.
 - Confirmed memory is what future `wake` and `search` consume.
 
-See the repository [README](../../README.md), [Quickstart](../../docs/quickstart.md),
-and [Cold-start demo](../../docs/demo-cold-start.md) for the product flow.
+See the public [README](https://github.com/manhua-man/harness-mem),
+[Quickstart](https://github.com/manhua-man/harness-mem/blob/main/docs/quickstart.md),
+and [Cold-start demo](https://github.com/manhua-man/harness-mem/blob/main/docs/demo-cold-start.md)
+for the product flow.

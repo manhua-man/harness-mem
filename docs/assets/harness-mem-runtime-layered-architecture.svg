@@ -1,247 +1,139 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1510" height="1000" viewBox="0 0 1510 1000" role="img" aria-labelledby="title desc">
-  <title id="title">Harness-Mem Runtime 分层架构图</title>
-  <desc id="desc">从七宿主入口、Agent 编排、27 个公开 MCP 工具、增量语义投影、可重建索引到 canonical SQLite 长期真值边界的分层架构。</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">harness-mem 0.9.25 functional architecture</title>
+  <desc id="desc">Seven host-native clients and 27 public MCP tools enter a five-module runtime: session intake and lifecycle, extraction, per-point verification, assimilation, and retrieval and use. Review and Dream feed governed evidence back into verification and assimilation. Transcript evidence, temporary job material, SQLite current knowledge, and rebuildable indexes remain separate storage roles.</desc>
   <defs>
-    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
-      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e8f2fb" stroke-width="1"/>
-    </pattern>
-    <linearGradient id="blueGreen" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0f6fbf"/>
-      <stop offset="58%" stop-color="#11a7b5"/>
-      <stop offset="100%" stop-color="#45bd92"/>
-    </linearGradient>
-    <linearGradient id="layerFill" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#f0f7ff"/>
-      <stop offset="100%" stop-color="#effcf6"/>
-    </linearGradient>
-    <filter id="shadow" x="-10%" y="-20%" width="125%" height="155%">
-      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0b3558" flood-opacity="0.10"/>
-    </filter>
-    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
-      <path d="M2,2 L10,6 L2,10 Z" fill="#1677b9"/>
-    </marker>
     <style>
-      .bg { fill: #fbfdff; }
-      .grid { fill: url(#grid); opacity: .72; }
-      .title { font: 700 40px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
-      .subtitle { font: 400 18px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #4d657d; }
-      .layer { fill: url(#layerFill); stroke: #bdd8ea; stroke-width: 1.6; rx: 18; }
-      .side { fill: #ffffff; stroke: #bdd8ea; stroke-width: 1.6; rx: 18; }
-      .label { font: 700 21px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #0e3a5a; }
-      .tag { font: 700 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #ffffff; }
-      .card { fill: #ffffff; stroke: #cbdfee; stroke-width: 1.2; rx: 14; }
-      .cardBlue { fill: #eaf5ff; stroke: #9ccfe0; stroke-width: 1.2; rx: 14; }
-      .cardGreen { fill: #eefbf5; stroke: #9ad8bb; stroke-width: 1.2; rx: 14; }
-      .cardOrange { fill: #fff7ed; stroke: #f1b979; stroke-width: 1.2; rx: 14; }
-      .cardTitle { font: 700 17px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #102a43; }
-      .body { font: 400 13px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #445f76; }
-      .code { font: 700 13px "Cascadia Mono", Consolas, monospace; fill: #0f6fbf; }
-      .arrow { fill: none; stroke: #1677b9; stroke-width: 2.8; marker-end: url(#arrow); }
-      .small { font: 400 12px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #60788e; }
-      .rule { font: 700 14px "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", Arial, sans-serif; fill: #173b57; }
+      text{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+      .bg{fill:#f8fafc}.ink{fill:#0f172a}.muted{fill:#475569}.teal{fill:#0f766e}.gold{fill:#c99532}
+      .card{fill:#fff;stroke:#cbd5e1;stroke-width:2}.source{fill:#eff6ff;stroke:#73aedd;stroke-width:2}
+      .soft{fill:#ecfdf5;stroke:#5fbf9a;stroke-width:2}.warm{fill:#fff7ed;stroke:#d99a45;stroke-width:2}
+      .violet{fill:#f5f3ff;stroke:#9f8bd7;stroke-width:2}.dark{fill:#0f172a}
+      .title{font-size:38px;font-weight:760}.subtitle{font-size:20px}.eyebrow{font-size:16px;font-weight:750;letter-spacing:1px}
+      .heading{font-size:22px;font-weight:750}.body{font-size:18px}.small{font-size:16px}.code{font:650 17px "Cascadia Mono",Consolas,monospace}
+      .line{fill:none;stroke:#0f766e;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrow)}
+      .feedback{fill:none;stroke:#c99532;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#goldArrow)}
+      .dash{fill:none;stroke:#64748b;stroke-width:3;stroke-dasharray:8 7;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#grayArrow)}
     </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1l10 5-10 5z" fill="#0f766e"/></marker>
+    <marker id="goldArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1l10 5-10 5z" fill="#c99532"/></marker>
+    <marker id="grayArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1l10 5-10 5z" fill="#64748b"/></marker>
   </defs>
+  <rect class="bg" width="1440" height="900"/>
+  <rect class="teal" width="1440" height="10"/>
+  <text x="64" y="66" class="title ink">Five-module memory runtime</text>
+  <text x="64" y="100" class="subtitle muted">Daily actions map onto the architecture; they do not replace it.</text>
+  <g transform="translate(1228 38)"><rect class="soft" width="148" height="42" rx="21"/><text x="28" y="28" class="eyebrow teal">v0.9.25</text></g>
 
-  <rect class="bg" width="1440" height="1000"/>
-  <rect class="grid" width="1440" height="1000"/>
-  <rect x="0" y="0" width="1440" height="13" fill="url(#blueGreen)"/>
-
-  <text class="title" x="70" y="72">Harness-Mem：Local-first Memory Runtime 分层架构</text>
-  <text class="subtitle" x="72" y="106">七宿主共享 7 个日常动作；Agent 通过紧凑 MCP 调度 runtime；CLI 只承担安装、自检和维护。</text>
-
-  <g transform="translate(68 152)">
-    <rect class="layer" width="1080" height="128"/>
-    <rect x="24" y="24" width="142" height="32" rx="16" fill="url(#blueGreen)"/>
-    <text class="tag" x="42" y="46">User Surface</text>
-    <text class="label" x="28" y="92">用户可见入口</text>
-    <g transform="translate(230 24)">
-      <rect class="cardBlue" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">7 个 Daily 动作</text>
-      <text class="code" x="18" y="56">wake / search / dream</text>
+  <text x="64" y="142" class="eyebrow muted">SURFACES</text>
+  <g transform="translate(64 160)">
+    <rect class="card" width="1312" height="104" rx="18"/>
+    <g transform="translate(24 18)">
+      <text x="0" y="24" class="heading ink">Seven native hosts</text>
+      <text x="0" y="54" class="body muted">Codex · Claude · Cursor · Grok</text>
+      <text x="0" y="78" class="small muted">Hermes · OpenCode · Antigravity · shared daily actions</text>
     </g>
-    <g transform="translate(450 24)">
-      <rect class="cardBlue" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">自然语言</text>
-      <text class="body" x="18" y="56">让 Agent 整理记忆</text>
+    <line x1="520" y1="18" x2="520" y2="86" stroke="#cbd5e1" stroke-width="2"/>
+    <g transform="translate(550 18)">
+      <text x="0" y="24" class="heading ink">MCP: 27 public tools</text>
+      <text x="0" y="54" class="body muted">Public tools register directly</text>
+      <text x="0" y="78" class="small muted">Compact + drilldown · unknown stays unknown</text>
     </g>
-    <g transform="translate(670 24)">
-      <rect class="cardBlue" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">七宿主适配</text>
-      <text class="body" x="18" y="52">Codex / Claude / Cursor</text>
-      <text class="small" x="18" y="70">Grok / Hermes / OpenCode / AG</text>
-    </g>
-    <g transform="translate(890 24)">
-      <rect class="cardOrange" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">CLI?</text>
-      <text class="body" x="18" y="56">只在维护/排障</text>
+    <line x1="1030" y1="18" x2="1030" y2="86" stroke="#cbd5e1" stroke-width="2"/>
+    <g transform="translate(1060 18)">
+      <text x="0" y="24" class="heading ink">CLI</text>
+      <text x="0" y="54" class="body muted">setup · doctor · config</text>
+      <text x="0" y="78" class="small muted">integration · maintenance</text>
     </g>
   </g>
 
-  <g transform="translate(68 312)">
-    <rect class="layer" width="1080" height="128"/>
-    <rect x="24" y="24" width="148" height="32" rx="16" fill="url(#blueGreen)"/>
-    <text class="tag" x="42" y="46">Agent Layer</text>
-    <text class="label" x="28" y="92">Agent 编排层</text>
-    <g transform="translate(230 24)">
-      <rect class="card" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">semantic distill</text>
-      <text class="body" x="18" y="52">增量投影 + tool-safe</text>
-      <text class="small" x="18" y="70">outline → evidence window</text>
-    </g>
-    <g transform="translate(450 24)">
-      <rect class="card" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Dream / Review</text>
-      <text class="body" x="18" y="52">Dream 无人值守；Review 事后纠错</text>
-      <text class="small" x="18" y="70">验证 → 归纳；不留 pending</text>
-    </g>
-    <g transform="translate(670 24)">
-      <rect class="card" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Grill 挑战</text>
-      <text class="body" x="18" y="52">候选稀薄时主动质询</text>
-      <text class="small" x="18" y="70">不把摘要直接当事实</text>
-    </g>
-    <g transform="translate(890 24)">
-      <rect class="cardGreen" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">最终摘要</text>
-      <text class="body" x="18" y="56">只暴露残留风险</text>
-    </g>
+  <text x="64" y="306" class="eyebrow muted">FUNCTIONAL MODULES</text>
+  <g transform="translate(64 326)">
+    <rect class="source" width="240" height="176" rx="18"/>
+    <text x="22" y="36" class="eyebrow teal">0 · INTAKE</text>
+    <text x="22" y="72" class="heading ink">Session lifecycle</text>
+    <text x="22" y="106" class="body muted">Revision · chunks · job</text>
+    <text x="22" y="134" class="body muted">Receipt · retry · cleanup</text>
+    <text x="22" y="160" class="small muted">Hook captures; does not judge</text>
+  </g>
+  <path class="line" d="M304 414h18"/>
+  <g transform="translate(336 326)">
+    <rect class="card" width="240" height="176" rx="18"/>
+    <text x="22" y="36" class="eyebrow teal">1 · EXTRACT</text>
+    <text x="22" y="72" class="heading ink">Promotion points</text>
+    <text x="22" y="106" class="body muted">0–12 narrow claims</text>
+    <text x="22" y="134" class="body muted">Location + full manifest</text>
+    <text x="22" y="160" class="small muted">No disposition or truth write</text>
+  </g>
+  <path class="line" d="M576 414h18"/>
+  <g transform="translate(608 326)">
+    <rect class="source" width="240" height="176" rx="18"/>
+    <text x="22" y="36" class="eyebrow teal">2 · VERIFY</text>
+    <text x="22" y="72" class="heading ink">Answer Gate</text>
+    <text x="22" y="106" class="body muted">Integrity + support</text>
+    <text x="22" y="134" class="body muted">One point at a time</text>
+    <text x="22" y="160" class="small muted">Missing or stale fails closed</text>
+  </g>
+  <path class="line" d="M848 414h18"/>
+  <g transform="translate(880 326)">
+    <rect class="soft" width="240" height="176" rx="18"/>
+    <text x="22" y="36" class="eyebrow teal">3 · ASSIMILATE</text>
+    <text x="22" y="72" class="heading ink">Reconcile truth</text>
+    <text x="22" y="106" class="body muted">Split · dedupe · replace</text>
+    <text x="22" y="134" class="body muted">Write or explicit no-write</text>
+    <text x="22" y="160" class="small muted">Clean proven terminal work</text>
+  </g>
+  <path class="line" d="M1120 414h18"/>
+  <g transform="translate(1152 326)">
+    <rect class="card" width="224" height="176" rx="18"/>
+    <text x="22" y="36" class="eyebrow teal">4 · RETRIEVE</text>
+    <text x="22" y="72" class="heading ink">Use current truth</text>
+    <text x="22" y="106" class="body muted">Clean wake / search</text>
+    <text x="22" y="134" class="body muted">Used · ignored · stale</text>
+    <text x="22" y="160" class="small muted">No raw or audit leakage</text>
   </g>
 
-  <g transform="translate(68 472)">
-    <rect class="layer" width="1080" height="128"/>
-    <rect x="24" y="24" width="150" height="32" rx="16" fill="url(#blueGreen)"/>
-    <text class="tag" x="42" y="46">Transport</text>
-    <text class="label" x="28" y="92">传输与工具面</text>
-    <g transform="translate(230 24)">
-      <rect class="cardBlue" width="210" height="80"/>
-      <text class="cardTitle" x="18" y="30">MCP Server</text>
-      <text class="body" x="18" y="52">27 个公开工具（锁定）</text>
-      <text class="small" x="18" y="70">默认 compact + drilldown</text>
-    </g>
-    <g transform="translate(470 24)">
-      <rect class="cardBlue" width="210" height="80"/>
-      <text class="cardTitle" x="18" y="30">读取主面</text>
-      <text class="code" x="18" y="52">wake / search_memory</text>
-      <text class="small" x="18" y="70">status / drilldown</text>
-    </g>
-    <g transform="translate(710 24)">
-      <rect class="cardBlue" width="210" height="80"/>
-      <text class="cardTitle" x="18" y="30">治理主面</text>
-      <text class="code" x="18" y="52">distill / govern_memory</text>
-      <text class="small" x="18" y="70">review 是事后审计支路</text>
-    </g>
-    <g transform="translate(950 24)">
-      <rect class="cardOrange" width="80" height="80"/>
-      <text class="cardTitle" x="18" y="30">CLI</text>
-      <text class="body" x="18" y="56">维护</text>
-    </g>
+  <path class="feedback" d="M1264 502v28H1000v-18"/>
+  <text x="1046" y="526" class="small" fill="#a16207">Review / Dream feedback</text>
+
+  <text x="64" y="560" class="eyebrow muted">EXECUTION BOUNDARIES</text>
+  <g transform="translate(64 580)">
+    <rect class="dark" width="1312" height="112" rx="18"/>
+    <text x="26" y="36" class="heading" fill="#fff">Manual distill</text>
+    <text x="26" y="68" class="body" fill="#cbd5e1">active host → modules 1–3</text>
+    <text x="26" y="94" class="small" fill="#94a3b8">never redirected to an unattended profile</text>
+    <line x1="360" y1="18" x2="360" y2="94" stroke="#334155" stroke-width="2"/>
+    <text x="390" y="36" class="heading" fill="#fff">Hook</text>
+    <text x="390" y="68" class="body" fill="#fde68a">module 0 only → session job + Dream signal</text>
+    <text x="390" y="94" class="small" fill="#94a3b8">queued is not a completed user result</text>
+    <line x1="820" y1="18" x2="820" y2="94" stroke="#334155" stroke-width="2"/>
+    <text x="850" y="36" class="heading" fill="#fff">Authorized Dream</text>
+    <text x="850" y="68" class="body" fill="#99f6e4">session queue + project governance queue</text>
+    <text x="850" y="94" class="small" fill="#94a3b8">named user profile · env key · auth · no tools · strict schema</text>
   </g>
 
-  <g transform="translate(68 632)">
-    <rect class="layer" width="1080" height="128"/>
-    <rect x="24" y="24" width="160" height="32" rx="16" fill="url(#blueGreen)"/>
-    <text class="tag" x="42" y="46">Runtime</text>
-    <text class="label" x="28" y="92">命令与运行时编排</text>
-    <g transform="translate(230 24)">
-      <rect class="card" width="170" height="80"/>
-      <text class="cardTitle" x="18" y="30">ingest + lineage</text>
-      <text class="body" x="18" y="52">revision / append hash</text>
-      <text class="small" x="18" y="70">非前缀改写则全量回退</text>
-    </g>
-    <g transform="translate(430 24)">
-      <rect class="card" width="170" height="80"/>
-      <text class="cardTitle" x="18" y="30">projection receipt</text>
-      <text class="body" x="18" y="52">覆盖范围 / hash / 去留</text>
-      <text class="small" x="18" y="70">可解释、可重建、可清理</text>
-    </g>
-    <g transform="translate(630 24)">
-      <rect class="card" width="170" height="80"/>
-      <text class="cardTitle" x="18" y="30">context plan</text>
-      <text class="body" x="18" y="52">usage → tokenizer → char</text>
-      <text class="small" x="18" y="70">明确 token_count_basis</text>
-    </g>
-    <g transform="translate(830 24)">
-      <rect class="card" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">job + cleanup ledger</text>
-      <text class="body" x="18" y="52">Hook job / Dream 信号 / receipt</text>
-      <text class="small" x="18" y="70">失败重试；删除级联到派生缓存</text>
-    </g>
+  <text x="64" y="738" class="eyebrow muted">STORAGE ROLES</text>
+  <g transform="translate(64 758)">
+    <rect class="source" width="300" height="104" rx="16"/>
+    <text x="22" y="38" class="heading ink">Transcript ledger</text>
+    <text x="22" y="70" class="body muted">raw revisions / chunks</text>
+    <text x="22" y="94" class="small muted">evidence authority</text>
   </g>
-
-  <g transform="translate(68 792)">
-    <rect class="layer" width="1080" height="128"/>
-    <rect x="24" y="24" width="156" height="32" rx="16" fill="url(#blueGreen)"/>
-    <text class="tag" x="42" y="46">Storage</text>
-    <text class="label" x="28" y="92">数据与索引层</text>
-    <g transform="translate(230 24)">
-      <rect class="cardGreen" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Canonical SQLite</text>
-      <text class="body" x="18" y="52">knowledge_entries</text>
-      <text class="small" x="18" y="70">当前、已治理的长期知识</text>
-    </g>
-    <g transform="translate(450 24)">
-      <rect class="cardGreen" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Transcript Ledger</text>
-      <text class="body" x="18" y="52">raw revisions / chunks</text>
-      <text class="small" x="18" y="70">原始证据，不是长期事实</text>
-    </g>
-    <g transform="translate(670 24)">
-      <rect class="cardGreen" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Derived Indexes</text>
-      <text class="body" x="18" y="52">FTS / vector / trigram</text>
-      <text class="small" x="18" y="70">绑定 revision，可重建</text>
-    </g>
-    <g transform="translate(890 24)">
-      <rect class="cardGreen" width="190" height="80"/>
-      <text class="cardTitle" x="18" y="30">Semantic Projections</text>
-      <text class="body" x="18" y="52">outline / windows / receipts</text>
-      <text class="small" x="18" y="70">派生缓存，删除随 revision 级联</text>
-    </g>
+  <g transform="translate(390 758)">
+    <rect class="violet" width="300" height="104" rx="16"/>
+    <text x="22" y="38" class="heading ink">Job workspace</text>
+    <text x="22" y="70" class="body muted">candidate / evidence / decision</text>
+    <text x="22" y="94" class="small muted">temporary processing material</text>
   </g>
-
-  <path class="arrow" d="M 608 280 L 608 310"/>
-  <path class="arrow" d="M 608 440 L 608 470"/>
-  <path class="arrow" d="M 608 600 L 608 630"/>
-  <path class="arrow" d="M 608 760 L 608 790"/>
-
-  <g transform="translate(1180 152)">
-    <rect class="side" width="302" height="768"/>
-    <rect x="22" y="22" width="180" height="34" rx="17" fill="url(#blueGreen)"/>
-    <text class="tag" x="42" y="45">Truth Boundary</text>
-    <text class="label" x="24" y="94">真值边界</text>
-
-    <g transform="translate(24 126)">
-      <rect class="cardOrange" width="254" height="104"/>
-      <text class="rule" x="18" y="30">Evidence 不等于 Truth</text>
-      <text class="body" x="18" y="58">raw / Observation / projection</text>
-      <text class="body" x="18" y="80">只能支撑验证，不能直接进 wake</text>
-    </g>
-    <g transform="translate(24 252)">
-      <rect class="cardGreen" width="254" height="104"/>
-      <text class="rule" x="18" y="30">两条执行路径</text>
-      <text class="body" x="18" y="58">distill 在当前宿主；Hook 唤醒 Dream</text>
-      <text class="body" x="18" y="80">Review 用于纠错 / undo / supersede</text>
-    </g>
-    <g transform="translate(24 378)">
-      <rect class="cardBlue" width="254" height="104"/>
-      <text class="rule" x="18" y="30">Derived Cache 可重建</text>
-      <text class="body" x="18" y="58">projection / FTS / vector / trigram</text>
-      <text class="body" x="18" y="80">绑定 revision；清理级联；不是真值</text>
-    </g>
-    <g transform="translate(24 504)">
-      <rect class="cardBlue" width="254" height="104"/>
-      <text class="rule" x="18" y="30">Dream 受限 provider</text>
-      <text class="body" x="18" y="58">用户 profile + env-key reference</text>
-      <text class="body" x="18" y="80">项目选择 + autonomous 授权；无工具</text>
-    </g>
-    <g transform="translate(24 630)">
-      <rect class="cardOrange" width="254" height="104"/>
-      <text class="rule" x="18" y="30">唯一长期真值边界</text>
-      <text class="body" x="18" y="58">SQLite 内已治理的 knowledge_entries</text>
-      <text class="body" x="18" y="80">才供 normal wake / search 消费</text>
-    </g>
+  <g transform="translate(716 758)">
+    <rect class="soft" width="300" height="104" rx="16"/>
+    <text x="22" y="38" class="heading ink">Canonical SQLite</text>
+    <text x="22" y="70" class="code teal">knowledge_entries</text>
+    <text x="22" y="94" class="small muted">single current-knowledge authority</text>
   </g>
-
-  <text class="small" x="72" y="956">边界：raw ledger 保存证据；projection / index cache 可删除并重建；canonical SQLite 是唯一长期真值。</text>
-  <text class="small" x="72" y="978">七宿主日常工作流统一通过 Agent / MCP；CLI 仅用于 setup、doctor、config、integration 与 maintenance。</text>
+  <g transform="translate(1042 758)">
+    <rect class="card" width="334" height="104" rx="16"/>
+    <text x="22" y="38" class="heading ink">Rebuildable projections</text>
+    <text x="22" y="70" class="body muted">FTS / vector / Markdown</text>
+    <text x="22" y="94" class="small muted">never a truth authority</text>
+  </g>
 </svg>

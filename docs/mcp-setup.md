@@ -221,7 +221,7 @@ On Windows:
 ```powershell
 git clone https://github.com/manhua-man/harness-mem.git
 cd harness-mem
-.\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
+.\code\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
 The plugin includes the Daily command source for common memory actions,

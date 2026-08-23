@@ -20,9 +20,9 @@ This is a user-invocable harness-mem Daily command. Follow the action below thro
    - `mode=auto`（embedding 不可用时自动回退 FTS）
    - `scope=project`
 3. **呈现结果**：
-   - memory entries 部分按 `[category/memory_type] content (score, mode)` 列
-   - observations 部分按 `obs_id session_id preview (score)` 列
-   - 头部带 effective_mode 和 fallback_reason
+   - 按“标题 + 一句长期记忆”列出结果
+   - 不展示 ID、来源、评分、候选状态或会话原文
+   - 用户明确要求核对原文、时间线或审计依据时，才用 `deep_recall=true` 或对应的 raw/timeline/audit 工具
 
 **Notes**
 

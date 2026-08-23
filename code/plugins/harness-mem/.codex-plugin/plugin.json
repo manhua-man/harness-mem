@@ -6,8 +6,8 @@
   "author": {
     "name": "harness-mem maintainers"
   },
-  "homepage": "../../README.md",
-  "repository": "../../",
+  "homepage": "https://github.com/manhua-man/harness-mem",
+  "repository": "https://github.com/manhua-man/harness-mem",
   "license": "Apache-2.0",
   "keywords": [
     "memory",
@@ -32,8 +32,8 @@
     "defaultPrompt": [
       "Wake this project and summarize what matters now.",
       "Search harness-mem for the last decision on this issue.",
-      "Ingest recent sessions and show me the memory status."
+      "Distill recent sessions and show me the memory status."
     ],
-    "brandColor": "#2563EB"
+    "brandColor": "#0F766E"
   }
 }

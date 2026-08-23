@@ -1,112 +1,84 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 620" role="img" aria-labelledby="title desc">
-  <title id="title">harness-mem cold-start flow</title>
-  <desc id="desc">Wake, search, distill, review, and Dream are user actions, not a mandatory loop. An explicit distill stays in the active host; a Hook saves a session source and wakes Dream, which performs unattended session and project governance. Manual review is a post-hoc correction and undo path.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title desc">
+  <title id="title">harness-mem daily intents and unattended Dream flow</title>
+  <desc id="desc">Wake and search continue work, explicit distill preserves reusable results, and Review or Dream govern current knowledge. These are user intents, not mandatory sequential steps. A Hook only saves an immutable revision, creates or advances its session job, and wakes Dream. Hooks save immutable revisions; Dream is the audited unattended executor.</desc>
   <defs>
     <style>
-      .bg { fill: #f8fafc; }
-      .ink { fill: #0f172a; }
-      .muted { fill: #475569; }
-      .card { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; }
-      .card-accent { fill: #effaf6; stroke: #8ad1b2; stroke-width: 2; }
-      .card-review { fill: #fff7ed; stroke: #e9a85e; stroke-width: 2; }
-      .store { fill: #0f172a; }
-      .teal { fill: #0ea5a4; }
-      .line { fill: none; stroke: #0ea5a4; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
-      .line-muted { fill: none; stroke: #94a3b8; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-      .line-auto { fill: none; stroke: #0ea5a4; stroke-width: 3; stroke-dasharray: 7 5; stroke-linecap: round; stroke-linejoin: round; }
-      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-      .title { font-size: 30px; font-weight: 750; letter-spacing: 0; }
-      .body { font-size: 20px; letter-spacing: 0; }
-      .small { font-size: 16px; letter-spacing: 0; }
-      .step { font-size: 26px; font-weight: 750; letter-spacing: 0; }
-      .step-body { font-size: 15px; letter-spacing: 0; }
-      .note { font-size: 15px; letter-spacing: 0; }
-      .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+      text{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+      .bg{fill:#f8fafc}.ink{fill:#0f172a}.muted{fill:#475569}.teal{fill:#0f766e}.gold{fill:#c99532}
+      .card{fill:#fff;stroke:#cbd5e1;stroke-width:2}.soft{fill:#ecfdf5;stroke:#5fbf9a;stroke-width:2}
+      .warm{fill:#fff7ed;stroke:#d99a45;stroke-width:2}.dark{fill:#0f172a}.lane{fill:#fff;stroke:#94a3b8;stroke-width:2}
+      .title{font-size:38px;font-weight:760}.subtitle{font-size:20px}.eyebrow{font-size:16px;font-weight:750;letter-spacing:1px}
+      .heading{font-size:25px;font-weight:750}.body{font-size:18px}.small{font-size:16px}.code{font:650 17px "Cascadia Mono",Consolas,monospace}
+      .line{fill:none;stroke:#0f766e;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrow)}
+      .hook{fill:none;stroke:#c99532;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#goldArrow)}
     </style>
-    <marker id="arrow" markerHeight="12" markerWidth="12" orient="auto" refX="10" refY="6">
-      <path d="M1 1l10 5-10 5z" fill="#0ea5a4"/>
-    </marker>
-    <marker id="mutedArrow" markerHeight="12" markerWidth="12" orient="auto" refX="10" refY="6">
-      <path d="M1 1l10 5-10 5z" fill="#94a3b8"/>
-    </marker>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1l10 5-10 5z" fill="#0f766e"/></marker>
+    <marker id="goldArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1l10 5-10 5z" fill="#c99532"/></marker>
   </defs>
-  <rect class="bg" width="1280" height="620" rx="30"/>
-
-  <text x="55" y="60" class="title ink">Cold-start memory loop</text>
-  <text x="55" y="92" class="body muted">Explicit active-host distill, plus Hook-started Dream governance.</text>
-  <text x="55" y="125" class="eyebrow muted">USER-VISIBLE ACTIONS</text>
-
-  <rect x="55" y="145" width="145" height="130" rx="20" class="card"/>
-  <circle cx="98" cy="188" r="20" class="teal"/>
-  <path d="M89 188h18M98 179v18" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
-  <text x="78" y="232" class="step ink">Agent</text>
-  <text x="75" y="257" class="step-body muted">fresh task</text>
-
-  <path d="M207 210h34" class="line" marker-end="url(#arrow)"/>
-
-  <rect x="250" y="145" width="145" height="130" rx="20" class="card"/>
-  <text x="289" y="196" class="step ink">wake</text>
-  <text x="270" y="226" class="step-body muted">confirmed project</text>
-  <text x="284" y="249" class="step-body muted">brief + handoff</text>
-
-  <path d="M402 210h34" class="line" marker-end="url(#arrow)"/>
-
-  <rect x="445" y="145" width="145" height="130" rx="20" class="card"/>
-  <text x="482" y="196" class="step ink">search</text>
-  <text x="464" y="226" class="step-body muted">task-aware;</text>
-  <text x="462" y="249" class="step-body muted">when uncertain</text>
-
-  <path d="M597 210h34" class="line" marker-end="url(#arrow)"/>
-
-  <rect x="640" y="145" width="145" height="130" rx="20" class="card-accent"/>
-  <text x="675" y="196" class="step ink">distill</text>
-  <text x="659" y="226" class="step-body muted">bounded evidence</text>
-  <text x="661" y="249" class="step-body muted">active-host work</text>
-
-  <path d="M792 210h34" class="line" marker-end="url(#arrow)"/>
-
-  <rect x="835" y="145" width="145" height="130" rx="20" class="card-review"/>
-  <text x="871" y="196" class="step ink">review</text>
-  <text x="856" y="226" class="step-body muted">post-hoc audit</text>
-  <text x="855" y="249" class="step-body muted">correct / undo</text>
-
-  <path d="M987 210h34" class="line" marker-end="url(#arrow)"/>
-
-  <rect x="1030" y="145" width="145" height="130" rx="20" class="card-accent"/>
-  <text x="1065" y="196" class="step ink">dream</text>
-  <text x="1049" y="226" class="step-body muted">maintenance +</text>
-  <text x="1048" y="249" class="step-body muted">truth lifecycle</text>
-
-  <text x="55" y="318" class="eyebrow muted">HOOK → DREAM — UNATTENDED</text>
-  <path d="M712 275v40H410v23" class="line-auto" marker-end="url(#arrow)"/>
-
-  <rect x="300" y="345" width="220" height="105" rx="18" class="card"/>
-  <text x="322" y="380" class="step-body ink" font-weight="700">immutable session + job</text>
-  <text x="322" y="408" class="step-body muted">Hook records the source</text>
-  <text x="322" y="432" class="step-body muted">then wakes Dream</text>
-
-  <path d="M520 398h55" class="line-auto" marker-end="url(#arrow)"/>
-
-  <rect x="585" y="345" width="220" height="105" rx="18" class="card-accent"/>
-  <text x="608" y="380" class="step-body ink" font-weight="700">Dream processes source</text>
-  <text x="608" y="408" class="step-body muted">compare + verify evidence</text>
-  <text x="608" y="432" class="step-body muted">and project knowledge</text>
-
-  <path d="M805 398h55" class="line-auto" marker-end="url(#arrow)"/>
-
-  <rect x="870" y="345" width="210" height="105" rx="18" class="card-accent"/>
-  <text x="893" y="380" class="step-body ink" font-weight="700">assimilate once</text>
-  <text x="893" y="408" class="step-body muted">apply, reject, archive</text>
-  <text x="893" y="432" class="step-body muted">or fail with audit</text>
-
-  <path d="M940 345 C 940 315 907 310 907 282" class="line-muted" marker-end="url(#mutedArrow)"/>
-  <text x="947" y="318" class="note muted">later correction</text>
-
-  <rect x="175" y="485" width="930" height="82" rx="22" class="store"/>
-  <text x="205" y="520" class="body" fill="#e5e7eb">immutable transcript ledger</text>
-  <text x="500" y="520" class="body" fill="#99f6e4">rebuildable projections</text>
-  <text x="755" y="520" class="body" fill="#dcfce7">governed Memory / Rule</text>
-  <text x="205" y="547" class="note" fill="#94a3b8">Hooks save immutable revisions; Dream is the audited unattended executor.</text>
-
-  <text x="58" y="598" class="small muted">Explicit distill stays in the active host. Hooks wake Dream; Review corrects decisions and provides undo.</text>
+  <rect class="bg" width="1440" height="760"/>
+  <rect class="teal" width="1440" height="10"/>
+  <text x="64" y="66" class="title ink">Three daily intents — not a mandatory loop</text>
+  <text x="64" y="100" class="subtitle muted">Continue work, preserve a result, or govern current knowledge.</text>
+  <g transform="translate(1228 38)"><rect class="soft" width="148" height="42" rx="21"/><text x="28" y="28" class="eyebrow teal">v0.9.25</text></g>
+  <text x="64" y="148" class="eyebrow muted">USER-CHOSEN INTENTS</text>
+  <g transform="translate(64 174)">
+    <rect class="card" width="390" height="172" rx="18"/>
+    <circle cx="44" cy="42" r="22" class="teal"/><path d="M34 42h20M44 32v20" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+    <text x="82" y="50" class="heading ink">Continue the task</text>
+    <text x="28" y="92" class="code teal">wake → search</text>
+    <text x="28" y="125" class="body muted">Load compact current knowledge;</text>
+    <text x="28" y="151" class="body muted">search when the task needs grounding.</text>
+  </g>
+  <g transform="translate(525 174)">
+    <rect class="soft" width="390" height="172" rx="18"/>
+    <circle cx="44" cy="42" r="22" class="teal"/><path d="M34 42h20M44 32v20" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+    <text x="82" y="50" class="heading ink">Preserve a result</text>
+    <text x="28" y="92" class="code teal">explicit distill</text>
+    <text x="28" y="125" class="body muted">The active host runs extraction,</text>
+    <text x="28" y="151" class="body muted">verification, and assimilation.</text>
+  </g>
+  <g transform="translate(986 174)">
+    <rect class="warm" width="390" height="172" rx="18"/>
+    <circle cx="44" cy="42" r="22" class="gold"/><path d="M33 42h22" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+    <text x="82" y="50" class="heading ink">Govern knowledge</text>
+    <text x="28" y="92" class="code" fill="#a16207">review / Dream</text>
+    <text x="28" y="125" class="body muted">Review corrects or undoes; Dream</text>
+    <text x="28" y="151" class="body muted">runs authorized unattended checks.</text>
+  </g>
+  <text x="64" y="398" class="eyebrow muted">HOOK → DREAM — UNATTENDED LANE</text>
+  <g transform="translate(64 424)">
+    <rect class="lane" width="270" height="128" rx="16"/>
+    <text x="24" y="40" class="heading ink">Stop Hook</text>
+    <text x="24" y="75" class="body muted">Save immutable revision</text>
+    <text x="24" y="102" class="body muted">Create / advance session job</text>
+  </g>
+  <path class="hook" d="M334 488h62"/>
+  <g transform="translate(410 424)">
+    <rect class="lane" width="270" height="128" rx="16"/>
+    <text x="24" y="40" class="heading ink">Dream signal</text>
+    <text x="24" y="75" class="body muted">Project has new activity</text>
+    <text x="24" y="102" class="body muted">Source reference stays bound</text>
+  </g>
+  <path class="line" d="M680 488h62"/>
+  <g transform="translate(756 424)">
+    <rect class="soft" width="270" height="128" rx="16"/>
+    <text x="24" y="40" class="heading ink">Dream worker</text>
+    <text x="24" y="75" class="body muted">Process the session</text>
+    <text x="24" y="102" class="body muted">Check project knowledge</text>
+  </g>
+  <path class="line" d="M1026 488h62"/>
+  <g transform="translate(1102 424)">
+    <rect class="soft" width="274" height="128" rx="16"/>
+    <text x="24" y="40" class="heading ink">Verified outcome</text>
+    <text x="24" y="75" class="body muted">Assimilate or close safely</text>
+    <text x="24" y="102" class="body muted">Receipt + Note prove result</text>
+  </g>
+  <g transform="translate(64 602)">
+    <rect class="dark" width="1312" height="104" rx="20"/>
+    <text x="32" y="42" class="heading" fill="#fff">Three storage roles</text>
+    <text x="330" y="42" class="body" fill="#ccfbf1">Transcript ledger = raw evidence</text>
+    <text x="680" y="42" class="body" fill="#fde68a">Job workspace = temporary</text>
+    <text x="1030" y="42" class="body" fill="#99f6e4">SQLite = current knowledge</text>
+    <text x="32" y="76" class="small" fill="#cbd5e1">Hooks save immutable revisions; Dream is the audited unattended executor. A queued or completed flag alone is not result proof.</text>
+  </g>
 </svg>

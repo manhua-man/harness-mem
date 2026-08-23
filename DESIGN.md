@@ -82,6 +82,13 @@ Use teal for identity and positive forward motion. Use gold sparingly for lineag
 - Keep the main path linear and compact.
 - Use tables only for short, repeated-field comparisons.
 - Use diagrams for lifecycle, authority, or cross-host relationships that are harder to understand as prose.
+- Design public README diagrams for their actual 900px display width: use a
+  16px minimum source font, keep labels selectable as native SVG text, and
+  prefer several focused lanes over one dense system map.
+- Public diagrams use English so the same checked-in asset remains legible in
+  both README languages; localized `alt` text explains the relationship.
+- Do not use sequential arrows between independent daily intents. Arrows must
+  represent a real dependency, queue handoff, or feedback path.
 - Keep terminal output narrow enough for ordinary split-pane use.
 
 ## Voice
@@ -117,3 +124,4 @@ Use teal for identity and positive forward motion. Use gold sparingly for lineag
 | Date | Change | Evidence |
 | --- | --- | --- |
 | 2026-08-17 | Initial DX and visual design entry | `README.md`, `docs/assets/harness-mem-logo.svg`, `docs/ide-hook-adapter-matrix.md`, and host command surfaces |
+| 2026-08-22 | Refreshed the 0.9.25 public diagram system for 900px readability, five-module semantics, queue boundaries, and storage authority | Four public README SVG diagrams and localized alt text |
