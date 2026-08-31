@@ -40,9 +40,6 @@ from harness_mem.session_notes import (
 DEFAULT_RECENT_DAYS = 7
 MIN_NOTE_CHARS = 200
 OUTCOME_SECTIONS = ("hooks", "dream", "distill", "autonomous", "retrieval")
-_LEGACY_RESTRICTED_PROVIDER_NAMES = frozenset(
-    {"codex_exec", "responses_api", "responses_api->codex_exec"}
-)
 
 
 def _provider_host_cli_agent_isolated(
@@ -68,32 +65,6 @@ def _provider_host_cli_agent_isolated(
         and provider.get("hooks_disabled") is False
         and provider.get("mcp_disabled") is False
         and hook_reentry_count == 0
-    )
-
-
-def _provider_name_matches_project_selection(
-    provider_name: str,
-    *,
-    profile_name: str,
-) -> bool:
-    """Match receipt provider names to legacy paths or the selected operator profile."""
-
-    name = str(provider_name or "").strip()
-    if not name:
-        return False
-    if name in _LEGACY_RESTRICTED_PROVIDER_NAMES:
-        return True
-    selected = str(profile_name or "").strip()
-    if not selected:
-        return False
-    direct = {
-        f"anthropic_messages:{selected}",
-        f"openai_responses:{selected}",
-    }
-    if name in direct:
-        return True
-    return name.endswith(f"anthropic_messages:{selected}") or name.endswith(
-        f"openai_responses:{selected}"
     )
 
 
@@ -354,11 +325,9 @@ def inspect_autonomous_outcome(
     try:
         merged_config = load_merged_config(project_root)
         authorized = background_ready(merged_config)
-        profile_name = merged_config.semantic_execution_profile
         current_config_fingerprint = autonomous_config_fingerprint(merged_config)
     except Exception:  # noqa: BLE001 - outcome remains inspectable on bad config.
         authorized = False
-        profile_name = ""
         current_config_fingerprint = None
     current_runtime_fingerprint = autonomous_runtime_fingerprint()
     raw_verified = receipt.get("last_verified_completion")

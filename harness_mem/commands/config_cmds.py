@@ -173,7 +173,7 @@ def cmd_config_set(
     (see design.md "Error Handling" table).
     """
     resolved_root = _resolve_project_root(project_root)
-    if key in {"distill.autonomous.enabled", "semantic.execution.profile"} and scope != "project":
+    if key in {"distill.autonomous.enabled"} and scope != "project":
         print(
             f"invalid scope: {key} may only be set at project scope",
             file=sys.stderr,

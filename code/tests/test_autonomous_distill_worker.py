@@ -28,7 +28,6 @@ from harness_mem.autonomous.worker import (
     _govern_unfinished_handoff,
     _normalize_zero_candidate_signal_labels,
     _zero_candidate_validation_errors,
-    _provider_call_with_transport_fallback,
     _preferred_job_is_eligible,
     autonomous_receipt_path,
     autonomous_config_fingerprint,
@@ -86,24 +85,9 @@ def _verify_all_candidates(self, manifest, *, runtime_dir, heartbeat=None):
     )
 
 
-def test_default_worker_provider_uses_bounded_distill_model(
+def test_disabled_background_returns_setup_required_without_running(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
-    captured: dict[str, object] = {}
-
-    def build_default_provider(runtime_config=None):
-        from harness_mem.autonomous.provider import ResponsesApiProvider
-
-        captured["runtime_config"] = runtime_config
-        provider = ResponsesApiProvider()
-        captured["model"] = provider.model
-        return provider
-
-    monkeypatch.setattr(
-        "harness_mem.autonomous.worker.build_semantic_provider",
-        build_default_provider,
-    )
     backend = LocalMemoryBackend(tmp_path / "data")
     asyncio.run(backend.init())
     try:
@@ -118,14 +102,15 @@ def test_default_worker_provider_uses_bounded_distill_model(
     finally:
         asyncio.run(backend.close())
 
-    assert result["state"] == "idle"
-    assert captured["model"] == DEFAULT_DISTILL_MODEL
-    assert captured["runtime_config"] is None
+    assert result["state"] == "setup_required"
+    assert "disabled" in result["reason"].casefold()
 
 
-def test_explicit_worker_ignores_unattended_profile_selection(
+def test_explicit_worker_does_not_require_profile_selection(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("HARNESS_MEM_CODEX_EXECUTABLE", "codex-bin")
     backend = LocalMemoryBackend(tmp_path / "data")
     asyncio.run(backend.init())
     project_root = tmp_path / "project"
@@ -137,7 +122,6 @@ def test_explicit_worker_ignores_unattended_profile_selection(
             project_root=project_root,
             config=MergedConfig(
                 distill_autonomous_enabled=True,
-                semantic_execution_profile="missing-profile",
             ),
             trigger_id="session-profile-error",
             client="codex",
@@ -222,15 +206,16 @@ def test_autonomous_config_fingerprint_binds_authorization_and_budget_settings()
         semantic_execution_mode="agent",
         distill_auto_daily_job_budget=99,
     )
-    changed_mode = MergedConfig(
+    changed_restricted = MergedConfig(
         distill_autonomous_enabled=True,
-        semantic_execution_mode="internal_http",
+        semantic_execution_mode="agent",
+        semantic_execution_restricted=False,
     )
 
     base_fingerprint = autonomous_config_fingerprint(base)
     assert base_fingerprint != autonomous_config_fingerprint(changed_enabled)
     assert base_fingerprint != autonomous_config_fingerprint(changed_budget)
-    assert base_fingerprint != autonomous_config_fingerprint(changed_mode)
+    assert base_fingerprint != autonomous_config_fingerprint(changed_restricted)
 
 
 def test_post_turn_preflight_failure_writes_terminal_nonsemantic_receipt(
@@ -288,199 +273,6 @@ def test_post_turn_retry_backoff_writes_deferred_nonsemantic_receipt(
         "message": "distill job is waiting for its scheduled retry",
         "retry_after": "2026-08-20T09:00:00+00:00",
     }
-
-
-def test_responses_unexpected_eof_uses_isolated_codex_transport(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _ResponsesProvider:
-        name = "responses_api"
-        model = "bounded-test-model"
-
-        def decide(self, manifest, *, runtime_dir, heartbeat=None):
-            del manifest, runtime_dir, heartbeat
-            raise ProviderError(
-                '{"error":{"message":"unexpected EOF"}}',
-                kind="transient",
-            )
-
-    captured: dict[str, object] = {}
-
-    class _CodexFallback:
-        name = "codex_exec"
-
-        def __init__(self, *, model=None, timeout_seconds=0):
-            captured["model"] = model
-            captured["timeout_seconds"] = timeout_seconds
-            self.executable = "codex"
-
-        def decide(self, manifest, *, runtime_dir, heartbeat=None):
-            captured["manifest"] = manifest
-            captured["runtime_dir"] = runtime_dir
-            if heartbeat is not None:
-                heartbeat()
-            return ProviderResult(
-                decision={"transport": "recovered"},
-                provider=self.name,
-                model="bounded-test-model",
-                duration_seconds=0.1,
-                input_sha256="a" * 64,
-                response_sha256="b" * 64,
-                input_tokens=10,
-                output_tokens=10,
-                total_tokens=20,
-                event_count=1,
-            )
-
-    monkeypatch.setattr(
-        "harness_mem.autonomous.worker.CodexExecProvider",
-        _CodexFallback,
-    )
-    heartbeat_calls = 0
-
-    def heartbeat() -> None:
-        nonlocal heartbeat_calls
-        heartbeat_calls += 1
-
-    result = _provider_call_with_transport_fallback(
-        _ResponsesProvider(),
-        "decide",
-        {"contract_version": "test"},
-        runtime_dir=tmp_path,
-        heartbeat=heartbeat,
-    )
-
-    assert result.provider == "responses_api->codex_exec"
-    assert result.attempt_count == 2
-    assert result.total_tokens == 20
-    assert captured["model"] == "bounded-test-model"
-    assert captured["timeout_seconds"] == 300
-    assert captured["runtime_dir"] == tmp_path
-    assert heartbeat_calls == 1
-
-
-def test_responses_setup_required_uses_isolated_codex_transport(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _ResponsesProvider:
-        name = "responses_api"
-        model = "bounded-test-model"
-
-        def decide(self, manifest, *, runtime_dir, heartbeat=None):
-            del manifest, runtime_dir, heartbeat
-            raise ProviderError(
-                "Active Codex model provider is unavailable",
-                kind="setup_required",
-            )
-
-    captured: dict[str, object] = {}
-
-    class _CodexFallback:
-        name = "codex_exec"
-
-        def __init__(self, *, model=None, timeout_seconds=0):
-            captured["model"] = model
-            captured["timeout_seconds"] = timeout_seconds
-            self.executable = "codex"
-
-        def decide(self, manifest, *, runtime_dir, heartbeat=None):
-            captured["manifest"] = manifest
-            captured["runtime_dir"] = runtime_dir
-            if heartbeat is not None:
-                heartbeat()
-            return ProviderResult(
-                decision={"transport": "recovered"},
-                provider=self.name,
-                model="bounded-test-model",
-                duration_seconds=0.1,
-                input_sha256="a" * 64,
-                response_sha256="b" * 64,
-                input_tokens=10,
-                output_tokens=10,
-                total_tokens=20,
-                event_count=1,
-            )
-
-    monkeypatch.setattr(
-        "harness_mem.autonomous.worker.CodexExecProvider",
-        _CodexFallback,
-    )
-    heartbeat_calls = 0
-
-    def heartbeat() -> None:
-        nonlocal heartbeat_calls
-        heartbeat_calls += 1
-
-    result = _provider_call_with_transport_fallback(
-        _ResponsesProvider(),
-        "decide",
-        {"contract_version": "test"},
-        runtime_dir=tmp_path,
-        heartbeat=heartbeat,
-    )
-
-    assert result.provider == "responses_api->codex_exec"
-    assert result.attempt_count == 2
-    assert result.total_tokens == 20
-    assert captured["model"] == "bounded-test-model"
-    assert captured["timeout_seconds"] == 300
-    assert captured["runtime_dir"] == tmp_path
-    assert heartbeat_calls == 1
-
-
-def test_assimilation_fallback_uses_stage_specific_model(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _ResponsesProvider:
-        name = "responses_api"
-        model = "extract-test-model"
-        assimilation_model = "assimilate-test-model"
-
-        def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
-            del manifest, runtime_dir, heartbeat
-            raise ProviderError("unexpected EOF", kind="transient")
-
-    captured: dict[str, object] = {}
-
-    class _CodexFallback:
-        name = "codex_exec"
-
-        def __init__(self, *, model=None, timeout_seconds=0):
-            captured["model"] = model
-            self.executable = "codex"
-
-        def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
-            del manifest, runtime_dir, heartbeat
-            return ProviderResult(
-                decision=AssimilationDecision(points=[]),
-                provider=self.name,
-                model=str(captured["model"]),
-                duration_seconds=0.1,
-                input_sha256="a" * 64,
-                response_sha256="b" * 64,
-                input_tokens=1,
-                output_tokens=1,
-                total_tokens=2,
-                event_count=1,
-            )
-
-    monkeypatch.setattr(
-        "harness_mem.autonomous.worker.CodexExecProvider", _CodexFallback
-    )
-
-    result = _provider_call_with_transport_fallback(
-        _ResponsesProvider(),
-        "assimilate",
-        {"verified_candidates": []},
-        runtime_dir=tmp_path,
-        heartbeat=None,
-    )
-
-    assert captured["model"] == "assimilate-test-model"
-    assert result.model == "assimilate-test-model"
 
 
 def test_trigger_receipt_stays_bound_to_preferred_job_when_backlog_finishes_later(
@@ -3379,17 +3171,9 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     user_config = tmp_path / "home" / ".harness-mem" / "config.toml"
     user_config.parent.mkdir(parents=True)
-    user_config.write_text(
-        '[semantic.providers.hermes-sub2api]\n'
-        'protocol = "anthropic-messages"\n'
-        'base_url = "https://example.com/v1"\n'
-        'api_key_env = "TEST_KEY"\n'
-        'model = "test-model"\n',
-        encoding="utf-8",
-    )
+    user_config.write_text("", encoding="utf-8")
     (project / ".harness-mem.toml").write_text(
         "[distill.autonomous]\nenabled = true\n\n"
-        '[semantic.execution]\nprofile = "hermes-sub2api"\nrestricted = true\n\n'
         "[dream.auto]\nenabled = false\n",
         encoding="utf-8",
     )

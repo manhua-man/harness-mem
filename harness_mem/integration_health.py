@@ -448,12 +448,10 @@ def _build_autonomous_health_card(
         "authorization": {
             "ready": bool(getattr(authorization, "ready", False)),
             "on": bool(getattr(authorization, "on", False)),
-            "profile": getattr(authorization, "profile", None) or None,
             "reason": getattr(authorization, "reason", None),
             "message": background_reason_message(
                 str(getattr(authorization, "reason", "") or "")
             ),
-            "profiles": list(getattr(authorization, "profiles", ()) or ()),
             "legacy_off": bool(getattr(authorization, "legacy_off", False)),
         },
         "chain_verified": bool(autonomous.get("lifecycle_verified")),

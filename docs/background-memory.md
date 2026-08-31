@@ -11,7 +11,7 @@
 3. **传输 / 密钥 / Sub2API**：配在**该宿主 CLI** 自己的配置里，不是 harness-mem 项目配置
 4. **关后台**：`distill.autonomous.enabled=false`
 
-**不需要** `semantic.execution.profile`，**不需要**在 `~/.harness-mem/config.toml` 里登记 provider。
+**不需要** `semantic.execution.profile`，**不需要**在 `~/.harness-mem/config.toml` 里登记 provider。旧键在加载时会被忽略。
 
 ---
 
@@ -28,7 +28,7 @@ enabled = true
 harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
-`semantic.execution.profile` 为**遗留可选键**，CLI 路径不读它。
+`semantic.execution.profile` 与 `[semantic.providers.*]` 为**已删除路径**；配置加载时会剥离，不参与后台授权或执行。
 
 ---
 

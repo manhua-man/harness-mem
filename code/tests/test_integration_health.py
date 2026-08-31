@@ -23,10 +23,7 @@ def _auth(**overrides: object) -> BackgroundStatus:
     base = {
         "ready": True,
         "on": True,
-        "profile": "",
-        "profile_registered": False,
         "legacy_off": False,
-        "profiles": (),
         "reason": "ok",
     }
     base.update(overrides)

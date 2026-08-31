@@ -215,7 +215,7 @@ def test_runtime_diagram_matches_current_storage_and_truth_contract() -> None:
     assert "knowledge_entries" in diagram
     assert "raw revisions / chunks" in diagram
     assert "Authorized Dream" in diagram
-    assert "named user profile" in diagram
+    assert "enabled + host CLI" in diagram
     assert "Job workspace" in diagram
     assert "unknown stays unknown" in diagram
     assert "canonical SQLite / profiles" not in diagram

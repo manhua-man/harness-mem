@@ -52,7 +52,7 @@ def test_automation_defaults_active_but_source_deletion_defaults_safe(
     )
 
 
-def test_semantic_profile_is_project_selected_but_user_connection_owned(
+def test_legacy_semantic_profile_keys_are_stripped_on_load(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -84,42 +84,17 @@ api_key_env = "EXFILTRATE_ME"
         encoding="utf-8",
     )
 
-    config = load_merged_config(project)
-    runtime = config.to_runtime_config()
-
-    assert config.semantic_execution_profile == "hermes-sub2api"
-    assert runtime["semantic"]["execution"]["profile"] == "hermes-sub2api"
-    assert runtime["semantic"]["providers"]["hermes-sub2api"] == {
-        "protocol": "anthropic-messages",
-        "base_url": "http://127.0.0.1:8080/v1",
-        "api_key_env": "HARNESS_MEM_HERMES_SUB2API_KEY",
-        "model": "deepseek-v4-flash",
-    }
+    runtime = load_merged_config(project).to_runtime_config()
+    semantic = runtime.get("semantic")
+    assert isinstance(semantic, dict)
+    execution = semantic.get("execution")
+    assert isinstance(execution, dict)
+    assert "profile" not in execution
+    assert "providers" not in semantic
 
 
-def test_semantic_profile_selection_requires_project_scope(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-
-    with pytest.raises(ConfigValidationError, match="project scope required"):
-        set_value(
-            scope="user",
-            project_root=project,
-            key_path="semantic.execution.profile",
-            value="hermes-sub2api",
-        )
-
-    set_value(
-        scope="project",
-        project_root=project,
-        key_path="semantic.execution.profile",
-        value="hermes-sub2api",
-    )
-    assert "profile = \"hermes-sub2api\"" in (
-        project / ".harness-mem.toml"
-    ).read_text(encoding="utf-8")
+def test_semantic_profile_is_not_a_public_config_key() -> None:
+    assert "semantic.execution.profile" not in PUBLIC_CONFIG_KEY_PATHS
 
 
 def test_archive_distill_defaults_are_public_and_typed(

@@ -1,10 +1,6 @@
-"""Autonomous semantic distillation driven by a restricted local provider."""
+"""Autonomous semantic distillation driven by the current host CLI."""
 
-from harness_mem.autonomous.provider import (
-    CodexExecProvider,
-    ProviderError,
-    ResponsesApiProvider,
-)
+from harness_mem.autonomous.provider import ProviderError
 from harness_mem.autonomous.worker import (
     autonomous_receipt_path,
     read_autonomous_receipt,
@@ -12,9 +8,7 @@ from harness_mem.autonomous.worker import (
 )
 
 __all__ = [
-    "CodexExecProvider",
     "ProviderError",
-    "ResponsesApiProvider",
     "autonomous_receipt_path",
     "read_autonomous_receipt",
     "run_autonomous_distill_batch",

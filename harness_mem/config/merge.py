@@ -58,10 +58,7 @@ class MergedConfig:
     distill_auto_recent_first: bool = True
     distill_auto_daily_job_budget: int = 8
     distill_delete_source_after_complete: bool = False
-    # The selected backend semantic provider is project-scoped.  Connection
-    # profiles themselves remain user-scoped extras: a repository must never
-    # be able to replace an operator-approved endpoint or credential source.
-    semantic_execution_profile: str = ""
+    # Background authorization is project-scoped; host CLI credentials stay in the host.
     semantic_execution_mode: Literal["agent"] = "agent"
     semantic_execution_restricted: bool = True
     archive_distill_enabled: bool = False
@@ -179,12 +176,6 @@ _DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
 )
 
 _SEMANTIC_EXECUTION_KEYS: tuple[tuple[str, str, str, Any], ...] = (
-    (
-        "semantic.execution.profile",
-        "semantic_execution_profile",
-        "str:min=1:max=80",
-        "",
-    ),
     (
         "semantic.execution.mode",
         "semantic_execution_mode",
@@ -337,7 +328,6 @@ PUBLIC_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "distill.auto.enabled",
     "distill.autonomous.enabled",
     "distill.delete_source_after_complete",
-    "semantic.execution.profile",
     "archive_distill.enabled",
     "archive_distill.batch_size",
     "archive_distill.daily_limit",
@@ -358,7 +348,10 @@ _INTERNAL_TYPED_CONFIG_KEYS = tuple(
     item for item in _TYPED_CONFIG_KEYS if item[0] not in _PUBLIC_CONFIG_KEY_SET
 )
 INTERNAL_CONFIG_KEY_PATHS = frozenset(
-    key_path for key_path, *_rest in _INTERNAL_TYPED_CONFIG_KEYS
+    {
+        *(key_path for key_path, *_rest in _INTERNAL_TYPED_CONFIG_KEYS),
+        "semantic.execution.profile",
+    }
 )
 
 
@@ -671,18 +664,13 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
     project_path = Path(project_root) / ".harness-mem.toml"
     project_dict = _load_toml_file(project_path)
 
-    # Destructive source cleanup and model-use authorization are intentionally
-    # project-scoped. Ignore legacy user-level values so another project cannot
-    # inherit either authorization by accident.
+    # Background authorization and destructive cleanup are project-scoped.
     _remove_dotted(user_dict, "distill.delete_source_after_complete")
     _remove_dotted(user_dict, "distill.autonomous.enabled")
-    # A project may select one of the operator's named profiles, but it cannot
-    # supply or override connection data.  In particular, this prevents an
-    # untrusted repository config from redirecting transcript evidence to an
-    # arbitrary endpoint or from naming an arbitrary credential environment
-    # variable.
     _remove_dotted(user_dict, "semantic.execution.profile")
     _remove_dotted(user_dict, "semantic.execution.restricted")
+    _remove_dotted(user_dict, "semantic.providers")
+    _remove_dotted(project_dict, "semantic.execution.profile")
     _remove_dotted(project_dict, "semantic.providers")
 
     # ---- 3. deep-merge (project overrides user) (Req 3.3) ---------------

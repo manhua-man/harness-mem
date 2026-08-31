@@ -321,10 +321,8 @@ background work with **`distill.autonomous.enabled=false` only**. Legacy
 `semantic.execution.restricted` is still read by the runtime; see
 [`docs/background-memory.md`](docs/background-memory.md).
 
-An internal HTTP provider remains for **unauthorized** paths and narrow
-recovery only; it records `execution_mode=internal_http` and must not
-impersonate a host CLI agent. Outcome probes verify host CLI receipts plus
-local worker writes. See [`docs/background-memory.md`](docs/background-memory.md).
+Outcome probes verify host CLI receipts plus local worker writes. See
+[`docs/background-memory.md`](docs/background-memory.md).
 
 For archived Codex tasks, first bind the project root. The default
 `archive_distill.project_scope = "current"` processes only that project;

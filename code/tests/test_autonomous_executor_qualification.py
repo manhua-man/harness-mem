@@ -35,14 +35,6 @@ def test_build_semantic_executor_requires_cli_for_each_host(
     )
     config = MergedConfig(
         distill_autonomous_enabled=True,
-        semantic_execution_profile="hermes-sub2api",
-        extras={
-            "semantic": {
-                "providers": {
-                    "hermes-sub2api": {"protocol": "anthropic-messages"},
-                }
-            }
-        },
     )
     with pytest.raises(Exception):
         build_semantic_executor(config, "hermes")

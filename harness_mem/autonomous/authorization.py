@@ -12,10 +12,6 @@ def _coerce_bool(value: Any, *, default: bool = False) -> bool:
     return default
 
 
-def _coerce_profile(value: Any) -> str:
-    return str(value or "").strip()
-
-
 def _runtime_view(config: Any) -> Mapping[str, Any]:
     if config is None:
         return {}
@@ -25,7 +21,6 @@ def _runtime_view(config: Any) -> Mapping[str, Any]:
     if isinstance(config, Mapping):
         return config
     enabled = getattr(config, "distill_autonomous_enabled", None)
-    profile = getattr(config, "semantic_execution_profile", None)
     restricted = getattr(config, "semantic_execution_restricted", None)
     mode = getattr(config, "semantic_execution_mode", None)
     extras = getattr(config, "extras", None)
@@ -36,11 +31,9 @@ def _runtime_view(config: Any) -> Mapping[str, Any]:
                 "distill": {"autonomous": {"enabled": enabled}},
                 "semantic": semantic,
             }
-    if enabled is None and profile is None and restricted is None and mode is None:
+    if enabled is None and restricted is None and mode is None:
         return {}
     execution: dict[str, Any] = {}
-    if profile is not None:
-        execution["profile"] = profile
     if restricted is not None:
         execution["restricted"] = restricted
     if mode is not None:
@@ -67,21 +60,6 @@ def _semantic_execution(view: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return execution if isinstance(execution, Mapping) else None
 
 
-def _semantic_providers(view: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    semantic = view.get("semantic")
-    if not isinstance(semantic, Mapping):
-        return None
-    providers = semantic.get("providers")
-    return providers if isinstance(providers, Mapping) else None
-
-
-def _profile_name(view: Mapping[str, Any]) -> str:
-    execution = _semantic_execution(view)
-    if execution is None:
-        return ""
-    return _coerce_profile(execution.get("profile"))
-
-
 def _legacy_restricted_off(view: Mapping[str, Any]) -> bool:
     execution = _semantic_execution(view)
     if execution is None:
@@ -100,30 +78,6 @@ def background_on(config: Any) -> bool:
     return True
 
 
-def profile_registered(view: Mapping[str, Any], profile_name: str) -> bool:
-    """Legacy helper: optional profile names in user config (not required for CLI path)."""
-
-    if not profile_name or profile_name == "codex-default":
-        return False
-    providers = _semantic_providers(view)
-    if providers is None:
-        return False
-    return profile_name in providers and isinstance(providers.get(profile_name), Mapping)
-
-
-def list_registered_profiles(config: Any) -> tuple[str, ...]:
-    providers = _semantic_providers(_runtime_view(config))
-    if providers is None:
-        return ()
-    return tuple(
-        sorted(
-            name
-            for name, raw in providers.items()
-            if isinstance(name, str) and isinstance(raw, Mapping)
-        )
-    )
-
-
 def background_ready(config: Any) -> bool:
     """True when background host CLI work may run."""
 
@@ -134,10 +88,7 @@ def background_ready(config: Any) -> bool:
 class BackgroundStatus:
     ready: bool
     on: bool
-    profile: str
-    profile_registered: bool
     legacy_off: bool
-    profiles: tuple[str, ...]
     reason: str
 
 
@@ -154,11 +105,8 @@ def background_reason_message(reason: str) -> str:
 
 def background_status(config: Any) -> BackgroundStatus:
     view = _runtime_view(config)
-    profile = _profile_name(view)
-    profiles = list_registered_profiles(config)
     legacy_off = _legacy_restricted_off(view)
     on = background_on(config)
-    registered = profile_registered(view, profile) if profile else False
     if not _distill_autonomous_enabled(view):
         reason = "disabled"
     elif legacy_off:
@@ -168,18 +116,13 @@ def background_status(config: Any) -> BackgroundStatus:
     return BackgroundStatus(
         ready=reason == "ok",
         on=on,
-        profile=profile,
-        profile_registered=registered,
         legacy_off=legacy_off,
-        profiles=profiles,
         reason=reason,
     )
 
 
 # Legacy names (keep for one release; prefer background_* in new code).
 autonomous_semantic_effective_enabled = background_on
-semantic_profile_defined = profile_registered
-list_semantic_provider_names = list_registered_profiles
 autonomous_semantically_authorized = background_ready
 AutonomousAuthorizationStatus = BackgroundStatus
 inspect_autonomous_authorization = background_status

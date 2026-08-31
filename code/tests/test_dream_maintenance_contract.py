@@ -173,7 +173,7 @@ class _DreamVerificationProvider:
             output_tokens=1,
             total_tokens=2,
             event_count=1,
-            execution_mode="internal_http",
+            execution_mode="agent",
         )
 
     def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
@@ -217,7 +217,7 @@ class _DreamVerificationProvider:
             output_tokens=1,
             total_tokens=2,
             event_count=1,
-            execution_mode="internal_http",
+            execution_mode="agent",
         )
 
 
@@ -292,14 +292,6 @@ def test_hook_dream_passes_its_selected_profile_to_session_distill(
             project_root=str(tmp_path),
             config=MergedConfig(
                 distill_autonomous_enabled=True,
-                semantic_execution_profile="hermes-sub2api",
-                extras={
-                    "semantic": {
-                        "providers": {
-                            "hermes-sub2api": {"protocol": "anthropic-messages"},
-                        }
-                    }
-                },
             ),
             source="ide_hook",
             trigger_id="session-42",
@@ -604,7 +596,7 @@ def test_dream_compares_source_backed_conflict_and_rejects_a_guess(
                 output_tokens=1,
                 total_tokens=2,
                 event_count=1,
-                execution_mode="internal_http",
+                execution_mode="agent",
             )
 
     monkeypatch.setattr(
@@ -852,7 +844,7 @@ def test_dream_refines_changed_local_source_through_assimilation(
                 output_tokens=1,
                 total_tokens=2,
                 event_count=1,
-                execution_mode="internal_http",
+                execution_mode="agent",
             )
 
     monkeypatch.setattr(
@@ -1013,16 +1005,6 @@ def test_dream_provider_construction_failure_closes_the_processing_ledger_run(
                 project_root=project_root,
                 config=MergedConfig(
                     distill_autonomous_enabled=True,
-                    semantic_execution_profile="operator-profile",
-                    extras={
-                        "semantic": {
-                            "providers": {
-                                "operator-profile": {
-                                    "protocol": "anthropic-messages",
-                                }
-                            }
-                        }
-                    },
                 ),
                 source="agent",
             )

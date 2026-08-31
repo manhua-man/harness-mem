@@ -34,16 +34,7 @@ def _mock_merged_config(**overrides: object) -> MergedConfig:
     base = {
         "distill_autonomous_enabled": True,
         "semantic_execution_restricted": True,
-        "semantic_execution_profile": "hermes-sub2api",
         "semantic_execution_mode": "agent",
-        "extras": {
-            "semantic": {
-                "providers": {
-                    "hermes-sub2api": {"protocol": "anthropic-messages"},
-                    "local-gateway": {"protocol": "openai-responses"},
-                }
-            }
-        },
     }
     base.update(overrides)
     return MergedConfig(**base)
@@ -213,9 +204,7 @@ def test_autonomous_probe_rejects_legacy_responses_fallback(
     )
     monkeypatch.setattr(
         "harness_mem.outcome_probe.load_merged_config",
-        lambda *_args, **_kwargs: _mock_merged_config(
-            semantic_execution_profile="local-gateway",
-        ),
+        lambda *_args, **_kwargs: _mock_merged_config(),
     )
     monkeypatch.setattr(
         "harness_mem.outcome_probe.autonomous_config_fingerprint",
@@ -232,7 +221,7 @@ def test_autonomous_probe_rejects_legacy_responses_fallback(
     assert result["provider_isolated"] is False
 
 
-def test_autonomous_probe_rejects_profile_name_mismatch(
+def test_autonomous_probe_rejects_host_client_mismatch(
     tmp_path: Path, monkeypatch
 ) -> None:
     project_root = tmp_path / "project"
@@ -376,9 +365,7 @@ def test_autonomous_probe_accepts_enabled_without_profile(
     )
     monkeypatch.setattr(
         "harness_mem.outcome_probe.load_merged_config",
-        lambda *_args, **_kwargs: _mock_merged_config(
-            semantic_execution_profile="",
-        ),
+        lambda *_args, **_kwargs: _mock_merged_config(),
     )
     monkeypatch.setattr(
         "harness_mem.outcome_probe.autonomous_config_fingerprint",

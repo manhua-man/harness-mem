@@ -65,10 +65,10 @@ def test_build_semantic_executor_returns_host_agent_when_cli_present(
     assert executor._cli is not None
 
 
-def test_build_semantic_executor_falls_back_to_profile_provider_when_disabled() -> None:
+def test_build_semantic_executor_rejects_disabled_background() -> None:
     config = MergedConfig(distill_autonomous_enabled=False)
-    executor = build_semantic_executor(config, "codex")
-    assert executor.name == "responses_api"
+    with pytest.raises(ProviderError, match="disabled"):
+        build_semantic_executor(config, "codex")
 
 
 def test_build_semantic_executor_requires_host_cli_when_authorized(

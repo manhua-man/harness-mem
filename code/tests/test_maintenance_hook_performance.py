@@ -20,6 +20,7 @@ class _DistillJobs:
 
 class _Job:
     id = "distill-1"
+    client = "codex"
 
     def __init__(self, status: str):
         self.status = status

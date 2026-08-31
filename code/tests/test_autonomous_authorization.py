@@ -46,32 +46,3 @@ def test_background_ready_accepts_runtime_dict_without_profile() -> None:
     runtime["semantic"]["execution"]["restricted"] = False
     assert background_ready(runtime) is False
     assert background_status(runtime).reason == "legacy_restricted_off"
-
-
-def test_background_status_lists_legacy_profiles_when_present() -> None:
-    status = background_status(
-        MergedConfig(
-            distill_autonomous_enabled=True,
-            semantic_execution_profile="hermes-sub2api",
-            extras={
-                "semantic": {
-                    "providers": {
-                        "hermes-sub2api": {"approved": True},
-                    }
-                }
-            },
-        )
-    )
-    assert status.profiles == ("hermes-sub2api",)
-    assert status.reason == "ok"
-    assert status.ready is True
-
-
-def test_profile_name_is_optional_for_background_ready() -> None:
-    assert background_ready(MergedConfig(distill_autonomous_enabled=True)) is True
-    assert background_ready(
-        MergedConfig(
-            distill_autonomous_enabled=True,
-            semantic_execution_profile="missing-name",
-        )
-    ) is True

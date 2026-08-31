@@ -199,7 +199,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | **`distill.autonomous.enabled`** | 项目开关：`true` = 后台 Agent（默认 `mode=agent`）；`false` = 关 | 不是人工 `distill` 开关 |
 | **`semantic.execution.mode`** | 默认 **`agent`**（不必写）；后台全 Agent，唯一硬限制 = Hook 不得重入 | 不是用户要选的第三档位名 |
 | **`semantic.execution.restricted`** | **遗留键**（0.9.25 代码仍读）；`false` 等同关后台。新文档以 `enabled=false` 为准 | 不是 Codex `--sandbox`；不要再用它表达「只禁 Hook」 |
-| **`execution_mode`（receipt）** | 回执：`agent` + `{host}_cli` = 宿主 CLI 成功；`internal_http` = 内部 HTTP（审计用，非产品模式） | 已删除 `execution_restricted` / legacy `sandbox` |
+| **`execution_mode`（receipt）** | 回执：`agent` + `{host}_cli` = 宿主 CLI 成功 | 非 `{host}_cli` 名不能冒充 Agent |
 | **`provider.name`（receipt）** | 成功路径：`{host}_cli`（如 `codex_cli`、`hermes_cli`、`claude-code_cli`、`opencode_cli`） | HTTP 名（如 `anthropic_messages:…`）不能冒充 Agent |
 | **outcome** | 14 条用户结果合同 + 本机探针 | 普通单元测试 |
 
@@ -209,9 +209,8 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | --- | --- | --- |
 | 开后台 | `enabled=true` | `build_semantic_executor` → 当前 `host_client` 的 CLI |
 | 关后台 | **`enabled=false`** | legacy `restricted=false` 亦 effective 关 |
-| 传输 / 凭据 | 在**当前宿主 CLI** 配置（Codex/Hermes/Claude Code/OpenCode 等各自 CLI） | harness-mem 不读 profile `base_url` 作 autonomous 主路径 |
+| 传输 / 凭据 | 在**当前宿主 CLI** 配置（Codex/Hermes/Claude Code/OpenCode 等各自 CLI） | harness-mem 不承载 endpoint / api_key |
 | 写库 | 本机 Answer Gate + finalize | 不变 |
-| 内部 recovery | （不对用户宣传） | `build_semantic_provider()` → `execution_mode=internal_http`；不进已授权 worker |
 
 **无人值守写记忆：** Hook → **本机 Dream/worker** 调后台 model 拿 JSON → Answer Gate + assimilation → **同一套本机代码** finalize 并写 Note/SQLite。不是「Dream 不写、别的 runtime 写」。
 
@@ -224,7 +223,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 - source cleanup 只有在策略授权、adapter 支持 session-scoped deletion 且 quiet/CAS/hash 检查通过时才执行；共享或不安全容器保持不动并报告 `unsupported`。
 - `maintenance erase` 默认 preview；`--apply` 才执行。不得为删除一个 session unlink 整个共享历史容器。
 - `.harness-mem` 数据根、原生宿主历史、Notes、receipts、runtime reports 和 `.codex/` 运行证据不得作为无关代码/文档任务的副作用被修改或清理。
-- autonomous model use：**产品合同**为 `distill.autonomous.enabled=true` + **当前 host_client** 走对应宿主 CLI（`codex_cli`、`hermes_cli`、`claude-code_cli`、`opencode_cli` 等；七宿主同一规则，Hook 传谁就用谁）。传输与密钥在该宿主 CLI 配置。**关后台只用 `enabled=false`。** 遗留 `semantic.execution.profile` 与 `semantic.execution.restricted` 代码仍读但 CLI 路径不依赖 profile。详见 [`docs/background-memory.md`](docs/background-memory.md)。
+- autonomous model use：**产品合同**为 `distill.autonomous.enabled=true` + **当前 host_client** 走对应宿主 CLI（`codex_cli`、`hermes_cli`、`claude-code_cli`、`opencode_cli` 等；七宿主同一规则，Hook 传谁就用谁）。传输与密钥在该宿主 CLI 配置。**关后台只用 `enabled=false`。** 无 HTTP profile、无 `semantic.execution.profile`、无 enabled=false 时的 HTTP fallback。详见 [`docs/background-memory.md`](docs/background-memory.md)。
 
 ## 构建、测试与开发命令
 

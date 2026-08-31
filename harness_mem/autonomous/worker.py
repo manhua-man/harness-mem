@@ -23,10 +23,8 @@ from harness_mem.autonomous.models import (
     validate_atomic_knowledge_statement,
 )
 from harness_mem.autonomous.provider import (
-    CodexExecProvider,
     ProviderError,
     ProviderResult,
-    build_semantic_provider,
 )
 from harness_mem.autonomous.hook_guard import count_hook_reentry_blocks
 from harness_mem.autonomous.executors.registry import build_semantic_executor
@@ -107,7 +105,7 @@ class DistillProvider(Protocol):
     ) -> ProviderResult: ...
 
 
-def _provider_call_with_transport_fallback(
+def _invoke_provider(
     provider: DistillProvider,
     method_name: str,
     manifest: dict[str, Any],
@@ -115,134 +113,12 @@ def _provider_call_with_transport_fallback(
     runtime_dir: Path,
     heartbeat: Any,
 ) -> ProviderResult:
-    """Recover a narrow Responses EOF through the isolated Codex transport."""
-
     method = getattr(provider, method_name)
-    started = time.monotonic()
-    try:
-        return method(
-            manifest,
-            runtime_dir=runtime_dir,
-            heartbeat=heartbeat,
-        )
-    except ProviderError as primary_error:
-        if getattr(provider, "name", "") == "responses_api" and primary_error.kind == "setup_required":
-            selected_model = (
-                getattr(provider, "assimilation_model", None)
-                if method_name == "assimilate"
-                else getattr(provider, "model", None)
-            )
-            fallback = CodexExecProvider(
-                model=str(selected_model or "").strip() or None,
-                timeout_seconds=300,
-            )
-            if not fallback.executable:
-                raise
-            fallback_method = getattr(fallback, method_name)
-            try:
-                recovered = fallback_method(
-                    manifest,
-                    runtime_dir=runtime_dir,
-                    heartbeat=heartbeat,
-                )
-            except ProviderError as fallback_error:
-                raise ProviderError(
-                    f"{primary_error}; codex_exec fallback failed: {fallback_error}",
-                    kind=(
-                        "transient"
-                        if fallback_error.kind == "setup_required"
-                        else fallback_error.kind
-                    ),
-                    exit_code=fallback_error.exit_code,
-                ) from fallback_error
-            return ProviderResult(
-                decision=recovered.decision,
-                provider=f"responses_api->{recovered.provider}",
-                model=recovered.model,
-                duration_seconds=time.monotonic() - started,
-                input_sha256=recovered.input_sha256,
-                response_sha256=recovered.response_sha256,
-                input_tokens=recovered.input_tokens,
-                output_tokens=recovered.output_tokens,
-                total_tokens=recovered.total_tokens,
-                event_count=recovered.event_count,
-                attempt_count=recovered.attempt_count + 1,
-                schema_valid=recovered.schema_valid,
-                execution_mode=recovered.execution_mode,
-                host_client=recovered.host_client,
-                ephemeral=recovered.ephemeral,
-                cwd_isolated=recovered.cwd_isolated,
-                hooks_disabled=recovered.hooks_disabled,
-                plugins_disabled=recovered.plugins_disabled,
-                mcp_disabled=recovered.mcp_disabled,
-                rules_ignored=recovered.rules_ignored,
-                config_isolated=recovered.config_isolated,
-            )
-        if (
-            getattr(provider, "name", "") != "responses_api"
-            or primary_error.kind != "transient"
-            or "unexpected eof" not in str(primary_error).casefold()
-        ):
-            raise
-        selected_model = (
-            getattr(provider, "assimilation_model", None)
-            if method_name == "assimilate"
-            else getattr(provider, "model", None)
-        )
-        fallback = CodexExecProvider(
-            model=str(selected_model or "").strip() or None,
-            timeout_seconds=300,
-        )
-        if not fallback.executable:
-            raise
-        fallback_method = getattr(fallback, method_name)
-        try:
-            recovered = fallback_method(
-                manifest,
-                runtime_dir=runtime_dir,
-                heartbeat=heartbeat,
-            )
-        except ProviderError as fallback_error:
-            raise ProviderError(
-                f"{primary_error}; codex_exec fallback failed: {fallback_error}",
-                kind=(
-                    "transient"
-                    if fallback_error.kind == "setup_required"
-                    else fallback_error.kind
-                ),
-                exit_code=fallback_error.exit_code,
-            ) from fallback_error
-        return ProviderResult(
-            decision=recovered.decision,
-            provider=f"responses_api->{recovered.provider}",
-            model=recovered.model,
-            duration_seconds=time.monotonic() - started,
-            input_sha256=recovered.input_sha256,
-            response_sha256=recovered.response_sha256,
-            input_tokens=recovered.input_tokens,
-            output_tokens=recovered.output_tokens,
-            total_tokens=recovered.total_tokens,
-            event_count=recovered.event_count,
-            attempt_count=recovered.attempt_count + 1,
-            schema_valid=recovered.schema_valid,
-            execution_mode=recovered.execution_mode,
-            host_client=recovered.host_client,
-            ephemeral=recovered.ephemeral,
-            cwd_isolated=recovered.cwd_isolated,
-            hooks_disabled=recovered.hooks_disabled,
-            plugins_disabled=recovered.plugins_disabled,
-            mcp_disabled=recovered.mcp_disabled,
-            rules_ignored=recovered.rules_ignored,
-            config_isolated=recovered.config_isolated,
-        )
-
-    def verify(
-        self,
-        manifest: dict[str, Any],
-        *,
-        runtime_dir: Path,
-        heartbeat: Any = None,
-    ) -> ProviderResult: ...
+    return method(
+        manifest,
+        runtime_dir=runtime_dir,
+        heartbeat=heartbeat,
+    )
 
 
 def _now() -> str:
@@ -612,8 +488,13 @@ def run_autonomous_distill_batch(
             if provider is not None
             else build_semantic_executor(config, client)
             if background_ready(config)
-            else build_semantic_provider()
+            else None
         )
+        if chosen_provider is None:
+            raise ProviderError(
+                "Background memory is disabled (distill.autonomous.enabled=false)",
+                kind="setup_required",
+            )
     except ProviderError as exc:
         _record_post_turn_nonsemantic_terminal_receipt(
             backend.data_dir,
@@ -1547,7 +1428,7 @@ def _decide_with_candidate_retry(
     results: list[ProviderResult] = []
     current_manifest = manifest
     for attempt in range(2):
-        result = _provider_call_with_transport_fallback(
+        result = _invoke_provider(
             provider,
             "decide",
             current_manifest,
@@ -1634,7 +1515,7 @@ def _assimilate_with_schema_retry(
     current_manifest = manifest
     for attempt in range(3):
         try:
-            result = _provider_call_with_transport_fallback(
+            result = _invoke_provider(
                 provider,
                 "assimilate",
                 current_manifest,
@@ -2433,7 +2314,7 @@ def _verify_candidates(
     runtime_dir: Path,
     heartbeat: Any,
 ) -> tuple[ProviderResult, list[tuple[Any, dict[str, Any]]]]:
-    result = _provider_call_with_transport_fallback(
+    result = _invoke_provider(
         provider,
         "verify",
         manifest,

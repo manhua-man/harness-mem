@@ -22,7 +22,6 @@ from harness_mem.autonomous.provider import (
     CodexExecProvider,
     ProviderError,
     ProviderResult,
-    ResponsesApiProvider,
 )
 from harness_mem.autonomous.worker import (
     build_provider_manifest,
@@ -438,16 +437,9 @@ def _decide_model_sample_with_fallback(
     runtime_dir: Path,
     model: str | None,
 ) -> tuple[ProviderResult, list[dict[str, str]]]:
-    """Prefer Responses API; fall back to Codex exec if provider is unavailable."""
+    """Prefer Codex exec for isolated model-sample qualification runs."""
 
     providers = (
-        (
-            "responses_api",
-            ResponsesApiProvider(
-                model=model or DEFAULT_DISTILL_MODEL,
-                timeout_seconds=DEFAULT_DISTILL_TIMEOUT_SECONDS,
-            ),
-        ),
         (
             "codex_exec",
             CodexExecProvider(
@@ -477,11 +469,6 @@ def _decide_model_sample_with_fallback(
                     "message": str(exc)[:1000],
                 }
             )
-            if (
-                provider_name == "responses_api"
-                and exc.kind == "setup_required"
-            ):
-                continue
             raise _ModelSampleProviderError(
                 exc,
                 attempt_count=int(getattr(exc, "attempt_count", 1)),
