@@ -114,29 +114,29 @@ source-bound Dream activity signal. It never performs semantic judgment.
 
 There are two execution paths. An explicit `/hm:distill` stays in the current
 host: it reads every ordered chunk and evidence window without truncating them,
-extracts promotion points, verifies them, and lets trusted runtime assimilation
-update only proven current knowledge. `finalize_session_distill` is the commit
+extracts promotion points, verifies them, and lets local harness-mem code
+(Dream/worker, not the external model API) assimilate only proven current
+knowledge. `finalize_session_distill` is the commit
 point for that explicit job; it never starts Dream. A
-Hook-started Dream is the only unattended executor: after a project explicitly
-selects an operator-owned provider profile and enables autonomous execution, it
-reopens the triggering session and the project's current knowledge, sources,
-and feedback. Dream then extracts or compares, verifies, assimilates, and ends
-each item as applied, rejected, archived, or failed/retryable.
+Hook-started Dream is the only unattended executor: after a project sets
+`distill.autonomous.enabled=true`, it reopens the triggering session and the
+project's current knowledge, sources, and feedback through the **current host
+CLI**. Dream then extracts or compares, verifies, assimilates, and ends each
+item as applied, rejected, archived, or failed/retryable.
 
-Unattended work keeps two queues even though one restricted Dream executor
-serves both: the session processing queue owns one immutable session job; the
-project governance queue compares current knowledge with real sources and
-retrieval feedback. Manual explicit distill bypasses both queues and remains in
-the active host.
+Unattended work keeps two queues: the session job queue (one immutable session
+per job) and the project governance queue (compare current knowledge with
+sources and feedback). Manual explicit distill bypasses both and stays in the
+active host.
 
-Provider profiles contain only a protocol, endpoint, model, timeout, and an
-environment-variable name in user configuration; project configuration can
-only select a named profile. The provider is a no-tools, strict-schema semantic
-call. It cannot access project files or credentials directly, and trusted
-runtime code remains the only writer of candidates, Session Notes, and SQLite
-truth. `/hm:review` is the separate post-hoc correction and undo surface, not a
-promotion gate. The Hook can claim only that work was queued; unattended work
-can claim completion only after its terminal receipt and Note materialize.
+Background work uses the **current host CLI** (Codex, Hermes, Claude Code,
+OpenCode, …—see [`docs/background-memory.md`](docs/background-memory.md)).
+Transport and credentials belong in that host's CLI configuration.
+**Local harness-mem** remains the only writer of candidates, Session Notes, and
+SQLite truth after verification. `/hm:review` is
+the separate post-hoc correction and undo surface, not a promotion gate. The
+Hook can claim only that work was queued; unattended work can claim completion
+only after its terminal receipt and Note materialize.
 Legacy Observations without an available native transcript remain audit-only
 (`legacy_partial`).
 
@@ -233,8 +233,8 @@ owns storage, candidates, review, retrieval, and local audit state.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
-  harness-mem==0.9.25
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
+  harness-mem==0.9.26
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -245,8 +245,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
-  "harness-mem[hybrid]==0.9.25"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
+  "harness-mem[hybrid]==0.9.26"
 ```
 
 Install every supported host's native Daily commands once for the current
@@ -303,49 +303,28 @@ the new project hooks once, then start a new task. Until a matching
 `SessionStart` hook has actually completed, `get_project_status` reports
 `hooks=review_required` rather than claiming wake is operational.
 
-Unattended Dream processing requires a project-scoped authorization. A Stop Hook
-only saves the immutable session revision, creates or advances its job, and
-wakes Dream. Dream then processes that session and project-level knowledge in
-the background, using the configured provider and consuming its quota:
+Unattended Dream processing requires one project setting:
 
 ```bash
 harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
-The global default is `false`. Projects without this authorization keep captured
-jobs queued for explicit processing. An explicit `distill` stays in the active
-host, for example Codex when you ask Codex to process a Codex archive; it is not
-silently sent to the background profile. Disabling never requires confirmation.
+The global default is `false`. Projects without authorization keep captured jobs
+queued for explicit processing. Background work uses the **current host CLI**
+from the Hook's `host_client` / `HARNESS_MEM_CLIENT` (same rule for every
+supported host). Transport and credentials belong in that host's CLI
+configuration—not in harness-mem project config. You do **not** need
+`semantic.execution.profile` or entries in `~/.harness-mem/config.toml`.
 
-Version `0.9.25` supports an operator-owned
-restricted provider profile for unattended Dream, including Hook-started session
-distillation and project source rechecks. Keep the endpoint and environment-variable reference in the user
-configuration (never in a repository), then select that already approved
-profile for one authorized project:
+Receipts record `execution_mode=agent` and `provider.name=<host>_cli`. Turn off
+background work with **`distill.autonomous.enabled=false` only**. Legacy
+`semantic.execution.restricted` is still read by the runtime; see
+[`docs/background-memory.md`](docs/background-memory.md).
 
-```toml
-# ~/.harness-mem/config.toml
-[semantic.providers.local-gateway]
-protocol = "anthropic-messages" # or "openai-responses"
-base_url = "https://gateway.example/v1"
-api_key_env = "HARNESS_MEM_GATEWAY_KEY"
-model = "operator-approved-model"
-output_mode = "json" # default: "tool"; use for gateways that reject forced output tools
-thinking_mode = "disabled" # use when a reasoning gateway returns thinking but no final JSON text
-```
-
-```bash
-harness-mem config set semantic.execution.profile local-gateway --scope project
-```
-
-The profile has no access to Agent tools, MCP, the filesystem, or host rules;
-it returns only the required structured semantic decision. `output_mode = "json"`
-is a no-tool compatibility channel for gateways that reject forced output tools:
-non-JSON or schema-invalid text fails closed. For an Anthropic-compatible
-reasoning gateway that returns only a thinking block, `thinking_mode =
-"disabled"` requests a final JSON response instead. A selected profile does not
-authorize model calls on its own: the project must also have
-`distill.autonomous.enabled=true`.
+An internal HTTP provider remains for **unauthorized** paths and narrow
+recovery only; it records `execution_mode=internal_http` and must not
+impersonate a host CLI agent. Outcome probes verify host CLI receipts plus
+local worker writes. See [`docs/background-memory.md`](docs/background-memory.md).
 
 For archived Codex tasks, first bind the project root. The default
 `archive_distill.project_scope = "current"` processes only that project;
@@ -526,4 +505,4 @@ python code/scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, runs a real sqlite-vec contract gate, qualifies the supported Windows upgrade path, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.9.25**.
+Current package version: **0.9.26**.

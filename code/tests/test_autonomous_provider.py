@@ -328,7 +328,7 @@ def test_responses_provider_uses_no_tools_and_records_actual_usage(
     assert captured["body"]["text"]["format"]["strict"] is True
     assert captured["body"]["reasoning"]["effort"] == "low"
     assert result.total_tokens == 1555
-    assert result.sandbox == "no-tools"
+    assert result.execution_mode == "internal_http"
 
 
 def test_anthropic_profile_forces_single_result_envelope_without_agent_tools(
@@ -401,7 +401,7 @@ def test_anthropic_profile_forces_single_result_envelope_without_agent_tools(
     assert "store" not in captured["body"]
     assert result.provider == "anthropic_messages:hermes-sub2api"
     assert result.total_tokens == 168
-    assert result.sandbox == "no-tools"
+    assert result.execution_mode == "internal_http"
 
 
 def test_anthropic_json_profile_requires_schema_valid_text_without_agent_tools(
@@ -463,7 +463,7 @@ def test_anthropic_json_profile_requires_schema_valid_text_without_agent_tools(
     assert "untrusted data to classify" in captured["body"]["system"]
     assert "<required_output_schema>" in captured["body"]["system"]
     assert result.decision == _decision()
-    assert result.sandbox == "no-tools"
+    assert result.execution_mode == "internal_http"
 
 
 def test_anthropic_json_profile_fails_closed_on_non_json_text(

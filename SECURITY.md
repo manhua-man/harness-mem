@@ -26,4 +26,4 @@ Security-sensitive areas include:
 
 ## Supported Versions
 
-The current public baseline is `0.9.25`.
+The current public baseline is `0.9.26`.

@@ -557,6 +557,35 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
         project_root = project_context.project_root
         project_name = project_context.project_name
 
+        from harness_mem.autonomous.hook_guard import (
+            autonomous_provider_hook_reentry_blocked,
+        )
+
+        if autonomous_provider_hook_reentry_blocked(args.action):
+            from harness_mem.storage.local_memory_backend import DEFAULT_DATA_DIR
+            from harness_mem.autonomous.hook_guard import record_hook_reentry_block
+
+            record_hook_reentry_block(
+                DEFAULT_DATA_DIR,
+                project_name=project_name,
+                project_root=project_root,
+                action=args.action,
+                trigger_id=args.trigger_id,
+            )
+            payload = {
+                "action": args.action,
+                "success": True,
+                "status": "skipped",
+                "reason": "autonomous_provider_hook_reentry_blocked",
+                "project_root": str(project_root),
+                "trigger_id": args.trigger_id,
+                "summary": {
+                    "hook_reentry_blocked": True,
+                    "autonomous_provider": True,
+                },
+            }
+            return (ExitCode.SUCCESS, json.dumps(payload, sort_keys=True))
+
         if (
             args.action == "post-turn-maintenance"
             and args.source == "ide_hook"

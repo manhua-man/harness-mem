@@ -175,7 +175,7 @@ Expected result:
 - `finalize_session_distill` verifies completeness and commits only that
   explicit active-host job. It does not start Dream.
 - New information reaches current knowledge only after point-level verification
-  and trusted-runtime assimilation with audit metadata.
+  and local harness-mem assimilation with audit metadata.
 - One-off task details are not promoted as durable memory.
 - Anything broad, risky, or under-evidenced is rejected or handed off instead
   of becoming normal current knowledge.

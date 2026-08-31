@@ -13,7 +13,7 @@ import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from harness_mem.commands.support import DEFAULT_DATA_DIR
 from harness_mem.core.schemas.session_distill import SessionDistillJob
@@ -24,6 +24,7 @@ from harness_mem.hook_receipts import (
     read_hook_execution_receipt,
 )
 from harness_mem.hook_runtime import collect_hook_file_statuses
+from harness_mem.autonomous.authorization import background_ready
 from harness_mem.autonomous.worker import (
     autonomous_config_fingerprint,
     autonomous_runtime_fingerprint,
@@ -39,9 +40,78 @@ from harness_mem.session_notes import (
 DEFAULT_RECENT_DAYS = 7
 MIN_NOTE_CHARS = 200
 OUTCOME_SECTIONS = ("hooks", "dream", "distill", "autonomous", "retrieval")
-_ISOLATED_PROVIDER_NAMES = frozenset(
+_LEGACY_RESTRICTED_PROVIDER_NAMES = frozenset(
     {"codex_exec", "responses_api", "responses_api->codex_exec"}
 )
+
+
+def _provider_host_cli_agent_isolated(
+    provider: Mapping[str, Any],
+    *,
+    authorized: bool,
+    host_client: str,
+    hook_reentry_count: int,
+) -> bool:
+    """True when the receipt records a real host CLI agent turn."""
+
+    if not authorized:
+        return False
+    if str(provider.get("execution_mode") or "") != "agent":
+        return False
+    expected_name = f"{host_client}_cli"
+    if str(provider.get("name") or "") != expected_name:
+        return False
+    if str(provider.get("host_client") or "") != host_client:
+        return False
+    return bool(
+        provider.get("schema_valid") is True
+        and provider.get("hooks_disabled") is False
+        and provider.get("mcp_disabled") is False
+        and hook_reentry_count == 0
+    )
+
+
+def _provider_name_matches_project_selection(
+    provider_name: str,
+    *,
+    profile_name: str,
+) -> bool:
+    """Match receipt provider names to legacy paths or the selected operator profile."""
+
+    name = str(provider_name or "").strip()
+    if not name:
+        return False
+    if name in _LEGACY_RESTRICTED_PROVIDER_NAMES:
+        return True
+    selected = str(profile_name or "").strip()
+    if not selected:
+        return False
+    direct = {
+        f"anthropic_messages:{selected}",
+        f"openai_responses:{selected}",
+    }
+    if name in direct:
+        return True
+    return name.endswith(f"anthropic_messages:{selected}") or name.endswith(
+        f"openai_responses:{selected}"
+    )
+
+
+def _provider_restricted_execution_isolated(
+    provider: Mapping[str, Any],
+    *,
+    authorized: bool,
+    host_client: str,
+    hook_reentry_count: int,
+) -> bool:
+    """True when the authorized host CLI agent kept its boundaries."""
+
+    return _provider_host_cli_agent_isolated(
+        provider,
+        authorized=authorized,
+        host_client=host_client,
+        hook_reentry_count=hook_reentry_count,
+    )
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -283,10 +353,12 @@ def inspect_autonomous_outcome(
         }
     try:
         merged_config = load_merged_config(project_root)
-        authorized = merged_config.distill_autonomous_enabled
+        authorized = background_ready(merged_config)
+        profile_name = merged_config.semantic_execution_profile
         current_config_fingerprint = autonomous_config_fingerprint(merged_config)
     except Exception:  # noqa: BLE001 - outcome remains inspectable on bad config.
         authorized = False
+        profile_name = ""
         current_config_fingerprint = None
     current_runtime_fingerprint = autonomous_runtime_fingerprint()
     raw_verified = receipt.get("last_verified_completion")
@@ -378,18 +450,11 @@ def inspect_autonomous_outcome(
     output_tokens = provider.get("output_tokens")
     total_tokens = provider.get("total_tokens")
     duration_seconds = provider.get("duration_seconds")
-    provider_isolated = bool(
-        provider.get("name") in _ISOLATED_PROVIDER_NAMES
-        and provider.get("schema_valid") is True
-        and provider.get("sandbox") in {"read-only", "no-tools"}
-        and provider.get("ephemeral") is True
-        and provider.get("cwd_isolated") is True
-        and provider.get("hooks_disabled") is True
-        and provider.get("plugins_disabled") is True
-        and provider.get("mcp_disabled") is True
-        and provider.get("rules_ignored") is True
-        and provider.get("config_isolated") is True
-        and int(evidence.get("hook_reentry_count") or 0) == 0
+    provider_isolated = _provider_restricted_execution_isolated(
+        provider,
+        authorized=authorized,
+        host_client=evidence_client,
+        hook_reentry_count=int(evidence.get("hook_reentry_count") or 0),
     )
     provider_metrics_bound = bool(
         isinstance(input_tokens, int)

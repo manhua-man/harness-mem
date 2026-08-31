@@ -4,9 +4,10 @@ This document owns the conceptual contract for turning session evidence into
 usable long-term memory. The full product path starts before extraction: it
 must first safely receive, version, and finish a native session. The current
 released runtime is `0.9.25`. SQLite truth separation landed in `0.9.20` and
-was extended and hardened through `0.9.25` with restricted provider profiles,
-strict no-tools JSON compatibility, and Hook-started Dream execution. The
-runtime implements lifecycle, lossless extraction, content-addressed evidence
+was extended and hardened through `0.9.25` with Hook-started Dream execution,
+strict no-tools JSON compatibility, and legacy HTTP provider profiles (superseded
+for product authorization by `0.9.26` host CLI + `enabled=true`; see
+`docs/background-memory.md`). The runtime implements lifecycle, lossless extraction, content-addressed evidence
 validation, governed truth, and normal retrieval. It isolates raw
 Observation content and internal audit metadata behind explicit deep recall or
 diagnostic views. Legacy `MemoryEntry` remains a compatibility/manual Review
@@ -128,7 +129,7 @@ knowledge.
 
 The Answer Gate is runtime-derived from each candidate's evidence envelope. An
 Agent supplies `evidence_basis`, its requested `verification_outcome`, and
-content-free `verification_refs`; trusted runtime code re-reads the current
+content-free `verification_refs`; local harness-mem code re-reads the current
 repository or immutable user-statement source before assigning the gate status.
 
 ```text
@@ -165,7 +166,7 @@ the point does not proceed to durable assimilation.
 An unfinished task envelope is not a project policy. When the only source is a
 user request structured as fields such as `Goal`/`Read`/`Write`/`Acceptance`
 (or their Chinese equivalents) and the exchange records no assistant outcome,
-the trusted runtime assigns `NOT_APPLICABLE` even if a model calls it durable.
+local harness-mem assigns `NOT_APPLICABLE` even if a model calls it durable.
 This protects the knowledge layer from preflight, scope, and one-off execution
 instructions; a separately stated continuing design requirement still follows
 the ordinary per-point verification path.
@@ -346,9 +347,12 @@ both background queues and remains in the active host.
   whole project's current knowledge, sources, and feedback. It writes only the
   verified result of that extraction/verification/assimilation loop, never an
   unverified discovery. A source-backed single-item recheck may refresh or
-  reversibly retire current knowledge only after the trusted runtime reopens a
-  complete supported source and an explicitly authorized restricted provider
-  returns the required semantic result. Unsupported, missing, or truncated
+  reversibly retire current knowledge only after local harness-mem reopens a
+  complete supported source and explicit background authorization
+  (`distill.autonomous.enabled=true`) under the host CLI executor contract
+  (`execution_mode=agent`, `provider.name=<host>_cli`; see
+  `docs/background-memory.md`).
+  Unsupported, missing, or truncated
   sources, and multi-item comparisons, close without changing current truth.
 - **Bounded session assimilation** may initially assess independently verified
   points one at a time. If those preliminary decisions would reuse one current
@@ -398,12 +402,11 @@ operator or audit actions. They do not redefine the long-term knowledge model.
 - Revalidation reopens the current underlying source. An old audit result or
   hash explains how to find that source; it cannot prove the source still says
   the same thing.
-- Dream's unattended semantic provider is chosen by a project only from named,
-  user-owned connection profiles; profile selection and autonomous execution
-  each require their own project-level opt-in. A manually requested `distill`
-  remains in its active host and is never silently rerouted through that
-  profile. Profile credentials are read only from the referenced environment
-  variable and never from repository configuration or current knowledge.
+- Dream's unattended semantic work uses the **current host CLI** when
+  `distill.autonomous.enabled=true`. Transport and credentials live in that
+  host's CLI configuration, not in harness-mem project config. A manually
+  requested `distill` remains in its active host and is never silently
+  rerouted through background execution.
 - Review undo retains at most the newest 32 project mutations and the version
   snapshots they still reference. Older mutation/version rows are removed in
   the same SQLite transaction as the new mutation; they are not an unlimited

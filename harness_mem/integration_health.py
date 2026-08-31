@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from harness_mem.adapters import AdapterRegistry
+from harness_mem.autonomous.authorization import (
+    background_reason_message,
+    background_status,
+)
 from harness_mem.config.merge import MergedConfig, load_merged_config
 from harness_mem.hook_receipts import (
     HOOK_RECEIPT_FRESHNESS_SECONDS,
@@ -184,8 +188,9 @@ async def build_integration_health(
             project_root=root,
             jobs=all_distill_jobs,
         )
+    auth_status = background_status(distill_config)
     health_card = _build_autonomous_health_card(
-        authorized=distill_config.distill_autonomous_enabled,
+        authorization=auth_status,
         autonomous=autonomous_outcome,
         jobs=all_distill_jobs,
         drainer=drainer,
@@ -303,7 +308,7 @@ async def build_integration_health(
 
 def _build_autonomous_health_card(
     *,
-    authorized: bool,
+    authorization: Any,
     autonomous: dict[str, Any],
     jobs: list[Any],
     drainer: dict[str, Any],
@@ -371,7 +376,7 @@ def _build_autonomous_health_card(
     issue_codes: list[str] = []
     severe_codes: set[str] = set()
 
-    if not authorized:
+    if not getattr(authorization, "ready", False):
         status = "disabled"
     else:
         if not hooks_configured:
@@ -440,6 +445,17 @@ def _build_autonomous_health_card(
         "alert": alert,
         "summary": f"harness-mem: {label}",
         "checked_at": current.isoformat(),
+        "authorization": {
+            "ready": bool(getattr(authorization, "ready", False)),
+            "on": bool(getattr(authorization, "on", False)),
+            "profile": getattr(authorization, "profile", None) or None,
+            "reason": getattr(authorization, "reason", None),
+            "message": background_reason_message(
+                str(getattr(authorization, "reason", "") or "")
+            ),
+            "profiles": list(getattr(authorization, "profiles", ()) or ()),
+            "legacy_off": bool(getattr(authorization, "legacy_off", False)),
+        },
         "chain_verified": bool(autonomous.get("lifecycle_verified")),
         "last_run": {
             "at": autonomous.get("last_semantic_success_at"),

@@ -62,19 +62,29 @@ The server has one public memory surface. It exposes status, wake/search,
 session distill, composite `govern_memory`, candidate review, and Dream as the
 audited maintenance capability. Historical profile values are ignored.
 
-Unattended Dream processing is disabled until a project makes two explicit
-choices: name an operator-owned semantic profile and authorize autonomous
-execution. A profile is defined only in user configuration and contains a
-protocol, endpoint, model, timeout, and environment-variable name for the key;
-the project never stores a credential or endpoint.
+Unattended Dream processing is disabled until a project makes explicit
+project-scoped choices. Terminology (`receipt`, `runtime fingerprint`,
+`execution_mode`, `hook_reentry_count`, `outcome`, …): see
+[`docs/background-memory.md`](background-memory.md).
+
+1. **`distill.autonomous.enabled=true`** — consent for this repository to run
+   background host CLI work for the current client.
+
+Turn off background work with **`distill.autonomous.enabled=false`** only. See
+[`docs/background-memory.md`](background-memory.md).
 
 ```bash
-harness-mem config set semantic.execution.profile local-gateway --scope project
 harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
-Without both choices, Hook-captured jobs remain safely queued. An explicit
-`distill` stays in the active host and does not use this profile.
+Without background authorization (`enabled=true`), Hook-captured jobs remain
+safely queued. An explicit `distill` stays in the active host.
+
+Authorized background work uses the **current host CLI** for the Hook's
+`host_client` / `HARNESS_MEM_CLIENT` (Codex, Hermes, Claude Code, OpenCode, …).
+Transport and credentials belong in that host's CLI config—not harness-mem project config.
+Outcome probes verify `execution_mode=agent` and `provider.name=<host>_cli`.
+
 The `wake` output leads with a recent project-scoped context index. It is a
 derived view of transcript observations and does not promote them to confirmed
 truth; stable truth and active handoffs remain separate sections.

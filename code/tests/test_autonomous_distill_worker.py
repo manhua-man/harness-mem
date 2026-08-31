@@ -150,7 +150,7 @@ def test_explicit_worker_ignores_unattended_profile_selection(
     assert result["state"] == "idle"
 
 
-def test_hook_dream_profile_failure_writes_a_waitable_terminal_receipt(
+def test_hook_dream_disabled_writes_a_waitable_terminal_receipt(
     tmp_path: Path,
 ) -> None:
     from harness_mem.commands.dream import dream_auto_tick
@@ -167,12 +167,11 @@ def test_hook_dream_profile_failure_writes_a_waitable_terminal_receipt(
                 project_name="demo",
                 project_root=str(project_root),
                 config=MergedConfig(
-                    distill_autonomous_enabled=True,
-                    semantic_execution_profile="missing-profile",
+                    distill_autonomous_enabled=False,
                 ),
                 source="ide_hook",
-                trigger_id="session-profile-error",
-                trigger_job_id="job-profile-error",
+                trigger_id="session-disabled",
+                trigger_job_id="job-disabled",
             )
         )
         receipt_path = autonomous_receipt_path(
@@ -189,7 +188,7 @@ def test_hook_dream_profile_failure_writes_a_waitable_terminal_receipt(
             data_dir=backend.data_dir,
             project_root=project_root,
             project_name="demo",
-            trigger_id="session-profile-error",
+            trigger_id="session-disabled",
             dispatch_generation=None,
             receipt_path=receipt_path,
             initial_receipt=None,
@@ -203,93 +202,35 @@ def test_hook_dream_profile_failure_writes_a_waitable_terminal_receipt(
     assert result["status"] == "failed"
     assert receipt is not None
     assert receipt["state"] == "failed"
-    assert receipt["trigger_id"] == "session-profile-error"
+    assert receipt["trigger_id"] == "session-disabled"
     assert receipt["error"]["kind"] == "setup_required"
     assert exit_code != 0
     assert json.loads(output)["state"] == "failed"
 
 
-def test_autonomous_config_fingerprint_binds_selected_profile_without_key_value() -> None:
+def test_autonomous_config_fingerprint_binds_authorization_and_budget_settings() -> None:
     base = MergedConfig(
         distill_autonomous_enabled=True,
-        semantic_execution_profile="profile-a",
-        extras={
-            "semantic": {
-                "providers": {
-                    "profile-a": {
-                        "protocol": "anthropic-messages",
-                        "base_url": "https://one.example/v1",
-                        "api_key_env": "HARNESS_MEM_PROFILE_A_KEY",
-                        "model": "model-a",
-                        "timeout_seconds": 90,
-                        "api_key": "must-not-be-fingerprinted",
-                    },
-                    "profile-b": {
-                        "protocol": "openai-responses",
-                        "base_url": "https://two.example/v1",
-                        "api_key_env": "HARNESS_MEM_PROFILE_B_KEY",
-                        "model": "model-b",
-                    },
-                }
-            }
-        },
+        semantic_execution_mode="agent",
     )
-    changed_endpoint = MergedConfig(
-        distill_autonomous_enabled=True,
-        semantic_execution_profile="profile-a",
-        extras={
-            "semantic": {
-                "providers": {
-                    "profile-a": {
-                        "protocol": "anthropic-messages",
-                        "base_url": "https://changed.example/v1",
-                        "api_key_env": "HARNESS_MEM_PROFILE_A_KEY",
-                        "model": "model-a",
-                        "timeout_seconds": 90,
-                    }
-                }
-            }
-        },
+    changed_enabled = MergedConfig(
+        distill_autonomous_enabled=False,
+        semantic_execution_mode="agent",
     )
-    changed_profile = MergedConfig(
+    changed_budget = MergedConfig(
         distill_autonomous_enabled=True,
-        semantic_execution_profile="profile-b",
-        extras=base.extras,
+        semantic_execution_mode="agent",
+        distill_auto_daily_job_budget=99,
     )
-    changed_output_mode = MergedConfig(
+    changed_mode = MergedConfig(
         distill_autonomous_enabled=True,
-        semantic_execution_profile="profile-a",
-        extras={
-            "semantic": {
-                "providers": {
-                    "profile-a": {
-                        **base.extras["semantic"]["providers"]["profile-a"],
-                        "output_mode": "json",
-                    }
-                }
-            }
-        },
-    )
-    changed_thinking_mode = MergedConfig(
-        distill_autonomous_enabled=True,
-        semantic_execution_profile="profile-a",
-        extras={
-            "semantic": {
-                "providers": {
-                    "profile-a": {
-                        **base.extras["semantic"]["providers"]["profile-a"],
-                        "thinking_mode": "disabled",
-                    }
-                }
-            }
-        },
+        semantic_execution_mode="internal_http",
     )
 
     base_fingerprint = autonomous_config_fingerprint(base)
-    assert base_fingerprint != autonomous_config_fingerprint(changed_endpoint)
-    assert base_fingerprint != autonomous_config_fingerprint(changed_profile)
-    assert base_fingerprint != autonomous_config_fingerprint(changed_output_mode)
-    assert base_fingerprint != autonomous_config_fingerprint(changed_thinking_mode)
+    assert base_fingerprint != autonomous_config_fingerprint(changed_enabled)
+    assert base_fingerprint != autonomous_config_fingerprint(changed_budget)
+    assert base_fingerprint != autonomous_config_fingerprint(changed_mode)
 
 
 def test_post_turn_preflight_failure_writes_terminal_nonsemantic_receipt(
@@ -2334,7 +2275,7 @@ def test_semantic_reverification_rebinds_repository_ref_to_current_digest(
 
 
 class _DeterministicProvider:
-    name = "codex_exec"
+    name = "codex_cli"
     verify = _verify_all_candidates
 
     def decide(self, manifest, *, runtime_dir, heartbeat=None):
@@ -2391,6 +2332,10 @@ class _DeterministicProvider:
             output_tokens=200,
             total_tokens=1000,
             event_count=3,
+            execution_mode="agent",
+            host_client="codex",
+            hooks_disabled=False,
+            mcp_disabled=False,
         )
 
     def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
@@ -2420,7 +2365,10 @@ class _DeterministicProvider:
             output_tokens=50,
             total_tokens=150,
             event_count=1,
-            sandbox="no-tools",
+            execution_mode="agent",
+            host_client="codex",
+            hooks_disabled=False,
+            mcp_disabled=False,
         )
 
 
@@ -3428,8 +3376,21 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
 ) -> None:
     project = tmp_path / "project"
     project.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    user_config = tmp_path / "home" / ".harness-mem" / "config.toml"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
+        '[semantic.providers.hermes-sub2api]\n'
+        'protocol = "anthropic-messages"\n'
+        'base_url = "https://example.com/v1"\n'
+        'api_key_env = "TEST_KEY"\n'
+        'model = "test-model"\n',
+        encoding="utf-8",
+    )
     (project / ".harness-mem.toml").write_text(
-        "[distill.autonomous]\nenabled = false\n\n[dream.auto]\nenabled = false\n",
+        "[distill.autonomous]\nenabled = true\n\n"
+        '[semantic.execution]\nprofile = "hermes-sub2api"\nrestricted = true\n\n'
+        "[dream.auto]\nenabled = false\n",
         encoding="utf-8",
     )
     hook_manifest = project / ".codex" / "hooks.json"

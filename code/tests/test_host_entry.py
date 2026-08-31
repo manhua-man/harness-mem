@@ -140,6 +140,28 @@ def test_host_entry_dream_end_outputs_dream_json(monkeypatch, tmp_path) -> None:
     assert "metabolism" not in payload.lower()
 
 
+def test_host_entry_blocks_autonomous_provider_hook_reentry(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("HARNESS_MEM_AUTONOMOUS_PROVIDER", "1")
+    monkeypatch.setattr(
+        "harness_mem.hook_background.dispatch_post_turn",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("autonomous provider must not dispatch post-turn")
+        ),
+    )
+
+    code, payload = asyncio.run(
+        host_entry.run(_args(tmp_path, "post-turn-maintenance"))
+    )
+
+    assert code == ExitCode.SUCCESS
+    data = json.loads(payload or "{}")
+    assert data["status"] == "skipped"
+    assert data["reason"] == "autonomous_provider_hook_reentry_blocked"
+    assert data["summary"]["hook_reentry_blocked"] is True
+
+
 def test_host_entry_post_turn_maintenance_outputs_combined_json(
     monkeypatch, tmp_path
 ) -> None:

@@ -62,6 +62,8 @@ class MergedConfig:
     # profiles themselves remain user-scoped extras: a repository must never
     # be able to replace an operator-approved endpoint or credential source.
     semantic_execution_profile: str = ""
+    semantic_execution_mode: Literal["agent"] = "agent"
+    semantic_execution_restricted: bool = True
     archive_distill_enabled: bool = False
     archive_distill_batch_size: int = 3
     archive_distill_daily_limit: int = 20
@@ -182,6 +184,18 @@ _SEMANTIC_EXECUTION_KEYS: tuple[tuple[str, str, str, Any], ...] = (
         "semantic_execution_profile",
         "str:min=1:max=80",
         "",
+    ),
+    (
+        "semantic.execution.mode",
+        "semantic_execution_mode",
+        "enum:agent",
+        "agent",
+    ),
+    (
+        "semantic.execution.restricted",
+        "semantic_execution_restricted",
+        "bool",
+        True,
     ),
 )
 
@@ -619,6 +633,20 @@ def _load_user_config_files() -> tuple[Path, dict[str, Any]]:
     return effective_path, deep_merge(legacy, current)
 
 
+def _apply_legacy_autonomous_compat(merged: dict[str, Any]) -> None:
+    """Map legacy ``semantic.execution.restricted=false`` to ``enabled=false``."""
+
+    found, restricted = _get_dotted(merged, "semantic.execution.restricted")
+    if not found or restricted is not False:
+        return
+    distill = merged.setdefault("distill", {})
+    if not isinstance(distill, dict):
+        return
+    autonomous = distill.setdefault("autonomous", {})
+    if isinstance(autonomous, dict):
+        autonomous["enabled"] = False
+
+
 def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
     """Deep-merge the user-level and project-level config into a MergedConfig.
 
@@ -654,10 +682,12 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
     # arbitrary endpoint or from naming an arbitrary credential environment
     # variable.
     _remove_dotted(user_dict, "semantic.execution.profile")
+    _remove_dotted(user_dict, "semantic.execution.restricted")
     _remove_dotted(project_dict, "semantic.providers")
 
     # ---- 3. deep-merge (project overrides user) (Req 3.3) ---------------
     merged = deep_merge(user_dict, project_dict)
+    _apply_legacy_autonomous_compat(merged)
 
     # ---- 4 + 5. validate recognized keys with source attribution --------
     # For each recognized key, the merged value came from the project file if

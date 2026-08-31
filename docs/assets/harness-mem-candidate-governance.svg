@@ -30,7 +30,7 @@
     <text x="24" y="40" class="heading ink">Explicit distill</text>
     <text x="24" y="77" class="body muted">Active host reads the session</text>
     <text x="24" y="105" class="body muted">Runs stages 1–3 directly</text>
-    <text x="24" y="131" class="small muted">No background profile redirect</text>
+    <text x="24" y="131" class="small muted">No background redirect</text>
   </g>
   <g transform="translate(64 350)">
     <rect class="warm" width="280" height="174" rx="16"/>
@@ -92,10 +92,10 @@
   <g transform="translate(64 580)">
     <rect class="dark" width="1312" height="214" rx="20"/>
     <text x="28" y="42" class="eyebrow" fill="#99f6e4">DREAM GUARDRAILS</text>
-    <text x="28" y="82" class="heading" fill="#fff">Two queues, one restricted semantic executor</text>
+    <text x="28" y="82" class="heading" fill="#fff">Two queues, one host CLI agent</text>
     <text x="28" y="116" class="body" fill="#cbd5e1">Session queue processes one immutable session. Project governance queue checks current knowledge and real sources.</text>
     <text x="28" y="144" class="body" fill="#cbd5e1">It also checks duplicates, conflicts, staleness, and retrieval feedback across the project.</text>
-    <text x="28" y="172" class="body" fill="#fde68a">Named user profile + env key + explicit authorization. No tools; strict schema; trusted runtime writes.</text>
+    <text x="28" y="172" class="body" fill="#fde68a">enabled=true + current host CLI + strict schema; trusted runtime writes.</text>
     <text x="28" y="198" class="small" fill="#fecaca">Unsafe multi-item comparisons, truncated sources, and unsupported sources close without mutation.</text>
   </g>
   <path class="branch" d="M1376 283h24v277H888v-22"/>

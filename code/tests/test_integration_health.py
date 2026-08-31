@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from harness_mem.adapters.snapshot import persist_session_snapshot
+from harness_mem.autonomous.authorization import BackgroundStatus
 from harness_mem.core.schemas.observation import Observation
 from harness_mem.integration_health import (
     _build_autonomous_health_card,
@@ -16,6 +17,20 @@ from harness_mem.hook_receipts import record_hook_execution
 from harness_mem.host_entry.__main__ import _adapter_request
 from harness_mem.integration.repair import _suite_specs
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+
+def _auth(**overrides: object) -> BackgroundStatus:
+    base = {
+        "ready": True,
+        "on": True,
+        "profile": "",
+        "profile_registered": False,
+        "legacy_off": False,
+        "profiles": (),
+        "reason": "ok",
+    }
+    base.update(overrides)
+    return BackgroundStatus(**base)
 
 
 def test_integration_health_summarizes_current_workspace(
@@ -93,7 +108,7 @@ def test_integration_health_summarizes_current_workspace(
 
 def test_health_card_is_idle_safe_and_ignores_cold_parked_backlog() -> None:
     card = _build_autonomous_health_card(
-        authorized=True,
+        authorization=_auth(),
         autonomous={
             "receipt_exists": True,
             "lifecycle_verified": True,
@@ -135,7 +150,7 @@ def test_health_card_is_idle_safe_and_ignores_cold_parked_backlog() -> None:
 
 def test_health_card_preserves_success_but_reports_latest_deferred_attempt() -> None:
     card = _build_autonomous_health_card(
-        authorized=True,
+        authorization=_auth(),
         autonomous={
             "receipt_exists": True,
             "lifecycle_verified": True,
@@ -163,7 +178,7 @@ def test_health_card_preserves_success_but_reports_latest_deferred_attempt() -> 
 
 def test_health_card_alerts_on_performance_and_queue_regressions() -> None:
     card = _build_autonomous_health_card(
-        authorized=True,
+        authorization=_auth(),
         autonomous={
             "receipt_exists": True,
             "lifecycle_verified": True,
@@ -198,7 +213,7 @@ def test_health_card_alerts_on_performance_and_queue_regressions() -> None:
 
 def test_health_card_alerts_when_recent_hooks_make_no_semantic_progress() -> None:
     card = _build_autonomous_health_card(
-        authorized=True,
+        authorization=_auth(),
         autonomous={
             "receipt_exists": True,
             "lifecycle_verified": True,
@@ -469,3 +484,37 @@ def test_codex_health_marks_changed_hook_configuration_invalid(
     assert wake["config_match"] is False
     assert wake["freshness"] == "never"
     assert wake["last_success_at"] is not None
+
+
+def test_health_card_disabled_when_background_off(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    monkeypatch.setenv("HARNESS_MEM_CLIENT", "cursor")
+    monkeypatch.setattr(
+        "harness_mem.integration_health.load_merged_config",
+        lambda *_args, **_kwargs: __import__(
+            "harness_mem.config.merge", fromlist=["MergedConfig"]
+        ).MergedConfig(
+            distill_autonomous_enabled=False,
+            semantic_execution_restricted=True,
+        ),
+    )
+
+    async def run() -> dict:
+        backend = LocalMemoryBackend(tmp_path / "data")
+        await backend.init()
+        try:
+            return await build_integration_health(
+                backend,
+                project_name="project",
+                project_root=workspace,
+            )
+        finally:
+            await backend.close()
+
+    health = asyncio.run(run())
+
+    assert health["health_card"]["status"] == "disabled"

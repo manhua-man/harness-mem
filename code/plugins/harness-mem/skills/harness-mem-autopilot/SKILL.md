@@ -28,8 +28,8 @@ runtime-gated maintenance only; no background semantic claims
 
 This skill has no separate user-facing master switch. Capture, explicit active-
 host distill, and unattended Dream have separate boundaries. Dream additionally
-requires a project-selected user-owned provider profile and project-level
-autonomous authorization.
+requires project-level autonomous authorization (`distill.autonomous.enabled=true`)
+and uses the current host CLI for background semantic work.
 
 The skill may proactively
 wake and route in-flight context/tool/save-point events through

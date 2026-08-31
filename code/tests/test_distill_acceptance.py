@@ -100,7 +100,7 @@ def _assimilate_all_as_add(manifest: dict, *, provider: str) -> ProviderResult:
         output_tokens=25,
         total_tokens=75,
         event_count=1,
-        sandbox="no-tools",
+        execution_mode="internal_http",
     )
 
 

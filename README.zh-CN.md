@@ -26,7 +26,7 @@ Agent 会读代码，但它通常不知道项目为什么变成现在这样：�
 
 - `/hm:*` 命令：`status`、`wake`、`search`、`search-all`、`distill`、`review`、`dream`。
 - Agent MCP 调用：自然语言、skill 或 hook 触发 `wake/search/distill/review`。
-- Hook：会话开始注入 wake context；Stop 只保存不可变对话、创建或推进 job，并以该 session/revision 唤醒 Dream。Hook 不调用 provider、不写知识；Dream 才在后台处理触发会话并治理整个项目。缺少 provider/auth 时 job 保持显式 retryable，绝不伪报完成。
+- Hook：会话开始注入 wake context；Stop 只保存不可变对话、创建或推进 job，并以该 session/revision 唤醒 Dream。Hook 不调用 model、不写知识；Dream 才在后台用当前宿主 CLI 处理触发会话并治理整个项目。未授权（`enabled=false`）或宿主 CLI 不可用时 job 保持显式 retryable，绝不伪报完成。
 - CLI：只做 setup、doctor、config、integration 和 maintenance。
 
 日常使用只需要三个意图：用 `wake/search` 继续工作，把可复用结果记住，或
@@ -94,7 +94,7 @@ Hook 和 archive maintenance 属于阶段 0；原文/时间线读取、候选明
 [五模块架构合同](docs/memory-adoption.md)；[验收测试计划](docs/distill-test-plan.md)
 将这些质量信号逐项映射到夹具和运行时门槛。
 
-当前发布的 `0.9.25` 已把 SQLite `knowledge_entries` 收敛为干净当前知识的唯一权威；
+当前发布的 `0.9.26` 已把 SQLite `knowledge_entries` 收敛为干净当前知识的唯一权威；
 候选、验证与拟议决定是 job 范围临时材料，只在终态结果得到证明后清理，兼容
 `MemoryEntry` 旧行仍可读取。当前搜索直接、确定性地读取 SQLite；FTS/向量只是可选的
 可重建优化。Markdown 只在用户请求阅读或导出时生成。项目模块由当前知识自然归纳，
@@ -105,48 +105,28 @@ Hook 和 archive maintenance 属于阶段 0；原文/时间线读取、候选明
 `tool_result`、`prepareNextTurn`，Claude Code 的 `PostToolUse`，以及
 Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 事件入口；`/hm:search` 只是客户端没有这类 hook 时的手动兜底。
-`Stop` Hook 会保存不可变的原始 transcript revision，并创建或推进它的 job，然后发出带该 revision 的 Dream 活动信号。Dream 在后台重开触发会话，同时读取项目当前知识、真实来源与检索反馈，执行提取或比较、验证和归纳吸收，并原子生成 Note 与长期知识结果。预算约束的是 provider 实际接收的完整序列化响应，3k 只是兼容默认软目标；允许因完整覆盖或显式 drilldown 扩张，但 `response_budget` 必须报告真实 token 数与原因，绝不静默丢弃后半段 exchange。受信 runtime 随后治理候选、finalize，并持久化真实 token/耗时及 `last_semantic_success_at`、`last_job_completed_at`、`last_note_materialized_at`。`detail_level="full"` 与兼容 `raw` 模式仍用于显式完整审计。检测到 decision、solution、preference、workflow、migration 或 handoff 信号时默认 fail-closed 为 `candidate_required`；只有读完完整窗口并给出针对该信号的 session-only 理由才能降级。人工调用 `/hm:distill` 时，由当前宿主执行同一套可恢复会话管线，不会被改道到 Dream provider。同步 Hook 本身只可声称已排队；只有 Dream 的 finalize 与 Note 回执都落盘后后台才可声称完成；没有原始 transcript 的旧 Observation 仅供审计，标记为 `legacy_partial`。
+`Stop` Hook 会保存不可变的原始 transcript revision，并创建或推进它的 job，然后发出带该 revision 的 Dream 活动信号。Dream 在后台重开会话并读取项目当前知识、来源与反馈，经 **宿主 CLI** 做提取/比较、验证和吸收，再由 **本机 worker** finalize、写 Note/SQLite。
 
-无人值守工作即使共用同一个受限 Dream 执行器，也保持两个队列：
-会话处理队列一次只处理一个不可变会话 job；项目治理队列面向整个项目
-比较当前知识、真实来源和检索反馈。人工显式 distill
-绕过这两个后台队列，始终留在当前宿主。
+无人值守工作仍分两个队列：会话 job 队列（一次一个不可变会话）和项目治理队列
+（对照当前知识、来源与反馈）。人工显式 distill 绕过两者，留在当前宿主。
+
+后台走 **当前宿主的 CLI**（Codex、Hermes、Claude Code、OpenCode 等；见
+[`docs/background-memory.md`](docs/background-memory.md)）；传输与密钥在**该宿主 CLI**
+配置里。**本机 harness-mem** 仍是验证后写候选、Note 和 SQLite 的唯一写入方。
 
 显式 `raw` 审计中的每个 raw chunk 都保留完整内容，不截断内容。
 
-无人值守的 Dream 会把完整、受限的会话/来源证据发送给当前配置的模型 provider，并可能消耗
-quota，因此必须由需要自动 Dream 的项目单独授权：
+无人值守 Dream 经 **宿主 CLI** 处理会话，会消耗 quota，需项目单独授权。**一步配置**：
 
 ```bash
 harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
-全局默认是 `false`；授权后该项目的 Stop 不再重复确认，未授权项目保持仅排队模式。人工明确要求处理时，仍由当前宿主执行，而非后台 provider。
+用哪个 CLI 由**当前宿主**决定（Hook 的 `host_client` / `HARNESS_MEM_CLIENT`），
+Hermes、Codex、Claude Code、OpenCode 等规则相同。**不需要** `semantic.execution.profile`，
+**不需要**改 `~/.harness-mem/config.toml`。
 
-`0.9.25` 支持“由操作员拥有”的受限 provider profile，用于无人值守的
-Dream，包括 Hook 触发会话的蒸馏与项目来源复核。端点和环境变量名只能放在用户配置中，不能放进仓库；随后
-才可以由已授权项目选择该 profile：
-
-```toml
-# ~/.harness-mem/config.toml
-[semantic.providers.local-gateway]
-protocol = "anthropic-messages" # 或 "openai-responses"
-base_url = "https://gateway.example/v1"
-api_key_env = "HARNESS_MEM_GATEWAY_KEY"
-model = "operator-approved-model"
-output_mode = "json" # 默认值："tool"；用于拒绝强制输出 tool 的网关
-thinking_mode = "disabled" # 当推理网关只返回 thinking、没有最终 JSON 时使用
-```
-
-```bash
-harness-mem config set semantic.execution.profile local-gateway --scope project
-```
-
-该 profile 没有 Agent 工具、MCP、文件系统或宿主规则权限，只能返回规定的结构化语义
-结论。`output_mode = "json"` 是对拒绝强制输出 tool 的网关的无工具兼容通道；非 JSON
-或未通过 schema 的文本会 fail-closed。若 Anthropic 兼容推理网关只返回 thinking block，
-`thinking_mode = "disabled"` 会请求最终 JSON。选择 profile 本身不等于授权模型调用；项目仍必须
-设置 `distill.autonomous.enabled=true`。
+全局默认 `distill.autonomous.enabled=false`。关后台只用 **`enabled=false`**。详见 [`docs/background-memory.md`](docs/background-memory.md)。
 
 新候选带 evidence basis 和 verification outcome。仓库事实必须引用
 当前项目相对文件及其 SHA-256；用户偏好或决定引用 user role 的 exchange
@@ -227,8 +207,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
-  harness-mem==0.9.25
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
+  harness-mem==0.9.26
 ```
 
 `harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
@@ -238,8 +218,8 @@ Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
-  "harness-mem[hybrid]==0.9.25"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
+  "harness-mem[hybrid]==0.9.26"
 ```
 
 在当前设备一次性安装全部宿主的原生 Daily 命令。默认参数就是
@@ -386,4 +366,4 @@ Codex Hook payload 通过 stdin 传入，并显式等待后台 post-turn 回执�
 全新安装验证，运行真实 sqlite-vec contract gate，并验证受支持的 Windows 升级
 路径后再上传到 GitHub Release。本项目不发布到 PyPI。
 
-当前包版本：**0.9.25**。
+当前包版本：**0.9.26**。

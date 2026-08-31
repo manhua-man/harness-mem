@@ -439,7 +439,6 @@ class _TrivialArchiveProvider:
             output_tokens=0,
             total_tokens=0,
             event_count=1,
-            sandbox="no-tools",
         )
 
     def assimilate(

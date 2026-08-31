@@ -1,18 +1,18 @@
 # Canvas 图解
 
-Cursor Canvas 交互面板源码。入门与历史快照见下表；**当前成熟度评估** 以 Readiness Ladder v1 为准。上游参考项目的当前版本与采用结论见 [`reference-projects-latest.md`](../reference-projects-latest.md)，下列 comparison canvas 不作为版本真值。
+Cursor Canvas 交互面板源码。入门与历史快照见下表；**当前成熟度评估** 以 Readiness Ladder v3（IDE）与精简架构 v1（本目录）为准。上游参考项目的当前版本与采用结论见 [`reference-projects-latest.md`](../reference-projects-latest.md)。
 
 | 文件 | 用途 |
 |------|------|
 | `harness-mem-readiness-v1.canvas.tsx` | **当前**：0.9.25 五模块边界、双执行入口、SQLite truth 与 Scope Ledger |
+| `harness-mem-convergence.canvas.tsx` | **当前**：产品边界、outcome 合同、reference-projects 形态对比与 adopt/adapt/reject |
 | `harness-mem-readiness-0-9-10.canvas.tsx` | 历史快照：0.9.10 仓库成熟度与当时本机运营状态 |
 | `harness-mem-how-it-works-0-9-10.canvas.tsx` | 历史快照：0.9.10 七宿主、7 Daily、27 MCP tools 与 distill/Dream 主链 |
 | `harness-mem-how-it-works.canvas.tsx` | 历史快照：早期入门流程与旧内部产品面 |
-| `harness-mem-convergence-before-after.canvas.tsx` | **历史** 外部分享：十维收敛前后对比（不再作 headline 分） |
-| `harness-mem-completion-0-8x.canvas.tsx` | 历史快照：五维评估（v0.8.3） |
-| `harness-mem-reference-comparison-0-8x.canvas.tsx` | 历史快照：十维参考对比（v0.8.3） |
 | `harness-mem-completion.canvas.tsx` | 历史快照：v5.0 证据链时代完成度 |
 | `harness-mem-reference-comparison.canvas.tsx` | 历史快照：v5.6 十维参考对比 |
+
+已删除并合并进 `harness-mem-convergence.canvas.tsx`：`convergence-before-after`、`completion-0-8x`、`reference-comparison-0-8x`（及 IDE 侧 `completion-jul-2026`）。
 
 规范文档：`docs/maturity-model.md`
 

@@ -6,8 +6,8 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
-  harness-mem==0.9.25
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
+  harness-mem==0.9.26
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Pip uses
@@ -18,7 +18,7 @@ Optional local vector / hybrid search dependencies:
 ```bash
 python -m pip install \
   --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
-  "harness-mem[hybrid]==0.9.25"
+  "harness-mem[hybrid]==0.9.26"
 ```
 
 Check the CLI:
@@ -101,31 +101,22 @@ a new task. This is not a harness-mem install command. Codex skips untrusted
 command hooks, and `get_project_status` reports `hooks=review_required` until
 the current `SessionStart` configuration has successfully run.
 
-Unattended Dream processing needs two separate project-level decisions: select
-an operator-owned provider profile, then authorize autonomous execution. The
-connection and credential reference stay in the user's configuration; the
-project may name a profile but cannot contain a key or endpoint.
-
-```toml
-# ~/.harness-mem/config.toml
-[semantic.providers.local-gateway]
-protocol = "anthropic-messages" # or "openai-responses"
-base_url = "https://gateway.example/v1"
-api_key_env = "HARNESS_MEM_GATEWAY_KEY"
-model = "operator-approved-model"
-```
+Unattended Dream processing needs **`distill.autonomous.enabled=true`** only.
+Background work uses the current host CLI. See
+[`docs/background-memory.md`](background-memory.md).
 
 ```bash
-harness-mem config set semantic.execution.profile local-gateway --scope project
 harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
-The key is read only from the named environment variable. The selected provider
-is a no-tools, strict-schema semantic executor for Dream; an explicit `distill`
-still runs in the active host.
+Authorized background work uses the current host CLI (`codex_cli`, `hermes_cli`,
+`claude-code_cli`, `opencode_cli`, …—same rule for every supported host).
+Outcome probes require honest `execution_mode=agent` receipts with
+`provider.name=<host>_cli`. Local worker manifest, Answer Gate, assimilation,
+and finalize are unchanged. An explicit `distill` still runs in the active host.
 
-Future Stop turns do not ask again. Set the same project key to `false` to
-retain queue-only Hook behavior.
+Future Stop turns do not ask again. Set **`distill.autonomous.enabled=false`**
+to retain queue-only Hook behavior.
 
 If Codex connects through MCP Router, internal tool names use the Router alias
 (`mcp__mcp_router__*`). A direct `harness_mem` entry uses
@@ -211,15 +202,15 @@ Dream is a governance-feedback capability across assimilation and retrieval; it
 can identify stale, duplicate, conflicting, mergeable, or replaceable knowledge
 and return it to source-backed verification and assimilation. A Hook never
 executes that work. Its source-bound signal is either processed by an authorized
-Dream run or remains safely queued. Missing profile or authorization produces a
-retryable setup result, never a background success.
+Dream run or remains safely queued. Disabled authorization or an unavailable
+host CLI produces a retryable setup result, never a background success.
 
 Both execution paths preserve all ordered chunks, checkpoint work for resume,
-and fail closed when evidence is incomplete or contradicted. Only trusted
-runtime code writes candidates, records a Session Note, and mutates SQLite
-current knowledge. The provider receives bounded evidence through its declared
-no-tools protocol; the token budget is a soft response target and never permits
-silent loss of an evidence window. `finalize_session_distill` commits only the
+and fail closed when evidence is incomplete or contradicted. Only **local
+harness-mem (Dream/worker/finalize)** writes candidates, records a Session
+Note, and mutates SQLite current knowledge. The **model step** runs through the
+authorized host CLI agent (no Hook re-entry, strict schema); the token budget
+is a soft response target and never permits silent loss of an evidence window. `finalize_session_distill` commits only the
 explicit active-host job; it does not start a separate Dream run. Merely
 preparing or partially reading session evidence is never reported as completed.
 Health reports actual provider input/output tokens and duration plus the latest

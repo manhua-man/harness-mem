@@ -18,10 +18,11 @@ from harness_mem.adapters.claude_code.project_profile_detector import (
     normalize_project_root,
 )
 from harness_mem.event_log import EventType, get_event_logger
-from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.local_memory_backend import (
+    DEFAULT_DATA_DIR,
+    LocalMemoryBackend,
+)
 from harness_mem.storage.local_project_profile_store import LocalProjectProfileStore
-
-DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
 
 NATIVE_INGEST_CLIENTS = {
     "claude-code",

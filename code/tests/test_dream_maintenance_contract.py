@@ -173,7 +173,7 @@ class _DreamVerificationProvider:
             output_tokens=1,
             total_tokens=2,
             event_count=1,
-            sandbox="no-tools",
+            execution_mode="internal_http",
         )
 
     def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
@@ -217,30 +217,35 @@ class _DreamVerificationProvider:
             output_tokens=1,
             total_tokens=2,
             event_count=1,
-            sandbox="no-tools",
+            execution_mode="internal_http",
         )
 
 
-def test_dream_semantic_profile_requires_project_autonomous_authorization(
+def test_dream_background_requires_project_autonomous_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     selected = _DreamVerificationProvider()
+    from harness_mem.autonomous.executors import registry as executor_registry
+
     monkeypatch.setattr(
-        dream_module, "build_semantic_provider", lambda _config: selected
+        executor_registry,
+        "build_semantic_executor",
+        lambda _config, _client: selected,
     )
 
     assert (
         dream_module._dream_provider_from_config(
-            MergedConfig(semantic_execution_profile="operator-profile")
+            MergedConfig(distill_autonomous_enabled=False)
         )
         is None
     )
-    assert dream_module._dream_provider_from_config(
-        MergedConfig(
-            distill_autonomous_enabled=True,
-            semantic_execution_profile="operator-profile",
+    assert (
+        dream_module._dream_provider_from_config(
+            MergedConfig(distill_autonomous_enabled=True),
+            host_client="codex",
         )
-    ) is selected
+        is selected
+    )
 
 
 def test_hook_dream_passes_its_selected_profile_to_session_distill(
@@ -251,8 +256,12 @@ def test_hook_dream_passes_its_selected_profile_to_session_distill(
     selected = _DreamVerificationProvider()
     captured: dict[str, Any] = {}
 
+    from harness_mem.autonomous.executors import registry as executor_registry
+
     monkeypatch.setattr(
-        dream_module, "build_semantic_provider", lambda _config: selected
+        executor_registry,
+        "build_semantic_executor",
+        lambda _config, _client: selected,
     )
 
     def fake_worker(_backend, **kwargs):
@@ -284,19 +293,26 @@ def test_hook_dream_passes_its_selected_profile_to_session_distill(
             config=MergedConfig(
                 distill_autonomous_enabled=True,
                 semantic_execution_profile="hermes-sub2api",
+                extras={
+                    "semantic": {
+                        "providers": {
+                            "hermes-sub2api": {"protocol": "anthropic-messages"},
+                        }
+                    }
+                },
             ),
             source="ide_hook",
             trigger_id="session-42",
             trigger_job_id="job-42",
+            host_client="codex",
         )
     )
 
     assert result["success"] is True
     assert result["session_distill"]["job_id"] == "job-42"
-    assert captured["provider"] is selected
+    assert captured["provider"] is None
     assert captured["preferred_job_id"] == "job-42"
-    assert captured["client"] == "dream"
-    assert captured["dream_provider"] is selected
+    assert captured["client"] == "codex"
 
 
 def test_dream_closes_legacy_supersede_candidates_without_pending_review(
@@ -588,7 +604,7 @@ def test_dream_compares_source_backed_conflict_and_rejects_a_guess(
                 output_tokens=1,
                 total_tokens=2,
                 event_count=1,
-                sandbox="no-tools",
+                execution_mode="internal_http",
             )
 
     monkeypatch.setattr(
@@ -836,7 +852,7 @@ def test_dream_refines_changed_local_source_through_assimilation(
                 output_tokens=1,
                 total_tokens=2,
                 event_count=1,
-                sandbox="no-tools",
+                execution_mode="internal_http",
             )
 
     monkeypatch.setattr(
@@ -976,14 +992,18 @@ def test_dream_provider_construction_failure_closes_the_processing_ledger_run(
     async def fake_select_metabolism_pass(*_args, **_kwargs) -> MetabolismPass:
         return MetabolismPass(window=_empty_window(), merge=[], stale=[], supersede=[])
 
-    def fail_provider_construction(_config: Any) -> None:
+    def fail_provider_construction(_config: Any, _client: str) -> None:
         raise ProviderError("simulated provider construction failure", kind="transient")
 
     monkeypatch.setattr(
         dream_module, "select_metabolism_pass", fake_select_metabolism_pass
     )
+    from harness_mem.autonomous.executors import registry as executor_registry
+
     monkeypatch.setattr(
-        dream_module, "build_semantic_provider", fail_provider_construction
+        executor_registry,
+        "build_semantic_executor",
+        fail_provider_construction,
     )
     with pytest.raises(ProviderError, match="simulated provider construction failure"):
         _run(
@@ -994,6 +1014,15 @@ def test_dream_provider_construction_failure_closes_the_processing_ledger_run(
                 config=MergedConfig(
                     distill_autonomous_enabled=True,
                     semantic_execution_profile="operator-profile",
+                    extras={
+                        "semantic": {
+                            "providers": {
+                                "operator-profile": {
+                                    "protocol": "anthropic-messages",
+                                }
+                            }
+                        }
+                    },
                 ),
                 source="agent",
             )

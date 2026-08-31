@@ -6,7 +6,7 @@ itself; normal runtime paths do not migrate legacy data.
 
 ## Current release
 
-The published package is `0.9.25`. It provides session lifecycle, lossless
+The published package is `0.9.26`. It provides session lifecycle, lossless
 extraction, per-point verification, transactional SQLite current knowledge,
 job-scoped processing material, clean retrieval, and one governed Review/Dream
 feedback path. Legacy `MemoryEntry` rows remain readable for compatibility, but
@@ -32,11 +32,13 @@ receipts bind the selected non-secret provider configuration.
 
 ## Releases `0.9.23` and `0.9.24`
 
-`0.9.23` introduces an operator-owned, restricted semantic
-provider profile for unattended Dream work. A project may select only a named profile
-from the user's configuration; repository configuration cannot supply an
-endpoint or credential environment variable. Automatic model work still needs
-the separate project authorization `[distill.autonomous].enabled = true`.
+`0.9.23` introduces an operator-owned, restricted semantic provider profile
+for unattended Dream work (superseded for authorization by `0.9.26`: only
+`distill.autonomous.enabled=true` + current host CLI; see
+[`docs/background-memory.md`](background-memory.md)). A project could select a
+named profile from user configuration; repository configuration could not supply
+an endpoint or credential environment variable. Automatic model work still
+needed the separate project authorization `[distill.autonomous].enabled = true`.
 
 Dream now keeps a terminal ledger for every source recheck. It can refresh one
 current item when its complete, reopenable source still supports it, or
@@ -82,6 +84,15 @@ Markdown/JSON/text
 | `0.9.23` | Operator-owned restricted semantic profiles and terminal source-backed Dream rechecks | 2--4 | Keep credentials out of project config; do not retire truth from partial/unsupported sources; retain mutation undo | Released |
 | `0.9.24` | Strict JSON-text compatibility for Anthropic-compatible gateways that reject forced tool output | 2--4 | Keep JSON schema validation and no-tool boundary; do not silently downgrade malformed output | Released |
 | `0.9.25` | Hook-started Dream execution and fail-closed source/provider/undo receipts | 0, 2--4 | Keep Hook non-semantic; reject truncated retirement; preserve real undo and retryable provider failure | Released |
+| `0.9.26` | Host CLI background authorization and honest `{host}_cli` receipts | 0, 2--4 | No HTTP impersonating Agent; profile not required for CLI path; Hook re-entry guard | Released |
+
+## Release `0.9.26`
+
+`0.9.26` converges authorized background work on **`distill.autonomous.enabled=true`**
++ **current `host_client` host CLI**. Transport and credentials live in that
+host's CLI configuration. Outcome probes require `execution_mode=agent` and
+`provider.name=<host>_cli`. Internal HTTP remains for unauthorized/recovery only.
+Turn off background work with **`distill.autonomous.enabled=false` only**.
 
 These versions are implementation slices, not additional product modules. The
 product architecture remains the five independently measurable modules:

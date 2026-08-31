@@ -27,6 +27,7 @@ from harness_mem.config.merge import (
     _RECOGNIZED_KEYS,
     _REMOVED_CONFIG_KEYS,
     _TYPED_CONFIG_KEYS,
+    _remove_dotted,
     _set_dotted,
 )
 
@@ -230,7 +231,25 @@ def set_value(
         OSError: the file cannot be written (caller surfaces as exit 1).
     """
     target = _target_path(scope, project_root)
-    if key_path in {"distill.autonomous.enabled", "semantic.execution.profile"} and scope != "project":
+    if key_path == "semantic.execution.restricted":
+        if scope != "project":
+            raise ConfigValidationError(
+                key_path=key_path,
+                value="project scope required",
+                source_path=str(target),
+            )
+        data = _read_existing(target)
+        restricted = _parse_bool(value, key_path=key_path, target=target)
+        if restricted is False:
+            _set_dotted(data, "distill.autonomous.enabled", False)
+        _remove_dotted(data, "semantic.execution.restricted")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(tomli_w.dumps(data), encoding="utf-8")
+        return target.resolve()
+    if key_path in {
+        "distill.autonomous.enabled",
+        "semantic.execution.profile",
+    } and scope != "project":
         raise ConfigValidationError(
             key_path=key_path,
             value="project scope required",

@@ -260,7 +260,6 @@ def _receipt(decision: Any, *, provider: str, marker: str) -> ProviderResult:
         output_tokens=50,
         total_tokens=150,
         event_count=1,
-        sandbox="no-tools",
     )
 
 

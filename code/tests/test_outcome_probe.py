@@ -16,6 +16,7 @@ from harness_mem.outcome_probe import (
     inspect_hook_outcome,
     inspect_retrieval_outcome,
 )
+from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas import (
     AssimilationDecision,
     KnowledgeCandidate,
@@ -27,6 +28,25 @@ from harness_mem.qualification.distill_outcome_probe import (
 )
 from harness_mem.hook_receipts import record_hook_execution
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+
+
+def _mock_merged_config(**overrides: object) -> MergedConfig:
+    base = {
+        "distill_autonomous_enabled": True,
+        "semantic_execution_restricted": True,
+        "semantic_execution_profile": "hermes-sub2api",
+        "semantic_execution_mode": "agent",
+        "extras": {
+            "semantic": {
+                "providers": {
+                    "hermes-sub2api": {"protocol": "anthropic-messages"},
+                    "local-gateway": {"protocol": "openai-responses"},
+                }
+            }
+        },
+    }
+    base.update(overrides)
+    return MergedConfig(**base)
 
 
 def _job(*, session_id: str, completed_at: datetime, summary: str):
@@ -88,15 +108,174 @@ def test_hook_probe_accepts_fresh_interleaved_codex_actions(
     assert result["lifecycle_verified"] is False
 
 
-def test_autonomous_probe_accepts_isolated_responses_to_codex_fallback(
+def _codex_cli_provider(**overrides: object) -> dict[str, object]:
+    provider = {
+        "name": "codex_cli",
+        "schema_valid": True,
+        "execution_mode": "agent",
+        "host_client": "codex",
+        "hooks_disabled": False,
+        "plugins_disabled": False,
+        "mcp_disabled": False,
+    }
+    provider.update(overrides)
+    return provider
+
+
+def test_autonomous_probe_accepts_host_cli_agent(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    provider = _codex_cli_provider()
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.read_autonomous_receipt",
+        lambda *_args, **_kwargs: {
+            "last_verified_completion": {
+                "client": "codex",
+                "provider": provider,
+                "hook_reentry_count": 0,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.load_merged_config",
+        lambda *_args, **_kwargs: _mock_merged_config(),
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.autonomous_config_fingerprint",
+        lambda *_args, **_kwargs: "test-config-fp",
+    )
+
+    result = inspect_autonomous_outcome(
+        tmp_path,
+        project_name="demo",
+        project_root=project_root,
+        jobs=[],
+    )
+
+    assert result["authorized"] is True
+    assert result["provider_isolated"] is True
+
+
+def test_autonomous_probe_rejects_http_profile_disguised_as_agent(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    provider = _codex_cli_provider(
+        name="codex_agent:anthropic_messages:hermes-sub2api",
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.read_autonomous_receipt",
+        lambda *_args, **_kwargs: {
+            "last_verified_completion": {
+                "client": "codex",
+                "provider": provider,
+                "hook_reentry_count": 0,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.load_merged_config",
+        lambda *_args, **_kwargs: _mock_merged_config(),
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.autonomous_config_fingerprint",
+        lambda *_args, **_kwargs: "test-config-fp",
+    )
+
+    result = inspect_autonomous_outcome(
+        tmp_path,
+        project_name="demo",
+        project_root=project_root,
+        jobs=[],
+    )
+
+    assert result["provider_isolated"] is False
+
+
+def test_autonomous_probe_rejects_legacy_responses_fallback(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    provider = _codex_cli_provider(name="responses_api->codex_exec")
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.read_autonomous_receipt",
+        lambda *_args, **_kwargs: {
+            "last_verified_completion": {
+                "client": "codex",
+                "provider": provider,
+                "hook_reentry_count": 0,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.load_merged_config",
+        lambda *_args, **_kwargs: _mock_merged_config(
+            semantic_execution_profile="local-gateway",
+        ),
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.autonomous_config_fingerprint",
+        lambda *_args, **_kwargs: "test-config-fp",
+    )
+
+    result = inspect_autonomous_outcome(
+        tmp_path,
+        project_name="demo",
+        project_root=project_root,
+        jobs=[],
+    )
+
+    assert result["provider_isolated"] is False
+
+
+def test_autonomous_probe_rejects_profile_name_mismatch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    provider = _codex_cli_provider(name="claude-code_cli", host_client="claude-code")
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.read_autonomous_receipt",
+        lambda *_args, **_kwargs: {
+            "last_verified_completion": {
+                "client": "codex",
+                "provider": provider,
+                "hook_reentry_count": 0,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.load_merged_config",
+        lambda *_args, **_kwargs: _mock_merged_config(),
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.autonomous_config_fingerprint",
+        lambda *_args, **_kwargs: "test-config-fp",
+    )
+
+    result = inspect_autonomous_outcome(
+        tmp_path,
+        project_name="demo",
+        project_root=project_root,
+        jobs=[],
+    )
+
+    assert result["provider_isolated"] is False
+
+
+def test_autonomous_probe_rejects_legacy_sandbox_only_receipt(
     tmp_path: Path, monkeypatch
 ) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
     provider = {
-        "name": "responses_api->codex_exec",
+        "name": "anthropic_messages:hermes-sub2api",
         "schema_valid": True,
-        "sandbox": "read-only",
+        "sandbox": "no-tools",
         "ephemeral": True,
         "cwd_isolated": True,
         "hooks_disabled": True,
@@ -107,7 +286,21 @@ def test_autonomous_probe_accepts_isolated_responses_to_codex_fallback(
     }
     monkeypatch.setattr(
         "harness_mem.outcome_probe.read_autonomous_receipt",
-        lambda *_args, **_kwargs: {"last_verified_completion": {"provider": provider}},
+        lambda *_args, **_kwargs: {
+            "last_verified_completion": {
+                "client": "codex",
+                "provider": provider,
+                "hook_reentry_count": 0,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.load_merged_config",
+        lambda *_args, **_kwargs: _mock_merged_config(),
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.autonomous_config_fingerprint",
+        lambda *_args, **_kwargs: "test-config-fp",
     )
 
     result = inspect_autonomous_outcome(
@@ -117,6 +310,89 @@ def test_autonomous_probe_accepts_isolated_responses_to_codex_fallback(
         jobs=[],
     )
 
+    assert result["provider_isolated"] is False
+
+
+def test_autonomous_probe_rejects_unrestricted_project_config(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    provider = {
+        "name": "anthropic_messages:hermes-sub2api",
+        "schema_valid": True,
+        "execution_mode": "agent",
+        "hooks_disabled": False,
+        "plugins_disabled": False,
+        "mcp_disabled": False,
+    }
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.read_autonomous_receipt",
+        lambda *_args, **_kwargs: {
+            "last_verified_completion": {
+                "client": "codex",
+                "provider": provider,
+                "hook_reentry_count": 0,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.load_merged_config",
+        lambda *_args, **_kwargs: _mock_merged_config(
+            semantic_execution_restricted=False,
+        ),
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.autonomous_config_fingerprint",
+        lambda *_args, **_kwargs: "test-config-fp",
+    )
+
+    result = inspect_autonomous_outcome(
+        tmp_path,
+        project_name="demo",
+        project_root=project_root,
+        jobs=[],
+    )
+
+    assert result["authorized"] is False
+    assert result["provider_isolated"] is False
+
+
+def test_autonomous_probe_accepts_enabled_without_profile(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    provider = _codex_cli_provider()
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.read_autonomous_receipt",
+        lambda *_args, **_kwargs: {
+            "last_verified_completion": {
+                "client": "codex",
+                "provider": provider,
+                "hook_reentry_count": 0,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.load_merged_config",
+        lambda *_args, **_kwargs: _mock_merged_config(
+            semantic_execution_profile="",
+        ),
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.autonomous_config_fingerprint",
+        lambda *_args, **_kwargs: "test-config-fp",
+    )
+
+    result = inspect_autonomous_outcome(
+        tmp_path,
+        project_name="demo",
+        project_root=project_root,
+        jobs=[],
+    )
+
+    assert result["authorized"] is True
     assert result["provider_isolated"] is True
 
 

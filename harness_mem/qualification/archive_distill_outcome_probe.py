@@ -136,7 +136,6 @@ class _DeterministicArchiveProvider:
             output_tokens=50,
             total_tokens=150,
             event_count=1,
-            sandbox="no-tools",
         )
 
 

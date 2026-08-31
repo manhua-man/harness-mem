@@ -1,9 +1,10 @@
 # harness-mem maturity model (v1)
 
 This document replaces the informal **ten-dimension radar** for judging product
-readiness. The old ten dimensions remain useful as **historical convergence
-narrative** (`canvases/harness-mem-convergence-before-after.canvas.tsx`) but
-must not be used as the headline completion score.
+readiness. The old ten dimensions map to the six-track model below; the convergence
+canvas records **product boundaries and verifiable release evidence** only. It
+does not carry forward ten-dimension scores, reference-project peaks, or legacy
+canvas completion percentages.
 
 ## Purpose
 
@@ -64,6 +65,71 @@ Binary yes/no: public docs and agent skills must stay inside verified capability
 4. **WIP is explicit** — `in_progress` scope items may cap the related track (e.g. L5
    while hooks bootstrap is unfinished).
 
+## Mechanical score rubric (v2)
+
+Numeric track scores are allowed only when they are **mechanically derived** from fixed
+checklists. Subjective maintainer estimates (e.g. “feels like 96”) are not valid headline
+scores.
+
+### Formula
+
+For each track **L1–L6** (and comparison tracks **D7–D8**):
+
+```text
+track_score = Σ earned_points
+```
+
+Each track defines checks that sum to **100 points**. A check earns its full points only
+when its probe passes:
+
+| Probe kind | Pass rule | Fail / pending rule |
+|------------|-----------|---------------------|
+| `outcome` | Mapped claim in `.codex/outcomes.json` is `passed` on the current machine run | `failed` → 0 points |
+| `fact` | Static repo fact verified in the scoring session (version, pytest collect count, documented implementation) | unverified → 0 points |
+| `contract` | Named pytest/script ran in the scoring session and passed | `not_run` or `failed` → 0 points |
+| `defer_cap` | Explicit gap in Scope Ledger / defer.md is **closed** | open gap → 0 points for that check |
+
+**Weighted readiness (L1–L6 only)**:
+
+```text
+readiness = round( Σ (track_weight × track_score) )
+```
+
+Weights match Layer 1: L1 20%, L2 25%, L3 15%, L4 20%, L5 15%, L6 5%.
+
+### Score bands
+
+| Band | Meaning |
+|------|---------|
+| 90–100 | All mapped outcomes for the track pass; contract checks run in-session also pass |
+| 80–89 | Core outcomes pass; minor deferrals or not-run contracts deduct |
+| 60–79 | Mixed pass/fail on mapped outcomes |
+| 40–59 | Majority weight of mapped outcomes failed |
+| 0–39 | Track-critical outcomes largely unproven |
+
+### Canonical checklist location
+
+The live checklist, point weights, and current-machine results are maintained in:
+
+- IDE canvas `harness-mem-convergence.canvas.tsx` (computed UI)
+- Outcome source: `python code/tools/outcome-verifier/scripts/verify_outcomes.py --config .codex/outcomes.json`
+
+Re-score after every outcome-verifier run or when contract probes are executed. Do not
+copy release-qualification 14/14 into a device headline without a fresh run.
+
+### Reference projects
+
+External products do **not** share harness-mem outcome probes. Compare them with
+`docs/reference-projects/` adopt/adapt/reject tables — not with a single competitor
+percentile unless an explicit shared checklist exists.
+
+Autonomous isolation outcomes verify **current-release** unattended execution
+(`execution_mode=agent`, hook-reentry ledger, no Hook re-entry,
+auditable receipt) for the authorized host CLI agent. **Product default mode is
+agent** (`enabled=false` turns background off). See
+[`docs/background-memory.md`](background-memory.md) and
+`docs/roadmap.md`.
+
 ## Migration from ten dimensions
 
 | Old dimension | New home |
@@ -79,21 +145,24 @@ Binary yes/no: public docs and agent skills must stay inside verified capability
 | ⑨ Maintenance | L1 dream + L4 distill maintenance |
 | ⑩ Evidence | L6 + per-track contract tests |
 
-## Current snapshot (v0.9.25)
+## Current snapshot (v0.9.26)
 
-See `canvases/harness-mem-readiness-v1.canvas.tsx` for the living panel. The
-source facts are refreshed for `0.9.25`; the published package is
-`0.9.25`, and individual device-throughput rows
+See `canvases/harness-mem-readiness-v1.canvas.tsx` for the compact architecture panel and
+`canvases/harness-mem-convergence.canvas.tsx` for the convergence narrative. The full
+Readiness Ladder lives in the IDE panel `harness-mem-readiness-v3.canvas.tsx`. The
+source facts are refreshed for `0.9.26`; the published package is
+`0.9.26`, and individual device-throughput rows
 remain operational measurements rather than a release-quality claim.
-It deliberately does not publish one combined readiness score: repository
-release maturity and one device's live operations are different facts.
+It deliberately does not merge repository release maturity with one device's live
+operations into one headline. When a numeric headline is shown, it must follow
+**Mechanical score rubric (v2)** on the current machine — not release-narrative guesses.
 
 Historical operator snapshot (2026-08-12; not a current throughput claim):
 
 | View | Evidence | Current result |
 |------|----------|----------------|
-| Release maturity | source package/plugin 0.9.25, exact 27-tool contract, archive cohort acceptance, and seven-host qualification | full Python and Rust release lanes must pass before the next tag CI qualifies built artifacts |
-| Runtime alignment | repository/plugin 0.9.25; installed MCPs may remain on an earlier package until upgraded | refresh and restart any older live installation after publication |
+| Release maturity | source package/plugin 0.9.26, exact 27-tool contract, archive cohort acceptance, and seven-host qualification | full Python and Rust release lanes must pass before the next tag CI qualifies built artifacts |
+| Runtime alignment | repository/plugin 0.9.26; installed MCPs may remain on an earlier package until upgraded | refresh and restart any older live installation after publication |
 | Distill operations | active 2, parked 198, 0.43 completed/day over seven days | `needs-distill`; throughput is the primary operational gap |
 | Retrieval feedback | 2 surfaced, no used/ignored/misleading outcomes | insufficient live feedback |
 

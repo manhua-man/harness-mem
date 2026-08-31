@@ -16,7 +16,7 @@ import {
 
 const MODEL_VERSION = "v1";
 const AS_OF = "2026-08-22";
-const RUNTIME_VERSION = "0.9.25";
+const RUNTIME_VERSION = "0.9.26";
 
 const MODULES = [
   { code: "0", title: "会话接入与生命周期", unit: "1 session + 1 immutable revision", owns: "宿主接入、chunk、job、receipt、重试与来源生命周期" },
@@ -27,9 +27,9 @@ const MODULES = [
 ];
 
 const EXECUTION_PATHS = [
-  { title: "人工显式 distill", body: "当前宿主读取一个会话并执行模块 1–3；不改道到后台 profile。" },
+  { title: "人工显式 distill", body: "当前宿主读取一个会话并执行模块 1–3；不改道到后台执行。" },
   { title: "Stop Hook", body: "只在模块 0 保存 revision、创建或推进 session job，并发出 Dream activity signal。" },
-  { title: "授权 Dream", body: "同一受限执行器服务会话处理与项目治理两个队列，再回到验证与归纳。" },
+  { title: "授权 Dream", body: "enabled=true 时由当前宿主 CLI 服务会话处理与项目治理两个队列，再回到验证与归纳。" },
 ];
 
 const STORAGE_ROLES = [
@@ -49,7 +49,7 @@ export default function HarnessMemReadinessV1() {
           <Pill tone="info">{MODEL_VERSION}</Pill>
         </Row>
         <Text tone="secondary">
-          0.9.25 活态面板 · 核对日期 {AS_OF} · 历史 canvas 不作为当前版本真值
+          0.9.26 活态面板 · 核对日期 {AS_OF} · 历史 canvas 不作为当前版本真值
         </Text>
       </Stack>
 
@@ -96,7 +96,7 @@ export default function HarnessMemReadinessV1() {
           ))}
         </Grid>
         <Callout tone="warning">
-          Dream 只在真实来源完整、可重开、项目已选择用户 profile 且 autonomous 已显式授权时执行。
+          Dream 只在真实来源完整、可重开、项目已开启后台（`distill.autonomous.enabled=true`）且当前宿主 CLI 可用时执行。
           多条知识关系无法安全裁决时关闭比较而不改写；Review 是事后纠错与 undo 支路。
         </Callout>
       </Stack>
@@ -114,12 +114,12 @@ export default function HarnessMemReadinessV1() {
       </Stack>
 
       <Callout tone="success">
-        发布事实：package、runtime 与 plugin manifest 均为 0.9.25；v0.9.25 tag 已存在。
+        发布事实：package、runtime 与 plugin manifest 均为 0.9.26；v0.9.26 tag 已存在。
         冻结六会话 oracle、generation-bound Desktop Hook 与 14-claim outcome 合同是仓库记录的用户结果证据。
       </Callout>
 
       <Text tone="tertiary" size="small">
-        Source: pyproject.toml · harness_mem/__init__.py · AGENTS.md · CHANGELOG 0.9.25 · docs/maturity-model.md · .codex/outcomes.json
+        Source: pyproject.toml · harness_mem/__init__.py · AGENTS.md · CHANGELOG 0.9.26 · docs/maturity-model.md · .codex/outcomes.json
       </Text>
     </Stack>
   );

@@ -1,6 +1,8 @@
 """LocalMemoryBackend — unified local backend composing verbatim + structured stores."""
 
 from __future__ import annotations
+
+import os
 from pathlib import Path
 
 from harness_mem.core.interfaces.verbatim_store import VerbatimStore
@@ -12,7 +14,14 @@ from harness_mem.storage.reflection_job_store import ReflectionJobStore
 from harness_mem.storage.transcript_store import TranscriptStore
 
 
-DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
+def resolve_default_data_dir() -> Path:
+    override = str(os.environ.get("HARNESS_MEM_DATA_DIR") or "").strip()
+    if override:
+        return Path(override)
+    return Path.home() / ".harness-mem" / "data"
+
+
+DEFAULT_DATA_DIR = resolve_default_data_dir()
 
 
 class LocalMemoryBackend:

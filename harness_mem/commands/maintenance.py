@@ -490,6 +490,7 @@ async def run_post_turn_maintenance(
 
         job_id = evidence_packet.get("distill_job_id")
         job = backend.transcript_store.get_distill_job(str(job_id)) if job_id else None
+        host_client = job.client if job is not None else None
         queued_statuses = {"queued", "parked", "retryable"}
         processing_statuses = {"processing", "reviewing"}
         retry_backoff = (
@@ -513,6 +514,7 @@ async def run_post_turn_maintenance(
                     source=cast(DreamSource, source),
                     trigger_id=trigger_id,
                     trigger_job_id=str(job_id) if job_id else None,
+                    host_client=host_client,
                 )
         except Exception as exc:  # noqa: BLE001 - transcript staging must survive Dream.
             dream_tick = {

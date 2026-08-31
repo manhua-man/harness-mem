@@ -6,7 +6,7 @@ tags: [harness-mem, distill, memory]
 wireFormatVersion: hm-wire-v3.5
 ---
 
-在当前宿主中同步指定项目的 native transcript revision，从头到尾处理全部有序 chunk，提取窄 promotion point、逐点验证，并通过 `finalize_session_distill` 只提交当前显式 job 的受信归纳吸收。Hook 发起的会话由 Dream 在后台处理，人工 `distill` 不会隐式启动 Dream。`/hm:review` 是事后审计、undo、纠错和替换入口。
+在当前宿主中同步指定项目的 native transcript revision，从头到尾处理全部有序 chunk，提取窄 promotion point、逐点验证，并通过 `finalize_session_distill` 只提交当前显式 job；经本机 harness-mem finalize 写入当前知识。Hook 发起的会话由 Dream 在后台处理，人工 `distill` 不会隐式启动 Dream。`/hm:review` 是事后审计、undo、纠错和替换入口。
 
 **MCP Tool Names**
 
@@ -137,7 +137,7 @@ wireFormatVersion: hm-wire-v3.5
 
    MCP 不可用时，直接说明 runtime 工具不可用；不要回退到独立 CLI 或本地推广文件流程。
 
-   候选判断必须复用 shared verification + assimilation contract，而不是在 slash 文档里手写另一套规则。只有已验证的窄 point 才能由受信 runtime 写入当前知识；其余候选终结在 job 范围。`/hm:review` 是事后 audit、纠错和 undo 入口，不是日常晋升闸门。
+   候选判断必须复用 shared verification + assimilation contract，而不是在 slash 文档里手写另一套规则。只有已验证的窄 point 才能由本机 harness-mem（finalize/worker）写入当前知识；其余候选终结在 job 范围。`/hm:review` 是事后 audit、纠错和 undo 入口，不是日常晋升闸门。
 
    内部审计结果必须以 `finalize_session_distill` 返回的 runtime 派生结果为准：
    - `assimilation_decisions`（`add` / `refine` / `confirm` / `supersede` / `no_write` 等）

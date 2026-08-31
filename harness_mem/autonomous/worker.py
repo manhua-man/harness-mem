@@ -28,6 +28,9 @@ from harness_mem.autonomous.provider import (
     ProviderResult,
     build_semantic_provider,
 )
+from harness_mem.autonomous.hook_guard import count_hook_reentry_blocks
+from harness_mem.autonomous.executors.registry import build_semantic_executor
+from harness_mem.autonomous.authorization import background_ready
 from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.commands.separated_assimilation import (
     SeparatedPreparedAssimilation,
@@ -57,6 +60,11 @@ _RUNTIME_SOURCE_FILES = (
     Path(__file__),
     Path(__file__).with_name("models.py"),
     Path(__file__).with_name("provider.py"),
+    Path(__file__).with_name("hook_guard.py"),
+    Path(__file__).with_name("executors") / "constants.py",
+    Path(__file__).with_name("executors") / "registry.py",
+    Path(__file__).with_name("executors") / "host_cli.py",
+    Path(__file__).with_name("executors") / "host_structured_cli.py",
     Path(__file__).parents[1] / "host_entry" / "__main__.py",
     Path(__file__).parents[1] / "hook_background.py",
     Path(__file__).parents[1] / "commands" / "maintenance.py",
@@ -160,7 +168,8 @@ def _provider_call_with_transport_fallback(
                 event_count=recovered.event_count,
                 attempt_count=recovered.attempt_count + 1,
                 schema_valid=recovered.schema_valid,
-                sandbox=recovered.sandbox,
+                execution_mode=recovered.execution_mode,
+                host_client=recovered.host_client,
                 ephemeral=recovered.ephemeral,
                 cwd_isolated=recovered.cwd_isolated,
                 hooks_disabled=recovered.hooks_disabled,
@@ -216,7 +225,8 @@ def _provider_call_with_transport_fallback(
             event_count=recovered.event_count,
             attempt_count=recovered.attempt_count + 1,
             schema_valid=recovered.schema_valid,
-            sandbox=recovered.sandbox,
+            execution_mode=recovered.execution_mode,
+            host_client=recovered.host_client,
             ephemeral=recovered.ephemeral,
             cwd_isolated=recovered.cwd_isolated,
             hooks_disabled=recovered.hooks_disabled,
@@ -255,47 +265,8 @@ def autonomous_runtime_fingerprint() -> str:
 
 
 def autonomous_config_fingerprint(config: MergedConfig) -> str:
-    """Fingerprint the effective settings that control autonomous execution."""
+    """Fingerprint project settings that control authorized background execution."""
 
-    runtime = config.to_runtime_config()
-    semantic = runtime.get("semantic") if isinstance(runtime, dict) else None
-    execution = semantic.get("execution") if isinstance(semantic, dict) else None
-    profile_name = (
-        str(execution.get("profile") or "").strip()
-        if isinstance(execution, dict)
-        else ""
-    )
-    providers = semantic.get("providers") if isinstance(semantic, dict) else None
-    raw_profile = (
-        providers.get(profile_name)
-        if profile_name and isinstance(providers, dict)
-        else None
-    )
-    # Fingerprint only the connection contract, never the secret value itself.
-    # This also gives setup-failure receipts a stable identity when the selected
-    # profile is missing or malformed.
-    semantic_provider = {
-        "profile": profile_name,
-        "defined": isinstance(raw_profile, dict),
-    }
-    if isinstance(raw_profile, dict):
-        for key in (
-            "protocol",
-            "base_url",
-            "api_key_env",
-            "model",
-            "assimilation_model",
-            "timeout_seconds",
-            "output_mode",
-            "thinking_mode",
-        ):
-            if key in raw_profile:
-                value = raw_profile[key]
-                semantic_provider[key] = (
-                    value
-                    if isinstance(value, (str, int, float, bool)) or value is None
-                    else f"<{type(value).__name__}>"
-                )
     payload = {
         "enabled": config.distill_autonomous_enabled,
         "max_jobs_per_wake": config.distill_auto_max_jobs_per_wake,
@@ -303,7 +274,8 @@ def autonomous_config_fingerprint(config: MergedConfig) -> str:
         "target_backlog": config.distill_auto_target_backlog,
         "recent_first": config.distill_auto_recent_first,
         "budget_tokens": config.cost_budget_distill_tokens,
-        "semantic_provider": semantic_provider,
+        "execution_mode": config.semantic_execution_mode,
+        "legacy_restricted": config.semantic_execution_restricted,
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
@@ -388,6 +360,7 @@ def _record_post_turn_nonsemantic_terminal_receipt(
             ),
             "runtime_fingerprint": autonomous_runtime_fingerprint(),
             "config_fingerprint": config_fingerprint,
+            # Placeholder until next train implements host-executor hook guard.
             "hook_reentry_count": 0,
             "batch": {
                 "state": state,
@@ -634,7 +607,13 @@ def run_autonomous_distill_batch(
         # default remains Codex Responses even when a project selects a
         # separate unattended Dream profile. Dream passes that provider
         # explicitly when it invokes this bounded worker.
-        chosen_provider = provider or build_semantic_provider()
+        chosen_provider = (
+            provider
+            if provider is not None
+            else build_semantic_executor(config, client)
+            if background_ready(config)
+            else build_semantic_provider()
+        )
     except ProviderError as exc:
         _record_post_turn_nonsemantic_terminal_receipt(
             backend.data_dir,
@@ -681,7 +660,12 @@ def run_autonomous_distill_batch(
             "provider_name": chosen_provider.name,
             "runtime_fingerprint": autonomous_runtime_fingerprint(),
             "config_fingerprint": autonomous_config_fingerprint(config),
-            "hook_reentry_count": 0,
+            "hook_reentry_count": count_hook_reentry_blocks(
+                backend.data_dir,
+                project_name=project_name,
+                project_root=root,
+                trigger_id=trigger_id,
+            ),
             "batch": {
                 "offered": 0,
                 "attempted": 0,
@@ -2655,7 +2639,12 @@ def _combine_provider_results(
         event_count=sum(item.event_count for item in results),
         attempt_count=sum(item.attempt_count for item in results),
         schema_valid=all(item.schema_valid for item in results),
-        sandbox=last.sandbox,
+        execution_mode=(
+            "agent"
+            if all(item.execution_mode == "agent" for item in results)
+            else results[0].execution_mode
+        ),
+        host_client=last.host_client,
         ephemeral=all(item.ephemeral for item in results),
         cwd_isolated=all(item.cwd_isolated for item in results),
         hooks_disabled=all(item.hooks_disabled for item in results),
@@ -3064,6 +3053,12 @@ def _record_success_receipt(
         )
         or {}
     )
+    hook_reentry_count = count_hook_reentry_blocks(
+        backend.data_dir,
+        project_name=project_name,
+        project_root=project_root,
+        trigger_id=trigger_id,
+    )
     verified_completion = {
         "schema_version": 1,
         "trigger_id": trigger_id,
@@ -3074,7 +3069,7 @@ def _record_success_receipt(
         "hook_config_fingerprint": current.get("hook_config_fingerprint"),
         "runtime_fingerprint": current.get("runtime_fingerprint"),
         "config_fingerprint": current.get("config_fingerprint"),
-        "hook_reentry_count": int(current.get("hook_reentry_count") or 0),
+        "hook_reentry_count": hook_reentry_count,
         "job_id": job.id,
         "session_id": job.session_id,
         **completion,

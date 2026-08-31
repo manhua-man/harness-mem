@@ -62,7 +62,7 @@
     <rect class="card" width="286" height="104" rx="16"/>
     <text x="22" y="38" class="heading ink">Explicit distill</text>
     <text x="22" y="72" class="body muted">Active host reads the session</text>
-    <text x="22" y="96" class="small muted">Never redirected to the profile</text>
+    <text x="22" y="96" class="small muted">Never redirected to background</text>
   </g>
   <g transform="translate(64 528)">
     <rect class="warm" width="286" height="104" rx="16"/>

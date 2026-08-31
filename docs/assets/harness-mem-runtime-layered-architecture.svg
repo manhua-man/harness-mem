@@ -100,7 +100,7 @@
     <rect class="dark" width="1312" height="112" rx="18"/>
     <text x="26" y="36" class="heading" fill="#fff">Manual distill</text>
     <text x="26" y="68" class="body" fill="#cbd5e1">active host → modules 1–3</text>
-    <text x="26" y="94" class="small" fill="#94a3b8">never redirected to an unattended profile</text>
+    <text x="26" y="94" class="small" fill="#94a3b8">never redirected to background execution</text>
     <line x1="360" y1="18" x2="360" y2="94" stroke="#334155" stroke-width="2"/>
     <text x="390" y="36" class="heading" fill="#fff">Hook</text>
     <text x="390" y="68" class="body" fill="#fde68a">module 0 only → session job + Dream signal</text>
@@ -108,7 +108,7 @@
     <line x1="820" y1="18" x2="820" y2="94" stroke="#334155" stroke-width="2"/>
     <text x="850" y="36" class="heading" fill="#fff">Authorized Dream</text>
     <text x="850" y="68" class="body" fill="#99f6e4">session queue + project governance queue</text>
-    <text x="850" y="94" class="small" fill="#94a3b8">named user profile · env key · auth · no tools · strict schema</text>
+    <text x="850" y="94" class="small" fill="#94a3b8">enabled + host CLI · strict schema · trusted runtime writes</text>
   </g>
 
   <text x="64" y="738" class="eyebrow muted">STORAGE ROLES</text>

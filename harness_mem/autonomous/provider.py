@@ -47,8 +47,10 @@ class ProviderResult:
     event_count: int
     attempt_count: int = 1
     schema_valid: bool = True
-    sandbox: str = "read-only"
+    execution_mode: str = "internal_http"
+    host_client: str | None = None
     ephemeral: bool = True
+    # Detached from the interactive host Agent cwd/home for internal HTTP transports.
     cwd_isolated: bool = True
     hooks_disabled: bool = True
     plugins_disabled: bool = True
@@ -57,7 +59,7 @@ class ProviderResult:
     config_isolated: bool = True
 
     def receipt(self) -> dict[str, Any]:
-        return {
+        payload = {
             "name": self.provider,
             "model": self.model,
             "duration_seconds": round(self.duration_seconds, 3),
@@ -69,7 +71,7 @@ class ProviderResult:
             "event_count": self.event_count,
             "attempt_count": self.attempt_count,
             "schema_valid": self.schema_valid,
-            "sandbox": self.sandbox,
+            "execution_mode": self.execution_mode,
             "ephemeral": self.ephemeral,
             "cwd_isolated": self.cwd_isolated,
             "hooks_disabled": self.hooks_disabled,
@@ -78,6 +80,9 @@ class ProviderResult:
             "rules_ignored": self.rules_ignored,
             "config_isolated": self.config_isolated,
         }
+        if self.host_client:
+            payload["host_client"] = self.host_client
+        return payload
 
 
 class ProviderError(RuntimeError):
@@ -91,11 +96,14 @@ class ProviderError(RuntimeError):
 
 @dataclass(frozen=True)
 class SemanticProviderProfile:
-    """One operator-approved, tool-free semantic endpoint.
+    """One operator-approved semantic transport for the current release.
 
-    A profile deliberately contains an *environment variable name*, never an
-    API key. The project config may select a profile but cannot override the
-    profile table; :mod:`harness_mem.config.merge` keeps that table user-only.
+    Legacy internal HTTP transport (``anthropic-messages`` or
+    ``openai-responses``) over a prepared manifest. Not used on the authorized
+    autonomous CLI path. A profile deliberately contains an
+    *environment variable name*, never an API key. The project config may
+    select a profile but cannot override the profile table;
+    :mod:`harness_mem.config.merge` keeps that table user-only.
     """
 
     name: str
@@ -109,8 +117,31 @@ class SemanticProviderProfile:
     thinking_mode: str = "auto"
 
 
+def _agent_boundary_fields(
+    *,
+    execution_mode: str,
+    host_client: str | None = None,
+) -> dict[str, Any]:
+    agent = execution_mode == "agent"
+    return {
+        "execution_mode": execution_mode,
+        "host_client": host_client,
+        "cwd_isolated": not agent,
+        "hooks_disabled": not agent,
+        "plugins_disabled": not agent,
+        "mcp_disabled": not agent,
+        "rules_ignored": not agent,
+        "config_isolated": not agent,
+    }
+
+
 class CodexExecProvider:
-    """Run one schema-constrained Codex turn in a neutral read-only cwd."""
+    """Internal transport fallback for ``responses_api`` recovery only.
+
+    Runs one schema-constrained Codex turn when the primary Responses transport
+    fails transiently or is unavailable. This is not the primary operator-profile
+    path and must not appear in user-facing setup narratives.
+    """
 
     name = "codex_exec"
 
@@ -122,8 +153,12 @@ class CodexExecProvider:
         assimilation_model: str | None = None,
         timeout_seconds: int = 180,
         poll_seconds: float = 5.0,
+        agent_mode: bool = False,
+        host_client: str | None = "codex",
     ) -> None:
         self.executable = executable or shutil.which("codex") or ""
+        self.agent_mode = agent_mode
+        self.host_client = host_client
         self.model = (
             model or os.environ.get("HARNESS_MEM_DISTILL_MODEL") or ""
         ).strip() or None
@@ -175,28 +210,35 @@ class CodexExecProvider:
                 self.executable,
                 "exec",
                 "--ephemeral",
-                "--ignore-rules",
-                "--disable",
-                "hooks",
-                "--disable",
-                "plugins",
-                "--disable",
-                "skill_search",
-                "--disable",
-                "multi_agent",
-                "--skip-git-repo-check",
-                "--config",
-                "mcp_servers={}",
-                "--config",
-                "marketplaces={}",
-                "--sandbox",
-                "read-only",
-                "--output-schema",
-                str(schema_path),
-                "--output-last-message",
-                str(output_path),
-                "--json",
             ]
+            if not self.agent_mode:
+                command.extend(
+                    [
+                        "--ignore-rules",
+                        "--disable",
+                        "hooks",
+                        "--disable",
+                        "plugins",
+                        "--disable",
+                        "skill_search",
+                        "--disable",
+                        "multi_agent",
+                        "--config",
+                        "mcp_servers={}",
+                        "--config",
+                        "marketplaces={}",
+                    ]
+                )
+            command.extend(
+                [
+                    "--skip-git-repo-check",
+                    "--output-schema",
+                    str(schema_path),
+                    "--output-last-message",
+                    str(output_path),
+                    "--json",
+                ]
+            )
             if self.model:
                 command.extend(("--model", self.model))
             command.append("-")
@@ -265,6 +307,7 @@ class CodexExecProvider:
                 ) from exc
 
         metrics = _usage_metrics(stdout)
+        mode = "agent" if self.agent_mode else "internal_http"
         return ProviderResult(
             decision=decision,
             provider=self.name,
@@ -276,6 +319,10 @@ class CodexExecProvider:
             output_tokens=metrics["output_tokens"],
             total_tokens=metrics["total_tokens"],
             event_count=int(metrics["event_count"] or 0),
+            **_agent_boundary_fields(
+                execution_mode=mode,
+                host_client=self.host_client if self.agent_mode else None,
+            ),
         )
 
     def assimilate(
@@ -285,7 +332,7 @@ class CodexExecProvider:
         runtime_dir: Path,
         heartbeat: Callable[[], None] | None = None,
     ) -> ProviderResult:
-        """Run the second semantic pass in the same isolated Codex sandbox."""
+        """Run the second semantic pass in the same isolated Codex invocation."""
 
         return self._run_structured_exec(
             manifest,
@@ -360,28 +407,35 @@ class CodexExecProvider:
                 self.executable,
                 "exec",
                 "--ephemeral",
-                "--ignore-rules",
-                "--disable",
-                "hooks",
-                "--disable",
-                "plugins",
-                "--disable",
-                "skill_search",
-                "--disable",
-                "multi_agent",
-                "--skip-git-repo-check",
-                "--config",
-                "mcp_servers={}",
-                "--config",
-                "marketplaces={}",
-                "--sandbox",
-                "read-only",
-                "--output-schema",
-                str(schema_path),
-                "--output-last-message",
-                str(output_path),
-                "--json",
             ]
+            if not self.agent_mode:
+                command.extend(
+                    [
+                        "--ignore-rules",
+                        "--disable",
+                        "hooks",
+                        "--disable",
+                        "plugins",
+                        "--disable",
+                        "skill_search",
+                        "--disable",
+                        "multi_agent",
+                        "--config",
+                        "mcp_servers={}",
+                        "--config",
+                        "marketplaces={}",
+                    ]
+                )
+            command.extend(
+                [
+                    "--skip-git-repo-check",
+                    "--output-schema",
+                    str(schema_path),
+                    "--output-last-message",
+                    str(output_path),
+                    "--json",
+                ]
+            )
             selected_model = model or self.model
             if selected_model:
                 command.extend(("--model", selected_model))
@@ -441,6 +495,7 @@ class CodexExecProvider:
                     exit_code=process.returncode,
                 ) from exc
         metrics = _usage_metrics(stdout)
+        mode = "agent" if self.agent_mode else "internal_http"
         return ProviderResult(
             decision=decision,
             provider=self.name,
@@ -452,6 +507,10 @@ class CodexExecProvider:
             output_tokens=metrics["output_tokens"],
             total_tokens=metrics["total_tokens"],
             event_count=int(metrics["event_count"] or 0),
+            **_agent_boundary_fields(
+                execution_mode=mode,
+                host_client=self.host_client if self.agent_mode else None,
+            ),
         )
 
 
@@ -556,7 +615,6 @@ class ResponsesApiProvider:
             output_tokens=_integer_or_none(usage.get("output_tokens")),
             total_tokens=_integer_or_none(usage.get("total_tokens")),
             event_count=len(payload.get("output") or []),
-            sandbox="no-tools",
         )
 
     def assimilate(
@@ -692,7 +750,6 @@ class ResponsesApiProvider:
             output_tokens=_integer_or_none(usage.get("output_tokens")),
             total_tokens=_integer_or_none(usage.get("total_tokens")),
             event_count=len(payload.get("output") or []),
-            sandbox="no-tools",
         )
 
 
@@ -898,7 +955,6 @@ class AnthropicMessagesProvider:
                 else None
             ),
             event_count=len(payload.get("content") or []),
-            sandbox="no-tools",
         )
 
 
@@ -1201,7 +1257,6 @@ def _prepare_isolated_codex_home(invocation_dir: Path) -> tuple[Path, str | None
     if provider_name and isinstance(provider_table, dict):
         minimal["model_provider"] = provider_name
         minimal["model_providers"] = {provider_name: provider_table}
-    minimal["sandbox_mode"] = "read-only"
     minimal["features"] = {
         "hooks": False,
         "plugins": False,

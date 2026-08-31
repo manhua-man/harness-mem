@@ -47,11 +47,11 @@ evidence requirements but never become visible headings.
 
 ## Write boundary
 
-The trusted runtime is the only component allowed to publish an assimilation
-result. A provider returns a bounded schema-checked proposal; runtime code
-revalidates references and named targets and performs the knowledge/source/
-required-version mutation in one transaction on the existing
-`canonical.sqlite` file.
+Local **harness-mem code** (Dream/worker/storage, not the external model API)
+is the only component allowed to publish an assimilation result. The model API
+returns a bounded schema-checked proposal; harness-mem revalidates references
+and named targets and performs the knowledge/source/required-version mutation in
+one transaction on the existing `canonical.sqlite` file.
 
 | Decision | Durable effect |
 |---|---|
@@ -138,7 +138,7 @@ they are not the target current-knowledge schema.
 Legacy status transitions remain readable throughout the documented `0.9.x`
 support window. New session distill must not create provisional long-term truth.
 The public MCP write surface remains `govern_memory`; it routes correction and
-review intent into the trusted verification/assimilation boundary.
+review intent into the local harness-mem verification/assimilation boundary.
 
 ## Source and lifecycle safeguards
 

@@ -23,7 +23,8 @@ from harness_mem.autonomous.models import (
     AssimilationDecision,
     CandidateVerificationDecision,
 )
-from harness_mem.autonomous.provider import ProviderError, build_semantic_provider
+from harness_mem.autonomous.authorization import background_ready, background_status
+from harness_mem.autonomous.provider import ProviderError
 from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas import (
     DreamItem,
@@ -515,31 +516,25 @@ async def _detect_separated_rechecks(
 
 def _dream_provider_from_config(
     config: MergedConfig | dict[str, Any] | None,
+    *,
+    host_client: str | None = None,
 ) -> Any | None:
-    """Use only an explicit semantic profile for automatic Dream work.
+    """Return the host CLI executor when the project authorized background semantic work."""
 
-    Distill retains its released default provider for compatibility. Dream is
-    governance maintenance, so it must never begin exporting source excerpts
-    merely because the interactive Codex profile happens to be configured.
-    """
+    if not background_ready(config):
+        return None
+    if not isinstance(config, MergedConfig):
+        return None
+    from harness_mem.autonomous.executors.registry import build_semantic_executor
+    from harness_mem.commands.support import _detected_runtime_client, normalize_client_name
 
-    if isinstance(config, MergedConfig):
-        if (
-            not config.distill_autonomous_enabled
-            or not config.semantic_execution_profile
-        ):
+    client = normalize_client_name(host_client or _detected_runtime_client())
+    try:
+        return build_semantic_executor(config, client)
+    except ProviderError as exc:
+        if exc.kind == "setup_required":
             return None
-        return build_semantic_provider(config.to_runtime_config())
-    runtime = config if isinstance(config, dict) else {}
-    distill = runtime.get("distill") if isinstance(runtime, dict) else None
-    autonomous = distill.get("autonomous") if isinstance(distill, dict) else None
-    if not isinstance(autonomous, dict) or autonomous.get("enabled") is not True:
-        return None
-    semantic = runtime.get("semantic") if isinstance(runtime, dict) else None
-    execution = semantic.get("execution") if isinstance(semantic, dict) else None
-    if not isinstance(execution, dict) or not str(execution.get("profile") or "").strip():
-        return None
-    return build_semantic_provider(runtime)
+        raise
 
 
 async def _run_source_backed_recheck_group(
@@ -563,7 +558,8 @@ async def _run_source_backed_recheck_group(
                 entry,
                 signal=signal,
                 reason=(
-                    "Dream has no explicit background semantic provider profile; "
+                    "Dream has no authorized host CLI executor "
+                    "(background off or CLI unavailable); "
                     "current knowledge was left unchanged."
                 ),
                 source_status="provider_not_selected",
@@ -851,6 +847,7 @@ async def dream_once(
     budget: ReplayBudget | None = None,
     deadline: datetime | None = None,
     semantic_provider: Any | None = None,
+    host_client: str | None = None,
 ) -> DreamRun:
     """Run one Dream pass and close its ledger on any handled failure."""
 
@@ -866,6 +863,7 @@ async def dream_once(
             budget=budget,
             deadline=deadline,
             semantic_provider=semantic_provider,
+            host_client=host_client,
             _run_id=run_id,
         )
     except Exception as exc:
@@ -895,6 +893,7 @@ async def _dream_once(
     budget: ReplayBudget | None = None,
     deadline: datetime | None = None,
     semantic_provider: Any | None = None,
+    host_client: str | None = None,
     _run_id: str | None = None,
 ) -> DreamRun:
     """Run one v3.1 dream maintenance pass and persist a DreamRun ledger."""
@@ -936,7 +935,10 @@ async def _dream_once(
         project_name=project_name,
         project_root=project_root,
     )
-    selected_provider = semantic_provider or _dream_provider_from_config(config)
+    selected_provider = semantic_provider or _dream_provider_from_config(
+        config,
+        host_client=host_client,
+    )
 
     async def persist_progress(*, check_deadline: bool = True) -> None:
         run_stub.items = list(items)
@@ -1426,44 +1428,34 @@ async def dream_auto_tick(
     source: DreamSource = "agent",
     trigger_id: str | None = None,
     trigger_job_id: str | None = None,
+    host_client: str | None = None,
 ) -> dict[str, Any]:
     hook_session: dict[str, Any] | None = None
-    selected_provider: Any | None = None
     if source == "ide_hook" and trigger_job_id:
-        try:
-            selected_provider = _dream_provider_from_config(config)
-        except ProviderError as exc:
-            from harness_mem.autonomous.worker import (
-                record_post_turn_preflight_failure,
-            )
-            from harness_mem.hook_background import background_generation_from_env
+        from harness_mem.commands.support import normalize_client_name
 
-            record_post_turn_preflight_failure(
-                backend.data_dir,
-                project_name=project_name,
-                project_root=project_root,
-                trigger_id=trigger_id,
-                client="dream",
-                dispatch_generation=background_generation_from_env(),
-                error={"kind": exc.kind, "message": str(exc)},
-            )
-            return await _record_dream_tick(
-                backend,
-                project_name=project_name,
-                source=source,
-                trigger_id=trigger_id,
-                payload={
-                    "success": False,
-                    "status": "failed",
-                    "project_name": project_name,
-                    "reason": str(exc),
-                    "session_distill": {
-                        "job_id": trigger_job_id,
-                        "state": exc.kind,
+        auth_status = background_status(config)
+        if not auth_status.ready:
+            if auth_status.reason == "disabled":
+                from harness_mem.autonomous.worker import (
+                    record_post_turn_preflight_failure,
+                )
+                from harness_mem.hook_background import background_generation_from_env
+
+                record_post_turn_preflight_failure(
+                    backend.data_dir,
+                    project_name=project_name,
+                    project_root=project_root,
+                    trigger_id=trigger_id,
+                    client=normalize_client_name(host_client or "codex"),
+                    dispatch_generation=background_generation_from_env(),
+                    error={
+                        "kind": "setup_required",
+                        "message": (
+                            "Hook-started Dream needs distill.autonomous.enabled=true."
+                        ),
                     },
-                },
-            )
-        if selected_provider is None:
+                )
             return await _record_dream_tick(
                 backend,
                 project_name=project_name,
@@ -1474,7 +1466,7 @@ async def dream_auto_tick(
                     "status": "failed",
                     "project_name": project_name,
                     "reason": (
-                        "Hook-started Dream needs an authorized semantic provider profile; "
+                        "Hook-started Dream needs distill.autonomous.enabled=true; "
                         "the session job remains queued."
                     ),
                     "session_distill": {
@@ -1486,6 +1478,7 @@ async def dream_auto_tick(
         from harness_mem.autonomous.worker import run_autonomous_distill_batch
         from harness_mem.hook_background import background_generation_from_env
 
+        resolved_client = normalize_client_name(host_client or "codex")
         hook_session = await asyncio.to_thread(
             run_autonomous_distill_batch,
             backend,
@@ -1493,8 +1486,8 @@ async def dream_auto_tick(
             project_root=project_root,
             config=config,
             trigger_id=trigger_id,
-            client="dream",
-            provider=selected_provider,
+            client=resolved_client,
+            provider=None,
             max_jobs=1,
             preferred_job_id=trigger_job_id,
             launch_source="ide_hook",
@@ -1608,6 +1601,7 @@ async def dream_auto_tick(
                 "next_eligible_at": _iso(confirmed_decision.next_eligible_at),
             },
         )
+    selected_provider = _dream_provider_from_config(config, host_client=host_client)
     try:
         run = await _run_dream_with_progress_timeout(
             backend,
@@ -1618,6 +1612,7 @@ async def dream_auto_tick(
             reflection_job_id=job.id,
             timeout_seconds=config.dream_auto_max_runtime_seconds,
             semantic_provider=selected_provider,
+            host_client=host_client,
         )
         if hook_session is not None:
             run.notes = list(run.notes or [])
@@ -1780,6 +1775,7 @@ async def _run_dream_with_progress_timeout(
     reflection_job_id: str,
     timeout_seconds: int,
     semantic_provider: Any | None = None,
+    host_client: str | None = None,
 ) -> DreamRun:
     seconds = max(1, timeout_seconds)
     deadline = _now() + timedelta(seconds=seconds)
@@ -1794,6 +1790,7 @@ async def _run_dream_with_progress_timeout(
                 reflection_job_id=reflection_job_id,
                 deadline=deadline,
                 semantic_provider=semantic_provider,
+                host_client=host_client,
             ),
             timeout=seconds,
         )
