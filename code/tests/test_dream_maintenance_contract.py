@@ -531,7 +531,8 @@ def test_dream_archives_multi_entry_conflict_without_selecting_a_winner(
     conflict = next(
         item for item in run.items if item.source_kind == "knowledge_conflict"
     )
-    assert conflict.final_action == "archived"
+    assert conflict.final_action == "failed"
+    assert run.status == "failed"
     assert _run(
         store.get_entry(first.id, project_name="demo", project_root=project_root)
     ) == first
@@ -670,7 +671,8 @@ def test_dream_archives_aged_claim_and_negative_feedback_without_profile(
 
     kinds = {item.source_kind for item in run.items}
     assert {"knowledge_stale", "knowledge_feedback"} <= kinds
-    assert all(item.final_action == "archived" for item in run.items)
+    assert all(item.final_action == "failed" for item in run.items)
+    assert run.status == "failed"
     assert _run(
         store.get_entry(entry.id, project_name="demo", project_root=project_root)
     ) == entry
@@ -1059,7 +1061,8 @@ def test_dream_archives_latest_ignored_feedback_without_workspace_candidate(
     )
 
     feedback = next(item for item in run.items if item.source_kind == "knowledge_feedback")
-    assert feedback.final_action == "archived"
+    assert feedback.final_action == "failed"
+    assert run.status == "failed"
     assert _run(store.get_entry(entry.id, project_name="demo")) == entry
     assert _run(store.list_candidates("demo")) == []
     _run(
@@ -1138,7 +1141,8 @@ def test_dream_positive_feedback_does_not_create_a_pending_recheck(
     archived = next(
         item for item in first.items if item.source_kind == "knowledge_feedback"
     )
-    assert archived.final_action == "archived"
+    assert archived.final_action == "failed"
+    assert first.status == "failed"
     assert _run(store.list_candidates("demo")) == []
 
     _run(

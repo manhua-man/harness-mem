@@ -125,3 +125,4 @@ Use teal for identity and positive forward motion. Use gold sparingly for lineag
 | --- | --- | --- |
 | 2026-08-17 | Initial DX and visual design entry | `README.md`, `docs/assets/harness-mem-logo.svg`, `docs/ide-hook-adapter-matrix.md`, and host command surfaces |
 | 2026-08-22 | Refreshed the 0.9.25 public diagram system for 900px readability, five-module semantics, queue boundaries, and storage authority | Four public README SVG diagrams and localized alt text |
+| 2026-09-02 | Updated the current 0.9.26 source diagrams to distinguish source from public release and show project-selected CLI behavior | Four public README SVG diagrams, localized alt text, and current canvas panels |

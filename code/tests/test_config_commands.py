@@ -95,6 +95,38 @@ api_key_env = "EXFILTRATE_ME"
 
 def test_semantic_profile_is_not_a_public_config_key() -> None:
     assert "semantic.execution.profile" not in PUBLIC_CONFIG_KEY_PATHS
+    assert "distill.autonomous.cli" in PUBLIC_CONFIG_KEY_PATHS
+
+
+def test_project_can_select_background_cli(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    project.mkdir()
+    _redirect_home(monkeypatch, home)
+    (project / ".harness-mem.toml").write_text(
+        "[distill.autonomous]\ncli = \"hermes\"\n",
+        encoding="utf-8",
+    )
+
+    assert load_merged_config(project).distill_autonomous_cli == "hermes"
+
+
+def test_user_config_cannot_choose_cli_for_every_project(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    project.mkdir()
+    _redirect_home(monkeypatch, home)
+    config = home / ".harness-mem" / "config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        "[distill.autonomous]\ncli = \"hermes\"\n",
+        encoding="utf-8",
+    )
+
+    assert load_merged_config(project).distill_autonomous_cli == "current"
 
 
 def test_archive_distill_defaults_are_public_and_typed(
@@ -164,6 +196,7 @@ def test_only_project_delete_source_setting_can_authorize_cleanup(
         ("capture.ignore_clients", '["codex", "cursor", "codex"]', ["codex", "cursor"]),
         ("distill.auto.enabled", "false", False),
         ("distill.autonomous.enabled", "false", False),
+        ("distill.autonomous.cli", "hermes", "hermes"),
         ("distill.delete_source_after_complete", "true", True),
         ("archive_distill.enabled", "true", True),
         ("archive_distill.batch_size", "5", 5),

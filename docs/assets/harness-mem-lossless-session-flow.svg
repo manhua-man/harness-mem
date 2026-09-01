@@ -22,7 +22,7 @@
   <rect class="teal" width="1440" height="10"/>
   <text x="64" y="66" class="title ink">Lossless session distillation</text>
   <text x="64" y="100" class="subtitle muted">Evidence stays reconstructable; extraction, verification, and assimilation remain separate decisions.</text>
-  <g transform="translate(1228 38)"><rect class="soft" width="148" height="42" rx="21"/><text x="28" y="28" class="eyebrow teal">v0.9.25</text></g>
+  <g transform="translate(1204 38)"><rect class="soft" width="172" height="42" rx="21"/><text x="20" y="28" class="eyebrow teal">source 0.9.26</text></g>
 
   <text x="64" y="148" class="eyebrow muted">0 · SESSION INTAKE AND LIFECYCLE</text>
   <g transform="translate(64 174)">
@@ -68,7 +68,7 @@
     <rect class="warm" width="286" height="104" rx="16"/>
     <text x="22" y="38" class="heading ink">Hook-started Dream</text>
     <text x="22" y="72" class="body muted">Hook stores job + activity signal</text>
-    <text x="22" y="96" class="small muted">Dream performs semantic work</text>
+    <text x="22" y="96" class="small muted">Dream uses the selected CLI</text>
   </g>
   <path class="branch" d="M350 456h46v50h42"/>
   <path class="hook" d="M350 580h46v-50h42"/>
@@ -103,6 +103,6 @@
     <text x="340" y="36" class="body" fill="#ccfbf1">Transcript ledger preserves source evidence</text>
     <text x="780" y="36" class="body" fill="#fde68a">Candidate / evidence / decision are job-scoped</text>
     <text x="28" y="66" class="small" fill="#cbd5e1">Requirement: every expected chunk is checkpointed with zero character loss.</text>
-    <text x="28" y="86" class="small" fill="#cbd5e1">Temporary material is cleaned only after a proven terminal outcome; SQLite knowledge_entries remains current truth.</text>
+    <text x="28" y="86" class="small" fill="#cbd5e1">Temporary material is cleaned only after the final result is verified; SQLite knowledge_entries remains current truth.</text>
   </g>
 </svg>

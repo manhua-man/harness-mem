@@ -20,8 +20,9 @@ import {
   useHostTheme,
 } from "cursor/canvas";
 
-const AS_OF = "2026-08-31";
+const AS_OF = "2026-09-02";
 const RUNTIME_VERSION = "0.9.26";
+const PUBLIC_RELEASE_VERSION = "0.9.25";
 const PYTEST_COUNT = 1027;
 const MCP_TOOL_COUNT = 27;
 const HOST_COUNT = 7;
@@ -45,18 +46,18 @@ const STORAGE_ROLES: string[][] = [
 const EXECUTION_PATHS: string[][] = [
   ["人工 distill", "当前宿主读取会话", "prepare → submit → finalize · 不走后台改道"],
   ["Hook SessionStop", "仅模块 0", "持久化 source/job · 唤醒 Dream · 不执行语义判断"],
-  ["Dream", "唯一无人值守执行者", "已授权 → 宿主 CLI Agent（{host}_cli）· 同一路验证与吸收"],
+  ["Dream", "唯一无人值守执行者", "已授权 → 所选 CLI Agent（默认当前宿主，也可明确指定）· 同一路验证与吸收"],
   ["Review", "事后审计支路", "纠错 · supersede · undo · 不替代逐点验证"],
 ];
 
 const RELEASE_TRAIN: string[][] = [
-  ["0.9.20", "六会话 frozen oracle · clean SQLite 知识库 · 14-claim outcome 首次通过", "Released"],
+  ["0.9.20", "六会话 frozen oracle · clean SQLite 知识库 · 14 项实际结果检查首次通过", "Released"],
   ["0.9.21", "code/ 物理迁移 · 授权 harness-mem legacy 收敛（项目隔离 · 可逆）", "Released"],
   ["0.9.22", "archive repair · clean search · Autopilot 边界 · truth archival 门禁", "Released"],
   ["0.9.23", "operator-owned provider profile · Dream 终态 source recheck · 凭证不进项目配置", "Released"],
   ["0.9.24", "Anthropic 兼容网关 strict JSON 无工具传输 · schema fail-closed", "Released"],
   ["0.9.25", "Hook→Dream 唯一路径 · 截断来源 fail-closed · undo/receipt/provider 终态", "Released"],
-  ["0.9.26", "enabled + 当前 host CLI · 宿主 CLI Agent · 诚实 {host}_cli 回执", "Released"],
+  ["0.9.26", "enabled + 默认当前宿主、也可指定 CLI · 诚实 {host}_cli 回执", "main 已实现；尚未发布"],
 ];
 
 const OUT_OF_PRODUCT: string[][] = [
@@ -114,7 +115,7 @@ const TEN_TO_SIX: string[][] = [
   ["⑦ Wiki", "Scope · out_of_product"],
   ["⑧ 成本", "Claim boundary"],
   ["⑨ 维护", "L1 dream + L4"],
-  ["⑩ 证据", "L6 + outcome 合同 + 契约测试"],
+  ["⑩ 证据", "L6 + 实际结果检查 + 契约测试"],
 ];
 
 const CLAIM_BOUNDARY = [
@@ -124,7 +125,7 @@ const CLAIM_BOUNDARY = [
   "无 wiki-as-truth 或第二 truth store 叙事",
   "无静默 durable write（须逐点验证 + assimilation / review 路径）",
   "completed / queued 字段本身不是用户结果证据",
-  "mock 通过或配置存在不能替代 outcome probe",
+  "mock 通过或配置存在不能替代实际运行检查",
 ];
 
 const RETIRED_NARRATIVES = [
@@ -203,9 +204,9 @@ const OUTCOME_LIVE: string[][] = [
 type VerifyTier = "verified_local" | "partial_local" | "failed_local" | "contract_only" | "documented_gap";
 
 const TIER_LABEL: Record<VerifyTier, string> = {
-  verified_local: "本机 outcome 已证",
+  verified_local: "本机检查已通过",
   partial_local: "本机部分通过 / 有 defer",
-  failed_local: "本机 outcome 未过",
+  failed_local: "本机检查未通过",
   contract_only: "仅有仓库契约 · 本会话未跑",
   documented_gap: "文档登记 gap · 无探针",
 };
@@ -226,7 +227,7 @@ const DIMENSION_VERIFICATION: {
     tier: "verified_local",
     mappedOutcomes: "PASS: distill_user_artifacts · dream · acceptance_matrix · partial_handoff · hook · autonomous_distill",
     contracts: "27-tool MCP · 7 /hm:*（未在本会话跑 pytest）",
-    note: "本机 L1 mapped outcome 全 PASS",
+    note: "本机 L1 对应检查全 PASS",
   },
   {
     code: "L2",
@@ -235,7 +236,7 @@ const DIMENSION_VERIFICATION: {
     tier: "verified_local",
     mappedOutcomes: "PASS: multi_point_assimilation · clean_retrieval · archive_distill（含 sqlite authority 探针）",
     contracts: "test_assimilation_runtime · test_evidence_admission（未跑）",
-    note: "本机无 failed 的 truth 类 outcome；Dream undo 靠发布说明+单测，非本次 14-claim",
+    note: "本机没有失败的 truth 类检查；Dream undo 靠发布说明和单测，不在本次 14 项检查内",
   },
   {
     code: "L3",
@@ -244,7 +245,7 @@ const DIMENSION_VERIFICATION: {
     tier: "verified_local",
     mappedOutcomes: "PASS: clean_retrieval_boundary · durable_memory_retrieval",
     contracts: "test_clean_retrieval_outcome · RRF deferred（defer.md）",
-    note: "本机两项目检索 outcome 均 PASS；live used/ignored 反馈仍少（maturity-model）",
+    note: "本机两项目检索检查均 PASS；live used/ignored 反馈仍少（maturity-model）",
   },
   {
     code: "L4",
@@ -253,7 +254,7 @@ const DIMENSION_VERIFICATION: {
     tier: "verified_local",
     mappedOutcomes: "PASS: archive_distill · acceptance_matrix · distill_user_artifacts · partial_handoff · audit_summaries",
     contracts: "test_lossless_distill_mcp · host replay（未跑）",
-    note: "蒸馏主链本机 outcome 全 PASS",
+    note: "蒸馏主链本机检查全 PASS",
   },
   {
     code: "L5",
@@ -269,7 +270,7 @@ const DIMENSION_VERIFICATION: {
     label: "运维与发布",
     weight: 5,
     tier: "partial_local",
-    mappedOutcomes: "（无直接 outcome claim）",
+    mappedOutcomes: "（无直接实际结果检查）",
     contracts: "mcp/version pytest 已跑 · ensure_mcps OK",
     note: "契约项已跑通；public-smoke 未在本会话跑",
   },
@@ -278,7 +279,7 @@ const DIMENSION_VERIFICATION: {
     label: "任务可靠性",
     weight: null,
     tier: "documented_gap",
-    mappedOutcomes: "（无专用 outcome）",
+    mappedOutcomes: "（无专用实际结果检查）",
     contracts: "chunk lease/backoff 已实现 · evidence-to-roadmap：job reconciliation incomplete",
     note: "不对参考项目打数字分；Hindsight/claude-mem 仅 adopt/adapt 来源",
   },
@@ -295,11 +296,11 @@ const DIMENSION_VERIFICATION: {
 
 /** docs/maturity-model.md § Mechanical score rubric — 每轨检查项满分 100，分数 = Σ(通过项 points) */
 const SCORE_BANDS: string[][] = [
-  ["90–100", "该轨 mapped outcome 全 PASS，且本会话已跑契约项亦 PASS"],
-  ["80–89", "核心 outcome PASS；仅次要 defer 或未跑契约扣分"],
-  ["60–79", "主链部分 PASS；至少 1 条关键 outcome FAIL"],
+  ["90–100", "该轨对应检查全 PASS，且本会话已跑契约项亦 PASS"],
+  ["80–89", "核心检查 PASS；仅次要 defer 或未跑契约扣分"],
+  ["60–79", "主链部分 PASS；至少 1 条关键检查 FAIL"],
   ["40–59", "关键路径 FAIL 占 mapped 权重多数"],
-  ["0–39", "该轨 mapped outcome 基本未证或 host/autonomous 全 FAIL"],
+  ["0–39", "该轨对应检查基本未证或 host/autonomous 全 FAIL"],
 ];
 
 type CheckKind = "outcome" | "fact" | "contract" | "defer_cap";
@@ -333,34 +334,34 @@ const CONTRACT_STATUS: Record<string, "passed" | "failed" | "not_run"> = {
 
 const TRACK_SCORE_CHECKS: Record<string, ScoreCheck[]> = {
   L1: [
-    { id: "l1_distill_artifacts", label: "outcome distill_user_artifacts", points: 15, kind: "outcome", probe: "distill_user_artifacts" },
-    { id: "l1_dream", label: "outcome dream_execution", points: 15, kind: "outcome", probe: "dream_execution" },
-    { id: "l1_partial", label: "outcome partial_distill_handoff", points: 10, kind: "outcome", probe: "partial_distill_handoff" },
-    { id: "l1_matrix", label: "outcome distill_acceptance_matrix", points: 10, kind: "outcome", probe: "distill_acceptance_matrix" },
-    { id: "l1_hook", label: "outcome codex_hook_lifecycle", points: 25, kind: "outcome", probe: "codex_hook_lifecycle" },
-    { id: "l1_auto_distill", label: "outcome autonomous_distill_completion", points: 25, kind: "outcome", probe: "autonomous_distill_completion" },
+    { id: "l1_distill_artifacts", label: "distill_user_artifacts", points: 15, kind: "outcome", probe: "distill_user_artifacts" },
+    { id: "l1_dream", label: "dream_execution", points: 15, kind: "outcome", probe: "dream_execution" },
+    { id: "l1_partial", label: "partial_distill_handoff", points: 10, kind: "outcome", probe: "partial_distill_handoff" },
+    { id: "l1_matrix", label: "distill_acceptance_matrix", points: 10, kind: "outcome", probe: "distill_acceptance_matrix" },
+    { id: "l1_hook", label: "codex_hook_lifecycle", points: 25, kind: "outcome", probe: "codex_hook_lifecycle" },
+    { id: "l1_auto_distill", label: "autonomous_distill_completion", points: 25, kind: "outcome", probe: "autonomous_distill_completion" },
   ],
   L2: [
-    { id: "l2_assim", label: "outcome multi_point_memory_assimilation", points: 35, kind: "outcome", probe: "multi_point_memory_assimilation" },
-    { id: "l2_clean", label: "outcome clean_retrieval_boundary", points: 30, kind: "outcome", probe: "clean_retrieval_boundary" },
-    { id: "l2_archive", label: "outcome archive_distill_batch_outcome", points: 35, kind: "outcome", probe: "archive_distill_batch_outcome" },
+    { id: "l2_assim", label: "multi_point_memory_assimilation", points: 35, kind: "outcome", probe: "multi_point_memory_assimilation" },
+    { id: "l2_clean", label: "clean_retrieval_boundary", points: 30, kind: "outcome", probe: "clean_retrieval_boundary" },
+    { id: "l2_archive", label: "archive_distill_batch", points: 35, kind: "outcome", probe: "archive_distill_batch_outcome" },
   ],
   L3: [
-    { id: "l3_clean", label: "outcome clean_retrieval_boundary", points: 50, kind: "outcome", probe: "clean_retrieval_boundary" },
-    { id: "l3_durable", label: "outcome durable_memory_retrieval", points: 50, kind: "outcome", probe: "durable_memory_retrieval" },
+    { id: "l3_clean", label: "clean_retrieval_boundary", points: 50, kind: "outcome", probe: "clean_retrieval_boundary" },
+    { id: "l3_durable", label: "durable_memory_retrieval", points: 50, kind: "outcome", probe: "durable_memory_retrieval" },
   ],
   L4: [
-    { id: "l4_archive", label: "outcome archive_distill_batch_outcome", points: 20, kind: "outcome", probe: "archive_distill_batch_outcome" },
-    { id: "l4_matrix", label: "outcome distill_acceptance_matrix", points: 20, kind: "outcome", probe: "distill_acceptance_matrix" },
-    { id: "l4_artifacts", label: "outcome distill_user_artifacts", points: 20, kind: "outcome", probe: "distill_user_artifacts" },
-    { id: "l4_partial", label: "outcome partial_distill_handoff", points: 15, kind: "outcome", probe: "partial_distill_handoff" },
-    { id: "l4_audit", label: "outcome distill_audit_summaries", points: 25, kind: "outcome", probe: "distill_audit_summaries" },
+    { id: "l4_archive", label: "archive_distill_batch", points: 20, kind: "outcome", probe: "archive_distill_batch_outcome" },
+    { id: "l4_matrix", label: "distill_acceptance_matrix", points: 20, kind: "outcome", probe: "distill_acceptance_matrix" },
+    { id: "l4_artifacts", label: "distill_user_artifacts", points: 20, kind: "outcome", probe: "distill_user_artifacts" },
+    { id: "l4_partial", label: "partial_distill_handoff", points: 15, kind: "outcome", probe: "partial_distill_handoff" },
+    { id: "l4_audit", label: "distill_audit_summaries", points: 25, kind: "outcome", probe: "distill_audit_summaries" },
   ],
   L5: [
-    { id: "l5_hook", label: "outcome codex_hook_lifecycle", points: 35, kind: "outcome", probe: "codex_hook_lifecycle" },
-    { id: "l5_auto_distill", label: "outcome autonomous_distill_completion", points: 25, kind: "outcome", probe: "autonomous_distill_completion" },
-    { id: "l5_provider", label: "outcome autonomous_provider_isolation", points: 25, kind: "outcome", probe: "autonomous_provider_isolation" },
-    { id: "l5_auto_note", label: "outcome autonomous_note_materialization", points: 15, kind: "outcome", probe: "autonomous_note_materialization" },
+    { id: "l5_hook", label: "codex_hook_lifecycle", points: 35, kind: "outcome", probe: "codex_hook_lifecycle" },
+    { id: "l5_auto_distill", label: "autonomous_distill_completion", points: 25, kind: "outcome", probe: "autonomous_distill_completion" },
+    { id: "l5_provider", label: "autonomous_provider_isolation", points: 25, kind: "outcome", probe: "autonomous_provider_isolation" },
+    { id: "l5_auto_note", label: "autonomous_note_materialization", points: 15, kind: "outcome", probe: "autonomous_note_materialization" },
   ],
   L6: [
     { id: "l6_version", label: "fact runtime_version aligned", points: 20, kind: "fact", probe: "runtime_version" },
@@ -374,7 +375,7 @@ const TRACK_SCORE_CHECKS: Record<string, ScoreCheck[]> = {
     { id: "d7_recon", label: "defer job reconciliation / soak", points: 45, kind: "defer_cap", probe: "d7_reconciliation_open" },
   ],
   D8: [
-    { id: "d8_cleanup", label: "outcome codex_cleanup_liveness", points: 70, kind: "outcome", probe: "codex_cleanup_liveness" },
+    { id: "d8_cleanup", label: "codex_cleanup_liveness", points: 70, kind: "outcome", probe: "codex_cleanup_liveness" },
     { id: "d8_shared", label: "defer shared-container per-session deletion", points: 30, kind: "defer_cap", probe: "d8_shared_container_deferred" },
   ],
 };
@@ -470,16 +471,16 @@ const LEGACY_TEN_TO_DIM: string[][] = [
   ["⑦ Wiki", "out_of_product"],
   ["⑧ 成本", "Claim boundary"],
   ["⑨ 维护", "L1 + L4 + D7"],
-  ["⑩ 证据", "L6 + outcome"],
+  ["⑩ 证据", "L6 + 实际结果检查"],
 ];
 
 /** 发布叙事 vs 本机实测行 */
 function releaseVsLocalRows(): string[][] {
   return [
-    ["roadmap.md 发布叙事", "frozen oracle + Desktop Hook + 14/14 outcome 于发布验收通过", "仓库记录 · 非本机实时"],
-    ["本机 outcome-verifier", `${OUTCOME_PASSED}/${OUTCOME_CLAIM_COUNT} passed · overall ${OUTCOME_RUN_STATUS}`, OUTCOME_RUN_AT],
+    ["roadmap.md 发布记录", "frozen oracle + Desktop Hook + 14/14 实际结果检查通过", "仓库记录 · 非本机实时"],
+    ["本机实际结果检查", `${OUTCOME_PASSED}/${OUTCOME_CLAIM_COUNT} passed · overall ${OUTCOME_RUN_STATUS}`, OUTCOME_RUN_AT],
     ["本机机械分（rubric）", `L1–L6 加权 ${HM_WEIGHTED_L6}/100 · Σ(weight×track_score)`, "可复算 · 见检查项表"],
-    ["参考项目", "形态/adopt 对照 · 无共享 outcome 探针", "不打竞品综合分"],
+    ["参考项目", "形态/adopt 对照 · 不共享本项目检查", "不打竞品综合分"],
   ];
 }
 
@@ -540,7 +541,8 @@ export default function HarnessMemConvergenceCanvas() {
       <Stack gap={6}>
         <Row gap={10} align="center" wrap>
           <H1>产品边界与收敛证据</H1>
-          <Pill tone="success">v{RUNTIME_VERSION}</Pill>
+          <Pill tone="info">source {RUNTIME_VERSION}</Pill>
+          <Pill tone="success">public {PUBLIC_RELEASE_VERSION}</Pill>
           <Pill tone="info">仅可核对事实</Pill>
         </Row>
         <Text tone="secondary">
@@ -549,19 +551,19 @@ export default function HarnessMemConvergenceCanvas() {
       </Stack>
 
       <Callout tone="info">
-        数字分有标准：每轨 100 分 = 下方固定检查项之和；outcome 项读本机 verifier，契约项本会话未跑记 0 分，defer 项 open 则该项 0 分。
+        数字分有标准：每轨 100 分 = 下方固定检查项之和；实际结果读取本机检查，契约项本会话未跑记 0 分，defer 项 open 则该项 0 分。
         规范见 docs/maturity-model.md § Mechanical score rubric。加权 {HM_WEIGHTED_L6}/100 · 最低轨 {HM_BOTTLENECK.code}（{HM_BOTTLENECK.score}）。
       </Callout>
 
       <Grid columns={4} gap={12}>
-        <Stat label="发布版本" value={RUNTIME_VERSION} tone="success" />
-        <Stat label="本机 outcome" value={`${OUTCOME_PASSED}/${OUTCOME_CLAIM_COUNT}`} tone="success" />
+        <Stat label="源码版本" value={RUNTIME_VERSION} tone="info" />
+        <Stat label="本机检查" value={`${OUTCOME_PASSED}/${OUTCOME_CLAIM_COUNT}`} tone="success" />
         <Stat label="L1–L6 加权分" value={String(HM_WEIGHTED_L6)} tone="success" />
         <Stat label="最低轨" value={`${HM_BOTTLENECK.code} ${HM_BOTTLENECK.score}`} tone="info" />
       </Grid>
 
       <Stack gap={6}>
-        <H2>本机 outcome-verifier（outcome 检查项数据源）</H2>
+        <H2>本机实际结果检查</H2>
         <Text tone="tertiary" size="small">
           命令：python code/tools/outcome-verifier/scripts/verify_outcomes.py --config .codex/outcomes.json · 报告 .tmp/outcome-verifier/harness-mem-report.json
         </Text>
@@ -583,7 +585,7 @@ export default function HarnessMemConvergenceCanvas() {
       <Stack gap={6}>
         <H2>机械评分（L1–L6 + D7/D8）</H2>
         <Text tone="tertiary" size="small">
-          公式：track_score = Σ earned_points · 数据源 {OUTCOME_RUN_AT} · outcome {OUTCOME_PASSED}/{OUTCOME_CLAIM_COUNT} passed
+          公式：track_score = Σ earned_points · 数据源 {OUTCOME_RUN_AT} · 本机检查 {OUTCOME_PASSED}/{OUTCOME_CLAIM_COUNT} passed
         </Text>
       </Stack>
 
@@ -625,7 +627,7 @@ export default function HarnessMemConvergenceCanvas() {
             referenceLines={[{ value: 80, label: "可用门槛 80", tone: "success" }]}
           />
           <Text tone="tertiary" size="small">
-            纵轴：rubric 分 0–100 · 横轴：L1–L6 · 数据源：本机 outcome-verifier + 静态事实 · 契约项未跑=0
+            纵轴：rubric 分 0–100 · 横轴：L1–L6 · 数据源：本机实际结果检查 + 静态事实 · 契约项未跑=0
           </Text>
           <Divider />
           <UsageBar
@@ -656,7 +658,7 @@ export default function HarnessMemConvergenceCanvas() {
         <H2>八维档位摘要</H2>
 
       <Table
-        headers={["维", "权重", "分", "本机档位", "mapped outcome", "说明"]}
+        headers={["维", "权重", "分", "本机档位", "对应检查", "说明"]}
         rows={DIMENSION_VERIFICATION.map((d) => {
           const scored = TRACK_SCORES.find((t) => t.code === d.code);
           return [
@@ -789,7 +791,7 @@ export default function HarnessMemConvergenceCanvas() {
 
       <Stack gap={6}>
         <H2>14-claim 用户结果合同</H2>
-        <Text tone="tertiary" size="small">.codex/outcomes.json · 须 outcome-verifier 探针验证，不能由单元测试单独替代</Text>
+        <Text tone="tertiary" size="small">.codex/outcomes.json · 必须实际运行检查，不能由单元测试单独替代</Text>
       </Stack>
       <Table headers={["claim id", "描述（摘要）"]} rows={OUTCOME_CLAIMS} striped />
 

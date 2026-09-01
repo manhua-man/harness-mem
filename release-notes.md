@@ -1,24 +1,28 @@
-# Release 0.9.26 (2026-08-31)
+# Draft release 0.9.26 (not yet published)
 
-## What shipped
+## What changed in the current source
 
 - Converged authorized background memory on `distill.autonomous.enabled=true`
-  and the current host CLI only; profile registration is no longer part of the
-  product path.
+  and a project-selected CLI. The default is the current host; a project may
+  explicitly select Codex, Claude Code, Hermes, or OpenCode. Profile
+  registration is no longer part of the product path.
 - Added host CLI executors for Codex, Hermes, Claude Code, and OpenCode with
   Hook re-entry guard and honest `{host}_cli` receipts
   (`execution_mode=agent`).
 - Routed Dream recheck and the autonomous worker through
-  `build_semantic_executor`; internal HTTP remains unauthorized/recovery only.
+  `build_semantic_executor` with honest `{host}_cli` receipts only; no HTTP
+  profile or transport fallback in the product path.
 - Documented the contract in `docs/background-memory.md` and aligned public
   docs, canvases, SVGs, and host skill mirrors.
 
-## Install
+## Install the latest public release
+
+`0.9.26` has not been published yet. The latest public release is `0.9.25`:
 
 ```bash
 pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
-  harness-mem==0.9.26
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
+  harness-mem==0.9.25
 ```
 
 The package is distributed through GitHub Releases, not PyPI.

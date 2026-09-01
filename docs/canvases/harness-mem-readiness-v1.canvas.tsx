@@ -15,8 +15,9 @@ import {
 } from "cursor/canvas";
 
 const MODEL_VERSION = "v1";
-const AS_OF = "2026-08-22";
+const AS_OF = "2026-09-02";
 const RUNTIME_VERSION = "0.9.26";
+const PUBLIC_RELEASE_VERSION = "0.9.25";
 
 const MODULES = [
   { code: "0", title: "会话接入与生命周期", unit: "1 session + 1 immutable revision", owns: "宿主接入、chunk、job、receipt、重试与来源生命周期" },
@@ -29,7 +30,7 @@ const MODULES = [
 const EXECUTION_PATHS = [
   { title: "人工显式 distill", body: "当前宿主读取一个会话并执行模块 1–3；不改道到后台执行。" },
   { title: "Stop Hook", body: "只在模块 0 保存 revision、创建或推进 session job，并发出 Dream activity signal。" },
-  { title: "授权 Dream", body: "enabled=true 时由当前宿主 CLI 服务会话处理与项目治理两个队列，再回到验证与归纳。" },
+  { title: "授权 Dream", body: "enabled=true 时由项目选择的 CLI 服务会话处理与项目治理两个队列；默认使用当前宿主，也可明确指定。" },
 ];
 
 const STORAGE_ROLES = [
@@ -44,12 +45,13 @@ export default function HarnessMemReadinessV1() {
     <Stack gap={18} style={{ padding: 20, maxWidth: 1120, margin: "0 auto" }}>
       <Stack gap={6}>
         <Row gap={10} align="center" wrap>
-          <H1>harness-mem 当前架构与发布边界</H1>
-          <Pill tone="success">v{RUNTIME_VERSION}</Pill>
+          <H1>harness-mem 当前源码架构与发布边界</H1>
+          <Pill tone="info">source {RUNTIME_VERSION}</Pill>
+          <Pill tone="success">public {PUBLIC_RELEASE_VERSION}</Pill>
           <Pill tone="info">{MODEL_VERSION}</Pill>
         </Row>
         <Text tone="secondary">
-          0.9.26 活态面板 · 核对日期 {AS_OF} · 历史 canvas 不作为当前版本真值
+          0.9.26 源码面板 · 核对日期 {AS_OF} · 历史 canvas 不作为当前版本真值
         </Text>
       </Stack>
 
@@ -57,7 +59,7 @@ export default function HarnessMemReadinessV1() {
         <Stat label="功能模块" value="5" tone="info" />
         <Stat label="原生宿主" value="7" tone="info" />
         <Stat label="公开 MCP 工具" value="27" tone="success" />
-        <Stat label="Outcome 合同" value="14" tone="success" />
+        <Stat label="实际结果检查" value="14" tone="success" />
       </Grid>
 
       <Callout tone="info">
@@ -96,7 +98,7 @@ export default function HarnessMemReadinessV1() {
           ))}
         </Grid>
         <Callout tone="warning">
-          Dream 只在真实来源完整、可重开、项目已开启后台（`distill.autonomous.enabled=true`）且当前宿主 CLI 可用时执行。
+          Dream 只在真实来源完整、可重开、项目已开启后台（`distill.autonomous.enabled=true`）且所选 CLI 可用时执行。
           多条知识关系无法安全裁决时关闭比较而不改写；Review 是事后纠错与 undo 支路。
         </Callout>
       </Stack>
@@ -113,13 +115,13 @@ export default function HarnessMemReadinessV1() {
         </Grid>
       </Stack>
 
-      <Callout tone="success">
-        发布事实：package、runtime 与 plugin manifest 均为 0.9.26；v0.9.26 tag 已存在。
-        冻结六会话 oracle、generation-bound Desktop Hook 与 14-claim outcome 合同是仓库记录的用户结果证据。
+      <Callout tone="info">
+        版本事实：源码、runtime 与 plugin manifest 均为 0.9.26；GitHub 最新公开版本为 0.9.25，v0.9.26 尚未发布。
+        冻结六会话 oracle、generation-bound Desktop Hook 与 14 项实际结果检查是仓库记录的用户结果证据。
       </Callout>
 
       <Text tone="tertiary" size="small">
-        Source: pyproject.toml · harness_mem/__init__.py · AGENTS.md · CHANGELOG 0.9.26 · docs/maturity-model.md · .codex/outcomes.json
+        Source: pyproject.toml · harness_mem/__init__.py · AGENTS.md · CHANGELOG Unreleased · docs/maturity-model.md · .codex/outcomes.json
       </Text>
     </Stack>
   );

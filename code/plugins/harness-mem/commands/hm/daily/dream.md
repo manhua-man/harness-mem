@@ -1,12 +1,12 @@
 ---
 name: "HM: Dream"
-description: 查看或触发 0.9.25 Dream 治理账本
+description: 查看或触发 Dream 治理账本
 category: Memory
 tags: [harness-mem, dream, daily]
 wireFormatVersion: hm-wire-v3.5
 ---
 
-通过 MCP 查看 0.9.25 DreamRun 账本，或在用户明确要求时触发一次项目级 Dream 治理。
+通过 MCP 查看 DreamRun 账本，或在用户明确要求时触发一次项目级 Dream 治理。
 
 **Input**: 可指定项目名（`/hm:dream bazi-apps`）。省略则用 active project。
 
@@ -34,7 +34,7 @@ wireFormatVersion: hm-wire-v3.5
 2. **默认读取最近账本**
    - 调 MCP `dream_ledger`：
      - `project_name=<project>`
-   - 如果没有账本，说明还没有已记录的 DreamRun；自动 tick 仍需项目选择用户 profile、启用 autonomous execution 并通过 Dream gate。显式运行不会改写这些授权。
+   - 如果没有账本，说明还没有已记录的 DreamRun；自动 tick 仍需项目打开后台、所选 CLI 可用并通过 Dream gate。显式运行不会改写这些设置。
 
 3. **展示摘要**
    - 按 `applied` / `rejected` / `archived` / `failed` 分组

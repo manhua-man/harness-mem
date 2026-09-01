@@ -68,7 +68,8 @@ def test_public_docs_describe_hooks_as_source_snapshot_and_dream_wakeup() -> Non
     assert "explicit /hm:distill -> active host" in policy
     assert "hooks only capture an immutable native transcript source revision" in cold_start
     assert "A Hook wakes Dream with that immutable source" in cold_start
-    assert "Hooks save immutable revisions; Dream is the audited unattended executor" in flow_diagram
+    assert "Hooks save immutable revisions; Dream runs in the background" in flow_diagram
+    assert "A queued or completed flag alone does not prove the result" in flow_diagram
     assert "sync evidence + queue a distill task" not in policy
     assert "hooks only sync transcript evidence" not in cold_start
     assert "post-turn-maintenance runs distill" not in flow_diagram
@@ -215,7 +216,7 @@ def test_runtime_diagram_matches_current_storage_and_truth_contract() -> None:
     assert "knowledge_entries" in diagram
     assert "raw revisions / chunks" in diagram
     assert "Authorized Dream" in diagram
-    assert "enabled + host CLI" in diagram
+    assert "enabled + selected CLI (current by default)" in diagram
     assert "Job workspace" in diagram
     assert "unknown stays unknown" in diagram
     assert "canonical SQLite / profiles" not in diagram

@@ -32,6 +32,10 @@ from harness_mem.autonomous.provider import (
     _strict_output_schema,
     _usage_metrics,
 )
+from harness_mem.autonomous.hook_guard import (
+    register_provider_process_lease,
+    release_provider_process_lease,
+)
 from harness_mem.autonomous.executors.constants import host_cli_provider_name
 from harness_mem.config.merge import MergedConfig
 
@@ -142,7 +146,6 @@ def _build_hermes_command(
         executable,
         "chat",
         "-Q",
-        "--accept-hooks",
         "--yolo",
         "--query-file",
         "-",
@@ -431,45 +434,57 @@ class HostStructuredCliProvider:
             env["HARNESS_MEM_AUTONOMOUS_PROVIDER"] = "1"
             env["NO_COLOR"] = "1"
             creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            data_dir = (
+                runtime_dir.parent.parent
+                if runtime_dir.parent.name == "autonomous"
+                else runtime_dir
+            )
+            provider_lease = register_provider_process_lease(
+                data_dir,
+                pid=os.getpid(),
+            )
             try:
-                process = subprocess.Popen(
-                    invocation.command,
-                    cwd=runtime_dir,
-                    env=env,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    creationflags=creationflags,
-                )
-            except OSError as exc:
-                raise ProviderError(str(exc), kind="setup_required") from exc
-
-            stdout = ""
-            stderr = ""
-            deadline = started + self.timeout_seconds
-            first_communicate = True
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    process.kill()
-                    stdout, stderr = process.communicate()
-                    raise ProviderError(
-                        f"{self.host_client} provider exceeded {self.timeout_seconds}s",
-                        kind="transient",
-                    )
                 try:
-                    stdout, stderr = process.communicate(
-                        input=cli_prompt if first_communicate else None,
-                        timeout=min(self.poll_seconds, remaining),
+                    process = subprocess.Popen(
+                        invocation.command,
+                        cwd=runtime_dir,
+                        env=env,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        creationflags=creationflags,
                     )
-                    break
-                except subprocess.TimeoutExpired:
-                    first_communicate = False
-                    if heartbeat is not None:
-                        heartbeat()
+                except OSError as exc:
+                    raise ProviderError(str(exc), kind="setup_required") from exc
+
+                stdout = ""
+                stderr = ""
+                deadline = started + self.timeout_seconds
+                first_communicate = True
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        process.kill()
+                        stdout, stderr = process.communicate()
+                        raise ProviderError(
+                            f"{self.host_client} provider exceeded {self.timeout_seconds}s",
+                            kind="transient",
+                        )
+                    try:
+                        stdout, stderr = process.communicate(
+                            input=cli_prompt if first_communicate else None,
+                            timeout=min(self.poll_seconds, remaining),
+                        )
+                        break
+                    except subprocess.TimeoutExpired:
+                        first_communicate = False
+                        if heartbeat is not None:
+                            heartbeat()
+            finally:
+                release_provider_process_lease(provider_lease)
 
             if process.returncode != 0:
                 raise _classify_failure(stderr or stdout, process.returncode)

@@ -28,7 +28,7 @@
 
 `harness-mem` 是面向 AI Agent 的本地优先、可审计、可插拔记忆后端。Agent 通过统一 MCP surface 使用项目记忆；Claude Code、Codex、Cursor、Grok、Hermes、OpenCode 和 Antigravity 通过各自原生命令与 Hook 接入同一运行时。
 
-- Python 包：`harness-mem`，当前发布版本 `0.9.26`；版本真值在 `pyproject.toml` 与 `harness_mem/__init__.py`。
+- Python 包：`harness-mem`，当前源码版本 `0.9.26`，GitHub 最新公开 Release 为 `0.9.25`；源码版本真值在 `pyproject.toml` 与 `harness_mem/__init__.py`。
 - Rust helper crate：`harness_mem_core_rs`，crate 版本 `4.0.3`；它不是 Python 包版本。
 - Python 要求：`>=3.9`。
 - 分发：GitHub Releases 的原生 wheel 与 sdist，不发布到 PyPI。
@@ -39,9 +39,9 @@
 
 `0.9.22` 已实现会话生命周期、无损提取、逐点验证、SQLite 当前知识、job 范围临时处理材料、干净检索，以及显式授权的 detached semantic execution。当前 normal wake/search 已把 raw Observation 和内部审计元数据隔离到 deep recall 或诊断面。
 
-`0.9.23` 增加用户配置中的 operator-owned semantic provider profile，以及只针对完整、可重开来源的终态 Dream 复核；`0.9.24` 为拒绝强制 tool 输出的 Anthropic 兼容网关增加经严格 schema 校验的无工具 JSON 模式；`0.9.25` 让 Hook 触发的会话由 Dream 统一执行，并修复截断来源退役、Dream undo、provider 失败终态和 Hook receipt 关联的 fail-closed 边界；`0.9.26` 将已授权后台收敛为 **`distill.autonomous.enabled=true` + 当前宿主 CLI**（`{host}_cli` 诚实回执），CLI 路径不再要求 `semantic.execution.profile` 或 user-config provider 表。人工 `distill` 留在当前宿主。
+`0.9.23` 增加用户配置中的 operator-owned semantic provider profile，以及只针对完整、可重开来源的终态 Dream 复核；`0.9.24` 为拒绝强制 tool 输出的 Anthropic 兼容网关增加经严格 schema 校验的无工具 JSON 模式；`0.9.25` 让 Hook 触发的会话由 Dream 统一执行，并修复截断来源退役、Dream undo、provider 失败终态和 Hook receipt 关联边界；`0.9.26` 将已授权后台收敛为 **`distill.autonomous.enabled=true` + 项目选择的 CLI**（默认当前宿主；可显式选择 Codex、Claude Code、Hermes 或 OpenCode），CLI 路径不再要求 `semantic.execution.profile` 或 user-config provider 表。人工 `distill` 留在当前宿主。
 
-兼容 `MemoryEntry` 历史行仍可读取，但新知识不再把 candidate、evidence、decision 和 truth 混成一个对象。`canonical.sqlite` 中的 `knowledge_entries` 是当前知识 authority；新候选、证据和拟议归纳决定属于 job 范围临时材料，成功终态经证明后按策略清理；最小知识来源与必要 undo 版本独立关联；Markdown 仅在阅读/导出时生成。六会话冻结 oracle、真实 Hook 与 14 项 outcome 已通过。普通开发、启动或文档更新均不得迁移真实记忆；仅限操作员单独授权的、明确项目范围的维护运行可以重验来源、原子重写或可逆地退役历史行。一次已授权的 `harness-mem` 范围收敛已完成，其他项目和后续历史数据仍需新的明确授权。
+兼容 `MemoryEntry` 历史行仍可读取，但新知识不再把 candidate、evidence、decision 和 truth 混成一个对象。`canonical.sqlite` 中的 `knowledge_entries` 是当前知识 authority；新候选、证据和拟议归纳决定属于 job 范围临时材料，成功终态经证明后按策略清理；最小知识来源与必要 undo 版本独立关联；Markdown 仅在阅读/导出时生成。六会话冻结 oracle、真实 Hook 与 14 项运行检查已通过。普通开发、启动或文档更新均不得迁移真实记忆；仅限操作员单独授权的、明确项目范围的维护运行可以重验来源、原子重写或可逆地退役历史行。一次已授权的 `harness-mem` 范围收敛已完成，其他项目和后续历史数据仍需新的明确授权。
 
 `0.9.13-0.9.15` 是已被下一列车取代的历史质量计划记录，不是当前已发布版本，也不能作为“物理真值分离已经完成”的证据。
 
@@ -91,7 +91,7 @@
 - **质量信号：** 垃圾写入趋近于零；不宽、不重、不混；同一事实不换措辞重复写；设计目标不冒充当前实现；candidate、audit、handoff 与长期知识保持区别。
 - **主要 owner：** `harness_mem/commands/assimilation.py`、`harness_mem/core/schemas/assimilation.py`、`harness_mem/storage/candidate_store.py`、`harness_mem/storage/truth_store.py`、`harness_mem/mcp/governance_handlers.py`。
 - **长期知识形态：** SQLite `knowledge_entries` 是项目当前长期知识单一真源；行内只保留稳定内部 ID、项目、自然模块路径、具体标题、一条知识正文和验证日期，最小真实来源独立关联。内部类型、处置、job 和理由码不进入正式知识或默认展示。
-- **当前兼容边界：** `0.9.22` 发布路径（并由 `0.9.23` 至 `0.9.25` 延续）已分离干净当前知识、临时 job 材料和最小来源/undo 数据；旧 `MemoryEntry` 兼容行不会因升级自动迁移、删除或改写。
+- **当前兼容边界：** `0.9.22` 发布路径（并由 `0.9.23` 至 `0.9.26` 延续）已分离干净当前知识、临时 job 材料和最小来源/undo 数据；旧 `MemoryEntry` 兼容行不会因升级自动迁移、删除或改写。
 
 ### 4. 检索与使用
 
@@ -198,7 +198,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | **receipt / fingerprint** | 本机 autonomous 审计回执；代码版与配置版的 SHA256 | 长期记忆或 Note 正文 |
 | **`distill.autonomous.enabled`** | 项目开关：`true` = 后台 Agent（默认 `mode=agent`）；`false` = 关 | 不是人工 `distill` 开关 |
 | **`semantic.execution.mode`** | 默认 **`agent`**（不必写）；后台全 Agent，唯一硬限制 = Hook 不得重入 | 不是用户要选的第三档位名 |
-| **`semantic.execution.restricted`** | **遗留键**（0.9.25 代码仍读）；`false` 等同关后台。新文档以 `enabled=false` 为准 | 不是 Codex `--sandbox`；不要再用它表达「只禁 Hook」 |
+| **`semantic.execution.restricted`** | **遗留键**（0.9.26 代码仍读）；`false` 等同关后台。新文档以 `enabled=false` 为准 | 不是 Codex `--sandbox`；不要再用它表达「只禁 Hook」 |
 | **`execution_mode`（receipt）** | 回执：`agent` + `{host}_cli` = 宿主 CLI 成功 | 非 `{host}_cli` 名不能冒充 Agent |
 | **`provider.name`（receipt）** | 成功路径：`{host}_cli`（如 `codex_cli`、`hermes_cli`、`claude-code_cli`、`opencode_cli`） | HTTP 名（如 `anthropic_messages:…`）不能冒充 Agent |
 | **outcome** | 14 条用户结果合同 + 本机探针 | 普通单元测试 |
@@ -209,7 +209,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | --- | --- | --- |
 | 开后台 | `enabled=true` | `build_semantic_executor` → 当前 `host_client` 的 CLI |
 | 关后台 | **`enabled=false`** | legacy `restricted=false` 亦 effective 关 |
-| 传输 / 凭据 | 在**当前宿主 CLI** 配置（Codex/Hermes/Claude Code/OpenCode 等各自 CLI） | harness-mem 不承载 endpoint / api_key |
+| 传输 / 凭据 | 在**所选 CLI** 配置（默认当前宿主；也可由项目明确选择） | harness-mem 不承载 endpoint / api_key |
 | 写库 | 本机 Answer Gate + finalize | 不变 |
 
 **无人值守写记忆：** Hook → **本机 Dream/worker** 调后台 model 拿 JSON → Answer Gate + assimilation → **同一套本机代码** finalize 并写 Note/SQLite。不是「Dream 不写、别的 runtime 写」。
@@ -223,7 +223,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 - source cleanup 只有在策略授权、adapter 支持 session-scoped deletion 且 quiet/CAS/hash 检查通过时才执行；共享或不安全容器保持不动并报告 `unsupported`。
 - `maintenance erase` 默认 preview；`--apply` 才执行。不得为删除一个 session unlink 整个共享历史容器。
 - `.harness-mem` 数据根、原生宿主历史、Notes、receipts、runtime reports 和 `.codex/` 运行证据不得作为无关代码/文档任务的副作用被修改或清理。
-- autonomous model use：**产品合同**为 `distill.autonomous.enabled=true` + **当前 host_client** 走对应宿主 CLI（`codex_cli`、`hermes_cli`、`claude-code_cli`、`opencode_cli` 等；七宿主同一规则，Hook 传谁就用谁）。传输与密钥在该宿主 CLI 配置。**关后台只用 `enabled=false`。** 无 HTTP profile、无 `semantic.execution.profile`、无 enabled=false 时的 HTTP fallback。详见 [`docs/background-memory.md`](docs/background-memory.md)。
+- autonomous model use：**产品合同**为 `distill.autonomous.enabled=true`；`distill.autonomous.cli` 默认 `current`，也可由项目明确选择 `codex`、`claude-code`、`hermes` 或 `opencode`。未实现同名 CLI 的宿主不得静默改成 Codex。传输与密钥在所选 CLI 配置。**关后台只用 `enabled=false`。** 无 HTTP profile、无 `semantic.execution.profile`、无 enabled=false 时的 HTTP fallback。详见 [`docs/background-memory.md`](docs/background-memory.md)。
 
 ## 构建、测试与开发命令
 
@@ -313,7 +313,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | Legacy storage | `docs/storage-legacy-lifecycle.md` | authority、迁移、回滚和支持截止策略 |
 | 自动检索策略 | `docs/autopilot-search-policy.md` | 触发条件、回执和 abstention |
 | 用户结果 | `.codex/outcomes.json` | 直接探针合同，不是普通单元测试列表 |
-| 后台记忆说明 | `docs/background-memory.md` | enabled、profile、CLI 回执、status.reason |
+| 后台记忆说明 | `docs/background-memory.md` | enabled、CLI 选择、回执、status.reason |
 
 ## 快速参考
 

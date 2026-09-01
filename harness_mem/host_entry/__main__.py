@@ -559,12 +559,13 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
 
         from harness_mem.autonomous.hook_guard import (
             autonomous_provider_hook_reentry_blocked,
+            record_hook_reentry_block,
         )
 
-        if autonomous_provider_hook_reentry_blocked(args.action):
-            from harness_mem.storage.local_memory_backend import DEFAULT_DATA_DIR
-            from harness_mem.autonomous.hook_guard import record_hook_reentry_block
-
+        if autonomous_provider_hook_reentry_blocked(
+            args.action,
+            data_dir=DEFAULT_DATA_DIR,
+        ):
             record_hook_reentry_block(
                 DEFAULT_DATA_DIR,
                 project_name=project_name,

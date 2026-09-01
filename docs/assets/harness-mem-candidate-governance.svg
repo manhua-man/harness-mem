@@ -21,8 +21,8 @@
   <rect class="bg" width="1440" height="860"/>
   <rect class="teal" width="1440" height="10"/>
   <text x="64" y="66" class="title ink">Evidence is not current knowledge</text>
-  <text x="64" y="100" class="subtitle muted">0.9.25 keeps immutable sources, temporary job material, and SQLite truth physically distinct.</text>
-  <g transform="translate(1228 38)"><rect class="soft" width="148" height="42" rx="21"/><text x="28" y="28" class="eyebrow teal">v0.9.25</text></g>
+  <text x="64" y="100" class="subtitle muted">The 0.9.26 source keeps immutable sources, temporary job material, and SQLite truth physically distinct.</text>
+  <g transform="translate(1204 38)"><rect class="soft" width="172" height="42" rx="21"/><text x="20" y="28" class="eyebrow teal">source 0.9.26</text></g>
 
   <text x="64" y="150" class="eyebrow muted">ENTRY AND SOURCE</text>
   <g transform="translate(64 176)">
@@ -92,10 +92,10 @@
   <g transform="translate(64 580)">
     <rect class="dark" width="1312" height="214" rx="20"/>
     <text x="28" y="42" class="eyebrow" fill="#99f6e4">DREAM GUARDRAILS</text>
-    <text x="28" y="82" class="heading" fill="#fff">Two queues, one host CLI agent</text>
+    <text x="28" y="82" class="heading" fill="#fff">Two queues, one selected CLI agent</text>
     <text x="28" y="116" class="body" fill="#cbd5e1">Session queue processes one immutable session. Project governance queue checks current knowledge and real sources.</text>
     <text x="28" y="144" class="body" fill="#cbd5e1">It also checks duplicates, conflicts, staleness, and retrieval feedback across the project.</text>
-    <text x="28" y="172" class="body" fill="#fde68a">enabled=true + current host CLI + strict schema; trusted runtime writes.</text>
+    <text x="28" y="172" class="body" fill="#fde68a">enabled=true + selected CLI (current host by default) + strict schema.</text>
     <text x="28" y="198" class="small" fill="#fecaca">Unsafe multi-item comparisons, truncated sources, and unsupported sources close without mutation.</text>
   </g>
   <path class="branch" d="M1376 283h24v277H888v-22"/>

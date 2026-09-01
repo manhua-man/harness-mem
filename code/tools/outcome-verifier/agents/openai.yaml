@@ -1,4 +1,4 @@
 interface:
-  display_name: "Outcome Verifier"
-  short_description: "Prove user-visible outcomes before claiming completion"
-  default_prompt: "Use $outcome-verifier to prove this task is actually complete."
+  display_name: "Verifier"
+  short_description: "Verify completion with direct evidence"
+  default_prompt: "Use $outcome-verifier to verify completion."

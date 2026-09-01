@@ -65,6 +65,33 @@ def test_build_semantic_executor_returns_host_agent_when_cli_present(
     assert executor._cli is not None
 
 
+@pytest.mark.parametrize("current_host", ["cursor", "grok", "antigravity"])
+def test_build_semantic_executor_uses_explicit_cli_instead_of_current_host(
+    monkeypatch: pytest.MonkeyPatch,
+    current_host: str,
+) -> None:
+    monkeypatch.setenv("HARNESS_MEM_HERMES_EXECUTABLE", "hermes-bin")
+    config = MergedConfig(
+        distill_autonomous_enabled=True,
+        distill_autonomous_cli="hermes",
+    )
+    executor = build_semantic_executor(config, current_host)
+    assert executor.host_client == "hermes"
+
+
+@pytest.mark.parametrize("current_host", ["cursor", "grok", "antigravity"])
+def test_build_semantic_executor_does_not_replace_unsupported_current_host(
+    monkeypatch: pytest.MonkeyPatch,
+    current_host: str,
+) -> None:
+    monkeypatch.setenv("HARNESS_MEM_CODEX_EXECUTABLE", "codex-bin")
+    with pytest.raises(
+        ProviderError,
+        match=f"No background CLI is implemented for '{current_host}'",
+    ):
+        build_semantic_executor(_authorized_config(), current_host)
+
+
 def test_build_semantic_executor_rejects_disabled_background() -> None:
     config = MergedConfig(distill_autonomous_enabled=False)
     with pytest.raises(ProviderError, match="disabled"):
@@ -107,11 +134,13 @@ def test_host_cli_invokes_structured_command_for_each_host(
 ) -> None:
     monkeypatch.setenv(env_name, binary)
     captured: dict[str, Any] = {}
+    lease_events: list[str] = []
 
     class _Process:
         returncode = 0
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:
+            lease_events.append("popen")
             captured["command"] = args[0]
             captured["env"] = kwargs.get("env")
 
@@ -144,6 +173,14 @@ def test_host_cli_invokes_structured_command_for_each_host(
         "harness_mem.autonomous.executors.host_structured_cli._prepare_isolated_codex_home",
         lambda _dir: (tmp_path / "home", "gpt-test"),
     )
+    monkeypatch.setattr(
+        "harness_mem.autonomous.executors.host_structured_cli.register_provider_process_lease",
+        lambda *_args, **_kwargs: lease_events.append("lease") or tmp_path / "lease",
+    )
+    monkeypatch.setattr(
+        "harness_mem.autonomous.executors.host_structured_cli.release_provider_process_lease",
+        lambda _path: lease_events.append("release"),
+    )
 
     provider = HostStructuredCliProvider(
         host_client=host_client,
@@ -162,6 +199,10 @@ def test_host_cli_invokes_structured_command_for_each_host(
     assert result.execution_mode == "agent"
     assert result.host_client == host_client
     assert result.provider == f"{host_client}_cli"
+    assert "hooks_disabled" not in result.receipt()
+    assert "mcp_disabled" not in result.receipt()
+    assert "config_isolated" not in result.receipt()
+    assert lease_events == ["lease", "popen", "release"]
 
 
 def test_legacy_restricted_false_maps_to_enabled_false(tmp_path: Path) -> None:

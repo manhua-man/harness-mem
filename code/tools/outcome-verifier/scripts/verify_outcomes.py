@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute a project outcome contract and emit a durable evidence report."""
+"""Verify project claims and emit an evidence report."""
 
 from __future__ import annotations
 
@@ -344,7 +344,7 @@ def verify(
 
 
 def _render(report: dict[str, Any]) -> None:
-    print(f"Outcome: {report['status']}")
+    print(f"Status: {report['status']}")
     for claim in report["claims"]:
         print(f"{claim['status'].upper():7} {claim['id']} - {claim['description']}")
         for check in claim["checks"]:
@@ -390,10 +390,10 @@ def main(argv: list[str] | None = None) -> int:
                 serialized = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
                 _write_report_atomic(args.output, serialized, run_id)
     except ContractError as exc:
-        print(f"Outcome: blocked\nContract error: {exc}", file=sys.stderr)
+        print(f"Status: blocked\nConfiguration error: {exc}", file=sys.stderr)
         return 2
     except OutputBusyError as exc:
-        print(f"Outcome: blocked\nOutput error: {exc}", file=sys.stderr)
+        print(f"Status: blocked\nOutput error: {exc}", file=sys.stderr)
         return 2
     serialized = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
     print(serialized, end="") if args.json else _render(report)

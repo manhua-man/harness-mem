@@ -12,7 +12,6 @@ import tempfile
 import time
 import tomllib
 from dataclasses import dataclass
-import re
 from typing import Any, Callable
 
 from pydantic import ValidationError
@@ -68,14 +67,19 @@ class ProviderResult:
             "attempt_count": self.attempt_count,
             "schema_valid": self.schema_valid,
             "execution_mode": self.execution_mode,
-            "ephemeral": self.ephemeral,
-            "cwd_isolated": self.cwd_isolated,
-            "hooks_disabled": self.hooks_disabled,
-            "plugins_disabled": self.plugins_disabled,
-            "mcp_disabled": self.mcp_disabled,
-            "rules_ignored": self.rules_ignored,
-            "config_isolated": self.config_isolated,
         }
+        if self.execution_mode != "agent":
+            payload.update(
+                {
+                    "ephemeral": self.ephemeral,
+                    "cwd_isolated": self.cwd_isolated,
+                    "hooks_disabled": self.hooks_disabled,
+                    "plugins_disabled": self.plugins_disabled,
+                    "mcp_disabled": self.mcp_disabled,
+                    "rules_ignored": self.rules_ignored,
+                    "config_isolated": self.config_isolated,
+                }
+            )
         if self.host_client:
             payload["host_client"] = self.host_client
         return payload

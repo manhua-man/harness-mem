@@ -7,8 +7,8 @@
 ## 30 秒版
 
 1. **开后台**：项目里 `distill.autonomous.enabled=true`
-2. **用哪个 CLI**：看当前宿主（Hook 的 `host_client` / `HARNESS_MEM_CLIENT`）— 跟宿主走对应 CLI，不是 harness-mem 里再选一次。已接后台 CLI 的宿主包括 Codex、Hermes、Claude Code、OpenCode（回执为 `codex_cli`、`hermes_cli`、`claude-code_cli`、`opencode_cli`）；其它宿主仍按同一规则，由 Hook 传入的 client 决定
-3. **传输 / 密钥 / Sub2API**：配在**该宿主 CLI** 自己的配置里，不是 harness-mem 项目配置
+2. **用哪个 CLI**：默认跟当前宿主；项目也可以明确选择 Codex、Hermes、Claude Code 或 OpenCode。Cursor、Grok、Antigravity 等没有同名后台 CLI 的宿主必须明确选择，不能偷偷改成 Codex
+3. **传输 / 密钥 / Sub2API**：配在**所选 CLI** 自己的配置里，不是 harness-mem 项目配置
 4. **关后台**：`distill.autonomous.enabled=false`
 
 **不需要** `semantic.execution.profile`，**不需要**在 `~/.harness-mem/config.toml` 里登记 provider。旧键在加载时会被忽略。
@@ -22,10 +22,12 @@
 ```toml
 [distill.autonomous]
 enabled = true
+cli = "current" # 或 codex / claude-code / hermes / opencode
 ```
 
 ```bash
 harness-mem config set distill.autonomous.enabled true --scope project --confirm
+harness-mem config set distill.autonomous.cli hermes --scope project --confirm
 ```
 
 `semantic.execution.profile` 与 `[semantic.providers.*]` 为**已删除路径**；配置加载时会剥离，不参与后台授权或执行。
@@ -35,11 +37,11 @@ harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ## 后台会做什么
 
 ```text
-Stop Hook → 保存会话 → Dream/worker → 当前宿主 CLI → 本机验证 → 写 Note / SQLite
+Stop Hook → 保存会话 → Dream/worker → 所选 CLI → 本机验证 → 写 Note / SQLite
 ```
 
 - **Hook 蒸馏**：整理刚结束的会话  
-- **Dream 复核**：对照已有知识和来源（同一宿主 CLI）  
+- **Dream 复核**：对照已有知识和来源（同一个所选 CLI）
 - **人工 distill**：仍在当前 IDE/Agent 里做
 
 ---
@@ -57,7 +59,8 @@ Stop Hook → 保存会话 → Dream/worker → 当前宿主 CLI → 本机验�
 |------|--------|
 | `execution_mode` | `agent` |
 | `provider.name` | `{host}_cli`（如 `codex_cli`、`hermes_cli`、`claude-code_cli`、`opencode_cli`） |
-| `hook_reentry_count` | `0` |
+| `hook_guard_check.all_blocked` | `true` |
+| `hook_guard_check.downstream_jobs_created` | `0` |
 
 ---
 
@@ -67,9 +70,10 @@ Stop Hook → 保存会话 → Dream/worker → 当前宿主 CLI → 本机验�
 
 | 字段 | 含义 |
 |------|------|
-| `ready` | 能跑后台（`enabled=true` 且未被 legacy restricted 关掉） |
-| `on` | 同左 |
-| `reason` | `ok` / `disabled` / `legacy_restricted_off` |
+| `ready` | 后台已开，而且所选 CLI 可用 |
+| `on` | 后台开关已开 |
+| `selected_cli` | 实际准备调用的 CLI |
+| `reason` | `ok` / `disabled` / `legacy_restricted_off` / `unsupported_cli` / `cli_not_found` |
 | `message` | 短英文说明 |
 
 ---
@@ -79,7 +83,7 @@ Stop Hook → 保存会话 → Dream/worker → 当前宿主 CLI → 本机验�
 | 短名 | 含义 |
 |------|------|
 | `background_on(config)` | 开关算「开」 |
-| `background_ready(config)` | 能跑后台 CLI（目前 = `background_on`） |
+| `background_ready(config, client=...)` | 后台已开且所选 CLI 可用 |
 | `background_status(config)` | 上面 + `reason` |
 
 ---

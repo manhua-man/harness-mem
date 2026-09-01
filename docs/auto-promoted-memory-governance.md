@@ -1,7 +1,7 @@
 # Auto-Promoted Memory Governance
 
 This document defines governance around the five-module architecture and
-records the `0.9.x` compatibility statuses. In the current `0.9.25` release,
+records the `0.9.x` compatibility statuses. In the current `0.9.26` source,
 SQLite `knowledge_entries` is the sole authority for current long-term
 knowledge. Candidate claims,
 verification detail, and proposed decisions are job processing material, not a
@@ -120,7 +120,7 @@ retained forever merely to offer a generic audit surface.
 
 ## `0.9.x` compatibility statuses
 
-The compatibility model introduced in `0.9.20` and carried through `0.9.25`
+The compatibility model introduced in `0.9.20` and carried through `0.9.26`
 still exposes historical
 `MemoryEntry` status vocabulary. These statuses describe legacy/manual records;
 they are not the target current-knowledge schema.

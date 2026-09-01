@@ -248,6 +248,7 @@ def set_value(
         return target.resolve()
     if key_path in {
         "distill.autonomous.enabled",
+        "distill.autonomous.cli",
     } and scope != "project":
         raise ConfigValidationError(
             key_path=key_path,

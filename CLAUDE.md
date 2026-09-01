@@ -7,6 +7,7 @@
 - Keep root AI entry documents in English, matching the primary `README.md` body.
 - Reply in the user's language unless they request another language.
 - Be direct, evidence-based, and concise. Explain internal IDs only in explicit audit views.
+- When a user says a term is too complex, remove it and use ordinary language. Do not coin a replacement label unless the user explicitly asks for one.
 - Use “Agent” consistently with the public documentation where it names supported agent clients.
 
 ## Conflict Resolution

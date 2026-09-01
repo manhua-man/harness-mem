@@ -3,11 +3,12 @@
 This document owns the conceptual contract for turning session evidence into
 usable long-term memory. The full product path starts before extraction: it
 must first safely receive, version, and finish a native session. The current
-released runtime is `0.9.25`. SQLite truth separation landed in `0.9.20` and
-was extended and hardened through `0.9.25` with Hook-started Dream execution,
-strict no-tools JSON compatibility, and legacy HTTP provider profiles (superseded
-for product authorization by `0.9.26` host CLI + `enabled=true`; see
-`docs/background-memory.md`). The runtime implements lifecycle, lossless extraction, content-addressed evidence
+source is `0.9.26`; the latest public release is `0.9.25`. SQLite truth
+separation landed in `0.9.20` and was extended and hardened through `0.9.25`.
+In the `0.9.26` source, authorized background
+work moved to `enabled=true` plus the selected host CLI; legacy HTTP provider
+profiles no longer authorize the product path. See `docs/background-memory.md`.
+The runtime implements lifecycle, lossless extraction, content-addressed evidence
 validation, governed truth, and normal retrieval. It isolates raw
 Observation content and internal audit metadata behind explicit deep recall or
 diagnostic views. Legacy `MemoryEntry` remains a compatibility/manual Review
@@ -18,7 +19,7 @@ material retained only for retry, unresolved work, and bounded diagnosis.
 Current search reads SQLite deterministically; optional FTS/vector data remains
 a rebuildable optimization. Markdown is rendered on demand for reading or
 export and never becomes a write path. The frozen six-session oracle, real Hook,
-and runtime outcome acceptance originally passed for `0.9.20`; the current
+and runtime checks originally passed for `0.9.20`; the current
 release boundary is tracked in `roadmap.md`.
 [SQLite Current-Knowledge Convergence](roadmap/knowledge-truth-separation.md)
 owns the construction and qualification plan and does not authorize a

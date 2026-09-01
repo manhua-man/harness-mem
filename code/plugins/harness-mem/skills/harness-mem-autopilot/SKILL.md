@@ -71,7 +71,7 @@ Do not:
 - inject every memory into wake;
 - run hook or daemon maintenance outside the runtime gates;
 - use wake as a semantic job runner or let one job's failure mutate another job;
-- bypass the project profile, autonomous authorization, or Dream gate;
+- bypass the project background setting, selected CLI, or Dream gate;
 - present CLI as the normal daily workflow when MCP or Slash/Skill is available.
 
 ## Output discipline

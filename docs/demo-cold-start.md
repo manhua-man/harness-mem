@@ -55,7 +55,7 @@ This makes the cold-start problem visible. Session B should start with only the
 repo and the memory backend, not the previous conversation.
 
 When the demo uses a project-scoped MCP entry, the first MCP initialization
-creates the project profile and installs the matching IDE hooks automatically.
+registers the workspace and installs the matching IDE hooks automatically.
 If hooks are missing, the next MCP initialization repairs the project-local
 installation without overwriting existing files.
 Codex users must then review and trust the newly installed project hooks once

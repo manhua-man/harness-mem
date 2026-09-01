@@ -1,4 +1,4 @@
-"""Read-only, user-outcome probes for the project verification contract."""
+"""Read-only checks that confirm the requested runtime behavior actually happened."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from harness_mem.hook_receipts import (
     read_hook_execution_receipt,
 )
 from harness_mem.hook_runtime import collect_hook_file_statuses
-from harness_mem.autonomous.authorization import background_ready
+from harness_mem.autonomous.authorization import background_status
 from harness_mem.autonomous.worker import (
     autonomous_config_fingerprint,
     autonomous_runtime_fingerprint,
@@ -47,7 +47,7 @@ def _provider_host_cli_agent_isolated(
     *,
     authorized: bool,
     host_client: str,
-    hook_reentry_count: int,
+    hook_guard_check: Mapping[str, Any] | None = None,
 ) -> bool:
     """True when the receipt records a real host CLI agent turn."""
 
@@ -62,9 +62,9 @@ def _provider_host_cli_agent_isolated(
         return False
     return bool(
         provider.get("schema_valid") is True
-        and provider.get("hooks_disabled") is False
-        and provider.get("mcp_disabled") is False
-        and hook_reentry_count == 0
+        and isinstance(hook_guard_check, Mapping)
+        and hook_guard_check.get("all_blocked") is True
+        and int(hook_guard_check.get("downstream_jobs_created") or 0) == 0
     )
 
 
@@ -73,7 +73,7 @@ def _provider_restricted_execution_isolated(
     *,
     authorized: bool,
     host_client: str,
-    hook_reentry_count: int,
+    hook_guard_check: Mapping[str, Any] | None = None,
 ) -> bool:
     """True when the authorized host CLI agent kept its boundaries."""
 
@@ -81,7 +81,7 @@ def _provider_restricted_execution_isolated(
         provider,
         authorized=authorized,
         host_client=host_client,
-        hook_reentry_count=hook_reentry_count,
+        hook_guard_check=hook_guard_check,
     )
 
 
@@ -324,9 +324,9 @@ def inspect_autonomous_outcome(
         }
     try:
         merged_config = load_merged_config(project_root)
-        authorized = background_ready(merged_config)
         current_config_fingerprint = autonomous_config_fingerprint(merged_config)
     except Exception:  # noqa: BLE001 - outcome remains inspectable on bad config.
+        merged_config = None
         authorized = False
         current_config_fingerprint = None
     current_runtime_fingerprint = autonomous_runtime_fingerprint()
@@ -336,6 +336,11 @@ def inspect_autonomous_outcome(
     )
     evidence = verified_completion or receipt
     evidence_client = str(evidence.get("client") or "codex")
+    expected_cli = evidence_client
+    if merged_config is not None:
+        current_background = background_status(merged_config, client=evidence_client)
+        authorized = current_background.ready
+        expected_cli = current_background.selected_cli or evidence_client
     hook_receipt = read_hook_execution_receipt(
         data_dir,
         project_root=project_root,
@@ -422,8 +427,12 @@ def inspect_autonomous_outcome(
     provider_isolated = _provider_restricted_execution_isolated(
         provider,
         authorized=authorized,
-        host_client=evidence_client,
-        hook_reentry_count=int(evidence.get("hook_reentry_count") or 0),
+        host_client=expected_cli,
+        hook_guard_check=(
+            evidence.get("hook_guard_check")
+            if isinstance(evidence.get("hook_guard_check"), Mapping)
+            else None
+        ),
     )
     provider_metrics_bound = bool(
         isinstance(input_tokens, int)
@@ -495,6 +504,7 @@ def inspect_autonomous_outcome(
         "runtime_current": runtime_current,
         "config_current": config_current,
         "provider": provider,
+        "hook_guard_check": evidence.get("hook_guard_check"),
         "provider_isolated": provider_isolated,
         "provider_metrics_bound": provider_metrics_bound,
         "note": {
@@ -737,7 +747,7 @@ def main(argv: list[str] | None = None) -> int:
         "--section",
         action="append",
         choices=OUTCOME_SECTIONS,
-        help="Emit and evaluate only this outcome section; repeat to select several.",
+        help="Emit and evaluate only this check section; repeat to select several.",
     )
     parser.add_argument(
         "--compact",

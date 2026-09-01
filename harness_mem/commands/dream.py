@@ -23,7 +23,7 @@ from harness_mem.autonomous.models import (
     AssimilationDecision,
     CandidateVerificationDecision,
 )
-from harness_mem.autonomous.authorization import background_ready, background_status
+from harness_mem.autonomous.authorization import background_on, background_status
 from harness_mem.autonomous.provider import ProviderError
 from harness_mem.config.merge import MergedConfig
 from harness_mem.core.schemas import (
@@ -521,7 +521,7 @@ def _dream_provider_from_config(
 ) -> Any | None:
     """Return the host CLI executor when the project authorized background semantic work."""
 
-    if not background_ready(config):
+    if not background_on(config):
         return None
     if not isinstance(config, MergedConfig):
         return None
@@ -529,12 +529,7 @@ def _dream_provider_from_config(
     from harness_mem.commands.support import _detected_runtime_client, normalize_client_name
 
     client = normalize_client_name(host_client or _detected_runtime_client())
-    try:
-        return build_semantic_executor(config, client)
-    except ProviderError as exc:
-        if exc.kind == "setup_required":
-            return None
-        raise
+    return build_semantic_executor(config, client)
 
 
 async def _run_source_backed_recheck_group(
@@ -554,15 +549,15 @@ async def _run_source_backed_recheck_group(
     source_kind = f"knowledge_{signal.kind}"
     if provider is None:
         return [
-            _archived_recheck_item(
-                entry,
-                signal=signal,
-                reason=(
-                    "Dream has no authorized host CLI executor "
-                    "(background off or CLI unavailable); "
-                    "current knowledge was left unchanged."
-                ),
-                source_status="provider_not_selected",
+            DreamItem(
+                source_kind=f"knowledge_{signal.kind}",
+                source_id=entry.id,
+                risk=signal.risk,
+                proposed_action=signal.proposed_action,
+                final_action="failed",
+                reason="Dream could not run because no background CLI was available.",
+                result={"source_status": "provider_not_selected", "truth_change": "none"},
+                error="background CLI unavailable",
             )
             for entry in entries
         ]
@@ -1434,28 +1429,34 @@ async def dream_auto_tick(
     if source == "ide_hook" and trigger_job_id:
         from harness_mem.commands.support import normalize_client_name
 
-        auth_status = background_status(config)
+        auth_status = background_status(config, client=host_client)
         if not auth_status.ready:
-            if auth_status.reason == "disabled":
-                from harness_mem.autonomous.worker import (
-                    record_post_turn_preflight_failure,
-                )
-                from harness_mem.hook_background import background_generation_from_env
+            from harness_mem.autonomous.worker import (
+                record_post_turn_preflight_failure,
+            )
+            from harness_mem.hook_background import background_generation_from_env
 
-                record_post_turn_preflight_failure(
-                    backend.data_dir,
-                    project_name=project_name,
-                    project_root=project_root,
-                    trigger_id=trigger_id,
-                    client=normalize_client_name(host_client or "codex"),
-                    dispatch_generation=background_generation_from_env(),
-                    error={
-                        "kind": "setup_required",
-                        "message": (
-                            "Hook-started Dream needs distill.autonomous.enabled=true."
-                        ),
-                    },
+            if auth_status.reason == "disabled":
+                message = "Hook-started Dream needs distill.autonomous.enabled=true."
+            elif auth_status.reason == "legacy_restricted_off":
+                message = "Background memory is off because of the legacy restricted setting."
+            elif auth_status.reason == "unsupported_cli":
+                message = (
+                    f"No background CLI is implemented for '{auth_status.selected_cli}'."
                 )
+            else:
+                message = (
+                    f"The selected background CLI '{auth_status.selected_cli}' was not found."
+                )
+            record_post_turn_preflight_failure(
+                backend.data_dir,
+                project_name=project_name,
+                project_root=project_root,
+                trigger_id=trigger_id,
+                client=normalize_client_name(host_client or "codex"),
+                dispatch_generation=background_generation_from_env(),
+                error={"kind": "setup_required", "message": message},
+            )
             return await _record_dream_tick(
                 backend,
                 project_name=project_name,
@@ -1465,10 +1466,7 @@ async def dream_auto_tick(
                     "success": False,
                     "status": "failed",
                     "project_name": project_name,
-                    "reason": (
-                        "Hook-started Dream needs distill.autonomous.enabled=true; "
-                        "the session job remains queued."
-                    ),
+                    "reason": f"{message} The session job remains queued.",
                     "session_distill": {
                         "job_id": trigger_job_id,
                         "state": "setup_required",
@@ -1601,8 +1599,8 @@ async def dream_auto_tick(
                 "next_eligible_at": _iso(confirmed_decision.next_eligible_at),
             },
         )
-    selected_provider = _dream_provider_from_config(config, host_client=host_client)
     try:
+        selected_provider = _dream_provider_from_config(config, host_client=host_client)
         run = await _run_dream_with_progress_timeout(
             backend,
             project_name=project_name,
@@ -1637,8 +1635,8 @@ async def dream_auto_tick(
             source=source,
             trigger_id=trigger_id,
             payload={
-                "success": True,
-                "status": "completed",
+                "success": run.status == "completed",
+                "status": run.status,
                 "project_name": project_name,
                 "job_id": job.id,
                 "run_id": run.id,

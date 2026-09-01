@@ -9,6 +9,8 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 from harness_mem.outcome_probe import (
     collect_outcomes,
     inspect_autonomous_outcome,
@@ -38,6 +40,14 @@ def _mock_merged_config(**overrides: object) -> MergedConfig:
     }
     base.update(overrides)
     return MergedConfig(**base)
+
+
+@pytest.fixture(autouse=True)
+def _available_test_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "harness_mem.autonomous.executors.host_cli._resolve_executable",
+        lambda client: f"{client}-bin",
+    )
 
 
 def _job(*, session_id: str, completed_at: datetime, summary: str):
@@ -113,6 +123,18 @@ def _codex_cli_provider(**overrides: object) -> dict[str, object]:
     return provider
 
 
+def _hook_guard_check() -> dict[str, object]:
+    return {
+        "all_blocked": True,
+        "downstream_jobs_created": 0,
+        "actions": {
+            "wake-start": True,
+            "post-turn-maintenance": True,
+            "dream-end": True,
+        },
+    }
+
+
 def test_autonomous_probe_accepts_host_cli_agent(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -126,6 +148,7 @@ def test_autonomous_probe_accepts_host_cli_agent(
                 "client": "codex",
                 "provider": provider,
                 "hook_reentry_count": 0,
+                "hook_guard_check": _hook_guard_check(),
             }
         },
     )
@@ -164,6 +187,7 @@ def test_autonomous_probe_rejects_http_profile_disguised_as_agent(
                 "client": "codex",
                 "provider": provider,
                 "hook_reentry_count": 0,
+                "hook_guard_check": _hook_guard_check(),
             }
         },
     )
@@ -254,6 +278,42 @@ def test_autonomous_probe_rejects_host_client_mismatch(
     )
 
     assert result["provider_isolated"] is False
+
+
+def test_autonomous_probe_accepts_explicit_cli_selected_for_another_host(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    provider = _codex_cli_provider(name="hermes_cli", host_client="hermes")
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.read_autonomous_receipt",
+        lambda *_args, **_kwargs: {
+            "last_verified_completion": {
+                "client": "cursor",
+                "provider": provider,
+                "hook_reentry_count": 3,
+                "hook_guard_check": _hook_guard_check(),
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.load_merged_config",
+        lambda *_args, **_kwargs: _mock_merged_config(
+            distill_autonomous_cli="hermes",
+        ),
+    )
+
+    result = inspect_autonomous_outcome(
+        tmp_path,
+        project_name="demo",
+        project_root=project_root,
+        jobs=[],
+    )
+
+    assert result["authorized"] is True
+    assert result["provider_isolated"] is True
 
 
 def test_autonomous_probe_rejects_legacy_sandbox_only_receipt(
@@ -360,6 +420,7 @@ def test_autonomous_probe_accepts_enabled_without_profile(
                 "client": "codex",
                 "provider": provider,
                 "hook_reentry_count": 0,
+                "hook_guard_check": _hook_guard_check(),
             }
         },
     )

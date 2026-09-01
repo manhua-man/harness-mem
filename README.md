@@ -43,7 +43,7 @@ triggered by the runtime rather than a checklist step the user must perform each
 day; `status` is the diagnostic summary surface.
 
 <p align="center">
-  <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="Three independent daily intents and a separate Hook-to-Dream unattended lane" width="900" />
+  <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="Three independent daily intents and a Hook-to-Dream background path that uses the selected CLI, defaulting to the current host" width="900" />
 </p>
 
 ## Architecture and daily actions
@@ -93,7 +93,7 @@ search/timeline, candidate detail, runtime reset, and storage repair are
 explicit audit or operator capabilities; they do not define the long-term
 knowledge model.
 
-The released `0.9.25` runtime uses SQLite `knowledge_entries` as the authority
+The current `0.9.26` source uses SQLite `knowledge_entries` as the authority
 for clean current knowledge. Candidate, verification, and proposed decision
 material is job-scoped and cleaned after a proven terminal outcome; legacy
 `MemoryEntry` remains readable for compatibility. Current search reads SQLite
@@ -120,8 +120,9 @@ knowledge. `finalize_session_distill` is the commit
 point for that explicit job; it never starts Dream. A
 Hook-started Dream is the only unattended executor: after a project sets
 `distill.autonomous.enabled=true`, it reopens the triggering session and the
-project's current knowledge, sources, and feedback through the **current host
-CLI**. Dream then extracts or compares, verifies, assimilates, and ends each
+project's current knowledge, sources, and feedback through the **selected
+CLI**. The default is the current host; a project can explicitly select Codex,
+Claude Code, Hermes, or OpenCode. Dream then extracts or compares, verifies, assimilates, and ends each
 item as applied, rejected, archived, or failed/retryable.
 
 Unattended work keeps two queues: the session job queue (one immutable session
@@ -129,8 +130,8 @@ per job) and the project governance queue (compare current knowledge with
 sources and feedback). Manual explicit distill bypasses both and stays in the
 active host.
 
-Background work uses the **current host CLI** (Codex, Hermes, Claude Code,
-OpenCode, …—see [`docs/background-memory.md`](docs/background-memory.md)).
+Background work uses the project-selected CLI (Codex, Hermes, Claude Code, or
+OpenCode), defaulting to the current host—see [`docs/background-memory.md`](docs/background-memory.md).
 Transport and credentials belong in that host's CLI configuration.
 **Local harness-mem** remains the only writer of candidates, Session Notes, and
 SQLite truth after verification. `/hm:review` is
@@ -207,7 +208,7 @@ stay readable without silently changing authority. See
 [legacy storage lifecycle](docs/storage-legacy-lifecycle.md).
 
 <p align="center">
-  <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="A lossless session revision flows through extraction, per-point verification, and assimilation while temporary job material remains separate from SQLite current knowledge" width="900" />
+  <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="A lossless session revision flows through extraction, per-point verification, and assimilation; Hook-started Dream uses the selected CLI while temporary job material remains separate from SQLite current knowledge" width="900" />
 </p>
 
 ## Why It Is Different
@@ -219,22 +220,22 @@ stay readable without silently changing authority. See
   Antigravity, or another MCP-capable Agent client.
 
 <p align="center">
-  <img src="docs/assets/harness-mem-candidate-governance.svg" alt="Immutable evidence, temporary job material, and SQLite current knowledge remain separate across manual distill and Dream governance" width="900" />
+  <img src="docs/assets/harness-mem-candidate-governance.svg" alt="Immutable evidence, temporary job material, and SQLite current knowledge remain separate across manual distill and Dream governance using the selected CLI" width="900" />
 </p>
 
 `harness-mem` stays behind the Agent client. MCP is the transport; the runtime
 owns storage, candidates, review, retrieval, and local audit state.
 
 <p align="center">
-  <img src="docs/assets/harness-mem-runtime-layered-architecture.svg" alt="Five-module harness-mem runtime with governance feedback, execution boundaries, and separate storage authorities" width="900" />
+  <img src="docs/assets/harness-mem-runtime-layered-architecture.svg" alt="Five-module harness-mem runtime with selected-CLI Dream execution, governance feedback, and separate storage authorities" width="900" />
 </p>
 
 ## Install
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
-  harness-mem==0.9.26
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
+  harness-mem==0.9.25
 ```
 
 `harness-mem` itself is distributed through GitHub Releases. The command above
@@ -245,8 +246,8 @@ Optional local vector / hybrid search dependencies:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
-  "harness-mem[hybrid]==0.9.26"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
+  "harness-mem[hybrid]==0.9.25"
 ```
 
 Install every supported host's native Daily commands once for the current
@@ -286,8 +287,8 @@ to verify that the command is on `PATH`. If Cursor does not inherit that PATH,
 use the absolute path reported by `where harness-mem-mcp` (Windows) or
 `which harness-mem-mcp` (macOS/Linux) as `command` instead of `python`.
 
-On first MCP initialization, harness-mem adopts the workspace, creates its
-project profile, installs the matching project hooks without overwriting
+On first MCP initialization, harness-mem registers the workspace and installs
+the matching project hooks without overwriting
 existing files, and idempotently repairs the current host's user-level command
 surface. Users do not run a per-project command or hook installer. See
 [docs/ide-hook-adapter-matrix.md](docs/ide-hook-adapter-matrix.md) for the
@@ -310,18 +311,23 @@ harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
 The global default is `false`. Projects without authorization keep captured jobs
-queued for explicit processing. Background work uses the **current host CLI**
-from the Hook's `host_client` / `HARNESS_MEM_CLIENT` (same rule for every
-supported host). Transport and credentials belong in that host's CLI
+queued for explicit processing. Background work defaults to the current host CLI
+from the Hook's `host_client` / `HARNESS_MEM_CLIENT`. A project may instead set
+`distill.autonomous.cli` to `codex`, `claude-code`, `hermes`, or `opencode`.
+Transport and credentials belong in the selected CLI's
 configuration—not in harness-mem project config. You do **not** need
 `semantic.execution.profile` or entries in `~/.harness-mem/config.toml`.
+
+```bash
+harness-mem config set distill.autonomous.cli hermes --scope project --confirm
+```
 
 Receipts record `execution_mode=agent` and `provider.name=<host>_cli`. Turn off
 background work with **`distill.autonomous.enabled=false` only**. Legacy
 `semantic.execution.restricted` is still read by the runtime; see
 [`docs/background-memory.md`](docs/background-memory.md).
 
-Outcome probes verify host CLI receipts plus local worker writes. See
+The verifier checks host CLI receipts plus local worker writes. See
 [`docs/background-memory.md`](docs/background-memory.md).
 
 For archived Codex tasks, first bind the project root. The default
@@ -449,8 +455,7 @@ cargo test --workspace
 The fast lane skips only four exhaustive, deterministic 60-case retrieval
 replays. Every assertion still runs on `main` and in the tagged release gate.
 
-Before claiming that the running product is complete, execute the repository's
-user-outcome contract with the cross-project `outcome-verifier` Skill:
+Before claiming that the running product is complete, run:
 
 ```bash
 python code/tools/outcome-verifier/scripts/verify_outcomes.py \
@@ -461,7 +466,7 @@ python code/tools/outcome-verifier/scripts/verify_outcomes.py \
 The verifier takes an exclusive lock per output path and atomically publishes the
 final report, so a second run cannot overwrite evidence from one already in
 progress. Reports include a run ID and per-check timing. For a bounded diagnostic
-read without the full Note inventory, select only the needed outcome section:
+read without the full Note inventory, select only the needed check section:
 
 ```bash
 python -m harness_mem.outcome_probe \
@@ -489,7 +494,7 @@ fails immediately instead of waiting for an unbindable receipt.
 This read-only probe requires fresh paired Codex lifecycle receipts, a persisted
 successful Dream run, a meaningful Note and semantic summary for every recent
 completed distill session, and a durable truth that can be returned through the
-FTS read model. A non-zero verdict means the user-visible outcome is not complete,
+FTS read model. A non-zero verdict means the requested result is not complete,
 even when code, configuration, queues, or unit tests look healthy.
 
 Repair or regenerate MCP descriptors when `tool_specs` changes (also reverts incidental `code/mcps/grok_com_github` IDE drift):
@@ -503,4 +508,5 @@ python code/scripts/ensure_mcps_canonical.py
 - Package version is pinned in `pyproject.toml` and summarized here after each release.
 - Tag pushes matching `v*` run [`.github/workflows/release-wheels.yml`](.github/workflows/release-wheels.yml), which builds six native wheels and an sdist, verifies fresh installs on Windows/macOS/Linux, runs a real sqlite-vec contract gate, qualifies the supported Windows upgrade path, and attaches the distributions to the GitHub Release. The project does not publish to PyPI.
 
-Current package version: **0.9.26**.
+Current source package version: **0.9.26**. Latest public GitHub Release:
+**0.9.25**.

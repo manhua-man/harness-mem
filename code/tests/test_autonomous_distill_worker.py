@@ -16,7 +16,6 @@ from harness_mem.autonomous.models import (
     DistillCandidate,
 )
 from harness_mem.autonomous.provider import (
-    DEFAULT_DISTILL_MODEL,
     ProviderError,
     ProviderResult,
 )

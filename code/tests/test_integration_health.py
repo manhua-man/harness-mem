@@ -25,6 +25,7 @@ def _auth(**overrides: object) -> BackgroundStatus:
         "on": True,
         "legacy_off": False,
         "reason": "ok",
+        "selected_cli": "codex",
     }
     base.update(overrides)
     return BackgroundStatus(**base)
@@ -132,6 +133,7 @@ def test_health_card_is_idle_safe_and_ignores_cold_parked_backlog() -> None:
         post_turn_last_success_at="2026-08-11T16:25:42+00:00",
         now=datetime(2026, 8, 11, 17, 0, tzinfo=timezone.utc),
     )
+    assert card["authorization"]["selected_cli"] == "codex"
 
     assert card["status"] == "healthy"
     assert card["alert"] is False

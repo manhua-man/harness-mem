@@ -34,7 +34,7 @@ wireFormatVersion: hm-wire-v3.5
 2. **默认读取最近账本**
    - 调 MCP `dream_ledger`：
      - `project_name=<project>`
-   - 如果没有账本，说明还没有已记录的 DreamRun；自动 tick 仍需项目选择用户 profile、启用 autonomous execution 并通过 Dream gate。显式运行不会改写这些授权。
+   - 如果没有账本，说明还没有已记录的 DreamRun；自动 tick 仍需项目打开后台、所选 CLI 可用并通过 Dream gate。显式运行不会改写这些设置。
 
 3. **展示摘要**
    - 按 `applied` / `rejected` / `archived` / `failed` 分组

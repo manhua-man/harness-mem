@@ -59,6 +59,9 @@ class MergedConfig:
     distill_auto_daily_job_budget: int = 8
     distill_delete_source_after_complete: bool = False
     # Background authorization is project-scoped; host CLI credentials stay in the host.
+    distill_autonomous_cli: Literal[
+        "current", "codex", "claude-code", "hermes", "opencode"
+    ] = "current"
     semantic_execution_mode: Literal["agent"] = "agent"
     semantic_execution_restricted: bool = True
     archive_distill_enabled: bool = False
@@ -147,6 +150,12 @@ _DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
         "distill_autonomous_enabled",
         "bool",
         False,
+    ),
+    (
+        "distill.autonomous.cli",
+        "distill_autonomous_cli",
+        "enum:current,codex,claude-code,hermes,opencode",
+        "current",
     ),
     (
         "distill.auto.max_jobs_per_wake",
@@ -327,6 +336,7 @@ PUBLIC_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "transcript.retention_days",
     "distill.auto.enabled",
     "distill.autonomous.enabled",
+    "distill.autonomous.cli",
     "distill.delete_source_after_complete",
     "archive_distill.enabled",
     "archive_distill.batch_size",
@@ -667,6 +677,7 @@ def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:
     # Background authorization and destructive cleanup are project-scoped.
     _remove_dotted(user_dict, "distill.delete_source_after_complete")
     _remove_dotted(user_dict, "distill.autonomous.enabled")
+    _remove_dotted(user_dict, "distill.autonomous.cli")
     _remove_dotted(user_dict, "semantic.execution.profile")
     _remove_dotted(user_dict, "semantic.execution.restricted")
     _remove_dotted(user_dict, "semantic.providers")

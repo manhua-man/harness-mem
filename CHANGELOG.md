@@ -2,12 +2,11 @@
 
 ## Unreleased
 
-## [0.9.26] - 2026-08-31
-
 ### Changed
 
 - Authorize background memory with `distill.autonomous.enabled=true` and the
-  current host CLI only; drop profile registration from the product path.
+  project-selected CLI, defaulting to the current host; drop profile
+  registration from the product path.
 - Route Dream recheck and the autonomous worker through
   `build_semantic_executor` (`execution_mode=agent`, `provider.name=<host>_cli`).
 - Document the contract in `docs/background-memory.md` and align public docs,
@@ -16,14 +15,14 @@
 ### Added
 
 - Host CLI executors for Codex, Hermes, Claude Code, and OpenCode with Hook
-  re-entry guard and outcome probes for honest host CLI receipts.
+  re-entry guard and runtime checks for honest host CLI receipts.
 - `harness_mem/autonomous/authorization.py` with `background_on` /
   `background_ready` / `background_status`.
 
 ### Fixed
 
 - Stop HTTP provider names from impersonating authorized host CLI agents in
-  outcome verification.
+  runtime verification.
 - Simplify autonomous config fingerprints to project authorization and budget
   settings instead of legacy HTTP profile tables.
 

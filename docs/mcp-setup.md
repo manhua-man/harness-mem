@@ -80,10 +80,11 @@ harness-mem config set distill.autonomous.enabled true --scope project --confirm
 Without background authorization (`enabled=true`), Hook-captured jobs remain
 safely queued. An explicit `distill` stays in the active host.
 
-Authorized background work uses the **current host CLI** for the Hook's
-`host_client` / `HARNESS_MEM_CLIENT` (Codex, Hermes, Claude Code, OpenCode, …).
-Transport and credentials belong in that host's CLI config—not harness-mem project config.
-Outcome probes verify `execution_mode=agent` and `provider.name=<host>_cli`.
+Authorized background work defaults to the **current host CLI** for the Hook's
+`host_client` / `HARNESS_MEM_CLIENT`. A project can set `distill.autonomous.cli`
+to Codex, Hermes, Claude Code, or OpenCode instead. Transport and credentials
+belong in the selected CLI config—not harness-mem project config. The checks
+verify `execution_mode=agent` and `provider.name=<host>_cli`.
 
 The `wake` output leads with a recent project-scoped context index. It is a
 derived view of transcript observations and does not promote them to confirmed

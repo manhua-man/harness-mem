@@ -78,10 +78,10 @@ def background_on(config: Any) -> bool:
     return True
 
 
-def background_ready(config: Any) -> bool:
-    """True when background host CLI work may run."""
+def background_ready(config: Any, *, client: str | None = None) -> bool:
+    """True when background is on and the selected CLI executable exists."""
 
-    return background_on(config)
+    return background_status(config, client=client).ready
 
 
 @dataclass(frozen=True)
@@ -90,12 +90,15 @@ class BackgroundStatus:
     on: bool
     legacy_off: bool
     reason: str
+    selected_cli: str | None = None
 
 
 _REASON_MESSAGES = {
-    "ok": "Background ready (host CLI for current client).",
+    "ok": "Background is on and the selected CLI is available.",
     "disabled": "Background is off (distill.autonomous.enabled=false).",
     "legacy_restricted_off": "Background is off (legacy semantic.execution.restricted=false).",
+    "unsupported_cli": "Background is on, but the selected CLI is not supported.",
+    "cli_not_found": "Background is on, but the selected CLI executable was not found.",
 }
 
 
@@ -103,21 +106,51 @@ def background_reason_message(reason: str) -> str:
     return _REASON_MESSAGES.get(reason, reason)
 
 
-def background_status(config: Any) -> BackgroundStatus:
+def background_status(config: Any, *, client: str | None = None) -> BackgroundStatus:
     view = _runtime_view(config)
     legacy_off = _legacy_restricted_off(view)
     on = background_on(config)
+    selected_cli: str | None = None
     if not _distill_autonomous_enabled(view):
         reason = "disabled"
     elif legacy_off:
         reason = "legacy_restricted_off"
     else:
-        reason = "ok"
+        from harness_mem.autonomous.executors.registry import inspect_semantic_executor
+        from harness_mem.commands.support import _detected_runtime_client
+        from harness_mem.config.merge import MergedConfig
+
+        current_client = client or _detected_runtime_client()
+        if isinstance(config, MergedConfig):
+            selected_cli, reason = inspect_semantic_executor(config, current_client)
+        else:
+            from harness_mem.autonomous.executors.constants import AGENT_HOST_CLIENTS
+            from harness_mem.autonomous.executors.host_cli import _resolve_executable
+            from harness_mem.commands.support import normalize_client_name
+
+            distill = view.get("distill")
+            autonomous = (
+                distill.get("autonomous") if isinstance(distill, Mapping) else {}
+            )
+            configured = str(
+                (autonomous.get("cli") or "current")
+                if isinstance(autonomous, Mapping)
+                else "current"
+            )
+            selected_cli = configured if configured != "current" else current_client
+            selected_cli = normalize_client_name(selected_cli)
+            if selected_cli not in AGENT_HOST_CLIENTS:
+                reason = "unsupported_cli"
+            elif not _resolve_executable(selected_cli):
+                reason = "cli_not_found"
+            else:
+                reason = "ok"
     return BackgroundStatus(
         ready=reason == "ok",
         on=on,
         legacy_off=legacy_off,
         reason=reason,
+        selected_cli=selected_cli if on else None,
     )
 
 

@@ -6,8 +6,8 @@ This is the shortest path to try `harness-mem` in a local Agent workflow.
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
-  harness-mem==0.9.26
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
+  harness-mem==0.9.25
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Pip uses
@@ -18,7 +18,7 @@ Optional local vector / hybrid search dependencies:
 ```bash
 python -m pip install \
   --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
-  "harness-mem[hybrid]==0.9.26"
+  "harness-mem[hybrid]==0.9.25"
 ```
 
 Check the CLI:
@@ -101,17 +101,18 @@ a new task. This is not a harness-mem install command. Codex skips untrusted
 command hooks, and `get_project_status` reports `hooks=review_required` until
 the current `SessionStart` configuration has successfully run.
 
-Unattended Dream processing needs **`distill.autonomous.enabled=true`** only.
-Background work uses the current host CLI. See
+Unattended Dream processing needs **`distill.autonomous.enabled=true`**.
+Background work defaults to the current host CLI. A project can instead set
+`distill.autonomous.cli` to `codex`, `claude-code`, `hermes`, or `opencode`. See
 [`docs/background-memory.md`](background-memory.md).
 
 ```bash
 harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
-Authorized background work uses the current host CLI (`codex_cli`, `hermes_cli`,
-`claude-code_cli`, `opencode_cli`, …—same rule for every supported host).
-Outcome probes require honest `execution_mode=agent` receipts with
+Authorized background work uses the selected CLI (`codex_cli`, `hermes_cli`,
+`claude-code_cli`, or `opencode_cli`). An unsupported current host is reported;
+it is not replaced with Codex. The checks require honest `execution_mode=agent` receipts with
 `provider.name=<host>_cli`. Local worker manifest, Answer Gate, assimilation,
 and finalize are unchanged. An explicit `distill` still runs in the active host.
 

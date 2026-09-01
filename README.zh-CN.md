@@ -26,7 +26,7 @@ Agent 会读代码，但它通常不知道项目为什么变成现在这样：�
 
 - `/hm:*` 命令：`status`、`wake`、`search`、`search-all`、`distill`、`review`、`dream`。
 - Agent MCP 调用：自然语言、skill 或 hook 触发 `wake/search/distill/review`。
-- Hook：会话开始注入 wake context；Stop 只保存不可变对话、创建或推进 job，并以该 session/revision 唤醒 Dream。Hook 不调用 model、不写知识；Dream 才在后台用当前宿主 CLI 处理触发会话并治理整个项目。未授权（`enabled=false`）或宿主 CLI 不可用时 job 保持显式 retryable，绝不伪报完成。
+- Hook：会话开始注入 wake context；Stop 只保存不可变对话、创建或推进 job，并以该 session/revision 唤醒 Dream。Hook 不调用 model、不写知识；Dream 才在后台用项目选择的 CLI 处理触发会话并治理整个项目，默认使用当前宿主。未授权（`enabled=false`）或所选 CLI 不可用时 job 保持显式 retryable，绝不伪报完成。
 - CLI：只做 setup、doctor、config、integration 和 maintenance。
 
 日常使用只需要三个意图：用 `wake/search` 继续工作，把可复用结果记住，或
@@ -34,7 +34,7 @@ review/undo 一条错误记忆。Dream 是核心治理反馈能力，通常由�
 不是用户每天必须手工完成的检查清单；status 是诊断汇总入口。
 
 <p align="center">
-  <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="三个彼此独立的日常意图，以及单独的 Hook 到 Dream 后台路径" width="900" />
+  <img src="docs/assets/harness-mem-cold-start-flow.svg" alt="三个彼此独立的日常意图，以及使用所选 CLI、默认当前宿主的 Hook 到 Dream 后台路径" width="900" />
 </p>
 
 ## 架构与日常动作
@@ -94,7 +94,7 @@ Hook 和 archive maintenance 属于阶段 0；原文/时间线读取、候选明
 [五模块架构合同](docs/memory-adoption.md)；[验收测试计划](docs/distill-test-plan.md)
 将这些质量信号逐项映射到夹具和运行时门槛。
 
-当前发布的 `0.9.26` 已把 SQLite `knowledge_entries` 收敛为干净当前知识的唯一权威；
+当前 `0.9.26` 源码已把 SQLite `knowledge_entries` 收敛为干净当前知识的唯一权威；
 候选、验证与拟议决定是 job 范围临时材料，只在终态结果得到证明后清理，兼容
 `MemoryEntry` 旧行仍可读取。当前搜索直接、确定性地读取 SQLite；FTS/向量只是可选的
 可重建优化。Markdown 只在用户请求阅读或导出时生成。项目模块由当前知识自然归纳，
@@ -110,8 +110,8 @@ Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 无人值守工作仍分两个队列：会话 job 队列（一次一个不可变会话）和项目治理队列
 （对照当前知识、来源与反馈）。人工显式 distill 绕过两者，留在当前宿主。
 
-后台走 **当前宿主的 CLI**（Codex、Hermes、Claude Code、OpenCode 等；见
-[`docs/background-memory.md`](docs/background-memory.md)）；传输与密钥在**该宿主 CLI**
+后台默认走**当前宿主的 CLI**，也可以由项目明确选择 Codex、Hermes、Claude Code 或 OpenCode（见
+[`docs/background-memory.md`](docs/background-memory.md)）；传输与密钥在**所选 CLI**
 配置里。**本机 harness-mem** 仍是验证后写候选、Note 和 SQLite 的唯一写入方。
 
 显式 `raw` 审计中的每个 raw chunk 都保留完整内容，不截断内容。
@@ -122,9 +122,15 @@ Cursor 的 after-agent hook，都应映射到同一个 `autopilot_search_tick`
 harness-mem config set distill.autonomous.enabled true --scope project --confirm
 ```
 
-用哪个 CLI 由**当前宿主**决定（Hook 的 `host_client` / `HARNESS_MEM_CLIENT`），
-Hermes、Codex、Claude Code、OpenCode 等规则相同。**不需要** `semantic.execution.profile`，
-**不需要**改 `~/.harness-mem/config.toml`。
+默认用当前宿主（Hook 的 `host_client` / `HARNESS_MEM_CLIENT`）。项目也可以设置
+`distill.autonomous.cli = "codex"`、`"claude-code"`、`"hermes"` 或 `"opencode"`。
+例如：
+
+```bash
+harness-mem config set distill.autonomous.cli hermes --scope project --confirm
+```
+
+**不需要** `semantic.execution.profile`，**不需要**改 `~/.harness-mem/config.toml`。
 
 全局默认 `distill.autonomous.enabled=false`。关后台只用 **`enabled=false`**。详见 [`docs/background-memory.md`](docs/background-memory.md)。
 
@@ -178,7 +184,7 @@ pending、quarantined、deferred-unresolved 或 excluded。
 运维诊断同样显式：Doctor 只读探测 SQLite，并把恢复动作分成 `safe_rebuild`、`snapshot_required`、`manual_review` 和 `destructive`，不会自动 apply。compact project status 保留决策信息；full drilldown 增加 7 天检索使用/忽略/误导/放弃/旧冲突排除统计，以及明确的 distill backlog 原因和基于 Agent 实际吞吐的保守清空估算。
 
 <p align="center">
-  <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="无损会话 revision 依次经过提取、逐点验证与归纳吸收，临时 job 材料与 SQLite 当前知识保持分离" width="900" />
+  <img src="docs/assets/harness-mem-lossless-session-flow.svg" alt="无损会话 revision 依次经过提取、逐点验证与归纳吸收；Hook 触发的 Dream 使用所选 CLI，临时 job 材料与 SQLite 当前知识保持分离" width="900" />
 </p>
 
 ## 关键机制
@@ -186,13 +192,13 @@ pending、quarantined、deferred-unresolved 或 excluded。
 Agent 可以自动处理低风险候选，但不能把风险、证据和变更原因藏起来；用户 review 的对象是 audit inbox，不是日常逐条写入闸门。
 
 <p align="center">
-  <img src="docs/assets/harness-mem-candidate-governance.svg" alt="人工 distill 与 Dream 治理中，原始证据、临时 job 材料和 SQLite 当前知识保持分离" width="900" />
+  <img src="docs/assets/harness-mem-candidate-governance.svg" alt="人工 distill 与使用所选 CLI 的 Dream 治理中，原始证据、临时 job 材料和 SQLite 当前知识保持分离" width="900" />
 </p>
 
 运行时本身保持在后端位置：上层 Agent 走 MCP，底层是 canonical SQLite 当前知识、job 范围处理材料和可重建索引；Markdown 只在阅读或导出时生成。
 
 <p align="center">
-  <img src="docs/assets/harness-mem-runtime-layered-architecture.svg" alt="harness-mem 五模块运行时、治理反馈、执行边界与独立存储权威" width="900" />
+  <img src="docs/assets/harness-mem-runtime-layered-architecture.svg" alt="harness-mem 五模块运行时、所选 CLI 的 Dream 执行、治理反馈与独立存储权威" width="900" />
 </p>
 
 ## 它解决什么
@@ -207,8 +213,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
-  harness-mem==0.9.26
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
+  harness-mem==0.9.25
 ```
 
 `harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
@@ -218,8 +224,8 @@ Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
-  "harness-mem[hybrid]==0.9.26"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
+  "harness-mem[hybrid]==0.9.25"
 ```
 
 在当前设备一次性安装全部宿主的原生 Daily 命令。默认参数就是
@@ -241,8 +247,8 @@ cd harness-mem
 ```
 
 Cursor 请在项目 MCP 配置中使用 `harness-mem-mcp`，将 `cwd` 设为工作区，
-并设置 `HARNESS_MEM_CLIENT=cursor`。首次 MCP 初始化会自动认领工作区、创建
-project profile、安装匹配的项目 hooks，并幂等修复当前宿主的用户级命令；
+并设置 `HARNESS_MEM_CLIENT=cursor`。首次 MCP 初始化会自动登记工作区、
+安装匹配的项目 hooks，并幂等修复当前宿主的用户级命令；
 不需要用户运行 hook installer，也不需要逐项目同步 command。完整配置
 见 [MCP setup](docs/mcp-setup.md)。
 
@@ -323,8 +329,7 @@ cargo test --workspace
 快速门只跳过四个确定性的 60-case 穷举检索回放；全部断言仍会在 `main`
 和正式 tag 的发布门中执行。
 
-在声称运行中的产品已经完成前，使用跨项目 `outcome-verifier` Skill 执行
-仓库的用户结果合同：
+在声称功能已经完成前，运行验收：
 
 ```bash
 python code/tools/outcome-verifier/scripts/verify_outcomes.py \
@@ -359,11 +364,11 @@ Codex Hook payload 通过 stdin 传入，并显式等待后台 post-turn 回执�
 
 该只读探针要求：Codex 生命周期的 start/Stop 回执新鲜且成对、Dream 存在
 持久化成功运行、最近完成的每个蒸馏会话都有有效语义摘要和可读 Note，以及
-至少一条长期记忆能从 FTS read model 真正检索回来。只要 verdict 非零，就不能
-因为代码、配置、队列或单元测试正常而声称用户结果已经落地。
+至少一条长期记忆能从 FTS read model 真正检索回来。只要验收结果非零，就不能
+因为代码、配置、队列或单元测试正常而声称功能已经跑通。
 
 发布标签会构建六个平台 wheel 和 sdist，在 Windows、macOS、Linux 上完成
 全新安装验证，运行真实 sqlite-vec contract gate，并验证受支持的 Windows 升级
 路径后再上传到 GitHub Release。本项目不发布到 PyPI。
 
-当前包版本：**0.9.26**。
+当前源码包版本：**0.9.26**。GitHub 最新公开版本：**0.9.25**。

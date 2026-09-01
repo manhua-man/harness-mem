@@ -188,7 +188,7 @@ async def build_integration_health(
             project_root=root,
             jobs=all_distill_jobs,
         )
-    auth_status = background_status(distill_config)
+    auth_status = background_status(distill_config, client=host)
     health_card = _build_autonomous_health_card(
         authorization=auth_status,
         autonomous=autonomous_outcome,
@@ -449,6 +449,7 @@ def _build_autonomous_health_card(
             "ready": bool(getattr(authorization, "ready", False)),
             "on": bool(getattr(authorization, "on", False)),
             "reason": getattr(authorization, "reason", None),
+            "selected_cli": getattr(authorization, "selected_cli", None),
             "message": background_reason_message(
                 str(getattr(authorization, "reason", "") or "")
             ),

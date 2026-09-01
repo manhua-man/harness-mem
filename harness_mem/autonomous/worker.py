@@ -12,7 +12,6 @@ import logging
 import os
 from pathlib import Path
 import re
-import time
 from typing import Any, Callable, Iterator, Literal, Protocol
 from uuid import uuid4
 
@@ -28,7 +27,8 @@ from harness_mem.autonomous.provider import (
 )
 from harness_mem.autonomous.hook_guard import count_hook_reentry_blocks
 from harness_mem.autonomous.executors.registry import build_semantic_executor
-from harness_mem.autonomous.authorization import background_ready
+from harness_mem.autonomous.hook_guard import challenge_hook_reentry_guard
+from harness_mem.autonomous.authorization import background_on
 from harness_mem.commands.distill_lifecycle import pending_distill_jobs
 from harness_mem.commands.separated_assimilation import (
     SeparatedPreparedAssimilation,
@@ -151,6 +151,7 @@ def autonomous_config_fingerprint(config: MergedConfig) -> str:
         "recent_first": config.distill_auto_recent_first,
         "budget_tokens": config.cost_budget_distill_tokens,
         "execution_mode": config.semantic_execution_mode,
+        "execution_cli": config.distill_autonomous_cli,
         "legacy_restricted": config.semantic_execution_restricted,
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -201,6 +202,7 @@ def _record_post_turn_nonsemantic_terminal_receipt(
     execution_source: str = "hook_background",
     hook_launch_verified: bool | None = None,
     config_fingerprint: str | None = None,
+    hook_guard_check: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Persist a non-semantic terminal receipt for a waited Hook.
 
@@ -236,8 +238,8 @@ def _record_post_turn_nonsemantic_terminal_receipt(
             ),
             "runtime_fingerprint": autonomous_runtime_fingerprint(),
             "config_fingerprint": config_fingerprint,
-            # Placeholder until next train implements host-executor hook guard.
             "hook_reentry_count": 0,
+            "hook_guard_check": hook_guard_check,
             "batch": {
                 "state": state,
                 "offered": 0,
@@ -357,6 +359,7 @@ def _legacy_verified_completion(receipt: dict[str, Any]) -> dict[str, Any] | Non
         "runtime_fingerprint": receipt.get("runtime_fingerprint"),
         "config_fingerprint": receipt.get("config_fingerprint"),
         "hook_reentry_count": int(receipt.get("hook_reentry_count") or 0),
+        "hook_guard_check": receipt.get("hook_guard_check"),
         "job_id": record.get("job_id"),
         "session_id": record.get("session_id"),
         "last_semantic_success_at": record.get("last_semantic_success_at"),
@@ -487,7 +490,7 @@ def run_autonomous_distill_batch(
             provider
             if provider is not None
             else build_semantic_executor(config, client)
-            if background_ready(config)
+            if background_on(config)
             else None
         )
         if chosen_provider is None:
@@ -518,6 +521,43 @@ def run_autonomous_distill_batch(
             "reason": str(exc),
             "outcomes": [],
         }
+    hook_guard_check: dict[str, Any] | None = None
+    if launch_source == "ide_hook" and trigger_id:
+        hook_guard_check = challenge_hook_reentry_guard(
+            backend.data_dir,
+            project_name=project_name,
+            project_root=root,
+            client=client,
+        )
+        if not hook_guard_check["all_blocked"] or hook_guard_check[
+            "downstream_jobs_created"
+        ]:
+            error = {
+                "kind": "setup_required",
+                "message": "Background Hook re-entry check failed.",
+            }
+            _record_post_turn_nonsemantic_terminal_receipt(
+                backend.data_dir,
+                project_name=project_name,
+                project_root=root,
+                trigger_id=trigger_id,
+                client=client,
+                dispatch_generation=dispatch_generation,
+                state="failed",
+                job_id=preferred_job_id,
+                error=error,
+                execution_source="autonomous_worker",
+                hook_launch_verified=True,
+                config_fingerprint=autonomous_config_fingerprint(config),
+                hook_guard_check=hook_guard_check,
+            )
+            return {
+                "success": False,
+                "state": "setup_required",
+                "reason": error["message"],
+                "outcomes": [],
+                "hook_guard_check": hook_guard_check,
+            }
     resolved_notes = notes_dir or Path.home() / ".codex" / "hm-distill" / "sessions"
     runtime_dir = Path(backend.data_dir) / "autonomous" / "provider-runtime"
     _write_receipt(
@@ -547,6 +587,7 @@ def run_autonomous_distill_batch(
                 project_root=root,
                 trigger_id=trigger_id,
             ),
+            "hook_guard_check": hook_guard_check,
             "batch": {
                 "offered": 0,
                 "attempted": 0,
@@ -776,6 +817,7 @@ def run_autonomous_distill_batch(
         ),
         "outcomes": outcomes,
         "receipt": receipt,
+        "hook_guard_check": hook_guard_check,
     }
 
 
@@ -2951,6 +2993,7 @@ def _record_success_receipt(
         "runtime_fingerprint": current.get("runtime_fingerprint"),
         "config_fingerprint": current.get("config_fingerprint"),
         "hook_reentry_count": hook_reentry_count,
+        "hook_guard_check": current.get("hook_guard_check"),
         "job_id": job.id,
         "session_id": job.session_id,
         **completion,

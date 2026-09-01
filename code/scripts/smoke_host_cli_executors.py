@@ -304,7 +304,6 @@ def _probe_hermes(executable: str, *, invoke: bool, timeout_seconds: int) -> Smo
         executable,
         "chat",
         "-Q",
-        "--accept-hooks",
         "--yolo",
         "--query-file",
         "-",

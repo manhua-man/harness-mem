@@ -150,8 +150,8 @@ agent** (`enabled=false` turns background off). See
 See `canvases/harness-mem-readiness-v1.canvas.tsx` for the compact architecture panel and
 `canvases/harness-mem-convergence.canvas.tsx` for the convergence narrative. The full
 Readiness Ladder lives in the IDE panel `harness-mem-readiness-v3.canvas.tsx`. The
-source facts are refreshed for `0.9.26`; the published package is
-`0.9.26`, and individual device-throughput rows
+source facts are refreshed for `0.9.26`; the latest published package is
+`0.9.25`, and individual device-throughput rows
 remain operational measurements rather than a release-quality claim.
 It deliberately does not merge repository release maturity with one device's live
 operations into one headline. When a numeric headline is shown, it must follow
@@ -167,7 +167,7 @@ Historical operator snapshot (2026-08-12; not a current throughput claim):
 | Retrieval feedback | 2 surfaced, no used/ignored/misleading outcomes | insufficient live feedback |
 
 The versioned 0.9.10 canvases remain historical snapshots; the unversioned v1
-panel carries the current release evidence.
+panel carries the current source evidence.
 
 The public MCP contract currently contains 27 tools (~27.8 KiB compact
 `tools/list` JSON). The former low-level suggest/confirm/reject schemas and

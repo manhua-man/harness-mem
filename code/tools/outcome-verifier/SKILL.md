@@ -1,11 +1,11 @@
 ---
 name: outcome-verifier
-description: Prove that user-visible software outcomes actually occurred before claiming completion. Use after implementation, debugging, automation, hooks, background jobs, data processing, releases, deployments, migrations, performance work, or any task where code/config/tests can pass while the real runtime result is still absent. Also use when asked whether something is truly done, live, published, processed, retrievable, or working end to end.
+description: Verify completion with direct evidence. Use after implementation, debugging, automation, hooks, background jobs, data processing, releases, deployments, migrations, or performance work when code, configuration, or tests alone are insufficient.
 ---
 
-# Outcome Verifier
+# Verification
 
-Verify outcomes, not implementation proxies. A file, configuration, queue entry, unit test, or `completed` status is insufficient unless it directly constitutes the requested outcome.
+Use direct evidence. A file, configuration, queue entry, unit test, or `completed` status is insufficient unless it proves the requested result.
 
 ## Workflow
 
@@ -45,12 +45,12 @@ Independent review supplements deterministic probes; it never replaces them.
 Lead with the overall verdict and name any remaining user-visible gap. Include only the most decision-relevant checks. Use wording such as:
 
 ```text
-Outcome: partial
+Status: partial
 PASS  public package installs
 PASS  native hook receipt is fresh
 FAIL  generated session note is absent
 
-Conclusion: infrastructure shipped; the end-to-end user outcome is not complete.
+Conclusion: infrastructure shipped; the requested result is not complete.
 ```
 
 Never translate `partial`, `failed`, or `blocked` into “done with minor caveats.”
