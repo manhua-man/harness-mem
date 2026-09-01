@@ -213,8 +213,8 @@ Agent 可以自动处理低风险候选，但不能把风险、证据和变更�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
-  harness-mem==0.9.25
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
+  harness-mem==0.9.26
 ```
 
 `harness-mem` 本体通过 GitHub Releases 分发。上述命令会自动选择适用于
@@ -224,8 +224,8 @@ Windows、macOS 或 Linux 的原生 wheel，不需要 PyPI 项目或账号。
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.25 \
-  "harness-mem[hybrid]==0.9.25"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
+  "harness-mem[hybrid]==0.9.26"
 ```
 
 在当前设备一次性安装全部宿主的原生 Daily 命令。默认参数就是
@@ -371,4 +371,4 @@ Codex Hook payload 通过 stdin 传入，并显式等待后台 post-turn 回执�
 全新安装验证，运行真实 sqlite-vec contract gate，并验证受支持的 Windows 升级
 路径后再上传到 GitHub Release。本项目不发布到 PyPI。
 
-当前源码包版本：**0.9.26**。GitHub 最新公开版本：**0.9.25**。
+当前源码包版本：**0.9.26**。GitHub 最新公开版本：**0.9.26**。
