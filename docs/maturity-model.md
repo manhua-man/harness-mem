@@ -151,7 +151,7 @@ See `canvases/harness-mem-readiness-v1.canvas.tsx` for the compact architecture 
 `canvases/harness-mem-convergence.canvas.tsx` for the convergence narrative. The full
 Readiness Ladder lives in the IDE panel `harness-mem-readiness-v3.canvas.tsx`. The
 source facts are refreshed for `0.9.26`; the latest published package is
-`0.9.25`, and individual device-throughput rows
+`0.9.26`, and individual device-throughput rows
 remain operational measurements rather than a release-quality claim.
 It deliberately does not merge repository release maturity with one device's live
 operations into one headline. When a numeric headline is shown, it must follow

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from harness_mem import __version__
 
-PUBLIC_RELEASE_VERSION = "0.9.25"
+PUBLIC_RELEASE_VERSION = "0.9.26"
 
 
 def _pyproject_version() -> str:
@@ -87,7 +87,8 @@ def test_source_and_public_install_versions_are_aligned() -> None:
 
     release_notes = (root / "release-notes.md").read_text(encoding="utf-8")
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert release_notes.startswith(f"# Draft release {__version__} ")
-    assert f"latest public release is `{PUBLIC_RELEASE_VERSION}`" in release_notes
-    assert changelog.startswith("# Changelog\n\n## Unreleased\n")
-    assert f"## [{__version__}]" not in changelog
+    assert release_notes.startswith(f"# Release {__version__} ")
+    assert f"Git tag: `v{__version__}`" in release_notes
+    assert f"harness-mem=={PUBLIC_RELEASE_VERSION}" in release_notes
+    assert changelog.startswith("# Changelog\n\n")
+    assert f"## [{__version__}]" in changelog

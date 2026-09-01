@@ -22,7 +22,7 @@ import {
 
 const AS_OF = "2026-09-02";
 const RUNTIME_VERSION = "0.9.26";
-const PUBLIC_RELEASE_VERSION = "0.9.25";
+const PUBLIC_RELEASE_VERSION = "0.9.26";
 const PYTEST_COUNT = 1027;
 const MCP_TOOL_COUNT = 27;
 const HOST_COUNT = 7;

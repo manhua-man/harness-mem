@@ -17,7 +17,7 @@ import {
 const MODEL_VERSION = "v1";
 const AS_OF = "2026-09-02";
 const RUNTIME_VERSION = "0.9.26";
-const PUBLIC_RELEASE_VERSION = "0.9.25";
+const PUBLIC_RELEASE_VERSION = "0.9.26";
 
 const MODULES = [
   { code: "0", title: "会话接入与生命周期", unit: "1 session + 1 immutable revision", owns: "宿主接入、chunk、job、receipt、重试与来源生命周期" },
@@ -116,7 +116,7 @@ export default function HarnessMemReadinessV1() {
       </Stack>
 
       <Callout tone="info">
-        版本事实：源码、runtime 与 plugin manifest 均为 0.9.26；GitHub 最新公开版本为 0.9.25，v0.9.26 尚未发布。
+        版本事实：源码、runtime 与 plugin manifest 均为 0.9.26；GitHub 最新公开版本为 0.9.26。
         冻结六会话 oracle、generation-bound Desktop Hook 与 14 项实际结果检查是仓库记录的用户结果证据。
       </Callout>
 

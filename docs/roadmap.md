@@ -6,20 +6,23 @@ itself; normal runtime paths do not migrate legacy data.
 
 ## Current public release
 
-The published package is `0.9.25`. It provides session lifecycle, lossless
+The published package is `0.9.26`. It provides session lifecycle, lossless
 extraction, per-point verification, transactional SQLite current knowledge,
 job-scoped processing material, clean retrieval, and one governed Review/Dream
 feedback path. Legacy `MemoryEntry` rows remain readable for compatibility, but
 new clean knowledge no longer stores candidate, evidence, decision, and truth
 as one object.
 
-The current `0.9.26` source has since passed a frozen six-session
-`harness-mem` acceptance oracle, a generation-bound Desktop Hook, and all 14
-runtime checks. That verification did not publish `0.9.26` and did not mutate
-or migrate the real legacy memory corpus. A separately authorized
-`harness-mem`-scoped maintenance run revalidated live
-sources, atomically rewrote accepted facts, and reversibly retired obsolete or
-duplicate legacy rows. It did not alter other projects.
+Authorized background work now runs through `distill.autonomous.enabled=true`
+and a project-selected host CLI with honest `{host}_cli` receipts. HTTP profile
+transport is no longer part of the product path.
+
+## Release `0.9.26`
+
+`0.9.26` converges authorized background work on the selected host CLI,
+documents the contract in `docs/background-memory.md`, and adds release Hook
+acceptance gates. Hermes and Claude Code host CLI chains were validated in
+isolated acceptance runs.
 
 ## Release `0.9.25`
 
@@ -86,7 +89,7 @@ Markdown/JSON/text
 | `0.9.23` | Operator-owned restricted semantic profiles and terminal source-backed Dream rechecks | 2--4 | Keep credentials out of project config; do not retire truth from partial/unsupported sources; retain mutation undo | Released |
 | `0.9.24` | Strict JSON-text compatibility for Anthropic-compatible gateways that reject forced tool output | 2--4 | Keep JSON schema validation and no-tool boundary; do not silently downgrade malformed output | Released |
 | `0.9.25` | Hook-started Dream execution and fail-closed source/provider/undo receipts | 0, 2--4 | Keep Hook non-semantic; reject truncated retirement; preserve real undo and retryable provider failure | Released |
-| `0.9.26` | Host CLI background authorization and honest `{host}_cli` receipts | 0, 2--4 | No HTTP impersonating Agent; profile not required for CLI path; Hook re-entry guard | Implemented on `main`; not tagged or published |
+| `0.9.26` | Host CLI background authorization and honest `{host}_cli` receipts | 0, 2--4 | No HTTP impersonating Agent; profile not required for CLI path; Hook re-entry guard | Released |
 
 ## Current `0.9.26` source
 

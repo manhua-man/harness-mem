@@ -3,8 +3,8 @@
 This document owns the conceptual contract for turning session evidence into
 usable long-term memory. The full product path starts before extraction: it
 must first safely receive, version, and finish a native session. The current
-source is `0.9.26`; the latest public release is `0.9.25`. SQLite truth
-separation landed in `0.9.20` and was extended and hardened through `0.9.25`.
+source is `0.9.26`; the latest public release is `0.9.26`. SQLite truth
+separation landed in `0.9.20` and was extended and hardened through `0.9.26`.
 In the `0.9.26` source, authorized background
 work moved to `enabled=true` plus the selected host CLI; legacy HTTP provider
 profiles no longer authorize the product path. See `docs/background-memory.md`.
