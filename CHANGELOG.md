@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.9.26] - 2026-09-02
 
 ### Changed
 
@@ -18,6 +18,8 @@
   re-entry guard and runtime checks for honest host CLI receipts.
 - `harness_mem/autonomous/authorization.py` with `background_on` /
   `background_ready` / `background_status`.
+- Release Hook acceptance checklist (`docs/hook-release-checklist.md`) and
+  staging script (`code/scripts/run_release_hook_acceptance.py`).
 
 ### Fixed
 
@@ -25,6 +27,12 @@
   runtime verification.
 - Simplify autonomous config fingerprints to project authorization and budget
   settings instead of legacy HTTP profile tables.
+- Stop passing the Codex assimilation model default to Hermes and Claude Code
+  host CLIs.
+- Isolate each host CLI phase in a fresh invocation working directory so
+  multi-candidate Claude sessions do not fail on shared hook paths.
+- Accept host CLI receipts without token usage metrics when duration and job
+  identity bindings are present (Hermes and similar CLIs).
 
 ## [0.9.25] - 2026-08-21
 

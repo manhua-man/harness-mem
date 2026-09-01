@@ -424,6 +424,17 @@ def inspect_autonomous_outcome(
     output_tokens = provider.get("output_tokens")
     total_tokens = provider.get("total_tokens")
     duration_seconds = provider.get("duration_seconds")
+    token_metrics_present = (
+        isinstance(input_tokens, int)
+        and input_tokens > 0
+        and isinstance(output_tokens, int)
+        and output_tokens > 0
+        and isinstance(total_tokens, int)
+        and total_tokens > 0
+    )
+    token_metrics_absent = (
+        input_tokens is None and output_tokens is None and total_tokens is None
+    )
     provider_isolated = _provider_restricted_execution_isolated(
         provider,
         authorized=authorized,
@@ -435,12 +446,7 @@ def inspect_autonomous_outcome(
         ),
     )
     provider_metrics_bound = bool(
-        isinstance(input_tokens, int)
-        and input_tokens > 0
-        and isinstance(output_tokens, int)
-        and output_tokens > 0
-        and isinstance(total_tokens, int)
-        and total_tokens > 0
+        (token_metrics_present or token_metrics_absent)
         and isinstance(duration_seconds, (int, float))
         and duration_seconds > 0
         and provider.get("job_id") == trigger_job_id

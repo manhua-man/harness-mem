@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from harness_mem.outcome_probe import (
+    _identity_digest,
     collect_outcomes,
     inspect_autonomous_outcome,
     inspect_distill_notes,
@@ -314,6 +316,107 @@ def test_autonomous_probe_accepts_explicit_cli_selected_for_another_host(
 
     assert result["authorized"] is True
     assert result["provider_isolated"] is True
+
+
+def test_autonomous_probe_accepts_host_cli_without_token_metrics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hermes and some host CLIs omit usage fields; duration + bindings still count."""
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    trigger_id = "release-session"
+    job_id = "job-release"
+    note_path = tmp_path / "notes" / f"{trigger_id}.md"
+    note_path.parent.mkdir(parents=True)
+    note_body = (
+        f"Session {trigger_id} completed with job {job_id}. "
+        "Meaningful autonomous distill note for release acceptance."
+    )
+    note_path.write_text(note_body, encoding="utf-8")
+    note_hash = hashlib.sha256(note_body.encode("utf-8")).hexdigest()
+    now = datetime.now(timezone.utc)
+    jobs = [
+        SimpleNamespace(
+            id=job_id,
+            session_id=trigger_id,
+            status="completed",
+            completed_at=now,
+            review_execution_source="autonomous_worker",
+        )
+    ]
+    provider = {
+        "name": "hermes_cli",
+        "schema_valid": True,
+        "execution_mode": "agent",
+        "host_client": "hermes",
+        "hooks_disabled": False,
+        "plugins_disabled": False,
+        "mcp_disabled": False,
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
+        "duration_seconds": 95.2,
+        "job_id": job_id,
+        "session_id_sha256": _identity_digest(trigger_id),
+        "trigger_id_sha256": _identity_digest(trigger_id),
+        "source_revision": "rev-1",
+        "project_root_sha256": "proj-root-sha",
+    }
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.read_autonomous_receipt",
+        lambda *_args, **_kwargs: {
+            "state": "completed",
+            "last_verified_completion": {
+                "client": "cursor",
+                "execution_source": "autonomous_worker",
+                "trigger_id": trigger_id,
+                "job_id": job_id,
+                "last_semantic_success_at": now.isoformat(),
+                "dispatch_generation": 1,
+                "hook_launch_verified": True,
+                "hook_config_fingerprint": "hook-fp",
+                "config_fingerprint": "test-config-fp",
+                "runtime_fingerprint": "test-runtime-fp",
+                "provider": provider,
+                "hook_reentry_count": 0,
+                "hook_guard_check": _hook_guard_check(),
+                "note": {
+                    "path": str(note_path),
+                    "sha256": note_hash,
+                    "job_binding_valid": True,
+                    "meaningful": True,
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.load_merged_config",
+        lambda *_args, **_kwargs: _mock_merged_config(
+            distill_autonomous_cli="hermes",
+        ),
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.autonomous_config_fingerprint",
+        lambda *_args, **_kwargs: "test-config-fp",
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.autonomous_runtime_fingerprint",
+        lambda *_args, **_kwargs: "test-runtime-fp",
+    )
+    monkeypatch.setattr(
+        "harness_mem.outcome_probe.hook_configuration_fingerprint",
+        lambda *_args, **_kwargs: "hook-fp",
+    )
+
+    result = inspect_autonomous_outcome(
+        tmp_path,
+        project_name="demo",
+        project_root=project_root,
+        jobs=jobs,
+    )
+
+    assert result["provider_metrics_bound"] is True
 
 
 def test_autonomous_probe_rejects_legacy_sandbox_only_receipt(

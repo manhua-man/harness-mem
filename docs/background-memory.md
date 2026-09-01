@@ -92,6 +92,7 @@ Stop Hook → 保存会话 → Dream/worker → 所选 CLI → 本机验证 → 
 
 | 主题 | 路径 |
 |------|------|
+| 发版 Hook 验收 | `docs/hook-release-checklist.md` |
 | 授权 | `harness_mem/autonomous/authorization.py` |
 | CLI 执行 | `harness_mem/autonomous/executors/` |
 | Worker | `harness_mem/autonomous/worker.py` |
