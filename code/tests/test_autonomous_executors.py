@@ -253,6 +253,63 @@ def test_host_cli_assimilate_does_not_default_to_codex_model(
     assert "-m" not in command
 
 
+def test_host_cli_runs_each_phase_in_fresh_invocation_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invocations: list[Path] = []
+
+    class _Process:
+        returncode = 0
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.cwd = Path(kwargs["cwd"])
+            invocations.append(self.cwd)
+            (self.cwd / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
+
+        def communicate(self, input=None, timeout=None):
+            del input, timeout
+            if len(invocations) == 1:
+                payload = json.dumps(_decision_payload())
+            else:
+                payload = json.dumps({"points": []})
+            return (payload, "")
+
+        def kill(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "harness_mem.autonomous.executors.host_structured_cli.subprocess.Popen",
+        _Process,
+    )
+    monkeypatch.setattr(
+        "harness_mem.autonomous.executors.host_structured_cli.register_provider_process_lease",
+        lambda *_args, **_kwargs: tmp_path / "lease",
+    )
+    monkeypatch.setattr(
+        "harness_mem.autonomous.executors.host_structured_cli.release_provider_process_lease",
+        lambda _path: None,
+    )
+
+    provider = HostStructuredCliProvider(
+        host_client="claude-code",
+        executable="claude-bin",
+        config=_authorized_config(),
+    )
+    runtime_dir = tmp_path / "runtime"
+    provider.decide(
+        {"contract_version": "autonomous-distill-manifest-v1"},
+        runtime_dir=runtime_dir,
+    )
+    provider.verify(
+        {"candidates": []},
+        runtime_dir=runtime_dir,
+    )
+
+    assert len(invocations) == 2
+    assert invocations[0] != invocations[1]
+
+
 def test_legacy_restricted_false_maps_to_enabled_false(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()

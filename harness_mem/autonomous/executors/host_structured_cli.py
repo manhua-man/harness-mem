@@ -411,13 +411,13 @@ class HostStructuredCliProvider:
                 kind="setup_required",
             )
         runtime_dir.mkdir(parents=True, exist_ok=True)
-        _assert_runtime_isolated(runtime_dir, self.host_client)
         started = time.monotonic()
         selected_model = model or self.model
         with tempfile.TemporaryDirectory(
             prefix=temporary_prefix, dir=runtime_dir
         ) as temporary:
             invocation_dir = Path(temporary)
+            _assert_runtime_isolated(invocation_dir, self.host_client)
             schema_path = invocation_dir / "decision.schema.json"
             output_path = invocation_dir / "decision.json"
             schema_path.write_text(
@@ -468,7 +468,7 @@ class HostStructuredCliProvider:
                 try:
                     process = subprocess.Popen(
                         invocation.command,
-                        cwd=runtime_dir,
+                        cwd=invocation_dir,
                         env=env,
                         stdin=subprocess.PIPE,
                         stdout=subprocess.PIPE,
