@@ -4,6 +4,16 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def mock_host_cli_executables_for_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep background authorization deterministic without real host CLIs."""
+
+    monkeypatch.setattr(
+        "harness_mem.autonomous.executors.host_cli._resolve_executable",
+        lambda client: f"{client}-bin",
+    )
+
+
+@pytest.fixture(autouse=True)
 def prevent_unmarked_real_embedding_loads(request, monkeypatch):
     """Keep normal pytest runs deterministic and free of real model startup."""
 
