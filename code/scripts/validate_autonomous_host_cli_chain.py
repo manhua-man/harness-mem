@@ -210,7 +210,7 @@ def main() -> int:
         help="Optional JSON report path",
     )
     args = parser.parse_args()
-    run_dir = args.work_dir / f"{args.cli}-{args.size}"
+    run_dir = args.work_dir / f"{args.cli}-{args.size}-{int(time.time())}"
     run_dir.mkdir(parents=True, exist_ok=True)
     report = run_chain(
         cli=args.cli,

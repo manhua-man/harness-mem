@@ -20,7 +20,6 @@ from harness_mem.autonomous.models import (
     CandidateVerificationDecision,
 )
 from harness_mem.autonomous.provider import (
-    DEFAULT_ASSIMILATION_MODEL,
     ProviderError,
     ProviderResult,
     _agent_boundary_fields,
@@ -234,8 +233,22 @@ def _build_host_invocation(
     )
 
 
-def _coerce_json_text(raw: str) -> str:
+def _normalize_cli_json_text(raw: str) -> str:
     payload = raw.strip()
+    if payload.startswith("```"):
+        lines = payload.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        while lines and not lines[-1].strip():
+            lines.pop()
+        if lines and lines[-1].strip() == "```":
+            lines.pop()
+        payload = "\n".join(lines).strip()
+    return payload
+
+
+def _coerce_json_text(raw: str) -> str:
+    payload = _normalize_cli_json_text(raw)
     if not payload:
         raise ProviderError(
             "host CLI returned empty stdout",
@@ -249,9 +262,18 @@ def _coerce_json_text(raw: str) -> str:
         end = payload.rfind("}")
         if start >= 0 and end > start:
             candidate = payload[start : end + 1]
-            json.loads(candidate)
-            return candidate
-        raise
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError as exc:
+                raise ProviderError(
+                    f"host CLI returned non-JSON output: {payload[:500]}",
+                    kind="unrecoverable",
+                ) from exc
+        raise ProviderError(
+            f"host CLI returned non-JSON output: {payload[:500]}",
+            kind="unrecoverable",
+        )
 
 
 def _extract_decision_text(
@@ -261,7 +283,7 @@ def _extract_decision_text(
     output_from_stdout: bool,
 ) -> str:
     if output_from_stdout:
-        payload = stdout.strip()
+        payload = _normalize_cli_json_text(stdout)
         if not payload:
             raise ProviderError(
                 "host CLI returned empty stdout",
@@ -315,9 +337,8 @@ class HostStructuredCliProvider:
         self.name = host_cli_provider_name(host_client)
         self.model = (os.environ.get("HARNESS_MEM_DISTILL_MODEL") or "").strip() or None
         self.assimilation_model = (
-            os.environ.get("HARNESS_MEM_ASSIMILATION_MODEL")
-            or DEFAULT_ASSIMILATION_MODEL
-        ).strip()
+            os.environ.get("HARNESS_MEM_ASSIMILATION_MODEL") or ""
+        ).strip() or None
 
     def decide(
         self,
@@ -489,11 +510,20 @@ class HostStructuredCliProvider:
             if process.returncode != 0:
                 raise _classify_failure(stderr or stdout, process.returncode)
 
-            raw = _extract_decision_text(
-                stdout=stdout,
-                output_path=invocation.output_path,
-                output_from_stdout=invocation.output_from_stdout,
-            )
+            try:
+                raw = _extract_decision_text(
+                    stdout=stdout,
+                    output_path=invocation.output_path,
+                    output_from_stdout=invocation.output_from_stdout,
+                )
+            except ProviderError as exc:
+                detail = (stderr or stdout or "").strip()
+                if detail:
+                    raise ProviderError(
+                        f"{exc}; stderr/stdout sample: {detail[:500]}",
+                        kind=exc.kind,
+                    ) from exc
+                raise
             try:
                 decision = decision_model.model_validate_json(raw)
             except (ValidationError, ValueError) as exc:

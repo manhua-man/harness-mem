@@ -205,6 +205,54 @@ def test_host_cli_invokes_structured_command_for_each_host(
     assert lease_events == ["lease", "popen", "release"]
 
 
+def test_host_cli_assimilate_does_not_default_to_codex_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HARNESS_MEM_ASSIMILATION_MODEL", raising=False)
+    captured: dict[str, Any] = {}
+
+    class _Process:
+        returncode = 0
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            captured["command"] = args[0]
+
+        def communicate(self, input=None, timeout=None):
+            del timeout
+            return ('{"points": []}', "")
+
+        def kill(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "harness_mem.autonomous.executors.host_structured_cli.subprocess.Popen",
+        _Process,
+    )
+    monkeypatch.setattr(
+        "harness_mem.autonomous.executors.host_structured_cli.register_provider_process_lease",
+        lambda *_args, **_kwargs: tmp_path / "lease",
+    )
+    monkeypatch.setattr(
+        "harness_mem.autonomous.executors.host_structured_cli.release_provider_process_lease",
+        lambda _path: None,
+    )
+
+    provider = HostStructuredCliProvider(
+        host_client="hermes",
+        executable="hermes-bin",
+        config=_authorized_config(),
+    )
+    provider.assimilate(
+        {"verified_candidates": []},
+        runtime_dir=tmp_path / "runtime",
+    )
+
+    command = captured["command"]
+    assert "gpt-5.6-terra" not in command
+    assert "-m" not in command
+
+
 def test_legacy_restricted_false_maps_to_enabled_false(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
