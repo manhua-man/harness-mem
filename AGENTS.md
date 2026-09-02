@@ -34,6 +34,7 @@
 - 分发：GitHub Releases 的原生 wheel 与 sdist，不发布到 PyPI。
 - 日常用户动作：`status`、`wake`、`search`、`search-all`、`distill`、`review`、`dream`。
 - CLI 是安装、配置、诊断、集成和维护面；MCP 是 Agent 日常记忆面。
+- Quickstart 只连接项目并安装当前宿主入口与项目 Hook；它不查看或修改 Agent、MCP Router、插件或其他工具管理的 MCP 连接。
 
 ## 当前版本与目标架构边界
 

@@ -13,13 +13,13 @@ class HostContract(NamedTuple):
 
 
 HOST_CONTRACTS = (
-    HostContract("claude-code", "file", "file", "/hm:*"),
-    HostContract("codex", "file", "file", "$hm-*"),
-    HostContract("cursor", "file", "file", "/hm-*"),
-    HostContract("grok", "file", "file", "/hm-*"),
-    HostContract("hermes", "mixed", "source_dependent", "/hm-*"),
-    HostContract("opencode", "shared_container", "unsupported", "/hm-*"),
-    HostContract("antigravity", "mixed", "source_dependent", "/hm-*"),
+    HostContract("claude-code", "file", "file", "/hm"),
+    HostContract("codex", "file", "file", "$hm"),
+    HostContract("cursor", "file", "file", "/hm"),
+    HostContract("grok", "file", "file", "/hm"),
+    HostContract("hermes", "mixed", "source_dependent", "/hm"),
+    HostContract("opencode", "shared_container", "unsupported", "/hm"),
+    HostContract("antigravity", "mixed", "source_dependent", "/hm"),
 )
 
 HOST_NAMES = tuple(contract.name for contract in HOST_CONTRACTS)

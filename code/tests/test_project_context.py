@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import harness_mem.commands.support as support
@@ -134,3 +135,13 @@ def test_current_agent_client_detects_native_codex_rollout(monkeypatch) -> None:
     monkeypatch.setenv("CODEX_THREAD_ID", "thread-123")
 
     assert support.current_agent_client() == "codex"
+
+
+def test_detect_runtime_client_does_not_guess_when_no_signal_exists(monkeypatch) -> None:
+    monkeypatch.delenv("HARNESS_MEM_CLIENT", raising=False)
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+    for key in tuple(os.environ):
+        if key.startswith("CLAUDE_CODE"):
+            monkeypatch.delenv(key, raising=False)
+
+    assert support.detect_runtime_client() is None

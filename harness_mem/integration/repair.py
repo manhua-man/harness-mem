@@ -1,4 +1,4 @@
-"""Unified operator repair for host hooks and Daily command surfaces."""
+"""Unified operator repair for host hooks and memory command surfaces."""
 
 from __future__ import annotations
 
@@ -224,10 +224,10 @@ def _overall_status(results: list[RepairStageResult]) -> OverallStatus:
     failed = statuses.count("failed")
     if failed == len(statuses):
         return "failed"
-    if failed:
-        return "partial_failure"
     if statuses and all(status == "unsupported" for status in statuses):
         return "unsupported"
+    if failed or "unsupported" in statuses:
+        return "partial_failure"
     return "success"
 
 
@@ -239,7 +239,7 @@ def repair_integrations(
     source_dir: Path | None = None,
     hook_runner_provider: Callable[[], Path] | None = None,
 ) -> IntegrationRepairReport:
-    """Repair hooks and user-level Daily commands without dropping failures."""
+    """Repair hooks and user-level memory commands without dropping failures."""
 
     root = project_root.resolve()
     results: list[RepairStageResult] = []
@@ -312,6 +312,6 @@ def repair_integrations(
     status = _overall_status(results)
     return IntegrationRepairReport(
         status=status,
-        success=not any(result.status == "failed" for result in results),
+        success=status == "success",
         results=tuple(results),
     )

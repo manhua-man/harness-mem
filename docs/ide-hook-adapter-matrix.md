@@ -32,18 +32,22 @@ automatically:
 | `antigravity` | `.agents/hooks.json` | `PreInvocation` -> wake injection; `Stop` -> evidence staging | `harness-mem-hook` adapters read camelCase hook stdin JSON |
 
 Daily command discovery is a separate, user-level install. Running
-`harness-mem integration commands sync` once installs all seven surfaces, so a
-fresh unrelated project can invoke them before it has any project-local files:
+`harness-mem integration commands sync` once installs one daily entry for all
+seven hosts, so a fresh unrelated project can invoke it before it has any
+project-local files:
 
 | Host | User-level command discovery | Invocation |
 |---|---|---|
-| Claude Code | `~/.claude/commands/hm/*.md` | `/hm:<action>` |
-| Codex | `~/.codex/skills/hm-*/SKILL.md` | `$hm-<action>` |
-| Cursor | `~/.cursor/skills/hm-*/SKILL.md` | `/hm-<action>` |
-| Grok | `~/.grok/skills/hm-*/SKILL.md` | `/hm-<action>` |
-| Hermes | `$HERMES_HOME/skills/hm-*/SKILL.md` | `/hm-<action>` |
-| OpenCode | `~/.config/opencode/commands/hm-*.md` | `/hm-<action>` |
-| Antigravity | `~/.gemini/antigravity/global_workflows/hm-*.md` | `/hm-<action>` |
+| Claude Code | `~/.claude/commands/hm.md` | `/hm` |
+| Codex | `~/.codex/skills/hm/SKILL.md` | `$hm` |
+| Cursor | `~/.cursor/skills/hm/SKILL.md` | `/hm` |
+| Grok | `~/.grok/skills/hm/SKILL.md` | `/hm` |
+| Hermes | `$HERMES_HOME/skills/hm/SKILL.md` | `/hm` |
+| OpenCode | `~/.config/opencode/commands/hm.md` | `/hm` |
+| Antigravity | `~/.gemini/antigravity/global_workflows/hm.md` | `/hm` |
+
+The action-specific `hm-*` files are still synchronized for compatibility and
+advanced diagnosis, but they are not the default product entry.
 
 These files contain no project path. The first MCP initialization inside each
 workspace adopts that project and installs only its native hook adapter. Codex
@@ -86,8 +90,8 @@ duplicate context. Fallback trigger labels are deliberately not deduplicated
 because they cannot prove two invocations belong to the same session.
 Session-start injection uses a compact recent-context index. The index is
 derived from project-scoped transcript Observations; it does not replace the
-immutable transcript ledger or governed truth layer, and it does not require
-`/hm:distill` before recent work is visible.
+immutable transcript ledger or governed truth layer, and recent work does not
+need a manual “remember this session” request before it becomes visible.
 
 ## Transcript adapter contract
 
@@ -213,8 +217,8 @@ should only fill in project root, command path, and small host-specific IDs.
 - `OpenCode` remains a plugin adapter, not a shell-hook adapter.
 - `Antigravity` uses project-local `.agents/hooks.json`; its transcript adapter
   reads verified brain `transcript[_full].jsonl` and CLI `history.jsonl` formats.
-- Antigravity Daily commands are user-global workflows, not project-local
-  `.agents/skills` copies.
+- Antigravity's daily command and compatibility actions are user-global
+  workflows, not project-local `.agents/skills` copies.
 - `Hermes` transcript ingest accepts verified `session_*.json` exports and the
   upstream `sessions/messages` SQLite schema from `state.db`.
 

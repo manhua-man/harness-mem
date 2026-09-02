@@ -11,12 +11,14 @@ from typing import Literal
 
 from harness_mem.plugin_assets import (
     DAILY_COMMANDS,
+    PRIMARY_COMMAND,
     RETIRED_COMMANDS,
     VALID_COMMAND_PROFILES,
     CommandProfile,
     find_plugin_command_source,
     source_path_for_plugin_command,
 )
+from harness_mem.version import WIRE_FORMAT_VERSION
 
 
 @dataclass(frozen=True)
@@ -62,11 +64,9 @@ def default_hermes_skills_dir() -> Path:
 def command_hint(client: CommandHost) -> str:
     """Return the user-facing native invocation syntax for one host."""
 
-    if client == "claude-code":
-        return "/hm:*"
     if client == "codex":
-        return "$hm-*"
-    return "/hm-*"
+        return "$hm"
+    return "/hm"
 
 
 def default_host_commands_dir(
@@ -152,6 +152,12 @@ def source_path_for_command(source_dir: Path, command: str) -> Path:
     return source_path_for_plugin_command(source_dir, command)
 
 
+def source_path_for_primary_command(source_dir: Path) -> Path:
+    """Return the single user-facing command source shipped beside legacy actions."""
+
+    return source_dir / f"{PRIMARY_COMMAND}.md"
+
+
 def sync_slash_commands(
     *,
     source_dir: Path | None = None,
@@ -179,6 +185,9 @@ def sync_slash_commands(
         source = source_path_for_command(resolved_source, command)
         if not source.exists():
             raise FileNotFoundError(f"Slash command source not found: {source}")
+    primary_source = source_path_for_primary_command(resolved_source)
+    if not primary_source.exists():
+        raise FileNotFoundError(f"Primary command source not found: {primary_source}")
 
     if not dry_run:
         destination.mkdir(parents=True, exist_ok=True)
@@ -202,6 +211,17 @@ def sync_slash_commands(
             replaced = replaced or target_exists
         if not dry_run and target_changed:
             shutil.copy2(source, target)
+
+    primary_target = destination.parent / f"{PRIMARY_COMMAND}.md"
+    primary_exists = primary_target.exists()
+    primary_changed = (
+        not primary_exists or primary_target.read_bytes() != primary_source.read_bytes()
+    )
+    if primary_changed:
+        changed = True
+        replaced = replaced or primary_exists
+        if not dry_run:
+            shutil.copy2(primary_source, primary_target)
 
     return CommandSyncResult(
         destination_dir=destination,
@@ -230,10 +250,44 @@ def _render_skill_command(command: str, source: Path, client: CommandHost) -> st
         "---\n"
         f"name: hm-{command}\n"
         f"description: Run the harness-mem {command} daily action when the user invokes hm-{command}.\n"
+        "metadata:\n"
+        f"  wireFormatVersion: {WIRE_FORMAT_VERSION}\n"
         "---\n\n"
         f"# hm-{command}\n\n"
         "This is a user-invocable harness-mem Daily command. Follow the action below "
         "through the configured harness-mem MCP server; do not replace it with terminal maintenance commands.\n\n"
+        f"{body.lstrip()}"
+    )
+
+
+def _primary_target(
+    destination: Path,
+    *,
+    client: CommandHost,
+    scope: CommandScope,
+) -> Path:
+    if client == "claude-code":
+        return destination.parent / f"{PRIMARY_COMMAND}.md"
+    use_skill = client in _SKILL_HOSTS or (client == "cursor" and scope == "user")
+    if use_skill:
+        return destination / PRIMARY_COMMAND / "SKILL.md"
+    return destination / f"{PRIMARY_COMMAND}.md"
+
+
+def _render_primary_command(source: Path, client: CommandHost, *, as_skill: bool) -> str:
+    if not as_skill:
+        return _render_command_body(source, client)
+    body = _render_command_body(source, client)
+    if body.startswith("---"):
+        _, _, body = body.split("---", 2)
+    return (
+        "---\n"
+        "name: hm\n"
+        "description: Use harness-mem to remember this session, find prior work, or correct memory.\n"
+        "metadata:\n"
+        f"  wireFormatVersion: {WIRE_FORMAT_VERSION}\n"
+        "---\n\n"
+        "# hm\n\n"
         f"{body.lstrip()}"
     )
 
@@ -260,6 +314,20 @@ def sync_host_commands(
     replaced = False
     if not dry_run:
         destination.mkdir(parents=True, exist_ok=True)
+    primary_source = source_path_for_primary_command(resolved_source)
+    if not primary_source.exists():
+        raise FileNotFoundError(f"Primary command source not found: {primary_source}")
+    primary_target = _primary_target(destination, client=client, scope=scope)
+    rendered_targets.append(
+        (
+            primary_target,
+            _render_primary_command(
+                primary_source,
+                client,
+                as_skill=primary_target.name == "SKILL.md",
+            ),
+        )
+    )
     for command in selected:
         source = source_path_for_command(resolved_source, command)
         if not source.exists():

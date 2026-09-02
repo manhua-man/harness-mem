@@ -20,10 +20,10 @@ import {
   useHostTheme,
 } from "cursor/canvas";
 
-const AS_OF = "2026-09-02";
+const AS_OF = "2026-09-03";
 const RUNTIME_VERSION = "0.9.26";
 const PUBLIC_RELEASE_VERSION = "0.9.26";
-const PYTEST_COUNT = 1027;
+const PYTEST_COUNT = 1069;
 const MCP_TOOL_COUNT = 27;
 const HOST_COUNT = 7;
 const OUTCOME_CLAIM_COUNT = 14;
@@ -57,7 +57,7 @@ const RELEASE_TRAIN: string[][] = [
   ["0.9.23", "operator-owned provider profile · Dream 终态 source recheck · 凭证不进项目配置", "Released"],
   ["0.9.24", "Anthropic 兼容网关 strict JSON 无工具传输 · schema fail-closed", "Released"],
   ["0.9.25", "Hook→Dream 唯一路径 · 截断来源 fail-closed · undo/receipt/provider 终态", "Released"],
-  ["0.9.26", "enabled + 默认当前宿主、也可指定 CLI · 诚实 {host}_cli 回执", "main 已实现；尚未发布"],
+  ["0.9.26", "enabled + 默认当前宿主、也可指定 CLI · 诚实 {host}_cli 回执", "Released"],
 ];
 
 const OUT_OF_PRODUCT: string[][] = [
@@ -75,7 +75,7 @@ const OUTCOME_CLAIMS: string[][] = [
   ["distill_user_artifacts", "已完成 distill 有可读 Session Note 或 audited-unavailable"],
   ["autonomous_distill_completion", "Detached Hook worker 完成语义蒸馏"],
   ["autonomous_note_materialization", "Autonomous completion 物化 job-bound Note"],
-  ["autonomous_provider_isolation", "host CLI agent · execution_mode=agent · provider=<host>_cli · hook_reentry_count==0"],
+  ["autonomous_provider_isolation", "host CLI agent · 三种真实 Hook 调用全部被阻止 · 下游 job=0"],
   ["partial_distill_handoff", "Partial distill：独立 Answered 点 + handoff + 分离 Note"],
   ["distill_acceptance_matrix", "F1–F11 fixture 路径矩阵可执行验收"],
   ["multi_point_memory_assimilation", "多点独立 assimilation 与 SQLite 当前知识"],
@@ -141,7 +141,7 @@ const PRODUCT_SHAPE: string[][] = [
   ["Truth authority", "SQLite knowledge_entries", "Postgres canonical + SQLite legacy session path", "API/backend durable store", "vector store 为主 · SQLite history 审计", "graph edges · valid/expired_at 生命周期"],
   ["无人值守语义", "Dream（Hook · enabled + 宿主 CLI Agent）", "BullMQ generation worker", "DB queue poller workers", "无 · 调用方驱动 SDK", "LLM 驱动图谱写入"],
   ["任务/队列模型", "SQLite distill job · chunk lease · receipt", "transactional outbox · post-commit queue", "FOR UPDATE SKIP LOCKED · slot pool", "同步 API · 无持久队列", "图数据库事务 · 非 outbox"],
-  ["Agent 日常面", "27 MCP tools · 7 host /hm:*", "HTTP compat · hook/server-beta", "REST API 客户端", "Python/TS SDK embed", "Python library · 非 Agent MCP 产品"],
+  ["Agent 日常面", "27 MCP tools · 7 hosts · $hm / /hm", "HTTP compat · hook/server-beta", "REST API 客户端", "Python/TS SDK embed", "Python library · 非 Agent MCP 产品"],
   ["Graph / 外部 broker", "明确不做（defer / maturity-model）", "Redis/BullMQ · Postgres", "Postgres/Oracle 等多后端", "多 vector provider", "Neo4j/FalkorDB 等"],
   ["分发", "GitHub Releases wheel · 无 PyPI", "npm / server 部署", "服务化部署", "PyPI SDK", "库集成"],
   ["harness-mem 关系", "当前产品", "可靠性参考 · 非目标架构", "worker/lease 参考 · 非目标架构", "scoped deletion 参考 · 非 distill 蓝图", "时序检索参考 · 非 storage engine"],
@@ -178,8 +178,8 @@ const OPEN_GAPS_FROM_REFS: string[][] = [
   ["RRF / adaptive IDF 可测改进", "Graphiti · vstash（paper）", "defer.md · 需 golden-suite 证明"],
 ];
 
-/** 本机 outcome-verifier 实测（2026-08-31 · harness-mem 仓库）— 比百分制分更优先 */
-const OUTCOME_RUN_AT = "2026-08-31T03:14+08:00";
+/** 本机实际结果检查（2026-09-03 · harness-mem 仓库）— 比百分制分更优先 */
+const OUTCOME_RUN_AT = "2026-09-03T02:14:54+08:00";
 const OUTCOME_RUN_STATUS = "passed";
 const OUTCOME_PASSED = 14;
 const OUTCOME_FAILED = 0;
@@ -226,7 +226,7 @@ const DIMENSION_VERIFICATION: {
     weight: 20,
     tier: "verified_local",
     mappedOutcomes: "PASS: distill_user_artifacts · dream · acceptance_matrix · partial_handoff · hook · autonomous_distill",
-    contracts: "27-tool MCP · 7 /hm:*（未在本会话跑 pytest）",
+    contracts: "27-tool MCP · 7 hosts · $hm / /hm（未在本会话跑 pytest）",
     note: "本机 L1 对应检查全 PASS",
   },
   {

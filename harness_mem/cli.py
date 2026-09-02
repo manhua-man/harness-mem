@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None):
     quickstart = sub.add_parser(
         "quickstart",
         aliases=["qs"],
-        help="Initialize local state and perform first-time setup checks",
+        help="Connect the current project and install its memory entry",
     )
     quickstart.add_argument("project", nargs="?", help="Project name")
     quickstart.add_argument(
@@ -134,7 +134,13 @@ def main(argv: list[str] | None = None):
         choices=["auto", "skip", *SUPPORTED_HOOK_CLIENTS],
         default="auto",
     )
-    quickstart.add_argument("-n", "--limit", type=int, default=5)
+    quickstart.add_argument(
+        "-n",
+        "--limit",
+        type=int,
+        default=0,
+        help="Import up to N older sessions during setup (default: do not import history)",
+    )
     quickstart.set_defaults(command_name="quickstart")
 
     doctor = sub.add_parser("doctor", help="Inspect local setup and suggest repairs")
@@ -351,7 +357,7 @@ def main(argv: list[str] | None = None):
         help="Inspect or repair supported IDE integrations",
         description=(
             "Repair project hooks, inspect transcript evidence, or synchronize "
-            "the seven host-native Daily command surfaces."
+            "the seven host-native memory entries."
         ),
     )
     integration.set_defaults(command_name="integration")
@@ -371,7 +377,7 @@ def main(argv: list[str] | None = None):
         "--client",
         choices=["all", *SUPPORTED_HOOK_CLIENTS],
         required=True,
-        help="Host whose hooks and Daily commands should be repaired",
+        help="Host whose hooks and memory commands should be repaired",
     )
     hooks_sync.add_argument(
         "--project-root", help="Project directory (default: cwd)"
@@ -401,19 +407,19 @@ def main(argv: list[str] | None = None):
 
     commands = integration_sub.add_parser(
         "commands",
-        help="List or sync host-native Daily memory commands",
+        help="List or sync host-native memory entries",
         description=(
-            "Manage host-native Daily command visibility without reinstalling "
-            "the harness-mem runtime. The synced command surface is Daily only."
+            "Manage the main memory entry and its compatibility actions without "
+            "reinstalling the harness-mem runtime."
         ),
     )
     commands_sub = commands.add_subparsers(dest="commands_action")
 
-    commands_sub.add_parser("list", help="List available Daily commands")
+    commands_sub.add_parser("list", help="List the main entry and compatibility actions")
 
     commands_sync = commands_sub.add_parser(
         "sync",
-        help="Synchronize Daily commands",
+        help="Synchronize the main entry and compatibility actions",
     )
     commands_sync.add_argument(
         "--profile",
@@ -431,7 +437,7 @@ def main(argv: list[str] | None = None):
         default="user",
         help="Install once for all projects (user) or only one project",
     )
-    commands_sync.add_argument("--source-dir", help="Canonical Daily command source directory")
+    commands_sync.add_argument("--source-dir", help="Canonical command source directory")
     commands_sync.add_argument("--target-dir", help="Claude Code override directory")
     commands_sync.add_argument("--dry-run", action="store_true")
 

@@ -21,6 +21,11 @@ from harness_mem.integration.command_sync import (
 
 
 def _write_command_sources(source_dir: Path) -> None:
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (source_dir / "hm.md").write_text(
+        "# HM\n\nRoute remember, find, and correct requests.\n",
+        encoding="utf-8",
+    )
     groups = {
         "daily": (
             "status",
@@ -180,6 +185,14 @@ def test_project_command_surfaces_use_native_paths_and_invocation_styles(
         "codex": project / ".agents" / "skills" / "hm-status" / "SKILL.md",
         "antigravity": project / ".agents" / "workflows" / "hm-status.md",
     }
+    primary = {
+        "claude-code": project / ".claude" / "commands" / "hm.md",
+        "cursor": project / ".cursor" / "commands" / "hm.md",
+        "grok": project / ".grok" / "skills" / "hm" / "SKILL.md",
+        "opencode": project / ".opencode" / "commands" / "hm.md",
+        "codex": project / ".agents" / "skills" / "hm" / "SKILL.md",
+        "antigravity": project / ".agents" / "workflows" / "hm.md",
+    }
     for client in (item for item in COMMAND_HOSTS if item != "hermes"):
         result = sync_host_commands(
             client=client,
@@ -191,8 +204,10 @@ def test_project_command_surfaces_use_native_paths_and_invocation_styles(
             client, project, scope="project"
         )
         assert expected[client].exists()
+        assert primary[client].exists()
         if client in {"codex", "grok"}:
             assert "name: hm-status" in expected[client].read_text(encoding="utf-8")
+            assert "name: hm" in primary[client].read_text(encoding="utf-8")
     with pytest.raises(ValueError, match="Hermes commands are user/profile-scoped"):
         sync_host_commands(
             client="hermes",
@@ -264,6 +279,19 @@ def test_user_command_sync_is_visible_from_unrelated_projects(
             home / ".gemini" / "antigravity" / "global_workflows" / "hm-status.md"
         ),
     }
+    primary = {
+        "claude-code": home / ".claude" / "commands" / "hm.md",
+        "cursor": home / ".cursor" / "skills" / "hm" / "SKILL.md",
+        "grok": home / ".grok" / "skills" / "hm" / "SKILL.md",
+        "codex": home / ".codex" / "skills" / "hm" / "SKILL.md",
+        "hermes": (
+            local_appdata / "hermes" / "skills" / "hm" / "SKILL.md"
+            if sys.platform == "win32"
+            else home / ".hermes" / "skills" / "hm" / "SKILL.md"
+        ),
+        "opencode": home / ".config" / "opencode" / "commands" / "hm.md",
+        "antigravity": home / ".gemini" / "antigravity" / "global_workflows" / "hm.md",
+    }
 
     for client in COMMAND_HOSTS:
         first = sync_host_commands(
@@ -275,6 +303,7 @@ def test_user_command_sync_is_visible_from_unrelated_projects(
         second_destination = default_host_commands_dir(client, project_b, scope="user")
         assert first.destination_dir == second_destination
         assert expected[client].exists()
+        assert primary[client].exists()
         assert not (project_a / ".agents").exists()
         assert not (project_b / ".agents").exists()
 
@@ -336,6 +365,9 @@ def test_generated_skill_strips_bom_and_uses_host_native_invocations(
     assert rendered.count("---") == 2
     assert "$hm-wake" in rendered
     assert 'host_client="codex"' in rendered
+    assert "metadata:\n  wireFormatVersion: hm-wire-v3.5" in rendered
+    frontmatter = rendered.split("---", 2)[1]
+    assert "\nwireFormatVersion:" not in frontmatter
     assert "\ufeff" not in rendered
 
     sync_host_commands(client="antigravity", scope="user", source_dir=source_dir)
@@ -384,10 +416,12 @@ def test_cli_sync_defaults_can_install_all_hosts_at_user_scope(
 
     output = capsys.readouterr().out
     assert exit_code == 0
-    assert output.count("Synced 7") == len(COMMAND_HOSTS)
-    assert "codex Daily commands" in output
-    assert "antigravity Daily commands" in output
+    assert output.count("Use:") == len(COMMAND_HOSTS)
+    assert "codex commands" in output
+    assert "Use: $hm" in output
+    assert "antigravity commands" in output
     assert (home / ".codex" / "skills" / "hm-wake" / "SKILL.md").exists()
+    assert (home / ".codex" / "skills" / "hm" / "SKILL.md").exists()
     assert (
         home / ".gemini" / "antigravity" / "global_workflows" / "hm-wake.md"
     ).exists()
@@ -435,5 +469,8 @@ def test_cli_target_dir_preserves_legacy_claude_default(
     )
 
     assert exit_code == 0
-    assert "claude-code Daily commands" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "claude-code commands" in output
+    assert "Use: /hm" in output
     assert (target_dir / "wake.md").exists()
+    assert (target_dir.parent / "hm.md").exists()

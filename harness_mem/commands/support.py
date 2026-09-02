@@ -294,8 +294,8 @@ def safe_project_slug(project_name: str) -> str:
     return project_name.replace("/", "_").replace("\\", "_").replace(":", "_").replace(" ", "_")
 
 
-def _detected_runtime_client() -> str:
-    """Infer the current assistant runtime without forcing an adapter fallback.
+def detect_runtime_client() -> str | None:
+    """Return the current assistant runtime when an explicit signal proves it.
 
     Explicit native ``HARNESS_MEM_CLIENT`` wins. Generic agent runtime names
     such as antigravity/opencode remain host labels here.
@@ -311,7 +311,13 @@ def _detected_runtime_client() -> str:
         return "codex"
     if any(key.startswith("CLAUDE_CODE") for key in os.environ):
         return "claude-code"
-    return "claude-code"
+    return None
+
+
+def _detected_runtime_client() -> str:
+    """Infer the runtime for legacy callers that still require a fallback."""
+
+    return detect_runtime_client() or "claude-code"
 
 
 def resolve_host_source(client: str | None) -> HostSourceResolution:

@@ -15,6 +15,7 @@ def test_packaged_runtime_includes_daily_command_assets() -> None:
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
     assert 'code/plugins/harness-mem/commands/hm/daily/*.md' in pyproject
+    assert 'code/plugins/harness-mem/commands/hm/hm.md' in pyproject
 
 
 def test_plugin_mcp_config_uses_installed_console_script() -> None:
@@ -65,4 +66,8 @@ def test_public_source_install_examples_use_converged_code_path() -> None:
     for path in paths:
         body = path.read_text(encoding="utf-8")
         assert r".\plugins\harness-mem\scripts\install.ps1" not in body
-        assert r".\code\plugins\harness-mem\scripts\install.ps1" in body
+        if r"scripts\install.ps1" in body:
+            assert r".\code\plugins\harness-mem\scripts\install.ps1" in body
+
+    plugin = Path("code/plugins/harness-mem/README.md").read_text(encoding="utf-8")
+    assert r".\code\plugins\harness-mem\scripts\install.ps1" in plugin

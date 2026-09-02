@@ -186,7 +186,24 @@ def test_hook_suite_installer_is_idempotent(tmp_path: Path) -> None:
         generated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
     assert [item.status for item in first] == ["installed", "installed"]
-    assert [item.status for item in second] == ["exists", "exists"]
+    assert [item.status for item in second] == ["unchanged", "unchanged"]
+
+
+def test_hook_suite_rejects_unverified_existing_file(tmp_path: Path) -> None:
+    target = tmp_path / ".cursor" / "hooks" / "after-agent.sh"
+    target.parent.mkdir(parents=True)
+    target.write_text("#!/bin/sh\necho unrelated\n", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="was not installed by this harness-mem setup"):
+        install_hook_suite(
+            specs=(HookSpec("cursor_after_agent.sh.template", target),),
+            project_root=tmp_path,
+            force=False,
+            harness_mem_version="test",
+            generated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+
+    assert target.read_text(encoding="utf-8") == "#!/bin/sh\necho unrelated\n"
 
 
 def test_hook_suite_force_reports_existing_targets_as_updated(tmp_path: Path) -> None:

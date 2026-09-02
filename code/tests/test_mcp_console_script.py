@@ -19,11 +19,14 @@ def test_hook_console_script_uses_the_packaged_host_entrypoint() -> None:
     assert 'harness-mem-hook = "harness_mem.host_entry.__main__:main"' in pyproject
 
 
-def test_cursor_docs_do_not_launch_the_mcp_server_through_bare_python() -> None:
-    for path in (Path("README.md"), Path("docs/mcp-setup.md")):
-        content = path.read_text(encoding="utf-8")
-        assert '"command": "harness-mem-mcp"' in content
-        assert '"args": ["-m", "harness_mem.mcp.server"]' not in content
+def test_mcp_setup_uses_the_packaged_server_command() -> None:
+    setup = Path("docs/mcp-setup.md").read_text(encoding="utf-8")
+    assert '"command": "harness-mem-mcp"' in setup
+    assert '"args": ["-m", "harness_mem.mcp.server"]' not in setup
+
+    readme = Path("README.md").read_text(encoding="utf-8")
+    assert "[MCP setup](docs/mcp-setup.md)" in readme
+    assert '"args": ["-m", "harness_mem.mcp.server"]' not in readme
 
 
 def test_missing_optional_tiktoken_logs_a_concise_fallback_warning(

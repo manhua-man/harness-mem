@@ -1,40 +1,47 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from harness_mem.plugin_assets import DAILY_COMMANDS
 
 
-def _invocation_action_set(path: str, heading: str) -> set[str]:
-    content = Path(path).read_text(encoding="utf-8")
-    block = content.split(heading, 1)[1].split('<p align="center">', 1)[0]
-    command_line = next(line for line in block.splitlines() if line.startswith("- `/hm:*`"))
-    values = set(re.findall(r"`([^`]+)`", command_line))
-    values.discard("/hm:*")
-    return values
+def test_public_docs_lead_with_one_daily_entry_and_keep_legacy_actions() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+    chinese = Path("README.zh-CN.md").read_text(encoding="utf-8")
+    for body in (readme, chinese):
+        assert "harness-mem quickstart" in body
+        assert "`$hm`" in body
+        assert "`/hm`" in body
+    assert "Remember this session." in readme
+    assert "This memory is wrong." in readme
+    assert "记住这次。" in chinese
+    assert "这条记忆不对。" in chinese
+
+    command_dir = Path("code/plugins/harness-mem/commands/hm/daily")
+    assert {path.stem for path in command_dir.glob("*.md")} == set(DAILY_COMMANDS)
+    assert Path("code/plugins/harness-mem/commands/hm/hm.md").is_file()
 
 
-def _plugin_host_action_set(row: str, prefix: str) -> set[str]:
-    return set(re.findall(re.escape(prefix) + r"([a-z-]+)", row))
+def test_quickstart_keeps_mcp_connection_out_of_its_install_scope() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+    chinese = Path("README.zh-CN.md").read_text(encoding="utf-8")
+    quickstart = Path("docs/quickstart.md").read_text(encoding="utf-8")
+    combined = "\n".join((readme, chinese, quickstart))
+    normalized_readme = " ".join(readme.split())
+    normalized_chinese = "".join(chinese.split())
+    normalized_quickstart = " ".join(quickstart.split())
 
-
-def test_public_invocation_docs_match_the_daily_action_contract() -> None:
-    expected = set(DAILY_COMMANDS)
-    assert _invocation_action_set("README.md", "Invocation surfaces") == expected
-    assert _invocation_action_set("README.zh-CN.md", "触发入口") == expected
-
-    plugin = Path("code/plugins/harness-mem/README.md").read_text(encoding="utf-8")
-    claude_row = next(line for line in plugin.splitlines() if line.startswith("| Claude Code |"))
-    codex_row = next(line for line in plugin.splitlines() if line.startswith("| Codex |"))
-    other_row = next(
-        line
-        for line in plugin.splitlines()
-        if line.startswith("| Cursor, Grok, Hermes, OpenCode, Antigravity |")
-    )
-    assert _plugin_host_action_set(claude_row, "/hm:") == expected
-    assert _plugin_host_action_set(codex_row, "$hm-") == expected
-    assert _plugin_host_action_set(other_row, "/hm-") == expected
+    assert "does not import old sessions by default" in readme
+    assert "默认不会导入旧会话" in chinese
+    assert "does not import historical sessions by default" in normalized_quickstart
+    assert "does not inspect or change MCP settings" in normalized_readme
+    assert "不会查看或修改MCP设置" in normalized_chinese
+    assert "Quickstart does not inspect or change MCP settings" in normalized_quickstart
+    assert "codex mcp" not in combined
+    assert "adds the installed `harness-mem-mcp`" not in combined
+    assert "all seven hosts automatically register MCP" not in combined
+    assert "automatically registers MCP for every host" not in combined
+    assert not Path("harness_mem/integration/mcp_registration.py").exists()
 
 
 def test_doctor_does_not_publish_retired_weak_link_experiment() -> None:
@@ -65,7 +72,7 @@ def test_public_docs_describe_hooks_as_source_snapshot_and_dream_wakeup() -> Non
 
     assert "snapshot an immutable source revision + create/advance its job + wake Dream" in policy
     assert "Hook-started Dream -> read the triggering session + project sources/feedback -> verify + assimilate" in policy
-    assert "explicit /hm:distill -> active host" in policy
+    assert 'explicit "remember this session" -> active host' in policy
     assert "hooks only capture an immutable native transcript source revision" in cold_start
     assert "A Hook wakes Dream with that immutable source" in cold_start
     assert "Hooks save immutable revisions; Dream runs in the background" in flow_diagram
@@ -89,7 +96,7 @@ def test_current_docs_distinguish_five_modules_from_core_governance_feedback() -
     )
     test_plan = Path("docs/distill-test-plan.md").read_text(encoding="utf-8")
 
-    for body in (readme, adoption, governance):
+    for body in (adoption, governance):
         assert "session intake and lifecycle" in body
         assert "extraction" in body
         assert "verification" in body
@@ -100,10 +107,8 @@ def test_current_docs_distinguish_five_modules_from_core_governance_feedback() -
     assert "not operator-only maintenance" in governance
     assert "Review and Dream remain the governance feedback loop" in plan
     assert not Path("docs/roadmap/0.9.13-four-stage-memory-quality.md").exists()
-    assert "架构主链（五个可独立迭代的功能模块）" in chinese
-    assert "0. 会话接入与生命周期" in chinese
-    assert "核心治理反馈" in chinese
-    assert "会话丢失、回执不可靠、源误删 → 0. 会话接入与生命周期问题" in chinese
+    assert "memory-adoption.md" in readme
+    assert "docs/memory-adoption.md" in chinese
     assert "每个结果必须标记所属模块" in test_plan
 
 
@@ -186,15 +191,13 @@ def test_legacy_lifecycle_docs_use_lossless_session_distill_contract() -> None:
 
 
 def test_public_docs_require_complete_lossless_distill_before_promotion() -> None:
-    readme = Path("README.md").read_text(encoding="utf-8")
-    chinese = Path("README.zh-CN.md").read_text(encoding="utf-8")
+    adoption = Path("docs/memory-adoption.md").read_text(encoding="utf-8")
     flow = Path("docs/assets/harness-mem-lossless-session-flow.svg").read_text(
         encoding="utf-8"
     )
 
-    assert "without truncating them" in readme
-    assert "finalize_session_distill" in readme
-    assert "不截断内容" in chinese
+    assert "lossless chunks" in adoption
+    assert "source coverage stays lossless" in adoption
     assert "zero character loss" in flow
     assert "every expected chunk is checkpointed" in flow
 
@@ -202,7 +205,7 @@ def test_public_docs_require_complete_lossless_distill_before_promotion() -> Non
 def test_chinese_readme_does_not_send_normal_users_to_the_hook_installer() -> None:
     readme = Path("README.zh-CN.md").read_text(encoding="utf-8")
 
-    assert "不需要用户运行 hook installer" in readme
+    assert "harness-mem quickstart" in readme
     assert "harness-mem integration install-hook-suite --client cursor" not in readme
 
 

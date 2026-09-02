@@ -2,6 +2,9 @@
 
 `harness-mem` is designed to be used by MCP-capable Agent clients.
 
+This connection is managed by the Agent, MCP Router, plugin, or another setup
+tool. `harness-mem quickstart` does not inspect or change MCP settings.
+
 ## Server Command
 
 Use this command in your MCP client configuration:
@@ -14,8 +17,9 @@ For a project-scoped MCP entry, set the server's working directory to the
 workspace and pass the owning client in `HARNESS_MEM_CLIENT`. On its first
 `initialize` request, a recognized client automatically records the project
 profile, makes it active, and installs its hook suite without overwriting
-existing hook files. It also idempotently repairs that host's user-level Daily
-commands; command discovery is not tied to the current project.
+existing hook files. It also idempotently repairs that host's user-level daily
+command and compatibility actions; command discovery is not tied to the current
+project.
 
 ```json
 {
@@ -43,8 +47,8 @@ not only the hook command, so initialization sees the correct host identity.
 The callable tool prefix is chosen by the MCP client configuration, not by
 harness-mem. A direct server named `harness_mem` commonly exposes
 `mcp__harness_mem__*`; Codex connected through a server named `mcp_router`
-exposes the same logical tools as `mcp__mcp_router__*`. Daily commands and
-skills resolve `wake`, `get_project_status`, `prepare_session_distill`, and the
+exposes the same logical tools as `mcp__mcp_router__*`. The daily command and
+host instructions resolve `wake`, `get_project_status`, `prepare_session_distill`, and the
 other logical names from the current task's tool inventory. Users do not type
 these internal prefixes.
 
@@ -62,10 +66,10 @@ The server has one public memory surface. It exposes status, wake/search,
 session distill, composite `govern_memory`, candidate review, and Dream as the
 audited maintenance capability. Historical profile values are ignored.
 
-Unattended Dream processing is disabled until a project makes explicit
-project-scoped choices. Terminology (`receipt`, `runtime fingerprint`,
-`execution_mode`, `hook_reentry_count`, `outcome`, …): see
-[`docs/background-memory.md`](background-memory.md).
+Unattended Dream processing is disabled until a project makes an explicit
+project-scoped choice. Ordinary setup does not require the internal audit
+fields; see [`docs/background-memory.md`](background-memory.md) only when
+diagnosing background work.
 
 1. **`distill.autonomous.enabled=true`** — consent for this repository to run
    background host CLI work for the current client.
@@ -98,19 +102,21 @@ Hooks**, trust the project hooks, and start a new task. The status changes to
 `ok` only after the matching `SessionStart` Hook completes; changing the Hook
 manifest invalidates the old execution receipt.
 
-Invocation paths are host-native Daily commands, installed skills, Agent MCP
-calls, and explicit IDE hooks. Session-start/PreInvocation hooks inject
-read-only wake context; runtime task hooks call `autopilot_search_tick`, which
+Invocation paths are the host-native daily command, installed Agent
+instructions, MCP calls, and explicit IDE hooks. Session-start/PreInvocation
+hooks inject read-only wake context; runtime task hooks call
+`autopilot_search_tick`, which
 decides whether to run bounded `search_memory`. A save-point or session-end
 Hook saves evidence, creates or advances its exact session job, and emits a
 source-bound Dream activity signal. It does not read knowledge, call a provider,
 or write long-term knowledge.
 
 `wake` stays read-only. It never claims `distill_maintenance`, selects a queue
-job, or asks the current Agent to perform background semantic work. Users who
-want immediate work invoke `distill` in their current host; unattended
-Hook-started work is processed only by authorized Dream. `get_project_status`
-reports state without executing either path.
+job, or asks the current Agent to perform background semantic work. When users
+ask `$hm` or `/hm` to remember the current session immediately, that work stays
+in the current host; unattended Hook-started work is processed only by
+authorized Dream. `get_project_status` reports state without executing either
+path.
 
 `autopilot_search_tick` is the event-level scheduler. PI
 `transformContext` / `tool_result` / `prepareNextTurn`, Claude Code
@@ -142,8 +148,9 @@ that one explicit active-host job. It does not start a second unattended Dream
 run; Hook-started Dream is the separate background path. It returns `completion`, `promotion`,
 `queue_effect`, and `source_cleanup` summaries. Safe candidates enter the
 truth layer; everything else is terminally rejected instead of becoming a
-recurring daily prompt. `/hm:review` remains an optional correction, audit, and
-undo surface. Lower-level sync and chunk tools are internal Agent workflow, not user commands. Operator
+recurring daily prompt. When a user says a memory is wrong through `$hm` or
+`/hm`, the Agent uses the existing correction and undo path. Lower-level sync
+and chunk tools are internal Agent workflow, not user commands. Operator
 maintenance and skill lifecycle management are not public MCP tools.
 
 New candidates use `govern_memory(action="suggest")` with
@@ -235,11 +242,12 @@ cd harness-mem
 .\code\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
-The plugin includes the Daily command source for common memory actions,
-including dream. Install all host-native commands once with `harness-mem
-integration commands sync` (defaults: `--client all --scope user`): Claude Code uses `/hm:<action>`;
-Codex uses `$hm-<action>` skills; Cursor, Grok, Hermes, OpenCode, and Antigravity
-use `/hm-<action>`. The repo `install.ps1` runs this sync automatically.
+The plugin includes one daily command. Install it for every host once with
+`harness-mem integration commands sync` (defaults: `--client all --scope
+user`): Codex uses `$hm`; Claude Code, Cursor, Grok, Hermes, OpenCode, and
+Antigravity use `/hm`. The repo `install.ps1` runs this sync automatically.
+Action-specific `hm-*` entries are also installed for compatibility and
+advanced diagnosis, but they are not the default user path.
 Project-scoped MCP initialization installs the matching IDE hooks automatically.
 If hooks are missing, the next MCP initialization repairs the project-local
 installation without overwriting existing files.
@@ -298,9 +306,10 @@ Search harness-mem for the relevant project decision.
   such as index rebuilds, storage migration/export, and state audit.
 - Skill lifecycle governance is outside the public memory MCP and CLI product
   surface.
-- Daily use should happen through the Agent client and MCP tools.
+- Daily use should happen through `$hm` in Codex or `/hm` in the other hosts;
+  the Agent uses the existing MCP tools underneath.
 - `distill` creates candidates only after complete evidence review;
   `finalize_session_distill` applies the shared automatic governance policy to
   that explicit active-host job only. Hook-started Dream is the separate
-  unattended path. `/hm:review` is the post-hoc audit, correction, and undo
-  surface, not a required promotion gate.
+  unattended path. A user correction through `$hm` or `/hm` uses the post-hoc
+  audit and undo path; it is not a required promotion gate.

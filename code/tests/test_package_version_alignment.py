@@ -44,8 +44,8 @@ def test_source_and_public_install_versions_are_aligned() -> None:
         }
 
     current_version_text = {
-        "README.md": f"The current `{__version__}` source",
-        "README.zh-CN.md": f"当前 `{__version__}` 源码",
+        "README.md": f"Current source package version: **{__version__}**",
+        "README.zh-CN.md": f"当前源码包版本：**{__version__}**",
         "AGENTS.md": f"当前源码版本 `{__version__}`",
         "docs/memory-adoption.md": f"current\nsource is `{__version__}`",
         "docs/auto-promoted-memory-governance.md": (

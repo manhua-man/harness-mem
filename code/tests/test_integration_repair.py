@@ -91,8 +91,8 @@ def test_repair_reports_unsupported_stage_without_dropping_other_stage(
         project_root=tmp_path,
     )
 
-    assert report.status == "success"
-    assert report.success is True
+    assert report.status == "partial_failure"
+    assert report.success is False
     assert [result.status for result in report.results] == [
         "unsupported",
         "installed",

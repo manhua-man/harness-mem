@@ -11,13 +11,13 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import cast
 
 from harness_mem.integration.command_sync import (
     COMMAND_HOSTS,
-    VALID_COMMAND_PROFILES,
+    CommandHost,
     command_hint,
     known_command_names,
-    resolve_command_names,
     sync_host_commands,
     sync_slash_commands,
 )
@@ -91,18 +91,13 @@ def cmd_transcript_evidence(client: str, project_root: str | None) -> int:
 
 
 def cmd_list_command_profiles() -> int:
-    """Print the available Daily slash command set."""
+    """Print the main entry and retained compatibility actions."""
 
-    print("Daily command actions:")
-    for profile in VALID_COMMAND_PROFILES:
-        commands = " ".join(f"/hm:{name}" for name in resolve_command_names(profile=profile))
-        print(f"  {profile}: {commands}")
-    print("")
-    print("Host-native invocation:")
+    print("Main entry:")
     for client in COMMAND_HOSTS:
         print(f"  {client}: {command_hint(client)}")
     print("")
-    print("Known Daily actions:")
+    print("Compatibility actions:")
     print("  " + " ".join(f"hm-{name}" for name in known_command_names()))
     return 0
 
@@ -113,9 +108,8 @@ def _path_arg(value: str | None) -> Path | None:
 
 def _print_sync_result(result) -> int:
     prefix = "[DRY-RUN] Would sync" if result.dry_run else "Synced"
-    commands = " ".join(f"/hm:{name}" for name in result.selected_commands)
-    print(f"{prefix} {len(result.selected_commands)} Claude Code slash commands to {result.destination_dir}")
-    print(f"  Available: {commands}")
+    print(f"{prefix} claude-code commands to {result.destination_dir}")
+    print("  Use: /hm")
     if result.removed_commands:
         removed = " ".join(f"/hm:{name}" for name in result.removed_commands)
         print(f"  Removed: {removed}")
@@ -174,18 +168,13 @@ def cmd_sync_commands(
         prefix = "[DRY-RUN] Would sync" if dry_run else "Synced"
         for item, item_result in zip(COMMAND_HOSTS, results):
             print(
-                f"{prefix} {len(item_result.selected_commands)} {item} Daily commands "
+                f"{prefix} {item} commands "
                 f"to {item_result.destination_dir}"
             )
+            print(f"  Use: {command_hint(item)}")
         return 0
 
     prefix = "[DRY-RUN] Would sync" if result.dry_run else "Synced"
-    if client == "claude-code":
-        actions = " ".join(f"/hm:{name}" for name in result.selected_commands)
-    elif client == "codex":
-        actions = " ".join(f"$hm-{name}" for name in result.selected_commands)
-    else:
-        actions = " ".join(f"/hm-{name}" for name in result.selected_commands)
-    print(f"{prefix} {len(result.selected_commands)} {client} Daily commands to {result.destination_dir}")
-    print(f"  Available: {actions}")
+    print(f"{prefix} {client} commands to {result.destination_dir}")
+    print(f"  Use: {command_hint(cast(CommandHost, client))}")
     return 0

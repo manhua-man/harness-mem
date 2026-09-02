@@ -32,6 +32,10 @@ def _write_daily_status(plugin_root: Path, *, wire: str) -> None:
         f"---\nwireFormatVersion: {wire}\n---\n",
         encoding="utf-8",
     )
+    status_dir.parent.joinpath("hm.md").write_text(
+        f"---\nwireFormatVersion: {wire}\n---\n",
+        encoding="utf-8",
+    )
 
 
 def _write_skill(plugin_root: Path, *, wire: str) -> None:
@@ -90,6 +94,8 @@ def test_repo_daily_commands_advertise_runtime_wire_format() -> None:
     for command in DAILY_COMMANDS:
         body = command_dir.joinpath(f"{command}.md").read_text(encoding="utf-8")
         assert f"wireFormatVersion: {WIRE_FORMAT_VERSION}" in body
+    primary = command_dir.parent.joinpath("hm.md").read_text(encoding="utf-8")
+    assert f"wireFormatVersion: {WIRE_FORMAT_VERSION}" in primary
 
 
 def test_version_drift_reports_existing_stale_host_install(

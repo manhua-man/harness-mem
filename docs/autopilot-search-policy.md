@@ -1,8 +1,10 @@
 # Autopilot Search Policy
 
-`wake`, `search`, `distill`, `review`, and `dream` are a set of user actions,
-not a linear runtime loop or a daily manual checklist. They do not replace the
-internal functional architecture:
+The user has one daily entry: `$hm` in Codex and `/hm` in the other supported
+hosts. They can say “remember this session”, “find how we did this before”, or
+“this memory is wrong”. The Agent maps that request to the existing runtime;
+users do not need to choose `wake`, `search`, `distill`, `review`, or `dream`.
+Those internal capabilities do not replace the functional architecture:
 
 ```text
 session intake and lifecycle -> extraction -> verification -> assimilation
@@ -26,7 +28,7 @@ graph TD
     I --> J["Hook-started Dream"]
     J --> K["process triggering session -> verify -> assimilate"]
     K --> M["project governance: recheck current knowledge"]
-    M --> L["audit and undo: /hm:review"]
+    M --> L["user correction -> audit and undo"]
 ```
 
 The product principle is the same shape as Constitutional AI: the human moves
@@ -41,13 +43,14 @@ session_start -> wake
 context/tool/save_point -> task-aware search
 save_point/session_end -> snapshot an immutable source revision + create/advance its job + wake Dream
 Hook-started Dream -> read the triggering session + project sources/feedback -> verify + assimilate
-explicit /hm:distill -> active host checkpoints chunks -> extract + verify + assimilate
+explicit "remember this session" -> active host checkpoints chunks -> extract + verify + assimilate
 finalize_session_distill -> completeness check + commit for that explicit job only
 review -> post-hoc audit, correction, undo, supersede
 dream -> discover stale / duplicate / conflicting knowledge -> re-verify and assimilate with reversible audit
 ```
 
-`/hm:*` commands remain useful, but they are control and fallback surfaces.
+The older `/hm:<action>`, `$hm-<action>`, and `/hm-<action>` commands remain
+compatibility and advanced control surfaces, not the default product entry.
 When a client has hooks or an Agent extension API, the default installation
 should register the automatic path for that client.
 
@@ -66,8 +69,8 @@ Gemini CLI, or other clients.
 | `session_end` | Flush the current source revision, preserve every queued chunk, and wake Dream; the Hook itself does not summarize. | Stop, SessionEnd, SubagentStop, idle/settled hook. |
 
 The installer should configure every supported event the client exposes. If a
-platform lacks hooks, `/hm:wake`, `/hm:search`, `/hm:distill`, `/hm:review`,
-and `/hm:dream` are the fallback.
+platform lacks hooks, the user invokes `$hm` or `/hm` and states what they want
+in ordinary language.
 
 ## Runtime Scheduler Contract
 
@@ -93,7 +96,8 @@ Session-start stays `wake`. Session-end captures an immutable native transcript
 revision, queues its complete ordered chunk set, and wakes Dream; the Hook
 never claims semantic summarization completed. Dream reopens that session and
 then performs the same verified assimilation boundary plus project governance.
-An explicit `/hm:distill` instead stays in the active host. That separation
+An explicit “remember this session” request through `$hm` or `/hm` instead
+stays in the active host. That separation
 keeps Hook work small and the task-aware search policy testable inside
 `harness-mem`.
 
@@ -164,9 +168,9 @@ transcript source and cannot replace the immutable source revision.
 Dream is the sole unattended semantic executor. It reopens the triggering
 session, processes its durable chunks, verifies claims, and assimilates only
 governed results. It also checks the project's current knowledge, sources, and
-feedback for stale, duplicate, or conflicting truth. `/hm:distill` remains the
-explicit immediate/deep path in the active host; it may process up to three
-jobs. That explicit pipeline continues:
+feedback for stale, duplicate, or conflicting truth. A “remember this session”
+request through `$hm` or `/hm` remains the explicit immediate path in the active
+host; it may process up to three jobs. That pipeline continues:
 
 1. Claim each offered job by passing its `distill_job_id` to
    `prepare_session_distill` with `run_ingest=false`, preserving bounded
@@ -182,9 +186,10 @@ jobs. That explicit pipeline continues:
 5. Call `finalize_session_distill`; it verifies completeness and commits only
    that explicit active-host job. It does not start a separate Dream run.
 
-## Review Is Audit
+## Correcting a Memory
 
-`/hm:review` is where users inspect the ledger and correct the system:
+When a user tells `$hm` or `/hm` that a memory is wrong, the Agent uses the
+existing review path to:
 
 - inspect, correct, reject, or undo a governed truth mutation
 - supersede stale truth with visible lineage

@@ -14,19 +14,25 @@
 1. **Outcome before machinery** — lead with what is ready, missing, blocked, or changed.
 2. **Progressive disclosure** — default views stay compact; evidence, receipts, IDs, and raw transcripts appear only in explicit audit flows.
 3. **Trust is visible** — distinguish current truth, provisional evidence, stale material, and failed verification in language and structure.
-4. **One daily model** — supported hosts expose the same daily actions even when their native command or hook formats differ.
+4. **One daily entry** — supported hosts expose one native entry for ordinary recall, remembering, and correction even when their command or hook formats differ.
 5. **Safe by default** — preview destructive maintenance, retain uncertain sources, and make authorization boundaries explicit.
 6. **Repairable, not magical** — errors name the failed boundary, preserved state, and next safe action.
 
 ## Information Architecture
 
-Present daily actions around three user intents:
+The default path is: install, run `harness-mem quickstart` once in a project,
+then use one native entry. Codex exposes `$hm`; other supported hosts expose
+`/hm`. The entry accepts ordinary language for three intents:
 
-- Continue work with `wake` and task-aware `search`.
-- Preserve a reusable result through `distill`, verification, and assimilation.
-- Audit, correct, undo, or refresh knowledge through `review` and Dream.
+- Remember this session.
+- How did we solve this before?
+- This memory is wrong.
 
-`status` is the diagnostic overview. Raw evidence, candidate detail, storage repair, and cleanup are drill-down or operator surfaces rather than primary navigation.
+Wake happens with session entry and authorized background organization happens
+without becoming a daily checklist. `status`, Doctor, raw evidence, candidate
+detail, storage repair, and cleanup are diagnostic or operator drill-downs,
+not primary navigation. Do not create a parallel “simple mode”; the compact
+path is the product default and uses the same runtime contracts.
 
 ## CLI and MCP Output
 
@@ -41,9 +47,17 @@ Present daily actions around three user intents:
 ## Host-Native Commands
 
 - Preserve each host's native invocation style while keeping action names and semantics aligned.
+- Make the single normal entry discoverable before any individual action name:
+  `$hm` for Codex and `/hm` for other supported hosts.
 - Do not make users learn internal MCP server aliases.
+- Quickstart installs the native entry and project Hooks. It does not inspect,
+  add, remove, or replace MCP connections; the Agent, Router, or plugin that
+  owns those settings remains responsible for them.
 - Commands should resolve the active project from the workspace before asking for a project name.
 - Keep setup and repair instructions out of the normal daily loop unless diagnosis proves they are needed.
+- Keep automatic wake and authorized background organization out of the user's
+  required daily steps. State their result in ordinary language, and surface
+  diagnostic detail only when work needs attention.
 - Treat Hook trust or authorization gates as explicit user actions, not generic errors.
 
 ## Visual System
@@ -126,3 +140,4 @@ Use teal for identity and positive forward motion. Use gold sparingly for lineag
 | 2026-08-17 | Initial DX and visual design entry | `README.md`, `docs/assets/harness-mem-logo.svg`, `docs/ide-hook-adapter-matrix.md`, and host command surfaces |
 | 2026-08-22 | Refreshed the 0.9.25 public diagram system for 900px readability, five-module semantics, queue boundaries, and storage authority | Four public README SVG diagrams and localized alt text |
 | 2026-09-02 | Updated the current 0.9.26 source diagrams to distinguish source from public release and show project-selected CLI behavior | Four public README SVG diagrams, localized alt text, and current canvas panels |
+| 2026-09-03 | Made the one-time Quickstart and the single `$hm`/`/hm` daily entry the default documentation and DX path | `README.md`, `README.zh-CN.md`, and `docs/quickstart.md` |

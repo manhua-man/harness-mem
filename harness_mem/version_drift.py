@@ -33,6 +33,7 @@ def version_drift_report(
         "runtime": runtime_version_payload(),
         "plugin": _plugin_surface(paths.manifest),
         "skill": _text_surface(paths.skill),
+        "primary_command": _text_surface(paths.primary_command),
         "slash_status": _text_surface(paths.daily_status),
         "host_slash_commands": _host_slash_commands_surface(claude_home),
         "host_skill": _host_skill_surface(claude_home),
@@ -76,7 +77,7 @@ def version_drift_report(
             }
         )
 
-    for name in ("skill", "slash_status"):
+    for name in ("skill", "primary_command", "slash_status"):
         surface = surfaces[name]
         if not surface.get("found"):
             issues.append(
@@ -108,7 +109,7 @@ def version_drift_report(
         "has_drift": bool(issues),
         "update_guidance": [
             "Codex plugin: reinstall or refresh code/plugins/harness-mem without mutating global config automatically.",
-            "Slash commands: run code/plugins/harness-mem/scripts/install.ps1, code/plugins/harness-mem/scripts/sync-commands.ps1, or `harness-mem integration commands sync` so /hm:* registrations point at the current assets.",
+            "Commands: run code/plugins/harness-mem/scripts/install.ps1, code/plugins/harness-mem/scripts/sync-commands.ps1, or `harness-mem integration commands sync` so the $hm or /hm entry points at the current assets.",
             "MCP: restart the host MCP session after updating the runtime package.",
         ],
     }
@@ -141,7 +142,9 @@ def _host_root(claude_home: Path | None) -> Path:
 
 
 def _host_slash_commands_surface(claude_home: Path | None) -> dict[str, Any]:
-    command_dir = _host_root(claude_home) / "commands" / "hm"
+    commands_root = _host_root(claude_home) / "commands"
+    command_dir = commands_root / "hm"
+    primary_path = commands_root / "hm.md"
     files = {path.stem: path for path in command_dir.glob("*.md")} if command_dir.exists() else {}
     present = tuple(command for command in DAILY_COMMANDS if command in files)
     missing = tuple(command for command in DAILY_COMMANDS if command not in files)
@@ -156,6 +159,11 @@ def _host_slash_commands_surface(claude_home: Path | None) -> dict[str, Any]:
         "present": present,
         "missing": missing,
         "stale": stale,
+        "primary_found": primary_path.is_file(),
+        "primary_path": str(primary_path),
+        "primary_stale": (
+            primary_path.is_file() and WIRE_FORMAT_VERSION not in _read_text(primary_path)
+        ),
     }
 
 
@@ -178,6 +186,24 @@ def _append_host_install_issues(
                 "surface": "host_slash_commands",
                 "kind": "incomplete_install",
                 "message": "installed Claude /hm:* commands are incomplete",
+                "fix": "Run code/plugins/harness-mem/scripts/install.ps1 or code/plugins/harness-mem/scripts/sync-commands.ps1.",
+            }
+        )
+    if slash.get("found") and not slash.get("primary_found"):
+        issues.append(
+            {
+                "surface": "host_slash_commands",
+                "kind": "missing_primary_entry",
+                "message": "installed Claude /hm entry is missing",
+                "fix": "Run code/plugins/harness-mem/scripts/install.ps1 or code/plugins/harness-mem/scripts/sync-commands.ps1.",
+            }
+        )
+    if slash.get("primary_stale"):
+        issues.append(
+            {
+                "surface": "host_slash_commands",
+                "kind": "stale_wire_format",
+                "message": "installed Claude /hm entry is stale",
                 "fix": "Run code/plugins/harness-mem/scripts/install.ps1 or code/plugins/harness-mem/scripts/sync-commands.ps1.",
             }
         )

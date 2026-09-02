@@ -26,7 +26,9 @@ PLUGIN_COMMAND_SOURCE_RELATIVE = PLUGIN_RELATIVE_ROOT / "commands" / "hm"
 PLUGIN_MANIFEST_RELATIVE = PLUGIN_RELATIVE_ROOT / ".codex-plugin" / "plugin.json"
 PLUGIN_SKILL_RELATIVE = PLUGIN_RELATIVE_ROOT / "skills" / "harness-mem" / "SKILL.md"
 PLUGIN_DAILY_STATUS_RELATIVE = PLUGIN_COMMAND_SOURCE_RELATIVE / "daily" / "status.md"
+PLUGIN_PRIMARY_COMMAND_RELATIVE = PLUGIN_COMMAND_SOURCE_RELATIVE / "hm.md"
 
+PRIMARY_COMMAND = "hm"
 DAILY_COMMANDS = ("status", "wake", "search", "search-all", "distill", "review", "dream")
 RETIRED_COMMANDS = ("mark", "prune")
 VALID_COMMAND_PROFILES: tuple[CommandProfile, ...] = ("daily",)
@@ -41,6 +43,7 @@ class PluginAssetPaths:
     plugin_root: Path
     manifest: Path
     command_source: Path
+    primary_command: Path
     daily_status: Path
     skill: Path
 
@@ -68,6 +71,7 @@ def plugin_asset_paths(repo_root: Path) -> PluginAssetPaths:
         plugin_root=plugin_root,
         manifest=plugin_root / ".codex-plugin" / "plugin.json",
         command_source=command_source,
+        primary_command=command_source / "hm.md",
         daily_status=command_source / "daily" / "status.md",
         skill=plugin_root / "skills" / "harness-mem" / "SKILL.md",
     )
@@ -117,9 +121,11 @@ __all__ = [
     "PLUGIN_DAILY_STATUS_RELATIVE",
     "PLUGIN_MANIFEST_RELATIVE",
     "PLUGIN_NAME",
+    "PLUGIN_PRIMARY_COMMAND_RELATIVE",
     "PLUGIN_RELATIVE_ROOT",
     "PLUGIN_SKILL_RELATIVE",
     "PluginAssetPaths",
+    "PRIMARY_COMMAND",
     "RETIRED_COMMANDS",
     "VALID_COMMAND_PROFILES",
     "CommandProfile",

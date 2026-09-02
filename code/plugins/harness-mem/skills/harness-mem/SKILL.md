@@ -1,7 +1,8 @@
 ---
 name: harness-mem
 description: Use harness-mem as a local-first memory runtime for the current project. Trigger when the user asks to remember prior work, resume a project, search old agent sessions, distill recent agent sessions, create durable project rules, or explain what the project currently knows.
-wireFormatVersion: hm-wire-v3.5
+metadata:
+  wireFormatVersion: hm-wire-v3.5
 ---
 
 # harness-mem
@@ -14,16 +15,17 @@ Treat the project as real production context:
 
 - Prefer MCP tools (`get_project_status`, `wake`, `search_memory`, `timeline`) before guessing from memory.
 - Use `prepare_session_distill` for stale project state; it syncs immutable transcript revisions and claims complete ordered chunks.
-- Follow the self-contained distill contract in this installed skill and the
-  `hm-distill` Daily command; runtime behavior remains in public `harness-mem`
-  MCP tools.
+- Follow the self-contained distill contract in this installed skill when the
+  user asks `$hm` or `/hm` to remember a session; runtime behavior remains in
+  public `harness-mem` MCP tools.
 - Distilled memory is governed automatically. Low-risk items may become readable memory; review is the post-hoc audit and correction surface.
 - Use `govern_memory(action="suggest")`, `list_candidates`, and
   `govern_memory(action="decide")` for stable facts or rules the user explicitly
   wants remembered.
 - Confirmed truth can be maintained automatically, but it must not be silently overwritten; durable changes go through candidate / review / supersede / ledger.
 - Cross-project skills can be read as procedural memory hints, but lifecycle management is outside the public memory MCP surface.
-- Keep the default surface to Daily commands: wake, search, distill, review, and dream. Artifact maintenance commands are opt-in.
+- Keep the default surface to one entry: `$hm` in Codex and `/hm` elsewhere.
+  The older action-specific entries remain compatibility and diagnosis tools.
 - Retain original session sources by default. Delete only after an operator
   explicitly enables `distill.delete_source_after_complete=true` with
   `--confirm`; supported standalone sources must still pass quiet/CAS/hash
@@ -52,7 +54,7 @@ until the active Router/direct namespace has been checked.
   with preview, and removes the complete internal closure plus eligible native
   session sources only after `--apply`.
 
-## Daily Workflow
+## Everyday Workflow
 
 From the repository root, the user-facing path is IDE command / skill / natural-language agent instruction, not manual CLI. If the client has no slash command surface (for example Cursor through a router), tell the user the natural-language prompt to give the agent instead of listing terminal commands or MCP tool names.
 
@@ -66,10 +68,9 @@ For status and wake-up:
    call a provider, or mutate knowledge. Hook-created work is processed by an
    authorized Dream run; immediate user-requested work uses explicit distill in
    the active host.
-5. Summarize the usable context and suggest the next IDE-native action:
-   - Claude Code: `/hm:distill`, `/hm:review`, or `/hm:wake`.
-   - Cursor / Antigravity / opencode / Hermes / generic AI IDE: "用 harness-mem 唤醒当前项目" or "用 harness-mem 整理最近 N 个 session".
-   - Do not present terminal commands as the normal answer when MCP tools are available.
+5. Summarize the usable context directly. If the user wants another memory
+   action, tell them to use `$hm` in Codex or `/hm` elsewhere and say what they
+   want in ordinary language. Do not make them choose an internal action name.
 
 If the project has new sessions:
 

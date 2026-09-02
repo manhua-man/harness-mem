@@ -111,7 +111,7 @@ Weights match Layer 1: L1 20%, L2 25%, L3 15%, L4 20%, L5 15%, L6 5%.
 
 The live checklist, point weights, and current-machine results are maintained in:
 
-- IDE canvas `harness-mem-convergence.canvas.tsx` (computed UI)
+- Repository canvas `canvases/harness-mem-convergence.canvas.tsx` (computed UI)
 - Outcome source: `python code/tools/outcome-verifier/scripts/verify_outcomes.py --config .codex/outcomes.json`
 
 Re-score after every outcome-verifier run or when contract probes are executed. Do not
@@ -123,9 +123,9 @@ External products do **not** share harness-mem outcome probes. Compare them with
 `docs/reference-projects/` adopt/adapt/reject tables — not with a single competitor
 percentile unless an explicit shared checklist exists.
 
-Autonomous isolation outcomes verify **current-release** unattended execution
-(`execution_mode=agent`, hook-reentry ledger, no Hook re-entry,
-auditable receipt) for the authorized host CLI agent. **Product default mode is
+Autonomous isolation checks verify **current-release** unattended execution
+through the selected host CLI, including three real Hook calls that are blocked
+without creating a downstream job and an auditable receipt. **Product default mode is
 agent** (`enabled=false` turns background off). See
 [`docs/background-memory.md`](background-memory.md) and
 `docs/roadmap.md`.
@@ -149,8 +149,8 @@ agent** (`enabled=false` turns background off). See
 
 See `canvases/harness-mem-readiness-v1.canvas.tsx` for the compact architecture panel and
 `canvases/harness-mem-convergence.canvas.tsx` for the convergence narrative. The full
-Readiness Ladder lives in the IDE panel `harness-mem-readiness-v3.canvas.tsx`. The
-source facts are refreshed for `0.9.26`; the latest published package is
+checklist and current-machine results are kept in the checked-in convergence
+canvas. The source facts are refreshed for `0.9.26`; the latest published package is
 `0.9.26`, and individual device-throughput rows
 remain operational measurements rather than a release-quality claim.
 It deliberately does not merge repository release maturity with one device's live

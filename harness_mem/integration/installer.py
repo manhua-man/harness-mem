@@ -127,6 +127,47 @@ def _is_legacy_hook(path: Path) -> bool:
     return _LEGACY_HOST_ENTRY in text
 
 
+def _render_hook_body(
+    *,
+    template_name: str,
+    project_root: Path,
+    harness_mem_version: str,
+    generated_at: datetime,
+    doc_pointer: str,
+    template_vars: Mapping[str, str] | None,
+    hook_runner: Path,
+) -> str:
+    body = (
+        resources.files(_TEMPLATES_PACKAGE)
+        .joinpath(template_name)
+        .read_text(encoding="utf-8")
+    )
+    rendered = _render(
+        body,
+        project_root_abs=project_root.resolve().as_posix(),
+        harness_mem_version=harness_mem_version,
+        generated_at_iso=generated_at.isoformat(),
+        doc_pointer=doc_pointer,
+        hook_runner=hook_runner.resolve(),
+        template_vars=template_vars,
+    )
+    _assert_boundary(rendered, hook_runner=hook_runner.resolve())
+    return rendered
+
+
+def _same_managed_hook(existing: str, expected: str) -> bool:
+    """Compare a generated hook while ignoring its informational timestamp."""
+
+    def normalized(value: str) -> str:
+        return re.sub(
+            r"(?m)^# Generated at: .*$",
+            "# Generated at: <generated>",
+            value,
+        )
+
+    return normalized(existing) == normalized(expected)
+
+
 def install_hook(
     *,
     template_name: str,
@@ -168,23 +209,16 @@ def install_hook(
     if target_path.exists() and not force and not _is_legacy_hook(target_path):
         raise FileExistsError(str(target_path))
 
-    resolved_root = Path(project_root).resolve()
     resolved_runner = Path(hook_runner).resolve() if hook_runner is not None else verified_hook_runner()
-    body = (
-        resources.files(_TEMPLATES_PACKAGE)
-        .joinpath(template_name)
-        .read_text(encoding="utf-8")
-    )
-    rendered = _render(
-        body,
-        project_root_abs=resolved_root.as_posix(),
+    rendered = _render_hook_body(
+        template_name=template_name,
+        project_root=project_root,
         harness_mem_version=harness_mem_version,
-        generated_at_iso=generated_at.isoformat(),
+        generated_at=generated_at,
         doc_pointer=doc_pointer,
-        hook_runner=resolved_runner,
         template_vars=template_vars,
+        hook_runner=resolved_runner,
     )
-    _assert_boundary(rendered, hook_runner=resolved_runner)
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_text(rendered, encoding="utf-8")
@@ -222,8 +256,10 @@ def install_hook_suite(
 ) -> list[HookInstallResult]:
     """Install a set of hooks idempotently.
 
-    Existing files are reported as ``exists`` unless ``force`` is set. Missing
-    files are rendered with the same boundary checks as :func:`install_hook`.
+    Existing files are reported as ``unchanged`` only when their generated
+    content still matches the current project, runner, and template. An unknown
+    or edited file is preserved and raises ``FileExistsError`` unless ``force``
+    is set.
     """
 
     resolved_runner = Path(hook_runner).resolve() if hook_runner is not None else verified_hook_runner()
@@ -245,10 +281,25 @@ def install_hook_suite(
                 )
                 results.append(HookInstallResult(target_path=written, status="updated"))
                 continue
+            expected = _render_hook_body(
+                template_name=spec.template_name,
+                project_root=project_root,
+                harness_mem_version=harness_mem_version,
+                generated_at=generated_at,
+                doc_pointer=doc_pointer,
+                template_vars=spec.template_vars,
+                hook_runner=resolved_runner,
+            )
+            existing = spec.target_path.read_text(encoding="utf-8")
+            if not _same_managed_hook(existing, expected):
+                raise FileExistsError(
+                    f"existing Hook was not installed by this harness-mem setup: "
+                    f"{spec.target_path.resolve()}"
+                )
             results.append(
                 HookInstallResult(
                     target_path=spec.target_path.resolve(),
-                    status="exists",
+                    status="unchanged",
                 )
             )
             continue

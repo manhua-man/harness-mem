@@ -13,8 +13,8 @@ plugin manifest, skills, and slash command assets mirror that contract.
 ## What It Includes
 
 - MCP server config for the installed `harness-mem-mcp` command.
-- Claude Code `/hm:*` command files for common memory actions.
-- Agent skills that teach the client when to wake, search, distill, and review.
+- One daily command: `$hm` in Codex and `/hm` in the other supported hosts.
+- Agent instructions that turn ordinary requests into the existing memory tools.
 - Optional `grill-with-docs` for explicit, user-led design clarification and
   confirmed glossary/ADR maintenance; it is not part of unattended distill.
 - PowerShell install and doctor helpers.
@@ -23,7 +23,8 @@ Invocation paths installed by this plugin:
 
 | Path | Calls |
 |---|---|
-| `/hm:*` commands | Daily status, wake, search, search-all, distill, review, and dream. |
+| `$hm` / `/hm` | Remember this session, find earlier work, or correct a memory. |
+| Legacy action commands | Compatibility and advanced diagnosis only. |
 | Agent skills | Memory tool calls selected by the host Agent. |
 | Optional MCP registration | User-level `harness_mem` server entry for Claude Code. |
 
@@ -41,12 +42,17 @@ To also register the MCP server with Claude Code:
 .\code\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
 ```
 
-The installer syncs the Daily command surface once at user scope for all seven
+The installer syncs the daily command once at user scope for all seven
 supported hosts. New projects discover it without another sync:
 
 ```text
-/hm:status /hm:wake /hm:search /hm:search-all /hm:distill /hm:review /hm:dream
+Codex: $hm
+Other hosts: /hm
 ```
+
+The older `hm-status`, `hm-wake`, `hm-search`, `hm-search-all`, `hm-distill`,
+`hm-review`, and `hm-dream` entries remain installed for compatibility and
+advanced diagnosis. Ordinary users do not need to learn them.
 
 `install.ps1` installs or updates the runtime and runs the all-host user-level
 sync. `sync-commands.ps1` refreshes those command files without reinstalling
@@ -54,7 +60,7 @@ the Python package or rerunning doctor checks.
 
 `harness-mem doctor` reports plugin drift in two separate buckets:
 
-- repo assets: the checked-in plugin manifest, skill, and Daily slash command
+- repo assets: the checked-in plugin manifest, daily command, and compatibility
   assets that should match the runtime version and wire format.
 - host install: existing Claude Code command and skill files under the user
   profile. Missing host files are not treated as runtime failure; stale existing
@@ -86,16 +92,27 @@ Run a local smoke check:
 .\plugins\harness-mem\scripts\doctor.ps1 -Wake
 ```
 
-## Daily Commands
+## Everyday Use
 
-Every supported host exposes the same seven Daily actions through its native
-command mechanism. The action names are stable; only the host's prefix differs.
+Every supported host exposes one daily entry through its native command
+mechanism.
 
 | Host | Invocation |
 |---|---|
-| Claude Code | `/hm:status`, `/hm:wake`, `/hm:search`, `/hm:search-all`, `/hm:distill`, `/hm:review`, `/hm:dream` |
-| Codex | `$hm-status`, `$hm-wake`, `$hm-search`, `$hm-search-all`, `$hm-distill`, `$hm-review`, `$hm-dream` |
-| Cursor, Grok, Hermes, OpenCode, Antigravity | `/hm-status`, `/hm-wake`, `/hm-search`, `/hm-search-all`, `/hm-distill`, `/hm-review`, `/hm-dream` |
+| Codex | `$hm` |
+| Claude Code, Cursor, Grok, Hermes, OpenCode, Antigravity | `/hm` |
+
+Use normal language after invoking it:
+
+```text
+记住这次
+找一下以前怎么做的
+这条记忆不对
+```
+
+Wake runs automatically when a session starts. Authorized Dream work runs in
+the background. Cross-project search happens only when the user explicitly
+asks for it.
 
 The repo installer already performs the one-time all-host sync. To repair or
 refresh it independently:
@@ -107,8 +124,8 @@ harness-mem integration commands sync
 Use `--client codex` to refresh only one host, or `--client codex --scope
 project --project-root .` when deliberately creating a repo-local command set.
 Hermes is profile-scoped and therefore supports only `--scope user`.
-Codex uses skills because its slash menu
-only accepts built-in commands; `$hm-*` is its native, user-invocable form.
+Codex uses a skill because its slash menu only accepts built-in commands;
+`$hm` is its native, user-invocable form.
 The generated skills resolve logical MCP tool names against the current task:
 Codex behind MCP Router commonly uses `mcp__mcp_router__*`, while a direct
 `harness_mem` server uses `mcp__harness_mem__*`. Restart the server and start a
@@ -124,7 +141,8 @@ new task after changing registration or upgrading the tool schema.
 | OpenCode | `~/.config/opencode/commands` |
 | Antigravity | `~/.gemini/antigravity/global_workflows` |
 
-The underlying actions are:
+The older action-specific entries remain available for compatibility and
+advanced diagnosis:
 
 | Command | Purpose |
 |---|---|
@@ -152,7 +170,7 @@ The underlying actions are:
 - Raw session sources are retained by default. Cleanup is allowed only after an
   operator explicitly sets `distill.delete_source_after_complete=true` with
   `--confirm`; supported standalone sources must still pass quiet/CAS/hash
-  checks, and every completed job reports the actual cleanup outcome.
+  checks, and every completed job reports the actual cleanup result.
 - Confirmed memory is what future `wake` and `search` consume.
 
 See the public [README](https://github.com/manhua-man/harness-mem),
