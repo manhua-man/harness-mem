@@ -25,7 +25,7 @@ Treat the project as real production context:
 - Confirmed truth can be maintained automatically, but it must not be silently overwritten; durable changes go through candidate / review / supersede / ledger.
 - Cross-project skills can be read as procedural memory hints, but lifecycle management is outside the public memory MCP surface.
 - Keep the default surface to one entry: `$hm` in Codex and `/hm` elsewhere.
-  The older action-specific entries remain compatibility and diagnosis tools.
+  Do not create or recommend action-specific entries.
 - Retain original session sources by default. Delete only after an operator
   explicitly enables `distill.delete_source_after_complete=true` with
   `--confirm`; supported standalone sources must still pass quiet/CAS/hash

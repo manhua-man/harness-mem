@@ -23,7 +23,7 @@ import {
 const AS_OF = "2026-09-03";
 const RUNTIME_VERSION = "0.9.26";
 const PUBLIC_RELEASE_VERSION = "0.9.26";
-const PYTEST_COUNT = 1069;
+const PYTEST_COUNT = 1048;
 const MCP_TOOL_COUNT = 27;
 const HOST_COUNT = 7;
 const OUTCOME_CLAIM_COUNT = 14;
@@ -126,6 +126,7 @@ const CLAIM_BOUNDARY = [
   "无静默 durable write（须逐点验证 + assimilation / review 路径）",
   "completed / queued 字段本身不是用户结果证据",
   "mock 通过或配置存在不能替代实际运行检查",
+  "无 action-specific hm-* 兼容入口；项目 Hook 准备不重装全局命令",
 ];
 
 const RETIRED_NARRATIVES = [
@@ -141,7 +142,7 @@ const PRODUCT_SHAPE: string[][] = [
   ["Truth authority", "SQLite knowledge_entries", "Postgres canonical + SQLite legacy session path", "API/backend durable store", "vector store 为主 · SQLite history 审计", "graph edges · valid/expired_at 生命周期"],
   ["无人值守语义", "Dream（Hook · enabled + 宿主 CLI Agent）", "BullMQ generation worker", "DB queue poller workers", "无 · 调用方驱动 SDK", "LLM 驱动图谱写入"],
   ["任务/队列模型", "SQLite distill job · chunk lease · receipt", "transactional outbox · post-commit queue", "FOR UPDATE SKIP LOCKED · slot pool", "同步 API · 无持久队列", "图数据库事务 · 非 outbox"],
-  ["Agent 日常面", "27 MCP tools · 7 hosts · $hm / /hm", "HTTP compat · hook/server-beta", "REST API 客户端", "Python/TS SDK embed", "Python library · 非 Agent MCP 产品"],
+  ["Agent 日常面", "全局一次 Quickstart · 7 hosts · 唯一 $hm / /hm · 项目首次使用自动准备 Hook", "HTTP compat · hook/server-beta", "REST API 客户端", "Python/TS SDK embed", "Python library · 非 Agent MCP 产品"],
   ["Graph / 外部 broker", "明确不做（defer / maturity-model）", "Redis/BullMQ · Postgres", "Postgres/Oracle 等多后端", "多 vector provider", "Neo4j/FalkorDB 等"],
   ["分发", "GitHub Releases wheel · 无 PyPI", "npm / server 部署", "服务化部署", "PyPI SDK", "库集成"],
   ["harness-mem 关系", "当前产品", "可靠性参考 · 非目标架构", "worker/lease 参考 · 非目标架构", "scoped deletion 参考 · 非 distill 蓝图", "时序检索参考 · 非 storage engine"],

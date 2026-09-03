@@ -138,7 +138,7 @@ def _ingest_sessions(
     project_root: str | None = None,
     session_id: str | None = None,
 ) -> dict:
-    """Low-level transcript sync used by /hm:distill and diagnostics."""
+    """Low-level transcript sync used by remember requests and diagnostics."""
     normalized_client = normalize_client_name(client)
     if normalized_client not in SUPPORTED_INGEST_CLIENTS:
         return {

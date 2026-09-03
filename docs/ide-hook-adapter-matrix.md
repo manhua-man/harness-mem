@@ -31,10 +31,10 @@ automatically:
 | `opencode` | `.opencode/plugins/harness-mem.ts` | `session.created` -> `wake-start`; `session.idle` -> maintenance | plugin event payload |
 | `antigravity` | `.agents/hooks.json` | `PreInvocation` -> wake injection; `Stop` -> evidence staging | `harness-mem-hook` adapters read camelCase hook stdin JSON |
 
-Daily command discovery is a separate, user-level install. Running
-`harness-mem integration commands sync` once installs one daily entry for all
-seven hosts, so a fresh unrelated project can invoke it before it has any
-project-local files:
+Daily command discovery is a separate, user-level install. Quickstart installs
+one entry for the current Agent app, so a fresh unrelated project can invoke it
+before it has any project-local files. An operator may explicitly sync more
+apps, but that is not the normal setup path:
 
 | Host | User-level command discovery | Invocation |
 |---|---|---|
@@ -46,13 +46,11 @@ project-local files:
 | OpenCode | `~/.config/opencode/commands/hm.md` | `/hm` |
 | Antigravity | `~/.gemini/antigravity/global_workflows/hm.md` | `/hm` |
 
-The action-specific `hm-*` files are still synchronized for compatibility and
-advanced diagnosis, but they are not the default product entry.
-
-These files contain no project path. The first MCP initialization inside each
-workspace adopts that project and installs only its native hook adapter. Codex
-still requires its one-time native trust approval for each new or changed
-project hook manifest.
+The entry contains no project path. The first `hm` status call in each workspace
+adopts that project and installs only its native Hook adapter. A recognized,
+workspace-scoped MCP initialization can do the same preparation earlier. Codex
+still requires its native trust approval for each new or changed project Hook
+manifest.
 
 The checked-in templates live in `harness_mem/integration/templates/` and are
 wired by `_suite_specs()` plus the Hermes config installer in
@@ -217,8 +215,8 @@ should only fill in project root, command path, and small host-specific IDs.
 - `OpenCode` remains a plugin adapter, not a shell-hook adapter.
 - `Antigravity` uses project-local `.agents/hooks.json`; its transcript adapter
   reads verified brain `transcript[_full].jsonl` and CLI `history.jsonl` formats.
-- Antigravity's daily command and compatibility actions are user-global
-  workflows, not project-local `.agents/skills` copies.
+- Antigravity's one daily entry is a user-global workflow, not a project-local
+  `.agents/skills` copy.
 - `Hermes` transcript ingest accepts verified `session_*.json` exports and the
   upstream `sessions/messages` SQLite schema from `state.db`.
 

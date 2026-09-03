@@ -1,6 +1,6 @@
 {
   "name": "prepare_session_distill",
-  "description": "Prepare one /hm:distill decision packet. An explicit session_id selects that session directly, including parked work. Semantic mode bundles the bounded decision windows so the common path can finalize without another prepare call.",
+  "description": "Prepare one remember-this-session decision packet. An explicit session_id selects that session directly, including parked work. Semantic mode bundles the bounded decision windows so the common path can finalize without another prepare call.",
   "inputSchema": {
     "type": "object",
     "properties": {

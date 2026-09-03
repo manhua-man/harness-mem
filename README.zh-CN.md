@@ -27,19 +27,20 @@ python -m pip install \
   harness-mem==0.9.26
 ```
 
-然后在想要记住的项目中只运行一次：
+然后在你使用的 Agent 应用里全局运行一次：
 
 ```bash
 harness-mem quickstart
 ```
 
-Quickstart 会识别项目。Codex 和 Claude Code 可以直接识别；其他宿主如果没有
-提供自己的名称，Quickstart 会停下来，请你运行一次例如
+Quickstart 会识别当前应用。Codex 和 Claude Code 可以直接识别；无法识别时，
+Quickstart 会停下来，请你运行一次例如
 `harness-mem quickstart --client cursor` 的命令，而不会猜成另一个宿主。确认后它
-才安装对应入口与已验证的项目 Hook，默认不会导入旧会话。它不会查看或修改 MCP
-设置。MCP 连接由 Agent、MCP Router、插件或用户已有的安装工具管理。如果 Agent
+只为该应用安装一个全局 `$hm` 或 `/hm` 入口；它不检查项目、不写项目 Hook，也
+不扫描或导入旧会话。它不会查看或修改 MCP 设置。MCP 连接由 Agent、MCP Router、插件或用户已有的安装工具管理。如果 Agent
 还不能使用 harness-mem，再单独按
-[MCP 接入](docs/mcp-setup.md)连接。完成后新开一个 task。软件通过 GitHub Releases
+[MCP 接入](docs/mcp-setup.md)连接。完成后新开一个 task，以后在任何项目直接使用
+`hm`。每个项目第一次使用时会自动准备该项目和 Hook。软件通过 GitHub Releases
 分发，不发布到 PyPI。
 
 如需本地 vector 或 hybrid search，可从同一 release 索引安装

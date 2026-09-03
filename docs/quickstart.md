@@ -1,7 +1,7 @@
 # Quickstart
 
-This is the only setup path most people need. Install `harness-mem`, run one
-command in a project, then use one native entry in your Agent.
+Install `harness-mem`, run Quickstart once for the Agent app you use, then use
+one memory entry in any project.
 
 ## Install once
 
@@ -13,9 +13,8 @@ python -m pip install \
   harness-mem==0.9.26
 ```
 
-The package is distributed through GitHub Releases rather than PyPI. The release
-index selects the compatible native wheel. Optional local vector or hybrid
-search dependencies use the same index:
+The package is distributed through GitHub Releases rather than PyPI. Optional
+local vector or hybrid search dependencies use the same index:
 
 ```bash
 python -m pip install \
@@ -23,45 +22,39 @@ python -m pip install \
   "harness-mem[hybrid]==0.9.26"
 ```
 
-From the project you want to remember, run:
+Run Quickstart once in the Agent app you use. The current directory does not
+matter:
 
 ```bash
 harness-mem quickstart
 ```
 
-Quickstart detects the current project. It can identify Codex and Claude Code
-directly, and uses `HARNESS_MEM_CLIENT` when another host supplies it. If the
-current app cannot be identified, Quickstart stops without installing another
-app's files. Run it again with the app name, for example:
+Quickstart identifies Codex and Claude Code directly. If it cannot identify the
+current app, it stops instead of guessing. Supply the app name once:
 
 ```bash
 harness-mem quickstart --client cursor
 ```
 
-Quickstart installs the matching native entry and project Hook files, and does
-not import historical sessions by default. An existing dedicated Hook file is
-accepted only when it matches the current project, Hook runner, and expected
-action. An unknown or edited file is preserved and setup stops; use Doctor to
-inspect it, then run an explicit repair only if you intend to replace it.
-Quickstart does not inspect or change MCP settings. The Agent, MCP Router,
-plugin, or other setup tool owns that connection. If harness-mem is not already
-available in the Agent, connect it separately using [MCP setup](mcp-setup.md).
-Then start a new Agent task.
+Quickstart installs one global entry for that app: `$hm` in Codex or `/hm` in
+the other supported apps. It does not inspect a project, create project files,
+install project Hooks, or scan or import historical sessions. It also does not
+inspect or change MCP settings. The Agent, MCP Router, plugin, or other setup
+tool that owns the MCP connection remains responsible for it. If harness-mem is
+not already available in the Agent, follow [MCP setup](mcp-setup.md).
 
-In Codex, native command hooks require one additional approval: open **Settings
-> Hooks**, review and trust the project hooks, then start a new task. This is a
-Codex security decision, not a command that harness-mem can make for you.
+Start a new Agent task after Quickstart so the new entry is discovered.
 
-## Use one entry
+## Use it in any project
 
-After Quickstart, use the entry native to your Agent:
+Use the entry native to your Agent:
 
 | Host | Entry |
 |---|---|
 | Codex | `$hm` |
 | Claude Code, Cursor, Grok, Hermes, OpenCode, Antigravity | `/hm` |
 
-Use ordinary language:
+Then say what you want:
 
 ```text
 Remember this session.
@@ -69,47 +62,44 @@ How did we solve this before?
 This memory is wrong.
 ```
 
-The entry determines whether to retain, retrieve, or correct memory and returns
-a short human-readable result. It will not ask you to pick a storage backend,
-provider profile, or internal action name for ordinary work.
+On the first use in a project, `hm` resolves the current workspace, connects it
+to its local project memory, and installs that host's project Hooks. This is
+idempotent and does not reinstall the global entry. An existing Hook file is
+accepted only when it matches the current project, Hook runner, and expected
+action. An unknown or edited file is preserved and the response tells you to
+use Doctor or an explicit Hook repair.
 
-Relevant project context is loaded at the start of a new session. If automatic
-organization is separately authorized, completed sessions are processed
-in the background with the selected host CLI. That work may be queued or need
-attention; it is never reported as completed until the local evidence and write
-checks have passed. An unavailable or unsupported host is reported instead of
-falling back to Codex.
+Codex requires one additional user decision after those project Hooks appear:
+open **Settings > Hooks**, review and trust them, then start a new task. That is
+a Codex security decision; harness-mem cannot approve it for you.
+
+Other projects do not need another Quickstart. Use the same global `hm` entry;
+the first use prepares each project separately.
+
+Relevant project context is loaded at the start of later sessions. If automatic
+organization is separately authorized, completed sessions are processed in the
+background with the selected host CLI. An unavailable or unsupported host is
+reported instead of silently switching to Codex.
 
 ## Advanced and repair
 
-`harness-mem` is an operator CLI outside this initial setup: use it for diagnosis,
-integration repair, configuration, and explicit maintenance. In particular:
+The terminal CLI is for diagnosis, integration repair, configuration, and
+explicit maintenance after initial setup:
 
-- `status` and `harness-mem doctor` are for understanding a problem.
-- `harness-mem integration ...` is for a failed or nonstandard installation.
-- `harness-mem maintenance ...` is for explicit import, export, repair, or
+- `harness-mem doctor` inspects a problem.
+- `harness-mem integration hooks sync --client <host> --project-root .` repairs
+  the current project's Hooks.
+- `harness-mem integration commands sync --client <host>` refreshes the one
+  global entry and removes old harness-mem action entries.
+- `harness-mem maintenance ...` handles explicit import, export, repair, or
   cleanup. Destructive operations preview by default and require `--apply`.
-
-The normal path hides, but does not remove, the MCP surface, hooks, background
-governance, evidence, and SQLite current-knowledge store. Use these references
-when you need their details:
-
-- [MCP setup](mcp-setup.md) for a manual or nonstandard client connection.
-- [IDE hook adapter matrix](ide-hook-adapter-matrix.md) for host capability and
-  hook-installation evidence.
-- [Background memory](background-memory.md) for authorization, selected CLI,
-  receipts, and privacy boundaries.
-- [Memory adoption contract](memory-adoption.md) for the extraction,
-  verification, assimilation, and retrieval design.
 
 Background processing is disabled unless you authorize it. The project setting
 is `distill.autonomous.enabled=true`; it uses the current host by default, or a
 project-selected Codex, Claude Code, Hermes, or OpenCode CLI. Credentials stay
 in that CLI, not in harness-mem. Turn it off with
-`distill.autonomous.enabled=false`. Do not enable it for a project until you are
-comfortable with that host CLI processing retained local session material.
+`distill.autonomous.enabled=false`.
 
-Source cleanup is separately opt-in and never runs just because a session was
-remembered. Before enabling it or using erasure, read the cleanup and privacy
-rules in [background memory](background-memory.md) and use the maintenance
-preview first.
+Source cleanup is separately opt-in and never runs merely because a session was
+remembered. Before enabling it or using erasure, read
+[Background memory](background-memory.md) and use the maintenance preview first.

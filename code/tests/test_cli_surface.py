@@ -11,7 +11,6 @@ import harness_mem.commands.import_bridge as import_command
 from harness_mem.commands.import_bridge import cmd_import
 from harness_mem.shell_completion import (
     CLI_COMMANDS,
-    COMMAND_PROFILES,
     HOOK_SUITE_CLIENTS,
     MAINTENANCE_ACTIONS,
     completion_bash,
@@ -36,6 +35,27 @@ def test_cli_top_level_help_excludes_import_and_purge(
     assert " import " not in out
     assert " purge " not in out
     assert "skill-governance" not in out
+
+
+def test_quickstart_is_global_and_accepts_only_a_host(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _assert_help_exit(["quickstart", "--help"])
+    help_text = capsys.readouterr().out
+    assert "--client" in help_text
+    assert "--limit" not in help_text
+    assert "project" not in help_text.lower()
+
+    calls: list[str] = []
+
+    async def quickstart(client: str) -> int:
+        calls.append(client)
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_quickstart", quickstart)
+    assert cli.main(["quickstart", "--client", "codex"]) == 0
+    assert calls == ["codex"]
 
 
 def test_removed_top_level_import_and_purge_are_invalid(
@@ -523,7 +543,6 @@ def test_completion_surface_moves_import_and_purge_under_maintenance() -> None:
     assert "migrate-store-v2" in MAINTENANCE_ACTIONS
     assert "product-doc" not in MAINTENANCE_ACTIONS
     assert "metabolism-run" not in MAINTENANCE_ACTIONS
-    assert COMMAND_PROFILES == ["daily"]
     assert "bench" not in MAINTENANCE_ACTIONS
     assert "cache" not in MAINTENANCE_ACTIONS
     assert HOOK_SUITE_CLIENTS == [

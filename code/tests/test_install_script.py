@@ -4,18 +4,21 @@ import json
 from pathlib import Path
 
 
-def test_install_script_passes_named_profile_argument() -> None:
+def test_install_script_installs_runtime_without_managing_agent_connections() -> None:
     script = Path("code/plugins/harness-mem/scripts/install.ps1").read_text(encoding="utf-8")
 
-    assert '& $syncCommands -Profile "Daily" -Client "all" -Scope "user"' in script
-    assert "@syncArgs" not in script
+    assert "pip install -e" in script
+    assert "harness-mem quickstart once" in script
+    assert "sync-commands.ps1" not in script
+    assert "mcp add" not in script
+    assert "RegisterClaude" not in script
 
 
-def test_packaged_runtime_includes_daily_command_assets() -> None:
+def test_packaged_runtime_includes_only_the_single_command_asset() -> None:
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
-    assert 'code/plugins/harness-mem/commands/hm/daily/*.md' in pyproject
     assert 'code/plugins/harness-mem/commands/hm/hm.md' in pyproject
+    assert 'commands/hm/daily/*.md' not in pyproject
 
 
 def test_plugin_mcp_config_uses_installed_console_script() -> None:
@@ -28,15 +31,17 @@ def test_plugin_mcp_config_uses_installed_console_script() -> None:
     assert server.get("args", []) == []
 
 
-def test_distill_command_resolves_aliases_and_canonical_skill_uses_logical_names() -> None:
-    command = Path(
-        "code/plugins/harness-mem/commands/hm/daily/distill.md"
-    ).read_text(encoding="utf-8")
+def test_single_command_and_canonical_distill_skill_use_logical_tool_names() -> None:
+    command = Path("code/plugins/harness-mem/commands/hm/hm.md").read_text(
+        encoding="utf-8"
+    )
     skill = Path("code/tools/hm-distill/SKILL.md").read_text(encoding="utf-8")
 
-    assert "mcp__mcp_router__prepare_session_distill" in command
-    assert "mcp__harness_mem__prepare_session_distill" in command
-    assert "先检查当前 task 的可调用工具" in command
+    assert "get_project_status" in command
+    assert "prepare_session_distill" in command
+    assert "finalize_session_distill" in command
+    assert "mcp__mcp_router__" not in command
+    assert "mcp__harness_mem__" not in command
     assert "prepare_session_distill" in skill
     assert "finalize_session_distill" in skill
     assert "answer_packet" in skill

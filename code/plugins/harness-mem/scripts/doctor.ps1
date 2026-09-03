@@ -14,7 +14,7 @@ try {
     if ($Wake) {
         Write-Host ""
         Write-Host "Wake hint:"
-        Write-Host "  In Claude Code: /hm:wake"
+        Write-Host "  In Claude Code: /hm"
         Write-Host "  In other AI IDEs: ask harness-mem to wake the active project."
     }
 }

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title desc">
   <title id="title">harness-mem one-command daily flow and unattended Dream flow</title>
-  <desc id="desc">Codex uses $hm and the other supported hosts use /hm. Users ask to remember this session, find earlier work, or correct a memory. A Hook saves an immutable revision, creates or advances its session job, and wakes Dream. Dream uses the project-selected CLI, defaulting to the current host.</desc>
+  <desc id="desc">Quickstart runs once globally for the current Agent app. Codex then uses $hm and the other supported hosts use /hm in any project; the first use prepares that project's Hooks. Users ask to remember this session, find earlier work, or correct a memory. A Hook saves an immutable revision, creates or advances its session job, and wakes Dream.</desc>
   <defs>
     <style>
       text{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -18,7 +18,7 @@
   <rect class="bg" width="1440" height="760"/>
   <rect class="teal" width="1440" height="10"/>
   <text x="64" y="66" class="title ink">One daily entry — three plain requests</text>
-  <text x="64" y="100" class="subtitle muted">Codex: $hm · other hosts: /hm</text>
+  <text x="64" y="100" class="subtitle muted">Quickstart once globally · Codex: $hm · other hosts: /hm · first use prepares project Hooks</text>
   <g transform="translate(1204 38)"><rect class="soft" width="172" height="42" rx="21"/><text x="20" y="28" class="eyebrow teal">source 0.9.26</text></g>
   <text x="64" y="148" class="eyebrow muted">WHAT USERS SAY</text>
   <g transform="translate(64 174)">

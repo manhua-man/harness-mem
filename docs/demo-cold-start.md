@@ -17,7 +17,8 @@ For this controlled walkthrough, the prompts below invoke stages explicitly.
 In normal use, hooks only capture an immutable native transcript source revision
 and create or advance its resumable job at a save point or session end. Hooks
 do not summarize the session. A Hook wakes Dream with that immutable source;
-an explicit `/hm:distill` instead resumes chunk processing in the active host.
+an explicit “remember this session” request through `$hm` or `/hm` instead
+resumes chunk processing in the active host.
 
 Distillation never truncates a chunk. After every expected chunk is
 checkpointed, the current host extracts narrow promotion points, verifies their

@@ -169,7 +169,7 @@ def tool_record_context_outcome(
         "next_actions": [
             _action(
                 "search_again",
-                "/hm:search",
+                "hm",
                 "Opt-in projects can use outcome signals as a small explainable ranking hint.",
             )
         ],

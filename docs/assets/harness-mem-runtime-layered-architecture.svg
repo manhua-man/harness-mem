@@ -30,7 +30,7 @@
     <g transform="translate(24 18)">
       <text x="0" y="24" class="heading ink">Seven native hosts · one daily entry</text>
       <text x="0" y="54" class="body muted">Codex: $hm · other hosts: /hm</text>
-      <text x="0" y="78" class="small muted">Wake starts automatically · Dream runs in background</text>
+      <text x="0" y="78" class="small muted">Quickstart once globally · first hm use prepares project Hooks</text>
     </g>
     <line x1="520" y1="18" x2="520" y2="86" stroke="#cbd5e1" stroke-width="2"/>
     <g transform="translate(550 18)">

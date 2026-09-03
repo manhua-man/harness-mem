@@ -129,7 +129,7 @@ def _steps_for_phase(
                 order=2,
                 title="Distill session evidence",
                 description="Sync recent transcript evidence and draft reviewable memory candidates.",
-                entry="/hm:distill",
+                entry="hm",
                 entry_kind="slash",
                 required=True,
             )
@@ -162,7 +162,7 @@ def _steps_for_phase(
                 description=(
                     "Sync recent transcript evidence and distill observations into candidates."
                 ),
-                entry="/hm:distill",
+                entry="hm",
                 entry_kind="slash",
                 required=True,
             )
@@ -192,7 +192,7 @@ def _steps_for_phase(
                     "Use review only for explicit recheck or correction; distill already "
                     "auto-handles low-risk items."
                 ),
-                entry="/hm:review",
+                entry="hm",
                 entry_kind="slash",
                 required=False,
                 badge=f"{pending_candidate_count} pending",
@@ -313,7 +313,7 @@ def guided_flow_drilldown_hint(flow: dict[str, Any]) -> dict[str, Any]:
         "source_id": None,
         "source_kind": "guided_flow",
         "read_surface": "mcp.guided_flow",
-        "tool": entry.split("(")[0].removeprefix("/hm:"),
+        "tool": entry.split("(")[0],
         "arguments": dict((current_step or {}).get("arguments") or {}),
         "why": f"Official daily-memory step: {title} ({GUIDED_FLOW_ID} {GUIDED_FLOW_VERSION}).",
     }

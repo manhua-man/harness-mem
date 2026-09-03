@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from harness_mem.plugin_assets import DAILY_COMMANDS
-
-
-def test_public_docs_lead_with_one_daily_entry_and_keep_legacy_actions() -> None:
+def test_public_docs_and_repo_mirrors_expose_only_one_daily_entry() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
     chinese = Path("README.zh-CN.md").read_text(encoding="utf-8")
     for body in (readme, chinese):
@@ -17,9 +14,26 @@ def test_public_docs_lead_with_one_daily_entry_and_keep_legacy_actions() -> None
     assert "记住这次。" in chinese
     assert "这条记忆不对。" in chinese
 
-    command_dir = Path("code/plugins/harness-mem/commands/hm/daily")
-    assert {path.stem for path in command_dir.glob("*.md")} == set(DAILY_COMMANDS)
     assert Path("code/plugins/harness-mem/commands/hm/hm.md").is_file()
+    assert not any(Path("code/plugins/harness-mem/commands/hm/daily").glob("*.md"))
+    old_names = (
+        "hm-status",
+        "hm-wake",
+        "hm-search",
+        "hm-search-all",
+        "hm-distill",
+        "hm-review",
+        "hm-dream",
+    )
+    active_roots = (
+        Path(".agents"),
+        Path(".claude"),
+        Path(".cursor"),
+        Path(".grok"),
+        Path(".opencode"),
+    )
+    active_paths = [path for root in active_roots for path in root.rglob("*.md")]
+    assert all(not any(name in path.as_posix() for name in old_names) for path in active_paths)
 
 
 def test_quickstart_keeps_mcp_connection_out_of_its_install_scope() -> None:
@@ -31,12 +45,12 @@ def test_quickstart_keeps_mcp_connection_out_of_its_install_scope() -> None:
     normalized_chinese = "".join(chinese.split())
     normalized_quickstart = " ".join(quickstart.split())
 
-    assert "does not import old sessions by default" in readme
-    assert "默认不会导入旧会话" in chinese
-    assert "does not import historical sessions by default" in normalized_quickstart
+    assert "scan or import old sessions" in normalized_readme
+    assert "不扫描或导入旧会话" in normalized_chinese
+    assert "scan or import historical sessions" in normalized_quickstart
     assert "does not inspect or change MCP settings" in normalized_readme
     assert "不会查看或修改MCP设置" in normalized_chinese
-    assert "Quickstart does not inspect or change MCP settings" in normalized_quickstart
+    assert "inspect or change MCP settings" in normalized_quickstart
     assert "codex mcp" not in combined
     assert "adds the installed `harness-mem-mcp`" not in combined
     assert "all seven hosts automatically register MCP" not in combined
@@ -255,7 +269,7 @@ def test_current_canvases_match_0910_automation_and_live_status_contract() -> No
 
 def test_distill_agent_surfaces_use_lossless_finalize_contract() -> None:
     skill = Path("code/tools/hm-distill/SKILL.md").read_text(encoding="utf-8")
-    command = Path("code/plugins/harness-mem/commands/hm/daily/distill.md").read_text(
+    command = Path("code/plugins/harness-mem/commands/hm/hm.md").read_text(
         encoding="utf-8"
     )
     plugin_skill = Path("code/plugins/harness-mem/skills/harness-mem/SKILL.md").read_text(
@@ -265,7 +279,6 @@ def test_distill_agent_surfaces_use_lossless_finalize_contract() -> None:
 
     assert "submit_distill_chunk" in combined
     assert "finalize_session_distill" in combined
-    assert "distill_job_id" in command
     assert "observation_limit=5" not in combined
     assert "max_chars_per_observation=6000" not in combined
     assert "auto_review_candidates(project_name=<project>, apply=True)" not in combined
@@ -277,7 +290,7 @@ def test_distill_agent_surfaces_use_lossless_finalize_contract() -> None:
 
 def test_installed_distill_docs_are_self_contained_public_surfaces() -> None:
     public_paths = (
-        Path("code/plugins/harness-mem/commands/hm/daily/distill.md"),
+        Path("code/plugins/harness-mem/commands/hm/hm.md"),
         Path("code/plugins/harness-mem/skills/harness-mem/SKILL.md"),
     )
     combined = "\n".join(path.read_text(encoding="utf-8") for path in public_paths)
@@ -285,8 +298,8 @@ def test_installed_distill_docs_are_self_contained_public_surfaces() -> None:
     assert "code/tools/hm-distill/SKILL.md" not in combined
     assert "ingest_sessions" not in combined
     assert "delete_source_after_complete=false" not in combined
-    assert "unknown tool" in combined
-    assert "delete_source_after_complete true" in combined
+    assert "finalize_session_distill" in combined
+    assert "distill.delete_source_after_complete=true" in combined
 
 
 def test_repo_local_duplicate_distill_runtime_is_removed() -> None:
@@ -349,7 +362,7 @@ def test_active_governance_docs_use_single_public_write_surface() -> None:
     active_paths = [
         Path("docs/auto-promoted-memory-governance.md"),
         Path("docs/roadmap.md"),
-        Path("code/plugins/harness-mem/commands/hm/daily/distill.md"),
+        Path("code/plugins/harness-mem/commands/hm/hm.md"),
         Path("code/plugins/harness-mem/skills/harness-mem/SKILL.md"),
         Path("code/plugins/harness-mem/skills/harness-mem-autopilot/SKILL.md"),
         Path("code/plugins/harness-mem/skills/grill-with-docs/SKILL.md"),

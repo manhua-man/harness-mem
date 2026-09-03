@@ -1,9 +1,4 @@
-"""Handlers for the ``harness-mem integration`` maintenance subcommands.
-
-The hook sync handler is the operator repair boundary: it repairs project hooks
-and user-level Daily commands, emits one structured report, and returns a
-nonzero exit code when any independently executed stage fails.
-"""
+"""Handlers for explicit host integration repair."""
 
 from __future__ import annotations
 
@@ -11,18 +6,14 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import cast
 
 from harness_mem.integration.command_sync import (
     COMMAND_HOSTS,
-    CommandHost,
     command_hint,
-    known_command_names,
     sync_host_commands,
-    sync_slash_commands,
 )
 from harness_mem.integration.installer import verified_hook_runner as verified_hook_runner
-from harness_mem.integration.repair import repair_integrations
+from harness_mem.integration.repair import repair_project_hooks
 from harness_mem.transcript_evidence import (
     EVIDENCE_CLIENTS,
     collect_transcript_evidence,
@@ -32,7 +23,7 @@ from harness_mem.transcript_evidence import (
 __all__ = [
     "SUPPORTED_HOOK_CLIENTS",
     "cmd_install_hook_suite",
-    "cmd_list_command_profiles",
+    "cmd_list_commands",
     "cmd_sync_commands",
     "cmd_transcript_evidence",
 ]
@@ -49,18 +40,16 @@ SUPPORTED_HOOK_CLIENTS = (
 
 
 def _resolve_project_root(project_root: str | None) -> Path:
-    """Resolve ``--project-root`` to an absolute path (default: cwd)."""
-    if project_root is None:
-        return Path(os.getcwd())
-    return Path(project_root).resolve()
+    return Path(os.getcwd()) if project_root is None else Path(project_root).resolve()
 
 
-def _install_suite(client: str, project_root: str | None, force: bool) -> int:
-    root = _resolve_project_root(project_root)
+def cmd_install_hook_suite(client: str, project_root: str | None, force: bool) -> int:
+    """Repair project Hooks for one host or all supported hosts."""
+
     clients = COMMAND_HOSTS if client == "all" else (client,)
-    report = repair_integrations(
+    report = repair_project_hooks(
         clients=clients,  # type: ignore[arg-type]
-        project_root=root,
+        project_root=_resolve_project_root(project_root),
         force=force,
         hook_runner_provider=verified_hook_runner,
     )
@@ -68,16 +57,11 @@ def _install_suite(client: str, project_root: str | None, force: bool) -> int:
     payload["messages"] = [
         f"{result.status}: {artifact}"
         for result in report.results
-        if result.stage == "hooks" and result.status in {"installed", "updated"}
+        if result.status in {"installed", "updated"}
         for artifact in result.artifacts
     ]
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 1 if any(result.status == "failed" for result in report.results) else 0
-
-
-def cmd_install_hook_suite(client: str, project_root: str | None, force: bool) -> int:
-    """Repair hooks and Daily commands for one host or all supported hosts."""
-    return _install_suite(client, project_root, force)
 
 
 def cmd_transcript_evidence(client: str, project_root: str | None) -> int:
@@ -90,91 +74,42 @@ def cmd_transcript_evidence(client: str, project_root: str | None) -> int:
     return 0
 
 
-def cmd_list_command_profiles() -> int:
-    """Print the main entry and retained compatibility actions."""
+def cmd_list_commands() -> int:
+    """Print the single global memory entry for every supported host."""
 
-    print("Main entry:")
+    print("Global memory entry:")
     for client in COMMAND_HOSTS:
         print(f"  {client}: {command_hint(client)}")
-    print("")
-    print("Compatibility actions:")
-    print("  " + " ".join(f"hm-{name}" for name in known_command_names()))
-    return 0
-
-
-def _path_arg(value: str | None) -> Path | None:
-    return Path(value).expanduser().resolve() if value else None
-
-
-def _print_sync_result(result) -> int:
-    prefix = "[DRY-RUN] Would sync" if result.dry_run else "Synced"
-    print(f"{prefix} claude-code commands to {result.destination_dir}")
-    print("  Use: /hm")
-    if result.removed_commands:
-        removed = " ".join(f"/hm:{name}" for name in result.removed_commands)
-        print(f"  Removed: {removed}")
     return 0
 
 
 def cmd_sync_commands(
     *,
-    profile: str,
-    include: list[str] | None,
-    source_dir: str | None,
-    target_dir: str | None,
     client: str,
-    project_root: str | None,
-    scope: str,
     dry_run: bool,
+    source_dir: str | None = None,
 ) -> int:
-    """Synchronize host-native Daily commands without reinstalling runtime."""
+    """Synchronize the single user-level memory entry."""
 
+    resolved_source = Path(source_dir).expanduser().resolve() if source_dir else None
     try:
-        if target_dir is not None and client == "all":
-            # Backward compatibility: --target-dir has always meant a Claude
-            # command directory, while the new default client is all.
-            client = "claude-code"
-        if target_dir is not None and client != "claude-code":
-            raise ValueError("--target-dir is only supported with --client claude-code")
-        if client == "all" and scope != "user":
-            raise ValueError("--client all supports only --scope user")
-        if client == "claude-code" and target_dir is not None:
-            result = sync_slash_commands(
-                source_dir=_path_arg(source_dir),
-                destination_dir=_path_arg(target_dir),
-                profile=profile,
-                include=include or [],
+        clients = COMMAND_HOSTS if client == "all" else (client,)
+        results = [
+            sync_host_commands(
+                client=item,  # type: ignore[arg-type]
+                source_dir=resolved_source,
                 dry_run=dry_run,
             )
-        else:
-            if include:
-                raise ValueError("optional slash command groups were removed; sync daily only")
-            clients = COMMAND_HOSTS if client == "all" else (client,)
-            results = [
-                sync_host_commands(
-                    client=item,  # type: ignore[arg-type]
-                    project_root=_resolve_project_root(project_root),
-                    scope=scope,  # type: ignore[arg-type]
-                    source_dir=_path_arg(source_dir),
-                    dry_run=dry_run,
-                )
-                for item in clients
-            ]
-            result = results[0]
-    except (FileNotFoundError, ValueError) as exc:
+            for item in clients
+        ]
+    except (FileNotFoundError, OSError, ValueError) as exc:
         print(f"command sync failed: {exc}", file=sys.stderr)
         return 1
-    if client == "all" and target_dir is None:
-        prefix = "[DRY-RUN] Would sync" if dry_run else "Synced"
-        for item, item_result in zip(COMMAND_HOSTS, results):
-            print(
-                f"{prefix} {item} commands "
-                f"to {item_result.destination_dir}"
-            )
-            print(f"  Use: {command_hint(item)}")
-        return 0
 
-    prefix = "[DRY-RUN] Would sync" if result.dry_run else "Synced"
-    print(f"{prefix} {client} commands to {result.destination_dir}")
-    print(f"  Use: {command_hint(cast(CommandHost, client))}")
+    prefix = "[DRY-RUN] Would sync" if dry_run else "Synced"
+    for item, result in zip(clients, results):
+        print(f"{prefix} {item} entry to {result.destination_dir}")
+        print(f"  Use: {command_hint(item)}")  # type: ignore[arg-type]
+        if result.removed_commands:
+            print(f"  Removed {len(result.removed_commands)} old entries")
     return 0

@@ -30,20 +30,22 @@ python -m pip install \
   harness-mem==0.9.26
 ```
 
-Then run this once from the project you want to remember:
+Then run this once for the Agent app you use:
 
 ```bash
 harness-mem quickstart
 ```
 
-Quickstart detects the project. It can identify Codex and Claude Code directly,
-and uses an app name supplied by other hosts. If it cannot identify the current
-app, it stops and asks you to run it once with `--client`, for example
+Quickstart detects the current app. It can identify Codex and Claude Code directly.
+If it cannot identify the current app, it stops and asks you to run it once with `--client`, for example
 `harness-mem quickstart --client cursor`; it never installs another app's files
-by guessing. It installs the matching entry and verified project hooks. It does not import old sessions by default. It does not inspect or change MCP settings.
+by guessing. It installs one global `$hm` or `/hm` entry for that app. It does
+not inspect a project, write project Hooks, or scan or import old sessions. It
+does not inspect or change MCP settings.
 Your Agent, MCP Router, plugin, or other setup tool owns that connection. If the
 Agent does not already expose harness-mem, connect it separately using
-[MCP setup](docs/mcp-setup.md). Start a new task after setup.
+[MCP setup](docs/mcp-setup.md). Start a new task after setup and use `hm` in any
+project. The first use in each project prepares that project and its Hooks.
 The package is distributed through GitHub Releases, not PyPI.
 
 For optional local vector or hybrid search, install `"harness-mem[hybrid]==0.9.26"`

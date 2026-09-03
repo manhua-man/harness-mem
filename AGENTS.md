@@ -34,7 +34,7 @@
 - 分发：GitHub Releases 的原生 wheel 与 sdist，不发布到 PyPI。
 - 日常用户动作：`status`、`wake`、`search`、`search-all`、`distill`、`review`、`dream`。
 - CLI 是安装、配置、诊断、集成和维护面；MCP 是 Agent 日常记忆面。
-- Quickstart 只连接项目并安装当前宿主入口与项目 Hook；它不查看或修改 Agent、MCP Router、插件或其他工具管理的 MCP 连接。
+- Quickstart 与项目无关，只为当前宿主全局安装一次 `$hm` 或 `/hm`；它不查看或修改 Agent、MCP Router、插件或其他工具管理的 MCP 连接。每个项目第一次使用 `hm` 时才自动连接项目并准备该宿主的项目 Hook。
 
 ## 当前版本与目标架构边界
 
@@ -280,13 +280,12 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 
 | 场景 | 入口 |
 | --- | --- |
-| 新 session 恢复上下文 | `wake` / `$hm-wake` / 对应宿主命令 |
-| 项目内查询历史知识 | `search` / `$hm-search` |
-| 显式跨项目借鉴 | `search-all` / `$hm-search-all` |
-| 立即整理近期会话 | `distill` / `$hm-distill`，遵循 `code/tools/hm-distill/SKILL.md` |
-| 审计、纠错、撤销 | `review` / `$hm-review` |
-| 查看或显式触发治理维护 | `dream` / `$hm-dream` |
-| 诊断项目记忆状态 | `status` / `$hm-status` |
+| 日常记住、查找或纠正 | Codex 用 `$hm`，其他宿主用 `/hm`；直接说普通话 |
+| 新 session 恢复上下文 | 由项目 Hook 自动调用 MCP `wake` |
+| 显式跨项目借鉴 | 在 `hm` 中明确说明要跨项目查找 |
+| 立即整理近期会话 | 在 `hm` 中说“记住这次”；内部遵循 `code/tools/hm-distill/SKILL.md` |
+| 审计、纠错、撤销 | 在 `hm` 中指出哪条记忆不对 |
+| 治理维护与诊断 | MCP/CLI operator surface；不新增日常入口 |
 
 物理镜像位于 `.agents/skills/`、`.agents/workflows/`、`.claude/commands/`、`.cursor/commands/`、`.grok/skills/` 和 `.opencode/commands/`。它们应保持同义；插件或用户全局 skill 不得误写成项目 runtime 依赖。
 

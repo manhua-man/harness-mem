@@ -566,8 +566,8 @@ def _search_dx_metadata(
         next_actions.append(
             _action(
                 "distill_recent_sessions",
-                "/hm:distill",
-                "No confirmed memory matched this query; run /hm:distill before relying on search.",
+                "hm",
+                "No confirmed memory matched this query; use hm to remember the relevant session before relying on search.",
             )
         )
         next_actions.append(
@@ -659,7 +659,7 @@ def _wake_dx_metadata(
         ),
         _action(
             "search_specific_gap",
-            "/hm:search",
+            "hm",
             "If the wake packet is too broad, search for the exact subsystem or decision.",
         ),
     ]

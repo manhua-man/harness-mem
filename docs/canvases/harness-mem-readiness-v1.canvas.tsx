@@ -15,7 +15,7 @@ import {
 } from "cursor/canvas";
 
 const MODEL_VERSION = "v1";
-const AS_OF = "2026-09-02";
+const AS_OF = "2026-09-03";
 const RUNTIME_VERSION = "0.9.26";
 const PUBLIC_RELEASE_VERSION = "0.9.26";
 
@@ -65,6 +65,11 @@ export default function HarnessMemReadinessV1() {
       <Callout tone="info">
         当前结论：SQLite knowledge_entries 是当前长期知识唯一权威；原始会话是证据；
         候选、验证与拟议决定是 job 范围临时材料。completed / queued 字段本身不是用户结果证据。
+      </Callout>
+
+      <Callout tone="info">
+        使用路径：Quickstart 只需为当前 Agent 全局运行一次并安装唯一 hm 入口；
+        每个项目第一次使用 hm 时才连接项目并准备 Hook。Quickstart 不管理 MCP 连接。
       </Callout>
 
       <Stack gap={8}>

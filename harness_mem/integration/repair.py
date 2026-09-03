@@ -1,4 +1,4 @@
-"""Unified operator repair for host hooks and memory command surfaces."""
+"""Project Hook repair across supported hosts."""
 
 from __future__ import annotations
 
@@ -11,37 +11,31 @@ from pathlib import Path
 from typing import Literal
 
 from harness_mem import __version__
-from harness_mem.integration.command_sync import (
-    COMMAND_HOSTS,
-    CommandHost,
-    sync_host_commands,
-)
+from harness_mem.integration.command_sync import COMMAND_HOSTS, CommandHost
 from harness_mem.integration import installer
 from harness_mem.integration.installer import HookInstallResult, HookSpec
 
-RepairStage = Literal["hooks", "commands"]
 RepairStatus = Literal["installed", "updated", "unchanged", "failed", "unsupported"]
 OverallStatus = Literal["success", "partial_failure", "failed", "unsupported"]
 
 
 @dataclass(frozen=True)
-class RepairStageResult:
-    """Outcome of one independently executed host repair stage."""
+class HookRepairResult:
+    """Outcome of repairing one host's project Hooks."""
 
     host: CommandHost
-    stage: RepairStage
     status: RepairStatus
     artifacts: tuple[str, ...] = ()
     error: str | None = None
 
 
 @dataclass(frozen=True)
-class IntegrationRepairReport:
-    """Structured cross-host repair result suitable for CLI JSON output."""
+class HookRepairReport:
+    """Structured cross-host Hook repair result suitable for CLI JSON output."""
 
     status: OverallStatus
     success: bool
-    results: tuple[RepairStageResult, ...]
+    results: tuple[HookRepairResult, ...]
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -200,9 +194,9 @@ def _install_hooks(
     )
 
 
-def _hook_stage_result(
+def _hook_result(
     client: CommandHost, results: list[HookInstallResult]
-) -> RepairStageResult:
+) -> HookRepairResult:
     statuses = {item.status for item in results}
     status: RepairStatus
     if "updated" in statuses:
@@ -211,15 +205,14 @@ def _hook_stage_result(
         status = "installed"
     else:
         status = "unchanged"
-    return RepairStageResult(
+    return HookRepairResult(
         host=client,
-        stage="hooks",
         status=status,
         artifacts=tuple(str(item.target_path) for item in results),
     )
 
 
-def _overall_status(results: list[RepairStageResult]) -> OverallStatus:
+def _overall_status(results: list[HookRepairResult]) -> OverallStatus:
     statuses = [result.status for result in results]
     failed = statuses.count("failed")
     if failed == len(statuses):
@@ -231,23 +224,22 @@ def _overall_status(results: list[RepairStageResult]) -> OverallStatus:
     return "success"
 
 
-def repair_integrations(
+def repair_project_hooks(
     *,
     clients: tuple[CommandHost, ...] = COMMAND_HOSTS,
     project_root: Path,
     force: bool = False,
-    source_dir: Path | None = None,
     hook_runner_provider: Callable[[], Path] | None = None,
-) -> IntegrationRepairReport:
-    """Repair hooks and user-level memory commands without dropping failures."""
+) -> HookRepairReport:
+    """Repair project Hooks without changing user-level command files."""
 
     root = project_root.resolve()
-    results: list[RepairStageResult] = []
+    results: list[HookRepairResult] = []
     for client in clients:
         try:
             hook_runner = hook_runner_provider() if hook_runner_provider else None
             results.append(
-                _hook_stage_result(
+                _hook_result(
                     client,
                     _install_hooks(
                         client,
@@ -259,58 +251,23 @@ def repair_integrations(
             )
         except NotImplementedError as exc:
             results.append(
-                RepairStageResult(
+                HookRepairResult(
                     host=client,
-                    stage="hooks",
                     status="unsupported",
                     error=str(exc),
                 )
             )
         except Exception as exc:  # noqa: BLE001 - preserve every stage result
             results.append(
-                RepairStageResult(
+                HookRepairResult(
                     host=client,
-                    stage="hooks",
-                    status="failed",
-                    error=str(exc),
-                )
-            )
-
-        try:
-            command_result = sync_host_commands(
-                client=client,
-                scope="user",
-                source_dir=source_dir,
-            )
-            results.append(
-                RepairStageResult(
-                    host=client,
-                    stage="commands",
-                    status=command_result.status,
-                    artifacts=(str(command_result.destination_dir),),
-                )
-            )
-        except NotImplementedError as exc:
-            results.append(
-                RepairStageResult(
-                    host=client,
-                    stage="commands",
-                    status="unsupported",
-                    error=str(exc),
-                )
-            )
-        except Exception as exc:  # noqa: BLE001 - preserve every stage result
-            results.append(
-                RepairStageResult(
-                    host=client,
-                    stage="commands",
                     status="failed",
                     error=str(exc),
                 )
             )
 
     status = _overall_status(results)
-    return IntegrationRepairReport(
+    return HookRepairReport(
         status=status,
         success=status == "success",
         results=tuple(results),

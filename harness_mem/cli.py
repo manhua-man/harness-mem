@@ -21,7 +21,7 @@ from harness_mem.commands import (
     cmd_export_json_snapshot,
     cmd_import,
     cmd_install_hook_suite,
-    cmd_list_command_profiles,
+    cmd_list_commands,
     cmd_migrate_store_v2,
     cmd_purge,
     cmd_erase,
@@ -30,9 +30,6 @@ from harness_mem.commands import (
     cmd_state_audit,
     cmd_sync_commands,
     cmd_transcript_evidence,
-)
-from harness_mem.integration.command_sync import (
-    VALID_COMMAND_PROFILES,
 )
 from harness_mem.commands.integration_cmds import SUPPORTED_HOOK_CLIENTS
 from harness_mem.transcript_evidence import EVIDENCE_CLIENTS
@@ -51,7 +48,7 @@ __all__ = [
     "cmd_export_json_snapshot",
     "cmd_import",
     "cmd_install_hook_suite",
-    "cmd_list_command_profiles",
+    "cmd_list_commands",
     "cmd_migrate_store_v2",
     "cmd_purge",
     "cmd_quickstart",
@@ -125,21 +122,13 @@ def main(argv: list[str] | None = None):
     quickstart = sub.add_parser(
         "quickstart",
         aliases=["qs"],
-        help="Connect the current project and install its memory entry",
+        help="Install the current app's global memory entry",
     )
-    quickstart.add_argument("project", nargs="?", help="Project name")
     quickstart.add_argument(
         "-c",
         "--client",
-        choices=["auto", "skip", *SUPPORTED_HOOK_CLIENTS],
+        choices=["auto", *SUPPORTED_HOOK_CLIENTS],
         default="auto",
-    )
-    quickstart.add_argument(
-        "-n",
-        "--limit",
-        type=int,
-        default=0,
-        help="Import up to N older sessions during setup (default: do not import history)",
     )
     quickstart.set_defaults(command_name="quickstart")
 
@@ -357,7 +346,7 @@ def main(argv: list[str] | None = None):
         help="Inspect or repair supported IDE integrations",
         description=(
             "Repair project hooks, inspect transcript evidence, or synchronize "
-            "the seven host-native memory entries."
+            "the single host-native memory entry."
         ),
     )
     integration.set_defaults(command_name="integration")
@@ -377,7 +366,7 @@ def main(argv: list[str] | None = None):
         "--client",
         choices=["all", *SUPPORTED_HOOK_CLIENTS],
         required=True,
-        help="Host whose hooks and memory commands should be repaired",
+        help="Host whose project hooks should be repaired",
     )
     hooks_sync.add_argument(
         "--project-root", help="Project directory (default: cwd)"
@@ -407,38 +396,20 @@ def main(argv: list[str] | None = None):
 
     commands = integration_sub.add_parser(
         "commands",
-        help="List or sync host-native memory entries",
-        description=(
-            "Manage the main memory entry and its compatibility actions without "
-            "reinstalling the harness-mem runtime."
-        ),
+        help="List or sync the global host-native memory entry",
+        description="Manage the single global memory entry without reinstalling harness-mem.",
     )
     commands_sub = commands.add_subparsers(dest="commands_action")
 
-    commands_sub.add_parser("list", help="List the main entry and compatibility actions")
+    commands_sub.add_parser("list", help="List the memory entry for each host")
 
     commands_sync = commands_sub.add_parser(
         "sync",
-        help="Synchronize the main entry and compatibility actions",
-    )
-    commands_sync.add_argument(
-        "--profile",
-        choices=VALID_COMMAND_PROFILES,
-        default="daily",
-        help="Command profile to sync (only daily is supported)",
+        help="Synchronize the single global memory entry",
     )
     commands_sync.add_argument(
         "--client", choices=["all", *SUPPORTED_HOOK_CLIENTS], default="all"
     )
-    commands_sync.add_argument("--project-root", help="Project directory (default: cwd)")
-    commands_sync.add_argument(
-        "--scope",
-        choices=["user", "project"],
-        default="user",
-        help="Install once for all projects (user) or only one project",
-    )
-    commands_sync.add_argument("--source-dir", help="Canonical command source directory")
-    commands_sync.add_argument("--target-dir", help="Claude Code override directory")
     commands_sync.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args(args_list)
@@ -454,7 +425,7 @@ def main(argv: list[str] | None = None):
         return 0
 
     if command == "quickstart":
-        return asyncio.run(cmd_quickstart(args.project, args.client, args.limit))
+        return asyncio.run(cmd_quickstart(args.client))
 
     if command == "doctor":
         return asyncio.run(cmd_doctor(args.project))
@@ -608,16 +579,10 @@ def main(argv: list[str] | None = None):
                 commands.print_help()
                 return 0
             if args.commands_action == "list":
-                return cmd_list_command_profiles()
+                return cmd_list_commands()
             if args.commands_action == "sync":
                 return cmd_sync_commands(
-                    profile=args.profile,
-                    include=[],
-                    source_dir=args.source_dir,
-                    target_dir=args.target_dir,
                     client=args.client,
-                    project_root=args.project_root,
-                    scope=args.scope,
                     dry_run=args.dry_run,
                 )
             commands.error(f"Unknown commands action: {args.commands_action}")

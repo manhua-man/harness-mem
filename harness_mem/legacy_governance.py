@@ -139,7 +139,7 @@ async def migrate_legacy_accepted(
         "automatic_truth_promotion": False,
         "review_required": by_target["pending"],
         "items": plans,
-        "next_step": "$hm-review" if by_target["pending"] else None,
+        "next_step": "Use hm to review pending memory" if by_target["pending"] else None,
     }
 
 

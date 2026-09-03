@@ -16,8 +16,8 @@ from harness_mem.commands.doctor_probes import (
 
 logger = logging.getLogger(__name__)
 
-_CANDIDATE_STALE_FIX = "/hm:review"
-_CANDIDATE_HIGH_RISK_FIX = "/hm:review"
+_CANDIDATE_STALE_FIX = "Use hm to review or correct this memory"
+_CANDIDATE_HIGH_RISK_FIX = "Use hm to review or correct this memory"
 
 
 def _doctor_legacy_accepted_block(legacy_report: dict[str, Any]) -> None:
@@ -40,7 +40,7 @@ def _doctor_legacy_accepted_block(legacy_report: dict[str, Any]) -> None:
     print(
         f"⚠️  Legacy status={LEGACY_ACCEPTED_STATUS}: {total} record(s) ({parts}) "
         "— invisible to readable_truth; preview with `harness-mem maintenance "
-        "migrate-legacy-accepted --dry-run`, then audit pending rows in $hm-review"
+        "migrate-legacy-accepted --dry-run`, then use hm to audit pending rows"
     )
 
 

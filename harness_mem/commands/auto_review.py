@@ -12,7 +12,7 @@ Shared policy contract
 This module is the **single source of truth** for low-risk auto-review
 judgment across every entrypoint that writes candidates:
 
-- the ``/hm:distill`` slash command (Claude Code ``code/plugins/harness-mem/commands/hm/daily/distill.md``),
+- the single ``hm`` entry (``code/plugins/harness-mem/commands/hm/hm.md``),
 - the ``hm-distill`` skill (``tools/hm-distill/SKILL.md``), and
 - the MCP ``auto_review_candidates`` tool exposed by
   ``harness_mem/mcp/tool_handlers.py::tool_auto_review_candidates``.
@@ -33,7 +33,7 @@ Design contract:
   (auto_confirmed / auto_rejected / kept_pending / needs_user_confirmation).
 - We **never** auto-confirm or auto-reject silently in a way the user can't
   inspect: every applied decision is included in `applied_decisions` so the
-  caller (slash /hm:distill, MCP, CLI) can show a final review summary.
+  caller (hm, MCP, CLI) can show a final review summary.
 - We refuse to apply decisions when the user did not opt in. Callers pass
   ``apply=True`` explicitly; the default is dry-run-style introspection so
   test scenarios and "preview what auto-review would do" flows are safe.
@@ -1117,7 +1117,7 @@ def explain_decision(
     Returns the same shape ``AutoReviewSummary.to_dict()`` emits per
     decision (``candidate_id``, ``kind``, ``action``, ``reason``,
     ``evidence_id``), or ``None`` when no matching decision exists. This
-    is the helper ``/hm:distill`` quotes when the user asks "why was X
+    is the helper ``hm`` quotes when the user asks "why was X
     confirmed/rejected?".
     """
     for decision in summary.applied_decisions:

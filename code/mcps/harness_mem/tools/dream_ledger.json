@@ -1,6 +1,6 @@
 {
   "name": "dream_ledger",
-  "description": "Return the latest DreamRun ledger for a project, or one DreamRun by id. This is the backing MCP surface for /hm:dream: it reads the audit ledger and never mutates truth.",
+  "description": "Return the latest DreamRun ledger for a project, or one DreamRun by id. This is the backing MCP surface for inspecting background work: it reads the audit ledger and never mutates truth.",
   "inputSchema": {
     "type": "object",
     "properties": {

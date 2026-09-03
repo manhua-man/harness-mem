@@ -4,8 +4,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_distill_default_summary_is_concise() -> None:
-    text = (ROOT / "code/plugins/harness-mem/commands/hm/daily/distill.md").read_text(
+def test_hm_default_summary_is_concise() -> None:
+    text = (ROOT / "code/plugins/harness-mem/commands/hm/hm.md").read_text(
         encoding="utf-8"
     )
 
@@ -14,11 +14,11 @@ def test_distill_default_summary_is_concise() -> None:
     assert "自动拒绝：" not in text
     assert "保留待定：" not in text
     assert "需要你确认：" not in text
-    assert "只有用户要求审计详情时" in text
-    assert "一条记忆一个可验证事实" in text
-    assert "ID 只用于内部去重、审计、纠错和 undo" in text
-    assert "不附加在默认记忆正文中" in text
-    assert "仓库已验证 / 用户已确认" in text
+    assert "不要默认展示 job、candidate、receipt、provider、内部 ID" in text
+    assert "记住了：" in text
+    assert "没记：" in text
+    assert "还没完成：" in text
+    assert "不补一套产品术语" in text
 
 
 def test_canonical_distill_skill_hides_internal_ids_from_readable_memory() -> None:

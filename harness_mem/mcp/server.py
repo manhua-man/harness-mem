@@ -14,7 +14,7 @@ Tools:
   get_project_status    — current project memory status and active project
   dream_ledger          — inspect dream maintenance ledger
   dream_run             — explicitly run one audited dream pass
-  prepare_session_distill — /hm:distill backend: sync + evidence packet
+  prepare_session_distill — remember-request backend: sync + evidence packet
   list_candidates       — pending/deferred/rejected governance candidates
   auto_review_candidates — audited candidate review pass (preview or apply)
   govern_memory         — composite suggestion, decision, handoff, and correction boundary

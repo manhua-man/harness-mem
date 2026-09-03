@@ -1,7 +1,5 @@
 param(
-    [switch]$WithHybrid,
-    [switch]$RegisterClaude,
-    [switch]$NoSlashCommands
+    [switch]$WithHybrid
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,36 +19,8 @@ if ($WithHybrid) {
 }
 
 & $python.Source -m pip install -e $installTarget
-
-# Install every host's user-level memory entry and compatibility actions once. Project hooks are
-# still adopted separately on the first MCP call from each workspace.
-if (-not $NoSlashCommands) {
-    $syncCommands = Join-Path $PSScriptRoot "sync-commands.ps1"
-    & $syncCommands -Profile "Daily" -Client "all" -Scope "user"
-    Write-Host "  Installed `$hm for Codex and /hm for the other supported hosts."
-
-    $skillSrc = Join-Path $pluginRoot "skills"
-    $skillDst = Join-Path $env:USERPROFILE ".claude\skills"
-    if (Test-Path $skillSrc) {
-        if (-not (Test-Path $skillDst)) {
-            New-Item -ItemType Directory -Path $skillDst -Force | Out-Null
-        }
-        Copy-Item -Path (Join-Path $skillSrc "*") -Destination $skillDst -Recurse -Force
-        $skillCount = (Get-ChildItem $skillSrc -Directory).Count
-        Write-Host "Installed $skillCount Claude Code skills to $skillDst"
-        Write-Host "  Available: harness-mem / harness-mem-autopilot"
-    } else {
-        Write-Warning "Skill source not found at $skillSrc; skipping."
-    }
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
 }
 
-if ($RegisterClaude) {
-    $claude = Get-Command claude -ErrorAction Stop
-    $mcpServer = Join-Path (Split-Path $python.Source) "harness-mem-mcp.exe"
-    if (-not (Test-Path $mcpServer)) {
-        throw "harness-mem-mcp was not installed at $mcpServer"
-    }
-    & $claude.Source mcp add -s user harness_mem $mcpServer
-}
-
-& $python.Source -m harness_mem.cli doctor
+Write-Host "Installed harness-mem. Run harness-mem quickstart once in the Agent you use."

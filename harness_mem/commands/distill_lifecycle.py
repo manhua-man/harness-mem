@@ -541,7 +541,7 @@ def _distill_stuck_reasons(
             {
                 "code": "retryable_waiting_for_lane",
                 "count": retryable_ready,
-                "action": "Run an Agent-capable wake or /hm:distill to refill the active lane.",
+                "action": "Use hm in an Agent to refill the active lane.",
             }
         )
     if parked and not active:
@@ -549,7 +549,7 @@ def _distill_stuck_reasons(
             {
                 "code": "parked_waiting_for_lane",
                 "count": parked,
-                "action": "Run an Agent-capable wake or /hm:distill to refill the active lane.",
+                "action": "Use hm in an Agent to refill the active lane.",
             }
         )
     if pending_total and throughput_per_day <= 0:
@@ -701,7 +701,7 @@ def render_pending_distill_instruction(
             "Fair refill policy: three recent jobs, then one oldest eligible job.",
             f"Steady-state target: at most {max(0, target_backlog)} queued task(s).",
             "Older cold evidence is parked, not deleted, and refills this active lane after completion.",
-            "Do this automatically without asking the user to run /hm:distill.",
+            "Do this automatically without asking the user to start another memory action.",
             "Process the selected ids sequentially, in the order shown.",
             "For each selected id, call prepare_session_distill with",
             "distill_job_id=<selected id>, evidence_mode=semantic,",

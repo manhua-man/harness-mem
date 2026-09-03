@@ -17,9 +17,8 @@ For a project-scoped MCP entry, set the server's working directory to the
 workspace and pass the owning client in `HARNESS_MEM_CLIENT`. On its first
 `initialize` request, a recognized client automatically records the project
 profile, makes it active, and installs its hook suite without overwriting
-existing hook files. It also idempotently repairs that host's user-level daily
-command and compatibility actions; command discovery is not tied to the current
-project.
+existing hook files. It does not install or refresh user-level commands;
+Quickstart owns that separate one-time setup.
 
 ```json
 {
@@ -239,18 +238,16 @@ On Windows:
 ```powershell
 git clone https://github.com/manhua-man/harness-mem.git
 cd harness-mem
-.\code\plugins\harness-mem\scripts\install.ps1 -WithHybrid -RegisterClaude
+.\code\plugins\harness-mem\scripts\install.ps1 -WithHybrid
+harness-mem quickstart --client claude-code
 ```
 
-The plugin includes one daily command. Install it for every host once with
-`harness-mem integration commands sync` (defaults: `--client all --scope
-user`): Codex uses `$hm`; Claude Code, Cursor, Grok, Hermes, OpenCode, and
-Antigravity use `/hm`. The repo `install.ps1` runs this sync automatically.
-Action-specific `hm-*` entries are also installed for compatibility and
-advanced diagnosis, but they are not the default user path.
-Project-scoped MCP initialization installs the matching IDE hooks automatically.
-If hooks are missing, the next MCP initialization repairs the project-local
-installation without overwriting existing files.
+Quickstart installs the one global entry for the selected host. Codex uses
+`$hm`; Claude Code, Cursor, Grok, Hermes, OpenCode, and Antigravity use `/hm`.
+The editable install script does not change MCP settings or install entries for
+other apps. On the first `hm` use in a project, the status call prepares the
+project and its Hooks. A workspace-scoped MCP initialization may prepare them
+earlier. Existing unrelated Hook files are not overwritten.
 
 For explicit hook repair across any supported host, use
 `harness-mem integration hooks sync --client <host> --project-root . --force`.

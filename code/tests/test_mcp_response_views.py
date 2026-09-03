@@ -146,25 +146,25 @@ def _status_snapshot() -> dict:
             "surfaces": {"skill": {"text": "x" * 4000}},
         },
         "phase": "ready",
-        "suggested_slash": "/hm:wake",
+        "suggested_slash": "hm",
         "reason": "Project memory is available for wake-up context.",
-        "repair_hint": "/hm:review",
+        "repair_hint": "hm",
         "repair_reason": "Pending candidates remain.",
         "why_this_result": "Project is ready.",
         "next_actions": [
             {
                 "label": "run_suggested_entry",
-                "surface": "/hm:distill",
+                "surface": "hm",
                 "reason": "Captured sessions are waiting for distill before the next wake.",
             },
             {
                 "label": "review_pending_when_needed",
-                "surface": "/hm:review",
+                "surface": "hm",
                 "reason": "Review only when correcting or rechecking candidates.",
             },
             {
                 "label": "search_before_task",
-                "surface": '/hm:search "<topic>"',
+                "surface": "hm",
                 "reason": "Search narrows the wake context to the current task.",
             },
             {
@@ -451,7 +451,7 @@ def test_empty_project_waits_for_capture_instead_of_claiming_distill_work() -> N
     )
 
     assert triage["phase"] == "awaiting-capture"
-    assert triage["suggested_slash"] == "/hm:wake"
+    assert triage["suggested_slash"] == "hm"
     guided = build_guided_flow(
         phase=triage["phase"],
         observation_count=0,

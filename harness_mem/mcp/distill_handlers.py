@@ -503,12 +503,12 @@ def tool_prepare_session_distill(
     distill_job_id: str | None = None,
     _distill_source: str = "agent",
 ) -> dict:
-    """Prepare a compact evidence packet for AI-led /hm:distill.
+    """Prepare a compact evidence packet for an AI-led remember request.
 
     This intentionally stops before synthesis. The model should read the
     returned observations, decide what deserves a pending candidate, then call
     govern_memory(action=suggest). The lower-level sync step may call ingest_sessions, but
-    /hm:distill is the user-facing flow.
+    The single hm entry is the user-facing flow.
     """
     normalized_client = normalize_client_name(client)
     if normalized_client not in SUPPORTED_INGEST_CLIENTS:
@@ -811,7 +811,7 @@ def tool_prepare_session_distill(
                     "chunk_count": 0,
                     "distill_instructions": [
                         "Evidence was synchronized and queued without claiming Agent work.",
-                        "Consume this job on the next Agent-capable wake or /hm:distill run.",
+                        "Consume this job the next time an Agent uses hm.",
                     ],
                 }
             )

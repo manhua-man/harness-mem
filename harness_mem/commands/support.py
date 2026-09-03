@@ -851,9 +851,9 @@ def suggested_next_step(
         if claude_sessions:
             latest = session_identifier(claude_sessions[0])
             return (
-                "/hm:distill",
+                "hm",
                 (
-                    "Recent Claude Code sessions were found. Run /hm:distill; "
+                    "Recent Claude Code sessions were found. Use hm to remember them; "
                     f"it syncs transcript evidence, including the newest session {latest}, "
                     "then drafts reviewable memory candidates."
                 ),
@@ -861,10 +861,10 @@ def suggested_next_step(
         if cursor_sessions and resolved_root is not None:
             latest = session_identifier(cursor_sessions[0])
             return (
-                "/hm:distill",
+                "hm",
                 (
                     "Recent Cursor sessions were found for this workspace. "
-                    f"Run /hm:distill from {resolved_root.as_posix()}; it syncs "
+                    f"Use hm from {resolved_root.as_posix()}; it syncs "
                     f"the newest evidence such as {latest} before drafting candidates."
                 ),
             )
@@ -872,41 +872,41 @@ def suggested_next_step(
             if resolved_root is not None:
                 latest = session_identifier(codex_sessions[0])
                 return (
-                    "/hm:distill",
+                    "hm",
                     (
                         "Recent Codex sessions were found for this workspace. "
-                        f"Run /hm:distill from {resolved_root.as_posix()}; it syncs "
+                        f"Use hm from {resolved_root.as_posix()}; it syncs "
                         f"the newest evidence such as {latest} before drafting candidates."
                     ),
                 )
             return (
-                "/hm:distill",
-                f"{codex_scope_note()} Run /hm:distill from the target workspace so sync stays project-scoped.",
+                "hm",
+                f"{codex_scope_note()} Use hm from the target workspace so sync stays project-scoped.",
             )
         if grok_sessions and resolved_root is not None:
             latest = session_identifier(grok_sessions[0])
             return (
-                "/hm:distill",
+                "hm",
                 (
                     "Recent Grok sessions were found for this workspace. "
-                    f"Run /hm:distill from {resolved_root.as_posix()}; it syncs "
+                    f"Use hm from {resolved_root.as_posix()}; it syncs "
                     f"the newest evidence such as {latest} before drafting candidates."
                 ),
             )
         return (
-            "/hm:distill",
+            "hm",
             (
-                "No observations exist yet. Run /hm:distill; it is the user-facing "
+                "No observations exist yet. Use hm to remember this session; it is the user-facing "
                 "entrypoint that syncs available transcripts and drafts candidates."
             ),
         )
 
     if memory_entry_count == 0 and claude_sessions:
         return (
-            "/hm:distill",
+            "hm",
             (
                 "Sessions are ingested but no memory entries exist yet. "
-                "Run /hm:distill in your AI agent (Claude Code, Codex, "
+                "Use hm in your AI agent (Claude Code, Codex, "
                 "Cursor, etc.) so it can read sessions and write candidates "
                 "through MCP govern_memory. Distill is Agent-driven only."
             ),

@@ -20,9 +20,10 @@
 
 ## Information Architecture
 
-The default path is: install, run `harness-mem quickstart` once in a project,
-then use one native entry. Codex exposes `$hm`; other supported hosts expose
-`/hm`. The entry accepts ordinary language for three intents:
+The default path is: install, run `harness-mem quickstart` once for the Agent
+app, then use one global native entry in any project. Codex exposes `$hm`;
+other supported hosts expose `/hm`. The first use connects the current project
+and prepares its Hooks. The entry accepts ordinary language for three intents:
 
 - Remember this session.
 - How did we solve this before?
@@ -50,9 +51,11 @@ path is the product default and uses the same runtime contracts.
 - Make the single normal entry discoverable before any individual action name:
   `$hm` for Codex and `/hm` for other supported hosts.
 - Do not make users learn internal MCP server aliases.
-- Quickstart installs the native entry and project Hooks. It does not inspect,
-  add, remove, or replace MCP connections; the Agent, Router, or plugin that
-  owns those settings remains responsible for them.
+- Quickstart installs only the global native entry for the current Agent app.
+  It is independent of the current project and does not inspect, add, remove,
+  or replace MCP connections.
+- The first `hm` use in a project resolves that workspace and prepares its
+  project Hooks without reinstalling the global entry.
 - Commands should resolve the active project from the workspace before asking for a project name.
 - Keep setup and repair instructions out of the normal daily loop unless diagnosis proves they are needed.
 - Keep automatic wake and authorized background organization out of the user's
@@ -141,3 +144,4 @@ Use teal for identity and positive forward motion. Use gold sparingly for lineag
 | 2026-08-22 | Refreshed the 0.9.25 public diagram system for 900px readability, five-module semantics, queue boundaries, and storage authority | Four public README SVG diagrams and localized alt text |
 | 2026-09-02 | Updated the current 0.9.26 source diagrams to distinguish source from public release and show project-selected CLI behavior | Four public README SVG diagrams, localized alt text, and current canvas panels |
 | 2026-09-03 | Made the one-time Quickstart and the single `$hm`/`/hm` daily entry the default documentation and DX path | `README.md`, `README.zh-CN.md`, and `docs/quickstart.md` |
+| 2026-09-03 | Made Quickstart global, moved project Hook preparation to first use, and removed the old action-specific entries | onboarding, command sync, host mirrors, and current docs |

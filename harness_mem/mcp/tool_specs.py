@@ -646,7 +646,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     },
     "prepare_session_distill": {
         "description": (
-            "Prepare one /hm:distill decision packet. An explicit session_id "
+            "Prepare one remember-this-session decision packet. An explicit session_id "
             "selects that session directly, including parked work. Semantic mode "
             "bundles the bounded decision windows so the common path can finalize "
             "without another prepare call."
@@ -1143,7 +1143,7 @@ _SCHEMAS: dict[str, _SchemaOnly] = {
     "dream_ledger": {
         "description": (
             "Return the latest DreamRun ledger for a project, or one "
-            "DreamRun by id. This is the backing MCP surface for /hm:dream: "
+            "DreamRun by id. This is the backing MCP surface for inspecting background work: "
             "it reads the audit ledger and never mutates truth."
         ),
         "input_schema": {

@@ -17,7 +17,7 @@ def status_triage_hints(counts: Mapping[str, Any]) -> dict[str, Any]:
     if pending_distill > 0:
         return {
             "phase": "needs-distill",
-            "suggested_slash": "/hm:distill",
+            "suggested_slash": "hm",
             "reason": f"{pending_distill} captured sessions are waiting for distill.",
             "repair_hint": None,
             "repair_reason": None,
@@ -31,7 +31,7 @@ def status_triage_hints(counts: Mapping[str, Any]) -> dict[str, Any]:
     ):
         return {
             "phase": "awaiting-capture",
-            "suggested_slash": "/hm:wake",
+            "suggested_slash": "hm",
             "reason": "No captured evidence or durable memory exists yet.",
             "repair_hint": None,
             "repair_reason": None,
@@ -39,13 +39,13 @@ def status_triage_hints(counts: Mapping[str, Any]) -> dict[str, Any]:
 
     hints: dict[str, Any] = {
         "phase": "ready",
-        "suggested_slash": "/hm:wake",
+        "suggested_slash": "hm",
         "reason": "Project memory is available for wake-up context.",
         "repair_hint": None,
         "repair_reason": None,
     }
     if counts["pending_candidate_count"] > 0:
-        hints["repair_hint"] = "/hm:review"
+        hints["repair_hint"] = "hm"
         hints["repair_reason"] = (
             "Pending candidates remain; use review only for explicit recheck or correction."
         )
@@ -78,7 +78,7 @@ def build_status_dx_metadata(
         next_actions.append(
             _action(
                 "review_pending_when_needed",
-                "/hm:review",
+                "hm",
                 "Pending candidates exist; review only when correcting or rechecking candidates.",
             )
         )
@@ -86,7 +86,7 @@ def build_status_dx_metadata(
         next_actions.append(
             _action(
                 "search_before_task",
-                '/hm:search "<topic>"',
+                "hm",
                 "Search narrows the wake context to the current task.",
             )
         )

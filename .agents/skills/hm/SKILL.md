@@ -1,10 +1,11 @@
 ---
-name: "HM"
-description: 记住这次、找回以前的做法，或纠正一条记忆
-category: Memory
-tags: [harness-mem, memory]
-wireFormatVersion: hm-wire-v3.5
+name: hm
+description: Use harness-mem to remember this session, find prior work, or correct memory.
+metadata:
+  wireFormatVersion: hm-wire-v3.5
 ---
+
+# hm
 
 这是 harness-mem 的日常入口。根据用户正在说的话直接处理，不要让用户再选内部动作，也不要默认展示 job、candidate、receipt、provider、内部 ID 或 MCP 工具名。
 

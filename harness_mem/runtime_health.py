@@ -396,7 +396,7 @@ def _distill_stage_counts(
 
     return {
         "captured": len(jobs),
-        # Explicit /hm:distill selection is an implicit offer even when the
+        # An explicit remember request is an implicit offer even when the
         # automatic wake offer counter was not involved.
         "offered": sum(
             job.last_agent_offered_at is not None or _distill_job_was_claimed(job)

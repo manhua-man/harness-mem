@@ -558,8 +558,8 @@ async def local_health_summary(
 # Fix-command pointers for the candidate-health block. Stale and high-risk
 # candidates both go through the review audit surface; hm-distill no
 # longer owns a separate KB verification surface.
-_CANDIDATE_STALE_FIX = "/hm:review"
-_CANDIDATE_HIGH_RISK_FIX = "/hm:review"
+_CANDIDATE_STALE_FIX = "Use hm to review or correct this memory"
+_CANDIDATE_HIGH_RISK_FIX = "Use hm to review or correct this memory"
 
 
 def _load_project_dream_config(project_name: str) -> MergedConfig | None:

@@ -36,8 +36,8 @@ wake and route in-flight context/tool/save-point events through
 `autopilot_search_tick`. It may suggest explicit distill at clear task
 boundaries, but it never claims a queued job or starts background semantic work.
 Durable memory still goes through point-level verification and trusted-runtime
-assimilation. `/hm:review` remains the post-hoc audit, correction, and undo
-surface. Hook-started work is handled only by an authorized Dream run.
+assimilation. Users ask `hm` when they need post-hoc audit, correction, or undo.
+Hook-started work is handled only by an authorized Dream run.
 
 ## Trigger map
 
@@ -47,7 +47,7 @@ surface. Hook-started work is handled only by an authorized Dream run.
 | Runtime context/tool/save-point event has uncertainty, conflict, failure, durable-claim grounding, or long-horizon task switch | Call `autopilot_search_tick`; inject returned `context_injection` into the next context when search runs. |
 | User asks “previously”, “last time”, “why did we decide”, “history” | Use `autopilot_search_tick` when inside a runtime event; use `search_memory` as the explicit fallback path. Drill down with `timeline` or observations only when needed. |
 | User explicitly says “remember this”, “make this a rule”, “以后都这样” | Run the high-impact candidate admission check, then `govern_memory(action="suggest")` on `admit` / narrowed `narrow`; let the shared automatic policy govern it and never direct-confirm it. |
-| User asks to organize, distill, archive, or close recent sessions | `/hm:distill` path with **light** checklist default; deep for high-impact items. |
+| User asks to organize, distill, archive, or close recent sessions | The `hm` remember path with **light** checklist default; deep for high-impact items. |
 | Work reaches a stable, reusable boundary | Light admission then suggest distill or handoff. |
 | Repeated mistakes or durable workflow patterns appear | **Deep** admission then suggest rule candidate. |
 | New evidence conflicts with existing memory | Suggest supersede or correction; never overwrite confirmed truth in place. |

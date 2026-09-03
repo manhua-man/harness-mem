@@ -35,7 +35,6 @@ INTEGRATION_ACTIONS = [
 ]
 INTEGRATION_HOOK_ACTIONS = ["sync"]
 INTEGRATION_COMMAND_ACTIONS = ["list", "sync"]
-COMMAND_PROFILES = ["daily"]
 HOOK_SUITE_CLIENTS = [
     "cursor",
     "claude-code",
@@ -45,7 +44,7 @@ HOOK_SUITE_CLIENTS = [
     "opencode",
     "antigravity",
 ]
-CLIENT_CHOICES = ["auto", "all", "claude-code", "codex", "skip", *HOOK_SUITE_CLIENTS]
+CLIENT_CHOICES = ["auto", "all", *HOOK_SUITE_CLIENTS]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -67,7 +66,6 @@ def completion_bash() -> str:
     integration_actions = " ".join(INTEGRATION_ACTIONS)
     integration_hook_actions = " ".join(INTEGRATION_HOOK_ACTIONS)
     integration_command_actions = " ".join(INTEGRATION_COMMAND_ACTIONS)
-    command_profiles = " ".join(COMMAND_PROFILES)
     client_choices = " ".join(dict.fromkeys(CLIENT_CHOICES))
     return f"""# harness-mem bash completion
 _harness_mem_completion() {{
@@ -90,10 +88,6 @@ _harness_mem_completion() {{
                 ;;
             --category)
                 COMPREPLY=($(compgen -W "observations structured all" -- "${{cur}}"))
-                return
-                ;;
-            --profile)
-                COMPREPLY=($(compgen -W "{command_profiles}" -- "${{cur}}"))
                 return
                 ;;
             *)
@@ -135,7 +129,7 @@ _harness_mem_completion() {{
     fi
 
     if [[ "${{words[1]}}" == "integration" && "${{cur}}" == -* ]]; then
-        COMPREPLY=($(compgen -W "--project-root --force --profile --source-dir --target-dir --dry-run --client" -- "${{cur}}"))
+        COMPREPLY=($(compgen -W "--project-root --force --dry-run --client" -- "${{cur}}"))
         return
     fi
 }}
@@ -152,7 +146,6 @@ def completion_zsh() -> str:
     integration_actions = " ".join(INTEGRATION_ACTIONS)
     integration_hook_actions = " ".join(INTEGRATION_HOOK_ACTIONS)
     integration_command_actions = " ".join(INTEGRATION_COMMAND_ACTIONS)
-    command_profiles = " ".join(COMMAND_PROFILES)
     client_choices = " ".join(dict.fromkeys(CLIENT_CHOICES))
     return f"""# harness-mem zsh completion
 _harness_mem() {{
@@ -164,8 +157,6 @@ _harness_mem() {{
         '--project[project name]:project:' \\
         '-c[client]:client:({client_choices})' \\
         '--client[client]:client:({client_choices})' \\
-        '-n[limit]:limit:' \\
-        '--limit[limit]:limit:' \\
         '--category[category]:(observations structured all)' \\
         '--before[date (YYYY-MM-DD)]:date:' \\
         '--source[JSON draft path]:source:' \\
@@ -180,9 +171,6 @@ _harness_mem() {{
         '--scope[config scope]:(user project)' \\
         '--confirm[confirm enabling a persistent destructive config policy]' \\
         '--force[overwrite existing hook]' \\
-        '--profile[command profile]:profile:({command_profiles})' \\
-        '--source-dir[slash command source directory]:source_dir:' \\
-        '--target-dir[Claude Code hm command directory]:target_dir:' \\
         '1: :->command' \\
         '2: :->arg'
 
@@ -235,7 +223,6 @@ complete -c harness-mem -n '__fish_use_subcommand' -a '{commands}' -d "Command"
 
 # quickstart
 complete -c harness-mem -n '__fish_seen_subcommand_from quickstart; or __fish_seen_subcommand_from qs' -l client -x -a "{client_choices}" -d "Client"
-complete -c harness-mem -n '__fish_seen_subcommand_from quickstart; or __fish_seen_subcommand_from qs' -l limit -x -d "Max sessions"
 
 # doctor
 complete -c harness-mem -n '__fish_seen_subcommand_from doctor' -l project -r -d "Project name"
@@ -269,9 +256,6 @@ complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l force -d
 complete -c harness-mem -n '__fish_seen_subcommand_from integration' -l client -x -a "{hook_suite_clients}" -d "Client"
 complete -c harness-mem -n '__fish_seen_subcommand_from hooks' -a "sync" -d "Hook action"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -a "list sync" -d "Command action"
-complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l profile -x -a "daily" -d "Command profile"
-complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l source-dir -r -d "Slash command source directory"
-complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l target-dir -r -d "Claude Code hm command directory"
 complete -c harness-mem -n '__fish_seen_subcommand_from commands' -l dry-run -d "Preview only"
 """
 

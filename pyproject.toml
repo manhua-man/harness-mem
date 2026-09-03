@@ -49,7 +49,6 @@ python-packages = ["harness_mem"]
 features = ["pyo3/extension-module"]
 include = [
     { path = "harness_mem/integration/templates/*.template", format = "wheel" },
-    { path = "code/plugins/harness-mem/commands/hm/daily/*.md", format = "wheel" },
     { path = "code/plugins/harness-mem/commands/hm/hm.md", format = "wheel" },
 ]
 

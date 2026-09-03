@@ -49,10 +49,10 @@ review -> post-hoc audit, correction, undo, supersede
 dream -> discover stale / duplicate / conflicting knowledge -> re-verify and assimilate with reversible audit
 ```
 
-The older `/hm:<action>`, `$hm-<action>`, and `/hm-<action>` commands remain
-compatibility and advanced control surfaces, not the default product entry.
-When a client has hooks or an Agent extension API, the default installation
-should register the automatic path for that client.
+There are no action-specific daily commands. Operator diagnosis and repair stay
+in the terminal CLI or MCP tools instead of creating more entries for users.
+When a client has hooks or an Agent extension API, the first `hm` use in a
+project prepares the automatic path for that client.
 
 ## Client Event Model
 

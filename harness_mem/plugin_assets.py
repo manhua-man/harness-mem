@@ -9,12 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
-
 from harness_mem import __version__
 from harness_mem.version import WIRE_FORMAT_VERSION
-
-CommandProfile = Literal["daily"]
 
 PLUGIN_NAME = "harness-mem"
 PLUGIN_RELATIVE_ROOTS = (
@@ -25,16 +21,23 @@ PLUGIN_RELATIVE_ROOT = PLUGIN_RELATIVE_ROOTS[0]
 PLUGIN_COMMAND_SOURCE_RELATIVE = PLUGIN_RELATIVE_ROOT / "commands" / "hm"
 PLUGIN_MANIFEST_RELATIVE = PLUGIN_RELATIVE_ROOT / ".codex-plugin" / "plugin.json"
 PLUGIN_SKILL_RELATIVE = PLUGIN_RELATIVE_ROOT / "skills" / "harness-mem" / "SKILL.md"
-PLUGIN_DAILY_STATUS_RELATIVE = PLUGIN_COMMAND_SOURCE_RELATIVE / "daily" / "status.md"
 PLUGIN_PRIMARY_COMMAND_RELATIVE = PLUGIN_COMMAND_SOURCE_RELATIVE / "hm.md"
 
 PRIMARY_COMMAND = "hm"
-DAILY_COMMANDS = ("status", "wake", "search", "search-all", "distill", "review", "dream")
-RETIRED_COMMANDS = ("mark", "prune")
-VALID_COMMAND_PROFILES: tuple[CommandProfile, ...] = ("daily",)
-COMMAND_GROUPS: dict[str, str] = {
-    **{command: "daily" for command in DAILY_COMMANDS},
-}
+# These names are not supported commands. They are listed only so a sync can
+# remove files created by older harness-mem releases without touching any
+# unrelated user-owned command or skill.
+REMOVED_COMMANDS = (
+    "status",
+    "wake",
+    "search",
+    "search-all",
+    "distill",
+    "review",
+    "dream",
+    "mark",
+    "prune",
+)
 
 
 @dataclass(frozen=True)
@@ -44,7 +47,6 @@ class PluginAssetPaths:
     manifest: Path
     command_source: Path
     primary_command: Path
-    daily_status: Path
     skill: Path
 
 
@@ -72,7 +74,6 @@ def plugin_asset_paths(repo_root: Path) -> PluginAssetPaths:
         manifest=plugin_root / ".codex-plugin" / "plugin.json",
         command_source=command_source,
         primary_command=command_source / "hm.md",
-        daily_status=command_source / "daily" / "status.md",
         skill=plugin_root / "skills" / "harness-mem" / "SKILL.md",
     )
 
@@ -98,27 +99,8 @@ def find_plugin_command_source(cwd: Path | None = None) -> Path | None:
     return None
 
 
-def command_group_for(command: str) -> str:
-    group = COMMAND_GROUPS.get(command)
-    if group is None:
-        raise ValueError(f"unknown slash command: {command}")
-    return group
-
-
-def source_path_for_plugin_command(source_dir: Path, command: str) -> Path:
-    """Return the canonical source path for a plugin slash command."""
-
-    nested = source_dir / command_group_for(command) / f"{command}.md"
-    if nested.exists():
-        return nested
-    return source_dir / f"{command}.md"
-
-
 __all__ = [
-    "COMMAND_GROUPS",
-    "DAILY_COMMANDS",
     "PLUGIN_COMMAND_SOURCE_RELATIVE",
-    "PLUGIN_DAILY_STATUS_RELATIVE",
     "PLUGIN_MANIFEST_RELATIVE",
     "PLUGIN_NAME",
     "PLUGIN_PRIMARY_COMMAND_RELATIVE",
@@ -126,13 +108,9 @@ __all__ = [
     "PLUGIN_SKILL_RELATIVE",
     "PluginAssetPaths",
     "PRIMARY_COMMAND",
-    "RETIRED_COMMANDS",
-    "VALID_COMMAND_PROFILES",
-    "CommandProfile",
-    "command_group_for",
+    "REMOVED_COMMANDS",
     "default_repo_root",
     "expected_plugin_manifest_fields",
     "find_plugin_command_source",
     "plugin_asset_paths",
-    "source_path_for_plugin_command",
 ]
