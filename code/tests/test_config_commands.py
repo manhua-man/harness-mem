@@ -86,11 +86,7 @@ api_key_env = "EXFILTRATE_ME"
 
     runtime = load_merged_config(project).to_runtime_config()
     semantic = runtime.get("semantic")
-    assert isinstance(semantic, dict)
-    execution = semantic.get("execution")
-    assert isinstance(execution, dict)
-    assert "profile" not in execution
-    assert "providers" not in semantic
+    assert semantic is None
 
 
 def test_semantic_profile_is_not_a_public_config_key() -> None:

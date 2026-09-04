@@ -92,7 +92,7 @@ jobs:
           python -c "import os, subprocess, sys;
           version=os.environ['RELEASE_TAG'].removeprefix('v');
           subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--find-links', 'dist', 'harness-mem==' + version])"
-      - name: Verify first MCP run and automatic hook bootstrap
+      - name: Verify global Quickstart, first MCP run, and project Hooks
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: >-

@@ -21,8 +21,8 @@
   <rect class="bg" width="1440" height="860"/>
   <rect class="teal" width="1440" height="10"/>
   <text x="64" y="66" class="title ink">Evidence is not current knowledge</text>
-  <text x="64" y="100" class="subtitle muted">The 0.9.26 source keeps immutable sources, temporary job material, and SQLite truth physically distinct.</text>
-  <g transform="translate(1204 38)"><rect class="soft" width="172" height="42" rx="21"/><text x="20" y="28" class="eyebrow teal">source 0.9.26</text></g>
+  <text x="64" y="100" class="subtitle muted">The 0.9.27 source keeps immutable sources, temporary job material, and SQLite truth physically distinct.</text>
+  <g transform="translate(1204 38)"><rect class="soft" width="172" height="42" rx="21"/><text x="20" y="28" class="eyebrow teal">source 0.9.27</text></g>
 
   <text x="64" y="150" class="eyebrow muted">ENTRY AND SOURCE</text>
   <g transform="translate(64 176)">

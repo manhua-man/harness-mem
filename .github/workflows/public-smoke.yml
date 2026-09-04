@@ -22,16 +22,16 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pytest ruff maturin PyYAML
 
+      - name: Build and install native package wheel
+        run: |
+          maturin build --release --features python-extension -o dist/wheel
+          python -m pip install dist/wheel/*.whl --force-reinstall
+
       - name: Version-alignment preflight
         run: >-
           python -m pytest -q
           code/tests/test_package_version_alignment.py
           code/tests/test_version_drift.py
-
-      - name: Build and install native package wheel
-        run: |
-          maturin build --release --features python-extension -o dist/wheel
-          python -m pip install dist/wheel/*.whl --force-reinstall
 
       - name: Ensure canonical mcps descriptors
         run: python code/scripts/ensure_mcps_canonical.py

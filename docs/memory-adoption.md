@@ -3,9 +3,9 @@
 This document owns the conceptual contract for turning session evidence into
 usable long-term memory. The full product path starts before extraction: it
 must first safely receive, version, and finish a native session. The current
-source is `0.9.26`; the latest public release is `0.9.26`. SQLite truth
-separation landed in `0.9.20` and was extended and hardened through `0.9.26`.
-In the `0.9.26` source, authorized background
+source is `0.9.27`; published artifacts are listed on the GitHub Releases page. SQLite truth
+separation landed in `0.9.20` and was extended and hardened through `0.9.27`.
+Since `0.9.26`, authorized background
 work moved to `enabled=true` plus the selected host CLI; legacy HTTP provider
 profiles no longer authorize the product path. See `docs/background-memory.md`.
 The runtime implements lifecycle, lossless extraction, content-addressed evidence
@@ -177,10 +177,9 @@ several ANSWERED points, one contradiction, and one unfinished handoff. The
 session-level `promotion_decision` is derived from those outcomes; it is not a
 single gate that erases the independent results.
 
-`answer-memory-evidence` may gather missing evidence,
-`grill-before-distill` may pressure-test a broad conclusion, and
-`ask-memory-boundary` may resolve a true product boundary. None writes or
-promotes memory.
+Missing evidence, broad conclusions, and genuine product decisions are handled
+inside the same admission pass. Only a product or intent decision that evidence
+cannot resolve is returned to the user as a question.
 
 **Quality signals:** a user mention is not confused with an established fact;
 old implementation evidence is not reported as current implementation; one
@@ -351,7 +350,7 @@ both background queues and remains in the active host.
   reversibly retire current knowledge only after local harness-mem reopens a
   complete supported source and explicit background authorization
   (`distill.autonomous.enabled=true`) under the host CLI executor contract
-  (`execution_mode=agent`, `provider.name=<host>_cli`; see
+  (`provider.name=<host>_cli` plus a successful Hook re-entry challenge; see
   `docs/background-memory.md`).
   Unsupported, missing, or truncated
   sources, and multi-item comparisons, close without changing current truth.
@@ -403,7 +402,7 @@ operator or audit actions. They do not redefine the long-term knowledge model.
 - Revalidation reopens the current underlying source. An old audit result or
   hash explains how to find that source; it cannot prove the source still says
   the same thing.
-- Dream's unattended semantic work uses the **current host CLI** when
+- Dream's unattended semantic work uses the **selected host CLI** when
   `distill.autonomous.enabled=true`. Transport and credentials live in that
   host's CLI configuration, not in harness-mem project config. A manually
   requested `distill` remains in its active host and is never silently

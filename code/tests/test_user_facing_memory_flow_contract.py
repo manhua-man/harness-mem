@@ -19,6 +19,30 @@ def test_hm_default_summary_is_concise() -> None:
     assert "没记：" in text
     assert "还没完成：" in text
     assert "不补一套产品术语" in text
+    assert (
+        "get_project_status(project_root=<当前工作区的绝对路径>, "
+        'host_client=<当前 Agent 宿主>, detail_level="compact")'
+    ) in text
+    assert "跟随最新一句" in text
+    assert "连接 `harness-mem-mcp`，新开一个任务后重试" in text
+
+
+def test_all_hm_mirrors_keep_the_same_daily_contract() -> None:
+    paths = (
+        ROOT / ".agents/skills/hm/SKILL.md",
+        ROOT / ".agents/workflows/hm.md",
+        ROOT / ".claude/commands/hm.md",
+        ROOT / ".cursor/commands/hm.md",
+        ROOT / ".grok/skills/hm/SKILL.md",
+        ROOT / ".opencode/commands/hm.md",
+    )
+
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        assert "project_root=<当前工作区的绝对路径>" in text, path
+        assert "host_client=<当前 Agent 宿主>" in text, path
+        assert "跟随最新一句" in text, path
+        assert "连接 `harness-mem-mcp`" in text, path
 
 
 def test_canonical_distill_skill_hides_internal_ids_from_readable_memory() -> None:

@@ -357,7 +357,7 @@ def main(argv: list[str] | None = None):
         help="Repair or refresh one host's hook suite",
         description=(
             "Repair project hooks through the same idempotent suite installer "
-            "used by MCP bootstrap. Normal projects do not need this command."
+            "used by the first hm status check. Normal projects do not need this command."
         ),
     )
     hooks_sub = hooks.add_subparsers(dest="hooks_action")
@@ -425,7 +425,7 @@ def main(argv: list[str] | None = None):
         return 0
 
     if command == "quickstart":
-        return asyncio.run(cmd_quickstart(args.client))
+        return cmd_quickstart(args.client)
 
     if command == "doctor":
         return asyncio.run(cmd_doctor(args.project))

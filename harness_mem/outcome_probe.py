@@ -53,8 +53,6 @@ def _provider_host_cli_agent_isolated(
 
     if not authorized:
         return False
-    if str(provider.get("execution_mode") or "") != "agent":
-        return False
     expected_name = f"{host_client}_cli"
     if str(provider.get("name") or "") != expected_name:
         return False
@@ -65,23 +63,6 @@ def _provider_host_cli_agent_isolated(
         and isinstance(hook_guard_check, Mapping)
         and hook_guard_check.get("all_blocked") is True
         and int(hook_guard_check.get("downstream_jobs_created") or 0) == 0
-    )
-
-
-def _provider_restricted_execution_isolated(
-    provider: Mapping[str, Any],
-    *,
-    authorized: bool,
-    host_client: str,
-    hook_guard_check: Mapping[str, Any] | None = None,
-) -> bool:
-    """True when the authorized host CLI agent kept its boundaries."""
-
-    return _provider_host_cli_agent_isolated(
-        provider,
-        authorized=authorized,
-        host_client=host_client,
-        hook_guard_check=hook_guard_check,
     )
 
 
@@ -435,7 +416,7 @@ def inspect_autonomous_outcome(
     token_metrics_absent = (
         input_tokens is None and output_tokens is None and total_tokens is None
     )
-    provider_isolated = _provider_restricted_execution_isolated(
+    provider_isolated = _provider_host_cli_agent_isolated(
         provider,
         authorized=authorized,
         host_client=expected_cli,

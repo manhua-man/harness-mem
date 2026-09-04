@@ -28,21 +28,21 @@
 
 `harness-mem` 是面向 AI Agent 的本地优先、可审计、可插拔记忆后端。Agent 通过统一 MCP surface 使用项目记忆；Claude Code、Codex、Cursor、Grok、Hermes、OpenCode 和 Antigravity 通过各自原生命令与 Hook 接入同一运行时。
 
-- Python 包：`harness-mem`，当前源码版本 `0.9.26`，GitHub 最新公开 Release 为 `0.9.26`；源码版本真值在 `pyproject.toml` 与 `harness_mem/__init__.py`。
+- Python 包：`harness-mem`，当前源码版本 `0.9.27`；源码版本真值在 `pyproject.toml` 与 `harness_mem/__init__.py`，最新公开版本以 GitHub `releases/latest` 为准。
 - Rust helper crate：`harness_mem_core_rs`，crate 版本 `4.0.3`；它不是 Python 包版本。
 - Python 要求：`>=3.9`。
 - 分发：GitHub Releases 的原生 wheel 与 sdist，不发布到 PyPI。
-- 日常用户动作：`status`、`wake`、`search`、`search-all`、`distill`、`review`、`dream`。
+- 日常用户只使用 `hm`；`status`、`wake`、`search`、`search-all`、`distill`、`review`、`dream` 是它按需要调用的内部动作或维护动作。
 - CLI 是安装、配置、诊断、集成和维护面；MCP 是 Agent 日常记忆面。
-- Quickstart 与项目无关，只为当前宿主全局安装一次 `$hm` 或 `/hm`；它不查看或修改 Agent、MCP Router、插件或其他工具管理的 MCP 连接。每个项目第一次使用 `hm` 时才自动连接项目并准备该宿主的项目 Hook。
+- Quickstart 与项目无关，只为当前宿主安装一次 `$hm` 或 `/hm`；它不查看或修改 Agent、MCP Router、插件或其他工具管理的 MCP 连接。每个项目第一次使用 `hm` 时才准备该项目的本机记忆和宿主 Hook。
 
 ## 当前版本与目标架构边界
 
 `0.9.22` 已实现会话生命周期、无损提取、逐点验证、SQLite 当前知识、job 范围临时处理材料、干净检索，以及显式授权的 detached semantic execution。当前 normal wake/search 已把 raw Observation 和内部审计元数据隔离到 deep recall 或诊断面。
 
-`0.9.23` 增加用户配置中的 operator-owned semantic provider profile，以及只针对完整、可重开来源的终态 Dream 复核；`0.9.24` 为拒绝强制 tool 输出的 Anthropic 兼容网关增加经严格 schema 校验的无工具 JSON 模式；`0.9.25` 让 Hook 触发的会话由 Dream 统一执行，并修复截断来源退役、Dream undo、provider 失败终态和 Hook receipt 关联边界；`0.9.26` 将已授权后台收敛为 **`distill.autonomous.enabled=true` + 项目选择的 CLI**（默认当前宿主；可显式选择 Codex、Claude Code、Hermes 或 OpenCode），CLI 路径不再要求 `semantic.execution.profile` 或 user-config provider 表。人工 `distill` 留在当前宿主。
+`0.9.23` 增加用户配置中的 operator-owned semantic provider profile，以及只针对完整、可重开来源的终态 Dream 复核；`0.9.24` 为拒绝强制 tool 输出的 Anthropic 兼容网关增加经严格 schema 校验的无工具 JSON 模式；`0.9.25` 让 Hook 触发的会话由 Dream 统一执行，并修复截断来源退役、Dream undo、provider 失败终态和 Hook receipt 关联边界；`0.9.26` 将已授权后台收敛为 **`distill.autonomous.enabled=true` + 项目选择的 CLI**（默认当前宿主；可显式选择 Codex、Claude Code、Hermes 或 OpenCode），CLI 路径不再要求 `semantic.execution.profile` 或 user-config provider 表；`0.9.27` 将日常入口收为唯一的 `hm`，使 Quickstart 只安装入口，并保证 Hook 派发失败或宿主未知时不会内联执行或猜成其他宿主。人工 `distill` 留在当前宿主。
 
-兼容 `MemoryEntry` 历史行仍可读取，但新知识不再把 candidate、evidence、decision 和 truth 混成一个对象。`canonical.sqlite` 中的 `knowledge_entries` 是当前知识 authority；新候选、证据和拟议归纳决定属于 job 范围临时材料，成功终态经证明后按策略清理；最小知识来源与必要 undo 版本独立关联；Markdown 仅在阅读/导出时生成。六会话冻结 oracle、真实 Hook 与 14 项运行检查已通过。普通开发、启动或文档更新均不得迁移真实记忆；仅限操作员单独授权的、明确项目范围的维护运行可以重验来源、原子重写或可逆地退役历史行。一次已授权的 `harness-mem` 范围收敛已完成，其他项目和后续历史数据仍需新的明确授权。
+兼容 `MemoryEntry` 历史行仍可读取，但新知识不再把 candidate、evidence、decision 和 truth 混成一个对象。`canonical.sqlite` 中的 `knowledge_entries` 是当前知识 authority；新候选、证据和拟议归纳决定属于 job 范围临时材料，成功终态经证明后按策略清理；最小知识来源与必要 undo 版本独立关联；Markdown 仅在阅读/导出时生成。六会话冻结 oracle、隔离的真实 Hook 全链路与 12 项当前运行检查已通过。普通开发、启动或文档更新均不得迁移真实记忆；仅限操作员单独授权的、明确项目范围的维护运行可以重验来源、原子重写或可逆地退役历史行。一次已授权的 `harness-mem` 范围收敛已完成，其他项目和后续历史数据仍需新的明确授权。
 
 `0.9.13-0.9.15` 是已被下一列车取代的历史质量计划记录，不是当前已发布版本，也不能作为“物理真值分离已经完成”的证据。
 
@@ -92,7 +92,7 @@
 - **质量信号：** 垃圾写入趋近于零；不宽、不重、不混；同一事实不换措辞重复写；设计目标不冒充当前实现；candidate、audit、handoff 与长期知识保持区别。
 - **主要 owner：** `harness_mem/commands/assimilation.py`、`harness_mem/core/schemas/assimilation.py`、`harness_mem/storage/candidate_store.py`、`harness_mem/storage/truth_store.py`、`harness_mem/mcp/governance_handlers.py`。
 - **长期知识形态：** SQLite `knowledge_entries` 是项目当前长期知识单一真源；行内只保留稳定内部 ID、项目、自然模块路径、具体标题、一条知识正文和验证日期，最小真实来源独立关联。内部类型、处置、job 和理由码不进入正式知识或默认展示。
-- **当前兼容边界：** `0.9.22` 发布路径（并由 `0.9.23` 至 `0.9.26` 延续）已分离干净当前知识、临时 job 材料和最小来源/undo 数据；旧 `MemoryEntry` 兼容行不会因升级自动迁移、删除或改写。
+- **当前兼容边界：** `0.9.22` 发布路径（并由 `0.9.23` 至 `0.9.27` 延续）已分离干净当前知识、临时 job 材料和最小来源/undo 数据；旧 `MemoryEntry` 兼容行不会因升级自动迁移、删除或改写。
 
 ### 4. 检索与使用
 
@@ -197,19 +197,17 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 | --- | --- | --- |
 | **本机 harness-mem** | Dream、autonomous worker、finalize、SQLite | 外部 model API 或宿主 IDE |
 | **receipt / fingerprint** | 本机 autonomous 审计回执；代码版与配置版的 SHA256 | 长期记忆或 Note 正文 |
-| **`distill.autonomous.enabled`** | 项目开关：`true` = 后台 Agent（默认 `mode=agent`）；`false` = 关 | 不是人工 `distill` 开关 |
-| **`semantic.execution.mode`** | 默认 **`agent`**（不必写）；后台全 Agent，唯一硬限制 = Hook 不得重入 | 不是用户要选的第三档位名 |
-| **`semantic.execution.restricted`** | **遗留键**（0.9.26 代码仍读）；`false` 等同关后台。新文档以 `enabled=false` 为准 | 不是 Codex `--sandbox`；不要再用它表达「只禁 Hook」 |
-| **`execution_mode`（receipt）** | 回执：`agent` + `{host}_cli` = 宿主 CLI 成功 | 非 `{host}_cli` 名不能冒充 Agent |
+| **`distill.autonomous.enabled`** | 项目开关：`true` = 允许所选 CLI Agent 做后台整理；`false` = 关 | 不是人工 `distill` 开关 |
 | **`provider.name`（receipt）** | 成功路径：`{host}_cli`（如 `codex_cli`、`hermes_cli`、`claude-code_cli`、`opencode_cli`） | HTTP 名（如 `anthropic_messages:…`）不能冒充 Agent |
-| **outcome** | 14 条用户结果合同 + 本机探针 | 普通单元测试 |
+| **实际结果检查**（文件名仍为 `.codex/outcomes.json`） | 12 条用户结果合同 + 本机探针 | 普通单元测试 |
 
-**产品默认 vs 当前实现（0.9.26）：**
+**后台设置与当前实现（0.9.27）：**
 
-| | 产品默认（文档合同） | 当前代码实现 |
+| | 对外设置 | 当前代码实现 |
 | --- | --- | --- |
-| 开后台 | `enabled=true` | `build_semantic_executor` → 当前 `host_client` 的 CLI |
-| 关后台 | **`enabled=false`** | legacy `restricted=false` 亦 effective 关 |
+| 默认状态 | 关闭，无需写配置 | `distill_autonomous_enabled=False` |
+| 开后台 | `enabled=true` | `build_semantic_executor` → 所选 CLI，未指定时使用当前 `host_client` |
+| 关后台 | **`enabled=false`** | 旧项目的 `restricted=false` 读取时折叠为关闭，不形成第二套运行状态 |
 | 传输 / 凭据 | 在**所选 CLI** 配置（默认当前宿主；也可由项目明确选择） | harness-mem 不承载 endpoint / api_key |
 | 写库 | 本机 Answer Gate + finalize | 不变 |
 
@@ -217,7 +215,7 @@ MCP schema、handler、cluster/registry 与 descriptor 必须保持同一组 27 
 
 - transcript revision 与 Observation 是证据，不是长期事实；没有原始 transcript 的旧 Observation 标记为 `legacy_partial`，只供审计。
 - Agent 可以提出 evidence refs，但不能自行声明 `ANSWERED`；Answer Gate 由**本机 harness-mem**（证据重验模块）派生。
-- **后台语义** 经 **宿主 CLI Agent** 返回受 schema 约束的 JSON；**本机 harness-mem（含 Dream/worker）** 才能创建候选、`finalize`、写 Note 和修改治理状态。
+- **后台语义** 经所选 **宿主 CLI Agent** 返回受 schema 约束的 JSON；harness-mem 不改写该 CLI 的模型、服务地址、账号、密钥或规则。任务所需来源已完整放进输入，因此调用不加载无关工具，并禁止重新进入 harness-mem Hook。**本机 harness-mem（含 Dream/worker）** 才能创建候选、`finalize`、写 Note 和修改治理状态。
 - normal wake/search 返回当前 governed truth；raw transcript、candidate、Note、Answer Packet、provenance 和内部 ID 只在显式 audit/deep recall 出现。
 - Session Note 最新视图位于 `~/.codex/hm-distill/sessions/<session-id>.md`，不可变 job-bound 版本位于 `~/.codex/hm-distill/sessions/revisions/<job-id>/<session-id>.md`；Note 是历史可读/审计产物，不是当前项目真相。
 - `<private>...</private>` 与项目 `[capture]` ignore 在落盘前生效；被排除内容不得进入 revision、chunk、Observation 或索引。

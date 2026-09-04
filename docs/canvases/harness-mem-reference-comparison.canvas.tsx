@@ -276,9 +276,6 @@ export default function HarnessMemReferenceComparisonCanvas() {
         <Text tone="tertiary" size="small">
           完整 14 项目总表 · Mermaid 定位图 · 硬边界 → docs/reference-comparison-matrix.md
         </Text>
-        <Text tone="tertiary" size="small">
-          完成度五维（产品交付）→ canvases/harness-mem-completion.canvas.tsx
-        </Text>
       </Stack>
     </Stack>
   );

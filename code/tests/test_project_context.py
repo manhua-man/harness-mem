@@ -145,3 +145,20 @@ def test_detect_runtime_client_does_not_guess_when_no_signal_exists(monkeypatch)
             monkeypatch.delenv(key, raising=False)
 
     assert support.detect_runtime_client() is None
+
+
+def test_auto_host_resolution_is_unavailable_when_no_signal_exists(monkeypatch) -> None:
+    monkeypatch.delenv("HARNESS_MEM_CLIENT", raising=False)
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+    for key in tuple(os.environ):
+        if key.startswith("CLAUDE_CODE"):
+            monkeypatch.delenv(key, raising=False)
+
+    resolution = support.resolve_host_source("auto")
+
+    assert resolution.host_client == "unknown"
+    assert resolution.resolved_client is None
+    assert resolution.source_kind == "unavailable"
+    assert resolution.adapter_available is False
+    assert support.resolve_ingest_client("auto") == "unknown"
+    assert support.current_agent_client() == "unknown"

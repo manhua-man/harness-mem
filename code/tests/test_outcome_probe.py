@@ -37,8 +37,6 @@ from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 def _mock_merged_config(**overrides: object) -> MergedConfig:
     base = {
         "distill_autonomous_enabled": True,
-        "semantic_execution_restricted": True,
-        "semantic_execution_mode": "agent",
     }
     base.update(overrides)
     return MergedConfig(**base)
@@ -115,11 +113,7 @@ def _codex_cli_provider(**overrides: object) -> dict[str, object]:
     provider = {
         "name": "codex_cli",
         "schema_valid": True,
-        "execution_mode": "agent",
         "host_client": "codex",
-        "hooks_disabled": False,
-        "plugins_disabled": False,
-        "mcp_disabled": False,
     }
     provider.update(overrides)
     return provider
@@ -348,11 +342,7 @@ def test_autonomous_probe_accepts_host_cli_without_token_metrics(
     provider = {
         "name": "hermes_cli",
         "schema_valid": True,
-        "execution_mode": "agent",
         "host_client": "hermes",
-        "hooks_disabled": False,
-        "plugins_disabled": False,
-        "mcp_disabled": False,
         "input_tokens": None,
         "output_tokens": None,
         "total_tokens": None,
@@ -465,19 +455,12 @@ def test_autonomous_probe_rejects_legacy_sandbox_only_receipt(
     assert result["provider_isolated"] is False
 
 
-def test_autonomous_probe_rejects_unrestricted_project_config(
+def test_autonomous_probe_rejects_disabled_background(
     tmp_path: Path, monkeypatch
 ) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
-    provider = {
-        "name": "anthropic_messages:hermes-sub2api",
-        "schema_valid": True,
-        "execution_mode": "agent",
-        "hooks_disabled": False,
-        "plugins_disabled": False,
-        "mcp_disabled": False,
-    }
+    provider = _codex_cli_provider()
     monkeypatch.setattr(
         "harness_mem.outcome_probe.read_autonomous_receipt",
         lambda *_args, **_kwargs: {
@@ -491,7 +474,7 @@ def test_autonomous_probe_rejects_unrestricted_project_config(
     monkeypatch.setattr(
         "harness_mem.outcome_probe.load_merged_config",
         lambda *_args, **_kwargs: _mock_merged_config(
-            semantic_execution_restricted=False,
+            distill_autonomous_enabled=False,
         ),
     )
     monkeypatch.setattr(

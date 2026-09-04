@@ -165,6 +165,7 @@ def test_host_entry_blocks_autonomous_provider_hook_reentry(
 def test_host_entry_post_turn_maintenance_outputs_combined_json(
     monkeypatch, tmp_path
 ) -> None:
+    monkeypatch.setenv("HARNESS_MEM_HOOK_BACKGROUND_WORKER", "1")
     monkeypatch.setattr(host_entry, "load_merged_config", lambda _root: MergedConfig())
     monkeypatch.setattr(backend_module, "LocalMemoryBackend", FakeBackend)
     monkeypatch.setattr(
@@ -224,6 +225,7 @@ def test_host_entry_post_turn_maintenance_outputs_combined_json(
 def test_host_entry_does_not_run_a_second_worker_after_hook_staging(
     monkeypatch, tmp_path
 ) -> None:
+    monkeypatch.setenv("HARNESS_MEM_HOOK_BACKGROUND_WORKER", "1")
     monkeypatch.setattr(
         host_entry,
         "load_merged_config",
@@ -342,6 +344,73 @@ def test_host_entry_dispatches_ide_maintenance_without_loading_backend(
         "spawned": True,
     }
     assert captured["client"] == "cursor"
+
+
+def test_host_entry_dispatch_failure_never_runs_maintenance_inline(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    def fail_dispatch(*_args, **_kwargs):
+        raise OSError("test worker launch failed")
+
+    async def fail_inline_maintenance(*_args, **_kwargs):
+        raise AssertionError("foreground Hook must not run maintenance inline")
+
+    monkeypatch.setattr(hook_background, "dispatch_post_turn", fail_dispatch)
+    monkeypatch.setattr(
+        maintenance_module,
+        "run_post_turn_maintenance",
+        fail_inline_maintenance,
+    )
+    monkeypatch.setattr(
+        host_entry,
+        "load_merged_config",
+        lambda _root: (_ for _ in ()).throw(
+            AssertionError("dispatch failure must return before config/backend startup")
+        ),
+    )
+    args = _args(tmp_path, "post-turn-maintenance")
+    args.client = "cursor"
+
+    code, payload = asyncio.run(host_entry.run(args))
+
+    assert code == ExitCode.HOOK_FAILED
+    data = json.loads(payload or "{}")
+    assert data["success"] is False
+    assert data["status"] == "failed"
+    assert data["error"]["kind"] == "background_dispatch_failed"
+    assert data["error"]["exception"] == "OSError"
+    assert data["summary"] == {
+        "background": True,
+        "spawned": False,
+    }
+
+
+def test_host_entry_unknown_hook_host_never_runs_maintenance_inline(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.delenv("HARNESS_MEM_CLIENT", raising=False)
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+    for key in tuple(os.environ):
+        if key.startswith("CLAUDE_CODE"):
+            monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(
+        host_entry,
+        "load_merged_config",
+        lambda _root: (_ for _ in ()).throw(
+            AssertionError("unknown Hook host must return before runtime startup")
+        ),
+    )
+
+    code, payload = asyncio.run(
+        host_entry.run(_args(tmp_path, "post-turn-maintenance"))
+    )
+
+    assert code == ExitCode.HOOK_FAILED
+    data = json.loads(payload or "{}")
+    assert data["error"]["kind"] == "host_not_detected"
+    assert data["summary"] == {"background": True, "spawned": False}
 
 
 def test_host_entry_wait_parser_has_explicit_bounded_timeout(tmp_path) -> None:
@@ -702,6 +771,28 @@ def test_codex_stop_adapter_consumes_hook_payload(
     assert captured["action"] == "post-turn-maintenance"
     assert captured["client"] == "codex"
     assert captured["trigger_id"] == "turn-22"
+    assert capsys.readouterr().out == "{}\n"
+
+
+def test_codex_stop_adapter_propagates_dispatch_failure(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    async def fake_run(_args):
+        return ExitCode.HOOK_FAILED, json.dumps(
+            {
+                "status": "failed",
+                "error": {"kind": "background_dispatch_failed"},
+            }
+        )
+
+    monkeypatch.setattr(host_entry, "run", fake_run)
+    monkeypatch.setattr(host_entry.sys, "stdin", io.StringIO('{"turn_id":"turn-9"}'))
+
+    code = host_entry.main(
+        ["--adapter", "codex-stop", "--project-root", str(tmp_path)]
+    )
+
+    assert code == ExitCode.HOOK_FAILED
     assert capsys.readouterr().out == "{}\n"
 
 

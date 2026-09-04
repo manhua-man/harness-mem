@@ -28,10 +28,8 @@ def version_drift_report(
     surfaces: dict[str, Any] = {
         "runtime": runtime_version_payload(),
         "plugin": _plugin_surface(paths.manifest),
-        "skill": _text_surface(paths.skill),
         "primary_command": _text_surface(paths.primary_command),
         "host_command": _host_command_surface(claude_home),
-        "host_skill": _host_skill_surface(claude_home),
     }
     issues: list[dict[str, str]] = []
     plugin = surfaces["plugin"]
@@ -72,7 +70,7 @@ def version_drift_report(
             }
         )
 
-    for name in ("skill", "primary_command"):
+    for name in ("primary_command",):
         surface = surfaces[name]
         if not surface.get("found"):
             issues.append(
@@ -148,14 +146,6 @@ def _host_command_surface(claude_home: Path | None) -> dict[str, Any]:
     }
 
 
-def _host_skill_surface(claude_home: Path | None) -> dict[str, Any]:
-    path = _host_root(claude_home) / "skills" / "harness-mem" / "SKILL.md"
-    surface = _text_surface(path)
-    if surface.get("found"):
-        surface["stale"] = WIRE_FORMAT_VERSION not in surface.get("text", "")
-    return surface
-
-
 def _append_host_install_issues(
     issues: list[dict[str, str]],
     surfaces: dict[str, Any],
@@ -170,18 +160,6 @@ def _append_host_install_issues(
                 "fix": "Run harness-mem quickstart --client claude-code.",
             }
         )
-
-    skill = surfaces["host_skill"]
-    if skill.get("found") and skill.get("stale"):
-        issues.append(
-            {
-                "surface": "host_skill",
-                "kind": "stale_wire_format",
-                "message": "installed Claude harness-mem skill is stale",
-                "fix": "Refresh the plugin through the Agent tool that owns its installation.",
-            }
-        )
-
 
 def _read_text(path: Path) -> str:
     try:

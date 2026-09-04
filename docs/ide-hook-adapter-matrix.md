@@ -18,8 +18,8 @@ invent the adapter schema at runtime.
 
 ## Current `harness-mem` support
 
-Today the MCP bootstrap supports seven clients and installs their hook adapters
-automatically:
+The first `hm` status check supports seven clients and installs the matching
+Hook adapter for that project:
 
 | Client flag | Generated files | Runtime action mapping | ID source |
 |---|---|---|---|
@@ -47,10 +47,9 @@ apps, but that is not the normal setup path:
 | Antigravity | `~/.gemini/antigravity/global_workflows/hm.md` | `/hm` |
 
 The entry contains no project path. The first `hm` status call in each workspace
-adopts that project and installs only its native Hook adapter. A recognized,
-workspace-scoped MCP initialization can do the same preparation earlier. Codex
-still requires its native trust approval for each new or changed project Hook
-manifest.
+adopts that project and installs only its native Hook adapter. MCP initialization
+does not adopt a project or write Hook files. Codex still requires its native
+trust approval for each new or changed project Hook manifest.
 
 The checked-in templates live in `harness_mem/integration/templates/` and are
 wired by `_suite_specs()` plus the Hermes config installer in

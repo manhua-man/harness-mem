@@ -154,24 +154,16 @@ def _listed_tool_names(params: dict | None = None) -> tuple[dict, set[str]]:
     return result, {tool["name"] for tool in result["tools"]}
 
 
-def test_initialize_adopts_workspace_and_installs_recognized_host_hooks(
+def test_initialize_has_no_project_or_hook_side_effects(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = tmp_path / "cursor-workspace"
     workspace.mkdir()
     (workspace / ".git").mkdir()
-    data_dir = tmp_path / "data"
-    installs: list[tuple[str, str, bool]] = []
-
-    monkeypatch.setattr(support_module, "DEFAULT_DATA_DIR", data_dir)
     monkeypatch.delenv("HARNESS_MEM_CLIENT", raising=False)
     monkeypatch.setenv("HARNESS_MEM_PROJECT_ROOT", str(workspace))
-    monkeypatch.setattr(
-        server,
-        "cmd_install_hook_suite",
-        lambda client, root, force: installs.append((client, root, force)) or 0,
-    )
+    before = {path.relative_to(workspace) for path in workspace.rglob("*")}
 
     response = server.handle_request(
         {
@@ -187,17 +179,8 @@ def test_initialize_adopts_workspace_and_installs_recognized_host_hooks(
 
     assert response is not None
     assert response["result"]["serverInfo"]["name"] == "harness-mem"
-    assert installs == [("cursor", str(workspace.resolve()), False)]
-    assert support_module.get_active_project() == "cursor-workspace"
-
-    async def _load_profile():
-        store = LocalProjectProfileStore(data_dir)
-        return await store.get("cursor-workspace")
-
-    profile = asyncio.run(_load_profile())
-    assert profile is not None
-    assert profile.project_root == str(workspace.resolve())
-    assert profile.project_id is not None
+    after = {path.relative_to(workspace) for path in workspace.rglob("*")}
+    assert after == before
 
 
 def test_get_project_status_bootstraps_router_workspace_and_codex_hooks(

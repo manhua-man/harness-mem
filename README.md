@@ -14,11 +14,10 @@
   </a>
 </p>
 
-Your Agent can read the repository, but it does not automatically retain the
-decision, convention, handoff, or unfinished verification from the last ten
-sessions. `harness-mem` keeps reusable project knowledge locally, so it can be
-found in the next task without turning your workflow into a second knowledge
-application.
+Your Agent can read the repository, but it does not automatically retain what
+mattered in earlier conversations or what still needs attention. `harness-mem`
+keeps reusable project knowledge locally, so it can be found later without
+turning your workflow into a second knowledge application.
 
 ## Start here
 
@@ -26,11 +25,12 @@ Install the release:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
-  harness-mem==0.9.26
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.27 \
+  harness-mem==0.9.27
 ```
 
-Then run this once for the Agent app you use:
+Run this once for each Agent app you actually use. You do not rerun it for every
+project:
 
 ```bash
 harness-mem quickstart
@@ -44,11 +44,12 @@ not inspect a project, write project Hooks, or scan or import old sessions. It
 does not inspect or change MCP settings.
 Your Agent, MCP Router, plugin, or other setup tool owns that connection. If the
 Agent does not already expose harness-mem, connect it separately using
-[MCP setup](docs/mcp-setup.md). Start a new task after setup and use `hm` in any
+[MCP setup](docs/mcp-setup.md). Do not add a second connection when a Router or
+plugin already provides it. Start a new task after setup and use `hm` in any
 project. The first use in each project prepares that project and its Hooks.
 The package is distributed through GitHub Releases, not PyPI.
 
-For optional local vector or hybrid search, install `"harness-mem[hybrid]==0.9.26"`
+For optional local vector or hybrid search, install `"harness-mem[hybrid]==0.9.27"`
 from the same release index. For the complete setup and host-specific exception,
 see [Quickstart](docs/quickstart.md).
 
@@ -69,14 +70,14 @@ How did we solve this before?
 This memory is wrong.
 ```
 
-The unified entry selects the needed memory work and replies in plain language:
-what was retained, what it found, or what needs correction. It does not make
-you choose storage, a provider profile, or an internal workflow.
+The unified entry replies in your language with what it remembered, what it
+found, or what needs correction. You do not have to choose a storage system,
+model connection, or internal workflow.
 
 At a new session, relevant context is loaded automatically. If you separately
-authorize automatic organization, completed sessions are processed in the
-background through the selected host CLI; it is safe to keep working while that
-happens. Background work never silently substitutes a different host CLI.
+turn on automatic organization, completed sessions are processed in the
+background through the command-line Agent you selected. If it is unavailable,
+harness-mem reports that instead of silently using a different one.
 
 ## What stays out of the way
 
@@ -127,5 +128,5 @@ python code/tools/outcome-verifier/scripts/verify_outcomes.py \
   --output .tmp/outcome-verifier/harness-mem-report.json
 ```
 
-Current source package version: **0.9.26**. Latest public GitHub Release:
-**0.9.26**.
+Current source package version: **0.9.27**. See GitHub for the
+[latest public Release](https://github.com/manhua-man/harness-mem/releases/latest).

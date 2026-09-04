@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from harness_mem.commands.support import detect_runtime_client, ensure_data_dir
+from harness_mem.commands.support import detect_runtime_client
 from harness_mem.integration.command_sync import (
     CommandHost,
     command_hint,
@@ -12,10 +12,9 @@ from harness_mem.integration.command_sync import (
 )
 
 
-async def cmd_quickstart(client: str = "auto") -> int:
+def cmd_quickstart(client: str = "auto") -> int:
     """Install the current host's global memory entry once."""
 
-    ensure_data_dir()
     selected_client = detect_runtime_client() if client == "auto" else client
     if selected_client is None:
         print(
@@ -32,8 +31,5 @@ async def cmd_quickstart(client: str = "auto") -> int:
         return 1
 
     hint = command_hint(host_client)
-    print(
-        f"Installed {hint} for {host_client}. Use it in any project. "
-        "The first use in a project prepares that project and its Hooks."
-    )
+    print(f"Installed {hint} for {host_client}. Start a new Agent task to use it.")
     return 0

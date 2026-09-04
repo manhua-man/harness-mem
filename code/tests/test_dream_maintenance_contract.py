@@ -8,6 +8,7 @@ import hashlib
 from pathlib import Path
 import struct
 import threading
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -173,7 +174,6 @@ class _DreamVerificationProvider:
             output_tokens=1,
             total_tokens=2,
             event_count=1,
-            execution_mode="agent",
         )
 
     def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
@@ -217,7 +217,6 @@ class _DreamVerificationProvider:
             output_tokens=1,
             total_tokens=2,
             event_count=1,
-            execution_mode="agent",
         )
 
 
@@ -248,7 +247,30 @@ def test_dream_background_requires_project_autonomous_enabled(
     )
 
 
-def test_hook_dream_passes_its_selected_profile_to_session_distill(
+def test_dream_does_not_select_claude_when_host_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from harness_mem.autonomous.executors import registry as executor_registry
+    from harness_mem.commands import support
+
+    monkeypatch.setattr(support, "detect_runtime_client", lambda: None)
+    monkeypatch.setattr(
+        executor_registry,
+        "build_semantic_executor",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("unknown host must not construct a CLI executor")
+        ),
+    )
+
+    assert (
+        dream_module._dream_provider_from_config(
+            MergedConfig(distill_autonomous_enabled=True)
+        )
+        is None
+    )
+
+
+def test_hook_dream_passes_its_selected_cli_to_session_distill(
     backend,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -305,6 +327,72 @@ def test_hook_dream_passes_its_selected_profile_to_session_distill(
     assert captured["provider"] is None
     assert captured["preferred_job_id"] == "job-42"
     assert captured["client"] == "codex"
+
+
+def test_hook_dream_uses_job_host_when_project_selects_another_cli(
+    backend,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected = _DreamVerificationProvider()
+    captured: dict[str, Any] = {}
+
+    from harness_mem.autonomous.executors import registry as executor_registry
+    from harness_mem.autonomous import worker as autonomous_worker
+    from harness_mem.commands import support
+
+    monkeypatch.setattr(support, "detect_runtime_client", lambda: None)
+    monkeypatch.setattr(
+        backend.transcript_store,
+        "get_distill_job",
+        lambda _job_id: SimpleNamespace(client="cursor"),
+    )
+    monkeypatch.setattr(
+        "harness_mem.autonomous.executors.host_cli._resolve_executable",
+        lambda client: "hermes-bin" if client == "hermes" else "",
+    )
+    monkeypatch.setattr(
+        executor_registry,
+        "build_semantic_executor",
+        lambda _config, _client: selected,
+    )
+
+    def fake_worker(_backend, **kwargs):
+        captured.update(kwargs)
+        return {"success": True, "state": "succeeded", "outcomes": []}
+
+    async def fake_dream_run(*_args, **kwargs):
+        now = datetime.now(timezone.utc)
+        return DreamRun(
+            project_name="demo",
+            started_at=now,
+            completed_at=now,
+            status="completed",
+            trigger_source="ide_hook",
+            reflection_job_id=kwargs["reflection_job_id"],
+        )
+
+    monkeypatch.setattr(autonomous_worker, "run_autonomous_distill_batch", fake_worker)
+    monkeypatch.setattr(dream_module, "_run_dream_with_progress_timeout", fake_dream_run)
+
+    result = _run(
+        dream_auto_tick(
+            backend,
+            project_name="demo",
+            project_root=str(tmp_path),
+            config=MergedConfig(
+                distill_autonomous_enabled=True,
+                distill_autonomous_cli="hermes",
+            ),
+            source="ide_hook",
+            trigger_id="session-43",
+            trigger_job_id="job-43",
+        )
+    )
+
+    assert result["success"] is True
+    assert captured["client"] == "cursor"
+    assert captured["provider"] is None
 
 
 def test_dream_closes_legacy_supersede_candidates_without_pending_review(
@@ -597,7 +685,6 @@ def test_dream_compares_source_backed_conflict_and_rejects_a_guess(
                 output_tokens=1,
                 total_tokens=2,
                 event_count=1,
-                execution_mode="agent",
             )
 
     monkeypatch.setattr(
@@ -846,7 +933,6 @@ def test_dream_refines_changed_local_source_through_assimilation(
                 output_tokens=1,
                 total_tokens=2,
                 event_count=1,
-                execution_mode="agent",
             )
 
     monkeypatch.setattr(

@@ -19,7 +19,7 @@
   <rect class="teal" width="1440" height="10"/>
   <text x="64" y="66" class="title ink">One daily entry — three plain requests</text>
   <text x="64" y="100" class="subtitle muted">Quickstart once globally · Codex: $hm · other hosts: /hm · first use prepares project Hooks</text>
-  <g transform="translate(1204 38)"><rect class="soft" width="172" height="42" rx="21"/><text x="20" y="28" class="eyebrow teal">source 0.9.26</text></g>
+  <g transform="translate(1204 38)"><rect class="soft" width="172" height="42" rx="21"/><text x="20" y="28" class="eyebrow teal">source 0.9.27</text></g>
   <text x="64" y="148" class="eyebrow muted">WHAT USERS SAY</text>
   <g transform="translate(64 174)">
     <rect class="card" width="390" height="172" rx="18"/>

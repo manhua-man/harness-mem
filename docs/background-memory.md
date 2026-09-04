@@ -51,16 +51,18 @@ Stop Hook → 保存会话 → Dream/worker → 所选 CLI → 本机验证 → 
 成功的一次后台运行：
 
 ```json
-"execution_mode": "agent",
 "provider": { "name": "hermes_cli", "host_client": "hermes" }
 ```
 
 | 字段 | 成功时 |
 |------|--------|
-| `execution_mode` | `agent` |
 | `provider.name` | `{host}_cli`（如 `codex_cli`、`hermes_cli`、`claude-code_cli`、`opencode_cli`） |
 | `hook_guard_check.all_blocked` | `true` |
 | `hook_guard_check.downstream_jobs_created` | `0` |
+
+后台调用的是所选 CLI Agent；harness-mem 不改写该 CLI 的模型、服务地址、账号、
+密钥或规则。任务所需来源已经完整放进输入，所以调用不加载无关工具；它还会阻止
+后台 Agent 重新进入 harness-mem Hook，并在本机校验返回 JSON。
 
 ---
 
@@ -73,7 +75,7 @@ Stop Hook → 保存会话 → Dream/worker → 所选 CLI → 本机验证 → 
 | `ready` | 后台已开，而且所选 CLI 可用 |
 | `on` | 后台开关已开 |
 | `selected_cli` | 实际准备调用的 CLI |
-| `reason` | `ok` / `disabled` / `legacy_restricted_off` / `unsupported_cli` / `cli_not_found` |
+| `reason` | `ok` / `disabled` / `host_not_detected` / `unsupported_cli` / `cli_not_found` |
 | `message` | 短英文说明 |
 
 ---
@@ -83,7 +85,6 @@ Stop Hook → 保存会话 → Dream/worker → 所选 CLI → 本机验证 → 
 | 短名 | 含义 |
 |------|------|
 | `background_on(config)` | 开关算「开」 |
-| `background_ready(config, client=...)` | 后台已开且所选 CLI 可用 |
 | `background_status(config)` | 上面 + `reason` |
 
 ---

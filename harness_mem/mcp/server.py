@@ -53,8 +53,6 @@ except (OSError, AttributeError):
 sys.stdout = sys.stderr
 
 import json  # noqa: E402
-import contextlib  # noqa: E402
-import io  # noqa: E402
 import logging  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any, BinaryIO, Literal  # noqa: E402
@@ -63,21 +61,17 @@ from harness_mem import __version__ as _HARNESS_MEM_VERSION  # noqa: E402
 from harness_mem.config.errors import ConfigError  # noqa: E402
 from harness_mem.config.merge import load_merged_config  # noqa: E402
 from harness_mem.commands.support import (  # noqa: E402
-    ensure_project_profile,
     find_project_root,
-    normalize_client_name,
-    resolve_project_context,
-    set_active_project,
 )
-from harness_mem.commands.integration_cmds import cmd_install_hook_suite  # noqa: E402
-from harness_mem.storage.local_memory_backend import LocalMemoryBackend  # noqa: E402
+from harness_mem.storage.local_memory_backend import (  # noqa: E402
+    DEFAULT_DATA_DIR,
+    LocalMemoryBackend,
+)
 from harness_mem.version import runtime_version_payload  # noqa: E402
 from harness_mem.mcp.executor import execute_tool_call  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
 logger = logging.getLogger("harness_mem_mcp")
-
-DEFAULT_DATA_DIR = Path.home() / ".harness-mem" / "data"
 
 # Singleton backend — initialized once per MCP server process lifetime.
 _backend: LocalMemoryBackend | None = None
@@ -184,98 +178,12 @@ SUPPORTED_PROTOCOL_VERSIONS = [
 ]
 
 
-_AUTO_HOOK_CLIENTS = frozenset(
-    {"claude-code", "cursor", "grok", "codex", "hermes", "opencode", "antigravity"}
-)
-_MCP_CLIENT_ALIASES = {
-    "claude code": "claude-code",
-    "claude-code": "claude-code",
-    "cursor": "cursor",
-    "grok": "grok",
-    "codex": "codex",
-    "openai codex": "codex",
-    "hermes": "hermes",
-    "opencode": "opencode",
-    "open code": "opencode",
-    "antigravity": "antigravity",
-    "agy": "antigravity",
-}
-
-
-def _mcp_client_name(params: dict[str, Any]) -> str | None:
-    """Resolve the host name that owns this MCP server process."""
-    configured = normalize_client_name(os.environ.get("HARNESS_MEM_CLIENT"))
-    if configured in _AUTO_HOOK_CLIENTS:
-        return configured
-
-    client_info = params.get("clientInfo")
-    raw_name = client_info.get("name") if isinstance(client_info, dict) else None
-    if not isinstance(raw_name, str):
-        return None
-    return _MCP_CLIENT_ALIASES.get(raw_name.strip().lower())
-
-
-def _bootstrap_mcp_session(params: dict[str, Any]) -> None:
-    """Adopt a recognized MCP host's workspace without failing initialization.
-
-    The generated MCP entry supplies ``HARNESS_MEM_CLIENT``. ``clientInfo.name``
-    remains a fallback for clients that identify themselves in ``initialize``.
-    Existing hooks stay untouched because the suite installer runs without force.
-    """
-    client = _mcp_client_name(params)
-    if client is None:
-        return
-
-    context = resolve_project_context(
-        None,
-        required=False,
-        action_label="MCP initialization",
-    )
-    if context is None or context.project_root is None:
-        logger.debug("MCP bootstrap skipped: no workspace root for client=%s", client)
-        return
-
-    try:
-        # This guarantees omitted project names target the workspace that owns
-        # this MCP process, while profiles retain root/project-id metadata.
-        asyncio.run(
-            ensure_project_profile(
-                context.project_name,
-                project_root=context.project_root,
-            )
-        )
-        set_active_project(context.project_name)
-
-        install_output = io.StringIO()
-        with contextlib.redirect_stdout(install_output):
-            install_status = cmd_install_hook_suite(
-                client,
-                str(context.project_root),
-                False,
-            )
-        if install_output.getvalue().strip():
-            logger.debug("MCP bootstrap hook install: %s", install_output.getvalue().strip())
-        if install_status != 0:
-            logger.warning(
-                "MCP bootstrap could not install hook suite: client=%s root=%s",
-                client,
-                context.project_root,
-            )
-    except Exception:  # noqa: BLE001 - initialization must remain available.
-        logger.exception(
-            "MCP bootstrap failed: client=%s root=%s",
-            client,
-            context.project_root,
-        )
-
-
 def handle_request(request: dict) -> dict | None:
     method = request.get("method") or ""
     params = request.get("params") or {}
     req_id = request.get("id")
 
     if method == "initialize":
-        _bootstrap_mcp_session(params)
         client_version = params.get("protocolVersion", SUPPORTED_PROTOCOL_VERSIONS[-1])
         negotiated = (
             client_version

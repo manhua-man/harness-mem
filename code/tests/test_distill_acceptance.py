@@ -33,13 +33,10 @@ from harness_mem.mcp.response_budget import (
     attach_response_budget_receipt,
     serialized_result_tokens,
 )
-from harness_mem.qualification.distill_fixture_catalog import catalog_fingerprint, fixture
+from harness_mem.qualification.distill_fixture_catalog import fixture
 from harness_mem.qualification.distill_acceptance import (
-    _decide_model_sample_with_retry,
-    _duration_regression,
-    _model_sample_status,
     _quality,
-    _recover_prior_green_samples,
+    run_model_samples,
 )
 from harness_mem.session_notes import materialize_session_note
 from harness_mem.storage.local_memory_backend import LocalMemoryBackend
@@ -100,18 +97,6 @@ def _assimilate_all_as_add(manifest: dict, *, provider: str) -> ProviderResult:
         output_tokens=25,
         total_tokens=75,
         event_count=1,
-        execution_mode="agent",
-    )
-
-
-def test_model_sample_cost_warning_is_not_reported_as_passed() -> None:
-    assert (
-        _model_sample_status(
-            quality_passed=True,
-            token_complete=True,
-            warnings=["provider_duration_regressed_over_20pct"],
-        )
-        == "warning"
     )
 
 
@@ -264,119 +249,143 @@ def test_model_sample_quality_accepts_chinese_duration_synonym() -> None:
     assert quality["passed"] is True
 
 
-def test_model_sample_retries_one_transient_provider_failure(tmp_path: Path) -> None:
-    class _TransientThenGreen:
+def test_model_sample_runtime_dirs_stay_beside_the_report(
+    tmp_path: Path,
+) -> None:
+    runtime_dirs: list[Path] = []
+
+    class _FailingProvider:
+        def decide(self, _manifest, *, runtime_dir: Path):
+            runtime_dirs.append(runtime_dir)
+            raise ProviderError("stop after path check", kind="setup_required")
+
+    report_path = tmp_path / "reports" / "model.json"
+
+    report = run_model_samples(output_path=report_path, provider=_FailingProvider())
+
+    assert report["status"] == "failed"
+    assert len(runtime_dirs) == 1
+    assert report["planned_total"] == 3
+    assert report["stopped_early"] is True
+    assert all(path.parent == report_path.parent for path in runtime_dirs)
+    assert all(not path.exists() for path in runtime_dirs)
+
+
+def test_model_samples_do_not_retry_or_continue_after_transient_failure(
+    tmp_path: Path,
+) -> None:
+    class _SlowFailure:
         def __init__(self) -> None:
             self.calls = 0
 
         def decide(self, manifest, *, runtime_dir):
             del manifest, runtime_dir
             self.calls += 1
-            if self.calls == 1:
-                raise ProviderError("timed out", kind="transient")
-            return ProviderResult(
-                decision=object(),  # type: ignore[arg-type]
-                provider="test",
-                model="test-model",
-                duration_seconds=0.1,
-                input_sha256="input",
-                response_sha256="output",
-                input_tokens=1,
-                output_tokens=1,
-                total_tokens=2,
-                event_count=1,
-            )
+            raise ProviderError("timed out", kind="transient")
 
-    provider = _TransientThenGreen()
-    result, failures = _decide_model_sample_with_retry(
-        provider,
-        {},
-        runtime_dir=tmp_path,
+    provider = _SlowFailure()
+    report = run_model_samples(
+        output_path=tmp_path / "model.json",
+        provider=provider,
     )
-
-    assert provider.calls == 2
-    assert result.attempt_count == 2
-    assert failures == [{"kind": "transient", "message": "timed out"}]
-
-
-def test_model_sample_does_not_retry_stable_provider_failure(tmp_path: Path) -> None:
-    class _SetupFailure:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def decide(self, manifest, *, runtime_dir):
-            del manifest, runtime_dir
-            self.calls += 1
-            raise ProviderError("missing credentials", kind="setup_required")
-
-    provider = _SetupFailure()
-    with pytest.raises(ProviderError, match="missing credentials") as error:
-        _decide_model_sample_with_retry(provider, {}, runtime_dir=tmp_path)
 
     assert provider.calls == 1
-    assert error.value.attempt_count == 1
-    assert error.value.attempt_errors == []
+    assert report["status"] == "failed"
+    assert report["total"] == 1
+    assert report["planned_total"] == 3
+    assert report["stopped_early"] is True
 
 
-def test_model_baseline_is_recovered_from_prior_regression_receipt() -> None:
-    recovered = _recover_prior_green_samples(
-        {
-            "samples": [
-                {
-                    "fixture_id": "F2",
-                    "fixture_catalog": catalog_fingerprint(),
-                    "provider": {
-                        "model": "gpt-5.6-sol",
-                        "total_tokens": 6000,
-                        "duration_seconds": 18.0,
-                    },
-                    "regression": {
-                        "baseline_available": True,
-                        "token_delta_ratio": 0.2,
-                        "duration_delta_ratio": 0.5,
-                    },
-                }
-            ]
-        }
+def test_model_sample_quality_does_not_require_cli_token_usage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Decision:
+        def model_dump(self, **_kwargs):
+            return {}
+
+    result = ProviderResult(
+        decision=_Decision(),  # type: ignore[arg-type]
+        provider="hermes_cli",
+        model="fixture-model",
+        duration_seconds=0.1,
+        input_sha256="input",
+        response_sha256="output",
+        input_tokens=None,
+        output_tokens=None,
+        total_tokens=None,
+        event_count=0,
+        host_client="hermes",
     )
 
-    assert recovered[0]["provider"] == {
-        "model": "gpt-5.6-sol",
-        "total_tokens": 5000,
-        "duration_seconds": 12.0,
-    }
-    assert recovered[0]["baseline_recovered_from"] == (
-        "prior_regression_receipt"
+    class _Provider:
+        def decide(self, _manifest, *, runtime_dir):
+            del runtime_dir
+            return result
+
+    monkeypatch.setattr(
+        "harness_mem.qualification.distill_acceptance._quality",
+        lambda *_args, **_kwargs: {"passed": True, "checks": {}},
     )
 
-
-def test_duration_regression_requires_three_samples_and_uses_median() -> None:
-    early = _duration_regression(
-        baseline_duration=10.0,
-        recent_durations=[10.0, 14.0],
-    )
-    stable = _duration_regression(
-        baseline_duration=10.0,
-        recent_durations=[10.0, 14.0, 10.5],
-    )
-    regressed = _duration_regression(
-        baseline_duration=10.0,
-        recent_durations=[12.5, 14.0, 13.0],
+    report = run_model_samples(
+        output_path=tmp_path / "model.json",
+        provider=_Provider(),
     )
 
-    assert early["duration_gate_ready"] is False
-    assert stable["duration_gate_ready"] is True
-    assert stable["duration_observed_seconds"] == 10.5
-    assert stable["duration_delta_ratio"] == pytest.approx(0.05)
-    assert regressed["duration_delta_ratio"] == pytest.approx(0.3)
-    assert (
-        _model_sample_status(
-            quality_passed=True,
-            token_complete=True,
-            warnings=[],
-        )
-        == "passed"
+    assert report["status"] == "passed"
+    assert report["passed"] == 3
+    assert report["failed"] == 0
+    assert all(item["usage_available"] is False for item in report["samples"])
+    assert not (tmp_path / "model-baseline.json").exists()
+
+
+def test_model_samples_stop_after_quality_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Decision:
+        def model_dump(self, **_kwargs):
+            return {}
+
+    result = ProviderResult(
+        decision=_Decision(),  # type: ignore[arg-type]
+        provider="hermes_cli",
+        model="fixture-model",
+        duration_seconds=0.1,
+        input_sha256="input",
+        response_sha256="output",
+        input_tokens=None,
+        output_tokens=None,
+        total_tokens=None,
+        event_count=0,
+        host_client="hermes",
     )
+
+    class _Provider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def decide(self, _manifest, *, runtime_dir):
+            del runtime_dir
+            self.calls += 1
+            return result
+
+    provider = _Provider()
+    monkeypatch.setattr(
+        "harness_mem.qualification.distill_acceptance._quality",
+        lambda *_args, **_kwargs: {"passed": False, "checks": {}},
+    )
+
+    report = run_model_samples(
+        output_path=tmp_path / "model.json",
+        provider=provider,
+    )
+
+    assert provider.calls == 1
+    assert report["status"] == "failed"
+    assert report["total"] == 1
+    assert report["stopped_early"] is True
 
 
 @contextmanager
@@ -808,12 +817,17 @@ class _BatchProvider:
     name = "acceptance-provider"
     verify = _verify_all_candidates
 
+    def __init__(self, *, fail_on_call: int) -> None:
+        self.fail_on_call = fail_on_call
+        self.calls = 0
+
     def decide(self, manifest, *, runtime_dir, heartbeat=None):
-        session_id = manifest["session_id"]
-        if session_id == "F-fail":
+        self.calls += 1
+        if self.calls == self.fail_on_call:
             raise ProviderError("fixture provider failure", kind="transient")
         refs = manifest["zero_candidate_exchange_refs"]
-        if session_id == "F1":
+        template_checks = manifest["zero_candidate_challenge_template"]["checks"]
+        if not any(value == "candidate_required" for value in template_checks.values()):
             template = dict(manifest["zero_candidate_challenge_template"])
             template.update(
                 {
@@ -898,7 +912,7 @@ def test_c2_three_job_batch_defers_only_failure_and_continues(
             config=MergedConfig(dream_auto_enabled=False),
             trigger_id="F1",
             client="codex",
-            provider=_BatchProvider(),
+            provider=_BatchProvider(fail_on_call=3),
             notes_dir=tmp_path / "notes",
             max_jobs=3,
             preferred_job_id=snapshots[0].distill_job_id,
@@ -993,7 +1007,7 @@ def test_e3_provider_failure_has_no_note_and_next_job_continues(
             config=MergedConfig(dream_auto_enabled=False),
             trigger_id=None,
             client="codex",
-            provider=_BatchProvider(),
+            provider=_BatchProvider(fail_on_call=1),
             notes_dir=tmp_path / "notes",
             max_jobs=2,
         )

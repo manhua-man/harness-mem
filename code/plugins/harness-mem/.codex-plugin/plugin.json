@@ -1,6 +1,6 @@
 {
   "name": "harness-mem",
-  "version": "0.9.26",
+  "version": "0.9.27",
   "wireFormatVersion": "hm-wire-v3.5",
   "description": "Local-first, auditable, pluggable Agent memory backend.",
   "author": {
@@ -16,12 +16,11 @@
     "claude",
     "local-first"
   ],
-  "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "harness-mem",
-    "shortDescription": "Local-first Agent memory for project context, search, wake-up, and task resume.",
-    "longDescription": "Wraps harness-mem as a plugin with skills, MCP server config, and helper scripts. Use it to recover confirmed project context, search prior work, and propose reviewable memory candidates without moving data out of the local machine.",
+    "shortDescription": "Remember useful project knowledge locally and find it later.",
+    "longDescription": "Use one hm entry to remember a session, find how earlier work was done, or correct a memory. Project knowledge stays on the local machine.",
     "developerName": "harness-mem",
     "category": "Developer Tools",
     "capabilities": [
@@ -30,9 +29,9 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Wake this project and summarize what matters now.",
-      "Search harness-mem for the last decision on this issue.",
-      "Distill recent sessions and show me the memory status."
+      "Remember what matters from this session.",
+      "Find how we solved this before.",
+      "Correct the memory I just pointed out."
     ],
     "brandColor": "#0F766E"
   }

@@ -15,9 +15,9 @@ import {
 } from "cursor/canvas";
 
 const MODEL_VERSION = "v1";
-const AS_OF = "2026-09-03";
-const RUNTIME_VERSION = "0.9.26";
-const PUBLIC_RELEASE_VERSION = "0.9.26";
+const AS_OF = "2026-09-04";
+const RUNTIME_VERSION = "0.9.27";
+const PUBLIC_RELEASE_VERSION = "0.9.27";
 
 const MODULES = [
   { code: "0", title: "会话接入与生命周期", unit: "1 session + 1 immutable revision", owns: "宿主接入、chunk、job、receipt、重试与来源生命周期" },
@@ -51,7 +51,7 @@ export default function HarnessMemReadinessV1() {
           <Pill tone="info">{MODEL_VERSION}</Pill>
         </Row>
         <Text tone="secondary">
-          0.9.26 源码面板 · 核对日期 {AS_OF} · 历史 canvas 不作为当前版本真值
+          0.9.27 源码面板 · 核对日期 {AS_OF} · 历史 canvas 不作为当前版本真值
         </Text>
       </Stack>
 
@@ -59,7 +59,7 @@ export default function HarnessMemReadinessV1() {
         <Stat label="功能模块" value="5" tone="info" />
         <Stat label="原生宿主" value="7" tone="info" />
         <Stat label="公开 MCP 工具" value="27" tone="success" />
-        <Stat label="实际结果检查" value="14" tone="success" />
+        <Stat label="实际结果检查" value="12" tone="success" />
       </Grid>
 
       <Callout tone="info">
@@ -121,8 +121,8 @@ export default function HarnessMemReadinessV1() {
       </Stack>
 
       <Callout tone="info">
-        版本事实：源码、runtime 与 plugin manifest 均为 0.9.26；GitHub 最新公开版本为 0.9.26。
-        冻结六会话 oracle、generation-bound Desktop Hook 与 14 项实际结果检查是仓库记录的用户结果证据。
+        版本事实：源码、runtime 与 plugin manifest 均为 0.9.27；公开版本以 GitHub Releases 为准。
+        冻结六会话 oracle、隔离的真实 Hook 全链路与 12 项当前实际结果检查是仓库记录的用户结果证据。
       </Callout>
 
       <Text tone="tertiary" size="small">

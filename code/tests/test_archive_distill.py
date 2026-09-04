@@ -1153,7 +1153,10 @@ def test_trivial_archive_provider_fails_closed_for_unexpected_assimilation() -> 
     from harness_mem.commands.archive_distill import _TrivialArchiveProvider
 
     with pytest.raises(ProviderError, match="cannot perform semantic assimilation"):
-        _TrivialArchiveProvider("Return exactly: ARCHIVE_SMOKE_OK").assimilate(
+        _TrivialArchiveProvider(
+            "Return exactly: ARCHIVE_SMOKE_OK",
+            source_revision="sha256:" + "0" * 64,
+        ).assimilate(
             {},
             runtime_dir=Path.cwd(),
         )

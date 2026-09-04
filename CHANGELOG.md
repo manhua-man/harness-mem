@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.9.27] - 2026-09-04
+
+### Changed
+
+- Make `$hm` in Codex and `/hm` in other supported Agents the only normal user
+  entry; upgraded installations remove the old action-specific entries.
+- Make Quickstart install only that Agent entry, once per Agent app. It no
+  longer inspects projects, installs project Hooks, scans sessions, or changes
+  MCP connections.
+- Require the `hm` entry to pass the current project root and Agent host when it
+  checks project status, and keep ordinary replies in the user's language.
+- Reduce MCP setup and plugin guidance to connection, restart, verification,
+  and the single daily entry; remove two obsolete architecture canvases.
+
+### Fixed
+
+- Stop Hook dispatch failures from running Dream or maintenance inside the Hook
+  process. The pending work is preserved and the failure is reported.
+- Stop unknown hosts from being silently treated as Claude Code or Codex while
+  preserving an explicitly selected background CLI.
+- Make the public smoke workflow install the wheel before importing runtime
+  dependencies in version checks.
+- Verify from a clean home that a built wheel's Quickstart installs only `hm`
+  and does not modify the current project.
+- Make Hook, worker, and MCP subprocesses honor the same configured data
+  directory, so isolated verification cannot read from or write to the user's
+  normal memory store.
+- Prevent a late-exiting Hermes child process on Windows from turning an
+  otherwise successful background run into a temporary-directory cleanup
+  failure.
+- Replace three duplicated background receipt checks with one isolated Hook
+  run that binds the same job to its Note, SQLite knowledge, normal MCP search
+  result, and Hook re-entry challenge.
+
+### Removed
+
+- Remove the fixed-value `semantic.execution.mode`, duplicate runtime
+  `restricted` state, and unused authorization aliases. Existing project
+  `restricted=false` configuration is folded into `enabled=false` while loading.
+- Remove the copied-down Codex configuration and provider capability flags.
+  Background work now uses the selected CLI's normal Agent configuration; the
+  runtime enforces JSON validation and blocks Hook re-entry.
+
 ## [0.9.26] - 2026-09-02
 
 ### Changed

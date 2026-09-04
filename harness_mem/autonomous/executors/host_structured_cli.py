@@ -2,32 +2,33 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import time
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from pydantic import ValidationError
 
 from harness_mem.autonomous.models import (
+    AgentExtractionDecision,
     AssimilationDecision,
-    AutonomousDecision,
     CandidateVerificationDecision,
 )
 from harness_mem.autonomous.provider import (
     ProviderError,
     ProviderResult,
-    _agent_boundary_fields,
     _build_assimilation_prompt,
     _build_prompt,
     _build_verification_prompt,
     _classify_failure,
-    _prepare_isolated_codex_home,
+    expand_agent_extraction_decision,
     _strict_output_schema,
     _usage_metrics,
 )
@@ -36,7 +37,6 @@ from harness_mem.autonomous.hook_guard import (
     release_provider_process_lease,
 )
 from harness_mem.autonomous.executors.constants import host_cli_provider_name
-from harness_mem.config.merge import MergedConfig
 
 _HOOK_GUARD_CHECKS: dict[str, tuple[str, ...]] = {
     "codex": (".codex", "hooks.json"),
@@ -53,6 +53,26 @@ class _CliInvocation:
     output_from_stdout: bool = False
 
 
+@contextmanager
+def _temporary_runtime_directory(*, prefix: str, parent: Path) -> Iterator[Path]:
+    """Remove an invocation directory after short-lived Windows children exit."""
+
+    path = Path(tempfile.mkdtemp(prefix=prefix, dir=parent))
+    try:
+        yield path
+    finally:
+        for attempt in range(40):
+            try:
+                shutil.rmtree(path)
+                break
+            except FileNotFoundError:
+                break
+            except PermissionError:
+                if attempt == 39:
+                    raise
+                time.sleep(0.25)
+
+
 
 def _assert_runtime_isolated(runtime_dir: Path, host_client: str) -> None:
     guard = _HOOK_GUARD_CHECKS.get(host_client)
@@ -66,33 +86,45 @@ def _assert_runtime_isolated(runtime_dir: Path, host_client: str) -> None:
         )
 
 
+def _terminate_process_tree(process: subprocess.Popen[str]) -> tuple[str, str]:
+    """Stop one timed-out CLI invocation without leaving Windows children alive."""
+
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=15,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if process.poll() is None:
+        process.kill()
+    try:
+        return process.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        return "", ""
+
+
 def _build_codex_like_command(
     *,
     executable: str,
     schema_path: Path,
     output_path: Path,
-    model: str | None,
-    agent_mode: bool,
 ) -> _CliInvocation:
     command = [executable, "exec", "--ephemeral"]
-    if not agent_mode:
-        command.extend(
-            [
-                "--ignore-rules",
-                "--disable",
-                "hooks",
-                "--disable",
-                "plugins",
-                "--disable",
-                "skill_search",
-                "--disable",
-                "multi_agent",
-                "--config",
-                "mcp_servers={}",
-                "--config",
-                "marketplaces={}",
-            ]
-        )
     command.extend(
         [
             "--skip-git-repo-check",
@@ -103,8 +135,6 @@ def _build_codex_like_command(
             "--json",
         ]
     )
-    if model:
-        command.extend(("--model", model))
     command.append("-")
     return _CliInvocation(command=command, env={}, output_path=output_path)
 
@@ -113,7 +143,6 @@ def _build_claude_code_command(
     *,
     executable: str,
     schema_path: Path,
-    model: str | None,
 ) -> _CliInvocation:
     schema_json = schema_path.read_text(encoding="utf-8").strip()
     command = [
@@ -125,8 +154,6 @@ def _build_claude_code_command(
         schema_json,
         "--dangerously-skip-permissions",
     ]
-    if model:
-        command.extend(("--model", model))
     command.append("-")
     return _CliInvocation(
         command=command,
@@ -139,18 +166,22 @@ def _build_claude_code_command(
 def _build_hermes_command(
     *,
     executable: str,
-    model: str | None,
+    prompt: str,
+    usage_path: Path,
 ) -> _CliInvocation:
+    # Hermes' one-shot mode is its native script surface: it keeps the user's
+    # model, provider, credentials, rules, and memory while printing only the
+    # final response. The prompt already contains the source excerpts needed for
+    # this JSON-only decision, so unrelated tool schemas stay out of the request.
     command = [
         executable,
-        "chat",
-        "-Q",
-        "--yolo",
-        "--query-file",
-        "-",
+        "--toolsets",
+        "context_engine",
+        "--usage-file",
+        str(usage_path),
+        "-z",
+        prompt,
     ]
-    if model:
-        command.extend(["-m", model])
     return _CliInvocation(
         command=command,
         env={},
@@ -164,7 +195,6 @@ def _build_opencode_command(
     executable: str,
     schema_path: Path,
     output_path: Path,
-    model: str | None,
 ) -> _CliInvocation:
     command = [
         executable,
@@ -176,8 +206,6 @@ def _build_opencode_command(
         "--output",
         str(output_path),
     ]
-    if model:
-        command.extend(("--model", model))
     command.append("-")
     return _CliInvocation(command=command, env={}, output_path=output_path)
 
@@ -188,44 +216,31 @@ def _build_host_invocation(
     executable: str,
     schema_path: Path,
     output_path: Path,
-    model: str | None,
-    agent_mode: bool,
-    isolated_home: Path | None,
+    prompt: str,
+    usage_path: Path,
 ) -> _CliInvocation:
     if host_client == "codex":
-        invocation = _build_codex_like_command(
+        return _build_codex_like_command(
             executable=executable,
             schema_path=schema_path,
             output_path=output_path,
-            model=model,
-            agent_mode=agent_mode,
-        )
-        env = dict(invocation.env)
-        if isolated_home is not None:
-            env["CODEX_HOME"] = str(isolated_home)
-        return _CliInvocation(
-            command=invocation.command,
-            env=env,
-            output_path=invocation.output_path,
-            output_from_stdout=invocation.output_from_stdout,
         )
     if host_client == "claude-code":
         return _build_claude_code_command(
             executable=executable,
             schema_path=schema_path,
-            model=model,
         )
     if host_client == "hermes":
         return _build_hermes_command(
             executable=executable,
-            model=model,
+            prompt=prompt,
+            usage_path=usage_path,
         )
     if host_client == "opencode":
         return _build_opencode_command(
             executable=executable,
             schema_path=schema_path,
             output_path=output_path,
-            model=model,
         )
     raise ProviderError(
         f"unsupported host client for structured CLI: {host_client}",
@@ -276,6 +291,27 @@ def _coerce_json_text(raw: str) -> str:
         )
 
 
+def _reported_cli_failure(raw: str) -> bool:
+    """Recognize a CLI's plain-text transport failure despite exit code zero."""
+
+    lowered = raw.strip().lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "api call failed",
+            "http 429",
+            "http 500",
+            "http 502",
+            "http 503",
+            "http 504",
+            "service temporarily unavailable",
+            "connection refused",
+            "connection reset",
+            "timed out",
+        )
+    )
+
+
 def _extract_decision_text(
     *,
     stdout: str,
@@ -317,6 +353,52 @@ def _extract_decision_text(
         ) from exc
 
 
+def _hermes_output_contract(decision_model: Any) -> str:
+    """Describe only the JSON fields Hermes must produce.
+
+    Hermes does not expose a native JSON-schema flag. The complete schema is
+    enforced locally after the process exits; sending that schema through the
+    Agent prompt only duplicates thousands of characters and makes small local
+    models spend time reproducing nullable fields.
+    """
+
+    common = (
+        "Finish this small task immediately. Return no prose outside one compact JSON "
+        "object. Keep each natural-language string to one short sentence. Do not put "
+        "the ASCII double quote character inside natural-language string values; "
+        "paraphrase instead. "
+    )
+    if decision_model is AgentExtractionDecision:
+        return common + (
+            'Use this shape: {"review":{"summary":"...","final_request":"...",'
+            '"actual_result":"...","contradictions":[],"unfinished":[],'
+            '"no_candidate_reason":null,"not_durable_signals":[]},"points":'
+            '[{"kind":"memory","statement":"...","evidence_basis":"user_statement",'
+            '"exchange_indexes":[1]}]}. Allowed kinds are memory, rule, relation. A rule adds '
+            "condition. A relation adds source_entity, target_entity, relation_type. Repository "
+            "evidence uses repository_locator and repository_sha256. With zero points, replace "
+            "no_candidate_reason with an explanation."
+        )
+    if decision_model is CandidateVerificationDecision:
+        return common + (
+            'Use this shape: {"points":[{"candidate_index":0,'
+            '"semantic_support":"supported","future_scope":"durable",'
+            '"reason":"source-based reason"}]}. Allowed semantic_support values: supported, '
+            "partial, contradicted. Allowed future_scope values: durable, session_only, unclear."
+        )
+    if decision_model is AssimilationDecision:
+        return common + (
+            'Use this writing shape: {"points":[{"candidate_id":"supplied id",'
+            '"disposition":"add","matched_truth_handles":[],"knowledge_items":'
+            '[{"title":"short title","statement":"one fact","topic_path":'
+            '["natural module"],"claim_kind":"design_requirement"}],'
+            '"reason":"source-based reason"}]}. For a non-writing action, omit '
+            "knowledge_items. Allowed claim_kind values: design_requirement, implementation_fact, "
+            "durable_preference, procedure. Use only dispositions allowed by the task prompt."
+        )
+    raise TypeError(f"unsupported Hermes decision model: {decision_model!r}")
+
+
 class HostStructuredCliProvider:
     """Run one schema-constrained host CLI turn in authorized agent mode."""
 
@@ -325,20 +407,14 @@ class HostStructuredCliProvider:
         *,
         host_client: str,
         executable: str,
-        config: MergedConfig,
-        timeout_seconds: int = 180,
+        timeout_seconds: int = 300,
         poll_seconds: float = 5.0,
     ) -> None:
         self.host_client = host_client
         self.executable = executable
-        self.config = config
         self.timeout_seconds = max(30, min(int(timeout_seconds), 900))
         self.poll_seconds = max(0.2, min(float(poll_seconds), 15.0))
         self.name = host_cli_provider_name(host_client)
-        self.model = (os.environ.get("HARNESS_MEM_DISTILL_MODEL") or "").strip() or None
-        self.assimilation_model = (
-            os.environ.get("HARNESS_MEM_ASSIMILATION_MODEL") or ""
-        ).strip() or None
 
     def decide(
         self,
@@ -347,15 +423,26 @@ class HostStructuredCliProvider:
         runtime_dir: Path,
         heartbeat: Callable[[], None] | None = None,
     ) -> ProviderResult:
-        return self._run(
+        result = self._run(
             manifest,
             runtime_dir=runtime_dir,
             heartbeat=heartbeat,
-            decision_model=AutonomousDecision,
+            decision_model=AgentExtractionDecision,
             prompt=_build_prompt(manifest),
             temporary_prefix="distill-",
             error_label="decision",
         )
+        try:
+            decision = expand_agent_extraction_decision(
+                result.decision,
+                manifest=manifest,
+            )
+        except (ValidationError, ValueError) as exc:
+            raise ProviderError(
+                f"{self.host_client} provider decision could not be bound to local evidence: {exc}",
+                kind="unrecoverable",
+            ) from exc
+        return replace(result, decision=decision)
 
     def verify(
         self,
@@ -389,7 +476,6 @@ class HostStructuredCliProvider:
             prompt=_build_assimilation_prompt(manifest),
             temporary_prefix="assimilation-",
             error_label="assimilation",
-            model=self.assimilation_model,
         )
 
     def _run(
@@ -402,7 +488,6 @@ class HostStructuredCliProvider:
         prompt: str,
         temporary_prefix: str,
         error_label: str,
-        model: str | None = None,
     ) -> ProviderResult:
         del manifest
         if not self.executable:
@@ -412,48 +497,43 @@ class HostStructuredCliProvider:
             )
         runtime_dir.mkdir(parents=True, exist_ok=True)
         started = time.monotonic()
-        selected_model = model or self.model
-        with tempfile.TemporaryDirectory(
-            prefix=temporary_prefix, dir=runtime_dir
-        ) as temporary:
-            invocation_dir = Path(temporary)
-            _assert_runtime_isolated(invocation_dir, self.host_client)
+        with _temporary_runtime_directory(
+            prefix=temporary_prefix,
+            parent=runtime_dir,
+        ) as invocation_dir:
+            execution_cwd = invocation_dir
+            if self.host_client == "hermes":
+                execution_cwd = runtime_dir / "hermes-cwd"
+                execution_cwd.mkdir(parents=True, exist_ok=True)
+            _assert_runtime_isolated(execution_cwd, self.host_client)
             schema_path = invocation_dir / "decision.schema.json"
             output_path = invocation_dir / "decision.json"
+            usage_path = invocation_dir / "usage.json"
             schema_path.write_text(
                 json.dumps(
                     _strict_output_schema(decision_model.model_json_schema()),
                     ensure_ascii=False,
+                    separators=(",", ":"),
                 ),
                 encoding="utf-8",
             )
-            isolated_home: Path | None = None
-            configured_model = selected_model
-            if self.host_client == "codex":
-                isolated_home, configured_model = _prepare_isolated_codex_home(
-                    invocation_dir
-                )
-                if selected_model is None and configured_model:
-                    selected_model = configured_model
+            cli_prompt = prompt
+            if self.host_client == "hermes":
+                cli_prompt = f"{prompt}\n\n{_hermes_output_contract(decision_model)}"
             invocation = _build_host_invocation(
                 host_client=self.host_client,
                 executable=self.executable,
                 schema_path=schema_path,
                 output_path=output_path,
-                model=selected_model,
-                agent_mode=True,
-                isolated_home=isolated_home,
+                prompt=cli_prompt,
+                usage_path=usage_path,
             )
-            cli_prompt = prompt
-            if self.host_client == "hermes":
-                cli_prompt = (
-                    f"{prompt}\n\nRespond with JSON only that validates against "
-                    f"this schema:\n{schema_path.read_text(encoding='utf-8')}"
-                )
             env = os.environ.copy()
             env.update(invocation.env)
             env["HARNESS_MEM_AUTONOMOUS_PROVIDER"] = "1"
             env["NO_COLOR"] = "1"
+            if self.host_client == "hermes":
+                env["HERMES_SESSION_SOURCE"] = "tool"
             creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             data_dir = (
                 runtime_dir.parent.parent
@@ -468,7 +548,7 @@ class HostStructuredCliProvider:
                 try:
                     process = subprocess.Popen(
                         invocation.command,
-                        cwd=invocation_dir,
+                        cwd=execution_cwd,
                         env=env,
                         stdin=subprocess.PIPE,
                         stdout=subprocess.PIPE,
@@ -488,15 +568,18 @@ class HostStructuredCliProvider:
                 while True:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        process.kill()
-                        stdout, stderr = process.communicate()
+                        stdout, stderr = _terminate_process_tree(process)
                         raise ProviderError(
                             f"{self.host_client} provider exceeded {self.timeout_seconds}s",
                             kind="transient",
                         )
                     try:
                         stdout, stderr = process.communicate(
-                            input=cli_prompt if first_communicate else None,
+                            input=(
+                                cli_prompt
+                                if first_communicate and self.host_client != "hermes"
+                                else None
+                            ),
                             timeout=min(self.poll_seconds, remaining),
                         )
                         break
@@ -519,6 +602,8 @@ class HostStructuredCliProvider:
             except ProviderError as exc:
                 detail = (stderr or stdout or "").strip()
                 if detail:
+                    if _reported_cli_failure(detail):
+                        raise _classify_failure(detail, process.returncode or 1) from exc
                     raise ProviderError(
                         f"{exc}; stderr/stdout sample: {detail[:500]}",
                         kind=exc.kind,
@@ -533,20 +618,24 @@ class HostStructuredCliProvider:
                     exit_code=process.returncode,
                 ) from exc
 
-        metrics = _usage_metrics(stdout)
+            usage_text = ""
+            if self.host_client == "hermes":
+                try:
+                    usage_text = usage_path.read_text(encoding="utf-8")
+                except OSError:
+                    pass
+
+        metrics = _usage_metrics(usage_text or stdout)
         return ProviderResult(
             decision=decision,
             provider=self.name,
-            model=selected_model or configured_model,
+            model=None,
             duration_seconds=time.monotonic() - started,
-            input_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            input_sha256=hashlib.sha256(cli_prompt.encode("utf-8")).hexdigest(),
             response_sha256=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
             input_tokens=metrics["input_tokens"],
             output_tokens=metrics["output_tokens"],
             total_tokens=metrics["total_tokens"],
             event_count=int(metrics["event_count"] or 0),
-            **_agent_boundary_fields(
-                execution_mode="agent",
-                host_client=self.host_client,
-            ),
+            host_client=self.host_client,
         )

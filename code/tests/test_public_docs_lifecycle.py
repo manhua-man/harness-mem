@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 def test_public_docs_and_repo_mirrors_expose_only_one_daily_entry() -> None:
@@ -16,6 +17,13 @@ def test_public_docs_and_repo_mirrors_expose_only_one_daily_entry() -> None:
 
     assert Path("code/plugins/harness-mem/commands/hm/hm.md").is_file()
     assert not any(Path("code/plugins/harness-mem/commands/hm/daily").glob("*.md"))
+    assert not any(Path("code/plugins/harness-mem/skills").rglob("SKILL.md"))
+    manifest = json.loads(
+        Path("code/plugins/harness-mem/.codex-plugin/plugin.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert "skills" not in manifest
     old_names = (
         "hm-status",
         "hm-wake",
@@ -34,6 +42,16 @@ def test_public_docs_and_repo_mirrors_expose_only_one_daily_entry() -> None:
     )
     active_paths = [path for root in active_roots for path in root.rglob("*.md")]
     assert all(not any(name in path.as_posix() for name in old_names) for path in active_paths)
+
+    instruction_paths = [
+        *active_paths,
+        *Path("code/tools").rglob("*.md"),
+        *Path("code/plugins/harness-mem").rglob("*.md"),
+    ]
+    retired_invocations = tuple(f"${name}" for name in old_names)
+    for path in instruction_paths:
+        content = path.read_text(encoding="utf-8")
+        assert not any(command in content for command in retired_invocations), path
 
 
 def test_quickstart_keeps_mcp_connection_out_of_its_install_scope() -> None:
@@ -56,6 +74,48 @@ def test_quickstart_keeps_mcp_connection_out_of_its_install_scope() -> None:
     assert "all seven hosts automatically register MCP" not in combined
     assert "automatically registers MCP for every host" not in combined
     assert not Path("harness_mem/integration/mcp_registration.py").exists()
+
+
+def test_setup_describes_one_agent_setup_not_one_setup_per_project() -> None:
+    readme = " ".join(Path("README.md").read_text(encoding="utf-8").split())
+    chinese = "".join(
+        Path("README.zh-CN.md").read_text(encoding="utf-8").split()
+    )
+    quickstart = " ".join(
+        Path("docs/quickstart.md").read_text(encoding="utf-8").split()
+    )
+
+    assert "once for each Agent app you actually use" in readme
+    assert "do not rerun it for every project" in readme
+    assert "每使用一种Agent，只需为它运行一次" in chinese
+    assert "不需要每个项目重复运行" in chinese
+    assert "not once per project" in quickstart
+
+
+def test_plugin_prompts_use_one_plain_daily_entry() -> None:
+    manifest = json.loads(
+        Path("code/plugins/harness-mem/.codex-plugin/plugin.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    prompts = manifest["interface"]["defaultPrompt"]
+    combined = " ".join(prompts).lower()
+
+    assert prompts == [
+        "Remember what matters from this session.",
+        "Find how we solved this before.",
+        "Correct the memory I just pointed out.",
+    ]
+    assert not any(term in combined for term in ("wake", "distill", "candidate"))
+
+
+def test_unversioned_obsolete_canvases_are_removed() -> None:
+    canvas_root = Path("docs/canvases")
+    catalog = (canvas_root / "README.md").read_text(encoding="utf-8")
+
+    assert not (canvas_root / "harness-mem-how-it-works.canvas.tsx").exists()
+    assert not (canvas_root / "harness-mem-completion.canvas.tsx").exists()
+    assert "无版本号的旧 `how-it-works` 与 `completion`" in catalog
 
 
 def test_doctor_does_not_publish_retired_weak_link_experiment() -> None:
@@ -272,10 +332,7 @@ def test_distill_agent_surfaces_use_lossless_finalize_contract() -> None:
     command = Path("code/plugins/harness-mem/commands/hm/hm.md").read_text(
         encoding="utf-8"
     )
-    plugin_skill = Path("code/plugins/harness-mem/skills/harness-mem/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    combined = "\n".join((skill, command, plugin_skill))
+    combined = "\n".join((skill, command))
 
     assert "submit_distill_chunk" in combined
     assert "finalize_session_distill" in combined
@@ -291,7 +348,6 @@ def test_distill_agent_surfaces_use_lossless_finalize_contract() -> None:
 def test_installed_distill_docs_are_self_contained_public_surfaces() -> None:
     public_paths = (
         Path("code/plugins/harness-mem/commands/hm/hm.md"),
-        Path("code/plugins/harness-mem/skills/harness-mem/SKILL.md"),
     )
     combined = "\n".join(path.read_text(encoding="utf-8") for path in public_paths)
 
@@ -299,7 +355,6 @@ def test_installed_distill_docs_are_self_contained_public_surfaces() -> None:
     assert "ingest_sessions" not in combined
     assert "delete_source_after_complete=false" not in combined
     assert "finalize_session_distill" in combined
-    assert "distill.delete_source_after_complete=true" in combined
 
 
 def test_repo_local_duplicate_distill_runtime_is_removed() -> None:
@@ -314,32 +369,19 @@ def test_repo_local_duplicate_distill_runtime_is_removed() -> None:
     assert "Use one public flow" in skill
 
 
-def test_hm_distill_keeps_one_public_flow_with_optional_internal_helpers() -> None:
+def test_hm_distill_keeps_one_public_flow_without_helper_skills() -> None:
     skill = Path("code/tools/hm-distill/SKILL.md").read_text(encoding="utf-8").lower()
     retired_terms = (
         "draft claim",
         "smart-search",
         "trellis",
     )
-    optional_skill_dirs = (
-        "grill-before-distill",
-        "answer-memory-evidence",
-        "ask-memory-boundary",
-    )
-
     assert "candidate admission" in skill
     assert "only runtime-derived `answered`" in skill
-    assert "conditional collaborator routing" in skill
-    assert "do not wait for the user to invoke them" in skill
-    assert "do not load all three pre-emptively" in skill
+    assert "gather that proof before deciding" in skill
+    assert "pressure-test high-impact" in skill
     assert "formal `answer_packet`" in skill
     assert not any(term in skill for term in retired_terms)
-    for name in optional_skill_dirs:
-        helper = Path("code/plugins/harness-mem/skills") / name / "SKILL.md"
-        assert helper.is_file()
-        assert "do not wait for explicit user invocation" in helper.read_text(
-            encoding="utf-8"
-        ).lower()
 
 
 def test_active_docs_do_not_restore_legacy_distill_product_name() -> None:
@@ -363,9 +405,6 @@ def test_active_governance_docs_use_single_public_write_surface() -> None:
         Path("docs/auto-promoted-memory-governance.md"),
         Path("docs/roadmap.md"),
         Path("code/plugins/harness-mem/commands/hm/hm.md"),
-        Path("code/plugins/harness-mem/skills/harness-mem/SKILL.md"),
-        Path("code/plugins/harness-mem/skills/harness-mem-autopilot/SKILL.md"),
-        Path("code/plugins/harness-mem/skills/grill-with-docs/SKILL.md"),
         Path("code/tools/hm-distill/SKILL.md"),
         Path("code/tools/hm-distill/references/distillation-rules.md"),
     ]
@@ -393,20 +432,6 @@ def test_active_governance_docs_use_single_public_write_surface() -> None:
     assert 'govern_memory(action="handoff")' in combined
 
 
-def test_grill_with_docs_is_explicit_and_provenance_pinned() -> None:
-    skill_root = Path("code/plugins/harness-mem/skills/grill-with-docs")
-    skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-    metadata = (skill_root / "agents/openai.yaml").read_text(encoding="utf-8")
-    provenance = (skill_root / "references/upstream.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "Do not run this interactive flow inside wake" in skill
-    assert "allow_implicit_invocation: false" in metadata
-    assert "2ab958093e83e0ec752e6c1c5932da465bf23e0c" in provenance
-    assert "MIT" in provenance
-
-
 def test_current_roadmap_is_0_9_x_and_internal_doc_duplicates_are_removed() -> None:
     roadmap = Path("docs/roadmap.md").read_text(encoding="utf-8")
     scope_ledger = Path("docs/roadmap/defer.md").read_text(encoding="utf-8")
@@ -430,14 +455,7 @@ def test_legacy_storage_cutoff_and_delete_semantics_are_documented() -> None:
     compatibility = Path("docs/compatibility-inventory.md").read_text(
         encoding="utf-8"
     )
-    skill = Path("code/plugins/harness-mem/skills/harness-mem/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-
     for body in (lifecycle, compatibility):
         assert "0.9.x" in body
         assert "1.0.0" in body
         assert "2027-01-31" in body
-    assert "processed-source cleanup" in skill.lower()
-    assert "privacy erasure" in skill.lower()
-    assert "only soft-deletes harness-mem" not in skill

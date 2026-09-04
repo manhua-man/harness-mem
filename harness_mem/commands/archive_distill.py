@@ -374,8 +374,9 @@ class _TrivialArchiveProvider:
 
     name = "archive_trivial_classifier"
 
-    def __init__(self, request: str):
+    def __init__(self, request: str, *, source_revision: str):
         self.request = request
+        self.source_revision = source_revision
 
     def decide(self, manifest: dict[str, Any], *, runtime_dir: Path, heartbeat=None):
         del runtime_dir
@@ -403,7 +404,7 @@ class _TrivialArchiveProvider:
                     "promotion_decision": "no_promotion",
                     "zero_candidate_challenge": {
                         "version": "v1",
-                        "source_revision": str(manifest["source_revision"]),
+                        "source_revision": self.source_revision,
                         "evidence_fidelity": "complete",
                         "future_utility": "none",
                         "checks": {
@@ -839,6 +840,23 @@ async def run_archive_distill_batch(
                     }
                     replay = "completed_job_reverified"
                 else:
+                    selected_provider = provider
+                    if trivial_request is not None:
+                        source_revision = (
+                            job.source_revision
+                            if job is not None
+                            else synced.source.source_revision
+                            if synced.source is not None
+                            else None
+                        )
+                        if source_revision is None:
+                            raise RuntimeError(
+                                "trivial archive session has no source revision"
+                            )
+                        selected_provider = _TrivialArchiveProvider(
+                            trivial_request,
+                            source_revision=source_revision,
+                        )
                     batch = await asyncio.to_thread(
                         run_autonomous_distill_batch,
                         backend,
@@ -847,11 +865,7 @@ async def run_archive_distill_batch(
                         config=project_config,
                         trigger_id=str(row["session_id"]),
                         client="codex-archive",
-                        provider=(
-                            _TrivialArchiveProvider(trivial_request)
-                            if trivial_request is not None
-                            else provider
-                        ),
+                        provider=selected_provider,
                         notes_dir=notes_dir,
                         max_jobs=1,
                         preferred_job_id=synced.distill_job_id,

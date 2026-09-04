@@ -34,6 +34,7 @@ from harness_mem import __version__
 from harness_mem.config.errors import ConfigError
 from harness_mem.config.merge import load_merged_config
 from harness_mem.commands.support import (
+    detect_runtime_client,
     ensure_project_profile,
     normalize_client_name,
     resolve_project_context,
@@ -522,7 +523,11 @@ def _run_adapter(args: argparse.Namespace) -> int:
         sys.stdout.write(json.dumps({"context": context}) + "\n" if context else "{}\n")
     else:
         sys.stdout.write("{}\n")
-    return int(exit_code) if getattr(args, "wait", False) else int(ExitCode.SUCCESS)
+    if getattr(args, "wait", False) or (
+        request.action == "post-turn-maintenance" and exit_code != ExitCode.SUCCESS
+    ):
+        return int(exit_code)
+    return int(ExitCode.SUCCESS)
 
 
 async def run(args: argparse.Namespace) -> tuple[int, str | None]:
@@ -538,9 +543,14 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
         logger.error(err)
         return (ExitCode.ARG_VALIDATION_ERROR, None)
 
-    client_override = normalize_client_name(getattr(args, "client", None))
+    requested_client = normalize_client_name(getattr(args, "client", None))
+    client_override = (
+        detect_runtime_client()
+        if requested_client in {"auto", "agent"}
+        else requested_client
+    )
     previous_client_env = os.environ.get("HARNESS_MEM_CLIENT")
-    if client_override and client_override != "auto":
+    if client_override:
         os.environ["HARNESS_MEM_CLIENT"] = client_override
 
     try:
@@ -591,9 +601,27 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
             args.action == "post-turn-maintenance"
             and args.source == "ide_hook"
             and os.environ.get("HARNESS_MEM_HOOK_BACKGROUND_WORKER") != "1"
-            and client_override
-            and client_override != "auto"
         ):
+            if client_override is None:
+                payload = {
+                    "action": "post-turn-maintenance",
+                    "success": False,
+                    "status": "failed",
+                    "project_root": str(project_root),
+                    "trigger_id": args.trigger_id,
+                    "summary": {
+                        "background": True,
+                        "spawned": False,
+                    },
+                    "error": {
+                        "kind": "host_not_detected",
+                        "message": (
+                            "The Hook could not identify its Agent host, so no "
+                            "background work was started."
+                        ),
+                    },
+                }
+                return (ExitCode.HOOK_FAILED, json.dumps(payload, sort_keys=True))
             try:
                 from harness_mem.hook_background import dispatch_post_turn
 
@@ -618,11 +646,31 @@ async def run(args: argparse.Namespace) -> tuple[int, str | None]:
                     },
                 }
                 return (ExitCode.SUCCESS, json.dumps(payload, sort_keys=True))
-            except Exception:  # noqa: BLE001 - fall back to synchronous maintenance.
-                logger.warning(
-                    "could not dispatch background hook maintenance; running inline",
+            except Exception as exc:  # noqa: BLE001 - Hook must remain passive.
+                logger.error(
+                    "could not dispatch background hook maintenance; no inline work ran",
                     exc_info=True,
                 )
+                payload = {
+                    "action": "post-turn-maintenance",
+                    "success": False,
+                    "status": "failed",
+                    "project_root": str(project_root),
+                    "trigger_id": args.trigger_id,
+                    "summary": {
+                        "background": True,
+                        "spawned": False,
+                    },
+                    "error": {
+                        "kind": "background_dispatch_failed",
+                        "message": (
+                            "The detached background worker could not be started; "
+                            "the Hook did not run maintenance inline."
+                        ),
+                        "exception": type(exc).__name__,
+                    },
+                }
+                return (ExitCode.HOOK_FAILED, json.dumps(payload, sort_keys=True))
 
         # ---- 2. load merged config (Req 3, Req 4.8) ------------------------
         try:

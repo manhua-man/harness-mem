@@ -4,9 +4,10 @@ This roadmap distinguishes the released runtime from separately authorized
 legacy convergence. It never authorizes mutation of real user memory by
 itself; normal runtime paths do not migrate legacy data.
 
-## Current public release
+## Current source and release line
 
-The published package is `0.9.26`. It provides session lifecycle, lossless
+The current source package is `0.9.27`; published artifacts are listed on the
+GitHub Releases page. This release line provides session lifecycle, lossless
 extraction, per-point verification, transactional SQLite current knowledge,
 job-scoped processing material, clean retrieval, and one governed Review/Dream
 feedback path. Legacy `MemoryEntry` rows remain readable for compatibility, but
@@ -16,6 +17,20 @@ as one object.
 Authorized background work now runs through `distill.autonomous.enabled=true`
 and a project-selected host CLI with honest `{host}_cli` receipts. HTTP profile
 transport is no longer part of the product path.
+
+The normal user surface is one `hm` entry. Quickstart installs that entry once
+for each Agent app and leaves MCP ownership to the Agent, Router, or plugin
+already in use. Hooks only dispatch detached work; a failed dispatch or unknown
+host is reported without running model work inside the Hook or selecting a
+different host.
+
+## Release `0.9.27`
+
+`0.9.27` converges installation and daily use on one `hm` entry, removes the
+old action-specific entries from new and upgraded installations, and makes
+Quickstart independent of projects and MCP configuration. It also removes two
+silent runtime substitutions: Hook dispatch failure no longer runs maintenance
+inline, and an unknown host no longer becomes Claude Code or Codex.
 
 ## Release `0.9.26`
 
@@ -37,7 +52,7 @@ receipts bind the selected non-secret provider configuration.
 ## Releases `0.9.23` and `0.9.24`
 
 `0.9.23` introduces an operator-owned, restricted semantic provider profile
-for unattended Dream work (superseded by the current `0.9.26` source:
+for unattended Dream work (superseded by the current `0.9.27` source:
 `distill.autonomous.enabled=true` + a project-selected CLI, defaulting to the
 current host; see
 [`docs/background-memory.md`](background-memory.md)). A project could select a
@@ -90,16 +105,22 @@ Markdown/JSON/text
 | `0.9.24` | Strict JSON-text compatibility for Anthropic-compatible gateways that reject forced tool output | 2--4 | Keep JSON schema validation and no-tool boundary; do not silently downgrade malformed output | Released |
 | `0.9.25` | Hook-started Dream execution and fail-closed source/provider/undo receipts | 0, 2--4 | Keep Hook non-semantic; reject truncated retirement; preserve real undo and retryable provider failure | Released |
 | `0.9.26` | Host CLI background authorization and honest `{host}_cli` receipts | 0, 2--4 | No HTTP impersonating Agent; profile not required for CLI path; Hook re-entry guard | Released |
+| `0.9.27` | One daily `hm` entry and honest Hook/host failure boundaries | 0--4 | Quickstart leaves MCP alone; no action-specific entries, inline Hook work, or guessed host | Current release line |
 
-## Current `0.9.26` source
+## Current `0.9.27` source
 
-`0.9.26` converges authorized background work on **`distill.autonomous.enabled=true`**
+Since `0.9.26`, authorized background work uses **`distill.autonomous.enabled=true`**
 + a **project-selected CLI**. The default is the current host; a project may
 explicitly select Codex, Claude Code, Hermes, or OpenCode. Transport and
 credentials live in the selected CLI's configuration. Runtime checks require
-`execution_mode=agent` and `provider.name=<host>_cli`; there is no HTTP fallback
-in the product path.
+`provider.name=<host>_cli` and a successful Hook re-entry challenge; there is no
+HTTP fallback in the product path.
 Turn off background work with **`distill.autonomous.enabled=false` only**.
+
+`0.9.27` keeps that execution model and narrows the public path to install,
+Quickstart, and `hm`. When the current host cannot be identified, or detached
+Hook dispatch fails, the pending work stays local and no model command is run
+from the Hook process.
 
 These versions are implementation slices, not additional product modules. The
 product architecture remains the five independently measurable modules:
@@ -159,6 +180,13 @@ path.
    job, Provider, and Note; the full outcome contract passed 14/14.
 9. Completed one separately authorized `harness-mem`-scoped legacy convergence;
    future projects or historical cohorts still require their own explicit approval.
+
+Checks that call a real host CLI follow one bounded order: focused deterministic
+tests, one fixed model check with no automatic retry, one isolated full Hook run,
+then broad repository and release gates. A failed or timed-out model check stops
+the run before a job or full Hook is created. A failed full Hook stops the release
+checks. Code or relevant configuration changes invalidate earlier runtime
+evidence; results from separate attempts are not combined.
 
 Any partial SQLite mutation, early workspace cleanup, stale/superseded retrieval
 hit, cross-project write, unsupported source claim, duplicate current item,

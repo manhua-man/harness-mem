@@ -15,9 +15,6 @@ def _write_repo_assets(root: Path, *, version: str, wire: str) -> None:
         json.dumps({"version": version, "wireFormatVersion": wire}),
         encoding="utf-8",
     )
-    skill = plugin / "skills" / "harness-mem" / "SKILL.md"
-    skill.parent.mkdir(parents=True)
-    skill.write_text(f"wireFormatVersion: {wire}\n", encoding="utf-8")
     command = plugin / "commands" / "hm" / "hm.md"
     command.parent.mkdir(parents=True)
     command.write_text(f"wireFormatVersion: {wire}\n", encoding="utf-8")

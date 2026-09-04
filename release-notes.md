@@ -1,3 +1,56 @@
+# Release 0.9.27 (2026-09-04)
+
+## What changed
+
+- Daily use now has one entry: `$hm` in Codex and `/hm` in the other supported
+  Agents. Say what you want in ordinary language: remember this session, find
+  earlier work, or correct a memory.
+- Quickstart runs once for each Agent app you use. It installs that entry only;
+  it does not inspect projects or manage MCP connections.
+- The first `hm` use passes the current project and Agent explicitly before it
+  prepares local memory and project Hooks.
+- Existing Router or plugin connections remain the connection authority. The
+  setup guide now warns against adding a duplicate direct server.
+
+## Runtime corrections
+
+- A Hook that cannot start its detached worker now reports the failure and
+  stops. It never runs Dream, maintenance, or a model command inline.
+- If the current Agent cannot be identified, harness-mem reports that instead
+  of guessing Claude Code or Codex. A project may still explicitly choose a
+  supported background CLI.
+- Wheel smoke tests now prove that a clean Quickstart installs only `hm`, MCP
+  initialization leaves the project untouched, and the first `hm` status call
+  prepares the project Hooks.
+- Hook, worker, and MCP processes now share the configured data directory.
+  Release verification uses isolated SQLite and Note paths and confirms the
+  same Hook-created knowledge is returned by normal search.
+- Hermes background runs on Windows no longer fail only because a late-exiting
+  child process briefly keeps its working directory open.
+- Background calls use the selected CLI's normal Agent configuration. The old
+  fixed mode, duplicate `restricted` state, copied-down Codex configuration,
+  and self-reported capability flags are gone; harness-mem validates JSON and
+  blocks Hook re-entry locally.
+
+## Release evidence
+
+- Release completion requires Git tag `v0.9.27` and a successful public build.
+- Python package metadata, runtime `__version__`, and plugin manifest:
+  `0.9.27`.
+- Full source, Rust, built-wheel, seven-host, Hook, and 12-result checks are
+  required before the release is declared complete.
+- The release does not migrate or rewrite existing user memory.
+
+## Install or upgrade
+
+```bash
+python -m pip install --upgrade \
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.27 \
+  harness-mem==0.9.27
+```
+
+The package is distributed through GitHub Releases, not PyPI.
+
 # Release 0.9.26 (2026-09-02)
 
 ## What shipped

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from harness_mem import __version__
 
-PUBLIC_RELEASE_VERSION = "0.9.26"
+PUBLIC_RELEASE_VERSION = "0.9.27"
 
 
 def _pyproject_version() -> str:
@@ -24,6 +24,14 @@ def _pyproject_version() -> str:
 
 def test_runtime_version_matches_pyproject() -> None:
     assert __version__ == _pyproject_version()
+    root = Path(__file__).resolve().parents[2]
+    lock = (root / "uv.lock").read_text(encoding="utf-8")
+    package = re.search(
+        r'\[\[package\]\]\s+name = "harness-mem"\s+version = "([^"]+)"',
+        lock,
+    )
+    assert package is not None
+    assert package.group(1) == __version__
 
 
 def test_source_and_public_install_versions_are_aligned() -> None:
@@ -82,13 +90,13 @@ def test_source_and_public_install_versions_are_aligned() -> None:
         assert f'PUBLIC_RELEASE_VERSION = "{PUBLIC_RELEASE_VERSION}"' in canvas
         assert "source {RUNTIME_VERSION}" in canvas
         assert "public {PUBLIC_RELEASE_VERSION}" in canvas
-    assert f"published package is\n`{PUBLIC_RELEASE_VERSION}`" in maturity
-    assert f"GitHub 最新公开版本为 {PUBLIC_RELEASE_VERSION}" in readiness
+    assert "published artifacts are\nlisted on the GitHub Releases page" in maturity
+    assert "公开版本以 GitHub Releases 为准" in readiness
 
     release_notes = (root / "release-notes.md").read_text(encoding="utf-8")
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     assert release_notes.startswith(f"# Release {__version__} ")
-    assert f"Git tag: `v{__version__}`" in release_notes
+    assert f"Release completion requires Git tag `v{__version__}`" in release_notes
     assert f"harness-mem=={PUBLIC_RELEASE_VERSION}" in release_notes
     assert changelog.startswith("# Changelog\n\n")
     assert f"## [{__version__}]" in changelog

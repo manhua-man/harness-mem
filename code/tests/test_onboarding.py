@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,7 +14,6 @@ def test_quickstart_installs_one_global_entry_without_touching_project(
     workspace = tmp_path / "project"
     workspace.mkdir()
     monkeypatch.chdir(workspace)
-    monkeypatch.setattr(onboarding, "ensure_data_dir", lambda: None)
     monkeypatch.setattr(onboarding, "detect_runtime_client", lambda: "codex")
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(
@@ -24,7 +22,7 @@ def test_quickstart_installs_one_global_entry_without_touching_project(
         lambda **kwargs: calls.append(kwargs) or SimpleNamespace(status="installed"),
     )
 
-    result = asyncio.run(onboarding.cmd_quickstart(client="auto"))
+    result = onboarding.cmd_quickstart(client="auto")
 
     assert result == 0
     assert calls == [{"client": "codex"}]
@@ -32,8 +30,9 @@ def test_quickstart_installs_one_global_entry_without_touching_project(
     assert not (workspace / ".codex").exists()
     output = capsys.readouterr().out
     assert "Installed $hm for codex" in output
-    assert "Use it in any project" in output
-    assert "first use in a project prepares that project and its Hooks" in output
+    assert "Start a new Agent task to use it" in output
+    assert "project" not in output.lower()
+    assert "Hooks" not in output
     assert "MCP" not in output
 
 
@@ -45,7 +44,6 @@ def test_quickstart_uses_explicit_host_without_inspecting_workspace(
     second = tmp_path / "second"
     first.mkdir()
     second.mkdir()
-    monkeypatch.setattr(onboarding, "ensure_data_dir", lambda: None)
     calls: list[str] = []
     monkeypatch.setattr(
         onboarding,
@@ -54,9 +52,9 @@ def test_quickstart_uses_explicit_host_without_inspecting_workspace(
     )
 
     monkeypatch.chdir(first)
-    assert asyncio.run(onboarding.cmd_quickstart(client="cursor")) == 0
+    assert onboarding.cmd_quickstart(client="cursor") == 0
     monkeypatch.chdir(second)
-    assert asyncio.run(onboarding.cmd_quickstart(client="cursor")) == 0
+    assert onboarding.cmd_quickstart(client="cursor") == 0
 
     assert calls == ["cursor", "cursor"]
     assert list(first.iterdir()) == []
@@ -67,7 +65,6 @@ def test_quickstart_auto_stops_when_current_app_is_unknown(
     monkeypatch,
     capsys,
 ) -> None:
-    monkeypatch.setattr(onboarding, "ensure_data_dir", lambda: None)
     monkeypatch.setattr(onboarding, "detect_runtime_client", lambda: None)
     monkeypatch.setattr(
         onboarding,
@@ -77,7 +74,7 @@ def test_quickstart_auto_stops_when_current_app_is_unknown(
         ),
     )
 
-    assert asyncio.run(onboarding.cmd_quickstart(client="auto")) == 1
+    assert onboarding.cmd_quickstart(client="auto") == 1
     output = capsys.readouterr().out
     assert "Could not detect the current app" in output
     assert "harness-mem quickstart --client cursor" in output
@@ -87,14 +84,13 @@ def test_quickstart_does_not_claim_success_when_entry_install_fails(
     monkeypatch,
     capsys,
 ) -> None:
-    monkeypatch.setattr(onboarding, "ensure_data_dir", lambda: None)
     monkeypatch.setattr(
         onboarding,
         "sync_host_commands",
         lambda **_kwargs: (_ for _ in ()).throw(OSError("permission denied")),
     )
 
-    assert asyncio.run(onboarding.cmd_quickstart(client="cursor")) == 1
+    assert onboarding.cmd_quickstart(client="cursor") == 1
     output = capsys.readouterr().out
     assert "Could not install the memory entry" in output
     assert "Installed /hm" not in output

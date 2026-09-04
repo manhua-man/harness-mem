@@ -6,9 +6,8 @@ from typing import Any
 
 from harness_mem.autonomous.authorization import background_on
 from harness_mem.autonomous.executors.constants import AGENT_HOST_CLIENTS
-from harness_mem.autonomous.executors.host_cli import (
-    HostCliAgentExecutor,
-)
+from harness_mem.autonomous.executors import host_cli
+from harness_mem.autonomous.executors.host_structured_cli import HostStructuredCliProvider
 from harness_mem.autonomous.provider import ProviderError
 from harness_mem.commands.support import normalize_client_name
 from harness_mem.config.merge import MergedConfig
@@ -39,7 +38,7 @@ def inspect_semantic_executor(
     selected = resolve_semantic_executor_client(config, current_client)
     if selected not in AGENT_HOST_CLIENTS:
         return selected, "unsupported_cli"
-    if HostCliAgentExecutor(config=config, host_client=selected)._cli is None:
+    if not host_cli._resolve_executable(selected):
         return selected, "cli_not_found"
     return selected, "ok"
 
@@ -59,10 +58,13 @@ def build_semantic_executor(config: MergedConfig, client: str) -> Any:
             "Set distill.autonomous.cli to codex, claude-code, hermes, or opencode.",
             kind="setup_required",
         )
-    executor = HostCliAgentExecutor(config=config, host_client=host_client)
-    if executor._cli is None:
+    executable = host_cli._resolve_executable(host_client)
+    if not executable:
         raise ProviderError(
             f"{host_client} CLI executable was not found",
             kind="setup_required",
         )
-    return executor
+    return HostStructuredCliProvider(
+        host_client=host_client,
+        executable=executable,
+    )

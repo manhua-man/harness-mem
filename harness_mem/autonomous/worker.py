@@ -48,7 +48,7 @@ from harness_mem.session_notes import (
     is_meaningful_session_summary,
     materialize_session_note,
 )
-from harness_mem.storage.local_memory_backend import LocalMemoryBackend
+from harness_mem.storage.local_memory_backend import DEFAULT_DATA_DIR, LocalMemoryBackend
 
 
 logger = logging.getLogger("harness_mem.autonomous")
@@ -150,9 +150,7 @@ def autonomous_config_fingerprint(config: MergedConfig) -> str:
         "target_backlog": config.distill_auto_target_backlog,
         "recent_first": config.distill_auto_recent_first,
         "budget_tokens": config.cost_budget_distill_tokens,
-        "execution_mode": config.semantic_execution_mode,
         "execution_cli": config.distill_autonomous_cli,
-        "legacy_restricted": config.semantic_execution_restricted,
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
@@ -558,7 +556,15 @@ def run_autonomous_distill_batch(
                 "outcomes": [],
                 "hook_guard_check": hook_guard_check,
             }
-    resolved_notes = notes_dir or Path.home() / ".codex" / "hm-distill" / "sessions"
+    notes_override = str(os.environ.get("HARNESS_MEM_SESSION_NOTES_DIR") or "").strip()
+    if notes_dir is not None:
+        resolved_notes = notes_dir
+    elif notes_override:
+        resolved_notes = Path(notes_override).expanduser().resolve()
+    elif Path(backend.data_dir).resolve() != DEFAULT_DATA_DIR.resolve():
+        resolved_notes = Path(backend.data_dir) / "session_notes"
+    else:
+        resolved_notes = Path.home() / ".codex" / "hm-distill" / "sessions"
     runtime_dir = Path(backend.data_dir) / "autonomous" / "provider-runtime"
     _write_receipt(
         backend.data_dir,
@@ -1284,36 +1290,46 @@ def _govern_unfinished_handoff(
 
 
 def build_provider_manifest(packet: dict[str, Any]) -> dict[str, Any]:
-    """Project one prepared packet into the restricted provider contract."""
+    """Project only decision-relevant evidence into the host CLI prompt."""
 
     semantic = packet.get("semantic_evidence")
     semantic_dict = semantic if isinstance(semantic, dict) else {}
+    semantic_chunks = [
+        str(item.get("content") or "")
+        for item in semantic_dict.get("chunks") or []
+        if isinstance(item, dict) and str(item.get("content") or "").strip()
+    ]
+    decision_exchanges = [
+        {
+            "exchange_index": item.get("exchange_index"),
+            "content_sha256": item.get("content_sha256"),
+            "content": item.get("content"),
+        }
+        for item in packet.get("semantic_decision_exchanges") or []
+        if isinstance(item, dict)
+    ]
+    exchange_count = int(semantic_dict.get("exchange_count") or 0)
+    covered_indexes = {
+        exchange_index
+        for item in decision_exchanges
+        if isinstance((exchange_index := item.get("exchange_index")), int)
+    }
+    if exchange_count > 0 and covered_indexes == set(range(1, exchange_count + 1)):
+        # Complete decision windows already contain these exchanges verbatim.
+        # Do not send the same user and assistant text twice.
+        semantic_chunks = []
     return {
         "contract_version": "autonomous-distill-manifest-v1",
         "coverage": "complete_indexed_semantic_projection",
-        "project_name": packet.get("project_name"),
-        "session_id": packet.get("session_id"),
-        "distill_job_id": packet.get("distill_job_id"),
-        "source_revision": packet.get("source_revision"),
-        "expected_chunk_count": packet.get("expected_chunk_count"),
-        "completed_chunk_count": packet.get("completed_chunk_count"),
         "semantic_projection": {
-            key: semantic_dict.get(key)
-            for key in (
-                "projection",
-                "exchange_count",
-                "risk_exchange_count",
-                "content_sha256",
-                "source_revision",
-                "chunks",
-            )
+            "exchange_count": exchange_count,
+            "chunks": semantic_chunks,
         },
-        "semantic_decision_exchanges": packet.get("semantic_decision_exchanges", []),
+        "semantic_decision_exchanges": decision_exchanges,
         "zero_candidate_exchange_refs": packet.get("zero_candidate_exchange_refs", []),
         "zero_candidate_challenge_template": packet.get(
             "zero_candidate_challenge_template"
         ),
-        "response_budget": packet.get("response_budget"),
     }
 
 
@@ -1415,6 +1431,16 @@ def _zero_candidate_validation_errors(
     template_checks = template.get("checks") if isinstance(template, dict) else None
     if isinstance(template_checks, dict):
         challenge_checks = challenge.checks.model_dump()
+        still_required = sorted(
+            signal
+            for signal, finding in challenge_checks.items()
+            if finding == "candidate_required"
+        )
+        if still_required:
+            errors.append(
+                "detected durable signals still require a candidate: "
+                + ", ".join(still_required)
+            )
         incorrectly_absent = sorted(
             signal
             for signal, expected in template_checks.items()
@@ -1517,19 +1543,12 @@ def _decide_with_candidate_retry(
             "candidate_validation_feedback": {
                 "errors": warnings,
                 "instruction": (
-                    "Return a corrected decision. Candidate rows must satisfy their "
-                    "kind contract. For zero candidates, the challenge must satisfy "
-                    "its schema and may not mark template-detected candidate_required "
-                    "signals absent. If a detected signal is not_durable, set "
-                    "future_utility=session_only and give a substantive rationale that "
-                    "names every downgraded signal and explains why it is session-only. "
-                    "When zero_candidate_exchange_refs is supplied, copy every "
-                    "exchange_index/content_sha256 pair exactly into "
-                    "inspected_exchange_refs. "
-                    "A no_durable_candidate result requires "
-                    "evidence_fidelity=complete and promotion_decision=no_promotion. "
-                    "If evidence is partial/contradicted or a signal remains candidate_required, "
-                    "create a scoped defer candidate or handoff instead of returning zero candidates."
+                    "Return corrected review and points. Every point must satisfy its kind "
+                    "fields and cite an available exchange index. If no points are returned, "
+                    "each detected candidate_required signal must either have a point or be "
+                    "listed in review.not_durable_signals. Explain every not-durable signal "
+                    "substantively in review.no_candidate_reason. Do not copy runtime hashes, "
+                    "status fields, confidence, or the zero-candidate template."
                 ),
             },
         }
@@ -2295,6 +2314,16 @@ def _build_candidate_verification_manifest(
                             "content": current_content[:16000],
                         }
                     )
+            elif ref.kind == "transcript" and ref.exchange_index in windows:
+                window = windows[int(ref.exchange_index)]
+                sources.append(
+                    {
+                        "kind": "transcript",
+                        "exchange_index": ref.exchange_index,
+                        "content_sha256": ref.content_sha256,
+                        "content": window.get("content"),
+                    }
+                )
             elif ref.kind == "transcript" and ref.chunk_index is not None:
                 chunks = packet.get("semantic_evidence", {}).get("chunks", [])
                 chunk = next(
@@ -2333,7 +2362,9 @@ def _candidate_statement_from_arguments(arguments: dict[str, Any]) -> str:
     if kind == "memory":
         return str(arguments.get("content") or "")
     if kind == "rule":
-        return f"When {arguments.get('trigger')}, {arguments.get('pattern')}"
+        trigger = str(arguments.get("trigger") or "").strip().rstrip(".,:;。；：")
+        pattern = str(arguments.get("pattern") or "").strip()
+        return f"{trigger}: {pattern}" if trigger else pattern
     return " ".join(
         str(arguments.get(name) or "")
         for name in ("source_entity", "relation_type", "target_entity")
@@ -2562,19 +2593,7 @@ def _combine_provider_results(
         event_count=sum(item.event_count for item in results),
         attempt_count=sum(item.attempt_count for item in results),
         schema_valid=all(item.schema_valid for item in results),
-        execution_mode=(
-            "agent"
-            if all(item.execution_mode == "agent" for item in results)
-            else results[0].execution_mode
-        ),
         host_client=last.host_client,
-        ephemeral=all(item.ephemeral for item in results),
-        cwd_isolated=all(item.cwd_isolated for item in results),
-        hooks_disabled=all(item.hooks_disabled for item in results),
-        plugins_disabled=all(item.plugins_disabled for item in results),
-        mcp_disabled=all(item.mcp_disabled for item in results),
-        rules_ignored=all(item.rules_ignored for item in results),
-        config_isolated=all(item.config_isolated for item in results),
     )
 
 

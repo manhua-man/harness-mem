@@ -49,7 +49,7 @@ def test_quickstart_is_global_and_accepts_only_a_host(
 
     calls: list[str] = []
 
-    async def quickstart(client: str) -> int:
+    def quickstart(client: str) -> int:
         calls.append(client)
         return 0
 

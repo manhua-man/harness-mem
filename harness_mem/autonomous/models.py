@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from harness_mem.core.schemas.knowledge import ClaimKind
 from harness_mem.knowledge_validation import validate_atomic_knowledge_statement
@@ -41,7 +41,11 @@ class VerificationRef(_StrictModel):
 
 class _CandidateBase(_StrictModel):
     evidence_basis: Literal["user_statement", "transcript", "repository"]
-    verification_outcome: Literal["verified", "unverified", "contradicted"]
+    # Extraction proposes a claim; the trusted second pass decides whether it
+    # is verified. Keep the field only as an input-compatibility default.
+    verification_outcome: Literal["verified", "unverified", "contradicted"] = (
+        "unverified"
+    )
     verification_refs: list[VerificationRef] = Field(default_factory=list, max_length=8)
     verification_reason_codes: list[str] = Field(default_factory=list, max_length=8)
 
@@ -151,7 +155,7 @@ class AssimilationPoint(_StrictModel):
 
 
 class AssimilationDecision(_StrictModel):
-    """Strict, tool-free semantic decision over verified points and truth handles."""
+    """Strict semantic decision over verified points and truth handles."""
 
     points: list[AssimilationPoint] = Field(default_factory=list, max_length=12)
 
@@ -172,6 +176,16 @@ class CandidateVerificationDecision(_StrictModel):
 
 
 ChallengeChecks = Literal["absent", "not_durable", "candidate_required"]
+MemorySignal = Literal[
+    "user_correction",
+    "explicit_decision",
+    "successful_solution",
+    "repeated_failure",
+    "rule_or_preference",
+    "reusable_workflow_or_fact",
+    "version_or_migration",
+    "unfinished_handoff",
+]
 
 
 class ZeroCandidateChecks(_StrictModel):
@@ -231,7 +245,89 @@ class AutonomousDecision(_StrictModel):
         return self
 
 
+class AgentExtractionReview(_StrictModel):
+    """Small semantic review returned by a host Agent.
+
+    Status fields and zero-candidate proof are derived by the trusted runtime
+    from this review and the prepared manifest. The Agent does not echo them.
+    """
+
+    summary: str = Field(min_length=12, max_length=4000)
+    final_request: str = Field(min_length=1, max_length=4000)
+    actual_result: str = Field(min_length=1, max_length=4000)
+    contradictions: list[str] = Field(default_factory=list, max_length=20)
+    unfinished: list[str] = Field(default_factory=list, max_length=20)
+    no_candidate_reason: str | None = Field(default=None, min_length=24, max_length=4000)
+    not_durable_signals: list[MemorySignal] = Field(default_factory=list, max_length=8)
+
+    @field_validator("contradictions", "unfinished", mode="before")
+    @classmethod
+    def wrap_single_text_item(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip()
+            return [normalized] if normalized else []
+        return value
+
+
+class AgentExtractionPoint(_StrictModel):
+    """One compact discovery point plus a source location.
+
+    Category, confidence, tags, verification state, and content hashes are
+    runtime-owned or derived from the prepared source. They are deliberately
+    absent from the Agent response.
+    """
+
+    kind: Literal["memory", "rule", "relation"]
+    statement: str = Field(min_length=1, max_length=4000)
+    condition: str | None = Field(default=None, max_length=1000)
+    source_entity: str | None = Field(default=None, max_length=200)
+    target_entity: str | None = Field(default=None, max_length=200)
+    relation_type: str | None = Field(default=None, max_length=100)
+    evidence_basis: Literal["user_statement", "transcript", "repository"]
+    exchange_indexes: list[int] = Field(default_factory=list, max_length=8)
+    repository_locator: str | None = Field(default=None, max_length=4096)
+    repository_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+
+    @model_validator(mode="after")
+    def require_kind_and_source_fields(self) -> "AgentExtractionPoint":
+        if self.kind == "rule" and not str(self.condition or "").strip():
+            raise ValueError("rule point requires condition")
+        if self.kind == "relation" and not all(
+            str(value or "").strip()
+            for value in (self.source_entity, self.target_entity, self.relation_type)
+        ):
+            raise ValueError(
+                "relation point requires source_entity, target_entity, and relation_type"
+            )
+        if self.evidence_basis in {"user_statement", "transcript"}:
+            if not self.exchange_indexes or any(index < 1 for index in self.exchange_indexes):
+                raise ValueError("session evidence requires one-based exchange_indexes")
+        elif not self.repository_locator or not self.repository_sha256:
+            raise ValueError("repository evidence requires locator and sha256")
+        return self
+
+
+class AgentExtractionDecision(_StrictModel):
+    """Minimal host-Agent output expanded into ``AutonomousDecision`` locally."""
+
+    review: AgentExtractionReview
+    points: list[AgentExtractionPoint] = Field(default_factory=list, max_length=12)
+
+    @model_validator(mode="after")
+    def require_no_candidate_reason(self) -> "AgentExtractionDecision":
+        if self.points and self.review.no_candidate_reason is not None:
+            raise ValueError("no_candidate_reason must be null when points exist")
+        if not self.points and self.review.no_candidate_reason is None:
+            raise ValueError("no_candidate_reason is required when points is empty")
+        if self.points and self.review.not_durable_signals:
+            raise ValueError("not_durable_signals must be empty when points exist")
+        return self
+
+
 __all__ = [
+    "AgentExtractionDecision",
+    "AgentExtractionPoint",
+    "AgentExtractionReview",
     "AssimilationDecision",
     "CandidateVerificationDecision",
     "CandidateVerificationPoint",

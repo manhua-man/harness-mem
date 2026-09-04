@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -12,17 +12,10 @@ import subprocess
 import sys
 import tempfile
 import time
-from statistics import median
 from typing import Any
 
 from harness_mem.autonomous.models import AutonomousDecision
-from harness_mem.autonomous.provider import (
-    DEFAULT_DISTILL_MODEL,
-    DEFAULT_DISTILL_TIMEOUT_SECONDS,
-    CodexExecProvider,
-    ProviderError,
-    ProviderResult,
-)
+from harness_mem.autonomous.provider import ProviderError
 from harness_mem.autonomous.worker import (
     build_provider_manifest,
     normalize_provider_review_state,
@@ -342,236 +335,17 @@ def _quality(fixture_id: str, decision: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _model_sample_status(
-    *,
-    quality_passed: bool,
-    token_complete: bool,
-    warnings: list[str],
-) -> str:
-    if not quality_passed or not token_complete:
-        return "failed"
-    if warnings:
-        return "warning"
-    return "passed"
-
-
-def _recover_prior_green_samples(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Recover the measured baseline that an older report compared against."""
-
-    recovered: list[dict[str, Any]] = []
-    for item in payload.get("samples", []):
-        if not isinstance(item, dict):
-            continue
-        provider = item.get("provider") or {}
-        regression = item.get("regression") or {}
-        token_delta = regression.get("token_delta_ratio")
-        duration_delta = regression.get("duration_delta_ratio")
-        if (
-            item.get("fixture_catalog") != catalog_fingerprint()
-            or regression.get("baseline_available") is not True
-            or not isinstance(token_delta, (int, float))
-            or not isinstance(duration_delta, (int, float))
-            or float(token_delta) <= -1.0
-            or float(duration_delta) <= -1.0
-        ):
-            continue
-        current_tokens = int(provider.get("total_tokens") or 0)
-        current_duration = float(provider.get("duration_seconds") or 0.0)
-        if current_tokens <= 0 or current_duration <= 0:
-            continue
-        recovered.append(
-            {
-                "fixture_id": item.get("fixture_id"),
-                "status": "passed",
-                "fixture_catalog": item.get("fixture_catalog"),
-                "provider": {
-                    "model": provider.get("model"),
-                    "total_tokens": round(current_tokens / (1.0 + float(token_delta))),
-                    "duration_seconds": current_duration
-                    / (1.0 + float(duration_delta)),
-                },
-                "baseline_recovered_from": "prior_regression_receipt",
-            }
-        )
-    return recovered
-
-
-def _duration_regression(
-    *,
-    baseline_duration: float,
-    recent_durations: list[float],
-) -> dict[str, Any]:
-    usable = [float(value) for value in recent_durations if float(value) > 0][-3:]
-    if baseline_duration <= 0:
-        return {
-            "duration_gate_ready": False,
-            "duration_sample_count": len(usable),
-            "duration_delta_ratio": None,
-        }
-    observed = median(usable) if len(usable) >= 3 else usable[-1] if usable else 0.0
-    return {
-        "duration_gate_ready": len(usable) >= 3,
-        "duration_sample_count": len(usable),
-        "duration_statistic": "recent_3_median" if len(usable) >= 3 else "single_observation",
-        "duration_observed_seconds": observed,
-        "duration_delta_ratio": (observed - baseline_duration) / baseline_duration,
-    }
-
-
-class _ModelSampleProviderError(ProviderError):
-    def __init__(
-        self,
-        source: ProviderError,
-        *,
-        attempt_count: int,
-        attempt_errors: list[dict[str, str]],
-    ) -> None:
-        super().__init__(str(source), kind=source.kind, exit_code=source.exit_code)
-        self.attempt_count = attempt_count
-        self.attempt_errors = attempt_errors
-
-
-def _decide_model_sample_with_fallback(
-    manifest: dict[str, Any],
-    *,
-    runtime_dir: Path,
-    model: str | None,
-) -> tuple[ProviderResult, list[dict[str, str]]]:
-    """Prefer Codex exec for isolated model-sample qualification runs."""
-
-    providers = (
-        (
-            "codex_exec",
-            CodexExecProvider(
-                model=model or DEFAULT_DISTILL_MODEL,
-                timeout_seconds=DEFAULT_DISTILL_TIMEOUT_SECONDS,
-            ),
-        ),
-    )
-    attempt_failures: list[dict[str, str]] = []
-    for provider_name, provider in providers:
-        try:
-            result, transient_failures = _decide_model_sample_with_retry(
-                provider,
-                manifest,
-                runtime_dir=runtime_dir,
-            )
-            combined_failures = attempt_failures + [
-                {"provider": provider_name, **item}
-                for item in transient_failures
-            ]
-            return result, combined_failures
-        except ProviderError as exc:
-            attempt_failures.append(
-                {
-                    "provider": provider_name,
-                    "kind": exc.kind,
-                    "message": str(exc)[:1000],
-                }
-            )
-            raise _ModelSampleProviderError(
-                exc,
-                attempt_count=int(getattr(exc, "attempt_count", 1)),
-                attempt_errors=attempt_failures,
-            ) from exc
-    raise _ModelSampleProviderError(
-        ProviderError(
-            "No available model provider for sample",
-            kind="setup_required",
-            exit_code=None,
-        ),
-        attempt_count=1,
-        attempt_errors=attempt_failures,
-    )
-
-
-def _decide_model_sample_with_retry(
-    provider: Any,
-    manifest: dict[str, Any],
-    *,
-    runtime_dir: Path,
-    max_attempts: int = 2,
-) -> tuple[ProviderResult, list[dict[str, str]]]:
-    """Retry one transient provider failure without masking stable failures."""
-
-    transient_failures: list[dict[str, str]] = []
-    attempts = max(1, int(max_attempts))
-    for attempt in range(1, attempts + 1):
-        try:
-            result = provider.decide(manifest, runtime_dir=runtime_dir)
-        except ProviderError as exc:
-            if exc.kind == "transient":
-                transient_failures.append(
-                    {"kind": exc.kind, "message": str(exc)[:1000]}
-                )
-            if exc.kind != "transient" or attempt >= attempts:
-                raise _ModelSampleProviderError(
-                    exc,
-                    attempt_count=attempt,
-                    attempt_errors=list(transient_failures),
-                ) from exc
-            continue
-        return (
-            replace(
-                result,
-                attempt_count=max(1, int(result.attempt_count))
-                + len(transient_failures),
-            ),
-            transient_failures,
-        )
-    raise AssertionError("model sample retry loop did not return")
-
-
 def run_model_samples(
     *,
     output_path: Path,
-    model: str | None = None,
+    provider: Any,
+    fixture_ids: tuple[str, ...] = ("F1", "F2", "F3"),
+    stop_on_failure: bool = True,
 ) -> dict[str, Any]:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     samples: list[dict[str, Any]] = []
-    previous: dict[str, dict[str, Any]] = {}
-    baseline_path = output_path.with_name(output_path.stem + "-baseline.json")
-    history_path = output_path.with_name(output_path.stem + "-history.json")
-    try:
-        prior_payload = json.loads(baseline_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        try:
-            current_payload = json.loads(output_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            current_payload = {}
-        prior_payload = {
-            "samples": _recover_prior_green_samples(current_payload),
-        }
-    for item in prior_payload.get("samples", []):
-        if (
-            isinstance(item, dict)
-            and item.get("status") == "passed"
-            and item.get("fixture_catalog") == catalog_fingerprint()
-        ):
-            previous[str(item.get("fixture_id") or "")] = item
-    try:
-        history_payload = json.loads(history_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        history_payload = {"schema_version": 1, "series": {}}
-    history_series = history_payload.get("series")
-    if not isinstance(history_series, dict):
-        history_series = {}
-    if not history_series:
-        for fixture_id, item in previous.items():
-            provider_receipt = item.get("provider") or {}
-            manifest_sha = str(item.get("manifest_sha256") or "")
-            model_name = str(provider_receipt.get("model") or "")
-            duration = float(provider_receipt.get("duration_seconds") or 0.0)
-            tokens = int(provider_receipt.get("total_tokens") or 0)
-            if manifest_sha and model_name and duration > 0 and tokens > 0:
-                history_series[f"{fixture_id}|{model_name}|{manifest_sha}"] = [
-                    {
-                        "duration_seconds": duration,
-                        "total_tokens": tokens,
-                        "source": "green_baseline",
-                    }
-                ]
 
-    for fixture_id in ("F1", "F2", "F3"):
+    for fixture_id in fixture_ids:
         packet = _fixture_packet(fixture_id)
         manifest = build_provider_manifest(packet)
         manifest_sha = hashlib.sha256(
@@ -579,103 +353,34 @@ def run_model_samples(
         ).hexdigest()
         started = time.monotonic()
         try:
-            with tempfile.TemporaryDirectory(prefix="hm-distill-model-") as temporary:
-                result, transient_failures = _decide_model_sample_with_fallback(
+            with tempfile.TemporaryDirectory(
+                prefix="hm-distill-model-",
+                dir=output_path.parent,
+            ) as temporary:
+                result = provider.decide(
                     manifest,
                     runtime_dir=Path(temporary),
-                    model=(model or DEFAULT_DISTILL_MODEL),
                 )
             decision = result.decision.model_dump(mode="json", exclude_none=True)
             quality = _quality(fixture_id, decision)
             receipt = result.receipt()
             wall_duration = time.monotonic() - started
-            duration_regression = {
-                "duration_gate_ready": False,
-                "duration_delta_ratio": None,
-            }
-            token_complete = receipt.get("total_tokens") is not None
-            warnings = []
-            if not token_complete:
-                warnings.append("usage_missing")
-            if int(receipt.get("total_tokens") or 0) > 15_000:
-                warnings.append("provider_tokens_over_15000")
-            if float(receipt.get("duration_seconds") or 0.0) > 40.0:
-                warnings.append("provider_duration_over_40s")
-            if wall_duration > 60.0:
-                warnings.append("wall_duration_over_60s")
-            prior = previous.get(fixture_id)
-            regression: dict[str, Any] = {"baseline_available": False}
-            if (
-                prior
-                and (prior.get("provider") or {}).get("model") == receipt.get("model")
-            ):
-                prior_tokens = int((prior.get("provider") or {}).get("total_tokens") or 0)
-                prior_duration = float(
-                    (prior.get("provider") or {}).get("duration_seconds") or 0.0
-                )
-                series_key = f"{fixture_id}|{receipt.get('model')}|{manifest_sha}"
-                measurements = history_series.get(series_key)
-                if not isinstance(measurements, list):
-                    measurements = []
-                measurements.append(
-                    {
-                        "observed_at": datetime.now(timezone.utc).isoformat(),
-                        "duration_seconds": float(
-                            receipt.get("duration_seconds") or 0.0
-                        ),
-                        "total_tokens": int(receipt.get("total_tokens") or 0),
-                    }
-                )
-                history_series[series_key] = measurements[-20:]
-                token_delta = (
-                    (int(receipt.get("total_tokens") or 0) - prior_tokens)
-                    / prior_tokens
-                    if prior_tokens
-                    else None
-                )
-                duration_regression = _duration_regression(
-                    baseline_duration=prior_duration,
-                    recent_durations=[
-                        float(measurement.get("duration_seconds") or 0.0)
-                        for measurement in history_series[series_key]
-                        if isinstance(measurement, dict)
-                    ],
-                )
-                regression = {
-                    "baseline_available": True,
-                    "token_delta_ratio": token_delta,
-                    **duration_regression,
-                }
-                if token_delta is not None and token_delta > 0.2:
-                    warnings.append("provider_tokens_regressed_over_20pct")
-            if (
-                duration_regression["duration_gate_ready"]
-                and duration_regression["duration_delta_ratio"] is not None
-                and duration_regression["duration_delta_ratio"] > 0.2
-            ):
-                warnings.append("provider_duration_regressed_over_20pct")
-            status = _model_sample_status(
-                quality_passed=quality["passed"],
-                token_complete=token_complete,
-                warnings=warnings,
-            )
-            normalized_status = "passed" if status == "warning" else status
             samples.append(
                 {
                     "fixture_id": fixture_id,
-                    "status": normalized_status,
+                    "status": "passed" if quality["passed"] else "failed",
                     "manifest_sha256": manifest_sha,
                     "fixture_catalog": catalog_fingerprint(),
                     "provider": receipt,
-                    "provider_transient_failures": transient_failures,
                     "wall_duration_seconds": round(wall_duration, 3),
                     "quality": quality,
                     "compact_response": packet["response_budget"],
-                    "regression": regression,
-                    "warnings": warnings,
+                    "usage_available": receipt.get("total_tokens") is not None,
                     "decision": decision,
                 }
             )
+            if not quality["passed"] and stop_on_failure:
+                break
         except ProviderError as exc:
             samples.append(
                 {
@@ -684,45 +389,29 @@ def run_model_samples(
                     "manifest_sha256": manifest_sha,
                     "fixture_catalog": catalog_fingerprint(),
                     "schema_valid": False,
-                    "attempt_count": int(getattr(exc, "attempt_count", 1)),
-                    "attempt_errors": list(getattr(exc, "attempt_errors", [])),
+                    "attempt_count": 1,
                     "error": {"kind": exc.kind, "message": str(exc)[:1000]},
                 }
             )
+            if stop_on_failure:
+                break
     passed = sum(item["status"] == "passed" for item in samples)
-    warned = sum(item["status"] == "warning" for item in samples)
+    failed = sum(item["status"] == "failed" for item in samples)
     payload = {
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "status": (
-            "passed" if passed + warned == len(samples) else "failed"
-        ),
-        "passed": passed + warned,
-        "warned": warned,
+        "status": "failed" if failed else "passed",
+        "passed": passed,
+        "failed": failed,
         "total": len(samples),
+        "planned_total": len(fixture_ids),
+        "stopped_early": len(samples) < len(fixture_ids),
         "samples": samples,
-        "baseline_path": str(baseline_path),
-        "history_path": str(history_path),
     }
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    history_path.write_text(
-        json.dumps(
-            {"schema_version": 1, "series": history_series},
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    if payload["status"] == "passed" and not baseline_path.exists():
-        baseline_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
     return payload
 
 
@@ -731,7 +420,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model-samples", action="store_true")
-    parser.add_argument("--model")
     args = parser.parse_args(argv)
     project_root = args.project_root.expanduser().resolve()
     started = time.monotonic()
@@ -745,20 +433,34 @@ def main(argv: list[str] | None = None) -> int:
     }
     if args.model_samples and l1["status"] == "passed":
         model_path = args.output.with_name(args.output.stem + "-model.json")
-        report["model_samples"] = run_model_samples(
-            output_path=model_path,
-            model=args.model,
-        )
+        try:
+            from harness_mem.autonomous.executors.registry import (
+                build_semantic_executor,
+            )
+            from harness_mem.commands.support import detect_runtime_client
+            from harness_mem.config.merge import load_merged_config
+
+            provider = build_semantic_executor(
+                load_merged_config(project_root),
+                detect_runtime_client() or "unknown",
+            )
+            report["model_samples"] = run_model_samples(
+                output_path=model_path,
+                provider=provider,
+            )
+        except ProviderError as exc:
+            report["model_samples"] = {
+                "status": "failed",
+                "passed": 0,
+                "failed": 3,
+                "total": 3,
+                "error": {"kind": exc.kind, "message": str(exc)[:1000]},
+            }
         report["model_report_path"] = str(model_path)
     report["duration_seconds"] = round(time.monotonic() - started, 3)
+    model_status = report["model_samples"].get("status")
     report["status"] = (
-        "passed"
-        if l1["status"] == "passed"
-        and (
-            not args.model_samples
-            or report["model_samples"].get("status") == "passed"
-        )
-        else "failed"
+        "failed" if l1["status"] != "passed" or model_status == "failed" else "passed"
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
@@ -775,9 +477,6 @@ if __name__ == "__main__":
 
 __all__ = [
     "PATH_TESTS",
-    "_model_sample_status",
-    "_duration_regression",
-    "_recover_prior_green_samples",
     "run_l1",
     "run_model_samples",
 ]

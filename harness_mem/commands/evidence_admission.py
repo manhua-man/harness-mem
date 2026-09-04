@@ -185,7 +185,7 @@ async def reopen_knowledge_sources(
     """Validate and boundedly reopen current sources without persisting text.
 
     This is the only bridge by which Dream may send source text to the
-    restricted semantic provider. Unsupported network/API locators remain
+    host CLI semantic provider. Unsupported network/API locators remain
     fail-closed and return no content until their dedicated revalidator exists.
     """
 
@@ -265,7 +265,7 @@ async def reopen_dream_knowledge_sources(
     A digest mismatch normally means a previously verified claim is stale and
     therefore must fail closed.  Dream is the one maintenance path whose job
     is to compare that claim with today's local repository bytes.  It may pass
-    those bounded bytes to the restricted provider, but only after validating
+    those bounded bytes to the host CLI provider, but only after validating
     the path remains within the same project.  The returned effective sources
     carry today's digests and must be used for the subsequent truth
     transaction; the historical source rows remain untouched until that

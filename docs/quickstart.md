@@ -9,8 +9,8 @@ Install the release:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
-  harness-mem==0.9.26
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.27 \
+  harness-mem==0.9.27
 ```
 
 The package is distributed through GitHub Releases rather than PyPI. Optional
@@ -18,12 +18,12 @@ local vector or hybrid search dependencies use the same index:
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
-  "harness-mem[hybrid]==0.9.26"
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.27 \
+  "harness-mem[hybrid]==0.9.27"
 ```
 
-Run Quickstart once in the Agent app you use. The current directory does not
-matter:
+Run Quickstart once for each Agent app you actually use, not once per project.
+The current directory does not matter:
 
 ```bash
 harness-mem quickstart
@@ -36,8 +36,8 @@ current app, it stops instead of guessing. Supply the app name once:
 harness-mem quickstart --client cursor
 ```
 
-Quickstart installs one global entry for that app: `$hm` in Codex or `/hm` in
-the other supported apps. It does not inspect a project, create project files,
+Quickstart installs one entry for that app: `$hm` in Codex or `/hm` in the
+other supported apps. It does not inspect a project, create project files,
 install project Hooks, or scan or import historical sessions. It also does not
 inspect or change MCP settings. The Agent, MCP Router, plugin, or other setup
 tool that owns the MCP connection remains responsible for it. If harness-mem is
@@ -62,8 +62,8 @@ How did we solve this before?
 This memory is wrong.
 ```
 
-On the first use in a project, `hm` resolves the current workspace, connects it
-to its local project memory, and installs that host's project Hooks. This is
+On the first use in a project, `hm` resolves the current workspace, prepares
+its local project memory, and installs that host's project Hooks. This is
 idempotent and does not reinstall the global entry. An existing Hook file is
 accepted only when it matches the current project, Hook runner, and expected
 action. An unknown or edited file is preserved and the response tells you to

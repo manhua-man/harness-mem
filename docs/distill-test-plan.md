@@ -168,41 +168,23 @@ F8–F11 是下一实施列车必须满足的隔离质量夹具。它们不证�
 | H5 | 中断与索引 | 在现有 SQLite inode 内事务更新；commit 后 derived index 可从 SQLite 重建 | 索引成功不能掩盖 SQLite 部分写入，不得替换数据库文件 |
 | H6 | rollback | 仅在无后续 revision 时从受控前一版本恢复，恢复后 SQLite/index/search generation 一致 | 不得覆盖迁移后新增 truth |
 
-## 5. 性能与质量基线
+## 5. 模型样本质量
 
-正确性是硬门禁，成本是回归门禁，二者不能互相替代。
+F1、F2、F3 只判断固定输入是否得到正确、严格可解析的结果。成本和耗时留在
+报告里供排查，不参与这个正确性结论；所选宿主 CLI 没有提供 token 用量时记录
+`null`，不能填零、估算或声称成本已经验证。
 
 ### 每个模型样本必须记录
 
 - prepare 返回的完整序列化响应 tokens，而不只是 evidence 部分；
-- provider input/output/total tokens；
-- prepare、provider、finalize 和端到端 wall time；
-- drilldown 次数与扩张原因；
-- 是否得到预期候选、handoff、Note 和检索命中。
+- provider input/output/total tokens（宿主 CLI 提供时）；否则记录 `null`；
+- provider 和端到端 wall time；
+- 是否得到预期候选、handoff 与未完成状态。
 
-### 首版门限
-
-以 F1、F2、F3 各运行一次作为固定小样本：
-
-| 指标 | 门限 |
-|---|---|
-| compact 完整响应 | 默认软目标 3000；超出允许，但必须 `complete=true` 并给 expansion reason |
-| provider total tokens | 单样本警戒线 15,000；超过不掩盖正确结果，但阻止发布直至解释 |
-| provider duration | 单样本警戒线 40 秒 |
-| 端到端 duration | 单样本警戒线 60 秒 |
-| 相对回归 | 在同一夹具、模型和配置下，tokens 或耗时较最近绿色基线增加超过 20% 则告警 |
-| 质量 | 预期晋升点召回 100%，禁止长期写入 0，逐点 disposition 100%，Note/SQLite/派生索引/检索闭环 100%，终态临时材料清理 100% |
-
-样本少时只报告单次值，不伪装成 P95。累计至少 20 个同配置样本后再报告 P50/P95。
-模型、配置或 manifest schema 改变时建立新基线，不把不同条件的数据混算。
-自动蒸馏默认使用独立的低推理结构化模型 `gpt-5.6-luna`，不继承交互式编码
-Agent 的模型；可通过 `HARNESS_MEM_DISTILL_MODEL` 或 runner 的 `--model` 显式覆盖。
-provider 请求门限与 40 秒单样本警戒线保持一致。
-最近一次无告警结果单独保存为绿色基线；带成本告警的运行不得覆盖基线，也不得把
-总验收状态写成 PASS。
-Token 相对回归按单次 usage 判定；耗时的 40/60 秒绝对门限按单次判定。相对耗时
-回归需至少 3 个同 fixture/model/manifest 样本，使用最近 3 次中位数与绿色基线比较，
-避免把服务端单次抖动误报为产品回归。历史只保存 usage、耗时和输入指纹。
+三个样本必须全部通过质量检查，任何严格 JSON 解析失败、候选错误、证据类型错误
+或未完成状态错误都使本项失败。固定样本使用项目选择的宿主 CLI；模型只由该 CLI
+的用户配置决定，harness-mem 不提供第二个模型覆盖入口。本验收不维护第二套基线或
+历史文件。
 
 ## 6. 执行顺序与停止条件
 
@@ -225,14 +207,15 @@ Token 相对回归按单次 usage 判定；耗时的 40/60 秒绝对门限按单
 ### 发布前
 
 1. L1/L2 全绿；
-2. 用 F1/F2/F3 跑一次固定模型样本，保存 tokens、耗时和质量结果；
-3. 执行一个新的真实 Desktop Hook 会话；
-4. 运行 outcome-verifier，要求所有 required claim 通过；
-5. Doctor 不得出现与本次路径有关的新 HM-* 警告。
+2. 运行 outcome-verifier；其中后台 Hook 检查先让项目所选 CLI 处理一次 F2，
+   通过后才执行一个新的隔离 Hook 全链路；
+3. 要求所有 required claim 通过；
+4. Doctor 不得出现与本次路径有关的新 HM-* 警告。
 
 对包含 autonomous runtime 的改动，先完成并冻结受 runtime fingerprint 覆盖的源码，
-再用隔离 profile 验证无工具调用、严格 schema、环境变量密钥引用和协议兼容，最后触发
-一次真实 Desktop Hook `--wait` 并验证它唤醒的 Dream 终态。若这些运行时文件之后再变更，
+再通过项目选择的宿主 CLI 验证严格 JSON、Hook 不可重入和协议兼容，最后触发
+一次真实 Desktop Hook `--wait` 并验证它唤醒的 Dream 终态。endpoint、凭据和模型配置
+仍由宿主 CLI 管理。若这些运行时文件之后再变更，
 旧 receipt 不再是当前代码的直接证据，必须重新触发；不能只重跑单元测试或 outcome-verifier。
 
 当前实施列车按 [Knowledge Truth Separation](roadmap/knowledge-truth-separation.md)
@@ -258,7 +241,7 @@ Codex Stop 后的 rollout 可能与 Hook 短暂并发。Hook 必须按 `trigger_
 
 - 修改 manifest/budget：运行 A1–A5；
 - 修改治理/finalize：运行 B1–B6、D1–D3、E1–E2；
-- 修改 Hook/provider/Dream：运行 C3–C4、E2–E4、profile/env-key/协议隔离夹具，以及真实 Desktop Hook → Dream 终态探针；
+- 修改 Hook/provider/Dream：运行 C3–C4、E2–E4、宿主 CLI/Hook 重入/协议隔离夹具，以及真实 Desktop Hook → Dream 终态探针；
 - 修改 Note：运行 F4、B2、E1、E4；
 - 修改清理策略：只在临时数据目录运行 E6，不在真实用户库试删。
 
@@ -271,7 +254,7 @@ Distill acceptance: PASS / PARTIAL / FAIL
 Paths: 28/28 passed
 Hook → Job → Note → Retrieval: verified
 Quality: expected 3/3, false writes 0
-Cost: compact 2,840 tokens; provider 6,120 tokens; 12.4s
+Cost: compact 2,840 tokens; provider usage unavailable from this CLI; 12.4s
 Regression: tokens -8%, duration -14%
 Remaining gaps: none
 ```
@@ -299,7 +282,7 @@ Remaining gaps: none
 内容寻址的 cohort 与授权增量，完成隔离回滚演练，再逐条通过正常 search 回读保留或
 替换结果；被拒绝、替代或候选记录在默认检索中必须零命中。
 
-统一 runner：
+需要单独诊断模型对 F1/F2/F3 的处理质量时，可运行：
 
 ```bash
 python -m harness_mem.qualification.distill_acceptance \
@@ -310,6 +293,8 @@ python -m harness_mem.qualification.distill_acceptance \
 
 runner 从版本化 F1–F11 catalog 计算输入指纹，逐项执行 A1–E6 和 F8–F11 的只读
 shadow 检查，并把固定模型样本写入
-单独的 `distill-acceptance-report-model.json`。模型调用按选中 profile 的无工具协议
-执行并通过严格 schema；报告不保存 endpoint、认证 header 或 bearer token。验收应覆盖
-Anthropic-compatible JSON/thinking-mode 兼容分支，而不能把 Responses 专属字段当作通用合同。
+单独的 `distill-acceptance-report-model.json`。模型调用使用项目选择的宿主 CLI，严格
+校验返回的 JSON；报告不读取或保存 endpoint、认证 header 或 bearer token。验收应覆盖
+不同宿主 CLI 的 JSON 输出差异，而不能把某一个 CLI 的专属字段当作通用合同。
+每个固定模型样本只调用一次，不自动重试；任一样本失败或超时后立即停止后续样本，
+报告保持失败，不能用其他运行的成功结果补齐。

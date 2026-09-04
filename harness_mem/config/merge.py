@@ -62,8 +62,6 @@ class MergedConfig:
     distill_autonomous_cli: Literal[
         "current", "codex", "claude-code", "hermes", "opencode"
     ] = "current"
-    semantic_execution_mode: Literal["agent"] = "agent"
-    semantic_execution_restricted: bool = True
     archive_distill_enabled: bool = False
     archive_distill_batch_size: int = 3
     archive_distill_daily_limit: int = 20
@@ -132,6 +130,8 @@ _REMOVED_CONFIG_KEYS: tuple[str, ...] = (
     "triggers.scheduler",
     "distill.mode",
     "worker.mode",
+    "semantic.execution.mode",
+    "semantic.execution.restricted",
 )
 
 _CAPTURE_KEYS: tuple[tuple[str, str, str, Any], ...] = (
@@ -181,21 +181,6 @@ _DISTILL_KEYS: tuple[tuple[str, str, str, Any], ...] = (
         "distill_delete_source_after_complete",
         "bool",
         False,
-    ),
-)
-
-_SEMANTIC_EXECUTION_KEYS: tuple[tuple[str, str, str, Any], ...] = (
-    (
-        "semantic.execution.mode",
-        "semantic_execution_mode",
-        "enum:agent",
-        "agent",
-    ),
-    (
-        "semantic.execution.restricted",
-        "semantic_execution_restricted",
-        "bool",
-        True,
     ),
 )
 
@@ -318,7 +303,6 @@ _COST_BUDGET_KEYS: tuple[tuple[str, str, str, Any], ...] = (
 _TYPED_CONFIG_KEYS: tuple[tuple[str, str, str, Any], ...] = (
     *_CAPTURE_KEYS,
     *_DISTILL_KEYS,
-    *_SEMANTIC_EXECUTION_KEYS,
     *_ARCHIVE_DISTILL_KEYS,
     *_DREAM_KEYS,
     *_COST_BUDGET_KEYS,
@@ -640,14 +624,15 @@ def _apply_legacy_autonomous_compat(merged: dict[str, Any]) -> None:
     """Map legacy ``semantic.execution.restricted=false`` to ``enabled=false``."""
 
     found, restricted = _get_dotted(merged, "semantic.execution.restricted")
-    if not found or restricted is not False:
+    if not found:
         return
-    distill = merged.setdefault("distill", {})
-    if not isinstance(distill, dict):
-        return
-    autonomous = distill.setdefault("autonomous", {})
-    if isinstance(autonomous, dict):
-        autonomous["enabled"] = False
+    if restricted is False:
+        distill = merged.setdefault("distill", {})
+        if isinstance(distill, dict):
+            autonomous = distill.setdefault("autonomous", {})
+            if isinstance(autonomous, dict):
+                autonomous["enabled"] = False
+    _remove_dotted(merged, "semantic.execution.restricted")
 
 
 def load_merged_config(project_root: str | os.PathLike[str]) -> MergedConfig:

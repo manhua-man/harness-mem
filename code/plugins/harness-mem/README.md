@@ -8,7 +8,6 @@ implementation authority; these files only tell an Agent how to use them.
 
 - one canonical memory entry at `commands/hm/hm.md`;
 - the Codex plugin manifest and MCP declaration;
-- Agent instructions for the existing memory tools;
 - PowerShell helpers for editable development installs and entry refreshes.
 
 The public daily surface is exactly one entry:
@@ -35,8 +34,8 @@ From the repository root:
 ```
 
 The script installs the editable Python package only. It does not modify MCP
-settings or install entries for every Agent app. Run Quickstart once in the app
-you actually use:
+settings or install entries for every Agent app. Run Quickstart once for each
+Agent app you actually use, not once per project:
 
 ```powershell
 harness-mem quickstart
@@ -48,9 +47,9 @@ If app detection is unavailable, specify it once, for example:
 harness-mem quickstart --client codex
 ```
 
-Quickstart installs the one user-level entry. The same entry works in every
-project. The first `hm` use in a project connects that workspace and prepares
-its project Hooks.
+Quickstart reports only that the entry was installed. Start a new Agent task so
+the app discovers it. The same entry then works in every project; its first use
+prepares local memory and Hooks for that project.
 
 Refresh the entry explicitly without reinstalling the package:
 
@@ -73,7 +72,8 @@ harness-mem integration hooks sync --client codex --project-root . --force
 
 Neither Quickstart nor these command-entry helpers inspect or change MCP
 connections. The Agent, Router, plugin, or other tool that owns those settings
-must expose `harness-mem-mcp` separately.
+must expose `harness-mem-mcp` separately. If one of them already exposes it, do
+not add a duplicate connection.
 
 ## Boundaries
 

@@ -21,6 +21,7 @@ from harness_mem.autonomous.provider import (
 )
 from harness_mem.autonomous.worker import (
     _build_candidate_verification_manifest,
+    _candidate_statement_from_arguments,
     _decide_with_candidate_retry,
     _assimilate_prepared_in_bounded_batches,
     _assimilate_with_schema_retry,
@@ -194,27 +195,23 @@ def test_hook_dream_disabled_writes_a_waitable_terminal_receipt(
 def test_autonomous_config_fingerprint_binds_authorization_and_budget_settings() -> None:
     base = MergedConfig(
         distill_autonomous_enabled=True,
-        semantic_execution_mode="agent",
     )
     changed_enabled = MergedConfig(
         distill_autonomous_enabled=False,
-        semantic_execution_mode="agent",
     )
     changed_budget = MergedConfig(
         distill_autonomous_enabled=True,
-        semantic_execution_mode="agent",
         distill_auto_daily_job_budget=99,
     )
-    changed_restricted = MergedConfig(
+    changed_cli = MergedConfig(
         distill_autonomous_enabled=True,
-        semantic_execution_mode="agent",
-        semantic_execution_restricted=False,
+        distill_autonomous_cli="hermes",
     )
 
     base_fingerprint = autonomous_config_fingerprint(base)
     assert base_fingerprint != autonomous_config_fingerprint(changed_enabled)
     assert base_fingerprint != autonomous_config_fingerprint(changed_budget)
-    assert base_fingerprint != autonomous_config_fingerprint(changed_restricted)
+    assert base_fingerprint != autonomous_config_fingerprint(changed_cli)
 
 
 def test_post_turn_preflight_failure_writes_terminal_nonsemantic_receipt(
@@ -1900,6 +1897,21 @@ def test_per_point_verifier_blocks_unsupported_and_session_only_candidates(
     ]
 
 
+def test_rule_verification_statement_does_not_add_a_second_condition_prefix() -> None:
+    statement = _candidate_statement_from_arguments(
+        {
+            "kind": "rule",
+            "trigger": "Whenever creating a release verification record.",
+            "pattern": "Every record must include a unique run identifier.",
+        }
+    )
+
+    assert statement == (
+        "Whenever creating a release verification record: "
+        "Every record must include a unique run identifier."
+    )
+
+
 def test_per_point_verifier_blocks_unfinished_task_envelope_even_if_model_marks_durable(
     tmp_path: Path,
 ) -> None:
@@ -2071,7 +2083,10 @@ class _DeterministicProvider:
 
     def decide(self, manifest, *, runtime_dir, heartbeat=None):
         assert manifest["coverage"] == "complete_indexed_semantic_projection"
-        assert manifest["semantic_projection"]["chunks"]
+        assert (
+            manifest["semantic_projection"]["chunks"]
+            or manifest["semantic_decision_exchanges"]
+        )
         refs = manifest["zero_candidate_exchange_refs"]
         assert refs
         if heartbeat is not None:
@@ -2123,10 +2138,7 @@ class _DeterministicProvider:
             output_tokens=200,
             total_tokens=1000,
             event_count=3,
-            execution_mode="agent",
             host_client="codex",
-            hooks_disabled=False,
-            mcp_disabled=False,
         )
 
     def assimilate(self, manifest, *, runtime_dir, heartbeat=None):
@@ -2156,10 +2168,7 @@ class _DeterministicProvider:
             output_tokens=50,
             total_tokens=150,
             event_count=1,
-            execution_mode="agent",
             host_client="codex",
-            hooks_disabled=False,
-            mcp_disabled=False,
         )
 
 
@@ -2383,6 +2392,75 @@ def test_autonomous_worker_retries_inconsistent_zero_candidate_decision(
     assert validated == []
     assert warnings == []
     assert result.attempt_count == 2
+
+
+def test_zero_candidate_validation_rejects_a_still_required_signal() -> None:
+    source_revision = "sha256:" + "a" * 64
+    decision = AutonomousDecision.model_validate(
+        {
+            "semantic_review": {
+                "session_summary": "The session contains a durable project decision.",
+                "final_user_request": "Remember the project decision.",
+                "final_outcome": "No candidate was returned for the decision.",
+                "last_turn_status": "answered",
+                "contradictions": [],
+                "unfinished_work": [],
+                "evidence_status": "not_applicable",
+                "promotion_decision": "no_promotion",
+                "zero_candidate_challenge": {
+                    "version": "v1",
+                    "source_revision": source_revision,
+                    "evidence_fidelity": "complete",
+                    "future_utility": "durable",
+                    "checks": {
+                        "user_correction": "absent",
+                        "explicit_decision": "candidate_required",
+                        "successful_solution": "absent",
+                        "repeated_failure": "absent",
+                        "rule_or_preference": "absent",
+                        "reusable_workflow_or_fact": "absent",
+                        "version_or_migration": "absent",
+                        "unfinished_handoff": "absent",
+                    },
+                    "inspected_exchange_refs": [
+                        {"exchange_index": 1, "content_sha256": "b" * 64}
+                    ],
+                    "conclusion": "candidate_required",
+                    "rationale": "The runtime detected a durable decision that still needs a candidate.",
+                },
+            },
+            "candidates": [],
+        }
+    )
+    job = SessionDistillJob(
+        id="job-required",
+        idempotency_key="key-required",
+        project_name="demo",
+        project_root="F:/demo",
+        client="codex",
+        session_id="session-required",
+        source_id="source-required",
+        source_revision=source_revision,
+        status="reviewing",
+        phase="review",
+        expected_chunk_count=1,
+        completed_chunk_count=1,
+    )
+
+    errors = _zero_candidate_validation_errors(
+        decision,
+        packet={
+            "zero_candidate_exchange_refs": [
+                {"exchange_index": 1, "content_sha256": "b" * 64}
+            ],
+            "zero_candidate_challenge_template": {
+                "checks": {"explicit_decision": "candidate_required"}
+            },
+        },
+        job=job,
+    )
+
+    assert "still require a candidate" in " ".join(errors)
 
 
 def test_autonomous_worker_retries_unjustified_zero_candidate_downgrade(
@@ -3185,6 +3263,7 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
     )
     data_dir = tmp_path / "data"
     notes_dir = tmp_path / "notes"
+    monkeypatch.setenv("HARNESS_MEM_SESSION_NOTES_DIR", str(notes_dir))
     backend = LocalMemoryBackend(data_dir)
     asyncio.run(backend.init())
     receipt_path = autonomous_receipt_path(
@@ -3237,7 +3316,6 @@ def test_autonomous_worker_completes_job_materializes_note_and_receipt(
         trigger_id="autonomous-session",
         client="codex",
         provider=_DeterministicProvider(),
-        notes_dir=notes_dir,
         max_jobs=1,
         preferred_job_id=snapshot.distill_job_id,
         launch_source="ide_hook",

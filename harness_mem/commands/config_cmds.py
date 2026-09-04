@@ -189,7 +189,7 @@ def cmd_config_set(
     confirmed_enable_keys = {
         "distill.autonomous.enabled": (
             "background model use may send compact transcript evidence to the "
-            "configured provider and consume model quota"
+            "selected Agent CLI and consume model quota"
         ),
         "distill.delete_source_after_complete": (
             "future completed session sources may be deleted automatically"

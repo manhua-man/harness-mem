@@ -66,9 +66,30 @@
     },
     {
       "id": "codex_hook_lifecycle",
-      "description": "Codex Desktop native start and post-turn hooks each have a fresh receipt for the current configuration; exact Stop-to-job binding is verified by the autonomous completion claim.",
+      "description": "A built wheel installs the one hm entry without changing a project, and first use installs the project Hooks and reports Codex's trust step; Codex Desktop native start and post-turn hooks each have a fresh receipt for the current configuration.",
       "required": true,
       "checks": [
+        {
+          "id": "fresh_install_and_first_use",
+          "description": "Install-time smoke proves Codex Quickstart adds only hm, MCP initialization leaves the project untouched, and the first Codex status call specified by the installed hm entry installs Codex Hooks and reports the native trust step.",
+          "evidence_tier": "direct",
+          "timeout_seconds": 120,
+          "command": ["{python}", "code/scripts/smoke_fresh_install.py", "--expected-version", "v0.9.27"],
+          "expect": {
+            "exit_code": 0,
+            "json": {
+              "verified": {"equals": true},
+              "only_hm_entry_installed": {"equals": true},
+              "hm_entry_contract_complete": {"equals": true},
+              "quickstart_project_untouched": {"equals": true},
+              "mcp_initialize_project_untouched": {"equals": true},
+              "single_host_flow": {"equals": true},
+              "first_status_project_ready": {"equals": true},
+              "first_status_hooks_installed": {"equals": true},
+              "codex_hook_trust_step_reported": {"equals": true}
+            }
+          }
+        },
         {
           "id": "native_receipts",
           "description": "Inspect both native hook actions against the current hook fingerprint. Their global latest receipts may belong to interleaved Desktop tasks.",
@@ -128,72 +149,37 @@
       ]
     },
     {
-      "id": "autonomous_distill_completion",
-      "description": "A detached Hook worker has completed semantic distillation without an interactive Agent turn.",
+      "id": "background_memory_hook_flow",
+      "description": "One isolated Hook run uses the selected host CLI, writes a job-bound Note and SQLite knowledge, returns that same knowledge through normal search, blocks Hook reentry, and does not put the synthetic run in the user's real data or Note directories.",
       "required": true,
       "checks": [
         {
-          "id": "persisted_autonomous_completion",
-          "description": "Bind the autonomous receipt to a completed durable job and fresh semantic success time.",
+          "id": "isolated_background_memory_runtime",
+          "description": "Trigger the installed Hook and worker against isolated data, then verify the same job, Note, knowledge, normal search result, and three blocked Hook calls.",
           "evidence_tier": "direct",
-          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
+          "timeout_seconds": 1200,
+          "command": ["{python}", "code/scripts/run_release_hook_acceptance.py", "--hook-client", "cursor", "--output", "{project_root}/.tmp/release-hook-acceptance-isolated.json"],
           "expect": {
             "exit_code": 0,
             "json": {
+              "hook_exit_code": {"equals": 0},
+              "model_check.status": {"equals": "passed"},
+              "full_hook_started": {"equals": true},
+              "provider_matches_selected_cli": {"equals": true},
+              "runtime_current": {"equals": true},
+              "config_current": {"equals": true},
+              "lifecycle_verified": {"equals": true},
+              "provider_isolated": {"equals": true},
+              "persistence.job_status": {"equals": "completed"},
+              "persistence.bound_truth_count": {"gte": 1},
+              "persistence.sqlite_truth_count": {"gte": 1},
+              "persistence.normal_search_hit": {"equals": true},
+              "isolation.data_dir_isolated": {"equals": true},
+              "isolation.notes_dir_isolated": {"equals": true},
+              "isolation.real_ledger_run_absent": {"equals": true},
+              "isolation.real_note_absent": {"equals": true},
               "autonomous.execution_source": {"equals": "autonomous_worker"},
-              "autonomous.authorized": {"equals": true},
-              "autonomous.trigger_matches_hook": {"equals": true},
-              "autonomous.dispatch_generation_bound": {"equals": true},
-              "autonomous.job_completed": {"equals": true},
-              "autonomous.trigger_session_completed": {"equals": true},
-              "autonomous.batch_binding_valid": {"equals": true},
-              "autonomous.last_semantic_success_at": {"exists": true},
-              "autonomous.runtime_current": {"equals": true},
-              "autonomous.config_current": {"equals": true},
-              "autonomous.lifecycle_verified": {"equals": true}
-            }
-          }
-        }
-      ]
-    },
-    {
-      "id": "autonomous_note_materialization",
-      "description": "The autonomous completion materializes a meaningful, job-bound Session Note.",
-      "required": true,
-      "checks": [
-        {
-          "id": "autonomous_note_receipt",
-          "description": "Match the receipt hash and job/session bindings to the real Note file.",
-          "evidence_tier": "direct",
-          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
-          "expect": {
-            "exit_code": 0,
-            "json": {
               "autonomous.note_verified": {"equals": true},
-              "autonomous.last_note_materialized_at": {"exists": true}
-            }
-          }
-        }
-      ]
-    },
-    {
-      "id": "autonomous_provider_isolation",
-      "description": "The autonomous worker completes semantic distillation through the selected host CLI, and real Hook calls are blocked without creating another job.",
-      "required": true,
-      "checks": [
-        {
-          "id": "provider_isolation_receipt",
-          "description": "Verify the selected host CLI returned valid JSON and all three Hook calls were blocked without creating another job.",
-          "evidence_tier": "direct",
-          "command": ["{python}", "-m", "harness_mem.outcome_probe", "--project", "harness-mem", "--project-root", "{project_root}", "--client", "codex"],
-          "expect": {
-            "exit_code": 0,
-            "json": {
-              "autonomous.authorized": {"equals": true},
-              "autonomous.provider_isolated": {"equals": true},
-              "autonomous.provider_metrics_bound": {"equals": true},
-              "autonomous.provider.schema_valid": {"equals": true},
-              "autonomous.provider.execution_mode": {"equals": "agent"},
               "autonomous.hook_guard_check.all_blocked": {"equals": true},
               "autonomous.hook_guard_check.downstream_jobs_created": {"equals": 0}
             }
@@ -229,23 +215,22 @@
     },
     {
       "id": "distill_acceptance_matrix",
-      "description": "The versioned F1-F11 fixture catalog maps every A1-E6 path and the read-only F8-F11 shadow contract to executable results; the fixed F1-F3 model batch meets quality and cost gates.",
+      "description": "The versioned F1-F11 fixture catalog maps every A1-E6 path and the read-only F8-F11 shadow contract to executable results.",
       "required": true,
       "checks": [
         {
           "id": "distill_acceptance_runner",
-          "description": "Run all 28 mapped paths, including the zero-mutation F8-F11 shadow checks, and the three no-tools fixed model samples, producing a machine-readable report.",
+          "description": "Run all 28 mapped paths, including the zero-mutation F8-F11 shadow checks, and produce a machine-readable report. The Hook check owns the single model preflight and full background run.",
           "evidence_tier": "direct",
           "timeout_seconds": 300,
-          "command": ["{python}", "-m", "harness_mem.qualification.distill_acceptance", "--project-root", "{project_root}", "--output", "{project_root}/.codex/distill-acceptance-report.json", "--model-samples"],
+          "command": ["{python}", "-m", "harness_mem.qualification.distill_acceptance", "--project-root", "{project_root}", "--output", "{project_root}/.codex/distill-acceptance-report.json"],
           "expect": {
             "exit_code": 0,
             "json": {
               "status": {"equals": "passed"},
               "l1.passed": {"equals": 28},
               "l1.total": {"equals": 28},
-              "model_samples.passed": {"equals": 3},
-              "model_samples.total": {"equals": 3}
+              "model_samples.status": {"equals": "not_run"}
             }
           }
         }

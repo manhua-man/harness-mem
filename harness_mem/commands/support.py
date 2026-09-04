@@ -314,17 +314,11 @@ def detect_runtime_client() -> str | None:
     return None
 
 
-def _detected_runtime_client() -> str:
-    """Infer the runtime for legacy callers that still require a fallback."""
-
-    return detect_runtime_client() or "claude-code"
-
-
 def resolve_host_source(client: str | None) -> HostSourceResolution:
     """Resolve a requested host/runtime name to an honest ingest source status."""
     normalized = normalize_client_name(client)
     if normalized in {"auto", "agent"}:
-        host_client = _detected_runtime_client()
+        host_client = detect_runtime_client() or "unknown"
     else:
         host_client = normalized
 
@@ -347,9 +341,9 @@ def resolve_host_source(client: str | None) -> HostSourceResolution:
 
 
 def current_agent_client() -> str:
-    """Return the best adapter-backed client for default transcript sync."""
+    """Return the detected client, or ``unknown`` without an explicit signal."""
     resolution = resolve_host_source("auto")
-    return resolution.resolved_client or "claude-code"
+    return resolution.resolved_client or resolution.host_client
 
 
 def normalize_client_name(client: str | None) -> str:
@@ -372,7 +366,7 @@ def normalize_client_name(client: str | None) -> str:
 def resolve_ingest_client(client: str | None) -> str:
     """Resolve a requested client to a concrete adapter-backed source."""
     resolution = resolve_host_source(client)
-    return resolution.resolved_client or normalize_client_name(client)
+    return resolution.resolved_client or resolution.host_client
 
 
 def claude_project_name_from_path(path: Path) -> str:

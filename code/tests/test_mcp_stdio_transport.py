@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
+from harness_mem.core.schemas import (
+    AssimilationDecision,
+    KnowledgeCandidate,
+    KnowledgeEntry,
+    ProjectKnowledgeSourceRef,
+)
 from harness_mem.mcp.executor import execute_tool_call
+from harness_mem.storage.local_memory_backend import LocalMemoryBackend
 
 
 def _content_length_frame(payload: dict) -> bytes:
@@ -59,6 +68,57 @@ def _run_server(payload: bytes, tmp_path: Path) -> subprocess.CompletedProcess[b
     )
 
 
+def _seed_current_knowledge(data_dir: Path, source: Path) -> KnowledgeEntry:
+    async def _seed() -> KnowledgeEntry:
+        backend = LocalMemoryBackend(data_dir)
+        await backend.init()
+        try:
+            entry = KnowledgeEntry(
+                id="mcp-env-data-dir-entry",
+                project_name="demo",
+                module_path=["MCP transport"],
+                title="MCP reads the configured data directory",
+                statement="The MCP process uses HARNESS_MEM_DATA_DIR for normal search.",
+                verified_at=datetime.now(timezone.utc),
+            )
+            candidate = KnowledgeCandidate(
+                id="mcp-env-data-dir-candidate",
+                project_name="demo",
+                candidate_type="memory",
+                statement=entry.statement,
+            )
+            decision = AssimilationDecision(
+                id="mcp-env-data-dir-decision",
+                project_name="demo",
+                candidate_id=candidate.id,
+                disposition="add",
+                canonical_truth_ids=[entry.id],
+                reason="Process-level MCP data-directory contract fixture.",
+            )
+            source_ref = ProjectKnowledgeSourceRef(
+                label=source.name,
+                target=source.resolve().as_uri(),
+                kind="repository",
+                digest="a" * 64,
+            )
+            store = backend.structured_store.knowledge_store
+            await store.save_candidate(candidate)
+            await store.apply_truth_mutation(
+                candidate_before=candidate,
+                candidate_after=candidate.model_copy(update={"status": "assimilated"}),
+                decision=decision,
+                added_entries=[entry],
+                predecessor_entries=[],
+                source_refs_by_entry={entry.id: [source_ref]},
+            )
+            await store.cleanup_candidate(candidate.id)
+            return entry
+        finally:
+            await backend.close()
+
+    return asyncio.run(_seed())
+
+
 def test_stdio_content_length_initialize_and_tools_list(tmp_path: Path) -> None:
     payload = b"".join(
         [
@@ -108,7 +168,57 @@ def test_stdio_ndjson_initialize_stays_supported(tmp_path: Path) -> None:
     assert response["result"]["serverInfo"]["name"] == "harness-mem"
 
 
-def test_first_initialize_hook_install_does_not_pollute_ndjson_stdout(
+def test_stdio_search_uses_harness_mem_data_dir(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    source = workspace / "SOURCE.md"
+    source.write_text("# MCP data directory contract\n", encoding="utf-8")
+    data_dir = tmp_path / "configured-data"
+    entry = _seed_current_knowledge(data_dir, source)
+    env = _server_env(tmp_path)
+    env["HARNESS_MEM_DATA_DIR"] = str(data_dir)
+    requests = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2025-11-25"},
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "search_memory",
+                "arguments": {
+                    "query": entry.title,
+                    "project_name": entry.project_name,
+                },
+            },
+        },
+    ]
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "harness_mem.mcp.server"],
+        cwd=workspace,
+        input="".join(json.dumps(request) + "\n" for request in requests).encode(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        timeout=15,
+        check=False,
+    )
+
+    assert proc.returncode == 0, proc.stderr.decode(errors="replace")
+    responses = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
+    payload = json.loads(responses[1]["result"]["content"][0]["text"])
+    assert payload["status"] == "answered"
+    assert payload["memories"] == [
+        {"title": entry.title, "statement": entry.statement}
+    ]
+
+
+def test_initialize_stays_read_only_and_keeps_ndjson_stdout_clean(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
@@ -148,7 +258,7 @@ def test_first_initialize_hook_install_does_not_pollute_ndjson_stdout(
     assert proc.returncode == 0, proc.stderr.decode(errors="replace")
     responses = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
     assert [response["id"] for response in responses] == [1, 2]
-    assert (workspace / ".cursor" / "hooks" / "session-start.sh").is_file()
+    assert not (workspace / ".cursor").exists()
 
 
 def test_tool_result_text_preserves_unicode_without_ascii_expansion(

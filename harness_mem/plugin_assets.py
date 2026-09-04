@@ -20,7 +20,6 @@ PLUGIN_RELATIVE_ROOTS = (
 PLUGIN_RELATIVE_ROOT = PLUGIN_RELATIVE_ROOTS[0]
 PLUGIN_COMMAND_SOURCE_RELATIVE = PLUGIN_RELATIVE_ROOT / "commands" / "hm"
 PLUGIN_MANIFEST_RELATIVE = PLUGIN_RELATIVE_ROOT / ".codex-plugin" / "plugin.json"
-PLUGIN_SKILL_RELATIVE = PLUGIN_RELATIVE_ROOT / "skills" / "harness-mem" / "SKILL.md"
 PLUGIN_PRIMARY_COMMAND_RELATIVE = PLUGIN_COMMAND_SOURCE_RELATIVE / "hm.md"
 
 PRIMARY_COMMAND = "hm"
@@ -47,7 +46,6 @@ class PluginAssetPaths:
     manifest: Path
     command_source: Path
     primary_command: Path
-    skill: Path
 
 
 def _resolve_plugin_root(repo_root: Path) -> Path:
@@ -74,7 +72,6 @@ def plugin_asset_paths(repo_root: Path) -> PluginAssetPaths:
         manifest=plugin_root / ".codex-plugin" / "plugin.json",
         command_source=command_source,
         primary_command=command_source / "hm.md",
-        skill=plugin_root / "skills" / "harness-mem" / "SKILL.md",
     )
 
 
@@ -105,7 +102,6 @@ __all__ = [
     "PLUGIN_NAME",
     "PLUGIN_PRIMARY_COMMAND_RELATIVE",
     "PLUGIN_RELATIVE_ROOT",
-    "PLUGIN_SKILL_RELATIVE",
     "PluginAssetPaths",
     "PRIMARY_COMMAND",
     "REMOVED_COMMANDS",

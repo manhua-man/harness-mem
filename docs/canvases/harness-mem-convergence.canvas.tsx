@@ -20,13 +20,13 @@ import {
   useHostTheme,
 } from "cursor/canvas";
 
-const AS_OF = "2026-09-03";
-const RUNTIME_VERSION = "0.9.26";
-const PUBLIC_RELEASE_VERSION = "0.9.26";
-const PYTEST_COUNT = 1048;
+const AS_OF = "2026-09-04";
+const RUNTIME_VERSION = "0.9.27";
+const PUBLIC_RELEASE_VERSION = "0.9.27";
+const PYTEST_COUNT = 1061;
 const MCP_TOOL_COUNT = 27;
 const HOST_COUNT = 7;
-const OUTCOME_CLAIM_COUNT = 14;
+const OUTCOME_CLAIM_COUNT = 12;
 
 const MODULES: string[][] = [
   ["0 会话接入", "1 session + 1 immutable revision", "宿主接入 · chunk · job · receipt · 来源生命周期", "不判断陈述是否值得长期记忆"],
@@ -58,6 +58,7 @@ const RELEASE_TRAIN: string[][] = [
   ["0.9.24", "Anthropic 兼容网关 strict JSON 无工具传输 · schema fail-closed", "Released"],
   ["0.9.25", "Hook→Dream 唯一路径 · 截断来源 fail-closed · undo/receipt/provider 终态", "Released"],
   ["0.9.26", "enabled + 默认当前宿主、也可指定 CLI · 诚实 {host}_cli 回执", "Released"],
+  ["0.9.27", "唯一 hm 入口 · Quickstart 不管 MCP · Hook 不内联 · 不猜宿主", "Current release line"],
 ];
 
 const OUT_OF_PRODUCT: string[][] = [
@@ -73,9 +74,7 @@ const OUTCOME_CLAIMS: string[][] = [
   ["codex_hook_lifecycle", "Desktop Hook start/post-turn 有 fresh receipt"],
   ["dream_execution", "Dream 在验证窗口内有 persisted successful run"],
   ["distill_user_artifacts", "已完成 distill 有可读 Session Note 或 audited-unavailable"],
-  ["autonomous_distill_completion", "Detached Hook worker 完成语义蒸馏"],
-  ["autonomous_note_materialization", "Autonomous completion 物化 job-bound Note"],
-  ["autonomous_provider_isolation", "host CLI agent · 三种真实 Hook 调用全部被阻止 · 下游 job=0"],
+  ["background_memory_hook_flow", "隔离 Hook → host CLI → job-bound Note/SQLite → normal search · 三种 Hook 重入均被阻止"],
   ["partial_distill_handoff", "Partial distill：独立 Answered 点 + handoff + 分离 Note"],
   ["distill_acceptance_matrix", "F1–F11 fixture 路径矩阵可执行验收"],
   ["multi_point_memory_assimilation", "多点独立 assimilation 与 SQLite 当前知识"],
@@ -179,10 +178,10 @@ const OPEN_GAPS_FROM_REFS: string[][] = [
   ["RRF / adaptive IDF 可测改进", "Graphiti · vstash（paper）", "defer.md · 需 golden-suite 证明"],
 ];
 
-/** 本机实际结果检查（2026-09-03 · harness-mem 仓库）— 比百分制分更优先 */
-const OUTCOME_RUN_AT = "2026-09-03T02:14:54+08:00";
+/** 本机实际结果检查（2026-09-04 · harness-mem 仓库）— 比百分制分更优先 */
+const OUTCOME_RUN_AT = "2026-09-04T06:42:46+08:00";
 const OUTCOME_RUN_STATUS = "passed";
-const OUTCOME_PASSED = 14;
+const OUTCOME_PASSED = 12;
 const OUTCOME_FAILED = 0;
 
 const OUTCOME_LIVE: string[][] = [
@@ -191,9 +190,7 @@ const OUTCOME_LIVE: string[][] = [
   ["codex_hook_lifecycle", "passed", "—"],
   ["dream_execution", "passed", "—"],
   ["distill_user_artifacts", "passed", "—"],
-  ["autonomous_distill_completion", "passed", "—"],
-  ["autonomous_note_materialization", "passed", "—"],
-  ["autonomous_provider_isolation", "passed", "provider.name=codex_cli"],
+  ["background_memory_hook_flow", "passed", "provider.name=hermes_cli · normal_search_hit=true · real data unchanged"],
   ["partial_distill_handoff", "passed", "—"],
   ["distill_acceptance_matrix", "passed", "—"],
   ["multi_point_memory_assimilation", "passed", "—"],
@@ -226,8 +223,8 @@ const DIMENSION_VERIFICATION: {
     label: "记忆闭环",
     weight: 20,
     tier: "verified_local",
-    mappedOutcomes: "PASS: distill_user_artifacts · dream · acceptance_matrix · partial_handoff · hook · autonomous_distill",
-    contracts: "27-tool MCP · 7 hosts · $hm / /hm（未在本会话跑 pytest）",
+    mappedOutcomes: "PASS: distill_user_artifacts · dream · acceptance_matrix · partial_handoff · hook · background_memory_hook_flow",
+    contracts: "27-tool MCP · 7 hosts · $hm / /hm · pytest 1061 passed",
     note: "本机 L1 对应检查全 PASS",
   },
   {
@@ -237,7 +234,7 @@ const DIMENSION_VERIFICATION: {
     tier: "verified_local",
     mappedOutcomes: "PASS: multi_point_assimilation · clean_retrieval · archive_distill（含 sqlite authority 探针）",
     contracts: "test_assimilation_runtime · test_evidence_admission（未跑）",
-    note: "本机没有失败的 truth 类检查；Dream undo 靠发布说明和单测，不在本次 14 项检查内",
+    note: "本机没有失败的 truth 类检查；Dream undo 靠发布说明和单测，不在本次 12 项检查内",
   },
   {
     code: "L3",
@@ -340,7 +337,7 @@ const TRACK_SCORE_CHECKS: Record<string, ScoreCheck[]> = {
     { id: "l1_partial", label: "partial_distill_handoff", points: 10, kind: "outcome", probe: "partial_distill_handoff" },
     { id: "l1_matrix", label: "distill_acceptance_matrix", points: 10, kind: "outcome", probe: "distill_acceptance_matrix" },
     { id: "l1_hook", label: "codex_hook_lifecycle", points: 25, kind: "outcome", probe: "codex_hook_lifecycle" },
-    { id: "l1_auto_distill", label: "autonomous_distill_completion", points: 25, kind: "outcome", probe: "autonomous_distill_completion" },
+    { id: "l1_auto_distill", label: "background_memory_hook_flow", points: 25, kind: "outcome", probe: "background_memory_hook_flow" },
   ],
   L2: [
     { id: "l2_assim", label: "multi_point_memory_assimilation", points: 35, kind: "outcome", probe: "multi_point_memory_assimilation" },
@@ -360,9 +357,7 @@ const TRACK_SCORE_CHECKS: Record<string, ScoreCheck[]> = {
   ],
   L5: [
     { id: "l5_hook", label: "codex_hook_lifecycle", points: 35, kind: "outcome", probe: "codex_hook_lifecycle" },
-    { id: "l5_auto_distill", label: "autonomous_distill_completion", points: 25, kind: "outcome", probe: "autonomous_distill_completion" },
-    { id: "l5_provider", label: "autonomous_provider_isolation", points: 25, kind: "outcome", probe: "autonomous_provider_isolation" },
-    { id: "l5_auto_note", label: "autonomous_note_materialization", points: 15, kind: "outcome", probe: "autonomous_note_materialization" },
+    { id: "l5_background", label: "background_memory_hook_flow", points: 65, kind: "outcome", probe: "background_memory_hook_flow" },
   ],
   L6: [
     { id: "l6_version", label: "fact runtime_version aligned", points: 20, kind: "fact", probe: "runtime_version" },
@@ -764,7 +759,7 @@ export default function HarnessMemConvergenceCanvas() {
       </Card>
 
       <Stack gap={6}>
-        <H2>执行入口（0.9.26 列车）</H2>
+        <H2>执行入口（0.9.27）</H2>
       </Stack>
       <Table headers={["入口", "谁编排", "合同要点"]} rows={EXECUTION_PATHS} striped />
 
@@ -791,7 +786,7 @@ export default function HarnessMemConvergenceCanvas() {
       </Grid>
 
       <Stack gap={6}>
-        <H2>14-claim 用户结果合同</H2>
+        <H2>12 项用户结果检查</H2>
         <Text tone="tertiary" size="small">.codex/outcomes.json · 必须实际运行检查，不能由单元测试单独替代</Text>
       </Stack>
       <Table headers={["claim id", "描述（摘要）"]} rows={OUTCOME_CLAIMS} striped />
@@ -835,7 +830,7 @@ export default function HarnessMemConvergenceCanvas() {
 
       <Callout tone="info">
         相关面板：readiness-v3.canvas.tsx（六轨 Readiness + 权重分，须带轨道 breakdown）·
-        docs/canvases/harness-mem-readiness-v1.canvas.tsx（0.9.26 精简架构边界，与 test_package_version_alignment 对齐）。
+        docs/canvases/harness-mem-readiness-v1.canvas.tsx（0.9.27 精简架构边界，与 test_package_version_alignment 对齐）。
       </Callout>
 
         <Text tone="tertiary" size="small">

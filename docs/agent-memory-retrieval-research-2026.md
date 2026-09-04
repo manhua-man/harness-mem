@@ -355,7 +355,7 @@ MCP search_memory
 1. [`roadmap.md`](./roadmap.md)
 2. [`recall-audit.md`](./recall-audit.md)
 3. [`../README.md`](../README.md) Core Loop
-4. [`../code/plugins/harness-mem/skills/harness-mem/SKILL.md`](../code/plugins/harness-mem/skills/harness-mem/SKILL.md)
+4. [`../code/plugins/harness-mem/commands/hm/hm.md`](../code/plugins/harness-mem/commands/hm/hm.md)
 
 ### 必读代码
 

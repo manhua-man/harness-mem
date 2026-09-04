@@ -23,7 +23,6 @@ def _auth(**overrides: object) -> BackgroundStatus:
     base = {
         "ready": True,
         "on": True,
-        "legacy_off": False,
         "reason": "ok",
         "selected_cli": "codex",
     }
@@ -498,7 +497,6 @@ def test_health_card_disabled_when_background_off(
             "harness_mem.config.merge", fromlist=["MergedConfig"]
         ).MergedConfig(
             distill_autonomous_enabled=False,
-            semantic_execution_restricted=True,
         ),
     )
 

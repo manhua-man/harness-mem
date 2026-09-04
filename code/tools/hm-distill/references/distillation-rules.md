@@ -1,6 +1,6 @@
 # Distillation Rules
 
-> Stages 1--4 below landed in `0.9.20` and remain the current `0.9.26` source
+> Stages 1--4 below landed in `0.9.20` and remain the current `0.9.27` source
 > knowledge-adoption contract.
 > They run after Stage 0 (session intake and lifecycle). Extraction remains
 > lossless; assimilation dispositions are runtime claims verified by their

@@ -63,6 +63,13 @@ When sources disagree, inspect current code, manifests, tests, and runtime evide
 
 - Add or update focused tests for every changed contract or boundary.
 - Run the narrowest relevant tests first, then the appropriate repository lane from `AGENTS.md`.
+- Before a check that calls a real model CLI, run one smallest representative
+  model check for the current code and configuration. Do not retry it
+  automatically or continue with other model samples after a failure or timeout.
+- Run one full Hook chain only after that model check passes. Run broad test and
+  release gates only after the full Hook chain passes.
+- A code or relevant configuration change invalidates earlier model and Hook
+  evidence. Do not combine successful pieces from different runs into one claim.
 - Run `python code/scripts/ensure_mcps_canonical.py` when MCP tool specifications or generated descriptors change.
 - Validate host-specific changes against their checked-in fixtures and negative project-isolation cases.
 - Do not infer that a passing mock proves a native host, hook, provider, storage, or cleanup outcome.

@@ -90,19 +90,11 @@ For ordinary candidates, run the check in one pass without asking the user. For 
 
 Treat each surviving claim as an evidence question. Gather the smallest current-source proof needed to answer it, then attach the evidence envelope to the candidate. The runtime derives the Answer Gate status after revalidating those refs; the Agent cannot self-declare `ANSWERED`. Only runtime-derived `ANSWERED` candidates may enter the truth layer. `PARTIAL`, `UNANSWERED`, `CONTRADICTED`, `STALE`, and `NOT_APPLICABLE` remain blocked or are rejected. This gate is part of the existing govern/finalize calls and must not add a default MCP round trip.
 
-### Conditional collaborator routing
-
-Route collaborators automatically after the first-pass check; do not wait for the user to invoke them and do not load all three pre-emptively:
-
-- Invoke `answer-memory-evidence` when a surviving claim lacks current-source refs, has incomplete or conflicting proof, or has unresolved freshness. Skip it when the required repository or user-statement hashes are already current.
-- Invoke `grill-before-distill` when a claim is high-impact, repo-wide, security/release-sensitive, ambiguous, or likely to be overgeneralized, even if evidence exists.
-- Invoke `ask-memory-boundary` when evidence cannot decide an architecture, product-scope, roadmap, or long-lived-default choice. Ask the user only if that consultation reduces the gap to a genuine user/product decision.
-
-Routes are independent: answer and grill may both fire; ask fires only for a remaining boundary decision. Run at most one pass of each route per candidate unless it identifies one new concrete question. If the current host does not expose the named collaborator, apply that collaborator's contract inline. A collaborator never writes or promotes memory and does not add an MCP call by itself. When a route ran, include `collaborator_answer`, `collaborator_grill`, or `collaborator_boundary` in `verification_reason_codes` for audit.
-
-A claim survives long enough to route as soon as a bundled exchange exposes plausible
-durable value. Do not reject it merely because current-source proof is missing; route
-answer first. If completed durable claims coexist with unfinished work, write the
+Do not reject a plausible durable claim merely because current-source proof is
+missing. Gather that proof before deciding. Pressure-test high-impact, repo-wide,
+security, release, or long-lived-default claims in the same admission pass. Ask the
+user only when evidence cannot resolve a genuine product or intent decision. If
+completed durable claims coexist with unfinished work, write the
 durable candidates plus a scoped handoff and use `promotion_decision="partial"`.
 Finalize may assimilate Answered promotion points in that explicit job, while Dream remains separate and blocked from the manual path.
 
@@ -120,7 +112,7 @@ Every candidate must include:
 - `verification_outcome`;
 - `verification_refs`.
 
-For repository claims, answer “Is this still true in the current repo/runtime?” with current file hashes. For user preferences or decisions, answer “Did the user explicitly state this?” with a user-role exchange hash. Apply the conditional collaborator routing above whenever its trigger matches; the user never needs to request a collaborator explicitly.
+For repository claims, answer “Is this still true in the current repo/runtime?” with current file hashes. For user preferences or decisions, answer “Did the user explicitly state this?” with a user-role exchange hash.
 
 Repository facts require current repository verification and project-relative paths with content hashes. Explicit user preferences or decisions require user-statement evidence. Transcript-only unverified claims may explain rejection but must not become durable truth.
 
@@ -136,7 +128,7 @@ Finalize must:
 - never start Dream from this manual path;
 - record the runtime-derived assimilation outcome and actual source cleanup status.
 
-Use `$hm-review` later for audit, correction, undo, replacement, or explicit trust upgrades. Do not run a second project-level semantic pass or Dream to close the same job.
+Use the single `hm` entry later for audit, correction, undo, replacement, or explicit trust upgrades. Do not run a second project-level semantic pass or Dream to close the same job.
 
 ## User-visible result
 

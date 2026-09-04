@@ -22,8 +22,8 @@
 
 The default path is: install, run `harness-mem quickstart` once for the Agent
 app, then use one global native entry in any project. Codex exposes `$hm`;
-other supported hosts expose `/hm`. The first use connects the current project
-and prepares its Hooks. The entry accepts ordinary language for three intents:
+other supported hosts expose `/hm`. The first use prepares local memory and
+Hooks for the current project. The entry accepts ordinary language for three intents:
 
 - Remember this session.
 - How did we solve this before?

@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
-  <title id="title">harness-mem 0.9.26 source architecture</title>
+  <title id="title">harness-mem 0.9.27 source architecture</title>
   <desc id="desc">Seven host-native clients share one daily entry and 27 public MCP tools enter a five-module runtime: session intake and lifecycle, extraction, per-point verification, assimilation, and retrieval and use. Review and Dream feed governed evidence back into verification and assimilation. Transcript evidence, temporary job material, SQLite current knowledge, and rebuildable indexes remain separate storage roles.</desc>
   <defs>
     <style>
@@ -22,7 +22,7 @@
   <rect class="teal" width="1440" height="10"/>
   <text x="64" y="66" class="title ink">Five-module memory runtime</text>
   <text x="64" y="100" class="subtitle muted">One daily entry routes ordinary requests into the same reliable runtime.</text>
-  <g transform="translate(1204 38)"><rect class="soft" width="172" height="42" rx="21"/><text x="20" y="28" class="eyebrow teal">source 0.9.26</text></g>
+  <g transform="translate(1204 38)"><rect class="soft" width="172" height="42" rx="21"/><text x="20" y="28" class="eyebrow teal">source 0.9.27</text></g>
 
   <text x="64" y="142" class="eyebrow muted">SURFACES</text>
   <g transform="translate(64 160)">

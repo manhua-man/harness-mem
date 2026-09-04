@@ -115,7 +115,7 @@ The live checklist, point weights, and current-machine results are maintained in
 - Outcome source: `python code/tools/outcome-verifier/scripts/verify_outcomes.py --config .codex/outcomes.json`
 
 Re-score after every outcome-verifier run or when contract probes are executed. Do not
-copy release-qualification 14/14 into a device headline without a fresh run.
+copy a prior release-qualification result into a device headline without a fresh run.
 
 ### Reference projects
 
@@ -125,8 +125,8 @@ percentile unless an explicit shared checklist exists.
 
 Autonomous isolation checks verify **current-release** unattended execution
 through the selected host CLI, including three real Hook calls that are blocked
-without creating a downstream job and an auditable receipt. **Product default mode is
-agent** (`enabled=false` turns background off). See
+without creating a downstream job and an auditable receipt. Background work is
+off by default; when enabled, it runs in Agent mode. See
 [`docs/background-memory.md`](background-memory.md) and
 `docs/roadmap.md`.
 
@@ -145,13 +145,13 @@ agent** (`enabled=false` turns background off). See
 | ⑨ Maintenance | L1 dream + L4 distill maintenance |
 | ⑩ Evidence | L6 + per-track contract tests |
 
-## Current snapshot (v0.9.26)
+## Current snapshot (v0.9.27)
 
 See `canvases/harness-mem-readiness-v1.canvas.tsx` for the compact architecture panel and
 `canvases/harness-mem-convergence.canvas.tsx` for the convergence narrative. The full
 checklist and current-machine results are kept in the checked-in convergence
-canvas. The source facts are refreshed for `0.9.26`; the latest published package is
-`0.9.26`, and individual device-throughput rows
+canvas. The source facts are refreshed for `0.9.27`; published artifacts are
+listed on the GitHub Releases page, and individual device-throughput rows
 remain operational measurements rather than a release-quality claim.
 It deliberately does not merge repository release maturity with one device's live
 operations into one headline. When a numeric headline is shown, it must follow
@@ -161,8 +161,8 @@ Historical operator snapshot (2026-08-12; not a current throughput claim):
 
 | View | Evidence | Current result |
 |------|----------|----------------|
-| Release maturity | source package/plugin 0.9.26, exact 27-tool contract, archive cohort acceptance, and seven-host qualification | full Python and Rust release lanes must pass before the next tag CI qualifies built artifacts |
-| Runtime alignment | repository/plugin 0.9.26; installed MCPs may remain on an earlier package until upgraded | refresh and restart any older live installation after publication |
+| Release maturity | source package/plugin 0.9.27, exact 27-tool contract, archive cohort acceptance, and seven-host qualification | full Python and Rust release lanes must pass before the next tag CI qualifies built artifacts |
+| Runtime alignment | repository/plugin 0.9.27; installed MCPs may remain on an earlier package until upgraded | refresh and restart any older live installation after publication |
 | Distill operations | active 2, parked 198, 0.43 completed/day over seven days | `needs-distill`; throughput is the primary operational gap |
 | Retrieval feedback | 2 surfaced, no used/ignored/misleading outcomes | insufficient live feedback |
 

@@ -14,8 +14,8 @@
   </a>
 </p>
 
-Agent 能读仓库，却不会自动保留过去十场会话里的决定、约定、handoff 或尚未验证的事项。
-`harness-mem` 在本机保存可复用的项目知识，让下一次 task 能找回来，而不把你的工作流变成第二套知识管理软件。
+Agent 能读仓库，却不会自动保留前几次对话里重要的决定、约定和没做完的事。
+`harness-mem` 在本机保存可复用的项目知识，让以后还能找回来，而不把你的工作流变成第二套知识管理软件。
 
 ## 从这里开始
 
@@ -23,11 +23,11 @@ Agent 能读仓库，却不会自动保留过去十场会话里的决定、约�
 
 ```bash
 python -m pip install \
-  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.26 \
-  harness-mem==0.9.26
+  --find-links https://github.com/manhua-man/harness-mem/releases/expanded_assets/v0.9.27 \
+  harness-mem==0.9.27
 ```
 
-然后在你使用的 Agent 应用里全局运行一次：
+你每使用一种 Agent，只需为它运行一次；不需要每个项目重复运行：
 
 ```bash
 harness-mem quickstart
@@ -36,15 +36,15 @@ harness-mem quickstart
 Quickstart 会识别当前应用。Codex 和 Claude Code 可以直接识别；无法识别时，
 Quickstart 会停下来，请你运行一次例如
 `harness-mem quickstart --client cursor` 的命令，而不会猜成另一个宿主。确认后它
-只为该应用安装一个全局 `$hm` 或 `/hm` 入口；它不检查项目、不写项目 Hook，也
+只为该 Agent 安装一个 `$hm` 或 `/hm` 入口；它不检查项目、不写项目 Hook，也
 不扫描或导入旧会话。它不会查看或修改 MCP 设置。MCP 连接由 Agent、MCP Router、插件或用户已有的安装工具管理。如果 Agent
 还不能使用 harness-mem，再单独按
-[MCP 接入](docs/mcp-setup.md)连接。完成后新开一个 task，以后在任何项目直接使用
+[MCP 接入](docs/mcp-setup.md)连接；如果 Router 或插件已经提供了连接，不要再加第二条。完成后新开一个对话，以后在任何项目直接使用
 `hm`。每个项目第一次使用时会自动准备该项目和 Hook。软件通过 GitHub Releases
 分发，不发布到 PyPI。
 
 如需本地 vector 或 hybrid search，可从同一 release 索引安装
-`"harness-mem[hybrid]==0.9.26"`。完整接入步骤与宿主例外见
+`"harness-mem[hybrid]==0.9.27"`。完整接入步骤与宿主例外见
 [Quickstart](docs/quickstart.md)。
 
 ## 日常只用一个入口
@@ -64,10 +64,10 @@ Quickstart 会停下来，请你运行一次例如
 这条记忆不对。
 ```
 
-统一入口会选择所需的记忆操作，并用普通话说明：记住了什么、找到了什么，或需要如何纠正。
-你不需要选择存储、provider profile 或内部工作流。
+统一入口会跟随你当前使用的语言，直接说明记住了什么、找到了什么，或需要如何纠正。
+你不需要选择存储方式、模型连接或内部流程。
 
-新会话会自动加载相关上下文。另行授权自动整理后，完成的会话会在后台通过所选宿主 CLI 处理；处理期间可以继续工作。后台不会悄悄替换成别的宿主 CLI。
+新对话会自动加载相关内容。另行开启自动整理后，完成的对话会在后台通过你选择的 Agent 命令处理；如果它不可用，harness-mem 会直接说明，不会悄悄改用另一个。
 
 ## 不必每天面对的部分
 
@@ -112,4 +112,5 @@ python code/tools/outcome-verifier/scripts/verify_outcomes.py \
   --output .tmp/outcome-verifier/harness-mem-report.json
 ```
 
-当前源码包版本：**0.9.26**。GitHub 最新公开 Release：**0.9.26**。
+当前源码包版本：**0.9.27**。公开版本以 GitHub
+[最新 Release](https://github.com/manhua-man/harness-mem/releases/latest) 为准。

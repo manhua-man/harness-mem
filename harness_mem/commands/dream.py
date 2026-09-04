@@ -526,10 +526,13 @@ def _dream_provider_from_config(
     if not isinstance(config, MergedConfig):
         return None
     from harness_mem.autonomous.executors.registry import build_semantic_executor
-    from harness_mem.commands.support import _detected_runtime_client, normalize_client_name
+    from harness_mem.commands.support import detect_runtime_client, normalize_client_name
 
-    client = normalize_client_name(host_client or _detected_runtime_client())
-    return build_semantic_executor(config, client)
+    client = normalize_client_name(host_client) if host_client else detect_runtime_client()
+    configured_cli = str(config.distill_autonomous_cli or "current")
+    if configured_cli == "current" and client is None:
+        return None
+    return build_semantic_executor(config, client or "unknown")
 
 
 async def _run_source_backed_recheck_group(
@@ -1427,9 +1430,18 @@ async def dream_auto_tick(
 ) -> dict[str, Any]:
     hook_session: dict[str, Any] | None = None
     if source == "ide_hook" and trigger_job_id:
-        from harness_mem.commands.support import normalize_client_name
+        from harness_mem.commands.support import detect_runtime_client, normalize_client_name
 
-        auth_status = background_status(config, client=host_client)
+        trigger_job = backend.transcript_store.get_distill_job(trigger_job_id)
+        resolved_host_client = (
+            normalize_client_name(host_client)
+            if host_client
+            else normalize_client_name(getattr(trigger_job, "client", None))
+            if trigger_job is not None
+            else detect_runtime_client()
+        )
+        auth_status = background_status(config, client=resolved_host_client)
+        execution_client = resolved_host_client or auth_status.selected_cli or "unknown"
         if not auth_status.ready:
             from harness_mem.autonomous.worker import (
                 record_post_turn_preflight_failure,
@@ -1438,12 +1450,12 @@ async def dream_auto_tick(
 
             if auth_status.reason == "disabled":
                 message = "Hook-started Dream needs distill.autonomous.enabled=true."
-            elif auth_status.reason == "legacy_restricted_off":
-                message = "Background memory is off because of the legacy restricted setting."
             elif auth_status.reason == "unsupported_cli":
                 message = (
                     f"No background CLI is implemented for '{auth_status.selected_cli}'."
                 )
+            elif auth_status.reason == "host_not_detected":
+                message = "The current Agent host could not be identified."
             else:
                 message = (
                     f"The selected background CLI '{auth_status.selected_cli}' was not found."
@@ -1453,7 +1465,7 @@ async def dream_auto_tick(
                 project_name=project_name,
                 project_root=project_root,
                 trigger_id=trigger_id,
-                client=normalize_client_name(host_client or "codex"),
+                client=execution_client,
                 dispatch_generation=background_generation_from_env(),
                 error={"kind": "setup_required", "message": message},
             )
@@ -1476,7 +1488,6 @@ async def dream_auto_tick(
         from harness_mem.autonomous.worker import run_autonomous_distill_batch
         from harness_mem.hook_background import background_generation_from_env
 
-        resolved_client = normalize_client_name(host_client or "codex")
         hook_session = await asyncio.to_thread(
             run_autonomous_distill_batch,
             backend,
@@ -1484,7 +1495,7 @@ async def dream_auto_tick(
             project_root=project_root,
             config=config,
             trigger_id=trigger_id,
-            client=resolved_client,
+            client=execution_client,
             provider=None,
             max_jobs=1,
             preferred_job_id=trigger_job_id,
