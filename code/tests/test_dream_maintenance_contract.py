@@ -1095,6 +1095,7 @@ def test_dream_provider_construction_failure_closes_the_processing_ledger_run(
                     distill_autonomous_enabled=True,
                 ),
                 source="agent",
+                host_client="codex",
             )
         )
 
